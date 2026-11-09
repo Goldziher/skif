@@ -21,6 +21,16 @@ pub struct PathAlias {
     pub target: Option<String>,
 }
 
+/// A binary that a command read from a file runs: a step of a workflow, a hook, a task of a tool config, or a source
+/// file calling `execa` or `zx`. See [`WorkspaceInputs::run_binaries`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunBinary {
+    /// The binary's name as the command spells it.
+    pub name: String,
+    /// The file the command is read from, absolute.
+    pub file: PathBuf,
+}
+
 /// Build output that maps back to source: `dist` to `src` for a `tsconfig` with `outDir` and `rootDir`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildDir {
@@ -76,6 +86,10 @@ pub struct WorkspaceInputs {
     pub dependencies: Vec<String>,
     /// Binaries the tool runs without a script naming them.
     pub binaries: Vec<String>,
+    /// The binaries of `binaries` that a command read from a file runs, with that file: `unlisted-binaries` reports
+    /// the ones no dependency provides. Binaries fetched on demand, run in another workspace or installed globally
+    /// are not among them.
+    pub run_binaries: Vec<RunBinary>,
     /// Configuration files of the tools, absolute. They are entries in every mode so what they import counts.
     pub config_files: Vec<PathBuf>,
     /// Module aliases declared by bundler and compiler configuration.
@@ -143,6 +157,7 @@ impl WorkspaceInputs {
         self.virtual_modules.extend(other.virtual_modules);
         self.dependencies.extend(other.dependencies);
         self.binaries.extend(other.binaries);
+        self.run_binaries.extend(other.run_binaries);
         self.config_files.extend(other.config_files);
         self.aliases.extend(other.aliases);
         self.build_dirs.extend(other.build_dirs);

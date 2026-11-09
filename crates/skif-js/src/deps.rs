@@ -6,10 +6,13 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use serde_json::Value;
 use skif_core::{DependencyKind, FileSystem, Span};
+use skif_js_plugins::scripts::{ScriptContext, is_ignored_binary, parse_script};
 use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object};
 use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 
 use crate::ancestors::{external_manifests, listed_names};
+use crate::discover::relative;
+use crate::fixture::in_fixture_directory;
 use crate::graph::{ModuleGraph, ModuleId};
 use crate::lockfile;
 use crate::scripts::ScriptBinary;
@@ -210,15 +213,19 @@ pub struct UnlistedImport {
     pub span: Option<Span>,
 }
 
-/// A script binary that no dependency provides.
+/// A binary that a script or a command read from a file runs and no dependency provides.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnlistedBinary {
-    /// The package whose script runs it.
+    /// The package whose script or file runs it.
     pub package: PackageId,
     /// The binary name.
     pub name: String,
-    /// The script that runs it.
+    /// The `package.json` script that runs it; empty when `file` is set.
     pub script: String,
+    /// The file whose command runs it, relative to the workspace root with `/` separators, when that is not a
+    /// `package.json` script: a workflow, hook or tool config a plugin reads, or a source file that runs it through
+    /// `node:child_process`, `execa` or `zx`.
+    pub file: Option<PathBuf>,
 }
 
 /// The binaries and peer dependencies a package declares.
@@ -707,6 +714,9 @@ impl DependencyUsage {
                     }
                 }
             }
+            if !module.info.commands.is_empty() && !module.ignored && !in_fixture_directory(&module.path) {
+                self.collect_commands(setup, module.owner, &module.path, &module.info.commands);
+            }
             // `declare module 'pkg'` augments the package, which has to be installed for that to compile. It stays
             // out of `imports`: declaring a module the project does not list is not an unlisted import.
             for name in module.info.ambient_modules.iter().chain(&module.info.augmented_modules) {
@@ -841,9 +851,66 @@ impl DependencyUsage {
                         package: id,
                         name: binary.name.clone(),
                         script: binary.script.clone(),
+                        file: None,
                     });
                 }
             }
+            for run in &package_setup.run_binaries {
+                let file = relative(&run.file, &workspace.root).map_or_else(|| run.file.clone(), PathBuf::from);
+                self.run_binary(setup, id, &run.name, &file);
+            }
+        }
+    }
+
+    /// The binaries the `node:child_process` commands of the source file `file` (relative to the root) run, owned by
+    /// package `id`: a binary fetched on demand credits the dependency that provides it, any other is a use of one or
+    /// unlisted at the file.
+    fn collect_commands(&mut self, setup: &Setup, id: PackageId, file: &Path, commands: &[String]) {
+        let context = ScriptContext::new();
+        for command in commands {
+            let info = parse_script(command, &context);
+            for dependency in &info.dependencies {
+                if let Some(found) = self.find_listed(id, &dependency.name) {
+                    self.reference(found, &dependency.name);
+                }
+            }
+            // As for the scripts of `package.json`: the system binaries count only with `ignore-global-binaries` off.
+            let global_binaries = if setup.ignore_global_binaries {
+                Vec::new()
+            } else {
+                info.global_binaries
+            };
+            let binaries = info
+                .binaries
+                .into_iter()
+                .filter(|binary| !is_ignored_binary(&binary.name));
+            for binary in binaries.chain(global_binaries) {
+                if binary.filtered {
+                    continue;
+                }
+                if binary.via.is_ephemeral() {
+                    self.provide_binary(id, &binary.name);
+                } else {
+                    self.run_binary(setup, id, &binary.name, file);
+                }
+            }
+        }
+    }
+
+    /// A binary that a command read from `file` (relative to the root) runs in package `id`: a use of the dependency
+    /// that provides it, else an unlisted binary reported at the file.
+    fn run_binary(&mut self, setup: &Setup, id: PackageId, name: &str, file: &Path) {
+        if self.provide_binary(id, name) || self.ancestor_bins.contains(name) || setup.ignores_binary(id, name) {
+            return;
+        }
+        let binary = UnlistedBinary {
+            package: id,
+            name: name.to_owned(),
+            script: String::new(),
+            file: Some(file.to_path_buf()),
+        };
+        if !self.unlisted_binaries.contains(&binary) {
+            self.unlisted_binaries.push(binary);
         }
     }
 
