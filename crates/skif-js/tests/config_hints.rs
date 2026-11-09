@@ -262,7 +262,10 @@ fn a_bin_path_a_build_step_may_write_keeps_the_package_unjudged() {
             "tsconfig outDir",
             vec![
                 ("package.json", tsc.as_str()),
-                ("tsconfig.json", r#"{"compilerOptions":{"outDir":"bin","rootDir":"cli"}}"#),
+                (
+                    "tsconfig.json",
+                    r#"{"compilerOptions":{"outDir":"bin","rootDir":"cli"}}"#,
+                ),
             ],
         ),
     ];
@@ -270,7 +273,11 @@ fn a_bin_path_a_build_step_may_write_keeps_the_package_unjudged() {
         files.extend([APP_MAIN, CLI_SOURCE]);
         let diagnostics = lint(&files, "");
         assert_eq!(hints(&diagnostics), "", "{case}");
-        assert_eq!(found(&diagnostics, "unused-dependencies"), Vec::<String>::new(), "{case}");
+        assert_eq!(
+            found(&diagnostics, "unused-dependencies"),
+            Vec::<String>::new(),
+            "{case}"
+        );
         assert_eq!(found(&diagnostics, "unused-files"), Vec::<String>::new(), "{case}");
     }
 }

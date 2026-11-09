@@ -399,8 +399,22 @@ const BUILD_SCRIPTS: &[&str] = &["build", "prepack", "prepublishOnly"];
 
 /// Binaries that compile or bundle code into files a package publishes.
 const BUILDERS: &[&str] = &[
-    "babel", "esbuild", "ncc", "rolldown", "rollup", "rslib", "rspack", "swc", "tsc", "tsdown", "tsgo", "tsup",
-    "tsup-node", "unbuild", "webpack", "webpack-cli",
+    "babel",
+    "esbuild",
+    "ncc",
+    "rolldown",
+    "rollup",
+    "rslib",
+    "rspack",
+    "swc",
+    "tsc",
+    "tsdown",
+    "tsgo",
+    "tsup",
+    "tsup-node",
+    "unbuild",
+    "webpack",
+    "webpack-cli",
 ];
 
 /// The file name prefixes of the bundler configurations the plugins read, which can write a package's bin files.

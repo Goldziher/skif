@@ -344,4 +344,4 @@ blake3 = "2926ac0821d6aaec6a5d092fcb93ae0544d62b343c130fdd264b0ce2126aaf40"
 [adrs."adrs/0069-a-published-path-into-nothing-is-reported-not-an-incomplete-entry.md"]
 number = 69
 status = "accepted"
-blake3 = "6653d66a4c2a613b93391d8c10854444c97ba5e94bc3ca7ae4e0cf389197d59e"
+blake3 = "ed83230883a6ef48d711054621d12056541fd0dcaf19b53680ab8ba4b0953bdd"

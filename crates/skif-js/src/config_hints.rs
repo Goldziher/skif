@@ -330,7 +330,13 @@ fn package_entries(inputs: &HintInputs<'_>) -> Vec<ConfigHint> {
             {
                 continue;
             }
-            if names_no_file(disk, &inputs.workspace.root, package_setup, package.manifest.value(), &path) {
+            if names_no_file(
+                disk,
+                &inputs.workspace.root,
+                package_setup,
+                package.manifest.value(),
+                &path,
+            ) {
                 hints.push(ConfigHint {
                     kind: HintKind::PackageEntry,
                     key: field.to_owned(),
