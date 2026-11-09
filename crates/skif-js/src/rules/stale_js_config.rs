@@ -133,7 +133,7 @@ impl StaleJsConfig {
             ),
             HintKind::ExtensionUnregistered => (
                 format!("`{identifier}` files selected by `{key}` are not analysed"),
-                "remove the extension: skif reads JavaScript, TypeScript, Vue, Svelte, Astro, MDX and TSRX files",
+                "remove the extension: skif reads JS, TS, Vue, Svelte, Astro, MDX, TSRX and stylesheet files",
             ),
             HintKind::ExtensionExcluded => (
                 format!("`{key}` leaves out the package's `{identifier}` files"),
