@@ -484,6 +484,17 @@ fn a_spread_of_a_boolean_or_null_adds_nothing() {
 }
 
 #[test]
+fn a_void_left_of_a_coalesce_reaches_its_object() {
+    let value = extract(
+        "vitest.config.ts",
+        "export default { ...(void 0 ?? { test: { setupFiles: ['./s.ts'] } }) };",
+    );
+    // `void x` is `undefined`, so `??` takes its object.
+    assert!(value.get("...").is_none(), "{value:?}");
+    assert_eq!(get(&value, &["test", "setupFiles"]), &strings(&["./s.ts"]));
+}
+
+#[test]
 fn an_early_return_is_not_skipped_for_the_last_one() {
     let value = extract(
         "vitest.config.ts",
