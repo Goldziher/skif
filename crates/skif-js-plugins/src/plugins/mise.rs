@@ -1,7 +1,15 @@
 //! mise: the `run` commands of the tasks of `mise.toml` and its other config files are scripts, run in the task's
 //! `dir` (or `task_config.dir`) relative to the config root.
+//!
+//! File tasks are read too: the files under `mise-tasks/`, `.mise-tasks/`, `mise/tasks/`, `.mise/tasks/` and
+//! `.config/mise/tasks/`, and under the directories `task_config.includes` names. A JavaScript or TypeScript file task
+//! is an entry; a shell one (no shebang, or `sh`, `bash`, `zsh`, `dash` or `ksh`) is a script, run in the workspace or
+//! in the directory of its `#MISE dir="…"` header. A task for another interpreter, and a file without a shebang whose
+//! extension is not a shell's, is not read.
 
 use skif_js_syntax::ConfigValue;
+
+use crate::files::find_files;
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::support::{get_in, join_rel, parent_dir, script_in, strings};
@@ -30,13 +38,20 @@ impl Plugin for Mise {
         &SPEC
     }
 
-    fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
-        let Some(ConfigValue::Object(tasks)) = config.value.get("tasks") else {
-            return Vec::new();
-        };
+    fn resolve_config(&self, config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let root = config_root(config.base, config.file_name());
+        let includes: Vec<String> = get_in(config.value, &["task_config", "includes"])
+            .map(strings)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|include| !include.ends_with(".toml"))
+            .filter_map(|include| resolve_dir(include, &root))
+            .collect();
+        let mut out = file_tasks(cx, &includes);
+        let Some(ConfigValue::Object(tasks)) = config.value.get("tasks") else {
+            return out;
+        };
         let default_dir = get_in(config.value, &["task_config", "dir"]).and_then(ConfigValue::as_str);
-        let mut out = Vec::new();
         for (_, task) in tasks {
             let (runs, dir): (Vec<&str>, Option<&str>) = match task {
                 ConfigValue::Object(_) => (
@@ -58,6 +73,83 @@ impl Plugin for Mise {
         }
         out
     }
+
+    fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
+        let dirs = FILE_TASK_DIRS.map(str::to_owned);
+        file_tasks(cx, &dirs)
+    }
+}
+
+/// The directories mise looks for file tasks in by default, relative to the config root.
+const FILE_TASK_DIRS: [&str; 5] = ["mise-tasks", ".mise-tasks", "mise/tasks", ".mise/tasks", ".config/mise/tasks"];
+
+/// Extensions of the file tasks that are JavaScript or TypeScript modules.
+const SOURCE_EXTENSIONS: &[&str] = &["js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx"];
+
+/// Interpreters whose file tasks are read as shell scripts, and the extensions of such files.
+const SHELLS: &[&str] = &["sh", "bash", "zsh", "dash", "ksh"];
+
+/// The file tasks under `dirs`, directories relative to the workspace, at any depth.
+fn file_tasks(cx: &PluginContext<'_>, dirs: &[String]) -> Vec<PluginInput> {
+    let patterns: Vec<String> = dirs.iter().map(|dir| join_rel(dir, "**/*")).collect();
+    if patterns.is_empty() {
+        return Vec::new();
+    }
+    find_files(cx.fs, cx.dir, &patterns)
+        .into_iter()
+        .filter_map(|file| file_task(cx, file))
+        .collect()
+}
+
+/// What one file task contributes: an entry for a JavaScript or TypeScript module, a script for a shell script.
+fn file_task(cx: &PluginContext<'_>, file: String) -> Option<PluginInput> {
+    let is_source = file
+        .rsplit_once('.')
+        .is_some_and(|(_, extension)| SOURCE_EXTENSIONS.contains(&extension));
+    if is_source {
+        return Some(PluginInput::Entry(file));
+    }
+    let text = cx.fs.read_to_string(&cx.dir.join(&file)).ok()?;
+    let is_shell = match text.lines().next().and_then(|line| line.strip_prefix("#!")) {
+        Some(shebang) => interpreter(shebang).is_some_and(|name| SHELLS.contains(&name)),
+        // Without a shebang, only a file named as a shell script is one (`build`, `build.sh`), not `README.md`.
+        None => {
+            let name = file.rsplit('/').next().unwrap_or(&file);
+            name.rsplit_once('.')
+                .is_none_or(|(stem, extension)| stem.is_empty() || SHELLS.contains(&extension))
+        }
+    };
+    if !is_shell {
+        return None;
+    }
+    let dir = match header_dir(&text) {
+        Some(dir) => resolve_dir(dir, "")?,
+        None => String::new(),
+    };
+    script_in(&dir, text.to_string())
+}
+
+/// The program a shebang line runs: its first word, or the word after `env` and its options.
+fn interpreter(shebang: &str) -> Option<&str> {
+    let mut words = shebang.split_whitespace();
+    let program = words.next()?.rsplit('/').next()?;
+    if program == "env" {
+        words.find(|word| !word.starts_with('-'))
+    } else {
+        Some(program)
+    }
+}
+
+/// The `dir` a file task's `#MISE dir="…"` (or `# [MISE] dir=…`) header sets.
+fn header_dir(text: &str) -> Option<&str> {
+    text.lines().find_map(|line| {
+        let header = line
+            .strip_prefix("#MISE")
+            .or_else(|| line.strip_prefix("# [MISE]"))
+            .or_else(|| line.strip_prefix("#[MISE]"))?;
+        let value = header.trim().strip_prefix("dir")?.trim_start().strip_prefix('=')?.trim();
+        Some(value.trim_matches(['"', '\'']))
+    })
 }
 
 /// The directory a config file's paths are relative to: the directory that holds `mise.toml`, `.mise/` or
