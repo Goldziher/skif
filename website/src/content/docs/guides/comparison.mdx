@@ -16,13 +16,60 @@ skif offers all three kinds of checks in one tool with one configuration file an
 
 ## Parity with knip
 
-The JS analysis follows knip's issue types and its knowledge of tools. It is not a drop-in replacement: a weekly job
-runs both tools on a pinned corpus of public repositories and compares the findings per issue type. They differ
-where they model things differently, for example in which files count as unused (skif makes test files entries and
-does not report files in `fixtures` directories), and in how a namespace import is read. The harness names the
-intended differences and counts them apart, as it does findings in packages skif does not judge (a tool config it
-cannot read) and in packages where knip could not load a config; see the
+skif's JS analysis covers what knip reports today:
+
+- **Coverage.** Every issue type of knip 6 has a skif rule, 17 in all (the list is in the
+  [migration guide](../migrating/#which-tool-runs-which-rule)), and `skif migrate` translates a knip configuration. skif
+  reads tool configurations statically and never runs project code.
+- **Speed.** A full skif run is 8 to 61 times faster than knip on five pinned public repositories (medians of 15 runs,
+  measured on 2026-11-08 after 0.1.1; see [Performance](#performance)).
+- **Precision.** On a generated 5-package workspace with 33 seeded findings, skif has a precision of 100% and knip
+  6.44.1 of 77%; both find every seeded finding (see [Accuracy](#accuracy)).
+- **Agreement.** Real repositories have no answer key, so a weekly job runs both tools on pinned public repositories
+  and compares the findings per issue type. On 9 of them (create-t3-turbo, vue-core, tanstack-query, jest, babel,
+  cal-com, mastra, vscode and npm-cli), the shares of findings the tools have in common are:
+
+| Finding | Shared | Of skif's findings | Of knip's findings |
+| --- | ---: | ---: | ---: |
+| Unused exports | 4,691 | 98% | 94% |
+| Unused files | 2,263 | 98% | 75% |
+| Unused types | 2,247 | 96% | 93% |
+| Unlisted dependencies | 973 | 98% | 36% |
+| Unused dev dependencies | 687 | 87% | 97% |
+| Unused dependencies | 229 | 60% | 78% |
+| Unresolved imports | 54 | 76% | 61% |
+| Unlisted binaries | 26 | 96% | 27% |
+
+A low share means the tools differ, and either one could be right. Some differences are intended and counted apart:
+skif makes test files entries, does not report files in `fixtures` directories
+([ADR 0050](https://github.com/Goldziher/skif/blob/main/adrs/0050-fixture-directories-in-the-js-analysis.md)), reads a
+namespace import differently. Findings in packages skif does not judge (see below) and in packages where knip could not
+load a config are counted apart too. The method is in the
 [benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md).
+
+The remaining differences each have an issue:
+
+- `unlisted-dependencies` reports 36% of knip's findings
+  ([#96](https://github.com/Goldziher/skif/issues/96)).
+- `unlisted-binaries` reports 27% of knip's findings ([#97](https://github.com/Goldziher/skif/issues/97)).
+- 60% of skif's `unused-dependencies` findings are also knip's ([#98](https://github.com/Goldziher/skif/issues/98)).
+- `unresolved-imports` shares 76% of skif's and 61% of knip's findings
+  ([#99](https://github.com/Goldziher/skif/issues/99)).
+- `unused-files` reports 75% of knip's findings ([#100](https://github.com/Goldziher/skif/issues/100)).
+- A package whose entries skif cannot all know (a tool configuration it cannot read, or a `main`, `exports` or `bin`
+  that maps to no source file) is skipped by the unused-dependency, export, type and member rules; knip still reports
+  there ([#101](https://github.com/Goldziher/skif/issues/101)).
+- The templates of `.vue`, `.svelte` and `.astro` files are scanned for names, not compiled, so a template variable
+  that shadows an import hides it and auto-imported components are not credited per template
+  ([#102](https://github.com/Goldziher/skif/issues/102)).
+- Some plugins read less than knip's (for example SST 2 stacks, mise file tasks, Taskfile commands with a template); the
+  list is in the [plugin reference](../../reference/configuration/)
+  ([#103](https://github.com/Goldziher/skif/issues/103)).
+- A `vi.mock()` or `jest.mock()` of a relative path that does not exist is reported as `unresolved-imports`; knip does
+  not read mock specifiers, so these appear as new findings after a switch
+  ([#111](https://github.com/Goldziher/skif/issues/111)).
+- A bare import that resolves only through another workspace's tsconfig `paths` is reported as an unlisted dependency;
+  knip merges the `paths` of every workspace and resolves it ([#112](https://github.com/Goldziher/skif/issues/112)).
 
 ## Configuration
 
@@ -56,10 +103,7 @@ sherif 638.
 On a generated workspace with injected defects, where the answer is known, skif, sherif and syncpack found every
 defect they check for. A generated workspace with seeded dead code and live code behind known traps has an answer key
 too: skif and knip both find every seeded finding, with a precision of 100% for skif and 77% for knip
-(6.44.1, measured on 2026-11-07; it reports exports read through `typeof import("./m")["name"]` and fixture files). Real repositories have no answer key, so against knip the measure is agreement: on 9 pinned repositories
-the tools share 98% of skif's unused exports, 98% of its unused files and 60% of its unused dependencies, while skif
-finds 94% of knip's unused exports and 78% of its unused dependencies. Findings in fixtures, tests, packages skif does
-not judge and packages where knip could not load a config are counted apart. The full tables are in the
+(6.44.1, measured on 2026-11-07; it reports exports read through `typeof import("./m")["name"]` and fixture files). The agreement with knip on real repositories is under [Parity with knip](#parity-with-knip). The full tables are in the
 [README](https://github.com/Goldziher/skif#benchmarks) and the
 [benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md), which reproduces them with
 `mise run bench:publish`.
