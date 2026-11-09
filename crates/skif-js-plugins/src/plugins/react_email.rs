@@ -71,9 +71,13 @@ fn major_version(cx: &PluginContext<'_>) -> Option<u64> {
     });
     let declared = || {
         let manifest = manifest(cx)?;
-        ["dependencies", "devDependencies"]
-            .iter()
-            .find_map(|kind| manifest.get(kind)?.get("react-email").and_then(ConfigValue::as_str).map(str::to_owned))
+        ["dependencies", "devDependencies"].iter().find_map(|kind| {
+            manifest
+                .get(kind)?
+                .get("react-email")
+                .and_then(ConfigValue::as_str)
+                .map(str::to_owned)
+        })
     };
     leading_number(&installed.or_else(declared)?)
 }

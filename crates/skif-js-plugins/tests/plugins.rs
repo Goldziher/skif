@@ -4028,15 +4028,24 @@ fn taskfile_tasks_and_includes() {
     }
     assert_entries(
         &out.entries,
-        &["scripts/check.js", "scripts/cleanup.js", "scripts/fmt.js", "scripts/gen.js"],
+        &[
+            "scripts/check.js",
+            "scripts/cleanup.js",
+            "scripts/fmt.js",
+            "scripts/gen.js",
+        ],
     );
     assert!(
-        !out.referenced_binaries.iter().any(|binary| binary.contains("{{") || binary.contains('$')),
+        !out.referenced_binaries
+            .iter()
+            .any(|binary| binary.contains("{{") || binary.contains('$')),
         "{:?}",
         out.referenced_binaries
     );
     assert!(
-        !out.entries.iter().any(|entry| entry.contains("{{") || entry.contains('$') || entry.contains("x.js")),
+        !out.entries
+            .iter()
+            .any(|entry| entry.contains("{{") || entry.contains('$') || entry.contains("x.js")),
         "{:?}",
         out.entries
     );
@@ -4056,7 +4065,10 @@ fn mise_file_tasks_are_entries_and_scripts() {
             ("mise-tasks/release.ts", "console.log(1);\n"),
             ("mise-tasks/py", "#!/usr/bin/env python3\nimport os\n"),
             ("mise-tasks/README.md", "Run node docs/not-a-task.js\n"),
-            (".config/mise/tasks/lint/web.sh", "#!/bin/sh\n#MISE dir=\"web\"\nnode check.js\n"),
+            (
+                ".config/mise/tasks/lint/web.sh",
+                "#!/bin/sh\n#MISE dir=\"web\"\nnode check.js\n",
+            ),
             ("tasks/deploy", "node deploy.js\n"),
         ],
         &[],
