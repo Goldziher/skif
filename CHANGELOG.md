@@ -11,6 +11,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `next lint` in a script uses `eslint` and `eslint-config-next`, which it runs
+  ([#98](https://github.com/Goldziher/skif/issues/98)).
 - `unresolved-imports` no longer reports a missing file that the `.gitignore` of a directory other than the root or
   a package lists (any directory up to the git repository root, so also one above a nested root), an import of an
   ignored path below another `rootDirs` directory that is not generated yet (React Router's `./+types/root`), or a
