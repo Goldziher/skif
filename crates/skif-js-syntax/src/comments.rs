@@ -47,6 +47,7 @@ pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInf
                     specifier,
                     kind: ImportKind::TypeOnly,
                     names,
+                    call: None,
                     span: ctx.span(comment.span),
                 });
             }
@@ -86,6 +87,7 @@ fn triple_slash_reference(ctx: &Ctx<'_>, text: &str, span: OxcSpan) -> Option<Im
             specifier: types,
             kind: ImportKind::TypeOnly,
             names: vec![type_name(ImportedKind::Namespace, None, true)],
+            call: None,
             span,
         });
     }
@@ -99,6 +101,7 @@ fn triple_slash_reference(ctx: &Ctx<'_>, text: &str, span: OxcSpan) -> Option<Im
         specifier,
         kind: ImportKind::SideEffect,
         names: Vec::new(),
+        call: None,
         span,
     })
 }
