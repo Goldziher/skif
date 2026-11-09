@@ -10,12 +10,12 @@ use skif_js_syntax::ConfigValue;
 use crate::config_load::{from_json, load_config_with};
 use crate::files::find_files;
 use crate::plugin::{
-    BuildDir, ConfigAst, DepRef, Enabler, IncompleteCause, IncompleteEntries, IncompleteScope, PathAlias, Plugin,
+    BinaryRef, BuildDir, ConfigAst, DepRef, Enabler, IncompleteCause, IncompleteEntries, IncompleteScope, PathAlias, Plugin,
     PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec,
 };
 use crate::registry;
 use crate::script_config::{config_flags, config_paths, flag_values};
-use crate::scripts::{ScriptContext, parse_script};
+use crate::scripts::{ScriptContext, is_ignored_binary, parse_script};
 use crate::support::{join_rel, looks_like_file};
 
 const MAX_CONFIG_DEPTH: u8 = 16;
@@ -177,6 +177,10 @@ impl Collector<'_, '_> {
                 PluginInput::VirtualModule(pattern) => push_unique(&mut self.out.virtual_modules, pattern),
                 PluginInput::Script(text) => self.script(&text, from),
                 PluginInput::ScriptAt { dir, script } => self.script_at(&dir, &script),
+                PluginInput::SourceScript { file, script } => {
+                    let source = self.ctx.dir.join(&file);
+                    self.script(&script, &source);
+                }
                 PluginInput::Ignore(glob) => push_unique(&mut self.out.ignore, glob),
                 PluginInput::Alias { find, target } => {
                     let alias = PathAlias { find, target };
@@ -268,6 +272,17 @@ impl Collector<'_, '_> {
         script_ctx.scripts.clone_from(self.ctx.scripts);
         let info = parse_script(text, &script_ctx);
         for binary in info.binaries {
+            // As for the scripts of `package.json`: a binary fetched on demand, run in another workspace or that the
+            // script parser ignores is never unlisted here.
+            if !binary.filtered && !binary.via.is_ephemeral() && !is_ignored_binary(&binary.name) {
+                let run = BinaryRef {
+                    name: binary.name.clone(),
+                    from: from.to_path_buf(),
+                };
+                if !self.out.run_binaries.contains(&run) {
+                    self.out.run_binaries.push(run);
+                }
+            }
             push_unique(&mut self.out.referenced_binaries, binary.name);
         }
         for file in info.files {

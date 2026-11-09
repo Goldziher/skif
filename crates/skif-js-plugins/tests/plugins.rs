@@ -3282,6 +3282,39 @@ fn execa_zx_and_nano_spawn_commands_are_scripts() {
     );
 }
 
+/// The binaries a command read from a file runs are recorded with that file: the workflow for a workflow step, the
+/// source file for a call of `execa`. On-demand fetches (`npx`) and system tools (`git`) are left out.
+#[test]
+fn run_binaries_name_the_file_whose_command_runs_them() {
+    let workflow = "name: ci\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: tsx scripts/check.ts && git status\n      - run: npx playwright test\n";
+    let files = [
+        (".github/workflows/ci.yml", workflow),
+        (
+            "scripts/release.ts",
+            r#"import { execa } from "execa"; await execa("changeset", ["publish"]);"#,
+        ),
+    ];
+    let results = resolve(&files, &["execa"]);
+    let runs = |id: &str| -> Vec<(String, String)> {
+        output(&results, id)
+            .run_binaries
+            .iter()
+            .map(|run| {
+                let from = run.from.strip_prefix(DIR).unwrap_or(run.from.as_path());
+                (run.name.clone(), from.to_string_lossy().replace('\\', "/"))
+            })
+            .collect()
+    };
+    assert_eq!(
+        runs("github-actions"),
+        [("tsx".to_owned(), ".github/workflows/ci.yml".to_owned())]
+    );
+    assert_eq!(
+        runs("execa"),
+        [("changeset".to_owned(), "scripts/release.ts".to_owned())]
+    );
+}
+
 #[test]
 fn execa_default_import_and_zx_globals_are_read() {
     let files = [
