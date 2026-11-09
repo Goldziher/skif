@@ -207,6 +207,23 @@ fn duplicate_exports_follow_initialisers_and_ignore_export_clauses() {
 }
 
 #[test]
+fn an_export_initialised_with_an_alias_export_duplicates_it() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        ("index.ts", "import * as lib from './lib';\nconsole.log(lib);\n"),
+        (
+            "lib.ts",
+            "const base = () => 1;\nexport const first = base;\nexport const second = first;\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "duplicate-exports"),
+        ["lib.ts: first"],
+        "`second` is `first`, itself initialised with the unexported `base`"
+    );
+}
+
+#[test]
 fn only_fixtures_and_dunder_fixtures_directories_hold_test_data() {
     let diagnostics = lint_files(&[
         PACKAGE,
