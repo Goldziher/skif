@@ -727,7 +727,10 @@ mod tests {
         let selector = Selector::new([literal("!legacy")]).unwrap();
         assert!(selector.matches("!legacy", false));
         assert!(!selector.matches("legacy", false));
-        assert!(!selector.matches("other", false), "not an exclusion, which would select everything else");
+        assert!(
+            !selector.matches("other", false),
+            "not an exclusion, which would select everything else"
+        );
         let both = Selector::new([literal("!{x}")]).unwrap();
         assert!(both.matches("!{x}", false));
         assert!(!both.matches("!x", false));
@@ -738,10 +741,7 @@ mod tests {
         let written = entry(&["b-rule", "a-rule"], &["y", "x"], &["d"], Some("edited"));
         let reordered = entry(&["a-rule", "b-rule", "a-rule"], &["x", "y"], &["d"], None);
         assert_eq!(key(&written), key(&reordered));
-        assert_ne!(
-            key(&written),
-            key(&entry(&["a-rule", "b-rule"], &["x"], &["d"], None))
-        );
+        assert_ne!(key(&written), key(&entry(&["a-rule", "b-rule"], &["x"], &["d"], None)));
         assert_eq!(sorted_unique(vec![written.clone(), reordered]), [written]);
     }
 
