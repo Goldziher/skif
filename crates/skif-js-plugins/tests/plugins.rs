@@ -2248,6 +2248,35 @@ fn docusaurus() {
     assert_entries(&out.entries, &["local-plugin.js"]);
 }
 
+/// Docusaurus loads a plugin or theme by the name written when that package resolves, and by its long form
+/// (`@scope/docusaurus-theme-x`) otherwise: a listed package written in full is the dependency, not a long form of it.
+#[test]
+fn docusaurus_names_a_listed_package_as_written() {
+    let config = r#"export default {
+      themes: [["@acme/docusaurus-plugin-kapa", {}], "@acme/search"],
+      plugins: ["my-thing"],
+    };"#;
+    let results = resolve(
+        &[("docusaurus.config.ts", config)],
+        &["@docusaurus/core", "@acme/docusaurus-plugin-kapa", "my-thing"],
+    );
+    let out = output(&results, "docusaurus");
+    assert_deps(
+        out,
+        &[
+            "@acme/docusaurus-plugin-kapa",
+            "@acme/docusaurus-theme-search",
+            "my-thing",
+        ],
+    );
+    for long_form in [
+        "@acme/docusaurus-theme-docusaurus-plugin-kapa",
+        "docusaurus-plugin-my-thing",
+    ] {
+        assert!(!deps(out).contains(long_form), "{long_form}: {:?}", deps(out));
+    }
+}
+
 #[test]
 fn vitepress() {
     let results = resolve(&[], &["vitepress"]);
