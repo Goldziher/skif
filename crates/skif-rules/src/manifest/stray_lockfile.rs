@@ -133,7 +133,11 @@ impl Rule for StrayLockfile {
         let strays = strays(workspace);
         for stray in strays.iter().filter(|stray| !allow.allows(stray.path)) {
             let file = slash(stray.path);
-            let name = stray.path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+            let name = stray
+                .path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default();
             let (message, help) = match (stray.package, workspace.package_manager) {
                 (None, Some(manager)) if stray.path.parent().is_none_or(|dir| dir.as_os_str().is_empty()) => (
                     format!(
@@ -201,7 +205,10 @@ mod tests {
             let root_json = format!(
                 r#"{{"name":"root","private":true,"packageManager":"{manager}@1.0.0","workspaces":["packages/*"]}}"#
             );
-            let mut files = vec![("package.json", root_json.as_str()), ("packages/a/package.json", MEMBER_A)];
+            let mut files = vec![
+                ("package.json", root_json.as_str()),
+                ("packages/a/package.json", MEMBER_A),
+            ];
             files.extend(lockfiles.iter().map(|name| (*name, "")));
             assert_eq!(paths(&lint(META.id, &files, &config(""))), [] as [&str; 0], "{manager}");
         }
@@ -283,7 +290,10 @@ mod tests {
                 ("packages/b/pnpm-lock.yaml", ""),
             ],
         );
-        assert_eq!(paths(&lint(META.id, &files, &config(""))), ["packages/b/pnpm-lock.yaml"]);
+        assert_eq!(
+            paths(&lint(META.id, &files, &config(""))),
+            ["packages/b/pnpm-lock.yaml"]
+        );
     }
 
     #[test]
@@ -299,7 +309,10 @@ mod tests {
             ],
         );
         let ignoring = config("[workspace]\nignore-packages = [\"a\"]\n");
-        assert_eq!(paths(&lint(META.id, &files, &ignoring)), ["packages/b/package-lock.json"]);
+        assert_eq!(
+            paths(&lint(META.id, &files, &ignoring)),
+            ["packages/b/package-lock.json"]
+        );
     }
 
     #[test]
