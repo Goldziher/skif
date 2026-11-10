@@ -20,8 +20,9 @@ All notable changes to this project are documented here. The format follows
   parity baseline needs a refresh
   ([ADR 0080](adrs/0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md),
   [#27](https://github.com/Goldziher/skif/issues/27)).
-- The knip comparison runs skif recursively on babel, whose `scripts/repo-utils` is a project of its own outside the
-  workspace patterns that knip reads from the root.
+- The knip comparison runs skif recursively on babel, whose `scripts/repo-utils` and
+  `scripts/integration-tests/fixtures/nextjs-10` are projects of their own outside the workspace patterns, whose files
+  knip reads from the root.
 
 ### Added
 
@@ -44,7 +45,8 @@ All notable changes to this project are documented here. The format follows
 - `skif-js-syntax` exports `extract_property_calls`, which calls a function property of a config statically, and
   `extract_method_calls`, which evaluates the arguments of method calls.
 - `skif-js-syntax`: `ImportedName` gains `nested_members`, the members read through a member of the binding
-  (`ns.E.A` reads `A` of `E`), for each member used only that way.
+  (`ns.E.A` reads `A` of `E`), for each member used only that way. A struct literal of `ImportedName` needs the new
+  field.
 
 ### Fixed
 
@@ -53,12 +55,19 @@ All notable changes to this project are documented here. The format follows
   `unused-enum-members` and `unused-namespace-members`. `ns.E` used as a whole still uses every member
   ([ADR 0086](adrs/0086-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
 - A parameter or local with the name of an import declaration's binding shadows it: passing it around or reading its
-  members no longer uses the imported module as a whole
+  members no longer uses the imported module as a whole. A parameter decorator (`@Inject(tok.KEY) tok`) still reads
+  the import, as TypeScript evaluates it outside the function. `import x = require("x")` is still matched by name
+  ([ADR 0086](adrs/0086-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
+- An import declaration's binding and the binding of a `const ns = await import("x")` or `require("x")` in a
+  function with the same name each use the members read through them, not both every member read through the name
   ([ADR 0086](adrs/0086-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
 - An exported `type` or `interface` that shares its name with a value export (`export const Service = X; export type
   Service = X`, `export const IStore = createDecorator<IStore>(…); export interface IStore { … }`) credits the
-  exports it mentions whenever the name is used, as a type or a value, as knip does
+  exports it mentions whenever the name is used, as a type or a value, as knip does, also when an `export { Service }`
+  clause exports the pair
   ([ADR 0086](adrs/0086-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
+- The types the signatures of an overloaded function mention are used when the function is, from every signature, not
+  only the last one.
 
 ### Changed
 
