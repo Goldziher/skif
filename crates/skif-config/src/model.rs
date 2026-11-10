@@ -9,7 +9,7 @@ use crate::dependency_types::{DependencyType, DependencyTypes};
 use crate::error::ConfigError;
 use crate::overrides::ConfigOverrides;
 use crate::rules::{Level, RuleConfig, rules_map};
-use crate::selector::{Selector, anchor_patterns};
+use crate::selector::{Selector, anchor_patterns, unanchored};
 
 #[cfg(feature = "schema")]
 use crate::schema::RuleConfigSchema;
@@ -2476,6 +2476,7 @@ pub struct OverrideScope {
     has_files: bool,
     packages: Selector,
     files: Selector,
+    unanchored: Vec<String>,
 }
 
 impl OverrideScope {
@@ -2491,7 +2492,18 @@ impl OverrideScope {
             has_files: !scoped.files.is_empty(),
             packages: anchor_patterns(scoped.packages.patterns(), declared_in, root, false)?,
             files: anchor_patterns(scoped.files.patterns(), declared_in, root, true)?,
+            unanchored: unanchored(scoped.packages.patterns(), false)
+                .into_iter()
+                .chain(unanchored(scoped.files.patterns(), true))
+                .collect(),
         })
+    }
+
+    /// The `packages` and `files` patterns, as written, that leave the directory they are anchored at (`../packages/*`)
+    /// and so match nothing; a host warns about them.
+    #[must_use]
+    pub fn unanchored(&self) -> &[String] {
+        &self.unanchored
     }
 
     fn applies_to(&self, package: Option<(&str, &Path)>, file: Option<&Path>) -> bool {

@@ -186,13 +186,7 @@ pub(crate) fn anchor_patterns(
         let (negation, body) = pattern
             .strip_prefix('!')
             .map_or(("", pattern.as_str()), |body| ("!", body));
-        let target = if body == ROOT || body.starts_with("$ROOT/") {
-            Some((root, body.strip_prefix("$ROOT/").unwrap_or("")))
-        } else if matches!(body, "." | "..") || body.starts_with("./") || body.starts_with("../") || paths_only {
-            Some((declared_in, body))
-        } else {
-            None
-        };
+        let target = path_part(body, paths_only).map(|(at_root, rest)| (if at_root { root } else { declared_in }, rest));
         match target {
             None => anchored.push(pattern.clone()),
             Some((base, rest)) => {
@@ -203,6 +197,31 @@ pub(crate) fn anchor_patterns(
         }
     }
     Selector::new(anchored)
+}
+
+/// The part of a pattern (without its `!`) below its anchor, and whether the anchor is the root (`$ROOT/`) rather than
+/// the declaring file's directory; `None` for a name pattern.
+fn path_part(body: &str, paths_only: bool) -> Option<(bool, &str)> {
+    if body == ROOT || body.starts_with("$ROOT/") {
+        Some((true, body.strip_prefix("$ROOT/").unwrap_or("")))
+    } else if matches!(body, "." | "..") || body.starts_with("./") || body.starts_with("../") || paths_only {
+        Some((false, body))
+    } else {
+        None
+    }
+}
+
+/// The path patterns of `patterns` that leave their anchor (`../packages/*` in any file), which
+/// [`anchor_patterns`] drops: they match nothing, which a person writing them does not expect.
+pub(crate) fn unanchored(patterns: &[String], paths_only: bool) -> Vec<String> {
+    patterns
+        .iter()
+        .filter(|pattern| {
+            let body = pattern.strip_prefix('!').unwrap_or(pattern);
+            path_part(body, paths_only).is_some_and(|(_, rest)| anchored_path(Path::new("/"), rest).is_none())
+        })
+        .cloned()
+        .collect()
 }
 
 /// `dir/**` also selects `dir` itself: a glob ending in `/**` matches what is below the directory, not the directory,
@@ -316,6 +335,20 @@ mod tests {
         assert!(negated.matches("/r/apps/new", false));
         assert!(!negated.matches("/r/apps/old", false));
         assert!(!negated.matches("/r/apps/old/x", false));
+    }
+
+    #[test]
+    fn patterns_that_leave_their_anchor_are_listed() {
+        let patterns: Vec<String> = ["../packages/*", "!../x", "./a/../b", "$ROOT/../y", "@scope/*", "packages/*"]
+            .map(str::to_owned)
+            .to_vec();
+        assert_eq!(unanchored(&patterns, false), ["../packages/*", "!../x", "$ROOT/../y"]);
+        assert_eq!(
+            unanchored(&["a/../../b".to_owned(), "src/**".to_owned()], true),
+            ["a/../../b"]
+        );
+        let dropped = anchor_patterns(&patterns, Path::new("/r/config"), Path::new("/r"), false).unwrap();
+        assert!(!dropped.matches("/r/packages/a", false), "a dropped pattern matches nothing");
     }
 
     #[test]
