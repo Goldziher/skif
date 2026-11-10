@@ -685,8 +685,8 @@ pub fn run(options: &Options) -> Result<()> {
         entries.insert(FIXTURES_ENTRY.to_owned(), entry);
     }
     if !options.no_corpus {
-        let (_, repos) = corpus::fetch_suite(&options.corpus_file, "parity", &options.only, &options.corpus_dir)?;
-        for (repo, dir) in &repos {
+        let suite = corpus::fetch_suite(&options.corpus_file, "parity", &options.only, &options.corpus_dir)?;
+        for (repo, dir) in &suite.repos {
             eprintln!("diff:syncpack: {}", repo.name);
             let (entry, detail) = run_repo(options, &skif, &tools, &repo.name, dir)?;
             details.insert(repo.name.clone(), detail);
