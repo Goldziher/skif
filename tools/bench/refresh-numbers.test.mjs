@@ -121,6 +121,9 @@ test("blocks are replaced between their markers, which differ in MDX", () => {
   const mdx = "{/* x:start */}\nold\n{/* x:end */}\n";
   assert.equal(replaceBlock(mdx, "x", "new", { mdx: true }), "{/* x:start */}\nnew\n{/* x:end */}\n");
   assert.throws(() => replaceBlock("no markers", "x", "new", { file: "f.md" }), /f\.md: the <!-- x:start -->/);
+  const mentioned = "see <!-- x:end -->\n<!-- x:start -->\nold\n<!-- x:end -->\n";
+  assert.equal(replaceBlock(mentioned, "x", "new"), "see <!-- x:end -->\n<!-- x:start -->\nnew\n<!-- x:end -->\n");
+  assert.throws(() => replaceBlock(md + md, "x", "new"), /appears more than once/);
 });
 
 function baseline() {
