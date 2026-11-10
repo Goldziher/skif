@@ -1085,3 +1085,24 @@ fn package_managers_after_cd_to_an_unknown_directory_work_on_the_package_there()
     // Below an unknown directory, a relative one is unknown too.
     assert_eq!(binary_dirs("cd /tmp && cd sub && rspack"), [at("rspack", None)]);
 }
+
+#[test]
+fn a_cd_in_a_subshell_ends_with_it() {
+    let ctx = ScriptContext::new().with_script("build", "tsc -b");
+    let info = parse_script("(cd \"$TMP\" && tar xf a.tgz) && npm run build", &ctx);
+    assert_eq!(judged_binaries(&info), ["tsc"], "{:?}", info.binaries);
+    assert_eq!(info.run_scripts, ["build"]);
+    assert_eq!(
+        binary_dirs("(cd sub && (cd deep && rspack) && eslint) && vitest"),
+        [
+            at("eslint", Some("sub")),
+            at("rspack", Some("sub/deep")),
+            at("vitest", None)
+        ]
+    );
+    // A `{ … }` group runs in the same shell, so its `cd` lasts.
+    assert_eq!(
+        binary_dirs("{ cd sub; rspack; } && eslint"),
+        [at("eslint", Some("sub")), at("rspack", Some("sub"))]
+    );
+}

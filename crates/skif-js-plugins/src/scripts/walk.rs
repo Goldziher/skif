@@ -207,6 +207,15 @@ pub(super) struct Walker<'c> {
     pushed: Vec<(Option<String>, bool)>,
 }
 
+/// The directory state of a [`Walker`] that a shell of its own (a subshell, another script, `sh -c`, a substitution)
+/// restores when it ends.
+struct DirState {
+    cwd: Option<String>,
+    unknown_dir: bool,
+    /// How many directories `pushd` had left.
+    pushed: usize,
+}
+
 impl<'c> Walker<'c> {
     pub(super) fn new(ctx: &'c ScriptContext) -> Self {
         let expanded = ctx.current_script.iter().cloned().collect();
@@ -236,26 +245,51 @@ impl<'c> Walker<'c> {
         self.depth += 1;
         // A `cd` changes the directory of the commands after it in the same text; the text runs in a shell of its own
         // (another script, `sh -c`, a substitution), so the change ends with it.
-        let cwd = self.cwd.clone();
-        let unknown_dir = self.unknown_dir;
-        let pushed = self.pushed.len();
+        let saved = self.dir_state();
         let tokens = tokenize(text);
         self.functions.extend(tokens.functions.iter().cloned());
         let frame = Frame { text, map };
-        for segment in &tokens.segments {
+        // So does a subshell `( … )`: the state each open one restores, with the segment index it ends before.
+        let mut subshells: Vec<(usize, DirState)> = Vec::new();
+        for (index, segment) in tokens.segments.iter().enumerate() {
+            let mut opening: Vec<&Range<usize>> = tokens
+                .subshells
+                .iter()
+                .filter(|subshell| subshell.start == index && subshell.end > index)
+                .collect();
+            opening.sort_by_key(|subshell| std::cmp::Reverse(subshell.end));
+            for subshell in opening {
+                subshells.push((subshell.end, self.dir_state()));
+            }
             self.segment(segment, &frame, st);
+            while let Some((_, state)) = subshells.pop_if(|(end, _)| *end <= index + 1) {
+                self.restore_dir(state);
+            }
         }
         for range in &tokens.substitutions {
             if let Some(inner) = text.get(range.clone()) {
-                self.cwd.clone_from(&cwd);
-                self.unknown_dir = unknown_dir;
+                self.cwd.clone_from(&saved.cwd);
+                self.unknown_dir = saved.unknown_dir;
                 self.run_text(inner, &map.shifted(range.start), st);
             }
         }
-        self.cwd = cwd;
-        self.unknown_dir = unknown_dir;
-        self.pushed.truncate(pushed);
+        self.restore_dir(saved);
         self.depth -= 1;
+    }
+
+    /// The directory the commands run in, to restore when a shell of their own ends.
+    fn dir_state(&self) -> DirState {
+        DirState {
+            cwd: self.cwd.clone(),
+            unknown_dir: self.unknown_dir,
+            pushed: self.pushed.len(),
+        }
+    }
+
+    fn restore_dir(&mut self, state: DirState) {
+        self.cwd = state.cwd;
+        self.unknown_dir = state.unknown_dir;
+        self.pushed.truncate(state.pushed);
     }
 
     fn segment(&mut self, segment: &Segment, frame: &Frame, st: St) {
