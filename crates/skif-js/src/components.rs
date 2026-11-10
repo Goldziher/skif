@@ -125,7 +125,7 @@ fn includes_more_than_vue(source: &str, path: &Path) -> bool {
 fn names_only_vue(include: &ConfigValue) -> bool {
     match include {
         ConfigValue::Array(items) => items.iter().all(names_only_vue),
-        ConfigValue::Regex(pattern) => pattern.split('|').all(|alternative| alternative.contains(r"\.vue")),
+        ConfigValue::Regex { pattern, .. } => pattern.split('|').all(|alternative| alternative.contains(r"\.vue")),
         ConfigValue::String(glob) => Path::new(glob).extension().is_some_and(|extension| extension == "vue"),
         _ => false,
     }
