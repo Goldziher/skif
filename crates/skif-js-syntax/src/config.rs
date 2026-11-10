@@ -2690,7 +2690,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         let mut items = Vec::new();
         let mut definite = true;
         for element in elements {
-            if let Some(Expression::LogicalExpression(and)) = element.as_expression().map(Expression::get_inner_expression)
+            if let Some(Expression::LogicalExpression(and)) =
+                element.as_expression().map(Expression::get_inner_expression)
                 && and.operator == LogicalOperator::And
                 && self.truthy(&and.left, depth).is_none()
             {

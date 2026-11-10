@@ -393,18 +393,32 @@ fn playwright_reporters_not_known_statically_leave_the_package_unjudged() {
     assert_entries(&output(&results, "playwright").entries, &["reporters/local.ts"]);
 }
 
-/// Unknown options of a known reporter, a base config the reporter list replaces, and a reporter a condition picks
-/// among known ones hide no reporter module: every module a branch names is an entry.
+/// A reporter list written after an unknown spread replaces whatever the spread sets, so the spread leaves only the
+/// test conventions unknown (it may set `testDir` or `testMatch`), never the whole package.
+#[test]
+fn playwright_reporters_after_an_unknown_spread_keep_the_test_scope() {
+    let source =
+        "const own = () => JSON.parse(process.env.PW ?? '{}');\nexport default { ...own(), reporter: 'html' };";
+    let results = run(&[("playwright.config.ts", source)], &["@playwright/test"], &[]);
+    let out = output(&results, "playwright");
+    assert!(out.entries_incomplete, "{:?}", out.incomplete_reasons);
+    assert!(
+        out.incomplete_reasons
+            .iter()
+            .all(|reason| reason.scope != IncompleteScope::Package),
+        "{:?}",
+        out.incomplete_reasons
+    );
+}
+
+/// Unknown options of a known reporter and a reporter a condition picks among known ones hide no reporter module:
+/// every module a branch names is an entry.
 #[test]
 fn playwright_known_reporters_leave_the_entries_complete() {
     let cases = [
         (
             "export default { reporter: [['list'], ['./reporters/local.ts', { outputFile: process.env.OUT }]] };",
             Some("reporters/local.ts"),
-        ),
-        (
-            "const own = () => JSON.parse(process.env.PW ?? '{}');\nexport default { ...own(), reporter: 'html' };",
-            None,
         ),
         ("export default { reporter: process.env.CI ? 'github' : 'list' };", None),
         ("export default { reporter: [process.env.CI ? 'blob' : 'list'] };", None),

@@ -420,7 +420,11 @@ pub(crate) fn last_entry<'v>(object: &'v ConfigValue, key: &str, spreads: Spread
         .iter()
         .rev()
         .find(|(name, _)| name == key || counted(name.as_str()))?;
-    Some(if name == key { Entry::Value(value) } else { Entry::Spread })
+    Some(if name == key {
+        Entry::Value(value)
+    } else {
+        Entry::Spread
+    })
 }
 
 /// A name a config gives a module or package, as [`reporter_names`] reads it.

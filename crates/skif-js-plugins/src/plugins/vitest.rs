@@ -8,7 +8,8 @@ use crate::plugin::{
 use crate::plugins::vite;
 use crate::support::{
     Named, Spreads, alias_inputs, config_unknown, convention_scope, entry_glob, entry_strings, get_in, module_input,
-    objects, package_name, path_unknown, project_files, reporter_names, reporters_unknown, shallow_key_unknown, strings,
+    objects, package_name, path_unknown, project_files, reporter_names, reporters_unknown, shallow_key_unknown,
+    strings,
 };
 
 /// Where test runners find what a config names besides the test files of [`SPEC`]: test and fixture directories, and
