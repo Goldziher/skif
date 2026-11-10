@@ -670,11 +670,10 @@ fn is_structured(path: &Path) -> bool {
 /// plugin would have read from the unknown part is missing.
 fn unreadable(value: &ConfigValue) -> Option<IncompleteCause> {
     match value {
-        ConfigValue::Unknown => Some(IncompleteCause::UnknownValue),
         ConfigValue::Object(entries) if entries.iter().any(|(key, _)| ConfigValue::is_spread_key(key)) => {
             Some(IncompleteCause::UnknownSpread)
         }
-        _ => None,
+        other => other.is_unknown().then_some(IncompleteCause::UnknownValue),
     }
 }
 

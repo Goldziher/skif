@@ -330,3 +330,18 @@ fn long_constant_chains_and_cycles_terminate() {
     assert_eq!(value.get("v"), Some(&s("x")));
     assert!(value.get("cycle").unwrap().has_unknown());
 }
+
+#[test]
+fn one_of_counts_as_unknown_unless_its_alternatives_are_asked_for() {
+    let one_of = ConfigValue::OneOf(vec![s("github"), s("list")]);
+    assert!(one_of.is_unknown());
+    assert!(one_of.has_unknown());
+    assert_eq!(one_of.as_str(), None);
+    assert_eq!(one_of.alternatives(), [s("github"), s("list")]);
+    assert!(obj(vec![("reporter", one_of.clone())]).has_unknown());
+
+    let known = s("list");
+    assert!(!known.is_unknown());
+    assert_eq!(known.alternatives(), [s("list")]);
+    assert!(ConfigValue::Unknown.is_unknown());
+}

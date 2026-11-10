@@ -118,6 +118,12 @@ pub enum ConfigValue {
     },
     /// Anything that cannot be known without running the code.
     Unknown,
+    /// One of these values, without knowing which: the branches of a condition that cannot be decided statically
+    /// (`process.env.CI ? 'github' : 'list'`). There are at least two alternatives, all different, and none is
+    /// [`ConfigValue::Unknown`] or another `OneOf`, though an array or object alternative may hold unknown parts.
+    /// [`ConfigValue::is_unknown`] and [`ConfigValue::has_unknown`] count it as unknown, so code that does not ask
+    /// for its [`ConfigValue::alternatives`] treats it as an unknown value.
+    OneOf(Vec<ConfigValue>),
 }
 
 /// The key under which an object records an unknown spread, or an unknown argument of a merge, of a value the module
@@ -190,11 +196,26 @@ impl ConfigValue {
         }
     }
 
-    /// Whether the value, or anything inside it, is [`ConfigValue::Unknown`].
+    /// Whether the value is not known as one value: [`ConfigValue::Unknown`], or [`ConfigValue::OneOf`] of several.
+    #[must_use]
+    pub fn is_unknown(&self) -> bool {
+        matches!(self, Self::Unknown | Self::OneOf(_))
+    }
+
+    /// The values this may be: the alternatives of a [`ConfigValue::OneOf`], or the value itself.
+    #[must_use]
+    pub fn alternatives(&self) -> &[ConfigValue] {
+        match self {
+            Self::OneOf(alternatives) => alternatives,
+            other => std::slice::from_ref(other),
+        }
+    }
+
+    /// Whether the value, or anything inside it, is [`ConfigValue::Unknown`] or [`ConfigValue::OneOf`].
     #[must_use]
     pub fn has_unknown(&self) -> bool {
         match self {
-            Self::Unknown => true,
+            Self::Unknown | Self::OneOf(_) => true,
             Self::Array(items) => items.iter().any(Self::has_unknown),
             Self::Object(entries) => entries.iter().any(|(_, v)| v.has_unknown()),
             _ => false,
@@ -299,7 +320,7 @@ impl From<ConfigValue> for Value {
                     .collect(),
             ),
             ConfigValue::Regex { pattern, flags } => Self::Regex { pattern, flags },
-            ConfigValue::Unknown => Self::Unknown,
+            ConfigValue::Unknown | ConfigValue::OneOf(_) => Self::Unknown,
         }
     }
 }
