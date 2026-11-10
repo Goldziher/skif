@@ -61,6 +61,9 @@ pub struct Entry {
     /// lines). A count, since the file names belong to the compared repository; the drift check ignores it.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub tool_errors: usize,
+    /// Why the comparison tool's report is not a valid comparison here, when it is not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invalid: Option<String>,
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)] // serde passes the field by reference.
@@ -77,6 +80,7 @@ impl Entry {
             cases: None,
             known_deviations: Known::new(),
             tool_errors: 0,
+            invalid: None,
         }
     }
 
@@ -88,6 +92,7 @@ impl Entry {
             cases: None,
             known_deviations: Known::new(),
             tool_errors: 0,
+            invalid: None,
         }
     }
 
@@ -100,6 +105,12 @@ impl Entry {
     #[must_use]
     pub const fn with_tool_errors(mut self, count: usize) -> Self {
         self.tool_errors = count;
+        self
+    }
+
+    #[must_use]
+    pub fn with_invalid(mut self, reason: Option<String>) -> Self {
+        self.invalid = reason;
         self
     }
 }

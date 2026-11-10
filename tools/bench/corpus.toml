@@ -13,6 +13,7 @@
 #   knip-unread      path prefixes knip does not read here; one-sided findings below them are a known deviation
 #   entry            entry files of the root workspace neither tool finds (globs); both get them besides their defaults
 #   bench-knip-args  extra knip arguments when `skif-bench run` times it here, so it reads the files skif reads
+#   knip-invalid     why knip's report here is not a valid comparison; the repository is compared and its row marked
 #   notes            why the repository is in the corpus and what to expect from it
 
 [tools]
@@ -169,6 +170,7 @@ url = "https://github.com/n8n-io/n8n.git"
 rev = "c1420c66253871bacecbe7148754ca050a81e7f2"
 package-manager = "pnpm"
 suites = ["parity"]
+knip-invalid = "knip cannot load the configs that import the workspace's own config packages (@n8n/*-config), because the install runs without scripts and those packages have no built dist"
 notes = "Large pnpm workspace with many nodes packages."
 
 [[repo]]
