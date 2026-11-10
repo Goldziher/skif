@@ -1468,6 +1468,37 @@ fn fix_applies_compatible_version_alignments_and_leaves_the_rest() {
     insta::assert_snapshot!("fix_align_json", redact(&result.stdout, dir.path()));
 }
 
+/// One `--fix` run applies both a version alignment and the sort of the object that holds it, so nothing fixable is
+/// left for a second run.
+#[test]
+fn one_fix_run_aligns_and_sorts_the_same_dependencies() {
+    let dir = fixture("clean");
+    let member = |name: &str| dir.path().join("packages").join(name).join("package.json");
+    fs::write(
+        member("a"),
+        "{\n  \"name\": \"@cli/a\",\n  \"version\": \"0.0.0\",\n  \"dependencies\": {\n    \"left-pad\": \"1.0.0\",\n    \"is-number\": \"7.0.0\"\n  }\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        member("b"),
+        "{\n  \"name\": \"@cli/b\",\n  \"version\": \"0.0.0\",\n  \"dependencies\": {\n    \"is-number\": \"7.0.0\",\n    \"left-pad\": \"1.3.0\"\n  }\n}\n",
+    )
+    .unwrap();
+    let result = run(skif()
+        .args(["--fix", "--no-install", "--format", "json"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    assert_eq!(
+        fs::read_to_string(member("a")).unwrap(),
+        "{\n  \"name\": \"@cli/a\",\n  \"version\": \"0.0.0\",\n  \"dependencies\": {\n    \"is-number\": \"7.0.0\",\n    \"left-pad\": \"1.3.0\"\n  }\n}\n"
+    );
+    assert_eq!(
+        fs::read_to_string(member("b")).unwrap(),
+        "{\n  \"name\": \"@cli/b\",\n  \"version\": \"0.0.0\",\n  \"dependencies\": {\n    \"is-number\": \"7.0.0\",\n    \"left-pad\": \"1.3.0\"\n  }\n}\n"
+    );
+    assert_eq!(result.json()["diagnostics"], serde_json::json!([]), "{}", result.stdout);
+}
+
 /// The files of `dir` that differ from the `autofix` fixture, with their new contents (`<deleted>` when gone), as
 /// one text for a snapshot.
 fn autofix_changes(dir: &Path) -> String {
