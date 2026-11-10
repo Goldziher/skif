@@ -79,6 +79,32 @@ fn required_modules_and_globals_count() {
     assert_eq!(calls("foo()", &["x"], &[]), []);
 }
 
+/// A global written `Bun.*` is the module object: its members are the module's exports, like those of an import.
+#[test]
+fn a_global_module_object_calls_its_exports() {
+    let source = r#"
+        import { $ as sh } from "bun";
+        await Bun.build({ entrypoints: ["./src/worker.ts"] });
+        await Bun.$`bun ./script/copy.ts`;
+        await sh`bunx tsc`;
+        Bun.spawn(["bun", "x.ts"]);
+        Other.build({});
+    "#;
+    let found = calls(source, &["bun"], &[("Bun.*", "bun")]);
+    let summary: Vec<(&str, &str)> = found.iter().map(|c| (c.module.as_str(), c.export.as_str())).collect();
+    assert_eq!(summary, [("bun", "build"), ("bun", "$"), ("bun", "$"), ("bun", "spawn")]);
+    assert_eq!(
+        found[0].arguments,
+        [ConfigValue::Object(vec![(
+            "entrypoints".to_owned(),
+            ConfigValue::Array(vec![s("./src/worker.ts")])
+        )])]
+    );
+    assert_eq!(found[1].template.as_deref(), Some("bun ./script/copy.ts"));
+    // Without the `.*` suffix a global is a function, and a member of it is no call of the module.
+    assert_eq!(calls("Bun.build({});", &[], &[("Bun", "bun")]), []);
+}
+
 /// Only the calls that run a command read their `cwd` option as the directory the command runs in: any other call keeps
 /// the option as the source evaluates it.
 #[test]
