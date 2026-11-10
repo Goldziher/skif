@@ -5,9 +5,9 @@
 //! except the panic hook that [`install_panic_hook`] puts in place for the `skif` binary. The npm addon calls [`run`];
 //! the binary calls [`run_to_exit`], which behaves the same but leaves the memory of a run to the operating system.
 
+use std::cell::Cell;
 use std::ffi::OsString;
 use std::io::Write;
-use std::cell::Cell;
 use std::sync::Once;
 
 use clap::Parser;
@@ -232,7 +232,10 @@ mod tests {
     /// The JSON `error` message of a run of `body` that exits 2.
     fn panic_message(body: impl FnOnce() -> u8) -> String {
         let mut stdout = Vec::new();
-        assert_eq!(exit_two_on_panic(&args(&["skif", "--format", "json"]), &mut stdout, body), 2);
+        assert_eq!(
+            exit_two_on_panic(&args(&["skif", "--format", "json"]), &mut stdout, body),
+            2
+        );
         let document: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
         document["error"]["message"].as_str().unwrap().to_owned()
     }

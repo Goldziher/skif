@@ -158,7 +158,12 @@ impl Origins {
             let (digits, tail) = key.strip_prefix(prefix.as_str())?.split_once(']')?;
             Some((digits.parse().ok()?, tail.to_owned()))
         };
-        let len = self.entries.keys().filter_map(|key| split(key)).map(|(index, _)| index + 1).max();
+        let len = self
+            .entries
+            .keys()
+            .filter_map(|key| split(key))
+            .map(|(index, _)| index + 1)
+            .max();
         let mut kept = 0;
         let renumbered: Vec<Option<usize>> = (0..len.unwrap_or(0))
             .map(|index| {
