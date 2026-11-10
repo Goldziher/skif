@@ -9,8 +9,9 @@ use std::sync::LazyLock;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Argument, ArrayExpressionElement, ArrowFunctionExpression, AssignmentOperator, AssignmentTarget,
-    AssignmentTargetPropertyIdentifier, BinaryOperator, BindingPattern, CallExpression, ConditionalExpression,
-    Declaration, ExportDefaultDeclarationKind, Expression, ExpressionStatement, Function, IfStatement,
+    AssignmentTargetPropertyIdentifier, BinaryOperator, BindingIdentifier, BindingPattern, BlockStatement,
+    CallExpression, CatchClause, ConditionalExpression, Declaration, ExportDefaultDeclarationKind, Expression,
+    ExpressionStatement, ForInStatement, ForOfStatement, ForStatement, Function, IfStatement,
     ImportDeclarationSpecifier, ImportOrExportKind, LogicalExpression, LogicalOperator, NewExpression, ObjectProperty,
     ObjectPropertyKind, Program, ReturnStatement, SimpleAssignmentTarget, Statement, StaticMemberExpression,
     TaggedTemplateExpression, TemplateLiteral, UnaryExpression, UnaryOperator, VariableDeclaration,
@@ -956,8 +957,9 @@ pub fn extract_constructor_options(source: &str, path: &Path, constructor: &str,
 
 /// Statically evaluates the value of every property named `key` of every object literal in `source`, however deeply
 /// nested and wherever it appears (`handler: "src/api.handler"` inside a function body), in source order. Values are
-/// evaluated as in [`extract_config_object`], with paths relative to the directory of `path`. Methods are left out.
-/// Returns nothing when the file does not parse.
+/// evaluated as in [`extract_config_object`], against the top-level bindings, with paths relative to the directory of
+/// `path`; a name a function, block, loop or `catch` around the property declares is unknown, whatever top-level
+/// binding it shadows. Methods are left out. Returns nothing when the file does not parse.
 #[must_use]
 pub fn extract_property_values(source: &str, path: &Path, key: &str) -> Vec<ConfigValue> {
     find_properties(source, path, key, None)
@@ -989,6 +991,7 @@ fn find_properties(source: &str, path: &Path, key: &str, call_with: Option<&Conf
         key,
         call_with,
         evaluated: HashMap::new(),
+        shadowed: Vec::new(),
         found: Vec::new(),
     };
     finder.visit_program(&program);
@@ -1376,10 +1379,73 @@ struct PropertyFinder<'t, 'p, 'a> {
     call_with: Option<&'t ConfigValue>,
     /// The top-level constants evaluated so far, carried from one property to the next so each is evaluated once.
     evaluated: HashMap<String, ConfigValue>,
+    /// The names the scopes around the current node declare, innermost last: they shadow top-level bindings.
+    shadowed: Vec<Vec<String>>,
     found: Vec<ConfigValue>,
 }
 
+impl PropertyFinder<'_, '_, '_> {
+    /// Visits a scope with `walk`, the names `declared` holds shadowing top-level bindings inside it.
+    fn in_scope(&mut self, declared: DeclaredNames, walk: impl FnOnce(&mut Self)) {
+        self.shadowed.push(declared.0);
+        walk(self);
+        self.shadowed.pop();
+    }
+}
+
+/// The names every binding of a syntax subtree declares.
+#[derive(Default)]
+struct DeclaredNames(Vec<String>);
+
+impl<'a> Visit<'a> for DeclaredNames {
+    fn visit_binding_identifier(&mut self, it: &BindingIdentifier<'a>) {
+        self.0.push(it.name.as_str().to_owned());
+    }
+}
+
+/// What `visit` finds a [`DeclaredNames`] visitor.
+fn declared(visit: impl FnOnce(&mut DeclaredNames)) -> DeclaredNames {
+    let mut names = DeclaredNames::default();
+    visit(&mut names);
+    names
+}
+
 impl<'a> Visit<'a> for PropertyFinder<'_, '_, 'a> {
+    fn visit_function(&mut self, it: &Function<'a>, flags: oxc_semantic::ScopeFlags) {
+        let names = declared(|names| names.visit_function(it, flags));
+        self.in_scope(names, |finder| walk::walk_function(finder, it, flags));
+    }
+
+    fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        let names = declared(|names| names.visit_arrow_function_expression(it));
+        self.in_scope(names, |finder| walk::walk_arrow_function_expression(finder, it));
+    }
+
+    fn visit_block_statement(&mut self, it: &BlockStatement<'a>) {
+        let names = declared(|names| names.visit_block_statement(it));
+        self.in_scope(names, |finder| walk::walk_block_statement(finder, it));
+    }
+
+    fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
+        let names = declared(|names| names.visit_for_statement(it));
+        self.in_scope(names, |finder| walk::walk_for_statement(finder, it));
+    }
+
+    fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
+        let names = declared(|names| names.visit_for_in_statement(it));
+        self.in_scope(names, |finder| walk::walk_for_in_statement(finder, it));
+    }
+
+    fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
+        let names = declared(|names| names.visit_for_of_statement(it));
+        self.in_scope(names, |finder| walk::walk_for_of_statement(finder, it));
+    }
+
+    fn visit_catch_clause(&mut self, it: &CatchClause<'a>) {
+        let names = declared(|names| names.visit_catch_clause(it));
+        self.in_scope(names, |finder| walk::walk_catch_clause(finder, it));
+    }
+
     fn visit_object_property(&mut self, it: &ObjectProperty<'a>) {
         let callable = self.call_with.and_then(|_| Callable::of_expression(&it.value));
         let wanted = match self.call_with {
@@ -1393,6 +1459,15 @@ impl<'a> Visit<'a> for PropertyFinder<'_, '_, 'a> {
                 .is_some_and(|name| crate::js_string(name.as_js_str()) == self.key)
         {
             let eval = Evaluator::in_file(self.top, self.bindings, self.file, std::mem::take(&mut self.evaluated));
+            let shadowed: Frame<'_, '_> = self
+                .shadowed
+                .iter()
+                .flatten()
+                .map(|name| (name.clone(), Binding::Value(ConfigValue::Unknown)))
+                .collect();
+            if !shadowed.is_empty() {
+                eval.frames.borrow_mut().push(shadowed);
+            }
             let value = match (self.call_with, callable) {
                 (Some(argument), Some(callable)) => eval.call_with(callable, argument.clone(), 0),
                 _ => eval.expr(&it.value, 0),
