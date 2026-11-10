@@ -111,14 +111,14 @@ fn sherif_exact_profile_turns_off_everything_sherif_did_not_check() {
     let rules = parsed["rules"].as_table().unwrap();
     assert_eq!(
         rules.len(),
-        33,
-        "the two ignored sherif rules and the 31 other default rules"
+        35,
+        "the two ignored sherif rules and the 33 other default rules"
     );
     assert!(!rules.contains_key("version-mismatch"), "the check sherif ran stays on");
     assert_eq!(rules["unused-files"].as_str(), Some("off"));
     assert_eq!(rules["unsorted-dependencies"].as_str(), Some("off"));
     assert_eq!(parsed["js"]["enabled"].as_bool(), Some(false));
-    assert_eq!(migration.extra_checks.len(), 31);
+    assert_eq!(migration.extra_checks.len(), 33);
     assert!(migration.extra_checks.iter().any(|id| id == "unused-files"));
 }
 
@@ -293,7 +293,7 @@ fn knip_script_flags_narrow_the_rules() {
         Some("off"),
         "knip does not read the specifiers of test-runner mocks"
     );
-    assert_eq!(migration.extra_checks.len(), 32);
+    assert_eq!(migration.extra_checks.len(), 34);
 }
 
 #[test]

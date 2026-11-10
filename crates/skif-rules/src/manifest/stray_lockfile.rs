@@ -384,7 +384,7 @@ mod tests {
         let files = with_root(&root_json, &[("packages/a/package.json", MEMBER_A)]);
         let allowing = config("[rules.stray-lockfile]\nallow = [\"tools/other-root/package-lock.json\"]\n");
         let inherited = RunOptions::default().with_config_path(Path::new("../skif.toml"));
-        assert!(lint_with(META.id, &files, &allowing, &inherited).is_empty());
+        assert_eq!(lint_with(META.id, &files, &allowing, &inherited), []);
         let own = RunOptions::default().with_config_path(Path::new("skif.toml"));
         assert_eq!(lint_with(META.id, &files, &allowing, &own).len(), 1);
     }
