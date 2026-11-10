@@ -2193,14 +2193,16 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         }
     }
 
-    /// `import.meta.dirname`, `import.meta.filename`, `import.meta.url`, the `pathname` of a `new URL(…)`, an export
-    /// of a namespace import, the `length` of a known string or array, and a key of a known object ([`property_of`]).
-    /// The `length` of a value that is not definite is unknown.
+    /// `import.meta.dirname`, `import.meta.filename`, `import.meta.url`, Bun's `import.meta.dir`, `import.meta.path`
+    /// and `import.meta.file` (the file name), the `pathname` of a `new URL(…)`, an export of a namespace import, the
+    /// `length` of a known string or array, and a key of a known object ([`property_of`]). The `length` of a value that
+    /// is not definite is unknown.
     fn member(&self, member: &'p StaticMemberExpression<'a>, depth: u32) -> Value {
         let property = member.property.name.as_str();
         match (member.object.get_inner_expression(), property) {
-            (Expression::ImportMeta(_), "dirname") => Value::String(normalized(&[self.dir])),
-            (Expression::ImportMeta(_), "filename" | "url") => Value::String(self.file_path()),
+            (Expression::ImportMeta(_), "dirname" | "dir") => Value::String(normalized(&[self.dir])),
+            (Expression::ImportMeta(_), "filename" | "url" | "path") => Value::String(self.file_path()),
+            (Expression::ImportMeta(_), "file") => Value::String(self.file.to_owned()),
             (object @ Expression::NewExpression(_), "pathname") => self.expr(object, depth),
             (Expression::Identifier(object), _) if self.is_namespace(object.name.as_str()) => {
                 self.namespace_member(object.name.as_str(), property)
