@@ -2517,10 +2517,15 @@ mod tests {
         assert_eq!(repo.build_timeout_secs, Some(1));
         let reason = install(&repo, &dir, &scratch, Duration::from_secs(600)).unwrap();
         assert_eq!(reason.as_deref(), Some("sleep build timed out after 1 s"));
-        assert!(!is_installed(&repo, &dir), "a timed-out build leaves the checkout not installed");
+        assert!(
+            !is_installed(&repo, &dir),
+            "a timed-out build leaves the checkout not installed"
+        );
 
         repo.build_command = vec!["sh".to_owned(), "-c".to_owned(), "exit 4".to_owned()];
-        let reason = install(&repo, &dir, &scratch, Duration::from_secs(600)).unwrap().unwrap();
+        let reason = install(&repo, &dir, &scratch, Duration::from_secs(600))
+            .unwrap()
+            .unwrap();
         assert!(reason.starts_with("sh build failed"), "{reason}");
         assert!(!is_installed(&repo, &dir));
 
@@ -3403,7 +3408,10 @@ vi.mock("mocked-package");
     #[test]
     fn dependencies_only_files_skif_reports_unused_import_split_off_on_skif_side() {
         let sources = BTreeMap::from([
-            ("libraries/a/src/dead.ts", "import { x } from 'left-pad';\nimport core from '@babel/core';\n"),
+            (
+                "libraries/a/src/dead.ts",
+                "import { x } from 'left-pad';\nimport core from '@babel/core';\n",
+            ),
             ("libraries/a/src/both.ts", "import 'both-unused';\n"),
         ]);
         let skif_unused = strings(&["libraries/a/src/dead.ts", "libraries/a/src/both.ts"]);
@@ -3413,7 +3421,10 @@ vi.mock("mocked-package");
         let imports = unused_file_imports(&skif_unused, &knip_unused, &read_source, &workspace_of);
         assert_eq!(
             imports,
-            strings(&["libraries/a/package.json|@babel/core", "libraries/a/package.json|left-pad"]),
+            strings(&[
+                "libraries/a/package.json|@babel/core",
+                "libraries/a/package.json|left-pad"
+            ]),
             "only the files skif alone reports unused are scanned"
         );
 
@@ -3550,7 +3561,11 @@ vi.mock("mocked-package");
         .collect();
         let manifest = move |dir: &str| read.get(dir).cloned();
         let every_file = |_: &str| true;
-        let layout = Layout::new(strings(&["packages/a", "packages/b", "packages/c"]), &manifest, &every_file);
+        let layout = Layout::new(
+            strings(&["packages/a", "packages/b", "packages/c"]),
+            &manifest,
+            &every_file,
+        );
         let not_judged_dirs = BTreeMap::from([(
             "packages/a".to_owned(),
             NotJudgedScope::within(vec!["src/esm/*.stories.ts".to_owned()]),
