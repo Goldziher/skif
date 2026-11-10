@@ -145,6 +145,11 @@ All notable changes to this project are documented here. The format follows
   package credits every component it registers, as a package with `.tsx` files does, since a use skif cannot read
   is assumed rather than a used file reported (and deleted by `--allow-remove-files`)
   ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
+- A `bin` path that a script of the package may build is no longer reported by `stale-js-config` as naming no file:
+  besides build scripts and the compilers and bundlers ADR 0069 lists, a script running `bun build`, `vite build`,
+  `deno compile`, `parcel build`, `bunchee`, `microbundle`, `pkg` or `nexe`, or naming a path at or in `bin` as its
+  output (`--outfile bin/cli.js`, `-o bin/cli`), is a build step. knip reports no such path either; ADR 0069 said it
+  did ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
 
 ### Changed
 
