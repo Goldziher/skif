@@ -25,9 +25,9 @@ pub(crate) struct EntryFiles {
     pub files: Vec<PathBuf>,
     /// Packages whose real entries are unknown, so their files and dependencies cannot be judged unused: those that
     /// publish build output or bin files none of which maps back to a source file, and those with no source file at
-    /// or below their directory, no entry and no script, whose manifest only lists what code elsewhere installs it
-    /// for. A published path that names no file at all ([`names_no_file`]) is no entry and does not make a package's
-    /// entries unknown (ADR 0069).
+    /// or below their directory other than a package manager's install hook (`.pnpmfile.cjs`), no other entry and no
+    /// script, whose manifest only lists what code elsewhere installs it for. A published path that names no file at
+    /// all ([`names_no_file`]) is no entry and does not make a package's entries unknown (ADR 0069).
     pub unknown: Vec<PackageId>,
     /// The entry files something other than the configured and default `entry` globs makes entries: plugins, the
     /// manifest, tool configuration files and scripts (with `include-entry-exports`, only plugin entry globs and the
@@ -146,12 +146,16 @@ pub(crate) fn entry_files(
             provided.extend(tool_entries.iter().cloned());
         }
         own.extend(tool_entries);
-        let has_entries = !own.is_empty();
+        // An install hook is an entry, so what it imports is used, but it is no project code: a package with nothing
+        // else lists what code elsewhere installs it for.
+        let has_entries = own.iter().any(|path| !is_install_hook(path));
         entries.append(&mut own);
         entries.extend(scope_entries(workspace, setup, candidates, package_setup));
         if !has_entries
             && package.manifest.value().get("scripts").is_none_or(is_empty_object)
-            && below(candidates, &workspace.root, &package_setup.dir).is_empty()
+            && below(candidates, &workspace.root, &package_setup.dir)
+                .iter()
+                .all(|candidate| is_install_hook(&candidate.abs))
         {
             unknown.push(id);
         }
@@ -170,6 +174,18 @@ pub(crate) fn entry_files(
         unknown,
         provided,
     }
+}
+
+/// The file names of the hooks a package manager loads while it installs a project: `.pnpmfile.cjs` and
+/// `.pnpmfile.mjs`.
+const INSTALL_HOOKS: &[&str] = &[".pnpmfile.cjs", ".pnpmfile.mjs"];
+
+/// Whether `path` is a package manager's install hook ([`INSTALL_HOOKS`]): it shapes how dependencies are installed
+/// and is not code of the project, so it alone does not give a package source files whose dependencies can be judged.
+fn is_install_hook(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| INSTALL_HOOKS.contains(&name))
 }
 
 /// Files of workspace packages nested below `package_setup` that its plugin and configuration entry globs match.
