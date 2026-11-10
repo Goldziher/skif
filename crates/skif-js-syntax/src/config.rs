@@ -2285,8 +2285,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     }
 
     /// The values a spread argument may have: one for an expression whose value is known or not decided by a
-    /// condition, two for one that is not definite (`undefined` and the value, which it may lack), and one per branch
-    /// for `test ? a : b`, `a && b`, `a || b` and `a ?? b` whose test is unknown (parenthesised or not). A left side
+    /// condition, two for one that is not definite (`undefined` and the value, which it may lack), one per branch
+    /// for `test ? a : b`, `a && b`, `a || b` and `a ?? b` whose test is unknown (parenthesised or not), and one per
+    /// alternative of a value that is one of several. A left side
     /// that adds nothing when spread is [`ConfigValue::Null`]: the falsy `a` of `a && b`, and a comparison, negation or
     /// `void` on the left of `||` or `??`.
     fn possibilities(&self, expr: &'p Expression<'a>, depth: u32) -> Vec<Value> {
@@ -2310,10 +2311,10 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     left
                 };
                 match decided {
-                    Some(true) => vec![left],
+                    Some(true) => alternatives(left),
                     Some(false) => self.possibilities(&logical.right, depth + 1),
                     None => {
-                        let mut out = vec![left];
+                        let mut out = alternatives(left);
                         out.extend(self.possibilities(&logical.right, depth + 1));
                         out
                     }
