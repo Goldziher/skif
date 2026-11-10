@@ -225,7 +225,7 @@ impl Filter {
     }
 
     /// Narrows the report of one root to what the flags select. The configuration judgements stay, so the findings
-    /// about a configuration file several roots read can be decided again after fixing.
+    /// about a configuration file several roots read are decided across the narrowed reports.
     pub fn apply(&self, workspace: &Workspace, report: Report) -> Report {
         if self.workspaces.is_none() && self.include.is_none() && self.exclude.is_empty() {
             return report;

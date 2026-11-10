@@ -1334,3 +1334,123 @@ fn the_lint_after_fixing_decides_shared_settings_again() {
     let fresh = recursive_with_config(&repo, &file);
     assert_eq!(root_summaries(&fixed), root_summaries(&fresh), "{fixed}\n{fresh}");
 }
+
+#[test]
+fn each_package_a_glob_table_selects_judges_its_own_list() {
+    let (_dir, repo, file) =
+        nested_root_with_explicit_config("[js.workspaces.\"tools/*\"]\nignore-dependencies = [\"left-pad\"]\n");
+    // `tools/other` lists `left-pad` without using it, so its list's entry silences a finding; `tools/sub` does not.
+    put(
+        &repo,
+        "tools/other/package.json",
+        r#"{"name": "other", "version": "1.0.0", "private": true, "packageManager": "pnpm@10.0.0", "main": "src/index.js",
+            "dependencies": {"left-pad": "1.3.0"}}"#,
+    );
+    put(&repo, "tools/other/src/index.js", "module.exports = 5;\n");
+    let report = recursive_with_config(&repo, &file);
+    assert_eq!(root_paths(&report), [".", "tools/other", "tools/sub"], "{report}");
+    assert_eq!(unused_dependencies(&report), Vec::<String>::new(), "{report}");
+    assert_eq!(
+        messages_of(&report, "stale-js-config"),
+        ["../config/skif.toml: `left-pad` in `js.workspaces.\"tools/sub\".ignore-dependencies` matched nothing"],
+        "{report}"
+    );
+}
+
+#[test]
+fn narrowing_to_a_workspace_keeps_the_shared_finding_its_root_reports() {
+    let (_dir, repo, file) = nested_root_with_explicit_config("[js]\nignore-dependencies = [\"left-pad\"]\n");
+    let result = run(skif()
+        .args(["--format", "json", "--recursive", "--workspace", "sub", "--config"])
+        .arg(&file)
+        .arg(&repo));
+    assert!(
+        result.code == 0 || result.code == 1,
+        "{}{}",
+        result.stdout,
+        result.stderr
+    );
+    let report = result.json();
+    // The root at the start reports the entry first, but `--workspace sub` selects the nested root's copy alone.
+    assert_eq!(
+        messages_of(&report, "stale-js-config"),
+        ["../config/skif.toml: `left-pad` in `js.ignore-dependencies` matched nothing"],
+        "{report}"
+    );
+}
+
+/// `skif baseline <command> -r` over `repo` with the explicit configuration `file`, as JSON.
+fn baseline_with_config(command: &str, repo: &Path, file: &Path) -> Value {
+    let result = run(skif()
+        .args(["baseline", command])
+        .arg(repo)
+        .args(["-r", "--format", "json", "--config"])
+        .arg(file));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    result.json()
+}
+
+/// How many entries of `rule` the `baseline write` document `written` added in each root.
+fn added_per_root(written: &Value, rule: &str) -> Vec<usize> {
+    written["roots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|root| {
+            root["added"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|entry| entry["rules"] == serde_json::json!([rule]))
+                .count()
+        })
+        .collect()
+}
+
+#[test]
+fn a_baseline_of_roots_sharing_a_file_records_each_root_s_finding_and_converges() {
+    // The explicit file extends the baseline file of each root, which must exist before it is read.
+    let (_dir, repo, file) = nested_root_with_explicit_config(
+        "extends = [\"../repo/skif.baseline.toml\", \"../repo/tools/sub/skif.baseline.toml\"]\n\n[js]\n\
+         ignore-dependencies = [\"left-pad\"]\n",
+    );
+    let roots = [repo.clone(), repo.join("tools/sub")];
+    for root in &roots {
+        put(root, "skif.baseline.toml", "");
+    }
+    let before = recursive_with_config(&repo, &file);
+    assert_eq!(messages_of(&before, "stale-js-config").len(), 1, "{before}");
+
+    let first = baseline_with_config("write", &repo, &file);
+    assert_eq!(added_per_root(&first, "stale-js-config"), [1, 1], "{first}");
+    let recorded: Vec<String> = roots
+        .iter()
+        .map(|root| fs::read_to_string(root.join("skif.baseline.toml")).unwrap())
+        .collect();
+    let after = recursive_with_config(&repo, &file);
+    assert_eq!(
+        messages_of(&after, "stale-js-config"),
+        Vec::<String>::new(),
+        "{after}"
+    );
+
+    let second = baseline_with_config("write", &repo, &file);
+    let added: Vec<Value> = second["roots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|root| root["added"].clone())
+        .collect();
+    assert_eq!(added, [serde_json::json!([]), serde_json::json!([])], "{second}");
+    for (root, text) in roots.iter().zip(&recorded) {
+        assert_eq!(&fs::read_to_string(root.join("skif.baseline.toml")).unwrap(), text);
+        let base = tempfile::NamedTempFile::new().unwrap();
+        fs::write(base.path(), text).unwrap();
+        let checked = run(skif()
+            .args(["baseline", "check"])
+            .arg(root)
+            .args(["--format", "json", "--base-file"])
+            .arg(base.path()));
+        assert_eq!(checked.code, 0, "{}{}", checked.stdout, checked.stderr);
+    }
+}

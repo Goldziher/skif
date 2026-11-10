@@ -8,8 +8,8 @@ use std::sync::Arc;
 use rayon::prelude::*;
 use serde_json::{Value, json};
 use skif::{
-    ConfigJudgement, ConfigOverrides, Diagnostic, FileSystem, Linter, Location, ModuleCache, OsFs, Report, RuleMeta,
-    RunOptions, Target, Workspace, slash,
+    ConfigOverrides, Diagnostic, FileSystem, Linter, Location, ModuleCache, OsFs, Report, RuleMeta, RunOptions, Target,
+    Workspace, slash,
 };
 
 use crate::error::{CliError, Kind};
@@ -181,6 +181,8 @@ pub struct RootRun {
     pub prefix: PathBuf,
     pub config: skif::Config,
     pub config_path: Option<PathBuf>,
+    /// The absolute configuration files `config` was merged from: a root whose file a fix wrote is linted again.
+    pub config_sources: Vec<PathBuf>,
     pub linter: usize,
     pub workspace: Workspace,
     pub report: Report,
@@ -189,9 +191,6 @@ pub struct RootRun {
     pub extra_entries: Vec<PathBuf>,
     /// What the code of other roots of the run uses of this root; a re-lint after fixing credits it again.
     pub other_root_uses: OtherRootUses,
-    /// The `stale-js-config` findings of the report that the decision across roots took out of it, because another
-    /// root reports them or used the setting they call stale (see [`settle_shared_config_findings`]).
-    pub withheld: Vec<Diagnostic>,
 }
 
 /// What the code of other roots of a multi-root run uses of a root, which the root's own lint cannot see.
@@ -215,9 +214,6 @@ impl OtherRootUses {
 /// The rules that a use by a nested root answers.
 const UNUSED_DEPENDENCY_RULES: [&str; 2] = ["unused-dependencies", "unused-dev-dependencies"];
 
-/// The rule whose findings about a configuration file several roots read are decided across those roots.
-const STALE_JS_CONFIG: &str = "stale-js-config";
-
 /// The report without the findings that `uses` answers: the unused-dependency findings of dependencies a nested root
 /// imports or runs without listing them (Node.js resolves them from this root's `node_modules`) or that a file of
 /// this root another root's code reaches imports, and the `unused-files` findings of those files.
@@ -236,108 +232,14 @@ pub fn credit_other_root_uses(report: Report, uses: &OtherRootUses) -> Report {
     })
 }
 
-/// The `stale-js-config` findings of each root, as the location path relative to the root and the message, that the
-/// decision across roots takes out of its report (ADR 0099). An entry of a configuration list that two or more roots
-/// judged, by the absolute file, the key as written and the entry ([`Report::config_judgements`]), is stale only when
-/// every one of them found it stale: a root that used it drops the finding everywhere, and a root that could not
-/// judge it has no say. A stale one is kept by the first root in `roots` (path order) that reports it, and taken out
-/// of the others. Any other finding at the same absolute path with the same message is kept by the first root that
-/// reports it.
-fn shared_config_drops(roots: &[(&Path, &Report)]) -> Vec<BTreeSet<(PathBuf, String)>> {
-    let mut drops: Vec<BTreeSet<(PathBuf, String)>> = vec![BTreeSet::new(); roots.len()];
-    let mut settings: BTreeMap<SettingKey<'_>, Vec<(usize, &ConfigJudgement)>> = BTreeMap::new();
-    for (index, (root, report)) in roots.iter().enumerate() {
-        for judgement in &report.config_judgements {
-            settings
-                .entry((
-                    join(root, &judgement.file),
-                    judgement.key.as_str(),
-                    judgement.entry.as_str(),
-                ))
-                .or_default()
-                .push((index, judgement));
-        }
-    }
-    let reports = |index: usize, judgement: &ConfigJudgement| {
-        roots[index].1.diagnostics.iter().any(|diagnostic| {
-            diagnostic.rule.as_str() == STALE_JS_CONFIG
-                && diagnostic.location.path == judgement.file
-                && diagnostic.message == judgement.message
-        })
-    };
-    for judgements in settings.values() {
-        let judging: BTreeSet<usize> = judgements.iter().map(|(index, _)| *index).collect();
-        if judging.len() < 2 {
-            continue;
-        }
-        let used = judgements.iter().any(|(_, judgement)| !judgement.stale);
-        let keeper = judgements
-            .iter()
-            .find(|(index, judgement)| !used && judgement.stale && reports(*index, judgement))
-            .map(|(index, _)| *index);
-        for (index, judgement) in judgements {
-            if judgement.stale && keeper != Some(*index) {
-                drops[*index].insert((judgement.file.clone(), judgement.message.clone()));
-            }
-        }
-    }
-    let mut first_reporter: BTreeMap<(PathBuf, &str), usize> = BTreeMap::new();
-    for (index, (root, report)) in roots.iter().enumerate() {
-        let judged: BTreeSet<(&Path, &str)> = report
-            .config_judgements
-            .iter()
-            .map(|judgement| (judgement.file.as_path(), judgement.message.as_str()))
-            .collect();
-        for diagnostic in report
-            .diagnostics
-            .iter()
-            .filter(|diagnostic| diagnostic.rule.as_str() == STALE_JS_CONFIG)
-            .filter(|diagnostic| !judged.contains(&(diagnostic.location.path.as_path(), diagnostic.message.as_str())))
-        {
-            let first = *first_reporter
-                .entry((join(root, &diagnostic.location.path), diagnostic.message.as_str()))
-                .or_insert(index);
-            if first != index {
-                drops[index].insert((diagnostic.location.path.clone(), diagnostic.message.clone()));
-            }
-        }
-    }
-    drops
-}
-
-/// Decides the `stale-js-config` findings about configuration files several roots of the run read, once every root
-/// is linted, and again after fixing (see [`shared_config_drops`]). The findings a decision takes out of a report are
-/// kept in [`RootRun::withheld`], and the next decision starts from the full reports again, so a root that was not
-/// linted again keeps its say.
-pub fn settle_shared_config_findings(runs: &mut [RootRun]) {
-    for run in runs.iter_mut() {
-        let withheld = std::mem::take(&mut run.withheld);
-        let report = std::mem::replace(&mut run.report, Report::new(Vec::new(), 0));
-        run.report = report.extended(withheld);
-    }
-    let drops = {
-        let roots: Vec<(&Path, &Report)> = runs
-            .iter()
-            .map(|run| (run.workspace.root.as_path(), &run.report))
-            .collect();
-        shared_config_drops(&roots)
-    };
-    for (run, dropped) in runs.iter_mut().zip(drops) {
-        if dropped.is_empty() {
-            continue;
-        }
-        let mut withheld = Vec::new();
-        let report = std::mem::replace(&mut run.report, Report::new(Vec::new(), 0));
-        run.report = report.retain(|diagnostic| {
-            let decided = diagnostic.rule.as_str() == STALE_JS_CONFIG
-                && dropped.contains(&(diagnostic.location.path.clone(), diagnostic.message.clone()));
-            if decided {
-                withheld.push(diagnostic.clone());
-            }
-            !decided
-        });
-        run.withheld = withheld;
-    }
+/// Decides the `stale-js-config` findings about configuration files several roots of the run read
+/// ([`skif::settle_shared_config`], ADR 0099). Called once, on the reports the run shows: after the lint after fixing
+/// and after the flags narrowed them.
+pub fn settle_shared_config(runs: &mut [RootRun]) {
+    skif::settle_shared_config(
+        runs.iter_mut()
+            .map(|run| (run.workspace.root.as_path(), &mut run.report)),
+    );
 }
 
 /// Hands the dependencies that the report of root `from` uses through manifests outside it (above it, or of the files
@@ -426,8 +328,8 @@ fn route_other_project_files(
 /// the files of other projects its code imports or runs; each goes to the innermost root that holds it. A run without
 /// nested roots is a single wave, as before. Each report also lists the files outside its root that its code reaches
 /// and the dependencies its code uses that only a manifest above its root lists; once every root is linted, the root
-/// that owns such a file or manifest no longer reports them unused. A `stale-js-config` finding about a configuration
-/// file several roots read is reported once, and an entry they judged only when each of them found it stale.
+/// that owns such a file or manifest no longer reports them unused. The `stale-js-config` findings about a
+/// configuration file several roots read are left to [`settle_shared_config`]: each report holds what its root found.
 pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Result<Vec<RootRun>, CliError> {
     let depths = nesting_depths(&targets);
     let mut extra: Vec<BTreeSet<PathBuf>> = vec![BTreeSet::new(); targets.len()];
@@ -459,7 +361,7 @@ pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Res
             route_ancestor_dependency_uses(&targets, index, report, &mut other_root_uses);
         }
     }
-    let mut runs = targets
+    targets
         .into_iter()
         .zip(reports)
         .zip(extra)
@@ -471,22 +373,20 @@ pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Res
             Ok(RootRun {
                 prefix: prefix_of(base, &target.root),
                 config_path: target.config_path(),
+                config_sources: target.sources.into_iter().map(|source| source.path).collect(),
                 config: target.config,
                 linter,
                 workspace: target.workspace,
                 report,
                 extra_entries: extra_entries.into_iter().collect(),
                 other_root_uses,
-                withheld: Vec::new(),
             })
         })
-        .collect::<Result<Vec<RootRun>, CliError>>()?;
-    settle_shared_config_findings(&mut runs);
-    Ok(runs)
+        .collect()
 }
 
 /// `prefix/path` with `..` segments resolved, so a config file inherited from a parent directory stays inside the base.
-fn join(prefix: &Path, path: &Path) -> PathBuf {
+pub(crate) fn join(prefix: &Path, path: &Path) -> PathBuf {
     let mut joined = PathBuf::new();
     for component in prefix.components().chain(path.components()) {
         match component {
@@ -583,164 +483,10 @@ pub fn root_json(run: &RootRun, report: &Report) -> Value {
     })
 }
 
-/// A configuration setting shared by several roots: its file, key as written and entry.
-type SettingKey<'a> = (PathBuf, &'a str, &'a str);
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use skif::{MemoryFs, RuleId, Severity};
-
     use super::*;
-
-    const OUTER: &str = "../etc/skif.toml";
-    const INNER: &str = "../../../etc/skif.toml";
-    const ROOTS: [&str; 3] = ["/r", "/r/tools/a", "/r/tools/b"];
-    const ENTRY_KEY: &str = "js.workspaces.\"tools/*\".entry";
-    const ENTRY: &str = "`src/extra.js` in `js.workspaces.\"tools/*\".entry` matched nothing";
-    const DEPENDENCY: &str = "`left-pad` in `js.ignore-dependencies` matched nothing";
-    const HINT: &str = "`src/main.js` in `js.entry` is already an entry of a plugin, `package.json` or a script";
-
-    fn stale(path: &str, message: &str) -> Diagnostic {
-        Diagnostic::new(
-            RuleId::from_static(STALE_JS_CONFIG),
-            Severity::Warning,
-            message,
-            Location::new(path, None),
-        )
-    }
-
-    /// A report with the findings `reported` and the judgements `judged`, as `(file, key, entry, stale, message)`.
-    fn report(reported: &[(&str, &str)], judged: &[(&str, &str, &str, bool, &str)]) -> Report {
-        let diagnostics = reported.iter().map(|(path, message)| stale(path, message)).collect();
-        let judgements = judged
-            .iter()
-            .map(|&(file, key, entry, is_stale, message)| ConfigJudgement::new(file, key, entry, is_stale, message))
-            .collect();
-        Report::new(diagnostics, 1).with_config_judgements(judgements)
-    }
-
-    /// The findings [`shared_config_drops`] takes out of each of `reports`, linted at [`ROOTS`] in order.
-    fn drops(reports: &[Report]) -> Vec<Vec<(String, String)>> {
-        let roots: Vec<(&Path, &Report)> = ROOTS.map(Path::new).into_iter().zip(reports).collect();
-        shared_config_drops(&roots)
-            .into_iter()
-            .map(|dropped| {
-                dropped
-                    .into_iter()
-                    .map(|(path, message)| (slash(&path), message))
-                    .collect()
-            })
-            .collect()
-    }
-
-    fn dropped(path: &str, message: &str) -> Vec<(String, String)> {
-        vec![(path.to_owned(), message.to_owned())]
-    }
-
-    #[test]
-    fn an_entry_of_a_glob_table_one_root_uses_is_stale_nowhere() {
-        let reports = [
-            report(&[], &[]),
-            report(&[], &[(INNER, ENTRY_KEY, "src/extra.js", false, ENTRY)]),
-            report(&[(INNER, ENTRY)], &[(INNER, ENTRY_KEY, "src/extra.js", true, ENTRY)]),
-        ];
-        assert_eq!(drops(&reports), [vec![], vec![], dropped(INNER, ENTRY)]);
-    }
-
-    #[test]
-    fn a_root_that_could_not_judge_an_entry_does_not_hide_it() {
-        let reports = [
-            report(
-                &[(OUTER, DEPENDENCY)],
-                &[(OUTER, "js.ignore-dependencies", "left-pad", true, DEPENDENCY)],
-            ),
-            report(&[], &[]),
-            report(&[], &[]),
-        ];
-        assert!(drops(&reports).iter().all(Vec::is_empty));
-    }
-
-    #[test]
-    fn an_entry_stale_in_every_root_that_judged_it_is_reported_by_the_first() {
-        let judged = |path| (path, "js.ignore-dependencies", "left-pad", true, DEPENDENCY);
-        let reports = [
-            report(&[(OUTER, DEPENDENCY)], &[judged(OUTER)]),
-            report(&[(INNER, DEPENDENCY)], &[judged(INNER)]),
-            report(&[(INNER, DEPENDENCY)], &[judged(INNER)]),
-        ];
-        assert_eq!(
-            drops(&reports),
-            [vec![], dropped(INNER, DEPENDENCY), dropped(INNER, DEPENDENCY)]
-        );
-    }
-
-    #[test]
-    fn a_stale_entry_is_kept_by_the_first_root_that_reports_it() {
-        // The outer root judged the entry stale but does not report it (an `[[ignore]]` entry silences it there).
-        let judged = |path| (path, "js.ignore-dependencies", "left-pad", true, DEPENDENCY);
-        let reports = [
-            report(&[], &[judged(OUTER)]),
-            report(&[(INNER, DEPENDENCY)], &[judged(INNER)]),
-            report(&[], &[]),
-        ];
-        assert_eq!(drops(&reports)[1], Vec::<(String, String)>::new());
-    }
-
-    #[test]
-    fn other_findings_at_a_shared_file_are_reported_by_the_first_root_alone() {
-        let reports = [
-            report(&[(OUTER, HINT), (OUTER, HINT)], &[]),
-            report(&[(INNER, HINT)], &[]),
-            report(&[("package.json", HINT)], &[]),
-        ];
-        assert_eq!(drops(&reports), [vec![], dropped(INNER, HINT), vec![]]);
-    }
-
-    fn run_at(root: &str, report: Report) -> RootRun {
-        let fs = MemoryFs::new().with_file(
-            Path::new(root).join("package.json"),
-            r#"{"name": "app", "version": "1.0.0"}"#,
-        );
-        let config = skif::Config::default();
-        RootRun {
-            prefix: PathBuf::new(),
-            workspace: Workspace::discover_with_fs(Path::new(root), &config, &fs).unwrap(),
-            config,
-            config_path: None,
-            linter: 0,
-            report,
-            extra_entries: Vec::new(),
-            other_root_uses: OtherRootUses::default(),
-            withheld: Vec::new(),
-        }
-    }
-
-    fn messages(run: &RootRun) -> Vec<&str> {
-        run.report
-            .diagnostics
-            .iter()
-            .map(|diagnostic| diagnostic.message.as_str())
-            .collect()
-    }
-
-    #[test]
-    fn settling_again_decides_from_the_findings_an_earlier_decision_withheld() {
-        let judged = |path| (path, "js.ignore-dependencies", "left-pad", true, DEPENDENCY);
-        let mut runs = vec![
-            run_at(ROOTS[0], report(&[(OUTER, DEPENDENCY)], &[judged(OUTER)])),
-            run_at(ROOTS[1], report(&[(INNER, DEPENDENCY)], &[judged(INNER)])),
-        ];
-        settle_shared_config_findings(&mut runs);
-        assert_eq!((messages(&runs[0]), messages(&runs[1])), (vec![DEPENDENCY], vec![]));
-        assert_eq!(runs[1].withheld.len(), 1);
-        // Linted again after fixing, the outer root no longer judges the entry, so the nested root's finding stands.
-        runs[0].report = report(&[], &[]);
-        settle_shared_config_findings(&mut runs);
-        assert_eq!((messages(&runs[0]), messages(&runs[1])), (vec![], vec![DEPENDENCY]));
-        assert_eq!(runs[1].withheld.len(), 0);
-        assert_eq!(runs[1].report.summary.warnings, 1);
-    }
 
     #[test]
     fn join_resolves_parent_segments() {

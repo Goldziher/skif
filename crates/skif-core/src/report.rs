@@ -60,8 +60,8 @@ pub struct Report {
     pub ancestor_dependency_uses: Vec<(PathBuf, String)>,
     /// The entries of configuration lists that `stale-js-config` judged, used or stale, sorted. A list it could not
     /// judge (a rule that consults it did not run, a package whose entry files are not all known) is not here. A
-    /// multi-root host decides from them whether an entry of a file several roots read is stale for the whole run.
-    /// Not rendered.
+    /// multi-root host decides from them whether an entry of a file several roots read is stale for the whole run
+    /// (`settle_shared_config` of the `skif` crate). Not rendered.
     #[serde(skip)]
     #[cfg_attr(feature = "schema", schemars(skip))]
     pub config_judgements: Vec<ConfigJudgement>,
@@ -189,19 +189,6 @@ impl Report {
     #[must_use]
     pub fn retain_mut(mut self, keep: impl FnMut(&mut Diagnostic) -> bool) -> Self {
         self.diagnostics.retain_mut(keep);
-        self.recount();
-        self
-    }
-
-    /// Adds `diagnostics`, sorts them in with the others and counts the summary again; the number of packages and
-    /// everything else stay.
-    #[must_use]
-    pub fn extended(mut self, diagnostics: Vec<Diagnostic>) -> Self {
-        if diagnostics.is_empty() {
-            return self;
-        }
-        self.diagnostics.extend(diagnostics);
-        sort(&mut self.diagnostics);
         self.recount();
         self
     }
@@ -543,23 +530,6 @@ mod tests {
                 packages: 3
             }
         );
-    }
-
-    #[test]
-    fn extended_sorts_the_added_diagnostics_in_and_counts_them() {
-        let all = Report::new(input(), 3);
-        let (kept, taken): (Vec<Diagnostic>, Vec<Diagnostic>) = all
-            .diagnostics
-            .clone()
-            .into_iter()
-            .partition(|diagnostic| diagnostic.rule.as_str() != "b-rule");
-        let judgement = ConfigJudgement::new("skif.toml", "js.entry", "x.js", true, "m");
-        let report = Report::new(kept, 3)
-            .with_config_judgements(vec![judgement.clone(), judgement.clone()])
-            .extended(taken);
-        assert_eq!(report.diagnostics, all.diagnostics);
-        assert_eq!(report.summary, all.summary);
-        assert_eq!(report.config_judgements, [judgement]);
     }
 
     #[test]
