@@ -106,7 +106,9 @@ and a decision reads only the reports it is given. So a finding the decision wou
 removes goes to the next root that still reports it, and deciding a decided report again changes nothing.
 
 * `--fix` writes every plan before it lints again, then lints again every root a plan changed and every root whose
-  configuration is read from a file a plan wrote, so no report that judged a file before it changed takes part.
+  configuration is read from a file a plan wrote, so no report that judged a file before it changed takes part. A
+  write that fails in a later root stops the run before any root is linted again or installed: the files of the
+  earlier roots stay written, and their install steps are reported as skipped.
 * `skif baseline` records each root's findings before any decision, so each root's baseline silences the finding it
   reports, and `baseline write -r` run again adds nothing.
 
@@ -151,14 +153,17 @@ The per-root summaries of the JSON `roots` array add up to the run's summary.
   list, other findings are kept once, findings of other rules are left alone, and deciding again changes nothing. A
   `skif` test lints the targets of `discover_targets` with `Linter` and gets the finding once after the decision.
 * `skif-cli` unit tests cover which roots are linted again after fixing: those a plan changed and those whose
-  configuration file a plan wrote.
+  configuration file a plan wrote. No fix writes a `skif.toml` yet, so the second case has no CLI test.
 * CLI tests cover `skif -r --config` on a project with nested roots: `"."` and `"tools/sub"` tables each configure
   their root with no finding; stale entries of the file are reported exactly once; an ignore entry or a glob table
   entry one root uses is not reported; a root that cannot judge a pattern does not hide it; a start directory that is
-  no root; a discovered file several roots inherit; the lint after `--fix` reporting as a fresh lint does; the stale
-  entry of one package of a glob table reported while a sibling package uses its own; `--workspace` keeping the
-  finding of the root it selects; and `baseline write -r` recording the finding in each root, the lint clean after it,
-  and a second write adding nothing.
+  no root; a discovered file several roots inherit; the lint after `--fix` reporting as a fresh lint does, with the
+  explicit file and with a discovered file whose other root has nothing to fix; the stale entry of one package of a
+  glob table reported while a sibling package uses its own; `--workspace` keeping the finding of the root it selects;
+  and `baseline write -r` recording the finding in each root, the lint clean after it, and a second write adding
+  nothing. A CLI test fixes a member two roots lint: the first root writes it, the second root's write is refused
+  because the file changed after planning, and the run stops with exit 2, naming the written files and the skipped
+  install step.
 * `adrlint lint adrs`, `adrlint format --check adrs` and `adrlint lock --check` pass.
 
 ## Pros and Cons of the Options
