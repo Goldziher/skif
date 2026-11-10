@@ -54,6 +54,11 @@ All notable changes to this project are documented here. The format follows
   ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
 - The shell tokenizer of the `package.json` script parser moved from `skif-js-plugins` to `skif_core::shell`
   (`tokenize`, `Tokens`, `Segment`, `Word`), so rules outside the JS analysis split command lines with it.
+- **Breaking** for `allow` entries that hold glob metacharacters (`*`, `?`, `[`, `{`): the `allow` option of
+  `stray-lockfile` and `nested-workspace-root` takes globs (`packages/*/package-lock.json`), each compiled once per
+  run. An entry still matches its own path literally first, so `app/[id]/package-lock.json` allows that file, but it
+  now also allows every other file it matches as a glob. An invalid glob, a `!` pattern and the package selector
+  `$LOCAL` are configuration errors naming the entry (`allow[0]: ...`). Entries were compared as exact paths only.
 - **Breaking** for library users: `skif_config::Assignment` and `skif_core::IncompleteEntries` (both re-exported by
   `skif`) are `#[non_exhaustive]`, so a later field is not a breaking change. Build them with `Assignment::new` and
   `IncompleteEntries::new(cause).with_plugin(..).with_file(..)`.
@@ -212,9 +217,6 @@ All notable changes to this project are documented here. The format follows
   of `unsafe`: under `[js] discovery = "git"` its findings offer no fix, since the index does not see every untracked
   file ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)); a run that walks the
   directories keeps the unsafe fix that deletes the file.
-- The `allow` option of `stray-lockfile` and `nested-workspace-root` takes globs (`packages/*/package-lock.json`), each
-  compiled once per run; an invalid glob or a `!` pattern is a configuration error naming the entry
-  (`allow[0]: ...`). Entries were compared as exact paths only.
 - An installed package whose manifest declares its binaries with `directories.bin` instead of `bin` provides every
   file below that directory as a binary, named by its file name as npm links it; its binaries were reported as
   unlisted and the package as unused.

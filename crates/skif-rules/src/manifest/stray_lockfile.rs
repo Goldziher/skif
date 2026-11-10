@@ -109,9 +109,9 @@ fn strays(workspace: &Workspace) -> Vec<Stray<'_>> {
 /// reports that), and a member skif ignores or another root of the run lints is left to that root. Files git ignores
 /// are not reported.
 ///
-/// Options (`[rules.stray-lockfile] allow`): paths or globs (`packages/*/package-lock.json`), relative to the workspace
-/// root, of lockfiles kept on purpose, each a string or `{ name, reason }`. An entry that matches no stray lockfile is
-/// reported as stale.
+/// Options (`[rules.stray-lockfile] allow`): paths, matched literally first, or globs (`packages/*/package-lock.json`),
+/// relative to the workspace root, of lockfiles kept on purpose, each a string or `{ name, reason }`. An entry that
+/// matches no stray lockfile is reported as stale.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct StrayLockfile;
 
@@ -435,6 +435,35 @@ mod tests {
         assert_eq!(
             messages,
             ["`tools/**/yarn.lock` in `rules.stray-lockfile.allow` names no stray lockfile"]
+        );
+    }
+
+    #[test]
+    fn an_entry_matches_its_path_literally_before_it_is_a_glob() {
+        let root_json = r#"{"name":"root","private":true,"packageManager":"pnpm@9.0.0","workspaces":["app/*"]}"#;
+        let files = with_root(
+            root_json,
+            &[
+                ("pnpm-lock.yaml", ""),
+                ("app/[id]/package.json", r#"{"name":"id-page"}"#),
+                ("app/[id]/package-lock.json", "{}"),
+                ("app/b/package.json", MEMBER_B),
+                ("app/b/yarn.lock", ""),
+            ],
+        );
+        let allowing = config("[rules.stray-lockfile]\nallow = [\"app/[id]/package-lock.json\"]\n");
+        assert_eq!(paths(&lint(META.id, &files, &allowing)), ["app/b/yarn.lock"]);
+    }
+
+    #[test]
+    fn a_package_selector_is_rejected() {
+        let table: toml::Table = toml::from_str("allow = [\"packages/a/yarn.lock\", \"$LOCAL\"]").unwrap();
+        let error = StrayLockfile.validate_options(&table).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("allow[1]: `$LOCAL` selects workspace packages, not files; list the files to allow"),
+            "{error}"
         );
     }
 
