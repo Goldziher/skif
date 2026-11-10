@@ -762,7 +762,11 @@ fn the_parameters_of_a_function_the_tool_calls_are_unknown() {
     ] {
         let value = extract("webpack.config.js", &source);
         assert_eq!(get(&value, &["entry"]), &ConfigValue::Unknown, "{source}");
-        assert_eq!(get(&value, &["inputs", "analyze"]), &strings(&["./src/analyze.ts"]), "{source}");
+        assert_eq!(
+            get(&value, &["inputs", "analyze"]),
+            &strings(&["./src/analyze.ts"]),
+            "{source}"
+        );
         assert_eq!(get(&value, &["inputs", "index"]), &s("./src/index.ts"), "{source}");
     }
     let called = extract(
@@ -807,7 +811,14 @@ fn an_inherited_key_is_unknown_rather_than_undefined() {
          hasOwnProperty: options.hasOwnProperty ?? 'fallback', valueOf: options.valueOf ?? 'fallback', \
          proto: inherits.mode ?? 'fallback', destructured: pick(options), missing: options.mode ?? 'fallback' };",
     );
-    for key in ["constructor", "toString", "hasOwnProperty", "valueOf", "proto", "destructured"] {
+    for key in [
+        "constructor",
+        "toString",
+        "hasOwnProperty",
+        "valueOf",
+        "proto",
+        "destructured",
+    ] {
         assert_eq!(value.get(key), Some(&ConfigValue::Unknown), "{key}: {value:?}");
     }
     assert_eq!(get(&value, &["missing"]), &s("fallback"));

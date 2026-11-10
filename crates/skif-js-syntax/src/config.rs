@@ -1719,9 +1719,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     _ => ConfigValue::Unknown,
                 }
             }
-            Expression::UnaryExpression(u) if u.operator == UnaryOperator::LogicalNot => {
-                self.truthy(&u.argument, depth).map_or(ConfigValue::Unknown, |t| ConfigValue::Bool(!t))
-            }
+            Expression::UnaryExpression(u) if u.operator == UnaryOperator::LogicalNot => self
+                .truthy(&u.argument, depth)
+                .map_or(ConfigValue::Unknown, |t| ConfigValue::Bool(!t)),
             Expression::LogicalExpression(l) => self.logical(l, depth).0,
             Expression::ConditionalExpression(c) => self.conditional(c, depth),
             Expression::AwaitExpression(a) => self.expr(&a.argument, depth),
@@ -3313,7 +3313,9 @@ fn any_entries(
                     .or_else(|| entry_value(before, key))
             })
             .collect();
-        let each_definite = fields.iter().all(|field| field.as_ref().is_some_and(|(_, definite)| *definite));
+        let each_definite = fields
+            .iter()
+            .all(|field| field.as_ref().is_some_and(|(_, definite)| *definite));
         let values: Vec<Option<ConfigValue>> = fields.into_iter().map(|field| field.map(|(value, _)| value)).collect();
         let definite = each_definite && agree(&values);
         out.push((key.to_owned(), any_of(&values)));
