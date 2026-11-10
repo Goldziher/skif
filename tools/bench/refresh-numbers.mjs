@@ -23,9 +23,7 @@ const KNIP = "knip --reporter json";
 
 /** The marker pair of a block: HTML comments in Markdown, expression comments in MDX. */
 export function markers(name, mdx) {
-  return mdx
-    ? [`{/* ${name}:start */}`, `{/* ${name}:end */}`]
-    : [`<!-- ${name}:start -->`, `<!-- ${name}:end -->`];
+  return mdx ? [`{/* ${name}:start */}`, `{/* ${name}:end */}`] : [`<!-- ${name}:start -->`, `<!-- ${name}:end -->`];
 }
 
 /** Replaces the text between a block's markers; throws when the markers are missing. */
@@ -185,7 +183,9 @@ const count = (value) => value.toLocaleString("en-US");
 /** Every reason the parity baseline cannot be published; empty when it can. */
 export function baselineProblems(baseline) {
   if (!baseline.category_set) {
-    return ["the parity baseline records no category set; re-record it with `mise run parity -- --install --write-baseline`"];
+    return [
+      "the parity baseline records no category set; re-record it with `mise run parity -- --install --write-baseline`",
+    ];
   }
   return Object.entries(baseline.entries)
     .filter(([, entry]) => entry.status === "compared" && entry.skif_rev == null)
