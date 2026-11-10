@@ -129,6 +129,9 @@ pub const UNKNOWN_SPREAD: &str = "...";
 /// (`build: { ...makeLib() }`). A value imported from another module records these as [`UNKNOWN_SPREAD`] too.
 pub const OWN_SPREAD: &str = "...own";
 
+/// The prefix of a [`maybe_key`].
+const MAYBE_PREFIX: &str = "\0maybe:";
+
 impl ConfigValue {
     /// Whether `key` is a key an object records an unknown spread under, [`UNKNOWN_SPREAD`] or [`OWN_SPREAD`].
     #[must_use]
@@ -226,8 +229,12 @@ pub trait ModuleLoader {
 /// `a ? b : c` takes the branch a known test selects; with an unknown test it is what both branches share (for two
 /// objects, every key either has, unknown where they differ or only one has it). `a && b`, `a || b`, `a ?? b` and `!a`
 /// are followed when `a` is known, and `.length` of a known string or array is its length. A member `a.b` of a known
-/// object is the value of its key `b`, unknown when an unknown spread may set it and `null` (standing for `undefined`)
-/// when the object does not have it, so `[...base.plugins, 'x']` and `options.setupFiles ?? []` are known.
+/// object is the value of its key `b`, unknown when an unknown spread may set it or the object may inherit it (a member
+/// of `Object.prototype`, an object with a `__proto__`), and `null` (standing for `undefined`) when the object does
+/// not have it, so `[...base.plugins, 'x']` and `options.setupFiles ?? []` are known; a destructuring reads a key the
+/// same way. A key merged from a spread whose test is unknown (below) may be absent or hold any of the values merged
+/// for it, so a read of it is not definite: `a.b ?? c` and `a.b || c` credit both sides, and a test on it and its
+/// `.length` are unknown.
 /// An `if (test) return a;` before a function's last `return` is followed the same way: a known test takes its branch,
 /// and an unknown one makes the value what both returns share. A spread of a conditional with an unknown test
 /// (`...(tmp && { cacheDir: tmp })`, `...(ci ? { a } : {})`) adds every key a branch sets: a list gets the elements of
@@ -351,9 +358,11 @@ fn evaluate_config(source: &str, path: &Path, modules: Option<&Modules<'_>>) -> 
         value
     };
     let captured = eval.captured.borrow_mut().take();
-    let value = captured.unwrap_or(value);
+    let value = settled(captured.unwrap_or(value));
     let call_arguments = match exported {
-        Exported::Expression(expr) if matches!(value, ConfigValue::Unknown) => eval.unknown_call_arguments(expr, 0),
+        Exported::Expression(expr) if matches!(value, ConfigValue::Unknown) => {
+            eval.unknown_call_arguments(expr, 0).into_iter().map(settled).collect()
+        }
         _ => Vec::new(),
     };
     Some(ExtractedConfig { value, call_arguments })
@@ -1005,7 +1014,7 @@ pub fn extract_constructor_options(source: &str, path: &Path, constructor: &str,
         found: Vec::new(),
     };
     finder.visit_program(program);
-    finder.found
+    finder.found.into_iter().map(settled).collect()
 }
 
 /// Statically evaluates the value of every property named `key` of every object literal in `source`, however deeply
@@ -1048,7 +1057,7 @@ fn find_properties(source: &str, path: &Path, key: &str, call_with: Option<&Conf
         found: Vec::new(),
     };
     finder.visit_program(&program);
-    finder.found
+    finder.found.into_iter().map(settled).collect()
 }
 
 /// Statically evaluates the arguments of every call of a method named `method` in `source`, whatever object it is
@@ -1071,7 +1080,11 @@ pub fn extract_method_calls(source: &str, path: &Path, method: &str) -> Vec<Vec<
         found: Vec::new(),
     };
     finder.visit_program(&program);
-    finder.found
+    finder
+        .found
+        .into_iter()
+        .map(|arguments| arguments.into_iter().map(settled).collect())
+        .collect()
 }
 
 /// Parses `source` as the JavaScript or TypeScript file `path` names, without keeping parentheses; `None` for another
@@ -1158,7 +1171,14 @@ pub(crate) fn imported_calls_in(
         found: Vec::new(),
     };
     finder.visit_program(program);
-    finder.found
+    finder
+        .found
+        .into_iter()
+        .map(|call| ImportedCall {
+            arguments: call.arguments.into_iter().map(settled).collect(),
+            ..call
+        })
+        .collect()
 }
 
 /// The command line of a `(file, [arguments])` call such as `spawn('eslint', ['.'])`: the file and its literal
@@ -1690,7 +1710,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     _ => ConfigValue::Unknown,
                 }
             }
-            Expression::StaticMemberExpression(member) => self.member(member, depth),
+            Expression::StaticMemberExpression(member) => self.member(member, depth).0,
             Expression::NewExpression(new) => self.url(new, depth),
             Expression::UnaryExpression(u) if u.operator == UnaryOperator::UnaryNegation => {
                 match self.expr(&u.argument, depth) {
@@ -1699,9 +1719,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 }
             }
             Expression::UnaryExpression(u) if u.operator == UnaryOperator::LogicalNot => {
-                truthiness(&self.expr(&u.argument, depth)).map_or(ConfigValue::Unknown, |t| ConfigValue::Bool(!t))
+                self.truthy(&u.argument, depth).map_or(ConfigValue::Unknown, |t| ConfigValue::Bool(!t))
             }
-            Expression::LogicalExpression(l) => self.logical(l, depth),
+            Expression::LogicalExpression(l) => self.logical(l, depth).0,
             Expression::ConditionalExpression(c) => self.conditional(c, depth),
             Expression::AwaitExpression(a) => self.expr(&a.argument, depth),
             Expression::ArrayExpression(a) => self.array(&a.elements, depth),
@@ -1947,11 +1967,35 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         ConfigValue::String(out)
     }
 
+    /// The value of `expr` and whether it is definite. A read of a key merged from the branches of a condition the
+    /// evaluator cannot decide ([`Field::Maybe`]) is not: it is the union of the values the key may hold, and the key
+    /// may be absent. Neither is a member of it, nor `a ?? b` or `a || b` over it, which is the union of both sides.
+    fn read(&self, expr: &'p Expression<'a>, depth: u32) -> (ConfigValue, bool) {
+        if depth > MAX_DEPTH {
+            return (ConfigValue::Unknown, true);
+        }
+        let depth = depth + 1;
+        match expr.get_inner_expression() {
+            Expression::StaticMemberExpression(member) => self.member(member, depth),
+            Expression::LogicalExpression(logical) => self.logical(logical, depth),
+            other => (self.expr(other, depth), true),
+        }
+    }
+
+    /// Whether `expr` is truthy; `None` when that is not known, as for a value that is not definite ([`Self::read`]).
+    fn truthy(&self, expr: &'p Expression<'a>, depth: u32) -> Option<bool> {
+        match self.read(expr, depth) {
+            (value, true) => truthiness(&value),
+            (_, false) => None,
+        }
+    }
+
     /// `import.meta.dirname`, `import.meta.filename`, `import.meta.url`, the `pathname` of a `new URL(…)`, an export
-    /// of a namespace import, the `length` of a known string or array, and a key of a known object ([`member_of`]).
-    fn member(&self, member: &'p StaticMemberExpression<'a>, depth: u32) -> ConfigValue {
+    /// of a namespace import, the `length` of a known string or array, and a key of a known object ([`member_of`]),
+    /// with whether the value is definite ([`Self::read`]): the `length` of a value that is not is unknown.
+    fn member(&self, member: &'p StaticMemberExpression<'a>, depth: u32) -> (ConfigValue, bool) {
         let property = member.property.name.as_str();
-        match (member.object.get_inner_expression(), property) {
+        let value = match (member.object.get_inner_expression(), property) {
             (Expression::ImportMeta(_), "dirname") => ConfigValue::String(normalized(&[self.dir])),
             (Expression::ImportMeta(_), "filename" | "url") => ConfigValue::String(self.file_path()),
             (object @ Expression::NewExpression(_), "pathname") => self.expr(object, depth),
@@ -1965,22 +2009,38 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 self.namespace_member(object.name.as_str(), property)
             }
             (object, _) => {
-                let value = self.expr(object, depth);
-                match (&value, property) {
-                    (ConfigValue::String(_) | ConfigValue::Array(_), "length") => length_of(&value),
-                    _ => member_of(&value, property).unwrap_or(ConfigValue::Null),
-                }
+                let (value, definite) = self.read(object, depth);
+                return match (&value, property) {
+                    (_, "length") if !definite => (ConfigValue::Unknown, true),
+                    (ConfigValue::String(_) | ConfigValue::Array(_), "length") => (length_of(&value), true),
+                    _ => match member_of(&value, property) {
+                        Field::Known(value) => (value, true),
+                        Field::Maybe(value) => (value, false),
+                        Field::Absent => (ConfigValue::Null, true),
+                    },
+                };
             }
-        }
+        };
+        (value, true)
     }
 
-    /// `a && b`, `a || b` and `a ?? b`, when `a` decides which side is the value.
-    fn logical(&self, logical: &'p LogicalExpression<'a>, depth: u32) -> ConfigValue {
-        let left = self.expr(&logical.left, depth);
+    /// `a && b`, `a || b` and `a ?? b`, when `a` decides which side is the value, with whether the value is definite
+    /// ([`Self::read`]): over an `a` that is not, `a ?? b` and `a || b` are the union of both sides ([`any_of`]) and
+    /// `a && b` is unknown; the side a definite `a` selects is as definite as it is.
+    fn logical(&self, logical: &'p LogicalExpression<'a>, depth: u32) -> (ConfigValue, bool) {
+        let (left, definite) = self.read(&logical.left, depth);
+        if !definite {
+            return match logical.operator {
+                LogicalOperator::And => (ConfigValue::Unknown, true),
+                LogicalOperator::Or | LogicalOperator::Coalesce => {
+                    (any_of(&[Some(left), Some(self.expr(&logical.right, depth))]), false)
+                }
+            };
+        }
         match left_is_value(logical.operator, &left) {
-            Some(true) => left,
-            Some(false) => self.expr(&logical.right, depth),
-            None => ConfigValue::Unknown,
+            Some(true) => (left, true),
+            Some(false) => self.read(&logical.right, depth),
+            None => (ConfigValue::Unknown, true),
         }
     }
 
@@ -1994,10 +2054,11 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         }
         match expr.get_inner_expression() {
             Expression::LogicalExpression(logical) => {
-                let left = self.expr(&logical.left, depth);
+                let (left, definite) = self.read(&logical.left, depth);
                 let primitive = is_primitive(&logical.left);
                 let decided = match logical.operator {
                     LogicalOperator::Coalesce if primitive && !is_void(&logical.left) => Some(true),
+                    _ if !definite => None,
                     operator => left_is_value(operator, &left),
                 };
                 // The left side as the value: a falsy `a` of `a && b`, a comparison, a negation and `void` add
@@ -2017,7 +2078,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     }
                 }
             }
-            Expression::ConditionalExpression(conditional) => match truthiness(&self.expr(&conditional.test, depth)) {
+            Expression::ConditionalExpression(conditional) => match self.truthy(&conditional.test, depth) {
                 Some(true) => self.possibilities(&conditional.consequent, depth + 1),
                 Some(false) => self.possibilities(&conditional.alternate, depth + 1),
                 None => {
@@ -2051,7 +2112,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// `test ? a : b`: the branch a known test takes, or what both branches have in common when the test is unknown.
     fn conditional(&self, conditional: &'p ConditionalExpression<'a>, depth: u32) -> ConfigValue {
-        match truthiness(&self.expr(&conditional.test, depth)) {
+        match self.truthy(&conditional.test, depth) {
             Some(true) => self.expr(&conditional.consequent, depth),
             Some(false) => self.expr(&conditional.alternate, depth),
             None => either(
@@ -2444,9 +2505,10 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// Binds the names `pattern` declares to the parts of `value` they take, in the innermost frame. A property of an
     /// object pattern takes its key's value as a member read does ([`member_of`]) or, when the object has no such key,
-    /// its default, and `undefined` ([`ConfigValue::Null`]) without one; a name that cannot be known (an array
-    /// pattern, a rest element, a key an unknown spread may provide) is bound to [`ConfigValue::Unknown`], so it does
-    /// not resolve to a binding of an outer scope.
+    /// its default, and `undefined` ([`ConfigValue::Null`]) without one; a key the object may lack or hold one of
+    /// several values in ([`Field::Maybe`]) takes the union of those and the default; a name that cannot be known (an
+    /// array pattern, a rest element, a key an unknown spread may provide) is bound to [`ConfigValue::Unknown`], so it
+    /// does not resolve to a binding of an outer scope.
     fn bind_pattern(&self, pattern: &'p BindingPattern<'a>, value: ConfigValue, depth: u32) {
         match pattern {
             BindingPattern::BindingIdentifier(id) => self.bind(id.name.as_str(), value),
@@ -2455,14 +2517,21 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 for property in &object.properties {
                     let field = match property.key.static_name() {
                         Some(key) => member_of(&value, &crate::js_string(key.as_js_str())),
-                        None => Some(ConfigValue::Unknown),
+                        None => Field::Known(ConfigValue::Unknown),
                     };
                     match (&property.value, field) {
-                        (BindingPattern::AssignmentPattern(p), None) => {
+                        (BindingPattern::AssignmentPattern(p), Field::Absent) => {
                             let default = self.expr(&p.right, depth);
                             self.bind_pattern(&p.left, default, depth);
                         }
-                        (element, field) => self.bind_pattern(element, field.unwrap_or(ConfigValue::Null), depth),
+                        (BindingPattern::AssignmentPattern(p), Field::Maybe(field)) => {
+                            let default = self.expr(&p.right, depth);
+                            self.bind_pattern(&p.left, any_of(&[Some(field), Some(default)]), depth);
+                        }
+                        (element, Field::Known(field) | Field::Maybe(field)) => {
+                            self.bind_pattern(element, field, depth);
+                        }
+                        (element, Field::Absent) => self.bind_pattern(element, ConfigValue::Null, depth),
                     }
                 }
                 if let Some(rest) = &object.rest {
@@ -2526,7 +2595,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 }
                 Statement::IfStatement(i) => {
                     self.havoc(Writes::of_expression(&i.test));
-                    let taken = match truthiness(&self.expr(&i.test, depth)) {
+                    let taken = match self.truthy(&i.test, depth) {
                         Some(true) => Some(&i.consequent),
                         Some(false) => i.alternate.as_ref(),
                         None => {
@@ -2737,6 +2806,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     Some((_, slot)) => *slot = value,
                     None => entries.push((key.to_owned(), value)),
                 }
+                // The key now holds the value set.
+                let marker = maybe_key(key);
+                entries.retain(|(existing, _)| *existing != marker);
             }
             // `list.length = 0` on an array.
             Some(Binding::Value(ConfigValue::Array(items))) => items.push(ConfigValue::Unknown),
@@ -2886,7 +2958,12 @@ fn merge_objects(base: &mut Vec<(String, ConfigValue)>, incoming: Vec<(String, C
                 known.push(ConfigValue::Unknown);
                 *slot = ConfigValue::Array(known);
             }
-            (_, _, value) => *slot = value,
+            (_, _, value) => {
+                *slot = value;
+                // The key now holds the incoming value, which brings its own marker when it has one.
+                let marker = maybe_key(&key);
+                base.retain(|(existing, _)| *existing != marker);
+            }
         }
     }
 }
@@ -3116,20 +3193,57 @@ fn spread_entries(value: ConfigValue) -> Option<Vec<(String, ConfigValue)>> {
     }
 }
 
-/// The value of `key` in the entries of an object: the last entry for it, unknown when an unknown spread follows it,
-/// and `None` when the object has neither.
-fn entry_value(entries: &[(String, ConfigValue)], key: &str) -> Option<ConfigValue> {
-    entries
-        .iter()
-        .rev()
-        .find(|(name, _)| name == key || ConfigValue::is_spread_key(name))
-        .map(|(name, value)| {
-            if ConfigValue::is_spread_key(name) {
-                ConfigValue::Unknown
-            } else {
-                value.clone()
-            }
-        })
+/// The value of `key` in the entries of an object and whether it is definite: the last entry for it, unknown when an
+/// unknown spread follows it, and not definite when a marker for it ([`maybe_key`]) follows it; `None` when the object
+/// has neither.
+fn entry_value(entries: &[(String, ConfigValue)], key: &str) -> Option<(ConfigValue, bool)> {
+    let mut definite = true;
+    for (name, value) in entries.iter().rev() {
+        if name == key {
+            return Some((value.clone(), definite));
+        }
+        if ConfigValue::is_spread_key(name) {
+            return Some((ConfigValue::Unknown, true));
+        }
+        if name.strip_prefix(MAYBE_PREFIX) == Some(key) {
+            definite = false;
+        }
+    }
+    None
+}
+
+/// The key an object records right after `key` when `key` was merged from the branches of a condition the evaluator
+/// cannot decide ([`any_entries`]): the object may lack it, or hold any one of the values its union lists. Only the
+/// evaluator sees it: a value leaving it is [`settled`].
+fn maybe_key(key: &str) -> String {
+    format!("{MAYBE_PREFIX}{key}")
+}
+
+/// `value` without the keys [`maybe_key`] adds, as the evaluator hands it out.
+fn settled(value: ConfigValue) -> ConfigValue {
+    match value {
+        ConfigValue::Object(entries) => ConfigValue::Object(
+            entries
+                .into_iter()
+                .filter(|(key, _)| !key.starts_with(MAYBE_PREFIX))
+                .map(|(key, value)| (key, settled(value)))
+                .collect(),
+        ),
+        ConfigValue::Array(items) => ConfigValue::Array(items.into_iter().map(settled).collect()),
+        other => other,
+    }
+}
+
+/// What a member read or a destructuring takes from a key of a value.
+enum Field {
+    /// The key's value: unknown when an unknown spread may set it, the object may inherit it or the value is not a
+    /// known object.
+    Known(ConfigValue),
+    /// The union of the values ([`any_of`]) of a key merged from the branches of a condition the evaluator cannot
+    /// decide: the object may lack the key or hold any one of them.
+    Maybe(ConfigValue),
+    /// The object does not have the key: it is `undefined`.
+    Absent,
 }
 
 /// The `length` of a string or an array; unknown for an array with an unknown element, which may stand for a spread of
@@ -3146,14 +3260,17 @@ fn length_of(value: &ConfigValue) -> ConfigValue {
 }
 
 /// `value.key`, as a member read or a destructuring takes it: the value of `key` in a known object ([`entry_value`]),
-/// unknown for a member of anything else and for a key the object may inherit ([`inherits`]), and `None` when the
-/// object has neither the key nor an unknown spread, which is `undefined` there.
-fn member_of(value: &ConfigValue, key: &str) -> Option<ConfigValue> {
-    match value {
-        ConfigValue::Object(entries) => {
-            entry_value(entries, key).or_else(|| inherits(entries, key).then_some(ConfigValue::Unknown))
-        }
-        _ => Some(ConfigValue::Unknown),
+/// not definite for a key merged from undecided branches; unknown for a member of anything else and for a key the
+/// object may inherit ([`inherits`]); and absent when the object has neither the key nor an unknown spread.
+fn member_of(value: &ConfigValue, key: &str) -> Field {
+    let ConfigValue::Object(entries) = value else {
+        return Field::Known(ConfigValue::Unknown);
+    };
+    match entry_value(entries, key) {
+        Some((value, true)) => Field::Known(value),
+        Some((value, false)) => Field::Maybe(value),
+        None if inherits(entries, key) => Field::Known(ConfigValue::Unknown),
+        None => Field::Absent,
     }
 }
 
@@ -3172,7 +3289,8 @@ fn spread_any(before: &[(String, ConfigValue)], branches: &[Vec<(String, ConfigV
 
 /// The entries of an object that is one of `objects`, `None` standing for a branch without the object: each key any
 /// of them has, with [`any_of`] what each leaves it (its own value, or the one in `before` when it does not have the
-/// key), and the marker key `...` last when one of them has an unknown spread.
+/// key), followed by its [`maybe_key`] unless every branch leaves it the same definite value, and the marker key `...`
+/// last when one of them has an unknown spread.
 fn any_entries(
     objects: &[Option<&[(String, ConfigValue)]>],
     before: &[(String, ConfigValue)],
@@ -3180,24 +3298,28 @@ fn any_entries(
     let entries = || objects.iter().flatten().copied().flatten();
     let mut keys: Vec<&str> = Vec::new();
     for (key, _) in entries() {
-        if !ConfigValue::is_spread_key(key) && !keys.contains(&key.as_str()) {
+        if !ConfigValue::is_spread_key(key) && !key.starts_with(MAYBE_PREFIX) && !keys.contains(&key.as_str()) {
             keys.push(key);
         }
     }
-    let mut out: Vec<(String, ConfigValue)> = keys
-        .into_iter()
-        .map(|key| {
-            let values: Vec<Option<ConfigValue>> = objects
-                .iter()
-                .map(|object| {
-                    object
-                        .and_then(|object| entry_value(object, key))
-                        .or_else(|| entry_value(before, key))
-                })
-                .collect();
-            (key.to_owned(), any_of(&values))
-        })
-        .collect();
+    let mut out: Vec<(String, ConfigValue)> = Vec::new();
+    for key in keys {
+        let fields: Vec<Option<(ConfigValue, bool)>> = objects
+            .iter()
+            .map(|object| {
+                object
+                    .and_then(|object| entry_value(object, key))
+                    .or_else(|| entry_value(before, key))
+            })
+            .collect();
+        let each_definite = fields.iter().all(|field| field.as_ref().is_some_and(|(_, definite)| *definite));
+        let values: Vec<Option<ConfigValue>> = fields.into_iter().map(|field| field.map(|(value, _)| value)).collect();
+        let definite = each_definite && agree(&values);
+        out.push((key.to_owned(), any_of(&values)));
+        if !definite {
+            out.push((maybe_key(key), ConfigValue::Null));
+        }
+    }
     for marker in [UNKNOWN_SPREAD, OWN_SPREAD] {
         if entries().any(|(key, _)| key == marker) {
             out.push((marker.to_owned(), ConfigValue::Unknown));
@@ -3215,7 +3337,7 @@ fn any_of(values: &[Option<ConfigValue>]) -> ConfigValue {
     let Some(&first) = present.first() else {
         return ConfigValue::Unknown;
     };
-    if present.len() == values.len() && present.iter().all(|value| *value == first) {
+    if agree(values) {
         return first.clone();
     }
     let lists: Option<Vec<&[ConfigValue]>> = present
@@ -3248,6 +3370,13 @@ fn any_of(values: &[Option<ConfigValue>]) -> ConfigValue {
     objects.map_or(ConfigValue::Unknown, |objects| {
         ConfigValue::Object(any_entries(&objects, &[]))
     })
+}
+
+/// Whether every one of `values` is present and they are all the same.
+fn agree(values: &[Option<ConfigValue>]) -> bool {
+    values
+        .first()
+        .is_some_and(|first| first.is_some() && values.iter().all(|value| value == first))
 }
 
 /// Whether a value is truthy in JavaScript; `None` when it is unknown.
