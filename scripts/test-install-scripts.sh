@@ -209,6 +209,14 @@ libc_case "musl banner gets musl" musl "" "musl libc (x86_64)"
 libc_case "an unidentifiable libc gets musl" musl "" ""
 libc_case "an unparseable version gets musl" musl "glibc banana" ""
 
+# A glibc host with the musl loader installed (Debian's musl package puts it in /lib) is still glibc. `compgen` is
+# shadowed by a function that reports the loader, so no host file is needed.
+# shellcheck disable=SC2016
+expect "libc: glibc 2.35 with /lib/ld-musl-* installed" 0 env PATH="${libc_stubs}:${PATH}" STUB_GETCONF="glibc 2.35" \
+  STUB_LDD="ldd (Ubuntu GLIBC 2.35-0ubuntu3.8) 2.35" bash -c \
+  'compgen() { [[ "$*" == *ld-musl* ]] && echo /lib/ld-musl-x86_64.so.1; }; source "$1/scripts/lib/libc.sh" && skif_libc' _ "$repo"
+[[ "$(tail -n 1 "${work}/out")" == gnu ]] || fail "libc: a glibc host with the musl loader picked '$(tail -n 1 "${work}/out")', want gnu"
+
 # The container smoke check: it must pass when the rule matches the expectation and fail when it does not.
 smoke_bins="${work}/smoke-bins"
 for flavour in gnu musl; do
