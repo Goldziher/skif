@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 use skif_config::{PluginConfig, PluginOptions};
 use skif_core::MemoryFs;
 use skif_js_plugins::registry;
-use skif_js_plugins::{DepRef, PluginContext, PluginId, PluginOutput, resolve_plugins};
+use skif_js_plugins::{DepRef, IncompleteCause, PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
@@ -561,6 +561,60 @@ fn vite() {
     let out = output(&results, "vite");
     assert_entries(&out.production_entries, &["src/main.ts", "src/index.tsx"]);
     assert_deps(out, &["react", "lodash"]);
+}
+
+/// Vite 8 takes the build input from `build.rolldownOptions`, before the `build.rollupOptions` it still accepts; an
+/// input it computes leaves the entries incomplete, as for Rollup. electron-vite sections read it the same way.
+#[test]
+fn vite_reads_the_rolldown_build_input() {
+    let results = resolve(
+        &[
+            (
+                "vite.config.js",
+                r#"export default { build: { rolldownOptions: { input: { admin: "admin.html", worker: "src/worker.js" } }, rollupOptions: { input: "src/stale.js" } } };"#,
+            ),
+            (
+                "admin.html",
+                r#"<html><script type="module" src="/src/admin/index.js"></script></html>"#,
+            ),
+        ],
+        &["vite"],
+    );
+    let out = output(&results, "vite");
+    let production: BTreeSet<&str> = out.production_entries.iter().map(String::as_str).collect();
+    assert_eq!(production, BTreeSet::from(["src/admin/index.js", "src/worker.js"]));
+    assert!(!out.entries_incomplete, "{:?}", out.incomplete_reasons);
+
+    let computed = resolve(
+        &[(
+            "vite.config.js",
+            "import path from 'node:path';\nconst PAGES = ['a', 'b'];\nexport default { build: { rolldownOptions: { input: Object.fromEntries(PAGES.map((p) => [p, path.resolve(__dirname, `${p}.html`)]).concat(process.env.X)) } } };\n",
+        )],
+        &["vite"],
+    );
+    let out = output(&computed, "vite");
+    assert!(out.entries_incomplete);
+    assert!(
+        out.incomplete_reasons
+            .iter()
+            .any(|reason| reason.cause == IncompleteCause::ComputedEntries),
+        "{:?}",
+        out.incomplete_reasons
+    );
+
+    let electron = resolve(
+        &[(
+            "electron.vite.config.ts",
+            r#"export default { main: { build: { rolldownOptions: { input: "src/main/app.ts" } } } };"#,
+        )],
+        &["electron-vite"],
+    );
+    let out = output(&electron, "electron-vite");
+    assert!(
+        out.production_entries.iter().any(|entry| entry == "src/main/app.ts"),
+        "{:?}",
+        out.production_entries
+    );
 }
 
 #[test]
