@@ -160,7 +160,9 @@ mod tests {
         let root_json = root("");
         let files = files(&root_json);
         let mut workspace = crate::testing::workspace(&files, &config(""));
-        workspace.ignore_dirs(&std::collections::BTreeSet::from([Path::new("/ws/packages/a").to_path_buf()]));
+        workspace.ignore_dirs(&std::collections::BTreeSet::from([
+            Path::new("/ws/packages/a").to_path_buf()
+        ]));
         let registry = skif_lint::Registry::new(crate::providers()).unwrap();
         let diagnostics: Vec<_> =
             skif_lint::run_unsorted(&registry, &workspace, &config(""), &skif_lint::RunOptions::default())
@@ -182,7 +184,9 @@ mod tests {
         let messages: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
         assert_eq!(
             messages,
-            ["`tools/x/pnpm-workspace.yaml` in `rules.nested-workspace-root.allow` names no nested `pnpm-workspace.yaml`"]
+            [
+                "`tools/x/pnpm-workspace.yaml` in `rules.nested-workspace-root.allow` names no nested `pnpm-workspace.yaml`"
+            ]
         );
         assert_eq!(paths(&diagnostics), ["skif.toml"]);
     }
