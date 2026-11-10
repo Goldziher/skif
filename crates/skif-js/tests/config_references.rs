@@ -473,7 +473,7 @@ fn packages_an_imported_shared_config_names_are_charged_to_its_package() {
         ),
         (
             "packages/app/stylelint.config.mjs",
-            "import baseConfig from '@x/style';\nexport default { ...baseConfig, plugins: ['stylelint-own'] };\n",
+            "import baseConfig from '@x/style';\nexport default { ...baseConfig, extends: ['stylelint-own'] };\n",
         ),
         ("packages/app/src/index.ts", "export const a = 1;\n"),
         (
