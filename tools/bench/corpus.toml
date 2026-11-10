@@ -9,12 +9,14 @@
 #   install          false when the dependencies cannot be installed (the reason is in `notes`); compared uninstalled
 #   install-command  optional install command (program first) replacing the package manager's default
 #   install-timeout-secs  optional install time limit, replacing the global --timeout-secs for the install only
+#   build-command    optional command (program first) run after the install, building packages the configs load
+#   build-timeout-secs  optional build-command time limit, the install's when unset
 #   recursive        true when skif must run with --recursive here (nested roots that are not workspace members)
 #   knip-unread      path prefixes knip does not read here; one-sided findings below them are a known deviation
 #   entry            entry files of the root workspace neither tool finds (globs); both get them besides their defaults
 #   bench-knip-args  extra knip arguments when `skif-bench run` times it here, so it reads the files skif reads
 #   knip-invalid     why knip's report here is not a valid comparison; the repository is compared and its row marked
-#   knip-root        "rush": knip runs in a scratch clone with a root package.json whose workspaces come from rush.json
+#   knip-root        "rush": while knip runs, the checkout gets a root package.json whose workspaces come from rush.json
 #   notes            why the repository is in the corpus and what to expect from it
 
 # The comparison tools, pinned in this one place: parity, syncpack-diff and deadcode run them through npx, and
@@ -124,9 +126,12 @@ url = "https://github.com/microsoft/rushstack.git"
 rev = "ca0b960ced9324f65be85800a72184edeb91cc3b"
 package-manager = "rush"
 suites = ["parity"]
-install = false
+# install-run-rush.js fetches the Rush version rush.json pins and installs every subspace from its lockfile under
+# common/config/subspaces; --bypass-policy skips the git email policy, which a CI checkout cannot meet.
+install-command = ["node", "common/scripts/install-run-rush.js", "install", "--bypass-policy"]
+install-timeout-secs = 3600
 knip-root = "rush"
-notes = "Rush workspace (rush.json) without a root package.json, for skif and the syncpack diff. The install (rush, lockfiles under common/config/subspaces) is not attempted, so parity compares it uninstalled. knip has no Rush support and needs a root package.json, so it runs in a scratch clone of the checkout that gets one, with the projectFolder of every rush.json project as its workspaces."
+notes = "Rush workspace (rush.json) without a root package.json, for skif and the syncpack diff. knip has no Rush support and needs a root package.json, so while it runs the checkout gets one with the projectFolder of every rush.json project as its workspaces, and knip reads the node_modules the Rush install linked into each project."
 
 [[repo]]
 name = "vscode"
@@ -175,7 +180,24 @@ url = "https://github.com/n8n-io/n8n.git"
 rev = "c1420c66253871bacecbe7148754ca050a81e7f2"
 package-manager = "pnpm"
 suites = ["parity"]
-knip-invalid = "knip cannot load the configs that import the workspace's own config packages (@n8n/*-config), because the install runs without scripts and those packages have no built dist"
+# The tool configurations of the packages import the built dist of these workspace config packages; the install runs
+# without scripts, so they are built here, each with the workspace packages it depends on (`...`), in dependency order.
+build-command = [
+  "pnpm",
+  "--filter",
+  "@n8n/oxlint-config...",
+  "--filter",
+  "@n8n/vitest-config...",
+  "--filter",
+  "@n8n/eslint-config...",
+  "--filter",
+  "@n8n/stylelint-config...",
+  "--filter",
+  "@n8n/constants...",
+  "run",
+  "build",
+]
+knip-invalid = "knip could not load the configs that import the workspace's own config packages (@n8n/*-config), whose built dist an install without scripts leaves out; the build-command now builds them, and this mark stays until a parity run confirms that knip loads those configs"
 notes = "Large pnpm workspace with many nodes packages."
 
 [[repo]]

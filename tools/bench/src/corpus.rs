@@ -1,6 +1,7 @@
 //! The pinned corpus: real monorepos fetched at fixed commits.
 
-use std::fs;
+use std::fs::{self, File, OpenOptions, TryLockError};
+use std::io::{ErrorKind, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -74,10 +75,45 @@ pub struct Repo {
     /// root `package.json` made from `rush.json`.
     #[serde(default)]
     pub knip_root: Option<String>,
+    /// A command (program first) run in the checkout after a successful install, before the install counts as done:
+    /// it builds the workspace packages whose built output the tools' configurations load, which an install without
+    /// lifecycle scripts leaves unbuilt.
+    #[serde(default)]
+    pub build_command: Vec<String>,
+    /// Seconds the `build-command` may take; the install's time limit when unset.
+    #[serde(default)]
+    pub build_timeout_secs: Option<u64>,
 }
 
-/// The `knip-root` of a Rush repository: knip runs in a scratch copy with a root `package.json` made from `rush.json`.
+/// The `knip-root` of a Rush repository: knip runs in the checkout with a root `package.json` made from `rush.json`,
+/// which is there only while knip runs.
 pub const RUSH_KNIP_ROOT: &str = "rush";
+
+/// The `//` field of the root `package.json` the knip comparison writes into a Rush checkout for the knip run: a root
+/// manifest holding it is the harness's own, left behind by an interrupted run.
+pub const SCRATCH_ROOT_MARK: &str = "written by skif-bench for the knip run and removed after it";
+
+/// Whether the `package.json` at `path` is a scratch root manifest of the knip comparison ([`SCRATCH_ROOT_MARK`]).
+#[must_use]
+pub fn is_scratch_root(path: &Path) -> bool {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .is_some_and(|manifest| manifest.get("//").and_then(serde_json::Value::as_str) == Some(SCRATCH_ROOT_MARK))
+}
+
+/// Removes the scratch root manifest an interrupted knip comparison left in a checkout, so no other run reads it.
+///
+/// # Errors
+/// Fails when the file cannot be removed.
+pub fn remove_scratch_root(dir: &Path) -> Result<()> {
+    let path = dir.join("package.json");
+    if is_scratch_root(&path) {
+        eprintln!("corpus: removing the scratch root manifest {}", path.display());
+        fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
+    }
+    Ok(())
+}
 
 const fn default_install() -> bool {
     true
@@ -160,6 +196,7 @@ pub fn fetch_repo(repo: &Repo, cache: &Path) -> Result<PathBuf> {
     let dir = cache.join(&repo.name);
     if is_checked_out(&dir, &repo.rev) {
         eprintln!("corpus: {} already at {}", repo.name, &repo.rev[..12]);
+        remove_scratch_root(&dir)?;
         return Ok(dir);
     }
     eprintln!("corpus: fetching {} at {}", repo.name, &repo.rev[..12]);
@@ -177,26 +214,111 @@ pub fn fetch_repo(repo: &Repo, cache: &Path) -> Result<PathBuf> {
     }
     git(&dir, &["fetch", "--quiet", "--depth", "1", "origin", &repo.rev])?;
     git(&dir, &["checkout", "--quiet", "--force", "--detach", &repo.rev])?;
+    remove_scratch_root(&dir)?;
     Ok(dir)
 }
 
-/// Fetches the repositories of one suite, optionally narrowed to the named ones.
+/// An exclusive lock on one checkout of the corpus, released when it is dropped or the process ends. A command holds
+/// it from the fetch to the end of its pass over the repository, so two runs never install into, write a scratch
+/// root manifest into or time the same checkout at once. The lock is the operating system's file lock on
+/// [`lock_path`], so a run that dies leaves no stale lock; the file holds the process id of the holder for the error
+/// message and is left in place. On Windows the lock also keeps other processes from reading the file, so the message
+/// there names no process id.
+#[derive(Debug)]
+pub struct CheckoutLock {
+    _file: File,
+}
+
+/// The lock file of the checkout `dir`: `<name>.lock` beside it, outside the checkout, so no tool reads it.
+#[must_use]
+pub fn lock_path(dir: &Path) -> PathBuf {
+    let mut name = dir.file_name().map(std::ffi::OsStr::to_os_string).unwrap_or_default();
+    name.push(".lock");
+    dir.with_file_name(name)
+}
+
+/// Takes the lock of the checkout `dir`, or fails at once when another process holds it.
 ///
 /// # Errors
-/// Fails on the first repository that cannot be fetched.
-pub fn fetch_suite(
-    manifest: &Path,
-    suite: &str,
-    only: &[String],
-    cache: &Path,
-) -> Result<(Tools, Vec<(Repo, PathBuf)>)> {
+/// Fails when another process holds the lock, naming its process id when the lock file can be read, or when the lock
+/// file cannot be opened, locked or written; a corpus directory that is not writable is named as such, since a read-only
+/// cache is not supported.
+pub fn lock_checkout(dir: &Path) -> Result<CheckoutLock> {
+    let path = lock_path(dir);
+    let opened = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path);
+    let mut file = match opened {
+        Ok(file) => file,
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem
+            ) =>
+        {
+            bail!(
+                "cannot create the lock file {} ({error}): the corpus directory is not writable, and skif-bench \
+                 needs a writable one to lock, fetch and install its checkouts",
+                path.display()
+            );
+        }
+        Err(error) => return Err(error).with_context(|| format!("opening the lock file {}", path.display())),
+    };
+    match file.try_lock() {
+        Ok(()) => {}
+        Err(TryLockError::WouldBlock) => {
+            let holder = fs::read_to_string(&path)
+                .ok()
+                .map(|text| text.trim().to_owned())
+                .filter(|pid| !pid.is_empty())
+                .map_or_else(|| "another process".to_owned(), |pid| format!("process {pid}"));
+            bail!(
+                "{} is in use by {holder} (lock file {}): wait for that skif-bench run to finish",
+                dir.display(),
+                path.display()
+            );
+        }
+        Err(TryLockError::Error(error)) => {
+            return Err(error).with_context(|| format!("locking {}", path.display()));
+        }
+    }
+    file.set_len(0)
+        .and_then(|()| write!(file, "{}", std::process::id()))
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(CheckoutLock { _file: file })
+}
+
+/// The checkouts of one suite at their pinned commits, each locked ([`CheckoutLock`]) for as long as this value lives:
+/// keep it until the pass over the repositories is done.
+#[derive(Debug)]
+pub struct Suite {
+    pub tools: Tools,
+    pub repos: Vec<(Repo, PathBuf)>,
+    _locks: Vec<CheckoutLock>,
+}
+
+/// Locks and fetches the repositories of one suite, optionally narrowed to the named ones.
+///
+/// # Errors
+/// Fails on the first repository whose checkout another run holds or that cannot be fetched.
+pub fn fetch_suite(manifest: &Path, suite: &str, only: &[String], cache: &Path) -> Result<Suite> {
     fs::create_dir_all(cache).with_context(|| format!("creating {}", cache.display()))?;
-    let (tools, repos) = select(manifest, suite, only)?;
-    let fetched = repos
-        .into_iter()
-        .map(|repo| fetch_repo(&repo, cache).map(|dir| (repo, dir)))
-        .collect::<Result<Vec<_>>>()?;
-    Ok((tools, fetched))
+    let (tools, selected) = select(manifest, suite, only)?;
+    let mut repos = Vec::with_capacity(selected.len());
+    let mut locks = Vec::with_capacity(selected.len());
+    for repo in selected {
+        locks.push(lock_checkout(&cache.join(&repo.name))?);
+        let dir = fetch_repo(&repo, cache)?;
+        repos.push((repo, dir));
+    }
+    Ok(Suite {
+        tools,
+        repos,
+        _locks: locks,
+    })
 }
 
 #[cfg(test)]
@@ -237,14 +359,28 @@ mod tests {
     fn n8n_is_marked_as_an_invalid_knip_comparison() {
         let repos = manifest().repo;
         let n8n = repos.iter().find(|r| r.name == "n8n").unwrap();
-        assert!(n8n.knip_invalid.as_deref().is_some_and(|why| why.contains("dist")));
+        assert!(
+            n8n.knip_invalid
+                .as_deref()
+                .is_some_and(|why| { why.contains("dist") && why.contains("until a parity run confirms") })
+        );
         assert_eq!(repos.iter().filter(|r| r.knip_invalid.is_some()).count(), 1);
     }
 
     #[test]
-    fn rushstack_runs_knip_in_a_synthesized_root() {
+    fn rushstack_installs_with_rush_and_runs_knip_in_a_synthesized_root() {
         let repos = manifest().repo;
         let rushstack = repos.iter().find(|r| r.name == "rushstack").unwrap();
+        assert!(rushstack.install);
+        assert_eq!(
+            rushstack.install_command,
+            [
+                "node",
+                "common/scripts/install-run-rush.js",
+                "install",
+                "--bypass-policy"
+            ]
+        );
         assert_eq!(rushstack.knip_root.as_deref(), Some(RUSH_KNIP_ROOT));
         assert!(
             repos
@@ -255,11 +391,101 @@ mod tests {
     }
 
     #[test]
+    fn n8n_builds_the_config_packages_its_tool_configurations_load() {
+        let repos = manifest().repo;
+        let n8n = repos.iter().find(|r| r.name == "n8n").unwrap();
+        assert_eq!(n8n.build_command.first().map(String::as_str), Some("pnpm"));
+        for package in [
+            "@n8n/oxlint-config",
+            "@n8n/vitest-config",
+            "@n8n/eslint-config",
+            "@n8n/stylelint-config",
+            "@n8n/constants",
+        ] {
+            let filter = format!("{package}...");
+            assert!(n8n.build_command.contains(&filter), "{filter}");
+        }
+        assert_eq!(&n8n.build_command[n8n.build_command.len() - 2..], ["run", "build"]);
+        assert!(
+            repos
+                .iter()
+                .filter(|r| r.name != "n8n")
+                .all(|r| r.build_command.is_empty())
+        );
+    }
+
+    #[test]
     fn opencode_installs_with_a_pinned_bun() {
         let repos = manifest().repo;
         let opencode = repos.iter().find(|r| r.name == "opencode").unwrap();
         assert_eq!(&opencode.install_command[..5], ["mise", "x", "bun@1.3.14", "--", "bun"]);
         assert!(opencode.install_command.iter().any(|arg| arg == "--frozen-lockfile"));
+    }
+
+    #[test]
+    fn only_the_harness_scratch_root_manifest_is_removed() {
+        let dir = std::env::temp_dir().join(format!("skif-bench-scratch-root-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let manifest = dir.join("package.json");
+        let own = serde_json::json!({ "//": SCRATCH_ROOT_MARK, "private": true, "workspaces": ["apps/a"] });
+        fs::write(&manifest, own.to_string()).unwrap();
+        assert!(is_scratch_root(&manifest));
+        remove_scratch_root(&dir).unwrap();
+        assert!(!manifest.exists());
+        remove_scratch_root(&dir).unwrap();
+        fs::write(&manifest, r#"{ "name": "real", "//": "a comment" }"#).unwrap();
+        remove_scratch_root(&dir).unwrap();
+        assert!(manifest.exists(), "a manifest of the repository stays");
+        fs::write(&manifest, "{ not json").unwrap();
+        remove_scratch_root(&dir).unwrap();
+        assert!(manifest.exists());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_checkout_another_run_holds_fails_at_once_and_frees_when_released() {
+        let cache = std::env::temp_dir().join(format!("skif-bench-lock-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&cache);
+        fs::create_dir_all(&cache).unwrap();
+        let dir = cache.join("jest");
+        assert_eq!(lock_path(&dir), cache.join("jest.lock"));
+        let held = lock_checkout(&dir).unwrap();
+        assert_eq!(
+            fs::read_to_string(lock_path(&dir)).unwrap(),
+            std::process::id().to_string()
+        );
+        let error = lock_checkout(&dir).unwrap_err().to_string();
+        assert!(error.contains("is in use by"), "{error}");
+        assert!(error.contains("jest.lock"), "{error}");
+        #[cfg(unix)]
+        assert!(error.contains(&format!("process {}", std::process::id())), "{error}");
+        drop(held);
+        let again = lock_checkout(&dir);
+        assert!(again.is_ok(), "a released lock is free: {again:?}");
+        drop(again);
+        fs::remove_dir_all(&cache).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_corpus_directory_that_is_not_writable_is_named_as_such() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let cache = std::env::temp_dir().join(format!("skif-bench-lock-read-only-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&cache);
+        fs::create_dir_all(&cache).unwrap();
+        fs::set_permissions(&cache, fs::Permissions::from_mode(0o555)).unwrap();
+        // A superuser writes into a read-only directory anyway, so there is nothing to refuse.
+        let writable = File::create(cache.join("probe")).is_ok();
+        let result = lock_checkout(&cache.join("jest"));
+        fs::set_permissions(&cache, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::remove_dir_all(&cache).unwrap();
+        if writable {
+            return;
+        }
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("the corpus directory is not writable"), "{error}");
+        assert!(error.contains("jest.lock"), "{error}");
     }
 
     #[test]

@@ -21,6 +21,7 @@ use crate::diff::{self, BASELINE_SCHEMA, Baseline, CaseSummary, Counts, Entry, G
 use crate::evidence::{Evidence, SYNCPACK_DEVIATIONS};
 use crate::parity::normalize;
 use crate::proc::{capture, find_on_path};
+use crate::run::table_cell;
 
 /// The skif rules that report syncpack's findings.
 const POLICY_RULES: [&str; 9] = [
@@ -370,7 +371,7 @@ fn run_pair(
     if let Some(config) = skif_config {
         skif_command.arg("--config").arg(config);
     }
-    let skif_run = capture(&mut skif_command, scratch, "skif", options.timeout)?;
+    let skif_run = capture(&mut skif_command, scratch, "skif-syncpack", options.timeout)?;
     if skif_run.timed_out {
         return Ok(Err("skif timed out".to_owned()));
     }
@@ -641,7 +642,8 @@ fn markdown(tool: &str, entries: &BTreeMap<String, Entry>) -> String {
                 .map_or_else(|| "-".to_owned(), |c| c.differing.len().to_string());
             let _ = writeln!(
                 out,
-                "| {name} | compared | {} | {} | {} | {} | {differing} |",
+                "| {} | compared | {} | {} | {} | {} | {differing} |",
+                table_cell(name),
                 sum(|c| c.skif_only),
                 sum(|c| c.tool_only),
                 sum(|c| c.both),
@@ -650,8 +652,9 @@ fn markdown(tool: &str, entries: &BTreeMap<String, Entry>) -> String {
         } else {
             let _ = writeln!(
                 out,
-                "| {name} | skipped: {} | - | - | - | - | - |",
-                entry.reason.as_deref().unwrap_or("")
+                "| {} | skipped: {} | - | - | - | - | - |",
+                table_cell(name),
+                table_cell(entry.reason.as_deref().unwrap_or(""))
             );
         }
     }
@@ -685,8 +688,8 @@ pub fn run(options: &Options) -> Result<()> {
         entries.insert(FIXTURES_ENTRY.to_owned(), entry);
     }
     if !options.no_corpus {
-        let (_, repos) = corpus::fetch_suite(&options.corpus_file, "parity", &options.only, &options.corpus_dir)?;
-        for (repo, dir) in &repos {
+        let suite = corpus::fetch_suite(&options.corpus_file, "parity", &options.only, &options.corpus_dir)?;
+        for (repo, dir) in &suite.repos {
             eprintln!("diff:syncpack: {}", repo.name);
             let (entry, detail) = run_repo(options, &skif, &tools, &repo.name, dir)?;
             details.insert(repo.name.clone(), detail);

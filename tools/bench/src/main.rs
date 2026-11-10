@@ -331,8 +331,8 @@ fn main() -> Result<()> {
         Command::Corpus {
             action: CorpusAction::Fetch(args),
         } => {
-            let (_, fetched) = corpus::fetch_suite(&args.file, &args.suite, &args.only, &args.dir)?;
-            for (repo, dir) in fetched {
+            let suite = corpus::fetch_suite(&args.file, &args.suite, &args.only, &args.dir)?;
+            for (repo, dir) in &suite.repos {
                 println!("{} {} {}", repo.name, &repo.rev[..12], dir.display());
             }
             Ok(())
