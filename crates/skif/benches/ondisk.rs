@@ -2,8 +2,10 @@
 //! (pnpm workspaces, standalone packages, projects nested below workspaces) and ~5k JavaScript files.
 //!
 //! The in-memory benches cannot show where a real run spends its time: in directory walks and file system calls.
-//! `uncached` reads the disk directly, `cached` shares one [`CachedFs`] across the run as the command line does.
-//! Run it with `SKIF_TIMINGS=1` to see the phases of a single run on stderr.
+//! `uncached` reads the disk directly, `cached` shares one [`CachedFs`] across the run as the command line does, and
+//! `cached_for_targets` also builds the linters with [`Linter::for_targets`], so they share the module cache of the
+//! run as the command line's do. The roots of this repository share little code, so `cached_for_targets` should cost
+//! what `cached` does. Run it with `SKIF_TIMINGS=1` to see the phases of a single run on stderr.
 //!
 //! `shared_closure_on_disk` lints 10 and 40 standalone packages that all import one directory of shared code outside
 //! them: `separate` builds a linter per root, each parsing the shared code itself, and `shared` builds them with
@@ -82,11 +84,11 @@ fn write_shared_closure(root: &Path, roots: usize) {
     }
 }
 
-/// [`lint_recursive`] with the linters of the run built by [`Linter::for_targets`], sharing one module cache.
-fn lint_recursive_shared(root: &Path) -> usize {
+/// [`lint_recursive`] over a [`CachedFs`] with the linters of the run built by [`Linter::for_targets`], sharing the
+/// module cache of the run.
+fn lint_recursive_shared(root: &Path, overrides: &ConfigOverrides) -> usize {
     let fs: Arc<dyn FileSystem> = Arc::new(CachedFs::new(OsFs));
-    let targets =
-        skif::discover_all(root, fs.as_ref(), &ConfigOverrides::default()).expect("generated roots are discoverable");
+    let targets = skif::discover_all(root, fs.as_ref(), overrides).expect("generated roots are discoverable");
     let linters = Linter::for_targets(&targets, fs).expect("built-in rules register");
     targets
         .par_iter()
@@ -106,7 +108,7 @@ fn bench_shared_closure(c: &mut Criterion) {
             b.iter(|| lint_recursive(root, &ConfigOverrides::default(), true));
         });
         group.bench_with_input(BenchmarkId::new("shared", roots), &root, |b, root| {
-            b.iter(|| lint_recursive_shared(root));
+            b.iter(|| lint_recursive_shared(root, &ConfigOverrides::default()));
         });
     }
     group.finish();
@@ -129,6 +131,9 @@ fn bench_recursive(c: &mut Criterion) {
     });
     group.bench_function("cached", |b| {
         b.iter(|| lint_recursive(&root, &ConfigOverrides::default(), true));
+    });
+    group.bench_function("cached_for_targets", |b| {
+        b.iter(|| lint_recursive_shared(&root, &ConfigOverrides::default()));
     });
     group.bench_function("cached_no_js", |b| {
         b.iter(|| lint_recursive(&root, &no_js, true));

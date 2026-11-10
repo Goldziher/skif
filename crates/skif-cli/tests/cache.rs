@@ -148,21 +148,28 @@ fn shared_closure() -> tempfile::TempDir {
     dir
 }
 
-/// The module cache hits and misses summed over the `js module cache <root>: H hits, M misses` lines of
-/// `--performance`. The counters are shared by the roots linted in parallel, so only the sum is exact.
+/// The module cache counts summed over the `js module cache <root>: H hits, M misses, W waits` lines of
+/// `--performance`: the lookups served without parsing (hits, and waits for another root's parse) and the parses. The
+/// counters are shared by the roots linted in parallel, so only the sums are exact, and whether a lookup of a file
+/// another root is parsing hits or waits depends on timing.
 fn module_cache_counts(stderr: &str) -> (usize, usize) {
     stderr
         .lines()
         .filter(|line| line.contains("js module cache "))
         .map(|line| {
-            let counts = line.rsplit(": ").next().unwrap();
-            let (hits, misses) = counts.split_once(", ").unwrap();
-            (
-                hits.trim_end_matches(" hits").parse::<usize>().unwrap(),
-                misses.trim_end_matches(" misses").parse::<usize>().unwrap(),
-            )
+            let counts: Vec<usize> = line
+                .rsplit(": ")
+                .next()
+                .unwrap()
+                .split(", ")
+                .map(|count| count.split_once(' ').unwrap().0.parse().unwrap())
+                .collect();
+            let [hits, misses, waits] = counts.as_slice() else {
+                panic!("not three counts: {line}");
+            };
+            (hits + waits, *misses)
         })
-        .fold((0, 0), |(hits, misses), (h, m)| (hits + h, misses + m))
+        .fold((0, 0), |(served, parsed), (s, p)| (served + s, parsed + p))
 }
 
 /// The JSON report, exit code and module cache counts of `skif -r --performance` on `dir` with `flags`.
@@ -181,10 +188,11 @@ fn a_recursive_run_parses_a_file_several_roots_import_once() {
     let dir = shared_closure();
     let (report, counts) = recursive_run(dir.path(), &[]);
     assert_eq!(root_count(&report.0), 3, "{}", report.0);
-    // The three entry files and the shared file are parsed once each; two roots are served the shared file.
-    assert_eq!(counts, (2, 4));
+    // Only the shared file goes through the cache of the run, parsed once and served to the two other roots; each
+    // entry file is its root's own and is parsed outside it.
+    assert_eq!(counts, (2, 1));
 
-    // `--cache` takes the place of the in-memory cache and is shared the same way; a warm run parses nothing.
+    // `--cache` holds every file and is shared the same way; a warm run parses nothing.
     let store = tempfile::tempdir().unwrap();
     let flags = ["--cache", "--cache-location", store.path().to_str().unwrap()];
     let (cold, cold_counts) = recursive_run(dir.path(), &flags);

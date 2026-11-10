@@ -134,12 +134,19 @@ A host that lints repeatedly, such as an editor, passes the same `ModuleCache` t
 `Linter::with_module_cache` (feature `js-analysis`; `MemoryModuleCache` keeps it in memory), so only changed files
 are parsed again. The cache never changes a report.
 
-`Linter::for_targets` builds the linters of a multi-root run over one in-process module cache (feature
-`js-analysis`), so a file several roots reach, such as a directory of shared code outside every root, is parsed once
-for the run rather than once per root, also while the roots are linted in parallel. Each entry is stored once and
-freed with the linters. A host with a cache of its own passes it to `Linter::for_targets_with_cache`, which puts a
-`CoalescingModuleCache` in front of it: a lookup of a file another thread is parsing waits for that parse instead of
-parsing it again.
+`Linter::for_targets` builds the linters of a multi-root run over the module cache of the run (feature
+`js-analysis`). It holds the files more than one root can reach: those outside the root parsing them, such as a
+directory of shared code outside every root, and those of a root nested in it. Such a file is parsed once for the run
+rather than once per root, also while the roots are linted in parallel; each root parses its own files without the
+cache, and the entries are freed with the linters. One target gets no shared cache. A host with a cache of its own
+passes it to `Linter::for_targets_with_cache`, which parses every file through it. With several targets, a lookup of a
+file another root is parsing waits for that parse instead of parsing it again. A host that builds its linters itself,
+say one per distinct configuration, gets the same policy from `Linter::shared_modules(targets, host_cache)` and
+passes the `SharedModules` it returns to each `Linter::with_shared_modules`.
+
+A `ModuleCache` only stores and returns results: coalescing concurrent parses is done beside it, so a cache that
+wraps another implements `get` and `put` and nothing else. The design is recorded in
+[ADR 0100](https://github.com/Goldziher/skif/blob/main/adrs/0100-a-module-cache-shared-by-the-roots-of-a-run.md).
 
 A `Linter` built with `Linter::with_fs` remembers directory listings, existence checks and small configuration
 files read through the file system for one run and starts every `run_with` from an empty cache, so a host that edits

@@ -16,6 +16,7 @@ use crate::git_index::IndexCache;
 use crate::input::InputSource;
 use crate::rules::{JsRule, rules};
 use crate::setup::UnusedExportsOptions;
+use crate::shared_modules::SharedModules;
 
 /// Identifies the JS provider in errors.
 pub const PROVIDER_ID: &str = "js";
@@ -30,8 +31,8 @@ pub struct JsProvider {
     rules: Vec<Box<dyn JsRule>>,
     /// The parsed git indexes, shared by every root this provider analyses.
     indexes: IndexCache,
-    /// The host's cache of parse results, shared by every run of this provider.
-    modules: Option<Arc<dyn ModuleCache>>,
+    /// The cache of parse results this provider's runs parse through: the host's, or the one of a multi-root run.
+    modules: Option<SharedModules>,
 }
 
 impl JsProvider {
@@ -57,6 +58,15 @@ impl JsProvider {
     /// result: its keys cover everything a parse depends on.
     #[must_use]
     pub fn with_module_cache(mut self, modules: Arc<dyn ModuleCache>) -> Self {
+        self.modules = Some(SharedModules::host(modules));
+        self
+    }
+
+    /// Parses source files through `modules`, the cache the linters of one run share (ADR 0100), which decides which
+    /// files it holds and whether concurrent lookups of a file wait for one parse. Like any module cache it changes
+    /// no result.
+    #[must_use]
+    pub fn with_shared_modules(mut self, modules: SharedModules) -> Self {
         self.modules = Some(modules);
         self
     }
@@ -117,6 +127,7 @@ impl RuleProvider for JsProvider {
         if active.is_empty() || out.is_cancelled() {
             return Ok(());
         }
+        let parser = self.modules.as_ref().map(|modules| modules.parser(&cx.workspace.root));
         let mut analysis = JsAnalysis::build_cached(
             cx.workspace,
             cx.config,
@@ -125,7 +136,7 @@ impl RuleProvider for JsProvider {
             cx.sequential,
             &Caches {
                 indexes: &self.indexes,
-                modules: self.modules.as_deref(),
+                modules: parser.as_ref(),
                 extra_entries: cx.extra_entries,
             },
         );

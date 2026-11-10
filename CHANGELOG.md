@@ -51,19 +51,29 @@ All notable changes to this project are documented here. The format follows
   function the tool calls (`() => createConfig({ … })`) or merges (`mergeConfig(createBase({ … }), { … })`).
 - `skif::Target::retain_ignore` filters the `[[ignore]]` entries of a target with its `origins` kept aligned, through
   `skif_config::Origins::retain_list`, which renumbers the entries of one list.
-- `skif::Linter::for_targets` builds the linters of a multi-root run over one in-process module cache (feature
-  `js-analysis`), and `Linter::for_targets_with_cache` over a cache the host keeps. `skif::CoalescingModuleCache` puts
-  any `ModuleCache` behind a guard that makes a lookup of a file another thread is parsing wait for that parse, through
-  the new provided method `ModuleCache::get_or_insert_with`, which `parse_cached` now calls; a cache that wraps
-  another forwards it ([#144](https://github.com/Goldziher/skif/issues/144)).
+- `skif::Linter::for_targets` builds the linters of a multi-root run over the module cache of the run (feature
+  `js-analysis`), and `Linter::for_targets_with_cache` over a cache the host keeps. A host that builds its linters
+  itself takes the same policy from `Linter::shared_modules`, which returns a `skif::SharedModules`, and passes it to
+  each linter with `Linter::with_shared_modules` (`skif_js::JsProvider::with_shared_modules`). With several targets, a
+  lookup of a file another root is parsing waits for that parse through `skif_js_syntax::ParseCoalescer`, which takes
+  the cache as an argument: the `ModuleCache` trait is unchanged, and a cache that wraps another has nothing to
+  forward ([ADR 0100](adrs/0100-a-module-cache-shared-by-the-roots-of-a-run.md),
+  [#144](https://github.com/Goldziher/skif/issues/144)).
+- `skif_core::timing::Tally::add` adds a duration the caller measured, for a step that learns which tally it belongs
+  to only once it has run.
 
 ### Changed
 
-- A multi-root run (`skif -r`, and the CLI's other multi-root commands) parses through one in-memory module cache
-  shared by all its roots, also without `--cache`, so a file several roots import (a directory of shared code outside
-  them) is parsed once for the run instead of once per root; roots linted in parallel wait for a parse already under
-  way instead of repeating it. With `--cache` the store on disk is shared the same way. Entries are stored once and
-  freed when the run ends; the reports are unchanged ([#144](https://github.com/Goldziher/skif/issues/144)).
+- A multi-root run (`skif -r`, and the CLI's other multi-root commands) without `--cache` parses the files more than
+  one root can reach through one in-memory module cache shared by its roots: files outside the root parsing them (a
+  directory of shared code outside every root) and files of a root nested in it. Such a file is parsed once for the
+  run instead of once per root, and roots linted in parallel wait for a parse already under way instead of repeating
+  it. Each root parses its own files outside that cache, so a run whose roots share no code keeps nothing in it. With
+  `--cache`, and in `--watch`, `skif lsp` and `skif mcp`, the host's cache holds every file as before and is shared by
+  the roots the same way. The reports are unchanged. `--performance` reports `js module cache <root>: H hits, M
+  misses, W waits`, where a wait is a lookup handed another root's parse, and the time of the waits as `js parse wait
+  <root>` instead of in `js parse` ([ADR 0100](adrs/0100-a-module-cache-shared-by-the-roots-of-a-run.md),
+  [#144](https://github.com/Goldziher/skif/issues/144)).
 - `[js] discovery = "auto"`, the default, walks the directories instead of listing tracked directories from the git
   index. The index cannot tell whether an unchanged directory holds an untracked file created before the index was
   last written (a `git add` or `git commit` of another file does that), and such a file, an entry or the only importer

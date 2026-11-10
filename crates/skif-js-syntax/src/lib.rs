@@ -56,7 +56,7 @@ use skif_core::LineIndex;
 
 pub use array_comments::{ElementComment, PathSegment, extract_array_comments};
 pub use cache::{
-    CACHE_SCHEMA, CACHE_SCHEMA_DIGEST, CachedModule, CoalescingModuleCache, MemoryModuleCache, ModuleCache, ModuleKey,
+    CACHE_SCHEMA, CACHE_SCHEMA_DIGEST, CachedModule, MemoryModuleCache, ModuleCache, ModuleKey, ParseCoalescer,
     cache_version, parse_cached,
 };
 pub use components::{

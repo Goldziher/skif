@@ -31,7 +31,7 @@ pub fn builtin_providers(config: &Config, fs: Arc<dyn FileSystem>) -> Vec<Box<dy
     #[cfg(feature = "manifest")]
     providers.extend(skif_rules::providers());
     #[cfg(feature = "js-analysis")]
-    providers.push(Box::new(crate::js::provider(config, fs, None)));
+    providers.push(Box::new(crate::js::provider(config, fs)));
     #[cfg(not(feature = "js-analysis"))]
     let _ = (config, fs);
     providers
@@ -221,34 +221,55 @@ impl Linter {
         fs: Arc<dyn FileSystem>,
         modules: Arc<dyn skif_js::ModuleCache>,
     ) -> Result<Self, Error> {
-        let cache = cache::shared(fs);
-        let shared = Arc::clone(&cache) as Arc<dyn FileSystem>;
-        #[cfg(feature = "manifest")]
-        let mut providers: Vec<Box<dyn RuleProvider>> = skif_rules::providers();
-        #[cfg(not(feature = "manifest"))]
-        let mut providers: Vec<Box<dyn RuleProvider>> = Vec::new();
-        providers.push(Box::new(crate::js::provider(config, shared, Some(modules))));
-        let mut linter = Self::with_providers(config, providers)?;
-        linter.cache = Some(cache);
-        Ok(linter)
+        Self::with_js_provider(config, fs, |provider| provider.with_module_cache(modules))
+    }
+
+    /// Like [`with_fs`](Self::with_fs), with the JS analysis parsing source files through `modules`, the cache the
+    /// linters of one run share (ADR 0100), as [`shared_modules`](Self::shared_modules) builds it. A host that builds
+    /// one linter per distinct configuration of a multi-root run passes the same `modules` to each;
+    /// [`for_targets`](Self::for_targets) builds one per target.
+    ///
+    /// # Errors
+    /// As [`Linter::new`].
+    #[cfg(feature = "js-analysis")]
+    pub fn with_shared_modules(
+        config: &Config,
+        fs: Arc<dyn FileSystem>,
+        modules: &skif_js::SharedModules,
+    ) -> Result<Self, Error> {
+        Self::with_js_provider(config, fs, |provider| provider.with_shared_modules(modules.clone()))
+    }
+
+    /// The module cache the linters of a run over `targets` share, through `host` when the host keeps a cache, or
+    /// `None` when there is nothing to share (one target and no host cache); see
+    /// [`SharedModules::for_run`](crate::SharedModules::for_run) for what it holds. [`for_targets`](Self::for_targets)
+    /// and [`for_targets_with_cache`](Self::for_targets_with_cache) go through it.
+    #[cfg(feature = "js-analysis")]
+    #[must_use]
+    pub fn shared_modules(
+        targets: &[Target],
+        host: Option<Arc<dyn skif_js::ModuleCache>>,
+    ) -> Option<skif_js::SharedModules> {
+        let roots = targets.iter().map(|target| target.workspace.root.clone()).collect();
+        skif_js::SharedModules::for_run(roots, host)
     }
 
     /// One linter per target of a multi-root run (as [`discover_targets`](crate::discover_targets) lists them), in
     /// the order of `targets`, each reading through `fs`.
     ///
-    /// With `js-analysis` the linters share one in-process module cache, so a source file several roots reach (a
-    /// directory of shared code outside them) is parsed once for the run instead of once per root, also while the
-    /// roots are linted in parallel. Entries are stored once and live as long as the linters do: drop them to free
-    /// the cache. A host that keeps a cache of its own passes it to
-    /// [`for_targets_with_cache`](Self::for_targets_with_cache). Without `js-analysis` nothing is parsed and this is
-    /// [`with_fs`](Self::with_fs) per target.
+    /// With `js-analysis` and several targets the linters share one in-process module cache. It holds only the source
+    /// files that can be shared, those outside the root parsing them (a directory of shared code outside every root)
+    /// or inside a root nested in it, so such a file is parsed once for the run instead of once per root, also while
+    /// the roots are linted in parallel. Each root parses its own files outside the cache. The entries live as long
+    /// as the linters do. One target is [`with_fs`](Self::with_fs). A host that keeps a cache of its own passes it
+    /// to [`for_targets_with_cache`](Self::for_targets_with_cache).
     ///
     /// # Errors
     /// As [`Linter::new`], for the first target whose configuration is rejected, located with [`Target::locate`].
     pub fn for_targets(targets: &[Target], fs: Arc<dyn FileSystem>) -> Result<Vec<Self>, Error> {
         #[cfg(feature = "js-analysis")]
         {
-            Self::for_targets_with_cache(targets, fs, Arc::new(skif_js::MemoryModuleCache::new()))
+            Self::for_run(targets, fs, None)
         }
         #[cfg(not(feature = "js-analysis"))]
         {
@@ -259,10 +280,9 @@ impl Linter {
         }
     }
 
-    /// Like [`for_targets`](Self::for_targets), the linters parsing through `modules`, such as a cache the host
-    /// persists. Concurrent lookups of a file being parsed wait for that parse
-    /// ([`CoalescingModuleCache`](crate::CoalescingModuleCache)), so each file is parsed at most once per run even
-    /// when `modules` is cold.
+    /// Like [`for_targets`](Self::for_targets), the linters parsing every source file through `modules`, such as a
+    /// cache the host persists. With several targets a lookup of a file another root is parsing waits for that
+    /// parse, so each file is parsed at most once per run even when `modules` is cold.
     ///
     /// # Errors
     /// As [`for_targets`](Self::for_targets).
@@ -272,14 +292,46 @@ impl Linter {
         fs: Arc<dyn FileSystem>,
         modules: Arc<dyn skif_js::ModuleCache>,
     ) -> Result<Vec<Self>, Error> {
-        let shared: Arc<dyn skif_js::ModuleCache> = Arc::new(skif_js::CoalescingModuleCache::new(modules));
+        Self::for_run(targets, fs, Some(modules))
+    }
+
+    #[cfg(feature = "js-analysis")]
+    fn for_run(
+        targets: &[Target],
+        fs: Arc<dyn FileSystem>,
+        host: Option<Arc<dyn skif_js::ModuleCache>>,
+    ) -> Result<Vec<Self>, Error> {
+        let modules = Self::shared_modules(targets, host);
         targets
             .iter()
             .map(|target| {
-                Self::with_module_cache(&target.config, Arc::clone(&fs), Arc::clone(&shared))
-                    .map_err(|error| target.locate(error))
+                let fs = Arc::clone(&fs);
+                let linter = match &modules {
+                    Some(modules) => Self::with_shared_modules(&target.config, fs, modules),
+                    None => Self::with_fs(&target.config, fs),
+                };
+                linter.map_err(|error| target.locate(error))
             })
             .collect()
+    }
+
+    /// The built-in providers over `fs`, with the JS provider finished by `modules`.
+    #[cfg(feature = "js-analysis")]
+    fn with_js_provider(
+        config: &Config,
+        fs: Arc<dyn FileSystem>,
+        modules: impl FnOnce(skif_js::JsProvider) -> skif_js::JsProvider,
+    ) -> Result<Self, Error> {
+        let cache = cache::shared(fs);
+        let shared = Arc::clone(&cache) as Arc<dyn FileSystem>;
+        #[cfg(feature = "manifest")]
+        let mut providers: Vec<Box<dyn RuleProvider>> = skif_rules::providers();
+        #[cfg(not(feature = "manifest"))]
+        let mut providers: Vec<Box<dyn RuleProvider>> = Vec::new();
+        providers.push(Box::new(modules(crate::js::provider(config, shared))));
+        let mut linter = Self::with_providers(config, providers)?;
+        linter.cache = Some(cache);
+        Ok(linter)
     }
 
     /// Builds a linter over exactly `providers`; pass [`builtin_providers`] plus your own to extend the built-ins.
