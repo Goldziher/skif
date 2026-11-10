@@ -72,7 +72,9 @@ fn nested<'w>(cx: &LintContext<'w>) -> Vec<Nested<'w>> {
                 .packages()
                 .iter()
                 .filter(|_| workspace.package_manager == Some(PackageManager::Bun))
-                .filter(|package| !package.is_selected_by(ignore) && package.manifest.value().get("workspaces").is_some())
+                .filter(|package| {
+                    !package.is_selected_by(ignore) && package.manifest.value().get("workspaces").is_some()
+                })
                 .map(|package| Nested {
                     path: package.manifest.path.as_path(),
                     package: Some(package),
@@ -245,11 +247,18 @@ mod tests {
         assert_eq!(&inner[span.start as usize..span.end as usize], "\"workspaces\"");
         let ignoring = config("[workspace]\nignore-packages = [\"inner\"]\n");
         assert_eq!(lint(META.id, &files, &ignoring), []);
-        let allowing = config("[rules.nested-workspace-root]\nallow = [\"packages/inner/package.json\", \"packages/b/package.json\"]\n");
-        let messages: Vec<String> = lint(META.id, &files, &allowing).into_iter().map(|d| d.message).collect();
+        let allowing = config(
+            "[rules.nested-workspace-root]\nallow = [\"packages/inner/package.json\", \"packages/b/package.json\"]\n",
+        );
+        let messages: Vec<String> = lint(META.id, &files, &allowing)
+            .into_iter()
+            .map(|d| d.message)
+            .collect();
         assert_eq!(
             messages,
-            ["`packages/b/package.json` in `rules.nested-workspace-root.allow` names no nested `pnpm-workspace.yaml` or member `workspaces`"]
+            [
+                "`packages/b/package.json` in `rules.nested-workspace-root.allow` names no nested `pnpm-workspace.yaml` or member `workspaces`"
+            ]
         );
     }
 

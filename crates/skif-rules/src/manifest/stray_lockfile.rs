@@ -257,7 +257,10 @@ mod tests {
         assert!(diagnostics[0].package.is_none());
         // Another manager reads neither, so both are reported as its foreign lockfiles.
         let pnpm_root = root("");
-        let files = with_root(&pnpm_root, &[("pnpm-lock.yaml", ""), ("bun.lock", "{}"), ("bun.lockb", "")]);
+        let files = with_root(
+            &pnpm_root,
+            &[("pnpm-lock.yaml", ""), ("bun.lock", "{}"), ("bun.lockb", "")],
+        );
         let diagnostics = lint(META.id, &files, &config(""));
         assert_eq!(paths(&diagnostics), ["bun.lock", "bun.lockb"]);
         assert_eq!(

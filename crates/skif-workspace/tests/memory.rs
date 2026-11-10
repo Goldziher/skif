@@ -386,7 +386,10 @@ fn package_manager_precedence() {
         ws(plain, &[bunfig, ("package-lock.json", "")], &config),
         Some(PackageManager::Npm)
     );
-    assert_eq!(ws(plain, &[bunfig, (".yarnrc.yml", "")], &config), Some(PackageManager::Yarn));
+    assert_eq!(
+        ws(plain, &[bunfig, (".yarnrc.yml", "")], &config),
+        Some(PackageManager::Yarn)
+    );
 
     let mut forced = Config::default();
     forced.workspace.package_manager = Some(PackageManager::Npm);
