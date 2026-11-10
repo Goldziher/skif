@@ -560,3 +560,59 @@ fn a_finding_that_is_not_about_the_version_survives_a_bump() {
     assert_eq!(again.json()["added"], json!([]));
     assert_eq!(again.json()["written"], false);
 }
+
+fn rules_of(document: &Value, key: &str) -> Vec<Value> {
+    document[key]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["rules"][0].clone())
+        .collect()
+}
+
+#[test]
+fn a_finding_about_a_file_is_recorded_for_that_file_only() {
+    let dir = fixture("js");
+    let app = dir.path().join("packages").join("app");
+    fs::write(app.join("stale.js"), "console.log('stale');\n").unwrap();
+
+    let written = baseline(dir.path(), "write", &[]);
+    assert_eq!(written.code, 0, "{}{}", written.stdout, written.stderr);
+    let files: Vec<Value> = written.json()["added"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["rules"] == json!(["unused-files"]))
+        .cloned()
+        .collect();
+    assert_eq!(
+        files,
+        [json!({
+            "rules": ["unused-files"],
+            "packages": ["@cli/app"],
+            "dependencies": [],
+            "files": ["packages/app/stale.js"],
+            "reason": "baseline",
+        })]
+    );
+    let text = fs::read_to_string(dir.path().join(BASELINE)).unwrap();
+    assert!(
+        text.contains("rules = [\"unused-files\"]\npackages = [\"@cli/app\"]\nfiles = [\"packages/app/stale.js\"]\n"),
+        "{text}"
+    );
+    assert_eq!(lint(dir.path()).code, 0);
+
+    fs::write(app.join("newer.js"), "console.log('newer');\n").unwrap();
+    let grown = lint(dir.path());
+    assert_eq!(grown.code, 0, "unused-files is a warning: {}", grown.stdout);
+    let paths: Vec<Value> = grown.json()["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["rule"] == "unused-files")
+        .map(|diagnostic| diagnostic["location"]["path"].clone())
+        .collect();
+    assert_eq!(paths, [json!("packages/app/newer.js")], "{}", grown.stdout);
+    let again = baseline(dir.path(), "write", &[]);
+    assert_eq!(rules_of(&again.json(), "added"), [json!("unused-files")]);
+}
