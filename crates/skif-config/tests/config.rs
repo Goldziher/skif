@@ -1070,7 +1070,15 @@ fn the_first_suppression_without_a_reason_is_named_by_its_key() {
             Some("overrides[0].ignore[0]"),
         ),
         (
-            "[[ignore]]\nrules = [\"a\"]\nreason = \"r\"\n[js]\nignore-files = [{ name = \"a\", reason = \"r\" }]\n",
+            "[rules.stray-lockfile]\nallow = [{ name = \"a/yarn.lock\", reason = \"r\" }, \"b/yarn.lock\"]\n",
+            Some("rules.stray-lockfile.allow[1] `b/yarn.lock`"),
+        ),
+        (
+            "[rules.nested-workspace-root]\nallow = [{ name = \"a/pnpm-workspace.yaml\" }]\n",
+            Some("rules.nested-workspace-root.allow[0] `a/pnpm-workspace.yaml`"),
+        ),
+        (
+            "[[ignore]]\nrules = [\"a\"]\nreason = \"r\"\n[js]\nignore-files = [{ name = \"a\", reason = \"r\" }]\n[rules.stray-lockfile]\nallow = [{ name = \"a/yarn.lock\", reason = \"r\" }]\n",
             None,
         ),
     ];
