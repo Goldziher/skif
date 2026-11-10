@@ -583,6 +583,9 @@ pub fn root_json(run: &RootRun, report: &Report) -> Value {
     })
 }
 
+/// A configuration setting shared by several roots: its file, key as written and entry.
+type SettingKey<'a> = (PathBuf, &'a str, &'a str);
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
