@@ -540,3 +540,84 @@ fn commands_after_cd_into_a_workspace_package_are_judged_there() {
     assert_eq!(found(&diagnostics, "unused-dependencies"), none(), "{diagnostics:#?}");
     assert_eq!(found(&diagnostics, "unused-files"), none(), "{diagnostics:#?}");
 }
+
+/// A member `tool` with the binary `mytool`, which `app` runs without listing `tool`, `web` runs listing it and `tool`
+/// runs in a script of its own; the unlisted binaries found with `files` added, sorted.
+fn unlisted_member_binaries(files: &[(&str, &str)]) -> Vec<String> {
+    let mut all = vec![
+        (
+            "packages/tool/package.json",
+            r#"{"name":"tool","version":"1.0.0","bin":{"mytool":"./bin/mytool.js"},"scripts":{"usage":"mytool --help"}}"#,
+        ),
+        ("packages/tool/bin/mytool.js", "#!/usr/bin/env node\n"),
+        (
+            "packages/app/package.json",
+            r#"{"name":"app","version":"1.0.0","main":"src/index.js","scripts":{"build":"mytool build"}}"#,
+        ),
+        ("packages/app/src/index.js", "module.exports = 1;\n"),
+        (
+            "packages/web/package.json",
+            r#"{"name":"web","version":"1.0.0","main":"src/index.js","scripts":{"build":"mytool build"},"devDependencies":{"tool":"1.0.0"}}"#,
+        ),
+        ("packages/web/src/index.js", "module.exports = 2;\n"),
+    ];
+    all.extend_from_slice(files);
+    let mut unlisted = found(&lint_files(&all, ""), "unlisted-binaries");
+    unlisted.sort();
+    unlisted
+}
+
+/// pnpm and Yarn Berry put a member's binary on the `PATH` only of the packages that depend on it, so `app` runs an
+/// unlisted binary; npm, Yarn Classic and Bun link every member's binaries into the root `node_modules/.bin`, so it
+/// does not. A package that lists the member, and the member itself, run it under every package manager.
+#[test]
+fn a_member_binary_is_provided_where_the_package_manager_links_it() {
+    let pnpm = r#"{"name":"root","private":true,"packageManager":"pnpm@9.0.0"}"#;
+    let isolated = unlisted_member_binaries(&[
+        ("package.json", pnpm),
+        ("pnpm-workspace.yaml", "packages:\n  - packages/*\n"),
+    ]);
+    assert_eq!(isolated, ["packages/app/package.json: mytool"]);
+    let berry = r#"{"name":"root","private":true,"packageManager":"yarn@4.5.0","workspaces":["packages/*"]}"#;
+    assert_eq!(
+        unlisted_member_binaries(&[("package.json", berry)]),
+        ["packages/app/package.json: mytool"]
+    );
+    for manager in ["npm@10.0.0", "yarn@1.22.22", "bun@1.3.0"] {
+        let root = format!(
+            r#"{{"name":"root","private":true,"packageManager":"{manager}","workspaces":["packages/*"]}}"#
+        );
+        assert_eq!(unlisted_member_binaries(&[("package.json", &root)]), none(), "{manager}");
+    }
+}
+
+/// In a Rush repository, `rush`, `rushx` and `rush-pnpm` are Rush's own commands, and a member's binary is linked only
+/// for the packages that depend on it, as with pnpm.
+#[test]
+fn rush_commands_are_provided_in_a_rush_repository() {
+    let rush = r#"{"rushVersion":"5.150.0","pnpmVersion":"9.0.0","projects":[{"packageName":"tool","projectFolder":"packages/tool"},{"packageName":"app","projectFolder":"packages/app"},{"packageName":"web","projectFolder":"packages/web"},{"packageName":"ops","projectFolder":"packages/ops"}]}"#;
+    let ops = r#"{"name":"ops","version":"1.0.0","main":"index.js","scripts":{"ci":"rush build && rushx test && rush-pnpm install"}}"#;
+    let files = [
+        ("rush.json", rush),
+        ("packages/ops/package.json", ops),
+        ("packages/ops/index.js", "module.exports = 3;\n"),
+    ];
+    assert_eq!(unlisted_member_binaries(&files), ["packages/app/package.json: mytool"]);
+    // Without `rush.json` they are binaries like any other.
+    let pnpm = r#"{"name":"root","private":true,"packageManager":"pnpm@9.0.0"}"#;
+    let elsewhere = unlisted_member_binaries(&[
+        ("package.json", pnpm),
+        ("pnpm-workspace.yaml", "packages:\n  - packages/*\n"),
+        ("packages/ops/package.json", ops),
+        ("packages/ops/index.js", "module.exports = 3;\n"),
+    ]);
+    assert_eq!(
+        elsewhere,
+        [
+            "packages/app/package.json: mytool",
+            "packages/ops/package.json: rush",
+            "packages/ops/package.json: rush-pnpm",
+            "packages/ops/package.json: rushx"
+        ]
+    );
+}

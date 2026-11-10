@@ -8,7 +8,7 @@ use serde_json::Value;
 use skif_core::{DependencyKind, FileSystem, Span};
 use skif_js_plugins::scripts::{ScriptContext, is_ignored_binary, parse_script};
 use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object};
-use skif_workspace::{Package, PackageId, Workspace, map_ordered};
+use skif_workspace::{Package, PackageId, PackageManager, Workspace, map_ordered};
 
 use crate::ancestors::{external_manifests, is_repository_root, listed_names, read_manifest};
 use crate::discover::{is_ignored_in_repository, relative};
@@ -108,6 +108,27 @@ const GLOBAL_TYPES: &[&str] = &[
     "@types/webpack-env",
     "@types/wicg-file-system-access",
 ];
+
+/// The file that makes a repository a Rush repository.
+const RUSH_JSON: &str = "rush.json";
+
+/// The commands Rush itself provides to the scripts of a Rush repository.
+const RUSH_COMMANDS: &[&str] = &["rush", "rushx", "rush-pnpm"];
+
+/// Whether the binaries of a workspace member are on the `PATH` of every package: npm, Yarn Classic and Bun hoist the
+/// members into the root `node_modules` and link their binaries into its `.bin`, while pnpm, Yarn Berry and Rush link a
+/// member's binaries only into the packages that depend on it. An unknown package manager counts as hoisting, so it
+/// reports nothing new.
+fn hoists_member_bins(workspace: &Workspace, rush: bool) -> bool {
+    if rush {
+        return false;
+    }
+    match workspace.package_manager {
+        Some(PackageManager::Pnpm) => false,
+        Some(PackageManager::Yarn) => workspace.facts.yarn_classic,
+        _ => true,
+    }
+}
 
 /// Binaries whose package has a different name. Used when the package is not installed, so its `bin` cannot be read.
 const BINARY_PACKAGES: &[(&str, &str)] = &[
@@ -548,7 +569,12 @@ pub struct DependencyUsage {
     outside_used: BTreeSet<(PathBuf, String)>,
     hosts: Vec<HashMap<String, Vec<String>>>,
     bins: Vec<HashMap<String, Vec<String>>>,
-    member_bins: BTreeMap<String, Vec<String>>,
+    /// The workspace members that declare each binary, with their id and name.
+    member_bins: BTreeMap<String, Vec<(PackageId, String)>>,
+    /// Whether a member's binaries are on the `PATH` of every package of the workspace; see [`hoists_member_bins`].
+    member_bins_hoisted: bool,
+    /// Whether the workspace is a Rush repository (a `rush.json` at its root), whose scripts run Rush's own commands.
+    rush: bool,
     members: HashSet<String>,
     /// Binaries that `node_modules/.bin` directories of ancestor projects put on the `PATH`, each with the dependencies
     /// of those projects that provide it.
@@ -581,8 +607,10 @@ impl DependencyUsage {
             hosts: vec![HashMap::new(); count],
             bins: vec![HashMap::new(); count],
             members: workspace.all_packages().filter_map(|p| p.name.clone()).collect(),
+            rush: fs.is_file(&workspace.root.join(RUSH_JSON)),
             ..Self::default()
         };
+        usage.member_bins_hoisted = hoists_member_bins(workspace, usage.rush);
         usage.read_manifests(workspace, fs, sequential);
         let tsconfigs = TsconfigMemo::new(fs);
         usage.collect_ambient_types(workspace, setup, &tsconfigs);
@@ -749,10 +777,10 @@ impl DependencyUsage {
     }
 
     fn collect_member_bins(&mut self, workspace: &Workspace) {
-        for package in workspace.all_packages() {
+        for (id, package) in workspace.iter() {
             let Some(name) = package.name.as_deref() else { continue };
             for bin in bins_of(package.manifest.value(), name) {
-                self.member_bins.entry(bin).or_default().push(name.to_owned());
+                self.member_bins.entry(bin).or_default().push((id, name.to_owned()));
             }
         }
     }
@@ -1216,15 +1244,18 @@ impl DependencyUsage {
             }
         }
         if let Some(members) = self.member_bins.get(bin).cloned() {
-            for member in members {
+            for (member_id, member) in members {
                 if let Some(found) = self.find_listed(id, &member) {
                     provided.push((found, member));
-                } else {
+                } else if self.member_bins_hoisted || member_id == id {
+                    // A member that no manifest lists provides its binary only where the package manager links it
+                    // for every package, or to its own scripts.
                     provided.push((Listed::Package(id), String::new()));
                 }
             }
         }
-        let found = !provided.is_empty();
+        // Rush runs its own commands (`rush`, `rushx`, `rush-pnpm`) from its install, whatever a manifest lists.
+        let found = !provided.is_empty() || (self.rush && RUSH_COMMANDS.contains(&bin));
         for (scope, dep) in provided {
             if !dep.is_empty() {
                 self.reference(scope, &dep);

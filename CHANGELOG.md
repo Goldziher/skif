@@ -213,6 +213,12 @@ All notable changes to this project are documented here. The format follows
   works on the package of that directory, as `bun --cwd` and `--filter` do, so `bun run build` no longer reports
   `build` as an unlisted binary of the file. A binary run there by name is still judged where the command starts
   ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
+- Under pnpm, Yarn Berry and Rush, a workspace member's binary no longer satisfies a script of a package that does not
+  list the member: those package managers link it only for the packages that depend on it, so the script's binary is
+  reported unlisted. npm, Yarn Classic and Bun, which link every member's binaries into the root `node_modules/.bin`,
+  keep the old answer, and a member's own scripts may always run its binaries. In a Rush repository (`rush.json` at
+  the root), `rush`, `rushx` and `rush-pnpm` are provided commands
+  ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
 - `skif baseline` records `name@specifier` only for the rules whose finding is about the specifier (`RuleMeta::version_scoped`:
   `version-mismatch`, `semver-range-mismatch`, `policy-conflict`, `unsynced-dependency-family`,
   `incompatible-peer-dependencies`, `catalog-mismatch`, `catalog-version-divergence`); any other finding records the
