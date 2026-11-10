@@ -3193,7 +3193,8 @@ fn bun_reads_the_commands_and_entry_points_source_files_hand_to_its_api() {
     let mut production = out.production_entries.clone();
     production.sort();
     assert_eq!(production, ["src/cli.ts", "src/server.ts", "src/worker.ts"]);
-    assert_entries(&out.entries, &["scripts/copy-icons.ts"]);
+    // A command's file stays as written; the analysis resolves it from the package directory.
+    assert_entries(&out.entries, &["./scripts/copy-icons.ts"]);
     let mut binaries = out.referenced_binaries.clone();
     binaries.sort();
     assert!(binaries.contains(&"changeset".to_owned()), "{binaries:?}");
