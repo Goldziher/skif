@@ -4630,14 +4630,18 @@ fn mise_extensionless_javascript_file_tasks_make_what_they_load_entries() {
         &[],
     );
     let out = output(&results, "mise");
-    let entries: BTreeSet<&str> = out.entries.iter().map(String::as_str).collect();
-    assert_eq!(
-        entries,
-        BTreeSet::from([
+    assert_entries(
+        &out.entries,
+        &[
             "src/t.js",
             "mise-tasks/lib/util{,/index}.{js,mjs,cjs,jsx,ts,mts,cts,tsx}",
             "src/a{,/index}.{js,mjs,cjs,jsx,ts,mts,cts,tsx}",
-        ])
+        ],
+    );
+    assert!(
+        !out.entries.iter().any(|entry| entry.contains("never") || entry.contains("luxon")),
+        "{:?}",
+        out.entries
     );
     assert!(
         out.referenced_binaries.contains(&"tsx".to_owned()),
