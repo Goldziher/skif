@@ -3757,7 +3757,7 @@ fn commands_run_with_a_cwd_run_scripts_of_another_package() {
             await execa("bun", ["run", "build"], { cwd: "/tmp/app" });
             await execaCommand("yarn compile", { cwd: fixture });
             await execa("vitest", ["run"], { cwd: fixture });
-            await execa("bun", ["run", "bundle"]);"#,
+            await execa("bun", ["run", "rollup"]);"#,
         ),
         (
             "test/b.test.js",
@@ -3774,7 +3774,7 @@ fn commands_run_with_a_cwd_run_scripts_of_another_package() {
         names.sort();
         names
     };
-    assert_eq!(runs("execa"), ["bundle", "vitest"]);
+    assert_eq!(runs("execa"), ["rollup", "vitest"]);
     assert!(runs("nano-spawn").is_empty(), "{:?}", runs("nano-spawn"));
 }
 
