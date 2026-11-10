@@ -511,3 +511,52 @@ fn check_ignores_the_order_of_an_entry_s_patterns() {
     assert_eq!(checked.json()["added"], json!([]));
     assert_eq!(checked.json()["removed"], json!([]));
 }
+
+/// Makes `@cli/a` private with `@types/node` at `version` in its `dependencies`, a `types-in-dependencies` finding.
+fn set_types_node(dir: &Path, version: &str) {
+    fs::write(
+        dir.join("packages").join("a").join("package.json"),
+        format!(
+            "{{\n  \"name\": \"@cli/a\",\n  \"version\": \"0.0.0\",\n  \"private\": true,\n  \"dependencies\": {{\n    \"@types/node\": \"{version}\",\n    \"is-number\": \"7.0.0\"\n  }}\n}}\n"
+        ),
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_finding_that_is_not_about_the_version_survives_a_bump() {
+    let dir = fixture("mismatch");
+    set_types_node(dir.path(), "^22.0.0");
+    let before = lint(dir.path());
+    let rules: Vec<Value> = before.json()["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|diagnostic| diagnostic["rule"].clone())
+        .collect();
+    assert!(rules.contains(&json!("types-in-dependencies")), "{}", before.stdout);
+
+    let written = baseline(dir.path(), "write", &[]);
+    assert_eq!(written.code, 0, "{}{}", written.stdout, written.stderr);
+    assert_eq!(
+        written.json()["added"],
+        json!([
+            {
+                "rules": ["types-in-dependencies"],
+                "packages": ["@cli/a"],
+                "dependencies": ["@types/node"],
+                "reason": "baseline",
+            },
+            entry("b", "6.0.0"),
+        ]),
+        "the version rule keeps its specifier, the other one records the name alone"
+    );
+
+    set_types_node(dir.path(), "^22.1.0");
+    let bumped = lint(dir.path());
+    assert_eq!(bumped.code, 0, "{}{}", bumped.stdout, bumped.stderr);
+    let again = baseline(dir.path(), "write", &[]);
+    assert_eq!(again.code, 0, "{}{}", again.stdout, again.stderr);
+    assert_eq!(again.json()["added"], json!([]));
+    assert_eq!(again.json()["written"], false);
+}

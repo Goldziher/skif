@@ -124,6 +124,7 @@ mod tests {
         default: Some(Severity::Error),
         fixable: Fixability::None,
         summary: "demo",
+        version_scoped: false,
     };
 
     fn location() -> Location {

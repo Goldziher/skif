@@ -135,6 +135,11 @@ pub struct RuleMeta {
     pub fixable: Fixability,
     /// One-line description.
     pub summary: &'static str,
+    /// Whether a finding is about the specifier its dependency is written with (a version or range rule), so the same
+    /// dependency at another specifier is another finding. `skif baseline` records `name@specifier` for these rules and
+    /// the dependency name alone for the others, whose findings a version bump does not change.
+    #[serde(skip)]
+    pub version_scoped: bool,
 }
 
 impl RuleMeta {
@@ -153,6 +158,16 @@ impl RuleMeta {
             default,
             fixable,
             summary,
+            version_scoped: false,
+        }
+    }
+
+    /// Marks the rule as reporting findings about the specifier of a dependency (see [`RuleMeta::version_scoped`]).
+    #[must_use]
+    pub const fn version_scoped(self) -> Self {
+        Self {
+            version_scoped: true,
+            ..self
         }
     }
 }
@@ -241,6 +256,7 @@ mod tests {
             default: Some(Severity::Error),
             fixable: Fixability::Sometimes,
             summary: "Unused dependency.",
+            version_scoped: true,
         };
         assert_eq!(
             serde_json::to_value(meta).unwrap(),
@@ -260,6 +276,21 @@ mod tests {
         assert_eq!(
             (META.id, META.default, META.summary),
             ("some-rule", None, "Does a thing.")
+        );
+        assert!(!META.version_scoped);
+    }
+
+    #[test]
+    fn version_scoped_sets_only_the_flag() {
+        const PLAIN: RuleMeta = RuleMeta::new("some-rule", Category::Policy, None, Fixability::None, "Does a thing.");
+        const SCOPED: RuleMeta = PLAIN.version_scoped();
+        assert!(SCOPED.version_scoped);
+        assert_eq!(
+            RuleMeta {
+                version_scoped: false,
+                ..SCOPED
+            },
+            PLAIN
         );
     }
 }

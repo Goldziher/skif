@@ -124,9 +124,16 @@ fn parse_entries(text: &str) -> Result<Vec<IgnoreEntry>, String> {
         .map_err(|error| error.to_string())
 }
 
-/// Lints `target` with its configuration minus the entries of the baseline file, and returns the workspace and the
-/// findings.
-fn lint_without(mut target: Target, baseline: &[IgnoreEntry]) -> Result<(Workspace, Vec<Diagnostic>), CliError> {
+/// What a lint run for the baseline returns: the workspace, the findings and the IDs of the rules whose findings are
+/// about a specifier ([`skif::RuleMeta::version_scoped`]).
+struct Linted {
+    workspace: Workspace,
+    diagnostics: Vec<Diagnostic>,
+    version_scoped: BTreeSet<&'static str>,
+}
+
+/// Lints `target` with its configuration minus the entries of the baseline file.
+fn lint_without(mut target: Target, baseline: &[IgnoreEntry]) -> Result<Linted, CliError> {
     let recorded: BTreeSet<(Key, Option<&str>)> = baseline
         .iter()
         .map(|entry| (key(entry), entry.reason.as_deref()))
@@ -137,11 +144,21 @@ fn lint_without(mut target: Target, baseline: &[IgnoreEntry]) -> Result<(Workspa
         .retain(|entry| !recorded.contains(&(key(entry), entry.reason.as_deref())));
     let root = target.root.clone();
     let linters = Linters::build(std::slice::from_ref(&target))?;
+    let version_scoped = linters
+        .rules()
+        .into_iter()
+        .filter(|meta| meta.version_scoped)
+        .map(|meta| meta.id)
+        .collect();
     let run = roots::lint_targets(&root, vec![target], &linters)?
         .into_iter()
         .next()
         .ok_or_else(|| CliError::new(Kind::Internal, "the root was not linted"))?;
-    Ok((run.workspace, run.report.diagnostics))
+    Ok(Linted {
+        workspace: run.workspace,
+        diagnostics: run.report.diagnostics,
+        version_scoped,
+    })
 }
 
 /// What an entry is compared by: its rules, packages and dependencies, each sorted and without repeats, since neither
@@ -251,13 +268,14 @@ fn package_pattern(workspace: &Workspace, diagnostic: &Diagnostic) -> Result<Opt
     }
 }
 
-/// The dependency pattern of a finding: `name@specifier` when it carries the specifier as written, so only that
-/// version is silenced; else the dependency.
-fn dependency_pattern(diagnostic: &Diagnostic) -> Option<String> {
+/// The dependency pattern of a finding: `name@specifier` when its rule is about the specifier (`version_scoped`) and
+/// the finding carries it as written, so only that version is silenced; else the dependency's name, so a version bump
+/// does not reopen a finding about something else.
+fn dependency_pattern(diagnostic: &Diagnostic, version_scoped: bool) -> Option<String> {
     let dependency = diagnostic.dependency.as_deref()?;
-    Some(match diagnostic.specifier.as_deref() {
+    Some(match diagnostic.specifier.as_deref().filter(|_| version_scoped) {
         Some(specifier) => format!("{}@{}", literal(dependency_name(dependency)), literal(specifier)),
-        None => literal(dependency),
+        None => literal(dependency_name(dependency)),
     })
 }
 
@@ -272,15 +290,19 @@ fn selector(pattern: Option<String>) -> Result<Selector, CliError> {
 /// would need an entry of its rule alone, which turns the rule off for the whole workspace, and one in an unnamed
 /// root package an entry no package pattern narrows to it.
 fn entry_for(
-    workspace: &Workspace,
+    linted: &Linted,
     diagnostic: &Diagnostic,
     reason: &str,
 ) -> Result<Result<IgnoreEntry, Unrecorded>, CliError> {
+    let workspace = &linted.workspace;
     let package = match package_pattern(workspace, diagnostic) {
         Ok(package) => package,
         Err(unrecorded) => return Ok(Err(unrecorded)),
     };
-    let dependency = dependency_pattern(diagnostic);
+    let dependency = dependency_pattern(
+        diagnostic,
+        linted.version_scoped.contains(diagnostic.rule.as_str()),
+    );
     if package.is_none() && dependency.is_none() {
         return Ok(Err(Unrecorded::WorkspaceWide));
     }
@@ -472,18 +494,18 @@ fn write_baseline(args: &BaselineWriteArgs) -> Result<u8, CliError> {
         .as_ref()
         .map(|baseline| baseline.entries.clone())
         .unwrap_or_default();
-    let (workspace, diagnostics) = lint_without(target, &existing)?;
-    let covered: BTreeSet<usize> = ignore_matches(&workspace, &existing, &diagnostics)
+    let linted = lint_without(target, &existing)?;
+    let covered: BTreeSet<usize> = ignore_matches(&linted.workspace, &existing, &linted.diagnostics)
         .into_iter()
         .flatten()
         .collect();
     let mut added: Vec<IgnoreEntry> = Vec::new();
     let mut unrecorded: Vec<(&Diagnostic, Unrecorded)> = Vec::new();
-    for (index, diagnostic) in diagnostics.iter().enumerate() {
+    for (index, diagnostic) in linted.diagnostics.iter().enumerate() {
         if covered.contains(&index) || !is_recorded(diagnostic) {
             continue;
         }
-        match entry_for(&workspace, diagnostic, &args.reason)? {
+        match entry_for(&linted, diagnostic, &args.reason)? {
             Ok(entry) => added.push(entry),
             Err(cause) => unrecorded.push((diagnostic, cause)),
         }
@@ -560,8 +582,8 @@ fn prune_baseline(args: &BaselineFileArgs) -> Result<u8, CliError> {
             )
         });
     };
-    let (workspace, diagnostics) = lint_without(target, &current.entries)?;
-    let matches = ignore_matches(&workspace, &current.entries, &diagnostics);
+    let linted = lint_without(target, &current.entries)?;
+    let matches = ignore_matches(&linted.workspace, &current.entries, &linted.diagnostics);
     let (kept, removed): (Matched<'_>, Matched<'_>) = current
         .entries
         .iter()

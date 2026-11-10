@@ -14,7 +14,8 @@ pub static META: RuleMeta = RuleMeta::new(
     Some(Severity::Warning),
     Fixability::None,
     "The version a package installs in `devDependencies` does not satisfy the range it declares in `peerDependencies`.",
-);
+)
+.version_scoped();
 
 /// Reports packages whose `devDependencies` version cannot fall inside their own `peerDependencies` range.
 ///

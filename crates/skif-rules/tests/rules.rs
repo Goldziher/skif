@@ -202,3 +202,26 @@ fn rules_can_be_turned_off_and_ignored_through_configuration() {
     );
     assert_ne!(report.diagnostics, [] as [skif_core::Diagnostic; 0]);
 }
+
+#[test]
+fn only_the_rules_about_a_version_are_version_scoped() {
+    let mut scoped: Vec<&str> = Registry::new(providers())
+        .unwrap()
+        .rules()
+        .filter(|meta| meta.version_scoped)
+        .map(|meta| meta.id)
+        .collect();
+    scoped.sort_unstable();
+    assert_eq!(
+        scoped,
+        [
+            "catalog-mismatch",
+            "catalog-version-divergence",
+            "incompatible-peer-dependencies",
+            "policy-conflict",
+            "semver-range-mismatch",
+            "unsynced-dependency-family",
+            "version-mismatch",
+        ]
+    );
+}
