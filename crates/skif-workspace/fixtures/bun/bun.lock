@@ -1,0 +1,39 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "bun-fixture",
+    },
+    "packages/a": {
+      "name": "@fx/a",
+      "version": "1.0.0",
+      "dependencies": {
+        "@fx/literal": "workspace:*",
+        "ms": "catalog:",
+        "picocolors": "catalog:testing",
+      },
+    },
+    "packages/literal": {
+      "name": "@fx/literal",
+      "version": "1.0.0",
+    },
+  },
+  "catalog": {
+    "ms": "^2.1.3",
+  },
+  "catalogs": {
+    "testing": {
+      "picocolors": "^1.1.1",
+    },
+  },
+  "packages": {
+    "@fx/a": ["@fx/a@workspace:packages/a"],
+
+    "@fx/literal": ["@fx/literal@workspace:packages/literal"],
+
+    "ms": ["ms@2.1.3", "", {}, "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA=="],
+
+    "picocolors": ["picocolors@1.1.1", "", {}, "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA=="],
+  }
+}

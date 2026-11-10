@@ -158,6 +158,31 @@ fn negated_fact_counts_removed_directories() {
 }
 
 #[test]
+fn bun_keeps_a_directory_listed_by_its_literal_path_despite_a_negation() {
+    let tree = [
+        ("packages/a/package.json", pkg("a")),
+        ("packages/literal/package.json", pkg("literal")),
+        ("packages/globbed/package.json", pkg("globbed")),
+    ];
+    let run = |package_manager: &str| {
+        let manifest = format!(
+            r#"{{"name":"root","packageManager":"{package_manager}","workspaces":["packages/*","./packages/literal/","!packages/literal","!packages/glob*"]}}"#
+        );
+        let mut files: Vec<(&str, &str)> = tree.iter().map(|(p, c)| (*p, c.as_str())).collect();
+        files.push(("package.json", manifest.as_str()));
+        let workspace = discover(&files, &Config::default()).unwrap();
+        let removed: Vec<usize> = workspace.facts.patterns[2..].iter().map(|fact| fact.matched).collect();
+        (dirs(&workspace), removed)
+    };
+    assert_eq!(
+        run("bun@1.4.4"),
+        (vec!["packages/a".to_owned(), "packages/literal".to_owned()], vec![0, 1])
+    );
+    // npm lets a negation remove a directory whatever selected it.
+    assert_eq!(run("npm@11.0.0"), (vec!["packages/a".to_owned()], vec![1, 1]));
+}
+
+#[test]
 fn pattern_spans_in_package_json() {
     let workspace = run(&["packages/a", "tool"]);
     let fact = &workspace.facts.patterns[1];
