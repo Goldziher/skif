@@ -28,8 +28,12 @@ All notable changes to this project are documented here. The format follows
   ESLint plugin, parser or shareable config, a Babel preset or plugin, a PostCSS plugin, a Prisma generator and the
   other packages plugins read from configs. The config belongs to the innermost package whose directory holds it.
   Packages that a command in a config names, that a plugin assumes without a config, and optional references are not
-  reported; `ignore-dependencies` and `ignore` apply, and production mode judges no config. Plugins record the
-  dependencies a non-config file names with `PluginInput::FileDependency`, and `DepRef` has `named_by_config`
+  reported; `ignore-dependencies` and `ignore` apply, a gitignored config or one in a fixture directory (unless
+  `include-fixtures`) is not judged, and production mode judges no config. A `tsconfig` compiler option of a shared
+  base config is satisfied by the package extending it as well as the base's owner, and a `types` entry by the
+  package or its `@types` package. Plugins record the dependencies a non-config file names with
+  `PluginInput::FileDependency` and compiler options with `PluginInput::CompilerDependency`; `DepRef` has
+  `named_by_config`, `type_only` and `reader_may_list`, with `DepRef::new` and `DepRef::merge`
   ([ADR 0083](adrs/0083-packages-tool-configs-name-are-unlisted-at-the-config.md), [#96](https://github.com/Goldziher/skif/issues/96)).
 - Eight plugins read more of their configs, still without running them
   ([ADR 0078](adrs/0078-plugin-gaps-config-functions-file-tasks-and-templates.md),
@@ -72,8 +76,12 @@ All notable changes to this project are documented here. The format follows
   judged by `unlisted-dependencies` again. `declare module 'pkg'` and a pattern such as `declare module 'pkg/*'` still
   cover the imports they match ([ADR 0083](adrs/0083-packages-tool-configs-name-are-unlisted-at-the-config.md), [#96](https://github.com/Goldziher/skif/issues/96)).
 - A specifier that names a workspace package is an import of that package also when a `tsconfig` mapping or bundler
-  alias leads it to generated code that is not there yet, as it already was when the mapping leads to an existing
-  file ([ADR 0083](adrs/0083-packages-tool-configs-name-are-unlisted-at-the-config.md), [#96](https://github.com/Goldziher/skif/issues/96)).
+  alias leads it to generated code in that package that is not there yet, as it already was when the mapping leads to
+  an existing file; an alias into other code is not the package. An import an alias leads into another package is
+  covered by a `declare module` of any module of that package ([ADR 0083](adrs/0083-packages-tool-configs-name-are-unlisted-at-the-config.md), [#96](https://github.com/Goldziher/skif/issues/96)).
+- A string `extends` of an ESLint flat config names a plugin's config, no `eslint-config-*` package, and a Prisma
+  `generator` block named `client…` is not read, as knip reads them. A config that a sibling package extends through
+  `../` is read at its own path ([ADR 0083](adrs/0083-packages-tool-configs-name-are-unlisted-at-the-config.md)).
 - Vite's `optimizeDeps.include` and the resolvers of `eslint-plugin-import` settings are optional references, as knip
   reads them: a listed one is never unused and an unlisted one is never reported
   ([ADR 0083](adrs/0083-packages-tool-configs-name-are-unlisted-at-the-config.md)).
