@@ -162,7 +162,8 @@ configuration's entries, on skif's because knip's view of the package is incompl
 
 **Invalid knip runs.** A repository whose knip run cannot be a valid comparison sets `knip-invalid` in `corpus.toml`
 with the reason (n8n: its configs import the workspace's own `@n8n/*-config` packages, which have no built `dist`
-after an install without scripts, so knip loads none of them). It is still compared and recorded, and its status
+after an install without scripts, so knip loaded none of them; its `build-command` now builds them, and the mark stays
+until a parity run confirms that knip loads those configs). It is still compared and recorded, and its status
 cell in `parity.md` (and `invalid` in the baseline) carries the reason, so its counts are not read as agreement.
 
 **Findings inside unused files.** A tool analyses nothing inside a file it reports as unused, so a finding in such a
