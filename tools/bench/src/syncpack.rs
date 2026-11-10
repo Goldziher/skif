@@ -21,6 +21,7 @@ use crate::diff::{self, BASELINE_SCHEMA, Baseline, CaseSummary, Counts, Entry, G
 use crate::evidence::{Evidence, SYNCPACK_DEVIATIONS};
 use crate::parity::normalize;
 use crate::proc::{capture, find_on_path};
+use crate::run::table_cell;
 
 /// The skif rules that report syncpack's findings.
 const POLICY_RULES: [&str; 9] = [
@@ -641,7 +642,8 @@ fn markdown(tool: &str, entries: &BTreeMap<String, Entry>) -> String {
                 .map_or_else(|| "-".to_owned(), |c| c.differing.len().to_string());
             let _ = writeln!(
                 out,
-                "| {name} | compared | {} | {} | {} | {} | {differing} |",
+                "| {} | compared | {} | {} | {} | {} | {differing} |",
+                table_cell(name),
                 sum(|c| c.skif_only),
                 sum(|c| c.tool_only),
                 sum(|c| c.both),
@@ -650,8 +652,9 @@ fn markdown(tool: &str, entries: &BTreeMap<String, Entry>) -> String {
         } else {
             let _ = writeln!(
                 out,
-                "| {name} | skipped: {} | - | - | - | - | - |",
-                entry.reason.as_deref().unwrap_or("")
+                "| {} | skipped: {} | - | - | - | - | - |",
+                table_cell(name),
+                table_cell(entry.reason.as_deref().unwrap_or(""))
             );
         }
     }
