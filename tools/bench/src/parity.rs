@@ -555,7 +555,8 @@ pub fn skif_root_packages(document: &Value) -> BTreeSet<String> {
 }
 
 /// The package that owns a finding key (`<path>` or `<path>|<name>`): the deepest directory above the path that
-/// `is_package` accepts, the root (`""`) at the latest.
+/// `is_package` accepts (for the classification, [`Layout::is_project`], so a marker-only manifest owns nothing), the
+/// root (`""`) at the latest.
 fn owner_dir(key: &str, is_package: &dyn Fn(&str) -> bool) -> String {
     let path = key.split_once('|').map_or(key, |(path, _)| path);
     let mut dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
@@ -823,12 +824,9 @@ impl<'a> Layout<'a> {
         }
     }
 
-    fn is_package(&self, dir: &str) -> bool {
-        (self.manifest)(dir).is_some()
-    }
-
     /// Whether `dir` holds a project manifest, as skif's file discovery decides it: an unreadable manifest or one with
-    /// a field besides [`MARKER_FIELDS`].
+    /// a field besides [`MARKER_FIELDS`]. A marker-only manifest (`{"type": "module"}`) belongs to the package above
+    /// it, so it is never the owner of a finding.
     fn is_project(&self, dir: &str) -> bool {
         (self.manifest)(dir).is_some_and(|manifest| {
             manifest
@@ -880,7 +878,7 @@ impl<'a> Layout<'a> {
             let dir = &directories[..end];
             let by_name =
                 SKIPPED_DIRECTORIES.contains(&name) || (name.starts_with('.') && !TOOL_DIRECTORIES.contains(&name));
-            let here = !PACKAGE_ROOT_ONLY_DIRECTORIES.contains(&name) || parent.is_empty() || self.is_package(parent);
+            let here = !PACKAGE_ROOT_ONLY_DIRECTORIES.contains(&name) || parent.is_empty() || self.is_project(parent);
             if by_name && here && !self.members.contains(dir) && !self.in_member_below(dir, path) {
                 return true;
             }
@@ -904,7 +902,7 @@ impl<'a> Layout<'a> {
         let Some((stem, extension)) = typescript_source(path) else {
             return false;
         };
-        let dir = owner_dir(path, &|dir: &str| self.is_package(dir));
+        let dir = owner_dir(path, &|dir: &str| self.is_project(dir));
         let Some(manifest) = (self.manifest)(&dir) else {
             return false;
         };
@@ -973,7 +971,7 @@ impl Classifier<'_> {
             return Some(KNIP_UNREAD);
         }
         let path = key_path(key);
-        let is_package = |dir: &str| self.layout.is_package(dir);
+        let is_package = |dir: &str| self.layout.is_project(dir);
         // A configuration knip could not load changes what it reads in the whole package, so both sides are affected.
         let config_error = || {
             self.knip_failed
@@ -1456,7 +1454,7 @@ fn parity_repo(
     let layout = Layout::new(members, &manifest, &is_file);
     let knip_failed: BTreeSet<String> = knip_errors
         .iter()
-        .map(|file| owner_dir(file, &|dir: &str| layout.is_package(dir)))
+        .map(|file| owner_dir(file, &|dir: &str| layout.is_project(dir)))
         .collect();
     let judged_manifests = knip_manifests(&knip_found);
     let empty = BTreeSet::new();
@@ -3374,6 +3372,73 @@ vi.mock("mocked-package");
             classifier(false).classify(Side::Tool, "files", ".prettierrc.js"),
             None,
             "only a Rush root"
+        );
+    }
+
+    #[test]
+    fn a_marker_only_manifest_does_not_own_the_findings_below_it() {
+        let read: BTreeMap<String, Rc<Value>> = [
+            ("", json!({ "name": "root" })),
+            (
+                "packages/a",
+                json!({ "name": "a", "exports": { "./esm/*": { "default": "./dist/esm/*.js" } } }),
+            ),
+            ("packages/a/src/esm", json!({ "type": "module" })),
+            ("packages/b", json!({ "name": "b" })),
+            ("packages/b/src/esm", json!({ "type": "module" })),
+            ("packages/c", json!({ "name": "c" })),
+            ("packages/c/src/esm", json!({ "type": "module" })),
+        ]
+        .into_iter()
+        .map(|(dir, manifest)| (dir.to_owned(), Rc::new(manifest)))
+        .collect();
+        let manifest = move |dir: &str| read.get(dir).cloned();
+        let every_file = |_: &str| true;
+        let layout = Layout::new(strings(&["packages/a", "packages/b", "packages/c"]), &manifest, &every_file);
+        let not_judged_dirs = BTreeMap::from([(
+            "packages/a".to_owned(),
+            NotJudgedScope::within(vec!["src/esm/*.stories.ts".to_owned()]),
+        )]);
+        let knip_failed = strings(&["packages/b"]);
+        let none = BTreeSet::new();
+        let classifier = Classifier {
+            knip_unread: &[],
+            include_test_files: false,
+            not_judged: &not_judged_dirs,
+            knip_failed: &knip_failed,
+            knip_manifests: &none,
+            foreign_paths: &none,
+            knip_unused_files: &none,
+            skif_unused_files: &none,
+            knip_unused_imports: &none,
+            skif_unused_imports: &none,
+            skif_root_packages: &none,
+            rush_root: false,
+            layout: &layout,
+        };
+        assert_eq!(
+            classifier.classify(Side::Tool, "files", "packages/a/src/esm/button.stories.ts"),
+            Some(NOT_JUDGED),
+            "the narrowed scope is matched relative to the package, not to the marker's directory"
+        );
+        assert_eq!(
+            classifier.classify(Side::Tool, "files", "packages/a/src/esm/index.ts"),
+            Some(PUBLISHED_SOURCE),
+            "the package publishes the source below the marker"
+        );
+        assert_eq!(
+            classifier.classify(Side::Tool, "exports", "packages/b/src/esm/index.ts|unused"),
+            Some(KNIP_CONFIG_ERROR),
+            "the config error of the package covers the files below the marker"
+        );
+        assert_eq!(
+            classifier.classify(Side::Tool, "files", "packages/a/src/other.ts"),
+            None
+        );
+        assert_eq!(
+            classifier.classify(Side::Tool, "files", "packages/c/src/esm/coverage/report.ts"),
+            None,
+            "a marker directory is no package root for `coverage`"
         );
     }
 
