@@ -3244,8 +3244,7 @@ fn bun_reads_the_commands_of_its_own_sources_only() {
 }
 
 /// `` $`…`.cwd(dir) `` and the `cwd` option of `Bun.spawn` run the command in another directory: its scripts and
-/// binaries are another package's, so none is judged against this one. One the file's own location computes runs in
-/// the file's directory.
+/// binaries are another package's, so none is judged against this one.
 #[test]
 fn bun_runs_a_command_with_a_cwd_in_that_directory() {
     let source = r#"import { $ } from "bun";
