@@ -198,6 +198,7 @@ fn inputs(output: PluginOutput) -> WorkspaceInputs {
     WorkspaceInputs {
         entry,
         production_entry: output.production_entries,
+        entry_regex: output.entry_regexes,
         project: output.project,
         ignore: output.ignore,
         ignore_dependencies: names(&output.referenced_dependencies, true).collect(),

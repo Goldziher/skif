@@ -162,6 +162,7 @@ impl Collector<'_, '_> {
                     push_unique(&mut self.out.entries, path.clone());
                     push_unique(&mut self.out.production_entries, path);
                 }
+                PluginInput::EntryRegex(pattern) => push_unique(&mut self.out.entry_regexes, pattern),
                 PluginInput::Dependency(name) => self.dependency(name, from, false),
                 PluginInput::OptionalDependency(name) => self.dependency(name, from, true),
                 PluginInput::Binary(name) => push_unique(&mut self.out.referenced_binaries, name),

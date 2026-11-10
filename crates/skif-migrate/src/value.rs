@@ -102,7 +102,7 @@ pub(crate) fn string_items<'v>(
 fn string_item(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue) -> Option<String> {
     match value {
         ConfigValue::String(text) => Some(text.clone()),
-        ConfigValue::Regex(pattern) => Some(slash_regex(pattern)),
+        ConfigValue::Regex { pattern, .. } => Some(slash_regex(pattern)),
         ConfigValue::Unknown => {
             state.note(src, NoteClass::Human, path, "the value is only known at run time");
             None
@@ -185,7 +185,7 @@ fn simple_glob(pattern: &str) -> Option<String> {
 /// `glob` set the two simple forms that a glob states exactly are written as globs instead.
 pub(crate) fn pattern_entry(value: &ConfigValue, glob: bool) -> Option<String> {
     match value {
-        ConfigValue::Regex(pattern) => Some(
+        ConfigValue::Regex { pattern, .. } => Some(
             glob.then(|| simple_glob(pattern))
                 .flatten()
                 .unwrap_or_else(|| slash_regex(pattern)),
@@ -257,7 +257,14 @@ mod tests {
     fn regex_like_strings_become_slash_regexes() {
         assert_eq!(pattern_entry(&text("@org/.+"), false).as_deref(), Some("/@org/.+/"));
         assert_eq!(
-            pattern_entry(&ConfigValue::Regex("^@org\\/.+$".to_owned()), true).as_deref(),
+            pattern_entry(
+                &ConfigValue::Regex {
+                    pattern: "^@org\\/.+$".to_owned(),
+                    flags: String::new(),
+                },
+                true,
+            )
+            .as_deref(),
             Some("/^@org\\/.+$/")
         );
     }

@@ -580,17 +580,13 @@ struct Seam;
 
 impl InputSource for Seam {
     fn inputs(&self, request: &InputRequest<'_>) -> WorkspaceInputs {
+        let mut inputs = WorkspaceInputs::default();
         match request.package.name.as_deref() {
-            Some("@fx/lib") => WorkspaceInputs {
-                entry: vec!["src/unused.ts".to_owned()],
-                ..WorkspaceInputs::default()
-            },
-            Some("fx-root") => WorkspaceInputs {
-                dependencies: vec!["left-over".to_owned()],
-                ..WorkspaceInputs::default()
-            },
-            _ => WorkspaceInputs::default(),
+            Some("@fx/lib") => inputs.entry.push("src/unused.ts".to_owned()),
+            Some("fx-root") => inputs.dependencies.push("left-over".to_owned()),
+            _ => {}
         }
+        inputs
     }
 }
 

@@ -1,6 +1,7 @@
 //! Glob sets with exclusions, and name matchers for the ignore lists.
 
 use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
+use regex::RegexSet;
 
 /// Include and exclude globs matched against `/`-separated relative paths.
 #[derive(Debug, Clone, Default)]
@@ -8,6 +9,8 @@ pub(crate) struct Globs {
     include: GlobSet,
     exclude: GlobSet,
     has_include: bool,
+    /// Regular expressions matched besides `include`, against `/` followed by the path (Jest's `testRegex`).
+    include_regex: Option<RegexSet>,
     /// A second set matched besides this one, with exclusions of its own: the `files` of a `tsconfig`, which its
     /// `exclude` does not filter.
     also: Option<Box<Globs>>,
@@ -53,8 +56,18 @@ impl Globs {
             has_include: !include.is_empty(),
             include: build(include),
             exclude: build(exclude),
+            include_regex: None,
             also: None,
         }
+    }
+
+    /// Also includes the paths that one of `regexes` (see [`regex_set`]) matches against `/` followed by the path;
+    /// the exclude globs apply to them as to the include globs.
+    #[must_use]
+    pub(crate) fn with_regexes(mut self, regexes: Option<RegexSet>) -> Self {
+        self.has_include |= regexes.is_some();
+        self.include_regex = regexes;
+        self
     }
 
     /// Also matches what `other` matches, whatever the exclusions of this set say.
@@ -73,14 +86,33 @@ impl Globs {
 
     /// Whether `path` matches an include glob and no exclude glob.
     pub(crate) fn is_match(&self, path: &str) -> bool {
-        (self.has_include && self.include.is_match(path) && !self.exclude.is_match(path))
+        (self.includes(path) && !self.exclude.is_match(path))
             || self.also.as_ref().is_some_and(|also| also.is_match(path))
     }
 
     /// Whether `path` matches any include glob, ignoring exclusions (for ignore lists, where `!` has no meaning).
     pub(crate) fn matches_any(&self, path: &str) -> bool {
-        (self.has_include && self.include.is_match(path))
-            || self.also.as_ref().is_some_and(|also| also.matches_any(path))
+        self.includes(path) || self.also.as_ref().is_some_and(|also| also.matches_any(path))
+    }
+
+    /// Whether `path` matches an include glob or regular expression.
+    fn includes(&self, path: &str) -> bool {
+        self.has_include
+            && (self.include.is_match(path)
+                || self
+                    .include_regex
+                    .as_ref()
+                    .is_some_and(|set| set.is_match(&format!("/{path}"))))
+    }
+}
+
+/// The regular expressions `regexes` compiled once, as one set that the [`Globs`] including them share; `None` when
+/// there is none or the set does not compile (the plugin that names an expression checks that it compiles).
+pub(crate) fn regex_set(regexes: &[String]) -> Option<RegexSet> {
+    if regexes.is_empty() {
+        None
+    } else {
+        RegexSet::new(regexes).ok()
     }
 }
 
@@ -122,6 +154,28 @@ mod tests {
         assert!(globs.is_match("src/deep/b.jsx"));
         assert!(!globs.is_match("lib/b.jsx"));
         assert!(!Globs::new(["!a"]).is_match("a"));
+    }
+
+    #[test]
+    fn regular_expressions_match_the_path_after_a_slash_and_the_exclusions_apply() {
+        let regexes = [r"\.check\.js$".to_owned(), r"\/__tests__\/".to_owned()];
+        let jest = Globs::new(["**/__mocks__/**/*.js", "!vendor/**"]).with_regexes(regex_set(&regexes));
+        assert!(jest.is_match("src/a.check.js"));
+        assert!(jest.is_match("src/__tests__/a.js"));
+        assert!(jest.is_match("__tests__/a.js"));
+        assert!(jest.is_match("__mocks__/fs.js"));
+        assert!(!jest.is_match("src/a.test.js"));
+        assert!(!jest.is_match("src/x__tests__/a.js"));
+        assert!(!jest.is_match("vendor/a.check.js"));
+        assert!(jest.matches_any("vendor/a.check.js"));
+
+        // Regular expressions alone include paths.
+        let only = Globs::new(Vec::<String>::new()).with_regexes(regex_set(&[r"^/e2e/".to_owned()]));
+        assert!(!only.is_empty());
+        assert!(only.is_match("e2e/flow.js"));
+        assert!(!only.is_match("lib/e2e/flow.js"));
+        assert!(regex_set(&[]).is_none());
+        assert!(Globs::new(Vec::<String>::new()).with_regexes(None).is_empty());
     }
 
     #[test]

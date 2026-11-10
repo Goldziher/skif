@@ -24,6 +24,16 @@ All notable changes to this project are documented here. The format follows
   no `circular-imports` cycle, and a package that may use its components in files without tags (a `.tsx` or `.jsx`
   file, a VitePress or VuePress site, or an `include` of the plugin beyond `.vue` files) credits all of them as before
   ([ADR 0084](adrs/0084-template-scopes-auto-imported-vue-components-and-marko-files.md)).
+- `ConfigValue::Regex` of `skif-js-syntax` holds the `flags` of the literal besides its `pattern`. `PluginInput` of
+  `skif-js-plugins` gains `EntryRegex`, `PluginOutput` gains `entry_regexes` and `WorkspaceInputs` of `skif-js` gains
+  `entry_regex`, for Jest's `testRegex` ([#100](https://github.com/Goldziher/skif/issues/100)).
+- `PluginOutput` of `skif-js-plugins` and `WorkspaceInputs` of `skif-js` are `#[non_exhaustive]`: an input source
+  starts from `WorkspaceInputs::default()` and sets the fields it knows.
+- `Report::other_project_files` lists every file with an absolute path (the files below the workspace root were
+  relative to it) and also lists the files outside the root that the analysed code reaches;
+  `Report::ancestor_dependency_uses` also lists the dependencies those files import, with the directory of the manifest
+  that lists them ([ADR 0085](adrs/0085-files-other-roots-reach-count-as-used.md),
+  [#100](https://github.com/Goldziher/skif/issues/100)).
 - The knip comparison sets apart findings that follow from where each tool looks, decided from paths and manifests:
   unused dependencies and script binaries skif reports on a `package.json` that is not one of knip's workspaces
   (`knip-unjudged-manifest`), unused files and listed unlisted dependencies knip reports below a project that is not
@@ -131,6 +141,25 @@ All notable changes to this project are documented here. The format follows
   `tsconfig.json` or `jsconfig.json` extends is not generated and is gitignored
   ([ADR 0082](adrs/0082-install-hooks-sveltekit-route-types-and-builtin-named-packages.md),
   [#99](https://github.com/Goldziher/skif/issues/99)).
+- In a multi-root run (`skif -r`), a file another root uses is no longer reported by `unused-files` or deleted by
+  `--allow-remove-files`: a file of a nested root that a workflow step or another tool configuration of an enclosing
+  root names is an entry of the nested root, and a file a root's code reaches outside its own directory (an import of
+  the enclosing root's `.github/actions/detect.ts`, of a sibling root's file, and what those import) counts as used
+  by the root that holds it, as do the dependencies such a file imports, in the manifest that lists them. The JS
+  analysis follows imports of source files outside the workspace root, which it used to take for assets, as files of
+  another project that it does not judge
+  ([ADR 0085](adrs/0085-files-other-roots-reach-count-as-used.md),
+  [#100](https://github.com/Goldziher/skif/issues/100)).
+- The `jest` plugin reads `testRegex` (a string, a regular expression or an array of them): the test files it selects
+  are entries besides the default test globs, which stay as knip keeps them. `<rootDir>` stands for the config's
+  `rootDir`, and the `i`, `m` and `s` flags of a regular expression literal apply; an expression the `regex` crate
+  cannot compile leaves the package's entries incomplete. `testPathIgnorePatterns` is not applied, as knip does not
+  apply it ([ADR 0085](adrs/0085-files-other-roots-reach-count-as-used.md),
+  [#100](https://github.com/Goldziher/skif/issues/100)).
+- The JS analysis walks a hidden directory that holds workspace members, such as `.vscode/extensions/*`, for those
+  members, which it used to skip with the rest of the directory; the knip comparison's `skipped-directory` deviation
+  follows ([ADR 0085](adrs/0085-files-other-roots-reach-count-as-used.md),
+  [#100](https://github.com/Goldziher/skif/issues/100)).
 - The `jasmine` framework of a Karma config uses `jasmine-core` as well as `karma-jasmine`, as knip counts it
   ([#98](https://github.com/Goldziher/skif/issues/98)).
 - `next lint` in a script uses `eslint` and `eslint-config-next`, which it runs

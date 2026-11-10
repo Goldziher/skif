@@ -26,15 +26,18 @@ pub(crate) fn external_manifests(fs: &dyn FileSystem, root: &Path) -> Vec<(PathB
     while !is_repository_root(fs, dir) {
         let Some(parent) = dir.parent() else { break };
         dir = parent;
-        if let Some(manifest) = fs
-            .read_to_string(&dir.join("package.json"))
-            .ok()
-            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-        {
+        if let Some(manifest) = read_manifest(fs, dir) {
             manifests.push((dir.to_path_buf(), manifest));
         }
     }
     manifests
+}
+
+/// The parsed `package.json` of `dir`, when it is readable.
+pub(crate) fn read_manifest(fs: &dyn FileSystem, dir: &Path) -> Option<Value> {
+    fs.read_to_string(&dir.join("package.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
 }
 
 /// The names `manifest` lists in any dependency section.

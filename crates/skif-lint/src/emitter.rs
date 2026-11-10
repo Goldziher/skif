@@ -158,8 +158,8 @@ impl<'a> Emitter<'a> {
         self.incomplete_packages.push(package);
     }
 
-    /// Records a file of another project (such as a nested root) that the analysed code imports, relative to the
-    /// workspace root, so a multi-root host can make it an entry of the root that owns it.
+    /// Records a file of another project (a nested, enclosing or sibling root) that the analysed code uses, absolute,
+    /// so a multi-root host can hand it to the root that owns it.
     pub fn report_other_project_file(&mut self, path: PathBuf) {
         self.other_project_files.push(path);
     }
@@ -171,7 +171,7 @@ impl<'a> Emitter<'a> {
     }
 
     /// Records that the analysed code uses dependency `name` through the `package.json` in `manifest_dir`, a
-    /// directory above the workspace root, so a multi-root host can count it as used by the root that owns that
+    /// directory outside the workspace root, so a multi-root host can count it as used by the root that owns that
     /// manifest.
     pub fn report_ancestor_dependency_use(&mut self, manifest_dir: PathBuf, name: String) {
         self.ancestor_dependency_uses.push((manifest_dir, name));

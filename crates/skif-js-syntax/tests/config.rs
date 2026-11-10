@@ -20,6 +20,31 @@ fn obj(entries: Vec<(&str, ConfigValue)>) -> ConfigValue {
 }
 
 #[test]
+fn regular_expression_literals_keep_their_flags() {
+    let value = extract("c.js", r"export default { a: /\.test\.js$/im, b: /x/ };").unwrap();
+    assert_eq!(
+        value,
+        obj(vec![
+            (
+                "a",
+                ConfigValue::Regex {
+                    pattern: r"\.test\.js$".to_owned(),
+                    flags: "im".to_owned(),
+                },
+            ),
+            (
+                "b",
+                ConfigValue::Regex {
+                    pattern: "x".to_owned(),
+                    flags: String::new(),
+                },
+            ),
+        ])
+    );
+    assert_eq!(value.get("a").and_then(ConfigValue::as_regex), Some(r"\.test\.js$"));
+}
+
+#[test]
 fn shapes() {
     let cases: Vec<(&str, &str, &str, Option<ConfigValue>)> = vec![
         (

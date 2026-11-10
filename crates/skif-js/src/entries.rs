@@ -34,6 +34,9 @@ pub(crate) struct EntryFiles {
     /// manifest, whose exports are judged like a configured entry's). A configured entry naming one of them is
     /// redundant (knip's `entry-redundant`).
     pub provided: HashSet<PathBuf>,
+    /// Files that plugins name as entries (a workflow step's `node build/report.ts`) and that exist but are no
+    /// candidate of this analysis, absolute and sorted: a multi-root run hands them to the root that owns them.
+    pub other_roots: Vec<PathBuf>,
 }
 
 /// Where published paths are looked up to tell build output not built yet from a path into nothing: `fs` lists
@@ -57,6 +60,7 @@ pub(crate) fn entry_files(
     let mut entries = BTreeSet::new();
     let mut unknown = Vec::new();
     let mut provided = HashSet::new();
+    let mut other_roots = BTreeSet::new();
     let mut by_owner: Vec<Vec<&Candidate>> = vec![Vec::new(); workspace.iter().count()];
     for candidate in candidates {
         if let Some(owned) = by_owner.get_mut(candidate.owner.index()) {
@@ -146,6 +150,17 @@ pub(crate) fn entry_files(
             provided.extend(tool_entries.iter().cloned());
         }
         own.extend(tool_entries);
+        other_roots.extend(
+            package_setup
+                .plugin_entry_files
+                .iter()
+                .filter(|path| {
+                    is_code_file(path)
+                        && relative(path, &workspace.root).is_none_or(|rel| candidate_at(candidates, &rel).is_none())
+                        && fs.is_file(path)
+                })
+                .cloned(),
+        );
         // An install hook is an entry, so what it imports is used, but it is no project code: a package with nothing
         // else lists what code elsewhere installs it for.
         let has_entries = own.iter().any(|path| !is_install_hook(path));
@@ -173,6 +188,7 @@ pub(crate) fn entry_files(
         files: entries.into_iter().collect(),
         unknown,
         provided,
+        other_roots: other_roots.into_iter().collect(),
     }
 }
 

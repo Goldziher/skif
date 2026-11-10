@@ -115,6 +115,10 @@ pub enum PluginInput {
     Entry(String),
     /// An entry that is also part of a production build.
     ProductionEntry(String),
+    /// Test files given as a regular expression (Jest's `testRegex`) in the syntax of the `regex` crate, matched
+    /// against `/` followed by the path relative to the package directory ([`PluginContext::dir`]); unanchored, it
+    /// matches anywhere in the path. It adds entries: the plugin's default entry globs stay.
+    EntryRegex(String),
     /// A package the config references.
     Dependency(String),
     /// A package the config references that may legitimately be absent.
@@ -368,6 +372,7 @@ pub struct BinaryRef {
 /// Globs and paths are relative to the workspace directory, except the absolute `config_files`, the `from` of each
 /// [`DepRef`] and the `from` of each [`BinaryRef`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PluginOutput {
     /// Entry files and globs, including the production ones.
     pub entries: Vec<String>,
@@ -375,6 +380,9 @@ pub struct PluginOutput {
     pub project: Vec<String>,
     /// Entries that belong to a production build; a subset of `entries`.
     pub production_entries: Vec<String>,
+    /// Entry files given as regular expressions, besides `entries`; see [`PluginInput::EntryRegex`]. Not used in
+    /// production mode.
+    pub entry_regexes: Vec<String>,
     /// Config files that were found and read.
     pub config_files: Vec<PathBuf>,
     /// Packages the configs reference by name.

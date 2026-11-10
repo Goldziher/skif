@@ -64,13 +64,19 @@ impl CustomElementLibrary {
 
 /// What an [`InputSource`] contributes for one workspace package.
 ///
-/// Globs are relative to the package directory and use `/` separators. A leading `!` excludes.
+/// Globs are relative to the package directory and use `/` separators. A leading `!` excludes. A source starts from
+/// [`WorkspaceInputs::default`] and fills in the fields it knows, as fields may be added.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct WorkspaceInputs {
     /// Entry files in every mode, such as test files or framework routes.
     pub entry: Vec<String>,
     /// Entry files that are part of the shipped product; the only plugin entries used in production mode.
     pub production_entry: Vec<String>,
+    /// Entry files given as regular expressions in the syntax of the `regex` crate (Jest's `testRegex`), matched
+    /// against `/` followed by the path relative to the package directory; besides `entry`, and like it not used in
+    /// production mode.
+    pub entry_regex: Vec<String>,
     /// Files that belong to the project, added to the default or configured project globs.
     pub project: Vec<String>,
     /// Files whose issues are never reported, relative to the package directory.
@@ -150,6 +156,7 @@ impl WorkspaceInputs {
     pub fn extend(&mut self, other: Self) {
         self.entry.extend(other.entry);
         self.production_entry.extend(other.production_entry);
+        self.entry_regex.extend(other.entry_regex);
         self.project.extend(other.project);
         self.ignore.extend(other.ignore);
         self.ignore_dependencies.extend(other.ignore_dependencies);
