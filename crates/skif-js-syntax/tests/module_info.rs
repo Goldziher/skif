@@ -804,6 +804,39 @@ fn a_parameter_or_local_with_the_name_of_an_import_reads_nothing_of_it() {
 }
 
 #[test]
+fn an_import_and_a_dynamic_import_bound_to_the_same_name_each_get_their_own_reads() {
+    let source = "import * as config from './config';\nconsole.log(config.top);\n\
+                  test('x', async () => { const config = await import('./config'); expect(config.foo); });\n\
+                  const late = () => import('./lazy').then(({ load }) => load());\n";
+    let info = parse("a.test.ts", source);
+    let reads: Vec<(ImportKind, Option<&str>, &[String], bool)> = info
+        .imports
+        .iter()
+        .flat_map(|import| {
+            import.names.iter().map(move |name| {
+                (
+                    import.kind,
+                    name.local.as_deref(),
+                    name.accessed_members.as_slice(),
+                    name.escapes,
+                )
+            })
+        })
+        .collect();
+    let top = ["top".to_owned()];
+    let foo = ["foo".to_owned()];
+    assert_eq!(
+        reads,
+        [
+            (ImportKind::Static, Some("config"), &top[..], false),
+            (ImportKind::Dynamic, Some("config"), &foo[..], false),
+            (ImportKind::Dynamic, Some("load"), &[][..], true),
+        ],
+        "`config.foo` reads the binding of the `import()`, not the namespace import"
+    );
+}
+
+#[test]
 fn namespace_that_escapes_is_flagged() {
     for source in [
         "import * as ns from 'x'; use(ns);",

@@ -162,7 +162,7 @@ fn parse_block(
     let analysis = semantic::Analysis::new(&ret.program, options.in_file_references);
     if options.member_accesses {
         let excluded: HashSet<(u32, u32)> = collected.reexport_spans.iter().copied().collect();
-        members::track(&ret.program, &analysis, &mut info, &excluded);
+        members::track(&ret.program, &analysis, &mut info, &excluded, base);
         if let Some(uses) = uses {
             *uses = members::uses(&ret.program, &analysis);
         }

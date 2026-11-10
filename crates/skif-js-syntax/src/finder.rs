@@ -220,7 +220,7 @@ fn is_cjs_member(member: &StaticMemberExpression<'_>) -> bool {
 }
 
 /// Is `expr` (after unwrapping `await` and parentheses) a `require("…")` call or `import("…")`? Returns its start.
-fn module_call_start(expr: &Expression<'_>) -> Option<u32> {
+pub(crate) fn module_call_start(expr: &Expression<'_>) -> Option<u32> {
     let inner = match expr.get_inner_expression() {
         Expression::AwaitExpression(a) => a.argument.get_inner_expression(),
         other => other,
@@ -270,6 +270,18 @@ fn bindings_for_pattern(pattern: &BindingPattern<'_>) -> Vec<ImportedName> {
 /// `const a = await import("x")`. An import after a spread element, or without an element of the pattern at its
 /// position (a hole, a shorter pattern, a rest element), gets no entry and stays used as a whole.
 fn promise_all_bindings(init: &Expression<'_>, pattern: &ArrayPattern<'_>) -> Vec<(u32, Vec<ImportedName>)> {
+    promise_all_imports(init, pattern)
+        .into_iter()
+        .map(|(start, binding)| (start, bindings_for_pattern(binding)))
+        .collect()
+}
+
+/// The element of the array pattern of `const [a, { b }] = await Promise.all([import("x"), import("y")])` each
+/// `import()` binds, by the start of the import. See [`promise_all_bindings`].
+pub(crate) fn promise_all_imports<'p, 'a>(
+    init: &'p Expression<'a>,
+    pattern: &'p ArrayPattern<'a>,
+) -> Vec<(u32, &'p BindingPattern<'a>)> {
     let inner = match init.get_inner_expression() {
         Expression::AwaitExpression(a) => a.argument.get_inner_expression(),
         other => other,
@@ -296,7 +308,7 @@ fn promise_all_bindings(init: &Expression<'_>, pattern: &ArrayPattern<'_>) -> Ve
             let Expression::ImportExpression(import) = element.as_expression()?.get_inner_expression() else {
                 return None;
             };
-            Some((import.span.start, bindings_for_pattern(binding)))
+            Some((import.span.start, binding))
         })
         .collect()
 }
@@ -633,16 +645,24 @@ fn callback_names(params: &FormalParameters<'_>, visit: impl FnOnce(&mut Namespa
     }
 }
 
+/// The `import()` of `import('./x').then(cb)`.
+pub(crate) fn then_on_import<'p, 'a>(call: &'p CallExpression<'a>) -> Option<&'p ImportExpression<'a>> {
+    let Expression::StaticMemberExpression(member) = &call.callee else {
+        return None;
+    };
+    if member.property.name.as_str() != "then" {
+        return None;
+    }
+    match member.object.get_inner_expression() {
+        Expression::ImportExpression(import) => Some(&**import),
+        _ => None,
+    }
+}
+
 impl Finder<'_, '_> {
     /// `import('./x').then(cb)`: the exports used are those `cb` reads from its parameter, not a member named `then`.
     fn then_callback(&mut self, it: &CallExpression<'_>) {
-        let Expression::StaticMemberExpression(member) = &it.callee else {
-            return;
-        };
-        if member.property.name.as_str() != "then" {
-            return;
-        }
-        let Expression::ImportExpression(import) = member.object.get_inner_expression() else {
+        let Some(import) = then_on_import(it) else {
             return;
         };
         let names = match it.arguments.first() {
