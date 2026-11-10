@@ -76,6 +76,8 @@ pub const KNIP_UNJUDGED_MANIFEST: &str = "knip-unjudged-manifest";
 pub const NON_MEMBER_PROJECT: &str = "non-member-project";
 pub const SKIPPED_DIRECTORY: &str = "skipped-directory";
 pub const PUBLISHED_SOURCE: &str = "published-source";
+pub const IN_KNIP_UNUSED_FILE: &str = "in-knip-unused-file";
+pub const IN_SKIF_UNUSED_FILE: &str = "in-skif-unused-file";
 
 /// The categories skif does not judge in a package whose entry files are not all known: files and dependencies
 /// (ADR 0053), and exports, types and members, which skif stopped reporting there with #48 (ADR 0068).
@@ -127,7 +129,7 @@ const DEPENDENCY_FIELDS: [&str; 4] = [
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 11] = [
+pub const KNIP_DEVIATIONS: [Deviation; 13] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
@@ -150,7 +152,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 11] = [
     },
     Deviation {
         id: KNIP_CONFIG_ERROR,
-        reason: "knip could not load a configuration file of the package (it prints `ERROR: Error loading <file>` and exits with 2), so it ran without the entry files that configuration names; the errors are listed in `parity.json` under `knip_errors`",
+        reason: "knip could not load a configuration file of the package (it prints `ERROR: Error loading <file>` and exits with 2), so it ran without the entry files that configuration names: one-sided findings of either tool in that package are set apart. The errors are listed in `parity.json` under `knip_errors`",
     },
     Deviation {
         id: FOREIGN_TSCONFIG_PATHS,
@@ -171,6 +173,14 @@ pub const KNIP_DEVIATIONS: [Deviation; 11] = [
     Deviation {
         id: PUBLISHED_SOURCE,
         reason: "knip reports these TypeScript files as unused, and the package that holds each one publishes its path with a built extension (`.js`, `.mjs`, `.cjs`, `.jsx` or a `.d.ts` variant) in `main`, `module`, `source`, `types`, `typings`, `browser`, `bin` or an `exports` leaf, where `*` matches any part of the path. skif makes the source beside a published path an entry; knip maps a published path to source only through a tsconfig `outDir`. The harness checks the published path, not why skif has no finding for each file",
+    },
+    Deviation {
+        id: IN_KNIP_UNUSED_FILE,
+        reason: "skif reports these findings (anything but unused files and manifest findings) in a file that knip lists as unused. knip does not analyse an unused file, so it reports nothing inside one; the disagreement is the file, which `files` already counts once",
+    },
+    Deviation {
+        id: IN_SKIF_UNUSED_FILE,
+        reason: "knip reports these findings (anything but unused files and manifest findings) in a file that skif reports as unused, so skif reports nothing inside it; the disagreement is the file, which `files` already counts once",
     },
 ];
 
@@ -737,6 +747,10 @@ struct Classifier<'a> {
     knip_manifests: &'a BTreeSet<String>,
     /// The `unlisted` keys whose import only another package's tsconfig `paths` map (ADR 0075).
     foreign_paths: &'a BTreeSet<String>,
+    /// The files knip reports as unused, before any are set apart.
+    knip_unused_files: &'a BTreeSet<String>,
+    /// The files skif reports as unused.
+    skif_unused_files: &'a BTreeSet<String>,
     layout: &'a Layout<'a>,
 }
 
@@ -746,11 +760,19 @@ impl Classifier<'_> {
             return Some(KNIP_UNREAD);
         }
         let path = key_path(key);
+        let is_package = |dir: &str| self.layout.is_package(dir);
+        // A configuration knip could not load changes what it reads in the whole package, so both sides are affected.
+        let config_error = || {
+            self.knip_failed
+                .contains(&owner_dir(key, &is_package))
+                .then_some(KNIP_CONFIG_ERROR)
+        };
         if side == Side::Skif {
             return skif_only_deviation(category, key, self.foreign_paths)
-                .or_else(|| self.unjudged_manifest(category, path).then_some(KNIP_UNJUDGED_MANIFEST));
+                .or_else(|| self.unjudged_manifest(category, path).then_some(KNIP_UNJUDGED_MANIFEST))
+                .or_else(|| in_unused_file(category, path, self.knip_unused_files).then_some(IN_KNIP_UNUSED_FILE))
+                .or_else(config_error);
         }
-        let is_package = |dir: &str| self.layout.is_package(dir);
         (category == "files")
             .then(|| classify_file(key, self.include_test_files))
             .flatten()
@@ -762,11 +784,8 @@ impl Classifier<'_> {
             .or_else(|| self.layout.in_skipped_directory(path).then_some(SKIPPED_DIRECTORY))
             .or_else(|| self.non_member_project(category, key).then_some(NON_MEMBER_PROJECT))
             .or_else(|| (category == "files" && self.layout.publishes_source_of(path)).then_some(PUBLISHED_SOURCE))
-            .or_else(|| {
-                self.knip_failed
-                    .contains(&owner_dir(key, &is_package))
-                    .then_some(KNIP_CONFIG_ERROR)
-            })
+            .or_else(|| in_unused_file(category, path, self.skif_unused_files).then_some(IN_SKIF_UNUSED_FILE))
+            .or_else(config_error)
     }
 
     /// Whether a finding only skif reports sits on a `package.json` that is not one of knip's workspaces.
@@ -792,6 +811,13 @@ impl Classifier<'_> {
                 .split_once('|')
                 .is_some_and(|(_, name)| self.layout.lists(&dir, package_name(name)))
     }
+}
+
+/// Whether a finding inside a file (any category but `files` and the manifest ones) sits in a file the other tool
+/// reports as unused: a tool analyses nothing inside a file it calls unused, so such a finding follows from the `files`
+/// disagreement, which is counted once already.
+fn in_unused_file(category: &str, path: &str, unused: &BTreeSet<String>) -> bool {
+    category != "files" && !MANIFEST_CATEGORIES.contains(&category) && unused.contains(path)
 }
 
 /// The `package.json` files knip reports a finding on.
@@ -1040,6 +1066,7 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
         .map(|file| owner_dir(file, &|dir: &str| layout.is_package(dir)))
         .collect();
     let judged_manifests = knip_manifests(&knip_found);
+    let empty = BTreeSet::new();
     let classifier = Classifier {
         knip_unread: &repo.knip_unread,
         include_test_files: options.include_test_files,
@@ -1047,6 +1074,8 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
         knip_failed: &knip_failed,
         knip_manifests: &judged_manifests,
         foreign_paths: &foreign_paths,
+        knip_unused_files: knip_found.get("files").unwrap_or(&empty),
+        skif_unused_files: skif_found.get("files").unwrap_or(&empty),
         layout: &layout,
     };
     let split = diff::split_known(&skif_found, &knip_found, &|side, category, key| {
@@ -1764,6 +1793,8 @@ mod tests {
             knip_failed: &none,
             knip_manifests: &judged,
             foreign_paths: &BTreeSet::new(),
+            knip_unused_files: &none,
+            skif_unused_files: &none,
             layout: &layout,
         });
     }
@@ -2029,6 +2060,68 @@ mod tests {
     }
 
     #[test]
+    fn findings_inside_a_file_the_other_tool_calls_unused_and_config_errors_split_off_on_both_sides() {
+        let read: BTreeMap<String, Rc<Value>> = [
+            ("", json!({ "name": "root" })),
+            ("packages/cfg", json!({ "name": "cfg" })),
+        ]
+        .into_iter()
+        .map(|(dir, manifest)| (dir.to_owned(), Rc::new(manifest)))
+        .collect();
+        let manifest = move |dir: &str| read.get(dir).cloned();
+        let layout = Layout::new(BTreeSet::new(), &manifest);
+        let knip_unused = strings(&["examples/a/src/dead.ts"]);
+        let skif_unused = strings(&["packages/b/src/gone.ts"]);
+        let failed = strings(&["packages/cfg"]);
+        let none = BTreeSet::new();
+        let classifier = Classifier {
+            knip_unread: &[],
+            include_test_files: false,
+            not_judged: &none,
+            knip_failed: &failed,
+            knip_manifests: &none,
+            foreign_paths: &none,
+            knip_unused_files: &knip_unused,
+            skif_unused_files: &skif_unused,
+            layout: &layout,
+        };
+        for (category, key) in [
+            ("exports", "examples/a/src/dead.ts|x"),
+            ("types", "examples/a/src/dead.ts|T"),
+            ("unlisted", "examples/a/src/dead.ts|react"),
+            ("duplicates", "examples/a/src/dead.ts|a|b"),
+            ("unresolved", "examples/a/src/dead.ts|./gone"),
+        ] {
+            assert_eq!(
+                classifier.classify(Side::Skif, category, key),
+                Some(IN_KNIP_UNUSED_FILE),
+                "{category} {key}"
+            );
+        }
+        assert_eq!(
+            classifier.classify(Side::Tool, "exports", "packages/b/src/gone.ts|x"),
+            Some(IN_SKIF_UNUSED_FILE)
+        );
+        for (side, category, key) in [
+            (Side::Skif, "files", "examples/a/src/dead.ts"),
+            (Side::Skif, "binaries", "examples/a/src/dead.ts|tsc"),
+            (Side::Skif, "exports", "examples/a/src/live.ts|x"),
+            (Side::Skif, "exports", "packages/b/src/gone.ts|x"),
+            (Side::Tool, "exports", "examples/a/src/dead.ts|x"),
+        ] {
+            assert_eq!(classifier.classify(side, category, key), None, "{side:?} {category} {key}");
+        }
+        for side in [Side::Skif, Side::Tool] {
+            assert_eq!(
+                classifier.classify(side, "exports", "packages/cfg/src/a.ts|x"),
+                Some(KNIP_CONFIG_ERROR),
+                "{side:?}"
+            );
+        }
+        assert_eq!(classifier.classify(Side::Skif, "exports", "packages/other/a.ts|x"), None);
+    }
+
+    #[test]
     fn earlier_deviations_take_precedence_over_the_layout_ones() {
         let manifests = [
             ("", json!({ "name": "root" })),
@@ -2050,6 +2143,8 @@ mod tests {
             knip_failed: &none,
             knip_manifests: &none,
             foreign_paths: &BTreeSet::new(),
+            knip_unused_files: &none,
+            skif_unused_files: &none,
             layout: &layout,
         };
         assert_eq!(
