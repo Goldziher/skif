@@ -62,6 +62,9 @@ pub enum IncompleteCause {
     ComputedEntries,
     /// `package.json` publishes build output or bin files none of which maps back to a source file.
     UnmappedPublished,
+    /// The package has no source file, entry or script of its own (an install hook aside): its manifest lists what
+    /// code elsewhere installs it for.
+    NoEntries,
     /// An input source reported the entries incomplete without a reason.
     Unspecified,
 }
@@ -80,6 +83,7 @@ impl IncompleteCause {
             Self::UnmappedPublished => {
                 "package.json publishes build output or bin files none of which maps back to a source file"
             }
+            Self::NoEntries => "the package has no source file, entry or script of its own",
             Self::Unspecified => "an input source reported its entries incomplete",
         }
     }
