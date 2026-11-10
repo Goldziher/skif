@@ -170,9 +170,9 @@ fn reexported_binding<'a>(bindings: &HashMap<(&str, &ImportedKind), &'a str>, ex
     bindings.get(&(from, &wanted)).copied()
 }
 
-/// Fills [`crate::model::Export::referenced_in`] for every export mentioned in the signature of another value export.
-pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
-    let mut found: Vec<(String, HashSet<String>)> = Vec::new();
+/// The declarations of `program` that can contain type names, exported or not, with the names they mention.
+fn collect_containers(program: &Program<'_>) -> Vec<(String, HashSet<String>)> {
+    let mut found = Vec::new();
     for statement in &program.body {
         match statement {
             Statement::ExportDeclaration(export) => {
@@ -203,6 +203,29 @@ pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
             }
         }
     }
+    found
+}
+
+/// The containers that mention each name, by name. Only value exports can contain: the other containers are left out.
+fn mentioned_by<'a>(
+    mentions: &HashMap<&'a str, HashSet<&'a str>>,
+    exported_as: &HashMap<&str, Vec<String>>,
+) -> HashMap<&'a str, Vec<&'a str>> {
+    let mut by_name: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (container, names) in mentions {
+        if !exported_as.contains_key(container) {
+            continue;
+        }
+        for name in names {
+            by_name.entry(*name).or_default().push(*container);
+        }
+    }
+    by_name
+}
+
+/// Fills [`crate::model::Export::referenced_in`] for every export mentioned in the signature of another value export.
+pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
+    let found = collect_containers(program);
     // One name can have several declarations (a value and a type, overloads): it mentions what any of them does.
     let mut mentions: HashMap<&str, HashSet<&str>> = HashMap::new();
     for (local, names) in &found {
@@ -226,17 +249,7 @@ pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
             map.entry(local).or_default().push(name);
             map
         });
-    // Only value exports can contain: index the names their signatures mention once, instead of walking every container
-    // for every export.
-    let mut mentioned_by: HashMap<&str, Vec<&str>> = HashMap::new();
-    for (container, names) in &mentions {
-        if !exported_as.contains_key(container) {
-            continue;
-        }
-        for name in names {
-            mentioned_by.entry(*name).or_default().push(*container);
-        }
-    }
+    let mentioned_by = mentioned_by(&mentions, &exported_as);
     let bindings = import_bindings(info);
     let mut referenced_in: Vec<Vec<String>> = Vec::with_capacity(info.exports.len());
     for export in &info.exports {
