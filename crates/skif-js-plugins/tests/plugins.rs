@@ -3766,7 +3766,11 @@ fn commands_run_with_a_cwd_run_scripts_of_another_package() {
     ];
     let results = resolve(&files, &["execa", "nano-spawn"]);
     let runs = |id: &str| -> Vec<String> {
-        let mut names: Vec<String> = output(&results, id).run_binaries.iter().map(|run| run.name.clone()).collect();
+        let mut names: Vec<String> = output(&results, id)
+            .run_binaries
+            .iter()
+            .map(|run| run.name.clone())
+            .collect();
         names.sort();
         names
     };

@@ -584,10 +584,13 @@ fn a_member_binary_is_provided_where_the_package_manager_links_it() {
         ["packages/app/package.json: mytool"]
     );
     for manager in ["npm@10.0.0", "yarn@1.22.22", "bun@1.3.0"] {
-        let root = format!(
-            r#"{{"name":"root","private":true,"packageManager":"{manager}","workspaces":["packages/*"]}}"#
+        let root =
+            format!(r#"{{"name":"root","private":true,"packageManager":"{manager}","workspaces":["packages/*"]}}"#);
+        assert_eq!(
+            unlisted_member_binaries(&[("package.json", &root)]),
+            none(),
+            "{manager}"
         );
-        assert_eq!(unlisted_member_binaries(&[("package.json", &root)]), none(), "{manager}");
     }
 }
 
@@ -627,7 +630,9 @@ fn rush_commands_are_provided_in_a_rush_repository() {
 /// at the file, as before.
 #[test]
 fn workflow_and_source_commands_after_cd_into_a_workspace_package_are_judged_there() {
-    let root = manifest(&format!(r#""name":"root","private":true,{PNPM},"main":"scripts/build.mjs""#));
+    let root = manifest(&format!(
+        r#""name":"root","private":true,{PNPM},"main":"scripts/build.mjs""#
+    ));
     let workflow = "name: css\non: [push]\njobs:\n  scan:\n    runs-on: ubuntu-latest\n    steps:\n      \
                     - run: cd sub && pnpm exec rspack build\n      - run: cd docs && pnpm exec vitepress build\n";
     let files = [
@@ -651,5 +656,9 @@ fn workflow_and_source_commands_after_cd_into_a_workspace_package_are_judged_the
         [".github/workflows/css.yml: vitepress", "scripts/build.mjs: tsc"],
         "{diagnostics:#?}"
     );
-    assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none(), "{diagnostics:#?}");
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        none(),
+        "{diagnostics:#?}"
+    );
 }
