@@ -562,7 +562,7 @@ jobs:
 /// workspace itself is the root. `$GITHUB_ACTION_PATH` is the action's directory only as a whole name.
 #[test]
 fn github_actions_working_directories_in_the_github_workspace_are_workspace_directories() {
-    let workflow = r#"on: [push]
+    let workflow = r"on: [push]
 jobs:
   a:
     steps:
@@ -573,7 +573,7 @@ jobs:
       - run: node ./outside.js
         working-directory: ${{ github.workspace }}/../elsewhere
       - run: node $GITHUB_ACTION_PATHS/longer.js && node $GITHUB_ACTION_PATH/action.js
-"#;
+";
     let results = run(&[(".github/workflows/ci.yml", workflow)], &[], &[]);
     let out = output(&results, "github-actions");
     assert_entries(&out.entries, &["packages/app/build.js", "./check.js", "./action.js"]);
