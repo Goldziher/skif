@@ -17,9 +17,27 @@ use crate::support::{
 /// entries.
 const ENTRY_KEYS: &[&[&str]] = &[
     &["root"],
-    &["build", "rollupOptions", "input"],
+    BUILD_INPUTS[0],
+    BUILD_INPUTS[1],
     &["build", "lib", "entry"],
 ];
+
+/// Where a config sets the build input: Vite 8 bundles with Rolldown and reads `build.rolldownOptions`, earlier
+/// versions `build.rollupOptions`, which Vite 8 still takes as an alias.
+pub(crate) const BUILD_INPUTS: [&[&str]; 2] = [
+    &["build", "rolldownOptions", "input"],
+    &["build", "rollupOptions", "input"],
+];
+
+/// The key of [`BUILD_INPUTS`] that `value` (a Vite config, or a section of one) takes its build input from: the
+/// Rolldown options when it sets them, else the Rollup options, as knip reads them.
+pub(crate) fn build_input_key(value: &ConfigValue) -> &'static [&'static str] {
+    if get_in(value, BUILD_INPUTS[0]).is_some() {
+        BUILD_INPUTS[0]
+    } else {
+        BUILD_INPUTS[1]
+    }
+}
 
 /// The `vite` plugin.
 pub struct Vite;
@@ -43,7 +61,7 @@ impl Plugin for Vite {
 
     fn resolve_config(&self, config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut out = html_and_build_inputs(config, cx);
-        if path_unknown(config.value, &["build", "rollupOptions", "input"], Spreads::Any)
+        if path_unknown(config.value, build_input_key(config.value), Spreads::Any)
             || path_unknown(config.value, &["build", "lib", "entry"], Spreads::Any)
         {
             out.push(PluginInput::EntriesIncomplete);
@@ -91,7 +109,7 @@ impl Plugin for Vite {
     }
 }
 
-/// The `index.html` scripts and the `build.rollupOptions.input` entries of a config; the vitest plugin reuses them
+/// The `index.html` scripts and the build input entries ([`build_input_key`]) of a config; the vitest plugin reuses them
 /// the way knip does.
 ///
 /// `root` moves the project root, where Vite looks for `index.html` and resolves `/`-rooted paths (the `src` of a
@@ -108,7 +126,7 @@ pub(crate) fn html_and_build_inputs(config: &ConfigAst<'_>, cx: &PluginContext<'
         }
     };
     out.extend(html_entries(cx, &root, "index.html"));
-    let inputs = get_in(config.value, &["build", "rollupOptions", "input"]);
+    let inputs = get_in(config.value, build_input_key(config.value));
     for input in inputs.into_iter().flat_map(values_of).flat_map(strings) {
         if std::path::Path::new(input)
             .extension()

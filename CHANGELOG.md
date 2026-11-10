@@ -136,6 +136,10 @@ All notable changes to this project are documented here. The format follows
   package owning that module: it is no longer reported unlisted at the importing config, nor unused in the shared
   config package that lists it. `DepRef::from` of `skif-js-plugins` names that module
   ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
+- The `vite`, `vitest` and `electron-vite` plugins read the build input of Vite 8 from `build.rolldownOptions.input`,
+  before `build.rollupOptions.input`, as knip does: its pages and modules are entries, so their files and the
+  packages they import are no longer reported unused, and a computed Rolldown input leaves the package's entries
+  incomplete, as a computed Rollup input does.
 
 ### Changed
 
