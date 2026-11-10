@@ -648,12 +648,20 @@ analysed root that a script of a `package.json` above it runs (up to the git rep
 `node build/npm/postinstall.ts` in the outer project keeps `build/npm/postinstall.ts` used in the nested root at
 `build` (except in production mode, where scripts give no entries).
 
-In a multi-root run (`skif -r`) the files of a nested root that an enclosing root of the same run imports are entries
-of the nested root: `import { x } from "../build/lib/x"` in the outer `src` keeps `build/lib/x.ts`, and what it
-imports, used in the root at `build`. Only the files the enclosing root's own code imports become entries, so an
-unused export of a file they import is still reported. A nested root is therefore linted after the roots that enclose
+In a multi-root run (`skif -r`) the files of a nested root that an enclosing root of the same run imports, runs from
+a script or names in a tool configuration are entries of the nested root: `import { x } from "../build/lib/x"` in
+the outer `src` keeps `build/lib/x.ts`, and what it imports, used in the root at `build`, and so does a workflow step
+`node build/lib/report.ts` for `build/lib/report.ts`. Only the files the enclosing root's own code and configuration
+reach directly become entries, so an unused export of a file they import is still reported. A nested root is therefore linted after the roots that enclose
 it. A root linted on its own (`skif build`) cannot know what an outer root it was not given imports, so there such a
 file is still reported unused; lint from the top with `-r`, or add it to `entry`.
+
+A file a root's code reaches outside the root's own directory counts as used by the root of the run that holds it:
+`require("../tools/detect.js")` in a nested root at `build` keeps the outer root's `tools/detect.js`, and every file it
+imports in turn, out of `unused-files`, and so does an import of a file of a sibling root. The packages those files
+import count as used by the manifest that lists them at or above the file, so a sibling's `lib.js` that requires
+`lodash` keeps `lodash` out of that sibling's `unused-dependencies`. Those files are credited after every root is
+linted, so their exports are not judged against that code; linted on its own, the owning root still reports them.
 
 The other way round, a nested root that imports or runs a dependency it does not list itself, but a `package.json`
 above it does, uses that dependency through the outer project's `node_modules`: Node.js resolves it from there. In a
@@ -728,8 +736,14 @@ either.
 
 Test files are entries when a test-runner plugin is enabled (Jest, Vitest, Mocha, Playwright, Cypress and the like),
 with the patterns of that plugin; a project without a runner reports unused test files like any other, as knip does.
-Jest's defaults include files named just `test.js` or `spec.ts`. A Playwright `testMatch` regular expression becomes a
-glob when it is made of literals, `.*`, character classes (`[jt]`), the `?` quantifier, anchors and groups
+Jest's defaults include files named just `test.js` or `spec.ts`. Jest's `testRegex` (a string, a regular expression
+or an array of them) selects test files too, besides the default test globs, which stay as knip keeps them; `testMatch`
+adds to them as well. A `testRegex` is matched against `/` and the path relative to the package, `<rootDir>` standing
+for the `rootDir` option (the config's directory by default) and anchoring the expression there when it leads; the
+`i`, `m` and `s` flags of a regular expression literal apply. An expression the analysis cannot compile (a lookaround or
+a backreference) leaves the package's files unjudged. `testPathIgnorePatterns` is not applied, as knip does not apply it
+either. A Playwright `testMatch` regular expression becomes a glob
+when it is made of literals, `.*`, character classes (`[jt]`), the `?` quantifier, anchors and groups
 (`/.*\.e2e\.tsx?/` matches `**/*.e2e.ts{x,}*` below `testDir`); any other expression makes every script below
 `testDir` an entry.
 Add other test files to `entry`. Directories named `fixtures` or `__fixtures__` hold test data: their imports are not checked for unresolved or

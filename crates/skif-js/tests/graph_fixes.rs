@@ -240,6 +240,55 @@ fn test_files_and_directories_are_entries_only_through_a_test_runner() {
 }
 
 #[test]
+fn jest_test_regex_adds_test_files_and_test_path_ignore_patterns_remove_none() {
+    // `testRegex` adds to the default `testMatch`, as knip keeps it, so `sum.test.js` stays a test; a regex literal
+    // keeps its `i` flag. knip does not apply `testPathIgnorePatterns`, so neither does skif: `e2e/flow.check.js`
+    // stays a test. Only `lib/orphan.js` is unused.
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"devDependencies":{"jest":"29"}}"#,
+        ),
+        (
+            "jest.config.js",
+            r#"module.exports = {
+  testRegex: ["\\.check\\.js$", /\/specs\//i],
+  testPathIgnorePatterns: ["/node_modules/", "/e2e/"],
+};
+"#,
+        ),
+        ("src/index.js", "module.exports = 1;\n"),
+        ("src/sum.check.js", "require('./index.js');\n"),
+        ("src/sum.test.js", "require('./index.js');\n"),
+        ("src/SPECS/a.js", "require('../index.js');\n"),
+        ("e2e/flow.check.js", "require('../src/index.js');\n"),
+        ("lib/orphan.js", "module.exports = 2;\n"),
+    ];
+    let unused = found(&lint_files(&files, ""), "unused-files");
+    assert_eq!(unused, ["lib/orphan.js: lib/orphan.js"]);
+}
+
+#[test]
+fn jest_test_regex_anchors_root_dir_at_the_configured_root_dir() {
+    // `<rootDir>` is `src`, so only `src/checks` holds tests; `lib/checks/b.js` is unused.
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"devDependencies":{"jest":"29"}}"#,
+        ),
+        (
+            "jest.config.js",
+            r#"module.exports = { rootDir: "src", testRegex: "<rootDir>/checks/" };
+"#,
+        ),
+        ("src/checks/a.js", "module.exports = 1;\n"),
+        ("lib/checks/b.js", "module.exports = 2;\n"),
+    ];
+    let unused = found(&lint_files(&files, ""), "unused-files");
+    assert_eq!(unused, ["lib/checks/b.js: lib/checks/b.js"]);
+}
+
+#[test]
 fn storybook_stories_are_entries_without_a_storybook_config() {
     let diagnostics = lint_files(
         &[

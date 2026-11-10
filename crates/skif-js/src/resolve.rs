@@ -132,12 +132,18 @@ fn is_below(path: &Path, root: &Path) -> bool {
     }
 }
 
+/// Whether `path` lies below a `node_modules` directory: installed code, not a file of any project.
+pub(crate) fn is_installed(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == "node_modules")
+}
+
 /// What a specifier points at.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Resolved {
     /// A source file that is parsed and followed.
     File(PathBuf),
-    /// A file that is not analysed (stylesheet, image, JSON) or lies outside the workspace.
+    /// A file that is not analysed (stylesheet, image, JSON), or installed code outside the workspace.
     Asset,
     /// A package installed from a registry, or a workspace package whose files could not be located.
     External(String),
@@ -768,8 +774,11 @@ impl ModuleResolver {
         }
     }
 
+    /// A source file is followed wherever it lies, also outside the workspace root (a sibling project's file, a file
+    /// of an enclosing root): the graph takes it for a file of another project, which does not judge it. Outside the
+    /// root, files below a `node_modules` directory are installed code and are not followed.
     fn classify(&self, path: PathBuf) -> Resolved {
-        if is_below(&path, &self.root) && is_read_file(&path) {
+        if is_read_file(&path) && (is_below(&path, &self.root) || !is_installed(&path)) {
             Resolved::File(path)
         } else {
             Resolved::Asset

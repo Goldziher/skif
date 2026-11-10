@@ -167,7 +167,7 @@ struct Collected {
     incomplete_packages: Vec<IncompletePackage>,
     /// The files of other projects the analysed code imports.
     other_project_files: Vec<PathBuf>,
-    /// The dependencies the analysed code uses through manifests above the workspace root.
+    /// The dependencies the analysed code uses through manifests outside the workspace root.
     ancestor_dependency_uses: Vec<(PathBuf, String)>,
 }
 

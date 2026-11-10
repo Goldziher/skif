@@ -193,6 +193,9 @@ struct Frame {
     matchers: Vec<Arc<Gitignore>>,
     /// The directory is skipped, with everything below it, when it holds its own `package.json`.
     skip_if_project: bool,
+    /// The directory is walked only for the workspace packages below it (a hidden directory or build output that
+    /// holds members, such as `.vscode/extensions/*`): its own files and the other directories in it are skipped.
+    members_only: bool,
 }
 
 /// What the walk shares between directories.
@@ -200,6 +203,8 @@ struct Walk<'a> {
     fs: &'a dyn FileSystem,
     root: &'a Path,
     owners: HashMap<PathBuf, PackageId>,
+    /// The directories below the root that hold a workspace package further down.
+    member_ancestors: HashSet<PathBuf>,
     skipped: HashSet<PathBuf>,
     sequential: bool,
     /// Honour `.gitignore` files; `.ignore` files are honoured either way.
@@ -235,10 +240,12 @@ impl Walk<'_> {
                 .unwrap_or_default();
             if entry.is_dir {
                 let package = self.owners.get(&entry.path).copied();
+                let holds_members = package.is_none() && self.member_ancestors.contains(&entry.path);
+                let by_name = package.is_none() && skipped_by_name(name) && self.skips_here(&frame.dir, name);
                 if frame.depth >= MAX_DEPTH
                     || entry.is_symlink
                     || self.skipped.contains(&entry.path)
-                    || (package.is_none() && skipped_by_name(name) && self.skips_here(&frame.dir, name))
+                    || ((by_name || frame.members_only) && !holds_members && package.is_none())
                     || is_ignored(&matchers, &entry.path, true)
                 {
                     continue;
@@ -249,8 +256,10 @@ impl Walk<'_> {
                     depth: frame.depth + 1,
                     matchers: matchers.clone(),
                     skip_if_project: package.is_none(),
+                    members_only: package.is_none() && (by_name || frame.members_only),
                 });
             } else if entry.is_file
+                && !frame.members_only
                 && !GENERATED_FILES.contains(&name)
                 && is_code_file(&entry.path)
                 && !is_ignored(&matchers, &entry.path, false)
@@ -281,7 +290,8 @@ impl Walk<'_> {
 /// directory (`{"type":"module"}`) and does not count.
 /// `.gitignore` and `.ignore` files are honoured with the semantics of the `ignore` crate, hidden directories
 /// (except tool configuration ones) and common build output are skipped, and symbolic links to directories are
-/// not followed.
+/// not followed. A skipped directory that holds workspace packages (`.vscode/extensions/*` listed as members) is
+/// walked for those packages only.
 ///
 /// Directories are listed once each, and the ignore files and manifests are found in the listing instead of probed.
 /// Sibling directories are walked in parallel (on the calling thread with `sequential`); the sort makes the result
@@ -309,10 +319,20 @@ pub(crate) fn discover_with(
             owners.insert(dir, id);
         }
     }
+    let member_ancestors: HashSet<PathBuf> = owners
+        .keys()
+        .flat_map(|dir| {
+            dir.ancestors()
+                .skip(1)
+                .take_while(|ancestor| *ancestor != workspace.root.as_path() && ancestor.starts_with(&workspace.root))
+                .map(Path::to_path_buf)
+        })
+        .collect();
     let walk = Walk {
         fs,
         root: &workspace.root,
         owners,
+        member_ancestors,
         skipped,
         sequential,
         gitignore,
@@ -323,6 +343,7 @@ pub(crate) fn discover_with(
         depth: 0,
         matchers: Vec::new(),
         skip_if_project: false,
+        members_only: false,
     });
     found.sort_by(|a, b| a.rel.cmp(&b.rel));
     found
@@ -469,6 +490,49 @@ mod tests {
             .with_file("/ws/.eslintrc.js", "")
             .with_file("/ws/src/a.ts", "");
         assert_eq!(files(&fs), [".eslintrc.js", ".storybook/main.ts", "src/a.ts"]);
+    }
+
+    #[test]
+    fn a_workspace_member_below_a_hidden_directory_is_walked() {
+        // `.vscode/extensions/*` are members; the rest of `.vscode` and other hidden directories stay skipped.
+        let fs = MemoryFs::new()
+            .with_file(
+                "/ws/package.json",
+                r#"{"name":"r","workspaces":["packages/*",".vscode/extensions/*"]}"#,
+            )
+            .with_file("/ws/packages/a/package.json", r#"{"name":"a"}"#)
+            .with_file("/ws/packages/a/src/a.ts", "")
+            .with_file("/ws/packages/a/.cache/x.js", "")
+            .with_file("/ws/.vscode/extensions/helper/package.json", r#"{"name":"helper"}"#)
+            .with_file("/ws/.vscode/extensions/helper/src/extension.ts", "")
+            .with_file("/ws/.vscode/extensions/helper/.hidden/x.ts", "")
+            .with_file("/ws/.vscode/settings.js", "")
+            .with_file("/ws/.vscode/extensions/stray.ts", "")
+            .with_file("/ws/.vscode/other/tool.ts", "")
+            .with_file("/ws/.cache/x.js", "");
+        let config = Config::from_toml_str("").unwrap();
+        let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &fs).unwrap();
+        let index_of = |name: &str| {
+            workspace
+                .iter()
+                .find(|(_, package)| package.display_name() == name)
+                .map(|(id, _)| id.index())
+                .unwrap()
+        };
+        let listed: Vec<(String, usize)> = discover(&fs, &workspace, false)
+            .into_iter()
+            .map(|candidate| (candidate.rel, candidate.owner.index()))
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                (
+                    ".vscode/extensions/helper/src/extension.ts".to_owned(),
+                    index_of("helper")
+                ),
+                ("packages/a/src/a.ts".to_owned(), index_of("a")),
+            ]
+        );
     }
 
     #[test]

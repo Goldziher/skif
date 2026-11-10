@@ -184,45 +184,63 @@ pub struct RootRun {
     pub linter: usize,
     pub workspace: Workspace,
     pub report: Report,
-    /// The files of this root that enclosing roots of the run import, relative to the root; a re-lint after fixing
-    /// passes them again.
+    /// The files of this root that enclosing roots of the run import or run, relative to the root; a re-lint after
+    /// fixing passes them again.
     pub extra_entries: Vec<PathBuf>,
-    /// The dependencies of this root's manifests that nested roots of the run use, as the manifest path relative to
-    /// the root and the dependency name; a re-lint after fixing credits them again.
-    pub nested_uses: NestedUses,
+    /// What the code of other roots of the run uses of this root; a re-lint after fixing credits it again.
+    pub other_root_uses: OtherRootUses,
 }
 
-/// Dependencies of a root's manifests that the code of roots nested in it uses: the manifest path relative to the
-/// root, and the dependency name.
-pub type NestedUses = BTreeSet<(PathBuf, String)>;
+/// What the code of other roots of a multi-root run uses of a root, which the root's own lint cannot see.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OtherRootUses {
+    /// Dependencies of the root's manifests that other roots use: those the code of roots nested in it imports or
+    /// runs without listing them, and those the files of this root in `files` import. The manifest path relative to
+    /// the root, and the dependency name.
+    pub dependencies: BTreeSet<(PathBuf, String)>,
+    /// Files of the root, relative to it, that the code of a root outside whose directory they lie reaches (a nested
+    /// root requiring `../tools/detect.js`, a sibling root), with everything those files import in turn.
+    pub files: BTreeSet<PathBuf>,
+}
+
+impl OtherRootUses {
+    fn is_empty(&self) -> bool {
+        self.dependencies.is_empty() && self.files.is_empty()
+    }
+}
 
 /// The rules that a use by a nested root answers.
 const UNUSED_DEPENDENCY_RULES: [&str; 2] = ["unused-dependencies", "unused-dev-dependencies"];
 
-/// The report without the unused-dependency findings that `uses` answers: a nested root lists none of these
-/// dependencies itself and imports or runs them, so Node.js resolves them from this root's `node_modules`.
-pub fn credit_nested_uses(report: Report, uses: &NestedUses) -> Report {
+/// The report without the findings that `uses` answers: the unused-dependency findings of dependencies a nested root
+/// imports or runs without listing them (Node.js resolves them from this root's `node_modules`) or that a file of
+/// this root another root's code reaches imports, and the `unused-files` findings of those files.
+pub fn credit_other_root_uses(report: Report, uses: &OtherRootUses) -> Report {
     if uses.is_empty() {
         return report;
     }
     report.retain(|diagnostic| {
-        !(UNUSED_DEPENDENCY_RULES.contains(&diagnostic.rule.as_str())
-            && diagnostic
-                .dependency
-                .as_ref()
-                .is_some_and(|name| uses.contains(&(diagnostic.location.path.clone(), name.clone()))))
+        let used_dependency = UNUSED_DEPENDENCY_RULES.contains(&diagnostic.rule.as_str())
+            && diagnostic.dependency.as_ref().is_some_and(|name| {
+                uses.dependencies
+                    .contains(&(diagnostic.location.path.clone(), name.clone()))
+            });
+        let used_file = diagnostic.rule.as_str() == "unused-files" && uses.files.contains(&diagnostic.location.path);
+        !(used_dependency || used_file)
     })
 }
 
-/// Hands the dependencies that the report of root `from` uses through manifests above it to the innermost root
-/// holding each manifest, as the manifest path relative to that root.
-fn route_ancestor_dependency_uses(targets: &[Target], from: usize, report: &Report, uses: &mut [NestedUses]) {
+/// Hands the dependencies that the report of root `from` uses through manifests outside it (above it, or of the files
+/// of other roots it reaches) to the innermost root holding each manifest, as the manifest path relative to that root.
+fn route_ancestor_dependency_uses(targets: &[Target], from: usize, report: &Report, uses: &mut [OtherRootUses]) {
     for (manifest_dir, name) in &report.ancestor_dependency_uses {
         let Some(owner) = owning_root(targets, manifest_dir).filter(|owner| *owner != from) else {
             continue;
         };
         if let Ok(rel) = manifest_dir.strip_prefix(&targets[owner].root) {
-            uses[owner].insert((rel.join("package.json"), name.clone()));
+            uses[owner]
+                .dependencies
+                .insert((rel.join("package.json"), name.clone()));
         }
     }
 }
@@ -263,22 +281,28 @@ fn owning_root(targets: &[Target], file: &Path) -> Option<usize> {
         .map(|(index, _)| index)
 }
 
-/// Hands the files of other projects that the report of root `from` lists to the innermost root holding each, as
-/// paths relative to that root; only roots nested deeper than `from`, which are linted later, take them.
+/// Hands the files of other projects that the report of root `from` lists (absolute) to the innermost root holding
+/// each, as paths relative to that root. A file below `from` belongs to a root nested in it, which is linted later and
+/// takes it as an entry; a file outside `from` is counted as used by its root once every root is linted, as that root
+/// may be linted already.
 fn route_other_project_files(
     targets: &[Target],
-    depths: &[usize],
-    from: usize,
-    report: &Report,
+    (from, report): (usize, &Report),
     extra: &mut [BTreeSet<PathBuf>],
+    uses: &mut [OtherRootUses],
 ) {
-    for file in &report.other_project_files {
-        let abs = targets[from].root.join(file);
-        let Some(owner) = owning_root(targets, &abs).filter(|owner| depths[*owner] > depths[from]) else {
+    let base = &targets[from].root;
+    for abs in &report.other_project_files {
+        let Some(owner) = owning_root(targets, abs).filter(|owner| *owner != from) else {
             continue;
         };
-        if let Ok(rel) = abs.strip_prefix(&targets[owner].root) {
+        let Ok(rel) = abs.strip_prefix(&targets[owner].root) else {
+            continue;
+        };
+        if abs.starts_with(base) {
             extra[owner].insert(rel.to_path_buf());
+        } else {
+            uses[owner].files.insert(rel.to_path_buf());
         }
     }
 }
@@ -289,12 +313,14 @@ fn route_other_project_files(
 /// Roots nested in other roots of the run are linted after them, in waves by nesting depth (all roots of one depth in
 /// parallel): a file of a nested root that only an enclosing root imports (`build/lib/x.ts` of a `build` project,
 /// imported from the outer `src`) is then an entry of the nested root instead of an unused file. Each report lists
-/// the files of other projects its code imports; each goes to the innermost root that holds it. A run without nested
-/// roots is a single wave, as before. Each report also lists the dependencies its code uses that only a manifest
-/// above its root lists; once every root is linted, the root that owns such a manifest no longer reports them unused.
+/// the files of other projects its code imports or runs; each goes to the innermost root that holds it. A run without
+/// nested roots is a single wave, as before. Each report also lists the files outside its root that its code reaches
+/// and the dependencies its code uses that only a manifest above its root lists; once every root is linted, the root
+/// that owns such a file or manifest no longer reports them unused.
 pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Result<Vec<RootRun>, CliError> {
     let depths = nesting_depths(&targets);
     let mut extra: Vec<BTreeSet<PathBuf>> = vec![BTreeSet::new(); targets.len()];
+    let mut other_root_uses: Vec<OtherRootUses> = vec![OtherRootUses::default(); targets.len()];
     let mut reports: Vec<Option<Result<Report, CliError>>> = (0..targets.len()).map(|_| None).collect();
     for depth in 0..=depths.iter().copied().max().unwrap_or(0) {
         let wave: Vec<usize> = (0..targets.len()).filter(|index| depths[*index] == depth).collect();
@@ -312,26 +338,25 @@ pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Res
             .collect();
         for (index, report) in linted {
             if let Ok(report) = &report {
-                route_other_project_files(&targets, &depths, index, report, &mut extra);
+                route_other_project_files(&targets, (index, report), &mut extra, &mut other_root_uses);
             }
             reports[index] = Some(report);
         }
     }
-    let mut nested_uses: Vec<NestedUses> = vec![NestedUses::new(); targets.len()];
     for (index, report) in reports.iter().enumerate() {
         if let Some(Ok(report)) = report {
-            route_ancestor_dependency_uses(&targets, index, report, &mut nested_uses);
+            route_ancestor_dependency_uses(&targets, index, report, &mut other_root_uses);
         }
     }
     targets
         .into_iter()
         .zip(reports)
         .zip(extra)
-        .zip(nested_uses)
+        .zip(other_root_uses)
         .zip(&linters.of_target)
-        .map(|((((target, report), extra_entries), nested_uses), &linter)| {
+        .map(|((((target, report), extra_entries), other_root_uses), &linter)| {
             let report = report.unwrap_or_else(|| Err(CliError::new(Kind::Internal, "a root was not linted")))?;
-            let report = credit_nested_uses(report, &nested_uses);
+            let report = credit_other_root_uses(report, &other_root_uses);
             Ok(RootRun {
                 prefix: prefix_of(base, &target.root),
                 config_path: target.config_path(),
@@ -340,7 +365,7 @@ pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Res
                 workspace: target.workspace,
                 report,
                 extra_entries: extra_entries.into_iter().collect(),
-                nested_uses,
+                other_root_uses,
             })
         })
         .collect()
