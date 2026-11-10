@@ -9,7 +9,7 @@ use skif_core::FileSystem;
 use skif_core::timing::{self, Tally};
 use skif_js_syntax::{
     CachedModule, ImportKind, ModuleCache, ModuleInfo, ModuleKey, ParseOptions, RegisteredComponent, is_source_query,
-    is_stylesheet, parse_cached, registered_components,
+    is_stylesheet, parse_cached, registered_components, registered_name,
 };
 use skif_workspace::{PackageId, map_ordered};
 
@@ -66,6 +66,9 @@ pub struct ResolvedImport {
     pub package: Option<String>,
     /// The import brings in types only.
     pub type_only: bool,
+    /// The import is one skif adds for a registered component a template uses (ADR 0082), not one written in the
+    /// file: it has no location, and `circular-imports` leaves it out.
+    pub component: bool,
 }
 
 /// A parsed file of the graph.
@@ -174,6 +177,8 @@ struct Parsed {
     imports: Vec<RawImport>,
     /// The components a generated `components.d.ts` registers, by name.
     components: Vec<(String, Registered)>,
+    /// The positions in `imports` of the `import()` types that register them.
+    registrations: Vec<usize>,
 }
 
 struct RawImport {
@@ -367,7 +372,7 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
     if !style && !document {
         add_textual_imports(&mut info, &source);
     }
-    let mut imports: Vec<RawImport> = info
+    let imports: Vec<RawImport> = info
         .imports
         .iter()
         .enumerate()
@@ -434,28 +439,31 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
             }
         })
         .collect();
-    let components = if components::is_generated(path, &source) {
-        take_registered(&info, &mut imports, &registered_components(&source))
+    let (components, registrations) = if components::is_generated(path, &source) {
+        registered(&info, &imports, &registered_components(&source))
     } else {
-        Vec::new()
+        (Vec::new(), Vec::new())
     };
     Parsed {
         info,
         error,
         imports,
         components,
+        registrations,
     }
 }
 
-/// Takes the imports of the local components a generated `components.d.ts` registers out of the graph and returns the
-/// components: such a component is used where a template uses its tag, not by the declaration file (ADR 0082).
-fn take_registered(
+/// The local components a generated `components.d.ts` registers, and the positions of the imports that register
+/// them: where the graph links components by tag, such a component is used where a template uses it, not by the
+/// declaration file (ADR 0082).
+fn registered(
     info: &ModuleInfo,
-    imports: &mut [RawImport],
+    imports: &[RawImport],
     registered: &[RegisteredComponent],
-) -> Vec<(String, Registered)> {
+) -> (Vec<(String, Registered)>, Vec<usize>) {
     let mut found = Vec::new();
-    for raw in imports {
+    let mut positions = Vec::new();
+    for (position, raw) in imports.iter().enumerate() {
         let (Some(import), RawTarget::File(file)) = (info.imports.get(raw.import), &raw.target) else {
             continue;
         };
@@ -473,10 +481,10 @@ fn take_registered(
                 }),
         );
         if found.len() > before {
-            raw.target = RawTarget::Ignored;
+            positions.push(position);
         }
     }
-    found
+    (found, positions)
 }
 
 struct Builder<'a> {
@@ -489,9 +497,17 @@ struct Builder<'a> {
     /// ancestors, so each is checked once.
     project_dirs: HashMap<PathBuf, bool>,
     /// The files of the components generated declaration files register, by name, in the order they were found.
+    /// Registrations are global: a component one workspace's declaration file registers is linked into the templates
+    /// of every workspace that uses its tag.
     components: BTreeMap<String, Vec<Registered>>,
-    /// The modules already importing a registered component, with its name.
-    linked: BTreeSet<(ModuleId, String)>,
+    /// The modules already importing a file of a registered component, with the file.
+    linked: BTreeSet<(ModuleId, PathBuf)>,
+    /// The modules below this index were linked against the components registered then.
+    linked_upto: usize,
+    /// A component or a file of one was registered since the last linking, so every module is linked again.
+    relink: bool,
+    /// Whether the components a package registers may be used where skif records no tags, by package.
+    untagged: HashMap<PackageId, bool>,
 }
 
 impl<'a> Builder<'a> {
@@ -519,6 +535,9 @@ impl<'a> Builder<'a> {
             project_dirs: HashMap::new(),
             components: BTreeMap::new(),
             linked: BTreeSet::new(),
+            linked_upto: 0,
+            relink: false,
+            untagged: HashMap::new(),
         }
     }
 
@@ -623,48 +642,79 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// Whether the components the declaration file `id` registers are linked by tag: not when its package may use them
+    /// in files skif records no tags for, where the file keeps its edges and credits them all.
+    fn links_by_tag(&mut self, id: ModuleId) -> bool {
+        let inputs = self.inputs;
+        let owner = self.modules[id.index()].owner;
+        let untagged = *self.untagged.entry(owner).or_insert_with(|| {
+            inputs.setup.package(owner).is_none_or(|package| {
+                components::may_be_used_untagged(inputs.fs, package, inputs.candidates)
+            })
+        });
+        !untagged
+    }
+
     fn register(&mut self, components: Vec<(String, Registered)>) {
         for (name, registration) in components {
             let files = self.components.entry(name).or_default();
             if !files.iter().any(|known| known.file == registration.file) {
                 files.push(registration);
+                self.relink = true;
             }
         }
     }
 
-    /// Imports each registered component into the `.vue` modules whose template uses its tag, as knip's compiler adds
-    /// the import (ADR 0082), and returns the modules this reaches for the first time.
+    /// Imports each registered component into the modules whose `template_tags` name it, as knip's compiler adds the
+    /// import (ADR 0082), and returns the modules this reaches for the first time. Only the modules read since the
+    /// last linking are visited, unless components were registered since.
     fn link_components(&mut self) -> Vec<ModuleId> {
         let mut fresh = Vec::new();
+        let start = if std::mem::take(&mut self.relink) {
+            0
+        } else {
+            self.linked_upto
+        };
+        let end = self.modules.len();
+        self.linked_upto = end;
         if self.components.is_empty() {
             return fresh;
         }
-        let registry = self.components.clone();
-        for index in 0..self.modules.len() {
+        for index in start..end {
+            let module = &self.modules[index];
+            let mut links: Vec<(String, Registered, bool)> = Vec::new();
+            for tag in &module.info.template_tags {
+                let Some(name) = registered_name(tag, |name| self.components.contains_key(name)) else {
+                    continue;
+                };
+                let Some(files) = self.components.get(&name) else {
+                    continue;
+                };
+                let mut first = true;
+                for registration in files.iter().filter(|registration| registration.file != module.abs) {
+                    links.push((name.clone(), registration.clone(), first));
+                    first = false;
+                }
+            }
             let id = ModuleId::from_index(index);
-            for (name, files) in &registry {
-                if !components::uses(&self.modules[index].info.template_tags, name)
-                    || !self.linked.insert((id, name.clone()))
-                {
+            for (name, registration, first) in links {
+                if !self.linked.insert((id, registration.file.clone())) {
                     continue;
                 }
-                let own = self.modules[index].abs.clone();
-                let targets = files.iter().filter(|registration| registration.file != own);
-                for (position, registration) in targets.enumerate() {
-                    let target = self.lower(RawTarget::File(registration.file.clone()), &mut fresh);
-                    let module = &mut self.modules[index];
-                    let import = module.info.imports.len();
-                    module
-                        .info
-                        .imports
-                        .push(components::import(name, &registration.specifier, position == 0));
-                    module.imports.push(ResolvedImport {
-                        import,
-                        target,
-                        package: None,
-                        type_only: false,
-                    });
-                }
+                let target = self.lower(RawTarget::File(registration.file), &mut fresh);
+                let module = &mut self.modules[index];
+                let import = module.info.imports.len();
+                module
+                    .info
+                    .imports
+                    .push(components::import(&name, &registration.specifier, first));
+                module.imports.push(ResolvedImport {
+                    import,
+                    target,
+                    package: None,
+                    type_only: false,
+                    component: true,
+                });
             }
         }
         fresh
@@ -690,7 +740,13 @@ pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf]) -> ModuleGraph {
             .collect();
         let parsed: Vec<Parsed> = map_ordered(&paths, inputs.sequential, |path| process(path, inputs));
         let mut next = Vec::new();
-        for (id, parsed) in frontier.iter().zip(parsed) {
+        for (id, mut parsed) in frontier.iter().zip(parsed) {
+            if !parsed.components.is_empty() && builder.links_by_tag(*id) {
+                for position in &parsed.registrations {
+                    parsed.imports[*position].target = RawTarget::Ignored;
+                }
+                builder.register(std::mem::take(&mut parsed.components));
+            }
             let imports = parsed
                 .imports
                 .into_iter()
@@ -699,9 +755,9 @@ pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf]) -> ModuleGraph {
                     target: builder.lower(raw.target, &mut next),
                     package: raw.package,
                     type_only: raw.type_only,
+                    component: false,
                 })
                 .collect();
-            builder.register(parsed.components);
             let module = &mut builder.modules[id.index()];
             module.info = parsed.info;
             module.parse_error = parsed.error;

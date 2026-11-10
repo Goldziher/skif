@@ -18,9 +18,10 @@ pub static META: RuleMeta = RuleMeta::new(
     "Modules import each other in a cycle.",
 );
 
-/// Reports strongly connected components of value imports. Type-only imports do not count, and dynamic imports count
-/// only with `[js.cycles] dynamic-imports`. A component whose files are exactly those of a `[js.cycles] allow` entry
-/// is not reported.
+/// Reports strongly connected components of value imports. Type-only imports and the imports skif adds for registered
+/// Vue components (ADR 0082; mutually recursive components are common) do not count, and dynamic imports count only
+/// with `[js.cycles] dynamic-imports`. A component whose files are exactly those of a `[js.cycles] allow` entry is not
+/// reported.
 pub struct CircularImports;
 
 /// Strongly connected components by Tarjan's algorithm, without recursion.
@@ -101,7 +102,7 @@ impl JsRule for CircularImports {
                 let mut targets: Vec<usize> = module
                     .imports
                     .iter()
-                    .filter(|resolved| !resolved.type_only)
+                    .filter(|resolved| !resolved.type_only && !resolved.component)
                     .filter(|resolved| {
                         module
                             .info
