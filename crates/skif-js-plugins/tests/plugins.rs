@@ -3068,11 +3068,20 @@ fn tap() {
 fn bun_is_enabled_by_a_test_script_or_a_lockfile() {
     let results = resolve_with_scripts(&[], &[], &[("test", "bun test --timeout 30000")]);
     let out = output(&results, "bun");
+    // `bun test` finds every JavaScript and TypeScript extension, `.mjs`, `.cjs`, `.mts` and `.cts` too.
     assert_entries(
         &out.entries,
-        &["**/*.{test,spec}.{js,jsx,ts,tsx}", "**/*_{test,spec}.{js,jsx,ts,tsx}"],
+        &[
+            "**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "**/*_{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        ],
     );
     assert!(resolve(&[("bun.lock", "")], &[]).iter().any(|(id, _)| *id == "bun"));
+    // A package of a Bun workspace has no lockfile of its own: its `bunfig.toml` or Bun's types enable the plugin.
+    assert!(resolve(&[("bunfig.toml", "")], &[]).iter().any(|(id, _)| *id == "bun"));
+    for types in ["@types/bun", "bun-types"] {
+        assert!(resolve(&[], &[types]).iter().any(|(id, _)| *id == "bun"), "{types}");
+    }
     assert!(
         !resolve_with_scripts(&[], &[], &[("test", "vitest run")])
             .iter()
@@ -3087,6 +3096,55 @@ fn bun_reads_preloads_from_bunfig() {
     let out = output(&results, "bun");
     assert_entries(&out.entries, &["test/setup.ts"]);
     assert_deps(out, &["happy-dom-setup"]);
+}
+
+#[test]
+fn bun_reads_runtime_preloads_the_security_scanner_and_the_jsx_source_from_bunfig() {
+    let config = "preload = \"./src/preload.ts\"\njsxImportSource = \"preact\"\n\n[install.security]\nscanner = \"@socketsecurity/bun-security-scanner\"\n";
+    let results = resolve(&[("bunfig.toml", config)], &[]);
+    let out = output(&results, "bun");
+    assert_entries(&out.entries, &["src/preload.ts"]);
+    assert_deps(out, &["preact", "@socketsecurity/bun-security-scanner"]);
+}
+
+/// Bun Shell and `Bun.spawn` run commands, `Bun.build` bundles its `entrypoints` from the package directory, and the
+/// `Bun` global uses the type package that declares it.
+#[test]
+fn bun_reads_the_commands_and_entry_points_source_files_hand_to_its_api() {
+    let files = [
+        (
+            "scripts/build.ts",
+            r#"await Bun.build({ entrypoints: ["./src/worker.ts", "src/cli.ts"], outdir: "./dist" });
+            await Bun.$`bun ./scripts/copy-icons.ts ${channel}`;
+            Bun.spawn(["tsc", "-p", "."], { stdout: "inherit" });
+            Bun.spawnSync({ cmd: ["oxlint", flag] });
+            console.log(Bun.version);"#,
+        ),
+        (
+            "scripts/release.ts",
+            r#"import { $, build } from "bun";
+            await $`changeset publish`;
+            await build({ entrypoints: ["./src/server.ts"] });"#,
+        ),
+        ("scripts/other.ts", r#"esbuild.build({ entryPoints: ["src/ignored.ts"] }); $`not-bun`;"#),
+    ];
+    let results = resolve(&files, &["@types/bun"]);
+    let out = output(&results, "bun");
+    let mut production = out.production_entries.clone();
+    production.sort();
+    assert_eq!(production, ["src/cli.ts", "src/server.ts", "src/worker.ts"]);
+    assert_entries(&out.entries, &["scripts/copy-icons.ts"]);
+    let mut binaries = out.referenced_binaries.clone();
+    binaries.sort();
+    assert!(binaries.contains(&"changeset".to_owned()), "{binaries:?}");
+    // `oxlint` with a computed argument is dropped; `not-bun` is no Bun Shell command.
+    assert!(binaries.contains(&"tsc".to_owned()), "{binaries:?}");
+    assert!(!binaries.contains(&"oxlint".to_owned()), "{binaries:?}");
+    assert!(!binaries.contains(&"not-bun".to_owned()), "{binaries:?}");
+    assert_deps(out, &["@types/bun"]);
+    // A package that does not list a type package is not told to.
+    let results = resolve(&files, &["typescript"]);
+    assert_absent(output(&results, "bun"), &["@types/bun", "bun-types"]);
 }
 
 #[test]
