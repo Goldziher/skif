@@ -2,12 +2,15 @@
 //!
 //! A [`ModuleInfo`] is a pure function of the file name, the text and the [`ParseOptions`], so a key over those
 //! inputs can never return a stale result: a changed file has a new key. The cache itself is supplied by the host
-//! through [`ModuleCache`]; this crate only owns the key, the stored value and an in-memory implementation.
+//! through [`ModuleCache`]; this crate only owns the key, the stored value, an in-memory implementation and the
+//! [`ParseCoalescer`] that makes the threads of one run parse each key once (ADR 0101).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::hash::Hasher as _;
 use std::path::Path;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::thread::{self, ThreadId};
 
 use serde::{Deserialize, Serialize};
 use siphasher::sip128::{Hasher128 as _, SipHasher13};
@@ -154,6 +157,199 @@ impl ModuleCache for MemoryModuleCache {
     }
 }
 
+/// Parses each key once while several threads ask for it: a lookup of a key another thread is parsing waits for
+/// that parse and is given its outcome instead of parsing the file again (ADR 0101).
+///
+/// It is not a [`ModuleCache`] and holds no result: it sits beside the cache a run parses through, and
+/// [`ParseCoalescer::parse_cached`] takes that cache, so coalescing does not depend on how the cache is wrapped. It
+/// holds one slot per key being parsed, with its own lock and condition variable, so a wait for one key neither
+/// blocks nor wakes the lookups of another. The thread that claims a key parses it, stores the result in the cache
+/// and hands the result, or the parse error, to the threads that waited; a parse that panics hands them nothing, and
+/// one of them parses the key again.
+///
+/// Deadlock freedom rests on one invariant: a parse never waits for another lookup through the coalescer. The
+/// parsers run on the calling thread, use no thread pool and do not read the cache. A lookup of a key the calling
+/// thread has claimed itself parses inline instead of waiting for itself.
+#[derive(Default)]
+pub struct ParseCoalescer {
+    slots: Mutex<HashMap<ModuleKey, Arc<Slot>>>,
+}
+
+/// The parse of one key in flight.
+struct Slot {
+    /// The thread parsing the key.
+    claimer: ThreadId,
+    /// The threads waiting for the outcome. It changes only under the lock of [`ParseCoalescer::slots`], so it is
+    /// final once the claimer has taken the slot out of the map.
+    waiters: AtomicUsize,
+    outcome: Mutex<Option<Outcome>>,
+    ready: Condvar,
+}
+
+/// What the claimer of a key hands the threads that waited for it.
+#[derive(Clone)]
+enum Outcome {
+    Parsed(Arc<CachedModule>),
+    Failed(SyntaxError),
+    /// The parse panicked: the waiters look the key up again.
+    Abandoned,
+}
+
+/// The answer of [`ParseCoalescer::join_or_claim`].
+enum Turn<'a> {
+    /// Another thread parses the key; wait for this slot.
+    Wait(Arc<Slot>),
+    /// The calling thread parses the key.
+    Parse(Claim<'a>),
+    /// The calling thread is already parsing the key further up its stack.
+    Inline,
+}
+
+impl ParseCoalescer {
+    /// A coalescer with no parse in flight.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// As [`parse_cached`] through `cache`, with a lookup of a key another thread is parsing waiting for that parse.
+    ///
+    /// # Errors
+    /// As [`crate::parse_module`], also when the error comes from the parse another thread ran for the same key.
+    pub fn parse_cached(
+        &self,
+        cache: &dyn ModuleCache,
+        path: &Path,
+        source: &str,
+        options: &ParseOptions,
+    ) -> Result<ModuleInfo, SyntaxError> {
+        let key = ModuleKey::new(path, source, options);
+        self.get_or_parse(cache, key, &mut || {
+            parse_uncached(path, source, *options).map(CachedModule)
+        })
+        .map(|CachedModule(info)| info)
+    }
+
+    /// The result stored under `key` in `cache`, or the outcome of the one parse of `key` that runs while several
+    /// threads ask for it. A fresh result is stored before any waiter is woken.
+    fn get_or_parse(
+        &self,
+        cache: &dyn ModuleCache,
+        key: ModuleKey,
+        parse: &mut dyn FnMut() -> Result<CachedModule, SyntaxError>,
+    ) -> Result<CachedModule, SyntaxError> {
+        loop {
+            if let Some(found) = cache.get(key) {
+                return Ok(found);
+            }
+            let slot = match self.join_or_claim(key) {
+                Turn::Wait(slot) => slot,
+                Turn::Parse(mut claim) => {
+                    // Looked up again with the key claimed: a parse that ended since the lookup above stored its
+                    // result before it released the key.
+                    let result = match cache.get(key) {
+                        Some(found) => Ok(found),
+                        None => parse().inspect(|module| cache.put(key, module.clone())),
+                    };
+                    claim.release(|| match &result {
+                        Ok(module) => Outcome::Parsed(Arc::new(module.clone())),
+                        Err(error) => Outcome::Failed(error.clone()),
+                    });
+                    return result;
+                }
+                Turn::Inline => return parse(),
+            };
+            match slot.wait() {
+                Outcome::Parsed(module) => return Ok(Arc::unwrap_or_clone(module)),
+                Outcome::Failed(error) => return Err(error),
+                Outcome::Abandoned => {}
+            }
+        }
+    }
+
+    fn slots(&self) -> MutexGuard<'_, HashMap<ModuleKey, Arc<Slot>>> {
+        self.slots.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Joins the parse of `key` in flight, or claims `key` for the calling thread.
+    fn join_or_claim(&self, key: ModuleKey) -> Turn<'_> {
+        let current = thread::current().id();
+        let mut slots = self.slots();
+        if let Some(slot) = slots.get(&key) {
+            if slot.claimer == current {
+                return Turn::Inline;
+            }
+            slot.waiters.fetch_add(1, Ordering::Relaxed);
+            return Turn::Wait(Arc::clone(slot));
+        }
+        let slot = Arc::new(Slot {
+            claimer: current,
+            waiters: AtomicUsize::new(0),
+            outcome: Mutex::new(None),
+            ready: Condvar::new(),
+        });
+        slots.insert(key, Arc::clone(&slot));
+        Turn::Parse(Claim {
+            coalescer: self,
+            key,
+            slot,
+            released: false,
+        })
+    }
+}
+
+impl std::fmt::Debug for ParseCoalescer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ParseCoalescer")
+            .field("parsing", &self.slots().len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Slot {
+    /// Blocks until the claimer hands over the outcome.
+    fn wait(&self) -> Outcome {
+        let mut outcome = self.outcome.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if let Some(outcome) = outcome.as_ref() {
+                return outcome.clone();
+            }
+            outcome = self.ready.wait(outcome).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+}
+
+/// A key claimed by [`ParseCoalescer::join_or_claim`]. Dropping it unreleased, as a panicking parse does, releases
+/// it with [`Outcome::Abandoned`].
+struct Claim<'a> {
+    coalescer: &'a ParseCoalescer,
+    key: ModuleKey,
+    slot: Arc<Slot>,
+    released: bool,
+}
+
+impl Claim<'_> {
+    /// Takes the slot out of the map, so later lookups go to the cache, and hands the waiters `outcome`, which is
+    /// built only when a thread waits.
+    fn release(&mut self, outcome: impl FnOnce() -> Outcome) {
+        self.released = true;
+        self.coalescer.slots().remove(&self.key);
+        if self.slot.waiters.load(Ordering::Relaxed) == 0 {
+            return;
+        }
+        *self.slot.outcome.lock().unwrap_or_else(PoisonError::into_inner) = Some(outcome());
+        self.slot.ready.notify_all();
+    }
+}
+
+impl Drop for Claim<'_> {
+    fn drop(&mut self) {
+        if !self.released {
+            self.release(|| Outcome::Abandoned);
+        }
+    }
+}
+
 /// Parses `source`, the text of `path`, with `options`, through `cache`: a stored result is returned as it is, and
 /// a fresh parse is stored before it is returned. Stylesheets go to [`parse_stylesheet`] and everything else to
 /// [`crate::parse_module`]. Without a cache this is a plain parse.
@@ -166,23 +362,25 @@ pub fn parse_cached(
     source: &str,
     options: &ParseOptions,
 ) -> Result<ModuleInfo, SyntaxError> {
-    let parse = || {
-        if is_stylesheet(path) {
-            Ok(parse_stylesheet(path, source))
-        } else {
-            crate::parse_module(path, source, options)
-        }
-    };
     let Some(cache) = cache else {
-        return parse();
+        return parse_uncached(path, source, *options);
     };
     let key = ModuleKey::new(path, source, options);
     if let Some(CachedModule(info)) = cache.get(key) {
         return Ok(info);
     }
-    let info = parse()?;
+    let info = parse_uncached(path, source, *options)?;
     cache.put(key, CachedModule(info.clone()));
     Ok(info)
+}
+
+/// Parses `source`, the text of `path`, with the parser its name selects.
+fn parse_uncached(path: &Path, source: &str, options: ParseOptions) -> Result<ModuleInfo, SyntaxError> {
+    if is_stylesheet(path) {
+        Ok(parse_stylesheet(path, source))
+    } else {
+        crate::parse_module(path, source, &options)
+    }
 }
 
 const _: fn() = || {
@@ -190,6 +388,7 @@ const _: fn() = || {
     assert_send_sync::<ModuleKey>();
     assert_send_sync::<CachedModule>();
     assert_send_sync::<MemoryModuleCache>();
+    assert_send_sync::<ParseCoalescer>();
 };
 
 #[cfg(test)]
@@ -447,5 +646,231 @@ mod tests {
         cache.prune_unused();
         cache.prune_unused();
         assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn parse_options_that_differ_do_not_share_an_entry() {
+        let cache = Counting::default();
+        let path = Path::new("a.ts");
+        let source = "const local = 1;\nexport const a = local;\nexport const b = a;\n";
+        let full = ParseOptions::default();
+        let bare = ParseOptions {
+            in_file_references: false,
+            member_accesses: false,
+        };
+        let with_references = parse_cached(Some(&cache), path, source, &full).unwrap();
+        let without = parse_cached(Some(&cache), path, source, &bare).unwrap();
+        assert_eq!(cache.puts.load(Ordering::Relaxed), 2);
+        assert_eq!(cache.hits.load(Ordering::Relaxed), 0);
+        assert_eq!(cache.inner.len(), 2);
+        // Each lookup is served what its own options parse to, from the entry of those options.
+        assert_eq!(
+            parse_cached(Some(&cache), path, source, &full).unwrap(),
+            with_references
+        );
+        assert_eq!(parse_cached(Some(&cache), path, source, &bare).unwrap(), without);
+        assert_eq!(with_references, parse_cached(None, path, source, &full).unwrap());
+        assert_eq!(without, parse_cached(None, path, source, &bare).unwrap());
+        assert_eq!(cache.hits.load(Ordering::Relaxed), 2);
+    }
+
+    type Parse = Result<CachedModule, SyntaxError>;
+
+    /// A parse result of its own, so a lookup that returns it was handed this parse.
+    fn module(source: &str) -> CachedModule {
+        CachedModule(crate::parse_module(Path::new("a.ts"), source, &ParseOptions::default()).unwrap())
+    }
+
+    fn unsupported() -> SyntaxError {
+        SyntaxError::Unsupported {
+            extension: "txt".to_owned(),
+        }
+    }
+
+    /// The threads registered as waiting for the parse of `key` in flight.
+    fn waiting(coalescer: &ParseCoalescer, key: ModuleKey) -> usize {
+        coalescer
+            .slots()
+            .get(&key)
+            .map_or(0, |slot| slot.waiters.load(Ordering::SeqCst))
+    }
+
+    /// Returns once `count` threads wait for the parse of `key`, from when each of them can only be handed the
+    /// claimer's outcome, or once `gave_up` holds. The deadline only bounds a failing test.
+    fn until_waiting(coalescer: &ParseCoalescer, key: ModuleKey, count: usize, gave_up: impl Fn() -> bool) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while waiting(coalescer, key) < count && !gave_up() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "{count} lookups never waited for the parse"
+            );
+            std::thread::yield_now();
+        }
+    }
+
+    /// The parse of a lookup that must be handed another thread's outcome.
+    fn must_not_parse() -> Parse {
+        panic!("a waiting lookup parsed the key itself")
+    }
+
+    /// Lets one thread claim `key` and start parsing, then a second look the key up with `waiter_parse`, and ends
+    /// the first parse with `finish` only once the second is registered as waiting. Returns the outcome of the
+    /// first, an `Err` when its parse panicked, and of the second.
+    fn claimer_and_waiter(
+        coalescer: &ParseCoalescer,
+        cache: &dyn ModuleCache,
+        key: ModuleKey,
+        finish: impl FnOnce() -> Parse + Send,
+        mut waiter_parse: impl FnMut() -> Parse + Send,
+    ) -> (std::thread::Result<Parse>, Parse) {
+        let (started, has_started) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        std::thread::scope(|scope| {
+            let first = scope.spawn(move || {
+                let mut finish = Some(finish);
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    coalescer.get_or_parse(cache, key, &mut || {
+                        started.send(()).unwrap();
+                        released.recv().unwrap();
+                        finish.take().unwrap()()
+                    })
+                }))
+            });
+            has_started.recv().unwrap();
+            let second = scope.spawn(move || coalescer.get_or_parse(cache, key, &mut waiter_parse));
+            until_waiting(coalescer, key, 1, || second.is_finished());
+            release.send(()).unwrap();
+            (first.join().unwrap(), second.join().unwrap())
+        })
+    }
+
+    #[test]
+    fn a_lookup_of_a_key_being_parsed_is_handed_that_parse() {
+        let store = Counting::default();
+        let coalescer = ParseCoalescer::new();
+        let key = key("a.ts", "a", ParseOptions::default());
+        let parsed = module("export const parsed = 1;");
+        let (first, second) = claimer_and_waiter(&coalescer, &store, key, || Ok(parsed.clone()), must_not_parse);
+        assert_eq!(first.unwrap(), Ok(parsed.clone()));
+        assert_eq!(second, Ok(parsed.clone()));
+        // One parse, stored once; the waiter was handed it, not served by the store.
+        assert_eq!(store.puts.load(Ordering::Relaxed), 1);
+        assert_eq!(store.hits.load(Ordering::Relaxed), 0);
+        assert_eq!(store.inner.get(key), Some(parsed));
+        assert_eq!(waiting(&coalescer, key), 0);
+        assert!(coalescer.slots().is_empty());
+    }
+
+    #[test]
+    fn a_failed_parse_is_handed_to_its_waiters_and_stores_nothing() {
+        let store = Counting::default();
+        let coalescer = ParseCoalescer::new();
+        let key = key("a.ts", "a", ParseOptions::default());
+        let (first, second) = claimer_and_waiter(&coalescer, &store, key, || Err(unsupported()), must_not_parse);
+        assert_eq!(first.unwrap(), Err(unsupported()));
+        assert_eq!(second, Err(unsupported()));
+        assert_eq!(store.puts.load(Ordering::Relaxed), 0);
+        assert!(store.inner.is_empty());
+        // The key was released: the next lookup parses it.
+        let mut parses = 0;
+        let found = coalescer.get_or_parse(&store, key, &mut || {
+            parses += 1;
+            Ok(module("export const later = 1;"))
+        });
+        assert_eq!(parses, 1);
+        assert_eq!(found, Ok(module("export const later = 1;")));
+        assert_eq!(store.inner.len(), 1);
+    }
+
+    #[test]
+    fn a_panicking_parse_leaves_one_waiter_to_parse_the_key_again() {
+        let store = Counting::default();
+        let coalescer = ParseCoalescer::new();
+        let key = key("a.ts", "a", ParseOptions::default());
+        let waiter_parses = AtomicUsize::new(0);
+        let (first, second) = claimer_and_waiter(
+            &coalescer,
+            &store,
+            key,
+            || -> Parse { panic!("the parser failed") },
+            || {
+                waiter_parses.fetch_add(1, Ordering::SeqCst);
+                Ok(module("export const retried = 1;"))
+            },
+        );
+        assert!(first.is_err());
+        // The panic handed the waiter nothing; it parsed the key itself, once, and stored that result.
+        assert_eq!(second, Ok(module("export const retried = 1;")));
+        assert_eq!(waiter_parses.load(Ordering::SeqCst), 1);
+        assert_eq!(store.puts.load(Ordering::Relaxed), 1);
+        assert_eq!(store.inner.len(), 1);
+        assert_eq!(store.inner.get(key), Some(module("export const retried = 1;")));
+        assert!(coalescer.slots().is_empty());
+    }
+
+    #[test]
+    fn many_threads_asking_for_one_key_parse_it_once() {
+        let store = MemoryModuleCache::new();
+        let coalescer = ParseCoalescer::new();
+        let key = key("a.ts", "a", ParseOptions::default());
+        let parses = AtomicUsize::new(0);
+        let barrier = std::sync::Barrier::new(8);
+        let found: Vec<Parse> = std::thread::scope(|scope| {
+            let mut lookups = Vec::new();
+            for _ in 0..8 {
+                lookups.push(scope.spawn(|| {
+                    barrier.wait();
+                    coalescer.get_or_parse(&store, key, &mut || {
+                        parses.fetch_add(1, Ordering::SeqCst);
+                        // The claimer holds the key until the seven others wait for it.
+                        until_waiting(&coalescer, key, 7, || false);
+                        Ok(module("export const once = 1;"))
+                    })
+                }));
+            }
+            lookups.into_iter().map(|lookup| lookup.join().unwrap()).collect()
+        });
+        assert_eq!(parses.load(Ordering::SeqCst), 1);
+        assert!(found.iter().all(|found| *found == Ok(module("export const once = 1;"))));
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn a_lookup_of_a_key_its_own_thread_is_parsing_parses_inline() {
+        let store = MemoryModuleCache::new();
+        let coalescer = ParseCoalescer::new();
+        let key = key("a.ts", "a", ParseOptions::default());
+        let found = coalescer.get_or_parse(&store, key, &mut || {
+            coalescer.get_or_parse(&store, key, &mut || Ok(module("export const inner = 1;")))
+        });
+        assert_eq!(found, Ok(module("export const inner = 1;")));
+        assert_eq!(store.get(key), Some(module("export const inner = 1;")));
+        assert!(coalescer.slots().is_empty());
+    }
+
+    #[test]
+    fn parse_cached_through_a_coalescer_stores_once_and_reports_parse_errors() {
+        let store = Counting::default();
+        let coalescer = ParseCoalescer::new();
+        let options = ParseOptions::default();
+        let path = Path::new("a.ts");
+        let first = coalescer
+            .parse_cached(&store, path, "export const a = 1;", &options)
+            .unwrap();
+        let second = coalescer
+            .parse_cached(&store, path, "export const a = 1;", &options)
+            .unwrap();
+        assert_eq!(first, second);
+        assert_eq!(
+            first,
+            parse_cached(None, path, "export const a = 1;", &options).unwrap()
+        );
+        assert_eq!(store.puts.load(Ordering::Relaxed), 1);
+        assert_eq!(store.hits.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            coalescer.parse_cached(&store, Path::new("a.txt"), "", &options),
+            Err(unsupported())
+        );
+        assert_eq!(store.puts.load(Ordering::Relaxed), 1);
     }
 }

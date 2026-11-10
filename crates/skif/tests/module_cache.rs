@@ -4,11 +4,11 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use skif::{
-    BufferFs, ConfigOverrides, FileSystem, Linter, MemoryFs, MemoryModuleCache, ModuleCache, Report, Workspace,
-    load_config,
+    BufferFs, CachedModule, ConfigOverrides, FileSystem, Linter, MemoryFs, MemoryModuleCache, ModuleCache, ModuleKey,
+    Report, Workspace, discover_targets, load_config,
 };
 
 // The resolver only applies a `tsconfig` found below an absolute path, and `/ws` has no drive on Windows.
@@ -120,4 +120,98 @@ fn a_manifest_buffer_reports_like_the_saved_file() {
             .any(|diagnostic| diagnostic.rule.as_str() == "empty-dependencies"),
         "{buffered:#?}"
     );
+}
+
+/// Three standalone packages below [`ROOT`] whose entry files import `shared/lib.ts`, which lies outside all of them.
+fn shared_closure() -> MemoryFs {
+    let mut fs = MemoryFs::new().with_file(Path::new(ROOT).join("shared/lib.ts"), "export const shared = 1;\n");
+    for (name, offset) in [("a", 1), ("b", 2), ("c", 3)] {
+        fs.insert(
+            Path::new(ROOT).join(name).join("package.json"),
+            format!(r#"{{"name": "{name}", "version": "1.0.0", "main": "index.ts"}}"#),
+        );
+        fs.insert(
+            Path::new(ROOT).join(name).join("index.ts"),
+            format!("import {{ shared }} from '../shared/lib';\nexport const {name} = shared + {offset};\n"),
+        );
+    }
+    fs
+}
+
+/// A [`MemoryModuleCache`] that counts the stores of each key: one store is one parse.
+#[derive(Default)]
+struct Parses {
+    inner: MemoryModuleCache,
+    stores: Mutex<BTreeMap<ModuleKey, usize>>,
+}
+
+impl ModuleCache for Parses {
+    fn get(&self, key: ModuleKey) -> Option<CachedModule> {
+        self.inner.get(key)
+    }
+
+    fn put(&self, key: ModuleKey, module: CachedModule) {
+        *self.stores.lock().unwrap().entry(key).or_default() += 1;
+        self.inner.put(key, module);
+    }
+}
+
+/// The report of each target, the targets linted in parallel by `linters`.
+fn lint_in_parallel(targets: &[skif::Target], linters: &[Linter]) -> Vec<Report> {
+    std::thread::scope(|scope| {
+        let runs: Vec<_> = targets
+            .iter()
+            .zip(linters)
+            .map(|(target, linter)| scope.spawn(move || linter.run(&target.workspace).unwrap()))
+            .collect();
+        runs.into_iter().map(|run| run.join().unwrap()).collect()
+    })
+}
+
+#[test]
+fn the_linters_of_several_roots_parse_a_file_they_share_once() {
+    let fs = shared_closure();
+    let discovery = discover_targets(Path::new(ROOT), &fs, &ConfigOverrides::default()).unwrap();
+    assert_eq!(discovery.targets.len(), 3);
+    let store = Arc::new(Parses::default());
+    let linters = Linter::for_targets_with_cache(
+        &discovery.targets,
+        Arc::new(fs.clone()),
+        Arc::clone(&store) as Arc<dyn ModuleCache>,
+    )
+    .unwrap();
+    lint_in_parallel(&discovery.targets, &linters);
+    let stores = store.stores.lock().unwrap();
+    // The three entry files and the shared file, each parsed by one root only.
+    assert_eq!(stores.len(), 4, "{stores:?}");
+    assert!(stores.values().all(|count| *count == 1), "{stores:?}");
+}
+
+#[test]
+fn linters_for_targets_report_like_a_linter_per_target() {
+    let fs = shared_closure();
+    let discovery = discover_targets(Path::new(ROOT), &fs, &ConfigOverrides::default()).unwrap();
+    let separate: Vec<Linter> = discovery
+        .targets
+        .iter()
+        .map(|target| Linter::with_fs(&target.config, Arc::new(fs.clone())).unwrap())
+        .collect();
+    let shared = Linter::for_targets(&discovery.targets, Arc::new(fs.clone())).unwrap();
+    assert_eq!(shared.len(), 3);
+    let expected = lint_in_parallel(&discovery.targets, &separate);
+    assert!(
+        expected.iter().all(|report| report.summary.packages == 1),
+        "{expected:#?}"
+    );
+    assert_eq!(lint_in_parallel(&discovery.targets, &shared), expected);
+}
+
+#[test]
+fn only_several_targets_or_a_host_cache_share_a_module_cache() {
+    let fs = shared_closure();
+    let discovery = discover_targets(Path::new(ROOT), &fs, &ConfigOverrides::default()).unwrap();
+    let host = || Some(Arc::new(MemoryModuleCache::new()) as Arc<dyn ModuleCache>);
+    assert!(Linter::shared_modules(&discovery.targets, None).is_some());
+    assert!(Linter::shared_modules(&discovery.targets[..1], None).is_none());
+    assert!(Linter::shared_modules(&discovery.targets[..1], host()).is_some());
 }

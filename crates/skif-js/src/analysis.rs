@@ -7,7 +7,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use skif_config::{Config, JsDiscovery};
 use skif_core::{FileSystem, IncompletePackage, IncompleteScope, Span, timing};
-use skif_js_syntax::{Export, ExportKind, Member, ModuleCache, ParseOptions, parse_cached};
+use skif_js_syntax::{Export, ExportKind, Member, ParseOptions, parse_cached};
 use skif_workspace::{PackageId, Workspace, map_ordered};
 
 use crate::config_hints::{ConfigHint, HintInputs, config_hints};
@@ -21,6 +21,7 @@ use crate::graph::{self, Inputs, Module, ModuleGraph, Target};
 use crate::input::InputSource;
 use crate::resolve::{ModuleResolver, is_installed};
 use crate::setup::{Setup, WorkspaceKeys};
+use crate::shared_modules::ModuleParser;
 use crate::specifier::package_name;
 use crate::usage::ExportUsage;
 
@@ -94,8 +95,8 @@ pub struct JsAnalysis<'a> {
 pub(crate) struct Caches<'c> {
     /// The parsed git indexes, so that the roots of one run share them.
     pub indexes: &'c IndexCache,
-    /// The host's cache of parse results.
-    pub modules: Option<&'c dyn ModuleCache>,
+    /// How this run parses through the cache of parse results, when there is one.
+    pub modules: Option<&'c ModuleParser<'c>>,
     /// Files, relative to the workspace root, that other roots of the run import as entries.
     pub extra_entries: &'c [PathBuf],
 }
@@ -105,7 +106,7 @@ fn collect_ambient_modules(
     fs: &dyn FileSystem,
     graph: &ModuleGraph,
     candidates: &[Candidate],
-    (sequential, modules): (bool, Option<&dyn ModuleCache>),
+    (sequential, modules): (bool, Option<&ModuleParser<'_>>),
 ) -> HashSet<String> {
     let mut names: HashSet<String> = graph
         .modules()
@@ -125,7 +126,14 @@ fn collect_ambient_modules(
         fs.read_to_string(path)
             .ok()
             .filter(|source| source.contains("declare module"))
-            .and_then(|source| parse_cached(modules, path, &source, &options).ok())
+            .and_then(|source| {
+                modules
+                    .map_or_else(
+                        || parse_cached(None, path, &source, &options),
+                        |modules| modules.parse(path, &source, options).0,
+                    )
+                    .ok()
+            })
             .map(|info| info.ambient_modules)
             .unwrap_or_default()
     });
