@@ -42,6 +42,9 @@ pub struct Tokens {
     pub substitutions: Vec<Range<usize>>,
     /// Names of the functions the text defines (`name() { … }`, `function name { … }`): calling one runs no binary.
     pub functions: Vec<String>,
+    /// Ranges of indices into [`segments`](Self::segments) whose commands run in a subshell `( … )`, in the order the
+    /// subshells close (an inner one before the one around it). A `cd` in a subshell ends with it.
+    pub subshells: Vec<Range<usize>>,
 }
 
 /// Whether `text` is a `NAME=value` assignment word.
@@ -71,6 +74,7 @@ pub fn tokenize(src: &str) -> Tokens {
         heredocs: Vec::new(),
         case_depth: 0,
         case_pattern: false,
+        open_subshells: Vec::new(),
     }
     .run()
 }
@@ -101,6 +105,8 @@ struct Lexer<'a> {
     case_depth: usize,
     /// The next token starts the pattern list of a `case` item (`a|b)`), or the `esac` that closes the construct.
     case_pattern: bool,
+    /// The index of the first segment of every subshell `( … )` open at the current position, outermost first.
+    open_subshells: Vec<usize>,
 }
 
 impl Lexer<'_> {
@@ -216,6 +222,7 @@ impl Lexer<'_> {
                         self.i = (close + 1).min(n);
                     } else {
                         self.end_segment();
+                        self.open_subshells.push(self.tokens.segments.len());
                         self.i += 1;
                     }
                 }
@@ -238,6 +245,9 @@ impl Lexer<'_> {
                 }
                 ')' => {
                     self.end_segment();
+                    if let Some(start) = self.open_subshells.pop() {
+                        self.tokens.subshells.push(start..self.tokens.segments.len());
+                    }
                     self.i += 1;
                 }
                 '#' if self.cur.is_none() => {
@@ -280,6 +290,10 @@ impl Lexer<'_> {
             }
         }
         self.end_segment();
+        // A subshell left open at the end of the text closes there.
+        while let Some(start) = self.open_subshells.pop() {
+            self.tokens.subshells.push(start..self.tokens.segments.len());
+        }
         self.tokens
     }
 
@@ -610,5 +624,20 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["npm view pnpm version"]
         );
+    }
+
+    #[test]
+    fn subshells_bound_the_segments_they_run() {
+        let tokens = tokenize("(cd \"$TMP\" && tar xf a.tgz) && npm run build; (a; (b)); c");
+        let names: Vec<&str> = tokens
+            .segments
+            .iter()
+            .filter_map(|segment| segment.words.first())
+            .map(|word| word.text.as_str())
+            .collect();
+        assert_eq!(names, ["cd", "tar", "npm", "a", "b", "c"]);
+        assert_eq!(tokens.subshells, [0..2, 4..5, 3..5]);
+        assert_eq!(tokenize("{ cd sub; rspack; }").subshells.len(), 0);
+        assert_eq!(tokenize("(cd sub && rspack").subshells, vec![0..2_usize]);
     }
 }

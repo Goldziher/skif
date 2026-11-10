@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 use serde_json::Value;
 use skif_core::{DependencyKind, FileSystem, Span};
 use skif_js_plugins::scripts::{ScriptContext, is_ignored_binary, parse_script};
-use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object};
-use skif_workspace::{Package, PackageId, Workspace, map_ordered};
+use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object, place_file_dir};
+use skif_workspace::{Package, PackageId, PackageManager, Workspace, map_ordered};
 
 use crate::ancestors::{external_manifests, is_repository_root, listed_names, read_manifest};
 use crate::discover::{is_ignored_in_repository, relative};
@@ -19,7 +19,7 @@ use crate::input::ConfigDependency;
 use crate::lockfile;
 use crate::resolve::is_installed;
 use crate::scripts::{ScriptBinary, script_context};
-use crate::setup::Setup;
+use crate::setup::{Setup, package_dirs, package_in_dir};
 use crate::specifier::{RUNTIME_PACKAGES, package_name, typed_package, types_package};
 use crate::tsconfig_paths::resolve_extends;
 
@@ -109,6 +109,66 @@ const GLOBAL_TYPES: &[&str] = &[
     "@types/webpack-env",
     "@types/wicg-file-system-access",
 ];
+
+/// The file that makes a repository a Rush repository.
+const RUSH_JSON: &str = "rush.json";
+
+/// The commands Rush itself provides to the scripts of a Rush repository.
+const RUSH_COMMANDS: &[&str] = &["rush", "rushx", "rush-pnpm"];
+
+/// Whether the binaries of a workspace member are on the `PATH` of every package: npm, Yarn Classic and Bun's hoisted
+/// linker hoist the members into the root `node_modules` and link their binaries into its `.bin`, while pnpm, Yarn
+/// Berry, Rush and Bun's isolated linker ([`bun_isolated`]) link a member's binaries only into the packages that depend
+/// on it. An unknown package manager counts as hoisting, so it reports nothing new, and so does a Yarn whose version
+/// the repository does not tell ([`yarn_berry`]).
+/// `bun_config_version` is the `configVersion` of `bun.lock`.
+fn hoists_member_bins(workspace: &Workspace, rush: bool, bun_config_version: Option<u64>, fs: &dyn FileSystem) -> bool {
+    if rush {
+        return false;
+    }
+    match workspace.package_manager {
+        Some(PackageManager::Pnpm) => false,
+        Some(PackageManager::Yarn) => !yarn_berry(workspace, fs),
+        Some(PackageManager::Bun) => !bun_isolated(fs, &workspace.root, bun_config_version),
+        _ => true,
+    }
+}
+
+/// Whether a Yarn workspace positively uses Yarn Berry (2 and later): the root's `packageManager` names a later Yarn
+/// than 1, or, without one, the root has a `.yarnrc.yml` or a Berry `yarn.lock` (one with `__metadata`).
+fn yarn_berry(workspace: &Workspace, fs: &dyn FileSystem) -> bool {
+    let declared = workspace
+        .root_package()
+        .manifest
+        .value()
+        .get("packageManager")
+        .and_then(Value::as_str)
+        .filter(|field| field.starts_with("yarn@"));
+    if let Some(field) = declared {
+        return !field.starts_with("yarn@1.");
+    }
+    fs.is_file(&workspace.root.join(".yarnrc.yml"))
+        || fs
+            .read_to_string(&workspace.root.join("yarn.lock"))
+            .is_ok_and(|text| lockfile::is_yarn_berry(&text))
+}
+
+/// Whether Bun installs the workspace at `root` with its isolated linker. `linker` in the `[install]` table of the
+/// root `bunfig.toml` decides; without one, `config_version`, the `configVersion` of `bun.lock`, does: from 1 (written
+/// by Bun 1.3.2 and later for a new project) a workspace is isolated, before it hoisted. Without either, Bun's choice
+/// cannot be read from the repository, so it counts as hoisted. The global `~/.bunfig.toml` and `bun install --linker` are not read.
+fn bun_isolated(fs: &dyn FileSystem, root: &Path, config_version: Option<u64>) -> bool {
+    let linker = fs
+        .read_to_string(&root.join("bunfig.toml"))
+        .ok()
+        .and_then(|text| text.parse::<toml::Table>().ok())
+        .and_then(|table| Some(table.get("install")?.get("linker")?.as_str()?.to_owned()));
+    match linker.as_deref() {
+        Some("isolated") => true,
+        Some("hoisted") => false,
+        _ => config_version.is_some_and(|version| version >= 1),
+    }
+}
 
 /// Binaries whose package has a different name. Used when the package is not installed, so its `bin` cannot be read.
 const BINARY_PACKAGES: &[(&str, &str)] = &[
@@ -606,7 +666,14 @@ pub struct DependencyUsage {
     outside_used: BTreeSet<(PathBuf, String)>,
     hosts: Vec<HashMap<String, Vec<String>>>,
     bins: Vec<HashMap<String, Vec<String>>>,
-    member_bins: BTreeMap<String, Vec<String>>,
+    /// The workspace members that declare each binary, with their id and name.
+    member_bins: BTreeMap<String, Vec<(PackageId, String)>>,
+    /// Whether a member's binaries are on the `PATH` of every package of the workspace; see [`hoists_member_bins`].
+    member_bins_hoisted: bool,
+    /// Whether the workspace is a Rush repository (a `rush.json` at its root), whose scripts run Rush's own commands.
+    rush: bool,
+    /// Every package with its workspace-relative directory, for the commands that change directory.
+    dirs: Vec<(PackageId, String)>,
     members: HashSet<String>,
     /// Binaries that `node_modules/.bin` directories of ancestor projects put on the `PATH`, each with the dependencies
     /// of those projects that provide it.
@@ -639,9 +706,13 @@ impl DependencyUsage {
             hosts: vec![HashMap::new(); count],
             bins: vec![HashMap::new(); count],
             members: workspace.all_packages().filter_map(|p| p.name.clone()).collect(),
+            rush: fs.is_file(&workspace.root.join(RUSH_JSON)),
+            dirs: package_dirs(workspace),
             ..Self::default()
         };
-        usage.read_manifests(workspace, fs, sequential);
+        let locked = lockfile::read(fs, &workspace.root);
+        usage.member_bins_hoisted = hoists_member_bins(workspace, usage.rush, locked.bun_config_version, fs);
+        usage.read_manifests(workspace, &locked.packages, fs, sequential);
         let tsconfigs = TsconfigMemo::new(fs);
         usage.collect_ambient_types(workspace, setup, &tsconfigs);
         usage.collect_jsx_runtimes(workspace, setup, &tsconfigs);
@@ -654,8 +725,15 @@ impl DependencyUsage {
         usage
     }
 
-    fn read_manifests(&mut self, workspace: &Workspace, fs: &dyn FileSystem, sequential: bool) {
-        let locked = lockfile::read(fs, &workspace.root);
+    /// Reads what each listed dependency provides from its installed manifest, else a workspace package's own, else
+    /// `locked`, the packages of the lockfile.
+    fn read_manifests(
+        &mut self,
+        workspace: &Workspace,
+        locked: &HashMap<String, Arc<Installed>>,
+        fs: &dyn FileSystem,
+        sequential: bool,
+    ) {
         // A workspace package is linked into `node_modules` on install; without an install its own manifest says the
         // same.
         let linked: HashMap<String, Arc<Installed>> = workspace
@@ -807,10 +885,10 @@ impl DependencyUsage {
     }
 
     fn collect_member_bins(&mut self, workspace: &Workspace) {
-        for package in workspace.all_packages() {
+        for (id, package) in workspace.iter() {
             let Some(name) = package.name.as_deref() else { continue };
             for bin in bins_of(package.manifest.value(), name) {
-                self.member_bins.entry(bin).or_default().push(name.to_owned());
+                self.member_bins.entry(bin).or_default().push((id, name.to_owned()));
             }
         }
     }
@@ -1163,6 +1241,9 @@ impl DependencyUsage {
                 }
             }
             for run in &package_setup.run_binaries {
+                if self.judged_elsewhere(id, &run.name, run.dir.as_deref(), run.filtered) {
+                    continue;
+                }
                 let file = relative(&run.file, &workspace.root).map_or_else(|| run.file.clone(), PathBuf::from);
                 self.run_binary(setup, id, &run.name, &file);
             }
@@ -1180,8 +1261,13 @@ impl DependencyUsage {
         commands: &[String],
         context: &ScriptContext,
     ) {
+        // A call whose `cwd` is computed from the file's location runs in the file's directory.
+        let path = self.path_in_package(id, file);
         for command in commands {
-            let info = parse_script(command, context);
+            let command = path
+                .as_deref()
+                .map_or_else(|| command.clone(), |path| place_file_dir(command, path));
+            let info = parse_script(&command, context);
             for dependency in &info.dependencies {
                 if let Some(found) = self.find_listed(id, &dependency.name) {
                     self.reference(found, &dependency.name);
@@ -1198,7 +1284,7 @@ impl DependencyUsage {
                 .into_iter()
                 .filter(|binary| !is_ignored_binary(&binary.name));
             for binary in binaries.chain(global_binaries) {
-                if binary.filtered {
+                if self.judged_elsewhere(id, &binary.name, binary.relocation_dir(), binary.filtered) {
                     continue;
                 }
                 if binary.via.is_ephemeral() {
@@ -1208,6 +1294,37 @@ impl DependencyUsage {
                 }
             }
         }
+    }
+
+    /// `file`, relative to the root, as a path relative to the directory of package `id`, `/`-separated; `None` when
+    /// the file is not below it.
+    fn path_in_package(&self, id: PackageId, file: &Path) -> Option<String> {
+        let base = self.dirs.iter().find(|(package, _)| *package == id)?.1.as_str();
+        let path = file.to_string_lossy().replace('\\', "/");
+        if base.is_empty() {
+            return Some(path);
+        }
+        path.strip_prefix(base)?.strip_prefix('/').map(str::to_owned)
+    }
+
+    /// The other workspace package whose directory holds `dir`, where a command of package `id` runs a binary after
+    /// `cd` (relative to the package directory). A workflow step or a source file that runs `cd sub && rspack` runs it
+    /// in that package, as a script of `package.json` does: a listed provider there is used and nothing is unlisted.
+    /// `None` without a directory or when it is in `id` itself.
+    fn relocated(&self, id: PackageId, dir: Option<&str>) -> Option<PackageId> {
+        let target = package_in_dir(&self.dirs, id, dir?);
+        (target != id).then_some(target)
+    }
+
+    /// Whether binary `name`, which a command of package `id` runs in `dir` or `filtered` to other workspaces, is no
+    /// binary of `id`: in another package's directory ([`Self::relocated`]) it is credited to that package, and a
+    /// filtered one belongs to the workspaces the filter names.
+    fn judged_elsewhere(&mut self, id: PackageId, name: &str, dir: Option<&str>, filtered: bool) -> bool {
+        if let Some(target) = self.relocated(id, dir) {
+            self.provide_binary(target, name);
+            return true;
+        }
+        filtered
     }
 
     /// A binary that a command read from `file` (relative to the root) runs in package `id`: a use of the dependency
@@ -1274,15 +1391,18 @@ impl DependencyUsage {
             }
         }
         if let Some(members) = self.member_bins.get(bin).cloned() {
-            for member in members {
+            for (member_id, member) in members {
                 if let Some(found) = self.find_listed(id, &member) {
                     provided.push((found, member));
-                } else {
+                } else if self.member_bins_hoisted || member_id == id {
+                    // A member that no manifest lists provides its binary only where the package manager links it
+                    // for every package, or to its own scripts.
                     provided.push((Listed::Package(id), String::new()));
                 }
             }
         }
-        let found = !provided.is_empty();
+        // Rush runs its own commands (`rush`, `rushx`, `rush-pnpm`) from its install, whatever a manifest lists.
+        let found = !provided.is_empty() || (self.rush && RUSH_COMMANDS.contains(&bin));
         for (scope, dep) in provided {
             if !dep.is_empty() {
                 self.reference(scope, &dep);

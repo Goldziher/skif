@@ -1170,7 +1170,10 @@ pub struct ImportedCall {
     /// The export called: `"default"` for the default export or the module object itself (`pino(…)`), the export's
     /// name for a named import (`execa(…)`), or the member called on the module object (`pino.transport(…)`).
     pub export: String,
-    /// The statically evaluated arguments, in order; empty for a tagged template.
+    /// The statically evaluated arguments, in order; empty for a tagged template. For a call that runs a command
+    /// ([`extract_command_calls`]), the `cwd` option of an options object is left out when it names the directory the
+    /// call runs in anyway (`process.cwd()`, `'.'`, `undefined`), and starts with [`FILE_DIR`] when the file's own
+    /// location computes it.
     pub arguments: Vec<ConfigValue>,
     /// For a tagged template (`` $`cmd ${x}` ``), its raw text with every substitution replaced by
     /// [`TEMPLATE_SUBSTITUTION`]; `None` for a call.
@@ -1179,6 +1182,16 @@ pub struct ImportedCall {
 
 /// What a substitution of a tagged template reads as in [`ImportedCall::template`].
 pub const TEMPLATE_SUBSTITUTION: &str = "$__skif__";
+
+/// What the directory of the calling file reads as in the `cwd` option of an [`ImportedCall`] that the file's own
+/// location computes (`__dirname`, `import.meta.dirname`, `path.join(__dirname, 'fixtures')`), followed by `/` and the
+/// path relative to the file's directory (`$__skif_file_dir__/./fixtures`). [`command_in_call_dir`] changes to it, and
+/// [`place_file_dir`] puts the file's directory in its place.
+pub const FILE_DIR: &str = "$__skif_file_dir__";
+
+/// The directory the arguments of a call are evaluated from a second time to tell a path the file's own location
+/// computes, which changes with it, from one that does not (`process.cwd()`, a literal).
+const PROBE_DIR: &str = "__skif__/probe";
 
 /// Every call and tagged template in `source` whose function is imported from one of `modules` (`import`, `import * as`,
 /// or a top-level `require`, plain or destructured), with its arguments statically evaluated as in
@@ -1190,6 +1203,28 @@ pub fn extract_imported_calls(
     path: &Path,
     modules: &[&str],
     globals: &[(&str, &str)],
+) -> Vec<ImportedCall> {
+    parse_imported_calls(source, path, modules, globals, false)
+}
+
+/// The calls of [`extract_imported_calls`] for functions that run a command (`execa`, `nano-spawn`), whose `cwd`
+/// option is read as the directory the command runs in (see [`ImportedCall::arguments`]).
+#[must_use]
+pub fn extract_command_calls(
+    source: &str,
+    path: &Path,
+    modules: &[&str],
+    globals: &[(&str, &str)],
+) -> Vec<ImportedCall> {
+    parse_imported_calls(source, path, modules, globals, true)
+}
+
+fn parse_imported_calls(
+    source: &str,
+    path: &Path,
+    modules: &[&str],
+    globals: &[(&str, &str)],
+    commands: bool,
 ) -> Vec<ImportedCall> {
     let Ok(source_type) = SourceType::from_path(path) else {
         return Vec::new();
@@ -1205,16 +1240,18 @@ pub fn extract_imported_calls(
         return Vec::new();
     }
     let file = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
-    imported_calls_in(&ret.program, file, modules, globals)
+    imported_calls_in(&ret.program, file, modules, globals, commands)
 }
 
 /// The calls and tagged templates in a parsed `program` whose function is imported from one of `modules`, as
-/// [`extract_imported_calls`] finds them; `file` is the file name `__filename` evaluates to.
+/// [`extract_imported_calls`] finds them, or with `commands` as [`extract_command_calls`] does; `file` is the file name
+/// `__filename` evaluates to.
 pub(crate) fn imported_calls_in(
     program: &Program<'_>,
     file: &str,
     modules: &[&str],
     globals: &[(&str, &str)],
+    commands: bool,
 ) -> Vec<ImportedCall> {
     let imported = imported_functions(program, modules, globals);
     if imported.is_empty() {
@@ -1227,6 +1264,7 @@ pub(crate) fn imported_calls_in(
         bindings: &bindings,
         file,
         imported: &imported,
+        commands,
         found: Vec::new(),
     };
     finder.visit_program(program);
@@ -1255,6 +1293,102 @@ pub fn literal_command(arguments: &[ConfigValue]) -> Option<String> {
         }
     }
     Some(words.join(" "))
+}
+
+/// The command of a `(command line, options)` call such as `execSync('tsc -b', { cwd })`, in the directory its `cwd`
+/// option names (see [`command_in_call_dir`]); `None` unless the command line is a string.
+#[must_use]
+pub fn command_line_call(arguments: &[ConfigValue]) -> Option<String> {
+    let command = arguments.first().and_then(ConfigValue::as_str)?;
+    Some(command_in_call_dir(command.to_owned(), arguments.get(1)))
+}
+
+/// The options object of a `(file, [arguments], options)` call such as `spawn('eslint', ['.'], { cwd })`: the argument
+/// after the arguments array, or the second argument when that is no array.
+#[must_use]
+pub fn file_call_options(arguments: &[ConfigValue]) -> Option<&ConfigValue> {
+    match arguments.get(1) {
+        Some(ConfigValue::Array(_)) => arguments.get(2),
+        other => other,
+    }
+}
+
+/// `command` as a call whose options object is `options` runs it. A `cwd` option the file's own location computes
+/// ([`FILE_DIR`]) runs it in that directory, so the command line first changes to it (`cd $__skif_file_dir__/. && …`).
+/// Any other `cwd` runs it in a directory the script parser cannot place (a literal path is relative to the process,
+/// which the parser does not know), so the command line first changes to a directory a substitution names
+/// (`cd $__skif__ && …`): a package manager's script run there is another package's, as with `bun --cwd`.
+#[must_use]
+pub fn command_in_call_dir(command: String, options: Option<&ConfigValue>) -> String {
+    match options.and_then(|options| options.get("cwd")) {
+        None => command,
+        Some(ConfigValue::String(dir)) if dir.starts_with(FILE_DIR) => format!("cd {dir} && {command}"),
+        Some(_) => format!("cd {TEMPLATE_SUBSTITUTION} && {command}"),
+    }
+}
+
+/// `command` with the directory of `file`, the file that runs it as a `/`-separated path relative to the directory
+/// where the command starts, in place of [`FILE_DIR`], single-quoted so that a shell reads it as part of one word
+/// whatever it holds (`cd 'my scripts'/../sub`).
+#[must_use]
+pub fn place_file_dir(command: &str, file: &str) -> String {
+    let dir = file.rsplit_once('/').map_or("", |(dir, _)| dir);
+    let quoted = if dir.is_empty() {
+        ".".to_owned()
+    } else {
+        format!("'{}'", dir.replace('\'', r"'\''"))
+    };
+    command.replace(FILE_DIR, &quoted)
+}
+
+/// Marks the `cwd` option of `options`, a call argument evaluated from the file's directory, by what it is relative
+/// to: left out when it names the directory the call runs in anyway (`process.cwd()`, `'.'`, `undefined`), and
+/// [`FILE_DIR`] joined with the path when `probe`, an evaluator from [`PROBE_DIR`], finds that the file's own location
+/// computes it. A path a command line cannot hold as one plain word is left as it is.
+fn mark_cwd<'p, 'a>(options: &mut ConfigValue, expression: &'p Expression<'a>, probe: &Evaluator<'_, 'p, 'a>) {
+    let ConfigValue::Object(entries) = options else {
+        return;
+    };
+    let Some(index) = entries.iter().rposition(|(key, _)| key == "cwd") else {
+        return;
+    };
+    let file_relative = matches!(entries[index].1, ConfigValue::String(_))
+        && ConfigValue::from(probe.expr(expression, 0)).get("cwd") != Some(&entries[index].1);
+    let unchanged = !file_relative && matches!(entries[index].1.as_str(), Some("." | "./"));
+    if unchanged || sets_undefined(expression, "cwd") {
+        entries.retain(|(key, _)| key != "cwd");
+        return;
+    }
+    if let ConfigValue::String(path) = &mut entries[index].1
+        && file_relative
+        && path
+            .chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '.' | '/' | '+' | '-'))
+    {
+        *path = format!("{FILE_DIR}/{path}");
+    }
+}
+
+/// Whether `expression` is an object literal whose last property `key` is `undefined` (or `void 0`).
+fn sets_undefined(expression: &Expression<'_>, key: &str) -> bool {
+    let Expression::ObjectExpression(object) = expression.get_inner_expression() else {
+        return false;
+    };
+    let last = object.properties.iter().rev().find_map(|property| match property {
+        ObjectPropertyKind::ObjectProperty(p)
+            if p.key
+                .static_name()
+                .is_some_and(|name| crate::js_string(name.as_js_str()) == key) =>
+        {
+            Some(&p.value)
+        }
+        _ => None,
+    });
+    last.is_some_and(|value| match value.get_inner_expression() {
+        Expression::Identifier(id) => id.name.as_str() == "undefined",
+        Expression::UnaryExpression(u) => u.operator == UnaryOperator::Void,
+        _ => false,
+    })
 }
 
 /// Local name to module and named export (`None` for the default export or the module object) of everything a
@@ -1326,6 +1460,8 @@ struct CallFinder<'t, 'p, 'a> {
     file: &'t str,
     /// Local name to module and named export (`None` for the default export or the module object).
     imported: &'t ImportedFunctions,
+    /// The calls run commands, so their `cwd` option is marked (see [`mark_cwd`]).
+    commands: bool,
     found: Vec<ImportedCall>,
 }
 
@@ -1354,7 +1490,7 @@ impl<'a> Visit<'a> for CallFinder<'_, '_, 'a> {
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
         if let Some((module, export)) = self.target(&it.callee) {
             let eval = Evaluator::in_file(self.top, self.bindings, self.file, HashMap::new());
-            let arguments = it
+            let mut arguments: Vec<ConfigValue> = it
                 .arguments
                 .iter()
                 .map(|argument| {
@@ -1363,6 +1499,17 @@ impl<'a> Visit<'a> for CallFinder<'_, '_, 'a> {
                         .map_or(ConfigValue::Unknown, |e| ConfigValue::from(eval.expr(e, 0)))
                 })
                 .collect();
+            if self.commands && arguments.iter().any(|argument| argument.get("cwd").is_some()) {
+                let probe = Evaluator {
+                    dir: PROBE_DIR,
+                    ..Evaluator::in_file(self.top, self.bindings, self.file, HashMap::new())
+                };
+                for (argument, expression) in arguments.iter_mut().zip(&it.arguments) {
+                    if let Some(expression) = expression.as_expression() {
+                        mark_cwd(argument, expression, &probe);
+                    }
+                }
+            }
             self.found.push(ImportedCall {
                 module,
                 export,

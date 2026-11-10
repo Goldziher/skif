@@ -540,3 +540,329 @@ fn commands_after_cd_into_a_workspace_package_are_judged_there() {
     assert_eq!(found(&diagnostics, "unused-dependencies"), none(), "{diagnostics:#?}");
     assert_eq!(found(&diagnostics, "unused-files"), none(), "{diagnostics:#?}");
 }
+
+/// A member `tool` with the binary `mytool`, which `app` runs without listing `tool`, `web` runs listing it and `tool`
+/// runs in a script of its own; the unlisted binaries found with `files` added, sorted.
+fn unlisted_member_binaries(files: &[(&str, &str)]) -> Vec<String> {
+    let mut all = vec![
+        (
+            "packages/tool/package.json",
+            r#"{"name":"tool","version":"1.0.0","bin":{"mytool":"./bin/mytool.js"},"scripts":{"usage":"mytool --help"}}"#,
+        ),
+        ("packages/tool/bin/mytool.js", "#!/usr/bin/env node\n"),
+        (
+            "packages/app/package.json",
+            r#"{"name":"app","version":"1.0.0","main":"src/index.js","scripts":{"build":"mytool build"}}"#,
+        ),
+        ("packages/app/src/index.js", "module.exports = 1;\n"),
+        (
+            "packages/web/package.json",
+            r#"{"name":"web","version":"1.0.0","main":"src/index.js","scripts":{"build":"mytool build"},"devDependencies":{"tool":"1.0.0"}}"#,
+        ),
+        ("packages/web/src/index.js", "module.exports = 2;\n"),
+    ];
+    all.extend_from_slice(files);
+    let mut unlisted = found(&lint_files(&all, ""), "unlisted-binaries");
+    unlisted.sort();
+    unlisted
+}
+
+/// pnpm and Yarn Berry put a member's binary on the `PATH` only of the packages that depend on it, so `app` runs an
+/// unlisted binary; npm, Yarn Classic and Bun link every member's binaries into the root `node_modules/.bin`, so it
+/// does not. A package that lists the member, and the member itself, run it under every package manager.
+#[test]
+fn a_member_binary_is_provided_where_the_package_manager_links_it() {
+    let pnpm = r#"{"name":"root","private":true,"packageManager":"pnpm@9.0.0"}"#;
+    let isolated = unlisted_member_binaries(&[
+        ("package.json", pnpm),
+        ("pnpm-workspace.yaml", "packages:\n  - packages/*\n"),
+    ]);
+    assert_eq!(isolated, ["packages/app/package.json: mytool"]);
+    let berry = r#"{"name":"root","private":true,"packageManager":"yarn@4.5.0","workspaces":["packages/*"]}"#;
+    assert_eq!(
+        unlisted_member_binaries(&[("package.json", berry)]),
+        ["packages/app/package.json: mytool"]
+    );
+    for manager in ["npm@10.0.0", "yarn@1.22.22", "bun@1.3.0"] {
+        let root =
+            format!(r#"{{"name":"root","private":true,"packageManager":"{manager}","workspaces":["packages/*"]}}"#);
+        assert_eq!(
+            unlisted_member_binaries(&[("package.json", &root)]),
+            none(),
+            "{manager}"
+        );
+    }
+}
+
+/// A Yarn workspace is taken for Yarn Berry, which links a member's binary only for its dependents, on positive
+/// evidence only: a Berry `yarn.lock` (`__metadata`) or a `.yarnrc.yml`. A `yarn.lock` that tells neither version,
+/// without a `packageManager`, counts as hoisting, as an unknown package manager does.
+#[test]
+fn yarn_is_berry_only_on_evidence() {
+    let root = r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#;
+    let berry_lock = "__metadata:\n  version: 8\n  cacheKey: 10\n";
+    let unknown_lock = "# lockfile\n";
+    assert_eq!(
+        unlisted_member_binaries(&[("package.json", root), ("yarn.lock", unknown_lock)]),
+        none()
+    );
+    let berry: &[&str] = &["packages/app/package.json: mytool"];
+    assert_eq!(
+        unlisted_member_binaries(&[("package.json", root), ("yarn.lock", berry_lock)]),
+        berry
+    );
+    assert_eq!(
+        unlisted_member_binaries(&[
+            ("package.json", root),
+            ("yarn.lock", unknown_lock),
+            (".yarnrc.yml", "enableTelemetry: false\n")
+        ]),
+        berry
+    );
+}
+
+/// In a Rush repository, `rush`, `rushx` and `rush-pnpm` are Rush's own commands, and a member's binary is linked only
+/// for the packages that depend on it, as with pnpm.
+#[test]
+fn rush_commands_are_provided_in_a_rush_repository() {
+    let rush = r#"{"rushVersion":"5.150.0","pnpmVersion":"9.0.0","projects":[{"packageName":"tool","projectFolder":"packages/tool"},{"packageName":"app","projectFolder":"packages/app"},{"packageName":"web","projectFolder":"packages/web"},{"packageName":"ops","projectFolder":"packages/ops"}]}"#;
+    let ops = r#"{"name":"ops","version":"1.0.0","main":"index.js","scripts":{"ci":"rush build && rushx test && rush-pnpm install"}}"#;
+    let files = [
+        ("rush.json", rush),
+        ("packages/ops/package.json", ops),
+        ("packages/ops/index.js", "module.exports = 3;\n"),
+    ];
+    assert_eq!(unlisted_member_binaries(&files), ["packages/app/package.json: mytool"]);
+    // Without `rush.json` they are binaries like any other.
+    let pnpm = r#"{"name":"root","private":true,"packageManager":"pnpm@9.0.0"}"#;
+    let elsewhere = unlisted_member_binaries(&[
+        ("package.json", pnpm),
+        ("pnpm-workspace.yaml", "packages:\n  - packages/*\n"),
+        ("packages/ops/package.json", ops),
+        ("packages/ops/index.js", "module.exports = 3;\n"),
+    ]);
+    assert_eq!(
+        elsewhere,
+        [
+            "packages/app/package.json: mytool",
+            "packages/ops/package.json: rush",
+            "packages/ops/package.json: rush-pnpm",
+            "packages/ops/package.json: rushx"
+        ]
+    );
+}
+
+/// A workflow step and a source file that run a command after `cd` into a workspace package run it there: a provider
+/// that package lists is used and nothing is unlisted at the file. A directory in no other package leaves the command
+/// at the file, as before.
+#[test]
+fn workflow_and_source_commands_after_cd_into_a_workspace_package_are_judged_there() {
+    let root = manifest(&format!(
+        r#""name":"root","private":true,{PNPM},"main":"scripts/build.mjs""#
+    ));
+    let workflow = "name: css\non: [push]\njobs:\n  scan:\n    runs-on: ubuntu-latest\n    steps:\n      \
+                    - run: cd sub && pnpm exec rspack build\n      - run: cd docs && pnpm exec vitepress build\n";
+    let files = [
+        ("package.json", root.as_str()),
+        ("pnpm-workspace.yaml", "packages:\n  - sub\n"),
+        (
+            "sub/package.json",
+            r#"{"name":"sub","private":true,"main":"index.js","devDependencies":{"@rspack/cli":"1.0.0"}}"#,
+        ),
+        ("sub/index.js", "module.exports = 1;\n"),
+        (".github/workflows/css.yml", workflow),
+        (
+            "scripts/build.mjs",
+            "import { execSync } from 'node:child_process';\n\
+             execSync('cd sub && rspack serve');\nexecSync('cd tools && tsc -b');\n",
+        ),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(
+        found(&diagnostics, "unlisted-binaries"),
+        [".github/workflows/css.yml: vitepress", "scripts/build.mjs: tsc"],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        none(),
+        "{diagnostics:#?}"
+    );
+}
+
+/// A source file that runs a command with a `cwd` its own location computes runs it there: in another workspace
+/// package, a provider that package lists is used and nothing is unlisted at the file.
+#[test]
+fn source_commands_with_a_cwd_of_the_file_run_in_that_directory() {
+    let root = manifest(&format!(
+        r#""name":"root","private":true,{PNPM},"main":"scripts/build.mjs""#
+    ));
+    let files = [
+        ("package.json", root.as_str()),
+        ("pnpm-workspace.yaml", "packages:\n  - sub\n"),
+        (
+            "sub/package.json",
+            r#"{"name":"sub","private":true,"main":"index.js","devDependencies":{"@rspack/cli":"1.0.0"}}"#,
+        ),
+        ("sub/index.js", "module.exports = 1;\n"),
+        (
+            "scripts/build.mjs",
+            "import { execSync } from 'node:child_process';\nimport path from 'node:path';\n\
+             execSync('rspack build', { cwd: path.join(import.meta.dirname, '../sub') });\n",
+        ),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(found(&diagnostics, "unlisted-binaries"), none(), "{diagnostics:#?}");
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        none(),
+        "{diagnostics:#?}"
+    );
+}
+
+/// A `cwd` that a file's location computes starts in the file's directory also when the directory's name has a space
+/// (`my scripts`, which would `cd my`) or a quote (`it's`, which would swallow the command).
+#[test]
+fn a_cwd_of_the_file_is_placed_from_a_directory_with_a_space_or_a_quote() {
+    let root = manifest(&format!(
+        r#""name":"root","private":true,{PNPM},"main":"my scripts/build.mjs""#
+    ));
+    let rspack_in = |dir: &str| {
+        format!(
+            "import {{ execSync }} from 'node:child_process';\nimport path from 'node:path';\n\
+             execSync('rspack build', {{ cwd: path.join(import.meta.dirname, '{dir}') }});\n"
+        )
+    };
+    let (build, run) = (rspack_in("../sub"), rspack_in(".."));
+    let files = [
+        ("package.json", root.as_str()),
+        ("pnpm-workspace.yaml", "packages:\n  - sub\n  - web\n"),
+        (
+            "sub/package.json",
+            r#"{"name":"sub","private":true,"main":"index.js","devDependencies":{"@rspack/cli":"1.0.0"}}"#,
+        ),
+        ("sub/index.js", "module.exports = 1;\n"),
+        ("my scripts/build.mjs", build.as_str()),
+        (
+            "web/package.json",
+            r#"{"name":"web","private":true,"main":"it's/run.mjs","devDependencies":{"@rspack/cli":"1.0.0"}}"#,
+        ),
+        ("web/it's/run.mjs", run.as_str()),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(found(&diagnostics, "unlisted-binaries"), none(), "{diagnostics:#?}");
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        none(),
+        "{diagnostics:#?}"
+    );
+}
+
+/// A package manager that runs a script after `cd` into another directory, or from a source file with a `cwd` there,
+/// runs the script of the package in that directory, never the caller's: the caller's `build` credits nothing to a
+/// workspace package there, and in a directory of no other package it is not judged at the file.
+#[test]
+fn scripts_run_in_another_directory_are_not_the_scripts_of_the_caller() {
+    let root = manifest(&format!(
+        r#""name":"root","private":true,{PNPM},"main":"scripts/release.mjs","scripts":{{"build":"tsup","ci":"cd web && npm run build"}}"#
+    ));
+    let member = r#"{"name":"NAME","private":true,"main":"index.js","scripts":{"build":"vite build"},"devDependencies":{"tsup":"8.0.0","vite":"6.0.0"}}"#;
+    let web = member.replace("NAME", "web");
+    let app = member.replace("NAME", "app");
+    let files = [
+        ("package.json", root.as_str()),
+        ("pnpm-workspace.yaml", "packages:\n  - web\n  - app\n"),
+        ("web/package.json", web.as_str()),
+        ("web/index.js", "module.exports = 1;\n"),
+        ("app/package.json", app.as_str()),
+        ("app/index.js", "module.exports = 2;\n"),
+        (
+            "scripts/release.mjs",
+            "import { execSync } from 'node:child_process';\nimport path from 'node:path';\n\
+             execSync('pnpm build', { cwd: path.join(import.meta.dirname, '../app') });\n\
+             execSync('npm run build', { cwd: path.join(import.meta.dirname, 'out') });\n",
+        ),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        ["app/package.json: tsup", "web/package.json: tsup"],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        found(&diagnostics, "unlisted-binaries"),
+        ["package.json: tsup"],
+        "{diagnostics:#?}"
+    );
+}
+
+/// A binary that a package manager runs in another workspace package's directory without naming a workspace
+/// (`pnpm -C sub exec`) is credited to that package wherever the command is read, a workflow as a script; one whose
+/// command names the workspaces it runs in (`--filter sub`) is not credited to the directory it starts in.
+#[test]
+fn filtered_binaries_are_credited_to_their_directory_only_without_named_workspaces() {
+    let root = manifest(&format!(
+        r#""name":"root","private":true,{PNPM},"main":"scripts/build.mjs""#
+    ));
+    let workflow = "name: build\non: [push]\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      \
+                    - run: pnpm -C sub exec rspack build\n";
+    let files = [
+        ("package.json", root.as_str()),
+        ("pnpm-workspace.yaml", "packages:\n  - sub\n  - web\n"),
+        (
+            "sub/package.json",
+            r#"{"name":"sub","private":true,"main":"index.js","devDependencies":{"@rspack/cli":"1.0.0"}}"#,
+        ),
+        ("sub/index.js", "module.exports = 1;\n"),
+        (
+            "web/package.json",
+            r#"{"name":"web","private":true,"main":"index.js","devDependencies":{"rimraf":"6.0.0"}}"#,
+        ),
+        ("web/index.js", "module.exports = 2;\n"),
+        (".github/workflows/build.yml", workflow),
+        (
+            "scripts/build.mjs",
+            "import { execSync } from 'node:child_process';\n\
+             execSync('cd web && pnpm --filter sub exec rimraf dist');\n",
+        ),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        ["web/package.json: rimraf"],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(found(&diagnostics, "unlisted-binaries"), none(), "{diagnostics:#?}");
+}
+
+/// Bun links a member's binary only into its dependents when it installs isolated: `linker = "isolated"` in
+/// `bunfig.toml`, or a `bun.lock` with `configVersion` 1 and no `linker`. `linker = "hoisted"`, a lockfile without
+/// `configVersion`, or neither file keeps the binary on every package's `PATH`.
+#[test]
+fn bun_links_member_binaries_as_its_linker_says() {
+    let root = r#"{"name":"root","private":true,"packageManager":"bun@1.3.2","workspaces":["packages/*"]}"#;
+    let lock_v1 = "{\n  \"lockfileVersion\": 1,\n  \"configVersion\": 1,\n  \"workspaces\": {},\n}\n";
+    let lock_v0 = "{\n  \"lockfileVersion\": 1,\n  \"workspaces\": {},\n}\n";
+    let isolated: &[&str] = &["packages/app/package.json: mytool"];
+    let hoisted: &[&str] = &[];
+    let cases: [BunCase; 5] = [
+        (vec![("bunfig.toml", "[install]\nlinker = \"isolated\"\n")], isolated),
+        (vec![("bun.lock", lock_v1)], isolated),
+        (
+            vec![
+                ("bunfig.toml", "[install]\nlinker = \"hoisted\"\n"),
+                ("bun.lock", lock_v1),
+            ],
+            hoisted,
+        ),
+        (vec![("bun.lock", lock_v0)], hoisted),
+        (Vec::new(), hoisted),
+    ];
+    for (files, expected) in cases {
+        let mut all = vec![("package.json", root)];
+        all.extend(files);
+        assert_eq!(unlisted_member_binaries(&all), expected, "{all:?}");
+    }
+}
+
+type BunCase<'a> = (Vec<(&'a str, &'a str)>, &'a [&'a str]);

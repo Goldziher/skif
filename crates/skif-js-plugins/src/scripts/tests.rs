@@ -630,11 +630,18 @@ fn ignored_binaries() {
         "powershell.exe",
         "osascript",
         "hg",
+        "mkfifo",
+        "mknod",
+        "mktemp",
+        "truncate",
+        "unlink",
+        "stdbuf",
+        "uptime",
     ] {
         assert!(is_ignored_binary(name), "{name}");
     }
-    // Tools that a base system lacks stay binaries.
-    for name in ["sqlite3", "stripe", "sentry-cli", "openssl", "relay-compiler"] {
+    // Tools that a base system lacks, and words a workspace's own command may well be named, stay binaries.
+    for name in ["sqlite3", "stripe", "sentry-cli", "openssl", "relay-compiler", "users"] {
         assert!(!is_ignored_binary(name), "{name}");
     }
     for name in ["node", "tsc", "vite", "rimraf"] {
@@ -1029,5 +1036,140 @@ fn directory_flags_of_package_managers_set_the_directory() {
     assert_eq!(
         binary_dirs("pnpm -C sub exec rspack && tsc"),
         [at("rspack", Some("sub")), at("tsc", None)]
+    );
+}
+
+#[test]
+fn directory_flags_below_an_unknown_directory_are_unknown() {
+    for script in [
+        "cd /tmp/app && pnpm -C packages/web exec rspack",
+        "cd $DIR && pnpm --dir packages/web exec rspack",
+        "cd /tmp/app && npm --prefix packages/web exec rspack",
+        "cd /tmp/app && yarn --cwd packages/web exec rspack",
+    ] {
+        let info = parse(script);
+        let binary = info.binaries.iter().find(|binary| binary.name == "rspack");
+        assert_eq!(
+            binary.map(|binary| (binary.dir.as_deref(), binary.filtered)),
+            Some((None, true)),
+            "{script}: {:?}",
+            info.binaries
+        );
+    }
+    // The flag's directory lasts for its command only.
+    assert_eq!(
+        binary_dirs("pnpm -C /abs exec rspack && cd sub && vite"),
+        [at("rspack", None), at("vite", Some("sub"))]
+    );
+    assert_eq!(
+        binary_dirs("pushd $OUT && popd && pnpm -C sub exec rspack"),
+        [at("rspack", Some("sub"))]
+    );
+}
+
+#[test]
+fn a_script_run_in_another_directory_is_not_the_script_of_the_package() {
+    let ctx = ScriptContext::new().with_script("build", "tsc -b");
+    for script in [
+        "cd packages/web && npm run build",
+        "cd packages/web && pnpm build",
+        "cd packages/web && pnpm run build",
+        "cd packages/web && yarn build",
+        "cd packages/web && yarn run build",
+        "cd packages/web && bun run build",
+        "cd packages/web && node --run build",
+        "cd packages/web && run-s build",
+        "pushd src && npm run build",
+        "cd test/../web && npm run build",
+    ] {
+        let info = parse_script(script, &ctx);
+        assert!(
+            info.binaries.iter().all(|binary| binary.name != "tsc"),
+            "{script}: {:?}",
+            info.binaries
+        );
+        assert!(info.run_scripts.is_empty(), "{script}: {:?}", info.run_scripts);
+    }
+    // A binary run there by name is still one of that directory.
+    let info = parse_script("cd packages/web && pnpm exec rspack", &ctx);
+    assert_eq!(
+        info.binaries
+            .iter()
+            .map(|binary| (binary.name.as_str(), binary.dir.as_deref()))
+            .collect::<Vec<_>>(),
+        [("rspack", Some("packages/web"))]
+    );
+    // A directory that leads back to the start runs the package's own script.
+    let info = parse_script("cd test/.. && npm run build", &ctx);
+    assert_eq!(judged_binaries(&info), ["tsc"], "{:?}", info.binaries);
+    assert_eq!(info.run_scripts, ["build"]);
+}
+
+/// The binaries of `info` that are judged at the script's package: those run neither filtered nor in another directory.
+fn judged_binaries(info: &ScriptInfo) -> Vec<String> {
+    sorted(
+        info.binaries
+            .iter()
+            .filter(|binary| !binary.filtered && binary.dir.is_none())
+            .map(|binary| binary.name.clone())
+            .collect(),
+    )
+}
+
+#[test]
+fn package_managers_after_cd_to_an_unknown_directory_work_on_the_package_there() {
+    let ctx = ScriptContext::new().with_script("build", "tsc -b");
+    for script in [
+        "cd /tmp/app && bun run build",
+        "cd /tmp/app && bun run compile",
+        "cd $DIR && npm run build",
+        "cd - && pnpm build",
+        "cd /tmp && pnpm compile",
+        "cd && yarn run build",
+        "cd /tmp && yarn compile",
+        "cd ~ && cd app && bun run compile",
+        "pushd $OUT && pnpm exec rspack",
+    ] {
+        let info = parse_script(script, &ctx);
+        assert!(judged_binaries(&info).is_empty(), "{script}: {:?}", info.binaries);
+        assert!(info.run_scripts.is_empty(), "{script}: {:?}", info.run_scripts);
+    }
+    // A binary run by name there is still judged where the script starts, as before.
+    assert_eq!(
+        judged_binaries(&parse_script("cd /tmp && vitest run", &ctx)),
+        ["vitest"]
+    );
+    // Back where the script starts, or in a static directory, the package's scripts are followed.
+    for script in [
+        "pushd /tmp && popd && npm run build",
+        "sh -c 'cd /tmp' && npm run build",
+        "cd sub && cd .. && npm run build",
+    ] {
+        let info = parse_script(script, &ctx);
+        assert_eq!(judged_binaries(&info), ["tsc"], "{script}: {:?}", info.binaries);
+        assert_eq!(info.run_scripts, ["build"], "{script}");
+    }
+    // Below an unknown directory, a relative one is unknown too.
+    assert_eq!(binary_dirs("cd /tmp && cd sub && rspack"), [at("rspack", None)]);
+}
+
+#[test]
+fn a_cd_in_a_subshell_ends_with_it() {
+    let ctx = ScriptContext::new().with_script("build", "tsc -b");
+    let info = parse_script("(cd \"$TMP\" && tar xf a.tgz) && npm run build", &ctx);
+    assert_eq!(judged_binaries(&info), ["tsc"], "{:?}", info.binaries);
+    assert_eq!(info.run_scripts, ["build"]);
+    assert_eq!(
+        binary_dirs("(cd sub && (cd deep && rspack) && eslint) && vitest"),
+        [
+            at("eslint", Some("sub")),
+            at("rspack", Some("sub/deep")),
+            at("vitest", None)
+        ]
+    );
+    // A `{ … }` group runs in the same shell, so its `cd` lasts.
+    assert_eq!(
+        binary_dirs("{ cd sub; rspack; } && eslint"),
+        [at("eslint", Some("sub")), at("rspack", Some("sub"))]
     );
 }

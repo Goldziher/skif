@@ -6,7 +6,7 @@ use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 use skif_config::{PluginConfig, PluginOptions};
-use skif_js_syntax::{ConfigValue, ModuleLoader};
+use skif_js_syntax::{ConfigValue, ModuleLoader, place_file_dir};
 
 use crate::config_load::{from_json, load_config_and_call_arguments};
 use crate::files::find_files;
@@ -273,7 +273,8 @@ impl Collector<'_, '_> {
                 PluginInput::ScriptAt { dir, script } => self.script_at(&dir, &script),
                 PluginInput::SourceScript { file, script } => {
                     let source = self.ctx.dir.join(&file);
-                    self.script(&script, &source, optional);
+                    // A call whose `cwd` is computed from the file's location runs in the file's directory.
+                    self.script(&place_file_dir(&script, &file), &source, optional);
                 }
                 PluginInput::FileDependency { file, name } => {
                     let source = self.ctx.dir.join(&file);
@@ -371,11 +372,11 @@ impl Collector<'_, '_> {
             // As for the scripts of `package.json`: a binary fetched on demand, run in another workspace or that the
             // script parser ignores is never unlisted here.
             let judged = !optional || binary.via != BinaryVia::Direct || binary.bin_path;
-            if judged && !binary.filtered && !binary.via.is_ephemeral() && !is_ignored_binary(&binary.name) {
-                let run = BinaryRef {
-                    name: binary.name.clone(),
-                    from: from.to_path_buf(),
-                };
+            // A filtered binary counts only as a credit to the package of the directory it runs in.
+            let dir = binary.relocation_dir().map(str::to_owned);
+            let placed = !binary.filtered || dir.is_some();
+            if judged && placed && !binary.via.is_ephemeral() && !is_ignored_binary(&binary.name) {
+                let run = BinaryRef::new(binary.name.clone(), from, dir, binary.filtered);
                 if !self.out.run_binaries.contains(&run) {
                     self.out.run_binaries.push(run);
                 }

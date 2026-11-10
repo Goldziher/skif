@@ -428,11 +428,33 @@ impl DepRef {
 
 /// A binary that a command read from a file runs; see [`PluginOutput::run_binaries`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct BinaryRef {
     /// The binary's name as the command spells it.
     pub name: String,
     /// The file the command is read from, absolute: a config, a workflow or a source file.
     pub from: PathBuf,
+    /// The directory the command runs the binary in after `cd` or `pushd`, relative to the directory of the package
+    /// the plugin runs for, where the command starts, `/`-separated; `None` there and when the directory is not a
+    /// static relative path (see [`BinaryUse::relocation_dir`](crate::scripts::BinaryUse::relocation_dir)).
+    pub dir: Option<String>,
+    /// The command runs the binary in `dir` without naming a workspace (`pnpm -C sub exec rspack`): it is credited to
+    /// the package there and never judged where the command starts.
+    pub filtered: bool,
+}
+
+impl BinaryRef {
+    /// The binary `name` that a command read from `from` runs, in `dir` (see [`BinaryRef::dir`] and
+    /// [`BinaryRef::filtered`]).
+    #[must_use]
+    pub fn new(name: String, from: &Path, dir: Option<String>, filtered: bool) -> Self {
+        Self {
+            name,
+            from: from.to_path_buf(),
+            dir,
+            filtered,
+        }
+    }
 }
 
 /// Everything one enabled plugin contributes to a workspace.
