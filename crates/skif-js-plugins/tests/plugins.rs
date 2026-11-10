@@ -416,6 +416,29 @@ fn typescript() {
     assert!(out.provided_binaries.contains(&"tsc".to_string()));
 }
 
+/// A `types` entry that a local `typeRoots` directory holds (`types/custom/index.d.ts`, or a folder with a
+/// `package.json`), relative to the config declaring both, is no package; `node_modules/@types` roots and entries no
+/// local root holds still are.
+#[test]
+fn typescript_types_found_in_local_type_roots_name_no_package() {
+    let results = resolve(
+        &[
+            ("tsconfig.json", r#"{"extends":"./config/tsconfig.base.json"}"#),
+            (
+                "config/tsconfig.base.json",
+                r#"{"compilerOptions":{"typeRoots":["../types","./@types","../node_modules/@types"],"types":["custom","env","node","vitest/globals"]}}"#,
+            ),
+            ("types/custom/index.d.ts", "declare const custom: string;\n"),
+            ("config/@types/env/package.json", r#"{"name":"env","types":"env.d.ts"}"#),
+            ("config/@types/env/env.d.ts", "declare const env: string;\n"),
+            ("node_modules/@types/node/index.d.ts", ""),
+        ],
+        &["typescript"],
+    );
+    let out = output(&results, "typescript");
+    assert_eq!(deps(out), BTreeSet::from(["node", "vitest"]));
+}
+
 #[test]
 fn eslint_legacy() {
     let results = resolve(
