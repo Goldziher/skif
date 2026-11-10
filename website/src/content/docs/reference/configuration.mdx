@@ -680,10 +680,16 @@ the stylesheets are followed and the packages they import count as used. This in
 modules, and are not followed. Vue auto-imports are followed through the
 declaration files `unplugin-vue-components` and `unplugin-auto-import` generate (`components.d.ts`,
 `auto-imports.d.ts`). A component `components.d.ts` registers from a file of the project is used where a template
-uses its tag, as knip compiles it: each `.vue` file whose template names `AppButton`, `app-button`, `LazyAppButton` or
-`lazy-app-button` imports the default export of the file `AppButton` is registered from, so a registered component no
-template uses is reported by `unused-files`, and so is what only it imports. A component registered from a package
-stays an import of the declaration file. `auto-imports.d.ts` is an entry like every `.d.ts` file, so each composable
+uses its tag, as knip compiles it: each `.vue` file whose template names `AppButton` the way Vue resolves a tag
+(`AppButton`, `app-button`, `appButton`, or `LazyAppButton` and `lazy-app-button`), in a static `is` attribute
+(`<component is="AppButton">`, `:is="'AppButton'"`), and each file that calls `resolveComponent('AppButton')`, imports
+the default export of the file `AppButton` is registered from. A registered component nothing uses so is reported by
+`unused-files`, and so is what only it imports. Native elements (`<button>`) never name a component, and the imports
+added for components are no `circular-imports` cycle. Registrations apply to every workspace of the run. A component
+registered from a package stays an import of the declaration file. A package that may use its components in files
+skif records no tags for keeps every component it registers used: one with a `.tsx` or `.jsx` project file, a
+VitePress or VuePress site, or a bundler config that passes the plugin an `include` matching more than `.vue` files
+(`/\.md$/`) or options skif cannot read. `auto-imports.d.ts` is an entry like every `.d.ts` file, so each composable
 it registers counts as used, whether or not a file names it. A generated file that `.gitignore` excludes is not read,
 and the components it registers then look unused.
 
@@ -786,7 +792,7 @@ counterpart. These differences are deliberate:
   a plugin or component passed as an imported binding is not a string and is already an import.
 - `unplugin-auto-import` and `unplugin-vue-components` make the declaration files they generate (`auto-imports.d.ts`,
   `components.d.ts`) entries. A local component `components.d.ts` registers is used only where a template uses its
-  tag, as in knip (see above); every composable `auto-imports.d.ts` registers is used, while knip credits one only in
+  tag, as in knip, unless the package may use it in files skif records no tags for (see above); every composable `auto-imports.d.ts` registers is used, while knip credits one only in
   the `.vue` and `.ts` files that name it.
 - `vue` reads `configureWebpack` as a webpack config. A function one is called statically with knip's base config
   (`mode`, empty `entry`, `resolve`, `plugins` and `module.rules`): the object it returns, or the base config as it
