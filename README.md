@@ -219,6 +219,26 @@ Lefthook.
 
 </details>
 
+<details>
+<summary><strong>Agent skill for coding agents</strong></summary>
+
+The [`skif` skill](skills/skif/SKILL.md) teaches an agent to lint, triage and fix with skif. It needs skif itself
+(any channel above, or `npx skif-cli`). Installed as a plugin, it also registers skif's MCP server, run with
+`npx -y skif-cli@<release> mcp`, so the plugin needs Node.js but no separate install.
+
+```bash
+npx skills add Goldziher/skif                                 # any agent that reads Agent Skills
+codex plugin marketplace add Goldziher/skif && codex plugin add skif@skif
+droid plugin marketplace add https://github.com/Goldziher/skif && droid plugin install skif@skif
+copilot plugin marketplace add Goldziher/skif && copilot plugin install skif@skif
+```
+
+In Claude Code, run `/plugin marketplace add Goldziher/skif`, then `/plugin install skif@skif` (or, from 2.1.275 on,
+`/plugin install skif --marketplace Goldziher/skif`). See the
+[agents guide](https://goldziher.github.io/skif/guides/editors-and-agents/#agent-skill).
+
+</details>
+
 Prebuilt archives and supported versions are listed in the
 [installation guide](https://goldziher.github.io/skif/start/installation/).
 

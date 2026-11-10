@@ -1,11 +1,63 @@
 ---
 title: Editors and agents
-description: Use skif from AI agents through its MCP server, in editors through its language server, and re-lint on every change with watch mode.
+description: Teach AI agents skif with its agent skill, use skif from agents through its MCP server, in editors through its language server, and re-lint on every change with watch mode.
 ---
 
-skif runs as a server for the tools you write code with. Everything here is part of the `skif` binary; nothing
-else to install. The design is recorded in
+skif runs as a server for the tools you write code with. The servers and watch mode are part of the `skif` binary;
+nothing else to install. The design is recorded in
 [ADR 0056](https://github.com/Goldziher/skif/blob/main/adrs/0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md).
+
+## Agent skill
+
+The repository ships an [agent skill](https://agentskills.io) that teaches a coding agent when and how to run skif:
+the lint, triage and fix loop, reading the JSON report, configuring `skif.toml`, migrating from sherif, syncpack and
+knip, and CI. It lives in
+[`skills/skif`](https://github.com/Goldziher/skif/tree/main/skills/skif) and is installed straight from GitHub. The
+skill runs the `skif` command, so [install skif](../../start/installation/) as well (or let the agent use
+`npx skif-cli`).
+
+Any agent that reads Agent Skills, with the [`skills`](https://www.npmjs.com/package/skills) installer:
+
+```sh
+npx skills add Goldziher/skif
+```
+
+As a plugin, in Claude Code (in the session, not the shell):
+
+```text
+/plugin marketplace add Goldziher/skif
+/plugin install skif@skif
+```
+
+or, from Claude Code 2.1.275 on, `/plugin install skif --marketplace Goldziher/skif` in one step.
+
+Codex:
+
+```sh
+codex plugin marketplace add Goldziher/skif
+codex plugin add skif@skif
+```
+
+Factory Droid:
+
+```sh
+droid plugin marketplace add https://github.com/Goldziher/skif
+droid plugin install skif@skif
+```
+
+GitHub Copilot CLI:
+
+```sh
+copilot plugin marketplace add Goldziher/skif
+copilot plugin install skif@skif
+```
+
+The plugin holds the skill and registers the [MCP server](#mcp-server-for-agents) as `skif`, started with
+`npx -y skif-cli@<version> mcp`, where `<version>` is the release the plugin documents. The server needs Node.js 22
+or later with npm on `PATH`, not an install of skif; its first start downloads the npm package. Without npm the
+server fails to start and the skill still works. The plugin's version is the skif release it documents, so a plugin
+manager that updates on a version change picks up each release, and its server with it. The design is recorded in
+[ADR 0102](https://github.com/Goldziher/skif/blob/main/adrs/0102-agent-skill-distributed-from-the-repository.md).
 
 ## MCP server for agents
 
@@ -44,8 +96,10 @@ Clients configured with an `mcpServers` object, such as Cursor's `.cursor/mcp.js
 }
 ```
 
-With the npm package and no global install, use `"command": "npx", "args": ["-y", "skif-cli", "mcp"]`. The server
-speaks the protocol revisions `2025-11-25`, `2025-06-18`, `2025-03-26` and `2024-11-05`.
+With the npm package and no global install, use `"command": "npx", "args": ["-y", "skif-cli", "mcp"]`; the
+[plugin](#agent-skill) registers this form, pinned to its release. On Windows, a client that cannot start `npx`
+directly takes `"command": "cmd", "args": ["/c", "npx", "-y", "skif-cli", "mcp"]`. The server speaks the protocol
+revisions `2025-11-25`, `2025-06-18`, `2025-03-26` and `2024-11-05`.
 
 ## Watch mode
 
