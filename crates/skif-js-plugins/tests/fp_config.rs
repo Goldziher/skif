@@ -558,6 +558,34 @@ jobs:
     }
 }
 
+/// A `working-directory` below the workspace the workflow checks out is that directory of the workspace, and the
+/// workspace itself is the root. `$GITHUB_ACTION_PATH` is the action's directory only as a whole name.
+#[test]
+fn github_actions_working_directories_in_the_github_workspace_are_workspace_directories() {
+    let workflow = r#"on: [push]
+jobs:
+  a:
+    steps:
+      - run: node ./build.js
+        working-directory: ${{ github.workspace }}/packages/app
+      - run: node ./check.js
+        working-directory: ${{github.workspace}}
+      - run: node ./outside.js
+        working-directory: ${{ github.workspace }}/../elsewhere
+      - run: node $GITHUB_ACTION_PATHS/longer.js && node $GITHUB_ACTION_PATH/action.js
+"#;
+    let results = run(&[(".github/workflows/ci.yml", workflow)], &[], &[]);
+    let out = output(&results, "github-actions");
+    assert_entries(&out.entries, &["packages/app/build.js", "./check.js", "./action.js"]);
+    for skipped in ["outside.js", "longer.js"] {
+        assert!(
+            !out.entries.iter().any(|e| e.ends_with(skipped)),
+            "{skipped}: {:?}",
+            out.entries
+        );
+    }
+}
+
 #[test]
 fn browser_extension_manifest_below_the_root_and_index_sources() {
     let manifest = r#"{
