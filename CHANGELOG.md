@@ -172,6 +172,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The `version-mismatch` message for specifiers that are not all semver versions no longer says none of them is
+  semver: it reads "differs from the other specifiers, and not every one of them is a semver version to align on",
+  which also fits a semver specifier among them.
 - One `--fix` or `--fix-unsafe` run applies a value fix (`version-mismatch`, `semver-range-mismatch`,
   `catalog-not-used`) in an object that `unsorted-dependencies` also sorts. The two were planned as overlapping edits,
   so the value fix was skipped as a conflict and only a second run applied it; such fixes are now planned together
