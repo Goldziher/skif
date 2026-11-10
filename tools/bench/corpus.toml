@@ -196,7 +196,7 @@ build-command = [
   "run",
   "build",
 ]
-knip-invalid = "knip cannot load the configs that import the workspace's own config packages (@n8n/*-config), because the install runs without scripts and those packages have no built dist"
+knip-invalid = "knip could not load the configs that import the workspace's own config packages (@n8n/*-config), whose built dist an install without scripts leaves out; the build-command now builds them, and this mark stays until a parity run confirms that knip loads those configs"
 notes = "Large pnpm workspace with many nodes packages."
 
 [[repo]]
