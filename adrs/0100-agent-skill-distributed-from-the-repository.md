@@ -16,7 +16,8 @@ kind of knowledge as a skill: a directory with a `SKILL.md` and reference files 
 `skills` installer (`npx skills add <owner>/<repo>`) or as a plugin from a marketplace manifest the repository holds
 (Claude Code, Codex, Factory Droid, GitHub Copilot CLI).
 
-Does skif ship a skill, where does its source live, and how do the plugin manifests stay in step with releases?
+Does skif ship a skill, where does its source live, does the plugin register the MCP server, and how do the plugin
+manifests stay in step with releases?
 
 ## Decision Drivers
 
@@ -27,7 +28,8 @@ Does skif ship a skill, where does its source live, and how do the plugin manife
 * The skill must not state facts that go stale silently: version pins and rule counts are already guarded by
   `scripts/check-doc-pins.sh` and `scripts/check-rule-ids.sh` for the other documentation
 * Nothing of the repository's own agent configuration (`.ai-rulez/`, the generated `AGENTS.md`, `.mcp.json`) may ship
-  to users
+  to users, and nothing the plugin ships may change how an agent behaves for the developers of skif
+* An installed plugin must work without a separate install of skif
 
 ## Considered Options
 
@@ -41,10 +43,11 @@ Does skif ship a skill, where does its source live, and how do the plugin manife
 
 Chosen option: "A hand-written skill in `skills/skif/` and hand-written manifests whose plugin root is the
 repository root", because every installer reads the same directory, so there is nothing to generate or keep in sync.
-The plugin carries one skill and no MCP server, hooks or commands, so a generator adds no content, only a second
-tree: the generated bundle copies the skills into the bundle, and the `skills/` directory the `skills` installer
-reads would be a third copy with a sync check. Its `version_from` reads `package.version` from `Cargo.toml`, which
-the workspace manifest does not have, and a member directory cannot name a manifest outside itself.
+The plugin carries one skill and one MCP server, declared inline in the manifests, and no hooks or commands, so a
+generator adds no content, only a second tree: the generated bundle copies the skills into the bundle, and the
+`skills/` directory the `skills` installer reads would be a third copy with a sync check. Its `version_from` reads
+`package.version` from `Cargo.toml`, which the workspace manifest does not have, and a member directory cannot name a
+manifest outside itself.
 
 **The skill.** `skills/skif/SKILL.md` holds the frontmatter (`name: skif`, a `description` that says when to use it)
 and the short loop: lint with `--format json`, read the exit code, triage, `--fix --dry-run`, fix, verify. Details sit
@@ -58,12 +61,23 @@ names `./skills/`, and `.agents/plugins/marketplace.json` is the Codex marketpla
 Droid and GitHub Copilot CLI install from the Claude Code marketplace manifest. The `skills` installer finds
 `skills/skif` on its own.
 
-**No MCP server in the plugin.** `skif mcp` needs the skif binary, and a plugin that registers it would start a
-server that fails for every user who has not installed skif. The skill names the server and the guide shows how to
-register it.
+**The MCP server.** Both plugin manifests register `skif mcp` (ADR 0056) as the server `skif`, launched as
+`npx -y skif-cli@<version> mcp` with the release's version, so the plugin needs Node.js and npm but no install of
+skif, and runs the release it documents instead of whatever `skif` is on `PATH`. The npm package's `skif` bin calls
+the CLI in the Node-API addon, which writes only the protocol to stdout. The server is declared inline, under
+`mcpServers` in `.claude-plugin/plugin.json` and in `.codex-plugin/plugin.json`, which both hosts accept, not in a
+`.mcp.json` at the plugin root: the plugin root is the repository root, where a `.mcp.json` is the project's own MCP
+configuration that Claude Code loads for every developer of skif, and where this repository's generated one is
+ignored by git. The manifests support no per-platform command, so Windows gets the same `npx` command: Codex
+resolves it to `npx.cmd` through `PATHEXT`, and Claude Code no longer asks for a `cmd /c` wrapper.
 
-**Versions.** The `version` of `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json` is the workspace version.
-`scripts/release-bump.sh` rewrites both and `scripts/check-versions.sh` fails when either differs.
+**The icon.** `.claude-plugin/icon.png` is the website's mark rendered at 512 by 512 pixels.
+`.claude-plugin/plugin.json` names it as `icon`, which Anthropic's plugin directory reads and Claude Code ignores, and
+`.codex-plugin/plugin.json` as the `composerIcon` and `logo` of its `interface`.
+
+**Versions.** The `version` of `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json`, and the `skif-cli`
+version their MCP server runs, are the workspace version. `scripts/release-bump.sh` rewrites them and
+`scripts/check-versions.sh` fails when one differs or the pin is missing.
 `scripts/lib/doc-pins.sh` lists the files under `skills/`, so the Action, pre-commit and Poly pins of the skill are
 rewritten by the bump and checked by `scripts/check-doc-pins.sh`, and `scripts/check-rule-ids.sh` checks any rule
 count the skill states.
@@ -71,11 +85,18 @@ count the skill states.
 ### Consequences
 
 * Good, because there is one copy of the skill, read by every installer, with no build or sync step.
-* Good, because a release moves the plugin version with the other version surfaces, so an installed plugin updates.
+* Good, because a release moves the plugin version and the server's `skif-cli` pin with the other version surfaces,
+  so an installed plugin updates and its server runs the release the skill documents.
+* Good, because the plugin's server works for a user who has Node.js but has not installed skif.
 * Good, because the drift checks of the documentation cover the skill.
+* Bad, because the server needs Node.js and npm, and its first start downloads the package and the native addon for
+  the platform; a user without npm on `PATH` gets a server that fails to start, and the skill still works.
+* Bad, because a release commit pins a version that npm has not published until the release workflow finishes, so a
+  plugin installed from the default branch in that window starts no server.
 * Bad, because the plugin root is the repository root: a host that loads `.mcp.json`, `hooks/`, `agents/`,
   `commands/` or `settings.json` from a plugin root would load such a path if the repository tracked one. They are
-  generated, ignored by git or absent today; adding one at the root needs this decision revisited.
+  generated, ignored by git or absent today; adding one at the root needs this decision revisited. The MCP server is
+  inline in the manifests for this reason.
 * Bad, because the skill's command and flag descriptions are prose, so a renamed flag is caught by review, not by a
   check.
 * Neutral, because the ai-rulez check AR021 (a package run without a pinned version) is ignored under `skills/`: the
@@ -83,10 +104,11 @@ count the skill states.
 
 ### Confirmation
 
-* `scripts/check-versions.sh` fails when a plugin manifest's version differs from the workspace version;
-  `scripts/test-release-scripts.sh` bumps a copy of the tree and requires both manifests to follow, and a drifted one
-  to fail the check.
+* `scripts/check-versions.sh` fails when a plugin manifest's version or its MCP server's `skif-cli` pin differs from
+  the workspace version or the pin is missing; `scripts/test-release-scripts.sh` bumps a copy of the tree and requires
+  both manifests and both pins to follow, and a drifted version, a drifted pin and a missing pin to fail the check.
 * `scripts/test-check-scripts.sh` requires `check-doc-pins.sh` to reject a stale pin and `check-rule-ids.sh` a wrong
   rule count in a file under `skills/`.
-* `ai-rulez validate --strict` lints the skill, and `claude plugin validate .` accepts the plugin and marketplace
-  manifests.
+* `ai-rulez validate --strict` lints the skill, and `claude plugin validate .` and
+  `claude plugin validate .claude-plugin/marketplace.json` accept the plugin, its inline MCP server and the marketplace
+  manifest.
