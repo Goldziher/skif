@@ -4536,6 +4536,42 @@ fn mise_file_tasks_are_entries_and_scripts() {
     );
 }
 
+/// An extensionless file task run by `node`, `bun`, `deno`, `tsx` or `ts-node` (also through `npx`) is JavaScript:
+/// the relative modules it loads are entries. One for another interpreter is not read.
+#[test]
+fn mise_extensionless_javascript_file_tasks_make_what_they_load_entries() {
+    let results = resolve(
+        &[
+            ("mise.toml", "[tools]\nnode = \"22\"\n"),
+            (
+                "mise-tasks/gen",
+                "#!/usr/bin/env node\nconst t = require(\"../src/t.js\");\nimport(\"./lib/util\");\nrequire(\"luxon\");\n",
+            ),
+            (
+                "mise-tasks/check",
+                "#!/usr/bin/env -S npx -y tsx\nimport { a } from \"../src/a\";\nconst n: number = a;\n",
+            ),
+            ("mise-tasks/py", "#!/usr/bin/env python3\nimport x from \"../src/never.js\"\n"),
+        ],
+        &[],
+    );
+    let out = output(&results, "mise");
+    let entries: BTreeSet<&str> = out.entries.iter().map(String::as_str).collect();
+    assert_eq!(
+        entries,
+        BTreeSet::from([
+            "src/t.js",
+            "mise-tasks/lib/util{,/index}.{js,mjs,cjs,jsx,ts,mts,cts,tsx}",
+            "src/a{,/index}.{js,mjs,cjs,jsx,ts,mts,cts,tsx}",
+        ])
+    );
+    assert!(
+        out.referenced_binaries.contains(&"tsx".to_owned()),
+        "{:?}",
+        out.referenced_binaries
+    );
+}
+
 #[test]
 fn mise_task_includes_replace_the_default_file_task_dirs() {
     let results = resolve(

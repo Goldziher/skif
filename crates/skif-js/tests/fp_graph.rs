@@ -436,3 +436,20 @@ fn a_marker_only_package_json_does_not_make_a_project_of_files_outside_the_sourc
         ["tools/gen/run.ts: vinyl"]
     );
 }
+
+/// The modules an extensionless mise file task run by `node` loads are used.
+#[test]
+fn modules_an_extensionless_node_mise_task_loads_are_used() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"main":"src/index.js"}"#,
+        ),
+        ("mise.toml", "[tools]\nnode = \"22\"\n"),
+        ("mise-tasks/gen", "#!/usr/bin/env node\nrequire(\"../src/t\");\n"),
+        ("src/index.js", "export const a = 1;\n"),
+        ("src/t.js", "console.log(1);\n"),
+        ("src/unused.js", "console.log(2);\n"),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-files"), ["src/unused.js: src/unused.js"]);
+}

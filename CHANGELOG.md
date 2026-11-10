@@ -128,6 +128,9 @@ All notable changes to this project are documented here. The format follows
   `vitest-environment-nuxt` without requiring it, as `@nuxt/test-utils` brings it.
 - A `tsconfig` `types` entry that a local `typeRoots` directory of the same config holds (`types/custom/index.d.ts`)
   is no longer an `unlisted-dependencies` finding: TypeScript loads it from there, not from a package.
+- An extensionless mise file task whose shebang runs it with `node`, `bun`, `deno`, `tsx` or `ts-node`
+  (`mise-tasks/gen` with `#!/usr/bin/env node`) is read as JavaScript: the relative modules it imports or requires are
+  entries, so they are no longer `unused-files`. The packages it imports are not credited yet.
 
 ### Changed
 
