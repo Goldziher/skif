@@ -535,8 +535,12 @@ chmod +x "${stubs}/gh"
 gate="${work}/gate-repo"
 git init -q -b main "$gate"
 git_in() { git -C "$gate" -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false -c tag.gpgsign=false "$@"; }
-git_in commit -q --allow-empty -m "on main"
+printf '# Changelog\n\n## [Unreleased]\n\n## [1.0.0] - 2026-01-01\n' >"${gate}/CHANGELOG.md"
+git_in add CHANGELOG.md
+git_in commit -q -m "on main"
 git_in tag v1.0.0
+git_in commit -q --allow-empty -m "released without a changelog section"
+git_in tag v1.0.1
 git_in checkout -q -b feature
 git_in commit -q --allow-empty -m "only on a branch"
 git_in tag v1.1.0
@@ -551,6 +555,8 @@ gate_case "a tag without a green CI run is refused" 1 v1.0.0 0
 expect_in_out "release gate: no green run" "no successful ci.yml run"
 gate_case "a tag that is not on main is refused" 1 v1.1.0 1
 expect_in_out "release gate: not on main" "not an ancestor"
+gate_case "a tag without a CHANGELOG.md section is refused" 1 v1.0.1 1
+expect_in_out "release gate: no changelog section" "CHANGELOG.md at v1.0.1 has no '## [1.0.1]' section"
 
 # ---------------------------------------------------------------- floating tag
 float_remote="${work}/float-remote.git"
