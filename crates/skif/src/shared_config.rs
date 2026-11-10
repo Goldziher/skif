@@ -13,10 +13,10 @@ const STALE_JS_CONFIG: &str = "stale-js-config";
 /// roots, so a multi-root run reports what a single run over all of them would.
 ///
 /// Each item is a root directory and its report, with paths relative to it, as [`Linter::run`](crate::Linter::run)
-/// returns it; the roots come in path order, as [`discover_targets`](crate::discover_targets) lists them. Call it on the
-/// reports the run shows, last: after the lint that follows fixing (of every root whose configuration a fix wrote, not
-/// only the roots it changed), and after narrowing a report to the findings the caller selects. A report it decided
-/// keeps every judgement, so deciding again changes nothing; a report it decided is no input for another lint run.
+/// returns it; the roots come in path order, as [`discover_targets`](crate::discover_targets) lists them. Call it on
+/// the reports the run shows, last: after the lint that follows fixing (of every root whose configuration a fix
+/// wrote, not only the roots it changed), and after narrowing a report to the findings the caller selects. A report it
+/// decided keeps every judgement, so deciding again changes nothing.
 ///
 /// An entry of a configuration list that two or more roots judged ([`Report::config_judgements`]) is grouped by the
 /// absolute file, the key as written, the entry and, for a list a `[js.workspaces]` table gives a package, the
