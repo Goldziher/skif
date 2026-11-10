@@ -4,7 +4,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
-use skif_core::FileSystem;
+use skif_core::{FileSystem, IncompleteCause};
 use skif_workspace::{PackageId, Workspace};
 
 use crate::analysis::on_disk;
@@ -23,12 +23,13 @@ use crate::setup::{PackageSetup, Setup};
 pub(crate) struct EntryFiles {
     /// Sorted and without duplicates.
     pub files: Vec<PathBuf>,
-    /// Packages whose real entries are unknown, so their files and dependencies cannot be judged unused: those that
-    /// publish build output or bin files none of which maps back to a source file, and those with no source file at
-    /// or below their directory other than a package manager's install hook (`.pnpmfile.cjs`), no other entry and no
-    /// script, whose manifest only lists what code elsewhere installs it for. A published path that names no file at
-    /// all ([`names_no_file`]) is no entry and does not make a package's entries unknown (ADR 0069).
-    pub unknown: Vec<PackageId>,
+    /// Packages whose real entries are unknown, so their files and dependencies cannot be judged unused, with the
+    /// cause: those that publish build output or bin files none of which maps back to a source file
+    /// ([`IncompleteCause::UnmappedPublished`]), and those with no source file at or below their directory other than
+    /// a package manager's install hook (`.pnpmfile.cjs`), no other entry and no script, whose manifest only lists what
+    /// code elsewhere installs it for ([`IncompleteCause::NoEntries`]). A published path that names no file at all
+    /// ([`names_no_file`]) is no entry and does not make a package's entries unknown (ADR 0069).
+    pub unknown: Vec<(PackageId, IncompleteCause)>,
     /// The entry files something other than the configured and default `entry` globs makes entries: plugins, the
     /// manifest, tool configuration files and scripts (with `include-entry-exports`, only plugin entry globs and the
     /// manifest, whose exports are judged like a configured entry's). A configured entry naming one of them is
@@ -134,8 +135,9 @@ pub(crate) fn entry_files(
         }
         own.extend(from_tools.iter().cloned());
         provided.extend(from_tools);
-        if published_without_source && !mapped_any {
-            unknown.push(id);
+        let unmapped = published_without_source && !mapped_any;
+        if unmapped {
+            unknown.push((id, IncompleteCause::UnmappedPublished));
         }
         let mut tool_entries: Vec<PathBuf> = package_setup
             .config_files
@@ -166,13 +168,14 @@ pub(crate) fn entry_files(
         let has_entries = own.iter().any(|path| !is_install_hook(path));
         entries.append(&mut own);
         entries.extend(scope_entries(workspace, setup, candidates, package_setup));
-        if !has_entries
+        if !unmapped
+            && !has_entries
             && package.manifest.value().get("scripts").is_none_or(is_empty_object)
             && below(candidates, &workspace.root, &package_setup.dir)
                 .iter()
                 .all(|candidate| is_install_hook(&candidate.abs))
         {
-            unknown.push(id);
+            unknown.push((id, IncompleteCause::NoEntries));
         }
     }
     if !setup.production {

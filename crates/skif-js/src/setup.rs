@@ -870,14 +870,14 @@ impl Setup {
         }
     }
 
-    /// Marks the packages whose published entry points could not be mapped to source files.
-    pub(crate) fn mark_entries_incomplete(&mut self, ids: &[PackageId]) {
-        for id in ids {
+    /// Marks the packages whose entries the manifest leaves unknown, for the cause found for each.
+    pub(crate) fn mark_entries_incomplete(&mut self, unknown: &[(PackageId, IncompleteCause)]) {
+        for &(id, cause) in unknown {
             if let Some(Some(package)) = self.packages.get_mut(id.index()) {
                 package.entries_incomplete = true;
                 package.incomplete_scope = None;
                 package.incomplete_reasons.push(IncompleteEntries {
-                    cause: IncompleteCause::UnmappedPublished,
+                    cause,
                     plugin: None,
                     file: Some(package.dir.join("package.json")),
                 });

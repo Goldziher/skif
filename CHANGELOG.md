@@ -116,6 +116,9 @@ All notable changes to this project are documented here. The format follows
 - A zx file that switches to PowerShell (`usePwsh()`, `usePowerShell()`, `$.shell = 'pwsh'`) runs no binary for a
   cmdlet (`New-Item`, `Remove-Item`) or a default PowerShell alias (`gci`, `ni`), so `unlisted-binaries` no longer
   reports them.
+- A package with no source file, entry or script of its own (a manifest that only lists what code elsewhere installs
+  it for, ADR 0082) is listed in `incomplete-packages` with the new cause `no-entries` instead of `unmapped-published`,
+  which it does not publish ([ADR 0094](adrs/0094-script-directories-and-the-no-entries-cause.md)).
 
 ### Changed
 

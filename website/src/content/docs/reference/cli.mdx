@@ -160,7 +160,8 @@ ignores leave in. For `entries-incomplete` no file of the package is judged unus
 fully known and may be anywhere in it, and `incomplete` lists each cause with its `plugin` and `file`: `unparsable-config`, `unknown-config`
 (the config evaluates to a value that cannot be known statically), `unknown-spread` (it spreads or merges in an unknown
 value, such as a base config imported from an installed package; a conditional spread of object literals is not one),
-`computed-entries` (the keys the tool reads entries from are computed), `unmapped-published` (`package.json` publishes build output with no source behind it) or
+`computed-entries` (the keys the tool reads entries from are computed), `unmapped-published` (`package.json` publishes build output with no source behind it), `no-entries` (the package has
+no source file, entry or script of its own, so its manifest only lists what code elsewhere installs it for) or
 `unspecified`. `widened-by` (`file:line`) names the computed `import()` or `require()` that made the package
 unjudged as a whole although its configs narrowed what they hide. When the configs narrow it (see
 [incomplete entries](../configuration/)), a file in the narrowed scope is in the graph with the `entry`
