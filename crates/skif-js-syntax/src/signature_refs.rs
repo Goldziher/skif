@@ -8,6 +8,7 @@
 //! mentions is used whenever the name is, as a type or as a value.
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use oxc_ast::ast::{
     ArrowFunctionBody, Class, Declaration, ExportDefaultDeclarationKind, Expression, Function, FunctionBody, Program,
@@ -16,6 +17,9 @@ use oxc_ast::ast::{
 use oxc_ast_visit::{Visit, walk};
 
 use crate::model::{Export, ExportKind, ImportedKind, ModuleInfo};
+
+/// A declaration's local name with the type names it mentions, shared by the bindings of one destructuring declarator.
+type Container = (String, Rc<HashSet<String>>);
 
 /// Type names mentioned in one declaration, optionally leaving out function bodies.
 struct TypeNames {
@@ -86,19 +90,19 @@ fn expression_names(expression: &Expression<'_>) -> HashSet<String> {
 }
 
 /// The value-level declarations of `declaration` with the type names their signatures mention.
-fn containers(declaration: &Declaration<'_>, out: &mut Vec<(String, HashSet<String>)>) {
+fn containers(declaration: &Declaration<'_>, out: &mut Vec<Container>) {
     match declaration {
         Declaration::FunctionDeclaration(function) => {
             if let Some(id) = &function.id {
                 out.push((
                     id.name.as_str().to_owned(),
-                    function_names(function, function.return_type.is_some()),
+                    Rc::new(function_names(function, function.return_type.is_some())),
                 ));
             }
         }
         Declaration::ClassDeclaration(class) => {
             if let Some(id) = &class.id {
-                out.push((id.name.as_str().to_owned(), class_names(class)));
+                out.push((id.name.as_str().to_owned(), Rc::new(class_names(class))));
             }
         }
         Declaration::VariableDeclaration(variables) => {
@@ -107,7 +111,7 @@ fn containers(declaration: &Declaration<'_>, out: &mut Vec<(String, HashSet<Stri
                 if ids.is_empty() {
                     continue;
                 }
-                let names = if let Some(annotation) = &declarator.type_annotation {
+                let names = Rc::new(if let Some(annotation) = &declarator.type_annotation {
                     let mut visitor = TypeNames::new(true);
                     visitor.visit_ts_type_annotation(annotation);
                     visitor.names
@@ -115,8 +119,8 @@ fn containers(declaration: &Declaration<'_>, out: &mut Vec<(String, HashSet<Stri
                     expression_names(init)
                 } else {
                     continue;
-                };
-                out.extend(ids.iter().map(|id| (id.name.as_str().to_owned(), names.clone())));
+                });
+                out.extend(ids.iter().map(|id| (id.name.as_str().to_owned(), Rc::clone(&names))));
             }
         }
         _ => {}
@@ -126,7 +130,7 @@ fn containers(declaration: &Declaration<'_>, out: &mut Vec<(String, HashSet<Stri
 /// The type-level declaration `declaration` (an `interface` or a `type` alias) with the type names it mentions,
 /// including the interfaces it extends. It contains them only for a value export of its name, which can be a separate
 /// clause (`type X = …; const X = …; export { X }`).
-fn type_container(declaration: &Declaration<'_>, out: &mut Vec<(String, HashSet<String>)>) {
+fn type_container(declaration: &Declaration<'_>, out: &mut Vec<Container>) {
     let mut visitor = TypeNames::new(true);
     let name = match declaration {
         Declaration::TSTypeAliasDeclaration(alias) => {
@@ -139,13 +143,26 @@ fn type_container(declaration: &Declaration<'_>, out: &mut Vec<(String, HashSet<
         }
         _ => return,
     };
-    out.push((name.as_str().to_owned(), visitor.names));
+    out.push((name.as_str().to_owned(), Rc::new(visitor.names)));
+}
+
+/// The local bindings of the imports by specifier and imported name. A name imported twice keeps its first binding.
+fn import_bindings(info: &ModuleInfo) -> HashMap<(&str, &ImportedKind), &str> {
+    let mut bindings = HashMap::new();
+    for import in &info.imports {
+        for name in &import.names {
+            if let Some(local) = name.local.as_deref() {
+                bindings.entry((import.specifier.as_str(), &name.kind)).or_insert(local);
+            }
+        }
+    }
+    bindings
 }
 
 /// The local binding of an import that brings in what `export { a } from "x"` re-exports: `a` of `import { a } from
 /// "x"` (same specifier, same name). A signature that mentions the binding mentions the re-export, as in knip, which
 /// matches the names in a signature against the exported names.
-fn reexported_binding(info: &ModuleInfo, export: &Export) -> Option<String> {
+fn reexported_binding<'a>(bindings: &HashMap<(&str, &ImportedKind), &'a str>, export: &Export) -> Option<&'a str> {
     if export.kind != ExportKind::ReExport || export.local_name.is_some() {
         return None;
     }
@@ -154,17 +171,12 @@ fn reexported_binding(info: &ModuleInfo, export: &Export) -> Option<String> {
         "default" => ImportedKind::Default,
         name => ImportedKind::Named(name.to_owned()),
     };
-    info.imports
-        .iter()
-        .filter(|import| import.specifier == from)
-        .flat_map(|import| &import.names)
-        .filter(|name| name.kind == wanted)
-        .find_map(|name| name.local.clone())
+    bindings.get(&(from, &wanted)).copied()
 }
 
-/// Fills [`crate::model::Export::referenced_in`] for every export mentioned in the signature of another value export.
-pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
-    let mut found: Vec<(String, HashSet<String>)> = Vec::new();
+/// The declarations of `program` that can contain type names, exported or not, with the names they mention.
+fn collect_containers(program: &Program<'_>) -> Vec<Container> {
+    let mut found = Vec::new();
     for statement in &program.body {
         match statement {
             Statement::ExportDeclaration(export) => {
@@ -176,13 +188,13 @@ pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
                     if let Some(id) = &function.id {
                         found.push((
                             id.name.as_str().to_owned(),
-                            function_names(function, function.return_type.is_some()),
+                            Rc::new(function_names(function, function.return_type.is_some())),
                         ));
                     }
                 }
                 ExportDefaultDeclarationKind::ClassDeclaration(class) => {
                     if let Some(id) = &class.id {
-                        found.push((id.name.as_str().to_owned(), class_names(class)));
+                        found.push((id.name.as_str().to_owned(), Rc::new(class_names(class))));
                     }
                 }
                 _ => {}
@@ -195,6 +207,29 @@ pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
             }
         }
     }
+    found
+}
+
+/// The containers that mention each name, by name. Only value exports can contain: the other containers are left out.
+fn mentioned_by<'a>(
+    mentions: &HashMap<&'a str, HashSet<&'a str>>,
+    exported_as: &HashMap<&str, Vec<String>>,
+) -> HashMap<&'a str, Vec<&'a str>> {
+    let mut by_name: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (container, names) in mentions {
+        if !exported_as.contains_key(container) {
+            continue;
+        }
+        for name in names {
+            by_name.entry(*name).or_default().push(*container);
+        }
+    }
+    by_name
+}
+
+/// Fills [`crate::model::Export::referenced_in`] for every export mentioned in the signature of another value export.
+pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
+    let found = collect_containers(program);
     // One name can have several declarations (a value and a type, overloads): it mentions what any of them does.
     let mut mentions: HashMap<&str, HashSet<&str>> = HashMap::new();
     for (local, names) in &found {
@@ -218,13 +253,18 @@ pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
             map.entry(local).or_default().push(name);
             map
         });
+    let mentioned_by = mentioned_by(&mentions, &exported_as);
+    let bindings = import_bindings(info);
     let mut referenced_in: Vec<Vec<String>> = Vec::with_capacity(info.exports.len());
     for export in &info.exports {
         let mut containing = Vec::new();
-        let binding = reexported_binding(info, export);
-        if let Some(local) = export.local_name.as_deref().or(binding.as_deref()) {
-            for (container, names) in &mentions {
-                if *container != local && names.contains(local) {
+        if let Some(local) = export
+            .local_name
+            .as_deref()
+            .or_else(|| reexported_binding(&bindings, export))
+        {
+            for container in mentioned_by.get(local).into_iter().flatten() {
+                if *container != local {
                     containing.extend(exported_as.get(container).into_iter().flatten().cloned());
                 }
             }

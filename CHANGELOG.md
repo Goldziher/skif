@@ -54,6 +54,10 @@ All notable changes to this project are documented here. The format follows
   ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
 - The shell tokenizer of the `package.json` script parser moved from `skif-js-plugins` to `skif_core::shell`
   (`tokenize`, `Tokens`, `Segment`, `Word`), so rules outside the JS analysis split command lines with it.
+- Finding which exports mention an export in their signature takes time linear in the exports of a file instead of
+  quadratic: the names each value export's signature mentions are indexed once per file, and the imports once by module
+  and name for re-exports. A file of 40,000 exported functions spent seconds there, and generated barrels and type
+  files of every root paid it. The results are unchanged ([#145](https://github.com/Goldziher/skif/issues/145)).
 
 ### Changed
 
