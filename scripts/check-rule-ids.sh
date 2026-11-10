@@ -4,7 +4,8 @@
 # top-level `RuleMeta` statics under crates/*/src) differ from rule-ids.txt. Rule ids are a public contract: a released id
 # is never removed, only retired through a superseding decision, and a new id is added to rule-ids.txt in the same
 # change that adds the rule. Prose that states a rule count ("N rules", "the N `js` rules") in the README files, the
-# website and the contributor context must equal the count of rule ids (and, for `js` rules, the js rows of the table).
+# website, the agent skills and the contributor context must equal the count of rule ids (and, for `js` rules, the js
+# rows of the table).
 #
 # Usage: scripts/check-rule-ids.sh
 set -euo pipefail
@@ -46,6 +47,9 @@ total="$(grep -c . rule-ids.txt)"
 js_total="$(grep -cE '^\| \[`[a-z0-9-]+`\]\(#[a-z0-9-]+\) \| js \|' docs/rules.md || true)"
 count_files=(README.md crates/*/README.md npm-package/README.md CONTRIBUTING.md .ai-rulez/context/*.md)
 while IFS= read -r -d '' file; do count_files+=("$file"); done < <(find website/src/content -name '*.md*' -print0)
+if [[ -d skills ]]; then
+  while IFS= read -r -d '' file; do count_files+=("$file"); done < <(find skills -name '*.md' -print0)
+fi
 # shellcheck disable=SC2016
 while IFS=: read -r file line claim; do
   number="$(grep -oE '[0-9]+' <<<"$claim" | head -n1)"
