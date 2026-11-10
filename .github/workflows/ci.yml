@@ -217,6 +217,8 @@ jobs:
         run: bash scripts/test-check-scripts.sh
       - name: Test the install scripts (pre-commit launcher and the Action's resolve, install and run steps)
         run: bash scripts/test-install-scripts.sh
+      - name: Test the benchmark number refresh
+        run: node --test tools/bench/refresh-numbers.test.mjs
 
   # The hooks as pre-commit runs them: this checkout is the hook repository, the fixtures are the projects.
   pre-commit-hook:

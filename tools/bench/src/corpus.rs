@@ -7,11 +7,13 @@ use std::process::Command;
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
-/// Tool versions the comparison commands are pinned to.
+/// Tool versions the comparison commands are pinned to: `parity`, `syncpack-diff` and `deadcode` run them through
+/// `npx`, and `run` installs them into a scratch prefix and times their executables.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Tools {
     pub knip: String,
     pub syncpack: String,
+    pub sherif: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -64,7 +66,18 @@ pub struct Repo {
     /// `--no-gitignore` where a deny-all `.gitignore` hides the workspaces from knip). `parity` does not use them.
     #[serde(default)]
     pub bench_knip_args: Vec<String>,
+    /// Why knip's report on this repository is not a valid comparison (such as configurations that import workspace
+    /// packages which are never built). The repository is still compared, and the report marks the row with this.
+    #[serde(default)]
+    pub knip_invalid: Option<String>,
+    /// How to give knip a root it can run in where the checkout has none: `rush` runs it in a scratch copy with a
+    /// root `package.json` made from `rush.json`.
+    #[serde(default)]
+    pub knip_root: Option<String>,
 }
+
+/// The `knip-root` of a Rush repository: knip runs in a scratch copy with a root `package.json` made from `rush.json`.
+pub const RUSH_KNIP_ROOT: &str = "rush";
 
 const fn default_install() -> bool {
     true
@@ -89,6 +102,9 @@ pub fn load_manifest(path: &Path) -> Result<Manifest> {
         }
         if let Some(unknown) = repo.suites.iter().find(|s| !["bench", "parity"].contains(&s.as_str())) {
             bail!("{}: unknown suite {unknown:?}", repo.name);
+        }
+        if let Some(root) = repo.knip_root.as_deref().filter(|root| *root != RUSH_KNIP_ROOT) {
+            bail!("{}: unknown knip-root {root:?} (the only one is {RUSH_KNIP_ROOT:?})", repo.name);
         }
     }
     Ok(manifest)
@@ -207,11 +223,38 @@ mod tests {
         let file = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/corpus.toml"));
         let (tools, bench) = select(file, "bench", &[]).unwrap();
         let (_, parity) = select(file, "parity", &[]).unwrap();
-        assert!(!tools.knip.is_empty() && !tools.syncpack.is_empty());
+        assert!(!tools.knip.is_empty() && !tools.syncpack.is_empty() && !tools.sherif.is_empty());
         assert_eq!(bench.len(), 5);
         assert_eq!(parity.len(), manifest().repo.len());
         assert!(select(file, "bench", &["vscode".to_owned()]).is_err());
         assert_eq!(select(file, "parity", &["jest".to_owned()]).unwrap().1.len(), 1);
+    }
+
+    #[test]
+    fn n8n_is_marked_as_an_invalid_knip_comparison() {
+        let repos = manifest().repo;
+        let n8n = repos.iter().find(|r| r.name == "n8n").unwrap();
+        assert!(n8n.knip_invalid.as_deref().is_some_and(|why| why.contains("dist")));
+        assert_eq!(repos.iter().filter(|r| r.knip_invalid.is_some()).count(), 1);
+    }
+
+    #[test]
+    fn rushstack_runs_knip_in_a_synthesized_root() {
+        let repos = manifest().repo;
+        let rushstack = repos.iter().find(|r| r.name == "rushstack").unwrap();
+        assert_eq!(rushstack.knip_root.as_deref(), Some(RUSH_KNIP_ROOT));
+        assert!(repos.iter().filter(|r| r.name != "rushstack").all(|r| r.knip_root.is_none()));
+    }
+
+    #[test]
+    fn opencode_installs_with_a_pinned_bun() {
+        let repos = manifest().repo;
+        let opencode = repos.iter().find(|r| r.name == "opencode").unwrap();
+        assert_eq!(
+            &opencode.install_command[..5],
+            ["mise", "x", "bun@1.3.14", "--", "bun"]
+        );
+        assert!(opencode.install_command.iter().any(|arg| arg == "--frozen-lockfile"));
     }
 
     #[test]
@@ -221,7 +264,7 @@ mod tests {
         let file = dir.join("corpus.toml");
         fs::write(
             &file,
-            "[tools]\nknip = \"1\"\nsyncpack = \"1\"\n[[repo]]\nname = \"x\"\nurl = \"u\"\nrev = \"main\"\npackage-manager = \"npm\"\n",
+            "[tools]\nknip = \"1\"\nsyncpack = \"1\"\nsherif = \"1\"\n[[repo]]\nname = \"x\"\nurl = \"u\"\nrev = \"main\"\npackage-manager = \"npm\"\n",
         )
         .unwrap();
         assert!(load_manifest(&file).is_err());
