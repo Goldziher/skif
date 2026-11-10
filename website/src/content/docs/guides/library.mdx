@@ -96,8 +96,9 @@ assert!(resolved.origins.last("lint.fail-on-warnings").is_some());
 let discovery = discover_targets(Path::new("/r"), &fs, &ConfigOverrides::default())?;
 assert!(discovery.failures.is_empty());
 assert_eq!(discovery.targets.len(), 2);
-for target in &discovery.targets {
-    let linter = Linter::with_fs(&target.config, Arc::new(fs.clone()))?;
+// One linter per root; with `js-analysis` they share one module cache for the run.
+let linters = Linter::for_targets(&discovery.targets, Arc::new(fs.clone()))?;
+for (target, linter) in discovery.targets.iter().zip(&linters) {
     let config_path = target.config_path();
     let mut options = RunOptions::default();
     if let Some(path) = &config_path {
@@ -132,6 +133,13 @@ the reports before this step, so each root's baseline covers what that root repo
 A host that lints repeatedly, such as an editor, passes the same `ModuleCache` to every
 `Linter::with_module_cache` (feature `js-analysis`; `MemoryModuleCache` keeps it in memory), so only changed files
 are parsed again. The cache never changes a report.
+
+`Linter::for_targets` builds the linters of a multi-root run over one in-process module cache (feature
+`js-analysis`), so a file several roots reach, such as a directory of shared code outside every root, is parsed once
+for the run rather than once per root, also while the roots are linted in parallel. Each entry is stored once and
+freed with the linters. A host with a cache of its own passes it to `Linter::for_targets_with_cache`, which puts a
+`CoalescingModuleCache` in front of it: a lookup of a file another thread is parsing waits for that parse instead of
+parsing it again.
 
 A `Linter` built with `Linter::with_fs` remembers directory listings, existence checks and small configuration
 files read through the file system for one run and starts every `run_with` from an empty cache, so a host that edits

@@ -51,9 +51,19 @@ All notable changes to this project are documented here. The format follows
   function the tool calls (`() => createConfig({ … })`) or merges (`mergeConfig(createBase({ … }), { … })`).
 - `skif::Target::retain_ignore` filters the `[[ignore]]` entries of a target with its `origins` kept aligned, through
   `skif_config::Origins::retain_list`, which renumbers the entries of one list.
+- `skif::Linter::for_targets` builds the linters of a multi-root run over one in-process module cache (feature
+  `js-analysis`), and `Linter::for_targets_with_cache` over a cache the host keeps. `skif::CoalescingModuleCache` puts
+  any `ModuleCache` behind a guard that makes a lookup of a file another thread is parsing wait for that parse, through
+  the new provided method `ModuleCache::get_or_insert_with`, which `parse_cached` now calls; a cache that wraps
+  another forwards it ([#144](https://github.com/Goldziher/skif/issues/144)).
 
 ### Changed
 
+- A multi-root run (`skif -r`, and the CLI's other multi-root commands) parses through one in-memory module cache
+  shared by all its roots, also without `--cache`, so a file several roots import (a directory of shared code outside
+  them) is parsed once for the run instead of once per root; roots linted in parallel wait for a parse already under
+  way instead of repeating it. With `--cache` the store on disk is shared the same way. Entries are stored once and
+  freed when the run ends; the reports are unchanged ([#144](https://github.com/Goldziher/skif/issues/144)).
 - `[js] discovery = "auto"`, the default, walks the directories instead of listing tracked directories from the git
   index. The index cannot tell whether an unchanged directory holds an untracked file created before the index was
   last written (a `git add` or `git commit` of another file does that), and such a file, an entry or the only importer
