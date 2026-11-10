@@ -884,9 +884,9 @@ fn check_max_show_issues(args: &LintArgs, targets: &[(Format, Option<PathBuf>)])
 /// Renders every requested format, then writes the files and stdout (ADR 0054). Every rendering is made before
 /// anything is written, so a failing one leaves every file untouched; a write that fails partway leaves the files
 /// written before it in place. `shown` is the report `--max-show-issues` cut short: the JSON rendering lists it, and
-/// the human rendering lists the (equally cut) `views` while its annotations come from the full `report`.
-/// written before it in place. A run with stdout as its only output streams the report instead (see
-/// [`output::render_to_stdout`]), so a renderer error there can leave a partial report on stdout.
+/// the human rendering lists the (equally cut) `views` while its annotations come from the full `report`. A run with
+/// stdout as its only output streams the report instead, except JSON (see [`output::render_to_stdout`]), so a renderer
+/// error there can leave a partial report on stdout.
 fn render_and_write(
     args: &LintArgs,
     env: Env,

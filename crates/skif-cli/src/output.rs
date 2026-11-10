@@ -132,12 +132,13 @@ pub fn render(
     Ok(buffer)
 }
 
-/// Renders the report straight to stdout, for a run whose only output is stdout.
+/// Renders the report to stdout, for a run whose only output is stdout.
 ///
 /// A report with tens of thousands of diagnostics runs to tens of megabytes, and holding it in memory first was a
-/// visible part of the run. The price is that a renderer error after the first bytes went out (an `extra` JSON member
-/// that shadows a reserved key) leaves a partial report on stdout, followed by the error; a buffered [`render`] fails
-/// before anything is written. A reader that went away is not a failure, as in [`write_stdout`].
+/// visible part of the run, so every format but JSON streams. The price is that a renderer error after the first
+/// bytes went out leaves a partial report on stdout, followed by the error. JSON is rendered into memory and written
+/// once, as [`write_rendered`] says, so stdout holds one document. A reader that went away is not a failure, as in
+/// [`write_stdout`].
 pub fn render_to_stdout(
     report: &Report,
     roots: &[RootView<'_>],
@@ -147,13 +148,32 @@ pub fn render_to_stdout(
 ) -> Result<(), CliError> {
     let options = render_options(report, rendering, fs)?;
     let mut out = io::BufWriter::with_capacity(64 * 1024, io::stdout().lock());
-    match write_report(report, roots, rendering, &options, fixes, &mut out).and_then(|()| out.flush()) {
+    let written = write_rendered(rendering.format == Format::Json, &mut out, |out| {
+        write_report(report, roots, rendering, &options, fixes, out)
+    });
+    match written.and_then(|()| out.flush()) {
         Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
         // The renderers' own failure (an `extra` member that shadows a reserved key); every other one is stdout's.
         Err(error) if error.kind() == io::ErrorKind::InvalidInput => Err(cannot_render(&error)),
         Err(error) => Err(CliError::new(Kind::Io, format!("cannot write to stdout: {error}"))),
         Ok(()) => Ok(()),
     }
+}
+
+/// Writes what `render` produces to `out`. With `buffered` (JSON) it is rendered into memory first and written in one
+/// piece, so a renderer error or a panic partway through leaves `out` untouched and the error document that follows
+/// is the only one on stdout; otherwise it streams.
+fn write_rendered(
+    buffered: bool,
+    out: &mut dyn Write,
+    render: impl FnOnce(&mut dyn Write) -> io::Result<()>,
+) -> io::Result<()> {
+    if !buffered {
+        return render(out);
+    }
+    let mut buffer = Vec::new();
+    render(&mut buffer)?;
+    out.write_all(&buffer)
 }
 
 fn cannot_render(error: &io::Error) -> CliError {
@@ -297,6 +317,35 @@ mod tests {
     use skif::MemoryFs;
 
     use super::*;
+
+    fn render_partially(buffered: bool) -> Vec<u8> {
+        let mut out = Vec::new();
+        let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            write_rendered(buffered, &mut out, |out| {
+                out.write_all(br#"{"version": 1, "diagnostics": ["#)?;
+                panic!("renderer bug")
+            })
+        }));
+        assert!(rendered.is_err(), "the renderer panicked");
+        out
+    }
+
+    #[test]
+    fn a_panic_while_rendering_json_writes_nothing() {
+        assert_eq!(render_partially(true), b"");
+    }
+
+    #[test]
+    fn a_panic_while_streaming_leaves_what_was_rendered() {
+        assert_eq!(render_partially(false), br#"{"version": 1, "diagnostics": ["#);
+    }
+
+    #[test]
+    fn a_buffered_rendering_is_written_whole() {
+        let mut out = Vec::new();
+        write_rendered(true, &mut out, |out| out.write_all(b"{}\n")).unwrap();
+        assert_eq!(out, b"{}\n");
+    }
 
     #[test]
     fn a_missing_codeowners_file_is_a_config_error() {
