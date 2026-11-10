@@ -2796,7 +2796,7 @@ mod tests {
         .map(|(dir, manifest)| (dir.to_owned(), Rc::new(manifest)))
         .collect();
         let manifest = move |dir: &str| read.get(dir).cloned();
-        let layout = Layout::new(BTreeSet::new(), &manifest);
+        let layout = Layout::new(strings(&["packages/cfg"]), &manifest);
         let knip_unused = strings(&["examples/a/src/dead.ts"]);
         let skif_unused = strings(&["packages/b/src/gone.ts"]);
         let failed = strings(&["packages/cfg"]);
