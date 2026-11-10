@@ -335,6 +335,10 @@ All notable changes to this project are documented here. The format follows
   leaves the package's dependencies unjudged instead of being skipped; of its files only those of the Storybook config
   directory (`.storybook/**`, `.rnstorybook/**`), where a local addon lives, are not judged
   ([#152](https://github.com/Goldziher/skif/issues/152)).
+- A bundler alias to a package rather than a path (`react: 'preact/compat'`, or `foo:
+  fileURLToPath(import.meta.resolve('bar'))`, which `skif-js-syntax` now reads as `'bar'`) was dropped, so imports of
+  `foo` counted as the package `foo`. It is kept as an alias without a target, whose imports are not reported, and the
+  package it points into is a dependency of the config.
 - `skif -r --config <FILE>` applied the file's `[js.workspaces]` tables and `ignore-workspaces` globs to every root as
   if written relative to each, so `[js.workspaces."."]` configured every nested root and `stale-js-config` reported
   its entries once per root where they matched nothing. The keys and globs of an explicit file are now relative to
