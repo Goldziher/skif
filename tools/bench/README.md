@@ -246,9 +246,11 @@ one-sided is unexplained. See [ADR 0030](../../adrs/0030-harness-known-deviation
 ## Baselines and the drift check
 
 `baselines/parity.json` and `baselines/syncpack.json` hold the counts of a run (skif only, tool only, both, per issue
-type or status code and repository, plus the case summary of the fixtures) and the tool version and install mode they
-were recorded with. They contain no file, package or symbol names. After a deliberate change, or a bump of a pin in
-`corpus.toml`, refresh them:
+type or status code and repository, plus the case summary of the fixtures) and the tool version they were recorded
+with. They contain no file, package or symbol names. `baselines/parity.json` also records the set of compared
+categories and known deviations (`category_set`) and, per repository, whether its checkout was installed, whether
+skif ran recursively and the skif source commit (`skif_rev`, informative only). After a deliberate change, or a bump
+of a pin in `corpus.toml`, refresh them:
 
 ```sh
 mise run parity -- --install --write-baseline
@@ -257,21 +259,16 @@ mise run diff:syncpack -- --write-baseline
 
 `--check` compares a run with the baseline and exits non-zero when a count moves by more than
 `--tolerance-percent` (default 10) of its baseline value or `--tolerance-abs` (default 5), whichever is larger, when a
-repository changes between compared and skipped, or when a fixture that agreed before now differs. A run narrowed with
-`--only` is checked against those entries alone, and `--write-baseline --only` updates only them, so the baseline
-can be refreshed one repository at a time (install, run, then delete the checkout's `node_modules`) where the disk
-does not hold every install at once. In the committed `baselines/parity.json` the entries of create-t3-turbo,
-vue-core, tanstack-query, jest, babel, cal-com, mastra, vscode, npm-cli and rushstack were recorded on 2026-11-08 with
-the categories of [ADR 0068](../../adrs/0068-what-the-knip-comparison-sets-apart.md). The entries of n8n, angular,
-opencode and rules-js (whose installs fetch tarballs from `codeload.github.com`) and of vercel-examples and next-js
-(whose installs did not fit the disk) predate them, and the per-repository `entry` lists and recursive runs of
-[#27](https://github.com/Goldziher/skif/issues/27), so they still need a
-`mise run parity -- --install --write-baseline --only <name>` refresh before `--check` means anything for them. Every
-entry predates the categories of
-[ADR 0080](../../adrs/0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md), so
-all of them need that refresh. The
-scheduled `corpus` workflow (`.github/workflows/corpus.yml`, weekly and on demand, never on pull requests) runs both
-checks. The decision is [ADR 0026](../../adrs/0026-parity-and-diff-tasks-on-a-pinned-corpus.md).
+repository changes between compared and skipped, or when a fixture that agreed before now differs. It refuses, with
+one message instead of a list of drifts, a baseline recorded with another tool version or another category set (an
+older harness, or one that sets apart other findings), and it refuses a repository whose checkout is installed
+differently, or whose skif ran with another `--recursive` mode, from when it was recorded. A run narrowed with
+`--only` is checked against those entries alone, and `--write-baseline --only` updates only them, so the baseline can
+be refreshed one repository at a time (install, run, then delete the checkout's `node_modules`) where the disk does
+not hold every install at once; entries recorded with another tool version or category set are dropped on write, not
+merged. The scheduled `corpus` workflow (`.github/workflows/corpus.yml`, weekly and on demand, never on pull requests)
+runs both checks and writes the parity table and any drift to the job summary. The decision is
+[ADR 0026](../../adrs/0026-parity-and-diff-tasks-on-a-pinned-corpus.md).
 
 ## Measured numbers
 
