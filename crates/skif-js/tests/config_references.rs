@@ -445,3 +445,54 @@ fn the_ignore_files_are_read_once_per_judged_config_not_per_named_package() {
     assert!(one > 0, "the root .gitignore is never read");
     assert_eq!(one, eight);
 }
+
+/// A package that only a module of another workspace package names, which a config imports values from (an oxlint
+/// `extends` of a shared config package, a stylelint spread of an imported base), is judged against the package owning
+/// that module: listed there, it is used there and not unlisted at the importing config.
+#[test]
+fn packages_an_imported_shared_config_names_are_charged_to_its_package() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*"],"devDependencies":{"oxlint":"1.0.0"}}"#,
+        ),
+        (
+            "packages/app/package.json",
+            r#"{"name":"@x/app","private":true,"type":"module","main":"src/index.ts","devDependencies":{"@x/cfg":"workspace:*","@x/style":"workspace:*","oxlint":"1.0.0","stylelint":"16.0.0"}}"#,
+        ),
+        (
+            "packages/app/oxlint.config.mts",
+            "import { base } from '@x/cfg/base';\nimport { defineConfig } from 'oxlint';\nexport default defineConfig({ extends: [base], jsPlugins: ['eslint-plugin-own'] });\n",
+        ),
+        (
+            "packages/app/stylelint.config.mjs",
+            "import baseConfig from '@x/style';\nexport default { ...baseConfig, plugins: ['stylelint-own'] };\n",
+        ),
+        ("packages/app/src/index.ts", "export const a = 1;\n"),
+        (
+            "packages/cfg/package.json",
+            r#"{"name":"@x/cfg","private":true,"type":"module","exports":{"./base":{"types":"./dist/base.d.ts","default":"./dist/base.js"}},"dependencies":{"eslint-plugin-foo":"1.0.0"}}"#,
+        ),
+        ("packages/cfg/tsconfig.json", r#"{"compilerOptions":{"rootDir":"src","outDir":"dist"}}"#),
+        (
+            "packages/cfg/src/base.ts",
+            "export const base = { jsPlugins: ['eslint-plugin-foo'] };\n",
+        ),
+        (
+            "packages/style/package.json",
+            r#"{"name":"@x/style","private":true,"type":"module","main":"index.js","dependencies":{"postcss-scss":"4.0.0","stylelint-scss":"6.0.0"}}"#,
+        ),
+        (
+            "packages/style/index.js",
+            "export default { customSyntax: 'postcss-scss', plugins: ['stylelint-scss'] };\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unlisted-dependencies"),
+        [
+            "packages/app/oxlint.config.mts: eslint-plugin-own",
+            "packages/app/stylelint.config.mjs: stylelint-own",
+        ]
+    );
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none());
+}

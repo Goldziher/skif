@@ -1,11 +1,12 @@
 //! The driver: decides which plugins are enabled for a workspace, finds and reads their config files and
 //! collects their output.
 
+use std::cell::RefCell;
 use std::collections::{BTreeSet, VecDeque};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use skif_config::{PluginConfig, PluginOptions};
-use skif_js_syntax::ConfigValue;
+use skif_js_syntax::{ConfigValue, ModuleLoader};
 
 use crate::config_load::{from_json, load_config_with};
 use crate::files::find_files;
@@ -112,6 +113,40 @@ struct Collector<'a, 'b> {
     queue: VecDeque<Queued>,
     /// Whether the module resolution options of a config inside another package stay with that package.
     confine_to_package: bool,
+    /// The modules, with their source, that the config being absorbed imports values from.
+    imported: Vec<(PathBuf, String)>,
+}
+
+/// A [`ModuleLoader`] that records the modules it loads, so a package a config names can be traced to the module
+/// that names it.
+struct Recording<'a> {
+    inner: &'a dyn ModuleLoader,
+    loaded: RefCell<Vec<(PathBuf, String)>>,
+}
+
+impl ModuleLoader for Recording<'_> {
+    fn load(&self, from: &Path, specifier: &str) -> Option<(PathBuf, String)> {
+        let found = self.inner.load(from, specifier)?;
+        let mut loaded = self.loaded.borrow_mut();
+        if !loaded.iter().any(|(path, _)| *path == found.0) {
+            loaded.push(found.clone());
+        }
+        Some(found)
+    }
+}
+
+/// Whether `source` holds a string literal naming the package `name` or a path inside it (`'eslint-plugin-foo'`,
+/// `"@scope/pkg/sub"`).
+fn names_package(source: &str, name: &str) -> bool {
+    ['\'', '"', '`'].iter().any(|quote| {
+        let needle = format!("{quote}{name}");
+        source.match_indices(&needle).any(|(at, _)| {
+            source[at + needle.len()..]
+                .chars()
+                .next()
+                .is_some_and(|next| next == *quote || next == '/')
+        })
+    })
 }
 
 /// A config file waiting to be read.
@@ -131,6 +166,34 @@ impl Collector<'_, '_> {
             && from.parent().is_some_and(|dir| {
                 dir != self.ctx.dir && dir.starts_with(self.ctx.dir) && self.ctx.fs.is_file(&dir.join("package.json"))
             })
+    }
+
+    /// Whether `path`, a module a config imports values from, belongs to another package than the workspace: it lies
+    /// outside the workspace directory or below a nested `package.json`.
+    fn is_foreign_module(&self, path: &Path) -> bool {
+        if !path.starts_with(self.ctx.dir) {
+            return true;
+        }
+        path.ancestors()
+            .skip(1)
+            .take_while(|dir| *dir != self.ctx.dir)
+            .any(|dir| self.ctx.fs.is_file(&dir.join("package.json")))
+    }
+
+    /// The file that names the package `name` the config `from` holds: the config itself, unless only a module of
+    /// another package it imports values from names it (`extends: [base]` of a shared config package). That module
+    /// then answers for the package, so its owner is judged for it, as for a config of its own.
+    fn named_by(&self, from: &Path, config: Option<&ConfigAst<'_>>, name: &str) -> PathBuf {
+        let Some(config) = config.filter(|_| !self.imported.is_empty()) else {
+            return from.to_path_buf();
+        };
+        if names_package(config.source, name) {
+            return from.to_path_buf();
+        }
+        self.imported
+            .iter()
+            .find(|(path, source)| self.is_foreign_module(path) && names_package(source, name))
+            .map_or_else(|| from.to_path_buf(), |(path, _)| path.clone())
     }
 
     /// Takes in what `reader`, the plugin whose config `from` is, read from it. `config` is the config read, which
@@ -163,7 +226,10 @@ impl Collector<'_, '_> {
                     push_unique(&mut self.out.production_entries, path);
                 }
                 PluginInput::EntryRegex(pattern) => push_unique(&mut self.out.entry_regexes, pattern),
-                PluginInput::Dependency(name) => self.dependency(DepRef::new(name, from, false, config.is_some())),
+                PluginInput::Dependency(name) => {
+                    let named_by = self.named_by(from, config, &name);
+                    self.dependency(DepRef::new(name, &named_by, false, config.is_some()));
+                }
                 PluginInput::OptionalDependency(name) => {
                     self.dependency(DepRef::new(name, from, true, config.is_some()));
                 }
@@ -343,6 +409,7 @@ fn run_plugin(
         },
         queue: VecDeque::new(),
         confine_to_package: matches!(spec.id, "typescript" | "tsrs"),
+        imported: Vec::new(),
     };
     for production in spec.production {
         push_unique(&mut collector.out.entries, (*production).to_string());
@@ -473,7 +540,12 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
         collector.out.config_files.push(path.clone());
         // A plugin that reads the source rather than the exported value (`export const config` of Stencil) still
         // sees a file whose export is not understood.
-        let value = match load_config_with(&path, &source, ctx.modules) {
+        let recording = ctx.modules.map(|inner| Recording {
+            inner,
+            loaded: RefCell::new(Vec::new()),
+        });
+        let modules = recording.as_ref().map(|recording| recording as &dyn ModuleLoader);
+        let value = match load_config_with(&path, &source, modules) {
             Some(value) => value,
             None if !reader.reads_config() => ConfigValue::Null,
             None => {
@@ -500,7 +572,9 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
             collector.mark_incomplete(reader.spec().id, &path, cause, scope);
         }
         let inputs = reader.resolve_config(&ast, ctx);
+        collector.imported = recording.map(|recording| recording.loaded.into_inner()).unwrap_or_default();
         collector.absorb(reader.spec().id, inputs, (&path, Some(&ast)), depth);
+        collector.imported.clear();
     }
 }
 
@@ -576,6 +650,7 @@ mod tests {
             out: PluginOutput::default(),
             queue: VecDeque::new(),
             confine_to_package: false,
+            imported: Vec::new(),
         };
         collector.absorb(
             "vite",

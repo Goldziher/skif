@@ -131,6 +131,11 @@ All notable changes to this project are documented here. The format follows
 - An extensionless mise file task whose shebang runs it with `node`, `bun`, `deno`, `tsx` or `ts-node`
   (`mise-tasks/gen` with `#!/usr/bin/env node`) is read as JavaScript: the relative modules it imports or requires are
   entries, so they are no longer `unused-files`. The packages it imports are not credited yet.
+- A package that only a module of another workspace package names, which a config imports values from (an Oxlint
+  `extends: [base]` of a shared config package, a Stylelint spread of an imported base config), is judged against the
+  package owning that module: it is no longer reported unlisted at the importing config, nor unused in the shared
+  config package that lists it. `DepRef::from` of `skif-js-plugins` names that module
+  ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
 
 ### Changed
 
