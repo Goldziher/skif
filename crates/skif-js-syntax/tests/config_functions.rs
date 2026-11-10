@@ -791,3 +791,23 @@ fn a_missing_key_is_undefined_to_a_member_and_a_destructuring_alike() {
     assert_eq!(value.get("open"), Some(&ConfigValue::Unknown));
     assert_eq!(value.get("openMember"), Some(&ConfigValue::Unknown));
 }
+
+/// A key a known object does not have itself may still be inherited: a member of `Object.prototype` (`constructor`,
+/// `toString`, `hasOwnProperty`, `valueOf`) and any key of an object with a `__proto__` are unknown, to a member read
+/// and a destructuring alike, rather than `undefined`.
+#[test]
+fn an_inherited_key_is_unknown_rather_than_undefined() {
+    let value = extract(
+        "vite.config.ts",
+        "const options = { base: '/' };\n\
+         const inherits = { __proto__: { mode: 'prod' }, base: '/' };\n\
+         const pick = ({ toString }) => toString ?? 'fallback';\n\
+         export default { constructor: options.constructor ?? 'fallback', toString: options.toString ?? 'fallback', \
+         hasOwnProperty: options.hasOwnProperty ?? 'fallback', valueOf: options.valueOf ?? 'fallback', \
+         proto: inherits.mode ?? 'fallback', destructured: pick(options), missing: options.mode ?? 'fallback' };",
+    );
+    for key in ["constructor", "toString", "hasOwnProperty", "valueOf", "proto", "destructured"] {
+        assert_eq!(value.get(key), Some(&ConfigValue::Unknown), "{key}: {value:?}");
+    }
+    assert_eq!(get(&value, &["missing"]), &s("fallback"));
+}

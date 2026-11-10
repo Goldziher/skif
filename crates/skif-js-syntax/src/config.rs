@@ -76,6 +76,22 @@ const AMBIGUOUS_MERGES: &[&str] = &["merge", "mergeWith"];
 /// Members of a glob function that list files too (`fg.sync`, `glob.globSync`).
 const GLOB_MEMBERS: &[&str] = &["sync", "async", "glob", "globSync", "globbySync", "stream"];
 
+/// The members every object inherits from `Object.prototype`.
+const OBJECT_PROTOTYPE_MEMBERS: &[&str] = &[
+    "__defineGetter__",
+    "__defineSetter__",
+    "__lookupGetter__",
+    "__lookupSetter__",
+    "__proto__",
+    "constructor",
+    "hasOwnProperty",
+    "isPrototypeOf",
+    "propertyIsEnumerable",
+    "toLocaleString",
+    "toString",
+    "valueOf",
+];
+
 /// A statically known value from a config file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -3130,13 +3146,21 @@ fn length_of(value: &ConfigValue) -> ConfigValue {
 }
 
 /// `value.key`, as a member read or a destructuring takes it: the value of `key` in a known object ([`entry_value`]),
-/// unknown for a member of anything else, and `None` when the object has neither the key nor an unknown spread, which
-/// is `undefined` there.
+/// unknown for a member of anything else and for a key the object may inherit ([`inherits`]), and `None` when the
+/// object has neither the key nor an unknown spread, which is `undefined` there.
 fn member_of(value: &ConfigValue, key: &str) -> Option<ConfigValue> {
     match value {
-        ConfigValue::Object(entries) => entry_value(entries, key),
+        ConfigValue::Object(entries) => {
+            entry_value(entries, key).or_else(|| inherits(entries, key).then_some(ConfigValue::Unknown))
+        }
         _ => Some(ConfigValue::Unknown),
     }
+}
+
+/// Whether an object with `entries` may inherit `key` it does not have itself: a member of `Object.prototype`, or any
+/// key when the object sets its prototype (`{ __proto__: base }`), which the evaluator does not follow.
+fn inherits(entries: &[(String, ConfigValue)], key: &str) -> bool {
+    OBJECT_PROTOTYPE_MEMBERS.contains(&key) || entries.iter().any(|(name, _)| name == "__proto__")
 }
 
 /// The entries a spread of one of `branches` adds after `before`; see [`any_entries`].
