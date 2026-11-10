@@ -117,6 +117,10 @@ crediting the whole set needs no second lint.
 * Bad, because a root linted on its own still reports these files, as for the other channels.
 * Neutral, because a plugin entry is listed only when it names one path; a glob that names files of another root is
   still not followed there.
+* Bad, because a file of another root reached through a symlinked `file:` or `link:` dependency below `node_modules`
+  is not credited: the import resolves to an installed package, which the graph does not follow.
+* Bad, because paths are compared as written: on a case-insensitive file system, a file reached through a path that
+  differs from its root's only in case is not credited to that root.
 * Bad, because a test file that only Jest's `testPathIgnorePatterns` excludes, or that only the default test globs
   match in a config whose `testRegex` replaces them for Jest, stays an entry and is not reported, as knip does not
   report it.
