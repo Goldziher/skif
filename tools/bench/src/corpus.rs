@@ -471,8 +471,17 @@ mod tests {
         #[cfg(unix)]
         assert!(error.contains(&format!("process {}", std::process::id())), "{error}");
         drop(held);
-        let again = lock_checkout(&dir);
-        assert!(again.is_ok(), "a released lock is free: {again:?}");
+        // A child another test forks in this process holds a copy of the descriptor, and with it the lock, until it
+        // execs, so the release is observed within a bounded wait rather than at once.
+        let mut again = lock_checkout(&dir);
+        for _ in 0..200 {
+            if again.is_ok() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            again = lock_checkout(&dir);
+        }
+        assert!(again.is_ok(), "a released lock is free within 2 s: {again:?}");
         drop(again);
         fs::remove_dir_all(&cache).unwrap();
     }
