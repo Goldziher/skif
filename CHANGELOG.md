@@ -153,6 +153,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A bare-major range such as `^2` or `~1` stands for the versions it covers: `"a": "^2"` on a workspace package at
+  `2.3.0` is valid, and `^2` overlaps `~2.1.0` in a `same-range` group. Before, the range was padded to
+  `^2.HUGE.HUGE`, as in syncpack, and accepted no version.
 - An enum or TypeScript namespace read through a namespace import (`ns.E.A`, `ns.E['A']`, the type `ns.E.A`), also
   through a named or `export * as` re-export, uses only the members read on it, so its other members are reported by
   `unused-enum-members` and `unused-namespace-members`. `ns.E` used as a whole still uses every member
