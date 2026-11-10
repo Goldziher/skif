@@ -6,7 +6,8 @@
 //!
 //! Supported inputs are `.js .mjs .cjs .jsx .ts .mts .cts .tsx` and `.d.ts` files, plus the `<script>` blocks (and
 //! Astro frontmatter), the `<style>` imports and the markup identifiers of `.vue`, `.svelte` and `.astro` files:
-//! component tags and the expressions of the template count as uses of the imports they name. `.mdx` files yield the
+//! component tags and the expressions of the template count as uses of the imports they name, unless a template local
+//! of the same name (`v-for`, `{#each}`, an arrow parameter) shadows the import. `.mdx` files yield the
 //! facts of their top-level `import` and `export` statements, and the components their markup names count as uses.
 //! `.tsrx` files yield their imports only, since their templates are no JavaScript. Stylesheets go through
 //! [`parse_stylesheet`]. Other extensions yield [`SyntaxError::Unsupported`].
