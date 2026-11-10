@@ -1760,6 +1760,37 @@ datasource db {
     assert_absent(out, &["./generators/custom.js", "tsx scripts/gen.ts"]);
 }
 
+/// A package a config names only to tune a tool that runs without it (Vite's `optimizeDeps.include`, an
+/// `eslint-plugin-import` resolver) is an optional reference, as knip reads them: it is never unlisted (ADR 0083).
+#[test]
+fn packages_named_only_to_tune_a_tool_are_optional_references() {
+    let results = resolve(
+        &[
+            (
+                "vite.config.ts",
+                r#"export default { optimizeDeps: { include: ["@acme/ui", "react > scheduler"] } };"#,
+            ),
+            (
+                ".eslintrc.json",
+                r#"{"plugins":["import"],"settings":{"import/resolver":{"node":{},"typescript":{}}}}"#,
+            ),
+        ],
+        &["vite", "eslint"],
+    );
+    let optional = |id: &str, name: &str| {
+        output(&results, id)
+            .referenced_dependencies
+            .iter()
+            .find(|d| d.name == name)
+            .map(|d| d.optional)
+    };
+    assert_eq!(optional("vite", "@acme/ui"), Some(true));
+    assert_eq!(optional("vite", "react"), Some(true));
+    assert_eq!(optional("eslint", "eslint-import-resolver-node"), Some(true));
+    assert_eq!(optional("eslint", "eslint-import-resolver-typescript"), Some(true));
+    assert_eq!(optional("eslint", "eslint-plugin-import"), Some(false));
+}
+
 #[test]
 fn graphql_codegen() {
     let config = r#"export default {
