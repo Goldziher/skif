@@ -18,7 +18,7 @@ use crate::package::{Package, PackageId};
 use crate::parallel::map_ordered;
 use crate::pattern::{self, Expander, Pattern};
 use crate::pnpm::{self, YamlSource};
-use crate::{lerna, rush};
+use crate::{lerna, roots, rush};
 
 const MANIFEST: &str = "package.json";
 const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
@@ -77,7 +77,21 @@ pub struct DiscoveryFacts {
     /// Whether the package manager is Yarn Classic (1.x): the `packageManager` field says `yarn@1.x`, or, without
     /// one, `yarn.lock` starts with `# yarn lockfile v1`.
     pub yarn_classic: bool,
+    /// Lockfiles (see [`LOCKFILES`]) and `pnpm-workspace.yaml` files in the root directory and in every directory the
+    /// patterns selected, relative to the root and sorted. Files a `.gitignore`, an `.ignore` or `.git/info/exclude`
+    /// excludes are left out; directories below a package that the patterns did not select are not searched.
+    pub package_manager_files: Vec<PathBuf>,
 }
+
+/// The lockfiles every supported package manager writes, by file name.
+pub const LOCKFILES: [&str; 6] = [
+    "package-lock.json",
+    "npm-shrinkwrap.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "bun.lock",
+    "bun.lockb",
+];
 
 /// A discovered workspace.
 #[derive(Debug)]
@@ -183,6 +197,34 @@ fn load_member(fs: &dyn FileSystem, root: &Path, dir: &str, cache: &SpecifierCac
         },
         Err(error) => Member::Failed(PathBuf::from(dir), io_error(&manifest, error)),
     }
+}
+
+/// The lockfiles and `pnpm-workspace.yaml` files of the root and of `dirs`, relative to the root and sorted, without
+/// those an ignore file excludes. A directory is listed once rather than probed per name.
+fn package_manager_files(fs: &dyn FileSystem, root: &Path, dirs: &[&String], sequential: bool) -> Vec<PathBuf> {
+    let mut scanned: Vec<PathBuf> = vec![root.to_path_buf()];
+    scanned.extend(dirs.iter().map(|dir| root.join(dir.as_str())));
+    let found: Vec<Vec<PathBuf>> = map_ordered(&scanned, sequential, |dir| {
+        let Ok(entries) = fs.read_dir_shared(dir) else {
+            return Vec::new();
+        };
+        entries
+            .iter()
+            .filter(|entry| entry.is_file)
+            .filter(|entry| {
+                entry
+                    .path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name == PNPM_WORKSPACE || LOCKFILES.contains(&name))
+            })
+            .filter(|entry| !roots::is_ignored_file(fs, root, &entry.path))
+            .filter_map(|entry| entry.path.strip_prefix(root).ok().map(Path::to_path_buf))
+            .collect()
+    });
+    let mut files: Vec<PathBuf> = found.into_iter().flatten().collect();
+    files.sort();
+    files
 }
 
 fn json_patterns(root_package: &Package) -> Option<Declared> {
@@ -505,6 +547,7 @@ impl Workspace {
 
         let dirs: Vec<&String> = selected.iter().collect();
         let members: Vec<Member> = map_ordered(&dirs, sequential, |dir| load_member(fs, &root, dir, &specifiers));
+        let package_manager_files = package_manager_files(fs, &root, &dirs, sequential);
         let mut packages = Vec::new();
         let mut dirs_without_manifest = Vec::new();
         let mut failed_dirs = Vec::new();
@@ -558,6 +601,7 @@ impl Workspace {
                 dirs_without_manifest,
                 implicit_patterns: declared.implicit,
                 yarn_classic,
+                package_manager_files,
             },
             pnpm_workspace,
             yarnrc,
