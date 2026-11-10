@@ -231,13 +231,10 @@ struct Lints {
 fn lint_without(mut targets: Vec<Target>, files: &[&Path], lint: &LintArgs, base: &Path) -> Result<Lints, CliError> {
     let filter = Filter::new(lint)?;
     for (target, file) in targets.iter_mut().zip(files) {
-        let ignore = std::mem::take(&mut target.config.ignore);
-        target.config.ignore = ignore
-            .into_iter()
-            .enumerate()
-            .filter(|(index, _)| !is_from(target, &format!("ignore[{index}]"), file))
-            .map(|(_, entry)| entry)
+        let keep: Vec<bool> = (0..target.config.ignore.len())
+            .map(|index| !is_from(target, &format!("ignore[{index}]"), file))
             .collect();
+        target.retain_ignore(|index| keep[index]);
         lint::adjust(lint, &mut target.config)?;
         filter.configure(&mut target.config)?;
     }

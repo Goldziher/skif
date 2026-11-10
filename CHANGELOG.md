@@ -41,6 +41,8 @@ All notable changes to this project are documented here. The format follows
   it. The rules read those files through `LintContext::fs`, the file system the run is given
   (`skif_lint::RunOptions::with_fs`), as the rules over a lockfile and patch files do
   ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
+- `skif::Target::retain_ignore` filters the `[[ignore]]` entries of a target with its `origins` kept aligned, through
+  `skif_config::Origins::retain_list`, which renumbers the entries of one list.
 
 ### Changed
 
@@ -258,6 +260,7 @@ All notable changes to this project are documented here. The format follows
 - `skif baseline write` and `prune` set aside only the entries of the baseline file while they lint; a hand-written
   `[[ignore]]` of another configuration file equal to a baseline entry was set aside too, so `write` recorded its
   finding into the baseline and the suppression moved there.
+  An error about an entry of the rest (an unknown rule ID) names the file and line that set it, not a baseline entry.
 - `skif baseline check --file` in a directory that does not exist names the directory instead of calling the revision
   bad.
 - The `--format human` help of `skif baseline`, `config`, `migrate`, `rules` and `update` no longer calls every output
