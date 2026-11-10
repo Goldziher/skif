@@ -76,8 +76,9 @@
 //! manifest lists, which Node.js resolves from the outer `node_modules`: the nested root's report lists those in
 //! [`Report::ancestor_dependency_uses`], and `skif -r` drops the outer root's unused-dependency findings for them
 //! (with [`Report::retain`]). Files of a root that code outside it reaches (a nested root requiring
-//! `../tools/detect.js`, a sibling root) are listed in [`Report::other_project_files`] with absolute paths, and
-//! `skif -r` drops the owning root's `unused-files` findings for them the same way.
+//! `../tools/detect.js`, a sibling root) are listed in [`Report::other_project_files`] too, and `skif -r` drops the
+//! owning root's `unused-files` findings for them the same way; the dependencies those files import count as used by
+//! the manifest that lists them, through [`Report::ancestor_dependency_uses`]. Every path there is absolute.
 //!
 //! # Features
 //!

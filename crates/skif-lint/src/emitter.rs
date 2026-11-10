@@ -171,7 +171,7 @@ impl<'a> Emitter<'a> {
     }
 
     /// Records that the analysed code uses dependency `name` through the `package.json` in `manifest_dir`, a
-    /// directory above the workspace root, so a multi-root host can count it as used by the root that owns that
+    /// directory outside the workspace root, so a multi-root host can count it as used by the root that owns that
     /// manifest.
     pub fn report_ancestor_dependency_use(&mut self, manifest_dir: PathBuf, name: String) {
         self.ancestor_dependency_uses.push((manifest_dir, name));

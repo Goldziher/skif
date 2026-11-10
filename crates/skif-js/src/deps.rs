@@ -10,11 +10,12 @@ use skif_js_plugins::scripts::{ScriptContext, is_ignored_binary, parse_script};
 use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object};
 use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 
-use crate::ancestors::{external_manifests, listed_names};
+use crate::ancestors::{external_manifests, is_repository_root, listed_names, read_manifest};
 use crate::discover::relative;
 use crate::fixture::in_fixture_directory;
 use crate::graph::{ModuleGraph, ModuleId, Target};
 use crate::lockfile;
+use crate::resolve::is_installed;
 use crate::scripts::{ScriptBinary, script_context};
 use crate::setup::Setup;
 use crate::specifier::{RUNTIME_PACKAGES, package_name, typed_package, types_package};
@@ -489,6 +490,9 @@ pub struct DependencyUsage {
     external_listed: HashMap<String, PathBuf>,
     /// The names of `external_listed` that this workspace uses.
     external_used: BTreeSet<String>,
+    /// The packages files outside the workspace root import, with the directory of the manifest that lists each; see
+    /// [`Self::collect_outside_imports`].
+    outside_used: BTreeSet<(PathBuf, String)>,
     hosts: Vec<HashMap<String, Vec<String>>>,
     bins: Vec<HashMap<String, Vec<String>>>,
     member_bins: BTreeMap<String, Vec<String>>,
@@ -531,6 +535,7 @@ impl DependencyUsage {
         usage.collect_ancestor_bins(workspace, fs);
         usage.collect_member_bins(workspace);
         usage.collect_imports(workspace, setup, graph);
+        usage.collect_outside_imports(workspace, graph, fs);
         usage.collect_scripts(workspace, setup);
         usage
     }
@@ -650,6 +655,38 @@ impl DependencyUsage {
                     if !providers.iter().any(|provider| provider == name) {
                         providers.push(name.to_owned());
                     }
+                }
+            }
+        }
+    }
+
+    /// The packages that the files outside the workspace root which the graph reached import (a sibling root's
+    /// `lib.js`, a file of an enclosing root), each with the directory of the innermost manifest at or above the file,
+    /// up to the repository root, that lists it: Node.js resolves it from there, so it is a used dependency of the
+    /// project that owns that manifest, which does not see this code. Installed code is left out.
+    fn collect_outside_imports(&mut self, workspace: &Workspace, graph: &ModuleGraph, fs: &dyn FileSystem) {
+        let mut listed_in: HashMap<PathBuf, HashSet<String>> = HashMap::new();
+        let outside = graph
+            .modules()
+            .iter()
+            .filter(|module| !module.abs.starts_with(&workspace.root) && !is_installed(&module.abs));
+        for module in outside {
+            for name in module.imports.iter().filter_map(|import| import.package.as_deref()) {
+                let mut dir = module.abs.parent();
+                while let Some(current) = dir {
+                    let names = listed_in.entry(current.to_path_buf()).or_insert_with(|| {
+                        read_manifest(fs, current)
+                            .map(|manifest| listed_names(&manifest).map(str::to_owned).collect())
+                            .unwrap_or_default()
+                    });
+                    if names.contains(name) {
+                        self.outside_used.insert((current.to_path_buf(), name.to_owned()));
+                        break;
+                    }
+                    if is_repository_root(fs, current) {
+                        break;
+                    }
+                    dir = current.parent();
                 }
             }
         }
@@ -1083,14 +1120,17 @@ impl DependencyUsage {
         self.listed[id.index()].contains(name)
     }
 
-    /// The dependencies this workspace uses that only a `package.json` above its root lists, each with the directory
-    /// of the innermost such manifest, by name: Node.js resolves them from that project's `node_modules`, so they are
-    /// used dependencies of that project, which cannot see this code.
+    /// The dependencies this workspace uses through a `package.json` outside its root, each with the directory of
+    /// that manifest: those its own code uses that only a manifest above its root lists (the innermost one), and those
+    /// the files outside its root that the graph reached import (the innermost manifest at or above the file that
+    /// lists them). Node.js resolves them from that project's `node_modules`, so they are used dependencies of that
+    /// project, which cannot see this code.
     #[must_use]
     pub fn ancestor_uses(&self) -> Vec<(PathBuf, String)> {
         self.external_used
             .iter()
             .filter_map(|name| Some((self.external_listed.get(name)?.clone(), name.clone())))
+            .chain(self.outside_used.iter().cloned())
             .collect()
     }
 }

@@ -69,6 +69,13 @@ as before. A file outside the listing root is credited once every root is linted
 `unused-files` diagnostic for the file with `Report::retain`, as ADR 0077 does for dependencies. The lint after
 `--fix` credits the same files. A file outside every root of the run is dropped.
 
+**Dependencies of credited files.** The packages a file outside the listing root imports are resolved by Node.js
+from that file's directory upwards, so they are used dependencies of the manifest there, not of the listing root.
+`Report::ancestor_dependency_uses` lists each of them with the innermost manifest at or above the file, up to the
+repository root, that lists it, and `skif -r` credits it to the root that owns that manifest exactly as it credits the
+dependencies a nested root uses (ADR 0077): a sibling's `lib.js` that requires `lodash` keeps `lodash` used in the
+sibling's `package.json`, and `--fix` does not remove it.
+
 **Members below a skipped directory.** The walk enters a directory it skips by name when a workspace package lies
 below it, and then only for those packages: the files of that directory and of its other subdirectories stay out,
 and hidden directories inside the members are skipped as before. The `skipped-directory` deviation of the knip
@@ -95,8 +102,11 @@ crediting the whole set needs no second lint.
 
 `crates/skif-cli/tests/multi.rs` checks that `skif -r` keeps a file of a nested root that a workflow of the outer
 root runs, a file of the outer root that the nested root requires together with the file that one requires, and a
-file a sibling root requires; that each root linted on its own still reports them; and that `--fix-unsafe
---allow-remove-files` keeps them and deletes the unused files beside them. `crates/skif-js/src/discover.rs` checks
+file a sibling root requires together with the dependency that file imports; that each root linted on its own still
+reports them; and that `--fix-unsafe --allow-remove-files` keeps them and deletes the unused files and dependencies
+beside them. `crates/skif-js/tests/fp_resolve.rs` checks that a file outside the root is followed, listed with an
+absolute path and judged by no rule of the importing root, and that its dependency is listed with the sibling's
+manifest. `crates/skif-js/src/discover.rs` checks
 that the files of `.vscode/extensions/*` members are found and owned by them while other files of `.vscode` are not,
 and `tools/bench/src/parity.rs` that the knip comparison sets apart a file below `.vscode` only outside a member.
 

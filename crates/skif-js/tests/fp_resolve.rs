@@ -192,6 +192,11 @@ fn files_outside_the_root_are_followed_and_listed_absolute_without_findings_of_t
         .filter(|rule| ["unlisted-dependencies", "unresolved-imports", "unused-files"].contains(rule))
         .collect();
     assert_eq!(findings, Vec::<&str>::new(), "{:?}", report.diagnostics);
+    // Node.js resolves `lodash` for `lib.js` from `a`, so `a`'s manifest is where the use counts.
+    assert_eq!(
+        report.ancestor_dependency_uses,
+        [(PathBuf::from("/ws/a"), "lodash".to_owned())]
+    );
 }
 
 #[test]
