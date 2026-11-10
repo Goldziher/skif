@@ -681,6 +681,9 @@ fn execute(args: &LintArgs, env: Env, teardown: Teardown, modules: Option<&dyn C
     let only = fix::fix_type_rules(&args.fix_type, linters.rules().into_iter().map(|meta| meta.id))?;
     let mut runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
     filter.apply_runs(&mut runs)?;
+    if !multi && args.fixing() {
+        warn_nested_roots(args, &base, &runs, &fs);
+    }
 
     let mut fixes: Vec<FixRun> = Vec::new();
     if args.dry_run() {
@@ -789,6 +792,39 @@ fn execute(args: &LintArgs, env: Env, teardown: Teardown, modules: Option<&dyn C
         std::mem::forget(fs);
     }
     Ok(code)
+}
+
+/// The rules whose fixes remove a dependency of a manifest.
+const DEPENDENCY_REMOVALS: [&str; 2] = ["unused-dependencies", "unused-dev-dependencies"];
+
+/// Warns when a single-root run is about to fix a finding that removes a dependency while other roots lie below the
+/// root: their code is not analysed, so a dependency of this root that only they use is reported unused and the fix
+/// removes it. `skif -r` credits their uses (ADR 0077).
+fn warn_nested_roots(args: &LintArgs, root: &Path, runs: &[RootRun], fs: &dyn FileSystem) {
+    let removes = runs.iter().flat_map(|run| &run.report.diagnostics).any(|diagnostic| {
+        DEPENDENCY_REMOVALS.contains(&diagnostic.rule.as_str()) && !diagnostic.fixes.is_empty()
+    });
+    if !removes {
+        return;
+    }
+    let Ok(discovery) = skif::discover_targets(root, fs, &overrides(args)) else {
+        return;
+    };
+    let nested: Vec<String> = discovery
+        .targets
+        .iter()
+        .filter(|target| target.root.as_path() != root)
+        .map(|target| skif::slash(target.root.strip_prefix(root).unwrap_or(&target.root)))
+        .collect();
+    if nested.is_empty() {
+        return;
+    }
+    stderr_line(&format!(
+        "warning: {} holds other roots ({}) that this run does not analyse, so a dependency only their code uses is \
+         reported unused and its fix removes it; run with -r to credit their uses",
+        root.display(),
+        escape_controls(&nested.join(", "))
+    ));
 }
 
 /// `--max-show-issues` shortens the list a person reads: human and JSON output only, and not when fixing, where
