@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
-use skif_js::in_incomplete_scope;
+use skif_js::{in_incomplete_scope, is_out_dir};
 use skif_workspace::{OsFs, declared_member_dirs};
 
 use crate::corpus::{self, RUSH_KNIP_ROOT, Repo, Tools};
@@ -179,7 +179,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 13] = [
     },
     Deviation {
         id: PUBLISHED_SOURCE,
-        reason: "knip reports these TypeScript files as unused, and the package that holds each one publishes its path with a built extension (`.js`, `.mjs`, `.cjs`, `.jsx` or a `.d.ts` variant) in `main`, `module`, `source`, `types`, `typings`, `browser`, `bin` or an `exports` leaf, where `*` matches any part of the path. skif makes the source beside a published path an entry; knip maps a published path to source only through a tsconfig `outDir`. The harness checks the published path, not why skif has no finding for each file",
+        reason: "knip reports these TypeScript files as unused, and the package that holds each one publishes its path with a built extension (`.js`, `.mjs`, `.cjs`, `.jsx` or a `.d.ts` variant) or without one in `main`, `module`, `source`, `types`, `typings`, `browser`, `bin` or an `exports` leaf, where `*` matches any part of the path; a path below a build directory (`dist`, `lib`, `out`, `esm` and the like, also `lib-commonjs`) is also the path below `src`. skif makes the source of a published path an entry; knip maps a published path to source only through a tsconfig `outDir`. The harness checks the published path, not why skif has no finding for each file, nor the files only such an entry reaches",
     },
     Deviation {
         id: IN_KNIP_UNUSED_FILE,
@@ -634,6 +634,9 @@ const PUBLISHED_EXTENSIONS: [(&str, &[&str]); 7] = [
     (".js", &["ts", "tsx", "mts", "cts"]),
 ];
 
+/// The TypeScript source extensions; an extensionless published path (`./out/main`) may be the twin of any of them.
+const TYPESCRIPT_EXTENSIONS: &[&str] = &["ts", "tsx", "mts", "cts"];
+
 /// The stem and extension of a TypeScript source file (`.ts`, `.tsx`, `.mts`, `.cts`, not a declaration file).
 fn typescript_source(path: &str) -> Option<(&str, &str)> {
     let name = path.rsplit('/').next().unwrap_or(path);
@@ -644,9 +647,7 @@ fn typescript_source(path: &str) -> Option<(&str, &str)> {
         return None;
     }
     let (stem, extension) = path.rsplit_once('.')?;
-    ["ts", "tsx", "mts", "cts"]
-        .contains(&extension)
-        .then_some((stem, extension))
+    TYPESCRIPT_EXTENSIONS.contains(&extension).then_some((stem, extension))
 }
 
 /// Whether `text` matches `pattern`, where each `*` matches one or more characters, `/` included, as in the
@@ -662,13 +663,35 @@ fn wildcard_match(pattern: &str, text: &str) -> bool {
     }
 }
 
-/// Whether the source file `stem.extension` (relative to its package) is the twin of the published path `target`.
-fn is_published_twin(target: &str, stem: &str, extension: &str) -> bool {
-    let clean = target.trim_start_matches("./");
+/// The published path without its built extension and the source extensions it maps back to: those of
+/// [`PUBLISHED_EXTENSIONS`], or every TypeScript one for a path whose file name has no extension (`./out/main`, which
+/// Node resolves with `.js`). `None` for any other extension (`.css`, `.json`).
+fn published_stem(clean: &str) -> Option<(&str, &[&str])> {
     PUBLISHED_EXTENSIONS
         .iter()
-        .find_map(|(suffix, sources)| clean.strip_suffix(suffix).map(|published| (published, sources)))
-        .is_some_and(|(published, sources)| sources.contains(&extension) && wildcard_match(published, stem))
+        .find_map(|(suffix, sources)| clean.strip_suffix(suffix).map(|published| (published, *sources)))
+        .or_else(|| {
+            let name = clean.rsplit('/').next().unwrap_or(clean);
+            (!name.contains('.')).then_some((clean, TYPESCRIPT_EXTENSIONS))
+        })
+}
+
+/// Whether the source file `stem.extension` (relative to its package) is the twin of the published path `target`: the
+/// same path, or for a path below a build directory (`is_out_dir` of `skif-js`: `out`, `lib-commonjs`, ...) the same
+/// path below `src`, as skif maps a published path back to its source.
+fn is_published_twin(target: &str, stem: &str, extension: &str) -> bool {
+    let clean = target.trim_start_matches("./");
+    let Some((published, sources)) = published_stem(clean) else {
+        return false;
+    };
+    if !sources.contains(&extension) {
+        return false;
+    }
+    let below_src = published
+        .split_once('/')
+        .filter(|(first, _)| is_out_dir(first))
+        .map(|(_, rest)| format!("src/{rest}"));
+    wildcard_match(published, stem) || below_src.is_some_and(|source| wildcard_match(&source, stem))
 }
 
 fn collect_strings(value: &Value, out: &mut Vec<String>) {
@@ -2480,6 +2503,69 @@ mod tests {
                 "only unused files"
             );
         });
+    }
+
+    #[test]
+    fn published_paths_below_build_directories_and_without_extensions_map_to_their_sources() {
+        let manifests = [
+            ("", json!({ "name": "root" })),
+            (
+                "libraries/heft",
+                json!({ "name": "heft", "main": "./lib-commonjs/index.js", "exports": {
+                    "./lib/*": { "types": "./lib/*.d.ts", "default": "./lib-commonjs/*.js" },
+                    "./package.json": "./package.json",
+                } }),
+            ),
+            (
+                "extensions/git",
+                json!({ "name": "git", "main": "./out/main", "browser": "./dist/browser/extension" }),
+            ),
+            (
+                "packages/tool",
+                json!({ "name": "tool", "bin": { "tool": "./bin/tool" } }),
+            ),
+            (
+                "packages/styles",
+                json!({ "name": "styles", "main": "./dist/index.css" }),
+            ),
+        ];
+        let members = ["libraries/heft", "extensions/git", "packages/tool", "packages/styles"];
+        with_classifier(&members, &manifests, &[], |classifier| {
+            for key in [
+                "libraries/heft/src/index.ts",
+                "libraries/heft/src/utilities/fs.ts",
+                "libraries/heft/src/plugins/copy/CopyFilesPlugin.tsx",
+                "extensions/git/src/main.ts",
+                "extensions/git/src/browser/extension.ts",
+                "packages/tool/bin/tool.ts",
+            ] {
+                assert_eq!(
+                    classifier.classify(Side::Tool, "files", key),
+                    Some(PUBLISHED_SOURCE),
+                    "{key}"
+                );
+            }
+            for key in [
+                "libraries/heft/scripts/build.ts",
+                "libraries/heft/src/index.d.ts",
+                "extensions/git/src/other.ts",
+                "extensions/git/main.ts",
+                "packages/tool/src/tool.ts",
+                "packages/styles/src/index.ts",
+            ] {
+                assert_eq!(classifier.classify(Side::Tool, "files", key), None, "{key}");
+            }
+        });
+        assert!(is_published_twin("./lib-commonjs/*.js", "src/a/b", "ts"));
+        assert!(!is_published_twin("./lib-commonjs/*.js", "lib-commonjs-src/a", "ts"));
+        assert!(
+            !is_published_twin("./bundles/index.js", "src/index", "ts"),
+            "`bundles` is not a build directory"
+        );
+        assert!(
+            !is_published_twin("./out/main", "src/main", "js"),
+            "only TypeScript sources"
+        );
     }
 
     #[test]
