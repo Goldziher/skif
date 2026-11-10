@@ -249,11 +249,7 @@ fn test_regexes(object: &ConfigValue, root: Option<&str>, out: &mut Vec<PluginIn
 /// mean the same there, and the others do not change which paths match.
 fn inline_flags(flags: &str) -> String {
     let kept: String = flags.chars().filter(|flag| matches!(flag, 'i' | 'm' | 's')).collect();
-    if kept.is_empty() {
-        kept
-    } else {
-        format!("(?{kept})")
-    }
+    if kept.is_empty() { kept } else { format!("(?{kept})") }
 }
 
 /// A Jest path regex for a match against `/` and the path relative to the package directory. `<rootDir>` stands for
