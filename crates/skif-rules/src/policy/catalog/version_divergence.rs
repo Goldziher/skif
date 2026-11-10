@@ -14,7 +14,8 @@ pub static META: RuleMeta = RuleMeta::new(
     Some(Severity::Warning),
     Fixability::None,
     "Packages take one dependency from catalogs that resolve to different versions.",
-);
+)
+.version_scoped();
 
 /// Reports `catalog:` references to one dependency that resolve to different versions, whatever the catalog mode. A
 /// reference hides its version from `version-mismatch`, so this is what compares them. Running two majors side by
