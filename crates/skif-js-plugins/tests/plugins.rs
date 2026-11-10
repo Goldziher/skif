@@ -1971,6 +1971,14 @@ generator zod {
   provider = "zod-prisma-types"
 }
 
+generator py {
+  provider = "prisma-client-py"
+}
+
+generator go {
+  provider = "prisma-client-go"
+}
+
 generator erd {
   provider = "npx prisma-erd-generator"
 }
@@ -1982,7 +1990,10 @@ datasource db {
     let results = resolve(&[("prisma/schema.prisma", schema)], &["prisma"]);
     let out = output(&results, "prisma");
     assert_deps(out, &["prisma-kysely", "zod-prisma-types"]);
-    assert_absent(out, &["prisma-client-js", "postgresql", "commented-out", "npx"]);
+    assert_absent(
+        out,
+        &["prisma-client-js", "prisma-client-py", "prisma-client-go", "postgresql", "commented-out", "npx"],
+    );
     let manifest = r#"{"name":"app","prisma":{"schema":"db/main.prisma"}}"#;
     let results = resolve(
         &[
