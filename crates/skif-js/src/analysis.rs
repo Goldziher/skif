@@ -19,7 +19,7 @@ use crate::git_index::{IndexCache, Listing, indexed_fs};
 use crate::globs::Globs;
 use crate::graph::{self, Inputs, Module, ModuleGraph, Target};
 use crate::input::InputSource;
-use crate::resolve::ModuleResolver;
+use crate::resolve::{ModuleResolver, is_installed};
 use crate::setup::{Setup, WorkspaceKeys};
 use crate::specifier::package_name;
 use crate::usage::ExportUsage;
@@ -168,12 +168,6 @@ fn mark_foreign_paths(resolver: &ModuleResolver, graph: &ModuleGraph, dependenci
     for (index, mark) in marks {
         dependencies.unlisted[index].foreign_paths = Some(mark);
     }
-}
-
-/// Whether `path` lies below a `node_modules` directory: installed code, not a file of any project.
-fn is_installed(path: &Path) -> bool {
-    path.components()
-        .any(|component| component.as_os_str() == "node_modules")
 }
 
 /// Directories [`on_disk`] does not enter unless the pattern names them: installed packages and git internals are
@@ -654,8 +648,7 @@ impl<'a> JsAnalysis<'a> {
         self.setup.package(id).is_some_and(|package| package.entries_incomplete)
     }
 
-    /// The files of other projects that this workspace uses, sorted: relative to the workspace root for those below
-    /// it, absolute for those outside it.
+    /// The files of other projects that this workspace uses, absolute and sorted.
     ///
     /// Below the root are the files of projects of their own ([`Module::foreign`], such as a nested root) that a
     /// module of this workspace imports, that a script runs, or that a plugin names as an entry (a workflow step's
@@ -670,14 +663,17 @@ impl<'a> JsAnalysis<'a> {
         let root = &self.workspace.root;
         let mut files = BTreeSet::new();
         for module in self.graph.modules() {
-            if module.foreign {
-                if module.is_entry {
-                    files.insert(module.path.clone());
+            if !module.abs.starts_with(root) {
+                if !is_installed(&module.abs) {
+                    files.insert(module.abs.clone());
                 }
                 continue;
             }
-            if !module.abs.starts_with(root) && !is_installed(&module.abs) {
-                files.insert(module.abs.clone());
+            if module.foreign {
+                if module.is_entry {
+                    files.insert(module.abs.clone());
+                }
+                continue;
             }
             for import in &module.imports {
                 let targets = match &import.target {
@@ -686,17 +682,13 @@ impl<'a> JsAnalysis<'a> {
                     _ => &[],
                 };
                 for target in targets.iter().map(|id| self.graph.module(*id)) {
-                    if target.foreign {
-                        files.insert(target.path.clone());
+                    if target.foreign && target.abs.starts_with(root) {
+                        files.insert(target.abs.clone());
                     }
                 }
             }
         }
-        files.extend(
-            self.other_root_entries
-                .iter()
-                .map(|file| relative(file, root).map_or_else(|| file.clone(), PathBuf::from)),
-        );
+        files.extend(self.other_root_entries.iter().cloned());
         files.into_iter().collect()
     }
 
