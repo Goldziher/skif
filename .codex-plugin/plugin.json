@@ -30,6 +30,9 @@
       "Why does skif report this dependency as unused?",
       "Migrate this repository from sherif, syncpack and knip to skif."
     ],
-    "websiteURL": "https://goldziher.github.io/skif/"
+    "websiteURL": "https://goldziher.github.io/skif/",
+    "brandColor": "#F07A1A",
+    "composerIcon": "./.claude-plugin/icon.png",
+    "logo": "./.claude-plugin/icon.png"
   }
 }
