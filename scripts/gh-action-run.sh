@@ -20,10 +20,6 @@ else
   set +f
 fi
 
-if [ "${FAIL_ON_WARNINGS:-false}" = "true" ]; then
-  parsed_args+=("--fail-on-warnings")
-fi
-
 case "${FROM_SHERIF:-false}" in
 true | false) ;;
 *)
@@ -34,8 +30,17 @@ esac
 
 cd "$WORKING_DIRECTORY"
 
-# The subcommands of skif; a run of one of them is not a lint run and gets no translated sherif configuration.
-subcommands=" rules schema init config explain-usage migrate update list json format mcp lsp help "
+# The subcommands of skif (scripts/test-install-scripts.sh checks this list against the CLI). A run of one of them is
+# not a lint run: it gets neither --fail-on-warnings nor a translated sherif configuration, flags only a lint run takes.
+subcommands=" rules schema init config explain-usage migrate baseline update list json format mcp lsp help "
+
+is_lint_run() {
+  [ "${#parsed_args[@]}" -eq 0 ] || [[ "$subcommands" != *" ${parsed_args[0]} "* ]]
+}
+
+if [ "${FAIL_ON_WARNINGS:-false}" = "true" ] && is_lint_run; then
+  parsed_args+=("--fail-on-warnings")
+fi
 
 # Whether skif would read a skif.toml or .skif.toml: in the working directory or a directory above it up to the
 # repository root, or anywhere else the repository tracks one.
@@ -65,9 +70,7 @@ use_sherif_config() {
   if [ ! -f package.json ] || ! grep -q 'sherif' package.json; then
     return 1
   fi
-  if [ "${#parsed_args[@]}" -gt 0 ] && [[ "$subcommands" == *" ${parsed_args[0]} "* ]]; then
-    return 1
-  fi
+  is_lint_run || return 1
   local arg
   for arg in ${parsed_args[@]+"${parsed_args[@]}"}; do
     case "$arg" in --config | --config=* | --no-config) return 1 ;; esac

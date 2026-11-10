@@ -4,7 +4,8 @@
 #   lib/libc.sh              the glibc 2.34 floor: gnu on 2.34 or newer, musl below it or when undetectable
 #   gh-action-resolve.sh     tag and asset selection per runner, the version baked into a release of the Action
 #   gh-action-install.sh     checksum and attestation verification, extraction, outputs, the verified cache-hit path
-#   gh-action-run.sh         argument assembly, the translated sherif configuration (from-sherif)
+#   gh-action-run.sh         argument assembly, lint-only flags, the translated sherif configuration (from-sherif),
+#                            the subcommand list against the CLI's
 #
 # The launcher is served from a file:// release directory (SKIF_RELEASE_URL), the Action from a stub `gh`.
 #
@@ -438,6 +439,9 @@ run_case() {
 run_case "no arguments" "" ARGS= FAIL_ON_WARNINGS=false
 run_case "arguments are split on spaces" "--format sarif --output skif.sarif" ARGS="--format sarif --output skif.sarif"
 run_case "fail-on-warnings is appended" "--no-js --fail-on-warnings" ARGS="--no-js" FAIL_ON_WARNINGS=true
+run_case "fail-on-warnings is appended to a bare lint run" "--fail-on-warnings" ARGS= FAIL_ON_WARNINGS=true
+run_case "fail-on-warnings is not passed to baseline" "baseline write" ARGS="baseline write" FAIL_ON_WARNINGS=true
+run_case "fail-on-warnings is not passed to rules" "rules --format json" ARGS="rules --format json" FAIL_ON_WARNINGS=true
 run_case "globs are passed through unexpanded" "*.json" ARGS="*.json"
 run_case "one argument per line keeps spaces" "--config my dir/skif.toml --no-js" ARGS=$'--config\nmy dir/skif.toml\n--no-js'
 run_case "blank lines and a trailing newline are dropped" "--no-js" ARGS=$'\n--no-js\n\n'
@@ -464,9 +468,25 @@ sherif_case "from-sherif is off by default" "" FROM_SHERIF=
 sherif_case "an explicit --no-config wins" "--no-config" ARGS="--no-config"
 sherif_case "an explicit --config wins" "--config=a.toml" ARGS="--config=a.toml"
 sherif_case "a subcommand is not a lint run" "rules" ARGS="rules"
+sherif_case "baseline is a subcommand" "baseline check --base origin/main" ARGS="baseline check --base origin/main"
+sherif_case "a subcommand gets neither the translation nor fail-on-warnings" "baseline prune" ARGS="baseline prune" \
+  FAIL_ON_WARNINGS=true
+sherif_case "a lint run gets both" "--fail-on-warnings --config TMP/skif.toml" ARGS= FAIL_ON_WARNINGS=true
 touch "${work}/sherif/.skif.toml"
 sherif_case "an existing skif configuration wins" "" ARGS=
 rm "${work}/sherif/.skif.toml"
+# The Action's subcommand list is the CLI's: the variants of `Command` in args.rs, kebab-cased as clap names them,
+# plus clap's own `help`.
+cli_subcommands="$(
+  sed -n '/^pub enum Command {/,/^}/s/^    \([A-Z][A-Za-z]*\).*/\1/p' crates/skif-cli/src/args.rs |
+    sed -e 's/\([a-z]\)\([A-Z]\)/\1-\2/g' | tr '[:upper:]' '[:lower:]'
+  echo help
+)"
+action_subcommands="$(sed -n 's/^subcommands=" \(.*\) "$/\1/p' scripts/gh-action-run.sh | tr ' ' '\n')"
+[[ "$(wc -l <<<"$cli_subcommands")" -ge 10 ]] || fail "run: found too few subcommands in args.rs: ${cli_subcommands}"
+[[ "$(sort <<<"$cli_subcommands")" == "$(sort <<<"$action_subcommands")" ]] ||
+  fail "run: gh-action-run.sh subcommands '$(tr '\n' ' ' <<<"$action_subcommands")' differ from args.rs '$(tr '\n' ' ' <<<"$cli_subcommands")'"
+
 expect "run: an unknown from-sherif value" 2 env PATH="${stubs}:${PATH}" WORKING_DIRECTORY="${work}/sherif" FROM_SHERIF=auto \
   bash scripts/gh-action-run.sh
 expect_in_out "run: unknown from-sherif" 'from-sherif must be "true" or "false"'
