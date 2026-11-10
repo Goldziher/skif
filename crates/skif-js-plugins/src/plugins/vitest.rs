@@ -38,19 +38,24 @@ static SPEC: PluginSpec = PluginSpec {
     ..PluginSpec::DEFAULT
 };
 
+/// The reporters Vitest registers itself (`packages/vitest/src/node/reporters/index.ts`, 3.2 and 4.1), as knip lists
+/// them.
 const BUILTIN_REPORTERS: &[&str] = &[
+    "agent",
+    "basic",
+    "blob",
     "default",
-    "verbose",
     "dot",
+    "github-actions",
+    "hanging-process",
+    "html",
     "json",
+    "junit",
+    "minimal",
     "tap",
     "tap-flat",
-    "junit",
-    "hanging-process",
-    "github-actions",
-    "basic",
     "tree",
-    "blob",
+    "verbose",
 ];
 
 impl Plugin for Vitest {
@@ -154,7 +159,10 @@ fn test_options(test: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<Plugin
             other => vec![other],
         };
         for name in reporters.into_iter().filter_map(name_of) {
-            if !BUILTIN_REPORTERS.contains(&name) {
+            if name == "html" {
+                // The HTML reporter serves the UI package, which Vitest offers to install when it is missing.
+                out.push(PluginInput::OptionalDependency("@vitest/ui".to_owned()));
+            } else if !BUILTIN_REPORTERS.contains(&name) {
                 out.extend(module_input(config.base, name, false));
             }
         }
@@ -184,6 +192,8 @@ fn environment_input(config: &ConfigAst<'_>, environment: &str) -> Option<Plugin
         "node" | "" => None,
         "edge-runtime" => Some(PluginInput::Dependency("@edge-runtime/vm".to_string())),
         "jsdom" | "happy-dom" => Some(PluginInput::Dependency(environment.to_string())),
+        // `@nuxt/test-utils` provides the environment, as knip has it.
+        "nuxt" => Some(PluginInput::OptionalDependency("vitest-environment-nuxt".to_owned())),
         custom if custom.starts_with('.') || custom.starts_with('/') => module_input(config.base, custom, true),
         custom => package_name(&format!("vitest-environment-{custom}")).map(PluginInput::Dependency),
     }
