@@ -379,6 +379,14 @@ fn package_manager_precedence() {
         ws(plain, &[("pnpm-workspace.yaml", "packages: []\n")], &config),
         Some(PackageManager::Pnpm)
     );
+    // `bunfig.toml` is the last resort: a lockfile or the files Yarn Berry leaves decide first.
+    let bunfig = ("bunfig.toml", "[install]\nlinker = \"isolated\"\n");
+    assert_eq!(ws(plain, &[bunfig], &config), Some(PackageManager::Bun));
+    assert_eq!(
+        ws(plain, &[bunfig, ("package-lock.json", "")], &config),
+        Some(PackageManager::Npm)
+    );
+    assert_eq!(ws(plain, &[bunfig, (".yarnrc.yml", "")], &config), Some(PackageManager::Yarn));
 
     let mut forced = Config::default();
     forced.workspace.package_manager = Some(PackageManager::Npm);
