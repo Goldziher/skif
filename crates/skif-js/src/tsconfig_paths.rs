@@ -245,6 +245,34 @@ impl TsConfigs {
         Some(options)
     }
 
+    /// The files that relative `extends` entries of the nearest config at or above `dir`, not above the workspace
+    /// root, name and that do not exist: configs a tool generates before the project is type-checked
+    /// (`./.svelte-kit/tsconfig.json`).
+    pub(crate) fn absent_extends(&self, dir: &Path) -> Vec<PathBuf> {
+        let Some(file) = dir
+            .ancestors()
+            .take_while(|ancestor| ancestor.starts_with(&self.root))
+            .flat_map(|ancestor| self.candidates(ancestor))
+            .find(|file| self.fs.is_file(file))
+        else {
+            return Vec::new();
+        };
+        let (Some(config), Some(config_dir)) = (parse_tsconfig(self.fs.as_ref(), &file), file.parent()) else {
+            return Vec::new();
+        };
+        let parents: Vec<&str> = match config.get("extends") {
+            Some(ConfigValue::String(parent)) => vec![parent.as_str()],
+            Some(ConfigValue::Array(items)) => items.iter().filter_map(ConfigValue::as_str).collect(),
+            _ => Vec::new(),
+        };
+        parents
+            .into_iter()
+            .filter(|parent| parent.starts_with('.'))
+            .map(|parent| join_any(config_dir, &json_file(parent)))
+            .filter(|path| !self.fs.is_file(path))
+            .collect()
+    }
+
     /// The nearest config at or above `dir`, not above the workspace root, that sets `baseUrl` or `paths`.
     pub(crate) fn nearest(&self, dir: &Path) -> Option<TsPaths> {
         dir.ancestors()
