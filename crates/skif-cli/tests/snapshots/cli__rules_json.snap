@@ -77,6 +77,20 @@ expression: json.stdout
       "summary": "A directory matched by the workspace patterns has no `package.json`."
     },
     {
+      "id": "stray-lockfile",
+      "category": "workspace",
+      "default": "warning",
+      "fixable": "unsafe",
+      "summary": "A lockfile other than the root lockfile of the package manager: one in a workspace member, or another manager's at the root."
+    },
+    {
+      "id": "nested-workspace-root",
+      "category": "workspace",
+      "default": "warning",
+      "fixable": "none",
+      "summary": "A workspace member holds a `pnpm-workspace.yaml` of its own, so installs in that directory leave the workspace."
+    },
+    {
       "id": "local-path-dependency",
       "category": "manifest",
       "default": "error",

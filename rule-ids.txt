@@ -12,6 +12,7 @@ invalid-local-version
 local-path-dependency
 member-toolchain-fields
 missing-package-manifest
+nested-workspace-root
 package-json-format
 policy-conflict
 root-package-dependencies
@@ -20,6 +21,7 @@ root-package-private-field
 semver-range-mismatch
 stale-js-config
 stale-mocks
+stray-lockfile
 toolchain-pin-drift
 types-in-dependencies
 unlisted-binaries

@@ -11,7 +11,7 @@ use skif_lint::{Registry, RuleProvider, RunOptions, run};
 use skif_rules::{manifest_provider, policy_provider, providers};
 use skif_workspace::Workspace;
 
-const EXPECTED: [&str; 12] = [
+const EXPECTED: [&str; 14] = [
     "empty-dependencies",
     "root-package-private-field",
     "root-package-manager-field",
@@ -22,6 +22,8 @@ const EXPECTED: [&str; 12] = [
     "unsorted-dependencies",
     "unmatched-workspace-patterns",
     "missing-package-manifest",
+    "stray-lockfile",
+    "nested-workspace-root",
     "local-path-dependency",
     "package-json-format",
 ];
@@ -101,19 +103,27 @@ fn rule_ids_are_unique_kebab_case_and_documented() {
 #[test]
 fn categories_and_fixability_follow_the_adr() {
     let by_id = |id: &str| registry().get(id).unwrap();
-    for id in ["unmatched-workspace-patterns", "missing-package-manifest"] {
+    let workspace_rules = [
+        "unmatched-workspace-patterns",
+        "missing-package-manifest",
+        "stray-lockfile",
+        "nested-workspace-root",
+    ];
+    for id in workspace_rules {
         assert_eq!(by_id(id).category, Category::Workspace, "{id}");
     }
-    for id in EXPECTED
-        .iter()
-        .filter(|id| !id.contains("workspace-patterns") && !id.contains("package-manifest"))
-    {
+    for id in EXPECTED.iter().filter(|id| !workspace_rules.contains(id)) {
         assert_eq!(by_id(id).category, Category::Manifest, "{id}");
     }
-    for id in ["root-package-manager-field", "incompatible-peer-dependencies"] {
+    for id in [
+        "root-package-manager-field",
+        "incompatible-peer-dependencies",
+        "nested-workspace-root",
+    ] {
         assert_eq!(by_id(id).fixable, Fixability::None, "{id}");
     }
     assert_eq!(by_id("local-path-dependency").fixable, Fixability::Sometimes);
+    assert_eq!(by_id("stray-lockfile").fixable, Fixability::Unsafe);
     assert_eq!(by_id("empty-dependencies").default, Some(Severity::Error));
     assert_eq!(by_id("member-toolchain-fields").default, Some(Severity::Warning));
 }

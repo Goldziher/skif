@@ -40,7 +40,7 @@ pub use roots::{
 };
 pub use skif_config::PackageManager;
 pub use skif_core::{DependencyKind, DirEntry, FileSystem, MemoryFs, OsFs};
-pub use workspace::{DiscoveryFacts, PatternFact, Workspace, WorkspaceSource};
+pub use workspace::{DiscoveryFacts, LOCKFILES, PatternFact, Workspace, WorkspaceSource};
 
 const _: () = {
     fn assert_send_sync<T: Send + Sync>() {}

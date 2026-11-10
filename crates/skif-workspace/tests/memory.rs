@@ -1348,3 +1348,84 @@ fn an_invalid_lerna_json_declares_nothing() {
     let workspace = discover(&files, &Config::default()).unwrap();
     assert_eq!(workspace.facts.source, WorkspaceSource::SinglePackage);
 }
+
+fn package_manager_files(workspace: &Workspace) -> Vec<String> {
+    workspace
+        .facts
+        .package_manager_files
+        .iter()
+        .map(|path| path.to_str().unwrap().replace('\\', "/"))
+        .collect()
+}
+
+#[test]
+fn package_manager_files_of_the_root_and_the_selected_directories_are_listed() {
+    let manifest = root(r#"["packages/*"]"#);
+    let a = pkg("a");
+    let b = pkg("b");
+    let workspace = discover(
+        &[
+            ("package.json", manifest.as_str()),
+            ("pnpm-lock.yaml", ""),
+            ("yarn.lock", ""),
+            ("packages/a/package.json", a.as_str()),
+            ("packages/a/package-lock.json", "{}"),
+            ("packages/a/npm-shrinkwrap.json", "{}"),
+            ("packages/a/bun.lock", ""),
+            ("packages/a/bun.lockb", ""),
+            ("packages/a/pnpm-lock.yaml", ""),
+            ("packages/a/pnpm-workspace.yaml", "packages: []\n"),
+            ("packages/a/package-lock.json.bak", ""),
+            ("packages/a/sub/package-lock.json", "{}"),
+            ("packages/b/package.json", b.as_str()),
+            ("tools/x/package-lock.json", "{}"),
+        ],
+        &Config::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        package_manager_files(&workspace),
+        [
+            "packages/a/bun.lock",
+            "packages/a/bun.lockb",
+            "packages/a/npm-shrinkwrap.json",
+            "packages/a/package-lock.json",
+            "packages/a/pnpm-lock.yaml",
+            "packages/a/pnpm-workspace.yaml",
+            "pnpm-lock.yaml",
+            "yarn.lock",
+        ]
+    );
+}
+
+#[test]
+fn ignored_package_manager_files_are_not_listed() {
+    let manifest = root(r#"["packages/*"]"#);
+    let a = pkg("a");
+    let b = pkg("b");
+    let c = pkg("c");
+    let workspace = discover(
+        &[
+            (".git/HEAD", "ref: refs/heads/main\n"),
+            (".git/info/exclude", "bun.lockb\n"),
+            (".gitignore", "package-lock.json\npackages/c/\n"),
+            ("package.json", manifest.as_str()),
+            ("packages/a/package.json", a.as_str()),
+            ("packages/a/package-lock.json", "{}"),
+            ("packages/a/bun.lockb", ""),
+            ("packages/a/yarn.lock", ""),
+            ("packages/b/.gitignore", "yarn.lock\n!package-lock.json\n"),
+            ("packages/b/package.json", b.as_str()),
+            ("packages/b/package-lock.json", "{}"),
+            ("packages/b/yarn.lock", ""),
+            ("packages/c/package.json", c.as_str()),
+            ("packages/c/pnpm-lock.yaml", ""),
+        ],
+        &Config::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        package_manager_files(&workspace),
+        ["packages/a/yarn.lock", "packages/b/package-lock.json"]
+    );
+}

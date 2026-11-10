@@ -46,6 +46,8 @@
 | [`version-mismatch`](#version-mismatch) | policy | error | sometimes |
 | [`workspace-protocol`](#workspace-protocol) | policy | error | none |
 | [`missing-package-manifest`](#missing-package-manifest) | workspace | warning | unsafe |
+| [`nested-workspace-root`](#nested-workspace-root) | workspace | warning | none |
+| [`stray-lockfile`](#stray-lockfile) | workspace | warning | unsafe |
 | [`unmatched-workspace-patterns`](#unmatched-workspace-patterns) | workspace | warning | unsafe |
 
 ## catalog-mismatch
@@ -388,6 +390,22 @@ A directory matched by the workspace patterns has no `package.json`.
 - Default severity: warning
 - Fixable: unsafe
 - sherif name: `packages-without-package-json`
+
+## nested-workspace-root
+
+A workspace member holds a `pnpm-workspace.yaml` of its own, so installs in that directory leave the workspace.
+
+- Category: workspace
+- Default severity: warning
+- Fixable: none
+
+## stray-lockfile
+
+A lockfile other than the root lockfile of the package manager: one in a workspace member, or another manager's at the root.
+
+- Category: workspace
+- Default severity: warning
+- Fixable: unsafe
 
 ## unmatched-workspace-patterns
 
