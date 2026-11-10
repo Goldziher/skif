@@ -209,7 +209,11 @@ fn json_paths_are_relativised_to_root() {
 fn json_error_document() {
     let mut out = Vec::new();
     render_json_error("bad \"config\"", &mut out).unwrap();
-    insta::assert_snapshot!(String::from_utf8(out).unwrap());
+    let document = String::from_utf8(out).unwrap();
+    insta::assert_snapshot!(document.replace(
+        &format!("\"skif\": \"{}\"", env!("CARGO_PKG_VERSION")),
+        "\"skif\": \"[VERSION]\""
+    ));
 }
 
 #[test]

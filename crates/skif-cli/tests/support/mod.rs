@@ -107,15 +107,17 @@ pub fn changed(before: &BTreeMap<PathBuf, String>, after: &BTreeMap<PathBuf, Str
         .collect()
 }
 
-/// Replaces every spelling of `root` (raw, canonical, JSON-escaped, forward-slashed) with `[ROOT]`.
+/// Replaces every spelling of `root` (raw, canonical, JSON-escaped, forward-slashed) with `[ROOT]`, and the skif
+/// version as [`redact_version`] does.
 pub fn redact(text: &str, root: &Path) -> String {
+    let text = redact_version(text);
     let mut spellings = vec![root.to_path_buf()];
     if let Ok(canonical) = root.canonicalize() {
         spellings.push(canonical);
     }
     // Longest first: on macOS the canonical `/private/var/...` contains the raw `/var/...`.
     spellings.sort_by_key(|spelling| std::cmp::Reverse(spelling.as_os_str().len()));
-    let mut text = text.to_owned();
+    let mut text = text;
     for spelling in spellings {
         let raw = spelling.display().to_string();
         // A canonical Windows path is verbatim (`\\?\C:\...`), while the CLI prints the plain drive path.
@@ -127,6 +129,15 @@ pub fn redact(text: &str, root: &Path) -> String {
         }
     }
     text
+}
+
+/// `text` with the `"skif": "<version>"` member of a JSON document spelled `"skif": "[VERSION]"`, so a release
+/// does not change every snapshot.
+pub fn redact_version(text: &str) -> String {
+    text.replace(
+        &format!("\"skif\": \"{}\"", env!("CARGO_PKG_VERSION")),
+        "\"skif\": \"[VERSION]\"",
+    )
 }
 
 /// A fake package manager named `name` that appends its argv and working directory to `record` and exits with

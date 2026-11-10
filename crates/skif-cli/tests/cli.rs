@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
-use support::{changed, fixture, invocations, redact, run, shim, skif, tree};
+use support::{changed, fixture, invocations, redact, redact_version, run, shim, skif, tree};
 
 fn rule_ids(report: &Value) -> BTreeSet<String> {
     report["diagnostics"]
@@ -615,7 +615,7 @@ fn rules_lists_the_registry() {
     }
     let ids: BTreeSet<&str> = rules.iter().map(|rule| rule["id"].as_str().unwrap()).collect();
     assert_eq!(ids.len(), rules.len(), "rule ids are unique");
-    insta::assert_snapshot!("rules_json", json.stdout);
+    insta::assert_snapshot!("rules_json", redact_version(&json.stdout));
 }
 
 #[test]
