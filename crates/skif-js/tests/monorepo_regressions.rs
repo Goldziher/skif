@@ -731,3 +731,30 @@ fn filtered_binaries_are_credited_to_their_directory_only_without_named_workspac
     );
     assert_eq!(found(&diagnostics, "unlisted-binaries"), none(), "{diagnostics:#?}");
 }
+
+/// Bun links a member's binary only into its dependents when it installs isolated: `linker = "isolated"` in
+/// `bunfig.toml`, or a `bun.lock` with `configVersion` 1 and no `linker`. `linker = "hoisted"`, a lockfile without
+/// `configVersion`, or neither file keeps the binary on every package's `PATH`.
+#[test]
+fn bun_links_member_binaries_as_its_linker_says() {
+    let root = r#"{"name":"root","private":true,"packageManager":"bun@1.3.2","workspaces":["packages/*"]}"#;
+    let lock_v1 = "{\n  \"lockfileVersion\": 1,\n  \"configVersion\": 1,\n  \"workspaces\": {},\n}\n";
+    let lock_v0 = "{\n  \"lockfileVersion\": 1,\n  \"workspaces\": {},\n}\n";
+    let isolated: &[&str] = &["packages/app/package.json: mytool"];
+    let hoisted: &[&str] = &[];
+    let cases: [(Vec<(&str, &str)>, &[&str]); 5] = [
+        (vec![("bunfig.toml", "[install]\nlinker = \"isolated\"\n")], isolated),
+        (vec![("bun.lock", lock_v1)], isolated),
+        (
+            vec![("bunfig.toml", "[install]\nlinker = \"hoisted\"\n"), ("bun.lock", lock_v1)],
+            hoisted,
+        ),
+        (vec![("bun.lock", lock_v0)], hoisted),
+        (Vec::new(), hoisted),
+    ];
+    for (files, expected) in cases {
+        let mut all = vec![("package.json", root)];
+        all.extend(files);
+        assert_eq!(unlisted_member_binaries(&all), expected, "{all:?}");
+    }
+}

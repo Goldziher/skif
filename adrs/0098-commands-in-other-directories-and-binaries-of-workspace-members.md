@@ -87,10 +87,14 @@ repository, `$GITHUB_WORKSPACE`, which the plugin takes to be the workspace root
 computed directory, such as `cd "$(dirname "$0")"`, stays one the parser cannot place.
 
 **Member binaries.** A workspace member's binary is provided to a package that does not list the member only when the
-package manager links every member's binaries into the root `node_modules/.bin`: npm, Yarn Classic and Bun, and an
-unknown package manager, which keeps the old answer. Under pnpm, Yarn Berry and in a Rush repository (a `rush.json` at
-the workspace root, whatever its package manager) it is provided only to the packages that list the member, to the
-packages below one that does, and to the member's own scripts. In a Rush repository, `rush`, `rushx` and `rush-pnpm`
+package manager links every member's binaries into the root `node_modules/.bin`: npm, Yarn Classic, Bun with its
+hoisted linker, and an unknown package manager, which keeps the old answer. Under pnpm, Yarn Berry, Bun with its
+isolated linker and in a Rush repository (a `rush.json` at the workspace root, whatever its package manager) it is
+provided only to the packages that list the member, to the packages below one that does, and to the member's own
+scripts. Bun's linker is the `linker` of `[install]` in the root `bunfig.toml`; without one, Bun 1.3.2 and later
+default a workspace to isolated when `bun.lock` records `configVersion` 1, which it writes for a new project, and to
+hoisted for a lockfile without it, which a project from before that version keeps. With neither file the linker Bun
+will pick cannot be read from the repository, so Bun counts as hoisting, as before. In a Rush repository, `rush`, `rushx` and `rush-pnpm`
 are provided commands; a package that lists the package declaring them still uses it.
 
 ### Consequences
@@ -104,7 +108,8 @@ are provided commands; a package that lists the package declaring them still use
   as for `--filter`.
 * Bad, because a pnpm workspace with `node-linker=hoisted`, or a Yarn Berry one whose scripts reach the root
   `node_modules/.bin`, now reports a member's binary that the install does provide; skif reads neither setting, and
-  `ignore-binaries` silences such a binary.
+  `ignore-binaries` silences such a binary. For Bun, a `linker` that only the global `~/.bunfig.toml` or
+  `bun install --linker` sets is not seen either.
 * Bad, because a directory computed from the script's own location (`cd "$(dirname "$0")"`, `cd "${BASH_SOURCE%/*}"`)
   is not placed: the script parser does not know which file runs the command, so a package manager run there is
   handled as filtered and a binary run there by name is judged where the command starts.
@@ -127,7 +132,8 @@ are provided commands; a package that lists the package declaring them still use
   `rush_commands_are_provided_in_a_rush_repository` and
   `workflow_and_source_commands_after_cd_into_a_workspace_package_are_judged_there` and
   `source_commands_with_a_cwd_of_the_file_run_in_that_directory` and
-  `filtered_binaries_are_credited_to_their_directory_only_without_named_workspaces`.
+  `filtered_binaries_are_credited_to_their_directory_only_without_named_workspaces` and
+  `bun_links_member_binaries_as_its_linker_says`.
 * `adrlint lint adrs`, `adrlint format --check adrs` and `adrlint lock --check` pass.
 
 ## Pros and Cons of the Options
