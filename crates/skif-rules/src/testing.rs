@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use skif_config::Config;
 use skif_core::{Diagnostic, FixOp, MemoryFs, Span};
@@ -17,22 +18,28 @@ pub fn config(toml: &str) -> Config {
     Config::from_toml_str(toml).unwrap()
 }
 
-pub fn workspace(files: Files<'_>, config: &Config) -> Workspace {
-    let fs = files.iter().fold(MemoryFs::new(), |fs, (path, content)| {
+fn memory_fs(files: Files<'_>) -> MemoryFs {
+    files.iter().fold(MemoryFs::new(), |fs, (path, content)| {
         fs.with_file(Path::new("/ws").join(path), content)
-    });
-    Workspace::discover_with_fs(Path::new("/ws"), config, &fs).unwrap()
+    })
 }
 
-/// Runs the whole manifest provider and keeps the diagnostics of `rule`.
+pub fn workspace(files: Files<'_>, config: &Config) -> Workspace {
+    Workspace::discover_with_fs(Path::new("/ws"), config, &memory_fs(files)).unwrap()
+}
+
+/// Runs every built-in provider, the toolchain rules reading `files` too, and keeps the diagnostics of `rule`.
 pub fn lint(rule: &str, files: Files<'_>, config: &Config) -> Vec<Diagnostic> {
     lint_with(rule, files, config, &RunOptions::default())
 }
 
 /// As [`lint`], with the given run options.
 pub fn lint_with(rule: &str, files: Files<'_>, config: &Config, options: &RunOptions<'_>) -> Vec<Diagnostic> {
-    let workspace = workspace(files, config);
-    let registry = Registry::new(crate::providers()).unwrap();
+    let fs = memory_fs(files);
+    let workspace = Workspace::discover_with_fs(Path::new("/ws"), config, &fs).unwrap();
+    let mut providers = crate::providers();
+    providers.push(Box::new(crate::toolchain_provider(Arc::new(fs))));
+    let registry = Registry::new(providers).unwrap();
     run_unsorted(&registry, &workspace, config, options)
         .unwrap()
         .into_iter()

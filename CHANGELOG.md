@@ -9,6 +9,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `toolchain-pin-drift` (`warn`): Node and package-manager versions pinned in `.nvmrc`, `.node-version`,
+  `.tool-versions`, `mise.toml`, Dockerfiles (`FROM node:<version>`, `ARG NODE_VERSION`, `corepack prepare`,
+  `npm install -g pnpm@<version>`) and GitHub workflows (`actions/setup-node`, `pnpm/action-setup`) are checked
+  against the root: the first root version file, else `engines.node`, and `packageManager`. A finding names the file,
+  the line and both versions; a range that admits the root's version is no drift. A Dockerfile that runs
+  `corepack enable` without `corepack prepare` is reported at `info`. Options `kinds`, `files` and `ignore-files`, and
+  `# skif-ignore-next-line` / `# skif-ignore-file` comments with a required reason
+  ([ADR 0087](adrs/0087-toolchain-pins-outside-package-json-and-the-toolchain-pin-drift-rule.md),
+  [#138](https://github.com/Goldziher/skif/issues/138)).
+- `skif_rules::toolchain_provider(fs)` provides the rules over toolchain files, which read through a `FileSystem`;
+  `skif::builtin_providers` registers it with the manifest rules.
+
 ### Changed
 
 - The shell tokenizer of the `package.json` script parser moved from `skif-js-plugins` to `skif_core::shell`

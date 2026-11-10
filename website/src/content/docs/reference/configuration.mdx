@@ -96,10 +96,30 @@ Rules with options:
 | `member-toolchain-fields` | `mode` | `forbid` (default) reports every `packageManager` or `engines` field a private member declares; `match-root` allows a field equal to the root's. |
 | `unused-exports`, `unused-types` | `ignore-tags` | JSDoc tag names, without the `@` (a list of strings), that exempt an export. It is read from `unused-exports` and applies to `unused-types` as well. `public`, `beta`, `alpha` and `alias` always exempt, and `alias` also keeps an export out of `duplicate-exports`. |
 | `unused-exports`, `unused-types` | `include-tags` | JSDoc tag names; when set, only exports carrying one of them are reported, and only such enum and namespace members (knip's `--tags +name`). A tag named here is judged even when it would exempt (`public`, `beta`, `alpha`, `alias`, `internal` in production mode), so `include-tags = ["public"]` reports the unused `@public` exports; knip reports none of them. |
+| `toolchain-pin-drift` | `kinds` | The kinds of file read at their usual places: `version-files`, `dockerfiles`, `workflows`, `shell-scripts`. Default: the first three. |
+| `toolchain-pin-drift` | `files` | More files to read, as globs relative to the workspace root (`["deploy/**"]`), whatever their kind. |
+| `toolchain-pin-drift` | `ignore-files` | Files to report nothing in, as globs relative to the workspace root; an entry is a string or `{ name = "...", reason = "..." }`. |
 
 An unknown option is an error that names the rule.
 
 An unknown rule id is rejected with a closest-match suggestion. See the [rules](../../rules/) for ids.
+
+#### Toolchain files
+
+`toolchain-pin-drift` reads the files beside the manifests: in the root and every package directory the version files
+(`.nvmrc`, `.node-version`, `.tool-versions`, `mise.toml`, `.mise.toml`), Dockerfiles (`Dockerfile`, `Dockerfile.*`,
+`*.Dockerfile`, `Containerfile`) and `*.sh`, the last two also in their `docker` and `scripts` subdirectories, and the
+root's `.github/workflows/*.yml`. A file below a directory with a `package.json` that is not a workspace package
+belongs to another project and is not read. Every one of these files takes `#` comments, which suppress a finding
+there; the reason after `--` is required, and a comment without one suppresses nothing:
+
+```dockerfile
+# skif-ignore-next-line toolchain-pin-drift -- the base image is pinned by the platform team
+FROM node:18-alpine
+```
+
+`# skif-ignore-file <rule> -- <reason>` covers the whole file, and a comment without rule ids covers every toolchain
+rule. See [ADR 0087](https://github.com/Goldziher/skif/blob/main/adrs/0087-toolchain-pins-outside-package-json-and-the-toolchain-pin-drift-rule.md).
 
 ### `[[ignore]]`
 
