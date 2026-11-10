@@ -1174,10 +1174,16 @@ pub fn command_in_call_dir(command: String, options: Option<&ConfigValue>) -> St
 }
 
 /// `command` with `dir`, the directory of the file that runs it relative to the directory where the command starts
-/// (`/`-separated, empty for that directory itself), in place of [`FILE_DIR`].
+/// (`/`-separated, empty for that directory itself), in place of [`FILE_DIR`], single-quoted so that a shell reads it
+/// as part of one word whatever it holds (`cd 'my scripts'/../sub`).
 #[must_use]
 pub fn place_file_dir(command: &str, dir: &str) -> String {
-    command.replace(FILE_DIR, if dir.is_empty() { "." } else { dir })
+    let quoted = if dir.is_empty() {
+        ".".to_owned()
+    } else {
+        format!("'{}'", dir.replace('\'', r"'\''"))
+    };
+    command.replace(FILE_DIR, &quoted)
 }
 
 /// Marks the `cwd` option of `options`, a call argument evaluated from the file's directory, by what it is relative

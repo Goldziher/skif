@@ -7,7 +7,7 @@ use std::path::Path;
 
 use skif_js_syntax::{
     ExportKind, ImportKind, ImportedKind, ModuleInfo, ParseOptions, Registration, RemovalKind, SyntaxError,
-    parse_module,
+    parse_module, place_file_dir,
 };
 
 fn parse(path: &str, source: &str) -> ModuleInfo {
@@ -1380,6 +1380,16 @@ fn child_process_commands_with_a_cwd_of_the_process_or_the_file() {
             "cd $__skif_file_dir__/../fixtures && npm run h"
         ]
     );
+}
+
+/// The file's directory takes the place of `$__skif_file_dir__` quoted, so a shell reads it as part of one word.
+#[test]
+fn the_file_directory_is_placed_quoted() {
+    let command = "cd $__skif_file_dir__/../sub && rspack";
+    assert_eq!(place_file_dir(command, ""), "cd ./../sub && rspack");
+    assert_eq!(place_file_dir(command, "scripts"), "cd 'scripts'/../sub && rspack");
+    assert_eq!(place_file_dir(command, "my scripts"), "cd 'my scripts'/../sub && rspack");
+    assert_eq!(place_file_dir(command, "it's"), r"cd 'it'\''s'/../sub && rspack");
 }
 
 #[test]
