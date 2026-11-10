@@ -18,24 +18,39 @@ struct Entry {
 
 type Entries = HashMap<String, Entry>;
 
-/// The binaries and peer dependencies each locked package declares, by package name.
+/// What the lockfile of a workspace records.
+#[derive(Default)]
+pub(crate) struct Locked {
+    /// The binaries and peer dependencies each locked package declares, by package name.
+    pub packages: HashMap<String, Arc<Installed>>,
+    /// The `configVersion` of `bun.lock`, which sets the linker Bun defaults to; `None` without a `bun.lock`, or when
+    /// it records none or does not parse.
+    pub bun_config_version: Option<u64>,
+}
+
+/// Reads the lockfile at `root`.
 ///
-/// Reads `pnpm-lock.yaml`, else `package-lock.json`, `bun.lock`, `yarn.lock` (Berry, which records peers and binaries),
-/// from `root`. Empty when none exists or is understood. A classic (v1) `yarn.lock` records no binaries, so reading it
-/// would make every locked package look like one without binaries; it is skipped.
-pub(crate) fn read(fs: &dyn FileSystem, root: &Path) -> HashMap<String, Arc<Installed>> {
+/// The packages come from `pnpm-lock.yaml`, else `package-lock.json`, `bun.lock`, `yarn.lock` (Berry, which records
+/// peers and binaries); none when no lockfile exists or is understood. A classic (v1) `yarn.lock` records no binaries,
+/// so reading it would make every locked package look like one without binaries; it is skipped. `bun.lock` is parsed
+/// once, for its packages and for its `configVersion`, which is read whichever lockfile the packages come from.
+pub(crate) fn read(fs: &dyn FileSystem, root: &Path) -> Locked {
+    let bun_lock = fs.read_to_string(&root.join("bun.lock")).ok().map(|text| parse_bun(&text));
+    let bun_config_version = bun_lock
+        .as_ref()
+        .and_then(|lock| lock.get("configVersion")?.as_u64());
     let entries = if let Ok(text) = fs.read_to_string(&root.join("pnpm-lock.yaml")) {
         pnpm(&text)
     } else if let Ok(text) = fs.read_to_string(&root.join("package-lock.json")) {
         npm(&text)
-    } else if let Ok(text) = fs.read_to_string(&root.join("bun.lock")) {
-        bun(&text)
+    } else if let Some(lock) = &bun_lock {
+        bun(lock)
     } else if let Ok(text) = fs.read_to_string(&root.join("yarn.lock")) {
         yarn(&text)
     } else {
         Entries::new()
     };
-    entries
+    let packages = entries
         .into_iter()
         .map(|(name, entry)| {
             let installed = Installed {
@@ -44,7 +59,11 @@ pub(crate) fn read(fs: &dyn FileSystem, root: &Path) -> HashMap<String, Arc<Inst
             };
             (name, Arc::new(installed))
         })
-        .collect()
+        .collect();
+    Locked {
+        packages,
+        bun_config_version,
+    }
 }
 
 fn unquote(text: &str) -> &str {
@@ -178,20 +197,13 @@ fn strip_trailing_commas(text: &str) -> String {
     out
 }
 
-/// The `configVersion` of a `bun.lock`, which sets the linker Bun defaults to; `None` when it records none or does not
-/// parse.
-pub(crate) fn bun_config_version(text: &str) -> Option<u64> {
-    serde_json::from_str::<Value>(&strip_trailing_commas(text))
-        .ok()?
-        .get("configVersion")?
-        .as_u64()
+/// `bun.lock` as JSON; `null` when it does not parse.
+fn parse_bun(text: &str) -> Value {
+    serde_json::from_str(&strip_trailing_commas(text)).unwrap_or(Value::Null)
 }
 
-fn bun(text: &str) -> Entries {
+fn bun(value: &Value) -> Entries {
     let mut entries = Entries::new();
-    let Ok(value) = serde_json::from_str::<Value>(&strip_trailing_commas(text)) else {
-        return entries;
-    };
     let Some(packages) = value.get("packages").and_then(Value::as_object) else {
         return entries;
     };
@@ -310,7 +322,7 @@ mod tests {
 
     #[test]
     fn bun_lock_peers_and_bins() {
-        let entries = bun(r#"{
+        let entries = bun(&parse_bun(r#"{
   "lockfileVersion": 1,
   "workspaces": { "": { "name": "app", }, },
   "packages": {
@@ -318,18 +330,30 @@ mod tests {
     "oxlint": ["oxlint@1.0.0", "", { "bin": { "oxlint": "bin.js" } }, "sha512-y"],
     "app": ["app@workspace:."],
   },
-}"#);
+}"#));
         assert!(entries["@s/react"].peers.contains("@s/dom") && entries["@s/react"].peers.contains("react"));
         assert!(entries["oxlint"].bins.contains("oxlint"));
     }
 
     #[test]
-    fn bun_lock_config_version() {
+    fn read_records_the_config_version_of_bun_lock() {
         let lock = |config: &str| format!("{{\n  \"lockfileVersion\": 1,{config}\n  \"workspaces\": {{}},\n}}\n");
-        assert_eq!(bun_config_version(&lock("\n  \"configVersion\": 1,")), Some(1));
-        assert_eq!(bun_config_version(&lock("\n  \"configVersion\": 0,")), Some(0));
-        assert_eq!(bun_config_version(&lock("")), None);
-        assert_eq!(bun_config_version("not json"), None);
+        let cases = [
+            (lock("\n  \"configVersion\": 1,"), Some(1)),
+            (lock("\n  \"configVersion\": 0,"), Some(0)),
+            (lock(""), None),
+            ("not json".to_owned(), None),
+        ];
+        for (text, expected) in cases {
+            let fs = skif_core::MemoryFs::new().with_file("/r/bun.lock", &text);
+            assert_eq!(read(&fs, Path::new("/r")).bun_config_version, expected, "{text}");
+        }
+        // A lockfile read before `bun.lock` for the packages leaves its `configVersion` read.
+        let fs = skif_core::MemoryFs::new()
+            .with_file("/r/pnpm-lock.yaml", "lockfileVersion: '9.0'\n")
+            .with_file("/r/bun.lock", lock("\n  \"configVersion\": 1,"));
+        assert_eq!(read(&fs, Path::new("/r")).bun_config_version, Some(1));
+        assert_eq!(read(&skif_core::MemoryFs::new(), Path::new("/r")).bun_config_version, None);
     }
 
     #[test]
@@ -361,9 +385,9 @@ mod tests {
         let berry =
             "__metadata:\n  version: 8\n\n\"vitest@npm:^1.0.0\":\n  version: 1.0.0\n  bin:\n    vitest: vitest.mjs\n";
         let fs = skif_core::MemoryFs::new().with_file("/r/yarn.lock", classic);
-        assert!(read(&fs, Path::new("/r")).is_empty());
+        assert!(read(&fs, Path::new("/r")).packages.is_empty());
         let fs = skif_core::MemoryFs::new().with_file("/r/yarn.lock", berry);
-        let entries = read(&fs, Path::new("/r"));
+        let entries = read(&fs, Path::new("/r")).packages;
         assert_eq!(entries["vitest"].bins, ["vitest"]);
     }
 }
