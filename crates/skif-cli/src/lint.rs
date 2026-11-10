@@ -283,8 +283,8 @@ fn warn_empty_tsconfig_projects(targets: &[Target], fs: &dyn FileSystem) {
 /// Lints the root of `previous` again from disk. What root discovery decided about it (a standalone package nested
 /// below another root, the directory its configuration's workspace keys are written from, members another root
 /// lints) and what the other roots of the run told it (the files they import, the files and dependencies they use) is
-/// carried over, so the re-lint judges the root as the first lint did. The report is not filtered yet: the findings
-/// about a configuration file several roots read are decided across the re-linted roots first.
+/// carried over, so the re-lint judges the root as the first lint did. The report is neither narrowed to what the
+/// flags select nor decided across roots yet.
 fn lint_once(
     linter: &Linter,
     previous: &Workspace,
@@ -364,53 +364,9 @@ fn run_exit_code(args: &LintArgs, runs: &[RootRun], aggregate: &Report) -> u8 {
     if too_many_warnings { PROBLEMS } else { CLEAN }
 }
 
-/// Plans, writes and describes the fixes of one root; the second value is the lint of the tree after fixing, or the
-/// error that stopped it (the files are already changed by then, so the summary is still owed to the user).
-type Relint = Result<(Workspace, Report), CliError>;
-
 /// What linting one root again needs: its configuration, the configuration file, the files enclosing roots import
 /// and what other roots use of it.
 type RootInputs<'a> = (&'a Config, Option<&'a Path>, &'a [PathBuf], &'a roots::OtherRootUses);
-
-fn write_and_relint(
-    args: &LintArgs,
-    linter: &Linter,
-    inputs: RootInputs<'_>,
-    state: (Workspace, Report),
-    plan: FixPlan,
-    fs: &CachedFs<OsFs>,
-) -> Result<(FixRun, Relint), CliError> {
-    let (workspace, report) = state;
-    write_plan(&plan, &workspace.root)?;
-    if plan.is_empty() {
-        let install = install_step(args, &[], &workspace);
-        return Ok((
-            FixRun {
-                plan,
-                install,
-                preview: None,
-            },
-            Ok((workspace, report)),
-        ));
-    }
-    // The written files are stale in the cache; the re-lint must read them from disk.
-    fs.clear();
-    Ok(match lint_once(linter, &workspace, inputs, fs) {
-        Ok((workspace, report)) => {
-            let changed: Vec<&Path> = plan.paths().collect();
-            let install = install_step(args, &changed, &workspace);
-            (
-                FixRun {
-                    plan,
-                    install,
-                    preview: None,
-                },
-                Ok((workspace, report)),
-            )
-        }
-        Err(error) => (FixRun::relint_failed(plan), Err(error)),
-    })
-}
 
 /// What fixing every root left behind: the re-linted roots with their fix runs, or the exit code of a run that
 /// stopped after writing some of the fixes.
@@ -420,10 +376,10 @@ enum Fixed {
 }
 
 /// Fixes every root. All plans are made before the first file is written, so a failure while planning (a prompt, a
-/// conflicting edit) leaves every file alone. Writing and re-linting then go root by root; a failure there reports
-/// what was already written. Once every root is linted again, the findings about configuration files several roots
-/// read are decided across them again and the reports narrowed to what the flags select. `only` holds the rules
-/// `--fix-type` names, if given.
+/// conflicting edit) leaves every file alone. Every plan is then written, root by root; a failure there reports what
+/// was already written. Once every file is written, the roots a plan changed, and the roots whose configuration is
+/// read from a file a plan wrote, are linted again from disk, and the reports are narrowed to what the flags select.
+/// `only` holds the rules `--fix-type` names, if given.
 fn fix_roots(
     (args, filter): (&LintArgs, &Filter),
     env: Env,
@@ -432,80 +388,159 @@ fn fix_roots(
     fs: &CachedFs<OsFs>,
     only: Option<&BTreeSet<String>>,
 ) -> Result<Fixed, CliError> {
-    let mut planned = Vec::with_capacity(runs.len());
-    for run in runs {
-        let selection = fix::selection(args, env, &run.report, run.config.policy.prefer, only)?;
-        let plan = skif::apply_fixes(&run.workspace, &run.report, &selection, fs)?;
-        planned.push((run, plan));
+    let planned = runs
+        .into_iter()
+        .map(|run| {
+            let selection = fix::selection(args, env, &run.report, run.config.policy.prefer, only)?;
+            let plan = skif::apply_fixes(&run.workspace, &run.report, &selection, fs)?;
+            Ok((run, plan))
+        })
+        .collect::<Result<Vec<(RootRun, FixPlan)>, CliError>>()?;
+    if let Some(code) = write_plans(args, &planned)? {
+        return Ok(Fixed::Stopped(code));
     }
+    // The written files are stale in the cache; the re-lint must read them from disk.
+    fs.clear();
+    let written: Vec<BTreeSet<PathBuf>> = planned
+        .iter()
+        .map(|(run, plan)| plan.paths().map(|path| roots::join(&run.workspace.root, path)).collect())
+        .collect();
+    let sources: Vec<&[PathBuf]> = planned.iter().map(|(run, _)| run.config_sources.as_slice()).collect();
+    let again = relinted(&written, &sources);
+    match relint_roots(args, linters, planned, &again, fs) {
+        Fixed::All(mut done, fixes) => {
+            filter.apply_runs(&mut done)?;
+            Ok(Fixed::All(done, fixes))
+        }
+        stopped @ Fixed::Stopped(_) => Ok(stopped),
+    }
+}
+
+/// Writes the plan of every root, in order. A failure after an earlier root's files were written stops the run and
+/// reports what was written (the exit code is returned); a failure before any file was written is the error.
+fn write_plans(args: &LintArgs, planned: &[(RootRun, FixPlan)]) -> Result<Option<u8>, CliError> {
+    for (index, (run, plan)) in planned.iter().enumerate() {
+        let Err(error) = write_plan(plan, &run.workspace.root) else {
+            continue;
+        };
+        let earlier = &planned[..index];
+        if earlier.iter().all(|(_, plan)| plan.is_empty()) {
+            return Err(error);
+        }
+        let prefixes: Vec<&Path> = earlier.iter().map(|(run, _)| run.prefix.as_path()).collect();
+        let fixes: Vec<FixRun> = earlier
+            .iter()
+            .map(|(_, plan)| FixRun::stopped(plan.clone()))
+            .collect();
+        return Ok(Some(fix_incomplete(
+            args,
+            "fixes were written to earlier roots, but fixing a later root failed",
+            &error,
+            &roots_fix(&prefixes, &fixes),
+        )));
+    }
+    Ok(None)
+}
+
+/// Which roots to lint again after every plan is written, in order: a root whose plan wrote a file (`written` holds
+/// the absolute files of each root's plan), and a root whose configuration is read from a file any plan wrote
+/// (`sources` holds the absolute configuration files of each root), such as a configuration file several roots read.
+fn relinted(written: &[BTreeSet<PathBuf>], sources: &[&[PathBuf]]) -> Vec<bool> {
+    let all: BTreeSet<&PathBuf> = written.iter().flatten().collect();
+    written
+        .iter()
+        .zip(sources)
+        .map(|(files, sources)| !files.is_empty() || sources.iter().any(|source| all.contains(&source)))
+        .collect()
+}
+
+/// Lints the roots `again` names once more and runs the install step of each root; a failure to lint again reports
+/// the fixes, all of them written by then.
+fn relint_roots(
+    args: &LintArgs,
+    linters: &Linters,
+    planned: Vec<(RootRun, FixPlan)>,
+    again: &[bool],
+    fs: &CachedFs<OsFs>,
+) -> Fixed {
     let mut done: Vec<RootRun> = Vec::with_capacity(planned.len());
     let mut fixes: Vec<FixRun> = Vec::with_capacity(planned.len());
-    for (run, plan) in planned {
-        let RootRun {
-            prefix,
-            config,
-            config_path,
-            linter,
-            workspace,
-            report,
-            extra_entries,
-            other_root_uses,
-            withheld,
-        } = run;
-        // A root linted again reports everything afresh; one without fixes keeps what the last decision withheld.
-        let withheld = if plan.is_empty() { withheld } else { Vec::new() };
-        let written = write_and_relint(
-            args,
-            linters.get(linter),
-            (&config, config_path.as_deref(), &extra_entries, &other_root_uses),
-            (workspace, report),
-            plan,
-            fs,
-        );
-        let (fix_run, relint) = match written {
-            Ok(outcome) => outcome,
-            Err(error) if fixes.iter().any(|run| !run.plan.is_empty()) => {
-                let prefixes: Vec<&Path> = done.iter().map(|run| run.prefix.as_path()).collect();
-                return Ok(Fixed::Stopped(fix_incomplete(
-                    args,
-                    "fixes were written to earlier roots, but fixing a later root failed",
-                    &error,
-                    &roots_fix(&prefixes, &fixes),
-                )));
+    let mut planned = planned.into_iter().zip(again.iter().copied());
+    while let Some(((run, plan), again)) = planned.next() {
+        let prefix = run.prefix.clone();
+        match relint_root(args, linters.get(run.linter), (run, plan), again, fs) {
+            Ok((run, fix_run)) => {
+                done.push(run);
+                fixes.push(fix_run);
             }
-            Err(error) => return Err(error),
-        };
-        fixes.push(fix_run);
-        match relint {
-            Ok((workspace, report)) => done.push(RootRun {
-                prefix,
-                config,
-                config_path,
-                linter,
-                workspace,
-                report,
-                extra_entries,
-                other_root_uses,
-                withheld,
-            }),
-            Err(error) => {
+            Err((fix_run, error)) => {
+                fixes.push(fix_run);
+                let (rest, plans): (Vec<PathBuf>, Vec<FixPlan>) =
+                    planned.map(|((run, plan), _)| (run.prefix, plan)).unzip();
+                fixes.extend(plans.into_iter().map(FixRun::relint_failed));
                 let prefixes: Vec<&Path> = done
                     .iter()
                     .map(|run| run.prefix.as_path())
                     .chain(std::iter::once(prefix.as_path()))
+                    .chain(rest.iter().map(PathBuf::as_path))
                     .collect();
-                return Ok(Fixed::Stopped(fix_incomplete(
+                return Fixed::Stopped(fix_incomplete(
                     args,
                     "fixes were written, but linting again failed",
                     &error,
                     &roots_fix(&prefixes, &fixes),
-                )));
+                ));
             }
         }
     }
-    roots::settle_shared_config_findings(&mut done);
-    filter.apply_runs(&mut done)?;
-    Ok(Fixed::All(done, fixes))
+    Fixed::All(done, fixes)
+}
+
+/// Lints the root of `run` again from disk when `again`, and runs its install step after its plan; the fix run of a
+/// root that could not be linted again, and why, otherwise.
+fn relint_root(
+    args: &LintArgs,
+    linter: &Linter,
+    (run, plan): (RootRun, FixPlan),
+    again: bool,
+    fs: &CachedFs<OsFs>,
+) -> Result<(RootRun, FixRun), (FixRun, CliError)> {
+    if !again {
+        let install = install_step(args, &[], &run.workspace);
+        return Ok((
+            run,
+            FixRun {
+                plan,
+                install,
+                preview: None,
+            },
+        ));
+    }
+    let inputs = (
+        &run.config,
+        run.config_path.as_deref(),
+        run.extra_entries.as_slice(),
+        &run.other_root_uses,
+    );
+    match lint_once(linter, &run.workspace, inputs, fs) {
+        Ok((workspace, report)) => {
+            let changed: Vec<&Path> = plan.paths().collect();
+            let install = install_step(args, &changed, &workspace);
+            Ok((
+                RootRun {
+                    workspace,
+                    report,
+                    ..run
+                },
+                FixRun {
+                    plan,
+                    install,
+                    preview: None,
+                },
+            ))
+        }
+        Err(error) => Err((FixRun::relint_failed(plan), error)),
+    }
 }
 
 /// Plans the fixes of every root and describes them without writing anything: what `--dry-run` shows.
@@ -559,7 +594,8 @@ pub(crate) fn lint_to_json_with(
         roots::resolve(&start, recursive, &fs, overrides)
     })?;
     let linters = Linters::build_with(&targets, None, modules)?;
-    let runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
+    let mut runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
+    roots::settle_shared_config(&mut runs);
     let reports: Vec<Cow<'_, Report>> = runs
         .iter()
         .map(|run| roots::prefixed(&run.report, &run.prefix))
@@ -598,7 +634,8 @@ pub fn lint_root(
     let Resolved { base, targets, .. } = roots::resolve(&start, false, &CachedFs::new(Arc::clone(fs)), overrides)?;
     let modules = modules.map(|host| host.modules(&base));
     let linters = Linters::build_with(&targets, Some(fs), modules.as_ref())?;
-    let runs = roots::lint_targets(&base, targets, &linters)?;
+    let mut runs = roots::lint_targets(&base, targets, &linters)?;
+    roots::settle_shared_config(&mut runs);
     let reports: Vec<Cow<'_, Report>> = runs
         .iter()
         .map(|run| roots::prefixed(&run.report, &run.prefix))
@@ -707,6 +744,8 @@ fn execute(args: &LintArgs, env: Env, teardown: Teardown, modules: Option<&dyn C
             Fixed::Stopped(code) => return Ok(code),
         }
     }
+    // Last, over the reports the run shows: after the lint after fixing and after the flags narrowed them.
+    roots::settle_shared_config(&mut runs);
 
     let reports: Vec<Cow<'_, Report>> = runs
         .iter()
@@ -1059,6 +1098,32 @@ mod tests {
             "{}",
             skif.message
         );
+    }
+
+    #[test]
+    fn a_root_whose_configuration_a_plan_wrote_is_linted_again() {
+        // Two roots read `/etc/skif.toml`; the first root's plan rewrites it, the third root has nothing to do with it.
+        let shared = PathBuf::from("/etc/skif.toml");
+        let own = PathBuf::from("/r/c/skif.toml");
+        let written = [
+            BTreeSet::from([shared.clone(), PathBuf::from("/r/package.json")]),
+            BTreeSet::new(),
+            BTreeSet::new(),
+        ];
+        let sources: [&[PathBuf]; 3] = [
+            std::slice::from_ref(&shared),
+            std::slice::from_ref(&shared),
+            std::slice::from_ref(&own),
+        ];
+        assert_eq!(relinted(&written, &sources), [true, true, false]);
+    }
+
+    #[test]
+    fn a_root_without_a_plan_or_a_written_configuration_is_not_linted_again() {
+        let shared = PathBuf::from("/etc/skif.toml");
+        let written = [BTreeSet::new(), BTreeSet::from([PathBuf::from("/r/b/package.json")])];
+        let sources: [&[PathBuf]; 2] = [std::slice::from_ref(&shared), std::slice::from_ref(&shared)];
+        assert_eq!(relinted(&written, &sources), [false, true]);
     }
 
     #[test]

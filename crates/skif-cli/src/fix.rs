@@ -242,6 +242,17 @@ impl FixRun {
         }
     }
 
+    /// A written fix run whose install step did not happen because fixing a later root failed.
+    pub const fn stopped(plan: FixPlan) -> Self {
+        Self {
+            plan,
+            install: InstallStatus::Skipped {
+                reason: "fixing a later root failed",
+            },
+            preview: None,
+        }
+    }
+
     /// A planned fix run that a `--dry-run` shows instead of writing.
     pub const fn dry_run(plan: FixPlan, preview: Vec<Preview>) -> Self {
         Self {
