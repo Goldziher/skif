@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
-use skif_js::{in_incomplete_scope, is_out_dir};
+use skif_js::{IncompleteScopeGlobs, is_out_dir};
 use skif_js_syntax::{ImportKind, ParseOptions, parse_module};
 use skif_workspace::{OsFs, declared_member_dirs};
 
@@ -436,32 +436,51 @@ fn align_export_labels(skif: &mut Keys, knip: &Keys) {
 }
 
 /// What skif left unjudged in a package it lists under `incomplete-packages`, from the entry's `scope`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum NotJudgedScope {
     /// `"package"` (or no `scope`): no file of the package is judged.
     Package,
     /// `{"within": [globs]}`: only the files these globs match, relative to the package directory, are not judged.
-    Within(Vec<String>),
+    /// The globs are compiled once, as skif's analysis compiles them.
+    Within(IncompleteScopeGlobs),
 }
 
+impl PartialEq for NotJudgedScope {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Package, Self::Package) => true,
+            (Self::Within(ours), Self::Within(theirs)) => ours.patterns() == theirs.patterns(),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for NotJudgedScope {}
+
 impl NotJudgedScope {
+    /// A scope narrowed to `globs`.
+    fn within(globs: Vec<String>) -> Self {
+        Self::Within(IncompleteScopeGlobs::new(globs))
+    }
+
     fn read(value: Option<&Value>) -> Self {
         let globs = value.and_then(|scope| scope.get("within")).and_then(Value::as_array);
         globs.map_or(Self::Package, |globs| {
-            Self::Within(globs.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            Self::within(globs.iter().filter_map(Value::as_str).map(str::to_owned).collect())
         })
     }
 
     /// The scope covering both: the whole package when either is (as `skif_core::IncompleteScope::union`).
     fn union(self, other: Self) -> Self {
         match (self, other) {
-            (Self::Within(mut globs), Self::Within(more)) => {
-                for glob in more {
-                    if !globs.contains(&glob) {
-                        globs.push(glob);
+            (Self::Within(ours), Self::Within(more)) => {
+                let mut globs = ours.patterns().to_vec();
+                for glob in more.patterns() {
+                    if !globs.contains(glob) {
+                        globs.push(glob.clone());
                     }
                 }
-                Self::Within(globs)
+                Self::within(globs)
             }
             _ => Self::Package,
         }
@@ -539,7 +558,7 @@ fn not_judged(
                     .and_then(|rest| rest.strip_prefix('/'))
                     .unwrap_or(path)
             };
-            in_incomplete_scope(globs, relative)
+            globs.is_match(relative)
         }
     }
 }
@@ -1393,7 +1412,7 @@ fn parity_repo(
         "narrowed_packages": unjudged
             .iter()
             .filter_map(|(dir, scope)| match scope {
-                NotJudgedScope::Within(globs) => Some((dir.clone(), json!(globs))),
+                NotJudgedScope::Within(globs) => Some((dir.clone(), json!(globs.patterns()))),
                 NotJudgedScope::Package => None,
             })
             .collect::<serde_json::Map<_, _>>(),
@@ -2155,11 +2174,11 @@ mod tests {
         assert_eq!(
             dirs,
             BTreeMap::from([
-                (String::new(), NotJudgedScope::Within(vec!["scripts/*.ts".to_owned()])),
+                (String::new(), NotJudgedScope::within(vec!["scripts/*.ts".to_owned()])),
                 ("packages/api".to_owned(), NotJudgedScope::Package),
                 (
                     "packages/web".to_owned(),
-                    NotJudgedScope::Within(vec!["src/**/*.stories.tsx".to_owned(), "test/*.ts".to_owned()])
+                    NotJudgedScope::within(vec!["src/**/*.stories.tsx".to_owned(), "test/*.ts".to_owned()])
                 ),
             ]),
             "the scopes of one directory are joined"

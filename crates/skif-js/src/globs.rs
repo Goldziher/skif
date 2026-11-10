@@ -106,12 +106,38 @@ impl Globs {
     }
 }
 
-/// Whether `rel`, a `/`-separated path relative to a package directory, lies in the narrowed scope `globs` of an
-/// incomplete package ([`skif_core::IncompleteScope::Within`]), matched as the analysis matches it: such a file may be
-/// an entry a configuration hides, so skif does not judge it.
-#[must_use]
-pub fn in_incomplete_scope(globs: &[String], rel: &str) -> bool {
-    Globs::new(globs).is_match(rel)
+/// The narrowed scope of an incomplete package ([`skif_core::IncompleteScope::Within`]): its globs, relative to the
+/// package directory, compiled once. A file the scope matches may be an entry a configuration hides, so skif does not
+/// judge it. Public for the benchmark harness, which matches the scopes of skif's JSON report the way the analysis does.
+#[doc(hidden)]
+#[derive(Debug, Clone)]
+pub struct IncompleteScopeGlobs {
+    /// The globs as the input sources gave them, for `explain-usage`.
+    pub(crate) patterns: Vec<String>,
+    pub(crate) globs: Globs,
+}
+
+impl IncompleteScopeGlobs {
+    /// Compiles the scope globs `patterns`; a pattern that is not a valid glob is skipped.
+    #[must_use]
+    pub fn new(patterns: Vec<String>) -> Self {
+        Self {
+            globs: Globs::new(&patterns),
+            patterns,
+        }
+    }
+
+    /// The globs as given.
+    #[must_use]
+    pub fn patterns(&self) -> &[String] {
+        &self.patterns
+    }
+
+    /// Whether `rel`, a `/`-separated path relative to the package directory, lies in the scope.
+    #[must_use]
+    pub fn is_match(&self, rel: &str) -> bool {
+        self.globs.is_match(rel)
+    }
 }
 
 /// The regular expressions `regexes` compiled once, as one set that the [`Globs`] including them share; `None` when
@@ -166,15 +192,14 @@ mod tests {
 
     #[test]
     fn a_narrowed_incomplete_scope_matches_paths_relative_to_the_package() {
-        let scope = ["src/**/*.stories.tsx".to_owned(), "./.storybook/*.ts".to_owned()];
-        assert!(in_incomplete_scope(&scope, "src/ui/Button.stories.tsx"));
-        assert!(in_incomplete_scope(&scope, ".storybook/main.ts"));
-        assert!(!in_incomplete_scope(&scope, "src/ui/Button.tsx"));
-        assert!(
-            !in_incomplete_scope(&scope, ".storybook/deep/main.ts"),
-            "`*` stops at `/`"
-        );
-        assert!(!in_incomplete_scope(&[], "src/a.ts"));
+        let patterns = vec!["src/**/*.stories.tsx".to_owned(), "./.storybook/*.ts".to_owned()];
+        let scope = IncompleteScopeGlobs::new(patterns);
+        assert!(scope.is_match("src/ui/Button.stories.tsx"));
+        assert!(scope.is_match(".storybook/main.ts"));
+        assert!(!scope.is_match("src/ui/Button.tsx"));
+        assert!(!scope.is_match(".storybook/deep/main.ts"), "`*` stops at `/`");
+        assert_eq!(scope.patterns(), ["src/**/*.stories.tsx", "./.storybook/*.ts"]);
+        assert!(!IncompleteScopeGlobs::new(Vec::new()).is_match("src/a.ts"));
     }
 
     #[test]
