@@ -493,19 +493,22 @@ tool looks for them:
 | `vite` | `{,src/}{index,main}.*`, the conventional build input a shared base config may set |
 | `vitest`, `playwright` | test files, test and fixture directories (`test`, `tests`, `__tests__`, `__mocks__`, `__fixtures__`, `e2e`, `spec`, `specs`, `fixtures`, `mocks`, `testing`, `test-utils`), files whose name contains `setup` or `teardown`, and files named `*.{test,spec,bench,e2e,integration}*` |
 
-The files in the scope are treated as entries, so what they import is not reported either; every other file of the
-package is judged as usual, its unused exports, types and members included, since whatever an unknown entry in the
-scope imports is already counted. The exports of a file in the scope are not judged, even with
-`include-entry-exports`, as the tool may read them. The whole package stays unjudged when the configuration does not
-parse (an `esbuild` build script that exports nothing is read for every `entryPoints` it writes, and counts as
-unparsable only when it writes none), when a `vite`
-config computes `root`, `build.rollupOptions.input` or `build.lib.entry` itself or is unknown as a whole, when a
-`vitest` config computes `root`, `test.include`, `test.setupFiles` or `test.globalSetup` itself or is unknown as a
-whole, when a `playwright` config is unknown as a whole, when the plugin gives no scope (any other plugin), when the
-published build output maps to no source file (publishing may expose any file), and when a module of the package
-imports a computed path (`import(name)`, `require(name)`), which may load any of its files. `explain-usage` says which applies: a file in the
-scope is an entry of kind `incomplete-scope`, a file outside it reported by `unused-files` names the scope, and a file
-of a package left unjudged as a whole is `entries-incomplete`.
+The files in the scope are treated as entries, so what they import is not reported either: those outside the package's
+`project` globs too, and, for a scope of a package with workspace packages below it (a root test config), the matching
+files of those packages. Every other file of the package is judged as usual, its unused exports, types and members
+included, since whatever an unknown entry in the scope imports is already counted. The exports of a file in the scope
+are not judged, even with `include-entry-exports`, as the tool may read them. The whole package stays unjudged when the
+configuration does not parse (an `esbuild` build script that exports nothing is read for every `entryPoints` it writes,
+and counts as unparsable only when it writes none), when a `vite` config computes `root`, `build.rollupOptions.input` or
+`build.lib.entry` itself or is unknown as a whole (a key is computed by the config itself when an unknown spread inside
+it, or above it of a value the config computes, such as `build: { ...makeLib() }` with `makeLib` declared in the config,
+may set it; a spread of an imported base is shared and narrows), when a `vitest` config computes `root`, `test.include`,
+`test.setupFiles` or `test.globalSetup` itself or is unknown as a whole, when a `playwright` config is unknown as a
+whole, when the plugin gives no scope (any other plugin), when the published build output maps to no source file
+(publishing may expose any file), and when a module of the package imports a computed path (`import(name)`,
+`require(name)`), which may load any of its files. `explain-usage` says which applies: a file in the scope is an entry
+of kind `incomplete-scope`, a file outside it reported by `unused-files` names the scope, and a file of a package left
+unjudged as a whole is `entries-incomplete`.
 
 **`paths`** is a `tsconfig`-style map for one workspace, `{ "alias/*" = ["./target/*"] }`, targets relative to the
 workspace directory. Each target is tried as a module alias ahead of the aliases tools declare.
@@ -562,7 +565,8 @@ report and matches no file on disk (while that rule runs). `[rules] stale-js-con
 over the other packages, and an entry that matches a dependency such a package lists is never called stale. It also
 reports knip's tag hints: an `ignore-tags` tag, or `@internal` with `production`, on an export or member that is used
 anyway (while `unused-exports` runs). A tag on an enum or namespace that hides an unused member is needed and not
-reported.
+reported. The tag hints cover the files whose exports `unused-exports` judges, so in a package with incomplete entries
+narrowed to a scope they cover every file outside it.
 
 The rest of knip's configuration hints are part of `stale-js-config` too:
 
