@@ -330,10 +330,10 @@ fn parse_source(modules: Option<&ModuleParser<'_>>, path: &Path, source: &str) -
         return PARSE_TIME.time(|| parse_cached(None, path, source, &options));
     };
     if !timing::enabled() {
-        return modules.parse(path, source, &options).0;
+        return modules.parse(path, source, options).0;
     }
     let start = Instant::now();
-    let (parsed, served) = modules.parse(path, source, &options);
+    let (parsed, served) = modules.parse(path, source, options);
     let (tally, counter) = match served {
         Served::Uncached => (&PARSE_TIME, None),
         Served::Hit => (&PARSE_TIME, Some(&CACHE_HITS)),

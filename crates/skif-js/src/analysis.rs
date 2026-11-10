@@ -130,7 +130,7 @@ fn collect_ambient_modules(
                 modules
                     .map_or_else(
                         || parse_cached(None, path, &source, &options),
-                        |modules| modules.parse(path, &source, &options).0,
+                        |modules| modules.parse(path, &source, options).0,
                     )
                     .ok()
             })

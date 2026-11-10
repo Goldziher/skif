@@ -129,10 +129,10 @@ impl ModuleParser<'_> {
         &self,
         path: &Path,
         source: &str,
-        options: &ParseOptions,
+        options: ParseOptions,
     ) -> (Result<ModuleInfo, SyntaxError>, Served) {
         if self.local.as_ref().is_some_and(|local| local.contains(path)) {
-            return (parse_cached(None, path, source, options), Served::Uncached);
+            return (parse_cached(None, path, source, &options), Served::Uncached);
         }
         let probe = Probe {
             cache: self.cache,
@@ -140,8 +140,8 @@ impl ModuleParser<'_> {
             stored: AtomicBool::new(false),
         };
         let parsed = match self.coalescer {
-            Some(coalescer) => coalescer.parse_cached(&probe, path, source, options),
-            None => parse_cached(Some(&probe), path, source, options),
+            Some(coalescer) => coalescer.parse_cached(&probe, path, source, &options),
+            None => parse_cached(Some(&probe), path, source, &options),
         };
         let served = if probe.stored.into_inner() || parsed.is_err() {
             Served::Parsed
@@ -213,7 +213,7 @@ mod tests {
         paths
             .iter()
             .map(|path| {
-                let (parsed, served) = parser.parse(Path::new(path), SOURCE, &ParseOptions::default());
+                let (parsed, served) = parser.parse(Path::new(path), SOURCE, ParseOptions::default());
                 assert_eq!(
                     parsed.unwrap(),
                     parse_cached(None, Path::new(path), SOURCE, &ParseOptions::default()).unwrap()
@@ -300,7 +300,7 @@ mod tests {
         let (parsed, served) =
             modules
                 .parser(Path::new("/r"))
-                .parse(Path::new("/r/notes.txt"), "", &ParseOptions::default());
+                .parse(Path::new("/r/notes.txt"), "", ParseOptions::default());
         assert!(matches!(parsed, Err(SyntaxError::Unsupported { .. })));
         assert_eq!(served, Served::Parsed);
         assert!(host.stored.lock().unwrap().is_empty());
