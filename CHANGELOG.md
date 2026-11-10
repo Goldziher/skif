@@ -203,6 +203,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A file that starts with a UTF-8 byte order mark no longer reports every first-line column one too far (human,
+  compact, JSON, SARIF and LSP), since editors and code hosts hide the mark; `LineIndex` counts no column for it.
 - `skif baseline` records `name@specifier` only for the rules whose finding is about the specifier (`RuleMeta::version_scoped`:
   `version-mismatch`, `semver-range-mismatch`, `policy-conflict`, `unsynced-dependency-family`,
   `incompatible-peer-dependencies`, `catalog-mismatch`, `catalog-version-divergence`); any other finding records the
