@@ -891,6 +891,9 @@ from an installed package stays unknown, and an imported value that depends on i
 A member of a known object is the value of its key: `{ ...base, plugins: [...base.plugins, "x"] }` keeps the plugins of
 the imported `base`, which are judged against the package that owns the module naming them, while `"x"` belongs to the
 importing config. A key the object does not have is `undefined`, and one an unknown spread may set is unknown. A config
+function the tool calls (an exported function, the callback given to `defineConfig`) has every parameter unknown, its
+default included, since the tool passes what the config does not say: `(env = {}) => env.analyze ? a : b` keeps both
+branches. A config
 factory of a workspace package (`createVitestConfig({ setupFiles: ["./setup.ts"] })`, also wrapped as
 `defineConfig(createBase(options))`) is called with the arguments given, so what it builds from its options is known. A
 config that exports the result of a call that cannot be followed, such as a factory of an installed package, is

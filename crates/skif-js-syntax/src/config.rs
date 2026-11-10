@@ -221,7 +221,10 @@ pub trait ModuleLoader {
 ///
 /// Functions are followed: a returned config function may declare local `const`/`let` bindings and local functions,
 /// assign members of a local object, and call top-level or local functions with known arguments, a parameter not passed
-/// taking its default and an object pattern parameter (`{ pinCjs = [] } = {}`) its properties or their defaults; `await x` and
+/// taking its default and an object pattern parameter (`{ pinCjs = [] } = {}`) its properties or their defaults. A
+/// function the tool calls (the exported config function, the callback given to `defineConfig`) is passed what the
+/// config does not say, so each of its parameters is unknown, a default included: `(env = {}) => env.analyze ? a : b`
+/// keeps both branches. `await x` and
 /// `Promise.resolve(x)` evaluate to `x`; `require.resolve('pkg')` evaluates to `'pkg'`, and the storybook idiom
 /// `dirname(require.resolve(join('pkg', 'package.json')))` to `'pkg'`. A call of a glob function (`glob`,
 /// `fast-glob`, `globby`, `tinyglobby`, however imported) evaluates to the array of its literal patterns, so a
@@ -324,7 +327,7 @@ fn evaluate_config(source: &str, path: &Path, modules: Option<&Modules<'_>>) -> 
     *eval.config_setter.borrow_mut() = callable.and_then(first_parameter);
     let value = match exported {
         Exported::Expression(expr) => eval.expr(expr, 0),
-        Exported::Function(function) => eval.invoke(Callable::Function(function), &[], false, 0),
+        Exported::Function(function) => eval.invoke(Callable::Function(function), None, false, 0),
     };
     let value = if exports_changed(program) {
         changed(value)
@@ -598,11 +601,11 @@ impl Modules<'_> {
         match imported {
             Imported::Namespace => Some(ConfigValue::Unknown),
             Imported::Default => Some(match exported(program)? {
-                Exported::Function(function) => eval.invoke(Callable::Function(function), args.unwrap_or(&[]), true, 0),
+                Exported::Function(function) => eval.invoke(Callable::Function(function), args, true, 0),
                 Exported::Expression(expr) => {
                     match (args, Callable::of_expression(expr), expr.get_inner_expression()) {
                         (None, _, _) => eval.expr(expr, 0),
-                        (Some(args), Some(callable), _) => eval.invoke(callable, args, true, 0),
+                        (Some(args), Some(callable), _) => eval.invoke(callable, Some(args), true, 0),
                         (Some(args), None, Expression::Identifier(id)) => eval.call_named(id.name.as_str(), args),
                         (Some(_), None, _) => ConfigValue::Unknown,
                     }
@@ -1695,14 +1698,15 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 }
             }
             Expression::CallExpression(c) => self.call(c, depth),
-            Expression::ArrowFunctionExpression(f) => self.invoke(Callable::Arrow(f), &[], false, depth),
-            Expression::FunctionExpression(f) => self.invoke(Callable::Function(f), &[], false, depth),
+            Expression::ArrowFunctionExpression(f) => self.invoke(Callable::Arrow(f), None, false, depth),
+            Expression::FunctionExpression(f) => self.invoke(Callable::Function(f), None, false, depth),
             _ => ConfigValue::Unknown,
         }
     }
 
     /// The value of a name: a binding of a function being evaluated, a top-level constant (evaluated once however
-    /// often it is referenced), a top-level function called without arguments, or a path global.
+    /// often it is referenced), a top-level function called with arguments that cannot be known (as the tool calls a
+    /// config function the config exports by name), or a path global.
     fn identifier(&self, name: &str, depth: u32) -> ConfigValue {
         if let Some(binding) = self.lookup(name) {
             return match binding {
@@ -1712,7 +1716,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         }
         let Some(&init) = self.consts.get(name) else {
             return match self.functions.get(name) {
-                Some(callable) => self.invoke(*callable, &[], true, depth),
+                Some(callable) => self.invoke(*callable, None, true, depth),
                 None => self.import_value(name, None).unwrap_or_else(|| self.global(name)),
             };
         };
@@ -1889,7 +1893,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// Calls the function `name` of this module, declared or imported, with `args`.
     fn call_named(&self, name: &str, args: &[ConfigValue]) -> ConfigValue {
         match self.functions.get(name) {
-            Some(callable) => self.invoke(*callable, args, true, 0),
+            Some(callable) => self.invoke(*callable, Some(args), true, 0),
             None => self.import_value(name, Some(args)).unwrap_or(ConfigValue::Unknown),
         }
     }
@@ -2239,7 +2243,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 None => return self.imported_call(name, call, depth),
             },
         };
-        Some(self.invoke(callable, &self.arguments(call, depth), isolate, depth))
+        Some(self.invoke(callable, Some(self.arguments(call, depth).as_slice()), isolate, depth))
     }
 
     /// A call of a config combinator (`mergeConfig`, `defu`, `Object.assign`, `deepmerge`, `merge`): the merge of the
@@ -2336,8 +2340,17 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         }
     }
 
-    /// Calls `callable` with `args`. With `isolate`, the function cannot see the bindings of the function evaluating it.
-    fn invoke(&self, callable: Callable<'p, 'a>, args: &[ConfigValue], isolate: bool, depth: u32) -> ConfigValue {
+    /// Calls `callable` with `args`, or with arguments that cannot be known when it is `None`: a function the tool calls
+    /// (an exported config function, the callback of `defineConfig`) is given what the config does not say, so each of
+    /// its parameters is unknown, a default included. With `isolate`, the function cannot see the bindings of the
+    /// function evaluating it.
+    fn invoke(
+        &self,
+        callable: Callable<'p, 'a>,
+        args: Option<&[ConfigValue]>,
+        isolate: bool,
+        depth: u32,
+    ) -> ConfigValue {
         if self.calls.get() >= MAX_CALLS {
             return ConfigValue::Unknown;
         }
@@ -2354,10 +2367,10 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         // Parameters are bound in order inside the function, so a default sees the parameters before it.
         self.frames.borrow_mut().push(Frame::new());
         for (index, param) in params.items.iter().enumerate() {
-            let value = match (args.get(index), &param.initializer) {
-                (Some(value), _) => value.clone(),
-                (None, Some(default)) => self.expr(default, depth),
-                (None, None) => ConfigValue::Unknown,
+            let value = match (args.map(|args| args.get(index)), &param.initializer) {
+                (Some(Some(value)), _) => value.clone(),
+                (Some(None), Some(default)) => self.expr(default, depth),
+                (None | Some(None), _) => ConfigValue::Unknown,
             };
             self.bind_pattern(&param.pattern, value, depth);
         }
@@ -2391,7 +2404,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             Callable::Function(f) => f.body.as_ref().map(|body| &body.statements),
         };
         let (Some(name), Some(statements)) = (first_parameter(callable), statements) else {
-            return self.invoke(callable, &[argument], false, depth);
+            return self.invoke(callable, Some(std::slice::from_ref(&argument)), false, depth);
         };
         let params = match callable {
             Callable::Function(f) => &f.params,

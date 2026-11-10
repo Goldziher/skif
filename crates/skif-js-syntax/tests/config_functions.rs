@@ -745,3 +745,30 @@ fn an_unknown_spread_the_config_computes_itself_is_its_own() {
         assert_eq!(object.get(OWN_SPREAD), None, "{key}: {object:?}");
     }
 }
+
+/// A function the tool calls (an exported config function, the callback of `defineConfig`, a declared function the
+/// config exports by name) is given arguments the config cannot know: a parameter's default is only what it takes when
+/// nothing is passed, so a test on it is unknown and a spread it guards adds its keys. A call in the config itself
+/// passes what it passes, and a default fills what it leaves out.
+#[test]
+fn the_parameters_of_a_function_the_tool_calls_are_unknown() {
+    let body = "({ entry: env.analyze ? './src/analyze.ts' : './src/index.ts', \
+                inputs: { ...(env.analyze ? { analyze: ['./src/analyze.ts'] } : {}), index: './src/index.ts' } })";
+    for source in [
+        format!("export default function (env = {{}}) {{ return {body}; }}"),
+        format!("export default defineConfig((env = {{}}) => {body});"),
+        format!("module.exports = (env = {{}}) => {body};"),
+        format!("function config(env = {{}}) {{ return {body}; }}\nexport default config;"),
+    ] {
+        let value = extract("webpack.config.js", &source);
+        assert_eq!(get(&value, &["entry"]), &ConfigValue::Unknown, "{source}");
+        assert_eq!(get(&value, &["inputs", "analyze"]), &strings(&["./src/analyze.ts"]), "{source}");
+        assert_eq!(get(&value, &["inputs", "index"]), &s("./src/index.ts"), "{source}");
+    }
+    let called = extract(
+        "webpack.config.js",
+        &format!("const make = (env = {{}}) => {body};\nexport default make();"),
+    );
+    assert_eq!(get(&called, &["entry"]), &s("./src/index.ts"));
+    assert_eq!(get(&called, &["inputs"]).get("analyze"), None);
+}
