@@ -14,6 +14,7 @@ pub(crate) fn provider(config: &Config, fs: Arc<dyn FileSystem>, modules: Option
     let provider = JsProvider::new(fs).with_input_source(Arc::new(
         PluginSource::new(config.js.plugins.clone())
             .with_workspaces(&config.js.workspaces)
+            .with_workspaces_anchor(config.js.workspaces_anchor.as_deref())
             .with_root_tsconfig(config.js.tsconfig.as_deref())
             .with_overrides(&config.overrides),
     ));
@@ -40,6 +41,7 @@ pub fn explain_usage(
     let source: Arc<dyn InputSource> = Arc::new(
         PluginSource::new(config.js.plugins.clone())
             .with_workspaces(&config.js.workspaces)
+            .with_workspaces_anchor(config.js.workspaces_anchor.as_deref())
             .with_root_tsconfig(config.js.tsconfig.as_deref())
             .with_overrides(&config.overrides),
     );
@@ -60,6 +62,7 @@ pub fn trace_dependency(
     let source: Arc<dyn InputSource> = Arc::new(
         PluginSource::new(config.js.plugins.clone())
             .with_workspaces(&config.js.workspaces)
+            .with_workspaces_anchor(config.js.workspaces_anchor.as_deref())
             .with_root_tsconfig(config.js.tsconfig.as_deref())
             .with_overrides(&config.overrides),
     );

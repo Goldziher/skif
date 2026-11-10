@@ -72,7 +72,7 @@ pub(crate) struct HintInputs<'a> {
 /// Every hint, in package order and without duplicates (a pattern of a glob `[js.workspaces]` key is reported once).
 pub(crate) fn config_hints(inputs: &HintInputs<'_>) -> Vec<ConfigHint> {
     let mut hints: IndexSet<ConfigHint> = top_level_hints(inputs.workspace, inputs.config).collect();
-    let keys = WorkspaceKeys::new(&inputs.config.js.workspaces);
+    let keys = WorkspaceKeys::of(&inputs.config.js);
     for (id, package) in inputs.workspace.iter() {
         if let Some(package_setup) = inputs.setup.package(id) {
             let scope = Scope {
