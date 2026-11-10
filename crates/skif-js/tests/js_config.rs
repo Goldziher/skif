@@ -471,7 +471,7 @@ fn stale_js_config_records_every_entry_it_judged_under_the_key_it_is_written_at(
 fn a_list_stale_js_config_cannot_judge_records_nothing() {
     let files = two_packages("export {};\n");
     let toml = "[js]\nignore-dependencies = [\"zzz\"]\n[rules]\nunused-dependencies = \"off\"\n";
-    assert!(report(&files, toml).config_judgements.is_empty());
+    assert_eq!(report(&files, toml).config_judgements.len(), 0);
 }
 
 #[test]
