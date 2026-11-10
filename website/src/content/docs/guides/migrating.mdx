@@ -104,6 +104,7 @@ Every construct that was not copied one to one has a note with the file, the key
 | `unsync-similar-dependencies` | `unsynced-dependency-family`, which reads the sections of `[policy] dependency-types` (dependencies and devDependencies after a sherif migration) and never compares a dependency listed in two sections with itself. A `catalog:` reference counts as the version of its catalog entry, which sherif left out (A) |
 | an empty root `dependencies` object | nothing to write, noted as approximate: sherif reported it as `root-package-dependencies` (a warning), skif reports it as `empty-dependencies` (an error); remove the empty object |
 | `ignoreDependency`, `-i` | `[[ignore]]` with `rules = ["version-mismatch"]`, the only rule sherif applied it to |
+| a flag value with a comma (`-i a,b`) | not written (H): sherif takes a value whole, so `a,b` matched nothing; pass each name with its own flag |
 | `ignoreDependency` as `name@version` | the same entry, noted as approximate (below) |
 | `failOnWarnings`, `--fail-on-warnings` | `[lint] fail-on-warnings` |
 | `select`, `-s` | `[policy] prefer` |
