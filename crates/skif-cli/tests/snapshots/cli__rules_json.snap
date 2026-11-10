@@ -200,7 +200,7 @@ expression: json.stdout
       "category": "js",
       "default": "error",
       "fixable": "none",
-      "summary": "A file imports a package that neither its `package.json` nor any `package.json` above it lists. An import that only the tsconfig `paths` of another package map has the detail `ForeignTsconfigPaths`: it needs a mapping, not a dependency."
+      "summary": "A file imports a package that neither its `package.json` nor any `package.json` above it lists. An import that only the tsconfig `paths` of another package map has the detail `ForeignTsconfigPaths`: it needs a mapping, not a dependency. A package a tool config names (a tsconfig `extends`, an ESLint or Oxlint plugin, a Prisma generator) is reported at the config with the detail `ConfigReference`."
     },
     {
       "id": "unresolved-imports",

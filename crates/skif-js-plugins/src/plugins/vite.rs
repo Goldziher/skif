@@ -56,7 +56,8 @@ impl Plugin for Vite {
         if let Some(include) = get_in(config.value, &["optimizeDeps", "include"]) {
             for specifier in strings(include) {
                 let id = specifier.split('>').next().unwrap_or_default().trim();
-                out.extend(package_name(id).map(PluginInput::Dependency));
+                // Pre-bundling a package does not need it installed; knip reads it as an optional reference.
+                out.extend(package_name(id).map(PluginInput::OptionalDependency));
             }
         }
         if let Some(alias) = get_in(config.value, &["resolve", "alias"]) {

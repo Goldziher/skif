@@ -138,7 +138,7 @@ A script, or a command in a workflow, tool config or source file, runs a binary 
 
 ## unlisted-dependencies
 
-A file imports a package that neither its `package.json` nor any `package.json` above it lists. An import that only the tsconfig `paths` of another package map has the detail `ForeignTsconfigPaths`: it needs a mapping, not a dependency.
+A file imports a package that neither its `package.json` nor any `package.json` above it lists. An import that only the tsconfig `paths` of another package map has the detail `ForeignTsconfigPaths`: it needs a mapping, not a dependency. A package a tool config names (a tsconfig `extends`, an ESLint or Oxlint plugin, a Prisma generator) is reported at the config with the detail `ConfigReference`.
 
 - Category: js
 - Default severity: error

@@ -425,3 +425,8 @@ blake3 = "1f5cefafa05d89958886095fd8cfcd5c848c9210e0fd98ed8cd3aa1ff85d01d2"
 number = 85
 status = "accepted"
 blake3 = "b830bad58f376637a70784dc49a09852c8e59ec3f775b0008fd64df619df0a44"
+
+[adrs."adrs/0086-packages-tool-configs-name-are-unlisted-at-the-config.md"]
+number = 86
+status = "accepted"
+blake3 = "729ab39aad104eb93980cddebad9ee97622baf70822c12bbba3972dc6539bb13"
