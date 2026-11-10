@@ -246,3 +246,118 @@ fn ignores_fixtures_and_production_mode_apply_to_config_references() {
     let production = "[js]\nproduction = true\n";
     assert_eq!(found(&lint_with(&files, production), "unlisted-dependencies"), none());
 }
+
+/// `compilerOptions.types` names the package whose types it loads: a listing of the package or of its `@types`
+/// package by the config's package or a package above it satisfies it, and a name that is a `@types` package or a
+/// scoped package is that package (knip's `isTypeOnly`).
+#[test]
+fn tsconfig_types_are_satisfied_by_the_package_or_its_types_package() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*"],"devDependencies":{"typescript":"5.0.0","cypress":"13.0.0","@types/node":"22.0.0","@types/jest":"29.0.0"}}"#,
+        ),
+        (
+            "packages/app/package.json",
+            r#"{"name":"@acme/app","version":"1.0.0","main":"src/index.ts","devDependencies":{"@cloudflare/workers-types":"4.0.0"}}"#,
+        ),
+        (
+            "packages/app/tsconfig.json",
+            r#"{"compilerOptions":{"types":["cypress","@cloudflare/workers-types","@types/node","jest","mocha"]}}"#,
+        ),
+        ("packages/app/src/index.ts", "export const a = 1;\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unlisted-dependencies"),
+        ["packages/app/tsconfig.json: mocha"]
+    );
+    let unused = found(&diagnostics, "unused-dev-dependencies");
+    for listed in ["package.json: @types/jest", "packages/app/package.json: @cloudflare/workers-types"] {
+        assert!(!unused.contains(&listed.to_owned()), "{listed} is used: {unused:?}");
+    }
+}
+
+/// A compiler option of a shared base config (`types`, `jsxImportSource`, `importHelpers`, `plugins`) applies to each
+/// package extending it, which may list the package in place of the base config's owner (knip's
+/// `alsoReferenceOwner`); a package that does not is reported at the base config, unless its `ignore-dependencies`
+/// names the package.
+#[test]
+fn compiler_options_of_a_shared_base_config_are_satisfied_by_the_extending_package() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*"],"devDependencies":{"typescript":"5.0.0"}}"#,
+        ),
+        (
+            "packages/tsconfig/package.json",
+            r#"{"name":"@acme/tsconfig","version":"1.0.0","private":true,"files":["base.json"]}"#,
+        ),
+        (
+            "packages/tsconfig/base.json",
+            r#"{"compilerOptions":{"types":["vitest/globals"],"jsxImportSource":"preact","importHelpers":true,"plugins":[{"name":"@effect/language-service"}]}}"#,
+        ),
+        (
+            "packages/app/package.json",
+            r#"{"name":"@acme/app","version":"1.0.0","main":"src/index.ts","devDependencies":{"vitest":"3.0.0","preact":"10.0.0","tslib":"2.0.0","@effect/language-service":"0.1.0"}}"#,
+        ),
+        ("packages/app/tsconfig.json", r#"{"extends":"../tsconfig/base.json"}"#),
+        ("packages/app/src/index.ts", "export const a = 1;\n"),
+        (
+            "packages/lib/package.json",
+            r#"{"name":"@acme/lib","version":"1.0.0","main":"src/index.ts","devDependencies":{"vitest":"3.0.0","preact":"10.0.0","@effect/language-service":"0.1.0"}}"#,
+        ),
+        ("packages/lib/tsconfig.json", r#"{"extends":"../tsconfig/base.json"}"#),
+        ("packages/lib/src/index.ts", "export const b = 1;\n"),
+    ];
+    assert_eq!(
+        found(&lint(&files), "unlisted-dependencies"),
+        ["packages/tsconfig/base.json: tslib"]
+    );
+    let toml = "[js.workspaces.\"packages/lib\"]\nignore-dependencies = [\"tslib\"]\n";
+    assert_eq!(found(&lint_with(&files, toml), "unlisted-dependencies"), none());
+}
+
+/// A config that git ignores is generated (`.nuxt/tsconfig.json`) and not judged; `[js] include-fixtures` judges a
+/// config in a fixture directory like any other.
+#[test]
+fn gitignored_configs_are_not_judged_and_include_fixtures_judges_fixture_configs() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"app","version":"1.0.0","main":"src/index.ts","devDependencies":{"typescript":"5.0.0"}}"#,
+        ),
+        (".gitignore", ".nuxt\n"),
+        (
+            "tsconfig.json",
+            r#"{"extends":["./.nuxt/tsconfig.json","./fixtures/tsconfig.json"]}"#,
+        ),
+        (".nuxt/tsconfig.json", r#"{"extends":"@acme/generated/base.json"}"#),
+        ("fixtures/tsconfig.json", r#"{"extends":"@acme/fixture/base.json"}"#),
+        ("src/index.ts", "export const a = 1;\n"),
+    ];
+    assert_eq!(found(&lint(&files), "unlisted-dependencies"), none());
+    assert_eq!(
+        found(&lint_with(&files, "[js]\ninclude-fixtures = true\n"), "unlisted-dependencies"),
+        ["fixtures/tsconfig.json: @acme/fixture"]
+    );
+}
+
+/// A config that imports the package it names is reported once, for the import.
+#[test]
+fn a_config_that_imports_the_package_it_names_is_reported_once() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","version":"1.0.0","main":"src/index.ts","devDependencies":{"prettier":"3.0.0"}}"#,
+        ),
+        (
+            "prettier.config.mjs",
+            "import 'prettier-plugin-tailwindcss';\nexport default { plugins: ['prettier-plugin-tailwindcss'] };\n",
+        ),
+        ("src/index.ts", "export const a = 1;\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unlisted-dependencies"),
+        ["prettier.config.mjs: prettier-plugin-tailwindcss"]
+    );
+}

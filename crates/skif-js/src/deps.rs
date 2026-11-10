@@ -11,9 +11,10 @@ use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object};
 use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 
 use crate::ancestors::{external_manifests, listed_names};
-use crate::discover::relative;
+use crate::discover::{is_ignored_in_repository, relative};
 use crate::fixture::in_fixture_directory;
 use crate::graph::{ModuleGraph, ModuleId, Target};
+use crate::input::ConfigDependency;
 use crate::lockfile;
 use crate::scripts::{ScriptBinary, script_context};
 use crate::setup::Setup;
@@ -261,6 +262,10 @@ pub struct UnlistedConfigDependency {
     pub name: String,
     /// The config file, relative to the workspace root with `/` separators.
     pub file: PathBuf,
+    /// The packages reading the config that could have listed the package in place of `package` and do not: those a
+    /// compiler option of a shared base `tsconfig` applies to. Empty for any other reference, which only `package`
+    /// can satisfy.
+    pub readers: Vec<PackageId>,
 }
 
 /// The binaries and peer dependencies a package declares.
@@ -461,6 +466,32 @@ fn config_owner(workspace: &Workspace, setup: &Setup, file: &Path) -> Option<Pac
         .map(|(id, _)| id)
 }
 
+/// The owner ([`config_owner`]) of the config `file` (absolute) and its path relative to the root, when the packages
+/// it names are judged: not for a config outside the root, in `node_modules`, that git ignores (generated, such as
+/// `.nuxt/tsconfig.json`, unless `--no-gitignore`), in a fixture directory (unless `[js] include-fixtures`) or that an
+/// `ignore` pattern of the root or of its owner matches.
+fn judged_config(
+    workspace: &Workspace,
+    setup: &Setup,
+    fs: &dyn FileSystem,
+    file: &Path,
+) -> Option<(Option<PackageId>, String)> {
+    let rel = relative(file, &workspace.root)?;
+    let in_node_modules = rel.split('/').any(|part| part == "node_modules");
+    let in_fixture = !setup.include_fixtures && in_fixture_directory(Path::new(&rel));
+    if in_node_modules || in_fixture || setup.global_ignore.matches_any(&rel) {
+        return None;
+    }
+    if setup.gitignore && is_ignored_in_repository(fs, &workspace.root, file) {
+        return None;
+    }
+    let owner = config_owner(workspace, setup, file);
+    let ignored = owner.and_then(|owner| setup.package(owner)).is_some_and(|owner_setup| {
+        relative(file, &owner_setup.dir).is_some_and(|rel| owner_setup.ignore.matches_any(&rel))
+    });
+    (!ignored).then_some((owner, rel))
+}
+
 /// For every package, the packages whose directory contains it, innermost first, and the root last. With `isolate`
 /// (`--strict`) none: each package uses only what its own manifest lists.
 fn package_ancestors(workspace: &Workspace, isolate: bool) -> Vec<Vec<PackageId>> {
@@ -555,7 +586,7 @@ impl DependencyUsage {
         usage.collect_member_bins(workspace);
         usage.collect_imports(workspace, setup, graph);
         usage.collect_scripts(workspace, setup);
-        usage.collect_config_dependencies(workspace, setup);
+        usage.collect_config_dependencies(workspace, setup, fs);
         usage
     }
 
@@ -836,33 +867,12 @@ impl DependencyUsage {
     }
 
     fn handle_import(&mut self, workspace: &Workspace, name: &str, site: &ImportSite<'_>) {
-        let owner = site.owner;
-        if RUNTIME_PACKAGES.contains(&name) {
-            return;
-        }
-        let Some(package) = workspace.package(owner) else {
-            return;
-        };
-        if package.name.as_deref() == Some(name) {
-            return;
-        }
-        let types =
-            types_package(name).and_then(|types| self.find_listed_for(site, &types).map(|found| (found, types)));
-        if let Some((found, types)) = &types {
-            self.reference(*found, types);
-        }
-        if let Some(found) = self.find_listed_for(site, name) {
-            self.reference(found, name);
-            return;
-        }
-        if site.type_only && types.is_some() {
-            return;
-        }
-        if self.provided_unlisted(workspace, package, owner, name) {
+        let find = |usage: &Self, name: &str| usage.find_listed_for(site, name);
+        if self.is_satisfied(workspace, site.owner, name, site.type_only, find) {
             return;
         }
         self.unlisted.push(UnlistedImport {
-            package: owner,
+            package: site.owner,
             name: name.to_owned(),
             module: site.module,
             span: site.span,
@@ -872,10 +882,44 @@ impl DependencyUsage {
         });
     }
 
-    /// Whether package `name`, which no manifest of `package` (`owner`) or above lists, is there all the same: a peer
-    /// dependency of a listed package, the runtime of an `engines` entry, or (for a private package) a workspace
-    /// member, which is then a use of it.
-    fn provided_unlisted(&mut self, workspace: &Workspace, package: &Package, owner: PackageId, name: &str) -> bool {
+    /// Whether package `name` that package `owner` uses needs no manifest entry, recording every use it finds: a
+    /// runtime module, the package itself, a package that `find` finds listed (for `type_only` uses also its
+    /// `DefinitelyTyped` package), one that is provided ([`Self::is_provided`]) or a workspace member a private
+    /// package uses unlisted.
+    fn is_satisfied(
+        &mut self,
+        workspace: &Workspace,
+        owner: PackageId,
+        name: &str,
+        type_only: bool,
+        find: impl Fn(&Self, &str) -> Option<Listed>,
+    ) -> bool {
+        if RUNTIME_PACKAGES.contains(&name) {
+            return true;
+        }
+        let Some(package) = workspace.package(owner) else {
+            return true;
+        };
+        if package.name.as_deref() == Some(name) {
+            return true;
+        }
+        let types = types_package(name).and_then(|types| find(self, &types).map(|found| (found, types)));
+        if let Some((found, types)) = &types {
+            self.reference(*found, types);
+        }
+        if let Some(found) = find(self, name) {
+            self.reference(found, name);
+            return true;
+        }
+        if type_only && types.is_some() {
+            return true;
+        }
+        self.is_provided(workspace, owner, name) || self.use_unlisted_member(package, owner, name)
+    }
+
+    /// Whether package `name`, which no manifest of package `owner` or above lists, is there all the same: a peer
+    /// dependency of a listed package or the runtime of an `engines` entry.
+    fn is_provided(&self, workspace: &Workspace, owner: PackageId, name: &str) -> bool {
         // A peer dependency of a listed package is provided by whoever installs that package; strict mode, like
         // knip's, does not count on that.
         let scopes = std::iter::once(owner).chain(self.ancestors[owner.index()].iter().copied());
@@ -888,7 +932,7 @@ impl DependencyUsage {
         }
         // The runtime an `engines` entry names provides its module (`vscode` for an extension), also to the packages
         // inside the one that declares it, such as the client and server of an extension.
-        let provided_by_engine = std::iter::once(owner)
+        std::iter::once(owner)
             .chain(self.ancestors[owner.index()].iter().copied())
             .filter_map(|scope| workspace.package(scope))
             .any(|scope| {
@@ -898,73 +942,83 @@ impl DependencyUsage {
                     .get("engines")
                     .and_then(|engines| engines.get(name))
                     .is_some()
-            });
-        if provided_by_engine {
-            return true;
-        }
-        if !self.strict && package.private && self.members.contains(name) {
+            })
+    }
+
+    /// Whether `name` is a workspace member that the private `package` (`owner`) uses without listing it, which is
+    /// then recorded as a use of it.
+    fn use_unlisted_member(&mut self, package: &Package, owner: PackageId, name: &str) -> bool {
+        let member = !self.strict && package.private && self.members.contains(name);
+        if member {
             self.reference_in(owner, name);
-            return true;
         }
-        false
+        member
     }
 
     /// The packages that the tool configs of every package name themselves (a `tsconfig` `extends`, an eslint plugin,
-    /// a Prisma generator), judged against the package that owns the config file: a listed one is used, one nothing
-    /// lists or provides is unlisted at the config. A config in `node_modules`, outside the root, in a fixture
-    /// directory or matched by an `ignore` pattern is not judged, and production mode judges none: configs serve
-    /// development.
-    fn collect_config_dependencies(&mut self, workspace: &Workspace, setup: &Setup) {
+    /// a Prisma generator), judged against the package that owns the config file, and for a compiler option of a
+    /// shared base `tsconfig` against the package reading it as well: a listed one is used, one nothing lists or
+    /// provides is unlisted at the config. A config that is not judged ([`judged_config`]) is skipped, and production
+    /// mode judges none: configs serve development.
+    fn collect_config_dependencies(&mut self, workspace: &Workspace, setup: &Setup, fs: &dyn FileSystem) {
         if setup.production {
             return;
         }
-        for (id, _) in workspace.iter() {
-            let Some(package_setup) = setup.package(id) else {
+        for (reader, _) in workspace.iter() {
+            let Some(package_setup) = setup.package(reader) else {
                 continue;
             };
             for dependency in &package_setup.config_dependencies {
-                let Some(file) = relative(&dependency.file, &workspace.root) else {
+                let Some((owner, file)) = judged_config(workspace, setup, fs, &dependency.file) else {
                     continue;
                 };
-                let in_node_modules = file.split('/').any(|part| part == "node_modules");
-                if in_node_modules || in_fixture_directory(Path::new(&file)) || setup.global_ignore.matches_any(&file) {
-                    continue;
-                }
-                let owner = config_owner(workspace, setup, &dependency.file).unwrap_or(id);
-                let ignored = setup.package(owner).is_some_and(|owner_setup| {
-                    relative(&dependency.file, &owner_setup.dir).is_some_and(|rel| owner_setup.ignore.matches_any(&rel))
-                });
-                if ignored {
-                    continue;
-                }
-                self.config_dependency(workspace, owner, &dependency.name, &file);
+                let owner = owner.unwrap_or(reader);
+                let may_list = dependency.reader_may_list.then_some(reader);
+                self.config_dependency(workspace, (owner, may_list), dependency, &file);
             }
         }
     }
 
-    /// Package `name` that the config `file` (relative to the root) of package `owner` names: a use of the manifest
-    /// that lists it, else unlisted at the file unless the package itself, the runtime or something else provides it.
-    fn config_dependency(&mut self, workspace: &Workspace, owner: PackageId, name: &str, file: &str) {
-        if let Some(found) = self.find_listed(owner, name) {
-            self.reference(found, name);
-            return;
-        }
-        let Some(package) = workspace.package(owner) else {
-            return;
+    /// The package `dependency` that the config `file` (relative to the root) of package `owner` names: a use of the
+    /// manifest that lists it, else unlisted at the file unless it needs no entry ([`Self::is_satisfied`]). A
+    /// `reader` that may list it instead is judged too, as knip's `alsoReferenceOwner` judges both packages.
+    fn config_dependency(
+        &mut self,
+        workspace: &Workspace,
+        (owner, reader): (PackageId, Option<PackageId>),
+        dependency: &ConfigDependency,
+        file: &str,
+    ) {
+        let name = dependency.name.as_str();
+        let judge = |usage: &mut Self, scope: PackageId| {
+            usage.is_satisfied(workspace, scope, name, dependency.type_only, |usage, name| {
+                usage.find_listed(scope, name)
+            })
         };
-        if RUNTIME_PACKAGES.contains(&name) || package.name.as_deref() == Some(name) {
+        let by_owner = judge(self, owner);
+        let by_reader = reader.is_some_and(|reader| reader != owner && judge(self, reader));
+        if by_owner || by_reader {
             return;
         }
-        if self.provided_unlisted(workspace, package, owner, name) {
-            return;
-        }
-        let unlisted = UnlistedConfigDependency {
-            package: owner,
-            name: name.to_owned(),
-            file: PathBuf::from(file),
-        };
-        if !self.unlisted_config.contains(&unlisted) {
-            self.unlisted_config.push(unlisted);
+        let file = PathBuf::from(file);
+        let existing = self
+            .unlisted_config
+            .iter_mut()
+            .find(|unlisted| unlisted.package == owner && unlisted.name == name && unlisted.file == file);
+        match existing {
+            Some(unlisted) => {
+                if let Some(reader) = reader
+                    && !unlisted.readers.contains(&reader)
+                {
+                    unlisted.readers.push(reader);
+                }
+            }
+            None => self.unlisted_config.push(UnlistedConfigDependency {
+                package: owner,
+                name: name.to_owned(),
+                file,
+                readers: reader.into_iter().collect(),
+            }),
         }
     }
 
