@@ -99,3 +99,34 @@ fn method_calls_are_evaluated_on_any_object() {
     let unparsable = extract_method_calls("x({", Path::new("a.js"), "addPassthroughCopy");
     assert_eq!(unparsable, Vec::<Vec<ConfigValue>>::new());
 }
+
+/// A name a function, block or loop around the property declares is not the top-level binding it shadows: its value is
+/// unknown.
+#[test]
+fn a_local_that_shadows_a_top_level_binding_is_unknown() {
+    let source = r#"
+        const srcDir = "src";
+        const entry = "src/main.ts";
+        run({ entryPoints: [`${srcDir}/top.ts`] });
+        export async function main(entry) {
+          const srcDir = process.env.SRC;
+          await build({ entryPoints: [`${srcDir}/index.ts`, entry] });
+        }
+        for (const srcDir of dirs) {
+          build({ entryPoints: [`${srcDir}/loop.ts`] });
+        }
+        {
+          build({ entryPoints: [entry] });
+        }
+    "#;
+    let found = extract_property_values(source, Path::new("esbuild.config.mjs"), "entryPoints");
+    assert_eq!(
+        found,
+        [
+            ConfigValue::Array(vec![s("src/top.ts")]),
+            ConfigValue::Array(vec![ConfigValue::Unknown, ConfigValue::Unknown]),
+            ConfigValue::Array(vec![ConfigValue::Unknown]),
+            ConfigValue::Array(vec![s("src/main.ts")]),
+        ]
+    );
+}

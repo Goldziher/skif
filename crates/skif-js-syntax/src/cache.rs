@@ -23,7 +23,7 @@ pub const CACHE_SCHEMA: u32 = 2;
 
 /// The digest of the serialized parse results of a fixed probe corpus at [`CACHE_SCHEMA`]. It is a test's guard,
 /// not part of any key: when the parse output changes, the test reports the new digest and both constants move.
-pub const CACHE_SCHEMA_DIGEST: u128 = 0x3457_8346_b9c5_963c_1c3e_a49d_3ad3_6b58;
+pub const CACHE_SCHEMA_DIGEST: u128 = 0xfc8b_261e_a950_4393_5cb6_9e0a_e024_6b3a;
 
 /// The version a persisted cache records, `<crate version>+<CACHE_SCHEMA>`: a store written under another version
 /// is discarded as a whole.
@@ -203,7 +203,7 @@ mod tests {
     /// One source per language the parsers know and one of test-runner mocks, plus the bench corpus: the probe whose
     /// parse output the schema digest pins.
     fn probe_corpus() -> Vec<(PathBuf, String)> {
-        let inline: [(&str, &str); 13] = [
+        let inline: [(&str, &str); 14] = [
             (
                 "a.ts",
                 "import { a, type B } from './b';\nimport * as ns from 'ns';\nexport const c = a + ns.x;\n\
@@ -262,6 +262,14 @@ mod tests {
                 "m.test.ts",
                 "vi.mock('./x');\nvi.mock(import('./y'), () => ({}));\njest.requireActual('./z');\n\
                  jest.mock('v', () => ({}), { virtual: true });\n",
+            ),
+            (
+                "n.ts",
+                "import * as ns from './ns';\nimport * as chars from './chars';\n\
+                 export const read = ns.E.A + chars.a;\nexport function scan(chars: string) { return chars.length; }\n\
+                 export async function lazy() { const ns = await import('./ns'); return ns.b; }\n\
+                 export interface Options { a: string }\nexport const Service = make();\n\
+                 export type Service = { run(options: Options): void };\n",
             ),
         ];
         let mut corpus: Vec<(PathBuf, String)> = inline

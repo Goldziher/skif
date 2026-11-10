@@ -11,9 +11,10 @@ use oxc_ast::ast::{
     Statement, StaticBlock, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
-use oxc_semantic::{Scoping, SemanticBuilder, SymbolId};
+use oxc_semantic::{Scoping, SymbolId};
 
 use crate::model::{Export, ExportKind, ImportKind, ImportedKind, ModuleInfo, Registration};
+use crate::semantic::Analysis;
 
 /// What an imported binding stands for.
 enum Binding {
@@ -46,7 +47,7 @@ impl Found {
 }
 
 /// Records the registrations of the exported classes of `program` on `info.exports`.
-pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
+pub(crate) fn mark(program: &Program<'_>, analysis: &Analysis<'_>, info: &mut ModuleInfo) {
     let bindings = import_bindings(info);
     let mut found = Found::default();
     let base_classes = top_level_classes(program, &bindings, &mut found);
@@ -54,16 +55,14 @@ pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
     calls.visit_program(program);
     // A registry variable is matched by name in the first pass. When a `define` goes through one, the calls are
     // collected again with scopes resolved, so a `define` on another binding of the same name does not count. Most
-    // files have no registry variable and skip the semantic analysis.
-    let semantic;
+    // files have no registry variable and need no semantic analysis for this pass.
     if calls
         .defines
         .iter()
         .any(|call| calls.is_registry_variable(&call.object))
     {
-        semantic = SemanticBuilder::new().build(program).semantic;
         calls = Calls {
-            scoping: Some(semantic.scoping()),
+            scoping: Some(analysis.scoping()),
             ..Calls::default()
         };
         calls.visit_program(program);
