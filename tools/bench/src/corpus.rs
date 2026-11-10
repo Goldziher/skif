@@ -253,7 +253,12 @@ pub fn lock_checkout(dir: &Path) -> Result<CheckoutLock> {
         .open(&path);
     let mut file = match opened {
         Ok(file) => file,
-        Err(error) if matches!(error.kind(), ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem) => {
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem
+            ) =>
+        {
             bail!(
                 "cannot create the lock file {} ({error}): the corpus directory is not writable, and skif-bench \
                  needs a writable one to lock, fetch and install its checkouts",
