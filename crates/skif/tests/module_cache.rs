@@ -205,3 +205,13 @@ fn linters_for_targets_report_like_a_linter_per_target() {
     );
     assert_eq!(lint_in_parallel(&discovery.targets, &shared), expected);
 }
+
+#[test]
+fn only_several_targets_or_a_host_cache_share_a_module_cache() {
+    let fs = shared_closure();
+    let discovery = discover_targets(Path::new(ROOT), &fs, &ConfigOverrides::default()).unwrap();
+    let host = || Some(Arc::new(MemoryModuleCache::new()) as Arc<dyn ModuleCache>);
+    assert!(Linter::shared_modules(&discovery.targets, None).is_some());
+    assert!(Linter::shared_modules(&discovery.targets[..1], None).is_none());
+    assert!(Linter::shared_modules(&discovery.targets[..1], host()).is_some());
+}

@@ -43,6 +43,7 @@ mod resolve;
 mod rules;
 mod scripts;
 mod setup;
+mod shared_modules;
 mod source_scan;
 mod specifier;
 mod trace;
@@ -73,10 +74,9 @@ pub use rules::{
     UnusedFiles, UnusedNamespaceExports, UnusedNamespaceMembers, UnusedNamespaceTypes, UnusedOptionalPeerDependencies,
     UnusedTypes, rules,
 };
+pub use shared_modules::SharedModules;
 /// The module cache of ADR 0066, re-exported for hosts that keep one.
-pub use skif_js_syntax::{
-    CachedModule, CoalescingModuleCache, MemoryModuleCache, ModuleCache, ModuleKey, cache_version,
-};
+pub use skif_js_syntax::{CachedModule, MemoryModuleCache, ModuleCache, ModuleKey, cache_version};
 pub use trace::{DependencyImport, DependencyListing, DependencyTrace};
 pub use tsconfig_files::empty_tsconfig_projects;
 pub use usage::{ExportUsage, MemberUse};
@@ -87,4 +87,5 @@ const _: () = {
     let _ = assert_send_sync::<ModuleGraph>;
     let _ = assert_send_sync::<ExportUsage>;
     let _ = assert_send_sync::<DependencyUsage>;
+    let _ = assert_send_sync::<SharedModules>;
 };

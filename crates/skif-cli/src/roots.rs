@@ -8,8 +8,8 @@ use std::sync::Arc;
 use rayon::prelude::*;
 use serde_json::{Value, json};
 use skif::{
-    CoalescingModuleCache, ConfigOverrides, Diagnostic, FileSystem, Linter, Location, MemoryModuleCache, ModuleCache,
-    OsFs, Report, RuleMeta, RunOptions, Target, Workspace, join_lexical, slash,
+    ConfigOverrides, Diagnostic, FileSystem, Linter, Location, ModuleCache, OsFs, Report, RuleMeta, RunOptions, Target,
+    Workspace, join_lexical, slash,
 };
 
 use crate::error::{CliError, Kind};
@@ -132,28 +132,20 @@ pub struct Linters {
 impl Linters {
     /// Builds one linter per distinct configuration. They read the disk themselves: the cache a linter keeps over its
     /// file system serves all the roots it lints, and a second layer under it would outlive a run. The linters of a
-    /// multi-root run parse through one in-memory module cache, which lives as long as they do, so a file several
-    /// roots reach is parsed once.
+    /// multi-root run share the module cache [`Linter::shared_modules`] builds, which lives as long as they do.
     pub fn build(targets: &[Target]) -> Result<Self, CliError> {
         Self::build_with(targets, None, None)
     }
 
     /// Like [`Linters::build`], reading through `fs` instead of the disk (the language server's unsaved buffers) and
-    /// parsing source files through `modules` when given (`--cache`, or the cache of a long-lived host) instead of
-    /// the in-memory cache of a multi-root run. Either way, a lookup of a file another root is parsing waits for that
-    /// parse.
+    /// parsing every source file through `modules` when given (`--cache`, or the cache of a long-lived host) instead
+    /// of the in-memory cache of a multi-root run.
     pub fn build_with(
         targets: &[Target],
         fs: Option<&Arc<dyn FileSystem>>,
         modules: Option<&Arc<dyn ModuleCache>>,
     ) -> Result<Self, CliError> {
-        let store: Option<Arc<dyn ModuleCache>> = match modules {
-            Some(modules) => Some(Arc::clone(modules)),
-            None if targets.len() > 1 => Some(Arc::new(MemoryModuleCache::new())),
-            None => None,
-        };
-        let shared: Option<Arc<dyn ModuleCache>> =
-            store.map(|store| Arc::new(CoalescingModuleCache::new(store)) as Arc<dyn ModuleCache>);
+        let shared = Linter::shared_modules(targets, modules.cloned());
         let mut linters: Vec<Linter> = Vec::new();
         let mut of_target = Vec::with_capacity(targets.len());
         for target in targets {
@@ -162,7 +154,7 @@ impl Linters {
             } else {
                 let fs = fs.map_or_else(|| Arc::new(OsFs) as Arc<dyn FileSystem>, Arc::clone);
                 let linter = match &shared {
-                    Some(modules) => Linter::with_module_cache(&target.config, fs, Arc::clone(modules)),
+                    Some(modules) => Linter::with_shared_modules(&target.config, fs, modules),
                     None => Linter::with_fs(&target.config, fs),
                 };
                 linters.push(linter.map_err(|error| target.locate(error))?);
