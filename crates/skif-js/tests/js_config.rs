@@ -21,14 +21,21 @@ const MANIFEST: (&str, &str) = (
 );
 
 fn lint(files: &[(&str, &str)], toml: &str) -> Vec<Diagnostic> {
+    lint_anchored(files, toml, None)
+}
+
+/// [`lint`] with the `[js.workspaces]` keys matched from `anchor`, as for a root below the start of a run.
+fn lint_anchored(files: &[(&str, &str)], toml: &str, anchor: Option<&str>) -> Vec<Diagnostic> {
     let memory = files.iter().fold(MemoryFs::new(), |memory, (path, text)| {
         memory.with_file(Path::new(ROOT).join(path), text)
     });
-    let config = Config::from_toml_str(toml).unwrap();
+    let mut config = Config::from_toml_str(toml).unwrap();
+    config.js.workspaces_anchor = anchor.map(str::to_owned);
     let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
     let fs: Arc<dyn FileSystem> = Arc::new(memory);
     let source = PluginSource::new(config.js.plugins.clone())
         .with_workspaces(&config.js.workspaces)
+        .with_workspaces_anchor(config.js.workspaces_anchor.as_deref())
         .with_overrides(&config.overrides);
     let provider = JsProvider::new(fs).with_input_source(Arc::new(source));
     let registry = Registry::new(vec![Box::new(provider)]).unwrap();
@@ -362,6 +369,25 @@ fn stale_js_config_reports_entries_that_matched_nothing() {
             .iter()
             .filter(|d| d.rule.as_str() == "stale-js-config")
             .all(|d| d.severity == Severity::Warning)
+    );
+}
+
+#[test]
+fn anchored_workspace_keys_select_packages_by_their_directory_below_the_start() {
+    let files = two_packages("export {};\n");
+    let toml = "[js]\nignore-workspaces = [\"repo/packages/b\"]\n\
+                [js.workspaces.\".\"]\nentry = [\"gone.ts\"]\n\
+                [js.workspaces.\"repo/packages/a\"]\nignore-dependencies = [\"left\", \"zzz\"]\n";
+    let diagnostics = lint_anchored(&files, toml, Some("repo"));
+    // `packages/a` takes the `repo/packages/a` table, which ignores `left`, and `packages/b` is skipped.
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none());
+    // `"."` is the start directory, not this root, so its table applies to nothing here.
+    assert_eq!(
+        messages(&diagnostics),
+        [
+            "`.` in `js.workspaces` matched nothing",
+            "`zzz` in `js.workspaces.\"repo/packages/a\".ignore-dependencies` matched nothing",
+        ]
     );
 }
 

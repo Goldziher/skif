@@ -6,6 +6,7 @@ use super::JsRule;
 use super::support::{module_location, unresolved_imports};
 use crate::analysis::JsAnalysis;
 use crate::config_hints::{ConfigHint, HintKind};
+use crate::setup::anchored;
 
 /// knip's thresholds for its `top-level-unconfigured` and `workspace-unconfigured` hints: more than this many unused
 /// files...
@@ -216,6 +217,14 @@ impl StaleJsConfig {
     }
 }
 
+/// The directory of `package` as the `[js.workspaces]` keys of the configuration spell it: `.` for the root, and
+/// relative to the start of the run when the keys are (`Js::workspaces_anchor`).
+fn key_dir(analysis: &JsAnalysis<'_>, package: &skif_workspace::Package) -> String {
+    let dir = package.dir.to_string_lossy().replace('\\', "/");
+    let dir = if package.is_root { "." } else { dir.as_str() };
+    anchored(analysis.setup.workspaces_anchor.as_deref(), dir).into_owned()
+}
+
 /// The packages with more than one unused file, as `(count, directory)`, largest first.
 fn unused_by_workspace(analysis: &JsAnalysis<'_>, analysed: &[PackageId]) -> Vec<(usize, String)> {
     let mut sizes: Vec<(usize, String)> = analysed
@@ -223,11 +232,7 @@ fn unused_by_workspace(analysis: &JsAnalysis<'_>, analysed: &[PackageId]) -> Vec
         .filter_map(|id| {
             let package = analysis.workspace.package(*id)?;
             let size = analysis.unused_files.iter().filter(|file| file.owner == *id).count();
-            let dir = if package.is_root {
-                ".".to_owned()
-            } else {
-                package.dir.to_string_lossy().replace('\\', "/")
-            };
+            let dir = key_dir(analysis, package);
             (size > 1).then_some((size, dir))
         })
         .collect();
@@ -279,11 +284,7 @@ fn keyed_ignore_lists<'a>(analysis: &'a JsAnalysis<'_>, ran: &dyn Fn(&[&str]) ->
         let Some(package_setup) = setup.package(id) else {
             continue;
         };
-        let dir = if package.is_root {
-            ".".to_owned()
-        } else {
-            package.dir.to_string_lossy().replace('\\', "/")
-        };
+        let dir = key_dir(analysis, package);
         let key = |name: &str| format!("js.workspaces.\"{dir}\".{name}");
         if dependencies_ran && judged(id) {
             keyed.push((

@@ -58,7 +58,17 @@ impl PluginSource {
             .filter(|(_, workspace)| !workspace.plugins.is_empty())
             .map(|(key, workspace)| (key.clone(), workspace.clone()))
             .collect();
-        self.workspace_keys = WorkspaceKeys::new(&self.workspaces);
+        let anchor = self.workspace_keys.anchor().map(str::to_owned);
+        self.workspace_keys = WorkspaceKeys::new(&self.workspaces).with_anchor(anchor.as_deref());
+        self
+    }
+
+    /// Matches the keys of the tables given to [`with_workspaces`](Self::with_workspaces) from `anchor`, the root's
+    /// directory relative to the start of the run (`Js::workspaces_anchor`): a key then selects a package when it
+    /// matches the package directory joined to `anchor`. `None` matches them from the root.
+    #[must_use]
+    pub fn with_workspaces_anchor(mut self, anchor: Option<&str>) -> Self {
+        self.workspace_keys = self.workspace_keys.with_anchor(anchor);
         self
     }
 

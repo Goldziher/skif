@@ -307,7 +307,7 @@ fn empty_patterns(
             files.iter().any(|(_, _, rel)| globs.matches_any(rel)) || on_disk(disk, &workspace.root, pattern)
         });
     }
-    let keys = WorkspaceKeys::new(&config.js.workspaces);
+    let keys = WorkspaceKeys::of(&config.js);
     for (id, package) in workspace.iter() {
         let Some(package_setup) = setup.package(id) else {
             continue;
@@ -368,7 +368,7 @@ fn unused_ignore_files(
                 || on_disk(disk, &workspace.root, pattern)
         });
     }
-    let keys = WorkspaceKeys::new(&config.js.workspaces);
+    let keys = WorkspaceKeys::of(&config.js);
     let mut incomplete = HashSet::new();
     for (id, package) in workspace.iter() {
         let Some(package_setup) = setup.package(id) else {
