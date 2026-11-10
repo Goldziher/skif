@@ -9,6 +9,7 @@ empty-dependencies
 foreign-package-manager-command
 incompatible-peer-dependencies
 invalid-local-version
+invalid-workspace-file
 local-path-dependency
 member-toolchain-fields
 missing-package-manifest

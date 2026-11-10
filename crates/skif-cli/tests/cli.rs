@@ -67,6 +67,26 @@ fn issues_exit_one_in_both_formats() {
 }
 
 #[test]
+fn an_invalid_member_manifest_fails_the_run() {
+    let dir = fixture("clean");
+    let member = dir.path().join("packages").join("e");
+    fs::create_dir_all(&member).unwrap();
+    fs::write(member.join("package.json"), r#"{"name":"e", "version": "1.0.0",, }"#).unwrap();
+
+    let human = run(skif().arg(dir.path()));
+    assert_eq!(human.code, 1, "{}{}", human.stdout, human.stderr);
+    assert!(human.stdout.contains("invalid-workspace-file"), "{}", human.stdout);
+
+    let json = run(skif().args(["--format", "json"]).arg(dir.path()));
+    assert_eq!(json.code, 1, "{}{}", json.stdout, json.stderr);
+    let report = json.json();
+    assert_eq!(rule_ids(&report), BTreeSet::from(["invalid-workspace-file".to_owned()]));
+    let diagnostic = &report["diagnostics"][0];
+    assert_eq!(diagnostic["severity"], "error");
+    assert_eq!(diagnostic["location"]["path"], "packages/e/package.json");
+}
+
+#[test]
 fn a_directory_inside_the_workspace_lints_the_whole_workspace() {
     let dir = fixture("dirty");
     let inside = dir.path().join("packages").join("a");

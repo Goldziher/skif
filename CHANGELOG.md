@@ -26,6 +26,10 @@ All notable changes to this project are documented here. The format follows
   commands (`npm view`, `npm whoami`), a global install of the workspace's own manager and files of projects outside
   the workspace are not; the same options and suppression comments as `toolchain-pin-drift` apply
   ([ADR 0088](adrs/0088-foreign-package-manager-commands.md), [#139](https://github.com/Goldziher/skif/issues/139)).
+- `invalid-workspace-file` (`error`): a member `package.json` that is not valid JSON or cannot be read, a workspace
+  pattern that cannot be used and a `.yarnrc.yml` that is not valid YAML are reported, at the syntax error or the
+  pattern. Discovery left them out of the run without a word, so a workspace with a broken member passed
+  ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
 - `skif_rules::toolchain_provider()` provides the rules over toolchain files, and `skif_rules::providers()` includes
   it. The rules read those files through `LintContext::fs`, the file system the run is given
   (`skif_lint::RunOptions::with_fs`), as the rules over a lockfile and patch files do
