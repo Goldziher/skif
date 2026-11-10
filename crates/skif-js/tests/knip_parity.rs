@@ -1,7 +1,8 @@
 //! Cases where the corpus runs showed skif and knip disagreeing and skif was wrong: members read in their own file,
 //! types in destructured exports, `new URL` targets, `require` assertions, imports awaited together with
 //! `Promise.all`, spies on a namespace member, enums read through a namespace, parameters that shadow an import,
-//! fixture directories, wildcard `exports`, same-name pairs, types named by a same-name type and duplicate exports.
+//! dynamic imports bound to an import's name, fixture directories, wildcard `exports`, same-name pairs, types named
+//! by a same-name type and duplicate exports.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -255,6 +256,35 @@ fn a_parameter_that_shadows_a_namespace_import_does_not_use_the_namespace() {
         ["chars.ts: $PIPE"],
         "the parameter `chars` is passed around, not the namespace"
     );
+}
+
+#[test]
+fn a_dynamic_import_bound_to_the_name_of_an_import_gets_its_own_reads() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        (
+            "index.ts",
+            "import * as config from './config';\nimport { go, shadow } from './other';\n\
+             console.log(config.top, go, shadow);\n\
+             export async function run() { const config = await import('./config'); return config.foo; }\n",
+        ),
+        (
+            "other.ts",
+            "export async function go() { const lib = await import('./lib'); return lib.a; }\n\
+             export function shadow(lib: { b: number }) { return lib.b; }\n",
+        ),
+        (
+            "config.ts",
+            "export const top = 1;\nexport const foo = 2;\nexport const bar = 3;\n",
+        ),
+        ("lib.ts", "export const a = 1;\nexport const b = 2;\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-namespace-exports"),
+        ["config.ts: bar"],
+        "`config.foo` reads the `import()` binding; `lib.b` reads `lib` by name, as knip matches dynamic imports"
+    );
+    assert_eq!(found(&diagnostics, "unused-exports"), none());
 }
 
 #[test]
