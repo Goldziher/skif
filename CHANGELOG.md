@@ -207,6 +207,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unused-files` is listed as fixable `sometimes` (`skif rules`, SARIF rule properties, the rules reference) instead
+  of `unsafe`: under `[js] discovery = "git"` its findings offer no fix, since the index does not see every untracked
+  file ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)); a run that walks the
+  directories keeps the unsafe fix that deletes the file.
 - The `allow` option of `stray-lockfile` and `nested-workspace-root` takes globs (`packages/*/package-lock.json`), each
   compiled once per run; an invalid glob or a `!` pattern is a configuration error naming the entry
   (`allow[0]: ...`). Entries were compared as exact paths only.
