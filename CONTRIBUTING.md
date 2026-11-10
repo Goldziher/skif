@@ -86,8 +86,9 @@ publishing; the steps around it are by hand.
      `HOMEBREW_TOKEN` secret must be able to push to both, and needs the `workflows` permission on this repository to
      move the floating tag.
 2. **Bump.** `scripts/release-bump.sh <version>` rewrites every version surface (the workspace version and `=` pins,
-   `npm-package/package.json`, `poly-hooks.toml`, the pre-commit launcher, `action.yml` `BAKED_VERSION`, the
-   documentation pins and `Cargo.lock`); `scripts/check-versions.sh` checks them. The JSON snapshots spell the
+   `npm-package/package.json`, `poly-hooks.toml`, the pre-commit launcher, `action.yml` `BAKED_VERSION`, the agent
+   plugin manifests, the documentation and agent skill pins and `Cargo.lock`); `scripts/check-versions.sh` checks
+   them. The JSON snapshots spell the
    version `[VERSION]`, so the bump changes none of them.
 3. **Changelog.** Merge the `[Unreleased]` entries into one Added / Changed / Fixed set, with any breaking change
    listed first, and move them under `## [<version>] - <date>`. The CI `Public API (cargo-semver-checks)` job summary
