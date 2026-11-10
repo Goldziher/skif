@@ -301,8 +301,12 @@ All notable changes to this project are documented here. The format follows
 - A member of a statically known object is read as the value of its key, so a shared config spread into a config
   whose key extends it (`{ ...base, plugins: [...base.plugins, 'stylelint-own'] }`) keeps the packages the shared
   config names: they are judged against the package owning it instead of being lost, which reported them unused there,
-  and only what the importing config adds is its own. A key the object does not have reads as `undefined`, one an
-  unknown spread may set as unknown.
+  and only what the importing config adds is its own. Only a fully known object answers for a key it does not have:
+  the key reads as `undefined`, represented as `ConfigValue::Null`, through a member and a destructuring alike (which
+  then takes its default). A key an unknown spread may set, a member of `Object.prototype` (`constructor`,
+  `toString`, `hasOwnProperty`, ...) and any key of an object with a `__proto__` read as unknown. A key merged from a
+  spread whose test is unknown (`{ ...(ci ? { setupFiles: ['./a.ts'] } : {}) }`) may be absent, so a read of it is not
+  definite: `x.setupFiles ?? ['./default.ts']` credits both lists, and a test on it and its `.length` are unknown.
 - A config function the tool calls (an exported function, the callback given to `defineConfig`) has every parameter
   unknown, a default included, because the tool passes what the config does not say: `(env = {}) => ({ entry:
   env.analyze ? './src/analyze.ts' : './src/index.ts' })` keeps both files instead of reading `env.analyze` as
