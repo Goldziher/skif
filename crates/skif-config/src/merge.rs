@@ -14,13 +14,18 @@ use crate::provenance::{Assignment, Op, Origins, join_key};
 /// `(line, column)`.
 pub(crate) type Spans = HashMap<String, (usize, usize)>;
 
-/// `(table, key, extend key)`: the extend key appends to the key it names, after the key itself applied.
-const EXTEND_KEYS: [(&str, &str, &str); 6] = [
+/// `(table, key, extend key)`: the extend key appends to the key it names, after the key itself applied. The table
+/// [`WORKSPACE_TABLE`] stands for every `[js.workspaces."<dir>"]` table.
+const EXTEND_KEYS: [(&str, &str, &str); 10] = [
     ("workspace", "ignore-packages", "extend-ignore-packages"),
     ("js", "ignore", "extend-ignore"),
     ("js", "ignore-dependencies", "extend-ignore-dependencies"),
     ("js", "ignore-binaries", "extend-ignore-binaries"),
     ("js", "ignore-unresolved", "extend-ignore-unresolved"),
+    (WORKSPACE_TABLE, "ignore", "extend-ignore"),
+    (WORKSPACE_TABLE, "ignore-dependencies", "extend-ignore-dependencies"),
+    (WORKSPACE_TABLE, "ignore-binaries", "extend-ignore-binaries"),
+    (WORKSPACE_TABLE, "ignore-unresolved", "extend-ignore-unresolved"),
     ("catalog", "exclude", "extend-exclude"),
 ];
 
@@ -170,11 +175,32 @@ fn list<'t>(parent: &'t mut Table, key: &str) -> &'t mut Vec<Value> {
     }
 }
 
+const WORKSPACE_TABLE: &str = "js.workspaces.*";
+
+/// The name `EXTEND_KEYS` gives the table at `path`: [`WORKSPACE_TABLE`] for a `[js.workspaces."<dir>"]` table, else
+/// `path` itself.
+fn extend_table(path: &str) -> &str {
+    match path.strip_prefix("js.workspaces.") {
+        Some(dir) if is_one_segment(dir) => WORKSPACE_TABLE,
+        _ => path,
+    }
+}
+
+/// Whether `key`, spelled as [`join_key`] spells a segment, is a single segment: a bare key without `.`, or one quoted
+/// key with no unescaped quote inside.
+fn is_one_segment(key: &str) -> bool {
+    match key.strip_prefix('"').and_then(|rest| rest.strip_suffix('"')) {
+        Some(inner) => !inner.replace("\\\\", "").replace("\\\"", "").contains('"'),
+        None => !key.contains(['.', '[', ']', '"']),
+    }
+}
+
 fn merge_table(base: &mut Table, layer: &Table, path: &str, cx: &mut Cx<'_>) {
+    let table_name = extend_table(path);
     for (key, value) in layer {
         if EXTEND_KEYS
             .iter()
-            .any(|(table, _, extend)| *table == path && *extend == key)
+            .any(|(table, _, extend)| *table == table_name && *extend == key)
         {
             continue;
         }
@@ -190,7 +216,7 @@ fn merge_table(base: &mut Table, layer: &Table, path: &str, cx: &mut Cx<'_>) {
             cx.record(&child, &child, Op::Set);
         }
     }
-    for (_, key, extend) in EXTEND_KEYS.iter().filter(|(table, _, _)| *table == path) {
+    for (_, key, extend) in EXTEND_KEYS.iter().filter(|(table, _, _)| *table == table_name) {
         if let Some(Value::Array(extra)) = layer.get(*extend) {
             list(base, key).extend(extra.iter().cloned());
             cx.record(&join_key(path, key), &join_key(path, extend), Op::Append);
