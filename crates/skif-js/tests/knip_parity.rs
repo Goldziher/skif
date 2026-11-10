@@ -1,8 +1,8 @@
 //! Cases where the corpus runs showed skif and knip disagreeing and skif was wrong: members read in their own file,
 //! types in destructured exports, `new URL` targets, `require` assertions, imports awaited together with
 //! `Promise.all`, spies on a namespace member, enums read through a namespace, parameters that shadow an import,
-//! dynamic imports bound to an import's name, fixture directories, wildcard `exports`, same-name pairs, types named
-//! by a same-name type and duplicate exports.
+//! dynamic imports bound to an import's name, members read through `export * as`, fixture directories, wildcard
+//! `exports`, same-name pairs, types named by a same-name type and duplicate exports.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -283,6 +283,33 @@ fn a_dynamic_import_bound_to_the_name_of_an_import_gets_its_own_reads() {
         found(&diagnostics, "unused-namespace-exports"),
         ["config.ts: bar"],
         "`config.foo` reads the `import()` binding; `lib.b` reads `lib` by name, as knip matches dynamic imports"
+    );
+    assert_eq!(found(&diagnostics, "unused-exports"), none());
+}
+
+#[test]
+fn a_member_read_through_an_export_star_as_uses_only_that_export() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        (
+            "index.ts",
+            "import * as ns from './barrel';\nns.utils.fn();\nconsole.log(ns.whole);\n",
+        ),
+        (
+            "barrel.ts",
+            "export * as utils from './utils';\nexport * as whole from './whole';\n",
+        ),
+        (
+            "utils.ts",
+            "export const fn = () => 1;\nexport const other = () => 2;\n",
+        ),
+        ("whole.ts", "export const kept = 1;\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-namespace-exports"),
+        ["utils.ts: other"],
+        "`ns.utils.fn` reads `fn` of `utils.ts`, as in knip; `ns.whole` passed around uses all of `whole.ts`, where \
+         knip still reports `kept`"
     );
     assert_eq!(found(&diagnostics, "unused-exports"), none());
 }
