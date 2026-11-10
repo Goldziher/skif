@@ -85,6 +85,7 @@ pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), 
     }
     scripts::note_unrecognised(state, &src, &package, Tool::Sherif);
     note_differing_runs(state, &src, &invocations);
+    note_empty_root_dependencies(state, &src, &package, &settings);
     emit(state, &src, &settings);
     Ok(())
 }
@@ -113,6 +114,27 @@ fn note_differing_runs(state: &mut State<'_>, src: &Src, invocations: &[Invocati
             "check that every check should use the combined setting",
         );
     }
+}
+
+/// sherif reports a root `dependencies` key as `root-package-dependencies`, a warning, before it looks at what the
+/// section holds; skif leaves an empty section to `empty-dependencies`, an error. Only the root manifest is read here,
+/// so that is the one place the difference can be seen.
+fn note_empty_root_dependencies(state: &mut State<'_>, src: &Src, package: &ConfigValue, settings: &Settings) {
+    let empty = package
+        .get("dependencies")
+        .and_then(ConfigValue::as_object)
+        .is_some_and(|entries| entries.is_empty());
+    if !empty || settings.ignore_rule.values.iter().any(|id| id == "empty-dependencies") {
+        return;
+    }
+    state.note_with(
+        src,
+        NoteClass::Approximate,
+        "dependencies",
+        "the root `dependencies` is empty: sherif reported it as root-package-dependencies, a warning, and skif \
+         reports it as empty-dependencies, an error",
+        "remove the empty `dependencies` object; `skif --fix` does",
+    );
 }
 
 fn rule_id(state: &mut State<'_>, src: &Src, path: &str, name: &str) -> Option<String> {
