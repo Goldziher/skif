@@ -110,6 +110,7 @@ old one.
 | 0100 | [The knip Comparison: n8n Node Files and the Files Published Sources Import](0100-knip-comparison-n8n-node-files-and-what-published-sources-import.md) | accepted |
 | 0101 | [A Module Cache Shared by the Roots of a Run](0101-a-module-cache-shared-by-the-roots-of-a-run.md) | accepted |
 | 0102 | [An Agent Skill Distributed From the Repository](0102-agent-skill-distributed-from-the-repository.md) | accepted |
+| 0103 | [One of Several Known Values in Config Evaluation, and the Scopes of Computed Reporters and Storybook Addons](0103-one-of-several-known-values-in-config-evaluation.md) | accepted |
 
 ## Effective statements
 
@@ -289,3 +290,6 @@ the lines below stay as written; this table says which record governs.
 | [0099](0099-knip-comparison-narrowed-scopes-rush-installs-and-dependencies-of-unused-files.md), "`published-source`" paragraph | the files that only a published source reaches stay compared | [0100](0100-knip-comparison-n8n-node-files-and-what-published-sources-import.md): a file only knip reports unused that a published source reaches by relative imports through such files is `published-source` too, and the files of `n8n.nodes` and `n8n.credentials` are published paths |
 | [0099](0099-knip-comparison-narrowed-scopes-rush-installs-and-dependencies-of-unused-files.md), "Install and build commands" paragraph | n8n keeps its `knip-invalid` mark until a parity run confirms that knip loads its configurations | [0100](0100-knip-comparison-n8n-node-files-and-what-published-sources-import.md): the run confirmed it and the mark is dropped |
 | [0096](0096-knip-comparison-findings-in-unused-files-invalid-runs-and-two-sided-config-errors.md), "Confirmation" section | exactly one repository (n8n) is marked `knip-invalid` | [0100](0100-knip-comparison-n8n-node-files-and-what-published-sources-import.md): no repository is marked |
+| [0065](0065-narrowed-scope-for-incomplete-entries.md), line 54 | Vitest's scope is `Package` when the config computes `root`, `test.include`, `test.setupFiles` or `test.globalSetup` itself or is unknown as a whole | [0103](0103-one-of-several-known-values-in-config-evaluation.md): also when it computes a name of `test.reporters` itself |
+| [0065](0065-narrowed-scope-for-incomplete-entries.md), line 55 | Playwright's scope is `Package` only when the config is unknown as a whole | [0103](0103-one-of-several-known-values-in-config-evaluation.md): also when it computes its `reporter` list itself, a reporter name not known statically or a spread of a value the config computes that may set the list |
+| [0065](0065-narrowed-scope-for-incomplete-entries.md), lines 50-55 | the plugins with a narrowed scope are `next`, `vite`, `vitest` and `playwright` | [0103](0103-one-of-several-known-values-in-config-evaluation.md): `storybook` narrows an unknown addon, framework or builder to its config directory and project globs |

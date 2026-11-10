@@ -7,8 +7,8 @@ use crate::plugin::{
 };
 use crate::plugins::vite;
 use crate::support::{
-    Spreads, alias_inputs, config_unknown, convention_scope, entry_glob, entry_strings, get_in, module_input, name_of,
-    objects, package_name, path_unknown, project_files, shallow_key_unknown, strings,
+    Named, Spreads, alias_inputs, config_unknown, convention_scope, entry_glob, entry_strings, get_in, module_input,
+    objects, package_name, path_unknown, project_files, reporter_names, shallow_key_unknown, strings,
 };
 
 /// Where test runners find what a config names besides the test files of [`SPEC`]: test and fixture directories, and
@@ -153,18 +153,17 @@ fn test_options(test: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<Plugin
     if let Some(environment) = test.get("environment").and_then(ConfigValue::as_str) {
         out.extend(environment_input(config, environment));
     }
-    if let Some(reporters) = test.get("reporters") {
-        let reporters: Vec<&ConfigValue> = match reporters {
-            ConfigValue::Array(items) => items.iter().collect(),
-            other => vec![other],
-        };
-        for name in reporters.into_iter().filter_map(name_of) {
-            if name == "html" {
-                // The HTML reporter serves the UI package, which Vitest offers to install when it is missing.
-                out.push(PluginInput::OptionalDependency("@vitest/ui".to_owned()));
-            } else if !BUILTIN_REPORTERS.contains(&name) {
+    for named in test.get("reporters").map(reporter_names).unwrap_or_default() {
+        match named {
+            // The HTML reporter serves the UI package, which Vitest offers to install when it is missing.
+            Named::Known("html") => out.push(PluginInput::OptionalDependency("@vitest/ui".to_owned())),
+            Named::Known(name) if !BUILTIN_REPORTERS.contains(&name) => {
                 out.extend(module_input(config.base, name, false));
             }
+            // A reporter name the config computes is left unjudged rather than hiding the package: shared configs
+            // merged into every package compute theirs (a profiling wrapper), and the reporter modules they name
+            // belong to the shared package.
+            Named::Known(_) | Named::Unknown => {}
         }
     }
     if let Some(coverage) = test.get("coverage") {
