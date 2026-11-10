@@ -17,11 +17,15 @@ pub fn config(toml: &str) -> Config {
     Config::from_toml_str(toml).unwrap()
 }
 
-pub fn workspace(files: Files<'_>, config: &Config) -> Workspace {
-    let fs = files.iter().fold(MemoryFs::new(), |fs, (path, content)| {
+/// The files under `/ws`.
+pub fn memory(files: Files<'_>) -> MemoryFs {
+    files.iter().fold(MemoryFs::new(), |fs, (path, content)| {
         fs.with_file(Path::new("/ws").join(path), content)
-    });
-    Workspace::discover_with_fs(Path::new("/ws"), config, &fs).unwrap()
+    })
+}
+
+pub fn workspace(files: Files<'_>, config: &Config) -> Workspace {
+    Workspace::discover_with_fs(Path::new("/ws"), config, &memory(files)).unwrap()
 }
 
 /// Runs the whole manifest provider and keeps the diagnostics of `rule`.
@@ -30,10 +34,12 @@ pub fn lint(rule: &str, files: Files<'_>, config: &Config) -> Vec<Diagnostic> {
 }
 
 /// As [`lint`], with the given run options.
+/// The rules read the lockfile and patch files from the same in-memory files.
 pub fn lint_with(rule: &str, files: Files<'_>, config: &Config, options: &RunOptions<'_>) -> Vec<Diagnostic> {
-    let workspace = workspace(files, config);
+    let fs = memory(files);
+    let workspace = Workspace::discover_with_fs(Path::new("/ws"), config, &fs).unwrap();
     let registry = Registry::new(crate::providers()).unwrap();
-    run_unsorted(&registry, &workspace, config, options)
+    run_unsorted(&registry, &workspace, config, &options.with_fs(&fs))
         .unwrap()
         .into_iter()
         .filter(|diagnostic| diagnostic.rule.as_str() == rule)
