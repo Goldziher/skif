@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use skif_js_syntax::ConfigValue;
+use skif_js_syntax::{ConfigValue, OWN_SPREAD};
 
 use crate::plugin::{ConfigAst, IncompleteScope, PluginContext, PluginInput, PluginSpec};
 
@@ -373,19 +373,40 @@ pub(crate) fn config_unknown(config: &ConfigValue) -> bool {
     }
 }
 
-/// Whether the value at `path` is not fully known statically: it contains an unknown part, or an object on the way
-/// is unknown or has an unknown spread after the key (or without it) that could provide the key.
-pub(crate) fn path_unknown(value: &ConfigValue, path: &[&str]) -> bool {
+/// Which unknown spreads and merges on the way to a key [`path_unknown`] counts as possibly setting it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Spreads {
+    /// Every one: the key may come from any unknown value the config spreads or merges.
+    Any,
+    /// Only those of values the config computes itself ([`OWN_SPREAD`]), leaving aside what an imported base config
+    /// may set: whether the config computes the key itself.
+    Own,
+}
+
+/// Whether the value at `path` is not fully known statically: it contains an unknown part (an unknown spread of either
+/// kind inside it included), or an object on the way is unknown or has an unknown spread `spreads` counts after the
+/// key (or without it) that could provide the key.
+pub(crate) fn path_unknown(value: &ConfigValue, path: &[&str], spreads: Spreads) -> bool {
     let Some((key, rest)) = path.split_first() else {
         return value.has_unknown();
     };
+    let counted = |name: &str| match spreads {
+        Spreads::Any => ConfigValue::is_spread_key(name),
+        Spreads::Own => name == OWN_SPREAD,
+    };
     match value {
         ConfigValue::Unknown => true,
-        ConfigValue::Object(entries) => match entries.iter().rev().find(|(name, _)| name == key || name == "...") {
-            Some((name, _)) if name == "..." => true,
-            Some((_, child)) => path_unknown(child, rest),
-            None => false,
-        },
+        ConfigValue::Object(entries) => {
+            let last = entries
+                .iter()
+                .rev()
+                .find(|(name, _)| name == key || counted(name.as_str()));
+            match last {
+                Some((name, child)) if name == key => path_unknown(child, rest, spreads),
+                Some(_) => true,
+                None => false,
+            }
+        }
         _ => false,
     }
 }
@@ -396,8 +417,12 @@ pub(crate) fn path_unknown(value: &ConfigValue, path: &[&str]) -> bool {
 pub(crate) fn shallow_key_unknown(object: &ConfigValue, key: &str) -> bool {
     match object {
         ConfigValue::Unknown => true,
-        ConfigValue::Object(entries) => match entries.iter().rev().find(|(name, _)| name == key || name == "...") {
-            Some((name, _)) if name == "..." => true,
+        ConfigValue::Object(entries) => match entries
+            .iter()
+            .rev()
+            .find(|(name, _)| name == key || ConfigValue::is_spread_key(name))
+        {
+            Some((name, _)) if ConfigValue::is_spread_key(name) => true,
             Some((_, ConfigValue::Unknown)) => true,
             Some((_, ConfigValue::Array(items))) => items.contains(&ConfigValue::Unknown),
             _ => false,
@@ -418,7 +443,7 @@ pub(crate) fn entry_strings<'v>(object: &'v ConfigValue, key: &str, out: &mut Ve
 
 /// Whether the value of `key` in a config object is not fully known statically; see [`path_unknown`].
 pub(crate) fn key_unknown(object: &ConfigValue, key: &str) -> bool {
-    path_unknown(object, &[key])
+    path_unknown(object, &[key], Spreads::Any)
 }
 
 /// The extensions of the source files a convention scope matches.
@@ -439,27 +464,6 @@ pub(crate) fn convention_scope(spec: &PluginSpec, config: &ConfigAst<'_>, conven
         }
     }
     IncompleteScope::Within(globs)
-}
-
-/// Whether the value at `path` is unknown in the config's own text, leaving aside what a spread or merge of an
-/// unknown value may add: a key the config computes itself, not one an imported base config may set.
-pub(crate) fn own_path_unknown(value: &ConfigValue, path: &[&str]) -> bool {
-    path_unknown(&without_spreads(value), path)
-}
-
-/// `value` without the unknown spreads of its objects, at every depth.
-fn without_spreads(value: &ConfigValue) -> ConfigValue {
-    match value {
-        ConfigValue::Object(entries) => ConfigValue::Object(
-            entries
-                .iter()
-                .filter(|(key, _)| key != "...")
-                .map(|(key, value)| (key.clone(), without_spreads(value)))
-                .collect(),
-        ),
-        ConfigValue::Array(items) => ConfigValue::Array(items.iter().map(without_spreads).collect()),
-        other => other.clone(),
-    }
 }
 
 /// The values of an object, the elements of an array or the value itself.
@@ -546,7 +550,7 @@ pub(crate) fn alias_inputs(alias: &ConfigValue, config: &ConfigAst<'_>) -> Vec<P
     let pairs: Vec<(AliasFind<'_>, &ConfigValue)> = match alias {
         ConfigValue::Object(entries) => entries
             .iter()
-            .filter(|(key, _)| key != "...")
+            .filter(|(key, _)| !ConfigValue::is_spread_key(key))
             .map(|(key, value)| (AliasFind::Text(key.as_str()), value))
             .collect(),
         ConfigValue::Array(items) => items

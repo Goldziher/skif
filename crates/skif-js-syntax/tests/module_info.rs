@@ -2,6 +2,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use skif_js_syntax::{
@@ -748,6 +749,137 @@ fn a_spy_on_a_namespace_member_reads_that_member() {
         let info = parse("a.test.ts", source);
         assert!(info.imports[0].names[0].escapes, "{source}");
     }
+}
+
+#[test]
+fn members_read_through_a_member_of_a_namespace_are_recorded_one_level_down() {
+    let source = "import * as C from './constants';\n\
+                  C.Ids.Open; C.Ids['Close']; let m: C.Modes.On; C.Kinds.A; use(C.Kinds); C.Grouped.Inner;\n\
+                  const { Picked } = C; C.Picked.X;\n";
+    let info = parse("a.ts", source);
+    let c = &info.imports[0].names[0];
+    assert_eq!(c.accessed_members, ["Grouped", "Ids", "Kinds", "Modes", "Picked"]);
+    assert!(!c.escapes);
+    assert_eq!(
+        c.nested_members,
+        nested(&[("Grouped", &["Inner"]), ("Ids", &["Close", "Open"]), ("Modes", &["On"])]),
+        "`Kinds` is passed around and `Picked` destructured: both are used as a whole"
+    );
+}
+
+#[test]
+fn a_component_template_that_reads_a_member_uses_it_as_a_whole() {
+    let vue = "<script setup lang=\"ts\">\nimport * as C from './c';\nconst a = C.Ids.Open;\nconst b = C.Modes.On;\n</script>\n<template>{{ C.Ids.Close }}</template>\n";
+    let info = parse("App.vue", vue);
+    let c = &info.imports[0].names[0];
+    assert_eq!(c.accessed_members, ["Ids", "Modes"]);
+    assert_eq!(c.nested_members, nested(&[("Modes", &["On"])]));
+}
+
+#[test]
+fn a_member_used_other_than_through_its_members_stays_whole() {
+    for (case, use_) in [
+        ("typeof", "type T = typeof C.E;"),
+        ("keyof typeof", "type T = keyof typeof C.E;"),
+        ("Object.keys", "Object.keys(C.E);"),
+        ("spread", "const s = { ...C.E };"),
+        ("computed member", "const d = (k: string) => C.E[k];"),
+    ] {
+        let source = format!("import * as C from './c';\nC.E.A;\nC.F.A;\n{use_}\n");
+        let info = parse("a.ts", &source);
+        let c = &info.imports[0].names[0];
+        assert_eq!(c.accessed_members, ["E", "F"], "{case}");
+        assert!(!c.escapes, "{case}");
+        assert_eq!(c.nested_members, nested(&[("F", &["A"])]), "{case}");
+    }
+}
+
+#[test]
+fn members_read_one_level_down_in_two_script_blocks_are_merged() {
+    let vue = "<script lang=\"ts\">\nimport * as C from './c';\nexport const a = C.Ids.Open;\n\
+               export const k = C.Kinds.A;\n</script>\n<script setup lang=\"ts\">\nconst b = C.Ids.Close;\n\
+               const m = C.Kinds;\n</script>\n<template><p /></template>\n";
+    let info = parse("App.vue", vue);
+    let c = &info.imports[0].names[0];
+    assert_eq!(c.accessed_members, ["Ids", "Kinds"]);
+    assert_eq!(
+        c.nested_members,
+        nested(&[("Ids", &["Close", "Open"])]),
+        "`C.Kinds` read as a whole in the setup block uses all of it"
+    );
+}
+
+fn nested(entries: &[(&str, &[&str])]) -> BTreeMap<String, Vec<String>> {
+    entries
+        .iter()
+        .map(|(member, inner)| {
+            (
+                (*member).to_owned(),
+                inner.iter().map(|name| (*name).to_owned()).collect(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn a_parameter_or_local_with_the_name_of_an_import_reads_nothing_of_it() {
+    let source = "import * as chars from './chars';\nimport { a } from './a';\nchars.isDigit(1);\n\
+                  function attempt(chars: string, kind: chars.Kind) { return use(chars, chars.length, chars['at']); }\n\
+                  const f = () => { const a = { b: 1 }; return [a, a.b]; };\n\
+                  class L { m(chars: string[]) { const { x } = chars; vi.spyOn(chars, 'y'); } }\n";
+    let info = parse("lexer.ts", source);
+    assert_eq!(
+        accessed(&info, "chars"),
+        (vec!["Kind".to_owned(), "isDigit".to_owned()], false),
+        "the parameters named `chars` shadow the import; the type `chars.Kind` still names it"
+    );
+    assert_eq!(accessed(&info, "a"), (Vec::new(), false), "only the local `a` is read");
+}
+
+#[test]
+fn an_import_and_a_dynamic_import_bound_to_the_same_name_each_get_their_own_reads() {
+    let source = "import * as config from './config';\nconsole.log(config.top);\n\
+                  test('x', async () => { const config = await import('./config'); expect(config.foo); });\n\
+                  const late = () => import('./lazy').then(({ load }) => load());\n";
+    let info = parse("a.test.ts", source);
+    let reads: Vec<(ImportKind, Option<&str>, &[String], bool)> = info
+        .imports
+        .iter()
+        .flat_map(|import| {
+            import.names.iter().map(move |name| {
+                (
+                    import.kind,
+                    name.local.as_deref(),
+                    name.accessed_members.as_slice(),
+                    name.escapes,
+                )
+            })
+        })
+        .collect();
+    let top = ["top".to_owned()];
+    let foo = ["foo".to_owned()];
+    assert_eq!(
+        reads,
+        [
+            (ImportKind::Static, Some("config"), &top[..], false),
+            (ImportKind::Dynamic, Some("config"), &foo[..], false),
+            (ImportKind::Dynamic, Some("load"), &[][..], true),
+        ],
+        "`config.foo` reads the binding of the `import()`, not the namespace import"
+    );
+}
+
+#[test]
+fn a_parameter_decorator_reads_the_import_its_parameter_shadows() {
+    let source = "import * as tok from './tokens';\n\
+                  class S {\n  constructor(@Inject(tok.KEY) tok: string, @Inject(tok.OTHER) other: string) {\n\
+                  use(tok, other);\n  }\n}\n";
+    let info = parse("s.ts", source);
+    assert_eq!(
+        accessed(&info, "tok"),
+        (vec!["KEY".to_owned(), "OTHER".to_owned()], false),
+        "TypeScript evaluates parameter decorators outside the function, where `tok` is the import"
+    );
 }
 
 #[test]

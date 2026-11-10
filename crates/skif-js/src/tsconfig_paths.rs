@@ -133,6 +133,15 @@ pub(crate) fn resolve_extends(
         })
 }
 
+/// The entries of the `extends` of `config`: one string or an array of them.
+fn extends_entries(config: &ConfigValue) -> Vec<&str> {
+    match config.get("extends") {
+        Some(ConfigValue::String(parent)) => vec![parent.as_str()],
+        Some(ConfigValue::Array(items)) => items.iter().filter_map(ConfigValue::as_str).collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// The `baseUrl` and `paths` configs of a workspace, parsed once per config file.
 /// A parsed config's file and the directory `${configDir}` stands for.
 type ConfigKey = (PathBuf, PathBuf);
@@ -191,16 +200,9 @@ impl TsConfigs {
         let config = parse_tsconfig(self.fs.as_ref(), file)?;
         let dir = file.parent()?;
         let mut options = Options::default();
-        if depth < MAX_EXTENDS
-            && let Some(extends) = config.get("extends")
-        {
-            let parents: Vec<&str> = match extends {
-                ConfigValue::String(parent) => vec![parent.as_str()],
-                ConfigValue::Array(items) => items.iter().filter_map(ConfigValue::as_str).collect(),
-                _ => Vec::new(),
-            };
+        if depth < MAX_EXTENDS {
             // Later entries override earlier ones.
-            for parent in parents {
+            for parent in extends_entries(&config) {
                 if let Some(path) = resolve_extends(self.fs.as_ref(), &self.members, dir, parent)
                     && let Some(inherited) = self.load(&path, config_dir, depth + 1)
                 {
@@ -243,6 +245,40 @@ impl TsConfigs {
             }
         }
         Some(options)
+    }
+
+    /// The files that path `extends` entries of the nearest config at or above `dir`, not above the workspace root,
+    /// or of a config it extends, name and that do not exist: configs a tool generates before the project is
+    /// type-checked (`./.svelte-kit/tsconfig.json`, also when a nested config extends the root one that names it).
+    pub(crate) fn absent_extends(&self, dir: &Path) -> Vec<PathBuf> {
+        let mut pending: Vec<PathBuf> = dir
+            .ancestors()
+            .take_while(|ancestor| ancestor.starts_with(&self.root))
+            .flat_map(|ancestor| self.candidates(ancestor))
+            .find(|file| self.fs.is_file(file))
+            .into_iter()
+            .collect();
+        let mut absent = Vec::new();
+        for _ in 0..MAX_EXTENDS {
+            let mut extended = Vec::new();
+            for file in &pending {
+                let (Some(config), Some(config_dir)) = (parse_tsconfig(self.fs.as_ref(), file), file.parent()) else {
+                    continue;
+                };
+                for parent in extends_entries(&config) {
+                    match resolve_extends(self.fs.as_ref(), &self.members, config_dir, parent) {
+                        Some(path) if self.fs.is_file(&path) => extended.push(path),
+                        Some(path) => absent.push(path),
+                        None => {}
+                    }
+                }
+            }
+            if extended.is_empty() {
+                break;
+            }
+            pending = extended;
+        }
+        absent
     }
 
     /// The nearest config at or above `dir`, not above the workspace root, that sets `baseUrl` or `paths`.

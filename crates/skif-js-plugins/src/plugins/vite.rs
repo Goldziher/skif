@@ -9,8 +9,8 @@ use crate::plugin::{
 };
 use crate::plugins::postcss;
 use crate::support::{
-    alias_inputs, convention_scope, extension_inputs, get_in, html_entries, html_entries_at, join_rel,
-    own_path_unknown, package_name, path_unknown, strings, values_of,
+    Spreads, alias_inputs, convention_scope, extension_inputs, get_in, html_entries, html_entries_at, join_rel,
+    package_name, path_unknown, strings, values_of,
 };
 
 /// The keys Vite takes entry files from: the project root holding `index.html`, the build inputs and the library
@@ -43,8 +43,8 @@ impl Plugin for Vite {
 
     fn resolve_config(&self, config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut out = html_and_build_inputs(config, cx);
-        if path_unknown(config.value, &["build", "rollupOptions", "input"])
-            || path_unknown(config.value, &["build", "lib", "entry"])
+        if path_unknown(config.value, &["build", "rollupOptions", "input"], Spreads::Any)
+            || path_unknown(config.value, &["build", "lib", "entry"], Spreads::Any)
         {
             out.push(PluginInput::EntriesIncomplete);
         }
@@ -76,11 +76,15 @@ impl Plugin for Vite {
         html_entries(cx, "", "index.html")
     }
 
-    /// A merged or spread base config is shared between packages, so it names no file of this one; at most it
-    /// replaces the build input with the conventional `index` or `main` module. An entry key the config computes
-    /// itself, or a config that is unknown as a whole, may name any file.
+    /// A merged or spread imported base config is shared between packages, so it names no file of this one; at most
+    /// it replaces the build input with the conventional `index` or `main` module. An entry key the config computes
+    /// itself (`entry: pick()`, a spread inside it, or a spread above it of a value the config computes,
+    /// `build: { ...makeLib() }`), or a config that is unknown as a whole, may name any file.
     fn incomplete_scope(&self, _cause: IncompleteCause, config: &ConfigAst<'_>) -> IncompleteScope {
-        if ENTRY_KEYS.iter().any(|path| own_path_unknown(config.value, path)) {
+        if ENTRY_KEYS
+            .iter()
+            .any(|path| path_unknown(config.value, path, Spreads::Own))
+        {
             return IncompleteScope::Package;
         }
         convention_scope(&SPEC, config, &["{,src/}{index,main}.{ext}"])

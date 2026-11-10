@@ -544,14 +544,11 @@ impl<'a> JsAnalysis<'a> {
                 let Some(package) = setup.package(candidate.owner) else {
                     return false;
                 };
-                if package.unjudged_package_wide() {
-                    return false;
-                }
                 let Some(in_package) = relative(&candidate.abs, &package.dir) else {
                     return false;
                 };
-                package.project.is_match(&in_package)
-                    && !package.in_incomplete_scope(&in_package)
+                package.judges(&in_package)
+                    && package.project.is_match(&in_package)
                     && !package.ignore.matches_any(&in_package)
                     && !setup.global_ignore.matches_any(&candidate.rel)
                     && (setup.include_fixtures || !in_fixture_directory(Path::new(&candidate.rel)))
@@ -664,7 +661,9 @@ impl<'a> JsAnalysis<'a> {
         self.setup.ignores_member(id, name)
     }
 
-    /// Whether the entry files of package `id` are not fully known, so nothing can be reported unused in it.
+    /// Whether the entry files of package `id` are not fully known, so its dependencies are not judged. Its files and
+    /// exports that may be unknown entries are not judged either: all of them, or those of its narrowed scope
+    /// ([`Self::judges_exports_of`]).
     #[must_use]
     pub fn entries_incomplete(&self, id: PackageId) -> bool {
         self.setup.package(id).is_some_and(|package| package.entries_incomplete)
@@ -729,16 +728,29 @@ impl<'a> JsAnalysis<'a> {
     }
 
     /// Whether a module's own issues are reported: it is a project file, not ignored, not a public entry, not in a
-    /// fixture directory unless `[js] include-fixtures` is set, and its package's entry files are fully known. In a
-    /// package whose entries are incomplete, a file no known entry reaches may still import the module, so none of its
-    /// exports can be judged unused.
+    /// fixture directory unless `[js] include-fixtures` is set, and no unknown entry of its package may use its
+    /// exports ([`Self::judges_exports_of`]).
     #[must_use]
     pub fn reports_exports_of(&self, module: &Module) -> bool {
         module.in_project
             && !module.ignored
             && (!module.is_entry || self.setup.includes_entry_exports(module.owner))
-            && !self.entries_incomplete(module.owner)
+            && self.judges_exports_of(module)
             && (self.setup.include_fixtures || !in_fixture_directory(&module.path))
+    }
+
+    /// Whether the exports of `module` can be judged although the entry files of its package may be incomplete
+    /// (ADR 0081). In a package whose entries are known, always. In a package unjudged as a whole, never: a file no
+    /// known entry reaches may be an entry and import the module. In a package whose incomplete entries lie in a
+    /// narrowed scope, every file the scope matches is an entry of the graph already (outside the package's `project`
+    /// globs and in the packages nested below it too), so each import an unknown entry can make is counted: only a
+    /// module in the scope, which may itself be such an entry, is not judged.
+    #[must_use]
+    pub fn judges_exports_of(&self, module: &Module) -> bool {
+        let Some(package) = self.setup.package(module.owner) else {
+            return true;
+        };
+        relative(&module.abs, &package.dir).map_or(!package.entries_incomplete, |rel| package.judges(&rel))
     }
 
     /// Exports of `module` that no other module uses, values and types alike, in source order.
