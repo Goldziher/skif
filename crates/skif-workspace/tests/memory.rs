@@ -379,9 +379,27 @@ fn package_manager_precedence() {
         ws(plain, &[("pnpm-workspace.yaml", "packages: []\n")], &config),
         Some(PackageManager::Pnpm)
     );
-    // `bunfig.toml` is the last resort: a lockfile or the files Yarn Berry leaves decide first.
+    // `bunfig.toml` with an `[install]` table is the last resort: a lockfile, `pnpm-workspace.yaml` or the files Yarn
+    // Berry leaves decide first.
     let bunfig = ("bunfig.toml", "[install]\nlinker = \"isolated\"\n");
     assert_eq!(ws(plain, &[bunfig], &config), Some(PackageManager::Bun));
+    assert_eq!(
+        ws(plain, &[("bunfig.toml", "install.linker = \"hoisted\"\n")], &config),
+        Some(PackageManager::Bun)
+    );
+    assert_eq!(
+        ws(plain, &[bunfig, ("pnpm-workspace.yaml", "packages: []\n")], &config),
+        Some(PackageManager::Pnpm)
+    );
+    // A `bunfig.toml` for `bun test` or the runtime alone does not make an npm workspace a Bun one.
+    for runtime_only in [
+        "[test]\npreload = [\"./setup.ts\"]\n",
+        "preload = [\"./setup.ts\"]\n",
+        "",
+        "[install\n",
+    ] {
+        assert_eq!(ws(plain, &[("bunfig.toml", runtime_only)], &config), None, "{runtime_only:?}");
+    }
     assert_eq!(
         ws(plain, &[bunfig, ("package-lock.json", "")], &config),
         Some(PackageManager::Npm)
