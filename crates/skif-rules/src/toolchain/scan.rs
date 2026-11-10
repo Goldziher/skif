@@ -117,7 +117,7 @@ impl Scan {
         }
         if let Some(&(root, false)) = owners.dirs.get("") {
             for name in owners.file_names(WORKFLOWS) {
-                if name.ends_with(".yml") || name.ends_with(".yaml") {
+                if has_extension(&name, &["yml", "yaml"]) {
                     found.insert(join(WORKFLOWS, &name), (ToolchainKind::Workflows, root, true));
                 }
             }
@@ -166,11 +166,16 @@ fn join(dir: &str, name: &str) -> String {
     }
 }
 
+/// Whether `name` ends in `.<extension>` for one of `extensions`, in any case.
+fn has_extension(name: &str, extensions: &[&str]) -> bool {
+    name.rsplit_once('.')
+        .is_some_and(|(stem, extension)| !stem.is_empty() && extensions.iter().any(|known| extension.eq_ignore_ascii_case(known)))
+}
+
 fn is_dockerfile(name: &str) -> bool {
     matches!(name, "Dockerfile" | "Containerfile")
         || name.starts_with("Dockerfile.")
-        || name.ends_with(".Dockerfile")
-        || name.ends_with(".dockerfile")
+        || has_extension(name, &["dockerfile"])
 }
 
 /// The kind of a file found at a usual place by its name; version files count only in a package directory itself.
@@ -179,7 +184,7 @@ fn default_kind(name: &str, package_dir: bool) -> Option<ToolchainKind> {
         Some(ToolchainKind::VersionFiles)
     } else if is_dockerfile(name) {
         Some(ToolchainKind::Dockerfiles)
-    } else if name.ends_with(".sh") {
+    } else if has_extension(name, &["sh"]) {
         Some(ToolchainKind::ShellScripts)
     } else {
         None
@@ -193,7 +198,7 @@ fn glob_kind(path: &str) -> ToolchainKind {
         ToolchainKind::VersionFiles
     } else if is_dockerfile(name) {
         ToolchainKind::Dockerfiles
-    } else if name.ends_with(".yml") || name.ends_with(".yaml") {
+    } else if has_extension(name, &["yml", "yaml"]) {
         ToolchainKind::Workflows
     } else {
         ToolchainKind::ShellScripts
