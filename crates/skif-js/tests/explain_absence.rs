@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 use skif_config::Config;
-use skif_core::{FileSystem, MemoryFs};
+use skif_core::{FileSystem, IncompleteScope, MemoryFs};
 use skif_js::{InputSource, JsAnalysis, PluginSource};
 use skif_workspace::Workspace;
 
@@ -249,6 +249,36 @@ fn a_file_outside_the_narrowed_scope_is_judged_and_names_the_scope() {
         text.contains("(narrowed scope); this file does not, so it is judged"),
         "{text}"
     );
+}
+
+#[test]
+fn incomplete_packages_carry_the_scope_left_unjudged() {
+    let analyse = |files: &[(&str, &str)]| {
+        let fs = memory(files);
+        let workspace = Workspace::discover_with_fs(Path::new(ROOT), &Config::default(), &fs).unwrap();
+        JsAnalysis::build(
+            &workspace,
+            &Config::default(),
+            &(Arc::new(fs) as Arc<dyn FileSystem>),
+            &[Arc::new(PluginSource::new(Config::default().js.plugins.clone())) as Arc<dyn InputSource>],
+            true,
+        )
+        .incomplete_packages()
+    };
+    let narrowed = analyse(NARROWED);
+    assert_eq!(narrowed.len(), 1);
+    let IncompleteScope::Within(globs) = &narrowed[0].scope else {
+        panic!("a narrowed scope: {:?}", narrowed[0].scope);
+    };
+    assert!(
+        globs
+            .iter()
+            .any(|glob| glob == "{,src/}{index,main}.{js,jsx,ts,tsx,mjs,cjs,mts,cts,vue,svelte,astro,mdx}"),
+        "{globs:?}"
+    );
+    let whole = analyse(INCOMPLETE);
+    assert_eq!(whole.len(), 1);
+    assert_eq!(whole[0].scope, IncompleteScope::Package);
 }
 
 #[test]

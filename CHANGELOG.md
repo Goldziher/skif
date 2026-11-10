@@ -30,6 +30,11 @@ All notable changes to this project are documented here. The format follows
   pattern that cannot be used and a `.yarnrc.yml` that is not valid YAML are reported, at the syntax error or the
   pattern. Discovery left them out of the run without a word, so a workspace with a broken member passed
   ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
+- `incomplete-packages[]` entries of the JSON report carry a `scope`: `"package"` when no file of the package was
+  judged unused, or `{"within": [globs]}` with the globs, relative to its `dir`, of the only files left unjudged
+  ([ADR 0065](adrs/0065-narrowed-scope-for-incomplete-entries.md)); the human note names the globs after the package.
+  `skif_core::IncompletePackage` gains the `scope` field and `with_scope`, and `IncompleteScope` moved from
+  `skif-js` to `skif-core` (`skif_js::IncompleteScope` re-exports it).
 - `skif_rules::toolchain_provider()` provides the rules over toolchain files, and `skif_rules::providers()` includes
   it. The rules read those files through `LintContext::fs`, the file system the run is given
   (`skif_lint::RunOptions::with_fs`), as the rules over a lockfile and patch files do

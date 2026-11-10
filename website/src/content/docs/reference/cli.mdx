@@ -367,9 +367,11 @@ formatting in every lint instead, set `package-json-format = "error"` in `[rules
 When a package's entry files are not all known (a tool config skif cannot read, or published build output with no
 source behind it), skif does not report its unused dependencies, and reports its unused files only outside what the
 unreadable config could make entries (see [incomplete entries](../configuration/)). The JSON report names each such package in
-`incomplete-packages`, sorted by directory: its `name`, its `dir` (`.` for the root package) and its `reasons`, each a
-`cause` with the `plugin` and `file` when known, using the causes `skif explain-usage` reports. Paths are relative to
-the run's base. The field is additive, so `version` stays `1`.
+`incomplete-packages`, sorted by directory: its `name`, its `dir` (`.` for the root package), its `reasons`, each a
+`cause` with the `plugin` and `file` when known, using the causes `skif explain-usage` reports, and its `scope`:
+`"package"` when no file of the package was judged unused, or `{"within": [...]}` with the globs, relative to `dir`, of
+the only files left unjudged (the files the unreadable config can make entries); the human output names those globs
+after the package. Paths are relative to the run's base. The fields are additive, so `version` stays `1`.
 
 In `--format json` mode stdout holds exactly one JSON document in every case, including failures. A failure is an
 `error` document with a `kind` (`config`, `workspace`, `io`, `usage`, `ci-refusal` or `internal`, a bug in skif), a message and, when known,

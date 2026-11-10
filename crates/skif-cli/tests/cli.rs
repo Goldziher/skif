@@ -1307,6 +1307,7 @@ fn json_names_the_packages_whose_files_and_dependencies_were_not_judged() {
                 { "cause": "unknown-spread", "plugin": "vite", "file": "packages/web/vite.config.ts" },
                 { "cause": "computed-entries", "plugin": "vite", "file": "packages/web/vite.config.ts" },
             ],
+            "scope": "package",
         }]),
         "{}",
         json.stdout
@@ -1362,11 +1363,13 @@ fn json_tells_a_package_without_entries_from_one_publishing_unmapped_output() {
                 "name": "lib",
                 "dir": "packages/lib",
                 "reasons": [{ "cause": "unmapped-published", "file": "packages/lib/package.json" }],
+                "scope": "package",
             },
             {
                 "name": "remote",
                 "dir": "packages/remote",
                 "reasons": [{ "cause": "no-entries", "file": "packages/remote/package.json" }],
+                "scope": "package",
             },
         ]),
         "{}",

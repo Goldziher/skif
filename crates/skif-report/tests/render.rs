@@ -1,8 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use skif_core::{
-    Diagnostic, Fix, FixOp, FixSafety, IncompleteCause, IncompleteEntries, IncompletePackage, LineIndex, Location,
-    Related, Report, RuleId, Severity, Span,
+    Diagnostic, Fix, FixOp, FixSafety, IncompleteCause, IncompleteEntries, IncompletePackage, IncompleteScope, LineIndex,
+    Location, Related, Report, RuleId, Severity, Span,
 };
 use skif_report::{Format, RenderOptions, render, render_json_error};
 
@@ -131,7 +131,11 @@ fn with_incomplete() -> Report {
                     file: Some("packages/web/package.json".into()),
                 },
             ],
-        ),
+        )
+        .with_scope(IncompleteScope::Within(vec![
+            "vite.config.*".to_owned(),
+            "src/routes/**".to_owned(),
+        ])),
         IncompletePackage::new(
             "root".to_owned(),
             "".into(),
@@ -150,12 +154,29 @@ fn json_incomplete_packages() {
 }
 
 #[test]
+fn json_incomplete_packages_say_whether_the_whole_package_is_unjudged() {
+    let value: serde_json::Value =
+        serde_json::from_str(&run(&with_incomplete(), Format::Json, &options(false))).unwrap();
+    let packages = value["incomplete-packages"].as_array().unwrap();
+    assert_eq!(packages[0]["name"], "root");
+    assert_eq!(packages[0]["scope"], "package");
+    assert_eq!(packages[1]["name"], "web");
+    assert_eq!(
+        packages[1]["scope"],
+        serde_json::json!({"within": ["vite.config.*", "src/routes/**"]})
+    );
+}
+
+#[test]
 fn human_notes_incomplete_packages() {
     let rendered = run(&with_incomplete(), Format::Human, &options(false));
     let lines: Vec<&str> = rendered.lines().rev().take(2).collect();
     assert!(lines[0].starts_with("Found "), "{rendered}");
     assert!(
-        lines[1].starts_with("note: unused files and dependencies were not fully checked in 2 packages (root, web)"),
+        lines[1].starts_with(
+            "note: unused files and dependencies were not fully checked in 2 packages (root, web (files matching \
+             `vite.config.*` or `src/routes/**`))"
+        ),
         "{rendered}"
     );
     assert!(!run(&rich(), Format::Human, &options(false)).contains("were not fully checked"));

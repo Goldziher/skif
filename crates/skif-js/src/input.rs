@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 
 use skif_core::FileSystem;
-pub use skif_core::{IncompleteCause, IncompleteEntries};
+pub use skif_core::{IncompleteCause, IncompleteEntries, IncompleteScope};
 use skif_workspace::{Package, Workspace};
 
 /// A module alias a tool configuration declares: imports of `find` (and `find/…`) point at `target`.
@@ -139,36 +139,6 @@ pub struct WorkspaceInputs {
     /// Where the entries the source could not read can lie, when `entries_incomplete` is set: only files there are
     /// left unjudged by `unused-files` (ADR 0065).
     pub incomplete_scope: IncompleteScope,
-}
-
-/// Where the unknown entries of a package can lie; see [`WorkspaceInputs::incomplete_scope`].
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum IncompleteScope {
-    /// Anywhere: no file of the package is judged unused.
-    #[default]
-    Package,
-    /// Only files matching these globs, relative to the package directory, may be unknown entries; they are treated
-    /// as entries and every other file is judged as usual.
-    Within(Vec<String>),
-}
-
-impl IncompleteScope {
-    /// The scope covering both `self` and `other`: the whole package when either is.
-    #[must_use]
-    pub fn union(self, other: Self) -> Self {
-        match (self, other) {
-            (Self::Within(mut globs), Self::Within(more)) => {
-                for glob in more {
-                    if !globs.contains(&glob) {
-                        globs.push(glob);
-                    }
-                }
-                Self::Within(globs)
-            }
-            _ => Self::Package,
-        }
-    }
 }
 
 impl WorkspaceInputs {
