@@ -446,10 +446,13 @@ lists (also as `./dir` for an ignored `dir/index.ts`, or without its extension) 
 reported: the `.gitignore` of the root, of a package, or of any directory between the file and the git repository
 root, such as a `src/temp/.gitignore` that ignores its own contents or the `.gitignore` of a folder above a nested
 root. So is one that names an ignored path below another `rootDirs` directory of the nearest `tsconfig.json` that is
-not generated yet (`./+types/root` of a React Router route, from `.react-router/types`), a root-relative import of a
-JSON or other non-code file (`import logo from "/vite.svg"`, served from the bundler's public directory), and a `#`
-specifier unless the nearest `package.json` declares `imports`. Since the generated module may import any source file beside it, those files are reached and their exports
-count as used: the files of the ignored file's directory, of an ignored directory and below it, or, for the ignored
+not generated yet (`./+types/root` of a React Router route, from `.react-router/types`), SvelteKit's `./$types`
+while the `.svelte-kit/tsconfig.json` that the nearest `tsconfig.json` or `jsconfig.json` extends, directly or through
+another config, is missing and gitignored (once `svelte-kit sync` has written it, its `rootDirs` decide: a route type
+is not reported while the ignored `.svelte-kit/types` is missing too, and is reported once that directory exists
+without it), a root-relative import of a JSON or other non-code file (`import logo from "/vite.svg"`, served from the
+bundler's public directory), and a `#` specifier unless the nearest `package.json` declares `imports`. Since the
+generated module may import any source file beside it, those files are reached and their exports count as used: the files of the ignored file's directory, of an ignored directory and below it, or, for the ignored
 index of a directory (`src/migrations/sqlite/index.ts` named as `./migrations/sqlite`), of the directory holding that
 directory and below it (`src/migrations/**`), within the importing package. When those files would be the package
 directory or its `src` (an ignored `src/schema.gen.ts`, or `src/generated/index.ts` named as `./generated`), none are
@@ -661,7 +664,13 @@ nested root's code and still reports it.
 
 A package with no source file at or below its directory, no entry and no script, such as a `remote/package.json` that
 only lists what code elsewhere in the repository installs it for, has no code skif could check its dependencies
-against, so they are not judged, as for a package whose entry files skif cannot determine.
+against, so they are not judged, as for a package whose entry files skif cannot determine. A pnpm install hook
+(`.pnpmfile.cjs`, `.pnpmfile.mjs`) is no source file for this rule: it is an entry, so what it imports is used, but a
+package whose only JavaScript it is stays unjudged.
+
+A bare import of a builtin name (`import { EventEmitter } from "events"`) uses a listed npm package of that name, the
+polyfill a bundler resolves it to for the browser; knip reports such a package unused. `node:events` names only the
+builtin, and `events/` only the package.
 
 The default `project` globs include `.vue`, `.svelte` and `.astro` files. Their `<script>` blocks (`<script setup>`,
 `<script context="module">`, any `lang="ts"` or `lang="tsx"`) and the Astro frontmatter are analysed as modules, with

@@ -75,6 +75,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A project whose only JavaScript is a pnpm install hook (`.pnpmfile.cjs`, `.pnpmfile.mjs`) and that has no script
+  is no longer judged for unused dependencies: its manifest lists what code elsewhere installs it for, as for a
+  project with no source file. The hook is still an entry, so what it imports is used
+  ([ADR 0082](adrs/0082-install-hooks-sveltekit-route-types-and-builtin-named-packages.md),
+  [#98](https://github.com/Goldziher/skif/issues/98)).
+- `unresolved-imports` no longer reports SvelteKit's `./$types` while the `.svelte-kit/tsconfig.json` the project's
+  `tsconfig.json` or `jsconfig.json` extends is not generated and is gitignored
+  ([ADR 0082](adrs/0082-install-hooks-sveltekit-route-types-and-builtin-named-packages.md),
+  [#99](https://github.com/Goldziher/skif/issues/99)).
 - The `jasmine` framework of a Karma config uses `jasmine-core` as well as `karma-jasmine`, as knip counts it
   ([#98](https://github.com/Goldziher/skif/issues/98)).
 - `next lint` in a script uses `eslint` and `eslint-config-next`, which it runs

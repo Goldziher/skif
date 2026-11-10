@@ -89,6 +89,7 @@ old one.
 | 0079 | [Namespace Reads Through Test-Runner Spies and Imports Awaited Together](0079-namespace-reads-through-spies-and-imports-awaited-together.md) | accepted |
 | 0080 | [knip Workspaces, Skipped Directories and Published Sources in the knip Comparison](0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md) | accepted |
 | 0081 | [Exports Outside a Narrowed Incomplete Scope Are Judged, and esbuild Build Scripts Are Read](0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md) | accepted |
+| 0082 | [Install Hooks Are Not Project Source, SvelteKit Route Types Before Sync, and Builtin-Named Packages](0082-install-hooks-sveltekit-route-types-and-builtin-named-packages.md) | accepted |
 
 ## Effective statements
 
