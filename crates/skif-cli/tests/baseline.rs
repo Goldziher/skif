@@ -288,6 +288,19 @@ fn check_against_a_git_revision() {
     let unknown = baseline(dir.path(), "check", &["--base", "no-such-revision"]);
     assert_eq!(unknown.code, 2, "{}{}", unknown.stdout, unknown.stderr);
     assert_eq!(unknown.json()["error"]["kind"], "usage");
+
+    let missing = dir.path().join("no-such-dir").join(BASELINE);
+    let elsewhere = baseline(
+        dir.path(),
+        "check",
+        &["--base", "HEAD", "--file", missing.to_str().unwrap()],
+    );
+    assert_eq!(elsewhere.code, 2, "{}{}", elsewhere.stdout, elsewhere.stderr);
+    let message = elsewhere.json()["error"]["message"].as_str().unwrap().to_owned();
+    assert!(
+        message.contains("does not exist") && !message.contains("is not a commit"),
+        "{message}"
+    );
 }
 
 #[test]

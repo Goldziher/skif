@@ -867,6 +867,13 @@ fn at_revision(file: &Path, revision: &str) -> Result<Option<String>, CliError> 
     let (Some(dir), Some(name)) = (file.parent(), file.file_name().and_then(|name| name.to_str())) else {
         return Err(usage(format!("{} does not name a file", file.display())));
     };
+    // `git -C` fails on a missing directory, which would read as a bad revision.
+    if !dir.is_dir() {
+        return Err(usage(format!(
+            "--file: the directory {} does not exist",
+            dir.display()
+        )));
+    }
     let verified = git(
         dir,
         &["rev-parse", "--verify", "--quiet", &format!("{revision}^{{commit}}")],
