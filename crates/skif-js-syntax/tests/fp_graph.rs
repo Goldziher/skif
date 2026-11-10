@@ -133,6 +133,39 @@ fn every_binding_of_a_destructured_export_contains_the_types_of_its_initialiser(
 }
 
 #[test]
+fn re_exports_and_type_containers_name_every_containing_value_export() {
+    let info = parse(
+        "a.ts",
+        "import { Props, Theme as T } from './props';\n\
+         import Base from './base';\n\
+         export { Props, Theme } from './props';\n\
+         export { default } from './base';\n\
+         export type Config = { props: Props };\n\
+         type Store = { theme: T; base: Base };\n\
+         const Store = create();\n\
+         export { Store, Store as Alias };\n\
+         export function render(p: Props): Base { return p as never; }\n",
+    );
+    let containing: Vec<(&str, Vec<String>)> = info
+        .exports
+        .iter()
+        .map(|export| (export.name.as_str(), export.referenced_in.clone()))
+        .collect();
+    assert_eq!(
+        containing,
+        [
+            ("Props", vec!["render".to_owned()]),
+            ("Theme", vec!["Alias".to_owned(), "Store".to_owned()]),
+            ("default", vec!["Alias".to_owned(), "Store".to_owned(), "render".to_owned()]),
+            ("Config", vec![]),
+            ("Store", vec![]),
+            ("Alias", vec![]),
+            ("render", vec![]),
+        ]
+    );
+}
+
+#[test]
 fn only_members_read_by_name_in_the_declaring_file_are_recorded() {
     let info = parse(
         "a.ts",
