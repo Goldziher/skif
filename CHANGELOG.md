@@ -66,8 +66,11 @@ All notable changes to this project are documented here. The format follows
 - `Workspace` gains `workspace_keys_anchor` and `set_workspace_keys_anchor`, which `discover_targets` sets for the
   roots below the start of a run with an explicit configuration file; `skif_js::InputRequest` gains `workspace_key`,
   so a struct literal needs the field. `skif_core::ConfigJudgement` is new, `Report` gains `config_judgements`,
-  `with_config_judgements` and `extended`, and `Emitter` gains `report_config_judgement` and
-  `take_config_judgements`: `stale-js-config` records every entry it judged, which `skif -r` decides across roots
+  `with_config_judgements` and `retain_mut`, and `Emitter` gains `report_config_judgement` and
+  `take_config_judgements`: `stale-js-config` records every entry it judged, with the package of a list a
+  `[js.workspaces]` table gives a package. `skif::settle_shared_config` is new: given the reports of the targets of
+  `discover_targets` in order, it decides the `stale-js-config` findings about a configuration file several roots
+  read, as `skif -r` does; a host that lints the targets itself calls it last, on the reports it shows
   ([ADR 0099](adrs/0099-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
 - `RuleMeta` gains `version_scoped`, set with `RuleMeta::version_scoped()`; `IgnoreEntry` gains `files` and
   `with_files`; `OverrideScope` gains `unanchored()`.
@@ -220,8 +223,12 @@ All notable changes to this project are documented here. The format follows
   its entries once per root where they matched nothing. The keys and globs of an explicit file are now relative to
   the start directory: `"."` is the root there and `"tools/sub"` the nested root in that directory. A
   `stale-js-config` finding about a file several roots of the run read (the explicit file, or a file above them) is
-  reported once, and an entry of a list of that file only when every root that could judge it found it stale, also
-  in the lint after `--fix` ([ADR 0099](adrs/0099-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
+  reported once, at the highest severity among the roots, and an entry of a list of that file only when every root
+  that could judge it found it stale; each package a glob table selects keeps a list of its own. The decision is made
+  last, over the reports the run shows: after the lint after `--fix` (which lints again every root whose
+  configuration file a fix wrote), after `--workspace`, `--include` and `--exclude`, which no longer lose a finding
+  another root reported first. `skif baseline write -r` records the finding in each root that reports it, so a
+  second write adds nothing ([ADR 0099](adrs/0099-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
 - `skif baseline` records `name@specifier` only for the rules whose finding is about the specifier (`RuleMeta::version_scoped`:
   `version-mismatch`, `semver-range-mismatch`, `policy-conflict`, `unsynced-dependency-family`,
   `incompatible-peer-dependencies`, `catalog-mismatch`, `catalog-version-divergence`); any other finding records the

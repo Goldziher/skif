@@ -82,22 +82,35 @@ pin its configuration, and the duplicates come from the explicit file alone.
 
 **Findings about a shared file.** `stale-js-config` records, beside its findings, every entry of a configuration list
 it judged in a root, used or stale: the file, the list's key as written in it (`js.ignore-dependencies`,
-`js.workspaces."tools/*".entry`, `js.workspaces` for the keys of that table), the entry, the verdict and the message of
-the finding that calls the entry stale (`Report::config_judgements`, not rendered). A root that cannot judge a list
-records nothing for it: a rule that consults it is off, or a package whose entries it covers has entry files that are
-not all known. Once every root of a run is linted, the entries two or more roots judged, by absolute file, key and
-entry, are decided across them:
+`js.workspaces."tools/*".entry`, `js.workspaces` for the keys of that table), the entry, for a list a `[js.workspaces]`
+table gives a package the directory of that package, the verdict and the message of the finding that calls the entry
+stale (`Report::config_judgements`, not rendered). A root that cannot judge a list records nothing for it: a rule that
+consults it is off, or a package whose entries it covers has entry files that are not all known. The entries two or
+more roots judged are decided across them, grouped by absolute file, key as written, entry and, for a package's list,
+the absolute package directory: a glob table such as `[js.workspaces."tools/*"]` gives each package it selects a list
+of its own, as it does inside one root, so a package that uses its entry does not hide the same entry that a sibling
+package's list does not need.
 
-* An entry is stale only when every root that judged it found it stale. A root that used it, through any package its
-  key selects, drops the finding in every root; a root that could not judge it has no say, so it does not hide a
-  stale entry either.
-* A stale entry is reported once, by the first root in path order that reports it.
+* An entry is stale only when every root that judged it found it stale. A root that used it drops the finding in
+  every root; a root that could not judge it has no say, so it does not hide a stale entry either.
+* A stale entry is reported once, by the first root in path order whose report holds the finding, at the highest
+  severity among the roots' copies, so a copy at `error` is not hidden behind one at `warn`.
 * Any other finding at the same file (a redundant pattern, a tag hint) is reported once, by the first root that
-  reports it with the same message.
+  reports it with the same message, at the highest severity among the copies.
 
-The findings a decision takes out of a report are kept aside, and after `--fix` the decision is made again from the
-re-linted reports and those findings, so a root that was not linted again keeps its say. The per-root summaries of the
-JSON `roots` array add up to the run's summary.
+**When the decision is made.** The decision is a pure function over the reports a run shows
+(`skif::settle_shared_config`, which the CLI calls and an embedder of `discover_targets` and `Linter` calls the same
+way), made once and last: after the lint that follows `--fix`, after `--workspace`, `--include` and `--exclude` narrowed
+the reports, and after suppressions. No state is carried between lints: each root's report holds what that root found,
+and a decision reads only the reports it is given. So a finding the decision would give to a root whose copy a filter
+removes goes to the next root that still reports it, and deciding a decided report again changes nothing.
+
+* `--fix` writes every plan before it lints again, then lints again every root a plan changed and every root whose
+  configuration is read from a file a plan wrote, so no report that judged a file before it changed takes part.
+* `skif baseline` records each root's findings before any decision, so each root's baseline silences the finding it
+  reports, and `baseline write -r` run again adds nothing.
+
+The per-root summaries of the JSON `roots` array add up to the run's summary.
 
 ### Consequences
 
@@ -108,11 +121,16 @@ JSON `roots` array add up to the run's summary.
 * Good, because a stale finding about a shared file means that no root used the setting, for an inherited file as
   well as an explicit one.
 * Good, because the roots built from one explicit file share one linter, anchored or not.
-* Good, because the decision reads what the rule judged rather than the wording of its messages, and an entry of a
-  glob table that selects packages of several roots is stale only when none of them uses it.
+* Good, because the decision reads what the rule judged rather than the wording of its messages.
+* Good, because the decision is one function over final reports, so the CLI, the language server and an embedder get
+  the same findings, and a fix, a filter or a baseline cannot make a finding appear, disappear or repeat.
 * Bad, because the keys of an explicit file depend on the directory a recursive run starts at, so a file written for
   runs from the repository root configures other roots, or none, when a run starts elsewhere.
 * Bad, because every report carries the entries `stale-js-config` judged, which a single-root run does not need.
+* Bad, because a host that lints the roots itself must call the decision, or it reports a shared file's stale entry
+  once per root.
+* Bad, because each root's baseline records its own copy of a finding about a shared file, so the entries repeat
+  across the baselines of the roots that read it.
 * Bad, because a finding about an inherited file is located at the nearest configuration file of the root, so a root
   with a file of its own over the inherited one is not grouped with the roots that read the inherited file alone.
 * Bad, because the same file now means different things under `--config` and when discovered at the start
@@ -127,13 +145,20 @@ JSON `roots` array add up to the run's summary.
 * `skif` unit tests cover which roots of a discovery get an anchor: every root below the start of a run with an
   explicit file, also when the start is no root, not the root at the start and not a discovered file; and that the
   roots share one configuration.
-* `skif-cli` unit tests cover the decision across roots: an entry one root uses is stale nowhere, a root that could not
-  judge an entry does not hide it, a stale entry is kept by the first root that reports it, other findings are kept
-  once, and a second decision starts from the findings the first withheld.
+* `skif` unit tests cover the decision: an entry one root uses is stale nowhere, a root that could not judge an entry
+  does not hide it, a stale entry is kept by the first root whose report holds it and at the highest severity of the
+  copies, the lists of sibling packages of a glob table are decided apart while one package judged by two roots is one
+  list, other findings are kept once, findings of other rules are left alone, and deciding again changes nothing. A
+  `skif` test lints the targets of `discover_targets` with `Linter` and gets the finding once after the decision.
+* `skif-cli` unit tests cover which roots are linted again after fixing: those a plan changed and those whose
+  configuration file a plan wrote.
 * CLI tests cover `skif -r --config` on a project with nested roots: `"."` and `"tools/sub"` tables each configure
   their root with no finding; stale entries of the file are reported exactly once; an ignore entry or a glob table
   entry one root uses is not reported; a root that cannot judge a pattern does not hide it; a start directory that is
-  no root; a discovered file several roots inherit; and the lint after `--fix` reporting as a fresh lint does.
+  no root; a discovered file several roots inherit; the lint after `--fix` reporting as a fresh lint does; the stale
+  entry of one package of a glob table reported while a sibling package uses its own; `--workspace` keeping the
+  finding of the root it selects; and `baseline write -r` recording the finding in each root, the lint clean after it,
+  and a second write adding nothing.
 * `adrlint lint adrs`, `adrlint format --check adrs` and `adrlint lock --check` pass.
 
 ## Pros and Cons of the Options
