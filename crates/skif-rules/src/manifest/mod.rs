@@ -1,29 +1,35 @@
 //! Rules over `package.json` manifests and the workspace layout.
 
+mod allow_list;
 mod empty_dependencies;
 mod incompatible_peer_dependencies;
 pub(crate) mod local_path_dependency;
 mod member_toolchain_fields;
 mod missing_package_manifest;
+mod nested_workspace_root;
 mod package_json_format;
 mod root_package_dependencies;
 mod root_package_manager_field;
 mod root_package_private_field;
+mod stray_lockfile;
 pub(crate) mod support;
 mod types_in_dependencies;
 mod unmatched_workspace_patterns;
 mod unsorted_dependencies;
 
+pub use allow_list::AllowListOptions;
 pub use empty_dependencies::EmptyDependencies;
 pub use incompatible_peer_dependencies::IncompatiblePeerDependencies;
 pub use local_path_dependency::LocalPathDependency;
 pub use member_toolchain_fields::{ForbidMode, MemberToolchainFields, MemberToolchainFieldsOptions};
 pub use missing_package_manifest::MissingPackageManifest;
+pub use nested_workspace_root::NestedWorkspaceRoot;
 pub use package_json_format::PackageJsonFormat;
 pub use root_package_dependencies::RootPackageDependencies;
 pub use root_package_manager_field::RootPackageManagerField;
 pub use root_package_private_field::RootPackagePrivateField;
 use skif_lint::{Rule, RulesProvider};
+pub use stray_lockfile::StrayLockfile;
 pub use types_in_dependencies::TypesInDependencies;
 pub use unmatched_workspace_patterns::UnmatchedWorkspacePatterns;
 pub use unsorted_dependencies::UnsortedDependencies;
@@ -45,6 +51,8 @@ pub fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(UnsortedDependencies),
         Box::new(UnmatchedWorkspacePatterns),
         Box::new(MissingPackageManifest),
+        Box::new(StrayLockfile),
+        Box::new(NestedWorkspaceRoot),
         Box::new(LocalPathDependency),
         Box::new(PackageJsonFormat),
     ]

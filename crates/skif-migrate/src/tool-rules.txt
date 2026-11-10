@@ -22,3 +22,5 @@ member-toolchain-fields none no tool checks engines or packageManager in members
 unparseable-files none knip skips a file it cannot parse without reporting it
 stale-js-config none knip hints differ from skif's; written only by --treat-config-hints-as-errors
 stale-mocks none knip does not read the specifiers of test-runner mocks
+stray-lockfile none no tool reports a lockfile other than the root one
+nested-workspace-root none no tool reports a pnpm-workspace.yaml in a member
