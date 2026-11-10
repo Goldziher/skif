@@ -1851,10 +1851,21 @@ fn knip_workspaces_in_the_config_alone_note_the_unmerged_tsconfig_paths() {
 
 #[test]
 fn knip_in_a_single_package_project_says_nothing_about_tsconfig_paths() {
-    let migration = knip(Some(r#"{ "entry": ["src/index.ts"] }"#), &[("knip", "knip")]);
-    assert!(
-        !migration.notes.iter().any(|note| note.path == MERGED_PATHS),
-        "{:#?}",
-        migration.notes
+    for config in [
+        r#"{ "entry": ["src/index.ts"] }"#,
+        r#"{ "workspaces": { ".": { "entry": ["src/index.ts"] } } }"#,
+        r#"{ "workspaces": { "./": { "entry": ["src/index.ts"] } } }"#,
+    ] {
+        let migration = knip(Some(config), &[("knip", "knip")]);
+        assert!(
+            !migration.notes.iter().any(|note| note.path == MERGED_PATHS),
+            "{config}: {:#?}",
+            migration.notes
+        );
+    }
+    let member = knip(
+        Some(r#"{ "workspaces": { ".": {}, "packages/*": { "entry": ["src/index.ts"] } } }"#),
+        &[("knip", "knip")],
     );
+    assert_eq!(class(&member, MERGED_PATHS), NoteClass::Approximate);
 }

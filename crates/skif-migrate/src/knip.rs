@@ -347,12 +347,26 @@ pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), 
     let multi_package = !input.workspace_patterns.is_empty()
         || found
             .as_ref()
-            .is_some_and(|(config, _, _)| config.get("workspaces").is_some());
+            .is_some_and(|(config, _, _)| configures_member_workspace(config));
     if multi_package {
         note_merged_tsconfig_paths(state, &src);
     }
     apply(state, &src, &plan);
     Ok(())
+}
+
+/// Whether the `workspaces` key of `config` names a directory other than the root: a `"."` entry alone configures the
+/// root package only. A value that cannot be read counts, since it may name one.
+fn configures_member_workspace(config: &ConfigValue) -> bool {
+    let Some(workspaces) = config.get("workspaces") else {
+        return false;
+    };
+    workspaces.as_object().is_none_or(|dirs| {
+        dirs.iter().any(|(dir, _)| {
+            let normalized = dir.trim_start_matches("./").trim_end_matches('/');
+            !normalized.is_empty() && normalized != "."
+        })
+    })
 }
 
 /// knip resolves every import with the tsconfig `paths` of all workspaces together; skif resolves an import with the
