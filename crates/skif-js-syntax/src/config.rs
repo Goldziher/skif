@@ -212,7 +212,10 @@ enum Value {
     String(String),
     Array(Vec<Value>),
     Object(Vec<(String, Value)>),
-    Regex { pattern: String, flags: String },
+    Regex {
+        pattern: String,
+        flags: String,
+    },
     Unknown,
     /// A value that is not definite: as the value of an object's key, one merged from the branches of a condition the
     /// evaluator cannot decide ([`any_entries`]), which the object may lack or hold any one of the values its union
@@ -262,7 +265,7 @@ impl Value {
     /// The value inside a [`Value::Maybe`], or the value itself.
     fn definite(&self) -> &Self {
         match self {
-            Self::Maybe(value) => &**value,
+            Self::Maybe(value) => value,
             value => value,
         }
     }
@@ -270,7 +273,7 @@ impl Value {
     /// The value inside a [`Value::Maybe`], or the value itself, to change in place.
     fn definite_mut(&mut self) -> &mut Self {
         match self {
-            Self::Maybe(value) => &mut **value,
+            Self::Maybe(value) => value,
             value => value,
         }
     }
@@ -284,9 +287,12 @@ impl From<ConfigValue> for Value {
             ConfigValue::Number(n) => Self::Number(n),
             ConfigValue::String(s) => Self::String(s),
             ConfigValue::Array(items) => Self::Array(items.into_iter().map(Self::from).collect()),
-            ConfigValue::Object(entries) => {
-                Self::Object(entries.into_iter().map(|(key, value)| (key, Self::from(value))).collect())
-            }
+            ConfigValue::Object(entries) => Self::Object(
+                entries
+                    .into_iter()
+                    .map(|(key, value)| (key, Self::from(value)))
+                    .collect(),
+            ),
             ConfigValue::Regex { pattern, flags } => Self::Regex { pattern, flags },
             ConfigValue::Unknown => Self::Unknown,
         }
@@ -301,9 +307,12 @@ impl From<Value> for ConfigValue {
             Value::Number(n) => Self::Number(n),
             Value::String(s) => Self::String(s),
             Value::Array(items) => Self::Array(items.into_iter().map(Self::from).collect()),
-            Value::Object(entries) => {
-                Self::Object(entries.into_iter().map(|(key, value)| (key, Self::from(value))).collect())
-            }
+            Value::Object(entries) => Self::Object(
+                entries
+                    .into_iter()
+                    .map(|(key, value)| (key, Self::from(value)))
+                    .collect(),
+            ),
             Value::Regex { pattern, flags } => Self::Regex { pattern, flags },
             Value::Unknown => Self::Unknown,
             Value::Maybe(value) => Self::from(*value),
@@ -467,9 +476,11 @@ fn evaluate_config(source: &str, path: &Path, modules: Option<&Modules<'_>>) -> 
     let captured = eval.captured.borrow_mut().take();
     let value = ConfigValue::from(captured.unwrap_or(value));
     let call_arguments = match exported {
-        Exported::Expression(expr) if matches!(value, ConfigValue::Unknown) => {
-            eval.unknown_call_arguments(expr, 0).into_iter().map(ConfigValue::from).collect()
-        }
+        Exported::Expression(expr) if matches!(value, ConfigValue::Unknown) => eval
+            .unknown_call_arguments(expr, 0)
+            .into_iter()
+            .map(ConfigValue::from)
+            .collect(),
         _ => Vec::new(),
     };
     Some(ExtractedConfig { value, call_arguments })
@@ -648,13 +659,7 @@ impl Modules<'_> {
 
     /// The value `imported` names in the module `specifier` resolves to from `from`, called with `args` when given.
     /// `None` when the module is not followed or does not have the export.
-    fn evaluate(
-        &self,
-        from: &Path,
-        specifier: &str,
-        imported: &Imported,
-        args: Option<&[Value]>,
-    ) -> Option<Value> {
+    fn evaluate(&self, from: &Path, specifier: &str, imported: &Imported, args: Option<&[Value]>) -> Option<Value> {
         let (path, source) = self.load(from, specifier)?;
         let key = (path.clone(), imported.clone());
         if args.is_none()
@@ -689,13 +694,7 @@ impl Modules<'_> {
             || self.evaluations.get() >= MAX_MODULE_EVALUATIONS
     }
 
-    fn evaluate_module(
-        &self,
-        path: &Path,
-        source: &str,
-        imported: &Imported,
-        args: Option<&[Value]>,
-    ) -> Option<Value> {
+    fn evaluate_module(&self, path: &Path, source: &str, imported: &Imported, args: Option<&[Value]>) -> Option<Value> {
         let source_type = SourceType::from_path(path).ok()?;
         let allocator = Allocator::default();
         let ret = Parser::new(&allocator, source, source_type)
@@ -1531,11 +1530,7 @@ impl<'a> Visit<'a> for MethodCallFinder<'_, '_, 'a> {
             let arguments = it
                 .arguments
                 .iter()
-                .map(|argument| {
-                    argument
-                        .as_expression()
-                        .map_or(Value::Unknown, |e| eval.expr(e, 0))
-                })
+                .map(|argument| argument.as_expression().map_or(Value::Unknown, |e| eval.expr(e, 0)))
                 .collect();
             self.found.push(arguments);
         }
@@ -2236,10 +2231,10 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     fn url(&self, new: &'p NewExpression<'a>, depth: u32) -> Value {
         let is_url =
             matches!(new.callee.get_inner_expression(), Expression::Identifier(id) if id.name.as_str() == "URL");
-        let mut args = new.arguments.iter().map(|arg| {
-            arg.as_expression()
-                .map_or(Value::Unknown, |e| self.expr(e, depth))
-        });
+        let mut args = new
+            .arguments
+            .iter()
+            .map(|arg| arg.as_expression().map_or(Value::Unknown, |e| self.expr(e, depth)));
         match (is_url, args.next(), args.next(), args.next()) {
             (true, Some(Value::String(relative)), Some(Value::String(base)), None)
                 if !relative.starts_with('/') && !relative.contains(':') && !base.contains(':') =>
@@ -2311,10 +2306,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     fn arguments(&self, call: &'p CallExpression<'a>, depth: u32) -> Vec<Value> {
         call.arguments
             .iter()
-            .map(|arg| {
-                arg.as_expression()
-                    .map_or(Value::Unknown, |e| self.expr(e, depth))
-            })
+            .map(|arg| arg.as_expression().map_or(Value::Unknown, |e| self.expr(e, depth)))
             .collect()
     }
 
@@ -2407,9 +2399,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         for argument in &call.arguments {
             let value = match argument {
                 Argument::SpreadElement(spread) => self.expr(&spread.argument, depth),
-                other => other
-                    .as_expression()
-                    .map_or(Value::Unknown, |e| self.expr(e, depth)),
+                other => other.as_expression().map_or(Value::Unknown, |e| self.expr(e, depth)),
             };
             flatten_into(value, &mut list);
         }
@@ -2531,13 +2521,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// (an exported config function, the callback of `defineConfig`) is given what the config does not say, so each of
     /// its parameters is unknown, a default included. With `isolate`, the function cannot see the bindings of the
     /// function evaluating it.
-    fn invoke(
-        &self,
-        callable: Callable<'p, 'a>,
-        args: Option<&[Value]>,
-        isolate: bool,
-        depth: u32,
-    ) -> Value {
+    fn invoke(&self, callable: Callable<'p, 'a>, args: Option<&[Value]>, isolate: bool, depth: u32) -> Value {
         if self.calls.get() >= MAX_CALLS {
             return Value::Unknown;
         }
@@ -2691,11 +2675,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     if let Some(argument) = &r.argument {
                         self.havoc(Writes::of_expression(argument));
                     }
-                    return Some(
-                        r.argument
-                            .as_ref()
-                            .map_or(Value::Unknown, |e| self.expr(e, depth)),
-                    );
+                    return Some(r.argument.as_ref().map_or(Value::Unknown, |e| self.expr(e, depth)));
                 }
                 Statement::ExpressionStatement(s) => self.mutation(&s.expression, depth),
                 Statement::BlockStatement(b) => {
@@ -2795,11 +2775,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         let path = |branch: Option<&'p Statement<'a>>| -> Option<Value> {
             match branch.map(single_return) {
                 // A branch that returns its value.
-                Some(Some(r)) => Some(
-                    r.argument
-                        .as_ref()
-                        .map_or(Value::Unknown, |e| self.expr(e, depth)),
-                ),
+                Some(Some(r)) => Some(r.argument.as_ref().map_or(Value::Unknown, |e| self.expr(e, depth))),
                 // A branch that does more than return, and may return.
                 Some(None) if branch.is_some_and(returns) => Some(Value::Unknown),
                 // No branch, or one that does not return: control goes on to the statements after the `if`.
@@ -2948,11 +2924,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     Value::Array(items) => out.extend(items),
                     _ => out.push(Value::Unknown),
                 },
-                other => out.push(
-                    other
-                        .as_expression()
-                        .map_or(Value::Unknown, |e| self.expr(e, depth)),
-                ),
+                other => out.push(other.as_expression().map_or(Value::Unknown, |e| self.expr(e, depth))),
             }
         }
         Value::Array(out)
@@ -3257,11 +3229,7 @@ fn unstable(value: Value, change: Change) -> Value {
     match (change, value) {
         (
             Change::Contents,
-            value @ (Value::Null
-            | Value::Bool(_)
-            | Value::Number(_)
-            | Value::String(_)
-            | Value::Regex { .. }),
+            value @ (Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Regex { .. }),
         ) => value,
         (_, value) => changed(value),
     }
@@ -3372,8 +3340,7 @@ fn inherits(entries: &[(String, Value)], key: &str) -> bool {
 
 /// The entries a spread of one of `branches` adds after `before`; see [`any_entries`].
 fn spread_any(before: &[(String, Value)], branches: &[Vec<(String, Value)>]) -> Vec<(String, Value)> {
-    let objects: Vec<Option<&[(String, Value)]>> =
-        branches.iter().map(|branch| Some(branch.as_slice())).collect();
+    let objects: Vec<Option<&[(String, Value)]>> = branches.iter().map(|branch| Some(branch.as_slice())).collect();
     any_entries(&objects, before)
 }
 
@@ -3381,10 +3348,7 @@ fn spread_any(before: &[(String, Value)], branches: &[Vec<(String, Value)>]) -> 
 /// of them has, with [`any_of`] what each leaves it (its own value, or the one in `before` when it does not have the
 /// key), a [`Value::Maybe`] unless every branch leaves it the same definite value, and the marker key `...` last when
 /// one of them has an unknown spread.
-fn any_entries(
-    objects: &[Option<&[(String, Value)]>],
-    before: &[(String, Value)],
-) -> Vec<(String, Value)> {
+fn any_entries(objects: &[Option<&[(String, Value)]>], before: &[(String, Value)]) -> Vec<(String, Value)> {
     let entries = || objects.iter().flatten().copied().flatten();
     let mut keys: Vec<&str> = Vec::new();
     for (key, _) in entries() {
@@ -3456,9 +3420,7 @@ fn any_of(values: &[Option<Value>]) -> Value {
             Some(_) => None,
         })
         .collect();
-    objects.map_or(Value::Unknown, |objects| {
-        Value::Object(any_entries(&objects, &[]))
-    })
+    objects.map_or(Value::Unknown, |objects| Value::Object(any_entries(&objects, &[])))
 }
 
 /// Whether every one of `values` is present and they are all the same.
