@@ -45,7 +45,7 @@ impl Plugin for Storybook {
         }
         let mut addons = Vec::new();
         match value.get("addons") {
-            Some(ConfigValue::Unknown) => out.push(PluginInput::EntriesIncomplete),
+            Some(unknown) if unknown.is_unknown() => out.push(PluginInput::EntriesIncomplete),
             Some(ConfigValue::Array(listed)) => {
                 for addon in listed {
                     if let Some(name) = package_named(addon, &mut out) {

@@ -367,9 +367,8 @@ pub(crate) fn objects(value: &ConfigValue) -> Vec<&ConfigValue> {
 /// Whether a config is unknown, or is a list (of builds) with an unknown element.
 pub(crate) fn config_unknown(config: &ConfigValue) -> bool {
     match config {
-        ConfigValue::Unknown => true,
-        ConfigValue::Array(items) => items.iter().any(|item| matches!(item, ConfigValue::Unknown)),
-        _ => false,
+        ConfigValue::Array(items) => items.iter().any(ConfigValue::is_unknown),
+        other => other.is_unknown(),
     }
 }
 
@@ -395,7 +394,6 @@ pub(crate) fn path_unknown(value: &ConfigValue, path: &[&str], spreads: Spreads)
         Spreads::Own => name == OWN_SPREAD,
     };
     match value {
-        ConfigValue::Unknown => true,
         ConfigValue::Object(entries) => {
             let last = entries
                 .iter()
@@ -407,7 +405,7 @@ pub(crate) fn path_unknown(value: &ConfigValue, path: &[&str], spreads: Spreads)
                 None => false,
             }
         }
-        _ => false,
+        other => other.is_unknown(),
     }
 }
 
@@ -416,18 +414,17 @@ pub(crate) fn path_unknown(value: &ConfigValue, path: &[&str], spreads: Spreads)
 /// project objects is known when each object is, whatever their other options are.
 pub(crate) fn shallow_key_unknown(object: &ConfigValue, key: &str) -> bool {
     match object {
-        ConfigValue::Unknown => true,
         ConfigValue::Object(entries) => match entries
             .iter()
             .rev()
             .find(|(name, _)| name == key || ConfigValue::is_spread_key(name))
         {
             Some((name, _)) if ConfigValue::is_spread_key(name) => true,
-            Some((_, ConfigValue::Unknown)) => true,
-            Some((_, ConfigValue::Array(items))) => items.contains(&ConfigValue::Unknown),
-            _ => false,
+            Some((_, ConfigValue::Array(items))) => items.iter().any(ConfigValue::is_unknown),
+            Some((_, value)) => value.is_unknown(),
+            None => false,
         },
-        _ => false,
+        other => other.is_unknown(),
     }
 }
 

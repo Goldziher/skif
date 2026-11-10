@@ -89,10 +89,10 @@ fn reporter_names(reporter: &ConfigValue) -> Vec<Option<&str>> {
             ConfigValue::String(name) => Some(Some(name.as_str())),
             ConfigValue::Array(pair) => match pair.first() {
                 Some(ConfigValue::String(name)) => Some(Some(name.as_str())),
-                Some(ConfigValue::Unknown) => Some(None),
+                Some(name) if name.is_unknown() => Some(None),
                 _ => None,
             },
-            ConfigValue::Unknown => Some(None),
+            unknown if unknown.is_unknown() => Some(None),
             _ => None,
         })
         .collect()
