@@ -7,8 +7,8 @@ use crate::plugin::{
 };
 use crate::plugins::vite;
 use crate::support::{
-    alias_inputs, config_unknown, convention_scope, entry_glob, entry_strings, get_in, module_input, name_of, objects,
-    own_path_unknown, package_name, project_files, shallow_key_unknown, strings,
+    Spreads, alias_inputs, config_unknown, convention_scope, entry_glob, entry_strings, get_in, module_input, name_of,
+    objects, package_name, path_unknown, project_files, shallow_key_unknown, strings,
 };
 
 /// Where test runners find what a config names besides the test files of [`SPEC`]: test and fixture directories, and
@@ -85,7 +85,7 @@ const FILE_KEYS: &[&[&str]] = &[
 ];
 
 /// Whether a config, a workspace list of them or a project they nest is unknown as a whole or computes one of
-/// [`FILE_KEYS`] in its own text, leaving aside what an unknown spread or merge may set.
+/// [`FILE_KEYS`] itself, leaving aside what an imported base config it spreads or merges may set ([`Spreads::Own`]).
 fn computes_files(value: &ConfigValue, depth: u8) -> bool {
     if depth > 8 {
         return false;
@@ -94,7 +94,7 @@ fn computes_files(value: &ConfigValue, depth: u8) -> bool {
         return true;
     }
     objects(value).into_iter().any(|object| {
-        FILE_KEYS.iter().any(|path| own_path_unknown(object, path))
+        FILE_KEYS.iter().any(|path| path_unknown(object, path, Spreads::Own))
             || ["workspace", "projects"]
                 .iter()
                 .filter_map(|key| get_in(object, &["test", key]))
