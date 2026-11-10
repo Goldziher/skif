@@ -142,8 +142,9 @@ at `PATH`. The report names the entry rule when the file is an entry file, lists
 file and line (and which names the import brings in), and shows the shortest chain of imports from an entry file. With
 `#EXPORT` it lists the modules that import that export by name or as a whole, follows re-exports (`export { x } from`,
 `export *`) into the modules that use them, and ends with a verdict (`public`, `used` or `unused`) computed from the
-same facts as the lines above it; an export of a package whose entry files are not fully known is `not-judged`
-instead of `unused`, because it is not reported. The command builds the whole JavaScript analysis, so it costs as much
+same facts as the lines above it; an export of a file that may be an unknown entry of its package (a package whose
+entry files are not fully known, or a file in the narrowed scope of such a package) is `not-judged` instead of
+`unused`, because it is not reported. The command builds the whole JavaScript analysis, so it costs as much
 as the JavaScript part of a lint run.
 
 | Flag | Meaning |

@@ -400,3 +400,8 @@ blake3 = "22ae44d47fcc639dcfbec4b034a96ceb19c5ec5a7e2b9a46c6a8fa1495e85c96"
 number = 80
 status = "accepted"
 blake3 = "146de07beffbb5df2477c3a90b9089e0d9359608487f601e147db5728d4e9a4b"
+
+[adrs."adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md"]
+number = 81
+status = "accepted"
+blake3 = "2ddfac4b713547b2dfb3a98a2681c21f2fb1095f568651f42d080888d8fbce27"

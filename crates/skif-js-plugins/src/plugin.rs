@@ -292,6 +292,13 @@ pub trait Plugin: Send + Sync {
         true
     }
 
+    /// The value of a config file that parses but exports nothing the evaluator recognises, read as a build script
+    /// that calls the tool's API instead (`await esbuild.build({ entryPoints: [...] })`). `None`, the default, leaves
+    /// such a file unparsable, so the package's entries are incomplete.
+    fn read_script(&self, _path: &Path, _source: &str) -> Option<ConfigValue> {
+        None
+    }
+
     /// Reads the plugin's parsed config file and returns what it references. The default returns
     /// nothing, which is all a purely declarative plugin needs.
     fn resolve_config(&self, _config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {

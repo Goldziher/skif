@@ -52,9 +52,9 @@ pub use cache::{
     parse_cached,
 };
 pub use config::{
-    ConfigValue, ImportedCall, ModuleLoader, TEMPLATE_SUBSTITUTION, extract_config_object, extract_config_object_with,
-    extract_constructor_options, extract_imported_calls, extract_method_calls, extract_property_calls,
-    extract_property_values, literal_command,
+    ConfigValue, ImportedCall, ModuleLoader, OWN_SPREAD, TEMPLATE_SUBSTITUTION, UNKNOWN_SPREAD, extract_config_object,
+    extract_config_object_with, extract_constructor_options, extract_imported_calls, extract_method_calls,
+    extract_property_calls, extract_property_values, literal_command,
 };
 pub use error::SyntaxError;
 pub use model::{

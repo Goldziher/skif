@@ -148,7 +148,7 @@ pub(crate) fn entry_files(
         own.extend(tool_entries);
         let has_entries = !own.is_empty();
         entries.append(&mut own);
-        entries.extend(scope_entries(owned(), package_setup));
+        entries.extend(scope_entries(workspace, setup, candidates, package_setup));
         if !has_entries
             && package.manifest.value().get("scripts").is_none_or(is_empty_object)
             && below(candidates, &workspace.root, &package_setup.dir).is_empty()
@@ -213,15 +213,24 @@ fn below<'a>(candidates: &'a [Candidate], root: &Path, dir: &Path) -> &'a [Candi
     &candidates[start..start + run]
 }
 
-/// The project files of an incomplete package in the narrowed scope of its configs (ADR 0065). They are entries, so
-/// what they import is not reported either.
-fn scope_entries<'a>(owned: impl Iterator<Item = (&'a Candidate, String)>, package: &PackageSetup) -> Vec<PathBuf> {
+/// The files the narrowed scope of an incomplete package matches (ADR 0065), its own and those of the analysed
+/// workspace packages nested below it, whatever its `project` globs say: each may be an entry its configs hide (a
+/// setup module in `test/`, a nested package's test a root test config runs), so they are entries and what they
+/// import is counted (ADR 0081).
+fn scope_entries(
+    workspace: &Workspace,
+    setup: &Setup,
+    candidates: &[Candidate],
+    package: &PackageSetup,
+) -> Vec<PathBuf> {
     if package.incomplete_scope.is_none() {
         return Vec::new();
     }
-    owned
-        .filter(|(_, rel)| package.project.is_match(rel) && package.in_incomplete_scope(rel))
-        .map(|(candidate, _)| candidate.abs.clone())
+    below(candidates, &workspace.root, &package.dir)
+        .iter()
+        .filter(|candidate| setup.package(candidate.owner).is_some())
+        .filter(|candidate| relative(&candidate.abs, &package.dir).is_some_and(|rel| package.in_incomplete_scope(&rel)))
+        .map(|candidate| candidate.abs.clone())
         .collect()
 }
 
