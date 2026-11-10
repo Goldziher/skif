@@ -495,3 +495,8 @@ blake3 = "36dd7581c234838d522e16f36cb2f07070bd871167f8bc4a3693ab0174b0c318"
 number = 99
 status = "accepted"
 blake3 = "f8cbce76e3c0e59a8d52f44abe32658453144508410428e33c5962965ef64711"
+
+[adrs."adrs/0100-a-module-cache-shared-by-the-roots-of-a-run.md"]
+number = 100
+status = "accepted"
+blake3 = "d94557e88f84119a280c26f584cdf5231ffb9da37b066e84f56e4261eb15b11f"
