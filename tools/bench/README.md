@@ -177,6 +177,8 @@ reports unused is `in-skif-unused-file`; unused files themselves and the manifes
 neither side, so its dependencies stay compared: the harness parses those files with skif's parser
 (`skif-js-syntax`) for their bare imports, requires, re-exports and dynamic imports. knip does not analyse such a
 file, so it never sees the import skif credits; the harness does not check that this import is the one skif counts.
+The mirror, a dependency only skif reports unused that a file of the same workspace only skif reports unused
+imports, is `used-in-skif-unused-file`, from the same import scan.
 
 **Labels.** `exports`, `types`, `nsExports` and `nsTypes` key the same `<file>|<name>`, and the tools label some
 differently: knip calls a `const enum` a type and files an export under `nsExports` when any importer uses a namespace,
