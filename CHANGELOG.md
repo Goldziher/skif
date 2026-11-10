@@ -87,6 +87,7 @@ All notable changes to this project are documented here. The format follows
   for a `node:child_process` call with a `cwd` option start with `cd $__skif__ && `; `CACHE_SCHEMA` is `3`.
 - `BinaryRef` of `skif-js-plugins` and `RunBinary` of `skif-js` gain `dir`, the directory the command runs the binary
   in after `cd`; a struct literal of either needs the new field.
+- `Tokens` of `skif_core::shell` gains `subshells`, the segments each subshell `( … )` runs.
 - `PluginOutput` of `skif-js-plugins` and `WorkspaceInputs` of `skif-js` are `#[non_exhaustive]`: an input source
   starts from `WorkspaceInputs::default()` and sets the fields it knows.
 - `Report::other_project_files` lists every file with an absolute path (the files below the workspace root were
@@ -224,6 +225,9 @@ All notable changes to this project are documented here. The format follows
 - A binary that a workflow step, a tool config's command or a source file runs after `cd <dir>` into another workspace
   package (`run: cd sub && pnpm exec rspack`, `execSync('cd sub && rspack serve')`) is credited to that package, as for
   a `package.json` script: a provider it lists is used and the binary is not unlisted at the file
+  ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
+- A `cd` inside a subshell no longer changes the directory of the commands after it:
+  `(cd "$TMP" && tar xf a.tgz) && npm run build` follows the package's `build` script again
   ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
 - `skif baseline` records `name@specifier` only for the rules whose finding is about the specifier (`RuleMeta::version_scoped`:
   `version-mismatch`, `semver-range-mismatch`, `policy-conflict`, `unsynced-dependency-family`,

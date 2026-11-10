@@ -51,8 +51,10 @@ script parser cannot place. A binary run there by name is still judged where the
 the `PATH` it inherits is the caller's. A package manager run there (`npm run build`, `bun run build`, `pnpm build`,
 `yarn compile`, `pnpm exec rspack`) works on the package of that directory, so it is handled as one with a filter or
 `bun --cwd`: its scripts are not followed and the binaries it runs are not judged. `popd` and the end of a shell of its
-own restore the directory. This replaces, for package managers only, the sentence of ADR 0094 that the commands after
-such a directory are judged where the script starts.
+own (a subshell `( … )`, `sh -c`, a substitution, another script) restore the directory, so
+`(cd "$TMP" && tar xf a.tgz) && npm run build` follows `build`; a `{ … }` group runs in the same shell and keeps it.
+This replaces, for package managers only, the sentence of ADR 0094 that the commands after such a directory are judged
+where the script starts.
 
 **The `cwd` option of a call.** A source file's call of `execa`, `execaNode`, `execaCommand`, nano-spawn or
 `node:child_process` (`spawn`, `spawnSync`, `execFile`, `execFileSync`, `exec`, `execSync`) whose options object sets
@@ -94,7 +96,8 @@ are provided commands; a package that lists the package declaring them still use
 ### Confirmation
 
 * `crates/skif-js-plugins/src/scripts/tests.rs`:
-  `package_managers_after_cd_to_an_unknown_directory_work_on_the_package_there`.
+  `package_managers_after_cd_to_an_unknown_directory_work_on_the_package_there` and `a_cd_in_a_subshell_ends_with_it`.
+* `crates/skif-core/src/shell.rs`: `subshells_bound_the_segments_they_run`.
 * `crates/skif-js-syntax/tests/module_info.rs`: `child_process_commands_with_a_cwd_change_to_an_unknown_directory`.
 * `crates/skif-js-plugins/tests/plugins.rs`: `commands_run_with_a_cwd_run_scripts_of_another_package` and
   `run_binaries_after_cd_carry_the_directory`.
