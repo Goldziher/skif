@@ -87,8 +87,10 @@ commands name stay where the command starts.
 This settles the later decision ADR 0094 left open, for binaries. A workflow step starts in the checked-out
 repository, `$GITHUB_WORKSPACE`, which the plugin takes to be the workspace root: `$GITHUB_WORKSPACE`,
 `${GITHUB_WORKSPACE}` and `${{ github.workspace }}` in a step read as the root relative to the step's directory, so
-`cd $GITHUB_WORKSPACE/sub` changes to `sub` and `node $GITHUB_WORKSPACE/scripts/x.js` runs that file. Any other
-computed directory, such as `cd "$(dirname "$0")"`, stays one the parser cannot place.
+`cd $GITHUB_WORKSPACE/sub` changes to `sub` and `node $GITHUB_WORKSPACE/scripts/x.js` runs that file; a
+`working-directory` of `${{ github.workspace }}/sub` is `sub`. A longer name that starts with the bare spelling
+(`$GITHUB_WORKSPACE_TMP`, likewise for `$GITHUB_ACTION_PATH`) is another variable. Any other computed directory, such
+as `cd "$(dirname "$0")"`, stays one the parser cannot place.
 
 **Member binaries.** A workspace member's binary is provided to a package that does not list the member only when the
 package manager links every member's binaries into the root `node_modules/.bin`: npm, Yarn Classic, Bun with its
@@ -134,6 +136,8 @@ are provided commands; a package that lists the package declaring them still use
 * `crates/skif-js-plugins/tests/plugins.rs`: `commands_run_with_a_cwd_run_scripts_of_another_package` and
   `run_binaries_after_cd_carry_the_directory`, `commands_run_with_a_cwd_of_the_file_run_in_its_directory` and
   `cd_below_the_github_workspace_is_a_workspace_directory`.
+* `crates/skif-js-plugins/tests/fp_config.rs`:
+  `github_actions_working_directories_in_the_github_workspace_are_workspace_directories`.
 * `crates/skif-js/tests/unlisted_parity.rs`: `commands_run_with_a_cwd_option_run_scripts_of_the_package_there` and
   `a_cwd_of_the_current_directory_follows_the_scripts_of_the_package`.
 * `crates/skif-js/tests/monorepo_regressions.rs`: `a_member_binary_is_provided_where_the_package_manager_links_it`,

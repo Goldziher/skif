@@ -236,8 +236,8 @@ All notable changes to this project are documented here. The format follows
   a `package.json` script: a provider it lists is used and the binary is not unlisted at the file
   ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
 - A workflow step's `$GITHUB_WORKSPACE`, `${GITHUB_WORKSPACE}` and `${{ github.workspace }}` name the workspace root,
-  so `cd $GITHUB_WORKSPACE/sub && pnpm exec rspack` runs in `sub` and `node $GITHUB_WORKSPACE/scripts/x.js` makes the
-  file an entry ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
+  so `cd $GITHUB_WORKSPACE/sub && pnpm exec rspack` runs in `sub`, `node $GITHUB_WORKSPACE/scripts/x.js` makes the
+  file an entry and a `working-directory` of `${{ github.workspace }}/sub` is `sub` ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
 - A binary that a workflow step runs with `pnpm -C sub exec` is credited to `sub` as from a `package.json` script, but
   not after a `cd` to a directory skif cannot place (`cd /tmp/app && pnpm -C sub exec`), and one that a source file
   runs with `cd web && pnpm --filter sub exec` is no longer credited to `web`
