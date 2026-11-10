@@ -172,8 +172,8 @@ pub use skif_config::Update as UpdateConfig;
 pub use skif_config::Workspace as WorkspaceConfig;
 pub use skif_config::{
     Assignment, CONFIG_FILE_NAMES, Catalog, CatalogMode, Ceiling, Config, ConfigBuilder, ConfigCache, ConfigError,
-    ConfigLoader, ConfigOverrides, ConfigSource, DependencyFamily, DependencyTypes, ExportKinds, IgnoreEntry,
-    IgnoreExportsUsedInFile, IgnoreItem, InstanceFilter, Js, JsWorkspace, Level, Lint, Op, Origins, Override,
+    ConfigLoader, ConfigOverrides, ConfigSource, DependencyFamily, DependencyTypes, ExportKinds, FamilyScope,
+    GroupScope, IgnoreEntry, IgnoreExportsUsedInFile, IgnoreItem, InstanceFilter, Js, JsWorkspace, Level, Lint, Op, Origins, Override,
     OverrideScope, PackageJs, PackageManager, PluginConfig, PluginOptions, Policy, Prefer, ResetKey, ResolvedConfig,
     RuleConfig, RuleOptions, Selector, SemverGroup, SemverRange, SourceKind, UpdateGroup, UpdateTarget, VersionGroup,
     VersionPolicy, WorkspaceProtocol, join_key,
