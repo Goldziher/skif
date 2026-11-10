@@ -1,6 +1,8 @@
 //! Small helpers shared by the plugins: package and path classification, naming conventions and
 //! typed access to [`ConfigValue`]s.
 
+use std::path::{Path, PathBuf};
+
 use skif_js_syntax::ConfigValue;
 
 use crate::plugin::{ConfigAst, IncompleteScope, PluginContext, PluginInput, PluginSpec};
@@ -67,6 +69,22 @@ pub(crate) fn join_rel(base: &str, relative: &str) -> String {
         }
     }
     parts.join("/")
+}
+
+/// The absolute path of `relative`, a `/`-separated path relative to the directory `dir`, with `.` and `..` collapsed
+/// lexically: a config that extends `../base.json` is the file in the parent directory, not a path through `dir`.
+pub(crate) fn join_lexically(dir: &Path, relative: &str) -> PathBuf {
+    let mut path = dir.to_path_buf();
+    for part in relative.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                path.pop();
+            }
+            other => path.push(other),
+        }
+    }
+    path
 }
 
 /// Classifies a value a config uses to name a module or file: a relative path or `<rootDir>` path becomes an entry,

@@ -26,7 +26,7 @@ impl Plugin for Typescript {
         &SPEC
     }
 
-    fn resolve_config(&self, config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Vec<PluginInput> {
+    fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let value = config.value;
         let mut out = Vec::new();
         if let Some(extends) = value.get("extends") {
@@ -58,24 +58,27 @@ impl Plugin for Typescript {
         let Some(options) = value.get("compilerOptions") else {
             return out;
         };
+        // `types: ["node"]` loads the types of `node`, which `@types/node` provides as well; `vitest/globals` those of
+        // `vitest`.
         if let Some(types) = options.get("types") {
-            for name in strings(types) {
-                if let Some(package) = type_package(name, cx) {
-                    out.push(PluginInput::Dependency(package));
-                }
-            }
+            out.extend(
+                strings(types)
+                    .into_iter()
+                    .filter_map(package_name)
+                    .map(|name| compiler_dependency(name, true)),
+            );
         }
         if let Some(source) = options.get("jsxImportSource").and_then(ConfigValue::as_str)
             && let Some(name) = package_name(source)
         {
-            out.push(PluginInput::Dependency(name));
+            out.push(compiler_dependency(name, false));
         }
         // `jsx: "react-jsx"` does not make `react` a dependency here: a shared base config sets it for packages that
         // do not use React, and the module graph credits `react` where a file contains JSX.
         if let Some(plugins) = options.get("plugins") {
             for plugin in objects(plugins) {
                 if let Some(name) = plugin.get("name").and_then(ConfigValue::as_str).and_then(package_name) {
-                    out.push(PluginInput::Dependency(name));
+                    out.push(compiler_dependency(name, false));
                 }
             }
         }
@@ -101,7 +104,7 @@ impl Plugin for Typescript {
             );
         }
         if options.get("importHelpers").and_then(ConfigValue::as_bool) == Some(true) {
-            out.push(PluginInput::Dependency("tslib".to_string()));
+            out.push(compiler_dependency("tslib".to_string(), false));
         }
         out
     }
@@ -227,16 +230,7 @@ fn with_json_extension(path: &str) -> String {
     }
 }
 
-/// `types: ["node"]` names `@types/node` unless a package called `node` is a dependency; `vitest/globals` names `vitest`.
-fn type_package(name: &str, cx: &PluginContext<'_>) -> Option<String> {
-    let package = package_name(name)?;
-    let has_subpath = name.matches('/').count() > usize::from(name.starts_with('@'));
-    if has_subpath || cx.has_dependency(&package) {
-        return Some(package);
-    }
-    let types = match package.strip_prefix('@') {
-        Some(scoped) => format!("@types/{}", scoped.replace('/', "__")),
-        None => format!("@types/{package}"),
-    };
-    Some(types)
+/// A package a compiler option names; see [`PluginInput::CompilerDependency`].
+fn compiler_dependency(name: String, type_only: bool) -> PluginInput {
+    PluginInput::CompilerDependency { name, type_only }
 }
