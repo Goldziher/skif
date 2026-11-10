@@ -282,6 +282,34 @@ fn a_bin_path_a_build_step_may_write_keeps_the_package_unjudged() {
     }
 }
 
+/// A script not named as a build that compiles with a subcommand (`bun build`, `vite build`, `deno compile`) or names
+/// a path in `bin` as its output may write the bin path too.
+#[test]
+fn a_bin_path_a_compiling_command_may_write_keeps_the_package_unjudged() {
+    for script in [
+        "bun build src/cli.ts --outfile bin/r2b.js",
+        "vite build",
+        "deno compile -A src/cli.ts",
+        "pnpm exec parcel build src/cli.ts",
+        "my-bundler src/cli.ts -o ./bin/r2b.js",
+        "my-bundler src/cli.ts --out-dir=bin",
+    ] {
+        let manifest = format!(
+            r#"{{"name":"r2b","private":true,"bin":{{"r2b":"bin/r2b.js"}},"scripts":{{"start":"node app/main.js","compile":"{script}"}},"dependencies":{{"left-pad":"1.3.0"}}}}"#
+        );
+        let diagnostics = lint(&[("package.json", manifest.as_str()), APP_MAIN, CLI_SOURCE], "");
+        assert_eq!(hints(&diagnostics), "", "{script}");
+        assert_eq!(found(&diagnostics, "unused-dependencies"), Vec::<String>::new(), "{script}");
+    }
+    // A command writing elsewhere leaves the path into nothing reported.
+    let manifest = r#"{"name":"r2b","private":true,"bin":{"r2b":"bin/r2b.js"},"scripts":{"start":"node app/main.js","compile":"my-bundler src/cli.ts -o out/r2b.js"},"dependencies":{"left-pad":"1.3.0"}}"#;
+    let diagnostics = lint(&[("package.json", manifest), APP_MAIN, CLI_SOURCE], "");
+    assert_eq!(
+        hints(&diagnostics),
+        "package.json: `bin/r2b.js` in `bin` of `package.json` names no file"
+    );
+}
+
 /// Build output is never a path into nothing: with its source present it maps, with neither the source nor the file
 /// present (built or not) the package stays unjudged, and so does a bin stub that loads output with no source behind
 /// it.
