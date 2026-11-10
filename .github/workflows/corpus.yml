@@ -79,6 +79,7 @@ jobs:
               if [ -f "target/bench-results/$report.log" ]; then
                 drift=$(grep -E '^(drift: |Error: )' "target/bench-results/$report.log" || true)
                 if [ -n "$drift" ]; then
+                  # shellcheck disable=SC2016 # the backticks are Markdown, not a command substitution
                   printf '## Drift and errors\n\n```text\n%s\n```\n\n' "$drift"
                 else
                   printf 'No drift from the baseline and no error.\n\n'
