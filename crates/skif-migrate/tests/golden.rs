@@ -407,11 +407,20 @@ fn a_bare_sherif_run_writes_only_the_scope_sherif_compares() {
     let paths: Vec<&str> = migration.notes.iter().map(|note| note.path.as_str()).collect();
     assert_eq!(
         paths,
-        ["multiple-dependency-versions", "multiple-dependency-versions: specifiers"],
+        [
+            "multiple-dependency-versions",
+            "multiple-dependency-versions: dependencies and devDependencies",
+            "multiple-dependency-versions: specifiers"
+        ],
         "{:#?}",
         migration.notes
     );
     assert_eq!(class(&migration, "multiple-dependency-versions"), NoteClass::Exact);
+    assert_eq!(
+        class(&migration, "multiple-dependency-versions: dependencies and devDependencies"),
+        NoteClass::Approximate,
+        "sherif merged the two sections of a package, skif compares both entries"
+    );
 }
 
 #[test]
@@ -581,7 +590,7 @@ fn sherif_writes_no_scope_when_it_ignores_its_version_check() {
             !migration
                 .notes
                 .iter()
-                .any(|note| note.path == "multiple-dependency-versions"),
+                .any(|note| note.path.starts_with("multiple-dependency-versions")),
             "{:#?}",
             migration.notes
         );
