@@ -140,6 +140,11 @@ All notable changes to this project are documented here. The format follows
   before `build.rollupOptions.input`, as knip does: its pages and modules are entries, so their files and the
   packages they import are no longer reported unused, and a computed Rolldown input leaves the package's entries
   incomplete, as a computed Rollup input does.
+- A component that `unplugin-vue-components` registers is no longer reported by `unused-files` when the package has a
+  `.vue` file whose template skif reads no tags in (`<template lang="pug">`) or whose script is TSX or JSX: such a
+  package credits every component it registers, as a package with `.tsx` files does, since a use skif cannot read
+  is assumed rather than a used file reported (and deleted by `--allow-remove-files`)
+  ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
 
 ### Changed
 
