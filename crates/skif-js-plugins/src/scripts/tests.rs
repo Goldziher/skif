@@ -368,6 +368,12 @@ fn table() {
         bins("bun check --no-script", &[]),
         bins("bun install", &[]),
         bins("bun run vite", &["vite:bun-run"]),
+        // `--filter` (`-F`) and `--workspaces` run a script of other workspace packages, not a binary here.
+        bins("bun run --workspaces build", &[]),
+        bins("bun run --parallel --workspaces --if-present lint", &[]),
+        bins("bun -F web build", &[]),
+        bins("bun --filter '*' build", &[]),
+        bins("bun run -F './packages/*' --elide-lines 0 dev", &[]),
         // `--cwd` runs in another package: its scripts and binaries are that package's, its files are below it.
         bins("bun run --cwd packages/core fix-node-pty", &[]),
         bins("bun --cwd=packages/core run fix-node-pty", &[]),

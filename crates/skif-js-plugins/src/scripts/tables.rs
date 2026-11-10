@@ -488,6 +488,8 @@ pub(super) const YARN_FOREACH_VALUE_FLAGS: &[&str] = &["include", "exclude", "fr
 pub(super) const BUN_VALUE_FLAGS: &[&str] = &[
     "cwd",
     "filter",
+    "F",
+    "elide-lines",
     "env-file",
     "port",
     "preload",
