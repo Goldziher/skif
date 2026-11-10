@@ -82,9 +82,13 @@ All notable changes to this project are documented here. The format follows
 - The `bun` plugin finds the files `bun test` runs with every extension it accepts (`.mjs`, `.cjs`, `.mts`, `.cts`
   too) and the `_test` / `_spec` suffixes; reads the modules of `preload`, `[test] preload` and
   `[install.security] scanner` and the package of `jsxImportSource` in `bunfig.toml`; parses the commands of Bun Shell
-  (`` $`…` `` imported from `bun`, `` Bun.$`…` ``) and of `Bun.spawn` / `Bun.spawnSync` like `package.json` scripts;
+  (`` $`…` `` imported from `bun`, `` Bun.$`…` ``) and of `Bun.spawn` / `Bun.spawnSync` like `package.json` scripts,
+  a computed argument of `Bun.spawn` left out as for `spawn` of `node:child_process`, and a command that
+  `` $`…`.cwd(dir) `` or the `cwd` option of `Bun.spawn` runs elsewhere judged as one run in another package;
   reads the `entrypoints` of `Bun.build` as production entries; and counts `@types/bun` or `bun-types` as used where
-  sources use the `Bun` global. It is enabled by `bunfig.toml`, `@types/bun` and `bun-types` too.
+  sources use the `Bun` global, also the sources of the packages below the one listing it. Commands and entries come
+  from the package's own sources only: a workspace root does not read those of its members. It is enabled by
+  `bunfig.toml`, `@types/bun` and `bun-types` too.
 - Config evaluation reads `import.meta.dir`, `import.meta.path` and `import.meta.file`, and a call-extraction global
   written `Name.*` stands for a module object whose members are its exports.
 
@@ -352,7 +356,8 @@ All notable changes to this project are documented here. The format follows
   links it; other managers still remove it ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
 - Bun: `stray-lockfile` reports a root `bun.lockb` next to a `bun.lock`, which Bun ignores ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
 - `bun --filter`, `bun -F` and `bun run --workspaces` are read as runs in other packages: their script is not checked
-  as a binary of the package that runs them.
+  as a binary of the package that runs them. A binary `bun run --filter <name>` runs is credited to the workspaces it
+  names, as for `pnpm --filter`.
 - On Windows, an explicit `--config` path given in the verbatim `\\?\C:\` spelling no longer leaves its findings with absolute
   locations or keeps the baseline it extends from applying to the run.
 - A Playwright `reporter` list whose element or reporter name skif could not evaluate (`...sharedReporters()` of a
