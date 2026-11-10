@@ -359,9 +359,7 @@ pub(super) fn passthrough(name: &str) -> Option<(&'static [&'static str], usize)
 
 pub(super) const SHELLS: &[&str] = &["ash", "bash", "dash", "ksh", "sh", "zsh"];
 
-pub(super) const RESERVED_WORDS: &[&str] = &[
-    "!", "do", "done", "elif", "else", "fi", "if", "then", "until", "while", "{", "}",
-];
+pub(super) use skif_core::shell::RESERVED_WORDS;
 
 pub(super) const SKIPPED_COMPOUNDS: &[&str] = &["case", "for", "function", "select"];
 
