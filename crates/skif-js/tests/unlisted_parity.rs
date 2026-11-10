@@ -231,6 +231,25 @@ fn binaries_that_workflows_and_execa_calls_run_are_reported_at_the_file() {
     );
 }
 
+/// A command run with a `cwd` option runs in a directory skif cannot place: `bun run build` there runs a script of
+/// the package in it, so `build` is no binary of the file, while a binary run by name still is.
+#[test]
+fn commands_run_with_a_cwd_option_run_scripts_of_the_package_there() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","version":"1.0.0","private":true,"packageManager":"bun@1.3.0","scripts":{"test":"vitest"},"devDependencies":{"execa":"9.0.0","vitest":"3.0.0"}}"#,
+        ),
+        (
+            "test/a.test.ts",
+            "import { execa } from 'execa';\nimport { execSync } from 'node:child_process';\nimport { test } from 'vitest';\n\
+             test('x', async () => {\n  await execa('bun', ['run', 'build'], { cwd: '/tmp/app' });\n\
+             execSync('yarn compile', { cwd: dir });\n  await execa('sqlite3', ['db'], { cwd: dir });\n});\n",
+        ),
+    ]);
+    assert_eq!(found(&diagnostics, "unlisted-binaries"), ["test/a.test.ts: sqlite3"]);
+}
+
 /// A source file that runs `pnpm <name>` or `npm run <name>` runs its package's script of that name: the script's
 /// binaries are judged, the script's name is no binary.
 #[test]

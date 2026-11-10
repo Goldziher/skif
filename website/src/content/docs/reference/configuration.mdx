@@ -687,7 +687,11 @@ directory: the files it names are relative to it, and when the directory is in a
 it runs and the packages it loads are credited to that package, as for `pnpm --filter <name>`, and are never unlisted.
 In a directory of the package itself or of no workspace package, a command after `cd` stays a command of the script's
 package and one a directory flag runs is not judged, as before. A directory that is not a static relative path
-(`cd $DIR`, `cd /tmp`, `cd -`) is not followed. knip judges these commands at the script's own package.
+(`cd $DIR`, `cd /tmp`, `cd -`) is not followed: a binary run by name there is judged where the script starts, but a
+package manager run there (`npm run build`, `bun run build`, `pnpm exec rspack`) works on the package of that
+directory, as with `--filter`, so its scripts are not followed and its binaries are not judged. A command that a source
+file runs with a `cwd` option (`execa('bun', ['run', 'build'], { cwd })`, `execSync('npm run build', { cwd })`) runs in
+such a directory, whatever the value. knip judges these commands at the script's own package.
 
 **`ignore-global-binaries`** (default `true`, top level only) keeps `unlisted-binaries` quiet about the system and
 platform tools scripts run (`rm`, `curl`, `git`, `docker`), which are installed globally, like knip's

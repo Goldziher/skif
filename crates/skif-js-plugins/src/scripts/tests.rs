@@ -1037,3 +1037,48 @@ fn directory_flags_of_package_managers_set_the_directory() {
         [at("rspack", Some("sub")), at("tsc", None)]
     );
 }
+
+/// The binaries of `info` that are judged at the script's package: those run neither filtered nor in another directory.
+fn judged_binaries(info: &ScriptInfo) -> Vec<String> {
+    sorted(
+        info.binaries
+            .iter()
+            .filter(|binary| !binary.filtered && binary.dir.is_none())
+            .map(|binary| binary.name.clone())
+            .collect(),
+    )
+}
+
+#[test]
+fn package_managers_after_cd_to_an_unknown_directory_work_on_the_package_there() {
+    let ctx = ScriptContext::new().with_script("build", "tsc -b");
+    for script in [
+        "cd /tmp/app && bun run build",
+        "cd /tmp/app && bun run compile",
+        "cd $DIR && npm run build",
+        "cd - && pnpm build",
+        "cd /tmp && pnpm compile",
+        "cd && yarn run build",
+        "cd /tmp && yarn compile",
+        "cd ~ && cd app && bun run compile",
+        "pushd $OUT && pnpm exec rspack",
+    ] {
+        let info = parse_script(script, &ctx);
+        assert!(judged_binaries(&info).is_empty(), "{script}: {:?}", info.binaries);
+        assert!(info.run_scripts.is_empty(), "{script}: {:?}", info.run_scripts);
+    }
+    // A binary run by name there is still judged where the script starts, as before.
+    assert_eq!(judged_binaries(&parse_script("cd /tmp && vitest run", &ctx)), ["vitest"]);
+    // Back where the script starts, or in a static directory, the package's scripts are followed.
+    for script in [
+        "pushd /tmp && popd && npm run build",
+        "sh -c 'cd /tmp' && npm run build",
+        "cd sub && cd .. && npm run build",
+    ] {
+        let info = parse_script(script, &ctx);
+        assert_eq!(judged_binaries(&info), ["tsc"], "{script}: {:?}", info.binaries);
+        assert_eq!(info.run_scripts, ["build"], "{script}");
+    }
+    // Below an unknown directory, a relative one is unknown too.
+    assert_eq!(binary_dirs("cd /tmp && cd sub && rspack"), [at("rspack", None)]);
+}

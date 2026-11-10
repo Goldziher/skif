@@ -1137,6 +1137,29 @@ pub fn literal_command(arguments: &[ConfigValue]) -> Option<String> {
     Some(words.join(" "))
 }
 
+/// The options object of a `(file, [arguments], options)` call such as `spawn('eslint', ['.'], { cwd })`: the argument
+/// after the arguments array, or the second argument when that is no array.
+#[must_use]
+pub fn file_call_options(arguments: &[ConfigValue]) -> Option<&ConfigValue> {
+    match arguments.get(1) {
+        Some(ConfigValue::Array(_)) => arguments.get(2),
+        other => other,
+    }
+}
+
+/// `command` as a call whose options object is `options` runs it. A `cwd` option runs it in another directory, which
+/// the script parser cannot place whatever the value (a source file's paths are relative to the file or to the
+/// process), so the command line first changes to a directory a substitution names (`cd $__skif__ && …`): a package
+/// manager's script run there is another package's, as with `bun --cwd`.
+#[must_use]
+pub fn command_in_call_dir(command: String, options: Option<&ConfigValue>) -> String {
+    if options.and_then(|options| options.get("cwd")).is_some() {
+        format!("cd {TEMPLATE_SUBSTITUTION} && {command}")
+    } else {
+        command
+    }
+}
+
 /// Local name to module and named export (`None` for the default export or the module object) of everything a
 /// program imports from `modules`, plus `globals`.
 type ImportedFunctions = HashMap<String, (String, Option<String>)>;

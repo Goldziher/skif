@@ -1334,6 +1334,27 @@ fn child_process_calls_are_commands() {
     assert!(other.commands.is_empty(), "{:?}", other.commands);
 }
 
+/// A `cwd` option, whatever its value, runs the command in a directory the script parser cannot place, so the command
+/// line changes to one first.
+#[test]
+fn child_process_commands_with_a_cwd_change_to_an_unknown_directory() {
+    let source = "import { execSync, spawn, execFileSync } from 'node:child_process';\n\
+                  execSync('npm run build', { cwd: '/tmp/app' });\nspawn('bun', ['run', 'build'], { cwd: dir });\n\
+                  execFileSync('pnpm', { cwd: 'sub' });\nexecSync('tsc -b', { stdio: 'inherit' });\n\
+                  spawn('eslint', ['.'], options);\n";
+    let info = parse("a.ts", source);
+    assert_eq!(
+        info.commands,
+        [
+            "cd $__skif__ && npm run build",
+            "cd $__skif__ && bun run build",
+            "cd $__skif__ && pnpm",
+            "tsc -b",
+            "eslint ."
+        ]
+    );
+}
+
 #[test]
 fn jsx_import_source_only_counts_in_leading_comments() {
     let leading = parse("a.jsx", "// @jsxImportSource preact\nexport const a = <b />;\n");

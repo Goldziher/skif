@@ -83,6 +83,8 @@ All notable changes to this project are documented here. The format follows
 - `BinaryUse` and `DepRef` of `skif_js_plugins::scripts` gain `dir`, the directory a command runs in after `cd`,
   `pushd` or a package manager's directory flag; `skif_js_plugins::scripts` also gains `is_powershell_command` and
   `without_commands`. `IncompleteCause` of `skif-core` gains `NoEntries`.
+- `skif-js-syntax` exports `file_call_options` and `command_in_call_dir`, and the commands `ModuleInfo::commands` holds
+  for a `node:child_process` call with a `cwd` option start with `cd $__skif__ && `; `CACHE_SCHEMA` is `3`.
 - `PluginOutput` of `skif-js-plugins` and `WorkspaceInputs` of `skif-js` are `#[non_exhaustive]`: an input source
   starts from `WorkspaceInputs::default()` and sets the fields it knows.
 - `Report::other_project_files` lists every file with an absolute path (the files below the workspace root were
@@ -205,6 +207,12 @@ All notable changes to this project are documented here. The format follows
 
 - `mkfifo`, `truncate`, `unlink`, `stdbuf` and the other coreutils programs that were missing from the system
   binaries are no longer reported by `unlisted-binaries`.
+- A command that a source file runs with a `cwd` option (`execa('bun', ['run', 'build'], { cwd })`, `spawn`,
+  `execFile`, `exec`, `execaCommand`, nano-spawn) runs in a directory skif cannot place, and so does a script command
+  after `cd` to a directory that is not a static relative path (`cd /tmp/app`, `cd $DIR`): a package manager run there
+  works on the package of that directory, as `bun --cwd` and `--filter` do, so `bun run build` no longer reports
+  `build` as an unlisted binary of the file. A binary run there by name is still judged where the command starts
+  ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
 - `skif baseline` records `name@specifier` only for the rules whose finding is about the specifier (`RuleMeta::version_scoped`:
   `version-mismatch`, `semver-range-mismatch`, `policy-conflict`, `unsynced-dependency-family`,
   `incompatible-peer-dependencies`, `catalog-mismatch`, `catalog-version-divergence`); any other finding records the
