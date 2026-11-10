@@ -7,7 +7,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use skif_config::Config;
+use skif_config::{Config, OverrideScope};
 use skif_core::{Diagnostic, FileSystem, MemoryFs, Report, Severity};
 use skif_js::{JsProvider, PluginSource};
 use skif_lint::{Registry, RunOptions, run, run_unsorted};
@@ -41,7 +41,12 @@ fn prepared(files: &[(&str, &str)], toml: &str, anchor: Option<&str>) -> (Regist
     let memory = files.iter().fold(MemoryFs::new(), |memory, (path, text)| {
         memory.with_file(Path::new(ROOT).join(path), text)
     });
-    let config = Config::from_toml_str(toml).unwrap();
+    let mut config = Config::from_toml_str(toml).unwrap();
+    // A resolved configuration scopes its overrides; this one is declared at the root, as `/ws/skif.toml` would be.
+    for scoped in &mut config.overrides {
+        let scope = OverrideScope::new(scoped, Path::new(ROOT), 0, Path::new(ROOT)).unwrap();
+        scoped.scope = Some(scope);
+    }
     let mut workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
     workspace.set_workspace_keys_anchor(anchor.map(str::to_owned));
     let fs: Arc<dyn FileSystem> = Arc::new(memory);
@@ -479,6 +484,18 @@ fn findings_spell_an_overridden_package_by_its_directory_below_the_start() {
     assert_eq!(
         messages(&diagnostics),
         ["`gone.ts` in `js.workspaces.\"repo/packages/a\".entry` matched nothing"]
+    );
+}
+
+#[test]
+fn findings_name_a_glob_table_below_the_start_by_its_key_as_written() {
+    let files = two_packages("export {};\n");
+    let toml = "[js.workspaces.\"repo/packages/*\"]\nentry = [\"gone.ts\"]\n";
+    let diagnostics = lint_anchored(&files, toml, Some("repo"));
+    // The pattern matches in neither package the glob selects, so it is reported once, under the key of the file.
+    assert_eq!(
+        messages(&diagnostics),
+        ["`gone.ts` in `js.workspaces.\"repo/packages/*\".entry` matched nothing"]
     );
 }
 
