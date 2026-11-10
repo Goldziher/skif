@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde::Serialize;
 use serde_json::{Map, Value};
-use skif_core::{Diagnostic, FixSafety, IncompletePackage, Location, Report, Severity, Summary};
+use skif_core::{Diagnostic, FixSafety, IncompletePackage, IncompleteScope, Location, Report, Severity, Summary};
 
 use crate::options::RenderOptions;
 
@@ -433,6 +433,18 @@ fn write_incomplete_package(out: &mut Vec<u8>, package: &IncompletePackage, opti
         item.close();
     }
     reasons.close();
+    match &package.scope {
+        IncompleteScope::Within(globs) => {
+            let mut scope = object.object(quoted!("scope"));
+            let mut within = Array::open(scope.key(quoted!("within")), 4);
+            for glob in globs {
+                string(within.element(), glob);
+            }
+            within.close();
+            scope.close();
+        }
+        _ => string(object.key(quoted!("scope")), "package"),
+    }
     object.close();
 }
 
@@ -565,6 +577,7 @@ mod tests {
         name: &'a str,
         dir: String,
         reasons: Vec<JsonIncompleteReason<'a>>,
+        scope: &'a IncompleteScope,
     }
 
     #[derive(Serialize)]
@@ -713,6 +726,7 @@ mod tests {
                         .map(|file| options.display_path(file).into_owned()),
                 })
                 .collect(),
+            scope: &package.scope,
         }
     }
 
@@ -787,7 +801,17 @@ mod tests {
                     ),
                     reason(IncompleteCause::UnmappedPublished, None, None),
                 ],
-            ),
+            )
+            .with_scope(IncompleteScope::Within(vec![
+                "vite.config.*".to_owned(),
+                "src/\"q\"/**".to_owned(),
+            ])),
+            IncompletePackage::new(
+                "none".to_owned(),
+                "packages/none".into(),
+                vec![reason(IncompleteCause::NoEntries, None, None)],
+            )
+            .with_scope(IncompleteScope::Within(Vec::new())),
             IncompletePackage::new(
                 "root \"q\"".to_owned(),
                 "".into(),

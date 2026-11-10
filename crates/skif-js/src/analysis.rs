@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 use skif_config::{Config, JsDiscovery};
-use skif_core::{FileSystem, IncompletePackage, Span, timing};
+use skif_core::{FileSystem, IncompletePackage, IncompleteScope, Span, timing};
 use skif_js_syntax::{Export, ExportKind, Member, ModuleCache, ParseOptions, parse_cached};
 use skif_workspace::{PackageId, Workspace, map_ordered};
 
@@ -720,8 +720,9 @@ impl<'a> JsAnalysis<'a> {
         files.into_iter().collect()
     }
 
-    /// The analysed packages whose entry files are not all known, with every reason; reason files are relative to
-    /// the workspace root with `/` separators. In workspace order.
+    /// The analysed packages whose entry files are not all known, with every reason and the scope left unjudged
+    /// (the whole package, or the globs the unknown entries can match); reason files are relative to the workspace
+    /// root with `/` separators. In workspace order.
     #[must_use]
     pub fn incomplete_packages(&self) -> Vec<IncompletePackage> {
         let root = &self.workspace.root;
@@ -740,11 +741,14 @@ impl<'a> JsAnalysis<'a> {
                         reason
                     })
                     .collect();
-                Some(IncompletePackage::new(
-                    package.display_name().to_owned(),
-                    package.dir.clone(),
-                    reasons,
-                ))
+                let scope = match &setup.incomplete_scope {
+                    Some(scope) if !setup.unjudged_package_wide() => IncompleteScope::Within(scope.patterns.clone()),
+                    _ => IncompleteScope::Package,
+                };
+                Some(
+                    IncompletePackage::new(package.display_name().to_owned(), package.dir.clone(), reasons)
+                        .with_scope(scope),
+                )
             })
             .collect()
     }
