@@ -556,7 +556,8 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - **Breaking** for configurations that ignore mocks under `unresolved-imports`: `unresolved-imports` no longer reports
-  test-runner mocks; a mock of a missing module is a `stale-mocks` error instead, with the same default severity, so it can be triaged, baselined or turned off apart from broken imports
+  test-runner mocks; a mock of a missing module is a `stale-mocks` error instead, with the same default severity, so
+  it can be triaged, baselined or turned off apart from broken imports
   ([#111](https://github.com/Goldziher/skif/issues/111)).
 - **Breaking** for library users of `skif-js-syntax`: `Import` has a new public field `call` (an `Option<MockCall>`,
   the test-runner call of a mock import), so code that builds an `Import` with a struct literal must set it. The
