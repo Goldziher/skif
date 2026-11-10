@@ -118,6 +118,20 @@ const FIXTURE_CATEGORIES: [&str; 9] = [
     "unlisted",
 ];
 
+/// The categories `non-member-project` leaves compared in a project that skif lints as a package of a root of a
+/// recursive run (ADR 0022): skif judges the exports, types, members and duplicate exports of its files as knip does
+/// from the enclosing workspace. Unused files, unresolved imports and unlisted dependencies there depend on the
+/// project's own entry files, plugins and manifest, which knip does not read, so they stay set apart.
+const ROOT_COMPARED_CATEGORIES: [&str; 7] = [
+    "exports",
+    "types",
+    "nsExports",
+    "nsTypes",
+    "enumMembers",
+    "namespaceMembers",
+    "duplicates",
+];
+
 /// The manifest categories of a listed package that an import makes used.
 const IMPORTED_CATEGORIES: [&str; 3] = ["dependencies", "devDependencies", "optionalPeerDependencies"];
 
@@ -177,7 +191,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 15] = [
     },
     Deviation {
         id: NON_MEMBER_PROJECT,
-        reason: "knip reports these findings in a file (unused files, exports, types, members, duplicates and unresolved imports, and unlisted dependencies that the file's own `package.json` lists) below a directory with its own `package.json` (one with fields besides `type`, `sideEffects` and `imports`) that is not one of knip's workspaces (as in `knip-unjudged-manifest`). knip counts such files to an enclosing workspace, without the entry files, plugins and dependencies of their own manifest; skif's analysis of the enclosing workspace skips the directory, and a recursive run lints it as a root of its own when no workspace member encloses it (ADR 0022). The harness checks the manifests, not why skif has no finding for each one",
+        reason: "knip reports these findings in a file (unused files, exports, types, members, duplicates and unresolved imports, and unlisted dependencies that the file's own `package.json` lists) below a directory with its own `package.json` (one with fields besides `type`, `sideEffects` and `imports`) that is not one of knip's workspaces (as in `knip-unjudged-manifest`). knip counts such files to an enclosing workspace, without the entry files, plugins and dependencies of their own manifest; skif's analysis of the enclosing workspace skips the directory, and a recursive run lints it as a root of its own when no workspace member encloses it (ADR 0022), where its exports, types, members and duplicates stay compared. The harness checks the manifests, not why skif has no finding for each one",
     },
     Deviation {
         id: SKIPPED_DIRECTORY,
@@ -514,6 +528,25 @@ pub fn not_judged_dirs(document: &Value) -> BTreeMap<String, NotJudgedScope> {
         packages.insert(dir, merged);
     }
     packages
+}
+
+/// The package directories of every root of a recursive skif run (the `packages` of its JSON `roots`, ADR 0022),
+/// relative to the checkout with `/` separators, the root package as the empty string. Empty for a single-workspace
+/// run, whose report has no `roots`.
+pub fn skif_root_packages(document: &Value) -> BTreeSet<String> {
+    document
+        .get("roots")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|root| root.get("packages").and_then(Value::as_array))
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(|dir| match dir.replace('\\', "/").trim_end_matches('/') {
+            "." => String::new(),
+            dir => dir.trim_start_matches("./").to_owned(),
+        })
+        .collect()
 }
 
 /// The package that owns a finding key (`<path>` or `<path>|<name>`): the deepest directory above the path that
@@ -891,6 +924,8 @@ struct Classifier<'a> {
     /// `<manifest>|<package>` for every package a file only knip lists as unused imports, with the manifest of the
     /// file's workspace (`knip_unused_imports`).
     knip_unused_imports: &'a BTreeSet<String>,
+    /// The package directories of the roots of a recursive skif run (`skif_root_packages`).
+    skif_root_packages: &'a BTreeSet<String>,
     /// knip ran with the scratch root manifest of a Rush repository (`knip-root = "rush"`).
     rush_root: bool,
     layout: &'a Layout<'a>,
@@ -962,7 +997,8 @@ impl Classifier<'_> {
 
     /// Whether a finding only knip reports in a file (any category but the manifest ones) lies below a project
     /// directory that is not one of knip's workspaces; an unlisted dependency only when that project's own manifest
-    /// lists it, since skif judges the project's imports against that manifest.
+    /// lists it, since skif judges the project's imports against that manifest. In a project that a recursive skif run
+    /// lints as a package of one of its roots, [`ROOT_COMPARED_CATEGORIES`] stay compared.
     fn non_member_project(&self, category: &str, key: &str) -> bool {
         if MANIFEST_CATEGORIES.contains(&category) {
             return false;
@@ -970,6 +1006,9 @@ impl Classifier<'_> {
         let Some(dir) = self.layout.non_member_project(key_path(key)) else {
             return false;
         };
+        if ROOT_COMPARED_CATEGORIES.contains(&category) && self.skif_root_packages.contains(&dir) {
+            return false;
+        }
         category != "unlisted"
             || key
                 .split_once('|')
@@ -1368,6 +1407,7 @@ fn parity_repo(
     let knip_found = knip_keys(&knip_doc, &root);
     align_export_labels(&mut skif_found, &knip_found);
     let unjudged = not_judged_dirs(&skif_doc);
+    let root_packages = skif_root_packages(&skif_doc);
     let foreign_paths = foreign_tsconfig_paths_keys(&skif_doc, &root);
     let knip_errors = knip_config_errors(&knip_run.stderr, &root);
     let manifest = manifest_reader(&root);
@@ -1394,6 +1434,7 @@ fn parity_repo(
         knip_unused_files: knip_found.get("files").unwrap_or(&empty),
         skif_unused_files: skif_found.get("files").unwrap_or(&empty),
         knip_unused_imports: &unused_imports,
+        skif_root_packages: &root_packages,
         rush_root,
         layout: &layout,
     };
@@ -2462,6 +2503,7 @@ mod tests {
             knip_unused_files: &none,
             skif_unused_files: &none,
             knip_unused_imports: &none,
+            skif_root_packages: &none,
             rush_root: false,
             layout: &layout,
         });
@@ -2614,6 +2656,81 @@ mod tests {
                 None
             );
         });
+    }
+
+    #[test]
+    fn in_file_findings_in_a_project_a_recursive_run_lints_as_a_root_stay_compared() {
+        let skif_doc = json!({ "diagnostics": [], "roots": [
+            { "path": ".", "packages": [".", "packages/a"] },
+            { "path": "examples/app", "packages": ["examples/app", "examples/app/plugins/x/"] },
+        ]});
+        let roots = skif_root_packages(&skif_doc);
+        assert_eq!(
+            roots,
+            strings(&["", "examples/app", "examples/app/plugins/x", "packages/a"])
+        );
+        assert!(skif_root_packages(&json!({ "diagnostics": [] })).is_empty());
+
+        let read: BTreeMap<String, Rc<Value>> = [
+            ("", json!({ "name": "root", "workspaces": ["packages/*"] })),
+            ("packages/a", json!({ "name": "a" })),
+            (
+                "examples/app",
+                json!({ "name": "app", "dependencies": { "react": "1" } }),
+            ),
+            ("examples/other", json!({ "name": "other" })),
+        ]
+        .into_iter()
+        .map(|(dir, manifest)| (dir.to_owned(), Rc::new(manifest)))
+        .collect();
+        let manifest = move |dir: &str| read.get(dir).cloned();
+        let layout = Layout::new(strings(&["packages/a"]), &manifest);
+        let none = BTreeSet::new();
+        let classifier = Classifier {
+            knip_unread: &[],
+            include_test_files: false,
+            not_judged: &BTreeMap::new(),
+            knip_failed: &none,
+            knip_manifests: &none,
+            foreign_paths: &none,
+            knip_unused_files: &none,
+            skif_unused_files: &none,
+            knip_unused_imports: &none,
+            skif_root_packages: &roots,
+            rush_root: false,
+            layout: &layout,
+        };
+        for (category, key) in [
+            ("exports", "examples/app/src/a.ts|unused"),
+            ("types", "examples/app/src/a.ts|Unused"),
+            ("nsExports", "examples/app/src/a.ts|helper"),
+            ("nsTypes", "examples/app/src/a.ts|Helper"),
+            ("enumMembers", "examples/app/src/a.ts|Red"),
+            ("namespaceMembers", "examples/app/src/a.ts|run"),
+            ("duplicates", "examples/app/src/a.ts|a|b"),
+        ] {
+            assert_eq!(
+                classifier.classify(Side::Tool, category, key),
+                None,
+                "{category} {key}"
+            );
+            assert_eq!(
+                classifier.classify(Side::Tool, category, &key.replace("examples/app", "examples/other")),
+                Some(NON_MEMBER_PROJECT),
+                "{category}: a project that is no root of the run"
+            );
+        }
+        for (category, key) in [
+            ("files", "examples/app/src/orphan.ts"),
+            ("unresolved", "examples/app/src/a.ts|./gone"),
+            ("unlisted", "examples/app/src/a.ts|react"),
+        ] {
+            assert_eq!(
+                classifier.classify(Side::Tool, category, key),
+                Some(NON_MEMBER_PROJECT),
+                "{category} {key}"
+            );
+        }
     }
 
     #[test]
@@ -2834,6 +2951,7 @@ mod tests {
             knip_unused_files: &knip_unused,
             skif_unused_files: &skif_unused,
             knip_unused_imports: &none,
+            skif_root_packages: &none,
             rush_root: false,
             layout: &layout,
         };
@@ -2972,6 +3090,7 @@ vi.mock("mocked-package");
             knip_unused_files: &unused,
             skif_unused_files: &none,
             knip_unused_imports: &imports,
+            skif_root_packages: &none,
             rush_root: false,
             layout: &layout,
         };
@@ -3047,6 +3166,7 @@ vi.mock("mocked-package");
             knip_unused_files: &none,
             skif_unused_files: &none,
             knip_unused_imports: &none,
+            skif_root_packages: &none,
             rush_root,
             layout: &layout,
         };
@@ -3108,6 +3228,7 @@ vi.mock("mocked-package");
             knip_unused_files: &none,
             skif_unused_files: &none,
             knip_unused_imports: &none,
+            skif_root_packages: &none,
             rush_root: false,
             layout: &layout,
         };
