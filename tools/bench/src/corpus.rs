@@ -339,9 +339,11 @@ mod tests {
     fn n8n_is_marked_as_an_invalid_knip_comparison() {
         let repos = manifest().repo;
         let n8n = repos.iter().find(|r| r.name == "n8n").unwrap();
-        assert!(n8n.knip_invalid.as_deref().is_some_and(|why| {
-            why.contains("dist") && why.contains("until a parity run confirms")
-        }));
+        assert!(
+            n8n.knip_invalid
+                .as_deref()
+                .is_some_and(|why| { why.contains("dist") && why.contains("until a parity run confirms") })
+        );
         assert_eq!(repos.iter().filter(|r| r.knip_invalid.is_some()).count(), 1);
     }
 
