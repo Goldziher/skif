@@ -57,6 +57,21 @@ All notable changes to this project are documented here. The format follows
   judge only the binaries they reach through a package manager or a `node_modules/.bin` path, as knip's
   `optionalBinaries` does (`PluginSpec` gains `optional_binaries`, `BinaryUse` gains `bin_path`), and a GitHub
   Actions step whose `shell` is not a POSIX shell is not read.
+- In a package whose incomplete entries lie in a narrowed scope, `unused-exports`, `unused-types`, the namespace
+  export rules, the member rules and the tag hints of `stale-js-config` now judge every file outside the scope: every
+  file the scope matches is an entry, outside the package's `project` globs and in the workspace packages nested
+  below it too, so whatever an unknown entry imports is counted. Files in the scope, packages unjudged as a whole and
+  the dependency rules are unchanged. A spread above a Vite or Vitest entry key of a value the config computes itself
+  (`build: { ...makeLib() }` with `makeLib` declared in the config) now leaves the package unjudged as a whole, as a
+  spread inside the key does; only an imported base narrows
+  ([ADR 0081](adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md),
+  [#101](https://github.com/Goldziher/skif/issues/101)).
+- The `esbuild` plugin reads build scripts that export nothing (`run({ entryPoints: { … } })`,
+  `await esbuild.build({ entryPoints: [...] })`, also inside a function, where a local that shadows a top-level
+  binding is unknown): each `entryPoints` they write is a production entry, and the package is no longer unjudged as
+  unparsable
+  ([ADR 0081](adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md),
+  [#101](https://github.com/Goldziher/skif/issues/101)).
 
 ### Fixed
 

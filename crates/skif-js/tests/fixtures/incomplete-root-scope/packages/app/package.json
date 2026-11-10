@@ -1,0 +1,6 @@
+{
+  "name": "@fx/app",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": "./src/index.ts"
+}

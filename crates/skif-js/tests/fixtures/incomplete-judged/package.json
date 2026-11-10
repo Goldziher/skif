@@ -1,0 +1,5 @@
+{
+  "name": "fx-incomplete-judged",
+  "private": true,
+  "workspaces": ["packages/*"]
+}
