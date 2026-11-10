@@ -67,10 +67,11 @@ their key.
 The patterns come from `pnpm-workspace.yaml` for a pnpm workspace, else from the `workspaces` of the root
 `package.json`, a leftover `pnpm-workspace.yaml`, the projects of `rush.json`, and last the `packages` of a
 `lerna.json` next to the root `package.json` (a Lerna monorepo without package-manager workspaces, as syncpack reads
-it). `lerna.json` is read only when nothing before it declares members; an invalid one is then ignored. Patterns follow pnpm semantics for every package manager: `dir/*` for direct children that contain a
-`package.json`, `dir/**` for nested packages, and `!pattern` to remove matches. One exception follows Bun: in a Bun
-workspace a negation does not remove a directory that a pattern names by its literal path (`packages/tool`), as
-`bun install` keeps it. Bun's object form (`"workspaces": { "packages": [...], "catalog": {...}, "catalogs": {...} }`)
+it). `lerna.json` is read only when nothing before it declares members; an invalid one is then ignored.
+Patterns follow pnpm semantics for every package manager: `dir/*` for direct children that contain a `package.json`,
+`dir/**` for nested packages, and `!pattern` to remove matches. One exception follows Bun: in a Bun workspace a
+negation does not remove a directory that a pattern names by its literal path (`packages/tool`), as `bun install`
+keeps it. Bun's object form (`"workspaces": { "packages": [...], "catalog": {...}, "catalogs": {...} }`)
 and catalogs at the top level of the root `package.json` are both read. Wildcards never enter
 `node_modules` or dot-directories, but a pattern that names a dot-directory (`.vscode/extensions/*`) does. The JS
 analysis, which skips hidden directories other than tool configuration ones, then walks such a directory for the
