@@ -783,7 +783,8 @@ fn a_missing_key_is_undefined_to_a_member_and_a_destructuring_alike() {
          const defaulted = ({ mode = 'default' }) => mode;\n\
          const options = { base: '/' };\n\
          export default { member: options.mode ?? 'fallback', destructured: pick(options), \
-         defaulted: defaulted(options), open: pick({ ...unknown() }), openMember: { ...unknown() }.mode ?? 'fallback' };",
+         defaulted: defaulted(options), open: pick({ ...unknown() }), \
+         openMember: { ...unknown() }.mode ?? 'fallback' };",
     );
     assert_eq!(get(&value, &["member"]), &s("fallback"));
     assert_eq!(get(&value, &["destructured"]), &s("fallback"));
@@ -810,4 +811,52 @@ fn an_inherited_key_is_unknown_rather_than_undefined() {
         assert_eq!(value.get(key), Some(&ConfigValue::Unknown), "{key}: {value:?}");
     }
     assert_eq!(get(&value, &["missing"]), &s("fallback"));
+}
+
+/// A key merged from the branches of a spread whose test is unknown may be absent or hold any one of the values its
+/// union lists, so a read of it is not definite: a fallback (`x.setupFiles ?? ['./default.ts']`, `||`, a destructuring
+/// default) is credited too, a test on it is unknown, and so is its `length`, also through a nested object and a
+/// spread of the object. A key set after the spread is definite again, and the exported object keeps only its keys.
+#[test]
+fn a_key_merged_from_undecided_branches_is_not_definite() {
+    let value = extract(
+        "vitest.config.ts",
+        "const x = { ...(process.env.CI ? { setupFiles: ['./a.ts'], test: { include: ['a'] } } : {}) };\n\
+         const y = { ...(process.env.CI ? { setupFiles: ['./a.ts'] } : {}), setupFiles: ['./b.ts'] };\n\
+         const pick = ({ setupFiles = ['./d.ts'] }) => setupFiles;\n\
+         export default {\n\
+           coalesced: x.setupFiles ?? ['./default.ts'],\n\
+           or: x.setupFiles || ['./or.ts'],\n\
+           destructured: pick(x),\n\
+           nested: x.test.include ?? ['b'],\n\
+           respread: { ...x }.setupFiles ?? ['./default.ts'],\n\
+           length: x.setupFiles.length,\n\
+           fallbackLength: (x.setupFiles ?? []).length,\n\
+           tested: x.setupFiles ? 1 : 2,\n\
+           negated: !x.setupFiles,\n\
+           set: y.setupFiles ?? ['./default.ts'],\n\
+           setLength: y.setupFiles.length,\n\
+           exported: x,\n\
+         };",
+    );
+    assert_eq!(get(&value, &["coalesced"]), &strings(&["./a.ts", "./default.ts"]));
+    assert_eq!(get(&value, &["or"]), &strings(&["./a.ts", "./or.ts"]));
+    assert_eq!(get(&value, &["destructured"]), &strings(&["./a.ts", "./d.ts"]));
+    assert_eq!(get(&value, &["nested"]), &strings(&["a", "b"]));
+    assert_eq!(get(&value, &["respread"]), &strings(&["./a.ts", "./default.ts"]));
+    for key in ["length", "fallbackLength", "tested", "negated"] {
+        assert_eq!(value.get(key), Some(&ConfigValue::Unknown), "{key}: {value:?}");
+    }
+    assert_eq!(get(&value, &["set"]), &strings(&["./b.ts"]));
+    assert_eq!(get(&value, &["setLength"]), &ConfigValue::Number(1.0));
+    assert_eq!(
+        get(&value, &["exported"]),
+        &ConfigValue::Object(vec![
+            ("setupFiles".to_owned(), strings(&["./a.ts"])),
+            (
+                "test".to_owned(),
+                ConfigValue::Object(vec![("include".to_owned(), strings(&["a"]))])
+            ),
+        ])
+    );
 }
