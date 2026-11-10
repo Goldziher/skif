@@ -23,7 +23,7 @@ use crate::corpus::{self, RUSH_KNIP_ROOT, Repo, SCRATCH_ROOT_MARK, Tools, is_scr
 use crate::diff::{
     self, BASELINE_SCHEMA, Baseline, COMPARED, CategorySet, Counts, Deviation, Entry, Gate, Keys, Samples, Side,
 };
-use crate::proc::{capture, find_on_path};
+use crate::proc::{Captured, capture, find_on_path};
 use crate::provenance;
 
 /// skif rule to knip issue type.
@@ -1362,6 +1362,197 @@ fn category_set() -> CategorySet {
     }
 }
 
+/// The unused files of one side of the comparison (its `files` findings).
+fn unused_files(keys: &Keys) -> &BTreeSet<String> {
+    static NONE: BTreeSet<String> = BTreeSet::new();
+    keys.get("files").unwrap_or(&NONE)
+}
+
+/// skif's report on a checkout.
+struct SkifRun {
+    doc: Value,
+    run: Captured,
+    recursive: bool,
+}
+
+/// Installs the checkout when the run and the repository ask for it, then runs skif on it; `Ok(Err(reason))` when the
+/// repository is skipped.
+fn install_and_run_skif(
+    options: &Options,
+    skif: &Path,
+    repo: &Repo,
+    root: &Path,
+    scratch: &Path,
+) -> Result<Result<SkifRun, String>> {
+    // A repository with `install = false` is compared uninstalled, so a tool that cannot run there says why itself.
+    if options.install
+        && repo.install
+        && let Some(reason) = install(repo, root, scratch, options.timeout)?
+    {
+        return Ok(Err(format!("install: {reason}")));
+    }
+    let mut command = Command::new(skif);
+    command
+        .args([".", "--format", "json", "--no-install"])
+        .current_dir(root);
+    let recursive = options.recursive || repo.recursive;
+    if recursive {
+        command.arg("--recursive");
+    }
+    if !repo.entry.is_empty() {
+        command.arg("--config").arg(write_config(
+            scratch,
+            "skif-entry.toml",
+            &skif_entry_config(&repo.entry),
+        )?);
+    }
+    let run = capture(&mut command, scratch, "skif-parity", options.timeout)?;
+    if run.timed_out {
+        return Ok(Err("skif timed out".to_owned()));
+    }
+    let doc: Value = match serde_json::from_slice(&run.stdout) {
+        Ok(doc) => doc,
+        Err(error) => return Ok(Err(format!("skif output is not JSON: {error}"))),
+    };
+    if doc.get("diagnostics").is_none() {
+        let message = doc["error"]["message"]
+            .as_str()
+            .unwrap_or("no diagnostics in the output");
+        return Ok(Err(format!("skif failed: {message}")));
+    }
+    Ok(Ok(SkifRun { doc, run, recursive }))
+}
+
+/// knip's report on a checkout, with knip's workspaces as they were while it ran.
+struct KnipRun {
+    doc: Value,
+    run: Captured,
+    /// The workspace member directories (`workspace_members`), read while the scratch root manifest that declares
+    /// them for a Rush repository is there.
+    members: BTreeSet<String>,
+    /// knip ran with the scratch root manifest of a Rush repository (`knip-root = "rush"`).
+    rush_root: bool,
+}
+
+/// Runs the pinned knip on a checkout, with the scratch root manifest (`knip_root`) there only while it runs;
+/// `Ok(Err(reason))` when the repository is skipped.
+fn run_knip(
+    options: &Options,
+    tools: &Tools,
+    repo: &Repo,
+    root: &Path,
+    scratch: &Path,
+) -> Result<Result<KnipRun, String>> {
+    let scratch_root = match knip_root(repo, root) {
+        Ok(manifest) => manifest,
+        Err(reason) => return Ok(Err(format!("knip root: {reason}"))),
+    };
+    let spec = format!("knip@{}", tools.knip);
+    let mut command = Command::new("npx");
+    command
+        .args(["--yes", spec.as_str(), "--reporter", "json"])
+        .current_dir(root)
+        .env("CI", "1")
+        .env("DOTENV_CONFIG_QUIET", "true");
+    if !options.repo_knip_config {
+        let config = write_config(scratch, "knip-config.json", &knip_config(&repo.entry))?;
+        command.arg("--config").arg(config);
+    }
+    let run = capture(&mut command, scratch, "knip", options.timeout)?;
+    let members = workspace_members(root);
+    let rush_root = scratch_root.is_some();
+    drop(scratch_root);
+    if run.timed_out {
+        return Ok(Err("knip timed out".to_owned()));
+    }
+    match parse_knip_report(&run.stdout) {
+        Ok(doc) => Ok(Ok(KnipRun {
+            doc,
+            run,
+            members,
+            rush_root,
+        })),
+        Err(reason) => Ok(Err(format!(
+            "knip failed (exit {}): {reason}; stderr: {}",
+            run.code.map_or_else(|| "none".to_owned(), |c| c.to_string()),
+            run.stderr_summary()
+        ))),
+    }
+}
+
+/// What the classification reads of the two reports and the checkout, owned so a [`Classifier`] can borrow it.
+struct Facts {
+    not_judged: BTreeMap<String, NotJudgedScope>,
+    skif_root_packages: BTreeSet<String>,
+    foreign_paths: BTreeSet<String>,
+    /// The configuration files knip could not load (`knip_config_errors`).
+    knip_errors: BTreeSet<String>,
+    knip_failed: BTreeSet<String>,
+    knip_manifests: BTreeSet<String>,
+    knip_unused_imports: BTreeSet<String>,
+    skif_unused_imports: BTreeSet<String>,
+}
+
+impl Facts {
+    fn read(skif_doc: &Value, knip_stderr: &str, skif: &Keys, knip: &Keys, root: &Path, layout: &Layout<'_>) -> Self {
+        let knip_errors = knip_config_errors(knip_stderr, root);
+        let knip_failed = knip_errors
+            .iter()
+            .map(|file| owner_dir(file, &|dir: &str| layout.is_project(dir)))
+            .collect();
+        let read_source = |file: &str| fs::read_to_string(root.join(file)).ok();
+        let workspace_of = |file: &str| owner_dir(file, &|dir: &str| layout.is_workspace(dir));
+        let (knip_unused, skif_unused) = (unused_files(knip), unused_files(skif));
+        Self {
+            not_judged: not_judged_dirs(skif_doc),
+            skif_root_packages: skif_root_packages(skif_doc),
+            foreign_paths: foreign_tsconfig_paths_keys(skif_doc, root),
+            knip_errors,
+            knip_failed,
+            knip_manifests: knip_manifests(knip),
+            knip_unused_imports: unused_file_imports(knip_unused, skif_unused, &read_source, &workspace_of),
+            skif_unused_imports: unused_file_imports(skif_unused, knip_unused, &read_source, &workspace_of),
+        }
+    }
+
+    /// The classifier of one repository's one-sided findings (`skif` and `knip` are the findings of each side).
+    fn classifier<'a>(
+        &'a self,
+        repo: &'a Repo,
+        options: &Options,
+        (skif, knip): (&'a Keys, &'a Keys),
+        rush_root: bool,
+        layout: &'a Layout<'a>,
+    ) -> Classifier<'a> {
+        Classifier {
+            knip_unread: &repo.knip_unread,
+            include_test_files: options.include_test_files,
+            not_judged: &self.not_judged,
+            knip_failed: &self.knip_failed,
+            knip_manifests: &self.knip_manifests,
+            foreign_paths: &self.foreign_paths,
+            knip_unused_files: unused_files(knip),
+            skif_unused_files: unused_files(skif),
+            knip_unused_imports: &self.knip_unused_imports,
+            skif_unused_imports: &self.skif_unused_imports,
+            skif_root_packages: &self.skif_root_packages,
+            rush_root,
+            layout,
+        }
+    }
+}
+
+/// The narrowed packages of `not-judged-by-skif` with the globs of their scope, for `parity.json`.
+fn narrowed_packages(not_judged: &BTreeMap<String, NotJudgedScope>) -> serde_json::Map<String, Value> {
+    not_judged
+        .iter()
+        .filter_map(|(dir, scope)| match scope {
+            NotJudgedScope::Within(globs) => Some((dir.clone(), json!(globs.patterns()))),
+            NotJudgedScope::Package => None,
+        })
+        .collect()
+}
+
 fn parity_repo(
     options: &Options,
     skif: &Path,
@@ -1372,113 +1563,29 @@ fn parity_repo(
 ) -> Result<Outcome> {
     let root = fs::canonicalize(dir).with_context(|| format!("resolving {}", dir.display()))?;
     let scratch = options.out.join("scratch").join(&repo.name);
-    // A repository with `install = false` is compared uninstalled, so a tool that cannot run there says why itself.
-    let installs = options.install && repo.install;
-    if installs && let Some(reason) = install(repo, &root, &scratch, options.timeout)? {
-        return Ok(skipped(format!("install: {reason}")));
-    }
-
-    let mut skif_command = Command::new(skif);
-    skif_command
-        .args([".", "--format", "json", "--no-install"])
-        .current_dir(&root);
-    let recursive = options.recursive || repo.recursive;
-    if recursive {
-        skif_command.arg("--recursive");
-    }
-    if !repo.entry.is_empty() {
-        skif_command.arg("--config").arg(write_config(
-            &scratch,
-            "skif-entry.toml",
-            &skif_entry_config(&repo.entry),
-        )?);
-    }
-    let skif_run = capture(&mut skif_command, &scratch, "skif-parity", options.timeout)?;
-    if skif_run.timed_out {
-        return Ok(skipped("skif timed out"));
-    }
-    let skif_doc: Value = match serde_json::from_slice(&skif_run.stdout) {
-        Ok(doc) => doc,
-        Err(error) => return Ok(skipped(format!("skif output is not JSON: {error}"))),
+    let skif_run = match install_and_run_skif(options, skif, repo, &root, &scratch)? {
+        Ok(run) => run,
+        Err(reason) => return Ok(skipped(reason)),
     };
-    if skif_doc.get("diagnostics").is_none() {
-        let message = skif_doc["error"]["message"]
-            .as_str()
-            .unwrap_or("no diagnostics in the output");
-        return Ok(skipped(format!("skif failed: {message}")));
-    }
-
-    let scratch_root = match knip_root(repo, &root) {
-        Ok(manifest) => manifest,
-        Err(reason) => return Ok(skipped(format!("knip root: {reason}"))),
+    let knip_run = match run_knip(options, tools, repo, &root, &scratch)? {
+        Ok(run) => run,
+        Err(reason) => return Ok(skipped(reason)),
     };
-    let spec = format!("knip@{}", tools.knip);
-    let mut knip_command = Command::new("npx");
-    knip_command
-        .args(["--yes", spec.as_str(), "--reporter", "json"])
-        .current_dir(&root)
-        .env("CI", "1")
-        .env("DOTENV_CONFIG_QUIET", "true");
-    if !options.repo_knip_config {
-        let config = write_config(&scratch, "knip-config.json", &knip_config(&repo.entry))?;
-        knip_command.arg("--config").arg(config);
-    }
-    let knip_run = capture(&mut knip_command, &scratch, "knip", options.timeout)?;
-    // knip's workspaces, read while the scratch root manifest that declares them for a Rush repository is there.
-    let members = workspace_members(&root);
-    let rush_root = scratch_root.is_some();
-    drop(scratch_root);
-    if knip_run.timed_out {
-        return Ok(skipped("knip timed out"));
-    }
-    let knip_doc = match parse_knip_report(&knip_run.stdout) {
-        Ok(doc) => doc,
-        Err(reason) => {
-            return Ok(skipped(format!(
-                "knip failed (exit {}): {reason}; stderr: {}",
-                knip_run.code.map_or_else(|| "none".to_owned(), |c| c.to_string()),
-                knip_run.stderr_summary()
-            )));
-        }
-    };
-
-    let mut skif_found = skif_keys(&skif_doc, &root);
-    let knip_found = knip_keys(&knip_doc, &root);
+    let mut skif_found = skif_keys(&skif_run.doc, &root);
+    let knip_found = knip_keys(&knip_run.doc, &root);
     align_export_labels(&mut skif_found, &knip_found);
-    let unjudged = not_judged_dirs(&skif_doc);
-    let root_packages = skif_root_packages(&skif_doc);
-    let foreign_paths = foreign_tsconfig_paths_keys(&skif_doc, &root);
-    let knip_errors = knip_config_errors(&knip_run.stderr, &root);
     let manifest = manifest_reader(&root);
     let is_file = |file: &str| root.join(file).is_file();
-    let layout = Layout::new(members, &manifest, &is_file);
-    let knip_failed: BTreeSet<String> = knip_errors
-        .iter()
-        .map(|file| owner_dir(file, &|dir: &str| layout.is_project(dir)))
-        .collect();
-    let judged_manifests = knip_manifests(&knip_found);
-    let empty = BTreeSet::new();
-    let knip_unused = knip_found.get("files").unwrap_or(&empty);
-    let skif_unused = skif_found.get("files").unwrap_or(&empty);
-    let read_source = |file: &str| fs::read_to_string(root.join(file)).ok();
-    let workspace_of = |file: &str| owner_dir(file, &|dir: &str| layout.is_workspace(dir));
-    let knip_unused_imports = unused_file_imports(knip_unused, skif_unused, &read_source, &workspace_of);
-    let skif_unused_imports = unused_file_imports(skif_unused, knip_unused, &read_source, &workspace_of);
-    let classifier = Classifier {
-        knip_unread: &repo.knip_unread,
-        include_test_files: options.include_test_files,
-        not_judged: &unjudged,
-        knip_failed: &knip_failed,
-        knip_manifests: &judged_manifests,
-        foreign_paths: &foreign_paths,
-        knip_unused_files: knip_unused,
-        skif_unused_files: skif_unused,
-        knip_unused_imports: &knip_unused_imports,
-        skif_unused_imports: &skif_unused_imports,
-        skif_root_packages: &root_packages,
-        rush_root,
-        layout: &layout,
-    };
+    let layout = Layout::new(knip_run.members, &manifest, &is_file);
+    let facts = Facts::read(
+        &skif_run.doc,
+        &knip_run.run.stderr,
+        &skif_found,
+        &knip_found,
+        &root,
+        &layout,
+    );
+    let classifier = facts.classifier(repo, options, (&skif_found, &knip_found), knip_run.rush_root, &layout);
     let split = diff::split_known(&skif_found, &knip_found, &|side, category, key| {
         classifier.classify(side, category, key)
     });
@@ -1487,24 +1594,18 @@ fn parity_repo(
     let detail = json!({
         "status": COMPARED,
         "installed": installed,
-        "recursive": recursive,
+        "recursive": skif_run.recursive,
         "skif_rev": skif_rev,
-        "knip_exit": knip_run.code,
-        "knip_errors": knip_errors,
+        "knip_exit": knip_run.run.code,
+        "knip_errors": facts.knip_errors,
         "knip_invalid": repo.knip_invalid,
         "known_deviations": split.known,
         "known_samples": split.samples,
-        "not_judged_packages": unjudged.keys().collect::<Vec<_>>(),
-        "narrowed_packages": unjudged
-            .iter()
-            .filter_map(|(dir, scope)| match scope {
-                NotJudgedScope::Within(globs) => Some((dir.clone(), json!(globs.patterns()))),
-                NotJudgedScope::Package => None,
-            })
-            .collect::<serde_json::Map<_, _>>(),
+        "not_judged_packages": facts.not_judged.keys().collect::<Vec<_>>(),
+        "narrowed_packages": narrowed_packages(&facts.not_judged),
         "workspace_members": layout.members.len(),
-        "skif_ms": skif_run.elapsed.as_millis(),
-        "knip_ms": knip_run.elapsed.as_millis(),
+        "skif_ms": skif_run.run.elapsed.as_millis(),
+        "knip_ms": knip_run.run.elapsed.as_millis(),
         "skif_total": total(&skif_found),
         "knip_total": total(&knip_found),
         "categories": category_detail(&counts, &samples),
@@ -1512,10 +1613,10 @@ fn parity_repo(
     Ok(Outcome {
         entry: Entry::compared(counts)
             .with_known(split.known)
-            .with_tool_errors(knip_errors.len())
+            .with_tool_errors(facts.knip_errors.len())
             .with_invalid(repo.knip_invalid.clone())
             .with_installed(installed)
-            .with_run(recursive, skif_rev),
+            .with_run(skif_run.recursive, skif_rev),
         detail,
     })
 }
