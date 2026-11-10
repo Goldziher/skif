@@ -891,3 +891,38 @@ fn a_key_named_like_bookkeeping_is_an_ordinary_key() {
     assert_eq!(get(&value, &["coalesced"]), &s("ab"));
     assert_eq!(get(&value, &["length"]), &ConfigValue::Number(2.0));
 }
+
+/// A constant holding a read that is not definite is not definite either, at the top level and in a function: a
+/// fallback is credited too, and a test on it and its `length` are unknown.
+#[test]
+fn a_constant_holding_a_read_that_is_not_definite_is_not_definite() {
+    let value = extract(
+        "vitest.config.ts",
+        "const x = { ...(process.env.CI ? { setupFiles: ['./a.ts'] } : {}) };\n\
+         const files = x.setupFiles;\n\
+         const local = () => {\n\
+           const held = x.setupFiles;\n\
+           return { coalesced: held ?? ['./b.ts'], length: held.length };\n\
+         };\n\
+         export default {\n\
+           coalesced: files ?? ['./default.ts'],\n\
+           or: files || ['./or.ts'],\n\
+           length: files.length,\n\
+           tested: files ? 1 : 2,\n\
+           kept: files,\n\
+           local: local(),\n\
+         };",
+    );
+    assert_eq!(get(&value, &["coalesced"]), &strings(&["./a.ts", "./default.ts"]));
+    assert_eq!(get(&value, &["or"]), &strings(&["./a.ts", "./or.ts"]));
+    assert_eq!(get(&value, &["kept"]), &strings(&["./a.ts"]));
+    assert_eq!(get(&value, &["local", "coalesced"]), &strings(&["./a.ts", "./b.ts"]));
+    for key in ["length", "tested"] {
+        assert_eq!(value.get(key), Some(&ConfigValue::Unknown), "{key}: {value:?}");
+    }
+    assert_eq!(
+        value.get("local").and_then(|local| local.get("length")),
+        Some(&ConfigValue::Unknown),
+        "{value:?}"
+    );
+}

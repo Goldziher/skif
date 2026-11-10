@@ -306,7 +306,8 @@ All notable changes to this project are documented here. The format follows
   then takes its default). A key an unknown spread may set, a member of `Object.prototype` (`constructor`,
   `toString`, `hasOwnProperty`, ...) and any key of an object with a `__proto__` read as unknown. A key merged from a
   spread whose test is unknown (`{ ...(ci ? { setupFiles: ['./a.ts'] } : {}) }`) may be absent, so a read of it is not
-  definite: `x.setupFiles ?? ['./default.ts']` credits both lists, and a test on it and its `.length` are unknown.
+  definite: `x.setupFiles ?? ['./default.ts']` credits both lists, and a test on it and its `.length` are unknown, also
+  through a constant holding the read (`const files = x.setupFiles`).
 - A config function the tool calls (an exported function, the callback given to `defineConfig`) has every parameter
   unknown, a default included, because the tool passes what the config does not say: `(env = {}) => ({ entry:
   env.analyze ? './src/analyze.ts' : './src/index.ts' })` keeps both files instead of reading `env.analyze` as

@@ -894,7 +894,7 @@ importing config. Only a fully known object answers for a key it does not have, 
 through a member or a destructuring; a key an unknown spread may set, a member of `Object.prototype` such as
 `toString`, and any key of an object with a `__proto__` are unknown. A key merged from a spread with an unknown test
 (`{ ...(ci ? { setupFiles: ["./a.ts"] } : {}) }`) may be absent, so `x.setupFiles ?? ["./default.ts"]` keeps both lists
-and its `.length` is unknown. A config function the tool calls (an exported function, the callback given to
+and its `.length` is unknown, also through a constant holding the read (`const files = x.setupFiles`). A config function the tool calls (an exported function, the callback given to
 `defineConfig`) has every parameter unknown, its default included, since the tool passes what the config does not say:
 `(env = {}) => env.analyze ? a : b` keeps both branches. A config factory of a workspace package
 (`createVitestConfig({ setupFiles: ["./setup.ts"] })`, also wrapped as `defineConfig(createBase(options))`) is called with the arguments given, so what it builds from its options is known. A
