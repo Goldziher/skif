@@ -77,7 +77,10 @@ imports; not globs or test-runner mocks).
 **`published-source`.** A published path also names its source below `src` when its first directory is a build
 directory as skif decides it (`skif_js::is_out_dir`: `dist`, `lib`, `out`, `esm` and the others, also with a flavour
 suffix such as `lib-commonjs`), and a published path whose file name has no extension (`./out/main`) names any
-TypeScript source with that stem. The files that only such an entry reaches stay compared.
+TypeScript source with that stem. A published path without `*` names one source only, as skif's `map_to_source`
+picks it: the first of `skif_js::source_candidates` that exists in the checkout, so with both `src/x.ts` and
+`lib/x.ts` present, `./lib/x.js` names `src/x.ts` and `lib/x.ts` stays compared. A pattern with `*` names every file
+it matches. The files that only such an entry reaches stay compared.
 
 **Precedence.** `knip-unread`, the file classifications, the wider `fixture-file`, `rush-root-file`,
 `not-judged-by-skif`, `skipped-directory`, `non-member-project`, `published-source`, `in-skif-unused-file`,
