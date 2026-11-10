@@ -88,6 +88,7 @@ old one.
 | 0078 | [Plugin Gaps: Config Functions Called Statically, File Tasks, Templates and Installed Versions](0078-plugin-gaps-config-functions-file-tasks-and-templates.md) | accepted |
 | 0079 | [Namespace Reads Through Test-Runner Spies and Imports Awaited Together](0079-namespace-reads-through-spies-and-imports-awaited-together.md) | accepted |
 | 0080 | [knip Workspaces, Skipped Directories and Published Sources in the knip Comparison](0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md) | accepted |
+| 0086 | [Nested Namespace Reads, Shadowed Imports and Same-Name Type Containers](0086-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md) | accepted |
 
 ## Effective statements
 
