@@ -38,6 +38,18 @@ fn report(files: &[(&str, &str)], config: &str, file: &str) -> Value {
     serde_json::to_value(report).unwrap()
 }
 
+/// The `explain-usage` report of export `export` of `file`, as JSON.
+fn export_report(files: &[(&str, &str)], config: &str, file: &str, export: &str) -> Value {
+    let memory = memory(files);
+    let config = Config::from_toml_str(config).unwrap();
+    let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
+    let fs: Arc<dyn FileSystem> = Arc::new(memory);
+    let sources: Vec<Arc<dyn InputSource>> = vec![Arc::new(PluginSource::new(config.js.plugins.clone()))];
+    let report =
+        JsAnalysis::build(&workspace, &config, &fs, &sources, true).explain_usage(Path::new(file), Some(export));
+    serde_json::to_value(report).unwrap()["export"].clone()
+}
+
 fn absence(files: &[(&str, &str)], config: &str, file: &str) -> Value {
     let report = report(files, config, file);
     assert_eq!(report["in-graph"], false, "{report}");
@@ -291,23 +303,15 @@ fn an_export_outside_the_narrowed_scope_is_judged() {
         ),
         ("src/helper.ts", "export const helper = 1;\n"),
     ];
-    let explain = |file: &str, export: &str| -> Value {
-        let memory = memory(&files);
-        let config = Config::default();
-        let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
-        let fs: Arc<dyn FileSystem> = Arc::new(memory);
-        let sources: Vec<Arc<dyn InputSource>> = vec![Arc::new(PluginSource::new(config.js.plugins.clone()))];
-        let report =
-            JsAnalysis::build(&workspace, &config, &fs, &sources, true).explain_usage(Path::new(file), Some(export));
-        serde_json::to_value(report).unwrap()["export"].clone()
-    };
+    let explain = |file: &str, export: &str| export_report(&files, "", file, export);
     // A side-effect import uses no export.
     let helper = explain("src/helper.ts", "helper");
     assert_eq!(helper["verdict"], "unused", "{helper}");
     assert_eq!(helper.get("entries-incomplete"), None, "{helper}");
     let fixture = explain("test/db-setup.ts", "fixture");
     assert_eq!(fixture["entries-incomplete"], true, "{fixture}");
-    assert_ne!(fixture["verdict"], "unused", "{fixture}");
+    // The file of the scope is an entry, whose exports are public.
+    assert_eq!(fixture["verdict"], "public", "{fixture}");
 }
 
 /// A computed `import()` may load any file of the package, so a narrowed scope is not used.
@@ -321,6 +325,10 @@ fn a_computed_import_keeps_the_package_unjudged() {
     let report = report(&files, "", "src/orphan.ts");
     assert_eq!(report["absence"], "entries-incomplete", "{report}");
     assert_eq!(report["widened-by"], "src/main.ts:2", "{report}");
+    // Nor are the exports outside the scope judged.
+    let helper = export_report(&files, "", "src/helper.ts", "helper");
+    assert_eq!(helper["entries-incomplete"], true, "{helper}");
+    assert_eq!(helper["verdict"], "not-judged", "{helper}");
 }
 
 /// Incomplete entries only explain a source file the analysis would otherwise judge.
