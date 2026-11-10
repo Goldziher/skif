@@ -216,7 +216,7 @@ enum Value {
     Unknown,
     /// A value that is not definite: as the value of an object's key, one merged from the branches of a condition the
     /// evaluator cannot decide ([`any_entries`]), which the object may lack or hold any one of the values its union
-    /// lists in.
+    /// lists in; as the value of a binding, such a read (`const files = x.setupFiles`).
     Maybe(Box<Value>),
 }
 
@@ -340,7 +340,7 @@ pub trait ModuleLoader {
 /// not have it, so `[...base.plugins, 'x']` and `options.setupFiles ?? []` are known; a destructuring reads a key the
 /// same way. A key merged from a spread whose test is unknown (below) may be absent or hold any of the values merged
 /// for it, so a read of it is not definite: `a.b ?? c` and `a.b || c` credit both sides, and a test on it and its
-/// `.length` are unknown.
+/// `.length` are unknown, also through a constant holding the read (`const files = a.b`).
 /// An `if (test) return a;` before a function's last `return` is followed the same way: a known test takes its branch,
 /// and an unknown one makes the value what both returns share. A spread of a conditional with an unknown test
 /// (`...(tmp && { cacheDir: tmp })`, `...(ci ? { a } : {})`) adds every key a branch sets: a list gets the elements of
@@ -1849,7 +1849,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// The value of a name: a binding of a function being evaluated, a top-level constant (evaluated once however
     /// often it is referenced), a top-level function called with arguments that cannot be known (as the tool calls a
-    /// config function the config exports by name), or a path global.
+    /// config function the config exports by name), or a path global. A name bound to a read that is not definite
+    /// ([`Self::read`]) is a [`Value::Maybe`].
     fn identifier(&self, name: &str, depth: u32) -> Value {
         if let Some(binding) = self.lookup(name) {
             return match binding {
@@ -1877,7 +1878,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         // from a fresh depth budget.
         let saved = std::mem::take(&mut *self.frames.borrow_mut());
         let cuts = self.modules.map(|modules| modules.cuts.get());
-        let value = self.expr(init, 0);
+        let (value, definite) = self.read(init, 0);
         *self.frames.borrow_mut() = saved;
         self.chain.borrow_mut().pop();
         let value = if node_count(&value) > MAX_CONST_NODES {
@@ -1889,6 +1890,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         } else {
             value
         };
+        let value = Value::doubtful(value, definite);
         // A value an import cycle or budget cut short depends on the order of evaluation; it is computed again.
         if self.modules.map(|modules| modules.cuts.get()) == cuts {
             self.evaluated.borrow_mut().insert(name.to_owned(), value.clone());
@@ -2076,7 +2078,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// The value of `expr` and whether it is definite. A read of a key merged from the branches of a condition the
     /// evaluator cannot decide ([`Field::Maybe`]) is not: it is the union of the values the key may hold, and the key
-    /// may be absent. Neither is a member of it, nor `a ?? b` or `a || b` over it, which is the union of both sides.
+    /// may be absent. Neither is a member of it, a name bound to it (`const files = x.setupFiles`), nor `a ?? b` or
+    /// `a || b` over it, which is the union of both sides.
     fn read(&self, expr: &'p Expression<'a>, depth: u32) -> (Value, bool) {
         if depth > MAX_DEPTH {
             return (Value::Unknown, true);
@@ -2084,6 +2087,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         match expr.get_inner_expression() {
             Expression::StaticMemberExpression(member) => self.member(member, depth + 1),
             Expression::LogicalExpression(logical) => self.logical(logical, depth + 1),
+            Expression::Identifier(id) => self.reference(id, depth + 1),
             _ => (self.expr(expr, depth), true),
         }
     }
@@ -2825,8 +2829,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         either(&a, &b)
     }
 
-    /// Binds the names a `const`/`let`/`var` declaration declares in the innermost frame: a destructured name to the
-    /// part of the value it takes, or to [`ConfigValue::Unknown`].
+    /// Binds the names a `const`/`let`/`var` declaration declares in the innermost frame: a name to the value, a
+    /// [`Value::Maybe`] when it is not definite ([`Self::read`]), and a destructured name to the part of the value it
+    /// takes, or to [`ConfigValue::Unknown`].
     fn declare(&self, declaration: &'p VariableDeclaration<'a>, depth: u32) {
         for declarator in &declaration.declarations {
             if let BindingPattern::BindingIdentifier(id) = &declarator.id
@@ -2835,16 +2840,19 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 self.bind_to(id.name.as_str(), Binding::Callable(callable));
                 continue;
             }
-            let value = declarator
+            let (value, definite) = declarator
                 .init
                 .as_ref()
-                .map_or(Value::Unknown, |init| self.expr(init, depth));
+                .map_or((Value::Unknown, true), |init| self.read(init, depth));
             let value = if node_count(&value) > MAX_CONST_NODES {
                 Value::Unknown
             } else {
                 value
             };
-            self.bind_pattern(&declarator.id, value, depth);
+            match &declarator.id {
+                BindingPattern::BindingIdentifier(id) => self.bind(id.name.as_str(), Value::doubtful(value, definite)),
+                pattern => self.bind_pattern(pattern, value, depth),
+            }
         }
     }
 
