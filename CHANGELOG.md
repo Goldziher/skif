@@ -88,7 +88,9 @@ All notable changes to this project are documented here. The format follows
   `cd $__skif_file_dir__/<path> && ` when the file's own location computes it, else with `cd $__skif__ && `; a `cwd`
   of `process.cwd()`, `'.'` or `undefined` is left out of `ImportedCall::arguments`. `CACHE_SCHEMA` is `3`.
 - `BinaryRef` of `skif-js-plugins` and `RunBinary` of `skif-js` gain `dir`, the directory the command runs the binary
-  in after `cd`, and are `#[non_exhaustive]`: build them with `BinaryRef::new` and `RunBinary::new`.
+  in after `cd`, and `filtered`, set when a package manager runs it there without naming a workspace; both are
+  `#[non_exhaustive]`: build them with `BinaryRef::new` and `RunBinary::new`. `BinaryUse` of
+  `skif_js_plugins::scripts` gains `relocation_dir`.
 - `Tokens` of `skif_core::shell` gains `subshells`, the segments each subshell `( … )` runs.
 - `PluginOutput` of `skif-js-plugins` and `WorkspaceInputs` of `skif-js` are `#[non_exhaustive]`: an input source
   starts from `WorkspaceInputs::default()` and sets the fields it knows.
@@ -233,6 +235,9 @@ All notable changes to this project are documented here. The format follows
 - A workflow step's `$GITHUB_WORKSPACE`, `${GITHUB_WORKSPACE}` and `${{ github.workspace }}` name the workspace root,
   so `cd $GITHUB_WORKSPACE/sub && pnpm exec rspack` runs in `sub` and `node $GITHUB_WORKSPACE/scripts/x.js` makes the
   file an entry ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
+- A binary that a workflow step runs with `pnpm -C sub exec` is credited to `sub` as from a `package.json` script, and
+  one that a source file runs with `cd web && pnpm --filter sub exec` is no longer credited to `web`
+  ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
 - A `cd` inside a subshell no longer changes the directory of the commands after it:
   `(cd "$TMP" && tar xf a.tgz) && npm run build` follows the package's `build` script again
   ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).

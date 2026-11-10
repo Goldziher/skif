@@ -75,7 +75,11 @@ object skif cannot read, or one whose `cwd` only an unknown spread may set, leav
 package the plugin runs for, which is the workspace root for a workflow. When the innermost workspace package holding
 the directory is another package, the binary is credited to it as ADR 0094 credits a script's: a provider it lists is
 used and nothing is unlisted at the file. In the package itself, in no workspace package or outside the workspace, the
-binary is judged at the file, as before. The packages and files these commands name stay where the command starts.
+binary is judged at the file, as before. A binary a package manager runs in the directory without naming a workspace
+(`pnpm -C sub exec rspack`) is credited the same way, from a script, a workflow step or a source file alike, and never
+judged at the file; one whose command names the workspaces it runs in (`cd sub && pnpm --filter web exec rspack`)
+belongs to those and is not credited to the directory (`BinaryUse::relocation_dir`). The packages and files these
+commands name stay where the command starts.
 This settles the later decision ADR 0094 left open, for binaries. A workflow step starts in the checked-out
 repository, `$GITHUB_WORKSPACE`, which the plugin takes to be the workspace root: `$GITHUB_WORKSPACE`,
 `${GITHUB_WORKSPACE}` and `${{ github.workspace }}` in a step read as the root relative to the step's directory, so
@@ -122,7 +126,8 @@ are provided commands; a package that lists the package declaring them still use
 * `crates/skif-js/tests/monorepo_regressions.rs`: `a_member_binary_is_provided_where_the_package_manager_links_it`,
   `rush_commands_are_provided_in_a_rush_repository` and
   `workflow_and_source_commands_after_cd_into_a_workspace_package_are_judged_there` and
-  `source_commands_with_a_cwd_of_the_file_run_in_that_directory`.
+  `source_commands_with_a_cwd_of_the_file_run_in_that_directory` and
+  `filtered_binaries_are_credited_to_their_directory_only_without_named_workspaces`.
 * `adrlint lint adrs`, `adrlint format --check adrs` and `adrlint lock --check` pass.
 
 ## Pros and Cons of the Options

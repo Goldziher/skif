@@ -124,6 +124,21 @@ pub struct BinaryUse {
     pub dir: Option<String>,
 }
 
+impl BinaryUse {
+    /// The directory of another package the binary is credited to, wherever the command is read (a script, a workflow,
+    /// a source file): [`dir`](Self::dir), also when a package manager runs it there without naming a workspace
+    /// (`pnpm -C sub exec rspack`), but `None` when the command names the workspaces it runs in
+    /// (`cd sub && pnpm --filter web exec rspack`), whose binaries belong to those.
+    #[must_use]
+    pub fn relocation_dir(&self) -> Option<&str> {
+        if self.filtered && !self.workspaces.is_empty() {
+            None
+        } else {
+            self.dir.as_deref()
+        }
+    }
+}
+
 /// A file the script runs, loads or passes to a runner.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileRef {

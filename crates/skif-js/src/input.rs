@@ -33,13 +33,22 @@ pub struct RunBinary {
     /// The directory the command runs the binary in after `cd` or `pushd`, relative to the package directory where
     /// the command starts, `/`-separated; `None` there and when the directory is not a static relative path.
     pub dir: Option<String>,
+    /// The command runs the binary in `dir` without naming a workspace (`pnpm -C sub exec rspack`): it is credited to
+    /// the package there and never judged where the command starts.
+    pub filtered: bool,
 }
 
 impl RunBinary {
-    /// The binary `name` that a command read from `file` runs, in `dir` (see [`RunBinary::dir`]).
+    /// The binary `name` that a command read from `file` runs, in `dir` (see [`RunBinary::dir`] and
+    /// [`RunBinary::filtered`]).
     #[must_use]
-    pub fn new(name: String, file: PathBuf, dir: Option<String>) -> Self {
-        Self { name, file, dir }
+    pub fn new(name: String, file: PathBuf, dir: Option<String>, filtered: bool) -> Self {
+        Self {
+            name,
+            file,
+            dir,
+            filtered,
+        }
     }
 }
 
