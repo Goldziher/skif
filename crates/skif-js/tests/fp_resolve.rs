@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use skif_config::Config;
-use skif_core::{Diagnostic, FileSystem, MemoryFs};
+use skif_core::{Diagnostic, FileSystem, MemoryFs, Report};
 use skif_js::{JsProvider, PluginSource};
 use skif_lint::{Registry, RunOptions, run, run_unsorted};
 use skif_workspace::Workspace;
@@ -22,6 +22,19 @@ fn lint_at(root: &str, files: &[(&str, &str)]) -> Vec<Diagnostic> {
     let provider = JsProvider::new(fs).with_input_source(Arc::new(PluginSource::new(config.js.plugins.clone())));
     let registry = Registry::new(vec![Box::new(provider)]).unwrap();
     run_unsorted(&registry, &workspace, &config, &RunOptions::default()).unwrap()
+}
+
+/// The sorted report of the workspace at `root`, with the files and extra entries a multi-root host reads.
+fn report_at(root: &str, files: &[(&str, &str)]) -> Report {
+    let memory = files
+        .iter()
+        .fold(MemoryFs::new(), |memory, (path, text)| memory.with_file(path, text));
+    let config = Config::from_toml_str("").unwrap();
+    let workspace = Workspace::discover_with_fs(Path::new(root), &config, &memory).unwrap();
+    let fs: Arc<dyn FileSystem> = Arc::new(memory);
+    let provider = JsProvider::new(fs).with_input_source(Arc::new(PluginSource::new(config.js.plugins.clone())));
+    let registry = Registry::new(vec![Box::new(provider)]).unwrap();
+    run(&registry, &workspace, &config, &RunOptions::default()).unwrap()
 }
 
 fn lint(files: &[(&str, &str)]) -> Vec<Diagnostic> {
@@ -126,21 +139,16 @@ fn uses_through_ancestor_manifests_are_reported_with_the_innermost_manifest() {
         "devDependencies":{"oxfmt":"0.1.0"}}"#;
     let child = r#"{"name":"child","private":true,"main":"index.js","dependencies":{"own":"1.0.0"},
         "scripts":{"format":"oxfmt ."}}"#;
-    let memory = [
-        ("/ws/.git/HEAD", ""),
-        ("/ws/package.json", outer),
-        ("/ws/tools/package.json", middle),
-        ("/ws/tools/child/package.json", child),
-        ("/ws/tools/child/index.js", "import 'left-pad';\nimport 'own';\n"),
-    ]
-    .iter()
-    .fold(MemoryFs::new(), |memory, (path, text)| memory.with_file(path, text));
-    let config = Config::from_toml_str("").unwrap();
-    let workspace = Workspace::discover_with_fs(Path::new("/ws/tools/child"), &config, &memory).unwrap();
-    let fs: Arc<dyn FileSystem> = Arc::new(memory);
-    let provider = JsProvider::new(fs).with_input_source(Arc::new(PluginSource::new(config.js.plugins.clone())));
-    let registry = Registry::new(vec![Box::new(provider)]).unwrap();
-    let report = run(&registry, &workspace, &config, &RunOptions::default()).unwrap();
+    let report = report_at(
+        "/ws/tools/child",
+        &[
+            ("/ws/.git/HEAD", ""),
+            ("/ws/package.json", outer),
+            ("/ws/tools/package.json", middle),
+            ("/ws/tools/child/package.json", child),
+            ("/ws/tools/child/index.js", "import 'left-pad';\nimport 'own';\n"),
+        ],
+    );
     assert_eq!(
         report.ancestor_dependency_uses,
         [
@@ -148,6 +156,42 @@ fn uses_through_ancestor_manifests_are_reported_with_the_innermost_manifest() {
             (PathBuf::from("/ws/tools"), "left-pad".to_owned())
         ]
     );
+}
+
+/// Two standalone projects side by side: `b` requires `../a/lib.js`, which requires `./helper.js` and `lodash`, a
+/// dependency of `a`.
+const SIBLINGS: [(&str, &str); 6] = [
+    ("/ws/.git/HEAD", ""),
+    (
+        "/ws/a/package.json",
+        r#"{"name":"a","private":true,"main":"index.js","dependencies":{"lodash":"4.17.21"}}"#,
+    ),
+    ("/ws/a/index.js", "module.exports = 1;\n"),
+    (
+        "/ws/a/lib.js",
+        "require('./helper.js');\nmodule.exports = require('lodash');\n",
+    ),
+    ("/ws/a/helper.js", "module.exports = 2;\n"),
+    ("/ws/b/package.json", r#"{"name":"b","private":true,"main":"index.js"}"#),
+];
+
+#[test]
+fn files_outside_the_root_are_followed_and_listed_absolute_without_findings_of_their_own() {
+    let mut files = SIBLINGS.to_vec();
+    files.push(("/ws/b/index.js", "module.exports = require('../a/lib.js');\n"));
+    let report = report_at("/ws/b", &files);
+    assert_eq!(
+        report.other_project_files,
+        [PathBuf::from("/ws/a/helper.js"), PathBuf::from("/ws/a/lib.js")]
+    );
+    // `lib.js` belongs to `a`, which judges it against its own manifest: `b` lists no `lodash` and is not told to.
+    let findings: Vec<&str> = report
+        .diagnostics
+        .iter()
+        .map(|d| d.rule.as_str())
+        .filter(|rule| ["unlisted-dependencies", "unresolved-imports", "unused-files"].contains(rule))
+        .collect();
+    assert_eq!(findings, Vec::<&str>::new(), "{:?}", report.diagnostics);
 }
 
 #[test]

@@ -158,8 +158,8 @@ impl<'a> Emitter<'a> {
         self.incomplete_packages.push(package);
     }
 
-    /// Records a file of another project (such as a nested root) that the analysed code imports, relative to the
-    /// workspace root, so a multi-root host can make it an entry of the root that owns it.
+    /// Records a file of another project (a nested, enclosing or sibling root) that the analysed code uses, absolute,
+    /// so a multi-root host can hand it to the root that owns it.
     pub fn report_other_project_file(&mut self, path: PathBuf) {
         self.other_project_files.push(path);
     }

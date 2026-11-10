@@ -27,9 +27,9 @@ Separately, the file discovery of the JS analysis skips hidden directories other
 build output by name, unless the directory is a workspace package. vscode lists `.vscode/extensions/*` as
 workspace members; the packages load, but the walk never enters `.vscode`, so none of their files is analysed.
 
-The graph of the importing root already follows such files: a file outside the workspace root is not a project file
-of its own, so the analysis parses it and follows its imports. What is missing is the report of them and the
-crediting by the root that owns them.
+The importing root does not even see such files: its module resolver takes a file outside the workspace root for an
+asset, so the graph neither parses it nor follows its imports, and the root that owns the file is never told of the
+use.
 
 ## Decision Drivers
 
@@ -48,8 +48,13 @@ crediting by the root that owns them.
 Chosen option: "Extend `Report::other_project_files` and credit the files outside the importing root after every
 root is linted", because it reuses both existing channels and keeps one lint per root.
 
-**What a report lists.** `Report::other_project_files` keeps the files below the workspace root that belong to a
-project of their own, relative to the root, and now lists two more kinds:
+**Following files outside the root.** The resolver resolves an import of a source file outside the workspace root
+to that file, unless it lies below a `node_modules` directory, and the graph takes it for a file of another project
+(`Module::foreign`), as it does for a nested root's file: it is parsed and its imports are followed, but it is not
+judged, and its imports use no dependency of the importing root nor are unlisted there.
+
+**What a report lists.** `Report::other_project_files` lists every path absolute. It keeps the files below the
+workspace root that belong to a project of their own, and now lists two more kinds:
 
 * below the root, the files of another project that a script runs (already graph entries, never listed) and the
   files a plugin names as a single path (a workflow step, a config's `globalSetup`) that exist and are no file of

@@ -280,10 +280,10 @@ fn owning_root(targets: &[Target], file: &Path) -> Option<usize> {
         .map(|(index, _)| index)
 }
 
-/// Hands the files of other projects that the report of root `from` lists to the innermost root holding each, as
-/// paths relative to that root. A file below `from` belongs to a root nested in it, which is linted later and takes
-/// it as an entry; a file outside `from` (listed with an absolute path) is counted as used by its root once every
-/// root is linted, as that root may be linted already.
+/// Hands the files of other projects that the report of root `from` lists (absolute) to the innermost root holding
+/// each, as paths relative to that root. A file below `from` belongs to a root nested in it, which is linted later and
+/// takes it as an entry; a file outside `from` is counted as used by its root once every root is linted, as that root
+/// may be linted already.
 fn route_other_project_files(
     targets: &[Target],
     (from, report): (usize, &Report),
@@ -291,9 +291,8 @@ fn route_other_project_files(
     uses: &mut [OtherRootUses],
 ) {
     let base = &targets[from].root;
-    for file in &report.other_project_files {
-        let abs = base.join(file);
-        let Some(owner) = owning_root(targets, &abs).filter(|owner| *owner != from) else {
+    for abs in &report.other_project_files {
+        let Some(owner) = owning_root(targets, abs).filter(|owner| *owner != from) else {
             continue;
         };
         let Ok(rel) = abs.strip_prefix(&targets[owner].root) else {

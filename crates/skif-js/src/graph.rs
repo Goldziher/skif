@@ -46,7 +46,7 @@ pub enum Target {
     External(String),
     /// A Node.js builtin.
     Builtin,
-    /// A file that is not analysed (stylesheet, image, JSON) or lies outside the workspace.
+    /// A file that is not analysed (stylesheet, image, JSON), or installed code outside the workspace.
     Asset,
     /// A scheme that is not followed (`https:`, `virtual:`).
     Ignored,
@@ -84,8 +84,8 @@ pub struct Module {
     /// Matches an `ignore` glob, or is [`Module::foreign`]: issues in this file are not reported.
     pub ignored: bool,
     /// Belongs to another project: a directory between it and its package holds a `package.json` of its own, such as
-    /// a nested root. That project judges the file against its own manifest, so its imports use no dependency of
-    /// `owner` either.
+    /// a nested root, or it lies outside the workspace root (a file of an enclosing or a sibling root). That project
+    /// judges the file against its own manifest, so its imports use no dependency of `owner` either.
     pub foreign: bool,
     /// Is an entry file; its exports are public.
     pub is_entry: bool,
@@ -516,7 +516,7 @@ impl<'a> Builder<'a> {
         let rel = relative(abs, inputs.root).unwrap_or_else(|| abs.to_string_lossy().into_owned());
         let setup = inputs.setup.package(owner);
         let package_rel = setup.and_then(|setup| relative(abs, &setup.dir));
-        let foreign = candidate.is_none() && self.in_other_project(abs, owner);
+        let foreign = candidate.is_none() && (!abs.starts_with(inputs.root) || self.in_other_project(abs, owner));
         let ignored = foreign
             || inputs.setup.global_ignore.matches_any(&rel)
             || setup
