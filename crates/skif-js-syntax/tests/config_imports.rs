@@ -558,3 +558,35 @@ fn the_arguments_of_an_exported_call_that_cannot_be_followed_are_kept() {
     );
     assert_eq!(extract("export default config;"), (ConfigValue::Unknown, Vec::new()));
 }
+
+/// A read that is not definite in an imported module stays so when the module exports it by name, directly or
+/// through a re-export: a fallback in the config is credited too.
+#[test]
+fn an_exported_read_that_is_not_definite_stays_so() {
+    for specifier in ["./shared", "./index"] {
+        let config: &'static str = if specifier == "./shared" {
+            "import { files } from './shared';\n\
+             export default { test: { setupFiles: files ?? ['./local.ts'] } };"
+        } else {
+            "import { files } from './index';\n\
+             export default { test: { setupFiles: files ?? ['./local.ts'] } };"
+        };
+        let loader = files(&[
+            ("/ws/app/config.ts", config),
+            (
+                "/ws/app/shared.ts",
+                "const base = { ...(process.env.CI ? { setupFiles: ['./ci.ts'] } : {}) };\n\
+                 export const files = base.setupFiles;",
+            ),
+            ("/ws/app/index.ts", "export { files } from './shared';"),
+        ]);
+        assert_eq!(
+            eval(&loader),
+            obj(vec![(
+                "test",
+                obj(vec![("setupFiles", strings(&["./ci.ts", "./local.ts"]))])
+            )]),
+            "{specifier}"
+        );
+    }
+}

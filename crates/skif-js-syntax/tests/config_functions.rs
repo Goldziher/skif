@@ -926,3 +926,76 @@ fn a_constant_holding_a_read_that_is_not_definite_is_not_definite() {
         "{value:?}"
     );
 }
+
+/// A read that is not definite stays so through every value it reaches: a key of an object (spread, merged or set on
+/// a local), the argument of a call, the value a function returns and a local it is assigned to. A fallback after it is
+/// credited too, so both the file a branch sets and the fallback stay named.
+#[test]
+fn a_read_that_is_not_definite_stays_so_through_every_value_it_reaches() {
+    let base = "const base = { ...(process.env.CI ? { setupFiles: ['./ci.ts'] } : {}) };\n";
+    for source in [
+        "const t = { ...base };\nexport default { test: { setupFiles: t.setupFiles ?? ['./local.ts'] } };",
+        "const t = Object.assign({}, base);\nexport default { test: { setupFiles: t.setupFiles ?? ['./local.ts'] } };",
+        "const t = { files: base.setupFiles };\nexport default { test: { setupFiles: t.files ?? ['./local.ts'] } };",
+        "const t = Object.assign({}, { files: base.setupFiles });\n\
+         export default { test: { setupFiles: t.files ?? ['./local.ts'] } };",
+        "const pick = (o) => o.setupFiles;\nexport default { test: { setupFiles: pick(base) ?? ['./local.ts'] } };",
+        "function pick(o) { const files = o.setupFiles; return files; }\n\
+         export default { test: { setupFiles: pick(base) ?? ['./local.ts'] } };",
+        "const make = (files) => files ?? ['./local.ts'];\n\
+         export default { test: { setupFiles: make(base.setupFiles) } };",
+        "const make = () => { const t = {}; t.files = base.setupFiles; return t.files ?? ['./local.ts']; };\n\
+         export default { test: { setupFiles: make() } };",
+        "const make = () => { let files; files = base.setupFiles; return files ?? ['./local.ts']; };\n\
+         export default { test: { setupFiles: make() } };",
+    ] {
+        let source = format!("{base}{source}");
+        let value = extract("vitest.config.ts", &source);
+        assert_eq!(
+            get(&value, &["test", "setupFiles"]),
+            &strings(&["./ci.ts", "./local.ts"]),
+            "{source}"
+        );
+    }
+    let spread = extract(
+        "vitest.config.ts",
+        &format!(
+            "{base}const files = [...(base.setupFiles ?? [])];\n\
+             export default {{ test: {{ setupFiles: files.length ? files : ['./local.ts'], length: files.length }} }};"
+        ),
+    );
+    assert_eq!(get(&spread, &["test", "setupFiles"]), &ConfigValue::Unknown, "{spread:?}");
+    assert_eq!(get(&spread, &["test", "length"]), &ConfigValue::Unknown, "{spread:?}");
+}
+
+/// A key an object does not have is `undefined`, so a parameter's or a destructuring's default applies to it, while a
+/// literal `null` skips the default; `??` falls back on both, and an absent key is exported as `null`.
+#[test]
+fn an_absent_key_takes_a_default_and_null_does_not() {
+    let value = extract(
+        "vitest.config.ts",
+        "const base = { test: { include: ['a'] } };\n\
+         function make(setupFiles = ['./setup.ts']) { return setupFiles; }\n\
+         const absent = () => { const o = { f: base.x }; const { f = ['./d.ts'] } = o; return f; };\n\
+         const nulled = () => { const o = { f: null }; const { f = ['./d.ts'] } = o; return f; };\n\
+         export default {\n\
+           parameter: make(base.test.setupFiles),\n\
+           destructured: absent(),\n\
+           nullParameter: make(null),\n\
+           nullDestructured: nulled(),\n\
+           coalesced: base.test.setupFiles ?? ['./c.ts'],\n\
+           nullCoalesced: null ?? ['./n.ts'],\n\
+           exported: { f: base.x },\n\
+         };",
+    );
+    assert_eq!(get(&value, &["parameter"]), &strings(&["./setup.ts"]));
+    assert_eq!(get(&value, &["destructured"]), &strings(&["./d.ts"]));
+    assert_eq!(get(&value, &["nullParameter"]), &ConfigValue::Null);
+    assert_eq!(get(&value, &["nullDestructured"]), &ConfigValue::Null);
+    assert_eq!(get(&value, &["coalesced"]), &strings(&["./c.ts"]));
+    assert_eq!(get(&value, &["nullCoalesced"]), &strings(&["./n.ts"]));
+    assert_eq!(
+        get(&value, &["exported"]),
+        &ConfigValue::Object(vec![("f".to_owned(), ConfigValue::Null)])
+    );
+}
