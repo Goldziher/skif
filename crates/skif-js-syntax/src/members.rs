@@ -445,7 +445,12 @@ pub(crate) fn credit(info: &mut ModuleInfo, uses: &Uses) {
 
 /// The sorted names in `list` or `more`, each once.
 fn union(list: &[String], more: &BTreeSet<String>) -> Vec<String> {
-    list.iter().chain(more).cloned().collect::<BTreeSet<_>>().into_iter().collect()
+    list.iter()
+        .chain(more)
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 /// The members of the enums and namespaces declared in a program that the program itself reads by name.
