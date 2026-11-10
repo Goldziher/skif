@@ -97,7 +97,7 @@ fn compatible(left: &str, right: &str) -> Option<bool> {
         let trimmed = version.trim();
         Specifier::new_node_range(trimmed.strip_prefix(['v', 'V']).unwrap_or(trimmed))
     };
-    Some(range(left)?.allows_any(&range(right)?))
+    Some(range(left)?.allows_any(&*range(right)?))
 }
 
 fn node_source(scan: &Scan, root: &Package) -> Option<Source> {
@@ -465,7 +465,7 @@ jobs:
             [row("package.json", r#""node":">=20""#, NODE_DETAIL)]
         );
         let agreeing = [("package.json", root), (".node-version", "20\n")];
-        assert!(findings(&agreeing, "").is_empty());
+        assert_eq!(findings(&agreeing, ""), []);
     }
 
     #[test]
@@ -479,7 +479,7 @@ jobs:
             ),
             (".nvmrc", "lts/*\n"),
         ];
-        assert!(findings(&files, "").is_empty());
+        assert_eq!(findings(&files, ""), []);
     }
 
     #[test]
@@ -524,7 +524,11 @@ jobs:
         );
         let action = diagnostics
             .iter()
-            .find(|diagnostic| path_of(diagnostic).ends_with(".yaml"))
+            .find(|diagnostic| {
+                std::path::Path::new(&path_of(diagnostic))
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("yaml"))
+            })
             .unwrap();
         assert!(action.help.as_deref().unwrap().contains("remove `version`"));
     }
@@ -615,7 +619,7 @@ FROM node:16
             "[rules.toolchain-pin-drift]\nignore-files = [{ name = \"docker/**\", reason = \"built elsewhere\" }]\n";
         assert_eq!(findings(&files, ignored), [row("Dockerfile", "16", NODE_DETAIL)]);
         let workflows_only = "[rules.toolchain-pin-drift]\nkinds = [\"workflows\"]\n";
-        assert!(findings(&files, workflows_only).is_empty());
+        assert_eq!(findings(&files, workflows_only), []);
     }
 
     #[test]
@@ -642,7 +646,7 @@ FROM node:16
             ("packages/a/.nvmrc", "18\n"),
         ];
         assert_eq!(findings(&member, ""), [row("packages/a/.nvmrc", "18", NODE_DETAIL)]);
-        assert!(findings(&member, ignored).is_empty());
+        assert_eq!(findings(&member, ignored), []);
     }
 
     #[test]

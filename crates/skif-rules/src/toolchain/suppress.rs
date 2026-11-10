@@ -153,7 +153,7 @@ npm ci
         let directives = directives(source);
         assert_eq!(directives.len(), 3);
         assert_eq!(directives[0].covers, None);
-        assert!(directives[0].rules.is_empty());
+        assert_eq!(directives[0].rules, [] as [String; 0]);
         assert_eq!(directives[1].rules, ["toolchain-pin-drift", RULE]);
         assert_eq!(directives[1].reason, None);
         assert_eq!(directives[1].covers, Some((4, 4)));

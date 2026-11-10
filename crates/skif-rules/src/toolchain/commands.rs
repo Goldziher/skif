@@ -398,9 +398,9 @@ mod tests {
             pins("sudo npm i -g pnpm@9"),
             [("pnpm".to_owned(), "9".to_owned(), "pnpm@9")]
         );
-        assert!(pins("npm install pnpm@9").is_empty());
-        assert!(pins("npm i -g pnpm").is_empty());
-        assert!(pins("corepack prepare pnpm@$PNPM_VERSION").is_empty());
+        assert_eq!(pins("npm install pnpm@9"), []);
+        assert_eq!(pins("npm i -g pnpm"), []);
+        assert_eq!(pins("corepack prepare pnpm@$PNPM_VERSION"), []);
         assert_eq!(corepack(&words("corepack enable pnpm")), Some(Corepack::Enable));
         assert_eq!(corepack(&words("corepack prepare --activate")), Some(Corepack::Prepare));
         assert_eq!(corepack(&words("npm ci")), None);
