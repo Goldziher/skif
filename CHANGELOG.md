@@ -117,6 +117,12 @@ All notable changes to this project are documented here. The format follows
 - Judging the packages tool configs name decides once per config file whether git ignores it, not once per package
   reading it and package it names: hundreds of packages extending one base `tsconfig` below a long `.gitignore` no
   longer rebuild the ignore matchers thousands of times.
+- The commands of MCP servers (`.mcp.json` and the other MCP configs), Tauri's before commands, Travis CI, Railway
+  services and mise tasks judge only the binaries they reach through a package manager or a `node_modules/.bin`
+  path, as knip's `optionalBinaries` has it for the same plugins: `uvx`, `trunk`, `codecov` or `shellcheck` run by
+  name are no longer `unlisted-binaries` findings. The binaries a mise file task runs are reported at the task file,
+  not at `package.json`
+  ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
 
 ### Changed
 

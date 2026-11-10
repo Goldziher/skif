@@ -188,7 +188,7 @@ impl Collector<'_, '_> {
                 PluginInput::ScriptAt { dir, script } => self.script_at(&dir, &script),
                 PluginInput::SourceScript { file, script } => {
                     let source = self.ctx.dir.join(&file);
-                    self.script(&script, &source, false);
+                    self.script(&script, &source, optional);
                 }
                 PluginInput::FileDependency { file, name } => {
                     let source = self.ctx.dir.join(&file);

@@ -26,6 +26,7 @@ static SPEC: PluginSpec = PluginSpec {
         ".vscode/mcp.json",
         ".codex/config.toml",
     ],
+    optional_binaries: true,
     ..PluginSpec::DEFAULT
 };
 

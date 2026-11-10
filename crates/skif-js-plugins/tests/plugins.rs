@@ -5404,6 +5404,74 @@ fn ci_and_hook_commands_judge_only_binaries_reached_through_a_package_manager_or
     assert!(referenced.iter().any(|name| name == "shellcheck"), "{referenced:?}");
 }
 
+/// The commands of MCP servers, Tauri, Travis, Railway and mise run machine tools: as knip's `optionalBinaries` has
+/// it, a binary they run by name is only a credit, and one reached through a package manager is judged. A mise file
+/// task's binaries are recorded with the task file.
+#[test]
+fn machine_tool_commands_judge_only_binaries_reached_through_a_package_manager() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"app","repository":"github:acme/app"}"#,
+        ),
+        (
+            ".mcp.json",
+            r#"{"mcpServers":{"py":{"command":"uvx","args":["some-server"]},"own":{"command":"pnpm","args":["exec","mcptool"]}}}"#,
+        ),
+        (
+            "src-tauri/tauri.conf.json",
+            r#"{"build":{"beforeDevCommand":"trunk serve && pnpm exec tauritool"}}"#,
+        ),
+        (
+            ".travis.yml",
+            "language: node_js\nbefore_install:\n  - codecov\n  - shellcheck x.sh && pnpm exec travistool\n",
+        ),
+        (
+            ".railway/railway.ts",
+            r#"import { service } from "railway/iac";
+service("api", { build: "cargo build && pnpm exec railtool" });"#,
+        ),
+        (
+            "mise.toml",
+            "[tasks.lint]\nrun = \"shellcheck x.sh && actionlint && pnpm exec misetool\"\n",
+        ),
+        (
+            "mise-tasks/deploy",
+            "#!/usr/bin/env bash\nuv run deploy.py\npre-commit run\npnpm exec filetool\n",
+        ),
+    ];
+    let results = resolve(&files, &["@tauri-apps/cli", "railway"]);
+    let runs = |id: &str| -> Vec<(String, String)> {
+        output(&results, id)
+            .run_binaries
+            .iter()
+            .map(|run| {
+                let from = run.from.strip_prefix(DIR).unwrap_or(run.from.as_path());
+                (run.name.clone(), from.to_string_lossy().replace('\\', "/"))
+            })
+            .collect()
+    };
+    let one = |name: &str, from: &str| vec![(name.to_owned(), from.to_owned())];
+    assert_eq!(runs("mcp"), one("mcptool", ".mcp.json"));
+    assert_eq!(runs("tauri"), one("tauritool", "src-tauri/tauri.conf.json"));
+    assert_eq!(runs("travis"), one("travistool", ".travis.yml"));
+    assert_eq!(runs("railway"), one("railtool", ".railway/railway.ts"));
+    let mut mise = runs("mise");
+    mise.sort();
+    assert_eq!(
+        mise,
+        [
+            ("filetool".to_owned(), "mise-tasks/deploy".to_owned()),
+            ("misetool".to_owned(), "mise.toml".to_owned()),
+        ]
+    );
+    // A binary run by name is still a credit.
+    for (id, name) in [("mcp", "uvx"), ("tauri", "trunk"), ("travis", "codecov"), ("railway", "cargo"), ("mise", "actionlint")] {
+        let referenced = &output(&results, id).referenced_binaries;
+        assert!(referenced.iter().any(|binary| binary == name), "{id}: {referenced:?}");
+    }
+}
+
 #[test]
 fn github_actions_steps_in_a_shell_that_is_not_posix_are_skipped() {
     let workflow = concat!(
