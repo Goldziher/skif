@@ -815,20 +815,24 @@ fn version_group(state: &mut State<'_>, src: &Src, path: &str, index: usize, gro
     state.note(src, NoteClass::Exact, path, "written to [[version-groups]]");
 }
 
-/// `policy: catalog` is the global `[catalog] mode = "prefer"` in skif. A group that selects something narrower must
-/// not widen to every dependency, so it is left to a human.
+/// `policy: catalog` is the global `[catalog] mode = "enforce"` in skif, with `min-packages = 1`: syncpack reports
+/// every instance without `catalog:` as an error, in however many packages. A group that selects something narrower
+/// must not widen to every dependency, so it is left to a human.
 fn catalog_policy(state: &mut State<'_>, src: &Src, path: &str, selectors: &Selectors) {
     if selectors.selects_everything() {
-        state.doc.table(&["catalog"]).set("mode", Val::str("prefer"));
-        state.keep(Tool::Syncpack, tables::syncpack_rules("catalog-policy"));
-        state.note_with(
+        let catalog = state.doc.table(&["catalog"]);
+        catalog.set("mode", Val::str("enforce"));
+        catalog.set("min-packages", Val::Int(1));
+        for id in tables::syncpack_rules("catalog-policy") {
+            state.keep(Tool::Syncpack, [id]);
+            state.set_level(id, Level::Error);
+        }
+        state.note(
             src,
-            NoteClass::Approximate,
+            NoteClass::Exact,
             join(path, "policy"),
-            "written to [catalog] mode = \"prefer\"; the group selected every dependency. skif reports a dependency \
-             without `catalog:` as a warning, and only one used in at least `min-packages` packages (2 by default); \
-             syncpack reported every such instance as an error",
-            "set [catalog] mode = \"enforce\" and min-packages = 1 for syncpack's strictness",
+            "written to [catalog] mode = \"enforce\" and min-packages = 1, with the catalog rules at error; the group \
+             selected every dependency, and like syncpack skif reports every instance without `catalog:`",
         );
     } else {
         state.note_with(

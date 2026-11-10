@@ -865,19 +865,17 @@ fn a_catalog_policy_group_does_not_widen_to_every_dependency() {
     );
     assert_eq!(
         table(&star)["catalog"]["mode"].as_str(),
-        Some("prefer"),
+        Some("enforce"),
         "{}",
         star.toml
     );
 
     let global = syncpack(r#"{ "versionGroups": [{ "policy": "catalog" }] }"#, Profile::Full);
-    assert_eq!(table(&global)["catalog"]["mode"].as_str(), Some("prefer"));
-    assert_eq!(class(&global, "versionGroups[0].policy"), NoteClass::Approximate);
-    assert!(
-        note(&global, "versionGroups[0].policy")
-            .message
-            .contains("min-packages")
-    );
+    let parsed = table(&global);
+    assert_eq!(parsed["catalog"]["mode"].as_str(), Some("enforce"));
+    assert_eq!(parsed["catalog"]["min-packages"].as_integer(), Some(1));
+    assert_eq!(global.config.catalog.min_packages, 1);
+    assert_eq!(class(&global, "versionGroups[0].policy"), NoteClass::Exact);
 }
 
 #[test]
@@ -1351,8 +1349,9 @@ fn syncpack_catalog_policy_keeps_the_catalog_rules() {
         "unresolved-catalog-references",
     ] {
         assert!(!off.iter().any(|known| known == id), "{id} stays on: {off:?}");
+        assert_eq!(table(&migration)["rules"][id].as_str(), Some("error"), "{id} errors as in syncpack");
     }
-    assert_eq!(table(&migration)["catalog"]["mode"].as_str(), Some("prefer"));
+    assert_eq!(table(&migration)["catalog"]["mode"].as_str(), Some("enforce"));
 }
 
 #[test]

@@ -168,7 +168,7 @@ skif adds beyond sherif's are listed under the [report](#the-report)'s extra che
 | --- | --- |
 | `versionGroups[]` with `label`, `dependencies`, `packages`, `dependencyTypes`, `specifierTypes` | `[[version-groups]]` with the same keys |
 | `isBanned`, `isIgnored`, `pinVersion`, `snapTo`, `preferVersion`, `policy: sameRange`, `policy: sameMinor` | `policy = "banned"`, `"ignored"`, `"pinned"` with `pin`, `"snapped-to"` with `snap-to`, `prefer`, `"same-range"`, `"same-minor"`. As in syncpack, a `policy` wins over `snapTo`; `preferVersion` with `policy: sameMinor` is not written (A), since a skif same-minor group picks no version to align on |
-| `policy: catalog` | `[catalog] mode = "prefer"` when the group selects every dependency (A: skif reports a dependency without `catalog:` as a warning, and only when at least `min-packages` packages use it; syncpack reports every instance as an error). A group with `dependencies`, `packages`, `dependencyTypes` or `specifierTypes` is not written (H): the catalog setting is global, so writing it would check every dependency |
+| `policy: catalog` | `[catalog] mode = "enforce"` and `min-packages = 1` when the group selects every dependency, with `catalog-not-used`, `catalog-missing-entry` and `unresolved-catalog-references` at `error`: like syncpack, skif then reports every instance without `catalog:` as an error. A group with `dependencies`, `packages`, `dependencyTypes` or `specifierTypes` is not written (H): the catalog setting is global, so writing it would check every dependency |
 | `policy: semverRangeOnly` | `policy = "semver-range-only"` |
 | `severity` | none (H): levels are set per rule |
 | `semverGroups[]` with `range` | `[[semver-groups]]` |
