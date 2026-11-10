@@ -220,9 +220,10 @@ All notable changes to this project are documented here. The format follows
   unlisted and the package as unused.
 - An ESLint config that extends a built-in config (`eslint:recommended`, `eslint:all`) credits `eslint`, as knip does,
   so an `eslint` listed only at the root and enabled by a member's config is no longer reported unused.
-- `skif migrate` from knip: with a `workspaces["."]` table, the top-level `entry`, `project` and `ignore` are not
-  written (knip reads the root workspace from that table alone), instead of being merged with the table's lists into
-  `[js]`, which widened the entries.
+- `skif migrate` from knip: with a `workspaces["."]` table, the top-level `entry`, `project` and `paths` are not
+  written (knip reads them for the root workspace from that table alone), instead of being merged with the table's
+  lists, which widened the entries. The top-level `ignore` and `ignoreFiles` are still written: knip applies them to
+  every workspace.
 - npm package: a panic in `skif` exits `2` (could not run) with the JSON `error` document (kind `internal`) under
   `--format json`, as the native binary does; it surfaced as a JavaScript exception with exit code 1 and no document.
   `skif_cli::run` catches the panic.

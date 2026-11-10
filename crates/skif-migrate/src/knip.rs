@@ -355,8 +355,9 @@ pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), 
     Ok(())
 }
 
-/// Whether the `workspaces` key of `config` has a `"."` entry, which knip then reads for the root workspace instead of
-/// the top-level keys.
+/// Whether the `workspaces` key of `config` has a `"."` entry, which knip then reads for the root workspace's `entry`,
+/// `project` and `paths` instead of the top-level keys; the top-level `ignore` and `ignoreFiles` still apply to every
+/// workspace.
 fn configures_root_workspace(config: &ConfigValue) -> bool {
     config
         .get("workspaces")
@@ -422,7 +423,7 @@ fn read_root(state: &mut State<'_>, src: &Src, root: &str, config: &ConfigValue,
         let path = join(root, key);
         match key {
             "$schema" => {}
-            "entry" | "project" | "ignore" if root_workspace => state.note(
+            "entry" | "project" | "paths" if root_workspace => state.note(
                 src,
                 NoteClass::Exact,
                 path,
