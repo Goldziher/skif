@@ -4,7 +4,7 @@ date: 2026-11-10
 decision-makers: ["Na'aman Hirschfeld"]
 ---
 
-# Files Other Roots Reach Count as Used, and Members Below Hidden Directories Are Analysed
+# Files Other Roots Reach Count as Used, Members Below Hidden Directories Are Analysed, and Jest's testRegex Adds Entries
 
 ## Context and Problem Statement
 
@@ -22,6 +22,9 @@ channel, so the owning root reports a used file as unused, and `--allow-remove-f
 * A file of the enclosing root that a nested root imports: vscode's `build/lib/test/detectChanges.test.ts` imports
   `../../../.github/actions/detect-changes/detect.ts`, a file of the root at the top.
 * A file of a sibling root (two standalone projects side by side) that the other one imports.
+
+The `jest` plugin does not read `testRegex`, so the test files a config selects with it, rather than with
+`testMatch`, are reported unused.
 
 Separately, the file discovery of the JS analysis skips hidden directories other than tool configuration ones and
 build output by name, unless the directory is a workspace package. vscode lists `.vscode/extensions/*` as
@@ -82,6 +85,23 @@ and hidden directories inside the members are skipped as before. The `skipped-di
 comparison ([ADR 0080](0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md))
 follows: a file in a member below a skipped directory is compared.
 
+**Jest's `testRegex`.** The `jest` plugin reads `testRegex` (a string, a regular expression literal or an array of
+them) as regular expressions that select test files (`PluginInput::EntryRegex`, `PluginOutput::entry_regexes`,
+`WorkspaceInputs::entry_regex`). They add entries and never replace the default test globs, although Jest runs
+`testRegex` instead of `testMatch`: knip 6.44.1's `jest` plugin ignores `testRegex` and keeps its defaults, so a
+replacement would report files knip counts as tests, and `--allow-remove-files` would delete them. A regular expression
+is matched against `/` followed by the path relative to the package directory. `<rootDir>` stands for Jest's `rootDir`
+resolved against the config's directory (the config's own directory by default, the enclosing config's for a project
+object), and a leading one anchors the expression there; a `rootDir` that is computed, absolute or outside the package
+makes `<rootDir>` match any directory, so no file the expression selects is missed. The `i`, `m` and `s` flags of a
+literal become inline flags. An expression the `regex` crate does not compile (a lookaround, a backreference, one over
+its size limit) leaves the entries incomplete instead of being guessed at. Each expression is compiled once by the
+plugin to check it and once more per package, together with the others, to match.
+
+`testPathIgnorePatterns` is not applied. knip ignores it as well, so applying it would report test files knip counts
+as used, with the same risk of deletion; and since it narrows only Jest's own test files, applying it would also mean
+keeping each tool's entries apart from the others'.
+
 The files outside a root are credited, not made entries, because the owning root may already be linted (it encloses
 the listing root or sits beside it), and because the listing root's graph already followed everything they import:
 crediting the whole set needs no second lint.
@@ -97,6 +117,10 @@ crediting the whole set needs no second lint.
 * Bad, because a root linted on its own still reports these files, as for the other channels.
 * Neutral, because a plugin entry is listed only when it names one path; a glob that names files of another root is
   still not followed there.
+* Bad, because a test file that only Jest's `testPathIgnorePatterns` excludes, or that only the default test globs
+  match in a config whose `testRegex` replaces them for Jest, stays an entry and is not reported, as knip does not
+  report it.
+* Bad, because a `testRegex` the `regex` crate does not compile leaves the package's files unjudged.
 
 ### Confirmation
 
@@ -109,6 +133,11 @@ absolute path and judged by no rule of the importing root, and that its dependen
 manifest. `crates/skif-js/src/discover.rs` checks
 that the files of `.vscode/extensions/*` members are found and owned by them while other files of `.vscode` are not,
 and `tools/bench/src/parity.rs` that the knip comparison sets apart a file below `.vscode` only outside a member.
+`crates/skif-js-plugins/tests/plugins.rs` checks that `testRegex` keeps the default test globs, translates flags,
+anchors `<rootDir>` at the `rootDir` of each config and project (any directory when that is unknown) and leaves the
+entries incomplete for an expression the `regex` crate rejects; `crates/skif-js/tests/graph_fixes.rs` that the files it
+selects are entries, that `testPathIgnorePatterns` removes none, and that an anchored expression matches only below the
+root directory; `crates/skif-js/src/globs.rs` that `\/__tests__\/` compiles and matches.
 
 ## Pros and Cons of the Options
 

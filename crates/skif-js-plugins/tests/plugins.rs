@@ -639,45 +639,101 @@ fn jest() {
     assert_absent(out, &["default"]);
 }
 
+/// Jest's default `testMatch`, which a `testRegex` adds to rather than replaces, as knip keeps its default globs.
+const JEST_DEFAULTS: [&str; 4] = [
+    "**/__tests__/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+    "**/*.{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+    "**/{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+    "**/__mocks__/**/*.{js,ts,jsx,tsx}",
+];
+
 #[test]
-fn jest_test_regex_replaces_the_default_test_globs_and_ignore_patterns_are_regexes() {
+fn jest_test_regex_adds_entries_beside_the_default_test_globs_and_ignore_patterns_are_not_applied() {
     let results = resolve(
         &[(
             "jest.config.js",
             r#"module.exports = {
-              testRegex: ["\\.check\\.js$", /\/__tests__\//],
+              testRegex: ["\\.check\\.js$", /\/__tests__\//, /\.SPEC\.js$/gi, ""],
               testPathIgnorePatterns: ["/node_modules/", "<rootDir>/e2e/", process.env.EXTRA],
             };"#,
         )],
         &["jest"],
     );
     let out = output(&results, "jest");
-    assert_eq!(out.entry_regexes, [r"\.check\.js$", r"\/__tests__\/"]);
-    assert_eq!(out.entry_ignore_regexes, ["/node_modules/", "^/e2e/"]);
-    assert!(
-        !out.entries.iter().any(|entry| entry.contains("{spec,test}")),
-        "{:?}",
-        out.entries
+    assert_eq!(
+        out.entry_regexes,
+        [r"\.check\.js$", r"\/__tests__\/", r"(?i)\.SPEC\.js$"]
     );
-    assert_entries(&out.entries, &["**/__mocks__/**/*.{js,ts,jsx,tsx}"]);
-    // Mocks are no test files, so the ignore patterns do not narrow them.
-    assert_eq!(out.test_entries, Vec::<String>::new());
-    assert!(!out.entries_incomplete);
+    let mut entries = out.entries.clone();
+    entries.sort();
+    let mut defaults = JEST_DEFAULTS.map(str::to_owned).to_vec();
+    defaults.sort();
+    assert_eq!(entries, defaults);
+    assert!(!out.entries_incomplete, "{:?}", out.incomplete_reasons);
 }
 
 #[test]
-fn jest_test_regex_of_a_project_keeps_the_default_test_globs() {
+fn jest_test_regex_anchors_root_dir_at_the_root_dir_of_each_config_and_project() {
+    let results = resolve(
+        &[
+            (
+                "jest.config.js",
+                r#"module.exports = {
+                  testRegex: "<rootDir>/e2e/",
+                  projects: [
+                    { rootDir: "packages/a", testRegex: ["<rootDir>/test/", "x<rootDir>y"] },
+                    { displayName: "inherits", testRegex: "<rootDir>/unit/" },
+                    { rootDir: process.env.ROOT, testRegex: "<rootDir>/it/" },
+                    { rootDir: "../outside", testRegex: "<rootDir>/far/" },
+                    "<rootDir>/packages/b",
+                  ],
+                };"#,
+            ),
+            (
+                "packages/b/jest.config.js",
+                r#"module.exports = { testRegex: "<rootDir>/spec/" };"#,
+            ),
+        ],
+        &["jest"],
+    );
+    let out = output(&results, "jest");
+    assert_eq!(
+        out.entry_regexes,
+        [
+            "^/e2e/",
+            "^/packages/a/test/",
+            "x/packages/ay",
+            "^/unit/",
+            // A root directory that is not known, or outside the package, matches anywhere.
+            "^.*/it/",
+            "^.*/far/",
+            "^/packages/b/spec/",
+        ]
+    );
+    assert!(!out.entries_incomplete, "{:?}", out.incomplete_reasons);
+}
+
+#[test]
+fn a_jest_test_regex_the_regex_crate_rejects_leaves_the_entries_incomplete() {
     let results = resolve(
         &[(
             "jest.config.js",
-            r#"module.exports = { projects: [{ testRegex: "\\.check\\.js$" }, { displayName: "unit" }] };"#,
+            r#"module.exports = { testRegex: ["^(?!.*fixtures).*\\.test\\.js$", "\\.check\\.js$"] };"#,
         )],
         &["jest"],
     );
     let out = output(&results, "jest");
     assert_eq!(out.entry_regexes, [r"\.check\.js$"]);
-    assert_entries(&out.entries, &["**/*.{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}"]);
-    assert_entries(&out.test_entries, &["**/*.{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}"]);
+    assert!(out.entries_incomplete);
+    assert!(!out.entries.iter().any(|entry| entry == "**"), "{:?}", out.entries);
+
+    let computed = resolve(
+        &[("jest.config.js", "module.exports = { testRegex: process.env.TESTS };")],
+        &["jest"],
+    );
+    let out = output(&computed, "jest");
+    assert!(out.entry_regexes.is_empty(), "{:?}", out.entry_regexes);
+    assert!(out.entries_incomplete);
 }
 
 #[test]

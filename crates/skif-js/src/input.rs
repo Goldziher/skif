@@ -62,20 +62,6 @@ impl CustomElementLibrary {
     }
 }
 
-/// The entries of one tool that its own exclusions narrow (Jest's `testPathIgnorePatterns`): a file is one of them
-/// when it matches a glob of `globs` or a regular expression of `regexes`, and none of `ignore_regexes`. The entries
-/// of other tools do not see the exclusions. Regular expressions are matched against `/` followed by the path
-/// relative to the package directory.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ScopedEntries {
-    /// Entry globs, relative to the package directory.
-    pub globs: Vec<String>,
-    /// Entry regular expressions.
-    pub regexes: Vec<String>,
-    /// Regular expressions of files that are none of these entries.
-    pub ignore_regexes: Vec<String>,
-}
-
 /// What an [`InputSource`] contributes for one workspace package.
 ///
 /// Globs are relative to the package directory and use `/` separators. A leading `!` excludes.
@@ -85,9 +71,10 @@ pub struct WorkspaceInputs {
     pub entry: Vec<String>,
     /// Entry files that are part of the shipped product; the only plugin entries used in production mode.
     pub production_entry: Vec<String>,
-    /// Entry files in every mode that the tool selects with regular expressions or narrows with exclusions of its
-    /// own, one set per tool; not used in production mode.
-    pub scoped_entry: Vec<ScopedEntries>,
+    /// Entry files given as regular expressions in the syntax of the `regex` crate (Jest's `testRegex`), matched
+    /// against `/` followed by the path relative to the package directory; besides `entry`, and like it not used in
+    /// production mode.
+    pub entry_regex: Vec<String>,
     /// Files that belong to the project, added to the default or configured project globs.
     pub project: Vec<String>,
     /// Files whose issues are never reported, relative to the package directory.
@@ -167,7 +154,7 @@ impl WorkspaceInputs {
     pub fn extend(&mut self, other: Self) {
         self.entry.extend(other.entry);
         self.production_entry.extend(other.production_entry);
-        self.scoped_entry.extend(other.scoped_entry);
+        self.entry_regex.extend(other.entry_regex);
         self.project.extend(other.project);
         self.ignore.extend(other.ignore);
         self.ignore_dependencies.extend(other.ignore_dependencies);

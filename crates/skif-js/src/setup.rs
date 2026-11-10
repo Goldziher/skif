@@ -14,11 +14,11 @@ use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 use crate::ancestors;
 use crate::config_check::relative_tsconfig;
 use crate::deps::member_dirs;
-use crate::globs::{Globs, Names};
+use crate::globs::{Globs, Names, regex_set};
 use crate::graph::ModuleGraph;
 use crate::input::{
     BuildDir, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope, InputRequest, InputSource,
-    PathAlias, RunBinary, ScopedEntries, WorkspaceInputs,
+    PathAlias, RunBinary, WorkspaceInputs,
 };
 use crate::listed::{self, Listed};
 use crate::resolve::join_normalized;
@@ -559,26 +559,6 @@ fn is_shared_pattern(pattern: &str) -> bool {
     !body.starts_with("**/") && !body.starts_with("../") && !body.starts_with('/')
 }
 
-/// The entry sets of the tools that keep their entries apart, each with the package's negated entry patterns too.
-/// With `shared`, only the globs that also match files of nested packages ([`is_shared_pattern`]) and no regular
-/// expression, which matches anywhere in a path as `**/` does.
-fn scoped_globs(scoped: &[ScopedEntries], negations: &[String], shared: bool) -> Vec<Globs> {
-    scoped
-        .iter()
-        .map(|set| {
-            let patterns: Vec<String> = set
-                .globs
-                .iter()
-                .filter(|pattern| !shared || is_shared_pattern(pattern))
-                .chain(negations)
-                .cloned()
-                .collect();
-            let regexes: &[String] = if shared { &[] } else { &set.regexes };
-            Globs::with_regexes(&patterns, regexes, &set.ignore_regexes)
-        })
-        .collect()
-}
-
 /// Whether an entry pattern names one path rather than a glob or a negation.
 fn is_literal_path(pattern: &str) -> bool {
     !pattern.is_empty() && !pattern.contains(['*', '?', '[', ']', '{', '}', '!'])
@@ -675,10 +655,11 @@ impl Setup {
             for source in sources {
                 plugin.extend(source.inputs(&request));
             }
-            let scoped_entry = if production {
-                Vec::new()
+            // Entry regular expressions are test entries, which production mode does not use.
+            let entry_regex = if production {
+                None
             } else {
-                std::mem::take(&mut plugin.scoped_entry)
+                regex_set(&plugin.entry_regex)
             };
             let scripts = scripts::analyze(package);
 
@@ -701,7 +682,6 @@ impl Setup {
             entry.extend(plugin.production_entry);
             let plugin_entry_files: Vec<PathBuf> = plugin_entry
                 .iter()
-                .chain(scoped_entry.iter().flat_map(|scoped| scoped.globs.iter()))
                 .filter(|pattern| is_literal_path(pattern))
                 .map(|pattern| join_normalized(&abs_dir, pattern))
                 .collect();
@@ -765,18 +745,13 @@ impl Setup {
                     .iter()
                     .filter_map(|pattern| workspace_relative(&dir_name, pattern)),
             );
-            let negations: Vec<String> = entry
-                .iter()
-                .filter(|pattern| pattern.starts_with('!'))
-                .cloned()
-                .collect();
             Some(PackageSetup {
                 id,
                 dir: abs_dir,
-                entry: Globs::new(entry).or_each(scoped_globs(&scoped_entry, &negations, false)),
+                entry: Globs::new(entry).with_regexes(entry_regex.clone()),
                 external_entry,
-                shared_entry: Globs::new(shared_entry).or_each(scoped_globs(&scoped_entry, &negations, true)),
-                plugin_entry: Globs::new(plugin_entry).or_each(scoped_globs(&scoped_entry, &negations, false)),
+                shared_entry: Globs::new(shared_entry),
+                plugin_entry: Globs::new(plugin_entry).with_regexes(entry_regex),
                 plugin_entry_files,
                 entries_incomplete: plugin.entries_incomplete,
                 incomplete_scope: match &plugin.incomplete_scope {
