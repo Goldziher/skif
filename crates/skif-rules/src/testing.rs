@@ -4,7 +4,6 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use skif_config::Config;
 use skif_core::{Diagnostic, FixOp, MemoryFs, Span};
@@ -38,9 +37,7 @@ pub fn lint(rule: &str, files: Files<'_>, config: &Config) -> Vec<Diagnostic> {
 pub fn lint_with(rule: &str, files: Files<'_>, config: &Config, options: &RunOptions<'_>) -> Vec<Diagnostic> {
     let fs = memory(files);
     let workspace = Workspace::discover_with_fs(Path::new("/ws"), config, &fs).unwrap();
-    let mut providers = crate::providers();
-    providers.push(Box::new(crate::toolchain_provider(Arc::new(fs.clone()))));
-    let registry = Registry::new(providers).unwrap();
+    let registry = Registry::new(crate::providers()).unwrap();
     run_unsorted(&registry, &workspace, config, &options.with_fs(&fs))
         .unwrap()
         .into_iter()

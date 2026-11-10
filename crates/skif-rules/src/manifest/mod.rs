@@ -3,6 +3,7 @@
 mod allow_list;
 mod empty_dependencies;
 mod incompatible_peer_dependencies;
+mod invalid_workspace_file;
 pub(crate) mod local_path_dependency;
 mod member_toolchain_fields;
 mod missing_package_manifest;
@@ -21,6 +22,7 @@ mod unsorted_dependencies;
 pub use allow_list::AllowListOptions;
 pub use empty_dependencies::EmptyDependencies;
 pub use incompatible_peer_dependencies::IncompatiblePeerDependencies;
+pub use invalid_workspace_file::InvalidWorkspaceFile;
 pub use local_path_dependency::LocalPathDependency;
 pub use member_toolchain_fields::{ForbidMode, MemberToolchainFields, MemberToolchainFieldsOptions};
 pub use missing_package_manifest::MissingPackageManifest;
@@ -58,6 +60,7 @@ pub fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(LocalPathDependency),
         Box::new(PackageJsonFormat),
         Box::new(StalePatchedDependencies),
+        Box::new(InvalidWorkspaceFile),
     ]
 }
 

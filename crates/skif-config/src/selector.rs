@@ -16,8 +16,9 @@ pub const ROOT: &str = "$ROOT";
 
 /// A list of name patterns compiled once.
 ///
-/// Each pattern is a glob (`*` also crosses `/`, so `@repo/*` matches `@repo/a/b`), the token `$LOCAL`, or either
-/// prefixed with `!` to exclude. A name is selected when
+/// Each pattern is a glob (`*` also crosses `/`, so `@repo/*` matches `@repo/a/b`; `{react,react-dom}` matches either
+/// alternative and `[ab]` either character), the token `$LOCAL`, or either prefixed with `!` to exclude; a `!` only
+/// excludes as the first character. A name is selected when
 ///
 /// - no exclusion matches it, and
 /// - some inclusion matches it, or the selector has exclusions only (then every other name is selected).

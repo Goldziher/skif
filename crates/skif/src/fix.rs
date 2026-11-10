@@ -295,6 +295,12 @@ enum Staged<'a> {
     },
     Create(&'a str),
     Delete,
+    /// Operations whose edits overlap the accepted ones but plan together with them (a sort of an object and a change
+    /// inside one of the members it moves): `edits` replace the accepted edits of the file.
+    Joint {
+        ops: Vec<&'a FixOp>,
+        edits: Vec<TextEdit>,
+    },
     /// Everything the fix does to the file is already in the plan.
     Nothing,
 }
@@ -442,9 +448,27 @@ impl<'a> Planner<'a> {
         };
         let edits: Vec<TextEdit> = planned.into_iter().filter(|edit| !contains(accepted, edit)).collect();
         if edits.iter().any(|edit| collides(accepted, edit)) {
-            return Err(conflict("the edits overlap an earlier fix"));
+            return self
+                .stage_jointly(path, fresh)
+                .ok_or_else(|| conflict("the edits overlap an earlier fix"));
         }
         Ok(Staged::Edit { ops: fresh, edits })
+    }
+
+    /// The accepted operations of the JSON or YAML file `path` planned together with `fresh`, whose own edits overlap
+    /// theirs. `skif-edit` combines a sort of an object with changes inside the members it moves, so a value fix and
+    /// the `unsorted-dependencies` fix of one object both apply in one run; `None` when the joint plan still has
+    /// overlapping edits or does not apply.
+    fn stage_jointly(&mut self, path: &Path, fresh: Vec<&'a FixOp>) -> Option<Staged<'a>> {
+        let kind = FileKind::from_path(path)?;
+        let Some(Entry::Edit { ops: earlier, .. }) = self.entries.get(path) else {
+            return None;
+        };
+        let all: Vec<&'a FixOp> = earlier.iter().copied().chain(fresh.iter().copied()).collect();
+        let source = self.source(path).ok()?;
+        let edits = plan_edits(&source, kind, &all).ok()?;
+        apply_text_edits(&source, &edits).ok()?;
+        Some(Staged::Joint { ops: fresh, edits })
     }
 
     fn commit(&mut self, path: PathBuf, change: Staged<'a>) {
@@ -455,6 +479,19 @@ impl<'a> Planner<'a> {
             }
             Staged::Delete => {
                 self.entries.insert(path, Entry::Delete);
+            }
+            Staged::Joint { ops, edits } => {
+                if let Some(Entry::Edit {
+                    ops: accepted_ops,
+                    edits: accepted_edits,
+                }) = self.entries.get_mut(&path)
+                {
+                    accepted_ops.extend(ops);
+                    accepted_edits.clear();
+                    for edit in edits {
+                        insert_sorted(accepted_edits, edit);
+                    }
+                }
             }
             Staged::Edit { ops, edits } => match self.entries.entry(path) {
                 std::collections::btree_map::Entry::Occupied(mut occupied) => {

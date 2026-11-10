@@ -1008,7 +1008,7 @@ pub enum OverrideReading {
 pub struct Policy {
     /// Which version `preferred-semver` favours.
     pub prefer: Prefer,
-    /// Dependency types the policy rules apply to. Empty means production and development dependencies (`dependencies` and `devDependencies`) and a package's own version; name `peer` or `optional` to include them. A list that does not select `local` leaves the own versions out, so no dependent is compared with the version of the workspace package it names.
+    /// Dependency types the policy rules apply to. Empty means production and development dependencies (`dependencies` and `devDependencies`) and a package's own version; name `peer` or `optional` to include them. A list that does not select `local` leaves the own versions out, so no dependent is compared with the version of the workspace package it names. A list of negations only (`["!local"]`) starts from every dependency section, `peerDependencies` and `optionalDependencies` included, as in syncpack; to keep the default sections without the own versions, write `["prod", "dev"]`.
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub dependency_types: DependencyTypes,
     /// How `resolutions`, `overrides` and `pnpm-overrides` entries become dependency instances: `skif` (default) names
@@ -1981,13 +1981,14 @@ const fn default_true() -> bool {
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
 pub enum JsDiscovery {
-    /// The git index, checked against the file system: a directory modified since the index was written is listed
-    /// from disk, so untracked and deleted files are found as the walk finds them. The directory walk when the
-    /// workspace is not in a git work tree with a usable index.
+    /// The directory walk. The git index cannot tell whether an unchanged directory holds an untracked file created
+    /// before the index was last written, so the default does not use it.
     #[default]
     Auto,
-    /// The git index alone, without checking the file system: faster, but blind to files created or deleted since the
-    /// last `git add`. The directory walk when there is no usable index.
+    /// The git index, checked against the file system: a directory modified since the index was written is listed
+    /// from disk, the others from the index. Faster than the walk, but blind to an untracked file created before the
+    /// last write of the index (a `git add` or `git commit` of another file); `unused-files` then offers no fix that
+    /// deletes a file. Suits a fresh checkout. The directory walk when there is no usable index.
     Git,
     /// Always walk the directories.
     Walk,
@@ -2072,10 +2073,10 @@ pub struct Js {
     /// Report files in `fixtures` and `__fixtures__` directories as unused, and their unused exports, types and
     /// members, like any other file. Off by default: those directories hold test data that tests load by path.
     pub include_fixtures: bool,
-    /// How source files are found: `auto` lists them from the git index and re-lists from disk every directory
-    /// modified since the index was written, which gives the walk's result without walking every directory; `git`
-    /// trusts the index alone (faster, blind to untracked and deleted files); `walk` always walks. Both index modes
-    /// fall back to the walk when the workspace is not in a git work tree with a usable SHA-1 index.
+    /// How source files are found: `auto` (the default) and `walk` walk the directories; `git` lists them from the
+    /// git index and re-lists from disk every directory modified since the index was written (faster, blind to an
+    /// untracked file older than the last write of the index). `git` falls back to the walk when the workspace is not
+    /// in a git work tree with a usable SHA-1 index.
     pub discovery: JsDiscovery,
     /// What `circular-imports` reports.
     pub cycles: JsCycles,

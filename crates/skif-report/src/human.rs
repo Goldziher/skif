@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 
-use skif_core::{Diagnostic, Fix, FixSafety, Report, Severity, Span, Summary};
+use skif_core::{Diagnostic, Fix, FixSafety, IncompleteScope, Report, Severity, Span, Summary};
 
 use crate::options::RenderOptions;
 use crate::style::Painter;
@@ -41,7 +41,19 @@ pub fn render_human(report: &Report, options: &RenderOptions, out: &mut dyn Writ
         let names: Vec<String> = report
             .incomplete_packages
             .iter()
-            .map(|package| escape_controls(&package.name).into_owned())
+            .map(|package| {
+                let name = escape_controls(&package.name);
+                match &package.scope {
+                    IncompleteScope::Within(globs) if !globs.is_empty() => {
+                        let globs: Vec<String> = globs
+                            .iter()
+                            .map(|glob| format!("`{}`", escape_controls(glob)))
+                            .collect();
+                        format!("{name} (files matching {})", globs.join(" or "))
+                    }
+                    _ => name.into_owned(),
+                }
+            })
             .collect();
         let line = format!(
             "note: unused files and dependencies were not fully checked in {} ({}): their entry files are not all known; \

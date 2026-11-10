@@ -49,8 +49,10 @@ reported as `{"version": 1, "error": {"kind": "...", "message": "...", "path": "
 `kind` and `message` are always present and `path`, `line` and `column` only when the failure has a location.
 
 `incomplete-packages`, omitted when empty, lists the packages whose entry files are not all known, so their unused
-files and dependencies were not fully checked: one `{ "name", "dir", "reasons" }` object per package, sorted by `dir`,
-each reason a `{ "cause", "plugin", "file" }` object whose `plugin` and `file` appear when known.
+files and dependencies were not fully checked: one `{ "name", "dir", "reasons", "scope" }` object per package, sorted
+by `dir`, each reason a `{ "cause", "plugin", "file" }` object whose `plugin` and `file` appear when known. `scope` is
+`"package"` when no file of the package was judged, or `{ "within": [globs] }` with the globs, relative to `dir`, of
+the only files left unjudged.
 
 A run over several roots (`skif -r`) adds two top-level members through `render_json_with`, which takes them as
 extra fields: `roots`, an array with one `{ "path", "packages", "summary" }` object per root (`packages` lists the

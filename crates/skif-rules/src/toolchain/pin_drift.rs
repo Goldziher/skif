@@ -1,8 +1,7 @@
 use std::ops::Range;
-use std::sync::Arc;
 
 use serde_json::Value;
-use skif_core::{Category, FileSystem, Fixability, Location, PathSeg, Related, RuleMeta, Severity, diagnostic};
+use skif_core::{Category, Fixability, Location, PathSeg, Related, RuleMeta, Severity, diagnostic};
 use skif_lint::{Emitter, LintContext, OptionsError, Rule};
 use skif_specifier::Specifier;
 use skif_workspace::Package;
@@ -48,23 +47,8 @@ const COREPACK_DETAIL: &str = "CorepackUnpinned";
 ///
 /// Options (`[rules.toolchain-pin-drift]`): `kinds` (default version files, Dockerfiles and workflows), `files` and
 /// `ignore-files`, as for every toolchain rule.
-pub struct ToolchainPinDrift {
-    fs: Arc<dyn FileSystem>,
-}
-
-impl ToolchainPinDrift {
-    /// The rule, reading toolchain files through `fs`.
-    #[must_use]
-    pub fn new(fs: Arc<dyn FileSystem>) -> Self {
-        Self { fs }
-    }
-}
-
-impl std::fmt::Debug for ToolchainPinDrift {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ToolchainPinDrift").finish_non_exhaustive()
-    }
-}
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ToolchainPinDrift;
 
 /// The root's version of a tool, which every other pin must agree with.
 struct Source {
@@ -260,7 +244,7 @@ impl Rule for ToolchainPinDrift {
         let Ok(options) = ToolchainOptions::of(cx, META.id).resolve(&DEFAULT_KINDS) else {
             return;
         };
-        let scan = Scan::of(cx, &self.fs, &rule_ids());
+        let scan = Scan::of(cx, &rule_ids());
         let root = cx.workspace.root_package();
         let node = node_source(&scan, root);
         let manager = manager_source(root);
