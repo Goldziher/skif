@@ -208,6 +208,32 @@ fn collect_strings(value: &Value, out: &mut Vec<String>) {
     }
 }
 
+/// The node and credential files of an n8n node package (`n8n.nodes`, `n8n.credentials` of its manifest), which n8n
+/// loads by path: each path as written and, for one below a build directory, also the path without that directory.
+/// n8n node packages compile without a `rootDir`, so `dist/nodes/A.node.js` is built from `nodes/A.node.ts`, not from
+/// `src/nodes/A.node.ts`.
+#[must_use]
+pub fn n8n_load_paths(manifest: &Value) -> Vec<String> {
+    let mut paths = Vec::new();
+    let Some(n8n) = manifest.get("n8n") else {
+        return paths;
+    };
+    for key in ["nodes", "credentials"] {
+        let Some(Value::Array(files)) = n8n.get(key) else {
+            continue;
+        };
+        for file in files.iter().filter_map(Value::as_str).filter(|file| !file.is_empty()) {
+            if let Some((first, rest)) = file.trim_start_matches("./").split_once('/')
+                && is_out_dir(first)
+            {
+                paths.push(rest.to_owned());
+            }
+            paths.push(file.to_owned());
+        }
+    }
+    paths
+}
+
 /// A file path a manifest publishes and whether it is a leaf of the `exports` field.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ManifestTarget {
@@ -217,7 +243,7 @@ pub(crate) struct ManifestTarget {
 
 /// Every file path a manifest publishes: `main`, `module`, `types`, `bin`, the leaves of `exports` and the leaves of
 /// `imports`, whose conditions select between files only one environment loads, and the node and credential files
-/// of an n8n node package (`n8n.nodes`, `n8n.credentials`), which n8n loads by path. The catch-all `./*` export is not
+/// of an n8n node package ([`n8n_load_paths`]), which n8n loads by path. The catch-all `./*` export is not
 /// a target, and neither is an `imports` pattern: its files are reached by the specifiers that use it.
 pub(crate) fn manifest_targets(manifest: &Value) -> Vec<ManifestTarget> {
     let mut paths = Vec::new();
@@ -232,23 +258,7 @@ pub(crate) fn manifest_targets(manifest: &Value) -> Vec<ManifestTarget> {
     if let Some(bin) = manifest.get("bin") {
         collect_strings(bin, &mut paths);
     }
-    if let Some(n8n) = manifest.get("n8n") {
-        for key in ["nodes", "credentials"] {
-            let Some(Value::Array(files)) = n8n.get(key) else {
-                continue;
-            };
-            for file in files.iter().filter_map(Value::as_str).filter(|file| !file.is_empty()) {
-                // n8n node packages compile without a `rootDir`, so `dist/nodes/A.node.js` is built from
-                // `nodes/A.node.ts`, not from `src/nodes/A.node.ts`.
-                if let Some((first, rest)) = file.trim_start_matches("./").split_once('/')
-                    && is_out_dir(first)
-                {
-                    paths.push(rest.to_owned());
-                }
-                paths.push(file.to_owned());
-            }
-        }
-    }
+    paths.extend(n8n_load_paths(manifest));
     let mut targets: Vec<ManifestTarget> = paths
         .into_iter()
         .map(|path| ManifestTarget {

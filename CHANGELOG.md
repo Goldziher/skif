@@ -193,6 +193,11 @@ All notable changes to this project are documented here. The format follows
   `format:check`
   ([ADR 0099](adrs/0099-knip-comparison-narrowed-scopes-rush-installs-and-dependencies-of-unused-files.md),
   [#27](https://github.com/Goldziher/skif/issues/27)).
+- The knip comparison's `published-source` reads the node and credential files an n8n node package lists in
+  `n8n.nodes` and `n8n.credentials`, as skif reads them, and also covers the files only knip reports unused that a
+  published source reaches by relative imports through other such files; n8n is no longer marked as an invalid
+  comparison, since knip now loads its configurations
+  ([ADR 0100](adrs/0100-knip-comparison-n8n-node-files-and-what-published-sources-import.md)).
 
 ### Added
 
