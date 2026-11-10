@@ -1970,7 +1970,11 @@ generated/index.ts
             assert_eq!(r.resolve(importer, specifier).target, Resolved::Ignored, "{specifier}");
         }
         for specifier in ["./$type", "../$types", "./missing"] {
-            assert_eq!(r.resolve(importer, specifier).target, Resolved::Unresolved, "{specifier}");
+            assert_eq!(
+                r.resolve(importer, specifier).target,
+                Resolved::Unresolved,
+                "{specifier}"
+            );
         }
 
         // A missing config git does not ignore is a broken `extends`, not generated output.
