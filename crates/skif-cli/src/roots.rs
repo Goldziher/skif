@@ -525,11 +525,11 @@ mod tests {
             IncompletePackage::new(
                 name.to_owned(),
                 dir.into(),
-                vec![IncompleteEntries {
-                    cause: IncompleteCause::UnknownSpread,
-                    plugin: Some("vite".to_owned()),
-                    file: Some(file.into()),
-                }],
+                vec![
+                    IncompleteEntries::new(IncompleteCause::UnknownSpread)
+                        .with_plugin("vite")
+                        .with_file(file),
+                ],
             )
         };
         let nested = Report::new(Vec::new(), 1).with_incomplete_packages(vec![package(".", "", "vite.config.ts")]);

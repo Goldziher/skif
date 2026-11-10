@@ -784,10 +784,11 @@ mod tests {
             Location::new("C:\\repo\\a.json", None),
         );
         info.help = Some("\u{7f}\u{2028}\u{1f600}".to_owned());
-        let reason = |cause, plugin: Option<&str>, file: Option<&str>| IncompleteEntries {
-            cause,
-            plugin: plugin.map(str::to_owned),
-            file: file.map(Into::into),
+        let reason = |cause, plugin: Option<&str>, file: Option<&str>| {
+            let mut reason = IncompleteEntries::new(cause);
+            reason.plugin = plugin.map(str::to_owned);
+            reason.file = file.map(Into::into);
+            reason
         };
         Report::new(vec![full, bare, info], 3).with_incomplete_packages(vec![
             IncompletePackage::new(
