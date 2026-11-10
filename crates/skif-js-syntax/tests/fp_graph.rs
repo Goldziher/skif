@@ -169,6 +169,45 @@ fn re_exports_and_type_containers_name_every_containing_value_export() {
 }
 
 #[test]
+fn signature_references_follow_the_first_import_binding_and_exported_containers_only() {
+    type Expected<'a> = &'a [(&'a str, &'a [&'a str])];
+    let cases: &[(&str, &str, Expected<'_>)] = &[
+        (
+            "a re-export follows the first import of its name",
+            "import { a } from './x';\nimport { a as b } from './x';\nexport { a } from './x';\n\
+             export function f(p: b): void {}\n",
+            &[("a", &[]), ("f", &[])],
+        ),
+        (
+            "a container that is not exported contributes nothing",
+            "function g(p: P) {}\nexport interface P {}\nexport function h(p: P): void {}\n",
+            &[("P", &["h"]), ("h", &[])],
+        ),
+        (
+            "a container exported under several names contains a re-export under each",
+            "import { R } from './r';\nexport { R } from './r';\nfunction make(p: R): void {}\n\
+             export { make, make as build };\n",
+            &[("R", &["build", "make"]), ("make", &[]), ("build", &[])],
+        ),
+    ];
+    for (case, source, expected) in cases {
+        let info = parse("a.ts", source);
+        let containing: Vec<(&str, Vec<&str>)> = info
+            .exports
+            .iter()
+            .map(|export| {
+                (
+                    export.name.as_str(),
+                    export.referenced_in.iter().map(String::as_str).collect(),
+                )
+            })
+            .collect();
+        let expected: Vec<(&str, Vec<&str>)> = expected.iter().map(|(name, within)| (*name, within.to_vec())).collect();
+        assert_eq!(containing, expected, "{case}");
+    }
+}
+
+#[test]
 fn only_members_read_by_name_in_the_declaring_file_are_recorded() {
     let info = parse(
         "a.ts",
