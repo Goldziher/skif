@@ -226,6 +226,9 @@ All notable changes to this project are documented here. The format follows
   package (`run: cd sub && pnpm exec rspack`, `execSync('cd sub && rspack serve')`) is credited to that package, as for
   a `package.json` script: a provider it lists is used and the binary is not unlisted at the file
   ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
+- A workflow step's `$GITHUB_WORKSPACE`, `${GITHUB_WORKSPACE}` and `${{ github.workspace }}` name the workspace root,
+  so `cd $GITHUB_WORKSPACE/sub && pnpm exec rspack` runs in `sub` and `node $GITHUB_WORKSPACE/scripts/x.js` makes the
+  file an entry ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
 - A `cd` inside a subshell no longer changes the directory of the commands after it:
   `(cd "$TMP" && tar xf a.tgz) && npm run build` follows the package's `build` script again
   ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).

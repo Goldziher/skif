@@ -69,7 +69,11 @@ package the plugin runs for, which is the workspace root for a workflow. When th
 the directory is another package, the binary is credited to it as ADR 0094 credits a script's: a provider it lists is
 used and nothing is unlisted at the file. In the package itself, in no workspace package or outside the workspace, the
 binary is judged at the file, as before. The packages and files these commands name stay where the command starts.
-This settles the later decision ADR 0094 left open, for binaries.
+This settles the later decision ADR 0094 left open, for binaries. A workflow step starts in the checked-out
+repository, `$GITHUB_WORKSPACE`, which the plugin takes to be the workspace root: `$GITHUB_WORKSPACE`,
+`${GITHUB_WORKSPACE}` and `${{ github.workspace }}` in a step read as the root relative to the step's directory, so
+`cd $GITHUB_WORKSPACE/sub` changes to `sub` and `node $GITHUB_WORKSPACE/scripts/x.js` runs that file. Any other
+computed directory, such as `cd "$(dirname "$0")"`, stays one the parser cannot place.
 
 **Member binaries.** A workspace member's binary is provided to a package that does not list the member only when the
 package manager links every member's binaries into the root `node_modules/.bin`: npm, Yarn Classic and Bun, and an
@@ -90,6 +94,9 @@ are provided commands; a package that lists the package declaring them still use
 * Bad, because a pnpm workspace with `node-linker=hoisted`, or a Yarn Berry one whose scripts reach the root
   `node_modules/.bin`, now reports a member's binary that the install does provide; skif reads neither setting, and
   `ignore-binaries` silences such a binary.
+* Bad, because a directory computed from the script's own location (`cd "$(dirname "$0")"`, `cd "${BASH_SOURCE%/*}"`)
+  is not placed: the script parser does not know which file runs the command, so a package manager run there is
+  handled as filtered and a binary run there by name is judged where the command starts.
 * Neutral, because the commands that `ModuleInfo::commands` holds for a call with a `cwd` option start with
   `cd $__skif__ && `, and the module cache schema moves to 3.
 
