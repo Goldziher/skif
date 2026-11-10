@@ -557,7 +557,7 @@ fn reasoned(
         .into_iter()
         .map(|(entry, value)| {
             let literal = match value {
-                ConfigValue::String(text) | ConfigValue::Regex(text) => Some(text.as_str()),
+                ConfigValue::String(text) | ConfigValue::Regex { pattern: text, .. } => Some(text.as_str()),
                 _ => None,
             };
             let reason = literal
