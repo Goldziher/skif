@@ -303,6 +303,18 @@ fn incomplete_configs_narrow_what_is_not_judged() {
     insta::assert_json_snapshot!("incomplete_scopes", diagnostics);
 }
 
+/// The `playwright-computed-reporters` fixture: `e2e` spreads a reporter helper whose two returns differ, so the
+/// reporter modules it names are unknown and no file of the package is judged; `smoke` lists its reporters, an
+/// unknown option of one included, so its stale reporter is reported.
+#[test]
+fn a_computed_playwright_reporter_list_leaves_the_package_unjudged() {
+    let diagnostics = Run::new("playwright-computed-reporters", "").lint_with_plugins();
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["packages/smoke/reporters/stale-reporter.ts: packages/smoke/reporters/stale-reporter.ts"]
+    );
+}
+
 /// The `incomplete-judged` fixture: `narrowed` merges an unknown base into its Vitest config, so its unknown entries
 /// lie in the test scope, whose files are entries; `whole` has a Vitest config unknown as a whole. The exports, types
 /// and enum members outside the narrowed scope are judged (ADR 0081), those of the scope's setup module and of the

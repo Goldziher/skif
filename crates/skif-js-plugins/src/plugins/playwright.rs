@@ -1,12 +1,12 @@
 //! Playwright: test files, global setup, reporters and the web server command named in the config.
 
-use skif_js_syntax::ConfigValue;
+use skif_js_syntax::{ConfigValue, OWN_SPREAD};
 
 use crate::plugin::{
     ConfigAst, Enabler, IncompleteCause, IncompleteScope, Plugin, PluginContext, PluginInput, PluginSpec,
 };
 use crate::plugins::vitest::TEST_CONVENTIONS;
-use crate::support::{config_unknown, convention_scope, entry_glob, join_rel, module_input, name_of, objects, strings};
+use crate::support::{config_unknown, convention_scope, entry_glob, join_rel, module_input, objects, strings};
 
 /// The `playwright` plugin.
 pub struct Playwright;
@@ -45,16 +45,14 @@ impl Plugin for Playwright {
                 out.push(PluginInput::Entry(config.join(path)));
             }
         }
-        if let Some(reporter) = config.value.get("reporter") {
-            let reporters: Vec<&ConfigValue> = match reporter {
-                ConfigValue::Array(items) => items.iter().collect(),
-                other => vec![other],
-            };
-            for name in reporters.into_iter().filter_map(name_of) {
-                if !BUILTIN_REPORTERS.contains(&name) {
-                    out.extend(module_input(config.base, name, true));
-                }
+        let reporters = config.value.get("reporter").map(reporter_names).unwrap_or_default();
+        for name in reporters.into_iter().flatten() {
+            if !BUILTIN_REPORTERS.contains(&name) {
+                out.extend(module_input(config.base, name, true));
             }
+        }
+        if reporters_unknown(config.value) {
+            out.push(PluginInput::EntriesIncomplete);
         }
         if let Some(servers) = config.value.get("webServer") {
             for server in objects(servers) {
@@ -66,14 +64,55 @@ impl Plugin for Playwright {
         out
     }
 
-    /// A Playwright config names test files, test directories and setup and teardown modules, nothing else, so a
-    /// spread or merged base hides only those. A config unknown as a whole (a factory called with this package's
-    /// options) may name any file.
+    /// A Playwright config names test files, test directories, setup and teardown modules and reporter modules; an
+    /// imported base config it spreads or merges is taken to hide only the tests and setup modules, where the tool
+    /// looks by convention. A config unknown as a whole (a factory called with this package's options) and a reporter
+    /// list the config computes itself may name any file.
     fn incomplete_scope(&self, _cause: IncompleteCause, config: &ConfigAst<'_>) -> IncompleteScope {
-        if config_unknown(config.value) {
+        if config_unknown(config.value) || reporters_unknown(config.value) {
             return IncompleteScope::Package;
         }
         convention_scope(&SPEC, config, TEST_CONVENTIONS)
+    }
+}
+
+/// The module of each reporter a `reporter` value lists, a name or the first element of a `[name, options]` pair;
+/// `None` for one whose name is not known statically.
+fn reporter_names(reporter: &ConfigValue) -> Vec<Option<&str>> {
+    let listed: Vec<&ConfigValue> = match reporter {
+        ConfigValue::Array(items) => items.iter().collect(),
+        other => vec![other],
+    };
+    listed
+        .into_iter()
+        .filter_map(|item| match item {
+            ConfigValue::String(name) => Some(Some(name.as_str())),
+            ConfigValue::Array(pair) => match pair.first() {
+                Some(ConfigValue::String(name)) => Some(Some(name.as_str())),
+                Some(ConfigValue::Unknown) => Some(None),
+                _ => None,
+            },
+            ConfigValue::Unknown => Some(None),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether the config computes its `reporter` list in a way that hides which modules it names: the list, an element
+/// or an element's name is unknown, or a value the config computes itself and spreads after the key may set it. An
+/// imported base config that may set it is an unknown spread of the whole config, which leaves the entries
+/// incomplete already.
+fn reporters_unknown(config: &ConfigValue) -> bool {
+    let last = config
+        .as_object()
+        .into_iter()
+        .flatten()
+        .rev()
+        .find(|(key, _)| key == "reporter" || key == OWN_SPREAD);
+    match last {
+        Some((key, _)) if key == OWN_SPREAD => true,
+        Some((_, reporter)) => reporter_names(reporter).contains(&None),
+        None => false,
     }
 }
 
