@@ -4,6 +4,10 @@
 //! the JSON report. The addon is built with unwinding panics (the `node` profile): `run` turns a panic into exit code 2
 //! (with the JSON `error` document under `--format json`), as the native binary does, and every other export that can
 //! panic turns it into a JavaScript exception instead of taking the host process down.
+//!
+//! `skif_cli::run` catches a panic of the command itself, so the `catch_unwind` on `run` does not fire in practice; it
+//! stays as a guard for a panic outside that boundary (converting the arguments, or a payload whose drop panics),
+//! which would otherwise unwind into Node.
 
 use std::ffi::OsString;
 use std::panic::{AssertUnwindSafe, catch_unwind};
