@@ -20,6 +20,8 @@ All notable changes to this project are documented here. The format follows
   parity baseline needs a refresh
   ([ADR 0080](adrs/0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md),
   [#27](https://github.com/Goldziher/skif/issues/27)).
+- The knip comparison runs skif recursively on babel, whose `scripts/repo-utils` is a project of its own outside the
+  workspace patterns that knip reads from the root.
 
 ### Added
 
@@ -41,6 +43,22 @@ All notable changes to this project are documented here. The format follows
   - `react-email` credits only the preview server package of the installed (else declared) major version.
 - `skif-js-syntax` exports `extract_property_calls`, which calls a function property of a config statically, and
   `extract_method_calls`, which evaluates the arguments of method calls.
+- `skif-js-syntax`: `ImportedName` gains `nested_members`, the members read through a member of the binding
+  (`ns.E.A` reads `A` of `E`), for each member used only that way.
+
+### Fixed
+
+- An enum or TypeScript namespace read through a namespace import (`ns.E.A`, `ns.E['A']`, the type `ns.E.A`), also
+  through a named or `export * as` re-export, uses only the members read on it, so its other members are reported by
+  `unused-enum-members` and `unused-namespace-members`. `ns.E` used as a whole still uses every member
+  ([ADR 0086](adrs/0086-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
+- A parameter or local with the name of an import declaration's binding shadows it: passing it around or reading its
+  members no longer uses the imported module as a whole
+  ([ADR 0086](adrs/0086-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
+- An exported `type` or `interface` that shares its name with a value export (`export const Service = X; export type
+  Service = X`, `export const IStore = createDecorator<IStore>(…); export interface IStore { … }`) credits the
+  exports it mentions whenever the name is used, as a type or a value, as knip does
+  ([ADR 0086](adrs/0086-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
 
 ### Changed
 
