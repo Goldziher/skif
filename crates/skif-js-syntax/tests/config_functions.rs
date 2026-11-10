@@ -674,6 +674,51 @@ fn what_code_may_or_may_not_write_is_unknown_after_it() {
 }
 
 #[test]
+fn a_returned_key_does_not_depend_on_what_else_the_object_reads() {
+    let body = "let mode = 'a'; const list = []; const c = { a: 1 }; let n = 0;\n\
+                if (env()) { mode = 'b'; }\n\
+                for (const x of y) list.push(x);\n\
+                env() && (c.a = 2);\n\
+                if (env()) n++;\n";
+    let one_or_two = ConfigValue::OneOf(vec![ConfigValue::Number(1.0), ConfigValue::Number(2.0)]);
+    // The returned object, the keys that are one of 1 and 2, and the keys whose object may hold more keys.
+    let cases: [(&str, &[&str], &[&str]); 4] = [
+        ("{ mode }", &[], &[]),
+        ("{ mode, n: n ? 1 : 2 }", &["n"], &[]),
+        ("{ mode, c }", &[], &["c"]),
+        ("{ mode, some: list.length ? 1 : 2 }", &["some"], &[]),
+    ];
+    for (returned, one_of_two, opened) in cases {
+        let source =
+            format!("const make = () => {{\n{body}return {returned};\n}};\nexport default [{{ base: 1 }}, make()];");
+        let value = extract("vite.config.ts", &source);
+        let config = &value.as_array().unwrap()[1];
+        assert_eq!(
+            get(config, &["mode"]),
+            &ConfigValue::OneOf(vec![s("a"), s("b")]),
+            "{returned}"
+        );
+        for key in one_of_two {
+            assert_eq!(get(config, &[*key]), &one_or_two, "{returned}: {key}");
+        }
+        for key in opened {
+            assert!(open(get(config, &[*key])), "{returned}: {key}");
+        }
+    }
+}
+
+#[test]
+fn a_top_level_binding_is_not_followed_through_the_statements_that_reassign_it() {
+    // The evaluator reads top-level constants by name, not the module's statements in order, so a top-level `let` is
+    // unknown whatever assigns it.
+    let value = extract(
+        "vite.config.ts",
+        "let mode = 'a';\nif (env()) { mode = 'b'; }\nexport default { mode };",
+    );
+    assert_eq!(get(&value, &["mode"]), &ConfigValue::Unknown);
+}
+
+#[test]
 fn a_return_in_an_else_branch_is_not_read_after_the_code_that_follows() {
     let value = extract(
         "vite.config.ts",

@@ -3577,7 +3577,9 @@ fn changed(value: Value) -> Value {
     }
 }
 
-/// A value code the evaluator does not follow may have changed as `change` says.
+/// A value code the evaluator does not follow may have changed as `change` says. A change of contents leaves a value
+/// that holds no object or array as it is, and changes each alternative of a [`Value::OneOf`] on its own, so a binding
+/// that only may share an object with a changed one keeps the values it may be.
 fn unstable(value: Value, change: Change) -> Value {
     match (change, value) {
         (
@@ -3589,6 +3591,12 @@ fn unstable(value: Value, change: Change) -> Value {
             | Value::String(_)
             | Value::Regex { .. }),
         ) => value,
+        (Change::Contents, Value::OneOf(alternatives)) => Value::OneOf(
+            alternatives
+                .into_iter()
+                .map(|alternative| unstable(alternative, Change::Contents))
+                .collect(),
+        ),
         (_, value) => changed(value),
     }
 }

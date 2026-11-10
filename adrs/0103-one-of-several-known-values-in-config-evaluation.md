@@ -69,15 +69,19 @@ without duplicates, from values the evaluator knows:
 
 * the two branches of `a ? b : c` with an unknown test that are not two objects (two objects still merge, and a key
   whose values differ is one of them);
-* what the branches of an `if` with an unknown test leave a binding, and what two returns of a function give;
+* what the branches of an `if` with an unknown test leave a binding of a function, and what two returns of a function
+  give. A top-level `let` stays unknown, since the evaluator reads top-level constants by name instead of running the
+  module's statements in order;
 * a key every branch of a conditional spread sets to values that are not lists or objects, and a fallback over a read
   that is not definite (`x.reporter ?? 'dot'`).
 
 It is unknown when an alternative is unknown, when a key only some branches set is not a list or an object, and when
-there would be more than eight alternatives. A test on a `OneOf`, its `length` and a member of it are unknown, a merge
-treats it as an unknown value, and a call that evaluates to one keeps its arguments as a call that evaluates to
-`Unknown` does. A spread of a `OneOf` adds the keys or elements of each alternative, as a spread of the condition
-itself does.
+there would be more than eight alternatives. A binding that may share an object with one that code the evaluator does
+not follow changes keeps its `OneOf`: an alternative that holds no object or array stays as it is, and each object or
+array alternative may hold more, as a single object or array would. A test on a `OneOf`, its `length` and a member of
+it are unknown, a merge treats it as an unknown value, and a call that evaluates to one keeps its arguments as a call
+that evaluates to `Unknown` does. A spread of a `OneOf` adds the keys or elements of each alternative, as a spread of
+the condition itself does.
 
 Two further readings come with it, since the lists they produce are where the choices sit:
 
@@ -140,7 +144,9 @@ package's dependencies are not judged. A Storybook config unknown as a whole, or
   `None`, and `alternatives` lists it.
 * `crates/skif-js-syntax/tests/config_functions.rs`: `an_undecided_condition_between_known_values_is_one_of_them`
   (ternaries of strings, nested ones flattened, a list element, a fallback, a reassigned binding, an opaque branch and
-  nine alternatives unknown), `a_spread_of_one_of_several_values_adds_the_keys_of_each`,
+  nine alternatives unknown), `a_returned_key_does_not_depend_on_what_else_the_object_reads`,
+  `a_top_level_binding_is_not_followed_through_the_statements_that_reassign_it`,
+  `a_spread_of_one_of_several_values_adds_the_keys_of_each`,
   `an_array_spreads_the_elements_of_every_branch`, `filter_boolean_keeps_what_may_be_truthy` and
   `only_a_bare_manifest_directory_is_a_package`; the tests that read an undecided choice of known values as unknown
   read it as `OneOf`.
