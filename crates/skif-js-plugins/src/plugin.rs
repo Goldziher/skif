@@ -115,6 +115,19 @@ pub enum PluginInput {
     Entry(String),
     /// An entry that is also part of a production build.
     ProductionEntry(String),
+    /// An entry glob of test files (Jest's `testMatch`), which [`PluginInput::EntryIgnoreRegex`] narrows like the
+    /// plugin's default entry globs.
+    TestEntry(String),
+    /// Test files given as a regular expression (Jest's `testRegex`), matched against `/` followed by the path
+    /// relative to the workspace directory; unanchored, it matches anywhere in the path.
+    EntryRegex(String),
+    /// A regular expression, matched like [`PluginInput::EntryRegex`], of files that are none of this plugin's test
+    /// entries (its default entry globs, [`PluginInput::TestEntry`] globs and [`PluginInput::EntryRegex`] matches)
+    /// whatever those say (Jest's `testPathIgnorePatterns`). Its other entries, and those of other plugins, keep them.
+    EntryIgnoreRegex(String),
+    /// The config replaces the plugin's default entry globs (Jest's `testRegex` replaces its `testMatch` default).
+    /// Entry globs configured in `[js.plugins]` stay.
+    ReplaceDefaultEntries,
     /// A package the config references.
     Dependency(String),
     /// A package the config references that may legitimately be absent.
@@ -368,6 +381,13 @@ pub struct PluginOutput {
     pub project: Vec<String>,
     /// Entries that belong to a production build; a subset of `entries`.
     pub production_entries: Vec<String>,
+    /// The entries of `entries` that `entry_ignore_regexes` narrows: the default entry globs that are left and the
+    /// [`PluginInput::TestEntry`] globs.
+    pub test_entries: Vec<String>,
+    /// Entry files given as regular expressions; see [`PluginInput::EntryRegex`].
+    pub entry_regexes: Vec<String>,
+    /// Regular expressions of files that are none of this plugin's entries; see [`PluginInput::EntryIgnoreRegex`].
+    pub entry_ignore_regexes: Vec<String>,
     /// Config files that were found and read.
     pub config_files: Vec<PathBuf>,
     /// Packages the configs reference by name.

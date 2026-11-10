@@ -640,6 +640,47 @@ fn jest() {
 }
 
 #[test]
+fn jest_test_regex_replaces_the_default_test_globs_and_ignore_patterns_are_regexes() {
+    let results = resolve(
+        &[(
+            "jest.config.js",
+            r#"module.exports = {
+              testRegex: ["\\.check\\.js$", /\/__tests__\//],
+              testPathIgnorePatterns: ["/node_modules/", "<rootDir>/e2e/", process.env.EXTRA],
+            };"#,
+        )],
+        &["jest"],
+    );
+    let out = output(&results, "jest");
+    assert_eq!(out.entry_regexes, [r"\.check\.js$", r"\/__tests__\/"]);
+    assert_eq!(out.entry_ignore_regexes, ["/node_modules/", "^/e2e/"]);
+    assert!(
+        !out.entries.iter().any(|entry| entry.contains("{spec,test}")),
+        "{:?}",
+        out.entries
+    );
+    assert_entries(&out.entries, &["**/__mocks__/**/*.{js,ts,jsx,tsx}"]);
+    // Mocks are no test files, so the ignore patterns do not narrow them.
+    assert_eq!(out.test_entries, Vec::<String>::new());
+    assert!(!out.entries_incomplete);
+}
+
+#[test]
+fn jest_test_regex_of_a_project_keeps_the_default_test_globs() {
+    let results = resolve(
+        &[(
+            "jest.config.js",
+            r#"module.exports = { projects: [{ testRegex: "\\.check\\.js$" }, { displayName: "unit" }] };"#,
+        )],
+        &["jest"],
+    );
+    let out = output(&results, "jest");
+    assert_eq!(out.entry_regexes, [r"\.check\.js$"]);
+    assert_entries(&out.entries, &["**/*.{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}"]);
+    assert_entries(&out.test_entries, &["**/*.{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}"]);
+}
+
+#[test]
 fn jest_config_in_package_json() {
     let results = resolve(
         &[("package.json", r#"{"name":"app","jest":{"preset":"react-native"}}"#)],

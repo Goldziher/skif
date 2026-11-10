@@ -1,4 +1,5 @@
-//! Jest: presets, runners, environments, reporters, setup files and transforms named in the config.
+//! Jest: presets, runners, environments, reporters, setup files and transforms named in the config, and the test
+//! files `testMatch`, `testRegex` and `testPathIgnorePatterns` select.
 
 use skif_js_syntax::ConfigValue;
 
@@ -6,8 +7,8 @@ use crate::config_load::from_json;
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::plugins::babel;
 use crate::support::{
-    conventional, entry_glob, entry_strings, is_relative, module_input, name_of, objects, package_name, pattern_alias,
-    project_files, shallow_key_unknown, strings,
+    conventional, entry_glob, entry_strings, is_relative, key_unknown, module_input, name_of, objects, package_name,
+    pattern_alias, project_files, shallow_key_unknown, strings,
 };
 
 /// The `jest` plugin.
@@ -22,12 +23,15 @@ static SPEC: PluginSpec = PluginSpec {
         "**/*.{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
         // Jest's `**/?(*.)+(spec|test).[jt]s?(x)` also matches a file named just `test.js` or `spec.ts`.
         "**/{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
-        "**/__mocks__/**/*.{js,ts,jsx,tsx}",
     ],
     package_json_key: Some("jest"),
     binaries: &["jest"],
     ..PluginSpec::DEFAULT
 };
+
+/// The manual mocks Jest loads by convention, whatever selects the test files and whichever of them it ignores; an
+/// entry of every package with the plugin, not a default test glob.
+const MOCKS: &str = "**/__mocks__/**/*.{js,ts,jsx,tsx}";
 
 const BUILTIN_REPORTERS: &[&str] = &["default", "github-actions", "summary"];
 
@@ -40,6 +44,10 @@ impl Plugin for Jest {
         let mut out = Vec::new();
         collect(config.value, config, cx, &mut out, 0);
         out
+    }
+
+    fn resolve_workspace(&self, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
+        vec![PluginInput::Entry(MOCKS.to_owned())]
     }
 }
 
@@ -63,6 +71,7 @@ fn collect(value: &ConfigValue, config: &ConfigAst<'_>, cx: &PluginContext<'_>, 
     }
     for object in objects(value) {
         collect_object(object, config, out);
+        test_paths(object, config, depth, out);
         if shallow_key_unknown(object, "projects") {
             out.push(PluginInput::EntriesIncomplete);
         }
@@ -186,8 +195,81 @@ fn collect_object(object: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<Pl
         }
     }
     for pattern in entry_strings(object, "testMatch", out) {
-        out.extend(entry_glob(base, pattern).map(PluginInput::Entry));
+        out.extend(entry_glob(base, pattern).map(PluginInput::TestEntry));
     }
+}
+
+/// `testRegex` and `testPathIgnorePatterns`: regular expressions Jest matches against the absolute path of a file.
+///
+/// A `testRegex` is an entry regex, and it replaces the default test globs when it is the only way the package's
+/// own config selects tests (the config in the package directory itself, without `projects`); otherwise the defaults
+/// stay, which can only keep more files used. Every `testPathIgnorePatterns` regex keeps the files it matches out of
+/// Jest's entries, and an element that is not known statically is skipped, which also keeps more files used.
+fn test_paths(object: &ConfigValue, config: &ConfigAst<'_>, depth: u8, out: &mut Vec<PluginInput>) {
+    let base = config.base;
+    let regexes = if key_unknown(object, "testRegex") {
+        out.push(PluginInput::EntriesIncomplete);
+        Vec::new()
+    } else {
+        regex_sources(object.get("testRegex"))
+    };
+    if !regexes.is_empty() && depth == 0 && base.is_empty() && object.get("projects").is_none() {
+        out.push(PluginInput::ReplaceDefaultEntries);
+    }
+    out.extend(
+        regexes
+            .into_iter()
+            .map(|regex| PluginInput::EntryRegex(root_dir_regex(base, regex))),
+    );
+    out.extend(
+        regex_sources(object.get("testPathIgnorePatterns"))
+            .into_iter()
+            .map(|regex| PluginInput::EntryIgnoreRegex(root_dir_regex(base, regex))),
+    );
+}
+
+/// The regular expressions of a string, a regex literal or an array of them.
+fn regex_sources(value: Option<&ConfigValue>) -> Vec<&str> {
+    let items: Vec<&ConfigValue> = match value {
+        Some(ConfigValue::Array(items)) => items.iter().collect(),
+        Some(other) => vec![other],
+        None => Vec::new(),
+    };
+    items
+        .into_iter()
+        .filter_map(|item| match item {
+            ConfigValue::String(source) | ConfigValue::Regex(source) => Some(source.as_str()),
+            _ => None,
+        })
+        .filter(|source| !source.is_empty())
+        .collect()
+}
+
+/// A Jest path regex for a match against `/` and the path relative to the workspace directory: `<rootDir>` stands
+/// for the directory of the config (`base`), and a leading one anchors the regex there, so `<rootDir>/e2e/` matches
+/// `/e2e/x.test.ts` but not `/lib/e2e/x.test.ts`.
+fn root_dir_regex(base: &str, regex: &str) -> String {
+    let dir = if base.is_empty() {
+        String::new()
+    } else {
+        format!("/{}", escape_regex(base))
+    };
+    match regex.strip_prefix("<rootDir>") {
+        Some(rest) => format!("^{dir}{}", rest.replace("<rootDir>", &dir)),
+        None => regex.replace("<rootDir>", &dir),
+    }
+}
+
+/// `text` with the characters a regular expression gives a meaning escaped.
+fn escape_regex(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for c in text.chars() {
+        if "\\.+*?()|[]{}^$#&-~".contains(c) {
+            escaped.push('\\');
+        }
+        escaped.push(c);
+    }
+    escaped
 }
 
 fn environment_input(config: &ConfigAst<'_>, environment: &str) -> Option<PluginInput> {
