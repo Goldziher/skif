@@ -202,6 +202,33 @@ fn inherited_ignores(fs: &dyn FileSystem, start: &Path) -> Ignores {
     ignores
 }
 
+/// Whether the file at `path`, at or below `root`, is ignored: the `.gitignore` and `.ignore` files of the directories
+/// from `root` down to the file's directory decide, under those [`inherited_ignores`] finds above `root`. A pattern
+/// that excludes a parent directory excludes the file too.
+pub(crate) fn is_ignored_file(fs: &dyn FileSystem, root: &Path, path: &Path) -> bool {
+    let mut ignores = inherited_ignores(fs, root);
+    let mut dirs: Vec<&Path> = path
+        .ancestors()
+        .skip(1)
+        .take_while(|dir| dir.starts_with(root))
+        .collect();
+    dirs.reverse();
+    for dir in dirs {
+        let files = IGNORE_FILES.iter().map(|name| dir.join(name));
+        ignores = pushed(ignores, matcher_from(fs, dir, files));
+    }
+    let mut link = ignores.as_deref();
+    while let Some(chain) = link {
+        match chain.matcher.matched_path_or_any_parents(path, false) {
+            Match::Ignore(_) => return true,
+            Match::Whitelist(_) => return false,
+            Match::None => {}
+        }
+        link = chain.parent.as_deref();
+    }
+    false
+}
+
 /// The matcher for `options.ignore`, rooted at `start`; `None` when it holds no usable pattern. A pattern that is not a
 /// valid glob is skipped.
 fn skip_matcher(start: &Path, options: &DiscoverOptions) -> Option<Gitignore> {
