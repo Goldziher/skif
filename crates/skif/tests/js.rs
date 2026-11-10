@@ -50,7 +50,9 @@ fn no_js_turns_the_analysis_off() {
 /// A project at `/r` with a standalone package nested in `tools/sub`, both configured by `/etc/skif.toml` alone.
 fn shared_config_fs() -> MemoryFs {
     let manifest = |name: &str| {
-        format!(r#"{{"name": "{name}", "version": "1.0.0", "private": true, "packageManager": "pnpm@10.0.0", "main": "src/main.js"}}"#)
+        format!(
+            r#"{{"name": "{name}", "version": "1.0.0", "private": true, "packageManager": "pnpm@10.0.0", "main": "src/main.js"}}"#
+        )
     };
     MemoryFs::new()
         .with_file("/r/package.json", manifest("app"))
@@ -72,7 +74,10 @@ fn lint_shared_config_roots() -> Vec<(std::path::PathBuf, skif::Report)> {
             let linter = Linter::with_fs(&target.config, Arc::clone(&fs) as Arc<dyn skif::FileSystem>).unwrap();
             let config_path = target.config_path().unwrap();
             let options = skif::RunOptions::default().with_config_path(&config_path);
-            (target.root.clone(), linter.run_with(&target.workspace, &options).unwrap())
+            (
+                target.root.clone(),
+                linter.run_with(&target.workspace, &options).unwrap(),
+            )
         })
         .collect()
 }

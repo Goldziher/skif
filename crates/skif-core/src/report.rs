@@ -519,7 +519,14 @@ mod tests {
             .iter()
             .map(|d| (d.rule.as_str(), d.severity))
             .collect();
-        assert_eq!(kept, [("c-rule", Severity::Info), ("b-rule", Severity::Info), ("b-rule", Severity::Info)]);
+        assert_eq!(
+            kept,
+            [
+                ("c-rule", Severity::Info),
+                ("b-rule", Severity::Info),
+                ("b-rule", Severity::Info)
+            ]
+        );
         assert_eq!(
             report.summary,
             Summary {

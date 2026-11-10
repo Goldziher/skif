@@ -1428,11 +1428,7 @@ fn a_baseline_of_roots_sharing_a_file_records_each_root_s_finding_and_converges(
         .map(|root| fs::read_to_string(root.join("skif.baseline.toml")).unwrap())
         .collect();
     let after = recursive_with_config(&repo, &file);
-    assert_eq!(
-        messages_of(&after, "stale-js-config"),
-        Vec::<String>::new(),
-        "{after}"
-    );
+    assert_eq!(messages_of(&after, "stale-js-config"), Vec::<String>::new(), "{after}");
 
     let second = baseline_with_config("write", &repo, &file);
     let added: Vec<Value> = second["roots"]
