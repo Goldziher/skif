@@ -213,10 +213,12 @@ members, nor the files the config could make entries. A finding only knip report
 `devDependencies`, `exports`, `types`, `nsExports`, `nsTypes`, `enumMembers` or `namespaceMembers` whose package (the
 deepest directory above it with a `package.json`) is one of those is counted as `not-judged-by-skif`: in its own
 column of `parity.md`, apart from the agreement counts and the other known deviations, and ignored by `--check`.
-`unlisted`, `unresolved`, `binaries` and `duplicates` are judged in every package and stay compared. For `files` the
-count is an upper bound: skif judges the files outside a narrowed scope
-([ADR 0065](../../adrs/0065-narrowed-scope-for-incomplete-entries.md)), but its JSON does not say which packages are
-narrowed. `parity.json` lists the directories per repository under `not_judged_packages`. See
+`unlisted`, `unresolved`, `binaries` and `duplicates` are judged in every package and stay compared. For `files`,
+`exports`, `types` and the members the count is an upper bound: skif judges them outside a narrowed scope
+([ADR 0065](../../adrs/0065-narrowed-scope-for-incomplete-entries.md),
+[ADR 0081](../../adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md)), but its JSON does not say
+which packages are narrowed or what their scope is, so a knip-only finding outside a narrowed scope is set apart
+although skif judged it (thousands in n8n). Only the dependency categories are unjudged in every listed package. `parity.json` lists the directories per repository under `not_judged_packages`. See
 [ADR 0053](../../adrs/0053-incomplete-packages-in-the-json-report.md) and
 [ADR 0068](../../adrs/0068-what-the-knip-comparison-sets-apart.md).
 
