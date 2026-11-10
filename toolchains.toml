@@ -7,6 +7,11 @@ format = "Rust is formatted by rustfmt before poly formats the rest of the tree.
 "format:check" = "Rust formatting is verified by rustfmt before poly checks the rest of the tree."
 
 [file_overrides]
+"crates/skif-rules/tests/fixtures/toolchain/.nvmrc" = "toolchain-pin-drift fixture: the drifting pins are test input, not a toolchain declaration"
+"crates/skif-rules/tests/fixtures/toolchain/Dockerfile" = "toolchain-pin-drift fixture: the drifting pins are test input, not a toolchain declaration"
+"crates/skif-rules/tests/fixtures/toolchain/examples/legacy/Dockerfile" = "toolchain-pin-drift fixture: the drifting pins are test input, not a toolchain declaration"
+"crates/skif-rules/tests/fixtures/toolchain/packages/web/.node-version" = "toolchain-pin-drift fixture: the drifting pins are test input, not a toolchain declaration"
+"crates/skif-rules/tests/fixtures/toolchain/package.json" = "toolchain-pin-drift fixture: the drifting pins are test input, not a toolchain declaration"
 "fixtures/policy/catalog-groups/banned-dependency-with-a-catalog-entry/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "fixtures/policy/catalog-groups/ignored-package-stays-off-the-catalog/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "fixtures/policy/catalog-groups/ignored-package-unresolved-reference-is-left-alone/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"

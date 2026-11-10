@@ -982,11 +982,11 @@ mod tests {
         let bin = Path::new("/my tools/node_modules/.bin");
         assert_eq!(
             tool_command(Tool::Sherif, &bin.join("sherif"), &[], &[]),
-            "\"/my tools/node_modules/.bin/sherif\" ."
+            format!("\"{}\" .", bin.join("sherif").display())
         );
         assert_eq!(
             tool_command(Tool::Syncpack, &bin.join("syncpack"), &[], &[]),
-            "\"/my tools/node_modules/.bin/syncpack\" lint"
+            format!("\"{}\" lint", bin.join("syncpack").display())
         );
     }
 
