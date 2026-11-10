@@ -11,6 +11,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `RuleMeta` gains `version_scoped`, set with `RuleMeta::version_scoped()`; `IgnoreEntry` gains `files` and
+  `with_files`; `OverrideScope` gains `unanchored()`.
+- syncpack format keys (`sortAz`, `sortFirst`, `indent`, ...) turn `package-json-format` and `unsorted-dependencies`
+  on only when a script runs `syncpack format`; otherwise the settings are written with the rules off and a note.
+- syncpack's `policy: catalog` migrates to `[catalog] mode = "enforce"` with `min-packages = 1`.
+- `unsynced-dependency-family` honours `[policy] dependency-types`, so the sherif migration (`prod`, `dev`) leaves
+  optional dependencies out as sherif does.
 - Template expressions of `.vue`, `.svelte`, `.astro` and `.mdx` files are parsed as JavaScript under the scopes of
   their block constructs (Vue `v-for`, `v-slot`, `#name`, `slot-scope`; Svelte `{#each}`, `{#await}`, `{:then}`,
   `{:catch}`, `{#snippet}`, `{@const}`, `let:`; arrow parameters such as `items.map((item) => …)`), so an import
@@ -49,6 +56,19 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `[[ignore]] files`: globs of the files a finding is located in, relative to the workspace root. `skif baseline`
+  records a finding about a file (`unused-files`, `unused-exports`, `circular-imports`) with its file, so a new unused
+  file or export elsewhere in the package fails the run
+  ([ADR 0093](adrs/0093-baseline-entries-follow-what-a-finding-is-about.md)).
+- `skif baseline write` and `prune` take the lint flags that change the findings (`--config`, `--rule`, the ignore
+  flags, `--no-js`, `--production`, `--strict`, `-W`, `--include`, `--exclude`, ...), and every `skif baseline` command
+  covers several roots as a lint run does (`-r`, or a `PATH` without a `package.json` above it), each root with its own
+  baseline file ([ADR 0093](adrs/0093-baseline-entries-follow-what-a-finding-is-about.md)).
+- A fix run of a single root warns when it would remove a dependency and other roots lie below it, whose uses only
+  `skif -r` credits.
+- A lint run warns about an `[[overrides]]` pattern that leaves the directory it is anchored at (`../packages/*`), which
+  matches nothing.
+- `skif migrate --force` warns when the file it replaces had an `extends` (a baseline file, a shared preset).
 - `unlisted-dependencies` reports a package that a tool config names itself and no manifest lists, at the config
   with the detail `ConfigReference`: a `tsconfig` `extends`, `types` or plugin, an Oxlint `jsPlugins` entry, an
   ESLint plugin, parser or shareable config, a Babel preset or plugin, a PostCSS plugin, a Prisma generator and the
@@ -92,6 +112,24 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `skif baseline` records `name@specifier` only for the rules whose finding is about the specifier (`RuleMeta::version_scoped`:
+  `version-mismatch`, `semver-range-mismatch`, `policy-conflict`, `unsynced-dependency-family`,
+  `incompatible-peer-dependencies`, `catalog-mismatch`, `catalog-version-divergence`); any other finding records the
+  dependency name, so bumping a baselined `@types/node` no longer reopens its `types-in-dependencies` finding
+  ([ADR 0093](adrs/0093-baseline-entries-follow-what-a-finding-is-about.md)).
+- `skif baseline write` and `prune` exit `2` when the configuration does not apply the baseline: no configuration file
+  of the run extends it, or a `reset = ["ignore"]` applied after it drops its entries; `write` reported success while
+  the lint run still failed ([ADR 0093](adrs/0093-baseline-entries-follow-what-a-finding-is-about.md)).
+- `skif baseline check --file` in a directory that does not exist names the directory instead of calling the revision
+  bad.
+- The `--format human` help of `skif baseline`, `config`, `migrate`, `rules` and `update` no longer calls every output
+  an aligned table.
+- The exact sherif migration leaves out of `version-mismatch` the specifiers sherif never compares (`*`, `latest`, tags,
+  `||` ranges, git, url, file, link, `workspace:` and `npm:` aliases), through a last `ignored` version group.
+- The script parser of `skif migrate` reads short flags written `-x=value` and `-xvalue`, and takes sherif's values
+  whole, as sherif does, instead of splitting them at commas.
+- A syncpack custom type with `source: "PackageJson"` is migrated instead of being dropped as reading another file.
+- `unsynced-dependency-family` no longer compares a dependency listed in two sections of a package with itself.
 - An enum or TypeScript namespace read through a namespace import (`ns.E.A`, `ns.E['A']`, the type `ns.E.A`), also
   through a named or `export * as` re-export, uses only the members read on it, so its other members are reported by
   `unused-enum-members` and `unused-namespace-members`. `ns.E` used as a whole still uses every member
