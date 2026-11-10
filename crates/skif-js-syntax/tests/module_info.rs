@@ -2,6 +2,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use skif_js_syntax::{
@@ -748,6 +749,43 @@ fn a_spy_on_a_namespace_member_reads_that_member() {
         let info = parse("a.test.ts", source);
         assert!(info.imports[0].names[0].escapes, "{source}");
     }
+}
+
+#[test]
+fn members_read_through_a_member_of_a_namespace_are_recorded_one_level_down() {
+    let source = "import * as C from './constants';\n\
+                  C.Ids.Open; C.Ids['Close']; let m: C.Modes.On; C.Kinds.A; use(C.Kinds); C.Grouped.Inner;\n\
+                  const { Picked } = C; C.Picked.X;\n";
+    let info = parse("a.ts", source);
+    let c = &info.imports[0].names[0];
+    assert_eq!(c.accessed_members, ["Grouped", "Ids", "Kinds", "Modes", "Picked"]);
+    assert!(!c.escapes);
+    assert_eq!(
+        c.nested_members,
+        nested(&[("Grouped", &["Inner"]), ("Ids", &["Close", "Open"]), ("Modes", &["On"])]),
+        "`Kinds` is passed around and `Picked` destructured: both are used as a whole"
+    );
+}
+
+#[test]
+fn a_component_template_that_reads_a_member_uses_it_as_a_whole() {
+    let vue = "<script setup lang=\"ts\">\nimport * as C from './c';\nconst a = C.Ids.Open;\nconst b = C.Modes.On;\n</script>\n<template>{{ C.Ids.Close }}</template>\n";
+    let info = parse("App.vue", vue);
+    let c = &info.imports[0].names[0];
+    assert_eq!(c.accessed_members, ["Ids", "Modes"]);
+    assert_eq!(c.nested_members, nested(&[("Modes", &["On"])]));
+}
+
+fn nested(entries: &[(&str, &[&str])]) -> BTreeMap<String, Vec<String>> {
+    entries
+        .iter()
+        .map(|(member, inner)| {
+            (
+                (*member).to_owned(),
+                inner.iter().map(|name| (*name).to_owned()).collect(),
+            )
+        })
+        .collect()
 }
 
 #[test]

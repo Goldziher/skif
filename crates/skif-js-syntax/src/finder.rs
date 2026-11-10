@@ -1,7 +1,7 @@
 //! Nested module references: `require`, dynamic `import()`, `import.meta.glob`, `import x = require()`, test-runner
 //! mocks, `CommonJS` exports, JSX and the template and stylesheet files of an Angular or Stencil `@Component`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use oxc_ast::ast::{
     Argument, ArrayExpressionElement, ArrayPattern, AssignmentExpression, AssignmentOperator, AssignmentTarget,
@@ -117,6 +117,7 @@ fn name(kind: ImportedKind, local: Option<&str>, escapes: bool) -> ImportedName 
         local: local.map(str::to_string),
         is_type: false,
         accessed_members: Vec::new(),
+        nested_members: BTreeMap::new(),
         escapes,
     }
 }

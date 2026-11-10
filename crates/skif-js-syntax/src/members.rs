@@ -1,12 +1,12 @@
 //! Members read through imported bindings (`ns.a`, `Enum.A`, `const { a } = ns`, `ns.Type`, and the member a test
-//! runner spies on, `vi.spyOn(ns, "a")`).
+//! runner spies on, `vi.spyOn(ns, "a")`), and the members read one level further down (`ns.Enum.A`).
 //!
 //! The binding of an `import` declaration is matched by scope: a parameter or local of an inner scope with the same
 //! name shadows it and reads nothing of it. Other bindings (`const ns = await import("x")`, `const x = require("x")`
 //! in a function) are matched by name, as knip does for dynamic imports: a shadowing local can only make them look
 //! more used.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use oxc_ast::ast::{
     Argument, BindingPattern, CallExpression, ComputedMemberExpression, Expression, IdentifierReference,
@@ -23,12 +23,33 @@ pub(crate) struct Slot {
     pub members: BTreeSet<String>,
     pub uses: u32,
     pub member_uses: u32,
+    /// The uses of each member read through the name, by member: `ns.E` is a use of member `E`, `ns.E.A` reads `A` of
+    /// it. A member read in a way this does not see (destructured, spied on, read in a template) has no member uses.
+    pub nested: BTreeMap<String, Slot>,
 }
 
 impl Slot {
     /// Whether the name is used in a way that cannot be reduced to members.
     pub(crate) const fn escapes(&self) -> bool {
         self.uses > self.member_uses
+    }
+
+    /// The members read through the members of the name, for each member every use of which reads its members.
+    pub(crate) fn nested_reads(&self) -> impl Iterator<Item = (&String, &BTreeSet<String>)> {
+        self.nested
+            .iter()
+            .filter(|(_, inner)| !inner.escapes() && !inner.members.is_empty())
+            .map(|(member, inner)| (member, &inner.members))
+    }
+
+    /// Adds the uses in `other`.
+    fn merge(&mut self, other: &Self) {
+        self.members.extend(other.members.iter().cloned());
+        self.uses += other.uses;
+        self.member_uses += other.member_uses;
+        for (member, inner) in &other.nested {
+            self.nested.entry(member.clone()).or_default().merge(inner);
+        }
     }
 }
 
@@ -79,6 +100,25 @@ impl Tracker<'_> {
         if let Some(slot) = self.slot(local) {
             slot.members.insert(member.to_string());
             slot.member_uses += 1;
+            slot.nested.entry(member.to_owned()).or_default().uses += 1;
+        }
+    }
+
+    /// Records `local.member.inner`. The walk records `local.member` on its own.
+    fn nested_member(&mut self, local: &str, member: &str, inner: &str) {
+        if let Some(slot) = self.slot(local) {
+            let nested = slot.nested.entry(member.to_owned()).or_default();
+            nested.members.insert(inner.to_owned());
+            nested.member_uses += 1;
+        }
+    }
+
+    /// Records `inner` read on `object` when `object` is a member read through an identifier (`ns.E`, `ns['E']`).
+    fn read_on_member(&mut self, object: &Expression<'_>, inner: &str) {
+        if let Some((id, member)) = identifier_member(object)
+            && self.may_be_tracked(id)
+        {
+            self.nested_member(id.name.as_str(), &member, inner);
         }
     }
 }
@@ -94,30 +134,44 @@ impl<'a> Visit<'a> for Tracker<'_> {
     }
 
     fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
-        if let Expression::Identifier(id) = &it.object
-            && self.may_be_tracked(id)
-        {
-            self.member(id.name.as_str(), it.property.name.as_str());
+        if let Expression::Identifier(id) = &it.object {
+            if self.may_be_tracked(id) {
+                self.member(id.name.as_str(), it.property.name.as_str());
+            }
+        } else {
+            self.read_on_member(&it.object, it.property.name.as_str());
         }
         walk::walk_static_member_expression(self, it);
     }
 
     fn visit_computed_member_expression(&mut self, it: &ComputedMemberExpression<'a>) {
-        if let Expression::Identifier(id) = &it.object
-            && self.may_be_tracked(id)
-            && let Expression::StringLiteral(s) = &it.expression
+        if let Expression::StringLiteral(s) = &it.expression
             && let Some(member) = s.value.as_str()
         {
-            self.member(id.name.as_str(), member);
+            if let Expression::Identifier(id) = &it.object {
+                if self.may_be_tracked(id) {
+                    self.member(id.name.as_str(), member);
+                }
+            } else {
+                self.read_on_member(&it.object, member);
+            }
         }
         walk::walk_computed_member_expression(self, it);
     }
 
     fn visit_ts_qualified_name(&mut self, it: &TSQualifiedName<'a>) {
-        if let TSTypeName::IdentifierReference(id) = &it.left
-            && self.may_be_tracked(id)
-        {
-            self.member(id.name.as_str(), it.right.name.as_str());
+        match &it.left {
+            TSTypeName::IdentifierReference(id) if self.may_be_tracked(id) => {
+                self.member(id.name.as_str(), it.right.name.as_str());
+            }
+            TSTypeName::QualifiedName(left) => {
+                if let TSTypeName::IdentifierReference(id) = &left.left
+                    && self.may_be_tracked(id)
+                {
+                    self.nested_member(id.name.as_str(), left.right.name.as_str(), it.right.name.as_str());
+                }
+            }
+            _ => {}
         }
         walk::walk_ts_qualified_name(self, it);
     }
@@ -145,11 +199,29 @@ impl<'a> Visit<'a> for Tracker<'_> {
             if let Some(keys) = keys
                 && let Some(slot) = self.slot(id.name.as_str())
             {
+                for key in &keys {
+                    slot.nested.entry(key.clone()).or_default().uses += 1;
+                }
                 slot.members.extend(keys);
                 slot.member_uses += 1;
             }
         }
         walk::walk_variable_declarator(self, it);
+    }
+}
+
+/// The identifier and the member of `id.member` or `id['member']`.
+fn identifier_member<'c, 'a>(expression: &'c Expression<'a>) -> Option<(&'c IdentifierReference<'a>, String)> {
+    match expression {
+        Expression::StaticMemberExpression(member) => match &member.object {
+            Expression::Identifier(id) => Some((&**id, member.property.name.as_str().to_owned())),
+            _ => None,
+        },
+        Expression::ComputedMemberExpression(member) => match (&member.object, &member.expression) {
+            (Expression::Identifier(id), Expression::StringLiteral(s)) => Some((&**id, s.value.as_str()?.to_owned())),
+            _ => None,
+        },
+        _ => None,
     }
 }
 
@@ -208,6 +280,10 @@ pub(crate) fn track(program: &oxc_ast::ast::Program<'_>, info: &mut ModuleInfo, 
                 continue;
             };
             n.accessed_members = slot.members.iter().cloned().collect();
+            n.nested_members = slot
+                .nested_reads()
+                .map(|(member, inner)| (member.clone(), inner.iter().cloned().collect()))
+                .collect();
             n.escapes |= slot.escapes();
         }
     }
@@ -232,10 +308,7 @@ pub(crate) fn uses(program: &oxc_ast::ast::Program<'_>) -> Uses {
 /// Adds the uses in `from` to `into`.
 pub(crate) fn merge_uses(into: &mut Uses, from: &Uses) {
     for (name, slot) in from {
-        let target = into.entry(name.clone()).or_default();
-        target.members.extend(slot.members.iter().cloned());
-        target.uses += slot.uses;
-        target.member_uses += slot.member_uses;
+        into.entry(name.clone()).or_default().merge(slot);
     }
 }
 
@@ -246,6 +319,21 @@ pub(crate) fn credit(info: &mut ModuleInfo, uses: &Uses) {
             let Some(slot) = n.local.as_ref().and_then(|l| uses.get(l)) else {
                 continue;
             };
+            let nested: BTreeMap<&String, &BTreeSet<String>> = slot.nested_reads().collect();
+            for member in &slot.members {
+                let whole_here = n.accessed_members.contains(member) && !n.nested_members.contains_key(member);
+                match nested.get(member) {
+                    Some(inner) if !whole_here => {
+                        let reads = n.nested_members.entry(member.clone()).or_default();
+                        reads.extend(inner.iter().cloned());
+                        reads.sort();
+                        reads.dedup();
+                    }
+                    _ => {
+                        n.nested_members.remove(member);
+                    }
+                }
+            }
             n.accessed_members.extend(slot.members.iter().cloned());
             n.accessed_members.sort();
             n.accessed_members.dedup();
