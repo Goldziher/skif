@@ -231,10 +231,11 @@ pub struct RulesArgs {
     pub format: RulesFormat,
 }
 
-/// Output format of `skif rules` and `skif config`.
+/// Output format of the commands that print a report rather than findings (`skif rules`, `skif config`, `skif
+/// baseline`, `skif migrate`, `skif update`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
 pub enum RulesFormat {
-    /// An aligned table.
+    /// Text to read: a table for `skif rules`, lines for the others.
     #[default]
     Human,
     /// One JSON document on stdout.
