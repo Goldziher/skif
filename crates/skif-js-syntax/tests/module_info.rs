@@ -1331,6 +1331,17 @@ fn template_locals_do_not_use_the_imports_they_shadow() {
 }
 
 #[test]
+fn vue_files_record_the_tag_names_of_their_template() {
+    let vue = "<script setup>\nconst x = 1;\n</script>\n<template><AppButton/><app-card><AppButton/></app-card><p>{{ x }}</p></template>\n<style>.a{}</style>\n";
+    assert_eq!(
+        parse("A.vue", vue).template_tags,
+        ["AppButton", "app-card", "p", "script", "style", "template"]
+    );
+    let svelte = "<script>\n  import Card from './Card.svelte';\n</script>\n<Card/>\n";
+    assert_eq!(parse("A.svelte", svelte).template_tags, Vec::<String>::new());
+}
+
+#[test]
 fn script_blocks_of_one_component_share_their_imports() {
     let svelte = "<script context=\"module\">\n  import * as util from './util';\n</script>\n<script>\n  export let n = util.double(1);\n</script>\n";
     let info = parse("A.svelte", svelte);
