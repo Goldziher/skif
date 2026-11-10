@@ -137,7 +137,7 @@ impl Rule for StalePatchedDependencies {
                         }
                     }
                 }
-                Err(diagnostic) => out.emit(diagnostic),
+                Err(diagnostic) => out.emit(*diagnostic),
             }
         }
         let referenced: BTreeSet<String> = entries.iter().map(|entry| normalize(&entry.path)).collect();
@@ -162,7 +162,11 @@ impl Rule for StalePatchedDependencies {
                 .iter()
                 .filter(|item| item.is_file)
                 .filter_map(|item| item.path.file_name()?.to_str().map(str::to_owned))
-                .filter(|name| name.ends_with(".patch"))
+                .filter(|name| {
+                    Path::new(name)
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("patch"))
+                })
                 .map(|name| if dir.is_empty() { name } else { format!("{dir}/{name}") })
                 .filter(|file| !referenced.contains(file))
                 .collect();
@@ -277,11 +281,11 @@ fn normalize(path: &str) -> String {
     for component in Path::new(&path.replace('\\', "/")).components() {
         match component {
             Component::Normal(part) => parts.push(part.to_string_lossy().into_owned()),
-            Component::ParentDir => {
-                if parts.pop().is_none() {
-                    parts.push("..".to_owned());
-                }
+            // `..` cancels the segment before it, unless that is a `..` of its own (`../../x`).
+            Component::ParentDir if parts.last().is_some_and(|last| last != "..") => {
+                parts.pop();
             }
+            Component::ParentDir => parts.push("..".to_owned()),
             _ => {}
         }
     }
@@ -291,6 +295,14 @@ fn normalize(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use skif_core::Diagnostic;
+
+    #[test]
+    fn normalize_cancels_segments_but_keeps_leading_parents() {
+        assert_eq!(normalize("./patches/../patches/a.patch"), "patches/a.patch");
+        assert_eq!(normalize("../../shared/a.patch"), "../../shared/a.patch");
+        assert_eq!(normalize("a/../../b.patch"), "../b.patch");
+        assert_eq!(normalize("patches\\b.patch"), "patches/b.patch");
+    }
 
     use super::*;
     use crate::testing::{config, lint, located, root};
@@ -529,7 +541,7 @@ snapshots:
             ("patches/old.patch", PATCH),
             ("pnpm-lock.yaml", "not: [valid\n"),
         ];
-        assert!(lint(META.id, &files, &config("")).is_empty());
+        assert_eq!(lint(META.id, &files, &config("")), []);
     }
 
     #[test]

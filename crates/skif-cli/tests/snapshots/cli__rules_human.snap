@@ -15,8 +15,9 @@ unmatched-workspace-patterns       workspace  warning  unsafe     A workspace pa
 missing-package-manifest           workspace  warning  unsafe     A directory matched by the workspace patterns has no `package.json`.
 local-path-dependency              manifest   error    sometimes  A dependency points at a path on disk (`link:`, `file:`, `portal:` or a relative path) instead of a registry or workspace version.
 package-json-format                manifest   off      sometimes  A `package.json` is not formatted as `[format]` describes: key order, sorted fields, `exports` conditions, shorthand `bugs` and `repository`, and the indent. The fix is unsafe when `sort-exports` reorders conditions other than `types` and `default`.
+stale-patched-dependencies         workspace  warning  none       A `patchedDependencies` entry no longer applies, names a missing file or lies outside the allowed paths, or a patch file is left over.
 version-mismatch                   policy     error    sometimes  A dependency instance differs from the version its version group requires (highest, lowest, pinned, local or snapped).
-banned-dependency                  policy     error    unsafe     A dependency is declared although a banned version group forbids it.
+banned-dependency                  policy     error    unsafe     A dependency is declared, or resolved by the lockfile, although a banned version group forbids it.
 semver-range-mismatch              policy     error    unsafe     A dependency uses a semver range other than the one its semver group requires.
 policy-conflict                    policy     warning  sometimes  Two policies require incompatible outcomes for one dependency, or a group cannot be applied as configured.
 invalid-local-version              policy     error    none       A workspace package has a `version` that is not an exact semver version, so dependents cannot align with it.
@@ -27,7 +28,7 @@ catalog-version-divergence         catalog    warning  none       Packages take 
 unresolved-catalog-references      catalog    error    none       A `catalog:` specifier names a catalog or an entry that does not exist.
 unused-catalog-entries             catalog    warning  unsafe     A catalog entry that no manifest references; reported only when `[catalog] report-unused-entries` is `true`.
 workspace-protocol                 policy     error    none       A dependency on a workspace package does not use the `workspace:` protocol.
-unsynced-dependency-family         policy     error    none       Members of a dependency family declared in one package are on different versions.
+unsynced-dependency-family         policy     error    none       Members of a dependency family are on different versions in one package, or as resolved by the lockfile.
 unused-dependencies                js         error    unsafe     A package in `dependencies` is never imported, required or run by a script; `optionalDependencies` are not checked.
 unused-dev-dependencies            js         warning  unsafe     A package in `devDependencies` is never imported, required or run by a script.
 unlisted-dependencies              js         error    none       A file imports a package that neither its `package.json` nor any `package.json` above it lists. An import that only the tsconfig `paths` of another package map has the detail `ForeignTsconfigPaths`: it needs a mapping, not a dependency. A package a tool config names (a tsconfig `extends`, an ESLint or Oxlint plugin, a Prisma generator) is reported at the config with the detail `ConfigReference`.

@@ -28,7 +28,7 @@ pub(super) fn emit(cx: &LintContext<'_>, families: &[Family], out: &mut Emitter<
     ) {
         Ok(lock) => lock,
         Err(diagnostic) => {
-            out.emit(diagnostic);
+            out.emit(*diagnostic);
             return;
         }
     };
@@ -316,6 +316,8 @@ snapshots:
         let messages: Vec<&str> = found
             .iter()
             .map(|(diagnostic, _)| diagnostic.message.as_str())
+            // The fixture's manifests also declare a mismatch the built-in `playwright` family reports.
+            .filter(|message| message.contains("`react-types`"))
             .collect();
         assert_eq!(
             messages,

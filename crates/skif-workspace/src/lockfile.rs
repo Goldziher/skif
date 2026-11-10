@@ -220,7 +220,7 @@ impl PnpmLockfile {
             .into_iter()
             .flatten()
             .map(|(key, entry)| {
-                let patch = match entry {
+                let locked = match entry {
                     // pnpm 10 records the hash alone.
                     Value::String(hash) => LockedPatch {
                         hash: Some(hash.clone()),
@@ -232,7 +232,7 @@ impl PnpmLockfile {
                     },
                     _ => LockedPatch::default(),
                 };
-                (key.clone(), patch)
+                (key.clone(), locked)
             })
             .collect();
         let overrides = mapping("overrides")?
