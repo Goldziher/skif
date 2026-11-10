@@ -45,7 +45,7 @@ use env::Env;
 pub use error::{CliError, Kind};
 use lint::Teardown;
 pub use lint::lint_to_json;
-use output::{emit_error, emit_error_to};
+use output::{emit_error, emit_error_with};
 
 /// Runs the CLI with `args` (the first item is the program name, as in `std::env::args_os`) and returns the exit
 /// code. The npm addon calls this; the `skif` binary calls [`run_to_exit`], which differs only in what happens to
@@ -102,7 +102,7 @@ fn exit_two_on_panic(raw: &[OsString], stdout: &mut dyn Write, body: impl FnOnce
                     .unwrap_or("panic")
                     .to_owned()
             });
-            emit_error_to(&internal_error(&report), Format::Json, Map::new(), stdout);
+            emit_error_with(&internal_error(&report), Format::Json, Map::new(), stdout);
         }
         2
     })

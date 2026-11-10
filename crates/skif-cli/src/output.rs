@@ -44,16 +44,17 @@ pub fn stderr_line(text: &str) {
 
 /// Reports a failure: a JSON `error` document on stdout in JSON mode, `error: ...` on stderr otherwise.
 pub fn emit_error(error: &CliError, format: Format) {
-    emit_error_with(error, format, Map::new());
+    emit_error_with(error, format, Map::new(), &mut io::stdout().lock());
 }
 
-/// Like [`emit_error`], with `extra` top-level members in the JSON document (the `fix` object of a completed fix).
-pub fn emit_error_with(error: &CliError, format: Format, extra: Map<String, serde_json::Value>) {
-    emit_error_to(error, format, extra, &mut io::stdout().lock());
-}
-
-/// Like [`emit_error_with`], with the JSON document written to `stdout`.
-pub fn emit_error_to(error: &CliError, format: Format, extra: Map<String, serde_json::Value>, stdout: &mut dyn Write) {
+/// Like [`emit_error`], with `extra` top-level members in the JSON document (the `fix` object of a completed fix) and
+/// the document written to `stdout`, which stands for stdout.
+pub fn emit_error_with(
+    error: &CliError,
+    format: Format,
+    extra: Map<String, serde_json::Value>,
+    stdout: &mut dyn Write,
+) {
     if format == Format::Json
         && let Some(buffer) = error_document(error, extra)
         && write_to(stdout, buffer.as_bytes()).is_ok()
