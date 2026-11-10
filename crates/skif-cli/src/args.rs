@@ -38,7 +38,7 @@ pub enum Command {
     /// Translate the configuration of sherif, syncpack and knip into a `skif.toml`; never deletes a file.
     Migrate(MigrateArgs),
     /// Record the current findings as `[[ignore]]` entries in a baseline file, prune it, or fail when it grew.
-    Baseline(BaselineArgs),
+    Baseline(Box<BaselineArgs>),
     /// Update dependencies to newer published versions from the npm registry; the only command that uses the network.
     Update(UpdateArgs),
     /// List every dependency the version groups govern, by version group, with its specifiers and states.

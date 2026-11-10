@@ -672,18 +672,27 @@ mod tests {
         );
 
         now.tool = "knip@1".to_owned();
-        assert_eq!(check(&base, &now, TOLERANCE), ["r: files skif-only moved from 1 to 900"]);
+        assert_eq!(
+            check(&base, &now, TOLERANCE),
+            ["r: files skif-only moved from 1 to 900"]
+        );
     }
 
     #[test]
     fn check_refuses_an_entry_recorded_with_another_recursive_mode() {
         let base = baseline(&[("r", Entry::compared(counts(1, 1, 1)).with_run(false, "aaa"))]);
         let same = baseline(&[("r", Entry::compared(counts(1, 1, 1)).with_run(false, "bbb"))]);
-        assert_eq!(check(&base, &same, TOLERANCE), [] as [String; 0], "the rev is not compared");
+        assert_eq!(
+            check(&base, &same, TOLERANCE),
+            [] as [String; 0],
+            "the rev is not compared"
+        );
         let recursive = baseline(&[("r", Entry::compared(counts(1, 1, 1)).with_run(true, "bbb"))]);
         assert_eq!(
             check(&base, &recursive, TOLERANCE),
-            ["r: the baseline was recorded with recursive: false, this run used recursive: true; re-record it with --write-baseline"]
+            [
+                "r: the baseline was recorded with recursive: false, this run used recursive: true; re-record it with --write-baseline"
+            ]
         );
     }
 
@@ -710,7 +719,10 @@ mod tests {
 
         now.category_set = Some(category_set(&["files"], &["x", "y"]));
         conclude(&gate, &now).unwrap();
-        assert_eq!(read_baseline(&file).unwrap().entries.keys().collect::<Vec<_>>(), ["new"]);
+        assert_eq!(
+            read_baseline(&file).unwrap().entries.keys().collect::<Vec<_>>(),
+            ["new"]
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -719,7 +731,9 @@ mod tests {
         let base = baseline(&[("r", Entry::skipped("knip failed"))]);
         let now = baseline(&[(
             "r",
-            Entry::compared(counts(1, 1, 1)).with_installed(false).with_run(false, "aaa"),
+            Entry::compared(counts(1, 1, 1))
+                .with_installed(false)
+                .with_run(false, "aaa"),
         )]);
         assert_eq!(check(&base, &now, TOLERANCE), ["r: was skipped, is now compared"]);
     }

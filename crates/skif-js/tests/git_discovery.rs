@@ -130,7 +130,11 @@ fn untracked_files_and_directories_are_found() {
 #[test]
 fn an_untracked_file_older_than_the_last_index_write_is_found() {
     let Some((_dir, root)) = repository() else { return };
-    write(&root, "src/extra.ts", "import { dead } from \"./dead\";\nexport const extra = dead;\n");
+    write(
+        &root,
+        "src/extra.ts",
+        "import { dead } from \"./dead\";\nexport const extra = dead;\n",
+    );
     // Committing another file rewrites the index after `src/extra.ts` was created, so `src` is older than the index.
     write(&root, "notes.txt", "notes\n");
     assert!(git(&root, &["add", "notes.txt"]) && git(&root, &["commit", "-q", "-m", "notes"]));

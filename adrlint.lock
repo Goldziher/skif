@@ -430,3 +430,53 @@ blake3 = "b830bad58f376637a70784dc49a09852c8e59ec3f775b0008fd64df619df0a44"
 number = 86
 status = "accepted"
 blake3 = "729ab39aad104eb93980cddebad9ee97622baf70822c12bbba3972dc6539bb13"
+
+[adrs."adrs/0087-toolchain-pins-outside-package-json-and-the-toolchain-pin-drift-rule.md"]
+number = 87
+status = "accepted"
+blake3 = "031aa0a2ba520e4710bb1c2475cdb83a6c141325a838f900816e0f18dc698b98"
+
+[adrs."adrs/0088-foreign-package-manager-commands.md"]
+number = 88
+status = "accepted"
+blake3 = "2310875b5b01f26f03e4883ddb1e3ab6298b7818c4476204984ed1a3246f40c2"
+
+[adrs."adrs/0089-stray-lockfiles-and-nested-workspace-roots.md"]
+number = 89
+status = "accepted"
+blake3 = "87455bb8ed183d3237e99756e421619f07b7564230aaeba621feddc9f2ccf14b"
+
+[adrs."adrs/0090-lockfile-scopes-for-banned-groups-and-dependency-families.md"]
+number = 90
+status = "accepted"
+blake3 = "4aaa3e8e4fc1f9e4c966a35a4e2751542d43dafaceaad2720162219ee2493e8f"
+
+[adrs."adrs/0091-stale-patched-dependencies.md"]
+number = 91
+status = "accepted"
+blake3 = "00f60c31e6e306b9f9952151fcbdb84e0308601fc3eb1611094cc79b9e09ec2f"
+
+[adrs."adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md"]
+number = 92
+status = "accepted"
+blake3 = "60a9e7eb9c2f3c88753ce26fa8c0454dcdeca19060f48018f7e3a1a6663dc2e6"
+
+[adrs."adrs/0093-baseline-entries-follow-what-a-finding-is-about.md"]
+number = 93
+status = "accepted"
+blake3 = "0f76476b835f77e500b862a647d49da17224bdd9f1a25168c85f4151eb97cb5e"
+
+[adrs."adrs/0094-script-directories-and-the-no-entries-cause.md"]
+number = 94
+status = "accepted"
+blake3 = "5e145d35817d2b0bdd0c7c28bd5653fbc4de8aeab6b878871f3da9ce7d3948de"
+
+[adrs."adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md"]
+number = 95
+status = "accepted"
+blake3 = "a51eeb7f03c7e6d33b0cdde88f5191a91855b0d67e705fbc9846587f49536f17"
+
+[adrs."adrs/0096-knip-comparison-findings-in-unused-files-invalid-runs-and-two-sided-config-errors.md"]
+number = 96
+status = "accepted"
+blake3 = "ada0f511580e546cc57eaa5db6540de2b193477442160567d4c34cfa68050e99"

@@ -132,7 +132,10 @@ mod tests {
         let broken = r#"{"name":"e", "version": "1.0.0",, }"#;
         let files = [
             ("package.json", root_json.as_str()),
-            ("packages/a/package.json", r#"{"name":"a","dependencies":{"e":"workspace:*"}}"#),
+            (
+                "packages/a/package.json",
+                r#"{"name":"a","dependencies":{"e":"workspace:*"}}"#,
+            ),
             ("packages/e/package.json", broken),
         ];
         let diagnostics = lint(META.id, &files, &config(""));
@@ -154,7 +157,8 @@ mod tests {
 
     #[test]
     fn an_unusable_workspace_pattern_is_reported_where_it_is_written() {
-        let manifest = r#"{"name":"root","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*","../x"]}"#;
+        let manifest =
+            r#"{"name":"root","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*","../x"]}"#;
         let files = [
             ("package.json", manifest),
             ("packages/a/package.json", r#"{"name":"a"}"#),
@@ -197,7 +201,7 @@ mod tests {
             ("package.json", root_json.as_str()),
             ("packages/a/package.json", r#"{"name":"a"}"#),
         ];
-        assert!(lint(META.id, &files, &config("")).is_empty());
+        assert_eq!(lint(META.id, &files, &config("")), []);
     }
 
     #[test]

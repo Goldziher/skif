@@ -369,7 +369,10 @@ mod tests {
         // `*` next to `^3.0.0` and `latest` next to `beta` end in the same state; the summary fits both.
         let summary = State::NonSemverMismatch.summary();
         assert!(!summary.contains("none of them"), "{summary}");
-        assert!(summary.contains("not every one of them is a semver version"), "{summary}");
+        assert!(
+            summary.contains("not every one of them is a semver version"),
+            "{summary}"
+        );
     }
 
     #[test]

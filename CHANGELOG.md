@@ -10,6 +10,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 - GitHub Action: with `from-sherif: true`, `baseline write`, `prune` and `check` read the translated sherif settings through a temporary configuration that extends the translation and then the baseline file.
+
 ### Added
 
 - `toolchain-pin-drift` (`warn`): Node and package-manager versions pinned in `.nvmrc`, `.node-version`,

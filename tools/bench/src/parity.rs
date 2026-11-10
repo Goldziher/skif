@@ -21,8 +21,8 @@ use crate::corpus::{self, RUSH_KNIP_ROOT, Repo, Tools};
 use crate::diff::{
     self, BASELINE_SCHEMA, Baseline, COMPARED, CategorySet, Counts, Deviation, Entry, Gate, Keys, Samples, Side,
 };
-use crate::provenance;
 use crate::proc::{capture, find_on_path};
+use crate::provenance;
 
 /// skif rule to knip issue type.
 const RULE_CATEGORIES: [(&str, &str); 14] = [
@@ -1011,10 +1011,16 @@ fn skipped(reason: impl Into<String>) -> Outcome {
 
 /// The categories the comparison counts and the known deviations it sets apart, as the baseline records them.
 fn category_set() -> CategorySet {
-    let compared: BTreeSet<String> = KNIP_CATEGORIES.iter().map(|(_, category)| (*category).to_owned()).collect();
+    let compared: BTreeSet<String> = KNIP_CATEGORIES
+        .iter()
+        .map(|(_, category)| (*category).to_owned())
+        .collect();
     CategorySet {
         compared: compared.into_iter().collect(),
-        known_deviations: KNIP_DEVIATIONS.iter().map(|deviation| deviation.id.to_owned()).collect(),
+        known_deviations: KNIP_DEVIATIONS
+            .iter()
+            .map(|deviation| deviation.id.to_owned())
+            .collect(),
     }
 }
 
@@ -1160,7 +1166,8 @@ fn knip_root(repo: &Repo, root: &Path, scratch: &Path) -> Result<PathBuf, String
     match repo.knip_root.as_deref() {
         None => Ok(root.to_path_buf()),
         Some(RUSH_KNIP_ROOT) => {
-            let rush = fs::read_to_string(root.join("rush.json")).map_err(|error| format!("reading rush.json: {error}"))?;
+            let rush =
+                fs::read_to_string(root.join("rush.json")).map_err(|error| format!("reading rush.json: {error}"))?;
             let manifest = rush_root_manifest(&rush)?;
             let copy = scratch.join("knip-root");
             if copy.exists() {
@@ -1244,9 +1251,7 @@ fn strip_jsonc(text: &str) -> String {
                 in_string = true;
                 out.push(character);
             }
-            ('/', Some('/')) => {
-                while chars.next_if(|next| *next != '\n').is_some() {}
-            }
+            ('/', Some('/')) => while chars.next_if(|next| *next != '\n').is_some() {},
             ('/', Some('*')) => {
                 chars.next();
                 let mut previous = ' ';
@@ -1989,7 +1994,11 @@ mod tests {
     fn the_recorded_category_set_holds_every_compared_category_and_deviation() {
         let set = category_set();
         assert_eq!(set.compared.len(), KNIP_CATEGORIES.len());
-        assert!(set.compared.windows(2).all(|pair| pair[0] < pair[1]), "sorted: {:?}", set.compared);
+        assert!(
+            set.compared.windows(2).all(|pair| pair[0] < pair[1]),
+            "sorted: {:?}",
+            set.compared
+        );
         for id in [IN_KNIP_UNUSED_FILE, IN_SKIF_UNUSED_FILE, KNIP_CONFIG_ERROR, NOT_JUDGED] {
             assert!(set.known_deviations.iter().any(|known| known == id), "{id}");
         }
@@ -2026,7 +2035,11 @@ mod tests {
                 .unwrap_err()
                 .contains("no projectFolder")
         );
-        assert!(rush_root_manifest("{ not json").unwrap_err().contains("parsing rush.json"));
+        assert!(
+            rush_root_manifest("{ not json")
+                .unwrap_err()
+                .contains("parsing rush.json")
+        );
     }
 
     #[test]
@@ -2396,7 +2409,11 @@ mod tests {
             (Side::Skif, "exports", "packages/b/src/gone.ts|x"),
             (Side::Tool, "exports", "examples/a/src/dead.ts|x"),
         ] {
-            assert_eq!(classifier.classify(side, category, key), None, "{side:?} {category} {key}");
+            assert_eq!(
+                classifier.classify(side, category, key),
+                None,
+                "{side:?} {category} {key}"
+            );
         }
         for side in [Side::Skif, Side::Tool] {
             assert_eq!(
@@ -2405,7 +2422,10 @@ mod tests {
                 "{side:?}"
             );
         }
-        assert_eq!(classifier.classify(Side::Skif, "exports", "packages/other/a.ts|x"), None);
+        assert_eq!(
+            classifier.classify(Side::Skif, "exports", "packages/other/a.ts|x"),
+            None
+        );
     }
 
     #[test]

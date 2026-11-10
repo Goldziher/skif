@@ -187,7 +187,8 @@ pub(crate) fn anchor_patterns(
         let (negation, body) = pattern
             .strip_prefix('!')
             .map_or(("", pattern.as_str()), |body| ("!", body));
-        let target = path_part(body, paths_only).map(|(at_root, rest)| (if at_root { root } else { declared_in }, rest));
+        let target =
+            path_part(body, paths_only).map(|(at_root, rest)| (if at_root { root } else { declared_in }, rest));
         match target {
             None => anchored.push(pattern.clone()),
             Some((base, rest)) => {
@@ -340,16 +341,26 @@ mod tests {
 
     #[test]
     fn patterns_that_leave_their_anchor_are_listed() {
-        let patterns: Vec<String> = ["../packages/*", "!../x", "./a/../b", "$ROOT/../y", "@scope/*", "packages/*"]
-            .map(str::to_owned)
-            .to_vec();
+        let patterns: Vec<String> = [
+            "../packages/*",
+            "!../x",
+            "./a/../b",
+            "$ROOT/../y",
+            "@scope/*",
+            "packages/*",
+        ]
+        .map(str::to_owned)
+        .to_vec();
         assert_eq!(unanchored(&patterns, false), ["../packages/*", "!../x", "$ROOT/../y"]);
         assert_eq!(
             unanchored(&["a/../../b".to_owned(), "src/**".to_owned()], true),
             ["a/../../b"]
         );
         let dropped = anchor_patterns(&patterns, Path::new("/r/config"), Path::new("/r"), false).unwrap();
-        assert!(!dropped.matches("/r/packages/a", false), "a dropped pattern matches nothing");
+        assert!(
+            !dropped.matches("/r/packages/a", false),
+            "a dropped pattern matches nothing"
+        );
     }
 
     #[test]

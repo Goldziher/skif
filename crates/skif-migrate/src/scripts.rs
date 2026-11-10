@@ -606,7 +606,11 @@ mod tests {
 
         let long = package(r#"{ "a": "knip --include-entry-exports --include=files" }"#);
         let found = &invocations(&long, Tool::Knip)[0];
-        assert_eq!(found.values("include", Some("i")), ["files"], "a long flag is not a short one");
+        assert_eq!(
+            found.values("include", Some("i")),
+            ["files"],
+            "a long flag is not a short one"
+        );
         assert_eq!(found.flags(), ["--include-entry-exports", "--include"]);
     }
 

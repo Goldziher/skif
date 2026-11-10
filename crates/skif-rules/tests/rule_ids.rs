@@ -17,7 +17,11 @@ fn listed(text: &'static str) -> Vec<&'static str> {
 }
 
 fn registered() -> BTreeSet<&'static str> {
-    Registry::new(skif_rules::providers()).unwrap().rules().map(|meta| meta.id).collect()
+    Registry::new(skif_rules::providers())
+        .unwrap()
+        .rules()
+        .map(|meta| meta.id)
+        .collect()
 }
 
 #[test]

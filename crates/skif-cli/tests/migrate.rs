@@ -160,7 +160,10 @@ fn a_sherif_migration_compares_only_the_specifiers_sherif_compared() {
             "b",
             r#"{ "name": "b", "version": "1.0.0", "dependencies": { "bar": "^1.0.0", "baz": "^1.0.0", "foo": "^1.0.0", "x1": ">=1.0.0", "x2": "~1.2.0" } }"#,
         ),
-        ("c", r#"{ "name": "c", "version": "1.0.0", "dependencies": { "x2": "~1.3.0" } }"#),
+        (
+            "c",
+            r#"{ "name": "c", "version": "1.0.0", "dependencies": { "x2": "~1.3.0" } }"#,
+        ),
     ] {
         let package = dir.path().join("packages").join(name);
         fs::create_dir_all(&package).unwrap();
@@ -359,6 +362,7 @@ fn the_exact_profile_turns_off_every_default_rule_the_tool_did_not_run() {
         .collect();
     let sherif: BTreeSet<String> = [
         "empty-dependencies",
+        "invalid-workspace-file",
         "version-mismatch",
         "unmatched-workspace-patterns",
         "missing-package-manifest",

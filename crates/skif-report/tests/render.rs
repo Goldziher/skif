@@ -1,8 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use skif_core::{
-    Diagnostic, Fix, FixOp, FixSafety, IncompleteCause, IncompleteEntries, IncompletePackage, IncompleteScope, LineIndex,
-    Location, Related, Report, RuleId, Severity, Span,
+    Diagnostic, Fix, FixOp, FixSafety, IncompleteCause, IncompleteEntries, IncompletePackage, IncompleteScope,
+    LineIndex, Location, Related, Report, RuleId, Severity, Span,
 };
 use skif_report::{Format, RenderOptions, render, render_json_error};
 

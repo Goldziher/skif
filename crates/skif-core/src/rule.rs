@@ -277,14 +277,14 @@ mod tests {
             (META.id, META.default, META.summary),
             ("some-rule", None, "Does a thing.")
         );
-        assert!(!META.version_scoped);
+        const { assert!(!META.version_scoped) };
     }
 
     #[test]
     fn version_scoped_sets_only_the_flag() {
         const PLAIN: RuleMeta = RuleMeta::new("some-rule", Category::Policy, None, Fixability::None, "Does a thing.");
         const SCOPED: RuleMeta = PLAIN.version_scoped();
-        assert!(SCOPED.version_scoped);
+        const { assert!(SCOPED.version_scoped) };
         assert_eq!(
             RuleMeta {
                 version_scoped: false,

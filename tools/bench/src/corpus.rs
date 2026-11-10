@@ -104,7 +104,10 @@ pub fn load_manifest(path: &Path) -> Result<Manifest> {
             bail!("{}: unknown suite {unknown:?}", repo.name);
         }
         if let Some(root) = repo.knip_root.as_deref().filter(|root| *root != RUSH_KNIP_ROOT) {
-            bail!("{}: unknown knip-root {root:?} (the only one is {RUSH_KNIP_ROOT:?})", repo.name);
+            bail!(
+                "{}: unknown knip-root {root:?} (the only one is {RUSH_KNIP_ROOT:?})",
+                repo.name
+            );
         }
     }
     Ok(manifest)
@@ -243,17 +246,19 @@ mod tests {
         let repos = manifest().repo;
         let rushstack = repos.iter().find(|r| r.name == "rushstack").unwrap();
         assert_eq!(rushstack.knip_root.as_deref(), Some(RUSH_KNIP_ROOT));
-        assert!(repos.iter().filter(|r| r.name != "rushstack").all(|r| r.knip_root.is_none()));
+        assert!(
+            repos
+                .iter()
+                .filter(|r| r.name != "rushstack")
+                .all(|r| r.knip_root.is_none())
+        );
     }
 
     #[test]
     fn opencode_installs_with_a_pinned_bun() {
         let repos = manifest().repo;
         let opencode = repos.iter().find(|r| r.name == "opencode").unwrap();
-        assert_eq!(
-            &opencode.install_command[..5],
-            ["mise", "x", "bun@1.3.14", "--", "bun"]
-        );
+        assert_eq!(&opencode.install_command[..5], ["mise", "x", "bun@1.3.14", "--", "bun"]);
         assert!(opencode.install_command.iter().any(|arg| arg == "--frozen-lockfile"));
     }
 

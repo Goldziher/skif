@@ -18,6 +18,7 @@ nested-workspace-root              workspace  warning  none       A workspace me
 local-path-dependency              manifest   error    sometimes  A dependency points at a path on disk (`link:`, `file:`, `portal:` or a relative path) instead of a registry or workspace version.
 package-json-format                manifest   off      sometimes  A `package.json` is not formatted as `[format]` describes: key order, sorted fields, `exports` conditions, shorthand `bugs` and `repository`, and the indent. The fix is unsafe when `sort-exports` reorders conditions other than `types` and `default`.
 stale-patched-dependencies         workspace  warning  none       A `patchedDependencies` entry no longer applies, names a missing file or lies outside the allowed paths, or a patch file is left over.
+invalid-workspace-file             workspace  error    none       A member `package.json`, a workspace pattern or `.yarnrc.yml` cannot be read, so part of the workspace is not linted.
 version-mismatch                   policy     error    sometimes  A dependency instance differs from the version its version group requires (highest, lowest, pinned, local or snapped).
 banned-dependency                  policy     error    unsafe     A dependency is declared, or resolved by the lockfile, although a banned version group forbids it.
 semver-range-mismatch              policy     error    unsafe     A dependency uses a semver range other than the one its semver group requires.
