@@ -125,7 +125,8 @@ checkout itself is never written, and the keys of both reports stay relative to 
 from the checkout (the `.skif-bench-installed` marker holds the pinned commit once an install succeeded), not from the
 flag: `parity.md` says `yes`, `no` or `partial (n of m)`, each baseline entry records its own `installed`, and
 `--check` rejects an entry whose checkout is installed differently from when it was recorded. A repository may set `install-command` (program first; `rules-js` installs with
-the pnpm its `MODULE.bazel` pins) and `install-timeout-secs` (`vercel-examples`) in `corpus.toml`.
+the pnpm its `MODULE.bazel` pins, `opencode` with the bun of `mise.lock` through `mise x bun@1.3.14`, so neither
+depends on the package manager on `PATH`) and `install-timeout-secs` (`vercel-examples`) in `corpus.toml`.
 
 **Scope.** knip runs with an empty configuration (`--config` to a `{}` file in the scratch directory), so a repository's
 own ignores and disabled issue types do not hide findings; `--repo-knip-config` uses the repository's own. skif runs with
