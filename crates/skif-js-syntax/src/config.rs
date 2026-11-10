@@ -403,7 +403,10 @@ pub trait ModuleLoader {
 /// every branch (a string counting as a list of one), a nested object merges the same way, any other value every
 /// branch sets is one of them and one only some branches set is unknown; only a branch that is not an object (or
 /// `null`, a boolean, a number or an empty string) leaves the spread unknown. A spread of a value that is one of
-/// several adds the keys of each the same way.
+/// several adds the keys of each the same way. Spread into an array, such a condition or value adds the elements of
+/// every branch (`[...(ci ? ['a'] : [])]`), a branch of `null`, `undefined` or a boolean none. `.filter(Boolean)` of a
+/// known array drops the falsy elements and keeps one that may be falsy as the values it has when it is not
+/// (`[ci ? 'github' : null, ci && 'blob'].filter(Boolean)` keeps `'github'` and `'blob'`).
 ///
 /// Functions are followed: a returned config function may declare local `const`/`let` bindings and local functions,
 /// assign members of a local object, and call top-level or local functions with known arguments, a parameter not passed
@@ -2625,6 +2628,70 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         Some(merged.map_or(Value::Unknown, Value::Object))
     }
 
+    /// `list.filter(Boolean)` of a known array: its elements that may be truthy. An element that may be falsy is kept
+    /// as the values it has when it is not (`ci ? 'github' : null` as `'github'`, and in an array literal `ci &&
+    /// 'github'` as `'github'`), and the array is then not definite, as its length is not.
+    fn filter_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
+        let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
+            return None;
+        };
+        let by_boolean = matches!(
+            single_argument(call).map(Expression::get_inner_expression),
+            Some(Expression::Identifier(id))
+                if id.name.as_str() == "Boolean" && !self.binds("Boolean")
+        );
+        if member.property.name.as_str() != "filter" || !by_boolean {
+            return None;
+        }
+        let (items, mut definite) = match member.object.get_inner_expression() {
+            Expression::ArrayExpression(array) => self.filtered_elements(&array.elements, depth),
+            object => match self.read(object, depth) {
+                (Value::Array(items), definite) => (items, definite),
+                _ => return None,
+            },
+        };
+        let mut kept = Vec::new();
+        for item in items {
+            if let Some((value, may_drop)) = truthy_part(item) {
+                definite &= !may_drop;
+                kept.push(value);
+            }
+        }
+        Some(Value::doubtful(Value::Array(kept), definite))
+    }
+
+    /// Whether the module or a function being evaluated binds `name` itself, shadowing the global.
+    fn binds(&self, name: &str) -> bool {
+        self.lookup(name).is_some()
+            || self.consts.contains_key(name)
+            || self.functions.contains_key(name)
+            || self.imports.contains_key(name)
+    }
+
+    /// The elements of an array literal that `.filter(Boolean)` filters, and whether they are definite: as
+    /// [`Self::array`] has them, except that `test && x` with an unknown test, which is dropped when it is falsy, is
+    /// `x` and leaves them not definite.
+    fn filtered_elements(&self, elements: &'p [ArrayExpressionElement<'a>], depth: u32) -> (Vec<Value>, bool) {
+        let mut items = Vec::new();
+        let mut definite = true;
+        for element in elements {
+            if let Some(Expression::LogicalExpression(and)) = element.as_expression().map(Expression::get_inner_expression)
+                && and.operator == LogicalOperator::And
+                && self.truthy(&and.left, depth).is_none()
+            {
+                items.push(self.expr(&and.right, depth));
+                definite = false;
+                continue;
+            }
+            let (part, part_definite) = self.array(std::slice::from_ref(element), depth).split();
+            if let Value::Array(part) = part {
+                items.extend(part);
+            }
+            definite &= part_definite;
+        }
+        (items, definite)
+    }
+
     /// Records the argument of `<config_setter>.set(…)` as the config; returns whether `call` is such a call.
     fn capture_set(&self, call: &'p CallExpression<'a>, depth: u32) -> bool {
         let Some(setter) = self.config_setter.borrow().clone() else {
@@ -2657,7 +2724,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             .or_else(|| self.glob_call(call, depth))
             .or_else(|| self.flat_config_call(call, depth))
             .or_else(|| self.local_call(call, depth))
-            .or_else(|| self.merge_call(call, depth));
+            .or_else(|| self.merge_call(call, depth))
+            .or_else(|| self.filter_call(call, depth));
         if let Some(value) = special {
             return value;
         }
@@ -3145,24 +3213,52 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         }
     }
 
-    /// An array literal: a spread of a known array adds its elements, of anything else one unknown element. A spread
-    /// of an array that is not definite leaves the array not definite, as its length and elements are not.
+    /// An array literal: a spread adds the elements [`Self::spread_elements`] finds. A spread of an array that is not
+    /// definite leaves the array not definite, as its length and elements are not.
     fn array(&self, elements: &'p [ArrayExpressionElement<'a>], depth: u32) -> Value {
         let mut out = Vec::new();
         let mut definite = true;
         for element in elements {
             match element {
-                ArrayExpressionElement::SpreadElement(s) => match self.read(&s.argument, depth) {
-                    (Value::Array(items), spread_definite) => {
-                        out.extend(items);
-                        definite &= spread_definite;
-                    }
-                    _ => out.push(Value::Unknown),
-                },
+                ArrayExpressionElement::SpreadElement(s) => {
+                    let (items, spread_definite) = self.spread_elements(&s.argument, depth);
+                    out.extend(items);
+                    definite &= spread_definite;
+                }
                 other => out.push(other.as_expression().map_or(Value::Unknown, |e| self.expr(e, depth))),
             }
         }
         Value::doubtful(Value::Array(out), definite)
+    }
+
+    /// The elements spreading `argument` into an array adds, and whether they are definite: those of a known array;
+    /// for a value with several possibilities ([`Self::possibilities`]: `...(ci ? [a] : [])`, `...(ci && [a])`, a
+    /// value that is one of several arrays or not definite), the elements of each, a possibility of `null`,
+    /// `undefined` or a boolean adding none, which are then not definite; one unknown element for anything else.
+    fn spread_elements(&self, argument: &'p Expression<'a>, depth: u32) -> (Vec<Value>, bool) {
+        let unknown = || (vec![Value::Unknown], true);
+        let mut branches = self.possibilities(argument, depth);
+        if branches.len() == 1 {
+            return match branches.pop() {
+                Some(Value::Array(items)) => (items, true),
+                _ => unknown(),
+            };
+        }
+        let mut items: Vec<Value> = Vec::new();
+        for branch in branches {
+            match branch {
+                Value::Array(listed) => {
+                    for item in listed {
+                        if !items.contains(&item) {
+                            items.push(item);
+                        }
+                    }
+                }
+                Value::Null | Value::Undefined | Value::Bool(_) => {}
+                _ => return unknown(),
+            }
+        }
+        (items, false)
     }
 
     fn object(&self, properties: &'p [ObjectPropertyKind<'a>], depth: u32) -> Value {
@@ -3698,6 +3794,27 @@ fn alternatives(value: Value) -> Vec<Value> {
     match value {
         Value::OneOf(alternatives) => alternatives,
         other => vec![other],
+    }
+}
+
+/// What `.filter(Boolean)` keeps of the element `value`: `None` when it is falsy; otherwise the values it may have that
+/// are not falsy, and whether it may be dropped.
+fn truthy_part(value: Value) -> Option<(Value, bool)> {
+    match truthiness(&value) {
+        Some(false) => None,
+        Some(true) => Some((value, false)),
+        None => match value {
+            Value::OneOf(alternatives) => {
+                let count = alternatives.len();
+                let kept: Vec<Value> = alternatives
+                    .into_iter()
+                    .filter(|alternative| truthiness(alternative) != Some(false))
+                    .collect();
+                let may_drop = kept.len() < count || kept.iter().any(|alternative| truthiness(alternative).is_none());
+                (!kept.is_empty()).then(|| (one_of(kept), may_drop))
+            }
+            other => Some((other, true)),
+        },
     }
 }
 
