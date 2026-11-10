@@ -1443,6 +1443,30 @@ fn merging_adds_new_tables_after_the_existing_ones() {
 }
 
 #[test]
+fn a_custom_type_read_from_package_json_is_written() {
+    let migration = syncpack(
+        r#"{ "customTypes": {
+              "engines": { "path": "engines", "strategy": "versionsByName", "source": "PackageJson" },
+              "pnpmish": { "path": "x", "strategy": "versionsByName", "source": "PnpmWorkspace" },
+              "odd": { "path": "y", "strategy": "versionsByName", "source": "Disk" }
+            } }"#,
+        Profile::Exact,
+    );
+    assert_eq!(class(&migration, "customTypes.engines"), NoteClass::Exact);
+    let written: Vec<(&str, &str)> = migration
+        .config
+        .custom_types
+        .iter()
+        .map(|custom| (custom.name.as_str(), custom.path.as_str()))
+        .collect();
+    assert_eq!(written, [("engines", "engines")]);
+    assert_eq!(class(&migration, "customTypes.pnpmish"), NoteClass::Unsupported);
+    assert!(note(&migration, "customTypes.pnpmish").message.contains("pnpm-workspace.yaml"));
+    assert_eq!(class(&migration, "customTypes.odd"), NoteClass::Human);
+    assert!(note(&migration, "customTypes.odd").message.contains("`Disk` is not a syncpack source"));
+}
+
+#[test]
 fn syncpack_format_options_are_written_to_the_format_table() {
     let mut input = ToolInput::new(Tool::Syncpack);
     input.config = Some(Input::new(
