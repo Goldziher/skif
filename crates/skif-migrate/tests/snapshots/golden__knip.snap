@@ -12,6 +12,7 @@ expression: migration.toml
 report-unused-entries = true
 
 [js]
+ignore = ["src/generated/**"]
 ignore-files = ["src/legacy/**"]
 ignore-dependencies = ["left-pad", "/^@demo\\/.+$/", "eslint-*", "/tsx|ts-node/"]
 ignore-binaries = ["docker", "lefthook"]
@@ -30,9 +31,6 @@ dynamic-imports = true
 [js.plugins]
 vitest = { config = ["vitest.config.ts", "vitest.workspace.ts"], entry = ["**/*.test.ts"] }
 storybook = false
-
-[js.workspaces.".".paths]
-"@/*" = ["./src/*"]
 
 [js.workspaces."apps/web"]
 entry = ["src/main.tsx", "src/routes/**/*.tsx!"]
