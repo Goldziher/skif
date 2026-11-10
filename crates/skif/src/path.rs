@@ -42,7 +42,11 @@ mod tests {
             ("", "../skif.toml", "../skif.toml"),
         ];
         for (base, path, expected) in cases {
-            assert_eq!(join_lexical(Path::new(base), Path::new(path)), Path::new(expected), "{base} + {path}");
+            assert_eq!(
+                join_lexical(Path::new(base), Path::new(path)),
+                Path::new(expected),
+                "{base} + {path}"
+            );
         }
     }
 }
