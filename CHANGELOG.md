@@ -20,6 +20,12 @@ All notable changes to this project are documented here. The format follows
   `# skif-ignore-next-line` / `# skif-ignore-file` comments with a required reason
   ([ADR 0087](adrs/0087-toolchain-pins-outside-package-json-and-the-toolchain-pin-drift-rule.md),
   [#138](https://github.com/Goldziher/skif/issues/138)).
+- `foreign-package-manager-command` (`warn`): Dockerfile `RUN` instructions, workflow `run:` steps and `*.sh` scripts
+  (plus the `files` globs) that run a package manager other than the workspace's are reported: `npm ci`, `npm install`,
+  `npm run`, `npx` and the like in a pnpm or yarn workspace, a bare `yarn` or `yarn <script>` in another. Read-only
+  commands (`npm view`, `npm whoami`), a global install of the workspace's own manager and files of projects outside
+  the workspace are not; the same options and suppression comments as `toolchain-pin-drift` apply
+  ([ADR 0088](adrs/0088-foreign-package-manager-commands.md), [#139](https://github.com/Goldziher/skif/issues/139)).
 - `skif_rules::toolchain_provider(fs)` provides the rules over toolchain files, which read through a `FileSystem`;
   `skif::builtin_providers` registers it with the manifest rules.
 

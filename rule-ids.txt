@@ -6,6 +6,7 @@ catalog-version-divergence
 circular-imports
 duplicate-exports
 empty-dependencies
+foreign-package-manager-command
 incompatible-peer-dependencies
 invalid-local-version
 local-path-dependency
