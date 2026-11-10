@@ -102,8 +102,13 @@ fn resolvers(settings: &ConfigValue, out: &mut Vec<PluginInput>) {
             ConfigValue::Object(entries) => entries.iter().map(|(k, _)| k.as_str()).collect(),
             other => strings(other),
         };
+        // `eslint-plugin-import` falls back to its own resolution without the resolver package; knip reads it as an
+        // optional reference.
         for name in names {
-            out.push(PluginInput::Dependency(conventional(name, "eslint-import-resolver")));
+            out.push(PluginInput::OptionalDependency(conventional(
+                name,
+                "eslint-import-resolver",
+            )));
         }
     }
     if let Some(ConfigValue::Object(parsers)) = settings.get("import/parsers") {
