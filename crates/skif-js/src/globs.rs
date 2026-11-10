@@ -106,6 +106,14 @@ impl Globs {
     }
 }
 
+/// Whether `rel`, a `/`-separated path relative to a package directory, lies in the narrowed scope `globs` of an
+/// incomplete package ([`skif_core::IncompleteScope::Within`]), matched as the analysis matches it: such a file may be
+/// an entry a configuration hides, so skif does not judge it.
+#[must_use]
+pub fn in_incomplete_scope(globs: &[String], rel: &str) -> bool {
+    Globs::new(globs).is_match(rel)
+}
+
 /// The regular expressions `regexes` compiled once, as one set that the [`Globs`] including them share; `None` when
 /// there is none or the set does not compile (the plugin that names an expression checks that it compiles).
 pub(crate) fn regex_set(regexes: &[String]) -> Option<RegexSet> {
@@ -154,6 +162,19 @@ mod tests {
         assert!(globs.is_match("src/deep/b.jsx"));
         assert!(!globs.is_match("lib/b.jsx"));
         assert!(!Globs::new(["!a"]).is_match("a"));
+    }
+
+    #[test]
+    fn a_narrowed_incomplete_scope_matches_paths_relative_to_the_package() {
+        let scope = ["src/**/*.stories.tsx".to_owned(), "./.storybook/*.ts".to_owned()];
+        assert!(in_incomplete_scope(&scope, "src/ui/Button.stories.tsx"));
+        assert!(in_incomplete_scope(&scope, ".storybook/main.ts"));
+        assert!(!in_incomplete_scope(&scope, "src/ui/Button.tsx"));
+        assert!(
+            !in_incomplete_scope(&scope, ".storybook/deep/main.ts"),
+            "`*` stops at `/`"
+        );
+        assert!(!in_incomplete_scope(&[], "src/a.ts"));
     }
 
     #[test]
