@@ -265,6 +265,7 @@ pub fn extract_config_object(source: &str, path: &Path) -> Option<ConfigValue> {
 
 /// What a config file exports, with the arguments of the call it exports when that call cannot be followed.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct ExtractedConfig {
     /// The exported value, as [`extract_config_object`] evaluates it.
     pub value: ConfigValue,
