@@ -107,6 +107,7 @@ old one.
 | 0097 | [Commands in Other Directories and the Binaries of Workspace Members](0097-commands-in-other-directories-and-binaries-of-workspace-members.md) | accepted |
 | 0098 | [Workspace Keys of an Explicit Configuration Are Relative to the Start Directory, and Shared Settings Are Judged Across Roots](0098-explicit-configuration-workspace-keys-and-shared-stale-settings.md) | accepted |
 | 0099 | [The knip Comparison: Narrowed Incomplete Scopes, an Installed Rush Repository and Dependencies Only Unused Files Import](0099-knip-comparison-narrowed-scopes-rush-installs-and-dependencies-of-unused-files.md) | accepted |
+| 0100 | [An Agent Skill Distributed From the Repository](0100-agent-skill-distributed-from-the-repository.md) | accepted |
 
 ## Effective statements
 
