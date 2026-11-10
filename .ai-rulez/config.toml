@@ -33,3 +33,10 @@ project_doc_max_bytes = 65536
 
 [lint.load_budgets]
 codex-agents-chain = 65536
+
+# The public skill under skills/ documents how to run the npm package (`npx skif-cli`, `pnpm dlx skif-cli`, ...). A
+# pinned version there would name an old release between bumps; a project runs the skif version it pins itself.
+[[lint.ignore_rules]]
+rules = ["AR021"]
+paths = ["skills/**"]
+reason = "documents the unpinned run commands of the skif-cli npm package"
