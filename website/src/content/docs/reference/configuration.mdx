@@ -894,6 +894,26 @@ A JavaScript or TypeScript config is evaluated statically. A value it imports fr
 a workspace package (through its `exports` or `main`, mapped back to the source file), is evaluated in that module too:
 a base config merged with `mergeConfig`, spread into an object, or listed in an ESLint `defineConfig`. A value imported
 from an installed package stays unknown, and an imported value that depends on itself through imports is unknown there.
+A member of a known object is the value of its key: `{ ...base, plugins: [...base.plugins, "x"] }` keeps the plugins of
+the imported `base`, which are judged against the package that owns the module naming them, while `"x"` belongs to the
+importing config. Only a fully known object answers for a key it does not have, which is `undefined` there, read
+through a member or a destructuring; a key an unknown spread may set, a member of `Object.prototype` such as
+`toString`, and any key of an object with a `__proto__` are unknown. A key merged from a spread with an unknown test
+(`{ ...(ci ? { setupFiles: ["./a.ts"] } : {}) }`) may be absent, so `x.setupFiles ?? ["./default.ts"]` keeps both lists
+and its `.length` is unknown. The same holds for every value that carries the read on: a constant or local holding it,
+an object key it is put in, set on or merged into, a function argument, a function's return value, an array spreading
+it, and a named export holding it in an imported module. A parameter or destructuring default applies to a key an object
+does not have, but not to a literal `null`. A config function the tool calls (an exported function, the callback given to
+`defineConfig`) has every parameter unknown, its default included, since the tool passes what the config does not say:
+`(env = {}) => env.analyze ? a : b` keeps both branches. A config factory of a workspace package
+(`createVitestConfig({ setupFiles: ["./setup.ts"] })`, also wrapped as `defineConfig(createBase(options))`) is called with the arguments given, so what it builds from its options is known. A
+config that exports the result of a call that cannot be followed, such as a factory of an installed package, is
+unknown and leaves the package's entries incomplete, but each string of the call's arguments that names an existing file
+of the package as a path (`./setup.ts`, `test/setup.ts`), relative to the config file, is an entry, as are those of such
+a call that the exported config function returns (`() => createConfig({ ... })`) or that an exported `mergeConfig` is
+given. A bare name such as `chart.js` is a package even where a file of that name exists, and a file listed under an
+exclusion key (`exclude`, `excludeFiles`, `watchExclude`, `coverage.exclude`, `ignores`, `ignorePatterns`,
+`testPathIgnorePatterns`, `testIgnore`) is left out.
 A conditional (`cond ? a : b`, `&&`, `||`, `??`) whose test is known takes its branch, so a key spread in only when
 `pinCjs.length` is truthy is left out when `pinCjs` defaults to `[]`. A value with an unknown test is what both branches
 share: a key only one branch sets is unknown and the other keys stay known. A spread with an unknown test

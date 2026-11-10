@@ -5,7 +5,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use skif_js_syntax::{ConfigValue, ModuleLoader, UNKNOWN_SPREAD, extract_config_object, extract_config_object_with};
+use skif_js_syntax::{
+    ConfigValue, ModuleLoader, UNKNOWN_SPREAD, extract_config, extract_config_object, extract_config_object_with,
+};
 
 /// Modules by absolute path; relative specifiers resolve with a `.ts` extension, `@fx/base` to `/ws/base/index.ts`.
 struct Files(BTreeMap<PathBuf, &'static str>);
@@ -150,7 +152,8 @@ fn namespace_members_required_modules_and_called_functions_are_evaluated() {
         obj(vec![
             ("a", strings(&["src/**"])),
             ("b", obj(vec![("name", s("x"))])),
-            ("c", ConfigValue::Unknown),
+            // `legacy` has no `ignored` key: the member is `undefined`.
+            ("c", ConfigValue::Null),
             ("d", obj(vec![("files", strings(&["a.js"]))])),
         ])
     );
@@ -421,4 +424,169 @@ fn the_own_spreads_of_an_imported_module_are_imported_ones() {
             obj(vec![("outDir", s("dist")), (UNKNOWN_SPREAD, ConfigValue::Unknown)])
         )])
     );
+}
+
+/// A shared config spread into a config and a member of it spread into a key the config replaces
+/// (`plugins: [...base.plugins, 'x']`) keep what the shared config names; an unknown spread after a key leaves the key
+/// unknown, and a key a known object does not have is `undefined`.
+#[test]
+fn a_member_of_an_imported_config_is_its_value() {
+    let loader = files(&[
+        (
+            "/ws/app/config.ts",
+            "import base from '@fx/base';\nimport { open } from './open';\n\
+             export default { ...base, plugins: [...base.plugins, 'stylelint-own'], rules: { ...base.rules }, \
+             a: open.a, b: open.b, c: base.missing ?? 'fallback' };",
+        ),
+        (
+            "/ws/base/index.ts",
+            "export default { customSyntax: 'postcss-scss', plugins: ['stylelint-scss'], rules: { 'scss/at-rule-no-unknown': true } };",
+        ),
+        (
+            "/ws/app/open.ts",
+            "export const open = { a: 1, ...JSON.parse(process.env.X ?? '{}') };",
+        ),
+    ]);
+    assert_eq!(
+        eval(&loader),
+        obj(vec![
+            ("customSyntax", s("postcss-scss")),
+            ("plugins", strings(&["stylelint-scss"])),
+            ("rules", obj(vec![("scss/at-rule-no-unknown", ConfigValue::Bool(true))])),
+            ("plugins", strings(&["stylelint-scss", "stylelint-own"])),
+            ("rules", obj(vec![("scss/at-rule-no-unknown", ConfigValue::Bool(true))])),
+            ("a", ConfigValue::Unknown),
+            ("b", ConfigValue::Unknown),
+            ("c", s("fallback")),
+        ])
+    );
+}
+
+/// A config factory of a workspace package is called with the arguments the config gives it: what the factory reads
+/// of its options, with defaults for those not given, is known, called directly or wrapped in `defineConfig`.
+#[test]
+fn a_workspace_factory_is_called_with_the_options_it_is_given() {
+    let factory = "import { defineConfig } from 'vitest/config';\n\
+         export function createVitestConfig(options = {}) {\n\
+           return defineConfig({ test: { globals: true, setupFiles: [...(options.setupFiles ?? []), './shared.ts'], \
+         include: options.include ?? ['src/**/*.test.ts'] } });\n\
+         }\n\
+         export const createBase = (options) => ({ test: { setupFiles: options.setupFiles, environment: options.environment } });";
+    let expected = obj(vec![(
+        "test",
+        obj(vec![
+            ("globals", ConfigValue::Bool(true)),
+            ("setupFiles", strings(&["./setup.ts", "./shared.ts"])),
+            ("include", strings(&["src/**/*.test.ts"])),
+        ]),
+    )]);
+    let direct = files(&[
+        (
+            "/ws/app/config.ts",
+            "import { createVitestConfig } from '@fx/base';\n\
+             export default createVitestConfig({ setupFiles: ['./setup.ts'] });",
+        ),
+        ("/ws/base/index.ts", factory),
+    ]);
+    assert_eq!(eval(&direct), expected);
+    let wrapped = files(&[
+        (
+            "/ws/app/config.ts",
+            "import { defineConfig } from 'vitest/config';\nimport { createBase } from '@fx/base';\n\
+             const options = { setupFiles: ['./setup.ts'], environment: 'jsdom' };\n\
+             export default defineConfig(createBase(options));",
+        ),
+        ("/ws/base/index.ts", factory),
+    ]);
+    assert_eq!(
+        eval(&wrapped),
+        obj(vec![(
+            "test",
+            obj(vec![
+                ("setupFiles", strings(&["./setup.ts"])),
+                ("environment", s("jsdom"))
+            ]),
+        )])
+    );
+}
+
+/// A config exporting the result of a call that cannot be followed (a factory of an installed package) is unknown, and
+/// keeps the arguments of the call, looked through `defineConfig`, `await` and a constant; a config that is known, or
+/// unknown for another reason, keeps none.
+#[test]
+fn the_arguments_of_an_exported_call_that_cannot_be_followed_are_kept() {
+    let loader = files(&[]);
+    let extract = |source: &str| {
+        let path = Path::new("/ws/app/vitest.config.ts");
+        let found = extract_config(source, path, Some(&loader as &dyn ModuleLoader)).expect("config is understood");
+        let without_loader = extract_config(source, path, None).expect("config is understood");
+        assert_eq!(found, without_loader, "{source}");
+        (found.value, found.call_arguments)
+    };
+    let options = obj(vec![("setupFiles", strings(&["./config/boot.ts"]))]);
+    for source in [
+        "import { createVitestConfig } from '@acme/vitest-preset';\n\
+         export default createVitestConfig({ setupFiles: ['./config/boot.ts'] });",
+        "import { defineConfig } from 'vitest/config';\nimport { createBase } from '@acme/vitest-preset';\n\
+         const options = { setupFiles: ['./config/boot.ts'] };\n\
+         export default defineConfig(createBase(options));",
+        "import { createVitestConfig } from '@acme/vitest-preset';\n\
+         const config = await createVitestConfig({ setupFiles: ['./config/boot.ts'] });\nexport default config;",
+    ] {
+        assert_eq!(
+            extract(source),
+            (ConfigValue::Unknown, vec![options.clone()]),
+            "{source}"
+        );
+    }
+    let known = "export default { test: { setupFiles: ['./config/boot.ts'] } };";
+    assert_eq!(
+        extract(known),
+        (
+            obj(vec![(
+                "test",
+                obj(vec![("setupFiles", strings(&["./config/boot.ts"]))])
+            )]),
+            Vec::new()
+        )
+    );
+    let unknown = "export default JSON.parse(process.env.CONFIG);";
+    assert_eq!(
+        extract(unknown).1,
+        vec![ConfigValue::Unknown],
+        "the argument of any unknown call is kept"
+    );
+    assert_eq!(extract("export default config;"), (ConfigValue::Unknown, Vec::new()));
+}
+
+/// A read that is not definite in an imported module stays so when the module exports it by name, directly or
+/// through a re-export: a fallback in the config is credited too.
+#[test]
+fn an_exported_read_that_is_not_definite_stays_so() {
+    for specifier in ["./shared", "./index"] {
+        let config: &'static str = if specifier == "./shared" {
+            "import { files } from './shared';\n\
+             export default { test: { setupFiles: files ?? ['./local.ts'] } };"
+        } else {
+            "import { files } from './index';\n\
+             export default { test: { setupFiles: files ?? ['./local.ts'] } };"
+        };
+        let loader = files(&[
+            ("/ws/app/config.ts", config),
+            (
+                "/ws/app/shared.ts",
+                "const base = { ...(process.env.CI ? { setupFiles: ['./ci.ts'] } : {}) };\n\
+                 export const files = base.setupFiles;",
+            ),
+            ("/ws/app/index.ts", "export { files } from './shared';"),
+        ]);
+        assert_eq!(
+            eval(&loader),
+            obj(vec![(
+                "test",
+                obj(vec![("setupFiles", strings(&["./ci.ts", "./local.ts"]))])
+            )]),
+            "{specifier}"
+        );
+    }
 }

@@ -41,6 +41,9 @@ All notable changes to this project are documented here. The format follows
   it. The rules read those files through `LintContext::fs`, the file system the run is given
   (`skif_lint::RunOptions::with_fs`), as the rules over a lockfile and patch files do
   ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
+- `skif_js_syntax::extract_config` returns an `ExtractedConfig`: the exported value and the evaluated arguments
+  (`call_arguments`) of a call the evaluator cannot follow whose result the config exports, returns from the config
+  function the tool calls (`() => createConfig({ … })`) or merges (`mergeConfig(createBase({ … }), { … })`).
 - `skif::Target::retain_ignore` filters the `[[ignore]]` entries of a target with its `origins` kept aligned, through
   `skif_config::Origins::retain_list`, which renumbers the entries of one list.
 
@@ -350,6 +353,32 @@ All notable changes to this project are documented here. The format follows
   package owning that module: it is no longer reported unlisted at the importing config, nor unused in the shared
   config package that lists it. `DepRef::from` of `skif-js-plugins` names that module
   ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
+- A member of a statically known object is read as the value of its key, so a shared config spread into a config
+  whose key extends it (`{ ...base, plugins: [...base.plugins, 'stylelint-own'] }`) keeps the packages the shared
+  config names: they are judged against the package owning it instead of being lost, which reported them unused there,
+  and only what the importing config adds is its own. Only a fully known object answers for a key it does not have:
+  the key reads as `undefined`, represented as `ConfigValue::Null`, through a member and a destructuring alike, and a
+  parameter's or a destructuring's default applies to it, as it does not to a literal `null`. A key an unknown spread may set, a member of `Object.prototype` (`constructor`,
+  `toString`, `hasOwnProperty`, ...) and any key of an object with a `__proto__` read as unknown. A key merged from a
+  spread whose test is unknown (`{ ...(ci ? { setupFiles: ['./a.ts'] } : {}) }`) may be absent, so a read of it is not
+  definite: `x.setupFiles ?? ['./default.ts']` credits both lists, a default is credited next to it, and a test on it
+  and its `.length` are unknown. So is every value that carries the read on: a constant or local holding it, a key of
+  an object it is put in, set on or merged into, the argument it is passed as, the value a function returns it as, a
+  fallback over it, an array spreading it, and a named export of an imported module holding it.
+- A config function the tool calls (an exported function, the callback given to `defineConfig`) has every parameter
+  unknown, a default included, because the tool passes what the config does not say: `(env = {}) => ({ entry:
+  env.analyze ? './src/analyze.ts' : './src/index.ts' })` keeps both files instead of reading `env.analyze` as
+  `undefined`. A call in the config itself still gives a parameter it leaves out its default.
+- A tool config built by a factory of a workspace package from the options it is given
+  (`export default createVitestConfig({ setupFiles: ['./setup.ts'] })`, `defineConfig(createBase(options))`) is known:
+  a factory reading `options.setupFiles ?? []` no longer leaves the package's entries incomplete.
+- A config exporting the result of a call that cannot be followed (a factory of an installed package) stays unknown
+  and the package's entries incomplete, but the existing files of the package the call's arguments name as a path
+  (`./setup.ts`, `test/setup.ts`) are entries, so the modules they import are reached. A bare name (`chart.js`) is a
+  package even where a file of that name exists, and a file under an exclusion key (`exclude`, `coverage.exclude`,
+  `excludeFiles`, `watchExclude`, `ignores`, `testPathIgnorePatterns`, `testIgnore`) is not an entry. The same holds
+  for such a call returned by the config function the tool calls (`export default () => createConfig({ … })`) and for
+  one given to a merge the config exports (`mergeConfig(createBase({ … }), { … })`).
 - The `vite`, `vitest` and `electron-vite` plugins read the build input of Vite 8 from `build.rolldownOptions.input`,
   before `build.rollupOptions.input`, as knip does: its pages and modules are entries, so their files and the
   packages they import are no longer reported unused, and a computed Rolldown input leaves the package's entries
