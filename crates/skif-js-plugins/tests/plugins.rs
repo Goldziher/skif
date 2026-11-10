@@ -3765,6 +3765,110 @@ fn run_binaries_name_the_file_whose_command_runs_them() {
     );
 }
 
+/// A command execa or nano-spawn runs with a `cwd` option runs in a directory the parser cannot place: a package
+/// manager's script run there is another package's, while a binary run by name is still the file's.
+#[test]
+fn commands_run_with_a_cwd_run_scripts_of_another_package() {
+    let files = [
+        (
+            "test/a.test.ts",
+            r#"import { execa, execaCommand } from "execa";
+            await execa("bun", ["run", "build"], { cwd: "/tmp/app" });
+            await execaCommand("yarn compile", { cwd: fixture });
+            await execa("vitest", ["run"], { cwd: fixture });
+            await execa("bun", ["run", "rollup"]);"#,
+        ),
+        (
+            "test/b.test.js",
+            r#"import spawn from "nano-spawn"; await spawn("pnpm", ["generate"], { cwd: "packages/web" });"#,
+        ),
+    ];
+    let results = resolve(&files, &["execa", "nano-spawn"]);
+    let runs = |id: &str| -> Vec<String> {
+        let mut names: Vec<String> = output(&results, id)
+            .run_binaries
+            .iter()
+            .map(|run| run.name.clone())
+            .collect();
+        names.sort();
+        names
+    };
+    assert_eq!(runs("execa"), ["rollup", "vitest"]);
+    assert!(runs("nano-spawn").is_empty(), "{:?}", runs("nano-spawn"));
+}
+
+/// A `cwd` the file's own location computes is the file's directory, relative to the package the plugin runs for.
+#[test]
+fn commands_run_with_a_cwd_of_the_file_run_in_its_directory() {
+    let files = [(
+        "test/e2e/a.test.ts",
+        r#"import { execa } from "execa";
+        await execa("pnpm", ["exec", "rspack"], { cwd: __dirname });
+        await execa("pnpm", ["exec", "vite"], { cwd: new URL("../fixtures", import.meta.url).pathname });
+        await execa("pnpm", ["exec", "tsx"], { cwd: process.cwd() });"#,
+    )];
+    let results = resolve(&files, &["execa"]);
+    let mut runs: Vec<(String, Option<String>)> = output(&results, "execa")
+        .run_binaries
+        .iter()
+        .map(|run| (run.name.clone(), run.dir.clone()))
+        .collect();
+    runs.sort();
+    assert_eq!(
+        runs,
+        [
+            ("rspack".to_owned(), Some("test/e2e".to_owned())),
+            ("tsx".to_owned(), None),
+            ("vite".to_owned(), Some("test/fixtures".to_owned())),
+        ]
+    );
+}
+
+/// A command after `cd` runs its binaries in that directory, relative to the package where the command starts.
+#[test]
+fn run_binaries_after_cd_carry_the_directory() {
+    let workflow = "name: ci\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      \
+                    - run: cd sub && pnpm exec rspack build && cd .. && pnpm exec tsx x.ts\n";
+    let results = resolve(&[(".github/workflows/ci.yml", workflow)], &[]);
+    let runs: Vec<(String, Option<String>)> = output(&results, "github-actions")
+        .run_binaries
+        .iter()
+        .map(|run| (run.name.clone(), run.dir.clone()))
+        .collect();
+    assert_eq!(
+        runs,
+        [("rspack".to_owned(), Some("sub".to_owned())), ("tsx".to_owned(), None)]
+    );
+}
+
+/// A step starts in the workspace the workflow checks out, so `cd` to a directory below `$GITHUB_WORKSPACE`, however
+/// it is spelt, is a directory of the workspace; a longer variable name is not.
+#[test]
+fn cd_below_the_github_workspace_is_a_workspace_directory() {
+    let workflow = "name: ci\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      \
+                    - run: cd $GITHUB_WORKSPACE/sub && pnpm exec rspack build\n      \
+                    - run: cd \"${GITHUB_WORKSPACE}/web\" && pnpm exec vite build\n      \
+                    - run: cd ${{ github.workspace }}/docs && pnpm exec vitepress build\n      \
+                    - run: cd \"$GITHUB_WORKSPACE\" && pnpm exec tsx x.ts\n      \
+                    - run: cd $GITHUB_WORKSPACE_TMP && pnpm exec eslint .\n";
+    let results = resolve(&[(".github/workflows/ci.yml", workflow)], &[]);
+    let mut runs: Vec<(String, Option<String>)> = output(&results, "github-actions")
+        .run_binaries
+        .iter()
+        .map(|run| (run.name.clone(), run.dir.clone()))
+        .collect();
+    runs.sort();
+    assert_eq!(
+        runs,
+        [
+            ("rspack".to_owned(), Some("sub".to_owned())),
+            ("tsx".to_owned(), None),
+            ("vite".to_owned(), Some("web".to_owned())),
+            ("vitepress".to_owned(), Some("docs".to_owned())),
+        ]
+    );
+}
+
 #[test]
 fn execa_default_import_and_zx_globals_are_read() {
     let files = [

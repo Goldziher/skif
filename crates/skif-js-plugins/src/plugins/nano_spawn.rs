@@ -1,7 +1,7 @@
 //! nano-spawn: the commands a source file runs with `spawn('eslint', ['.'])` are scripts, parsed like the scripts of
 //! `package.json`. Only literal commands count.
 
-use skif_js_syntax::extract_imported_calls;
+use skif_js_syntax::extract_command_calls;
 
 use crate::plugin::{Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::plugins::execa::safe_command;
@@ -29,7 +29,7 @@ impl Plugin for NanoSpawn {
         let mut out = Vec::new();
         for (source, text) in sources_containing(cx, "nano-spawn") {
             let path = cx.dir.join(&source);
-            for call in extract_imported_calls(&text, &path, &["nano-spawn"], &[]) {
+            for call in extract_command_calls(&text, &path, &["nano-spawn"], &[]) {
                 if call.export == "default" && call.template.is_none() {
                     out.extend(safe_command(&call.arguments).map(|script| PluginInput::SourceScript {
                         file: source.clone(),

@@ -18,12 +18,33 @@ static SPEC: PluginSpec = PluginSpec {
     ..PluginSpec::DEFAULT
 };
 
-const ACTION_PATH_VARIABLES: &[&str] = &[
-    "${{ github.action_path }}",
-    "${{github.action_path}}",
-    "${GITHUB_ACTION_PATH}",
-    "$GITHUB_ACTION_PATH",
-];
+/// A directory a step names through a variable: its braced and expression spellings, and the bare `$NAME`, which is
+/// replaced apart, since a longer name may start with it.
+struct DirVariable {
+    spellings: &'static [&'static str],
+    bare: &'static str,
+}
+
+/// The directory of the action a composite action's step runs, read as the directory the step starts in.
+const ACTION_PATH: DirVariable = DirVariable {
+    spellings: &[
+        "${{ github.action_path }}",
+        "${{github.action_path}}",
+        "${GITHUB_ACTION_PATH}",
+    ],
+    bare: "$GITHUB_ACTION_PATH",
+};
+
+/// The directory a workflow checks the repository out to, where a step starts unless it sets a `working-directory`:
+/// the workspace root.
+const WORKSPACE: DirVariable = DirVariable {
+    spellings: &[
+        "${{ github.workspace }}",
+        "${{github.workspace}}",
+        "${GITHUB_WORKSPACE}",
+    ],
+    bare: "$GITHUB_WORKSPACE",
+};
 
 /// The shells whose scripts the script parser reads.
 const POSIX_SHELLS: &[&str] = &["ash", "bash", "dash", "ksh", "sh", "zsh"];
@@ -111,8 +132,9 @@ fn is_posix_shell(shell: &str) -> bool {
     program.is_empty() || POSIX_SHELLS.contains(&program)
 }
 
-/// A `run` step: a script of the workspace root, or of the directory its `working-directory` names. A directory that
-/// is computed or outside the workspace drops the step, and so does a shell that is not POSIX.
+/// A `run` step: a script of the workspace root, or of the directory its `working-directory` names, which may start
+/// with the workspace ([`WORKSPACE`]). A directory that is otherwise computed or outside the workspace drops the step,
+/// and so does a shell that is not POSIX.
 fn step(step: &ConfigValue, defaults: RunDefaults<'_>) -> Option<PluginInput> {
     let run = step.get("run").and_then(ConfigValue::as_str)?;
     let shell = step.get("shell").and_then(ConfigValue::as_str).or(defaults.shell);
@@ -124,15 +146,41 @@ fn step(step: &ConfigValue, defaults: RunDefaults<'_>) -> Option<PluginInput> {
         .and_then(ConfigValue::as_str)
         .or(defaults.working_directory)
         .map_or("", str::trim);
-    let script = ACTION_PATH_VARIABLES
-        .iter()
-        .fold(run.to_string(), |text, variable| text.replace(variable, "."));
+    let dir = replace_dir(dir, &WORKSPACE, ".");
+    let dir = dir.as_str();
+    let script = replace_dir(run, &ACTION_PATH, ".");
     if matches!(dir, "" | "." | "./") {
-        return Some(PluginInput::Script(script));
+        return Some(PluginInput::Script(replace_dir(&script, &WORKSPACE, ".")));
     }
     if dir.starts_with('/') || dir.contains(['$', '`']) {
         return None;
     }
     let dir = join_rel("", dir);
-    (!dir.is_empty() && dir != ".." && !dir.starts_with("../")).then_some(PluginInput::ScriptAt { dir, script })
+    if dir.is_empty() || dir == ".." || dir.starts_with("../") {
+        return None;
+    }
+    let root = vec![".."; dir.split('/').count()].join("/");
+    let script = replace_dir(&script, &WORKSPACE, &root);
+    Some(PluginInput::ScriptAt { dir, script })
+}
+
+/// `text` with every spelling of `variable` replaced by `dir`, the directory it names relative to where the step
+/// starts, so `cd $GITHUB_WORKSPACE/sub` changes to a directory the script parser can place. The bare spelling followed
+/// by more of a name (`$GITHUB_WORKSPACE_TMP`) is another variable and stays.
+fn replace_dir(text: &str, variable: &DirVariable, dir: &str) -> String {
+    let text = variable
+        .spellings
+        .iter()
+        .fold(text.to_owned(), |text, spelling| text.replace(spelling, dir));
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text.as_str();
+    while let Some(found) = rest.find(variable.bare) {
+        let after = &rest[found + variable.bare.len()..];
+        out.push_str(&rest[..found]);
+        let longer_name = after.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_');
+        out.push_str(if longer_name { variable.bare } else { dir });
+        rest = after;
+    }
+    out.push_str(rest);
+    out
 }

@@ -8,6 +8,8 @@ use super::tokenize::Word;
 pub(super) struct Val {
     pub text: String,
     pub span: Range<usize>,
+    /// The value is not static, as [`Word::dynamic`].
+    pub dynamic: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +46,7 @@ fn val(word: &Word) -> Val {
     Val {
         text: word.text.clone(),
         span: word.span.clone(),
+        dynamic: word.dynamic,
     }
 }
 
@@ -73,6 +76,7 @@ pub(super) fn parse(words: &[Word], value_flags: &[&str], stop_at_positional: bo
                 Some(value) => Some(Val {
                     text: value.to_owned(),
                     span: word.span.clone(),
+                    dynamic: word.dynamic,
                 }),
                 None if value_flags.contains(&name) => {
                     i += 1;
@@ -110,6 +114,7 @@ pub(super) fn parse(words: &[Word], value_flags: &[&str], stop_at_positional: bo
                     value: Some(Val {
                         text: tail.trim_start_matches('=').to_owned(),
                         span: word.span.clone(),
+                        dynamic: word.dynamic,
                     }),
                 });
             } else {

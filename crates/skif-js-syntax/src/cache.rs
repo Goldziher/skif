@@ -19,11 +19,11 @@ use crate::style::{is_stylesheet, parse_stylesheet};
 /// The version of the parse output. Raise it whenever [`ModuleInfo`] or what the parsers put in it changes, so a
 /// cache written by an older build at the same crate version is not trusted; the test
 /// `the_cache_schema_matches_the_parse_output` fails until [`CACHE_SCHEMA_DIGEST`] is updated with it.
-pub const CACHE_SCHEMA: u32 = 2;
+pub const CACHE_SCHEMA: u32 = 3;
 
 /// The digest of the serialized parse results of a fixed probe corpus at [`CACHE_SCHEMA`]. It is a test's guard,
 /// not part of any key: when the parse output changes, the test reports the new digest and both constants move.
-pub const CACHE_SCHEMA_DIGEST: u128 = 0x6db1_685b_e1ca_6068_2f17_2e0d_0fd1_efd1;
+pub const CACHE_SCHEMA_DIGEST: u128 = 0x4d7a_4f2c_aa76_8aea_43af_7cad_cc2b_d9de;
 
 /// The version a persisted cache records, `<crate version>+<CACHE_SCHEMA>`: a store written under another version
 /// is discarded as a whole.
@@ -203,7 +203,7 @@ mod tests {
     /// One source per language the parsers know and one of test-runner mocks, plus the bench corpus: the probe whose
     /// parse output the schema digest pins.
     fn probe_corpus() -> Vec<(PathBuf, String)> {
-        let inline: [(&str, &str); 15] = [
+        let inline: [(&str, &str); 16] = [
             (
                 "a.ts",
                 "import { a, type B } from './b';\nimport * as ns from 'ns';\nexport const c = a + ns.x;\n\
@@ -275,6 +275,12 @@ mod tests {
                  export async function lazy() { const ns = await import('./ns'); return ns.b; }\n\
                  export interface Options { a: string }\nexport const Service = make();\n\
                  export type Service = { run(options: Options): void };\n",
+            ),
+            (
+                "o.mjs",
+                "import { execSync, spawn } from 'node:child_process';\nimport path from 'node:path';\n\
+                 execSync('npm run build', { cwd: '/tmp/app' });\nspawn('tsc', ['-b'], { cwd: process.cwd() });\n\
+                 execSync('pnpm exec rspack', { cwd: path.join(import.meta.dirname, '../sub') });\n",
             ),
         ];
         let mut corpus: Vec<(PathBuf, String)> = inline

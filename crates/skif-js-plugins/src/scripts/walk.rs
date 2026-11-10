@@ -90,6 +90,11 @@ fn valid_binary(name: &str) -> bool {
         .all(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.' | '@' | '+'))
 }
 
+/// Whether `dir`, a `cd` target or a directory flag's value, is a static relative path the parser can follow.
+fn is_static_relative(dir: &str, dynamic: bool) -> bool {
+    !dynamic && !dir.is_empty() && dir != "-" && !dir.starts_with(['/', '~']) && !dir.contains(['$', '`', '\\'])
+}
+
 fn classify(text: &str) -> Target<'_> {
     let bin_dir = text
         .rfind("/.bin/")
@@ -195,8 +200,20 @@ pub(super) struct Walker<'c> {
     /// The directory the commands run in after a `cd` or `pushd`, relative to where the script starts; `None` there
     /// and after a change to a directory that is not a static relative path.
     cwd: Option<String>,
-    /// The directories `pushd` left, for `popd`.
-    pushed: Vec<Option<String>>,
+    /// The commands run in a directory the parser cannot place: after a `cd` or `pushd` to one that is not a static
+    /// relative path (`cd /tmp`, `cd $DIR`, `cd -`, `cd ~`, a bare `cd`), or to any directory below such a one.
+    unknown_dir: bool,
+    /// The directories `pushd` left, with whether each was unknown, for `popd`.
+    pushed: Vec<(Option<String>, bool)>,
+}
+
+/// The directory state of a [`Walker`] that a shell of its own (a subshell, another script, `sh -c`, a substitution)
+/// restores when it ends.
+struct DirState {
+    cwd: Option<String>,
+    unknown_dir: bool,
+    /// How many directories `pushd` had left.
+    pushed: usize,
 }
 
 impl<'c> Walker<'c> {
@@ -210,6 +227,7 @@ impl<'c> Walker<'c> {
             workspaces: Vec::new(),
             functions: HashSet::new(),
             cwd: None,
+            unknown_dir: false,
             pushed: Vec::new(),
         }
     }
@@ -227,23 +245,51 @@ impl<'c> Walker<'c> {
         self.depth += 1;
         // A `cd` changes the directory of the commands after it in the same text; the text runs in a shell of its own
         // (another script, `sh -c`, a substitution), so the change ends with it.
-        let cwd = self.cwd.clone();
-        let pushed = self.pushed.len();
+        let saved = self.dir_state();
         let tokens = tokenize(text);
         self.functions.extend(tokens.functions.iter().cloned());
         let frame = Frame { text, map };
-        for segment in &tokens.segments {
+        // So does a subshell `( … )`: the state each open one restores, with the segment index it ends before.
+        let mut subshells: Vec<(usize, DirState)> = Vec::new();
+        for (index, segment) in tokens.segments.iter().enumerate() {
+            let mut opening: Vec<&Range<usize>> = tokens
+                .subshells
+                .iter()
+                .filter(|subshell| subshell.start == index && subshell.end > index)
+                .collect();
+            opening.sort_by_key(|subshell| std::cmp::Reverse(subshell.end));
+            for subshell in opening {
+                subshells.push((subshell.end, self.dir_state()));
+            }
             self.segment(segment, &frame, st);
+            while let Some((_, state)) = subshells.pop_if(|(end, _)| *end <= index + 1) {
+                self.restore_dir(state);
+            }
         }
         for range in &tokens.substitutions {
             if let Some(inner) = text.get(range.clone()) {
-                self.cwd.clone_from(&cwd);
+                self.cwd.clone_from(&saved.cwd);
+                self.unknown_dir = saved.unknown_dir;
                 self.run_text(inner, &map.shifted(range.start), st);
             }
         }
-        self.cwd = cwd;
-        self.pushed.truncate(pushed);
+        self.restore_dir(saved);
         self.depth -= 1;
+    }
+
+    /// The directory the commands run in, to restore when a shell of their own ends.
+    fn dir_state(&self) -> DirState {
+        DirState {
+            cwd: self.cwd.clone(),
+            unknown_dir: self.unknown_dir,
+            pushed: self.pushed.len(),
+        }
+    }
+
+    fn restore_dir(&mut self, state: DirState) {
+        self.cwd = state.cwd;
+        self.unknown_dir = state.unknown_dir;
+        self.pushed.truncate(state.pushed);
     }
 
     fn segment(&mut self, segment: &Segment, frame: &Frame, st: St) {
@@ -410,8 +456,10 @@ impl<'c> Walker<'c> {
         }
     }
 
+    /// The package's script `name`, run by a package manager or a task runner. In another directory, placed or not, it
+    /// is the script of the package there, as with a filter: that package judges its own scripts.
     fn run_script_name(&mut self, name: &str, map: &Map, filtered: bool) {
-        if filtered || name.is_empty() {
+        if filtered || self.unknown_dir || self.cwd.is_some() || name.is_empty() {
             return;
         }
         if !self.info.run_scripts.iter().any(|s| s == name) {
@@ -538,11 +586,11 @@ impl<'c> Walker<'c> {
                     .any(|a| a.text.starts_with("-v") || a.text.starts_with("-V")) => {}
             "cd" | "pushd" => {
                 if name == "pushd" {
-                    self.pushed.push(self.cwd.clone());
+                    self.pushed.push((self.cwd.clone(), self.unknown_dir));
                 }
                 self.change_dir(args);
             }
-            "popd" => self.cwd = self.pushed.pop().flatten(),
+            "popd" => (self.cwd, self.unknown_dir) = self.pushed.pop().unwrap_or_default(),
             n if tables::passthrough(n).is_some() => self.passthrough(n, args, frame, st),
             n if tables::SHELLS.contains(&n) => self.shell(args, frame, st),
             n if is_shell_builtin(n) => {}
@@ -560,28 +608,38 @@ impl<'c> Walker<'c> {
     }
 
     /// `cd <dir>`: the commands after it run in `dir`. A directory that is not a static relative path (`cd`, `cd -`,
-    /// `cd ~`, `cd /tmp`, `cd $DIR`) is not followed, so they are judged where the script starts.
+    /// `cd ~`, `cd /tmp`, `cd $DIR`) is not followed: a binary run by name there is judged where the script starts,
+    /// but a package manager run there works on the package of that directory, as with a filter.
     fn change_dir(&mut self, args: &[Word]) {
         let target = args.iter().find(|word| word.text == "-" || !word.text.starts_with('-'));
-        self.cwd = target.and_then(|word| self.relative_dir(&word.text, word.dynamic));
+        let (dir, dynamic) = target.map_or(("", false), |word| (word.text.as_str(), word.dynamic));
+        self.move_to(dir, dynamic);
+    }
+
+    /// Moves the commands to `dir`: a static relative path is placed from the current directory, any other directory,
+    /// and every directory below one the parser cannot place, is unknown.
+    fn move_to(&mut self, dir: &str, dynamic: bool) {
+        let placed = !self.unknown_dir && is_static_relative(dir, dynamic);
+        self.cwd = if placed { self.relative_dir(dir, dynamic) } else { None };
+        self.unknown_dir = !placed;
     }
 
     /// `dir` as a directory relative to where the script starts, from the current directory; `None` for the start
     /// itself and for a directory that is not a static relative path.
     fn relative_dir(&self, dir: &str, dynamic: bool) -> Option<String> {
-        if dynamic || dir.is_empty() || dir == "-" || dir.starts_with(['/', '~']) || dir.contains(['$', '`', '\\']) {
+        if !is_static_relative(dir, dynamic) {
             return None;
         }
         let joined = join_rel(self.cwd.as_deref().unwrap_or_default(), dir);
         (!joined.is_empty()).then_some(joined)
     }
 
-    /// Moves the commands to `dir`, the value of a flag such as `npm --prefix` or `pnpm -C`, and returns the
-    /// directory to restore once they are walked.
-    fn enter_dir(&mut self, dir: Option<&Val>) -> Option<String> {
-        let saved = self.cwd.clone();
+    /// Moves the commands to `dir`, the value of a flag such as `npm --prefix` or `pnpm -C`, as `cd` does, and returns
+    /// the directory state to restore once they are walked.
+    fn enter_dir(&mut self, dir: Option<&Val>) -> DirState {
+        let saved = self.dir_state();
         if let Some(dir) = dir {
-            self.cwd = self.relative_dir(&dir.text, false);
+            self.move_to(&dir.text, dir.dynamic);
         }
         saved
     }
@@ -738,7 +796,7 @@ impl<'c> Walker<'c> {
             return;
         };
         let after = &args[parsed.rest..];
-        let filtered = st.filtered || parsed.has(tables::WORKSPACE_FLAGS);
+        let filtered = st.filtered || self.unknown_dir || parsed.has(tables::WORKSPACE_FLAGS);
         let trailing = args::parse(after, tables::NPM_VALUE_FLAGS, false);
         let names = parsed
             .values(&["workspace", "w"])
@@ -773,7 +831,7 @@ impl<'c> Walker<'c> {
             }
             _ => {}
         }
-        self.cwd = cwd;
+        self.restore_dir(cwd);
         self.workspaces = saved;
     }
 
@@ -803,7 +861,7 @@ impl<'c> Walker<'c> {
             break (ci, parsed);
         };
         let after = &args[parsed.rest..];
-        let filtered = st.filtered || filter;
+        let filtered = st.filtered || self.unknown_dir || filter;
         let cmd = args[ci].text.as_str();
         let trailing = args::parse(after, tables::PNPM_VALUE_FLAGS, false);
         names.extend(
@@ -868,7 +926,7 @@ impl<'c> Walker<'c> {
                 }
             }
         }
-        self.cwd = cwd;
+        self.restore_dir(cwd);
         self.workspaces = saved;
     }
 
@@ -877,7 +935,7 @@ impl<'c> Walker<'c> {
         let Some(&ci) = parsed.positionals.first() else {
             return;
         };
-        let filtered = st.filtered || parsed.has(&["cwd"]);
+        let filtered = st.filtered || self.unknown_dir || parsed.has(&["cwd"]);
         let targeted = !self.workspaces.is_empty();
         let after = &args[parsed.rest..];
         let cmd = args[ci].text.as_str();
@@ -957,7 +1015,7 @@ impl<'c> Walker<'c> {
                 }
             }
         }
-        self.cwd = cwd;
+        self.restore_dir(cwd);
     }
 
     fn bun(&mut self, args: &[Word], frame: &Frame, st: St) {
@@ -967,7 +1025,7 @@ impl<'c> Walker<'c> {
         }
         // `--cwd <dir>` runs the command in another directory: its scripts and binaries are that package's.
         let mut cwd = parsed.values(&["cwd"]).next().map(|value| value.text.clone());
-        let mut filtered = st.filtered || parsed.has(&["filter"]) || cwd.is_some();
+        let mut filtered = st.filtered || self.unknown_dir || parsed.has(&["filter"]) || cwd.is_some();
         let Some(&ci) = parsed.positionals.first() else {
             return;
         };
@@ -1137,7 +1195,7 @@ impl<'c> Walker<'c> {
 
     fn runner_flags(&mut self, runner: &Runner, parsed: &Parsed, frame: &Frame, st: St) {
         for flag in &parsed.flags {
-            let Some(Val { text, span }) = &flag.value else {
+            let Some(Val { text, span, .. }) = &flag.value else {
                 continue;
             };
             let name = flag.name.as_str();

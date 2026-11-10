@@ -110,6 +110,20 @@ All notable changes to this project are documented here. The format follows
 - `BinaryUse` and `DepRef` of `skif_js_plugins::scripts` gain `dir`, the directory a command runs in after `cd`,
   `pushd` or a package manager's directory flag; `skif_js_plugins::scripts` also gains `is_powershell_command` and
   `without_commands`. `IncompleteCause` of `skif-core` gains `NoEntries`.
+- `skif-js-syntax` exports `file_call_options`, `command_in_call_dir`, `place_file_dir` and `FILE_DIR`, and the
+  commands `ModuleInfo::commands` holds for a `node:child_process` call with a `cwd` option start with
+  `cd $__skif_file_dir__/<path> && ` when the file's own location computes it, else with `cd $__skif__ && `; a `cwd`
+  of `process.cwd()`, `'.'` or `undefined` is left out of the `ImportedCall::arguments` of the new
+  `extract_command_calls`, while `extract_imported_calls` keeps every option as written. `CACHE_SCHEMA` is `3`.
+- `BinaryRef` of `skif-js-plugins` and `RunBinary` of `skif-js` gain `dir`, the directory the command runs the binary
+  in after `cd`, and `filtered`, set when a package manager runs it there without naming a workspace; both are
+  `#[non_exhaustive]`: build them with `BinaryRef::new` and `RunBinary::new`. `BinaryUse` of
+  `skif_js_plugins::scripts` gains `relocation_dir`.
+- `Tokens` of `skif_core::shell` gains `subshells`, the segments each subshell `( … )` runs.
+- `PluginOutput` of `skif-js-plugins` and `WorkspaceInputs` of `skif-js` are `#[non_exhaustive]`: an input source
+  starts from `WorkspaceInputs::default()` and sets the fields it knows.
+- `Report::other_project_files` lists every file with an absolute path (the files below the workspace root were
+  relative to it) and also lists the files outside the root that the analysed code reaches;
 - **Breaking** for library users: `PluginOutput` of `skif-js-plugins` and `WorkspaceInputs` of `skif-js` are
   `#[non_exhaustive]`: an input source starts from `WorkspaceInputs::default()` and sets the fields it knows.
 - **Breaking** for library hosts: `Report::other_project_files` lists every file with an absolute path (the files
@@ -250,6 +264,39 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `mkfifo`, `truncate`, `unlink`, `stdbuf` and the other coreutils programs that were missing from the system
+  binaries are no longer reported by `unlisted-binaries`.
+- A command that a source file runs with a `cwd` option (`execa('bun', ['run', 'build'], { cwd })`, `spawn`,
+  `execFile`, `exec`, `execaCommand`, nano-spawn) runs in a directory skif cannot place, and so does a script command
+  after `cd` to a directory that is not a static relative path (`cd /tmp/app`, `cd $DIR`): a package manager run there
+  works on the package of that directory, as `bun --cwd` and `--filter` do, so `bun run build` no longer reports
+  `build` as an unlisted binary of the file. A binary run there by name is still judged where the command starts. A
+  `cwd` of `process.cwd()` or `undefined` changes nothing, and one computed from `__dirname` or `import.meta.url`
+  runs the command in that directory below the file. A script run in another directory skif can place
+  (`cd web && npm run build`) is the script of the package there, so the caller's `build` is not followed
+  ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
+- Under pnpm, Yarn Berry, Rush and Bun's isolated linker, a workspace member's binary no longer satisfies a script of a
+  package that does not list the member: those link it only for the packages that depend on it, so the script's
+  binary is reported unlisted. Bun is isolated with `linker = "isolated"` in `bunfig.toml`, or without a `linker` when
+  `bun.lock` has `configVersion` 1. npm, Yarn Classic and hoisted Bun, which link every member's binaries into the root
+  `node_modules/.bin`, keep the old answer, and a member's own scripts may always run its binaries. Yarn counts as Berry
+  only when `packageManager`, a `.yarnrc.yml` or a Berry `yarn.lock` says so. In a Rush repository (`rush.json` at
+  the root), `rush`, `rushx` and `rush-pnpm` are provided commands
+  ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
+- A binary that a workflow step, a tool config's command or a source file runs after `cd <dir>` into another workspace
+  package (`run: cd sub && pnpm exec rspack`, `execSync('cd sub && rspack serve')`) is credited to that package, as for
+  a `package.json` script: a provider it lists is used and the binary is not unlisted at the file
+  ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
+- A workflow step's `$GITHUB_WORKSPACE`, `${GITHUB_WORKSPACE}` and `${{ github.workspace }}` name the workspace root,
+  so `cd $GITHUB_WORKSPACE/sub && pnpm exec rspack` runs in `sub`, `node $GITHUB_WORKSPACE/scripts/x.js` makes the
+  file an entry and a `working-directory` of `${{ github.workspace }}/sub` is `sub` ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
+- A binary that a workflow step runs with `pnpm -C sub exec` is credited to `sub` as from a `package.json` script, but
+  not after a `cd` to a directory skif cannot place (`cd /tmp/app && pnpm -C sub exec`), and one that a source file
+  runs with `cd web && pnpm --filter sub exec` is no longer credited to `web`
+  ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
+- A `cd` inside a subshell no longer changes the directory of the commands after it:
+  `(cd "$TMP" && tar xf a.tgz) && npm run build` follows the package's `build` script again
+  ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
 - `unused-files` is listed as fixable `sometimes` (`skif rules`, SARIF rule properties, the rules reference) instead
   of `unsafe`: under `[js] discovery = "git"` its findings offer no fix, since the index does not see every untracked
   file ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)); a run that walks the

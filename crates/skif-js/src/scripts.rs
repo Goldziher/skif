@@ -159,7 +159,7 @@ impl Collected {
                 });
                 continue;
             }
-            if let Some(dir) = used.dir {
+            if let Some(dir) = used.relocation_dir().map(str::to_owned) {
                 self.relocated_binaries.insert(RelocatedBinary {
                     dir,
                     binary: binary(used.name),

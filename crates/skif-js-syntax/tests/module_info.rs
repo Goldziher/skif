@@ -7,7 +7,7 @@ use std::path::Path;
 
 use skif_js_syntax::{
     ExportKind, ImportKind, ImportedKind, ModuleInfo, ParseOptions, Registration, RemovalKind, SyntaxError,
-    parse_module,
+    parse_module, place_file_dir,
 };
 
 fn parse(path: &str, source: &str) -> ModuleInfo {
@@ -1332,6 +1332,67 @@ fn child_process_calls_are_commands() {
     assert_eq!(required.commands, ["xcopy /E"]);
     let other = parse("c.ts", "import { exec } from './exec';\nexec('not-a-command');\n");
     assert!(other.commands.is_empty(), "{:?}", other.commands);
+}
+
+/// A `cwd` option, whatever its value, runs the command in a directory the script parser cannot place, so the command
+/// line changes to one first.
+#[test]
+fn child_process_commands_with_a_cwd_change_to_an_unknown_directory() {
+    let source = "import { execSync, spawn, execFileSync } from 'node:child_process';\n\
+                  execSync('npm run build', { cwd: '/tmp/app' });\nspawn('bun', ['run', 'build'], { cwd: dir });\n\
+                  execFileSync('pnpm', { cwd: 'sub' });\nexecSync('tsc -b', { stdio: 'inherit' });\n\
+                  spawn('eslint', ['.'], options);\n";
+    let info = parse("a.ts", source);
+    assert_eq!(
+        info.commands,
+        [
+            "cd $__skif__ && npm run build",
+            "cd $__skif__ && bun run build",
+            "cd $__skif__ && pnpm",
+            "tsc -b",
+            "eslint ."
+        ]
+    );
+}
+
+/// A `cwd` that names the directory the call runs in anyway (`process.cwd()`, `undefined`, `'.'`), or that an unknown
+/// spread may set, changes nothing; one the file's own location computes changes to it relative to the file.
+#[test]
+fn child_process_commands_with_a_cwd_of_the_process_or_the_file() {
+    let source = "import { execSync } from 'node:child_process';\nimport path from 'node:path';\n\
+                  import { fileURLToPath } from 'node:url';\n\
+                  execSync('npm run a', { cwd: process.cwd() });\nexecSync('npm run b', { cwd: undefined });\n\
+                  execSync('npm run c', { ...options });\nexecSync('npm run d', { cwd: '.' });\n\
+                  execSync('npm run e', { cwd: __dirname });\nexecSync('npm run f', { cwd: import.meta.dirname });\n\
+                  execSync('npm run g', { cwd: path.dirname(fileURLToPath(import.meta.url)) });\n\
+                  execSync('npm run h', { cwd: path.join(__dirname, '../fixtures') });\n";
+    let info = parse("a.ts", source);
+    assert_eq!(
+        info.commands,
+        [
+            "npm run a",
+            "npm run b",
+            "npm run c",
+            "npm run d",
+            "cd $__skif_file_dir__/. && npm run e",
+            "cd $__skif_file_dir__/. && npm run f",
+            "cd $__skif_file_dir__/. && npm run g",
+            "cd $__skif_file_dir__/../fixtures && npm run h"
+        ]
+    );
+}
+
+/// The directory of the file takes the place of `$__skif_file_dir__` quoted, so a shell reads it as part of one word.
+#[test]
+fn the_file_directory_is_placed_quoted() {
+    let command = "cd $__skif_file_dir__/../sub && rspack";
+    assert_eq!(place_file_dir(command, "a.ts"), "cd ./../sub && rspack");
+    assert_eq!(place_file_dir(command, "scripts/a.ts"), "cd 'scripts'/../sub && rspack");
+    assert_eq!(
+        place_file_dir(command, "my scripts/a.ts"),
+        "cd 'my scripts'/../sub && rspack"
+    );
+    assert_eq!(place_file_dir(command, "it's/a.ts"), r"cd 'it'\''s'/../sub && rspack");
 }
 
 #[test]

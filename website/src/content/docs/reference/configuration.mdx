@@ -681,15 +681,35 @@ that holds the command. A binary fetched on demand (`npx x`, `pnpm dlx x`) is ne
 arguments are computed is not read. The steps of CI workflows, Git hooks and task runners run on machines that bring
 their own tools, so a binary they run by name is never reported there; one they run through a package manager
 (`pnpm exec x`, `yarn x`) or a `node_modules/.bin` path is, as knip does. A GitHub Actions step whose `shell` is not a
-POSIX shell (`pwsh`, `cmd`, `python`) is not read.
+POSIX shell (`pwsh`, `cmd`, `python`) is not read. The binary of a workspace member is provided where the package
+manager puts it on the `PATH`: with npm, Yarn Classic and hoisted Bun, which link every member's binaries into the
+root `node_modules/.bin`, for every package; with pnpm, Yarn Berry, isolated Bun and in a Rush repository only for the
+packages that list the member and for the member's own scripts. Bun is isolated with `linker = "isolated"` under
+`[install]` in the root `bunfig.toml`, or without a `linker` when `bun.lock` records `configVersion` 1. In a Rush repository (a `rush.json` at the root), `rush`, `rushx` and
+`rush-pnpm` are Rush's own commands and never unlisted.
 
 **Scripts that change directory.** A `package.json` script command after `cd <dir>` or `pushd <dir>` (until `popd`),
 and one that `npm --prefix <dir> exec`, `pnpm -C <dir> exec` (`--dir`) or `yarn --cwd <dir> exec` runs, runs in that
 directory: the files it names are relative to it, and when the directory is in another workspace package, the binaries
 it runs and the packages it loads are credited to that package, as for `pnpm --filter <name>`, and are never unlisted.
 In a directory of the package itself or of no workspace package, a command after `cd` stays a command of the script's
-package and one a directory flag runs is not judged, as before. A directory that is not a static relative path
-(`cd $DIR`, `cd /tmp`, `cd -`) is not followed. knip judges these commands at the script's own package.
+package and one a directory flag runs is not judged, as before. The binaries that a workflow step, a tool config's
+command or a source file run after `cd <dir>` (`run: cd sub && pnpm exec rspack`) are credited the same way, with the
+directory relative to the package where the command starts (the workspace root for a workflow); their packages and
+files stay where the command starts. In a workflow step, `$GITHUB_WORKSPACE`, `${GITHUB_WORKSPACE}` and
+`${{ github.workspace }}` are the workspace root, so `cd $GITHUB_WORKSPACE/sub` and a `working-directory` of
+`${{ github.workspace }}/sub` are followed. A script that a package manager runs in another directory
+(`cd web && npm run build`) is the script of the package there, so the caller's script of that name is not followed.
+A `cd` in a subshell
+(`(cd "$TMP" && tar xf a.tgz) && npm run build`) ends with it. A directory that is not a static relative path
+(`cd $DIR`, `cd /tmp`, `cd -`, `cd "$(dirname "$0")"`) is not followed: a binary run by name there is judged where the
+script starts, but a package manager run there (`npm run build`, `bun run build`, `pnpm exec rspack`) works on the
+package of that directory, as with `--filter`, so its scripts are not followed and its binaries are not judged. A
+command that a source file runs with a `cwd` option (`execa('bun', ['run', 'build'], { cwd })`,
+`execSync('npm run build', { cwd })`) runs in such a directory, unless the `cwd` names the directory the call runs in
+anyway (`process.cwd()`, `'.'`, `undefined`), which changes nothing, or the file's own location computes it
+(`__dirname`, `import.meta.dirname`, `path.join(__dirname, '../sub')`), which runs the command in that directory below
+the file. knip judges these commands at the script's own package.
 
 **`ignore-global-binaries`** (default `true`, top level only) keeps `unlisted-binaries` quiet about the system and
 platform tools scripts run (`rm`, `curl`, `git`, `docker`), which are installed globally, like knip's
