@@ -414,6 +414,13 @@ impl PackageSetup {
     pub(crate) fn unjudged_package_wide(&self) -> bool {
         self.entries_incomplete && (self.incomplete_scope.is_none() || self.widened_by.is_some())
     }
+
+    /// Whether the file `rel` (relative to the package directory) and its exports can be judged unused: the package's
+    /// entries are known, or the entries its configs hide lie in a narrowed scope `rel` is outside of (ADR 0065,
+    /// ADR 0081).
+    pub(crate) fn judges(&self, rel: &str) -> bool {
+        !self.unjudged_package_wide() && !self.in_incomplete_scope(rel)
+    }
 }
 
 /// The `entry`, `project` and `ignore` patterns a package is configured with, as written.

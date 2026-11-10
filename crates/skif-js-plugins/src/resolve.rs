@@ -469,11 +469,14 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
             Some(value) => value,
             None if !reader.reads_config() => ConfigValue::Null,
             None => {
-                if is_structured(&path) && !source.trim().is_empty() {
-                    let cause = IncompleteCause::Unparsable;
-                    collector.mark_incomplete(reader.spec().id, &path, cause, IncompleteScope::Package);
-                }
-                continue;
+                let Some(value) = reader.read_script(&path, &source) else {
+                    if is_structured(&path) && !source.trim().is_empty() {
+                        let cause = IncompleteCause::Unparsable;
+                        collector.mark_incomplete(reader.spec().id, &path, cause, IncompleteScope::Package);
+                    }
+                    continue;
+                };
+                value
             }
         };
         let ast = ConfigAst {
@@ -527,7 +530,7 @@ fn is_structured(path: &Path) -> bool {
 fn unreadable(value: &ConfigValue) -> Option<IncompleteCause> {
     match value {
         ConfigValue::Unknown => Some(IncompleteCause::UnknownValue),
-        ConfigValue::Object(entries) if entries.iter().any(|(key, _)| key == "...") => {
+        ConfigValue::Object(entries) if entries.iter().any(|(key, _)| ConfigValue::is_spread_key(key)) => {
             Some(IncompleteCause::UnknownSpread)
         }
         _ => None,

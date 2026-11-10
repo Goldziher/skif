@@ -19,6 +19,7 @@ format = "Rust is formatted by rustfmt before poly formats the rest of the tree.
 "fixtures/policy/catalog/bun-workspaces-catalog/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "fixtures/policy/catalog/missing-entry-npm-cannot-infer-file/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "fixtures/policy/catalog/yarnrc-catalogs/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
+"fixtures/policy/dependency-types/policy-scope-without-local/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "fixtures/policy/version-mismatch/npm-workspaces-layout/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "crates/skif-cli/tests/fixtures/inheritance/web/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "crates/skif-cli/tests/fixtures/multi/nested/tools/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
