@@ -717,7 +717,11 @@ mod tests {
             ConfigValue::Object(vec![
                 (
                     "setupFiles".to_owned(),
-                    ConfigValue::Array(vec![text("./config/boot.ts"), text("./missing.ts"), text("vitest.setup.ts")]),
+                    ConfigValue::Array(vec![
+                        text("./config/boot.ts"),
+                        text("./missing.ts"),
+                        text("vitest.setup.ts"),
+                    ]),
                 ),
                 ("environment".to_owned(), text("jsdom")),
                 ("chart".to_owned(), text("chart.js")),
