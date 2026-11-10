@@ -26,7 +26,7 @@ impl Plugin for Typescript {
         &SPEC
     }
 
-    fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
+    fn resolve_config(&self, config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let value = config.value;
         let mut out = Vec::new();
         if let Some(extends) = value.get("extends") {
@@ -61,9 +61,11 @@ impl Plugin for Typescript {
         // `types: ["node"]` loads the types of `node`, which `@types/node` provides as well; `vitest/globals` those of
         // `vitest`.
         if let Some(types) = options.get("types") {
+            let roots = local_type_roots(options, config);
             out.extend(
                 strings(types)
                     .into_iter()
+                    .filter(|name| !in_type_root(cx, &roots, name))
                     .filter_map(package_name)
                     .map(|name| compiler_dependency(name, true)),
             );
@@ -108,6 +110,27 @@ impl Plugin for Typescript {
         }
         out
     }
+}
+
+/// The `typeRoots` directories of the project, relative to the workspace: those outside `node_modules`, where
+/// TypeScript looks a `types` name up before packages.
+fn local_type_roots(options: &ConfigValue, config: &ConfigAst<'_>) -> Vec<String> {
+    options
+        .get("typeRoots")
+        .map(strings)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|root| !root.split(['/', '\\']).any(|part| part == "node_modules"))
+        .map(|root| config.join(root))
+        .collect()
+}
+
+/// Whether one of `roots` holds the types `name` loads: a directory with an `index.d.ts` or a `package.json`.
+fn in_type_root(cx: &PluginContext<'_>, roots: &[String], name: &str) -> bool {
+    roots.iter().any(|root| {
+        let dir = cx.dir.join(join_rel(root, name));
+        cx.fs.is_file(&dir.join("index.d.ts")) || cx.fs.is_file(&dir.join("package.json"))
+    })
 }
 
 /// `compilerOptions.baseUrl` and `paths`.

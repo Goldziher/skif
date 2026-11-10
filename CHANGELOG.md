@@ -126,6 +126,8 @@ All notable changes to this project are documented here. The format follows
 - Vitest's built-in `agent`, `html` and `minimal` reporters name no package, so a config using them is no longer an
   `unlisted-dependencies` finding; `html` credits `@vitest/ui`. The `nuxt` environment credits
   `vitest-environment-nuxt` without requiring it, as `@nuxt/test-utils` brings it.
+- A `tsconfig` `types` entry that a local `typeRoots` directory of the same config holds (`types/custom/index.d.ts`)
+  is no longer an `unlisted-dependencies` finding: TypeScript loads it from there, not from a package.
 
 ### Changed
 
