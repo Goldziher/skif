@@ -14,6 +14,9 @@ use super::{
 
 const MAX_DEPTH: usize = 32;
 
+/// The flags of `bun` and `bun run` that run the command in other workspace packages.
+const BUN_WORKSPACE_FLAGS: &[&str] = &["filter", "F", "workspaces"];
+
 /// Maps byte ranges of the text being walked back to the originally parsed script.
 #[derive(Clone, Debug)]
 enum Map {
@@ -1018,6 +1021,7 @@ impl<'c> Walker<'c> {
         self.restore_dir(cwd);
     }
 
+    /// `bun`: `--filter` (`-F`) and `--workspaces` run the command in other workspace packages.
     fn bun(&mut self, args: &[Word], frame: &Frame, st: St) {
         let parsed = args::parse(args, tables::BUN_VALUE_FLAGS, true);
         for value in parsed.values(&["preload", "r", "import", "require"]) {
@@ -1025,7 +1029,7 @@ impl<'c> Walker<'c> {
         }
         // `--cwd <dir>` runs the command in another directory: its scripts and binaries are that package's.
         let mut cwd = parsed.values(&["cwd"]).next().map(|value| value.text.clone());
-        let mut filtered = st.filtered || self.unknown_dir || parsed.has(&["filter"]) || cwd.is_some();
+        let mut filtered = st.filtered || self.unknown_dir || parsed.has(BUN_WORKSPACE_FLAGS) || cwd.is_some();
         let Some(&ci) = parsed.positionals.first() else {
             return;
         };
@@ -1043,7 +1047,7 @@ impl<'c> Walker<'c> {
             ),
             "run" => {
                 let inner = args::parse(after, tables::BUN_VALUE_FLAGS, false);
-                filtered |= inner.has(&["filter"]);
+                filtered |= inner.has(BUN_WORKSPACE_FLAGS);
                 if let Some(value) = inner.values(&["cwd"]).next() {
                     cwd = Some(value.text.clone());
                     filtered = true;
