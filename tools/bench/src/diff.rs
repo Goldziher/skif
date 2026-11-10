@@ -64,6 +64,10 @@ pub struct Entry {
     /// Why the comparison tool's report is not a valid comparison here, when it is not.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub invalid: Option<String>,
+    /// Whether this repository's dependencies were installed, read from the checkout rather than from a flag. `None`
+    /// in entries that do not record it, which the [`Baseline`]'s own `installed` then stands for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub installed: Option<bool>,
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)] // serde passes the field by reference.
@@ -81,6 +85,7 @@ impl Entry {
             known_deviations: Known::new(),
             tool_errors: 0,
             invalid: None,
+            installed: None,
         }
     }
 
@@ -93,6 +98,7 @@ impl Entry {
             known_deviations: Known::new(),
             tool_errors: 0,
             invalid: None,
+            installed: None,
         }
     }
 
@@ -113,6 +119,12 @@ impl Entry {
         self.invalid = reason;
         self
     }
+
+    #[must_use]
+    pub const fn with_installed(mut self, installed: bool) -> Self {
+        self.installed = Some(installed);
+        self
+    }
 }
 
 pub const COMPARED: &str = "compared";
@@ -124,7 +136,8 @@ pub struct Baseline {
     pub schema: u32,
     /// The comparison tool and its pinned version, e.g. `knip@6.44.1`.
     pub tool: String,
-    /// Whether dependencies were installed in the compared repositories; counts differ a lot between the two.
+    /// Whether dependencies were installed in the compared repositories; counts differ a lot between the two. When the
+    /// entries record their own `installed`, this is whether every one of them was installed.
     pub installed: bool,
     pub entries: BTreeMap<String, Entry>,
 }
@@ -315,7 +328,8 @@ pub fn write_baseline(path: &Path, baseline: &Baseline) -> Result<()> {
 /// Lists how `current` drifts from `baseline` beyond `tolerance`; empty when it does not. Only the entries of
 /// `current` are examined, so a run narrowed to a few repositories is checked against their baselines alone.
 pub fn check(baseline: &Baseline, current: &Baseline, tolerance: Tolerance) -> Vec<String> {
-    if baseline.tool != current.tool || baseline.installed != current.installed {
+    let per_entry = records_installed(current);
+    if baseline.tool != current.tool || (!per_entry && baseline.installed != current.installed) {
         return vec![format!(
             "baseline was recorded with {} (installed: {}), this run used {} (installed: {}); refresh it with --write-baseline",
             baseline.tool, baseline.installed, current.tool, current.installed
@@ -327,6 +341,15 @@ pub fn check(baseline: &Baseline, current: &Baseline, tolerance: Tolerance) -> V
             problems.push(format!("{name}: not in the baseline"));
             continue;
         };
+        if let Some(installed) = now.installed {
+            let recorded = was.installed.unwrap_or(baseline.installed);
+            if recorded != installed {
+                problems.push(format!(
+                    "{name}: the baseline was recorded with installed: {recorded}, this checkout has installed: {installed}; install it (--install) or re-record it with --write-baseline"
+                ));
+                continue;
+            }
+        }
         if was.status != now.status {
             problems.push(format!(
                 "{name}: was {}, is now {}{}",
@@ -371,6 +394,11 @@ pub fn check(baseline: &Baseline, current: &Baseline, tolerance: Tolerance) -> V
     problems
 }
 
+/// Whether the entries of a run record their own install state.
+fn records_installed(baseline: &Baseline) -> bool {
+    baseline.entries.values().any(|entry| entry.installed.is_some())
+}
+
 /// Where a comparison run records or checks its baseline.
 #[derive(Debug, Clone)]
 pub struct Gate {
@@ -389,12 +417,16 @@ pub struct Gate {
 pub fn conclude(gate: &Gate, current: &Baseline) -> Result<()> {
     if gate.write {
         let mut merged = current.clone();
+        let per_entry = records_installed(current);
         if let Ok(old) = read_baseline(&gate.baseline)
             && old.tool == current.tool
-            && old.installed == current.installed
+            && (per_entry || old.installed == current.installed)
         {
             merged.entries = old.entries;
             merged.entries.extend(current.entries.clone());
+        }
+        if per_entry {
+            merged.installed = merged.entries.values().all(|entry| entry.installed != Some(false));
         }
         write_baseline(&gate.baseline, &merged)?;
         eprintln!("baseline: wrote {}", gate.baseline.display());
@@ -501,6 +533,34 @@ mod tests {
         let mut installed = now.clone();
         installed.installed = true;
         assert!(check(&base, &installed, TOLERANCE)[0].contains("--write-baseline"));
+    }
+
+    #[test]
+    fn check_compares_the_install_state_of_each_entry_not_the_run_flag() {
+        let mut base = baseline(&[
+            ("a", Entry::compared(counts(1, 1, 1)).with_installed(true)),
+            ("b", Entry::compared(counts(1, 1, 1)).with_installed(false)),
+            ("old", Entry::compared(counts(1, 1, 1))),
+        ]);
+        base.installed = true;
+        let mut now = baseline(&[
+            ("a", Entry::compared(counts(1, 1, 1)).with_installed(true)),
+            ("b", Entry::compared(counts(1, 1, 1)).with_installed(false)),
+            ("old", Entry::compared(counts(1, 1, 1)).with_installed(true)),
+        ]);
+        now.installed = false;
+        assert_eq!(
+            check(&base, &now, TOLERANCE),
+            [] as [String; 0],
+            "the flag differs, the checkouts match"
+        );
+        let flipped = baseline(&[("a", Entry::compared(counts(1, 1, 1)).with_installed(false))]);
+        let problems = check(&base, &flipped, TOLERANCE);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].starts_with("a: the baseline was recorded with installed: true"),
+            "{problems:?}"
+        );
     }
 
     #[test]
