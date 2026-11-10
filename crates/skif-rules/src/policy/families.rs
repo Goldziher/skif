@@ -181,8 +181,10 @@ fn effective_families(config: &Config) -> Vec<Family> {
 /// Reports family members that are on an older version than another member of the same package.
 ///
 /// Versions are compared by number only, so `^18.3.1` and `~18.3.1` are in sync, and a shorthand such as `^18` counts
-/// as the first release of its line. Production, development and optional dependencies take part; peer ranges state
-/// a compatibility window and are left alone. A `catalog:` reference is compared by the version of its catalog entry;
+/// as the first release of its line. Production, development and optional dependencies take part, or those of them
+/// `[policy] dependency-types` names when it is set; peer ranges state a compatibility window and are left alone. A
+/// dependency listed in two sections of a package is not compared with itself, only with the other members. A
+/// `catalog:` reference is compared by the version of its catalog entry;
 /// specifiers without a version number (`workspace:*`, tags, `latest`), aliases of another package, and 0.x members
 /// of a family that has reached 1.0 take no part.
 #[derive(Debug, Clone, Copy, Default)]
@@ -203,6 +205,7 @@ impl Rule for UnsyncedDependencyFamily {
             return;
         }
         let families = effective_families(cx.config);
+        let scope = &cx.config.policy.dependency_types;
         let catalogs = &cx.workspace.catalogs;
         // A `catalog:` reference counts as the version of its catalog entry.
         let resolved = |entry: &DependencyEntry| -> Option<Arc<Specifier>> {
@@ -226,7 +229,9 @@ impl Rule for UnsyncedDependencyFamily {
             for entry in package
                 .dependencies
                 .iter()
-                .filter(|entry| entry.kind != DependencyKind::PeerDependencies)
+                .filter(|entry| {
+                    entry.kind != DependencyKind::PeerDependencies && (scope.is_empty() || scope.matches_kind(entry.kind))
+                })
             {
                 let of = memberships.entry(entry.name.as_str()).or_insert_with(|| {
                     families
@@ -247,10 +252,15 @@ impl Rule for UnsyncedDependencyFamily {
                 }
             }
             for (family, members) in families.iter().zip(&members_of) {
-                let Some((leader, leader_major, highest)) = members.iter().max_by(|a, b| a.2.cmp(&b.2)) else {
-                    continue;
-                };
                 for (entry, entry_major, version) in members {
+                    // The highest other member: a name in two sections is no family of its own.
+                    let Some((leader, leader_major, highest)) = members
+                        .iter()
+                        .filter(|other| other.0.name != entry.name)
+                        .max_by(|a, b| a.2.cmp(&b.2))
+                    else {
+                        continue;
+                    };
                     // A 0.x package next to a released family is on a version line of its own.
                     if version >= highest || (*leader_major >= 1 && *entry_major == 0) {
                         continue;
@@ -571,6 +581,29 @@ mod tests {
         assert_eq!(flagged("", sections), ["react"]);
         let sections = r#""dependencies":{"react":"^18","react-dom":"^18.0.0"}"#;
         assert_eq!(flagged("", sections), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_dependency_in_two_sections_is_not_compared_with_itself() {
+        let alone = r#""dependencies":{"react":"^18.0.0"},"devDependencies":{"react":"^18.2.0"}"#;
+        assert_eq!(flagged("", alone), Vec::<String>::new());
+        let with_member =
+            r#""dependencies":{"react":"^18.0.0","react-dom":"^18.2.0"},"devDependencies":{"react":"^18.2.0"}"#;
+        assert_eq!(flagged("", with_member), ["react"], "the older entry is behind react-dom");
+    }
+
+    #[test]
+    fn the_policy_scope_selects_the_sections_that_take_part() {
+        let sections = r#""dependencies":{"react":"^18.2.0"},"optionalDependencies":{"react-dom":"^17.0.0"}"#;
+        assert_eq!(flagged("", sections), ["react-dom"]);
+        assert_eq!(
+            flagged("[policy]\ndependency-types = [\"prod\", \"dev\"]\n", sections),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            flagged("[policy]\ndependency-types = [\"!dev\"]\n", sections),
+            ["react-dom"]
+        );
     }
 
     #[test]
