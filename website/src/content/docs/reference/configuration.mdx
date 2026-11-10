@@ -436,8 +436,11 @@ statically, or a published `main`, `exports` or `bin` that maps to no source fil
 still be one. A published path that names nothing at all (no file, no source behind it, not in a build output
 directory, not ignored by git and not in a `bin` directory a build step of the package may write, such as a stale
 `bin/cli.js`) is not one of them: it is no entry, `stale-js-config` reports it (`package-entry`) and the package is
-judged from its other entries. `unused-dependencies`, `unused-dev-dependencies`, `unused-exports`, `unused-types`, the namespace export
-rules and the member rules then skip the package, and `explain-usage` gives its exports the verdict `not-judged`.
+judged from its other entries. `unused-dependencies` and `unused-dev-dependencies` then skip the package: an unread
+configuration may name a package by string (a test environment, a coverage provider, a reporter). `unused-exports`,
+`unused-types`, the namespace export rules and the member rules skip the files that may be unknown entries: the
+whole package, or only the files of the narrowed scope described below, and `explain-usage` gives their exports the
+verdict `not-judged`.
 
 `unused-files` skips only the files the unreadable configuration could plausibly make entries, its narrowed scope. A
 config that is unknown, spreads or merges in an unknown base, or computes its entry keys can only add entries where its
@@ -450,7 +453,11 @@ tool looks for them:
 | `vitest`, `playwright` | test files, test and fixture directories (`test`, `tests`, `__tests__`, `__mocks__`, `__fixtures__`, `e2e`, `spec`, `specs`, `fixtures`, `mocks`, `testing`, `test-utils`), files whose name contains `setup` or `teardown`, and files named `*.{test,spec,bench,e2e,integration}*` |
 
 The files in the scope are treated as entries, so what they import is not reported either; every other file of the
-package is judged as usual. The whole package stays unjudged when the configuration does not parse, when a `vite`
+package is judged as usual, its unused exports, types and members included, since whatever an unknown entry in the
+scope imports is already counted. The exports of a file in the scope are not judged, even with
+`include-entry-exports`, as the tool may read them. The whole package stays unjudged when the configuration does not
+parse (an `esbuild` build script that exports nothing is read for every `entryPoints` it writes, and counts as
+unparsable only when it writes none), when a `vite`
 config computes `root`, `build.rollupOptions.input` or `build.lib.entry` itself or is unknown as a whole, when a
 `vitest` config computes `root`, `test.include`, `test.setupFiles` or `test.globalSetup` itself or is unknown as a
 whole, when a `playwright` config is unknown as a whole, when the plugin gives no scope (any other plugin), when the

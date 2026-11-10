@@ -9,6 +9,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- In a package whose incomplete entries lie in a narrowed scope, `unused-exports`, `unused-types`, the namespace
+  export rules and the member rules now judge every file outside the scope: the scope's files are entries already, so
+  whatever an unknown entry imports is counted. Files in the scope, packages unjudged as a whole and the dependency
+  rules are unchanged
+  ([ADR 0081](adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md),
+  [#101](https://github.com/Goldziher/skif/issues/101)).
+- The `esbuild` plugin reads build scripts that export nothing (`run({ entryPoints: { … } })`,
+  `await esbuild.build({ entryPoints: [...] })`, also inside a function): each `entryPoints` they write is a
+  production entry, and the package is no longer unjudged as unparsable
+  ([ADR 0081](adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md),
+  [#101](https://github.com/Goldziher/skif/issues/101)).
+
 ### Fixed
 
 - `stale-js-config` no longer reports stylesheet extensions (`.css`, `.scss`, `.sass`, `.less`, `.pcss`, `.styl`,
