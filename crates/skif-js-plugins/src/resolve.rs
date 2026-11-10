@@ -816,7 +816,10 @@ mod tests {
         let text = |value: &str| ConfigValue::String(value.to_owned());
         for key in ["testIgnore", "watchExclude", "excludeFiles"] {
             let arguments = [ConfigValue::Object(vec![
-                ("setupFiles".to_owned(), ConfigValue::Array(vec![text("./config/boot.ts")])),
+                (
+                    "setupFiles".to_owned(),
+                    ConfigValue::Array(vec![text("./config/boot.ts")]),
+                ),
                 (key.to_owned(), ConfigValue::Array(vec![text("./config/skip.ts")])),
             ])];
             assert_eq!(

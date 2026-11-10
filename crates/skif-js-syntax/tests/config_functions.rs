@@ -944,8 +944,6 @@ fn a_read_that_is_not_definite_stays_so_through_every_value_it_reaches() {
          export default { test: { setupFiles: pick(base) ?? ['./local.ts'] } };",
         "const make = (files) => files ?? ['./local.ts'];\n\
          export default { test: { setupFiles: make(base.setupFiles) } };",
-        "const make = () => { const t = {}; t.files = base.setupFiles; return t.files ?? ['./local.ts']; };\n\
-         export default { test: { setupFiles: make() } };",
         "const make = () => { let files; files = base.setupFiles; return files ?? ['./local.ts']; };\n\
          export default { test: { setupFiles: make() } };",
     ] {
@@ -957,6 +955,16 @@ fn a_read_that_is_not_definite_stays_so_through_every_value_it_reaches() {
             "{source}"
         );
     }
+    // A nested function that stores a part of `base` into an object it changes may share that part with `base`
+    // (`sharing.rs`), so the read is unknown rather than the union.
+    let shared = format!(
+        "{base}const make = () => {{ const t = {{}}; t.files = base.setupFiles; return t.files ?? ['./local.ts']; }};\n\
+         export default {{ test: {{ setupFiles: make() }} }};"
+    );
+    assert_eq!(
+        get(&extract("vitest.config.ts", &shared), &["test", "setupFiles"]),
+        &ConfigValue::Unknown
+    );
     let spread = extract(
         "vitest.config.ts",
         &format!(
@@ -964,7 +972,11 @@ fn a_read_that_is_not_definite_stays_so_through_every_value_it_reaches() {
              export default {{ test: {{ setupFiles: files.length ? files : ['./local.ts'], length: files.length }} }};"
         ),
     );
-    assert_eq!(get(&spread, &["test", "setupFiles"]), &ConfigValue::Unknown, "{spread:?}");
+    assert_eq!(
+        get(&spread, &["test", "setupFiles"]),
+        &ConfigValue::Unknown,
+        "{spread:?}"
+    );
     assert_eq!(get(&spread, &["test", "length"]), &ConfigValue::Unknown, "{spread:?}");
 }
 
