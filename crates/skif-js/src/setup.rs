@@ -336,6 +336,9 @@ pub(crate) struct PackageSetup {
     pub shared_entry: Globs,
     /// The entry globs plugins provide inside the package, for the `entry-redundant` hint of `stale-js-config`.
     pub plugin_entry: Globs,
+    /// The plugin entries that name one file rather than a glob (a workflow step's `node build/report.ts`), absolute.
+    /// One that is no file of this analysis may belong to another root of a multi-root run.
+    pub plugin_entry_files: Vec<PathBuf>,
     /// The tool configuration of the package could not be fully read, so its entry files are not all known.
     /// Files and dependencies cannot be judged unused then.
     pub entries_incomplete: bool,
@@ -556,6 +559,11 @@ fn is_shared_pattern(pattern: &str) -> bool {
     !body.starts_with("**/") && !body.starts_with("../") && !body.starts_with('/')
 }
 
+/// Whether an entry pattern names one path rather than a glob or a negation.
+fn is_literal_path(pattern: &str) -> bool {
+    !pattern.is_empty() && !pattern.contains(['*', '?', '[', ']', '{', '}', '!'])
+}
+
 /// Options of `unused-exports`, which `unused-types` shares.
 #[derive(Debug, Default, serde::Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
@@ -666,6 +674,11 @@ impl Setup {
                 entry.extend(plugin.entry);
             }
             entry.extend(plugin.production_entry);
+            let plugin_entry_files: Vec<PathBuf> = plugin_entry
+                .iter()
+                .filter(|pattern| is_literal_path(pattern))
+                .map(|pattern| join_normalized(&abs_dir, pattern))
+                .collect();
             plugin_entry.retain(|pattern| !pattern.trim_start_matches('!').starts_with("../"));
 
             let tsconfig_project = js
@@ -733,6 +746,7 @@ impl Setup {
                 external_entry,
                 shared_entry: Globs::new(shared_entry),
                 plugin_entry: Globs::new(plugin_entry),
+                plugin_entry_files,
                 entries_incomplete: plugin.entries_incomplete,
                 incomplete_scope: match &plugin.incomplete_scope {
                     IncompleteScope::Within(patterns) if plugin.entries_incomplete => Some(IncompleteScopeGlobs {

@@ -75,7 +75,9 @@
 //! The other way round, an outer root cannot see that a nested root imports or runs a dependency only the outer
 //! manifest lists, which Node.js resolves from the outer `node_modules`: the nested root's report lists those in
 //! [`Report::ancestor_dependency_uses`], and `skif -r` drops the outer root's unused-dependency findings for them
-//! (with [`Report::retain`]).
+//! (with [`Report::retain`]). Files of a root that code outside it reaches (a nested root requiring
+//! `../tools/detect.js`, a sibling root) are listed in [`Report::other_project_files`] with absolute paths, and
+//! `skif -r` drops the owning root's `unused-files` findings for them the same way.
 //!
 //! # Features
 //!
