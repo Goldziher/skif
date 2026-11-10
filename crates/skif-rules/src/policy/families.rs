@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use skif_config::{Config, Selector};
+use skif_config::{Config, DependencyFamily, FamilyScope, Selector};
 use skif_core::{Category, DependencyKind, Fixability, RuleMeta, Severity, diagnostic};
 use skif_lint::{Emitter, LintContext, Rule};
 use skif_specifier::Specifier;
@@ -18,7 +18,7 @@ pub static META: RuleMeta = RuleMeta::new(
     Category::Policy,
     Some(Severity::Error),
     Fixability::None,
-    "Members of a dependency family declared in one package are on different versions.",
+    "Members of a dependency family are on different versions in one package, or as resolved by the lockfile.",
 );
 
 /// The Storybook packages released in lockstep with `storybook`. `@storybook/*` also holds packages on their own
@@ -150,34 +150,48 @@ const BUILTIN: &[(&str, &[&str])] = &[
 ];
 
 #[derive(Debug)]
-struct Family {
-    name: String,
-    members: Selector,
+pub(super) struct Family {
+    pub(super) name: String,
+    pub(super) members: Selector,
+    /// Where the members must share a version.
+    pub(super) scope: FamilyScope,
+    /// With a lockfile scope, the package whose majors each allow one version of every member.
+    pub(super) anchor: Option<String>,
 }
 
 /// The built-in families adjusted by `[[dependency-families]]`, followed by the configured families of other names.
 fn effective_families(config: &Config) -> Vec<Family> {
-    let compile = |name: &str, patterns: Vec<String>| {
+    let compile = |name: &str, patterns: Vec<String>, configured: Option<&DependencyFamily>| {
         Selector::new(patterns).ok().map(|members| Family {
             name: name.to_owned(),
             members,
+            scope: configured.map_or(FamilyScope::Manifests, |family| family.scope),
+            anchor: configured.and_then(|family| family.anchor.clone()),
         })
     };
     let configured = |name: &str| config.dependency_families.iter().rfind(|family| family.name == name);
     let builtin = BUILTIN.iter().filter_map(|(name, patterns)| match configured(name) {
         Some(family) if !family.enabled => None,
-        Some(family) if !family.packages.is_empty() => compile(name, family.packages.clone()),
-        _ => compile(name, patterns.iter().map(|pattern| (*pattern).to_owned()).collect()),
+        Some(family) if !family.packages.is_empty() => compile(name, family.packages.clone(), Some(family)),
+        family => compile(
+            name,
+            patterns.iter().map(|pattern| (*pattern).to_owned()).collect(),
+            family,
+        ),
     });
     let custom = config
         .dependency_families
         .iter()
         .filter(|family| family.enabled && BUILTIN.iter().all(|(name, _)| *name != family.name))
-        .filter_map(|family| compile(&family.name, family.packages.clone()));
+        .filter_map(|family| compile(&family.name, family.packages.clone(), Some(family)));
     builtin.chain(custom).collect()
 }
 
 /// Reports family members that are on an older version than another member of the same package.
+///
+/// A family with `scope = "importer"` or `scope = "lockfile"` is judged on `pnpm-lock.yaml` instead (see
+/// `lockfile_families`): every resolved member must share one version, or with an `anchor`, each member one version
+/// per major of the anchor.
 ///
 /// Versions are compared by number only, so `^18.3.1` and `~18.3.1` are in sync, and a shorthand such as `^18` counts
 /// as the first release of its line. Production, development and optional dependencies take part; peer ranges state
@@ -201,7 +215,11 @@ impl Rule for UnsyncedDependencyFamily {
         if !cx.enabled.contains(META.id) {
             return;
         }
-        let families = effective_families(cx.config);
+        // A family with a lockfile scope is judged on what `pnpm-lock.yaml` resolves, not on the manifests.
+        let (families, lockfile_scoped): (Vec<Family>, Vec<Family>) = effective_families(cx.config)
+            .into_iter()
+            .partition(|family| family.scope.is_manifests());
+        super::lockfile_families::emit(cx, &lockfile_scoped, out);
         let catalogs = &cx.workspace.catalogs;
         // A `catalog:` reference counts as the version of its catalog entry.
         let resolved = |entry: &DependencyEntry| -> Option<Arc<Specifier>> {

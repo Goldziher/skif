@@ -13,6 +13,7 @@
 
 #![warn(missing_docs)]
 
+mod lockfile;
 pub mod manifest;
 pub mod policy;
 pub mod toolchain;

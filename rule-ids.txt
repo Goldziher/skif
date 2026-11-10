@@ -21,6 +21,7 @@ root-package-private-field
 semver-range-mismatch
 stale-js-config
 stale-mocks
+stale-patched-dependencies
 stray-lockfile
 toolchain-pin-drift
 types-in-dependencies

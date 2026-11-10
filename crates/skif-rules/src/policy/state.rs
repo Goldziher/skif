@@ -23,7 +23,7 @@ pub static BANNED_DEPENDENCY: RuleMeta = RuleMeta::new(
     Category::Policy,
     Some(Severity::Error),
     Fixability::Unsafe,
-    "A dependency is declared although a banned version group forbids it.",
+    "A dependency is declared, or resolved by the lockfile, although a banned version group forbids it.",
 );
 
 /// Metadata of `semver-range-mismatch`.

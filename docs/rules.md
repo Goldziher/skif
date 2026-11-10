@@ -46,6 +46,7 @@
 | [`version-mismatch`](#version-mismatch) | policy | error | sometimes |
 | [`workspace-protocol`](#workspace-protocol) | policy | error | none |
 | [`missing-package-manifest`](#missing-package-manifest) | workspace | warning | unsafe |
+| [`stale-patched-dependencies`](#stale-patched-dependencies) | workspace | warning | none |
 | [`nested-workspace-root`](#nested-workspace-root) | workspace | warning | none |
 | [`stray-lockfile`](#stray-lockfile) | workspace | warning | unsafe |
 | [`unmatched-workspace-patterns`](#unmatched-workspace-patterns) | workspace | warning | unsafe |
@@ -326,7 +327,7 @@ The entries of a dependency section are not in alphabetical (byte) order.
 
 ## banned-dependency
 
-A dependency is declared although a banned version group forbids it.
+A dependency is declared, or resolved by the lockfile, although a banned version group forbids it.
 
 - Category: policy
 - Default severity: error
@@ -358,7 +359,7 @@ A dependency uses a semver range other than the one its semver group requires.
 
 ## unsynced-dependency-family
 
-Members of a dependency family declared in one package are on different versions.
+Members of a dependency family are on different versions in one package, or as resolved by the lockfile.
 
 - Category: policy
 - Default severity: error
@@ -391,6 +392,9 @@ A directory matched by the workspace patterns has no `package.json`.
 - Fixable: unsafe
 - sherif name: `packages-without-package-json`
 
+## stale-patched-dependencies
+
+A `patchedDependencies` entry no longer applies, names a missing file or lies outside the allowed paths, or a patch file is left over.
 ## nested-workspace-root
 
 A workspace member holds a `pnpm-workspace.yaml` of its own, so installs in that directory leave the workspace.

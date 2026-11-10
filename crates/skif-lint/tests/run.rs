@@ -237,3 +237,43 @@ fn cancel_during_a_provider_skips_later_providers() {
     assert_eq!(first_calls.load(Ordering::SeqCst), 1);
     assert_eq!(second_calls.load(Ordering::SeqCst), 0);
 }
+
+/// Reports the text of `/ws/notes.txt` as read through the run's file system, or that it could not be read.
+struct ReadsNotes(&'static RuleMeta);
+
+impl Rule for ReadsNotes {
+    fn meta(&self) -> &'static RuleMeta {
+        self.0
+    }
+
+    fn check(&self, cx: &LintContext<'_>, out: &mut Emitter<'_>) {
+        let text = cx
+            .fs()
+            .read_to_string(std::path::Path::new("/ws/notes.txt"))
+            .map_or_else(|_| "unreadable".to_owned(), |text| text.to_string());
+        out.emit(diagnostic(self.0, text, location()).build());
+    }
+}
+
+#[test]
+fn rules_read_through_the_file_system_the_host_passes() {
+    let meta = leak_meta("reads-notes", Some(Severity::Warning));
+    let registry = Registry::new(vec![Box::new(RulesProvider::new(
+        "notes",
+        vec![Box::new(ReadsNotes(meta)) as Box<dyn Rule>],
+    )) as Box<dyn skif_lint::RuleProvider>])
+    .unwrap();
+    let cfg = config("");
+    let ws = workspace(&cfg);
+    let fs = skif_workspace::MemoryFs::new().with_file("/ws/notes.txt", "from memory");
+    let messages = |options: &RunOptions<'_>| -> Vec<String> {
+        run_unsorted(&registry, &ws, &cfg, options)
+            .unwrap()
+            .into_iter()
+            .map(|diagnostic| diagnostic.message)
+            .collect()
+    };
+    assert_eq!(messages(&RunOptions::default().with_fs(&fs)), ["from memory"]);
+    // Without a file system of its own the run reads the real one, where `/ws/notes.txt` does not exist.
+    assert_eq!(messages(&RunOptions::default()), ["unreadable"]);
+}
