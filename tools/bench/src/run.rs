@@ -430,8 +430,8 @@ fn markdown(summary: &Summary) -> String {
     let _ = write!(
         out,
         "Host: {}, {} ({} logical CPUs); load average {} before and {} after the run.\n\n",
-        summary.host,
-        summary.cpu,
+        one_line(&summary.host),
+        one_line(&summary.cpu),
         summary.cores,
         format_load(summary.load_before),
         format_load(summary.load_after)
@@ -450,7 +450,7 @@ fn markdown(summary: &Summary) -> String {
             "Not timed: {} on {}: {}.\n\n",
             skipped.tool,
             skipped.target.as_deref().unwrap_or("every target"),
-            skipped.reason
+            code_span(&skipped.reason)
         );
     }
     for target in &summary.targets {
@@ -497,6 +497,42 @@ fn markdown(summary: &Summary) -> String {
     out.truncate(end);
     out.push('\n');
     out
+}
+
+/// `text` with every run of whitespace (tabs, newlines, double spaces) made one space: `poly fmt` collapses them in
+/// Markdown prose, so the summary has to be written that way to pass its check.
+fn one_line(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// `text` (on [`one_line`]) as the text of a Markdown table cell: a `|` would end the cell, so it is escaped.
+pub fn table_cell(text: &str) -> String {
+    one_line(text).replace('|', "\\|")
+}
+
+/// What the summary writes for an empty reason.
+const EMPTY_TEXT: &str = "(empty)";
+
+/// `text` (on [`one_line`]) as a Markdown code span, so `poly fmt` leaves it as written: command output such as an
+/// install's error line holds `_` pairs, `*` and URLs, which the formatter rewrites in prose. The fence is one backtick
+/// longer than the longest run of backticks inside. Empty text, which no code span can hold, is [`EMPTY_TEXT`].
+fn code_span(text: &str) -> String {
+    let text = one_line(text);
+    if text.is_empty() {
+        return EMPTY_TEXT.to_owned();
+    }
+    let longest = text
+        .split(|character: char| character != '`')
+        .map(str::len)
+        .max()
+        .unwrap_or(0);
+    let fence = "`".repeat(longest + 1);
+    let pad = if text.starts_with('`') || text.ends_with('`') {
+        " "
+    } else {
+        ""
+    };
+    format!("{fence}{pad}{text}{pad}{fence}")
 }
 
 /// `1.50 / 1.20 / 0.90` for the 1, 5 and 15 minute load averages, `unknown` without them.
@@ -723,34 +759,44 @@ pub fn run(options: &RunOptions) -> Result<()> {
     if options.graph_files > 0 {
         targets.push(graph_target(options)?);
     }
-    if options.use_corpus {
-        let (_, repos) = corpus::fetch_suite(&options.corpus_file, "bench", &[], &options.corpus_dir)?;
-        for (repo, dir) in repos {
+    // The corpus checkouts stay locked until every target is measured.
+    let suite = if options.use_corpus {
+        Some(corpus::fetch_suite(
+            &options.corpus_file,
+            "bench",
+            &[],
+            &options.corpus_dir,
+        )?)
+    } else {
+        None
+    };
+    if let Some(suite) = &suite {
+        for (repo, dir) in &suite.repos {
             let mut tools = vec![Tool::Skif, Tool::SkifManifest];
             tools.extend(comparison.iter().copied());
             // knip loads the configurations of the repository's tools, which import its own packages: without an
             // install it fails on them and the time is that of a partial run.
             if options.install && tools.contains(&Tool::Knip) {
                 let scratch = options.generated_dir.join("install").join(&repo.name);
-                if let Some(reason) = parity::install(&repo, &fs::canonicalize(&dir)?, &scratch, INSTALL_TIMEOUT)? {
+                if let Some(reason) = parity::install(repo, &fs::canonicalize(dir)?, &scratch, INSTALL_TIMEOUT)? {
                     eprintln!("bench: {} not installed ({reason}), knip is not timed there", repo.name);
                     tools.retain(|tool| *tool != Tool::Knip);
                     skipped.push(Skipped {
                         tool: Tool::Knip.label().to_owned(),
-                        target: Some(corpus_target_name(&repo)),
+                        target: Some(corpus_target_name(repo)),
                         reason: format!("the install failed: {reason}"),
                     });
                 }
             }
             targets.push(Target {
-                name: corpus_target_name(&repo),
+                name: corpus_target_name(repo),
                 kind: "corpus",
                 packages: None,
                 files: None,
-                dir: fs::canonicalize(&dir)?,
+                dir: fs::canonicalize(dir)?,
                 tools,
                 knip_args: repo.bench_knip_args.clone(),
-                skif_args: corpus_skif_args(&repo),
+                skif_args: corpus_skif_args(repo),
             });
         }
     }
@@ -885,7 +931,7 @@ mod tests {
         };
         let with_skip = markdown(&summary(Vec::new(), vec![skipped]));
         assert!(
-            with_skip.contains("Not timed: knip --reporter json on corpus: r (pnpm): the install failed: x."),
+            with_skip.contains("Not timed: knip --reporter json on corpus: r (pnpm): `the install failed: x`."),
             "{with_skip}"
         );
         assert!(
@@ -905,6 +951,36 @@ mod tests {
             assert!(!text.contains("\n\n\n"));
             assert!(text.lines().all(|line| line == line.trim_end()));
         }
+    }
+
+    /// An install's error line is written as `poly fmt` leaves it: in a code span, with whitespace runs collapsed.
+    #[test]
+    fn command_output_in_the_summary_is_written_as_the_formatter_leaves_it() {
+        assert_eq!(
+            code_span(
+                "pnpm install failed: ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with \"frozen-lockfile\" (see https://pnpm.io/x)"
+            ),
+            "`pnpm install failed: ERR_PNPM_OUTDATED_LOCKFILE Cannot install with \"frozen-lockfile\" (see https://pnpm.io/x)`"
+        );
+        assert_eq!(code_span("npm error\tcode  _not_ *x*\n"), "`npm error code _not_ *x*`");
+        assert_eq!(code_span("run `npm ci` here"), "``run `npm ci` here``");
+        assert_eq!(code_span("`tick`"), "`` `tick` ``");
+        assert_eq!(code_span("a ``b`` c"), "```a ``b`` c```");
+        assert_eq!(code_span(""), "(empty)");
+        assert_eq!(code_span(" \t\n"), "(empty)");
+        assert_eq!(
+            one_line("AMD EPYC 7763 64-Core Processor   "),
+            "AMD EPYC 7763 64-Core Processor"
+        );
+    }
+
+    #[test]
+    fn table_cells_escape_pipes_and_stay_on_one_line() {
+        assert_eq!(
+            table_cell("knip failed: a | b\nstderr:  c"),
+            "knip failed: a \\| b stderr: c"
+        );
+        assert_eq!(table_cell("plain"), "plain");
     }
 
     #[test]

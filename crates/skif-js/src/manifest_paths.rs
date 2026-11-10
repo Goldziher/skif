@@ -17,8 +17,10 @@ const OUT_DIRS: &[&str] = &[
     "commonjs", "umd", "amd", "types",
 ];
 
-/// Whether `directory`, the first segment of a published path, is build output.
-pub(crate) fn is_out_dir(directory: &str) -> bool {
+/// Whether `directory`, the first segment of a published path, is build output whose source twin is `src`
+/// (`dist`, `lib`, `out`, `esm` and the like, also with a flavour suffix such as `lib-commonjs`).
+#[must_use]
+pub fn is_out_dir(directory: &str) -> bool {
     let base = directory.split(['-', '_', '.']).next().unwrap_or(directory);
     OUT_DIRS.contains(&base)
 }
@@ -60,8 +62,11 @@ fn has_other_extension(path: &str) -> bool {
 /// Package-relative candidates for the source of a published file, most likely first.
 ///
 /// `./dist/index.js` yields `src/index.ts`, `src/index.tsx`, `src/index.js`, … and then the same names without the
-/// `src` rewrite. A path with a non-code extension (`./styles.css`) yields only itself.
-pub(crate) fn source_candidates(target: &str) -> Vec<String> {
+/// `src` rewrite. A path with a non-code extension (`./styles.css`) yields only itself. Public for the benchmark
+/// harness, which follows a published path to the source skif maps it to.
+#[doc(hidden)]
+#[must_use]
+pub fn source_candidates(target: &str) -> Vec<String> {
     let clean = target.trim_start_matches("./");
     if has_other_extension(clean) {
         return vec![clean.to_owned()];

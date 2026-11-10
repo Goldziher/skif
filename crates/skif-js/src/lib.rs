@@ -54,11 +54,17 @@ pub use analysis::{JsAnalysis, UnusedFile, discovery_file_system};
 pub use config_check::relative_tsconfig;
 pub use deps::{DependencyUsage, ForeignMapping, UnlistedBinary, UnlistedConfigDependency, UnlistedImport};
 pub use explain::{Absence, EntryReason, ExportReport, ExportUser, Importer, ReExport, UsageReport, Verdict};
+#[doc(hidden)]
+pub use globs::IncompleteScopeGlobs;
 pub use graph::{Module, ModuleGraph, ModuleId, ResolvedImport, Target};
 pub use input::{
     BuildDir, ConfigDependency, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope,
     InputRequest, InputSource, PathAlias, RunBinary, WorkspaceInputs,
 };
+#[doc(hidden)]
+pub use manifest_paths::is_out_dir;
+#[doc(hidden)]
+pub use manifest_paths::source_candidates;
 pub use plugin_source::PluginSource;
 pub use provider::{JsProvider, PROVIDER_ID};
 pub use rules::{
