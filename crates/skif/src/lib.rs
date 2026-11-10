@@ -132,7 +132,9 @@ mod fix;
 #[cfg(feature = "js-analysis")]
 mod js;
 mod linter;
+mod path;
 mod root;
+mod shared_config;
 mod targets;
 #[cfg(feature = "update")]
 pub mod update;
@@ -146,7 +148,9 @@ pub use fix::{
 #[cfg(feature = "js-analysis")]
 pub use js::{explain_usage, trace_dependency};
 pub use linter::{Linter, RunOptions, builtin_providers};
+pub use path::join_lexical;
 pub use root::{config_file, find_workspace_root, load_config, resolve_config};
+pub use shared_config::settle_shared_config;
 /// The version a persisted [`ModuleCache`] records: a store written under another version is stale as a whole.
 #[cfg(feature = "js-analysis")]
 pub use skif_js::cache_version as module_cache_version;
@@ -181,10 +185,10 @@ pub use skif_config::{
 /// `[[custom-types]]` and the places a version can be declared.
 pub use skif_config::{CustomStrategy, CustomType, DependencyType};
 pub use skif_core::{
-    BufferFs, CachedFs, Category, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem, Fix, FixOp,
-    FixPreference, FixSafety, Fixability, IncompleteCause, IncompleteEntries, IncompletePackage, IncompleteScope,
-    InsertPosition, JsonAction, Location, MemoryFs, OsFs, PathKind, PathSeg, Related, Report, RuleId, RuleMeta,
-    Severity, Span, Summary, TextEdit, YamlAction, diagnostic, slash,
+    BufferFs, CachedFs, Category, ConfigJudgement, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem,
+    Fix, FixOp, FixPreference, FixSafety, Fixability, IncompleteCause, IncompleteEntries, IncompletePackage,
+    IncompleteScope, InsertPosition, JsonAction, Location, MemoryFs, OsFs, PathKind, PathSeg, Related, Report, RuleId,
+    RuleMeta, Severity, Span, Summary, TextEdit, YamlAction, diagnostic, slash,
 };
 pub use skif_lint::{
     Emitter, EnabledRules, Executor, ExecutorError, LintContext, LintError, ProviderError, RegistryError, Rule,

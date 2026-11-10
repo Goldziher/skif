@@ -91,7 +91,7 @@ of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2
 | `--ignore-dependency <NAME>` | Ignore a dependency in every rule. Repeatable. Adds to the `[[ignore]]` entries of the configuration files. sherif's `-i` only silenced its version check; for that scope write an `[[ignore]]` entry with `rules = ["version-mismatch"]`, as `skif migrate` does. |
 | `--ignore-rule-for-package <RULE:PACKAGE>` | Ignore one rule for one package. Repeatable. Adds to the `[[ignore]]` entries of the configuration files. |
 | `--require-ignore-reasons` | Fail with exit code 2 when an `[[ignore]]` entry, an entry of a `[js]` ignore list or an entry of a rule's `allow` option of a configuration file has no `reason`, naming the entry. Entries from flags are exempt. `[lint] require-ignore-reasons = true` does the same from the file. |
-| `--config <FILE>` | Use this configuration file (and the files it extends) for every root instead of discovering `skif.toml` files. Conflicts with `--no-config`. |
+| `--config <FILE>` | Use this configuration file (and the files it extends) for every root instead of discovering `skif.toml` files. In a multi-root run its `[js.workspaces]` keys and `ignore-workspaces` globs are relative to the start directory. Conflicts with `--no-config`. |
 | `--no-config` | Read no configuration file: the defaults plus the other flags. |
 | `--no-js` | Skip JavaScript analysis. Overrides `[js] enabled`. |
 | `--production` | Only analyse production code in JavaScript analysis. Overrides `[js] production`. |

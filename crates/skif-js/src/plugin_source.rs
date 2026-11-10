@@ -50,7 +50,8 @@ impl PluginSource {
     }
 
     /// Also applies the `plugins` of the `[js.workspaces]` tables in `workspaces` to the packages their keys select
-    /// (`"."` is the root), after the table given to [`new`](Self::new) and before the overrides.
+    /// (`"."` is the root; see [`InputRequest::workspace_key`]), after the table given to [`new`](Self::new) and
+    /// before the overrides.
     #[must_use]
     pub fn with_workspaces(mut self, workspaces: &IndexMap<String, JsWorkspace>) -> Self {
         self.workspaces = workspaces
@@ -74,8 +75,9 @@ impl PluginSource {
         self
     }
 
-    /// The plugin table for one package: the global table with the matching overrides folded in.
-    fn plugins_for(&self, name: &str, dir: &Path, key: &str) -> IndexMap<String, PluginConfig> {
+    /// The plugin table for one package: the global table with the matching overrides folded in. `key` is the
+    /// package's directory as the `[js.workspaces]` keys select it.
+    fn plugins_for(&self, name: &str, dir: &Path, key: &str, is_root: bool) -> IndexMap<String, PluginConfig> {
         let mut plugins = self.plugins.clone();
         if let Some(workspace) = self.workspace_keys.table(&self.workspaces, key) {
             for (plugin, incoming) in &workspace.plugins {
@@ -83,9 +85,7 @@ impl PluginSource {
                 plugins.insert(plugin.clone(), merged);
             }
         }
-        if key == "."
-            && let Some(path) = &self.root_tsconfig
-        {
+        if is_root && let Some(path) = &self.root_tsconfig {
             let current = plugins.get(TYPESCRIPT);
             if let Some(read) = with_config_file(current, path) {
                 plugins.insert(TYPESCRIPT.to_owned(), read);
@@ -301,15 +301,11 @@ impl InputSource for PluginSource {
         let inherited = inherited_dependencies(request);
         let scripts = scripts(request);
         let dir = request.workspace.root.join(Path::new(&package.dir));
-        let key = if package.is_root {
-            ".".to_owned()
-        } else {
-            package.dir.to_string_lossy().replace('\\', "/")
-        };
         let plugins = self.plugins_for(
             package.display_name(),
             if package.is_root { &request.workspace.root } else { &dir },
-            &key,
+            request.workspace_key,
+            package.is_root,
         );
         let modules = ConfigModules::new(request.fs, request.workspace);
         let context = PluginContext {

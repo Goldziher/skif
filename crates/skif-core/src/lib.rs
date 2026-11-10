@@ -63,7 +63,7 @@ pub use fix::{
 pub use fs::{DirEntry, FileSystem, MemoryFs, OsFs, PathKind};
 pub use incomplete::{IncompleteCause, IncompleteEntries, IncompletePackage, IncompleteScope};
 pub use package_id::PackageId;
-pub use report::{Report, Summary};
+pub use report::{ConfigJudgement, Report, Summary};
 pub use rule::{Category, Fixability, InvalidRuleId, RuleId, RuleMeta, Severity};
 pub use span::{LineIndex, Location, Related, Span};
 

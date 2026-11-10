@@ -2,14 +2,14 @@
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rayon::prelude::*;
 use serde_json::{Value, json};
 use skif::{
     ConfigOverrides, Diagnostic, FileSystem, Linter, Location, ModuleCache, OsFs, Report, RuleMeta, RunOptions, Target,
-    Workspace, slash,
+    Workspace, join_lexical, slash,
 };
 
 use crate::error::{CliError, Kind};
@@ -182,6 +182,8 @@ pub struct RootRun {
     pub prefix: PathBuf,
     pub config: skif::Config,
     pub config_path: Option<PathBuf>,
+    /// The absolute configuration files `config` was merged from: a root whose file a fix wrote is linted again.
+    pub config_sources: Vec<PathBuf>,
     pub linter: usize,
     pub workspace: Workspace,
     pub report: Report,
@@ -229,6 +231,16 @@ pub fn credit_other_root_uses(report: Report, uses: &OtherRootUses) -> Report {
         let used_file = diagnostic.rule.as_str() == "unused-files" && uses.files.contains(&diagnostic.location.path);
         !(used_dependency || used_file)
     })
+}
+
+/// Decides the `stale-js-config` findings about configuration files several roots of the run read
+/// ([`skif::settle_shared_config`], ADR 0098). Called once, on the reports the run shows: after the lint after fixing
+/// and after the flags narrowed them.
+pub fn settle_shared_config(runs: &mut [RootRun]) {
+    skif::settle_shared_config(
+        runs.iter_mut()
+            .map(|run| (run.workspace.root.as_path(), &mut run.report)),
+    );
 }
 
 /// Hands the dependencies that the report of root `from` uses through manifests outside it (above it, or of the files
@@ -317,7 +329,8 @@ fn route_other_project_files(
 /// the files of other projects its code imports or runs; each goes to the innermost root that holds it. A run without
 /// nested roots is a single wave, as before. Each report also lists the files outside its root that its code reaches
 /// and the dependencies its code uses that only a manifest above its root lists; once every root is linted, the root
-/// that owns such a file or manifest no longer reports them unused.
+/// that owns such a file or manifest no longer reports them unused. The `stale-js-config` findings about a
+/// configuration file several roots read are left to [`settle_shared_config`]: each report holds what its root found.
 pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Result<Vec<RootRun>, CliError> {
     let depths = nesting_depths(&targets);
     let mut extra: Vec<BTreeSet<PathBuf>> = vec![BTreeSet::new(); targets.len()];
@@ -361,6 +374,7 @@ pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Res
             Ok(RootRun {
                 prefix: prefix_of(base, &target.root),
                 config_path: target.config_path(),
+                config_sources: target.sources.into_iter().map(|source| source.path).collect(),
                 config: target.config,
                 linter,
                 workspace: target.workspace,
@@ -372,20 +386,8 @@ pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Res
         .collect()
 }
 
-/// `prefix/path` with `..` segments resolved, so a config file inherited from a parent directory stays inside the base.
-fn join(prefix: &Path, path: &Path) -> PathBuf {
-    let mut joined = PathBuf::new();
-    for component in prefix.components().chain(path.components()) {
-        match component {
-            Component::ParentDir if joined.pop() => {}
-            other => joined.push(other),
-        }
-    }
-    joined
-}
-
 fn relocate(location: &mut Location, prefix: &Path) {
-    location.path = join(prefix, &location.path);
+    location.path = join_lexical(prefix, &location.path);
 }
 
 /// The report with every path relative to the run's base instead of the root; borrowed when the root is the base.
@@ -410,9 +412,9 @@ pub fn prefixed<'a>(report: &'a Report, prefix: &Path) -> Cow<'a, Report> {
         .iter()
         .cloned()
         .map(|mut package| {
-            package.dir = join(prefix, &package.dir);
+            package.dir = join_lexical(prefix, &package.dir);
             for reason in &mut package.reasons {
-                reason.file = reason.file.take().map(|file| join(prefix, &file));
+                reason.file = reason.file.take().map(|file| join_lexical(prefix, &file));
             }
             package
         })
@@ -461,7 +463,7 @@ pub fn root_json(run: &RootRun, report: &Report) -> Value {
         .workspace
         .all_packages()
         .filter(|package| !run.workspace.is_ignored(package.id))
-        .map(|package| display(&join(&run.prefix, &package.dir)))
+        .map(|package| display(&join_lexical(&run.prefix, &package.dir)))
         .collect();
     json!({
         "path": display(&run.prefix),
@@ -474,16 +476,6 @@ pub fn root_json(run: &RootRun, report: &Report) -> Value {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn join_resolves_parent_segments() {
-        assert_eq!(
-            join(Path::new("a/b"), Path::new("package.json")),
-            Path::new("a/b/package.json")
-        );
-        assert_eq!(join(Path::new("a"), Path::new("../skif.toml")), Path::new("skif.toml"));
-        assert_eq!(join(Path::new(""), Path::new("x")), Path::new("x"));
-    }
 
     #[test]
     fn display_names_the_base_as_a_dot() {

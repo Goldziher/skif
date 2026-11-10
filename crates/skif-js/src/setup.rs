@@ -1,5 +1,6 @@
 //! Per-package analysis settings: configured, default and plugin-provided globs merged once.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -85,9 +86,30 @@ fn names(items: &[IgnoreItem]) -> Vec<String> {
     items.iter().map(|item| item.name.clone()).collect()
 }
 
+/// The directory of `package` relative to its root, `.` for the root package.
+fn own_dir(package: &Package) -> String {
+    if package.is_root {
+        ".".to_owned()
+    } else {
+        package.dir.to_string_lossy().replace('\\', "/")
+    }
+}
+
 fn normalize_dir(dir: &str) -> &str {
     let dir = dir.trim_start_matches("./").trim_end_matches('/');
     if dir.is_empty() { "." } else { dir }
+}
+
+/// `dir`, a package directory relative to its root (`.` or empty for the root package), as the `[js.workspaces]` keys
+/// and `ignore-workspaces` globs of a root match it: joined to `anchor`, the root's directory relative to the directory
+/// the keys are written from ([`Workspace::workspace_keys_anchor`]), and unchanged without one.
+fn anchored<'a>(anchor: Option<&str>, dir: &'a str) -> Cow<'a, str> {
+    let dir = normalize_dir(dir);
+    match anchor.map(normalize_dir) {
+        None | Some(".") => Cow::Borrowed(dir),
+        Some(anchor) if dir == "." => Cow::Owned(anchor.to_owned()),
+        Some(anchor) => Cow::Owned(format!("{anchor}/{dir}")),
+    }
 }
 
 impl Configured {
@@ -205,6 +227,8 @@ fn configured(
 #[derive(Debug, Clone, Default)]
 pub(crate) struct WorkspaceKeys {
     keys: Vec<WorkspaceKey>,
+    /// The root's directory relative to the start of the run, when the keys are written relative to the start.
+    anchor: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -238,7 +262,29 @@ impl WorkspaceKeys {
                 }
             })
             .collect();
-        Self { keys }
+        Self { keys, anchor: None }
+    }
+
+    /// The same keys matched from `anchor` (see [`anchored`]).
+    #[must_use]
+    pub(crate) fn with_anchor(mut self, anchor: Option<&str>) -> Self {
+        self.anchor = anchor.map(str::to_owned);
+        self
+    }
+
+    /// The directory of `package` as the keys select it and findings spell it: `.` for the root package and its
+    /// directory otherwise, joined to the anchor (see [`anchored`]).
+    pub(crate) fn key_dir(&self, package: &Package) -> String {
+        anchored(self.anchor.as_deref(), &own_dir(package)).into_owned()
+    }
+
+    /// The key, as written in `workspaces`, whose table configures `package`, as [`Self::table`] picks it.
+    pub(crate) fn package_key<'a>(
+        &self,
+        workspaces: &'a IndexMap<String, JsWorkspace>,
+        package: &Package,
+    ) -> Option<&'a String> {
+        self.key(workspaces, &own_dir(package))
     }
 
     /// The table of `workspaces` that stands for `dir` (`"."` or empty for the root). `workspaces` is the map the
@@ -261,7 +307,8 @@ impl WorkspaceKeys {
         workspaces: &'a IndexMap<String, JsWorkspace>,
         dir: &str,
     ) -> Option<(&'a String, &'a JsWorkspace)> {
-        let dir = if dir.is_empty() { "." } else { dir };
+        let dir = anchored(self.anchor.as_deref(), dir);
+        let dir: &str = &dir;
         let position = self
             .keys
             .iter()
@@ -275,7 +322,11 @@ impl WorkspaceKeys {
         workspaces
             .keys()
             .zip(&self.keys)
-            .filter(|(_, key)| !dirs.iter().any(|dir| key.selects(dir)))
+            .filter(|(_, key)| {
+                !dirs
+                    .iter()
+                    .any(|dir| key.selects(&anchored(self.anchor.as_deref(), dir)))
+            })
             .map(|(text, _)| text)
             .collect()
     }
@@ -328,6 +379,8 @@ pub(crate) struct PackageSetup {
     pub id: PackageId,
     /// Absolute package directory.
     pub dir: PathBuf,
+    /// The `[js.workspaces]` key, as written, whose table configures the package; `None` when no table does.
+    pub table_key: Option<String>,
     pub entry: Globs,
     /// Entry globs that point outside the package directory (`../shared/setup.ts`), relative to the workspace root.
     pub external_entry: Globs,
@@ -448,8 +501,10 @@ pub(crate) struct Setup {
     pub ignore_workspaces: Listed,
     /// Packages the JavaScript analysis skips because `ignore-workspaces` names them.
     pub js_ignored: HashSet<PackageId>,
-    /// `[js.workspaces]` keys that select no package.
-    pub unmatched_workspace_keys: Vec<String>,
+    /// Every `[js.workspaces]` key, as written, and whether it selects no package.
+    pub workspace_key_verdicts: Vec<(String, bool)>,
+    /// The `[js.workspaces]` keys, matched from the workspace's [`Workspace::workspace_keys_anchor`].
+    pub workspace_keys: WorkspaceKeys,
     pub production: bool,
     /// `[js] tsconfig`, absolute: the TypeScript configuration of the root package in place of its `tsconfig.json`.
     pub root_tsconfig: Option<PathBuf>,
@@ -689,11 +744,11 @@ impl Setup {
             .and_then(|rule| skif_lint::parse_options::<UnusedExportsOptions>(&rule.options).ok())
             .unwrap_or_default();
         let ignore_workspaces = Listed::directories(&js.ignore_workspaces, production);
-        let workspace_keys = WorkspaceKeys::new(&js.workspaces);
+        let workspace_keys = WorkspaceKeys::new(&js.workspaces).with_anchor(workspace.workspace_keys_anchor());
         let js_ignored: HashSet<PackageId> = workspace
             .iter()
             .filter(|(_, package)| !package.is_root)
-            .filter(|(_, package)| ignore_workspaces.is_match(&package.dir.to_string_lossy().replace('\\', "/")))
+            .filter(|(_, package)| ignore_workspaces.is_match(&workspace_keys.key_dir(package)))
             .map(|(id, _)| id)
             .collect();
         let package_dirs: Vec<String> = workspace
@@ -706,10 +761,11 @@ impl Setup {
                 }
             })
             .collect();
-        let unmatched_workspace_keys: Vec<String> = workspace_keys
-            .unmatched(&js.workspaces, &package_dirs)
-            .into_iter()
-            .cloned()
+        let unmatched = workspace_keys.unmatched(&js.workspaces, &package_dirs);
+        let workspace_key_verdicts: Vec<(String, bool)> = js
+            .workspaces
+            .keys()
+            .map(|key| (key.clone(), unmatched.contains(&key)))
             .collect();
         let root_tsconfig = js
             .tsconfig
@@ -742,11 +798,14 @@ impl Setup {
                 package.is_root,
             );
             let mut plugin = WorkspaceInputs::default();
+            let workspace_key = workspace_keys.key_dir(package);
+            let table_key = workspace_keys.package_key(&js.workspaces, package).cloned();
             let request = InputRequest {
                 workspace,
                 package,
                 fs: fs.as_ref(),
                 ancestor_dependencies: &ancestor_dependencies,
+                workspace_key: &workspace_key,
             };
             for source in sources {
                 plugin.extend(source.inputs(&request));
@@ -844,6 +903,7 @@ impl Setup {
             Some(PackageSetup {
                 id,
                 dir: abs_dir,
+                table_key,
                 entry: Globs::new(entry).with_regexes(entry_regex.clone()),
                 external_entry,
                 shared_entry: Globs::new(shared_entry),
@@ -902,7 +962,8 @@ impl Setup {
             global_ignore_members: Listed::new(&js.ignore_members, production),
             ignore_workspaces,
             js_ignored,
-            unmatched_workspace_keys,
+            workspace_key_verdicts,
+            workspace_keys,
             production,
             root_tsconfig,
             isolate_workspaces: js.isolate_workspaces,
@@ -1035,7 +1096,63 @@ impl Setup {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_shared_pattern, workspace_relative};
+    use indexmap::IndexMap;
+    use skif_config::JsWorkspace;
+
+    use super::{WorkspaceKeys, anchored, is_shared_pattern, workspace_relative};
+
+    fn tables(keys: &[&str]) -> IndexMap<String, JsWorkspace> {
+        keys.iter()
+            .map(|key| ((*key).to_owned(), JsWorkspace::default()))
+            .collect()
+    }
+
+    #[test]
+    fn package_directories_are_joined_to_the_anchor() {
+        for (anchor, dir, expected) in [
+            (None, "packages/a", "packages/a"),
+            (None, "", "."),
+            (Some("."), "packages/a", "packages/a"),
+            (Some("tools/sub"), ".", "tools/sub"),
+            (Some("tools/sub"), "", "tools/sub"),
+            (Some("./tools/sub/"), "packages/a", "tools/sub/packages/a"),
+        ] {
+            assert_eq!(anchored(anchor, dir), expected, "{anchor:?} {dir}");
+        }
+    }
+
+    #[test]
+    fn without_an_anchor_keys_select_from_the_root() {
+        let workspaces = tables(&[".", "tools/sub", "packages/*"]);
+        let keys = WorkspaceKeys::new(&workspaces);
+        assert_eq!(keys.key(&workspaces, ".").map(String::as_str), Some("."));
+        assert_eq!(
+            keys.key(&workspaces, "packages/a").map(String::as_str),
+            Some("packages/*")
+        );
+        assert_eq!(
+            keys.unmatched(&workspaces, &[".".to_owned()]),
+            ["tools/sub", "packages/*"]
+        );
+    }
+
+    #[test]
+    fn anchored_keys_select_the_directories_they_name_below_the_start() {
+        let workspaces = tables(&[".", "tools/sub", "tools/sub/packages/*", "tools/*", "apps/*"]);
+        let keys = WorkspaceKeys::new(&workspaces).with_anchor(Some("tools/sub"));
+        // The exact key of the root's directory wins over the glob `tools/*`; `"."` is the start, not this root.
+        assert_eq!(keys.key(&workspaces, ".").map(String::as_str), Some("tools/sub"));
+        assert_eq!(keys.key(&workspaces, "").map(String::as_str), Some("tools/sub"));
+        assert_eq!(
+            keys.key(&workspaces, "packages/a").map(String::as_str),
+            Some("tools/sub/packages/*")
+        );
+        assert_eq!(keys.key(&workspaces, "apps/web"), None);
+        assert_eq!(
+            keys.unmatched(&workspaces, &[".".to_owned(), "packages/a".to_owned()]),
+            [".", "apps/*"]
+        );
+    }
 
     #[test]
     fn only_rooted_plugin_globs_are_shared_with_nested_packages() {

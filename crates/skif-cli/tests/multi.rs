@@ -571,6 +571,61 @@ fn a_write_failure_in_a_later_root_still_reports_the_earlier_fixes() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn a_file_two_roots_fix_is_written_by_the_first_and_refused_to_the_second() {
+    // The outer workspace lists `packages/inner/x/y`, a member of the nested workspace too, so both roots plan to
+    // remove its empty `devDependencies`.
+    let dir = tempfile::tempdir().unwrap();
+    put(
+        dir.path(),
+        "package.json",
+        r#"{"name": "outer", "version": "0.0.0", "private": true, "packageManager": "npm@11.6.2",
+            "workspaces": ["packages/inner/x/*"]}"#,
+    );
+    put(
+        dir.path(),
+        "packages/inner/package.json",
+        r#"{"name": "inner", "version": "0.0.0", "private": true, "packageManager": "npm@11.6.2",
+            "workspaces": ["x/*"]}"#,
+    );
+    put(
+        dir.path(),
+        "packages/inner/x/y/package.json",
+        r#"{"name": "y", "version": "0.0.0", "private": true, "devDependencies": {}}"#,
+    );
+    let log = tempfile::tempdir().unwrap();
+    let record = log.path().join("record.txt");
+    let npm = shim("npm", &record, 0);
+    let result = run(skif()
+        .env("PATH", npm.path())
+        .args(["-r", "--fix", "--format", "json"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    let document = result.json();
+    assert_eq!(document["error"]["kind"], "io", "{document}");
+    assert_eq!(
+        document["error"]["message"],
+        "fixes were written to earlier roots, but fixing a later root failed: refusing to modify x/y/package.json: it \
+         changed after the fixes were planned",
+        "{document}"
+    );
+    assert_eq!(
+        strings(&document["fix"]["changed"]),
+        ["packages/inner/x/y/package.json"],
+        "{document}"
+    );
+    assert_eq!(
+        document["fix"]["install"],
+        serde_json::json!({"status": "skipped", "reason": "fixing a later root failed"}),
+        "{document}"
+    );
+    assert_eq!(invocations(&record), Vec::<(String, PathBuf)>::new());
+    let member: Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("packages/inner/x/y/package.json")).unwrap()).unwrap();
+    assert!(member.get("devDependencies").is_none(), "{member}");
+}
+
 fn paths_reporting(report: &Value, rule: &str) -> BTreeSet<String> {
     report["diagnostics"]
         .as_array()
@@ -1049,4 +1104,459 @@ fn fixing_keeps_a_file_a_sibling_root_imports_and_its_dependencies() {
     assert!(manifest.contains("lodash") && !manifest.contains("idle"), "{manifest}");
     assert_eq!(js_findings(&result.json()), Vec::<String>::new());
     assert_eq!(unused_dependencies(&result.json()), Vec::<String>::new());
+}
+
+/// A project with a standalone package nested in `tools/sub`, and `config` as an explicit configuration file outside
+/// it. Returns the directory, the project and the configuration file.
+fn nested_root_with_explicit_config(config: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    // Canonical, so the configuration file and the roots share their leading directories (`/var` is a link on macOS).
+    let base = dir.path().canonicalize().unwrap();
+    let repo = base.join("repo");
+    fs::create_dir_all(repo.join(".git")).unwrap();
+    put(
+        &repo,
+        "package.json",
+        r#"{"name": "app", "version": "1.0.0", "private": true, "packageManager": "pnpm@10.0.0", "main": "src/main.js"}"#,
+    );
+    put(&repo, "src/main.js", "module.exports = 1;\n");
+    put(&repo, "src/extra.js", "module.exports = 2;\n");
+    put(
+        &repo,
+        "tools/sub/package.json",
+        r#"{"name": "sub", "version": "1.0.0", "private": true, "packageManager": "pnpm@10.0.0", "main": "src/index.js"}"#,
+    );
+    put(&repo, "tools/sub/src/index.js", "module.exports = 3;\n");
+    put(&repo, "tools/sub/src/tool.js", "module.exports = 4;\n");
+    put(&base, "config/skif.toml", config);
+    let file = base.join("config").join("skif.toml");
+    (dir, repo, file)
+}
+
+/// Lints `repo` and every root below it with the explicit configuration `file`.
+fn recursive_with_config(repo: &Path, file: &Path) -> Value {
+    let result = run(skif()
+        .args(["--format", "json", "--recursive", "--config"])
+        .arg(file)
+        .arg(repo));
+    assert!(
+        result.code == 0 || result.code == 1,
+        "{}{}",
+        result.stdout,
+        result.stderr
+    );
+    result.json()
+}
+
+/// Every finding of `rule` as `root-relative path: message`, sorted.
+fn messages_of(report: &Value, rule: &str) -> Vec<String> {
+    let mut found: Vec<String> = report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|d| d["rule"] == rule)
+        .map(|d| {
+            format!(
+                "{}: {}",
+                d["location"]["path"].as_str().unwrap(),
+                d["message"].as_str().unwrap()
+            )
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+#[test]
+fn an_explicit_config_keys_workspaces_by_their_directory_below_the_start() {
+    let (_dir, repo, file) = nested_root_with_explicit_config(
+        "[js.workspaces.\".\"]\nentry = [\"src/extra.js\"]\n\n[js.workspaces.\"tools/sub\"]\nentry = [\"src/tool.js\"]\n",
+    );
+    let report = recursive_with_config(&repo, &file);
+    assert_eq!(root_paths(&report), [".", "tools/sub"], "{report}");
+    // `"."` is the start root only, and `tools/sub` the nested root: each entry is used in its own root and makes
+    // its file an entry there.
+    assert_eq!(
+        messages_of(&report, "stale-js-config"),
+        Vec::<String>::new(),
+        "{report}"
+    );
+    assert_eq!(paths_reporting(&report, "unused-files"), BTreeSet::new(), "{report}");
+}
+
+#[test]
+fn a_stale_entry_of_an_explicit_config_is_reported_once_for_the_run() {
+    let (_dir, repo, file) = nested_root_with_explicit_config(
+        "[js]\nignore-dependencies = [\"left-pad\"]\n\n[js.workspaces.\".\"]\nentry = [\"src/extra.js\", \
+         \"src/missing.js\"]\n\n[js.workspaces.\"tools/gone\"]\n",
+    );
+    let report = recursive_with_config(&repo, &file);
+    assert_eq!(
+        messages_of(&report, "stale-js-config"),
+        [
+            "../config/skif.toml: `left-pad` in `js.ignore-dependencies` matched nothing",
+            "../config/skif.toml: `src/missing.js` in `js.workspaces.\".\".entry` matched nothing",
+            "../config/skif.toml: `tools/gone` in `js.workspaces` matched nothing",
+        ],
+        "{report}"
+    );
+    let warnings: u64 = report["roots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|root| root["summary"]["warnings"].as_u64().unwrap())
+        .sum();
+    assert_eq!(warnings, report["summary"]["warnings"].as_u64().unwrap(), "{report}");
+}
+
+#[test]
+fn an_entry_of_an_explicit_config_one_root_uses_is_not_stale() {
+    let (_dir, repo, file) = nested_root_with_explicit_config("[js]\nignore-dependencies = [\"left-pad\"]\n");
+    put(
+        &repo,
+        "tools/sub/package.json",
+        r#"{"name": "sub", "version": "1.0.0", "private": true, "packageManager": "pnpm@10.0.0", "main": "src/index.js",
+            "dependencies": {"left-pad": "1.3.0"}}"#,
+    );
+    let report = recursive_with_config(&repo, &file);
+    // The nested root lists `left-pad` without using it, so the entry silences a finding there.
+    assert_eq!(unused_dependencies(&report), Vec::<String>::new(), "{report}");
+    assert_eq!(
+        messages_of(&report, "stale-js-config"),
+        Vec::<String>::new(),
+        "{report}"
+    );
+}
+
+#[test]
+fn an_entry_of_a_glob_table_one_root_uses_is_not_stale() {
+    let (_dir, repo, file) =
+        nested_root_with_explicit_config("[js.workspaces.\"tools/*\"]\nentry = [\"src/extra.js\"]\n");
+    put(
+        &repo,
+        "tools/other/package.json",
+        r#"{"name": "other", "version": "1.0.0", "private": true, "packageManager": "pnpm@10.0.0", "main": "src/index.js"}"#,
+    );
+    put(&repo, "tools/other/src/index.js", "module.exports = 5;\n");
+    put(&repo, "tools/other/src/extra.js", "module.exports = 6;\n");
+    let report = recursive_with_config(&repo, &file);
+    assert_eq!(root_paths(&report), [".", "tools/other", "tools/sub"], "{report}");
+    // `tools/other` has the file, so the entry is used there; `tools/sub` lacks it, which is no reason to remove it.
+    assert_eq!(
+        messages_of(&report, "stale-js-config"),
+        Vec::<String>::new(),
+        "{report}"
+    );
+    let unused = paths_reporting(&report, "unused-files");
+    assert!(!unused.contains("tools/other/src/extra.js"), "{unused:?}");
+}
+
+#[test]
+fn a_root_that_cannot_judge_an_entry_does_not_hide_it() {
+    let (_dir, repo, file) = nested_root_with_explicit_config("[js]\nignore-files = [\"src/gen/**\"]\n");
+    // The nested root's entry files are not all known, so it cannot tell whether the pattern hides a file.
+    put(
+        &repo,
+        "tools/sub/package.json",
+        r#"{"name": "sub", "version": "1.0.0", "private": true, "packageManager": "pnpm@10.0.0", "main": "src/index.js",
+            "devDependencies": {"vite": "6.0.0"}}"#,
+    );
+    put(
+        &repo,
+        "tools/sub/vite.config.ts",
+        "import base from './vite.base';\nexport default { ...base, build: { lib: { entry: pick() } } };\n",
+    );
+    let alone = run(skif()
+        .args(["--format", "json", "--config"])
+        .arg(&file)
+        .arg(repo.join("tools/sub")))
+    .json();
+    assert_eq!(
+        messages_of(&alone, "stale-js-config"),
+        Vec::<String>::new(),
+        "the nested root judges the pattern: {alone}"
+    );
+    let report = recursive_with_config(&repo, &file);
+    assert_eq!(
+        messages_of(&report, "stale-js-config"),
+        ["../config/skif.toml: `src/gen/**` in `js.ignore-files` matched nothing"],
+        "{report}"
+    );
+}
+
+#[test]
+fn a_start_directory_that_is_no_root_keys_every_root_by_its_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().canonicalize().unwrap();
+    let start = base.join("repo");
+    fs::create_dir_all(start.join(".git")).unwrap();
+    for (root, extra) in [("a", "src/extra.js"), ("b/sub", "src/tool.js")] {
+        put(
+            &start,
+            &format!("{root}/package.json"),
+            r#"{"name": "p", "version": "1.0.0", "private": true, "packageManager": "pnpm@10.0.0", "main": "src/index.js"}"#,
+        );
+        put(&start, &format!("{root}/src/index.js"), "module.exports = 1;\n");
+        put(&start, &format!("{root}/{extra}"), "module.exports = 2;\n");
+    }
+    put(
+        &base,
+        "config/skif.toml",
+        "[js]\nignore-dependencies = [\"gone\"]\n\n[js.workspaces.\"a\"]\nentry = [\"src/extra.js\"]\n\n\
+         [js.workspaces.\"b/sub\"]\nentry = [\"src/tool.js\"]\n",
+    );
+    let report = recursive_with_config(&start, &base.join("config").join("skif.toml"));
+    assert_eq!(root_paths(&report), ["a", "b/sub"], "{report}");
+    assert_eq!(paths_reporting(&report, "unused-files"), BTreeSet::new(), "{report}");
+    assert_eq!(
+        messages_of(&report, "stale-js-config"),
+        ["../config/skif.toml: `gone` in `js.ignore-dependencies` matched nothing"],
+        "{report}"
+    );
+}
+
+#[test]
+fn a_discovered_file_several_roots_inherit_is_judged_across_them() {
+    let (_dir, repo, _file) = nested_root_with_explicit_config("");
+    put(
+        &repo,
+        "skif.toml",
+        "[js]\nignore-dependencies = [\"left-pad\", \"gone\"]\n",
+    );
+    put(
+        &repo,
+        "tools/sub/package.json",
+        r#"{"name": "sub", "version": "1.0.0", "private": true, "packageManager": "pnpm@10.0.0", "main": "src/index.js",
+            "dependencies": {"left-pad": "1.3.0"}}"#,
+    );
+    let result = run(skif().args(["--format", "json", "--recursive"]).arg(&repo));
+    let report = result.json();
+    assert_eq!(root_paths(&report), [".", "tools/sub"], "{report}");
+    // The nested root lists `left-pad` without using it, so the entry silences a finding there.
+    assert_eq!(unused_dependencies(&report), Vec::<String>::new(), "{report}");
+    assert_eq!(
+        messages_of(&report, "stale-js-config"),
+        ["skif.toml: `gone` in `js.ignore-dependencies` matched nothing"],
+        "{report}"
+    );
+}
+
+/// The `summary` of each root of `report`.
+fn root_summaries(report: &Value) -> Vec<Value> {
+    report["roots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|root| root["summary"].clone())
+        .collect()
+}
+
+#[test]
+fn the_lint_after_fixing_decides_shared_settings_again() {
+    let (_dir, repo, file) = nested_root_with_explicit_config("[js]\nproject = [\"src/**\", \"legacy/**\"]\n");
+    // Only the nested root has a `legacy` file, unused: the pattern is used there until the fix deletes the file.
+    put(&repo, "tools/sub/legacy/old.js", "module.exports = 7;\n");
+    let before = recursive_with_config(&repo, &file);
+    assert_eq!(
+        messages_of(&before, "stale-js-config"),
+        Vec::<String>::new(),
+        "{before}"
+    );
+    let fixed = run(skif()
+        .args([
+            "--fix-unsafe",
+            "--allow-remove-files",
+            "--no-install",
+            "--format",
+            "json",
+            "--recursive",
+            "--config",
+        ])
+        .arg(&file)
+        .arg(&repo));
+    assert!(fixed.code == 0 || fixed.code == 1, "{}{}", fixed.stdout, fixed.stderr);
+    assert!(
+        !repo.join("tools/sub/legacy/old.js").exists(),
+        "the unused file was kept"
+    );
+    let fixed = fixed.json();
+    assert_eq!(
+        messages_of(&fixed, "stale-js-config"),
+        ["../config/skif.toml: `legacy/**` in `js.project` matched nothing"],
+        "{fixed}"
+    );
+    // The roots report what a fresh lint of the fixed tree reports, the finding with the first root.
+    let fresh = recursive_with_config(&repo, &file);
+    assert_eq!(root_summaries(&fixed), root_summaries(&fresh), "{fixed}\n{fresh}");
+}
+
+#[test]
+fn fixing_one_root_decides_a_discovered_file_both_roots_read_as_a_fresh_lint() {
+    // No fix writes a `skif.toml`, so the shared file stays as it is: the nested root's fix deletes the only file one
+    // of its patterns matched, and only the nested root is linted again, as the outer root has nothing to fix.
+    let (_dir, repo, _file) = nested_root_with_explicit_config("");
+    fs::remove_file(repo.join("src/extra.js")).unwrap();
+    put(&repo, "skif.toml", "[js]\nproject = [\"src/**\", \"legacy/**\"]\n");
+    put(&repo, "tools/sub/legacy/old.js", "module.exports = 7;\n");
+    let lint = || {
+        let result = run(skif().args(["--format", "json", "--recursive"]).arg(&repo));
+        assert!(
+            result.code == 0 || result.code == 1,
+            "{}{}",
+            result.stdout,
+            result.stderr
+        );
+        result.json()
+    };
+    let before = lint();
+    assert_eq!(root_paths(&before), [".", "tools/sub"], "{before}");
+    assert_eq!(
+        messages_of(&before, "stale-js-config"),
+        Vec::<String>::new(),
+        "{before}"
+    );
+    let fixed = run(skif()
+        .args([
+            "--fix-unsafe",
+            "--allow-remove-files",
+            "--no-install",
+            "--format",
+            "json",
+            "--recursive",
+        ])
+        .arg(&repo));
+    assert!(fixed.code == 0 || fixed.code == 1, "{}{}", fixed.stdout, fixed.stderr);
+    let fixed = fixed.json();
+    assert_eq!(
+        strings(&fixed["fix"]["changed"]),
+        ["tools/sub/legacy/old.js", "tools/sub/src/tool.js"],
+        "{fixed}"
+    );
+    assert_eq!(
+        messages_of(&fixed, "stale-js-config"),
+        ["skif.toml: `legacy/**` in `js.project` matched nothing"],
+        "{fixed}"
+    );
+    let fresh = lint();
+    assert_eq!(
+        messages_of(&fresh, "stale-js-config"),
+        messages_of(&fixed, "stale-js-config")
+    );
+    assert_eq!(root_summaries(&fixed), root_summaries(&fresh), "{fixed}\n{fresh}");
+}
+
+#[test]
+fn each_package_a_glob_table_selects_judges_its_own_list() {
+    let (_dir, repo, file) =
+        nested_root_with_explicit_config("[js.workspaces.\"tools/*\"]\nignore-dependencies = [\"left-pad\"]\n");
+    // `tools/other` lists `left-pad` without using it, so its list's entry silences a finding; `tools/sub` does not.
+    put(
+        &repo,
+        "tools/other/package.json",
+        r#"{"name": "other", "version": "1.0.0", "private": true, "packageManager": "pnpm@10.0.0", "main": "src/index.js",
+            "dependencies": {"left-pad": "1.3.0"}}"#,
+    );
+    put(&repo, "tools/other/src/index.js", "module.exports = 5;\n");
+    let report = recursive_with_config(&repo, &file);
+    assert_eq!(root_paths(&report), [".", "tools/other", "tools/sub"], "{report}");
+    assert_eq!(unused_dependencies(&report), Vec::<String>::new(), "{report}");
+    assert_eq!(
+        messages_of(&report, "stale-js-config"),
+        ["../config/skif.toml: `left-pad` in `js.workspaces.\"tools/sub\".ignore-dependencies` matched nothing"],
+        "{report}"
+    );
+}
+
+#[test]
+fn narrowing_to_a_workspace_keeps_the_shared_finding_its_root_reports() {
+    let (_dir, repo, file) = nested_root_with_explicit_config("[js]\nignore-dependencies = [\"left-pad\"]\n");
+    let result = run(skif()
+        .args(["--format", "json", "--recursive", "--workspace", "sub", "--config"])
+        .arg(&file)
+        .arg(&repo));
+    assert!(
+        result.code == 0 || result.code == 1,
+        "{}{}",
+        result.stdout,
+        result.stderr
+    );
+    let report = result.json();
+    // The root at the start reports the entry first, but `--workspace sub` selects the nested root's copy alone.
+    assert_eq!(
+        messages_of(&report, "stale-js-config"),
+        ["../config/skif.toml: `left-pad` in `js.ignore-dependencies` matched nothing"],
+        "{report}"
+    );
+}
+
+/// `skif baseline <command> -r` over `repo` with the explicit configuration `file`, as JSON.
+fn baseline_with_config(command: &str, repo: &Path, file: &Path) -> Value {
+    let result = run(skif()
+        .args(["baseline", command])
+        .arg(repo)
+        .args(["-r", "--format", "json", "--config"])
+        .arg(file));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    result.json()
+}
+
+/// How many entries of `rule` the `baseline write` document `written` added in each root.
+fn added_per_root(written: &Value, rule: &str) -> Vec<usize> {
+    written["roots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|root| {
+            root["added"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|entry| entry["rules"] == serde_json::json!([rule]))
+                .count()
+        })
+        .collect()
+}
+
+#[test]
+fn a_baseline_of_roots_sharing_a_file_records_each_root_s_finding_and_converges() {
+    // The explicit file extends the baseline file of each root, which must exist before it is read.
+    let (_dir, repo, file) = nested_root_with_explicit_config(
+        "extends = [\"../repo/skif.baseline.toml\", \"../repo/tools/sub/skif.baseline.toml\"]\n\n[js]\n\
+         ignore-dependencies = [\"left-pad\"]\n",
+    );
+    let roots = [repo.clone(), repo.join("tools/sub")];
+    for root in &roots {
+        put(root, "skif.baseline.toml", "");
+    }
+    let before = recursive_with_config(&repo, &file);
+    assert_eq!(messages_of(&before, "stale-js-config").len(), 1, "{before}");
+
+    let first = baseline_with_config("write", &repo, &file);
+    assert_eq!(added_per_root(&first, "stale-js-config"), [1, 1], "{first}");
+    let recorded: Vec<String> = roots
+        .iter()
+        .map(|root| fs::read_to_string(root.join("skif.baseline.toml")).unwrap())
+        .collect();
+    let after = recursive_with_config(&repo, &file);
+    assert_eq!(messages_of(&after, "stale-js-config"), Vec::<String>::new(), "{after}");
+
+    let second = baseline_with_config("write", &repo, &file);
+    let added: Vec<Value> = second["roots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|root| root["added"].clone())
+        .collect();
+    assert_eq!(added, [serde_json::json!([]), serde_json::json!([])], "{second}");
+    for (root, text) in roots.iter().zip(&recorded) {
+        assert_eq!(&fs::read_to_string(root.join("skif.baseline.toml")).unwrap(), text);
+        let base = tempfile::NamedTempFile::new().unwrap();
+        fs::write(base.path(), text).unwrap();
+        let checked = run(skif()
+            .args(["baseline", "check"])
+            .arg(root)
+            .args(["--format", "json", "--base-file"])
+            .arg(base.path()));
+        assert_eq!(checked.code, 0, "{}{}", checked.stdout, checked.stderr);
+    }
 }

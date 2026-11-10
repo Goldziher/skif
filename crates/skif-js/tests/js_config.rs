@@ -7,10 +7,10 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use skif_config::Config;
-use skif_core::{Diagnostic, FileSystem, MemoryFs, Severity};
+use skif_config::{Config, OverrideScope};
+use skif_core::{Diagnostic, FileSystem, MemoryFs, Report, Severity};
 use skif_js::{JsProvider, PluginSource};
-use skif_lint::{Registry, RunOptions, run_unsorted};
+use skif_lint::{Registry, RunOptions, run, run_unsorted};
 use skif_workspace::Workspace;
 
 const ROOT: &str = "/ws";
@@ -21,18 +21,41 @@ const MANIFEST: (&str, &str) = (
 );
 
 fn lint(files: &[(&str, &str)], toml: &str) -> Vec<Diagnostic> {
+    lint_anchored(files, toml, None)
+}
+
+/// [`lint`] with the `[js.workspaces]` keys matched from `anchor`, as for a root below the start of a run.
+fn lint_anchored(files: &[(&str, &str)], toml: &str, anchor: Option<&str>) -> Vec<Diagnostic> {
+    let (registry, workspace, config) = prepared(files, toml, anchor);
+    run_unsorted(&registry, &workspace, &config, &RunOptions::default()).unwrap()
+}
+
+/// The whole report of linting `files` with `toml`.
+fn report(files: &[(&str, &str)], toml: &str) -> Report {
+    let (registry, workspace, config) = prepared(files, toml, None);
+    run(&registry, &workspace, &config, &RunOptions::default()).unwrap()
+}
+
+/// The JS provider, the workspace of `files` with its keys anchored at `anchor`, and the configuration `toml`.
+fn prepared(files: &[(&str, &str)], toml: &str, anchor: Option<&str>) -> (Registry, Workspace, Config) {
     let memory = files.iter().fold(MemoryFs::new(), |memory, (path, text)| {
         memory.with_file(Path::new(ROOT).join(path), text)
     });
-    let config = Config::from_toml_str(toml).unwrap();
-    let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
+    let mut config = Config::from_toml_str(toml).unwrap();
+    // A resolved configuration scopes its overrides; this one is declared at the root, as `/ws/skif.toml` would be.
+    for scoped in &mut config.overrides {
+        let scope = OverrideScope::new(scoped, Path::new(ROOT), 0, Path::new(ROOT)).unwrap();
+        scoped.scope = Some(scope);
+    }
+    let mut workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
+    workspace.set_workspace_keys_anchor(anchor.map(str::to_owned));
     let fs: Arc<dyn FileSystem> = Arc::new(memory);
     let source = PluginSource::new(config.js.plugins.clone())
         .with_workspaces(&config.js.workspaces)
         .with_overrides(&config.overrides);
     let provider = JsProvider::new(fs).with_input_source(Arc::new(source));
     let registry = Registry::new(vec![Box::new(provider)]).unwrap();
-    run_unsorted(&registry, &workspace, &config, &RunOptions::default()).unwrap()
+    (registry, workspace, config)
 }
 
 /// `path: message` of the diagnostics of `rule`, sorted.
@@ -362,6 +385,123 @@ fn stale_js_config_reports_entries_that_matched_nothing() {
             .iter()
             .filter(|d| d.rule.as_str() == "stale-js-config")
             .all(|d| d.severity == Severity::Warning)
+    );
+}
+
+#[test]
+fn anchored_workspace_keys_select_packages_by_their_directory_below_the_start() {
+    let files = two_packages("export {};\n");
+    let toml = "[js]\nignore-workspaces = [\"repo/packages/b\"]\n\
+                [js.workspaces.\".\"]\nentry = [\"gone.ts\"]\n\
+                [js.workspaces.\"repo/packages/a\"]\nignore-dependencies = [\"left\", \"zzz\"]\n";
+    let diagnostics = lint_anchored(&files, toml, Some("repo"));
+    // `packages/a` takes the `repo/packages/a` table, which ignores `left`, and `packages/b` is skipped.
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none());
+    // `"."` is the start directory, not this root, so its table applies to nothing here.
+    assert_eq!(
+        messages(&diagnostics),
+        [
+            "`.` in `js.workspaces` matched nothing",
+            "`zzz` in `js.workspaces.\"repo/packages/a\".ignore-dependencies` matched nothing",
+        ]
+    );
+}
+
+#[test]
+fn stale_js_config_records_every_entry_it_judged_under_the_key_it_is_written_at() {
+    let files = two_packages("export {};\n");
+    let report = report(
+        &files,
+        "[js]\nignore-dependencies = [\"left\", \"zzz\"]\n[js.workspaces.\"packages/*\"]\nignore-binaries = [\"tsc\"]\n",
+    );
+    let file = &report.config_judgements[0].file;
+    assert!(report.config_judgements.iter().all(|judgement| &judgement.file == file));
+    let judged: Vec<(&str, &str, Option<&Path>, bool, &str)> = report
+        .config_judgements
+        .iter()
+        .map(|judgement| {
+            (
+                judgement.key.as_str(),
+                judgement.entry.as_str(),
+                judgement.package.as_deref(),
+                judgement.stale,
+                judgement.message.as_str(),
+            )
+        })
+        .collect();
+    // `left` silences the unused `left` of both packages; the glob table's entry is judged in each package it
+    // selects, under the key as written, with the package's directory, and named by the package in the finding.
+    assert_eq!(
+        judged,
+        [
+            (
+                "js.ignore-dependencies",
+                "left",
+                None,
+                false,
+                "`left` in `js.ignore-dependencies` matched nothing"
+            ),
+            (
+                "js.ignore-dependencies",
+                "zzz",
+                None,
+                true,
+                "`zzz` in `js.ignore-dependencies` matched nothing"
+            ),
+            (
+                "js.workspaces",
+                "packages/*",
+                None,
+                false,
+                "`packages/*` in `js.workspaces` matched nothing"
+            ),
+            (
+                "js.workspaces.\"packages/*\".ignore-binaries",
+                "tsc",
+                Some(Path::new("packages/a")),
+                true,
+                "`tsc` in `js.workspaces.\"packages/a\".ignore-binaries` matched nothing"
+            ),
+            (
+                "js.workspaces.\"packages/*\".ignore-binaries",
+                "tsc",
+                Some(Path::new("packages/b")),
+                true,
+                "`tsc` in `js.workspaces.\"packages/b\".ignore-binaries` matched nothing"
+            ),
+        ]
+    );
+}
+
+#[test]
+fn a_list_stale_js_config_cannot_judge_records_nothing() {
+    let files = two_packages("export {};\n");
+    let toml = "[js]\nignore-dependencies = [\"zzz\"]\n[rules]\nunused-dependencies = \"off\"\n";
+    assert_eq!(report(&files, toml).config_judgements.len(), 0);
+}
+
+#[test]
+fn findings_spell_an_overridden_package_by_its_directory_below_the_start() {
+    let files = two_packages("export {};\n");
+    let toml = "[[overrides]]\npackages = [\"./packages/a\"]\n[overrides.js]\nentry = [\"gone.ts\"]\n";
+    let diagnostics = lint_anchored(&files, toml, Some("repo"));
+    // The pattern comes from an override, not a `[js.workspaces]` table, so the key names the package's directory
+    // as a key of the file would select it.
+    assert_eq!(
+        messages(&diagnostics),
+        ["`gone.ts` in `js.workspaces.\"repo/packages/a\".entry` matched nothing"]
+    );
+}
+
+#[test]
+fn findings_name_a_glob_table_below_the_start_by_its_key_as_written() {
+    let files = two_packages("export {};\n");
+    let toml = "[js.workspaces.\"repo/packages/*\"]\nentry = [\"gone.ts\"]\n";
+    let diagnostics = lint_anchored(&files, toml, Some("repo"));
+    // The pattern matches in neither package the glob selects, so it is reported once, under the key of the file.
+    assert_eq!(
+        messages(&diagnostics),
+        ["`gone.ts` in `js.workspaces.\"repo/packages/*\".entry` matched nothing"]
     );
 }
 

@@ -419,7 +419,7 @@ blake3 = "249417248e917634a3016910eb0ef53404a0f19f7c8843c619ed8d0497112afc"
 [adrs."adrs/0084-template-scopes-auto-imported-vue-components-and-marko-files.md"]
 number = 84
 status = "accepted"
-blake3 = "1f5cefafa05d89958886095fd8cfcd5c848c9210e0fd98ed8cd3aa1ff85d01d2"
+blake3 = "f6c420c1bd508ac9382374caf80de3d38a890ac7e89721957a191afd7c265420"
 
 [adrs."adrs/0085-files-other-roots-reach-count-as-used.md"]
 number = 85
@@ -480,3 +480,18 @@ blake3 = "a51eeb7f03c7e6d33b0cdde88f5191a91855b0d67e705fbc9846587f49536f17"
 number = 96
 status = "accepted"
 blake3 = "ada0f511580e546cc57eaa5db6540de2b193477442160567d4c34cfa68050e99"
+
+[adrs."adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md"]
+number = 97
+status = "accepted"
+blake3 = "11458b8b74db1e5cbcfecdc7a5eb93f549353b83d2483fc99f3657bb9aa1018d"
+
+[adrs."adrs/0098-explicit-configuration-workspace-keys-and-shared-stale-settings.md"]
+number = 98
+status = "accepted"
+blake3 = "36dd7581c234838d522e16f36cb2f07070bd871167f8bc4a3693ab0174b0c318"
+
+[adrs."adrs/0099-knip-comparison-narrowed-scopes-rush-installs-and-dependencies-of-unused-files.md"]
+number = 99
+status = "accepted"
+blake3 = "f8cbce76e3c0e59a8d52f44abe32658453144508410428e33c5962965ef64711"

@@ -121,6 +121,14 @@ with `Report::retain`. `Report::other_project_files` also lists the files outsid
 them the same way, and `Report::ancestor_dependency_uses` lists the packages those files import with the manifest that
 lists them. Every path in both lists is absolute.
 
+Roots can read one configuration file (a `--config` file, or a `skif.toml` above them), and each root's
+`stale-js-config` judges its settings on its own, so each would report a stale entry of that file. Pass the root and
+report of every target, in the order of `Discovery::targets`, to `settle_shared_config` last: after any lint that
+follows fixing (of every root whose configuration file a fix wrote) and after narrowing the reports to what you show.
+A stale entry is then reported once, by the first root that still reports it and at the highest severity among the
+roots, and only when no root used it; `Report::config_judgements` holds what each root judged. Record a baseline from
+the reports before this step, so each root's baseline covers what that root reports.
+
 A host that lints repeatedly, such as an editor, passes the same `ModuleCache` to every
 `Linter::with_module_cache` (feature `js-analysis`; `MemoryModuleCache` keeps it in memory), so only changed files
 are parsed again. The cache never changes a report.
