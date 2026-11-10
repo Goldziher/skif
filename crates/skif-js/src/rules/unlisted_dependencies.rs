@@ -40,6 +40,8 @@ impl JsRule for UnlistedDependencies {
 
     fn check(&self, analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>) {
         let mut seen = HashSet::new();
+        // The files whose import of a package is reported, which a config reference of it in the same file repeats.
+        let mut imported = HashSet::new();
         for unlisted in &analysis.dependencies.unlisted {
             let module = analysis.graph.module(unlisted.module);
             if module.ignored
@@ -55,6 +57,7 @@ impl JsRule for UnlistedDependencies {
             let Some(package) = analysis.workspace.package(unlisted.package) else {
                 continue;
             };
+            imported.insert((unlisted.package, unlisted.name.as_str(), module.path.as_path()));
             // Strict mode reports an import that the manifest lists only outside `dependencies` and
             // `peerDependencies`, such as in `devDependencies`.
             let listed_as = package
@@ -121,7 +124,15 @@ impl JsRule for UnlistedDependencies {
             );
         }
         for unlisted in &analysis.dependencies.unlisted_config {
-            if analysis.ignores_dependency(unlisted.package, &unlisted.name) {
+            // A compiler option of a shared base config is silenced by the owner of the config or by every package
+            // reading it that could have listed the package.
+            let ignored = analysis.ignores_dependency(unlisted.package, &unlisted.name)
+                || (!unlisted.readers.is_empty()
+                    && unlisted
+                        .readers
+                        .iter()
+                        .all(|reader| analysis.ignores_dependency(*reader, &unlisted.name)));
+            if ignored || imported.contains(&(unlisted.package, unlisted.name.as_str(), unlisted.file.as_path())) {
                 continue;
             }
             let Some(package) = analysis.workspace.package(unlisted.package) else {

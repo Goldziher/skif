@@ -470,6 +470,8 @@ pub(crate) struct Setup {
     pub cycles: skif_config::JsCycles,
     /// `[js] ignore-global-binaries`: binaries assumed to be installed globally are never reported unlisted.
     pub ignore_global_binaries: bool,
+    /// `.gitignore` files apply: not `--no-gitignore`.
+    pub gitignore: bool,
 }
 
 /// The TypeScript configuration of the package in `dir`: `root_tsconfig` (`[js] tsconfig`) for the root package,
@@ -803,6 +805,7 @@ impl Setup {
             include_tags,
             cycles: js.cycles.clone(),
             ignore_global_binaries: js.ignore_global_binaries,
+            gitignore: !js.no_gitignore,
         }
     }
 

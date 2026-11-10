@@ -39,6 +39,12 @@ pub struct ConfigDependency {
     pub name: String,
     /// The file that names it, absolute.
     pub file: PathBuf,
+    /// The reference loads only the package's types (`compilerOptions.types`): its `DefinitelyTyped` package
+    /// (`@types/…`) satisfies it as well.
+    pub type_only: bool,
+    /// The package reading the config may list it instead of the package that owns `file`: a compiler option of a
+    /// shared base `tsconfig` applies to each package extending it.
+    pub reader_may_list: bool,
 }
 
 /// Build output that maps back to source: `dist` to `src` for a `tsconfig` with `outDir` and `rootDir`.
