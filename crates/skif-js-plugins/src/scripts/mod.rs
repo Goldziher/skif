@@ -10,7 +10,6 @@
 
 mod args;
 mod tables;
-mod tokenize;
 mod walk;
 
 #[cfg(test)]
@@ -19,6 +18,7 @@ mod tests;
 use std::ops::Range;
 
 use indexmap::IndexMap;
+use skif_core::shell as tokenize;
 
 pub use tables::{IGNORED_BINARIES, SHELL_BUILTINS, is_ignored_binary, is_shell_builtin};
 

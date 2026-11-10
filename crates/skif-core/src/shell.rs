@@ -1,13 +1,21 @@
-//! A small POSIX-ish tokenizer: quotes, escapes, separators, redirections, substitutions, here-documents, `case`
+//! A small POSIX-ish shell tokenizer: quotes, escapes, separators, redirections, substitutions, here-documents, `case`
 //! patterns and function definitions.
+//!
+//! It splits command lines into simple commands without executing anything, for the `package.json` script parser of
+//! `skif-js-plugins` and for the command lines of Dockerfiles, CI workflows and shell scripts that the toolchain rules
+//! of `skif-rules` read. It never panics and never reads the file system.
 
 use std::ops::Range;
 
-use super::tables::RESERVED_WORDS;
+/// Reserved words that may lead a command (`then npm ci`, `do pnpm build`); they run nothing themselves.
+pub const RESERVED_WORDS: &[&str] = &[
+    "!", "do", "done", "elif", "else", "fi", "if", "then", "until", "while", "{", "}",
+];
 
 /// One shell word with quotes and escapes resolved.
 #[derive(Debug, Clone)]
-pub(super) struct Word {
+pub struct Word {
+    /// The word with quotes removed and escapes resolved.
     pub text: String,
     /// Byte range of the raw word (quotes included) in the tokenized text.
     pub span: Range<usize>,
@@ -17,13 +25,18 @@ pub(super) struct Word {
 
 /// A simple command: leading `NAME=value` assignments followed by the command words.
 #[derive(Debug, Default)]
-pub(super) struct Segment {
+pub struct Segment {
+    /// The leading `NAME=value` words.
     pub assignments: Vec<Word>,
+    /// The command name and its arguments; empty for a line of assignments only.
     pub words: Vec<Word>,
 }
 
+/// The simple commands of a text, with what the tokenizer learnt on the way.
 #[derive(Debug, Default)]
-pub(super) struct Tokens {
+pub struct Tokens {
+    /// The simple commands, in source order. Commands inside `$( )` and backticks are not among them; tokenize the
+    /// [`substitutions`](Self::substitutions) to find those.
     pub segments: Vec<Segment>,
     /// Byte ranges of the bodies of `$( )` and backtick substitutions.
     pub substitutions: Vec<Range<usize>>,
@@ -31,7 +44,9 @@ pub(super) struct Tokens {
     pub functions: Vec<String>,
 }
 
-pub(super) fn is_assignment_text(text: &str) -> bool {
+/// Whether `text` is a `NAME=value` assignment word.
+#[must_use]
+pub fn is_assignment_text(text: &str) -> bool {
     let Some((name, _)) = text.split_once('=') else {
         return false;
     };
@@ -40,7 +55,10 @@ pub(super) fn is_assignment_text(text: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-pub(super) fn tokenize(src: &str) -> Tokens {
+/// Splits `src` into simple commands. A backslash before a newline continues the line; `#` starts a comment at the
+/// start of a word; here-document bodies are skipped as input.
+#[must_use]
+pub fn tokenize(src: &str) -> Tokens {
     Lexer {
         src,
         chars: src.char_indices().collect(),
@@ -531,5 +549,58 @@ impl Lexer<'_> {
         }
         self.redirect = true;
         self.heredoc_target = heredoc;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn commands(src: &str) -> Vec<Vec<(String, &str)>> {
+        tokenize(src)
+            .segments
+            .iter()
+            .map(|segment| {
+                segment
+                    .words
+                    .iter()
+                    .map(|word| (word.text.clone(), &src[word.span.clone()]))
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn spans_cover_the_raw_words_across_continuation_lines() {
+        let src = "apt-get update && \\\n    npm ci --omit=dev\nFOO=1 'pnpm' build # npm ci\n";
+        let found = commands(src);
+        let texts: Vec<Vec<&str>> = found
+            .iter()
+            .map(|words| words.iter().map(|(text, _)| text.as_str()).collect())
+            .collect();
+        assert_eq!(
+            texts,
+            [vec!["apt-get", "update"], vec!["npm", "ci", "--omit=dev"], vec!["pnpm", "build"]]
+        );
+        assert_eq!(found[1][0].1, "npm");
+        assert_eq!(found[2][0].1, "'pnpm'");
+        assert_eq!(tokenize(src).segments[2].assignments[0].text, "FOO=1");
+    }
+
+    #[test]
+    fn substitutions_and_heredoc_bodies_are_not_commands() {
+        let src = "VERSION=$(npm view pnpm version)\ncat <<EOF\nnpm ci\nEOF\nyarn\n";
+        let tokens = tokenize(src);
+        let names: Vec<&str> = tokens
+            .segments
+            .iter()
+            .filter_map(|segment| segment.words.first())
+            .map(|word| word.text.as_str())
+            .collect();
+        assert_eq!(names, ["cat", "yarn"]);
+        assert_eq!(
+            tokens.substitutions.iter().map(|range| &src[range.clone()]).collect::<Vec<_>>(),
+            ["npm view pnpm version"]
+        );
     }
 }
