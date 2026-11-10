@@ -103,7 +103,7 @@ enum Value<'t> {
 impl<'t> Value<'t> {
     const fn code(&self) -> &'t str {
         match self {
-            Self::Braced(code) | Self::Quoted(code) | Self::Bare(code) => *code,
+            Self::Braced(code) | Self::Quoted(code) | Self::Bare(code) => code,
         }
     }
 }
@@ -221,12 +221,14 @@ fn find_word(code: &str, word: &str, last: bool) -> Option<usize> {
                 i = skip_string(bytes, i);
                 continue;
             }
-            byte if depth == 0 && byte.is_ascii_whitespace() && code[i + 1..].starts_with(word) => {
-                if bytes.get(i + 1 + word.len()).is_none_or(u8::is_ascii_whitespace) {
-                    found = Some(i + 1);
-                    if !last {
-                        return found;
-                    }
+            byte if depth == 0
+                && byte.is_ascii_whitespace()
+                && code[i + 1..].starts_with(word)
+                && bytes.get(i + 1 + word.len()).is_none_or(u8::is_ascii_whitespace) =>
+            {
+                found = Some(i + 1);
+                if !last {
+                    return found;
                 }
             }
             _ => {}
@@ -737,15 +739,12 @@ impl<'t> Scanner<'t, '_> {
             let Some(value) = value else {
                 return Vec::new();
             };
-            return match split_v_for(value) {
-                Some((alias, source)) => {
-                    self.expression(source);
-                    self.parameters(alias)
-                }
-                None => {
-                    self.expression(value);
-                    Vec::new()
-                }
+            return if let Some((alias, source)) = split_v_for(value) {
+                self.expression(source);
+                self.parameters(alias)
+            } else {
+                self.expression(value);
+                Vec::new()
             };
         }
         match (attribute.name.strip_prefix("let:"), value) {
