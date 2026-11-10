@@ -2425,6 +2425,7 @@ dependencies = [
  "globset",
  "indexmap",
  "proptest",
+ "regex",
  "serde_json",
  "skif-config",
  "skif-core",

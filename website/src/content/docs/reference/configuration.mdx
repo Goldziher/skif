@@ -698,14 +698,14 @@ the `@tsrx/*` packages its package lists. Like `.mdx`, `.tsrx` files are not in 
 
 Test files are entries when a test-runner plugin is enabled (Jest, Vitest, Mocha, Playwright, Cypress and the like),
 with the patterns of that plugin; a project without a runner reports unused test files like any other, as knip does.
-Jest's defaults include files named just `test.js` or `spec.ts`. Jest's `testRegex` (a string or an array of regular
-expressions) selects test files too and, in the config at the package directory without `projects`, replaces the
-default test globs; `testMatch` adds to them. `testPathIgnorePatterns` keeps the test files it matches from being
-entries, but not setup files, `__mocks__` or the entries of other plugins (a Vitest default still makes
-`e2e/x.test.ts` an entry when Jest ignores `/e2e/`). Both are matched against `/` and the path relative to the
-package, `<rootDir>` standing for the config's directory; an expression the analysis cannot compile (a lookaround) is
-skipped among the ignore patterns and makes every file a test among `testRegex`. A Playwright `testMatch` regular expression becomes a
-glob when it is made of literals, `.*`, character classes (`[jt]`), the `?` quantifier, anchors and groups
+Jest's defaults include files named just `test.js` or `spec.ts`. Jest's `testRegex` (a string, a regular expression
+or an array of them) selects test files too, besides the default test globs, which stay as knip keeps them; `testMatch`
+adds to them as well. A `testRegex` is matched against `/` and the path relative to the package, `<rootDir>` standing
+for the `rootDir` option (the config's directory by default) and anchoring the expression there when it leads; the
+`i`, `m` and `s` flags of a regular expression literal apply. An expression the analysis cannot compile (a lookaround or
+a backreference) leaves the package's files unjudged. `testPathIgnorePatterns` is not applied, as knip does not apply it
+either. A Playwright `testMatch` regular expression becomes a glob
+when it is made of literals, `.*`, character classes (`[jt]`), the `?` quantifier, anchors and groups
 (`/.*\.e2e\.tsx?/` matches `**/*.e2e.ts{x,}*` below `testDir`); any other expression makes every script below
 `testDir` an entry.
 Add other test files to `entry`. Directories named `fixtures` or `__fixtures__` hold test data: their imports are not checked for unresolved or

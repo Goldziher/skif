@@ -240,10 +240,10 @@ fn test_files_and_directories_are_entries_only_through_a_test_runner() {
 }
 
 #[test]
-fn jest_test_regex_and_test_path_ignore_patterns_select_its_test_files() {
-    // `testRegex` replaces the default `testMatch`, so `sum.test.js` is no test. An ignore pattern removes test files
-    // in `__benchmarks__` anywhere and, anchored at `<rootDir>`, only in the top `e2e` directory, where the setup
-    // file stays an entry: the patterns select test files only.
+fn jest_test_regex_adds_test_files_and_test_path_ignore_patterns_remove_none() {
+    // `testRegex` adds to the default `testMatch`, as knip keeps it, so `sum.test.js` stays a test; a regex literal
+    // keeps its `i` flag. knip does not apply `testPathIgnorePatterns`, so neither does skif: `e2e/flow.check.js`
+    // stays a test. Only `lib/orphan.js` is unused.
     let files = [
         (
             "package.json",
@@ -252,53 +252,40 @@ fn jest_test_regex_and_test_path_ignore_patterns_select_its_test_files() {
         (
             "jest.config.js",
             r#"module.exports = {
-  testRegex: "\\.check\\.js$",
-  testPathIgnorePatterns: ["/node_modules/", "/__benchmarks__/", "<rootDir>/e2e/"],
-  setupFiles: ["<rootDir>/e2e/setup.js"],
+  testRegex: ["\\.check\\.js$", /\/specs\//i],
+  testPathIgnorePatterns: ["/node_modules/", "/e2e/"],
 };
 "#,
         ),
         ("src/index.js", "module.exports = 1;\n"),
         ("src/sum.check.js", "require('./index.js');\n"),
         ("src/sum.test.js", "require('./index.js');\n"),
-        ("src/__benchmarks__/speed.check.js", "require('../index.js');\n"),
+        ("src/SPECS/a.js", "require('../index.js');\n"),
         ("e2e/flow.check.js", "require('../src/index.js');\n"),
-        ("e2e/setup.js", "module.exports = 3;\n"),
-        ("lib/e2e/deep.check.js", "module.exports = 2;\n"),
+        ("lib/orphan.js", "module.exports = 2;\n"),
     ];
-    let mut unused = found(&lint_files(&files, ""), "unused-files");
-    unused.sort();
-    assert_eq!(
-        unused,
-        [
-            "e2e/flow.check.js: e2e/flow.check.js",
-            "src/__benchmarks__/speed.check.js: src/__benchmarks__/speed.check.js",
-            "src/sum.test.js: src/sum.test.js"
-        ]
-    );
+    let unused = found(&lint_files(&files, ""), "unused-files");
+    assert_eq!(unused, ["lib/orphan.js: lib/orphan.js"]);
 }
 
 #[test]
-fn jest_test_path_ignore_patterns_leave_the_entries_of_other_runners_alone() {
-    // vitest's defaults make `e2e/flow.test.js` an entry whatever jest ignores; `e2e/__tests__/helper.js` is a test
-    // of jest's defaults only, which its ignore pattern removes.
+fn jest_test_regex_anchors_root_dir_at_the_configured_root_dir() {
+    // `<rootDir>` is `src`, so only `src/checks` holds tests; `lib/checks/b.js` is unused.
     let files = [
         (
             "package.json",
-            r#"{"name":"app","private":true,"devDependencies":{"jest":"29","vitest":"3"}}"#,
+            r#"{"name":"app","private":true,"devDependencies":{"jest":"29"}}"#,
         ),
         (
             "jest.config.js",
-            r#"module.exports = { testPathIgnorePatterns: ["/e2e/"] };
+            r#"module.exports = { rootDir: "src", testRegex: "<rootDir>/checks/" };
 "#,
         ),
-        ("src/index.js", "module.exports = 1;\n"),
-        ("src/__tests__/a.js", "require('../index.js');\n"),
-        ("e2e/flow.test.js", "require('../src/index.js');\n"),
-        ("e2e/__tests__/helper.js", "module.exports = 2;\n"),
+        ("src/checks/a.js", "module.exports = 1;\n"),
+        ("lib/checks/b.js", "module.exports = 2;\n"),
     ];
     let unused = found(&lint_files(&files, ""), "unused-files");
-    assert_eq!(unused, ["e2e/__tests__/helper.js: e2e/__tests__/helper.js"]);
+    assert_eq!(unused, ["lib/checks/b.js: lib/checks/b.js"]);
 }
 
 #[test]

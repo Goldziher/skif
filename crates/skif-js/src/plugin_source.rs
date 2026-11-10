@@ -10,7 +10,7 @@ use crate::config_check::relative_tsconfig;
 use crate::config_modules::ConfigModules;
 use crate::input::{
     BuildDir, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope, InputRequest, InputSource,
-    PathAlias, RunBinary, ScopedEntries, WorkspaceInputs,
+    PathAlias, RunBinary, WorkspaceInputs,
 };
 use crate::setup::WorkspaceKeys;
 
@@ -186,33 +186,19 @@ fn incomplete_scope(reasons: &[skif_js_plugins::IncompleteEntries]) -> Incomplet
 
 fn inputs(output: PluginOutput) -> WorkspaceInputs {
     let incomplete_scope = incomplete_scope(&output.incomplete_reasons);
-    let mut entry: Vec<String> = output
+    let entry = output
         .entries
         .iter()
         .filter(|glob| !output.production_entries.contains(glob))
         .cloned()
         .collect();
-    // A plugin that selects test files with regular expressions or excludes some of them keeps its test entries
-    // apart, so its exclusions reach neither its other entries nor those of other plugins.
-    let scoped_entry = if output.entry_regexes.is_empty() && output.entry_ignore_regexes.is_empty() {
-        Vec::new()
-    } else {
-        let (globs, rest): (Vec<String>, Vec<String>) =
-            entry.into_iter().partition(|glob| output.test_entries.contains(glob));
-        entry = rest;
-        vec![ScopedEntries {
-            globs,
-            regexes: output.entry_regexes,
-            ignore_regexes: output.entry_ignore_regexes,
-        }]
-    };
     let mut ignore_binaries = output.provided_binaries;
     ignore_binaries.sort();
     ignore_binaries.dedup();
     WorkspaceInputs {
         entry,
         production_entry: output.production_entries,
-        scoped_entry,
+        entry_regex: output.entry_regexes,
         project: output.project,
         ignore: output.ignore,
         ignore_dependencies: names(&output.referenced_dependencies, true).collect(),

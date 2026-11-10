@@ -56,7 +56,7 @@ pub use explain::{Absence, EntryReason, ExportReport, ExportUser, Importer, ReEx
 pub use graph::{Module, ModuleGraph, ModuleId, ResolvedImport, Target};
 pub use input::{
     BuildDir, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope, InputRequest, InputSource,
-    PathAlias, RunBinary, ScopedEntries, WorkspaceInputs,
+    PathAlias, RunBinary, WorkspaceInputs,
 };
 pub use plugin_source::PluginSource;
 pub use provider::{JsProvider, PROVIDER_ID};

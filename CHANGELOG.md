@@ -11,6 +11,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `ConfigValue::Regex` of `skif-js-syntax` holds the `flags` of the literal besides its `pattern`. `PluginInput` of
+  `skif-js-plugins` gains `EntryRegex`, `PluginOutput` gains `entry_regexes` and `WorkspaceInputs` of `skif-js` gains
+  `entry_regex`, for Jest's `testRegex` ([#100](https://github.com/Goldziher/skif/issues/100)).
 - The knip comparison sets apart findings that follow from where each tool looks, decided from paths and manifests:
   unused dependencies and script binaries skif reports on a `package.json` that is not one of knip's workspaces
   (`knip-unjudged-manifest`), unused files and listed unlisted dependencies knip reports below a project that is not
@@ -68,12 +71,12 @@ All notable changes to this project are documented here. The format follows
   `NestedUses` of the CLI becomes `OtherRootUses`
   ([ADR 0084](adrs/0084-files-other-roots-reach-count-as-used.md),
   [#100](https://github.com/Goldziher/skif/issues/100)).
-- The `jest` plugin reads `testRegex` (a string or an array), which replaces the default test globs when the
-  package's own config sets it outside `projects`, and `testPathIgnorePatterns`, whose regular expressions keep the
-  test files they match out of Jest's entries while setup files, `__mocks__` and other plugins' entries stay
-  ([#100](https://github.com/Goldziher/skif/issues/100)). `PluginInput` gains `TestEntry`, `EntryRegex`,
-  `EntryIgnoreRegex` and `ReplaceDefaultEntries`, `PluginOutput` gains `test_entries`, `entry_regexes` and
-  `entry_ignore_regexes`, and `WorkspaceInputs` gains `scoped_entry` with the new `ScopedEntries`.
+- The `jest` plugin reads `testRegex` (a string, a regular expression or an array of them): the test files it selects
+  are entries besides the default test globs, which stay as knip keeps them. `<rootDir>` stands for the config's
+  `rootDir`, and the `i`, `m` and `s` flags of a regular expression literal apply; an expression the `regex` crate
+  cannot compile leaves the package's entries incomplete. `testPathIgnorePatterns` is not applied, as knip does not
+  apply it ([ADR 0084](adrs/0084-files-other-roots-reach-count-as-used.md),
+  [#100](https://github.com/Goldziher/skif/issues/100)).
 - The JS analysis walks a hidden directory that holds workspace members, such as `.vscode/extensions/*`, for those
   members, which it used to skip with the rest of the directory; the knip comparison's `skipped-directory` deviation
   follows ([ADR 0084](adrs/0084-files-other-roots-reach-count-as-used.md),
