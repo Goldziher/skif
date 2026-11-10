@@ -40,7 +40,7 @@ pub(super) fn emit(cx: &LintContext<'_>, out: &mut Emitter<'_>) {
     ) {
         Ok(lock) => lock,
         Err(diagnostic) => {
-            out.emit(diagnostic);
+            out.emit(*diagnostic);
             return;
         }
     };

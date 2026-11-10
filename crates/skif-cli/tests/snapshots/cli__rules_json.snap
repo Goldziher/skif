@@ -91,6 +91,13 @@ expression: json.stdout
       "summary": "A `package.json` is not formatted as `[format]` describes: key order, sorted fields, `exports` conditions, shorthand `bugs` and `repository`, and the indent. The fix is unsafe when `sort-exports` reorders conditions other than `types` and `default`."
     },
     {
+      "id": "stale-patched-dependencies",
+      "category": "workspace",
+      "default": "warning",
+      "fixable": "none",
+      "summary": "A `patchedDependencies` entry no longer applies, names a missing file or lies outside the allowed paths, or a patch file is left over."
+    },
+    {
       "id": "version-mismatch",
       "category": "policy",
       "default": "error",
@@ -102,7 +109,7 @@ expression: json.stdout
       "category": "policy",
       "default": "error",
       "fixable": "unsafe",
-      "summary": "A dependency is declared although a banned version group forbids it."
+      "summary": "A dependency is declared, or resolved by the lockfile, although a banned version group forbids it."
     },
     {
       "id": "semver-range-mismatch",
@@ -179,7 +186,7 @@ expression: json.stdout
       "category": "policy",
       "default": "error",
       "fixable": "none",
-      "summary": "Members of a dependency family declared in one package are on different versions."
+      "summary": "Members of a dependency family are on different versions in one package, or as resolved by the lockfile."
     },
     {
       "id": "unused-dependencies",

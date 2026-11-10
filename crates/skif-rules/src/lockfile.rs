@@ -27,7 +27,7 @@ impl Loaded {
         meta: &'static RuleMeta,
         what: &str,
         fallback: Location,
-    ) -> Result<&PnpmLockfile, Diagnostic> {
+    ) -> Result<&PnpmLockfile, Box<Diagnostic>> {
         let lockfile = Path::new(PNPM_LOCKFILE);
         let (message, location, help) = match &self.0 {
             Ok(Some(lock)) => return Ok(lock),
@@ -57,7 +57,7 @@ impl Loaded {
                 ),
             },
         };
-        Err(diagnostic(meta, message, location).help(help).build())
+        Err(Box::new(diagnostic(meta, message, location).help(help).build()))
     }
 }
 
