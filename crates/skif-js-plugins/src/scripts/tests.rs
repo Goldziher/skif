@@ -630,6 +630,12 @@ fn ignored_binaries() {
         "powershell.exe",
         "osascript",
         "hg",
+        "mkfifo",
+        "mknod",
+        "mktemp",
+        "truncate",
+        "unlink",
+        "stdbuf",
     ] {
         assert!(is_ignored_binary(name), "{name}");
     }

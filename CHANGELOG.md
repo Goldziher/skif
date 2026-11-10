@@ -203,6 +203,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `mkfifo`, `truncate`, `unlink`, `stdbuf` and the other coreutils programs that were missing from the system
+  binaries are no longer reported by `unlisted-binaries`.
 - `skif baseline` records `name@specifier` only for the rules whose finding is about the specifier (`RuleMeta::version_scoped`:
   `version-mismatch`, `semver-range-mismatch`, `policy-conflict`, `unsynced-dependency-family`,
   `incompatible-peer-dependencies`, `catalog-mismatch`, `catalog-version-divergence`); any other finding records the
