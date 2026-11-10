@@ -343,10 +343,11 @@ mod tests {
 
     #[test]
     fn the_kept_copy_takes_the_highest_severity_and_the_summary_counts_it() {
-        let mut reports = vec![
+        let mut reports = [
             report(&[(OUTER, DEPENDENCY)], &[stale_dependency(OUTER)]),
-            Report::new(vec![finding(INNER, DEPENDENCY, Severity::Error)], 1)
-                .with_config_judgements(vec![ConfigJudgement::new(INNER, DEPENDENCIES, "left-pad", true, DEPENDENCY)]),
+            Report::new(vec![finding(INNER, DEPENDENCY, Severity::Error)], 1).with_config_judgements(vec![
+                ConfigJudgement::new(INNER, DEPENDENCIES, "left-pad", true, DEPENDENCY),
+            ]),
         ];
         settle_shared_config(ROOTS.map(Path::new).into_iter().zip(reports.iter_mut()));
         let severities: Vec<Vec<Severity>> = reports
@@ -363,10 +364,9 @@ mod tests {
         // `tools/a` uses its `left-pad` entry, `tools/b` does not: the shared table line is stale for `tools/b`.
         let message_b = "`left-pad` in `js.workspaces.\"tools/b\".ignore-dependencies` matched nothing";
         let message_a = "`left-pad` in `js.workspaces.\"tools/a\".ignore-dependencies` matched nothing";
-        let judged = |is_stale, message| {
-            ConfigJudgement::new(INNER, TABLE_KEY, "left-pad", is_stale, message).with_package("")
-        };
-        let mut reports = vec![
+        let judged =
+            |is_stale, message| ConfigJudgement::new(INNER, TABLE_KEY, "left-pad", is_stale, message).with_package("");
+        let mut reports = [
             report(&[], &[]),
             Report::new(Vec::new(), 1).with_config_judgements(vec![judged(false, message_a)]),
             Report::new(vec![finding(INNER, message_b, Severity::Warning)], 1)
@@ -385,7 +385,7 @@ mod tests {
         let judged = |file, dir, is_stale| {
             ConfigJudgement::new(file, TABLE_KEY, "left-pad", is_stale, message).with_package(dir)
         };
-        let mut reports = vec![
+        let mut reports = [
             Report::new(Vec::new(), 1).with_config_judgements(vec![judged(OUTER, "tools/a", false)]),
             Report::new(vec![finding(INNER, message, Severity::Warning)], 1)
                 .with_config_judgements(vec![judged(INNER, "", true)]),
@@ -430,17 +430,32 @@ mod tests {
         let mut reports = vec![
             report(&[(OUTER, DEPENDENCY), (OUTER, HINT)], &[stale_dependency(OUTER)]),
             Report::new(
-                vec![finding(INNER, DEPENDENCY, Severity::Error), finding(INNER, HINT, Severity::Warning)],
+                vec![
+                    finding(INNER, DEPENDENCY, Severity::Error),
+                    finding(INNER, HINT, Severity::Warning),
+                ],
                 1,
             )
-            .with_config_judgements(vec![ConfigJudgement::new(INNER, DEPENDENCIES, "left-pad", true, DEPENDENCY)]),
+            .with_config_judgements(vec![ConfigJudgement::new(
+                INNER,
+                DEPENDENCIES,
+                "left-pad",
+                true,
+                DEPENDENCY,
+            )]),
         ];
         let roots = ROOTS.map(Path::new);
         settle_shared_config(roots.into_iter().zip(reports.iter_mut()));
         let once = reports.clone();
         settle_shared_config(roots.into_iter().zip(reports.iter_mut()));
         assert_eq!(reports, once);
-        assert_eq!(kept(&reports[0]), [(OUTER.to_owned(), DEPENDENCY.to_owned()), (OUTER.to_owned(), HINT.to_owned())]);
+        assert_eq!(
+            kept(&reports[0]),
+            [
+                (OUTER.to_owned(), DEPENDENCY.to_owned()),
+                (OUTER.to_owned(), HINT.to_owned())
+            ]
+        );
         assert_eq!(kept(&reports[1]), none());
     }
 
@@ -452,10 +467,11 @@ mod tests {
             DEPENDENCY,
             Location::new(INNER, None),
         );
-        let mut reports = vec![
+        let mut reports = [
             report(&[(OUTER, DEPENDENCY)], &[stale_dependency(OUTER)]),
-            Report::new(vec![other, finding(INNER, DEPENDENCY, Severity::Warning)], 1)
-                .with_config_judgements(vec![ConfigJudgement::new(INNER, DEPENDENCIES, "left-pad", true, DEPENDENCY)]),
+            Report::new(vec![other, finding(INNER, DEPENDENCY, Severity::Warning)], 1).with_config_judgements(vec![
+                ConfigJudgement::new(INNER, DEPENDENCIES, "left-pad", true, DEPENDENCY),
+            ]),
         ];
         settle_shared_config(ROOTS.map(Path::new).into_iter().zip(reports.iter_mut()));
         let rules: Vec<&str> = reports[1].diagnostics.iter().map(|d| d.rule.as_str()).collect();
@@ -464,7 +480,10 @@ mod tests {
 
     #[test]
     fn join_resolves_parent_segments() {
-        assert_eq!(join(Path::new("/r/tools/a"), Path::new(INNER)), Path::new("/etc/skif.toml"));
+        assert_eq!(
+            join(Path::new("/r/tools/a"), Path::new(INNER)),
+            Path::new("/etc/skif.toml")
+        );
         assert_eq!(join(Path::new("/r"), Path::new(OUTER)), Path::new("/etc/skif.toml"));
         assert_eq!(join(Path::new("/r/tools/a"), Path::new("")), Path::new("/r/tools/a"));
     }

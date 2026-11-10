@@ -403,7 +403,11 @@ fn fix_roots(
     fs.clear();
     let written: Vec<BTreeSet<PathBuf>> = planned
         .iter()
-        .map(|(run, plan)| plan.paths().map(|path| roots::join(&run.workspace.root, path)).collect())
+        .map(|(run, plan)| {
+            plan.paths()
+                .map(|path| roots::join(&run.workspace.root, path))
+                .collect()
+        })
         .collect();
     let sources: Vec<&[PathBuf]> = planned.iter().map(|(run, _)| run.config_sources.as_slice()).collect();
     let again = relinted(&written, &sources);
@@ -428,10 +432,7 @@ fn write_plans(args: &LintArgs, planned: &[(RootRun, FixPlan)]) -> Result<Option
             return Err(error);
         }
         let prefixes: Vec<&Path> = earlier.iter().map(|(run, _)| run.prefix.as_path()).collect();
-        let fixes: Vec<FixRun> = earlier
-            .iter()
-            .map(|(_, plan)| FixRun::stopped(plan.clone()))
-            .collect();
+        let fixes: Vec<FixRun> = earlier.iter().map(|(_, plan)| FixRun::stopped(plan.clone())).collect();
         return Ok(Some(fix_incomplete(
             args,
             "fixes were written to earlier roots, but fixing a later root failed",
