@@ -35,7 +35,9 @@ inputs:
     required: false
     default: "."
   fail-on-warnings:
-    description: Exit non-zero when skif reports any warning (adds `--fail-on-warnings`).
+    description: >-
+      Exit non-zero when skif reports any warning (adds `--fail-on-warnings` to a lint run; not added
+      when `args` starts with a skif subcommand such as `baseline` or `migrate`).
     required: false
     default: "false"
   from-sherif:
