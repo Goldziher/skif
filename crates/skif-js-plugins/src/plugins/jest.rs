@@ -238,7 +238,7 @@ fn regex_sources(value: Option<&ConfigValue>) -> Vec<&str> {
     items
         .into_iter()
         .filter_map(|item| match item {
-            ConfigValue::String(source) | ConfigValue::Regex(source) => Some(source.as_str()),
+            ConfigValue::String(source) | ConfigValue::Regex { pattern: source, .. } => Some(source.as_str()),
             _ => None,
         })
         .filter(|source| !source.is_empty())

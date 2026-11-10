@@ -91,8 +91,13 @@ pub enum ConfigValue {
     Array(Vec<ConfigValue>),
     /// An object literal in source order. A spread of an unknown value is recorded as the key `...`.
     Object(Vec<(String, ConfigValue)>),
-    /// A regular expression literal: its pattern, without the slashes and flags.
-    Regex(String),
+    /// A regular expression literal.
+    Regex {
+        /// The pattern, without the slashes.
+        pattern: String,
+        /// The flags after the closing slash, in alphabetical order (`gi`).
+        flags: String,
+    },
     /// Anything that cannot be known without running the code.
     Unknown,
 }
@@ -138,7 +143,7 @@ impl ConfigValue {
     #[must_use]
     pub fn as_regex(&self) -> Option<&str> {
         match self {
-            Self::Regex(pattern) => Some(pattern),
+            Self::Regex { pattern, .. } => Some(pattern),
             _ => None,
         }
     }
@@ -1513,7 +1518,10 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             Expression::BooleanLiteral(b) => ConfigValue::Bool(b.value),
             Expression::NumericLiteral(n) => ConfigValue::Number(n.value),
             Expression::StringLiteral(_) => static_string(inner).map_or(ConfigValue::Unknown, ConfigValue::String),
-            Expression::RegExpLiteral(r) => ConfigValue::Regex(r.regex.pattern.text.as_str().to_owned()),
+            Expression::RegExpLiteral(r) => ConfigValue::Regex {
+                pattern: r.regex.pattern.text.as_str().to_owned(),
+                flags: r.regex.flags.to_string(),
+            },
             Expression::TemplateLiteral(template) => self.template(template, depth),
             Expression::BinaryExpression(b) if b.operator == BinaryOperator::Addition => {
                 match (self.expr(&b.left, depth), self.expr(&b.right, depth)) {
@@ -2794,7 +2802,7 @@ fn unstable(value: ConfigValue, change: Change) -> ConfigValue {
             | ConfigValue::Bool(_)
             | ConfigValue::Number(_)
             | ConfigValue::String(_)
-            | ConfigValue::Regex(_)),
+            | ConfigValue::Regex { .. }),
         ) => value,
         (_, value) => changed(value),
     }
@@ -2837,7 +2845,7 @@ fn spread_entries(value: ConfigValue) -> Option<Vec<(String, ConfigValue)>> {
         ConfigValue::Object(entries) => Some(entries),
         ConfigValue::Null | ConfigValue::Bool(_) | ConfigValue::Number(_) => Some(Vec::new()),
         ConfigValue::String(s) => s.is_empty().then(Vec::new),
-        ConfigValue::Array(_) | ConfigValue::Regex(_) | ConfigValue::Unknown => None,
+        ConfigValue::Array(_) | ConfigValue::Regex { .. } | ConfigValue::Unknown => None,
     }
 }
 
@@ -2949,7 +2957,7 @@ fn truthiness(value: &ConfigValue) -> Option<bool> {
         ConfigValue::Bool(b) => Some(*b),
         ConfigValue::Number(n) => Some(*n != 0.0 && !n.is_nan()),
         ConfigValue::String(s) => Some(!s.is_empty()),
-        ConfigValue::Array(_) | ConfigValue::Object(_) | ConfigValue::Regex(_) => Some(true),
+        ConfigValue::Array(_) | ConfigValue::Object(_) | ConfigValue::Regex { .. } => Some(true),
         ConfigValue::Unknown => None,
     }
 }

@@ -102,7 +102,7 @@ const ANY_SCRIPT: &str = "**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}";
 fn match_patterns(value: &ConfigValue) -> Vec<String> {
     match value {
         ConfigValue::String(glob) => vec![glob.clone()],
-        ConfigValue::Regex(source) => vec![regex_glob(source).unwrap_or_else(|| ANY_SCRIPT.to_owned())],
+        ConfigValue::Regex { pattern: source, .. } => vec![regex_glob(source).unwrap_or_else(|| ANY_SCRIPT.to_owned())],
         _ => Vec::new(),
     }
 }

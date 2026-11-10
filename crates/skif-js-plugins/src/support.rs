@@ -536,7 +536,7 @@ pub(crate) fn alias_inputs(alias: &ConfigValue, config: &ConfigAst<'_>) -> Vec<P
             .filter_map(|item| {
                 let find = match item.get("find")? {
                     ConfigValue::String(text) => AliasFind::Text(text),
-                    ConfigValue::Regex(pattern) => AliasFind::Pattern(pattern),
+                    ConfigValue::Regex { pattern, .. } => AliasFind::Pattern(pattern),
                     _ => return None,
                 };
                 Some((find, item.get("replacement")?))
