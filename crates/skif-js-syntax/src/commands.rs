@@ -1,7 +1,8 @@
 //! Commands a file runs through `node:child_process`: `execSync('tsc -b')` and `exec(…)` run a command line,
 //! `spawn('eslint', ['.'])`, `spawnSync`, `execFile` and `execFileSync` a file with arguments. Only literal commands
-//! count, as for the `execa` plugin; `fork` runs a module, not a command. A `cwd` option runs the command in a
-//! directory the script parser cannot place.
+//! count, as for the `execa` plugin; `fork` runs a module, not a command. A `cwd` option runs the command in the
+//! directory it names, which the script parser places only when the file's own location computes it (see
+//! [`command_in_call_dir`]).
 
 use oxc_ast::ast::Program;
 

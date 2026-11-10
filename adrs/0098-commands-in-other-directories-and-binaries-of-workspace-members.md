@@ -58,10 +58,17 @@ where the script starts.
 
 **The `cwd` option of a call.** A source file's call of `execa`, `execaNode`, `execaCommand`, nano-spawn or
 `node:child_process` (`spawn`, `spawnSync`, `execFile`, `execFileSync`, `exec`, `execSync`) whose options object sets
-`cwd`, whatever the value, runs its command in a directory the parser cannot place: a literal path in a source file is
-relative to the process or to the file, which the parser does not know. The command line is read as if it started with
-a `cd` to a substituted directory (`cd $__skif__ && bun run build`). An options object skif cannot read, or a spread in
-it, leaves the command as before.
+`cwd` runs its command in that directory. A `cwd` that names the directory the call runs in anyway (`process.cwd()`,
+`'.'`, `undefined`, `void 0`) changes nothing. A `cwd` the file's own location computes (`__dirname`,
+`import.meta.dirname`, `path.dirname(fileURLToPath(import.meta.url))`, `path.join(__dirname, '../sub')`,
+`new URL('../x', import.meta.url).pathname`) is that path below the file's directory: the arguments are evaluated a
+second time from another directory, and a value that changes with it is one the file's location computes. The command
+line is read as if it started with `cd` to it (`cd $__skif_file_dir__/../sub && rspack`, `ModuleInfo::commands`), and
+the file's directory relative to its package takes the place of `$__skif_file_dir__` before the command is parsed, so
+the command runs in a directory the parser can place, which may be another workspace package (see below). Any other
+`cwd` (a literal path, which is relative to the process, a variable) runs the command in a directory the parser cannot
+place: the command line starts with a `cd` to a substituted directory (`cd $__skif__ && bun run build`). An options
+object skif cannot read, or one whose `cwd` only an unknown spread may set, leaves the command as before.
 
 **`cd` outside scripts.** The binaries that a workflow step, a tool config's command or a source file run after `cd
 <dir>` carry the directory (`BinaryRef::dir`, `RunBinary::dir`), relative to the package where the command starts: the
@@ -98,20 +105,24 @@ are provided commands; a package that lists the package declaring them still use
   is not placed: the script parser does not know which file runs the command, so a package manager run there is
   handled as filtered and a binary run there by name is judged where the command starts.
 * Neutral, because the commands that `ModuleInfo::commands` holds for a call with a `cwd` option start with
-  `cd $__skif__ && `, and the module cache schema moves to 3.
+  `cd $__skif_file_dir__/<path> && ` or `cd $__skif__ && `, and the module cache schema moves to 3.
 
 ### Confirmation
 
 * `crates/skif-js-plugins/src/scripts/tests.rs`:
   `package_managers_after_cd_to_an_unknown_directory_work_on_the_package_there` and `a_cd_in_a_subshell_ends_with_it`.
 * `crates/skif-core/src/shell.rs`: `subshells_bound_the_segments_they_run`.
-* `crates/skif-js-syntax/tests/module_info.rs`: `child_process_commands_with_a_cwd_change_to_an_unknown_directory`.
+* `crates/skif-js-syntax/tests/module_info.rs`: `child_process_commands_with_a_cwd_change_to_an_unknown_directory`
+  and `child_process_commands_with_a_cwd_of_the_process_or_the_file`.
 * `crates/skif-js-plugins/tests/plugins.rs`: `commands_run_with_a_cwd_run_scripts_of_another_package` and
-  `run_binaries_after_cd_carry_the_directory`.
-* `crates/skif-js/tests/unlisted_parity.rs`: `commands_run_with_a_cwd_option_run_scripts_of_the_package_there`.
+  `run_binaries_after_cd_carry_the_directory`, `commands_run_with_a_cwd_of_the_file_run_in_its_directory` and
+  `cd_below_the_github_workspace_is_a_workspace_directory`.
+* `crates/skif-js/tests/unlisted_parity.rs`: `commands_run_with_a_cwd_option_run_scripts_of_the_package_there` and
+  `a_cwd_of_the_current_directory_follows_the_scripts_of_the_package`.
 * `crates/skif-js/tests/monorepo_regressions.rs`: `a_member_binary_is_provided_where_the_package_manager_links_it`,
   `rush_commands_are_provided_in_a_rush_repository` and
-  `workflow_and_source_commands_after_cd_into_a_workspace_package_are_judged_there`.
+  `workflow_and_source_commands_after_cd_into_a_workspace_package_are_judged_there` and
+  `source_commands_with_a_cwd_of_the_file_run_in_that_directory`.
 * `adrlint lint adrs`, `adrlint format --check adrs` and `adrlint lock --check` pass.
 
 ## Pros and Cons of the Options

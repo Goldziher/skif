@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use serde_json::Value;
 use skif_core::{DependencyKind, FileSystem, Span};
 use skif_js_plugins::scripts::{ScriptContext, is_ignored_binary, parse_script};
-use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object};
+use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object, place_file_dir};
 use skif_workspace::{Package, PackageId, PackageManager, Workspace, map_ordered};
 
 use crate::ancestors::{external_manifests, is_repository_root, listed_names, read_manifest};
@@ -1157,8 +1157,13 @@ impl DependencyUsage {
         commands: &[String],
         context: &ScriptContext,
     ) {
+        // A call whose `cwd` is computed from the file's location runs in the file's directory.
+        let file_dir = self.dir_in_package(id, file);
         for command in commands {
-            let info = parse_script(command, context);
+            let command = file_dir
+                .as_deref()
+                .map_or_else(|| command.clone(), |dir| place_file_dir(command, dir));
+            let info = parse_script(&command, context);
             for dependency in &info.dependencies {
                 if let Some(found) = self.find_listed(id, &dependency.name) {
                     self.reference(found, &dependency.name);
@@ -1189,6 +1194,21 @@ impl DependencyUsage {
                 }
             }
         }
+    }
+
+    /// The directory of `file`, relative to the root, relative to the directory of package `id`, `/`-separated and
+    /// empty for the package directory itself; `None` when the file is not below it.
+    fn dir_in_package(&self, id: PackageId, file: &Path) -> Option<String> {
+        let base = self.dirs.iter().find(|(package, _)| *package == id)?.1.as_str();
+        let parent = file.parent()?.to_string_lossy().replace('\\', "/");
+        if base.is_empty() {
+            return Some(parent);
+        }
+        let rest = parent.strip_prefix(base)?;
+        if rest.is_empty() {
+            return Some(String::new());
+        }
+        rest.strip_prefix('/').map(str::to_owned)
     }
 
     /// The other workspace package whose directory holds `dir`, where a command of package `id` runs a binary after

@@ -83,8 +83,10 @@ All notable changes to this project are documented here. The format follows
 - `BinaryUse` and `DepRef` of `skif_js_plugins::scripts` gain `dir`, the directory a command runs in after `cd`,
   `pushd` or a package manager's directory flag; `skif_js_plugins::scripts` also gains `is_powershell_command` and
   `without_commands`. `IncompleteCause` of `skif-core` gains `NoEntries`.
-- `skif-js-syntax` exports `file_call_options` and `command_in_call_dir`, and the commands `ModuleInfo::commands` holds
-  for a `node:child_process` call with a `cwd` option start with `cd $__skif__ && `; `CACHE_SCHEMA` is `3`.
+- `skif-js-syntax` exports `file_call_options`, `command_in_call_dir`, `place_file_dir` and `FILE_DIR`, and the
+  commands `ModuleInfo::commands` holds for a `node:child_process` call with a `cwd` option start with
+  `cd $__skif_file_dir__/<path> && ` when the file's own location computes it, else with `cd $__skif__ && `; a `cwd`
+  of `process.cwd()`, `'.'` or `undefined` is left out of `ImportedCall::arguments`. `CACHE_SCHEMA` is `3`.
 - `BinaryRef` of `skif-js-plugins` and `RunBinary` of `skif-js` gain `dir`, the directory the command runs the binary
   in after `cd`; a struct literal of either needs the new field.
 - `Tokens` of `skif_core::shell` gains `subshells`, the segments each subshell `( … )` runs.
@@ -214,7 +216,9 @@ All notable changes to this project are documented here. The format follows
   `execFile`, `exec`, `execaCommand`, nano-spawn) runs in a directory skif cannot place, and so does a script command
   after `cd` to a directory that is not a static relative path (`cd /tmp/app`, `cd $DIR`): a package manager run there
   works on the package of that directory, as `bun --cwd` and `--filter` do, so `bun run build` no longer reports
-  `build` as an unlisted binary of the file. A binary run there by name is still judged where the command starts
+  `build` as an unlisted binary of the file. A binary run there by name is still judged where the command starts. A
+  `cwd` of `process.cwd()` or `undefined` changes nothing, and one computed from `__dirname` or `import.meta.url`
+  runs the command in that directory below the file
   ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
 - Under pnpm, Yarn Berry and Rush, a workspace member's binary no longer satisfies a script of a package that does not
   list the member: those package managers link it only for the packages that depend on it, so the script's binary is

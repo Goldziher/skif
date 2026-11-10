@@ -1355,6 +1355,33 @@ fn child_process_commands_with_a_cwd_change_to_an_unknown_directory() {
     );
 }
 
+/// A `cwd` that names the directory the call runs in anyway (`process.cwd()`, `undefined`, `'.'`), or that an unknown
+/// spread may set, changes nothing; one the file's own location computes changes to it relative to the file.
+#[test]
+fn child_process_commands_with_a_cwd_of_the_process_or_the_file() {
+    let source = "import { execSync } from 'node:child_process';\nimport path from 'node:path';\n\
+                  import { fileURLToPath } from 'node:url';\n\
+                  execSync('npm run a', { cwd: process.cwd() });\nexecSync('npm run b', { cwd: undefined });\n\
+                  execSync('npm run c', { ...options });\nexecSync('npm run d', { cwd: '.' });\n\
+                  execSync('npm run e', { cwd: __dirname });\nexecSync('npm run f', { cwd: import.meta.dirname });\n\
+                  execSync('npm run g', { cwd: path.dirname(fileURLToPath(import.meta.url)) });\n\
+                  execSync('npm run h', { cwd: path.join(__dirname, '../fixtures') });\n";
+    let info = parse("a.ts", source);
+    assert_eq!(
+        info.commands,
+        [
+            "npm run a",
+            "npm run b",
+            "npm run c",
+            "npm run d",
+            "cd $__skif_file_dir__/. && npm run e",
+            "cd $__skif_file_dir__/. && npm run f",
+            "cd $__skif_file_dir__/. && npm run g",
+            "cd $__skif_file_dir__/../fixtures && npm run h"
+        ]
+    );
+}
+
 #[test]
 fn jsx_import_source_only_counts_in_leading_comments() {
     let leading = parse("a.jsx", "// @jsxImportSource preact\nexport const a = <b />;\n");

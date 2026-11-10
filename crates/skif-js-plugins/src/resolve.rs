@@ -6,7 +6,7 @@ use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 use skif_config::{PluginConfig, PluginOptions};
-use skif_js_syntax::{ConfigValue, ModuleLoader};
+use skif_js_syntax::{ConfigValue, ModuleLoader, place_file_dir};
 
 use crate::config_load::{from_json, load_config_with};
 use crate::files::find_files;
@@ -254,7 +254,9 @@ impl Collector<'_, '_> {
                 PluginInput::ScriptAt { dir, script } => self.script_at(&dir, &script),
                 PluginInput::SourceScript { file, script } => {
                     let source = self.ctx.dir.join(&file);
-                    self.script(&script, &source, optional);
+                    // A call whose `cwd` is computed from the file's location runs in the file's directory.
+                    let file_dir = file.rsplit_once('/').map_or("", |(dir, _)| dir);
+                    self.script(&place_file_dir(&script, file_dir), &source, optional);
                 }
                 PluginInput::FileDependency { file, name } => {
                     let source = self.ctx.dir.join(&file);

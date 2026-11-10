@@ -2,7 +2,8 @@
 //! `` $`…` `` are scripts, parsed like the scripts of `package.json`; so are the default export of execa 5 and earlier
 //! (`execa(…)`, `execa.sync(…)`, `execa.command(…)`, `execa.node(…)`). Only literal commands count: a computed argument
 //! is left out, and a call with a literal argument that is not a plain word is skipped. A call with a `cwd` option runs
-//! its command in a directory the script parser cannot place.
+//! its command in that directory, which the script parser places only when the file's own location computes it (see
+//! [`command_in_call_dir`]).
 
 use skif_js_syntax::{
     ConfigValue, ImportedCall, command_in_call_dir, extract_imported_calls, file_call_options, literal_command,
