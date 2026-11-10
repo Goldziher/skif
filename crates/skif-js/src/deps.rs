@@ -1004,12 +1004,18 @@ impl DependencyUsage {
         if setup.production {
             return;
         }
+        // Whether a config is judged depends only on its file; every package reading a shared base config and every
+        // package one config names would otherwise rebuild the ignore matchers.
+        let mut judged: BTreeMap<&Path, Option<(Option<PackageId>, String)>> = BTreeMap::new();
         for (reader, _) in workspace.iter() {
             let Some(package_setup) = setup.package(reader) else {
                 continue;
             };
             for dependency in &package_setup.config_dependencies {
-                let Some((owner, file)) = judged_config(workspace, setup, fs, &dependency.file) else {
+                let verdict = judged
+                    .entry(dependency.file.as_path())
+                    .or_insert_with(|| judged_config(workspace, setup, fs, &dependency.file));
+                let Some((owner, file)) = verdict.clone() else {
                     continue;
                 };
                 let owner = owner.unwrap_or(reader);

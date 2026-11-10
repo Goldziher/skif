@@ -5,9 +5,11 @@
 //! template uses is an unused file. skif does the same: the declaration file's `import()` types of local components
 //! are no edges, and each module whose `template_tags` name a component imports it.
 //!
-//! skif records tags only for `.vue` templates and `resolveComponent` calls. Where a package may use its components
-//! elsewhere (TSX and JSX files, VitePress pages, an `include` of the plugin that names more than `.vue`), the
-//! declaration file keeps its edges and credits every component it registers, as before.
+//! skif records tags only for HTML `.vue` templates and `resolveComponent` calls. Where a package may use its
+//! components elsewhere (TSX and JSX files, VitePress pages, an `include` of the plugin that names more than `.vue`, a
+//! `.vue` template in another language such as Pug, a `.vue` script block in TSX or JSX), the declaration file keeps
+//! its edges and credits every component it registers, as before: a use skif cannot read is assumed rather than a
+//! file reported unused that a template uses.
 
 use std::path::{Path, PathBuf};
 
@@ -57,9 +59,10 @@ pub(crate) fn is_generated(path: &Path, source: &str) -> bool {
 }
 
 /// Whether the components `package` registers may be used in files skif records no tags for, so its declaration
-/// files credit every component they register: the package has `.tsx` or `.jsx` project files or a VitePress or
-/// `VuePress` site (whose `.md` pages Vue compiles), or a config passes the plugin an `include` that names more than
-/// `.vue` files, or options skif cannot read.
+/// files credit every component they register: the package has `.tsx` or `.jsx` project files, a `.vue` file whose
+/// template or script skif reads no tags in ([`has_untagged_block`]), or a VitePress or `VuePress` site (whose `.md`
+/// pages Vue compiles), or a config passes the plugin an `include` that names more than `.vue` files, or options skif
+/// cannot read.
 pub(crate) fn may_be_used_untagged(fs: &dyn FileSystem, package: &PackageSetup, candidates: &[Candidate]) -> bool {
     let mut configs: Vec<&Path> = package.config_files.iter().map(PathBuf::as_path).collect();
     for candidate in candidates.iter().filter(|candidate| candidate.owner == package.id) {
@@ -78,6 +81,17 @@ pub(crate) fn may_be_used_untagged(fs: &dyn FileSystem, package: &PackageSetup, 
         if site || (untagged && package.project.is_match(&in_package)) {
             return true;
         }
+        let vue = candidate
+            .abs
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("vue"));
+        if vue
+            && fs
+                .read_to_string(&candidate.abs)
+                .is_ok_and(|source| has_untagged_block(&source))
+        {
+            return true;
+        }
         if is_bundler_config(&in_package) {
             configs.push(&candidate.abs);
         }
@@ -87,6 +101,38 @@ pub(crate) fn may_be_used_untagged(fs: &dyn FileSystem, package: &PackageSetup, 
     configs.into_iter().any(|path| {
         fs.read_to_string(path)
             .is_ok_and(|source| includes_more_than_vue(&source, path))
+    })
+}
+
+/// Whether the `.vue` `source` has a block whose component uses skif records no tags for: a `<template>` in a language
+/// other than HTML (`lang="pug"`) or a `<script>` in TSX or JSX, whose render functions name components as JSX.
+fn has_untagged_block(source: &str) -> bool {
+    ["<template", "<script"].iter().any(|open| {
+        source.match_indices(open).any(|(at, _)| {
+            let rest = &source[at + open.len()..];
+            if !rest.starts_with(|c: char| c.is_whitespace()) {
+                return false;
+            }
+            let attributes = rest.split('>').next().unwrap_or_default();
+            match (*open, lang_of(attributes)) {
+                ("<template", Some(lang)) => !lang.eq_ignore_ascii_case("html"),
+                ("<script", Some(lang)) => lang.eq_ignore_ascii_case("tsx") || lang.eq_ignore_ascii_case("jsx"),
+                _ => false,
+            }
+        })
+    })
+}
+
+/// The value of the `lang` attribute among a tag's `attributes`.
+fn lang_of(attributes: &str) -> Option<&str> {
+    attributes.match_indices("lang").find_map(|(at, _)| {
+        let before = attributes[..at].chars().next_back();
+        if !before.is_some_and(char::is_whitespace) {
+            return None;
+        }
+        let value = attributes[at + "lang".len()..].trim_start().strip_prefix('=')?.trim_start();
+        let quote = value.chars().next().filter(|c| matches!(c, '"' | '\''))?;
+        value[1..].split(quote).next()
     })
 }
 
@@ -163,7 +209,27 @@ pub(crate) fn import(name: &str, specifier: &str, first: bool) -> Import {
 mod tests {
     use std::path::Path;
 
-    use super::{includes_more_than_vue, is_bundler_config, is_generated};
+    use super::{has_untagged_block, includes_more_than_vue, is_bundler_config, is_generated};
+
+    #[test]
+    fn templates_in_other_languages_and_jsx_scripts_are_untagged_blocks() {
+        for untagged in [
+            "<template lang=\"pug\">\n  PugCard(:x=\"x\")\n</template>\n",
+            "<template lang='jade'>\n  a\n</template>\n",
+            "<script setup lang=\"tsx\">\nconst r = () => <InTemplateString />;\n</script>\n",
+            "<script lang = \"jsx\">\nexport default { render: () => <A /> };\n</script>\n",
+        ] {
+            assert!(has_untagged_block(untagged), "{untagged}");
+        }
+        for tagged in [
+            "<template>\n  <AppButton />\n</template>\n<script setup lang=\"ts\">\nconst a = 1;\n</script>\n",
+            "<template lang=\"html\">\n  <AppButton />\n</template>\n",
+            "<template>\n  <template v-if=\"x\"><slang /></template>\n</template>\n",
+            "<script setup>\nconst a = 1;\n</script>\n<templates lang=\"pug\"></templates>\n",
+        ] {
+            assert!(!has_untagged_block(tagged), "{tagged}");
+        }
+    }
 
     #[test]
     fn generated_declarations_are_recognised_by_their_header() {

@@ -1,7 +1,8 @@
 //! The JS provider (module graph plus every JS rule) over a generated TypeScript workspace held in a [`MemoryFs`].
 //!
 //! Each package has `files` modules chained by imports from an `index.ts` entry, an external dependency, an unused
-//! dependency and one unused export per module, so every rule has something to find.
+//! dependency and one unused export per module, so every rule has something to find. The `config_references` group
+//! has every package extend one base `tsconfig` that names packages, below a long `.gitignore`.
 
 #![allow(clippy::expect_used)]
 
@@ -13,7 +14,7 @@ use std::sync::Arc;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use skif_config::Config;
 use skif_core::MemoryFs;
-use skif_js::JsProvider;
+use skif_js::{JsProvider, PluginSource};
 use skif_lint::{Registry, RunOptions, run_unsorted};
 use skif_workspace::Workspace;
 
@@ -94,5 +95,54 @@ fn bench_analysis(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_analysis);
+const BASE_TYPES: usize = 12;
+const GITIGNORE_LINES: usize = 2_000;
+
+fn shared_base_fs(packages: usize) -> MemoryFs {
+    let types: Vec<String> = (0..BASE_TYPES).map(|i| format!("\"@bench/t{i}\"")).collect();
+    let gitignore: String = (0..GITIGNORE_LINES).map(|i| format!("generated-{i}/\n")).collect();
+    let mut fs = MemoryFs::new()
+        .with_file(
+            format!("{ROOT}/package.json"),
+            "{\"name\": \"root\", \"private\": true, \"workspaces\": [\"packages/*\"]}",
+        )
+        .with_file(format!("{ROOT}/.gitignore"), gitignore)
+        .with_file(
+            format!("{ROOT}/tsconfig.base.json"),
+            format!("{{\"compilerOptions\": {{\"types\": [{}]}}}}", types.join(", ")),
+        );
+    for package in 0..packages {
+        let dir = format!("{ROOT}/packages/p{package}");
+        fs.insert(
+            format!("{dir}/package.json"),
+            format!("{{\"name\": \"@bench/p{package}\", \"private\": true, \"main\": \"src/index.ts\"}}"),
+        );
+        fs.insert(format!("{dir}/tsconfig.json"), "{\"extends\": \"../../tsconfig.base.json\"}");
+        fs.insert(format!("{dir}/src/index.ts"), "export const run = (): number => 1;\n");
+    }
+    fs
+}
+
+fn bench_config_references(c: &mut Criterion) {
+    let config = Config::default();
+    let mut group = c.benchmark_group("config_references");
+    for packages in [50, 200] {
+        let fs = shared_base_fs(packages);
+        let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &fs).expect("workspace discovers");
+        let provider = JsProvider::new(Arc::new(fs))
+            .with_input_source(Arc::new(PluginSource::new(config.js.plugins.clone())));
+        let registry = Registry::new(vec![Box::new(provider)]).expect("the JS provider registers");
+        group.throughput(Throughput::Elements(packages as u64));
+        group.sample_size(10);
+        group.bench_function(BenchmarkId::new("packages", packages), |b| {
+            b.iter(|| {
+                run_unsorted(&registry, black_box(&workspace), &config, &RunOptions::default())
+                    .expect("the JS run succeeds")
+            });
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(benches, bench_analysis, bench_config_references);
 criterion_main!(benches);

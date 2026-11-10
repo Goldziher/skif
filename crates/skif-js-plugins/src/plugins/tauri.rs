@@ -20,6 +20,7 @@ static SPEC: PluginSpec = PluginSpec {
         "tauri.conf.{json,json5}",
     ],
     binaries: &["tauri"],
+    optional_binaries: true,
     ..PluginSpec::DEFAULT
 };
 

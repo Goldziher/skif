@@ -436,3 +436,61 @@ fn a_marker_only_package_json_does_not_make_a_project_of_files_outside_the_sourc
         ["tools/gen/run.ts: vinyl"]
     );
 }
+
+/// The modules an extensionless mise file task run by `node` loads are used.
+#[test]
+fn modules_an_extensionless_node_mise_task_loads_are_used() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"main":"src/index.js"}"#,
+        ),
+        ("mise.toml", "[tools]\nnode = \"22\"\n"),
+        ("mise-tasks/gen", "#!/usr/bin/env node\nrequire(\"../src/t\");\n"),
+        ("src/index.js", "export const a = 1;\n"),
+        ("src/t.js", "console.log(1);\n"),
+        ("src/unused.js", "console.log(2);\n"),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-files"), ["src/unused.js: src/unused.js"]);
+}
+
+/// The pages of a Vite 8 `build.rolldownOptions.input` are entries, so the scripts they load and the packages those
+/// import are used; a computed input leaves the package's entries incomplete.
+#[test]
+fn vite_rolldown_inputs_are_entries() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","private":true,"type":"module","dependencies":{"luxon":"3.0.0"},"devDependencies":{"vite":"8.0.0"}}"#,
+    );
+    let page = (
+        "admin.html",
+        r#"<html><body><script type="module" src="/src/admin/index.js"></script></body></html>"#,
+    );
+    let script = (
+        "src/admin/index.js",
+        "import { DateTime } from 'luxon';\nconsole.log(DateTime.now());\n",
+    );
+    let diagnostics = lint(&[
+        manifest,
+        (
+            "vite.config.js",
+            r#"export default { build: { rolldownOptions: { input: { admin: "admin.html" } } } };"#,
+        ),
+        page,
+        script,
+    ]);
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none());
+    assert_eq!(found(&diagnostics, "unused-files"), none());
+
+    let computed = lint(&[
+        manifest,
+        (
+            "vite.config.js",
+            "import path from 'node:path';\nexport default { build: { rolldownOptions: { input: Object.fromEntries(globalThis.PAGES.map((p) => [p, path.resolve(__dirname, `${p}.html`)])) } } };\n",
+        ),
+        page,
+        script,
+        ("src/other.js", "console.log(1);\n"),
+    ]);
+    assert_eq!(found(&computed, "unused-files"), none(), "a computed input hides entries");
+}

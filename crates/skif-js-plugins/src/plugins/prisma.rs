@@ -2,7 +2,9 @@
 //!
 //! A `generator` block's `provider` names the package that generates code (`prisma-kysely`, `zod-prisma-types`), a
 //! command (`node ./gen.js`) or a path relative to the schema file. The built-in `prisma-client-js` and
-//! `prisma-client` providers name no package, and as for knip a block whose name starts with `client` is not read.
+//! `prisma-client` providers name no package, nor do the Python and Go clients (`prisma-client-py`,
+//! `prisma-client-go`), which are installed outside npm, and as for knip a block whose name starts with `client` is
+//! not read.
 
 use skif_js_syntax::ConfigValue;
 
@@ -135,11 +137,15 @@ fn find_unquoted(line: &str, needle: &str) -> Option<usize> {
     None
 }
 
+/// Providers that name no npm package: Prisma's built-in clients, and the Python and Go clients, which pip and Go
+/// install.
+const NO_PACKAGE_PROVIDERS: &[&str] = &["prisma-client", "prisma-client-js", "prisma-client-py", "prisma-client-go"];
+
 /// A provider of the schema `file` as an input: a relative path is an entry next to the schema, a command is a script
 /// and a bare name is a package the schema names.
 fn provider_input(file: &str, provider: &str) -> Option<PluginInput> {
     let dir = file.rsplit_once('/').map_or("", |(dir, _)| dir);
-    if provider.is_empty() || matches!(provider, "prisma-client-js" | "prisma-client") {
+    if provider.is_empty() || NO_PACKAGE_PROVIDERS.contains(&provider) {
         return None;
     }
     if provider.contains(char::is_whitespace) {
