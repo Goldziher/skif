@@ -398,7 +398,11 @@ fn package_manager_precedence() {
         "",
         "[install\n",
     ] {
-        assert_eq!(ws(plain, &[("bunfig.toml", runtime_only)], &config), None, "{runtime_only:?}");
+        assert_eq!(
+            ws(plain, &[("bunfig.toml", runtime_only)], &config),
+            None,
+            "{runtime_only:?}"
+        );
     }
     assert_eq!(
         ws(plain, &[bunfig, ("package-lock.json", "")], &config),
