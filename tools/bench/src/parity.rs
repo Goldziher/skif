@@ -1735,14 +1735,15 @@ pub fn run(options: &Options) -> Result<()> {
             options.skif.display()
         )
     })?;
-    let (tools, repos) = corpus::fetch_suite(&options.corpus_file, "parity", &options.only, &options.corpus_dir)?;
+    let suite = corpus::fetch_suite(&options.corpus_file, "parity", &options.only, &options.corpus_dir)?;
+    let tools = &suite.tools;
     let tool = format!("knip@{}", tools.knip);
     let skif_rev = provenance::source_rev();
     let mut entries = BTreeMap::new();
     let mut details = serde_json::Map::new();
-    for (repo, dir) in &repos {
+    for (repo, dir) in &suite.repos {
         eprintln!("parity: {}", repo.name);
-        let outcome = parity_repo(options, &skif, &tools, repo, dir, &skif_rev)?;
+        let outcome = parity_repo(options, &skif, tools, repo, dir, &skif_rev)?;
         if let Some(reason) = &outcome.entry.reason {
             eprintln!("parity: {} skipped: {reason}", repo.name);
         }

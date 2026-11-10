@@ -71,6 +71,11 @@ cargo run --release -p skif-bench -- syncpack-diff [--skif PATH] [--only NAME,..
 cargo run --release -p skif-bench -- deadcode [--skif PATH] [--packages 5] [--seed 1] [--knip] [--json] [--out target/bench-deadcode] [--force]
 ```
 
+`corpus fetch`, `run`, `parity` and `syncpack-diff` lock each corpus checkout (`<dir>/<name>.lock`, the operating
+system's file lock, holding the process id) from the fetch to the end of their pass over it, so two runs never
+install into, write into or time the same checkout at once: a second run stops at once and names the lock file and
+the process that holds it. A run that dies releases its locks with the process, so there is no stale lock to remove.
+
 `generate` is deterministic for a seed: the same options produce byte-identical files. It writes a root
 `package.json`, a lockfile stub (and `pnpm-workspace.yaml` for pnpm) so package manager detection works, and
 packages under `apps/*`, `packages/*` and `packages/group/*`. Dependencies are drawn from a fixed pool of about 320

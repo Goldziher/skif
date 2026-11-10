@@ -748,34 +748,39 @@ pub fn run(options: &RunOptions) -> Result<()> {
     if options.graph_files > 0 {
         targets.push(graph_target(options)?);
     }
-    if options.use_corpus {
-        let (_, repos) = corpus::fetch_suite(&options.corpus_file, "bench", &[], &options.corpus_dir)?;
-        for (repo, dir) in repos {
+    // The corpus checkouts stay locked until every target is measured.
+    let suite = if options.use_corpus {
+        Some(corpus::fetch_suite(&options.corpus_file, "bench", &[], &options.corpus_dir)?)
+    } else {
+        None
+    };
+    if let Some(suite) = &suite {
+        for (repo, dir) in &suite.repos {
             let mut tools = vec![Tool::Skif, Tool::SkifManifest];
             tools.extend(comparison.iter().copied());
             // knip loads the configurations of the repository's tools, which import its own packages: without an
             // install it fails on them and the time is that of a partial run.
             if options.install && tools.contains(&Tool::Knip) {
                 let scratch = options.generated_dir.join("install").join(&repo.name);
-                if let Some(reason) = parity::install(&repo, &fs::canonicalize(&dir)?, &scratch, INSTALL_TIMEOUT)? {
+                if let Some(reason) = parity::install(repo, &fs::canonicalize(dir)?, &scratch, INSTALL_TIMEOUT)? {
                     eprintln!("bench: {} not installed ({reason}), knip is not timed there", repo.name);
                     tools.retain(|tool| *tool != Tool::Knip);
                     skipped.push(Skipped {
                         tool: Tool::Knip.label().to_owned(),
-                        target: Some(corpus_target_name(&repo)),
+                        target: Some(corpus_target_name(repo)),
                         reason: format!("the install failed: {reason}"),
                     });
                 }
             }
             targets.push(Target {
-                name: corpus_target_name(&repo),
+                name: corpus_target_name(repo),
                 kind: "corpus",
                 packages: None,
                 files: None,
-                dir: fs::canonicalize(&dir)?,
+                dir: fs::canonicalize(dir)?,
                 tools,
                 knip_args: repo.bench_knip_args.clone(),
-                skif_args: corpus_skif_args(&repo),
+                skif_args: corpus_skif_args(repo),
             });
         }
     }

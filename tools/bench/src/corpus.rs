@@ -1,6 +1,7 @@
 //! The pinned corpus: real monorepos fetched at fixed commits.
 
-use std::fs;
+use std::fs::{self, File, OpenOptions, TryLockError};
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -214,23 +215,90 @@ pub fn fetch_repo(repo: &Repo, cache: &Path) -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Fetches the repositories of one suite, optionally narrowed to the named ones.
+/// An exclusive lock on one checkout of the corpus, released when it is dropped or the process ends. A command holds
+/// it from the fetch to the end of its pass over the repository, so two runs never install into, write a scratch
+/// root manifest into or time the same checkout at once. The lock is the operating system's file lock on
+/// [`lock_path`], so a run that dies leaves no stale lock; the file holds the process id of the holder for the error
+/// message and is left in place.
+#[derive(Debug)]
+pub struct CheckoutLock {
+    _file: File,
+}
+
+/// The lock file of the checkout `dir`: `<name>.lock` beside it, outside the checkout, so no tool reads it.
+#[must_use]
+pub fn lock_path(dir: &Path) -> PathBuf {
+    let mut name = dir.file_name().map(std::ffi::OsStr::to_os_string).unwrap_or_default();
+    name.push(".lock");
+    dir.with_file_name(name)
+}
+
+/// Takes the lock of the checkout `dir`, or fails at once when another process holds it.
 ///
 /// # Errors
-/// Fails on the first repository that cannot be fetched.
-pub fn fetch_suite(
-    manifest: &Path,
-    suite: &str,
-    only: &[String],
-    cache: &Path,
-) -> Result<(Tools, Vec<(Repo, PathBuf)>)> {
+/// Fails when another process holds the lock, naming its process id when the lock file says it, or when the lock
+/// file cannot be opened, locked or written.
+pub fn lock_checkout(dir: &Path) -> Result<CheckoutLock> {
+    let path = lock_path(dir);
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+        .with_context(|| format!("opening the lock file {}", path.display()))?;
+    match file.try_lock() {
+        Ok(()) => {}
+        Err(TryLockError::WouldBlock) => {
+            let holder = fs::read_to_string(&path)
+                .ok()
+                .map(|text| text.trim().to_owned())
+                .filter(|pid| !pid.is_empty())
+                .map_or_else(|| "another process".to_owned(), |pid| format!("process {pid}"));
+            bail!(
+                "{} is in use by {holder} (lock file {}): wait for that skif-bench run to finish",
+                dir.display(),
+                path.display()
+            );
+        }
+        Err(TryLockError::Error(error)) => {
+            return Err(error).with_context(|| format!("locking {}", path.display()));
+        }
+    }
+    file.set_len(0)
+        .and_then(|()| write!(file, "{}", std::process::id()))
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(CheckoutLock { _file: file })
+}
+
+/// The checkouts of one suite at their pinned commits, each locked ([`CheckoutLock`]) for as long as this value lives:
+/// keep it until the pass over the repositories is done.
+#[derive(Debug)]
+pub struct Suite {
+    pub tools: Tools,
+    pub repos: Vec<(Repo, PathBuf)>,
+    _locks: Vec<CheckoutLock>,
+}
+
+/// Locks and fetches the repositories of one suite, optionally narrowed to the named ones.
+///
+/// # Errors
+/// Fails on the first repository whose checkout another run holds or that cannot be fetched.
+pub fn fetch_suite(manifest: &Path, suite: &str, only: &[String], cache: &Path) -> Result<Suite> {
     fs::create_dir_all(cache).with_context(|| format!("creating {}", cache.display()))?;
-    let (tools, repos) = select(manifest, suite, only)?;
-    let fetched = repos
-        .into_iter()
-        .map(|repo| fetch_repo(&repo, cache).map(|dir| (repo, dir)))
-        .collect::<Result<Vec<_>>>()?;
-    Ok((tools, fetched))
+    let (tools, selected) = select(manifest, suite, only)?;
+    let mut repos = Vec::with_capacity(selected.len());
+    let mut locks = Vec::with_capacity(selected.len());
+    for repo in selected {
+        locks.push(lock_checkout(&cache.join(&repo.name))?);
+        let dir = fetch_repo(&repo, cache)?;
+        repos.push((repo, dir));
+    }
+    Ok(Suite {
+        tools,
+        repos,
+        _locks: locks,
+    })
 }
 
 #[cfg(test)]
@@ -349,6 +417,30 @@ mod tests {
         remove_scratch_root(&dir).unwrap();
         assert!(manifest.exists());
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_checkout_another_run_holds_fails_at_once_and_frees_when_released() {
+        let cache = std::env::temp_dir().join(format!("skif-bench-lock-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&cache);
+        fs::create_dir_all(&cache).unwrap();
+        let dir = cache.join("jest");
+        assert_eq!(lock_path(&dir), cache.join("jest.lock"));
+        let held = lock_checkout(&dir).unwrap();
+        assert_eq!(
+            fs::read_to_string(lock_path(&dir)).unwrap(),
+            std::process::id().to_string()
+        );
+        let error = lock_checkout(&dir).unwrap_err().to_string();
+        assert!(error.contains("is in use by"), "{error}");
+        assert!(error.contains("jest.lock"), "{error}");
+        #[cfg(unix)]
+        assert!(error.contains(&format!("process {}", std::process::id())), "{error}");
+        drop(held);
+        let again = lock_checkout(&dir);
+        assert!(again.is_ok(), "a released lock is free: {again:?}");
+        drop(again);
+        fs::remove_dir_all(&cache).unwrap();
     }
 
     #[test]
