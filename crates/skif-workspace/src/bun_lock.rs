@@ -166,8 +166,14 @@ mod tests {
             lock.packages.iter().map(String::as_str).collect::<Vec<_>>(),
             ["@scope/tool@1.0.0", "ms@2.1.2", "ms@2.1.3"]
         );
-        assert_eq!(lock.versions_of("ms").into_iter().collect::<Vec<_>>(), ["2.1.2", "2.1.3"]);
-        assert_eq!(lock.versions_of("@scope/tool").into_iter().collect::<Vec<_>>(), ["1.0.0"]);
+        assert_eq!(
+            lock.versions_of("ms").into_iter().collect::<Vec<_>>(),
+            ["2.1.2", "2.1.3"]
+        );
+        assert_eq!(
+            lock.versions_of("@scope/tool").into_iter().collect::<Vec<_>>(),
+            ["1.0.0"]
+        );
         assert_eq!(
             lock.patched_dependencies,
             BTreeMap::from([("ms@2.1.2".to_owned(), "patches/ms@2.1.2.patch".to_owned())])
@@ -195,6 +201,13 @@ mod tests {
         let fs = skif_core::MemoryFs::new();
         assert_eq!(BunLockfile::read(&fs, Path::new("/r")).unwrap(), None);
         let fs = skif_core::MemoryFs::new().with_file("/r/bun.lock", LOCK);
-        assert_eq!(BunLockfile::read(&fs, Path::new("/r")).unwrap().unwrap().patched_dependencies.len(), 1);
+        assert_eq!(
+            BunLockfile::read(&fs, Path::new("/r"))
+                .unwrap()
+                .unwrap()
+                .patched_dependencies
+                .len(),
+            1
+        );
     }
 }

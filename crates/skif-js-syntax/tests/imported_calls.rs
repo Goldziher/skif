@@ -92,7 +92,10 @@ fn a_global_module_object_calls_its_exports() {
     "#;
     let found = calls(source, &["bun"], &[("Bun.*", "bun")]);
     let summary: Vec<(&str, &str)> = found.iter().map(|c| (c.module.as_str(), c.export.as_str())).collect();
-    assert_eq!(summary, [("bun", "build"), ("bun", "$"), ("bun", "$"), ("bun", "spawn")]);
+    assert_eq!(
+        summary,
+        [("bun", "build"), ("bun", "$"), ("bun", "$"), ("bun", "spawn")]
+    );
     assert_eq!(
         found[0].arguments,
         [ConfigValue::Object(vec![(

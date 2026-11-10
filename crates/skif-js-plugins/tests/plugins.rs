@@ -3183,7 +3183,10 @@ fn bun_reads_the_commands_and_entry_points_source_files_hand_to_its_api() {
             await $`changeset publish`;
             await build({ entrypoints: ["./src/server.ts"] });"#,
         ),
-        ("scripts/other.ts", r#"esbuild.build({ entryPoints: ["src/ignored.ts"] }); $`not-bun`;"#),
+        (
+            "scripts/other.ts",
+            r#"esbuild.build({ entryPoints: ["src/ignored.ts"] }); $`not-bun`;"#,
+        ),
     ];
     let results = resolve(&files, &["@types/bun"]);
     let out = output(&results, "bun");

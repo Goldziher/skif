@@ -729,7 +729,10 @@ snapshots:
             "skif reads `bun.lock` only; the binary `bun.lockb` is not checked for the `patchedDependencies` entries"
         );
         assert_eq!(reported.location.path, Path::new("bun.lockb"));
-        let broken = bun_stale(r#""ms@2.1.2":"patches/ms@2.1.2.patch""#, &[("bun.lock", "{ \"packages\": ")]);
+        let broken = bun_stale(
+            r#""ms@2.1.2":"patches/ms@2.1.2.patch""#,
+            &[("bun.lock", "{ \"packages\": ")],
+        );
         assert!(
             broken
                 .iter()

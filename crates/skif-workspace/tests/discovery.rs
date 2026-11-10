@@ -89,7 +89,10 @@ fn bun_selects_the_members_bun_install_links_and_reads_the_workspaces_catalogs()
     assert_eq!(workspace.facts.source, WorkspaceSource::YarnNohoistWorkspaces);
     assert_eq!(dirs(&workspace), ["packages/a", "packages/literal"]);
     assert_eq!(workspace.catalogs.resolve("ms", "catalog:"), Some("^2.1.3"));
-    assert_eq!(workspace.catalogs.resolve("picocolors", "catalog:testing"), Some("^1.1.1"));
+    assert_eq!(
+        workspace.catalogs.resolve("picocolors", "catalog:testing"),
+        Some("^1.1.1")
+    );
 }
 
 #[test]
