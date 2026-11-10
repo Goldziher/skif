@@ -7,8 +7,8 @@ The oxc boundary of [skif](https://github.com/Goldziher/skif): one JavaScript or
   custom element registrations), in-file references to exports, and CommonJS/JSX/directive hints.
 - `extract_config_object` statically evaluates the object a tool config file exports; `extract_config_object_with`
   also follows the modules it imports through a `ModuleLoader`. `extract_config` returns an `ExtractedConfig`, the
-  value with, when that is unknown because the file exports a call the evaluator cannot follow (a factory of an
-  installed package), the evaluated arguments of that call; the loader is optional. Nothing is ever executed.
+  value with the evaluated arguments of the calls the evaluator cannot follow (a factory of an installed package) that
+  the file exports, returns from its config function or merges; the loader is optional. Nothing is ever executed.
 - `parse_cached` parses through a `ModuleCache` (`MemoryModuleCache` in memory) under a `ModuleKey` of the file name,
   its text, the parse options and the crate version, so an unchanged file is not parsed again.
 
