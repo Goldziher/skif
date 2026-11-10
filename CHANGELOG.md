@@ -126,8 +126,9 @@ All notable changes to this project are documented here. The format follows
   below a build directory and without an extension to their sources in `published-source`, a path without `*` to the
   first existing source only, as skif does. rushstack is installed with `install-run-rush.js`, and
   knip runs in its checkout with the scratch root manifest there only while knip runs, so it reads the installed
-  `node_modules`. A corpus `build-command` runs after the install (n8n builds its `@n8n/*-config` packages and
-  `@n8n/constants`) and the install marker records the install and build commands; `corpus fetch`, `run`, `parity`
+  `node_modules`. A corpus `build-command` runs after the install within its own `build-timeout-secs` (n8n builds its
+  `@n8n/*-config` packages and `@n8n/constants`), the install marker records the install and build commands, and a
+  failed install or build no longer skips the repository: it is compared uninstalled with the failure recorded; `corpus fetch`, `run`, `parity`
   and `syncpack-diff` lock each checkout for their whole pass over it and fail at once when another run holds it; the
   parity and syncpack runs capture skif's output under their own names in the scratch directory, and `bench:publish`
   writes skip reasons as code spans with whitespace collapsed (an empty one as `(empty)`), so `summary.md` passes

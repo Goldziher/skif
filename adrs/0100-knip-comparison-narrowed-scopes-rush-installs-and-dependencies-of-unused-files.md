@@ -65,8 +65,11 @@ fetched, and the harness refuses to replace a root manifest without the mark. A 
 a Rush root that lies in no package is the `rush-root-file` known deviation.
 
 **Install and build commands.** A corpus repository may set `build-command` (program first), run in the checkout
-after a successful install and before the install counts as done; a failed or timed-out build skips the repository
-with the reason, as a failed install does. n8n builds `@n8n/oxlint-config`, `@n8n/vitest-config`,
+after a successful install, within `build-timeout-secs` (the install's time limit when unset), and before the install
+counts as done. A failed or timed-out install or build does not skip the repository: both tools run on what the
+checkout holds, which counts as not installed, and `parity.json` records the failure under `install_failure`. A
+repository with `knip-invalid` keeps its mark, and `--check` rejects an entry recorded installed, so the comparison
+stays visible without passing for an installed one. n8n builds `@n8n/oxlint-config`, `@n8n/vitest-config`,
 `@n8n/eslint-config`, `@n8n/stylelint-config` and `@n8n/constants` with the workspace packages each depends on. The
 install marker holds the pinned commit and, when the repository sets them, its `install-command` and `build-command`,
 so a checkout installed with other commands is installed again. n8n keeps its `knip-invalid` mark until a parity run
@@ -138,9 +141,11 @@ then `knip-config-error`.
 
 * The harness unit tests in `tools/bench` set apart a knip-only file inside a narrowed scope and keep one outside it
   compared, treat dependencies as unjudged in any listed package, classify every in-file category below a non-member
-  project, a dependency only a file one tool alone calls unused imports (on either side), a Rush root file and the sources of build-directory and
-  extensionless published paths, and write and remove the Rush scratch root manifest; they record the install and
-  build commands in the install marker and refuse a checkout whose lock another holder has, until it is released.
+  project, a dependency only a file one tool alone calls unused imports (on either side), a Rush root file and the
+  sources of build-directory and extensionless published paths, find the owning package above a marker-only
+  manifest, and write and remove the Rush scratch root manifest; they record the install and build commands in the
+  install marker, run the build within its own time limit and write no marker after a failed one, and refuse a
+  checkout whose lock another holder has, until it is released.
 * `adrlint lint adrs`, `adrlint format --check adrs` and `adrlint lock --check` pass.
 
 ## Pros and Cons of the Options

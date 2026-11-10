@@ -119,10 +119,11 @@ corpus repositories and are never committed.
 **Dependencies.** knip resolves imports and detects used binaries through `node_modules`, and without them reports
 nearly every import as unresolved or unlisted. `--install` installs each repository first with its package manager and
 `--ignore-scripts` (`pnpm install --frozen-lockfile`, `yarn install --immutable --mode=skip-build` or
-`--frozen-lockfile`, `npm ci`, `bun install --frozen-lockfile`); the installed state is cached in the checkout. A
-repository is skipped, with the reason in the report, when its package manager is not on `PATH`, the install fails or
-times out, skif fails, or knip prints no JSON; the reason names the first error line the install printed, on stderr
-or stdout, or knip's error. A repository with `install = false` in `corpus.toml` is compared uninstalled, so the
+`--frozen-lockfile`, `npm ci`, `bun install --frozen-lockfile`); the installed state is cached in the checkout. When
+the package manager is not on `PATH` or the install or build fails or times out, the repository is still compared on
+what its checkout holds, which counts as not installed, and `parity.json` records why under `install_failure`: the
+first error line the step printed, on stderr or stdout, or its time limit. `--check` then rejects the entry if it was
+recorded installed. A repository is skipped, with the reason in the report, when skif fails or knip prints no JSON. A repository with `install = false` in `corpus.toml` is compared uninstalled, so the
 tools say themselves whether they can run there. rushstack installs with `node common/scripts/install-run-rush.js
 install --bypass-policy`, which links each project's `node_modules`. knip has no Rush support and stops with
 `Unable to find package.json` without a root manifest, so rushstack sets `knip-root = "rush"`: while knip runs, the
@@ -131,7 +132,8 @@ reads the installed `node_modules` and both reports share one root. The manifest
 after the knip run; one an interrupted run leaves behind is removed when the checkout is next fetched, so skif and the
 syncpack diff never read it. It makes the Rush root a workspace for knip, which skif does not analyse, so knip's
 findings in root files outside every project (`.prettierrc.js`, `common/scripts`) are the `rush-root-file` known
-deviation. A repository may set `build-command` (program first) in `corpus.toml`, run after a successful install:
+deviation. A repository may set `build-command` (program first) in `corpus.toml`, run after a successful install within
+`build-timeout-secs` (the install's time limit when unset):
 n8n builds the `@n8n/*-config` packages and `@n8n/constants` with their workspace dependencies, whose built `dist`
 its tool configurations import. The install marker records the install and build commands, so a checkout installed
 with other commands is installed again. Without `--install` the run is quick but dominated by knip's unresolved and unlisted imports of the
