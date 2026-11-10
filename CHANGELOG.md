@@ -26,11 +26,30 @@ All notable changes to this project are documented here. The format follows
   commands (`npm view`, `npm whoami`), a global install of the workspace's own manager and files of projects outside
   the workspace are not; the same options and suppression comments as `toolchain-pin-drift` apply
   ([ADR 0088](adrs/0088-foreign-package-manager-commands.md), [#139](https://github.com/Goldziher/skif/issues/139)).
-- `skif_rules::toolchain_provider(fs)` provides the rules over toolchain files, which read through a `FileSystem`;
-  `skif::builtin_providers` registers it with the manifest rules.
+- `invalid-workspace-file` (`error`): a member `package.json` that is not valid JSON or cannot be read, a workspace
+  pattern that cannot be used and a `.yarnrc.yml` that is not valid YAML are reported, at the syntax error or the
+  pattern. Discovery left them out of the run without a word, so a workspace with a broken member passed
+  ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
+- `incomplete-packages[]` entries of the JSON report carry a `scope`: `"package"` when no file of the package was
+  judged unused, or `{"within": [globs]}` with the globs, relative to its `dir`, of the only files left unjudged
+  ([ADR 0065](adrs/0065-narrowed-scope-for-incomplete-entries.md)); the human note names the globs after the package.
+  `skif_core::IncompletePackage` gains the `scope` field and `with_scope`, and `IncompleteScope` moved from
+  `skif-js` to `skif-core` (`skif_js::IncompleteScope` re-exports it).
+- `skif_rules::toolchain_provider()` provides the rules over toolchain files, and `skif_rules::providers()` includes
+  it. The rules read those files through `LintContext::fs`, the file system the run is given
+  (`skif_lint::RunOptions::with_fs`), as the rules over a lockfile and patch files do
+  ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
 
 ### Changed
 
+- `[js] discovery = "auto"`, the default, walks the directories instead of listing tracked directories from the git
+  index. The index cannot tell whether an unchanged directory holds an untracked file created before the index was
+  last written (a `git add` or `git commit` of another file does that), and such a file, an entry or the only importer
+  of another file, then went missing: false `unused-exports` and `unused-files`, and a `--fix --allow-remove-files`
+  that deleted a tracked file only it used. `discovery = "git"` now does what `auto` did (the index, with every
+  directory modified since it was written listed from disk) instead of trusting the index alone, and its
+  `unused-files` findings offer no fix that deletes the file
+  ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
 - The shell tokenizer of the `package.json` script parser moved from `skif-js-plugins` to `skif_core::shell`
   (`tokenize`, `Tokens`, `Segment`, `Word`), so rules outside the JS analysis split command lines with it.
 
@@ -153,6 +172,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The `version-mismatch` message for specifiers that are not all semver versions no longer says none of them is
+  semver: it reads "differs from the other specifiers, and not every one of them is a semver version to align on",
+  which also fits a semver specifier among them.
+- One `--fix` or `--fix-unsafe` run applies a value fix (`version-mismatch`, `semver-range-mismatch`,
+  `catalog-not-used`) in an object that `unsorted-dependencies` also sorts. The two were planned as overlapping edits,
+  so the value fix was skipped as a conflict and only a second run applied it; such fixes are now planned together
+  ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
+- A bare-major range such as `^2` or `~1` stands for the versions it covers: `"a": "^2"` on a workspace package at
+  `2.3.0` is valid, and `^2` overlaps `~2.1.0` in a `same-range` group. Before, the range was padded to
+  `^2.HUGE.HUGE`, as in syncpack, and accepted no version.
 - An enum or TypeScript namespace read through a namespace import (`ns.E.A`, `ns.E['A']`, the type `ns.E.A`), also
   through a named or `export * as` re-export, uses only the members read on it, so its other members are reported by
   `unused-enum-members` and `unused-namespace-members`. `ns.E` used as a whole still uses every member

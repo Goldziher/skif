@@ -19,13 +19,62 @@ pub struct IncompletePackage {
     pub dir: PathBuf,
     /// Why its entries are incomplete; never empty.
     pub reasons: Vec<IncompleteEntries>,
+    /// Which of its files are left unjudged: all of them, or only those the unknown entries can be.
+    #[serde(default)]
+    pub scope: IncompleteScope,
 }
 
 impl IncompletePackage {
-    /// A package named `name` in `dir` whose entries are incomplete for `reasons`.
+    /// A package named `name` in `dir` whose entries are incomplete for `reasons`, with no file judged.
     #[must_use]
     pub const fn new(name: String, dir: PathBuf, reasons: Vec<IncompleteEntries>) -> Self {
-        Self { name, dir, reasons }
+        Self {
+            name,
+            dir,
+            reasons,
+            scope: IncompleteScope::Package,
+        }
+    }
+
+    /// The package with its unjudged files narrowed to `scope`.
+    #[must_use]
+    pub fn with_scope(mut self, scope: IncompleteScope) -> Self {
+        self.scope = scope;
+        self
+    }
+}
+
+/// Where the unknown entries of a package can lie, and so which of its files are not judged unused (ADR 0065).
+///
+/// Serialized as `"package"` or `{"within": [globs]}`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum IncompleteScope {
+    /// Anywhere: no file of the package is judged unused.
+    #[default]
+    Package,
+    /// Only files matching these globs, relative to the package directory, may be unknown entries; they are treated
+    /// as entries and every other file is judged as usual.
+    Within(Vec<String>),
+}
+
+impl IncompleteScope {
+    /// The scope covering both `self` and `other`: the whole package when either is.
+    #[must_use]
+    pub fn union(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Within(mut globs), Self::Within(more)) => {
+                for glob in more {
+                    if !globs.contains(&glob) {
+                        globs.push(glob);
+                    }
+                }
+                Self::Within(globs)
+            }
+            _ => Self::Package,
+        }
     }
 }
 

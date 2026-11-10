@@ -2,8 +2,9 @@
 //! [`ToolchainPinDrift`] checks the Node and package-manager versions they pin against the root, and
 //! [`ForeignPackageManagerCommand`] the package managers their commands run.
 //!
-//! The rules share one scan of those files per run (see `scan`), read through the [`FileSystem`] the provider is
-//! built with, so they come in their own provider: [`toolchain_provider`]. Every file kind takes `#` comments, and
+//! The rules share one scan of those files per run (see `scan`), read through the run's
+//! [`FileSystem`](skif_core::FileSystem) ([`LintContext::fs`]), and come in their own provider, [`toolchain_provider`],
+//! which [`providers`](crate::providers) includes. Every file kind takes `#` comments, and
 //! `# skif-ignore-next-line <rule> -- <reason>` or `# skif-ignore-file <rule> -- <reason>` suppresses a finding
 //! there; the `ignore-files` option suppresses a whole file from the configuration.
 
@@ -16,9 +17,8 @@ mod scan;
 mod suppress;
 
 use std::ops::Range;
-use std::sync::Arc;
 
-use skif_core::{FileSystem, Related, RuleMeta, Severity, diagnostic};
+use skif_core::{Related, RuleMeta, Severity, diagnostic};
 use skif_lint::{Emitter, LintContext, Rule, RulesProvider};
 
 pub use foreign_command::ForeignPackageManagerCommand;
@@ -35,19 +35,16 @@ fn rule_ids() -> [&'static str; 2] {
     [pin_drift::META.id, foreign_command::META.id]
 }
 
-/// The toolchain rules reading through `fs`, in the order their diagnostics are merged.
+/// The toolchain rules, in the order their diagnostics are merged.
 #[must_use]
-pub fn rules(fs: Arc<dyn FileSystem>) -> Vec<Box<dyn Rule>> {
-    vec![
-        Box::new(ToolchainPinDrift::new(Arc::clone(&fs))),
-        Box::new(ForeignPackageManagerCommand::new(fs)),
-    ]
+pub fn rules() -> Vec<Box<dyn Rule>> {
+    vec![Box::new(ToolchainPinDrift), Box::new(ForeignPackageManagerCommand)]
 }
 
-/// The provider of the toolchain rules, with id `"toolchain"`, reading the files through `fs`.
+/// The provider of the toolchain rules, with id `"toolchain"`.
 #[must_use]
-pub fn toolchain_provider(fs: Arc<dyn FileSystem>) -> RulesProvider {
-    RulesProvider::new(PROVIDER_ID, rules(fs))
+pub fn toolchain_provider() -> RulesProvider {
+    RulesProvider::new(PROVIDER_ID, rules())
 }
 
 /// One finding in a toolchain file, before suppression comments are applied.

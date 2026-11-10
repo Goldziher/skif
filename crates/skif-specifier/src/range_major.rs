@@ -41,8 +41,9 @@ impl RangeMajor {
         let semver_range = SemverRange::parse(raw);
         let semver_number = strip_semver_range(raw).to_string();
         let node_version = Specifier::new_node_version(&format!("{semver_number}.{HUGE}.{HUGE}"))?;
-        let node_range =
-            Specifier::new_node_range(&format!("{}{}.{HUGE}.{HUGE}", semver_range.unwrap(), semver_number))?;
+        // The range comes from the raw text so `^2` covers `2.3.0`; only the
+        // ordering version is padded.
+        let node_range = Specifier::new_node_range(raw)?;
         Some(Self {
             raw: raw.to_string(),
             node_range,

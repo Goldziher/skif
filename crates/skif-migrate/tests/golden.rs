@@ -115,6 +115,10 @@ fn sherif_exact_profile_turns_off_everything_sherif_did_not_check() {
         "the two ignored sherif rules and the 36 other default rules"
     );
     assert!(!rules.contains_key("version-mismatch"), "the check sherif ran stays on");
+    assert!(
+        !rules.contains_key("invalid-workspace-file"),
+        "sherif stops on an invalid manifest, so the rule that reports one stays on"
+    );
     assert_eq!(rules["unused-files"].as_str(), Some("off"));
     assert_eq!(rules["unsorted-dependencies"].as_str(), Some("off"));
     assert_eq!(parsed["js"]["enabled"].as_bool(), Some(false));

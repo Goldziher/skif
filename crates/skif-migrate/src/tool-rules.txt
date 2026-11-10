@@ -1,5 +1,6 @@
 # Which skif rules the migrated tools run, beyond the rules sherif (rule-renames.txt) and knip (knip-types.txt) map.
-# Columns: skif rule id, `syncpack` or `none`, then the condition (syncpack) or the reason (none).
+# Columns: skif rule id, `syncpack`, `sherif` or `none`, then the condition (syncpack), `always` (sherif: a check it
+# runs under no rule name, such as stopping on an invalid manifest) or the reason (none).
 # syncpack conditions: `always`; `catalog-policy` (a version group with `policy: catalog`);
 # `sort-az` (`sortAz` names a dependency map); `format` (a format key is set or a script runs `syncpack format`).
 # A rule that no table covers must have a `none` row.
@@ -25,5 +26,6 @@ stale-mocks none knip does not read the specifiers of test-runner mocks
 stale-patched-dependencies none no tool checks patchedDependencies against the lockfile and the patch files
 stray-lockfile none no tool reports a lockfile other than the root one
 nested-workspace-root none no tool reports a pnpm-workspace.yaml in a member
+invalid-workspace-file sherif always
 toolchain-pin-drift none no tool compares Node and package-manager pins outside package.json with the root
 foreign-package-manager-command none no tool reads package-manager commands in Dockerfiles, CI or shell scripts

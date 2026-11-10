@@ -182,7 +182,8 @@ pub use skif_config::{
 pub use skif_config::{CustomStrategy, CustomType, DependencyType};
 pub use skif_core::{
     BufferFs, CachedFs, Category, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem, Fix, FixOp,
-    FixPreference, FixSafety, Fixability, IncompleteCause, IncompleteEntries, IncompletePackage, InsertPosition,
+    FixPreference, FixSafety, Fixability, IncompleteCause, IncompleteEntries, IncompletePackage, IncompleteScope,
+    InsertPosition,
     JsonAction, Location, MemoryFs, OsFs, PathKind, PathSeg, Related, Report, RuleId, RuleMeta, Severity, Span,
     Summary, TextEdit, YamlAction, diagnostic, slash,
 };

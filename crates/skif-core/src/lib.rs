@@ -61,7 +61,7 @@ pub use fix::{
     YamlAction, apply_text_edits,
 };
 pub use fs::{DirEntry, FileSystem, MemoryFs, OsFs, PathKind};
-pub use incomplete::{IncompleteCause, IncompleteEntries, IncompletePackage};
+pub use incomplete::{IncompleteCause, IncompleteEntries, IncompletePackage, IncompleteScope};
 pub use package_id::PackageId;
 pub use report::{Report, Summary};
 pub use rule::{Category, Fixability, InvalidRuleId, RuleId, RuleMeta, Severity};

@@ -67,6 +67,26 @@ fn issues_exit_one_in_both_formats() {
 }
 
 #[test]
+fn an_invalid_member_manifest_fails_the_run() {
+    let dir = fixture("clean");
+    let member = dir.path().join("packages").join("e");
+    fs::create_dir_all(&member).unwrap();
+    fs::write(member.join("package.json"), r#"{"name":"e", "version": "1.0.0",, }"#).unwrap();
+
+    let human = run(skif().arg(dir.path()));
+    assert_eq!(human.code, 1, "{}{}", human.stdout, human.stderr);
+    assert!(human.stdout.contains("invalid-workspace-file"), "{}", human.stdout);
+
+    let json = run(skif().args(["--format", "json"]).arg(dir.path()));
+    assert_eq!(json.code, 1, "{}{}", json.stdout, json.stderr);
+    let report = json.json();
+    assert_eq!(rule_ids(&report), BTreeSet::from(["invalid-workspace-file".to_owned()]));
+    let diagnostic = &report["diagnostics"][0];
+    assert_eq!(diagnostic["severity"], "error");
+    assert_eq!(diagnostic["location"]["path"], "packages/e/package.json");
+}
+
+#[test]
 fn a_directory_inside_the_workspace_lints_the_whole_workspace() {
     let dir = fixture("dirty");
     let inside = dir.path().join("packages").join("a");
@@ -1287,6 +1307,7 @@ fn json_names_the_packages_whose_files_and_dependencies_were_not_judged() {
                 { "cause": "unknown-spread", "plugin": "vite", "file": "packages/web/vite.config.ts" },
                 { "cause": "computed-entries", "plugin": "vite", "file": "packages/web/vite.config.ts" },
             ],
+            "scope": "package",
         }]),
         "{}",
         json.stdout
@@ -1342,11 +1363,13 @@ fn json_tells_a_package_without_entries_from_one_publishing_unmapped_output() {
                 "name": "lib",
                 "dir": "packages/lib",
                 "reasons": [{ "cause": "unmapped-published", "file": "packages/lib/package.json" }],
+                "scope": "package",
             },
             {
                 "name": "remote",
                 "dir": "packages/remote",
                 "reasons": [{ "cause": "no-entries", "file": "packages/remote/package.json" }],
+                "scope": "package",
             },
         ]),
         "{}",
@@ -1443,6 +1466,37 @@ fn fix_applies_compatible_version_alignments_and_leaves_the_rest() {
         "a safe fix survived --fix: {report}"
     );
     insta::assert_snapshot!("fix_align_json", redact(&result.stdout, dir.path()));
+}
+
+/// One `--fix` run applies both a version alignment and the sort of the object that holds it, so nothing fixable is
+/// left for a second run.
+#[test]
+fn one_fix_run_aligns_and_sorts_the_same_dependencies() {
+    let dir = fixture("clean");
+    let member = |name: &str| dir.path().join("packages").join(name).join("package.json");
+    fs::write(
+        member("a"),
+        "{\n  \"name\": \"@cli/a\",\n  \"version\": \"0.0.0\",\n  \"dependencies\": {\n    \"left-pad\": \"1.0.0\",\n    \"is-number\": \"7.0.0\"\n  }\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        member("b"),
+        "{\n  \"name\": \"@cli/b\",\n  \"version\": \"0.0.0\",\n  \"dependencies\": {\n    \"is-number\": \"7.0.0\",\n    \"left-pad\": \"1.3.0\"\n  }\n}\n",
+    )
+    .unwrap();
+    let result = run(skif()
+        .args(["--fix", "--no-install", "--format", "json"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    assert_eq!(
+        fs::read_to_string(member("a")).unwrap(),
+        "{\n  \"name\": \"@cli/a\",\n  \"version\": \"0.0.0\",\n  \"dependencies\": {\n    \"is-number\": \"7.0.0\",\n    \"left-pad\": \"1.3.0\"\n  }\n}\n"
+    );
+    assert_eq!(
+        fs::read_to_string(member("b")).unwrap(),
+        "{\n  \"name\": \"@cli/b\",\n  \"version\": \"0.0.0\",\n  \"dependencies\": {\n    \"is-number\": \"7.0.0\",\n    \"left-pad\": \"1.3.0\"\n  }\n}\n"
+    );
+    assert_eq!(result.json()["diagnostics"], serde_json::json!([]), "{}", result.stdout);
 }
 
 /// The files of `dir` that differ from the `autofix` fixture, with their new contents (`<deleted>` when gone), as

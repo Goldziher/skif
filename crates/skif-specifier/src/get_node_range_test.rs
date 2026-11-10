@@ -207,3 +207,29 @@ fn any_range_specifiers_share_one_parsed_range() {
         );
     }
 }
+
+#[test]
+fn bare_major_ranges_cover_the_versions_of_their_major() {
+    let cases = [
+        ("^2", "2.3.0", true),
+        ("^2", "2.0.0", true),
+        ("^2", "3.0.0", false),
+        ("~1", "1.4.2", true),
+        ("~1", "2.0.0", false),
+        (">=1", "1.0.0", true),
+        ("<1", "1.2.0", false),
+        ("<1", "0.9.0", true),
+    ];
+
+    for (value, version, expected) in cases {
+        let spec = Specifier::new(value);
+        assert!(matches!(&*spec, Specifier::RangeMajor(_)), "got {spec:?}");
+        let range = spec.get_node_range().expect("a bare-major range has a node range");
+        let version = Specifier::new_node_version(version).expect("valid version");
+        assert_eq!(
+            range.satisfies(&version),
+            expected,
+            "`{value}` satisfies `{version}` should be {expected}"
+        );
+    }
+}

@@ -514,6 +514,41 @@ fn an_out_of_range_text_edit_skips_only_that_fix() {
 }
 
 #[test]
+fn a_value_fix_and_a_sort_of_the_same_object_both_apply() {
+    let manifest = "{\n  \"name\": \"a\",\n  \"dependencies\": {\n    \"zod\": \"^3.0.0\",\n    \"lodash\": \"^4.17.20\"\n  }\n}\n";
+    let fs = fs().with_file("/ws/package.json", manifest);
+    let workspace = workspace(&fs);
+    let dependencies = || vec![PathSeg::Key("dependencies".into())];
+    let set_lodash = fix(
+        "align lodash",
+        FixSafety::Safe,
+        vec![FixOp::json(
+            "package.json",
+            vec![PathSeg::Key("dependencies".into()), PathSeg::Key("lodash".into())],
+            JsonAction::Set(json!("^4.17.21")),
+        )],
+    );
+    let sort = fix(
+        "sort dependencies",
+        FixSafety::Safe,
+        vec![FixOp::json("package.json", dependencies(), JsonAction::SortKeys)],
+    );
+    let expected = "{\n  \"name\": \"a\",\n  \"dependencies\": {\n    \"lodash\": \"^4.17.21\",\n    \"zod\": \"^3.0.0\"\n  }\n}\n";
+    // The report orders diagnostics by rule id, so the names decide which fix is planned first; the overlap with
+    // the sort is what `overlapping_fix_is_skipped_and_the_earlier_one_wins` would skip.
+    for order in [
+        vec![("demo-a-sort", vec![sort.clone()]), ("demo-b-value", vec![set_lodash.clone()])],
+        vec![("demo-a-value", vec![set_lodash.clone()]), ("demo-b-sort", vec![sort.clone()])],
+    ] {
+        let report = report_of(order);
+        let plan = apply_fixes(&workspace, &report, &FixSelection::default(), &fs).unwrap();
+        assert_eq!(plan.applied.len(), 2, "{:?}", plan.skipped);
+        assert!(plan.skipped.is_empty(), "{:?}", plan.skipped);
+        assert_eq!(modified(&plan.changes, "package.json"), expected);
+    }
+}
+
+#[test]
 fn identical_operations_from_different_fixes_count_once() {
     let fs = fs();
     let workspace = workspace(&fs);

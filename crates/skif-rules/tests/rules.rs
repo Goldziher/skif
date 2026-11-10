@@ -11,7 +11,7 @@ use skif_lint::{Registry, RuleProvider, RunOptions, run};
 use skif_rules::{manifest_provider, policy_provider, providers};
 use skif_workspace::Workspace;
 
-const EXPECTED: [&str; 15] = [
+const EXPECTED: [&str; 16] = [
     "empty-dependencies",
     "root-package-private-field",
     "root-package-manager-field",
@@ -27,6 +27,7 @@ const EXPECTED: [&str; 15] = [
     "local-path-dependency",
     "package-json-format",
     "stale-patched-dependencies",
+    "invalid-workspace-file",
 ];
 
 /// The manifest rules only: the snapshot fixtures are not meant to exercise the policy rules.
@@ -51,7 +52,7 @@ fn provider_ids_and_rule_set_are_stable() {
     let all = providers();
     assert_eq!(
         all.iter().map(|provider| provider.id()).collect::<Vec<_>>(),
-        ["manifest", "policy", "catalog"]
+        ["manifest", "policy", "catalog", "toolchain"]
     );
     let ids: Vec<&str> = all
         .iter()
@@ -76,6 +77,8 @@ fn provider_ids_and_rule_set_are_stable() {
             "unused-catalog-entries",
             "workspace-protocol",
             "unsynced-dependency-family",
+            "toolchain-pin-drift",
+            "foreign-package-manager-command",
         ]
     );
     Registry::new(all).unwrap();
@@ -110,6 +113,7 @@ fn categories_and_fixability_follow_the_adr() {
         "stray-lockfile",
         "nested-workspace-root",
         "stale-patched-dependencies",
+        "invalid-workspace-file",
     ];
     for id in workspace_rules {
         assert_eq!(by_id(id).category, Category::Workspace, "{id}");
@@ -121,12 +125,14 @@ fn categories_and_fixability_follow_the_adr() {
         "root-package-manager-field",
         "incompatible-peer-dependencies",
         "nested-workspace-root",
+        "invalid-workspace-file",
     ] {
         assert_eq!(by_id(id).fixable, Fixability::None, "{id}");
     }
     assert_eq!(by_id("local-path-dependency").fixable, Fixability::Sometimes);
     assert_eq!(by_id("stray-lockfile").fixable, Fixability::Unsafe);
     assert_eq!(by_id("empty-dependencies").default, Some(Severity::Error));
+    assert_eq!(by_id("invalid-workspace-file").default, Some(Severity::Error));
     assert_eq!(by_id("member-toolchain-fields").default, Some(Severity::Warning));
 }
 

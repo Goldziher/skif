@@ -15,9 +15,11 @@ pub(crate) fn sherif_rule(name: &str) -> Option<&'static str> {
     rows(RENAMES).find(|row| row[0] == name).map(|row| row[1])
 }
 
-/// The skif rule ids a sherif rule maps to, for the rules that sherif ran.
+/// The skif rule ids sherif runs: those its rules map to, and the checks it makes under no rule name.
 pub(crate) fn sherif_rules() -> Vec<&'static str> {
-    rows(RENAMES).map(|row| row[1]).collect()
+    let mut ids: Vec<&'static str> = rows(RENAMES).map(|row| row[1]).collect();
+    ids.extend(rows(TOOL_RULES).filter(|row| row[1] == "sherif").map(|row| row[0]));
+    ids
 }
 
 /// The skif rules syncpack 15 reports under `condition`: `always`, `catalog-policy` or `sort-az`.
@@ -112,7 +114,11 @@ mod tests {
     fn covered_rules() -> Vec<&'static str> {
         let mut covered: Vec<&'static str> = rows(RENAMES).map(|row| row[1]).collect();
         covered.extend(knip_types().into_iter().flat_map(|knip| knip.rules));
-        covered.extend(rows(TOOL_RULES).filter(|row| row[1] == "syncpack").map(|row| row[0]));
+        covered.extend(
+            rows(TOOL_RULES)
+                .filter(|row| matches!(row[1], "syncpack" | "sherif"))
+                .map(|row| row[0]),
+        );
         covered
     }
 
