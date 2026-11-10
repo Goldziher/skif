@@ -6,7 +6,9 @@ use skif_config::{Config, ConfigError};
 use skif_core::{Diagnostic, IncompletePackage, Report};
 use skif_workspace::{Workspace, map_ordered};
 
-use crate::context::{LintContext, SharedCache};
+use skif_core::FileSystem;
+
+use crate::context::{FsRef, LintContext, SharedCache};
 use crate::emitter::Emitter;
 use crate::provider::ProviderError;
 use crate::registry::Registry;
@@ -59,9 +61,18 @@ pub struct RunOptions<'a> {
     config_path: Option<&'a Path>,
     sequential: bool,
     extra_entries: &'a [PathBuf],
+    fs: FsRef<'a>,
 }
 
 impl<'a> RunOptions<'a> {
+    /// Rules that read files beyond the discovered workspace (a lockfile, patch files) read them through `fs`; the
+    /// real file system by default. A host that discovered the workspace through its own [`FileSystem`] passes it here.
+    #[must_use]
+    pub const fn with_fs(mut self, fs: &'a dyn FileSystem) -> Self {
+        self.fs = FsRef(fs);
+        self
+    }
+
     /// Runs rules on `executor` instead of the current (global) pool. Ignored when [`with_sequential`](Self::with_sequential)
     /// is set.
     #[must_use]
@@ -190,7 +201,8 @@ fn collect(
         options.sequential,
         &shared,
     )
-    .with_extra_entries(options.extra_entries);
+    .with_extra_entries(options.extra_entries)
+    .with_fs(options.fs);
     let job = || execute(registry, &cx, options);
     match options.executor {
         Some(executor) if !options.sequential => executor.install(job),

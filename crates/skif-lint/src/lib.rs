@@ -8,7 +8,8 @@
 //! registration order, so a report does not depend on scheduling. Rules that need the same analysis share it through
 //! [`LintContext::shared`].
 //!
-//! The crate performs no I/O, printing or process control and keeps no global state.
+//! The crate performs no printing or process control and keeps no global state. Rules that read files beyond the
+//! discovered workspace do so through [`LintContext::fs`], the host's [`FileSystem`](skif_core::FileSystem).
 //!
 //! # Data-model dependencies
 //!

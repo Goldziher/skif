@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use skif_config::Config;
-use skif_core::{Diagnostic, RuleMeta, Severity};
+use skif_core::{Diagnostic, FileSystem, OsFs, RuleMeta, Severity};
 use skif_workspace::Workspace;
 
 /// One shared value, computed by the first rule that asks for it.
@@ -55,7 +55,25 @@ pub struct LintContext<'a> {
     /// Files, relative to the workspace root, that other roots of a multi-root run import; the JS analysis makes
     /// those it owns entries. Empty for a run of one root.
     pub extra_entries: &'a [PathBuf],
+    fs: FsRef<'a>,
     shared: &'a SharedCache,
+}
+
+/// The file system of a run; a newtype so [`LintContext`] and [`RunOptions`](crate::RunOptions) stay `Debug` and
+/// `Copy` while holding a trait object.
+#[derive(Clone, Copy)]
+pub(crate) struct FsRef<'a>(pub(crate) &'a dyn FileSystem);
+
+impl Default for FsRef<'_> {
+    fn default() -> Self {
+        Self(&OsFs)
+    }
+}
+
+impl std::fmt::Debug for FsRef<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("FileSystem")
+    }
 }
 
 impl<'a> LintContext<'a> {
@@ -74,8 +92,22 @@ impl<'a> LintContext<'a> {
             config_path,
             sequential,
             extra_entries: &[],
+            fs: FsRef(&OsFs),
             shared,
         }
+    }
+
+    pub(crate) const fn with_fs(mut self, fs: FsRef<'a>) -> Self {
+        self.fs = fs;
+        self
+    }
+
+    /// The file system the host runs on, for rules that read files discovery does not (a lockfile, patch files).
+    /// It is the one [`RunOptions::with_fs`](crate::RunOptions::with_fs) set, else the real file system. Read lazily:
+    /// a run whose rules need none of those files reads none of them.
+    #[must_use]
+    pub fn fs(&self) -> &'a dyn FileSystem {
+        self.fs.0
     }
 
     pub(crate) const fn with_extra_entries(mut self, extra_entries: &'a [PathBuf]) -> Self {
