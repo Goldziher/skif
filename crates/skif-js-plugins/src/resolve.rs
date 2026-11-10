@@ -531,7 +531,7 @@ fn is_structured(path: &Path) -> bool {
 fn unreadable(value: &ConfigValue) -> Option<IncompleteCause> {
     match value {
         ConfigValue::Unknown => Some(IncompleteCause::UnknownValue),
-        ConfigValue::Object(entries) if entries.iter().any(|(key, _)| key == "...") => {
+        ConfigValue::Object(entries) if entries.iter().any(|(key, _)| ConfigValue::is_spread_key(key)) => {
             Some(IncompleteCause::UnknownSpread)
         }
         _ => None,

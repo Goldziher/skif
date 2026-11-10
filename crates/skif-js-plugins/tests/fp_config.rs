@@ -885,6 +885,23 @@ fn incomplete_configs_are_scoped_to_what_the_tool_could_make_an_entry() {
         "{,src/}{index,main}.{js,jsx,ts,tsx,mjs,cjs,mts,cts,vue,svelte,astro,mdx}"
     ));
 
+    // An imported helper or a constant holding an imported value is a shared base too, above the entry key.
+    for source in [
+        "import { makeLib } from './lib';\nexport default { build: { ...makeLib() } };",
+        "import shared from './shared';\nconst lib = shared.lib;\nexport default { build: { lib: { ...lib } } };",
+    ] {
+        let vite = run(&[("vite.config.ts", source)], &["vite"], &[]);
+        assert!(
+            scoped_to(
+                &vite,
+                "vite",
+                "{,src/}{index,main}.{js,jsx,ts,tsx,mjs,cjs,mts,cts,vue,svelte,astro,mdx}"
+            ),
+            "{source}: {:?}",
+            output(&vite, "vite").incomplete_reasons
+        );
+    }
+
     let vitest = run(&[("vitest.config.ts", spread)], &["vitest"], &[]);
     assert!(scoped_to(
         &vitest,
@@ -927,15 +944,33 @@ fn incomplete_configs_are_scoped_to_what_the_tool_could_make_an_entry() {
     ));
 }
 
-/// A key naming files the config computes itself, an unknown Vite or Vitest config, a config that does not parse and a
-/// plugin that gives no scope keep the whole package unjudged.
+/// A key naming files the config computes itself (a spread inside it or above it of a value the config computes
+/// included), an unknown Vite or Vitest config, a config that does not parse and a plugin that gives no scope keep the
+/// whole package unjudged.
 #[test]
 fn computed_unparsable_and_unscoped_configs_stay_package_wide() {
-    let cases: [(&str, &str, &str); 12] = [
+    let cases: [(&str, &str, &str); 15] = [
         (
             "vite",
             "vite.config.ts",
             "export default { build: { lib: { entry: pick() } } };",
+        ),
+        // A spread above the entry key of a value the config computes itself, not of an imported base.
+        (
+            "vite",
+            "vite.config.ts",
+            "const makeLib = () => JSON.parse(process.env.LIB ?? '{}');\nexport default { build: { ...makeLib() } };",
+        ),
+        (
+            "vite",
+            "vite.config.ts",
+            "function libEntries() {\n  return JSON.parse(process.env.ENTRIES ?? '{}');\n}\n\
+             export default { build: { lib: { ...libEntries() } } };",
+        ),
+        (
+            "vitest",
+            "vitest.config.ts",
+            "const local = JSON.parse(process.env.TEST ?? '{}');\nexport default { test: { ...local } };",
         ),
         (
             "vite",
