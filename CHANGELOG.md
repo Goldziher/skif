@@ -57,6 +57,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `Js` gains `workspaces_anchor` (not a configuration key; set by discovery for the roots below the start of a run
+  with an explicit configuration file) and `PluginSource` gains `with_workspaces_anchor`
+  ([ADR 0099](adrs/0099-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
 - `RuleMeta` gains `version_scoped`, set with `RuleMeta::version_scoped()`; `IgnoreEntry` gains `files` and
   `with_files`; `OverrideScope` gains `unanchored()`.
 - syncpack format keys (`sortAz`, `sortFirst`, `indent`, ...) turn `package-json-format` and `unsorted-dependencies`
@@ -203,6 +206,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `skif -r --config <FILE>` applied the file's `[js.workspaces]` tables and `ignore-workspaces` globs to every root as
+  if written relative to each, so `[js.workspaces."."]` configured every nested root and `stale-js-config` reported
+  its entries once per root where they matched nothing. The keys and globs of an explicit file are now relative to
+  the start directory: `"."` is the root there and `"tools/sub"` the nested root in that directory. A
+  `stale-js-config` finding about a file several roots of the run are built from (the explicit file, or a file above
+  them) is reported once, and an entry of a top-level `[js]` list or a `[js.workspaces]` key only when no root used
+  it ([ADR 0099](adrs/0099-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
 - `skif baseline` records `name@specifier` only for the rules whose finding is about the specifier (`RuleMeta::version_scoped`:
   `version-mismatch`, `semver-range-mismatch`, `policy-conflict`, `unsynced-dependency-family`,
   `incompatible-peer-dependencies`, `catalog-mismatch`, `catalog-version-divergence`); any other finding records the

@@ -104,6 +104,7 @@ old one.
 | 0094 | [Script Commands Run Where They Change Directory To, and the No-Entries Cause](0094-script-directories-and-the-no-entries-cause.md) | accepted |
 | 0095 | [Untracked Files Under the Default Discovery, Workspace Files Discovery Cannot Read, and Fixes That Converge in One Run](0095-untracked-files-member-manifest-errors-and-converging-fixes.md) | accepted |
 | 0096 | [The knip Comparison: Findings Inside Unused Files, Invalid knip Runs and Configs knip Cannot Load on Both Sides](0096-knip-comparison-findings-in-unused-files-invalid-runs-and-two-sided-config-errors.md) | accepted |
+| 0099 | [Workspace Keys of an Explicit Configuration Are Relative to the Start Directory, and Shared Settings Are Judged Across Roots](0099-explicit-configuration-workspace-keys-and-shared-stale-settings.md) | accepted |
 
 ## Effective statements
 
@@ -270,3 +271,5 @@ the lines below stay as written; this table says which record governs.
 | [0053](0053-incomplete-packages-in-the-json-report.md), lines 40-41 | an `incomplete-packages` entry carries `name`, `dir` and the causes | [0095](0095-untracked-files-member-manifest-errors-and-converging-fixes.md): it also carries `scope`, `"package"` or `{"within": [globs]}` |
 | [0087](0087-toolchain-pins-outside-package-json-and-the-toolchain-pin-drift-rule.md), lines 97-99 | the toolchain rules get a `FileSystem` through `toolchain_provider(fs)` | [0095](0095-untracked-files-member-manifest-errors-and-converging-fixes.md): they read through `LintContext::fs`, and `skif_rules::providers()` includes the toolchain provider |
 | [0068](0068-what-the-knip-comparison-sets-apart.md), "Configs knip cannot load" paragraph | `knip-config-error` is a knip-only finding in a package with a configuration knip could not load | [0096](0096-knip-comparison-findings-in-unused-files-invalid-runs-and-two-sided-config-errors.md): it is a finding only one tool reports there; `in-knip-unused-file`, `in-skif-unused-file` and `knip-invalid` are further deviations |
+| [0024](0024-layered-configuration-cascading-files-extends-overrides-and-package-files.md), line 72 | `[js.workspaces]` keys stay relative to the root | [0099](0099-explicit-configuration-workspace-keys-and-shared-stale-settings.md): in a multi-root run with `--config`, the keys and `ignore-workspaces` globs of that file are relative to the start directory |
+| [0034](0034-js-configuration-parity-with-knip.md), line 44 | `stale-js-config` reports entries that matched nothing in the run | [0099](0099-explicit-configuration-workspace-keys-and-shared-stale-settings.md): a finding about a file several roots share is reported once, and an entry of a top-level list or a `[js.workspaces]` key only when every such root reports it |

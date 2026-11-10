@@ -158,6 +158,10 @@ skif -r --format json    # one document with a "roots" array
   limit are named on stderr and in the `truncated` array of the JSON document.
 - A root that cannot be loaded does not stop the others: it is listed in the `errors` array of the JSON document and
   the exit code is `2`.
+- `--config <FILE>` makes that file the configuration of every root. Its `[js.workspaces]` keys and
+  `ignore-workspaces` globs are relative to the start directory, so `[js.workspaces."."]` configures the root there
+  and `[js.workspaces."tools/sub"]` the root in `tools/sub`. A `stale-js-config` finding about the file is reported
+  once for the run, and a stale entry only when no root used it.
 - Roots are linted in parallel and merged into one report in path order. Paths are relative to the invocation
   directory, and the exit code is the worst over the roots. `--max-warnings` bounds the warnings of the whole run.
 - `--fix` plans, writes and runs the package manager's install per root.
