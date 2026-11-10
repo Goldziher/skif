@@ -207,6 +207,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The `allow` option of `stray-lockfile` and `nested-workspace-root` takes globs (`packages/*/package-lock.json`), each
+  compiled once per run; an invalid glob or a `!` pattern is a configuration error naming the entry
+  (`allow[0]: ...`). Entries were compared as exact paths only.
 - An installed package whose manifest declares its binaries with `directories.bin` instead of `bin` provides every
   file below that directory as a binary, named by its file name as npm links it; its binaries were reported as
   unlisted and the package as unused.

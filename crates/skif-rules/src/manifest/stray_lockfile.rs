@@ -109,8 +109,9 @@ fn strays(workspace: &Workspace) -> Vec<Stray<'_>> {
 /// reports that), and a member skif ignores or another root of the run lints is left to that root. Files git ignores
 /// are not reported.
 ///
-/// Options (`[rules.stray-lockfile] allow`): paths, relative to the workspace root, of lockfiles kept on purpose, each
-/// a string or `{ name, reason }`. An entry that names no stray lockfile is reported as stale.
+/// Options (`[rules.stray-lockfile] allow`): paths or globs (`packages/*/package-lock.json`), relative to the workspace
+/// root, of lockfiles kept on purpose, each a string or `{ name, reason }`. An entry that matches no stray lockfile is
+/// reported as stale.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct StrayLockfile;
 
@@ -396,6 +397,56 @@ mod tests {
         assert!(error.to_string().contains("allow[0]: `reason` is empty"), "{error}");
         let table: toml::Table = toml::from_str("allow = [{ name = \"a/yarn.lock\", reson = \"r\" }]").unwrap();
         assert!(StrayLockfile.validate_options(&table).is_err());
+    }
+
+    #[test]
+    fn a_glob_entry_allows_every_lockfile_it_matches() {
+        let root_json = root("");
+        let files = with_root(
+            &root_json,
+            &[
+                ("pnpm-lock.yaml", ""),
+                ("packages/a/package.json", MEMBER_A),
+                ("packages/a/package-lock.json", "{}"),
+                ("packages/b/package.json", MEMBER_B),
+                ("packages/b/package-lock.json", "{}"),
+                ("packages/b/yarn.lock", ""),
+            ],
+        );
+        let allowing = config("[rules.stray-lockfile]\nallow = [\"packages/*/package-lock.json\"]\n");
+        assert_eq!(paths(&lint(META.id, &files, &allowing)), ["packages/b/yarn.lock"]);
+    }
+
+    #[test]
+    fn a_glob_entry_that_matches_no_stray_lockfile_is_stale() {
+        let root_json = root("");
+        let files = with_root(
+            &root_json,
+            &[
+                ("pnpm-lock.yaml", ""),
+                ("packages/a/package.json", MEMBER_A),
+                ("packages/a/package-lock.json", "{}"),
+            ],
+        );
+        let allowing = config("[rules.stray-lockfile]\nallow = [\"packages/*/package-lock.json\", \"tools/**/yarn.lock\"]\n");
+        let diagnostics = lint(META.id, &files, &allowing);
+        let messages: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
+        assert_eq!(
+            messages,
+            ["`tools/**/yarn.lock` in `rules.stray-lockfile.allow` names no stray lockfile"]
+        );
+    }
+
+    #[test]
+    fn an_invalid_glob_or_an_exclusion_is_rejected() {
+        for (entry, expected) in [
+            ("packages/[a/yarn.lock", "allow[0]: "),
+            ("!packages/a/yarn.lock", "allow[0]: `!packages/a/yarn.lock` cannot exclude"),
+        ] {
+            let table: toml::Table = toml::from_str(&format!("allow = [{entry:?}]")).unwrap();
+            let error = StrayLockfile.validate_options(&table).unwrap_err();
+            assert!(error.to_string().contains(expected), "{entry}: {error}");
+        }
     }
 
     #[test]
