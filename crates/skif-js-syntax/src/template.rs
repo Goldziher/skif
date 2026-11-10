@@ -10,6 +10,9 @@
 //! `v-slot` (`#name`) and `slot-scope`, and Svelte `{#each}`, `{#await}`, `{:then}`, `{:catch}`, `{#snippet}`,
 //! `{@const}` and `let:`. A name bound either way is not a use of an import of the same name (ADR 0082). An
 //! expression oxc cannot parse is read token by token, which can only make an import look more used.
+//!
+//! The tag names are returned as written, with the static values of Vue `is` attributes, for linking the components
+//! `unplugin-vue-components` registers (ADR 0082).
 
 use std::collections::BTreeSet;
 
@@ -23,6 +26,7 @@ use oxc_parser::Parser;
 use oxc_semantic::{Scoping, SemanticBuilder};
 use oxc_span::SourceType;
 
+use crate::components::{camelize, capitalize, resolved_names};
 use crate::members::{Slot, Uses};
 
 /// The template language, which decides what an expression looks like.
@@ -34,7 +38,8 @@ pub(crate) enum Flavor {
 }
 
 /// Records the identifiers used in `text`, the markup of a component outside its script and style blocks, and
-/// returns the tag names of its elements as written (`AppButton`, `app-button`, `div`).
+/// returns the tag names of its elements as written (`AppButton`, `app-button`, `div`), with the components Vue `is`
+/// attributes name statically.
 pub(crate) fn scan(text: &str, flavor: Flavor, uses: &mut Uses) -> BTreeSet<String> {
     let mut scanner = Scanner {
         text,
@@ -42,6 +47,7 @@ pub(crate) fn scan(text: &str, flavor: Flavor, uses: &mut Uses) -> BTreeSet<Stri
         uses,
         scopes: Vec::new(),
         tags: BTreeSet::new(),
+        allocator: Allocator::default(),
     };
     scanner.run();
     scanner.tags
@@ -52,15 +58,31 @@ struct Frame {
     /// The element whose end tag closes the frame; `None` for a Svelte block, which `{/…}` closes.
     element: Option<String>,
     names: Vec<String>,
+    /// The elements of the same name open inside it that have no frame of their own: their end tags come first.
+    depth: u32,
+}
+
+impl Frame {
+    /// The frame of a Svelte block.
+    const fn block(names: Vec<String>) -> Self {
+        Self {
+            element: None,
+            names,
+            depth: 0,
+        }
+    }
 }
 
 struct Scanner<'t, 'u> {
     text: &'t str,
     flavor: Flavor,
     uses: &'u mut Uses,
-    /// Innermost last.
+    /// Innermost last. A Vue element has a frame only when it binds names; a Svelte element always has one, which a
+    /// `{@const}` inside it adds to.
     scopes: Vec<Frame>,
     tags: BTreeSet<String>,
+    /// The arena every expression of the scan is parsed into, reset before each.
+    allocator: Allocator,
 }
 
 /// One attribute of a start tag, or a bare `{…}` in it (Svelte and Astro spreads and shorthands), with no name.
@@ -267,28 +289,72 @@ fn keyword(tag: &str) -> (&str, &str) {
     (&tag[..end], &tag[end..])
 }
 
-fn capitalised(word: &str) -> String {
-    let mut chars = word.chars();
-    chars
-        .next()
-        .map(|first| first.to_uppercase().chain(chars).collect::<String>())
-        .unwrap_or_default()
+/// Index just past the quoted HTML attribute value that starts at `start`: the next quote of the same kind. A `\`
+/// escapes nothing in HTML (`title="C:\"`).
+fn skip_attribute_value(bytes: &[u8], start: usize) -> usize {
+    let quote = bytes[start];
+    bytes[start + 1..]
+        .iter()
+        .position(|byte| *byte == quote)
+        .map_or(bytes.len(), |at| start + 1 + at + 1)
 }
 
-/// `foo-bar` as `FooBar`.
-fn pascal_case(kebab: &str) -> String {
-    kebab.split('-').map(capitalised).collect()
+/// The component a Vue `is` attribute names statically: `is="AppButton"`, `is="vue:AppButton"` on a native element,
+/// or the string literal of `:is="'AppButton'"`.
+fn static_is<'t>(attribute: &Attribute<'t>) -> Option<&'t str> {
+    let value = match attribute.value {
+        Some(Value::Quoted(value) | Value::Bare(value)) => value.trim(),
+        _ => return None,
+    };
+    let name = match attribute.name {
+        "is" => value.strip_prefix("vue:").unwrap_or(value),
+        ":is" | "v-bind:is" => {
+            let quote = value.chars().next().filter(|quote| matches!(*quote, '\'' | '"' | '`'))?;
+            let inner = value.strip_prefix(quote)?.strip_suffix(quote)?;
+            if inner.contains([quote, '\\']) || inner.contains("${") {
+                return None;
+            }
+            inner
+        }
+        _ => return None,
+    };
+    (!name.is_empty()).then_some(name)
 }
 
-/// Parses `code` and returns the uses it makes of names it does not bind, and the names `binds` asks for; `None` when
-/// `code` is no valid program.
-fn analyse(code: &str, source_type: SourceType, binds: Binds) -> Option<(Vec<Found>, Vec<String>)> {
-    let allocator = Allocator::default();
-    let parsed = Parser::new(&allocator, code, source_type).parse();
+/// Whether `code` may declare a name: an arrow, a block or object (functions, classes, methods, `catch`) or a
+/// declaration. Code without one binds nothing, so its references need no semantic analysis.
+fn may_bind(code: &str) -> bool {
+    code.contains("=>") || code.contains('{') || ["let", "const", "var", "using"].iter().any(|word| code.contains(word))
+}
+
+/// Whether the Vue event handler `code` is a function expression (`function (e) {…}`, `async () => …`), which Vue
+/// calls, rather than statements it wraps in a function.
+fn is_function_handler(code: &str) -> bool {
+    let code = code.strip_prefix("async").map_or(code, str::trim_start);
+    code.starts_with("function") || (code.starts_with('(') && code.contains("=>"))
+}
+
+/// Parses `code` into `allocator` and returns the uses it makes of names it does not bind, and the names `binds` asks
+/// for; `None` when `code` is no valid program.
+fn analyse(
+    allocator: &Allocator,
+    code: &str,
+    source_type: SourceType,
+    binds: Binds,
+) -> Option<(Vec<Found>, Vec<String>)> {
+    let parsed = Parser::new(allocator, code, source_type).parse();
     if parsed.fatal_error || parsed.diagnostics.has_errors() {
         return None;
     }
     let program = parsed.program;
+    if matches!(binds, Binds::Nothing) && !may_bind(code) {
+        let mut references = References {
+            scoping: None,
+            found: Vec::new(),
+        };
+        references.visit_program(&program);
+        return Some((references.found, Vec::new()));
+    }
     let semantic = SemanticBuilder::new().build(&program).semantic;
     let scoping = semantic.scoping();
     let scope = match binds {
@@ -310,7 +376,7 @@ fn analyse(code: &str, source_type: SourceType, binds: Binds) -> Option<(Vec<Fou
             .collect()
     });
     let mut references = References {
-        scoping,
+        scoping: Some(scoping),
         found: Vec::new(),
     };
     references.visit_program(&program);
@@ -319,16 +385,18 @@ fn analyse(code: &str, source_type: SourceType, binds: Binds) -> Option<(Vec<Fou
 
 /// Collects the references of a program that resolve to no binding of it, with the member read through each.
 struct References<'s> {
-    scoping: &'s Scoping,
+    /// The program's scopes; `None` for a program that binds nothing.
+    scoping: Option<&'s Scoping>,
     found: Vec<Found>,
 }
 
 impl References<'_> {
     fn read(&mut self, id: &IdentifierReference<'_>, member: Option<&str>) {
-        let bound = id
-            .reference_id
-            .get()
-            .is_some_and(|reference| self.scoping.get_reference(reference).symbol_id().is_some());
+        let bound = self.scoping.is_some_and(|scoping| {
+            id.reference_id
+                .get()
+                .is_some_and(|reference| scoping.get_reference(reference).symbol_id().is_some())
+        });
         if !bound {
             self.found
                 .push((id.name.as_str().to_owned(), member.map(str::to_owned)));
@@ -459,7 +527,11 @@ impl<'t> Scanner<'t, '_> {
             .iter()
             .rposition(|frame| frame.element.as_deref() == Some(name))
         {
-            self.scopes.truncate(at);
+            if self.scopes[at].depth > 0 {
+                self.scopes[at].depth -= 1;
+            } else {
+                self.scopes.truncate(at);
+            }
         }
         text[i..].find('>').map_or(bytes.len(), |end| i + end + 1)
     }
@@ -487,21 +559,40 @@ impl<'t> Scanner<'t, '_> {
                 }
             }
         }
-        self.scopes.push(Frame {
-            element: opens.then(|| name.to_owned()),
-            names: element,
-        });
+        let framed = self.flavor == Flavor::Svelte || !element.is_empty() || !content.is_empty();
+        if framed {
+            self.scopes.push(Frame {
+                element: opens.then(|| name.to_owned()),
+                names: element,
+                depth: 0,
+            });
+        }
         for attribute in &attributes {
             if self.reach(attribute.name).is_none() {
                 self.attribute(attribute);
             }
-        }
-        if opens {
-            if let Some(frame) = self.scopes.last_mut() {
-                frame.names.extend(content);
+            if self.flavor == Flavor::Vue
+                && let Some(component) = static_is(attribute)
+            {
+                self.tags.insert(component.to_owned());
             }
-        } else {
-            self.scopes.pop();
+        }
+        if framed {
+            if opens {
+                if let Some(frame) = self.scopes.last_mut() {
+                    frame.names.extend(content);
+                }
+            } else {
+                self.scopes.pop();
+            }
+        } else if opens
+            && let Some(frame) = self
+                .scopes
+                .iter_mut()
+                .rev()
+                .find(|frame| frame.element.as_deref() == Some(name))
+        {
+            frame.depth += 1;
         }
         end
     }
@@ -518,17 +609,14 @@ impl<'t> Scanner<'t, '_> {
             self.member(object, member);
             return;
         }
-        self.bare(name);
-        if name.contains('-') {
-            let pascal = pascal_case(name);
-            let mut camel = pascal.clone();
-            if let Some(first) = camel.get_mut(0..1) {
-                first.make_ascii_lowercase();
+        // Vue resolves a tag to a script binding the way it resolves a registered component; Svelte and Astro read a
+        // custom element's name in both cases.
+        if self.flavor == Flavor::Vue || name.contains('-') {
+            for spelling in resolved_names(name) {
+                self.bare(&spelling);
             }
-            self.bare(&pascal);
-            self.bare(&camel);
-        } else if self.flavor == Flavor::Vue {
-            self.bare(&capitalised(name));
+        } else {
+            self.bare(name);
         }
     }
 
@@ -598,7 +686,7 @@ impl<'t> Scanner<'t, '_> {
                 (attribute, (close + 1).min(bytes.len()))
             }
             Some(b'"' | b'\'') => {
-                let end = skip_string(bytes, value);
+                let end = skip_attribute_value(bytes, value);
                 let closed = end > value + 1 && bytes[end - 1] == bytes[value];
                 let inner = text
                     .get(value + 1..if closed { end - 1 } else { end })
@@ -668,21 +756,18 @@ impl<'t> Scanner<'t, '_> {
     fn attribute(&mut self, attribute: &Attribute<'t>) {
         let name = attribute.name;
         self.attribute_name(name, attribute.value.is_some());
+        let handler = self.flavor == Flavor::Vue && (name.starts_with('@') || name == "v-on" || name.starts_with("v-on:"));
         match &attribute.value {
             Some(Value::Braced(code)) => self.expression(code),
-            Some(Value::Quoted(inner)) => {
-                if self.is_expression_attribute(name) {
-                    self.expression(inner);
-                } else if self.flavor != Flavor::Vue {
-                    self.interpolations(inner);
-                }
-            }
-            Some(Value::Bare(code)) => {
-                if self.is_expression_attribute(name) {
+            Some(Value::Quoted(code) | Value::Bare(code)) if self.is_expression_attribute(name) => {
+                if handler {
+                    self.handler(code);
+                } else {
                     self.expression(code);
                 }
             }
-            None => {}
+            Some(Value::Quoted(inner)) if self.flavor != Flavor::Vue => self.interpolations(inner),
+            _ => {}
         }
     }
 
@@ -699,7 +784,7 @@ impl<'t> Scanner<'t, '_> {
                 };
                 let directive = directive.split([':', '.']).next().unwrap_or(directive);
                 if !directive.is_empty() && !VUE_BUILTIN_DIRECTIVES.contains(&directive) {
-                    self.bare(&format!("v{}", pascal_case(directive)));
+                    self.bare(&format!("v{}", capitalize(&camelize(directive))));
                 }
             }
             Flavor::Svelte => {
@@ -767,16 +852,13 @@ impl<'t> Scanner<'t, '_> {
             "each" => {
                 let Some((source, context)) = split_word(body, "as", true) else {
                     self.expression(body);
-                    self.scopes.push(Frame {
-                        element: None,
-                        names: Vec::new(),
-                    });
+                    self.scopes.push(Frame::block(Vec::new()));
                     return;
                 };
                 self.expression(source);
                 let (pattern, key) = split_key(context);
                 let names = self.parameters(pattern);
-                self.scopes.push(Frame { element: None, names });
+                self.scopes.push(Frame::block(names));
                 if let Some(key) = key {
                     self.expression(key);
                 }
@@ -798,7 +880,7 @@ impl<'t> Scanner<'t, '_> {
                 Vec::new()
             }
         };
-        self.scopes.push(Frame { element: None, names });
+        self.scopes.push(Frame::block(names));
     }
 
     /// A branch of the innermost Svelte block replaces its locals: `{:then value}`, `{:catch error}`, `{:else}`.
@@ -827,23 +909,37 @@ impl<'t> Scanner<'t, '_> {
         self.bindings(&format!("({code}) => 0"), Binds::Parameters)
     }
 
+    /// [`analyse`] in the scan's arena, which the previous program no longer needs.
+    fn analyse(&mut self, code: &str, binds: Binds) -> Option<(Vec<Found>, Vec<String>)> {
+        let source_type = self.source_type();
+        self.allocator.reset();
+        analyse(&self.allocator, code, source_type, binds)
+    }
+
     /// The names the program `code` binds, after recording its uses. Code oxc cannot parse binds nothing.
     fn bindings(&mut self, code: &str, binds: Binds) -> Vec<String> {
-        match analyse(code, self.source_type(), binds) {
-            Some((found, names)) => {
-                self.credit(found);
-                names
-            }
-            None => {
-                self.tokens(code);
-                Vec::new()
-            }
+        if let Some((found, names)) = self.analyse(code, binds) {
+            self.credit(found);
+            names
+        } else {
+            self.tokens(code);
+            Vec::new()
         }
     }
 
-    /// Records the uses of the JavaScript expression `code`, or of the statements of a Vue event handler
-    /// (`count++; save()`). A leading `...` is a spread attribute.
+    /// Records the uses of the JavaScript expression `code`. A leading `...` is a spread attribute.
     fn expression(&mut self, code: &str) {
+        self.read(code, false);
+    }
+
+    /// Records the uses of a Vue event handler: statements (`count++; save()`), which Vue wraps in a function, or a
+    /// function expression.
+    fn handler(&mut self, code: &str) {
+        self.read(code, !is_function_handler(code.trim()));
+    }
+
+    /// Records the uses of `code`, parsed once: as statements or as an expression.
+    fn read(&mut self, code: &str, statements: bool) {
         let code = code.trim();
         let code = code.strip_prefix("...").unwrap_or(code);
         if code.is_empty() {
@@ -853,12 +949,15 @@ impl<'t> Scanner<'t, '_> {
             self.tokens(code);
             return;
         }
-        let source_type = self.source_type();
-        let parsed = analyse(&format!("({code}\n)"), source_type, Binds::Nothing)
-            .or_else(|| analyse(code, source_type, Binds::Nothing));
-        match parsed {
-            Some((found, _)) => self.credit(found),
-            None => self.tokens(code),
+        let parsed = if statements {
+            self.analyse(code, Binds::Nothing)
+        } else {
+            self.analyse(&format!("({code}\n)"), Binds::Nothing)
+        };
+        if let Some((found, _)) = parsed {
+            self.credit(found);
+        } else {
+            self.tokens(code);
         }
     }
 
@@ -1161,5 +1260,100 @@ mod tests {
         );
         let tags: Vec<&str> = tags.iter().map(String::as_str).collect();
         assert_eq!(tags, ["AppButton", "app-card", "div", "template"]);
+    }
+
+    #[test]
+    fn vue_constructs_around_components_and_malformed_markup() {
+        let cases: &[(&str, &[&str], &[&str])] = &[
+            (
+                "<AppItem v-for=\"item in items\" :item=\"item\" /><p>{{ count }}</p>",
+                &["AppItem", "items", "count"],
+                &["item"],
+            ),
+            // An element of the same name inside the one that binds closes first.
+            (
+                "<li v-for=\"item in items\"><ul><li>a</li></ul>{{ item }}</li>",
+                &["items"],
+                &["item"],
+            ),
+            // An element left open inside one that binds does not keep its locals visible after it.
+            (
+                "<div v-for=\"item in items\"><p>unclosed</div><p>{{ item }}</p>",
+                &["items", "item"],
+                &[],
+            ),
+            (
+                "<Wrap><Icon/><template v-slot:item=\"{ entry }\">{{ entry.id }}</template><Badge/></Wrap>",
+                &["Wrap", "Icon", "Badge"],
+                &["entry"],
+            ),
+            (
+                "<Wrap><template #item=\"{ entry }\"><Badge/></template><Icon/>{{ entry }}</Wrap>",
+                &["Wrap", "Icon", "Badge", "entry"],
+                &[],
+            ),
+        ];
+        for (text, used_names, bound) in cases {
+            assert_scoped(text, Flavor::Vue, used_names, bound);
+        }
+    }
+
+    #[test]
+    fn svelte_else_if_keeps_the_locals_of_the_enclosing_block() {
+        assert_scoped(
+            "{#each rows as row}{#if row.a}{:else if ready}{row.c}{/if}{/each}",
+            Flavor::Svelte,
+            &["rows", "ready"],
+            &["row"],
+        );
+    }
+
+    #[test]
+    fn a_pattern_oxc_cannot_parse_binds_nothing() {
+        // The pattern is read token by token, so `value` is used once there and once in the content.
+        let uses = used("<Pager v-slot=\"broken ( value\">{{ value }}</Pager>", Flavor::Vue);
+        assert_eq!(uses.get("value").map(|slot| slot.uses), Some(2));
+        assert!(bare(&uses, "broken"));
+    }
+
+    #[test]
+    fn a_backslash_in_an_attribute_value_escapes_nothing() {
+        let uses = used("<p title=\"C:\\\" :alt=\"label\"/>", Flavor::Vue);
+        assert!(bare(&uses, "label"));
+    }
+
+    #[test]
+    fn vue_handlers_are_statements_or_functions() {
+        let uses = used(
+            "<p @click=\"let next = step + 1; save(next)\" v-on:keyup=\"function (event) { press(event) }\" @focus=\"(event) => focus(event)\"/>",
+            Flavor::Vue,
+        );
+        for name in ["step", "save", "press", "focus"] {
+            assert!(bare(&uses, name), "{name}");
+        }
+        for name in ["next", "event"] {
+            assert!(!uses.contains_key(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn static_is_attributes_name_components() {
+        let mut uses = Uses::new();
+        let tags = scan(
+            "<component is=\"AppButton\"/><component :is=\"'app-card'\"/><div is=\"vue:AppMenu\"></div><component :is=\"current\"/><component v-bind:is=\"`App${x}`\"/>",
+            Flavor::Vue,
+            &mut uses,
+        );
+        let tags: Vec<&str> = tags.iter().map(String::as_str).collect();
+        assert_eq!(tags, ["AppButton", "AppMenu", "app-card", "component", "div"]);
+        assert!(bare(&uses, "current"));
+    }
+
+    #[test]
+    fn tags_and_directives_credit_the_names_vue_resolves_them_to() {
+        let uses = used("<myButton/><u-i-button/><p v-my-dir/>", Flavor::Vue);
+        for name in ["myButton", "MyButton", "u-i-button", "uIButton", "UIButton", "vMyDir"] {
+            assert!(bare(&uses, name), "{name}");
+        }
     }
 }
