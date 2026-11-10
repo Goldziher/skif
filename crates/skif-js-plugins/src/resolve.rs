@@ -22,10 +22,12 @@ use crate::support::{is_relative, join_lexically, join_rel, looks_like_file};
 const MAX_CONFIG_DEPTH: u8 = 16;
 
 /// Keys under which a tool config lists files to leave out (`exclude`, `coverage.exclude`, `ignores`,
-/// `testPathIgnorePatterns`): a file named there is not one a factory is given to run.
+/// `testPathIgnorePatterns`, `testIgnore`): a file named there is not one a factory is given to run.
 const EXCLUSION_KEYS: &[&str] = &[
     "exclude",
     "excludes",
+    "excludeFiles",
+    "watchExclude",
     "ignore",
     "ignores",
     "ignored",
@@ -35,6 +37,7 @@ const EXCLUSION_KEYS: &[&str] = &[
     "modulePathIgnorePatterns",
     "transformIgnorePatterns",
     "watchPathIgnorePatterns",
+    "testIgnore",
 ];
 
 /// Resolves every enabled plugin for the workspace in `ctx`, in registry order.
@@ -788,5 +791,39 @@ mod tests {
                 PluginInput::Entry("test/fixtures/ignored.ts".to_owned()),
             ]
         );
+    }
+
+    /// A file named under the exclusion key of any tool (Playwright's `testIgnore`, Vitest's `watchExclude`,
+    /// `excludeFiles`) is left out of what a factory that cannot be followed is given.
+    #[test]
+    fn a_file_under_any_tools_exclusion_key_is_not_an_entry() {
+        let fs = MemoryFs::new()
+            .with_file("/ws/config/boot.ts", "")
+            .with_file("/ws/config/skip.ts", "");
+        let scripts = IndexMap::new();
+        let plugins = IndexMap::new();
+        let ctx = PluginContext {
+            dir: Path::new("/ws"),
+            is_root: true,
+            package_name: None,
+            dependencies: &[],
+            inherited_dependencies: &[],
+            scripts: &scripts,
+            fs: &fs,
+            plugins: &plugins,
+            modules: None,
+        };
+        let text = |value: &str| ConfigValue::String(value.to_owned());
+        for key in ["testIgnore", "watchExclude", "excludeFiles"] {
+            let arguments = [ConfigValue::Object(vec![
+                ("setupFiles".to_owned(), ConfigValue::Array(vec![text("./config/boot.ts")])),
+                (key.to_owned(), ConfigValue::Array(vec![text("./config/skip.ts")])),
+            ])];
+            assert_eq!(
+                argument_entries(&ctx, "", &arguments),
+                [PluginInput::Entry("config/boot.ts".to_owned())],
+                "{key}"
+            );
+        }
     }
 }
