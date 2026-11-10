@@ -77,6 +77,10 @@ impl Target {
     /// `error`, raised while building a linter for this target, with an unknown rule ID attributed to the file (and,
     /// for a file of the chain, the line and column) that names it: a `[rules]` key, an `[[ignore]]` entry or an
     /// override. Any other error is returned as it is.
+    ///
+    /// A located error is a [`ConfigError::Parse`] whose `message` is the [`ConfigError::UnknownRule`] text, its
+    /// suggestion included, since that variant has no fields for a file and position; a host that matches on
+    /// `UnknownRule` should do so before calling this. An error with no recorded origin stays `UnknownRule`.
     #[must_use]
     pub fn locate(&self, error: Error) -> Error {
         match error {
