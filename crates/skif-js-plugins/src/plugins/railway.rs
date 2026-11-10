@@ -15,6 +15,7 @@ static SPEC: PluginSpec = PluginSpec {
     enablers: &[Enabler::Dependency("railway")],
     config: &[".railway/railway.ts"],
     binaries: &["railway"],
+    optional_binaries: true,
     ..PluginSpec::DEFAULT
 };
 

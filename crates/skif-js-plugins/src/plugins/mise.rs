@@ -8,6 +8,9 @@
 //! a shebang one of those extensions) is a script, run in the workspace or in the directory of its `#MISE dir="…"`
 //! header (`# [MISE]`, `//MISE` and `:: MISE` too). A task for another interpreter, and a file without a shebang whose
 //! extension is not a shell's (`README`, `NOTES.md`), is not read.
+//!
+//! The binaries a task runs by name are machine tools (mise installs those its `[tools]` names), so only those it
+//! reaches through a package manager are judged (`optional_binaries`); a file task's are recorded with the task file.
 
 use skif_js_syntax::ConfigValue;
 
@@ -32,6 +35,7 @@ static SPEC: PluginSpec = PluginSpec {
         ".config/mise/conf.d/[!.]*.toml",
     ],
     binaries: &["mise"],
+    optional_binaries: true,
     ..PluginSpec::DEFAULT
 };
 
@@ -146,7 +150,10 @@ fn file_task(cx: &PluginContext<'_>, file: String) -> Vec<PluginInput> {
         let runner = shebang
             .map(shebang_words)
             .filter(|words| !words.is_empty())
-            .map(|words| PluginInput::Script(format!("{} {file}", words.join(" "))));
+            .map(|words| PluginInput::SourceScript {
+                script: format!("{} {file}", words.join(" ")),
+                file: file.clone(),
+            });
         let mut out = vec![PluginInput::Entry(file)];
         out.extend(runner);
         return out;
@@ -162,7 +169,12 @@ fn file_task(cx: &PluginContext<'_>, file: String) -> Vec<PluginInput> {
     let Some(dir) = header_dir(text).map_or_else(|| Some(String::new()), |dir| resolve_dir(dir, "")) else {
         return Vec::new();
     };
-    script_in(&dir, text.to_owned()).into_iter().collect()
+    // A task run in the workspace records its binaries with the task file; one run elsewhere leaves them to the
+    // package living there.
+    match script_in(&dir, text.to_owned()) {
+        Some(PluginInput::Script(script)) => vec![PluginInput::SourceScript { file, script }],
+        other => other.into_iter().collect(),
+    }
 }
 
 /// The command a shebang line runs: its program and arguments, or the words after `env` and its options
