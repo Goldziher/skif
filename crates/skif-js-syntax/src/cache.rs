@@ -203,7 +203,7 @@ mod tests {
     /// One source per language the parsers know and one of test-runner mocks, plus the bench corpus: the probe whose
     /// parse output the schema digest pins.
     fn probe_corpus() -> Vec<(PathBuf, String)> {
-        let inline: [(&str, &str); 15] = [
+        let inline: [(&str, &str); 16] = [
             (
                 "a.ts",
                 "import { a, type B } from './b';\nimport * as ns from 'ns';\nexport const c = a + ns.x;\n\
@@ -275,6 +275,12 @@ mod tests {
                  export async function lazy() { const ns = await import('./ns'); return ns.b; }\n\
                  export interface Options { a: string }\nexport const Service = make();\n\
                  export type Service = { run(options: Options): void };\n",
+            ),
+            (
+                "o.mjs",
+                "import { execSync, spawn } from 'node:child_process';\nimport path from 'node:path';\n\
+                 execSync('npm run build', { cwd: '/tmp/app' });\nspawn('tsc', ['-b'], { cwd: process.cwd() });\n\
+                 execSync('pnpm exec rspack', { cwd: path.join(import.meta.dirname, '../sub') });\n",
             ),
         ];
         let mut corpus: Vec<(PathBuf, String)> = inline
