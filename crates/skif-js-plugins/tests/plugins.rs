@@ -916,6 +916,26 @@ fn next() {
 }
 
 #[test]
+fn next_reads_turbopack_aliases_and_loaders() {
+    let results = resolve(
+        &[(
+            "next.config.js",
+            r#"module.exports = { turbopack: {
+              resolveAlias: { "react-native": "react-native-web", "@ui": "./src/ui", fs: { browser: "./empty.js" }, "@x/a": ["@x/b"] },
+              rules: { "*.svg": { loaders: ["@svgr/webpack"], as: "*.js" }, "*.md": [{ loader: "raw-loader", options: {} }] }
+            } };"#,
+        )],
+        &["next"],
+    );
+    let out = output(&results, "next");
+    assert_deps(out, &["react-native-web", "@x/b", "@svgr/webpack", "raw-loader"]);
+    assert!(!deps(out).contains("react-native"), "{:?}", deps(out));
+    assert!(out.aliases.contains(&alias("@ui", Some("src/ui"))), "{:?}", out.aliases);
+    assert!(!out.aliases.iter().any(|a| a.find == "react-native"), "{:?}", out.aliases);
+    assert!(out.provided_binaries.contains(&"next".to_string()));
+}
+
+#[test]
 fn next_without_config_still_has_router_entries() {
     let results = resolve(&[], &["next"]);
     assert!(output(&results, "next").entries.iter().any(|e| e.contains("pages/**")));
@@ -3743,6 +3763,35 @@ fn execa_default_import_and_zx_globals_are_read() {
     for binary in ["wrangler", "turbo"] {
         assert!(binaries("zx").contains(&binary.to_owned()), "{:?}", binaries("zx"));
     }
+}
+
+#[test]
+fn zx_under_powershell_runs_no_cmdlet_binaries() {
+    let files = [
+        (
+            "scripts/pwsh.mjs",
+            "import { $, usePwsh } from 'zx';\nusePwsh();\nawait $`New-Item -ItemType Directory -Path out -Force`;\nawait $`Remove-Item out -Recurse; gci out && tsc --build`;\n",
+        ),
+        (
+            "scripts/shell.mjs",
+            "import { $ } from 'zx';\n$.shell = 'C:/Program Files/PowerShell/7/pwsh.exe';\nawait $`Get-ChildItem dist | ni x; wrangler deploy`;\n",
+        ),
+        ("scripts/bash.mjs", "import { $ } from 'zx';\nawait $`New-Item x && gci && turbo build`;\n"),
+    ];
+    let results = resolve(&files, &["zx"]);
+    let runs = |file: &str| -> Vec<String> {
+        let mut names: Vec<String> = output(&results, "zx")
+            .run_binaries
+            .iter()
+            .filter(|run| run.from.ends_with(file))
+            .map(|run| run.name.clone())
+            .collect();
+        names.sort();
+        names
+    };
+    assert_eq!(runs("scripts/pwsh.mjs"), ["tsc"]);
+    assert_eq!(runs("scripts/shell.mjs"), ["wrangler"]);
+    assert_eq!(runs("scripts/bash.mjs"), ["New-Item", "gci", "turbo"]);
 }
 
 #[test]

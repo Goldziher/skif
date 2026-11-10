@@ -21,6 +21,27 @@ pub(crate) struct ForwardedBinary {
     pub binary: ScriptBinary,
 }
 
+/// A binary a script runs in another directory (`cd sub && rspack`, `pnpm -C sub exec rspack`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct RelocatedBinary {
+    /// The directory, relative to the package directory.
+    pub dir: String,
+    pub binary: ScriptBinary,
+    /// Fetched on demand (`npx`).
+    pub ephemeral: bool,
+    /// The command also targets another workspace without naming it (`pnpm -C sub exec`), so the package itself does
+    /// not run it.
+    pub filtered: bool,
+}
+
+/// A package a script needs for a command run in another directory, as [`RelocatedBinary`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct RelocatedDependency {
+    /// The directory, relative to the package directory.
+    pub dir: String,
+    pub name: String,
+}
+
 /// Binaries, files and packages referenced by a package's scripts.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ScriptFacts {
@@ -32,6 +53,11 @@ pub(crate) struct ScriptFacts {
     pub ephemeral_binaries: Vec<ScriptBinary>,
     /// Binaries run in named workspaces; the package they belong to is only known with the whole workspace.
     pub forwarded: Vec<ForwardedBinary>,
+    /// Binaries run in another directory: they belong to the package that directory is in, known only with the whole
+    /// workspace.
+    pub relocated_binaries: Vec<RelocatedBinary>,
+    /// Packages needed by commands run in another directory, as [`Self::relocated_binaries`].
+    pub relocated_dependencies: Vec<RelocatedDependency>,
     /// Package managers the scripts invoke, which a manifest may list as a dependency.
     pub package_managers: Vec<String>,
     /// Files the scripts run, relative to the package directory.
@@ -107,6 +133,8 @@ struct Collected {
     ephemeral_binaries: IndexSet<ScriptBinary>,
     global_binaries: IndexSet<ScriptBinary>,
     forwarded: IndexSet<ForwardedBinary>,
+    relocated_binaries: IndexSet<RelocatedBinary>,
+    relocated_dependencies: IndexSet<RelocatedDependency>,
     package_managers: IndexSet<String>,
     files: IndexSet<String>,
     file_trees: IndexMap<String, FileTree>,
@@ -124,13 +152,23 @@ impl Collected {
             if is_ignored_binary(&used.name) {
                 continue;
             }
+            if used.filtered && !used.workspaces.is_empty() {
+                self.forwarded.insert(ForwardedBinary {
+                    targets: used.workspaces,
+                    binary: binary(used.name),
+                });
+                continue;
+            }
+            if let Some(dir) = used.dir {
+                self.relocated_binaries.insert(RelocatedBinary {
+                    dir,
+                    binary: binary(used.name),
+                    ephemeral: used.via.is_ephemeral(),
+                    filtered: used.filtered,
+                });
+                continue;
+            }
             if used.filtered {
-                if !used.workspaces.is_empty() {
-                    self.forwarded.insert(ForwardedBinary {
-                        targets: used.workspaces,
-                        binary: binary(used.name),
-                    });
-                }
                 continue;
             }
             let target = if used.via.is_ephemeral() {
@@ -152,12 +190,19 @@ impl Collected {
             }
             self.files.insert(file.path);
         }
-        self.dependencies.extend(
-            info.dependencies
-                .into_iter()
-                .filter(|dependency| !dependency.ephemeral)
-                .map(|dependency| dependency.name),
-        );
+        for dependency in info.dependencies.into_iter().filter(|dependency| !dependency.ephemeral) {
+            match dependency.dir {
+                Some(dir) => {
+                    self.relocated_dependencies.insert(RelocatedDependency {
+                        dir,
+                        name: dependency.name,
+                    });
+                }
+                None => {
+                    self.dependencies.insert(dependency.name);
+                }
+            }
+        }
     }
 
     fn into_facts(self) -> ScriptFacts {
@@ -166,6 +211,8 @@ impl Collected {
             ephemeral_binaries: self.ephemeral_binaries.into_iter().collect(),
             global_binaries: self.global_binaries.into_iter().collect(),
             forwarded: self.forwarded.into_iter().collect(),
+            relocated_binaries: self.relocated_binaries.into_iter().collect(),
+            relocated_dependencies: self.relocated_dependencies.into_iter().collect(),
             package_managers: self.package_managers.into_iter().collect(),
             files: self.files.into_iter().collect(),
             file_trees: self.file_trees,
@@ -219,6 +266,29 @@ mod tests {
             forwarded,
             [("vitest", &["web".to_owned()][..]), ("biome", &["sub".to_owned()][..])]
         );
+    }
+
+    #[test]
+    fn commands_run_in_another_directory_are_relocated() {
+        let facts = analyze(&package(
+            r#"{"name":"p","scripts":{"a":"cd sub && rspack serve && node -r @x/hook ./x.js","b":"pnpm -C web exec vite","c":"tsc"}}"#,
+        ));
+        let own: Vec<&str> = facts.binaries.iter().map(|b| b.name.as_str()).collect();
+        assert_eq!(own, ["tsc"]);
+        let relocated: Vec<(&str, &str, bool)> = facts
+            .relocated_binaries
+            .iter()
+            .map(|r| (r.dir.as_str(), r.binary.name.as_str(), r.filtered))
+            .collect();
+        assert_eq!(relocated, [("sub", "rspack", false), ("web", "vite", true)]);
+        let dependencies: Vec<(&str, &str)> = facts
+            .relocated_dependencies
+            .iter()
+            .map(|r| (r.dir.as_str(), r.name.as_str()))
+            .collect();
+        assert_eq!(dependencies, [("sub", "@x/hook")]);
+        assert!(facts.dependencies.is_empty(), "{:?}", facts.dependencies);
+        assert_eq!(facts.files, ["sub/x.js"]);
     }
 
     #[test]

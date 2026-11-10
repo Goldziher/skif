@@ -562,6 +562,90 @@ fn forward_workspace_binaries(packages: &mut [Option<PackageSetup>], workspace: 
     }
 }
 
+/// Credits what a package's scripts run in another directory (`cd sub && rspack`) to the workspace package that
+/// directory is in, as [`forward_workspace_binaries`] credits a named workspace: a listed provider there is used and
+/// nothing is unlisted. A directory in the package itself, outside every package or outside the workspace leaves the
+/// command where it was written: judged as a command of the package, unless it also targets another workspace
+/// (`pnpm -C dir exec`).
+fn relocate_script_commands(packages: &mut [Option<PackageSetup>], workspace: &Workspace) {
+    let dirs: Vec<(PackageId, String)> = workspace
+        .iter()
+        .map(|(id, package)| (id, package.dir.to_string_lossy().replace('\\', "/")))
+        .collect();
+    let owner = |from: PackageId, dir: &str| -> PackageId {
+        let base = dirs.iter().find(|(id, _)| *id == from).map_or("", |(_, base)| base.as_str());
+        let Some(target) = join_dir(base, dir) else {
+            return from;
+        };
+        dirs.iter()
+            .filter(|(_, candidate)| contains_dir(candidate, &target))
+            .max_by_key(|(_, candidate)| candidate.len())
+            .map_or(from, |(id, _)| *id)
+    };
+    let mut credits: Vec<(PackageId, ScriptBinary)> = Vec::new();
+    let mut dependencies: Vec<(PackageId, String)> = Vec::new();
+    for setup in packages.iter_mut().flatten() {
+        let from = setup.id;
+        for relocated in std::mem::take(&mut setup.scripts.relocated_binaries) {
+            let target = owner(from, &relocated.dir);
+            if target != from {
+                credits.push((target, relocated.binary));
+            } else if !relocated.filtered {
+                let list = if relocated.ephemeral {
+                    &mut setup.scripts.ephemeral_binaries
+                } else {
+                    &mut setup.scripts.binaries
+                };
+                if !list.contains(&relocated.binary) {
+                    list.push(relocated.binary);
+                }
+            }
+        }
+        for relocated in std::mem::take(&mut setup.scripts.relocated_dependencies) {
+            dependencies.push((owner(from, &relocated.dir), relocated.name));
+        }
+    }
+    for (id, binary) in credits {
+        if let Some(Some(setup)) = packages.get_mut(id.index())
+            && !setup.scripts.binaries.contains(&binary)
+            && !setup.scripts.ephemeral_binaries.contains(&binary)
+        {
+            setup.scripts.ephemeral_binaries.push(binary);
+        }
+    }
+    for (id, name) in dependencies {
+        if let Some(Some(setup)) = packages.get_mut(id.index())
+            && !setup.referenced_dependencies.contains(&name)
+        {
+            setup.referenced_dependencies.push(name);
+        }
+    }
+}
+
+/// `dir` joined onto the workspace-relative directory `base`, `/`-separated with `.` and `..` resolved; `None` when it
+/// leaves the workspace root.
+fn join_dir(base: &str, dir: &str) -> Option<String> {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in base.split('/').chain(dir.split('/')) {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            other => parts.push(other),
+        }
+    }
+    Some(parts.join("/"))
+}
+
+/// Whether the workspace-relative directory `dir` is `ancestor` or below it; every directory is below the root, `""`.
+fn contains_dir(ancestor: &str, dir: &str) -> bool {
+    ancestor.is_empty()
+        || dir
+            .strip_prefix(ancestor)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
 /// Whether an entry glob from a plugin may match files of nested workspace packages. A glob that starts with `**/`
 /// is a per-package default (every package has its own test files) and one that leaves the package is handled as
 /// an external entry.
@@ -811,6 +895,7 @@ impl Setup {
             })
         });
         forward_workspace_binaries(&mut packages, workspace);
+        relocate_script_commands(&mut packages, workspace);
         Self {
             packages,
             global_ignore: Globs::new(&js.ignore),
@@ -870,14 +955,14 @@ impl Setup {
         }
     }
 
-    /// Marks the packages whose published entry points could not be mapped to source files.
-    pub(crate) fn mark_entries_incomplete(&mut self, ids: &[PackageId]) {
-        for id in ids {
+    /// Marks the packages whose entries the manifest leaves unknown, for the cause found for each.
+    pub(crate) fn mark_entries_incomplete(&mut self, unknown: &[(PackageId, IncompleteCause)]) {
+        for &(id, cause) in unknown {
             if let Some(Some(package)) = self.packages.get_mut(id.index()) {
                 package.entries_incomplete = true;
                 package.incomplete_scope = None;
                 package.incomplete_reasons.push(IncompleteEntries {
-                    cause: IncompleteCause::UnmappedPublished,
+                    cause,
                     plugin: None,
                     file: Some(package.dir.join("package.json")),
                 });
