@@ -25,6 +25,14 @@ const ACTION_PATH_VARIABLES: &[&str] = &[
     "$GITHUB_ACTION_PATH",
 ];
 
+/// The spellings of the directory a workflow checks the repository out to, where a step starts unless it sets a
+/// `working-directory`: the workspace root. The bare `$GITHUB_WORKSPACE` is replaced apart, since a longer name may
+/// start with it.
+const WORKSPACE_VARIABLES: &[&str] = &["${{ github.workspace }}", "${{github.workspace}}", "${GITHUB_WORKSPACE}"];
+
+/// The bare spelling of [`WORKSPACE_VARIABLES`].
+const WORKSPACE_VARIABLE: &str = "$GITHUB_WORKSPACE";
+
 /// The shells whose scripts the script parser reads.
 const POSIX_SHELLS: &[&str] = &["ash", "bash", "dash", "ksh", "sh", "zsh"];
 
@@ -128,11 +136,35 @@ fn step(step: &ConfigValue, defaults: RunDefaults<'_>) -> Option<PluginInput> {
         .iter()
         .fold(run.to_string(), |text, variable| text.replace(variable, "."));
     if matches!(dir, "" | "." | "./") {
-        return Some(PluginInput::Script(script));
+        return Some(PluginInput::Script(in_workspace(&script, ".")));
     }
     if dir.starts_with('/') || dir.contains(['$', '`']) {
         return None;
     }
     let dir = join_rel("", dir);
-    (!dir.is_empty() && dir != ".." && !dir.starts_with("../")).then_some(PluginInput::ScriptAt { dir, script })
+    if dir.is_empty() || dir == ".." || dir.starts_with("../") {
+        return None;
+    }
+    let root = vec![".."; dir.split('/').count()].join("/");
+    let script = in_workspace(&script, &root);
+    Some(PluginInput::ScriptAt { dir, script })
+}
+
+/// `script` with the workspace directory (see [`WORKSPACE_VARIABLES`]) spelt as `root`, the workspace root relative to
+/// where the step starts, so `cd $GITHUB_WORKSPACE/sub` changes to a directory the script parser can place.
+fn in_workspace(script: &str, root: &str) -> String {
+    let script = WORKSPACE_VARIABLES
+        .iter()
+        .fold(script.to_owned(), |text, variable| text.replace(variable, root));
+    let mut out = String::with_capacity(script.len());
+    let mut rest = script.as_str();
+    while let Some(found) = rest.find(WORKSPACE_VARIABLE) {
+        let after = &rest[found + WORKSPACE_VARIABLE.len()..];
+        out.push_str(&rest[..found]);
+        let longer_name = after.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_');
+        out.push_str(if longer_name { WORKSPACE_VARIABLE } else { root });
+        rest = after;
+    }
+    out.push_str(rest);
+    out
 }

@@ -531,6 +531,10 @@ jobs:
         working-directory: ${{ matrix.dir }}
       - run: node ./root.js
         working-directory: .
+      - run: node $GITHUB_WORKSPACE/scripts/check.js
+        working-directory: tools/release
+      - run: node ${{ github.workspace }}/scripts/lint.js
+        working-directory: .
 "#;
     let results = run(&[(".github/workflows/ci.yml", workflow)], &[], &[]);
     let out = output(&results, "github-actions");
@@ -541,6 +545,8 @@ jobs:
             "infra/deploy.js",
             "backend/extra/main.ts",
             "./root.js",
+            "scripts/check.js",
+            "./scripts/lint.js",
         ],
     );
     for skipped in ["skipped.js", "computed.js"] {

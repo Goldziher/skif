@@ -3795,6 +3795,34 @@ fn run_binaries_after_cd_carry_the_directory() {
     );
 }
 
+/// A step starts in the workspace the workflow checks out, so `cd` to a directory below `$GITHUB_WORKSPACE`, however
+/// it is spelt, is a directory of the workspace; a longer variable name is not.
+#[test]
+fn cd_below_the_github_workspace_is_a_workspace_directory() {
+    let workflow = "name: ci\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      \
+                    - run: cd $GITHUB_WORKSPACE/sub && pnpm exec rspack build\n      \
+                    - run: cd \"${GITHUB_WORKSPACE}/web\" && pnpm exec vite build\n      \
+                    - run: cd ${{ github.workspace }}/docs && pnpm exec vitepress build\n      \
+                    - run: cd \"$GITHUB_WORKSPACE\" && pnpm exec tsx x.ts\n      \
+                    - run: cd $GITHUB_WORKSPACE_TMP && pnpm exec eslint .\n";
+    let results = resolve(&[(".github/workflows/ci.yml", workflow)], &[]);
+    let mut runs: Vec<(String, Option<String>)> = output(&results, "github-actions")
+        .run_binaries
+        .iter()
+        .map(|run| (run.name.clone(), run.dir.clone()))
+        .collect();
+    runs.sort();
+    assert_eq!(
+        runs,
+        [
+            ("rspack".to_owned(), Some("sub".to_owned())),
+            ("tsx".to_owned(), None),
+            ("vite".to_owned(), Some("web".to_owned())),
+            ("vitepress".to_owned(), Some("docs".to_owned())),
+        ]
+    );
+}
+
 #[test]
 fn execa_default_import_and_zx_globals_are_read() {
     let files = [
