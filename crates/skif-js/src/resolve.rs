@@ -315,6 +315,8 @@ pub(crate) struct ModuleResolver {
     nearest_paths: Memo<PathBuf, Option<Arc<TsPaths>>>,
     /// The `tsconfig.json` and `jsconfig.json` files read so far.
     tsconfigs: TsConfigs,
+    /// Whether the nearest config, or one it extends, extends a missing config that git ignores, by directory.
+    ungenerated_configs: Memo<PathBuf, bool>,
     /// Whether the nearest `package.json` declares `imports`, by the directory of the importer.
     declared_imports: Memo<PathBuf, bool>,
     /// The highest directory whose `.gitignore` applies: the repository root above the workspace, else the workspace
@@ -759,6 +761,7 @@ impl ModuleResolver {
             member_files: PairMemo::new(),
             nearest_paths: Memo::new(),
             tsconfigs,
+            ungenerated_configs: Memo::new(),
             declared_imports: Memo::new(),
             ignore_ceiling: OnceLock::new(),
             dir_ignores: Memo::new(),
@@ -907,11 +910,10 @@ impl ModuleResolver {
     /// What a specifier that names nothing is. A relative one is unknown when it points at an ignored path (also
     /// through the source extensions its extension stands for, or, without a code extension, the files and directory
     /// index it can name, or below an ignored `rootDirs` directory not generated yet, or SvelteKit's `./$types` while
-    /// the config that maps it is not generated) or, in a script, at a JSON or
-    /// foreign file. A root-relative one (`/vite.svg`, served from a bundler's public directory) is unknown when it
-    /// names a JSON or foreign file in a script. A `#` specifier is unknown when its package
-    /// declares no `imports` and no `paths` pattern maps it: a tool, not Node.js, resolves it. (A configured alias
-    /// that maps it never gets here.) Anything else is unresolved.
+    /// the config that maps it is not generated) or, in a script, at a JSON or foreign file. A root-relative one
+    /// (`/vite.svg`, served from a bundler's public directory) is unknown when it names a JSON or foreign file in a
+    /// script. A `#` specifier is unknown when its package declares no `imports` and no `paths` pattern maps it: a
+    /// tool, not Node.js, resolves it. (A configured alias that maps it never gets here.) Anything else is unresolved.
     fn missing(&self, kind: Kind, importer: &Path, specifier: &str) -> Resolved {
         if specifier.starts_with('#') && !self.declares_imports(importer) && !self.ts_paths_map(importer, specifier) {
             return Resolved::Ignored;
@@ -996,16 +998,18 @@ impl ModuleResolver {
     }
 
     /// Whether `specifier`, written in `directory`, is SvelteKit's `./$types` (or `./$types.js`, `./$types.d.ts`)
-    /// while the config that maps it is not generated yet: the nearest `tsconfig.json` or `jsconfig.json` extends a
-    /// missing config that git ignores (`./.svelte-kit/tsconfig.json`, which `svelte-kit sync` writes with the
-    /// `rootDirs` that hold the route types). Once that config exists, its `rootDirs` decide.
+    /// while the config that maps it is not generated yet: the nearest `tsconfig.json` or `jsconfig.json`, directly
+    /// or through a config it extends, extends a missing config that git ignores (`./.svelte-kit/tsconfig.json`,
+    /// which `svelte-kit sync` writes with the `rootDirs` that hold the route types). Once that config exists, its
+    /// `rootDirs` decide ([`Self::generated_in_root_dir`]).
     fn ungenerated_route_types(&self, directory: &Path, specifier: &str) -> bool {
         matches!(specifier, "./$types" | "./$types.js" | "./$types.d.ts")
-            && self
-                .tsconfigs
-                .absent_extends(directory)
-                .iter()
-                .any(|config| self.is_generated(config))
+            && self.ungenerated_configs.get_or_compute(directory, || {
+                self.tsconfigs
+                    .absent_extends(directory)
+                    .iter()
+                    .any(|config| self.is_generated(config))
+            })
     }
 
     /// The source files a generated module may import, from the path a specifier names (`named`) and the ignored
