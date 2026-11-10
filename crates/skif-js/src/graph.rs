@@ -328,6 +328,24 @@ impl ModuleCache for Counted<'_> {
     fn put(&self, key: ModuleKey, module: CachedModule) {
         self.0.put(key, module);
     }
+
+    // Forwarded, so the host's cache decides how concurrent parses of one key are coordinated.
+    fn get_or_insert_with(
+        &self,
+        key: ModuleKey,
+        parse: &mut dyn FnMut() -> Option<CachedModule>,
+    ) -> Option<CachedModule> {
+        let mut parsed = false;
+        let found = self.0.get_or_insert_with(key, &mut || {
+            parsed = true;
+            parse()
+        });
+        if timing::enabled() {
+            let counter = if parsed { &CACHE_MISSES } else { &CACHE_HITS };
+            counter.fetch_add(1, Ordering::Relaxed);
+        }
+        found
+    }
 }
 
 fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {

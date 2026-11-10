@@ -74,7 +74,9 @@ pub use rules::{
     UnusedTypes, rules,
 };
 /// The module cache of ADR 0066, re-exported for hosts that keep one.
-pub use skif_js_syntax::{CachedModule, MemoryModuleCache, ModuleCache, ModuleKey, cache_version};
+pub use skif_js_syntax::{
+    CachedModule, CoalescingModuleCache, MemoryModuleCache, ModuleCache, ModuleKey, cache_version,
+};
 pub use trace::{DependencyImport, DependencyListing, DependencyTrace};
 pub use tsconfig_files::empty_tsconfig_projects;
 pub use usage::{ExportUsage, MemberUse};

@@ -4,10 +4,10 @@
 //! inputs can never return a stale result: a changed file has a new key. The cache itself is supplied by the host
 //! through [`ModuleCache`]; this crate only owns the key, the stored value and an in-memory implementation.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::hash::Hasher as _;
 use std::path::Path;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 
 use serde::{Deserialize, Serialize};
 use siphasher::sip128::{Hasher128 as _, SipHasher13};
@@ -97,6 +97,23 @@ pub trait ModuleCache: Send + Sync {
     fn get(&self, key: ModuleKey) -> Option<CachedModule>;
     /// Stores `module` under `key`.
     fn put(&self, key: ModuleKey, module: CachedModule);
+
+    /// The result stored under `key`, or else the one `parse` returns, stored before it is returned. `parse`
+    /// returns `None` for a file it cannot parse, which is not stored. [`parse_cached`] goes through this method, so
+    /// an implementation that coordinates concurrent parses of one key ([`CoalescingModuleCache`]) overrides it; a
+    /// wrapper that forwards to another cache forwards this method too.
+    fn get_or_insert_with(
+        &self,
+        key: ModuleKey,
+        parse: &mut dyn FnMut() -> Option<CachedModule>,
+    ) -> Option<CachedModule> {
+        if let Some(found) = self.get(key) {
+            return Some(found);
+        }
+        let module = parse()?;
+        self.put(key, module.clone());
+        Some(module)
+    }
 }
 
 /// An in-process [`ModuleCache`] for long-lived hosts (watch mode, the language server, the MCP server).
@@ -154,6 +171,100 @@ impl ModuleCache for MemoryModuleCache {
     }
 }
 
+/// A [`ModuleCache`] in front of another that parses each key once while several threads ask for it: a lookup of a
+/// key another thread is parsing waits for that parse and returns its result instead of parsing the file again.
+///
+/// The roots of a multi-root run are linted in parallel, and files outside them that several roots import are
+/// reached by all of them at about the same time; without this, each of those lookups misses and parses. It holds
+/// only the keys being parsed, never an entry: the results live in the cache it wraps, once each. A parse that fails
+/// or panics releases its key, and the next lookup parses again.
+pub struct CoalescingModuleCache {
+    inner: Arc<dyn ModuleCache>,
+    parsing: Mutex<BTreeSet<ModuleKey>>,
+    parsed: Condvar,
+}
+
+impl CoalescingModuleCache {
+    /// Coalesces the parses that go through `inner`.
+    #[must_use]
+    pub fn new(inner: Arc<dyn ModuleCache>) -> Self {
+        Self {
+            inner,
+            parsing: Mutex::new(BTreeSet::new()),
+            parsed: Condvar::new(),
+        }
+    }
+
+    fn parsing(&self) -> MutexGuard<'_, BTreeSet<ModuleKey>> {
+        self.parsing.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The result stored under `key` once no other thread parses it, or `None` after claiming the key for the
+    /// calling thread, which then parses it.
+    fn wait_or_claim(&self, key: ModuleKey) -> Option<CachedModule> {
+        let mut parsing = self.parsing();
+        while parsing.contains(&key) {
+            parsing = self.parsed.wait(parsing).unwrap_or_else(PoisonError::into_inner);
+        }
+        // Looked up again under the lock: a parse that ended since the caller's lookup stored its result before it
+        // released the key.
+        let found = self.inner.get(key);
+        if found.is_none() {
+            parsing.insert(key);
+        }
+        found
+    }
+}
+
+impl std::fmt::Debug for CoalescingModuleCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CoalescingModuleCache")
+            .field("parsing", &self.parsing().len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Releases a key claimed by [`CoalescingModuleCache::wait_or_claim`] and wakes the threads waiting for it, also when
+/// the parse panics.
+struct Claim<'a> {
+    cache: &'a CoalescingModuleCache,
+    key: ModuleKey,
+}
+
+impl Drop for Claim<'_> {
+    fn drop(&mut self) {
+        self.cache.parsing().remove(&self.key);
+        self.cache.parsed.notify_all();
+    }
+}
+
+impl ModuleCache for CoalescingModuleCache {
+    fn get(&self, key: ModuleKey) -> Option<CachedModule> {
+        self.inner.get(key)
+    }
+
+    fn put(&self, key: ModuleKey, module: CachedModule) {
+        self.inner.put(key, module);
+    }
+
+    fn get_or_insert_with(
+        &self,
+        key: ModuleKey,
+        parse: &mut dyn FnMut() -> Option<CachedModule>,
+    ) -> Option<CachedModule> {
+        if let Some(found) = self.inner.get(key) {
+            return Some(found);
+        }
+        if let Some(found) = self.wait_or_claim(key) {
+            return Some(found);
+        }
+        let _claim = Claim { cache: self, key };
+        let module = parse()?;
+        self.inner.put(key, module.clone());
+        Some(module)
+    }
+}
+
 /// Parses `source`, the text of `path`, with `options`, through `cache`: a stored result is returned as it is, and
 /// a fresh parse is stored before it is returned. Stylesheets go to [`parse_stylesheet`] and everything else to
 /// [`crate::parse_module`]. Without a cache this is a plain parse.
@@ -177,12 +288,20 @@ pub fn parse_cached(
         return parse();
     };
     let key = ModuleKey::new(path, source, options);
-    if let Some(CachedModule(info)) = cache.get(key) {
-        return Ok(info);
+    let mut failure = None;
+    let found = cache.get_or_insert_with(key, &mut || match parse() {
+        Ok(info) => Some(CachedModule(info)),
+        Err(error) => {
+            failure = Some(error);
+            None
+        }
+    });
+    match (found, failure) {
+        (Some(CachedModule(info)), _) => Ok(info),
+        (None, Some(error)) => Err(error),
+        // A cache that answered nothing without calling `parse`.
+        (None, None) => parse(),
     }
-    let info = parse()?;
-    cache.put(key, CachedModule(info.clone()));
-    Ok(info)
 }
 
 const _: fn() = || {
@@ -190,6 +309,7 @@ const _: fn() = || {
     assert_send_sync::<ModuleKey>();
     assert_send_sync::<CachedModule>();
     assert_send_sync::<MemoryModuleCache>();
+    assert_send_sync::<CoalescingModuleCache>();
 };
 
 #[cfg(test)]
@@ -447,5 +567,133 @@ mod tests {
         cache.prune_unused();
         cache.prune_unused();
         assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn parse_options_that_differ_do_not_share_an_entry() {
+        let cache = Counting::default();
+        let path = Path::new("a.ts");
+        let source = "const local = 1;\nexport const a = local;\nexport const b = a;\n";
+        let full = ParseOptions::default();
+        let bare = ParseOptions {
+            in_file_references: false,
+            member_accesses: false,
+        };
+        let with_references = parse_cached(Some(&cache), path, source, &full).unwrap();
+        let without = parse_cached(Some(&cache), path, source, &bare).unwrap();
+        assert_eq!(cache.puts.load(Ordering::Relaxed), 2);
+        assert_eq!(cache.hits.load(Ordering::Relaxed), 0);
+        assert_eq!(cache.inner.len(), 2);
+        // Each lookup is served what its own options parse to, from the entry of those options.
+        assert_eq!(
+            parse_cached(Some(&cache), path, source, &full).unwrap(),
+            with_references
+        );
+        assert_eq!(parse_cached(Some(&cache), path, source, &bare).unwrap(), without);
+        assert_eq!(with_references, parse_cached(None, path, source, &full).unwrap());
+        assert_eq!(without, parse_cached(None, path, source, &bare).unwrap());
+        assert_eq!(cache.hits.load(Ordering::Relaxed), 2);
+    }
+
+    fn empty_module() -> Option<CachedModule> {
+        Some(CachedModule(ModuleInfo::default()))
+    }
+
+    #[test]
+    fn a_lookup_of_a_key_being_parsed_waits_for_that_parse() {
+        let store = Arc::new(Counting::default());
+        let cache = CoalescingModuleCache::new(Arc::clone(&store) as Arc<dyn ModuleCache>);
+        let key = key("a.ts", "a", ParseOptions::default());
+        let parses = AtomicUsize::new(0);
+        let (started, has_started) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let (cache, parses) = (&cache, &parses);
+        std::thread::scope(|scope| {
+            let first = scope.spawn(move || {
+                cache.get_or_insert_with(key, &mut || {
+                    parses.fetch_add(1, Ordering::SeqCst);
+                    started.send(()).unwrap();
+                    released.recv().unwrap();
+                    empty_module()
+                })
+            });
+            has_started.recv().unwrap();
+            let second = scope.spawn(move || {
+                cache.get_or_insert_with(key, &mut || {
+                    parses.fetch_add(1, Ordering::SeqCst);
+                    empty_module()
+                })
+            });
+            // Time for the second lookup to start a parse of its own if it did not wait.
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            release.send(()).unwrap();
+            assert_eq!(first.join().unwrap(), empty_module());
+            assert_eq!(second.join().unwrap(), empty_module());
+        });
+        assert_eq!(parses.load(Ordering::SeqCst), 1);
+        assert_eq!(store.puts.load(Ordering::Relaxed), 1);
+        assert_eq!(store.hits.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn many_threads_asking_for_one_key_parse_it_once() {
+        let store = Arc::new(MemoryModuleCache::new());
+        let cache = CoalescingModuleCache::new(Arc::clone(&store) as Arc<dyn ModuleCache>);
+        let key = key("a.ts", "a", ParseOptions::default());
+        let parses = AtomicUsize::new(0);
+        let barrier = std::sync::Barrier::new(8);
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    barrier.wait();
+                    cache.get_or_insert_with(key, &mut || {
+                        parses.fetch_add(1, Ordering::SeqCst);
+                        std::thread::sleep(std::time::Duration::from_millis(20));
+                        empty_module()
+                    })
+                });
+            }
+        });
+        assert_eq!(parses.load(Ordering::SeqCst), 1);
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn a_failed_or_panicking_parse_releases_its_key_and_stores_nothing() {
+        let cache = CoalescingModuleCache::new(Arc::new(MemoryModuleCache::new()));
+        let key = key("a.ts", "a", ParseOptions::default());
+        assert_eq!(cache.get_or_insert_with(key, &mut || None), None);
+        assert_eq!(cache.get(key), None);
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            cache.get_or_insert_with(key, &mut || -> Option<CachedModule> { panic!("the parser failed") })
+        }));
+        assert!(panicked.is_err());
+        assert_eq!(cache.get(key), None);
+        // Neither left the key claimed: this lookup parses instead of waiting forever.
+        let mut parsed = false;
+        let found = cache.get_or_insert_with(key, &mut || {
+            parsed = true;
+            empty_module()
+        });
+        assert!(parsed);
+        assert_eq!(found, empty_module());
+        assert_eq!(cache.get(key), empty_module());
+    }
+
+    #[test]
+    fn parse_cached_through_a_coalescing_cache_stores_once_and_reports_parse_errors() {
+        let store = Arc::new(Counting::default());
+        let cache = CoalescingModuleCache::new(Arc::clone(&store) as Arc<dyn ModuleCache>);
+        let options = ParseOptions::default();
+        let path = Path::new("a.ts");
+        let first = parse_cached(Some(&cache), path, "export const a = 1;", &options).unwrap();
+        let second = parse_cached(Some(&cache), path, "export const a = 1;", &options).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(store.puts.load(Ordering::Relaxed), 1);
+        assert!(matches!(
+            parse_cached(Some(&cache), Path::new("a.txt"), "", &options),
+            Err(SyntaxError::Unsupported { .. })
+        ));
+        assert_eq!(store.puts.load(Ordering::Relaxed), 1);
     }
 }
