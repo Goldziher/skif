@@ -443,9 +443,10 @@ pub struct ModuleInfo {
     /// in source order without duplicates; only literal commands. They are parsed like the scripts of `package.json`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub commands: Vec<String>,
-    /// The tag names of the template of a `.vue` file as written, sorted and without duplicates (`AppButton`,
-    /// `app-card`, `div`): `unplugin-vue-components` imports the components it registers into the files whose
-    /// template uses their tag (ADR 0082). Empty for every other file.
+    /// The tag names of the template of a `.vue` file as written (`AppButton`, `app-card`, `div`), with the static
+    /// values of its `is` attributes (`is="AppButton"`, `:is="'AppButton'"`), and the names of the
+    /// `resolveComponent('AppButton')` calls of any file, sorted and without duplicates: `unplugin-vue-components`
+    /// imports the components it registers into the files that use them so (ADR 0082). Empty for other files.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub template_tags: Vec<String>,
     /// Syntax errors the parser recovered from; the other fields describe the recovered program. For component
@@ -543,6 +544,9 @@ impl ModuleInfo {
             self.jsx_import_source_span = other.jsx_import_source_span;
         }
         self.directives.extend(other.directives);
+        self.template_tags.extend(other.template_tags);
+        self.template_tags.sort();
+        self.template_tags.dedup();
         self.unresolved_dynamic.extend(other.unresolved_dynamic);
         self.ambient_modules.extend(other.ambient_modules);
         self.augmented_modules.extend(other.augmented_modules);

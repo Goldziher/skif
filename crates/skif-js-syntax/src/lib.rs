@@ -56,7 +56,9 @@ pub use cache::{
     CACHE_SCHEMA, CACHE_SCHEMA_DIGEST, CachedModule, MemoryModuleCache, ModuleCache, ModuleKey, cache_version,
     parse_cached,
 };
-pub use components::{RegisteredComponent, registered_components};
+pub use components::{
+    RegisteredComponent, camelize, capitalize, is_native_tag, registered_components, registered_name, resolved_names,
+};
 pub use config::{
     ConfigValue, ImportedCall, ModuleLoader, TEMPLATE_SUBSTITUTION, extract_config_object, extract_config_object_with,
     extract_constructor_options, extract_imported_calls, extract_method_calls, extract_property_calls,
@@ -186,6 +188,11 @@ fn parse_block(
     custom_elements::mark(&ret.program, &mut info);
     comments::collect(&ctx, &ret.program, &mut info);
     info.commands = commands::child_process_commands(&ret.program, &info.imports);
+    if src.contains("resolveComponent") {
+        info.template_tags = components::resolved_components(&ret.program);
+        info.template_tags.sort();
+        info.template_tags.dedup();
+    }
     info
 }
 
@@ -253,6 +260,7 @@ fn parse_component(
         }
         members::credit(&mut info, &uses);
         if flavor == template::Flavor::Vue {
+            tags.extend(std::mem::take(&mut info.template_tags));
             info.template_tags = tags.into_iter().collect();
         }
     }
