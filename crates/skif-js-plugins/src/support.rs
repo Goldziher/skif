@@ -379,7 +379,10 @@ pub(crate) fn path_unknown(value: &ConfigValue, path: &[&str], spreads: Spreads)
     match value {
         ConfigValue::Unknown => true,
         ConfigValue::Object(entries) => {
-            let last = entries.iter().rev().find(|(name, _)| name == key || counted(name.as_str()));
+            let last = entries
+                .iter()
+                .rev()
+                .find(|(name, _)| name == key || counted(name.as_str()));
             match last {
                 Some((name, child)) if name == key => path_unknown(child, rest, spreads),
                 Some(_) => true,

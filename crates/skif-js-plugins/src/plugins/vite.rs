@@ -80,7 +80,10 @@ impl Plugin for Vite {
     /// itself (`entry: pick()`, a spread inside it, or a spread above it of a value the config computes,
     /// `build: { ...makeLib() }`), or a config that is unknown as a whole, may name any file.
     fn incomplete_scope(&self, _cause: IncompleteCause, config: &ConfigAst<'_>) -> IncompleteScope {
-        if ENTRY_KEYS.iter().any(|path| path_unknown(config.value, path, Spreads::Own)) {
+        if ENTRY_KEYS
+            .iter()
+            .any(|path| path_unknown(config.value, path, Spreads::Own))
+        {
             return IncompleteScope::Package;
         }
         convention_scope(&SPEC, config, &["{,src/}{index,main}.{ext}"])
