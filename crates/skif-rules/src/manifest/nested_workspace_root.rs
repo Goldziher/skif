@@ -81,7 +81,9 @@ impl Rule for NestedWorkspaceRoot {
                  workspace; move its settings to the root file and delete it, or exclude the directory from the \
                  workspace patterns",
             );
-            if let Some(package) = package {
+            // A member another root lints is ignored in this workspace, and the emitter drops findings tied to an
+            // ignored package; the file still belongs to this workspace's layout, so such a finding names no package.
+            if let Some(package) = package.filter(|package| !cx.workspace.is_ignored(package.id)) {
                 builder = builder.package(package.display_name()).package_id(package.id);
             }
             out.emit(builder.build());
@@ -129,7 +131,7 @@ mod tests {
             "`packages/a` is a workspace member but declares a workspace of its own in `packages/a/pnpm-workspace.yaml`"
         );
         assert_eq!(diagnostics[0].package.as_deref(), Some("a"));
-        assert!(diagnostics[0].fixes.is_empty());
+        assert_eq!(diagnostics[0].fixes, []);
     }
 
     #[test]
@@ -152,7 +154,7 @@ mod tests {
         let root_json = root("");
         let files = files(&root_json);
         let ignoring = config("[workspace]\nignore-packages = [\"a\"]\n");
-        assert!(lint(META.id, &files, &ignoring).is_empty());
+        assert_eq!(lint(META.id, &files, &ignoring), []);
     }
 
     #[test]
