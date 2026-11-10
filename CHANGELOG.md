@@ -57,8 +57,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- `Js` gains `workspaces_anchor` (not a configuration key; set by discovery for the roots below the start of a run
-  with an explicit configuration file) and `PluginSource` gains `with_workspaces_anchor`
+- **Breaking** for multi-root runs with `--config <FILE>` (`-r`, or a start directory without a workspace): the
+  `[js.workspaces]` keys and `ignore-workspaces` globs of the explicit file and what it extends are relative to the
+  directory the run starts at, not to each root. `"."` is the root at the start directory only, and a
+  nested root is configured by its directory from there (`"tools/sub"`, `"tools/sub/packages/*"`, `"tools/*"`); a key
+  written for a nested root as if it were the root needs that directory in front of it
+  ([ADR 0099](adrs/0099-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
+- `Workspace` gains `workspace_keys_anchor` and `set_workspace_keys_anchor`, which `discover_targets` sets for the
+  roots below the start of a run with an explicit configuration file; `skif_js::InputRequest` gains `workspace_key`,
+  so a struct literal needs the field. `skif_core::ConfigJudgement` is new, `Report` gains `config_judgements`,
+  `with_config_judgements` and `extended`, and `Emitter` gains `report_config_judgement` and
+  `take_config_judgements`: `stale-js-config` records every entry it judged, which `skif -r` decides across roots
   ([ADR 0099](adrs/0099-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
 - `RuleMeta` gains `version_scoped`, set with `RuleMeta::version_scoped()`; `IgnoreEntry` gains `files` and
   `with_files`; `OverrideScope` gains `unanchored()`.
@@ -210,9 +219,9 @@ All notable changes to this project are documented here. The format follows
   if written relative to each, so `[js.workspaces."."]` configured every nested root and `stale-js-config` reported
   its entries once per root where they matched nothing. The keys and globs of an explicit file are now relative to
   the start directory: `"."` is the root there and `"tools/sub"` the nested root in that directory. A
-  `stale-js-config` finding about a file several roots of the run are built from (the explicit file, or a file above
-  them) is reported once, and an entry of a top-level `[js]` list or a `[js.workspaces]` key only when no root used
-  it ([ADR 0099](adrs/0099-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
+  `stale-js-config` finding about a file several roots of the run read (the explicit file, or a file above them) is
+  reported once, and an entry of a list of that file only when every root that could judge it found it stale, also
+  in the lint after `--fix` ([ADR 0099](adrs/0099-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
 - `skif baseline` records `name@specifier` only for the rules whose finding is about the specifier (`RuleMeta::version_scoped`:
   `version-mismatch`, `semver-range-mismatch`, `policy-conflict`, `unsynced-dependency-family`,
   `incompatible-peer-dependencies`, `catalog-mismatch`, `catalog-version-divergence`); any other finding records the

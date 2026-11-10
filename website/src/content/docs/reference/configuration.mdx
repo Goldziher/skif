@@ -634,9 +634,9 @@ report and matches no file on disk (while that rule runs). `[rules] stale-js-con
 `ignore-dependencies` or `ignore-unresolved` entry is not judged when a rule that consults it is off. The
 `ignore-dependencies` list of a package whose entry files skif cannot determine is not judged; the global list is judged
 over the other packages, and an entry that matches a dependency such a package lists is never called stale. In a
-multi-root run, a finding about a configuration file several roots are built from (a `--config` file, or a file above
-them) is reported once; an entry of a top-level list and a `[js.workspaces]` key are reported only when every one of
-those roots finds them stale, since a root that does not report one used it. It also
+multi-root run, a finding about a configuration file several roots read (a `--config` file, or a file above them) is
+reported once, and an entry of its lists only when every root that judged it found it stale: a root that used it
+silences it, and a root that could not judge it (a rule off, entry files it cannot determine) has no say. It also
 reports knip's tag hints: an `ignore-tags` tag, or `@internal` with `production`, on an export or member that is used
 anyway (while `unused-exports` runs). A tag on an enum or namespace that hides an unused member is needed and not
 reported. The tag hints cover the files whose exports `unused-exports` judges, so in a package with incomplete entries
@@ -1115,7 +1115,9 @@ to each package. `ignore-packages`, `[[ignore]] packages`, group selectors and `
 to the root, with one exception: in a multi-root run with `--config <FILE>`, the `[js.workspaces]` keys and
 `ignore-workspaces` globs of that file are relative to the directory the run starts at. `"."` is then the root in
 that directory only, `"tools/sub"` the root in `tools/sub`, and `"tools/sub/packages/*"` the members of that root,
-so one file can configure every root of the run by its directory.
+so one file can configure every root of the run by its directory. The keys then depend on where the run starts: from
+the repository root the root in `tools/sub` is `"tools/sub"`, from `tools/` it is `"sub"`, so write the file for the
+directory your recursive runs start at.
 
 ### Inspecting the result
 

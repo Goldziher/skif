@@ -60,31 +60,44 @@ root's directory relative to the start: `"."` is the root at the start directory
 root in `tools/sub`, `"tools/sub/packages/*"` its members, and a glob such as `"tools/*"` selects every root it names.
 As before, an exact key wins over a glob and a glob never selects the root at the start directory. The root at the
 start directory, a single-workspace run and a run without `--config` match keys from the root as ADR 0024 decided,
-and discovered files keep their keys relative to the root they configure. The anchor is part of the root's
-configuration (`Js::workspaces_anchor`, not a configuration key) and is set only for a root below the start whose
-configuration has such keys, so the other roots still share one linter. The JS analysis and the plugin source match
-every `[js.workspaces]` key through it; findings spell a package's key relative to the start, so a key in a message is
-the one to write in the file. Other selectors (`ignore-packages`, `[[ignore]] packages`, group selectors) and the
+and discovered files keep their keys relative to the root they configure. The anchor, the root's directory relative
+to the start, is a fact of root discovery like the nested-root mark of ADR 0023 (`Workspace::workspace_keys_anchor`),
+set for every root below the start of a run with an explicit file. The configuration stays the image of the file, so
+the roots built from one file share one linter. The JS analysis reads the anchor when it builds its settings and
+matches every `[js.workspaces]` key and `ignore-workspaces` glob through it, and hands each input source the key of
+the package it asks about (`InputRequest::workspace_key`), so the plugin tables of `[js.workspaces]` follow without a
+setting of their own. Findings spell a package's key relative to the start, so a key in a message is the one to write
+in the file. Other selectors (`ignore-packages`, `[[ignore]] packages`, group selectors) and the
 override and `extends` paths of ADR 0024 are unchanged.
+
+**Writing the keys.** The keys of an explicit file depend on the directory a multi-root run starts at, not on where
+the file lies. The same file linted from the repository root and from `tools/` configures different roots: a table
+for the root in `tools/sub` is `[js.workspaces."tools/sub"]` from the repository root and `[js.workspaces."sub"]` from
+`tools/`. A file meant for `-r` runs is written for the directory those runs start at, which CI fixes; a
+single-workspace run of one root (`skif --config <FILE> tools/sub`) matches the keys from that root, as before.
 
 **`--config` and discovery.** `--config` still skips discovery for every root: a nested root does not read its own
 `skif.toml` under the explicit file. Layering discovered files under it would change every run that uses `--config` to
 pin its configuration, and the duplicates come from the explicit file alone.
 
-**Findings about a shared file.** Once every root of a run is linted, the `stale-js-config` findings located at a
-configuration file that two or more of the linted roots are built from (an explicit file, an ancestor file, a file they
-extend) are decided across those roots:
+**Findings about a shared file.** `stale-js-config` records, beside its findings, every entry of a configuration list
+it judged in a root, used or stale: the file, the list's key as written in it (`js.ignore-dependencies`,
+`js.workspaces."tools/*".entry`, `js.workspaces` for the keys of that table), the entry, the verdict and the message of
+the finding that calls the entry stale (`Report::config_judgements`, not rendered). A root that cannot judge a list
+records nothing for it: a rule that consults it is off, or a package whose entries it covers has entry files that are
+not all known. Once every root of a run is linted, the entries two or more roots judged, by absolute file, key and
+entry, are decided across them:
 
-* An entry of a top-level `[js]` list (`ignore-dependencies`, `ignore-binaries`, `ignore-unresolved`,
-  `ignore-workspaces`, `entry`, `project`, `ignore`, `ignore-files`) and a `[js.workspaces]` key that selects no
-  package are judged by every such root. The finding is kept only when each of them reports it: a root that does not
-  report it used the setting, or could not judge it.
-* An entry of a `[js.workspaces]` table is judged only by the roots its key selects, and the other hints (a redundant
-  pattern, many unused files) describe the root that reports them, so such a finding is kept when a root reports it.
+* An entry is stale only when every root that judged it found it stale. A root that used it, through any package its
+  key selects, drops the finding in every root; a root that could not judge it has no say, so it does not hide a
+  stale entry either.
+* A stale entry is reported once, by the first root in path order that reports it.
+* Any other finding at the same file (a redundant pattern, a tag hint) is reported once, by the first root that
+  reports it with the same message.
 
-A kept finding is reported once, by the first root in path order that reports it; the other roots are told not to
-report it, also when they are linted again after `--fix`. The per-root summaries of the JSON `roots` array add up to
-the run's summary.
+The findings a decision takes out of a report are kept aside, and after `--fix` the decision is made again from the
+re-linted reports and those findings, so a root that was not linted again keeps its say. The per-root summaries of the
+JSON `roots` array add up to the run's summary.
 
 ### Consequences
 
@@ -94,12 +107,14 @@ the run's summary.
   configuration for a monorepo.
 * Good, because a stale finding about a shared file means that no root used the setting, for an inherited file as
   well as an explicit one.
-* Bad, because a root below the start whose configuration has workspace keys gets a linter of its own, so a run with
-  many such roots builds more linters and shares less of the file cache.
-* Bad, because the decision across roots tells the kinds of finding apart by the configuration key the message names,
-  which ties it to the wording of `stale-js-config`.
-* Bad, because an entry of a glob table that selects packages of several roots is reported when one of them does not
-  use it, even if another does: only the entries of top-level lists and the keys are judged across roots.
+* Good, because the roots built from one explicit file share one linter, anchored or not.
+* Good, because the decision reads what the rule judged rather than the wording of its messages, and an entry of a
+  glob table that selects packages of several roots is stale only when none of them uses it.
+* Bad, because the keys of an explicit file depend on the directory a recursive run starts at, so a file written for
+  runs from the repository root configures other roots, or none, when a run starts elsewhere.
+* Bad, because every report carries the entries `stale-js-config` judged, which a single-root run does not need.
+* Bad, because a finding about an inherited file is located at the nearest configuration file of the root, so a root
+  with a file of its own over the inherited one is not grouped with the roots that read the inherited file alone.
 * Bad, because the same file now means different things under `--config` and when discovered at the start
   directory of a multi-root run: discovered, its keys stay relative to each root that inherits it.
 
@@ -107,15 +122,18 @@ the run's summary.
 
 * `skif-js` unit tests cover the anchored and unanchored key matching (exact keys, globs, `"."`, unmatched keys) and
   the joining of package directories to the anchor.
-* `skif` unit tests cover which roots of a discovery get an anchor: the roots below the start with an explicit file
-  that has `[js.workspaces]` keys or `ignore-workspaces` globs, not the root at the start, not a discovered file, not
-  a file without such keys.
-* `skif-cli` unit tests cover the decision across roots: a finding every root reports is kept once, one reported by a
-  single root of two is dropped when every root judges it and kept otherwise, and a re-lint drops what another root
-  decided.
-* CLI tests cover `skif -r --config` on a project with a nested root: `"."` and `"tools/sub"` tables each configure
-  their root with no finding; stale entries of the file are reported exactly once; an ignore entry the nested root uses
-  is not reported by the outer root.
+* `skif-js` tests cover the judgements `stale-js-config` records (used and stale entries, the key as written, nothing
+  for a list it cannot judge) and the key a finding names for a package an override configures below the start.
+* `skif` unit tests cover which roots of a discovery get an anchor: every root below the start of a run with an
+  explicit file, also when the start is no root, not the root at the start and not a discovered file; and that the
+  roots share one configuration.
+* `skif-cli` unit tests cover the decision across roots: an entry one root uses is stale nowhere, a root that could not
+  judge an entry does not hide it, a stale entry is kept by the first root that reports it, other findings are kept
+  once, and a second decision starts from the findings the first withheld.
+* CLI tests cover `skif -r --config` on a project with nested roots: `"."` and `"tools/sub"` tables each configure
+  their root with no finding; stale entries of the file are reported exactly once; an ignore entry or a glob table
+  entry one root uses is not reported; a root that cannot judge a pattern does not hide it; a start directory that is
+  no root; a discovered file several roots inherit; and the lint after `--fix` reporting as a fresh lint does.
 * `adrlint lint adrs`, `adrlint format --check adrs` and `adrlint lock --check` pass.
 
 ## Pros and Cons of the Options
@@ -125,7 +143,8 @@ the run's summary.
 * Good, because `"."` means one root and every other root is addressed by its directory, as the file's author sees
   the tree.
 * Good, because `--config` reads exactly what it read before.
-* Bad, because the anchor is one more input of the JS analysis, and the cross-root decision depends on message keys.
+* Bad, because the anchor is one more input of the JS analysis, and the cross-root decision needs the rule to record
+  what it judged.
 
 ### Layer each nested root's discovered configuration under the explicit file
 
