@@ -428,7 +428,8 @@ mod tests {
                 ("packages/a/package-lock.json", "{}"),
             ],
         );
-        let allowing = config("[rules.stray-lockfile]\nallow = [\"packages/*/package-lock.json\", \"tools/**/yarn.lock\"]\n");
+        let allowing =
+            config("[rules.stray-lockfile]\nallow = [\"packages/*/package-lock.json\", \"tools/**/yarn.lock\"]\n");
         let diagnostics = lint(META.id, &files, &allowing);
         let messages: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
         assert_eq!(
@@ -441,7 +442,10 @@ mod tests {
     fn an_invalid_glob_or_an_exclusion_is_rejected() {
         for (entry, expected) in [
             ("packages/[a/yarn.lock", "allow[0]: "),
-            ("!packages/a/yarn.lock", "allow[0]: `!packages/a/yarn.lock` cannot exclude"),
+            (
+                "!packages/a/yarn.lock",
+                "allow[0]: `!packages/a/yarn.lock` cannot exclude",
+            ),
         ] {
             let table: toml::Table = toml::from_str(&format!("allow = [{entry:?}]")).unwrap();
             let error = StrayLockfile.validate_options(&table).unwrap_err();

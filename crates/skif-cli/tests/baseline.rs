@@ -219,7 +219,11 @@ fn a_hand_written_ignore_equal_to_an_entry_keeps_applying_and_prunes_the_entry()
     assert_eq!(pruned.code, 0, "{}{}", pruned.stdout, pruned.stderr);
     assert_eq!(pruned.json()["removed"], json!([entry("b", "6.0.0")]));
     assert_eq!(pruned.json()["entries"], 0);
-    assert_eq!(lint(dir.path()).code, 0, "the hand-written entry still suppresses the finding");
+    assert_eq!(
+        lint(dir.path()).code,
+        0,
+        "the hand-written entry still suppresses the finding"
+    );
 }
 
 #[test]

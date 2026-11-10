@@ -487,7 +487,10 @@ fn eslint_builtin_extends_credit_eslint_as_optional() {
         .filter(|dependency| dependency.name == "eslint")
         .collect();
     assert_eq!(eslint.len(), 1, "{:?}", out.referenced_dependencies);
-    assert!(eslint[0].optional, "a package that only enables ESLint may get it from the root");
+    assert!(
+        eslint[0].optional,
+        "a package that only enables ESLint may get it from the root"
+    );
 }
 
 #[test]

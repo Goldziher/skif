@@ -138,7 +138,10 @@ fn an_unknown_rule_names_the_file_and_line_that_set_it() {
     assert_eq!(result.code, 2);
     let error = &result.json()["error"];
     assert_eq!(error["kind"], "config");
-    assert!(Path::new(error["path"].as_str().unwrap()).ends_with("preset.toml"), "{error}");
+    assert!(
+        Path::new(error["path"].as_str().unwrap()).ends_with("preset.toml"),
+        "{error}"
+    );
     assert_eq!(error["line"], 4);
     assert_eq!(error["column"], 1);
     let message = error["message"].as_str().unwrap();
@@ -167,7 +170,13 @@ fn an_unknown_rule_of_a_package_file_names_that_file() {
         Path::new(error["path"].as_str().unwrap()).ends_with(Path::new("packages/a/skif.toml")),
         "{error}"
     );
-    assert!(error["message"].as_str().unwrap().contains("unknown rule \"no-such-rule\""), "{error}");
+    assert!(
+        error["message"]
+            .as_str()
+            .unwrap()
+            .contains("unknown rule \"no-such-rule\""),
+        "{error}"
+    );
 }
 
 #[test]

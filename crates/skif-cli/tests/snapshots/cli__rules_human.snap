@@ -41,7 +41,7 @@ unresolved-imports                 js         error    none       An import spec
 stale-mocks                        js         error    none       A test-runner mock names a relative or aliased module that does not exist.
 unlisted-binaries                  js         warning  none       A script, or a command in a workflow, tool config or source file, runs a binary that no listed dependency provides.
 unused-optional-peer-dependencies  js         warning  none       An optional peer dependency is imported but not installed as a dependency or dev dependency.
-unused-files                       js         warning  unsafe     A project file is not reachable from any entry file.
+unused-files                       js         warning  sometimes  A project file is not reachable from any entry file.
 unused-exports                     js         warning  unsafe     An exported value is not imported by any other module.
 unused-types                       js         warning  unsafe     An exported type or interface is not imported by any other module.
 unused-namespace-exports           js         warning  unsafe     An exported value of a module that is only read through a namespace import is never accessed.

@@ -132,9 +132,12 @@ fn extend_keys_append_to_the_inherited_lists_of_a_workspace_table() {
     assert_eq!(web.ignore_unresolved[1].reason.as_deref(), Some("generated"));
     assert!(web.extend_ignore.is_empty() && web.extend_ignore_dependencies.is_empty());
     assert!(web.extend_ignore_binaries.is_empty() && web.extend_ignore_unresolved.is_empty());
-    let origins = resolved.origins.get("js.workspaces.\"apps/web\".ignore-dependencies");
+    let origins = resolved.origins.get("js.workspaces.apps/web.ignore-dependencies");
     assert_eq!(
-        origins.iter().map(|assignment| (assignment.source, assignment.op)).collect::<Vec<_>>(),
+        origins
+            .iter()
+            .map(|assignment| (assignment.source, assignment.op))
+            .collect::<Vec<_>>(),
         [(0, Op::Set), (1, Op::Append)]
     );
 }
@@ -144,7 +147,7 @@ fn a_standalone_file_folds_the_extend_keys_of_a_workspace_table() {
     let text = "[js.workspaces.\".\"]\nignore-dependencies = [\"a\"]\nextend-ignore-dependencies = [\"b\"]\n";
     let config = Config::from_toml_str(text).unwrap();
     assert_eq!(config.js.workspaces["."].ignore_dependencies, ["a", "b"]);
-    assert!(config.js.workspaces["."].extend_ignore_dependencies.is_empty());
+    assert_eq!(config.js.workspaces["."].extend_ignore_dependencies.len(), 0);
 }
 
 #[test]
