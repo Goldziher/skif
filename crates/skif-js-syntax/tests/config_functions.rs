@@ -167,6 +167,42 @@ fn resolved_package_manifest_directories_are_the_package() {
     }
 }
 
+/// A manifest directory names a package only for a bare specifier, a scoped one written in several `join` arguments
+/// included; a relative manifest stays a path, and an absolute one, a subpath import or a path through `..` is
+/// unknown rather than a package or a path.
+#[test]
+fn only_a_bare_manifest_directory_is_a_package() {
+    let value = extract(
+        "main.ts",
+        "import { dirname, join } from 'path';\n\
+         export default {\n\
+           scopedString: dirname(require.resolve('@a/b/package.json')),\n\
+           scopedJoin: dirname(require.resolve(join('@s', 'n', 'package.json'))),\n\
+           relativeJoin: dirname(require.resolve(join('./local', 'package.json'))),\n\
+           absoluteJoin: dirname(require.resolve(join('/abs/x', 'package.json'))),\n\
+           absoluteString: dirname(require.resolve('/abs/x/package.json')),\n\
+           subpathImport: dirname(require.resolve('#internal/package.json')),\n\
+           parent: dirname(require.resolve('a/../b/package.json')),\n\
+           computedJoin: dirname(require.resolve(join(name(), 'package.json'))),\n\
+           unknownSpecifier: import.meta.resolve(specifier),\n\
+         };",
+    );
+    let pairs = [
+        ("scopedString", s("@a/b")),
+        ("scopedJoin", s("@s/n")),
+        ("relativeJoin", s("./local")),
+        ("absoluteJoin", ConfigValue::Unknown),
+        ("absoluteString", ConfigValue::Unknown),
+        ("subpathImport", ConfigValue::Unknown),
+        ("parent", ConfigValue::Unknown),
+        ("computedJoin", ConfigValue::Unknown),
+        ("unknownSpecifier", ConfigValue::Unknown),
+    ];
+    for (key, expected) in pairs {
+        assert_eq!(get(&value, &[key]), &expected, "{key}");
+    }
+}
+
 #[test]
 fn import_meta_resolve_is_the_specifier() {
     let value = extract(

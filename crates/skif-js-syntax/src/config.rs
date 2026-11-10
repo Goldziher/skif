@@ -2462,9 +2462,10 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// The directory of a package's manifest, which is the package itself: `dirname(require.resolve(join(pkg,
     /// 'package.json')))`, the idiom the Storybook CLI writes, also with `import.meta.resolve` for `require.resolve`,
-    /// its URL turned into a path with `fileURLToPath`, and the manifest written as a string
-    /// (`` `${pkg}/package.json` ``, `'pkg/package.json'`) instead of the `join`. A manifest of a relative or absolute
-    /// path is not a package's.
+    /// its URL turned into a path with `fileURLToPath`, the package written in several `join` arguments
+    /// (`'@scope', 'name'`), and the manifest written as a string (`` `${pkg}/package.json` ``,
+    /// `'pkg/package.json'`) instead of the `join`. The directory is classified by [`manifest_directory`]: `None`
+    /// leaves a relative path to the path functions.
     fn package_directory(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
         if !self.is_path_function(&call.callee, "dirname") {
             return None;
@@ -2485,19 +2486,32 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         if let Expression::CallExpression(join) = manifest
             && self.is_path_function(&join.callee, "join")
         {
-            let mut arguments = join.arguments.iter().filter_map(Argument::as_expression);
-            let (package, file) = (arguments.next()?, arguments.next()?);
-            if arguments.next().is_some() || static_string(file).as_deref() != Some("package.json") {
+            let arguments: Vec<&Expression<'a>> = join
+                .arguments
+                .iter()
+                .map(Argument::as_expression)
+                .collect::<Option<_>>()?;
+            let (file, segments) = arguments.split_last()?;
+            if segments.is_empty() || static_string(file).as_deref() != Some("package.json") {
                 return None;
             }
-            return Some(self.expr(package, depth));
+            let segments: Option<Vec<String>> = segments
+                .iter()
+                .copied()
+                .map(|segment| match self.expr(segment, depth) {
+                    Value::String(text) => Some(text),
+                    _ => None,
+                })
+                .collect();
+            return match segments {
+                Some(segments) => manifest_directory(&segments.join("/")),
+                None => Some(Value::Unknown),
+            };
         }
         let Value::String(manifest) = self.expr(manifest, depth) else {
             return None;
         };
-        let package = manifest.strip_suffix("/package.json")?;
-        let bare = !package.is_empty() && !package.starts_with(['.', '/', '\\']) && !package.contains(':');
-        bare.then(|| Value::String(package.to_owned()))
+        manifest_directory(manifest.strip_suffix("/package.json")?)
     }
 
     /// Whether `callee` is `fileURLToPath` of the `url` module, however it was imported.
@@ -3934,6 +3948,24 @@ fn required_package(call: &CallExpression<'_>, depth: u32) -> Option<Value> {
     }
     let module = single_argument(call).and_then(static_string)?;
     (!module.starts_with(['.', '/'])).then_some(Value::String(module))
+}
+
+/// What the directory `dir` of a resolved `package.json` evaluates to: the package for a bare specifier (`pkg`,
+/// `@scope/pkg`, a subpath of one), `None` for a relative path, which the path functions compute, and unknown for
+/// anything else, which names no package: an absolute path, a URL, a subpath import (`#x`), or a path with an empty,
+/// `.` or `..` segment.
+fn manifest_directory(dir: &str) -> Option<Value> {
+    if dir.starts_with('.') {
+        return None;
+    }
+    let package = !dir.starts_with(['/', '#'])
+        && !dir.contains([':', '\\'])
+        && dir.split('/').all(|segment| !matches!(segment, "" | "." | ".."));
+    Some(if package {
+        Value::String(dir.to_owned())
+    } else {
+        Value::Unknown
+    })
 }
 
 /// Whether `call` resolves a module specifier: `require.resolve(…)` or `import.meta.resolve(…)`.

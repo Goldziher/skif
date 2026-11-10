@@ -339,6 +339,11 @@ All notable changes to this project are documented here. The format follows
   fileURLToPath(import.meta.resolve('bar'))`, which `skif-js-syntax` now reads as `'bar'`) was dropped, so imports of
   `foo` counted as the package `foo`. It is kept as an alias without a target, whose imports are not reported, and the
   package it points into is a dependency of the config.
+- `skif-js-syntax` evaluates `import.meta.resolve(x)` to `x`, as `require.resolve(x)`, and the directory of a
+  resolved package manifest, `dirname(require.resolve('<pkg>/package.json'))` or with `import.meta.resolve` and
+  `fileURLToPath`, to `<pkg>`, for every plugin. A manifest path that is relative, absolute, starts with `#` or has a
+  `..` segment is not a package's, and `join('@scope', 'name', 'package.json')` names `@scope/name`, not the path
+  `./@scope/name`.
 - `skif -r --config <FILE>` applied the file's `[js.workspaces]` tables and `ignore-workspaces` globs to every root as
   if written relative to each, so `[js.workspaces."."]` configured every nested root and `stale-js-config` reported
   its entries once per root where they matched nothing. The keys and globs of an explicit file are now relative to
