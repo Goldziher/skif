@@ -1,7 +1,8 @@
 //! Cases where the corpus runs showed skif and knip disagreeing and skif was wrong: members read in their own file,
 //! types in destructured exports, `new URL` targets, `require` assertions, imports awaited together with
-//! `Promise.all`, spies on a namespace member, fixture directories, wildcard `exports`, same-name pairs and duplicate
-//! exports.
+//! `Promise.all`, spies on a namespace member, enums read through a namespace, parameters that shadow an import,
+//! dynamic imports bound to an import's name, members read through `export * as`, fixture directories, wildcard
+//! `exports`, same-name pairs, types named by a same-name type and duplicate exports.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -197,6 +198,156 @@ fn a_spy_on_a_namespace_uses_only_the_member_it_spies_on() {
     ]);
     assert_eq!(found(&diagnostics, "unused-namespace-exports"), ["utils.ts: unspied"]);
     assert_eq!(found(&diagnostics, "unused-exports"), none());
+}
+
+#[test]
+fn an_enum_read_through_a_namespace_uses_only_the_members_read_on_it() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        (
+            "index.ts",
+            "import * as C from './constants';\nimport * as R from './reexports';\n\
+             console.log(C.Ids.Open, C.Ids['Close'], C.Kinds, C.Grouped.Inner, R.Levels.High);\n\
+             export let mode: C.Modes.On | undefined;\n",
+        ),
+        (
+            "constants.ts",
+            "export const enum Ids { Open = 'open', Close = 'close', Unused = 'unused' }\n\
+             export enum Kinds { A, B }\nexport const enum Modes { On, Off }\n\
+             export namespace Grouped { export const Inner = 1; export const Other = 2; }\n",
+        ),
+        ("levels.ts", "export enum Levels { High, Low }\n"),
+        ("reexports.ts", "export { Levels } from './levels';\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-enum-members"),
+        [
+            "constants.ts: Ids.Unused",
+            "constants.ts: Modes.Off",
+            "levels.ts: Levels.Low"
+        ],
+        "`C.Kinds` is used as a whole; `R.Levels` follows the re-export"
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-namespace-members"),
+        ["constants.ts: Grouped.Other"]
+    );
+}
+
+#[test]
+fn a_parameter_that_shadows_a_namespace_import_does_not_use_the_namespace() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        ("index.ts", "import { scan } from './lexer';\nscan('x');\n"),
+        (
+            "lexer.ts",
+            "import * as chars from './chars';\n\
+             export function scan(input: string) { return chars.isDigit(input.length) && attempt(input); }\n\
+             function attempt(chars: string) { return chars.length > 0 && check(chars); }\n\
+             function check(_: string) { return true; }\n",
+        ),
+        (
+            "chars.ts",
+            "export const isDigit = (c: number) => c > 0;\nexport const $PIPE = 124;\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-namespace-exports"),
+        ["chars.ts: $PIPE"],
+        "the parameter `chars` is passed around, not the namespace"
+    );
+}
+
+#[test]
+fn a_dynamic_import_bound_to_the_name_of_an_import_gets_its_own_reads() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        (
+            "index.ts",
+            "import * as config from './config';\nimport { go, shadow } from './other';\n\
+             console.log(config.top, go, shadow);\n\
+             export async function run() { const config = await import('./config'); return config.foo; }\n",
+        ),
+        (
+            "other.ts",
+            "export async function go() { const lib = await import('./lib'); return lib.a; }\n\
+             export function shadow(lib: { b: number }) { return lib.b; }\n",
+        ),
+        (
+            "config.ts",
+            "export const top = 1;\nexport const foo = 2;\nexport const bar = 3;\n",
+        ),
+        ("lib.ts", "export const a = 1;\nexport const b = 2;\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-namespace-exports"),
+        ["config.ts: bar"],
+        "`config.foo` reads the `import()` binding; `lib.b` reads `lib` by name, as knip matches dynamic imports"
+    );
+    assert_eq!(found(&diagnostics, "unused-exports"), none());
+}
+
+#[test]
+fn a_member_read_through_an_export_star_as_uses_only_that_export() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        (
+            "index.ts",
+            "import * as ns from './barrel';\nns.utils.fn();\nconsole.log(ns.whole);\n",
+        ),
+        (
+            "barrel.ts",
+            "export * as utils from './utils';\nexport * as whole from './whole';\n",
+        ),
+        (
+            "utils.ts",
+            "export const fn = () => 1;\nexport const other = () => 2;\n",
+        ),
+        ("whole.ts", "export const kept = 1;\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-namespace-exports"),
+        ["utils.ts: other"],
+        "`ns.utils.fn` reads `fn` of `utils.ts`, as in knip; `ns.whole` passed around uses all of `whole.ts`, where \
+         knip still reports `kept`"
+    );
+    assert_eq!(found(&diagnostics, "unused-exports"), none());
+}
+
+#[test]
+fn a_type_that_shares_its_name_with_a_value_export_credits_what_it_names() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        (
+            "index.ts",
+            "import type { Service } from './client';\nimport { IStore } from './store';\n\
+             export let client: Service | undefined;\nconsole.log(IStore);\n",
+        ),
+        (
+            "client.ts",
+            "export interface Interface { run(): void }\n\
+             export class ClientService { constructor(readonly impl: Interface) {} }\n\
+             export const Service = ClientService;\nexport type Service = ClientService;\nexport class Unrelated {}\n",
+        ),
+        (
+            "store.ts",
+            "declare function createDecorator<T>(id: string): T;\nexport interface Base { close(): void }\n\
+             export const IStore = createDecorator<IStore>('store');\n\
+             export interface IStore extends Base { read(options: ReadOptions): Entry }\n\
+             export interface ReadOptions { key: string }\nexport type Entry = string;\n\
+             export interface Orphan { x: number }\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-exports"),
+        ["client.ts: Unrelated"],
+        "the type `Service` names `ClientService`, used as a type"
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-types"),
+        ["store.ts: Orphan"],
+        "the interface `IStore` shares its name with the used value"
+    );
 }
 
 #[test]
