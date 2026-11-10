@@ -356,15 +356,23 @@ mod tests {
     }
 
     #[test]
-    fn n8n_is_marked_as_an_invalid_knip_comparison() {
+    fn no_repository_is_marked_as_an_invalid_knip_comparison() {
         let repos = manifest().repo;
-        let n8n = repos.iter().find(|r| r.name == "n8n").unwrap();
-        assert!(
-            n8n.knip_invalid
-                .as_deref()
-                .is_some_and(|why| { why.contains("dist") && why.contains("until a parity run confirms") })
-        );
-        assert_eq!(repos.iter().filter(|r| r.knip_invalid.is_some()).count(), 1);
+        let marked: Vec<&str> = repos
+            .iter()
+            .filter(|r| r.knip_invalid.is_some())
+            .map(|r| r.name.as_str())
+            .collect();
+        assert_eq!(marked, Vec::<&str>::new());
+    }
+
+    #[test]
+    fn a_repository_reads_the_reason_its_knip_run_is_invalid() {
+        let repo: Repo = toml::from_str(
+            "name = \"r\"\nurl = \"u\"\nrev = \"0\"\npackage-manager = \"pnpm\"\nknip-invalid = \"configs do not load\"\n",
+        )
+        .unwrap();
+        assert_eq!(repo.knip_invalid.as_deref(), Some("configs do not load"));
     }
 
     #[test]
@@ -463,8 +471,17 @@ mod tests {
         #[cfg(unix)]
         assert!(error.contains(&format!("process {}", std::process::id())), "{error}");
         drop(held);
-        let again = lock_checkout(&dir);
-        assert!(again.is_ok(), "a released lock is free: {again:?}");
+        // A child another test forks in this process holds a copy of the descriptor, and with it the lock, until it
+        // execs, so the release is observed within a bounded wait rather than at once.
+        let mut again = lock_checkout(&dir);
+        for _ in 0..200 {
+            if again.is_ok() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            again = lock_checkout(&dir);
+        }
+        assert!(again.is_ok(), "a released lock is free within 2 s: {again:?}");
         drop(again);
         fs::remove_dir_all(&cache).unwrap();
     }

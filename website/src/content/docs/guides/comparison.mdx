@@ -60,8 +60,9 @@ load a config, and inside a file the other tool reports as unused (the file is t
 too. It also sets apart what follows from where each tool looks, decided from paths and manifests: projects with their
 own `package.json` that are not knip workspaces (knip neither judges their dependencies nor uses their entry files,
 while skif lints them as roots of their own), directories skif's file discovery skips, and TypeScript sources whose
-built path a package publishes, which skif makes entries. A repository whose knip run is not a valid comparison (n8n,
-whose configs import workspace packages that are never built) is named and left out of the sums. The method is in the
+built path a package publishes (and the node and credential files an n8n node package lists), which skif makes
+entries, together with the files they import that only knip reports as unused. A repository whose knip run is not a
+valid comparison is named and left out of the sums. The method is in the
 [benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md).
 
 A package whose entry files skif cannot all know (a tool configuration it cannot read) is listed under
