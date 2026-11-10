@@ -625,6 +625,54 @@ fn vitest() {
     assert_absent(out, &["default"]);
 }
 
+/// Vitest's built-in reporters, as its reporter registry and knip list them, name no package; the `html` reporter
+/// needs `@vitest/ui`, and the `nuxt` environment comes with `@nuxt/test-utils`, so both are optional.
+#[test]
+fn vitest_builtin_reporters_and_the_nuxt_environment_are_not_required_packages() {
+    let reporters = [
+        "agent",
+        "basic",
+        "blob",
+        "default",
+        "dot",
+        "github-actions",
+        "hanging-process",
+        "html",
+        "json",
+        "junit",
+        "minimal",
+        "tap",
+        "tap-flat",
+        "tree",
+        "verbose",
+    ];
+    let list = reporters.map(|name| format!("\"{name}\"")).join(", ");
+    let source = format!(
+        "export default defineConfig({{ test: {{ environment: \"nuxt\", reporters: [{list}, [\"vitest-sonar-reporter\", {{}}]], \
+         projects: [{{ test: {{ name: \"n\", environment: \"nuxt\" }} }}] }} }});"
+    );
+    let results = resolve(&[("vitest.config.ts", source.as_str())], &["vitest"]);
+    let out = output(&results, "vitest");
+    let mut required: Vec<&str> = out
+        .referenced_dependencies
+        .iter()
+        .filter(|dep| !dep.optional)
+        .map(|dep| dep.name.as_str())
+        .collect();
+    required.sort_unstable();
+    required.dedup();
+    assert_eq!(required, ["vitest-sonar-reporter"]);
+    let mut optional: Vec<&str> = out
+        .referenced_dependencies
+        .iter()
+        .filter(|dep| dep.optional)
+        .map(|dep| dep.name.as_str())
+        .collect();
+    optional.sort_unstable();
+    optional.dedup();
+    assert_eq!(optional, ["@vitest/ui", "vitest-environment-nuxt"]);
+}
+
 #[test]
 fn jest() {
     let results = resolve(

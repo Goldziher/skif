@@ -123,6 +123,9 @@ All notable changes to this project are documented here. The format follows
   name are no longer `unlisted-binaries` findings. The binaries a mise file task runs are reported at the task file,
   not at `package.json`
   ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
+- Vitest's built-in `agent`, `html` and `minimal` reporters name no package, so a config using them is no longer an
+  `unlisted-dependencies` finding; `html` credits `@vitest/ui`. The `nuxt` environment credits
+  `vitest-environment-nuxt` without requiring it, as `@nuxt/test-utils` brings it.
 
 ### Changed
 
