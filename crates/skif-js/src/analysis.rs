@@ -172,7 +172,8 @@ fn mark_foreign_paths(resolver: &ModuleResolver, graph: &ModuleGraph, dependenci
 
 /// Whether `path` lies below a `node_modules` directory: installed code, not a file of any project.
 fn is_installed(path: &Path) -> bool {
-    path.components().any(|component| component.as_os_str() == "node_modules")
+    path.components()
+        .any(|component| component.as_os_str() == "node_modules")
 }
 
 /// Directories [`on_disk`] does not enter unless the pattern names them: installed packages and git internals are

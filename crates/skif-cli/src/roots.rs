@@ -220,10 +220,10 @@ pub fn credit_other_root_uses(report: Report, uses: &OtherRootUses) -> Report {
     }
     report.retain(|diagnostic| {
         let used_dependency = UNUSED_DEPENDENCY_RULES.contains(&diagnostic.rule.as_str())
-            && diagnostic
-                .dependency
-                .as_ref()
-                .is_some_and(|name| uses.dependencies.contains(&(diagnostic.location.path.clone(), name.clone())));
+            && diagnostic.dependency.as_ref().is_some_and(|name| {
+                uses.dependencies
+                    .contains(&(diagnostic.location.path.clone(), name.clone()))
+            });
         let used_file = diagnostic.rule == "unused-files" && uses.files.contains(&diagnostic.location.path);
         !(used_dependency || used_file)
     })
@@ -237,7 +237,9 @@ fn route_ancestor_dependency_uses(targets: &[Target], from: usize, report: &Repo
             continue;
         };
         if let Ok(rel) = manifest_dir.strip_prefix(&targets[owner].root) {
-            uses[owner].dependencies.insert((rel.join("package.json"), name.clone()));
+            uses[owner]
+                .dependencies
+                .insert((rel.join("package.json"), name.clone()));
         }
     }
 }

@@ -872,7 +872,11 @@ fn roots_using_each_others_files() -> tempfile::TempDir {
         ".github/workflows/ci.yml",
         "on: push\njobs:\n  report:\n    runs-on: ubuntu-latest\n    steps:\n      - run: node build/tools/report.js\n",
     );
-    put(dir.path(), "tools/detect.js", "module.exports = require('./helper.js');\n");
+    put(
+        dir.path(),
+        "tools/detect.js",
+        "module.exports = require('./helper.js');\n",
+    );
     put(dir.path(), "tools/helper.js", "module.exports = 1;\n");
     put(dir.path(), "tools/orphan.js", "module.exports = 2;\n");
     put(
@@ -880,7 +884,11 @@ fn roots_using_each_others_files() -> tempfile::TempDir {
         "build/package.json",
         r#"{"name": "build", "version": "0.0.0", "private": true, "main": "index.js"}"#,
     );
-    put(dir.path(), "build/index.js", "module.exports = require('../tools/detect.js');\n");
+    put(
+        dir.path(),
+        "build/index.js",
+        "module.exports = require('../tools/detect.js');\n",
+    );
     put(dir.path(), "build/tools/report.js", "console.log(2);\n");
     put(dir.path(), "build/tools/unused.js", "console.log(3);\n");
     dir
