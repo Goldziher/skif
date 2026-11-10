@@ -776,6 +776,39 @@ fn a_component_template_that_reads_a_member_uses_it_as_a_whole() {
     assert_eq!(c.nested_members, nested(&[("Modes", &["On"])]));
 }
 
+#[test]
+fn a_member_used_other_than_through_its_members_stays_whole() {
+    for (case, use_) in [
+        ("typeof", "type T = typeof C.E;"),
+        ("keyof typeof", "type T = keyof typeof C.E;"),
+        ("Object.keys", "Object.keys(C.E);"),
+        ("spread", "const s = { ...C.E };"),
+        ("computed member", "const d = (k: string) => C.E[k];"),
+    ] {
+        let source = format!("import * as C from './c';\nC.E.A;\nC.F.A;\n{use_}\n");
+        let info = parse("a.ts", &source);
+        let c = &info.imports[0].names[0];
+        assert_eq!(c.accessed_members, ["E", "F"], "{case}");
+        assert!(!c.escapes, "{case}");
+        assert_eq!(c.nested_members, nested(&[("F", &["A"])]), "{case}");
+    }
+}
+
+#[test]
+fn members_read_one_level_down_in_two_script_blocks_are_merged() {
+    let vue = "<script lang=\"ts\">\nimport * as C from './c';\nexport const a = C.Ids.Open;\n\
+               export const k = C.Kinds.A;\n</script>\n<script setup lang=\"ts\">\nconst b = C.Ids.Close;\n\
+               const m = C.Kinds;\n</script>\n<template><p /></template>\n";
+    let info = parse("App.vue", vue);
+    let c = &info.imports[0].names[0];
+    assert_eq!(c.accessed_members, ["Ids", "Kinds"]);
+    assert_eq!(
+        c.nested_members,
+        nested(&[("Ids", &["Close", "Open"])]),
+        "`C.Kinds` read as a whole in the setup block uses all of it"
+    );
+}
+
 fn nested(entries: &[(&str, &[&str])]) -> BTreeMap<String, Vec<String>> {
     entries
         .iter()
