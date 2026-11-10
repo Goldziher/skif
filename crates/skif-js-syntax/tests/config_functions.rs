@@ -871,3 +871,23 @@ fn a_key_merged_from_undecided_branches_is_not_definite() {
         ])
     );
 }
+
+/// A key is an ordinary key whatever its name: one that reads like evaluator bookkeeping (`'\0maybe:a'`) is exported as
+/// written and leaves a read of the key it seems to name definite.
+#[test]
+fn a_key_named_like_bookkeeping_is_an_ordinary_key() {
+    let value = extract(
+        "vitest.config.ts",
+        "const x = { a: 'ab', '\\0maybe:a': 1 };\n\
+         export default { exported: x, coalesced: x.a ?? 'fallback', length: x.a.length };",
+    );
+    assert_eq!(
+        get(&value, &["exported"]),
+        &ConfigValue::Object(vec![
+            ("a".to_owned(), s("ab")),
+            ("\0maybe:a".to_owned(), ConfigValue::Number(1.0)),
+        ])
+    );
+    assert_eq!(get(&value, &["coalesced"]), &s("ab"));
+    assert_eq!(get(&value, &["length"]), &ConfigValue::Number(2.0));
+}
