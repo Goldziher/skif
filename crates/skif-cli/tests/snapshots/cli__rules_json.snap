@@ -1,10 +1,10 @@
 ---
 source: crates/skif-cli/tests/cli.rs
-expression: json.stdout
+expression: redact_version(&json.stdout)
 ---
 {
   "version": 1,
-  "skif": "0.2.0",
+  "skif": "[VERSION]",
   "rules": [
     {
       "id": "empty-dependencies",
@@ -276,7 +276,7 @@ expression: json.stdout
       "id": "unused-files",
       "category": "js",
       "default": "warning",
-      "fixable": "unsafe",
+      "fixable": "sometimes",
       "summary": "A project file is not reachable from any entry file."
     },
     {

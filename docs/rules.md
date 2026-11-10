@@ -22,7 +22,7 @@
 | [`unused-dev-dependencies`](#unused-dev-dependencies) | js | warning | unsafe |
 | [`unused-enum-members`](#unused-enum-members) | js | warning | unsafe |
 | [`unused-exports`](#unused-exports) | js | warning | unsafe |
-| [`unused-files`](#unused-files) | js | warning | unsafe |
+| [`unused-files`](#unused-files) | js | warning | sometimes |
 | [`unused-namespace-exports`](#unused-namespace-exports) | js | warning | unsafe |
 | [`unused-namespace-members`](#unused-namespace-members) | js | warning | unsafe |
 | [`unused-namespace-types`](#unused-namespace-types) | js | warning | unsafe |
@@ -204,7 +204,7 @@ A project file is not reachable from any entry file.
 
 - Category: js
 - Default severity: warning
-- Fixable: unsafe
+- Fixable: sometimes
 
 ## unused-namespace-exports
 

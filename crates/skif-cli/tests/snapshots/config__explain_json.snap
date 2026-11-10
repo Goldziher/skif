@@ -1,10 +1,10 @@
 ---
 source: crates/skif-cli/tests/config.rs
-expression: json.stdout
+expression: redact_version(&json.stdout)
 ---
 {
   "version": 1,
-  "skif": "0.2.0",
+  "skif": "[VERSION]",
   "key": "lint.fail-on-warnings",
   "roots": [
     {

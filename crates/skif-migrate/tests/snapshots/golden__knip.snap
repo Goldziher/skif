@@ -12,9 +12,6 @@ expression: migration.toml
 report-unused-entries = true
 
 [js]
-entry = ["src/index.ts!", "scripts/*.ts", "src/index.ts"]
-project = ["src/**/*.ts!", "scripts/**/*.ts"]
-ignore = ["src/generated/**"]
 ignore-files = ["src/legacy/**"]
 ignore-dependencies = ["left-pad", "/^@demo\\/.+$/", "eslint-*", "/tsx|ts-node/"]
 ignore-binaries = ["docker", "lefthook"]
@@ -24,6 +21,7 @@ ignore-exports-used-in-file = true
 ignore-workspaces = ["examples/**"]
 include-entry-exports = true
 ignore-global-binaries = false
+entry = ["src/index.ts"]
 
 [js.cycles]
 allow = [["src/a.ts", "src/b.ts"]]

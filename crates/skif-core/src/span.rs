@@ -202,11 +202,7 @@ impl LineIndex {
 
     /// Bytes of the leading byte order mark between `line_start` and `offset`: all of it on the first line.
     fn bom_before(&self, line_start: u32, offset: u32) -> u32 {
-        if line_start == 0 {
-            offset.min(self.bom_len)
-        } else {
-            0
-        }
+        if line_start == 0 { offset.min(self.bom_len) } else { 0 }
     }
 
     fn skipped_bytes(&self, line_start: u32, offset: u32, weight: impl Fn(WideChar) -> u32) -> u32 {
