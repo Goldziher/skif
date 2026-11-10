@@ -791,6 +791,26 @@ fn next() {
 }
 
 #[test]
+fn next_reads_turbopack_aliases_and_loaders() {
+    let results = resolve(
+        &[(
+            "next.config.js",
+            r#"module.exports = { turbopack: {
+              resolveAlias: { "react-native": "react-native-web", "@ui": "./src/ui", fs: { browser: "./empty.js" }, "@x/a": ["@x/b"] },
+              rules: { "*.svg": { loaders: ["@svgr/webpack"], as: "*.js" }, "*.md": [{ loader: "raw-loader", options: {} }] }
+            } };"#,
+        )],
+        &["next"],
+    );
+    let out = output(&results, "next");
+    assert_deps(out, &["react-native-web", "@x/b", "@svgr/webpack", "raw-loader"]);
+    assert!(!deps(out).contains("react-native"), "{:?}", deps(out));
+    assert!(out.aliases.contains(&alias("@ui", Some("src/ui"))), "{:?}", out.aliases);
+    assert!(!out.aliases.iter().any(|a| a.find == "react-native"), "{:?}", out.aliases);
+    assert!(out.provided_binaries.contains(&"next".to_string()));
+}
+
+#[test]
 fn next_without_config_still_has_router_entries() {
     let results = resolve(&[], &["next"]);
     assert!(output(&results, "next").entries.iter().any(|e| e.contains("pages/**")));
