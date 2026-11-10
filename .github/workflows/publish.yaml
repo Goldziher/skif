@@ -136,6 +136,12 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: scripts/check-release-gate.sh "$TAG"
 
+      # npm trusted publishing works only on a package that exists, so a platform package never published by hand
+      # would fail its first publish after crates.io and the earlier npm packages are live. Fail before the release.
+      - name: Verify every npm package exists
+        if: steps.version.outputs.dry_run != 'true'
+        run: bash scripts/check-npm-packages-exist.sh npm-package/package.json
+
       - name: Detect a complete GitHub release
         id: release
         env:
@@ -496,11 +502,14 @@ jobs:
           TAG: ${{ needs.meta.outputs.tag }}
         run: gh release upload "$TAG" checksums.txt --clobber
 
+  # crates.io is irreversible, so it also waits for the npm addons to load on every platform: an npm-side failure
+  # must stop the release before any crate is live, not after.
   publish_crates:
     name: Publish crates.io
-    needs: [meta, checksums]
+    needs: [meta, checksums, load_addon, load_addon_windows]
     if: >-
       always() && needs.meta.result == 'success'
+      && needs.load_addon.result == 'success' && needs.load_addon_windows.result == 'success'
       && (needs.meta.outputs.dry_run == 'true'
           || needs.checksums.result == 'success'
           || needs.meta.outputs.release_complete == 'true')
