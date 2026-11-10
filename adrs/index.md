@@ -94,6 +94,8 @@ old one.
 | 0084 | [Template Scopes, Auto-Imported Vue Components and Marko Files](0084-template-scopes-auto-imported-vue-components-and-marko-files.md) | accepted |
 | 0085 | [Files Other Roots Reach Count as Used, Members Below Hidden Directories Are Analysed, and Jest's testRegex Adds Entries](0085-files-other-roots-reach-count-as-used.md) | accepted |
 | 0086 | [Packages Tool Configs Name Are Unlisted at the Config, Declared Subpaths and Workspace Packages Behind Aliases](0086-packages-tool-configs-name-are-unlisted-at-the-config.md) | accepted |
+| 0090 | [Lockfile Scopes for Banned Groups and Dependency Families, Read from pnpm-lock.yaml on Demand](0090-lockfile-scopes-for-banned-groups-and-dependency-families.md) | accepted |
+| 0091 | [`stale-patched-dependencies`: Patches That No Longer Apply, Missing or Misplaced Files and Leftover Patches](0091-stale-patched-dependencies.md) | accepted |
 
 ## Effective statements
 
@@ -243,3 +245,4 @@ the lines below stay as written; this table says which record governs.
 | [0059](0059-twenty-one-more-plugins-and-commands-run-from-source.md), line 49 | skif counts every component or composable the generated file lists as used | [0084](0084-template-scopes-auto-imported-vue-components-and-marko-files.md): a local component `components.d.ts` registers is imported into the `.vue` files whose template uses its tag, so one no template uses is an unused file; composables are all used still |
 | [0060](0060-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md), line 52 | `qwik` does not compile `.mdx` routes; `stencil` does not compile Sass | [0084](0084-template-scopes-auto-imported-vue-components-and-marko-files.md): skif reads every reached `.mdx` file and Sass stylesheet itself, so neither needs a compiler |
 | [0061](0061-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md), line 46 | `marko` does not compile `.marko` files | [0084](0084-template-scopes-auto-imported-vue-components-and-marko-files.md): `.marko` files yield their imports and the imports of their style blocks; tag libraries of installed packages are still not read |
+| [0001](0001-mission-and-scope.md), lines 75-76 | lockfile analysis is out of scope; lockfiles are read only for their presence | [0090](0090-lockfile-scopes-for-banned-groups-and-dependency-families.md): `pnpm-lock.yaml` (format 9) is read on demand for lockfile-scoped banned groups and dependency families and, per [0091](0091-stale-patched-dependencies.md), for `stale-patched-dependencies` |
