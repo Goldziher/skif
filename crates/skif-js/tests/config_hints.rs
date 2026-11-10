@@ -299,7 +299,11 @@ fn a_bin_path_a_compiling_command_may_write_keeps_the_package_unjudged() {
         );
         let diagnostics = lint(&[("package.json", manifest.as_str()), APP_MAIN, CLI_SOURCE], "");
         assert_eq!(hints(&diagnostics), "", "{script}");
-        assert_eq!(found(&diagnostics, "unused-dependencies"), Vec::<String>::new(), "{script}");
+        assert_eq!(
+            found(&diagnostics, "unused-dependencies"),
+            Vec::<String>::new(),
+            "{script}"
+        );
     }
     // A command writing elsewhere leaves the path into nothing reported.
     let manifest = r#"{"name":"r2b","private":true,"bin":{"r2b":"bin/r2b.js"},"scripts":{"start":"node app/main.js","compile":"my-bundler src/cli.ts -o out/r2b.js"},"dependencies":{"left-pad":"1.3.0"}}"#;

@@ -532,7 +532,11 @@ fn commands_after_cd_into_a_workspace_package_are_judged_there() {
         ["package.json: rspack"],
         "{diagnostics:#?}"
     );
-    assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none(), "{diagnostics:#?}");
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        none(),
+        "{diagnostics:#?}"
+    );
     assert_eq!(found(&diagnostics, "unused-dependencies"), none(), "{diagnostics:#?}");
     assert_eq!(found(&diagnostics, "unused-files"), none(), "{diagnostics:#?}");
 }

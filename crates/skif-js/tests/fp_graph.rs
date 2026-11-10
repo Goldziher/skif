@@ -441,10 +441,7 @@ fn a_marker_only_package_json_does_not_make_a_project_of_files_outside_the_sourc
 #[test]
 fn modules_an_extensionless_node_mise_task_loads_are_used() {
     let diagnostics = lint(&[
-        (
-            "package.json",
-            r#"{"name":"app","private":true,"main":"src/index.js"}"#,
-        ),
+        ("package.json", r#"{"name":"app","private":true,"main":"src/index.js"}"#),
         ("mise.toml", "[tools]\nnode = \"22\"\n"),
         ("mise-tasks/gen", "#!/usr/bin/env node\nrequire(\"../src/t\");\n"),
         ("src/index.js", "export const a = 1;\n"),
@@ -492,5 +489,9 @@ fn vite_rolldown_inputs_are_entries() {
         script,
         ("src/other.js", "console.log(1);\n"),
     ]);
-    assert_eq!(found(&computed, "unused-files"), none(), "a computed input hides entries");
+    assert_eq!(
+        found(&computed, "unused-files"),
+        none(),
+        "a computed input hides entries"
+    );
 }

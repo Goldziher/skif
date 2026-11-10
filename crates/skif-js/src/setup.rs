@@ -573,7 +573,10 @@ fn relocate_script_commands(packages: &mut [Option<PackageSetup>], workspace: &W
         .map(|(id, package)| (id, package.dir.to_string_lossy().replace('\\', "/")))
         .collect();
     let owner = |from: PackageId, dir: &str| -> PackageId {
-        let base = dirs.iter().find(|(id, _)| *id == from).map_or("", |(_, base)| base.as_str());
+        let base = dirs
+            .iter()
+            .find(|(id, _)| *id == from)
+            .map_or("", |(_, base)| base.as_str());
         let Some(target) = join_dir(base, dir) else {
             return from;
         };

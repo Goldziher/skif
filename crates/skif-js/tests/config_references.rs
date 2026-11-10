@@ -6,8 +6,8 @@
 
 use std::io;
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use skif_config::Config;
 use skif_core::{Diagnostic, DirEntry, FileSystem, MemoryFs};
@@ -399,7 +399,11 @@ impl FileSystem for GitignoreReads {
 
 /// How often the root `.gitignore` is read when four packages extend one base config that names `types` packages.
 fn gitignore_reads(types: &[&str]) -> usize {
-    let types = types.iter().map(|name| format!("\"{name}\"")).collect::<Vec<_>>().join(",");
+    let types = types
+        .iter()
+        .map(|name| format!("\"{name}\""))
+        .collect::<Vec<_>>()
+        .join(",");
     let base = format!(r#"{{"compilerOptions":{{"types":[{types}]}}}}"#);
     let mut memory = MemoryFs::new()
         .with_file(
@@ -414,7 +418,10 @@ fn gitignore_reads(types: &[&str]) -> usize {
             format!("{dir}/package.json"),
             format!(r#"{{"name":"{name}","version":"1.0.0","main":"src/index.ts"}}"#),
         );
-        memory.insert(format!("{dir}/tsconfig.json"), r#"{"extends":"../../tsconfig.base.json"}"#);
+        memory.insert(
+            format!("{dir}/tsconfig.json"),
+            r#"{"extends":"../../tsconfig.base.json"}"#,
+        );
         memory.insert(format!("{dir}/src/index.ts"), "export const a = 1;\n");
     }
     let config = Config::from_toml_str("").unwrap();
@@ -473,7 +480,10 @@ fn packages_an_imported_shared_config_names_are_charged_to_its_package() {
             "packages/cfg/package.json",
             r#"{"name":"@x/cfg","private":true,"type":"module","exports":{"./base":{"types":"./dist/base.d.ts","default":"./dist/base.js"}},"dependencies":{"eslint-plugin-foo":"1.0.0"}}"#,
         ),
-        ("packages/cfg/tsconfig.json", r#"{"compilerOptions":{"rootDir":"src","outDir":"dist"}}"#),
+        (
+            "packages/cfg/tsconfig.json",
+            r#"{"compilerOptions":{"rootDir":"src","outDir":"dist"}}"#,
+        ),
         (
             "packages/cfg/src/base.ts",
             "export const base = { jsPlugins: ['eslint-plugin-foo'] };\n",

@@ -805,7 +805,11 @@ impl JsAnalysis<'_> {
                         file: slashed(&importer.path),
                         line: import_line(resolved, import),
                         kind: import.kind,
-                        names: import.names.iter().map(|name| describe_imported(import.kind, name)).collect(),
+                        names: import
+                            .names
+                            .iter()
+                            .map(|name| describe_imported(import.kind, name))
+                            .collect(),
                         reachable: walk.reachable.contains(importer_id),
                     });
                 }
@@ -916,8 +920,8 @@ impl JsAnalysis<'_> {
                     .iter()
                     .any(|re_export| matches!(re_export.export.verdict, Verdict::Used | Verdict::Public)));
         let used = report.registered || forwarded_use || self.exports.is_used(module.id, name);
-        report.in_used_signature = !used
-            && export.is_some_and(|export| self.in_used_signature(module, export, &mut HashSet::new()));
+        report.in_used_signature =
+            !used && export.is_some_and(|export| self.in_used_signature(module, export, &mut HashSet::new()));
         report.verdict = if report.entry_public || report.tagged_public {
             Verdict::Public
         } else if used || report.in_used_signature {

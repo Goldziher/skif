@@ -572,7 +572,9 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
             collector.mark_incomplete(reader.spec().id, &path, cause, scope);
         }
         let inputs = reader.resolve_config(&ast, ctx);
-        collector.imported = recording.map(|recording| recording.loaded.into_inner()).unwrap_or_default();
+        collector.imported = recording
+            .map(|recording| recording.loaded.into_inner())
+            .unwrap_or_default();
         collector.absorb(reader.spec().id, inputs, (&path, Some(&ast)), depth);
         collector.imported.clear();
     }

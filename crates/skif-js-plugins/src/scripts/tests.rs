@@ -922,7 +922,16 @@ fn functions_the_script_defines_are_not_binaries() {
 
 #[test]
 fn powershell_commands_are_cmdlets_and_default_aliases() {
-    for name in ["New-Item", "Remove-Item", "Get-ChildItem", "Invoke-WebRequest", "gci", "ni", "iwr", "GCI"] {
+    for name in [
+        "New-Item",
+        "Remove-Item",
+        "Get-ChildItem",
+        "Invoke-WebRequest",
+        "gci",
+        "ni",
+        "iwr",
+        "GCI",
+    ] {
         assert!(is_powershell_command(name), "{name}");
     }
     for name in ["ts-node", "npm-run-all", "new-item", "New-", "-Item", "tsc", "turbo"] {
@@ -936,7 +945,10 @@ fn without_commands_blanks_the_dropped_commands_only() {
     let kept = without_commands(script, is_powershell_command);
     assert_eq!(kept.len(), script.len());
     assert_eq!(binaries_of(&parse(&kept)), ["tsc", "vitest"]);
-    assert_eq!(binaries_of(&parse(script)), ["New-Item", "Remove-Item", "gci", "tsc", "vitest"]);
+    assert_eq!(
+        binaries_of(&parse(script)),
+        ["New-Item", "Remove-Item", "gci", "tsc", "vitest"]
+    );
 }
 
 /// The binaries of `script` with the directory each runs in, sorted.
@@ -956,19 +968,32 @@ fn at(name: &str, dir: Option<&str>) -> (String, Option<String>) {
 
 #[test]
 fn commands_after_cd_run_in_its_directory() {
-    assert_eq!(binary_dirs("cd sub && pnpm exec rspack serve"), [at("rspack", Some("sub"))]);
+    assert_eq!(
+        binary_dirs("cd sub && pnpm exec rspack serve"),
+        [at("rspack", Some("sub"))]
+    );
     assert_eq!(
         binary_dirs("tsc && cd packages/a && cd ../b && eslint . ; cd .. && vitest"),
-        [at("eslint", Some("packages/b")), at("tsc", None), at("vitest", Some("packages"))]
+        [
+            at("eslint", Some("packages/b")),
+            at("tsc", None),
+            at("vitest", Some("packages"))
+        ]
     );
-    assert_eq!(binary_dirs("pushd web && vite build && popd && tsup"), [at("tsup", None), at("vite", Some("web"))]);
+    assert_eq!(
+        binary_dirs("pushd web && vite build && popd && tsup"),
+        [at("tsup", None), at("vite", Some("web"))]
+    );
     // A directory that is not a static relative path is not followed.
     assert_eq!(
         binary_dirs("cd $DIR && tsc; cd /tmp && vite; cd ~ && tsup; cd - && eslint"),
         [at("eslint", None), at("tsc", None), at("tsup", None), at("vite", None)]
     );
     // A script of its own (`sh -c`, a substitution) keeps its `cd` to itself.
-    assert_eq!(binary_dirs("sh -c 'cd a && vite' && tsc"), [at("tsc", None), at("vite", Some("a"))]);
+    assert_eq!(
+        binary_dirs("sh -c 'cd a && vite' && tsc"),
+        [at("tsc", None), at("vite", Some("a"))]
+    );
     assert_eq!(binary_dirs("cd .. && cd sub && tsc"), [at("tsc", Some("../sub"))]);
     assert_eq!(binary_dirs("cd sub/.. && tsc"), [at("tsc", None)]);
 }
@@ -987,7 +1012,11 @@ fn files_and_packages_after_cd_are_in_its_directory() {
 
 #[test]
 fn directory_flags_of_package_managers_set_the_directory() {
-    for script in ["pnpm -C sub exec rspack", "pnpm --dir sub exec rspack", "npm --prefix sub exec rspack"] {
+    for script in [
+        "pnpm -C sub exec rspack",
+        "pnpm --dir sub exec rspack",
+        "npm --prefix sub exec rspack",
+    ] {
         let info = parse(script);
         let binary = info.binaries.iter().find(|binary| binary.name == "rspack");
         assert_eq!(
@@ -997,5 +1026,8 @@ fn directory_flags_of_package_managers_set_the_directory() {
             info.binaries
         );
     }
-    assert_eq!(binary_dirs("pnpm -C sub exec rspack && tsc"), [at("rspack", Some("sub")), at("tsc", None)]);
+    assert_eq!(
+        binary_dirs("pnpm -C sub exec rspack && tsc"),
+        [at("rspack", Some("sub")), at("tsc", None)]
+    );
 }
