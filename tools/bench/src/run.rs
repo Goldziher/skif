@@ -505,11 +505,17 @@ fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// What the summary writes for an empty reason.
+const EMPTY_TEXT: &str = "(empty)";
+
 /// `text` (on [`one_line`]) as a Markdown code span, so `poly fmt` leaves it as written: command output such as an
 /// install's error line holds `_` pairs, `*` and URLs, which the formatter rewrites in prose. The fence is one backtick
-/// longer than the longest run of backticks inside.
+/// longer than the longest run of backticks inside. Empty text, which no code span can hold, is [`EMPTY_TEXT`].
 fn code_span(text: &str) -> String {
     let text = one_line(text);
+    if text.is_empty() {
+        return EMPTY_TEXT.to_owned();
+    }
     let longest = text
         .split(|character: char| character != '`')
         .map(str::len)
@@ -950,6 +956,8 @@ mod tests {
         assert_eq!(code_span("run `npm ci` here"), "``run `npm ci` here``");
         assert_eq!(code_span("`tick`"), "`` `tick` ``");
         assert_eq!(code_span("a ``b`` c"), "```a ``b`` c```");
+        assert_eq!(code_span(""), "(empty)");
+        assert_eq!(code_span(" \t\n"), "(empty)");
         assert_eq!(
             one_line("AMD EPYC 7763 64-Core Processor   "),
             "AMD EPYC 7763 64-Core Processor"
