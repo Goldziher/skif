@@ -950,11 +950,8 @@ fn next_reads_turbopack_aliases_and_loaders() {
     assert_deps(out, &["react-native-web", "@x/b", "@svgr/webpack", "raw-loader"]);
     assert!(!deps(out).contains("react-native"), "{:?}", deps(out));
     assert!(out.aliases.contains(&alias("@ui", Some("src/ui"))), "{:?}", out.aliases);
-    assert!(
-        !out.aliases.iter().any(|a| a.find == "react-native"),
-        "{:?}",
-        out.aliases
-    );
+    // An alias to a bare package keeps no target: imports of `react-native` are the alias, never a dependency.
+    assert!(out.aliases.contains(&alias("react-native", None)), "{:?}", out.aliases);
     assert!(out.provided_binaries.contains(&"next".to_string()));
 }
 
