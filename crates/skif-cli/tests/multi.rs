@@ -955,13 +955,13 @@ fn siblings_sharing_a_file() -> tempfile::TempDir {
     put(
         dir.path(),
         "a/package.json",
-        r#"{"name": "a", "version": "0.0.0", "private": true, "main": "index.js",
-            "dependencies": {"lodash": "4.17.21", "idle": "1.0.0"}}"#,
+        r#"{"name": "a", "version": "0.0.0", "private": true, "packageManager": "npm@11.6.2", "main": "index.js",
+            "dependencies": {"idle": "1.0.0", "lodash": "4.17.21"}}"#,
     );
     put(
         dir.path(),
         "b/package.json",
-        r#"{"name": "b", "version": "0.0.0", "private": true, "main": "index.js"}"#,
+        r#"{"name": "b", "version": "0.0.0", "private": true, "packageManager": "npm@11.6.2", "main": "index.js"}"#,
     );
     put(dir.path(), "a/index.js", "console.log(1);\n");
     put(dir.path(), "a/lib.js", "module.exports = require('lodash');\n");
