@@ -435,3 +435,26 @@ fn stylesheets_in_a_migrated_knip_project_are_not_reported_stale() {
         ["`.foo` files selected by `js.project` are not analysed"]
     );
 }
+
+#[test]
+fn force_warns_when_the_replaced_file_extended_others() {
+    let dir = project(SHERIF_PACKAGE);
+    fs::write(
+        dir.path().join("skif.toml"),
+        "extends = [\"skif.baseline.toml\"]\n[lint]\nfail-on-warnings = false\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("skif.baseline.toml"), "").unwrap();
+    let forced = run(migrate(dir.path()).arg("--force"));
+    assert_eq!(forced.code, 0, "{}{}", forced.stdout, forced.stderr);
+    assert!(
+        forced.stderr.contains("warning: --force replaces") && forced.stderr.contains("extends skif.baseline.toml"),
+        "{}",
+        forced.stderr
+    );
+
+    let plain = project(SHERIF_PACKAGE);
+    fs::write(plain.path().join("skif.toml"), "[lint]\nfail-on-warnings = false\n").unwrap();
+    let quiet = run(migrate(plain.path()).arg("--force"));
+    assert!(!quiet.stderr.contains("--force replaces"), "{}", quiet.stderr);
+}
