@@ -168,30 +168,26 @@ jobs:
           cargo test -p skif --locked --no-default-features --features "$FEATURES" --lib
           cargo test -p skif --locked --no-default-features --features "$FEATURES" --doc
 
-  # Public API compatibility of the facade against the latest crates.io release. Advisory: it has nothing to compare
-  # with until 0.1.0 is published, and the step is skipped until then.
+  # Public API compatibility of every published crate against its latest crates.io release: the facade re-exports
+  # the other crates, and cargo-semver-checks does not follow re-exports across crates. Advisory while skif is 0.x;
+  # the per-crate result goes to the job summary, for a release PR to quote in the CHANGELOG.
   semver:
     name: Public API (cargo-semver-checks)
-    timeout-minutes: 30
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
-      - name: Find the published baseline
-        id: baseline
-        run: |
-          if curl --fail --silent --show-error --user-agent "skif-ci (https://github.com/Goldziher/skif)" \
-            https://crates.io/api/v1/crates/skif > /dev/null; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skif is not on crates.io yet; nothing to compare against."
-            echo "published=false" >> "$GITHUB_OUTPUT"
-          fi
-      - uses: obi1kenobi/cargo-semver-checks-action@v2
-        if: steps.baseline.outputs.published == 'true'
+      # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
+      - uses: dtolnay/rust-toolchain@v1
         with:
-          package: skif
-          feature-group: all-features
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-semver-checks
+      - name: Check every published crate
+        run: bash scripts/semver-checks.sh
 
   deny:
     name: Licences, advisories, bans and sources
@@ -213,9 +209,9 @@ jobs:
           sudo apt-get update && sudo apt-get install -y shellcheck
           # `find` rather than a `**` glob: without `globstar`, bash reads `**` as `*` and skips scripts/*.sh.
           find scripts mise-tasks -name '*.sh' -print0 | xargs -0 shellcheck
-      - name: Test the npm publish probe
+      - name: Test the npm registry probes (published version, package existence)
         run: bash scripts/test-npm-published.sh
-      - name: Test the release scripts (Homebrew, Scoop, crates.io, version bump, archive and release gates)
+      - name: Test the release scripts (Homebrew, Scoop, crates.io, semver checks, version bump, archive and release gates, npm install smoke)
         run: bash scripts/test-release-scripts.sh
       - name: Test the repository guards (pins, headers, rule ids, plugin lists, doc pins, layering, package contents, oxc patch, npm smoke)
         run: bash scripts/test-check-scripts.sh
