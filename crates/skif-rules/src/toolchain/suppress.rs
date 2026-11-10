@@ -57,13 +57,18 @@ fn parse(line: &str) -> Option<(bool, Vec<String>, Option<String>)> {
     if !(rest.is_empty() || rest.starts_with(char::is_whitespace)) {
         return None;
     }
-    let (names, reason) = rest.split_once("--").map_or((rest, None), |(names, reason)| (names, Some(reason)));
+    let (names, reason) = rest
+        .split_once("--")
+        .map_or((rest, None), |(names, reason)| (names, Some(reason)));
     let rules = names
         .split(|c: char| c == ',' || c.is_whitespace())
         .filter(|name| !name.is_empty())
         .map(str::to_owned)
         .collect();
-    let reason = reason.map(str::trim).filter(|reason| !reason.is_empty()).map(str::to_owned);
+    let reason = reason
+        .map(str::trim)
+        .filter(|reason| !reason.is_empty())
+        .map(str::to_owned);
     Some((whole_file, rules, reason))
 }
 

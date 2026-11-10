@@ -20,8 +20,8 @@ pub mod update;
 
 pub use manifest::manifest_provider;
 pub use policy::{catalog_provider, policy_provider};
-pub use toolchain::toolchain_provider;
 use skif_lint::RuleProvider;
+pub use toolchain::toolchain_provider;
 
 /// Every built-in rule provider that reads only the workspace; [`toolchain_provider`] is the one that reads more files.
 #[must_use]

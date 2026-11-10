@@ -226,7 +226,12 @@ fn mise(name: &str, source: &str, pins: &mut Vec<Pin>) {
         let value_start = start + key_end(line) + 1;
         let Some(open) = value.find(['"', '\'']) else { continue };
         let (version, _) = unquote(&value[open..]);
-        pins.extend(pin(tool, version, value_start + open + 1, format!("{name} [tools] {key}")));
+        pins.extend(pin(
+            tool,
+            version,
+            value_start + open + 1,
+            format!("{name} [tools] {key}"),
+        ));
     }
 }
 
@@ -340,7 +345,9 @@ fn variable_pins(keyword: &str, body: &str, base: usize, pins: &mut Vec<Pin>) {
         return;
     }
     for (offset, word) in words {
-        let Some((name, value)) = word.split_once('=') else { continue };
+        let Some((name, value)) = word.split_once('=') else {
+            continue;
+        };
         let Some(tool) = version_variable(name) else { continue };
         let (version, quote) = unquote(value);
         let at = base + offset + name.len() + 1 + quote;
@@ -524,7 +531,12 @@ fn setup_pin(lines: &[YamlLine<'_>], first: usize, column: usize) -> Option<Pin>
             && !value.contains("${{")
         {
             let (version, quote) = unquote(value);
-            return pin(tool, version, line.start + line.indent + offset + quote, format!("{action} {input}"));
+            return pin(
+                tool,
+                version,
+                line.start + line.indent + offset + quote,
+                format!("{action} {input}"),
+            );
         }
     }
     None
@@ -618,7 +630,10 @@ RUN --mount=type=cache,target=/root/.npm \\
                 row(PNPM, "9.1.0", "corepack prepare"),
             ]
         );
-        assert_eq!(parse(ToolchainKind::Dockerfiles, "Dockerfile", source).unpinned_corepack, None);
+        assert_eq!(
+            parse(ToolchainKind::Dockerfiles, "Dockerfile", source).unpinned_corepack,
+            None
+        );
     }
 
     #[test]
@@ -642,7 +657,13 @@ RUN --network=none pnpm build $(npm bin)
 ";
         assert_eq!(
             programs(ToolchainKind::Dockerfiles, source),
-            ["apt-get update", "npm ci", "[\"yarn\", \"install\"]", "pnpm build $(npm bin)", "npm bin"]
+            [
+                "apt-get update",
+                "npm ci",
+                "[\"yarn\", \"install\"]",
+                "pnpm build $(npm bin)",
+                "npm bin"
+            ]
         );
         let exec = &parse(ToolchainKind::Dockerfiles, "Dockerfile", source).commands[2];
         assert_eq!(
@@ -655,9 +676,15 @@ RUN --network=none pnpm build $(npm bin)
     fn corepack_enable_without_prepare_is_recorded() {
         let enabled = "RUN corepack enable\nRUN pnpm install\n";
         let parsed = parse(ToolchainKind::Dockerfiles, "Dockerfile", enabled);
-        assert_eq!(parsed.unpinned_corepack.map(|span| &enabled[span]), Some("corepack enable"));
+        assert_eq!(
+            parsed.unpinned_corepack.map(|span| &enabled[span]),
+            Some("corepack enable")
+        );
         let prepared = "RUN corepack enable\nRUN corepack prepare --activate\n";
-        assert_eq!(parse(ToolchainKind::Dockerfiles, "Dockerfile", prepared).unpinned_corepack, None);
+        assert_eq!(
+            parse(ToolchainKind::Dockerfiles, "Dockerfile", prepared).unpinned_corepack,
+            None
+        );
     }
 
     #[test]
@@ -715,10 +742,17 @@ jobs:
 
     #[test]
     fn shell_scripts_are_commands_throughout() {
-        let source = "#!/usr/bin/env bash\nset -euo pipefail\nif [ -n \"$CI\" ]; then npm ci; fi\nV=$(yarn --version)\n";
+        let source =
+            "#!/usr/bin/env bash\nset -euo pipefail\nif [ -n \"$CI\" ]; then npm ci; fi\nV=$(yarn --version)\n";
         assert_eq!(
             programs(ToolchainKind::ShellScripts, source),
-            ["set -euo pipefail", "if [ -n \"$CI\" ]", "then npm ci", "fi", "yarn --version"]
+            [
+                "set -euo pipefail",
+                "if [ -n \"$CI\" ]",
+                "then npm ci",
+                "fi",
+                "yarn --version"
+            ]
         );
     }
 }

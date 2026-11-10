@@ -67,10 +67,7 @@ impl Scan {
     /// toolchain rule, whose `files` globs it reads too.
     pub fn of(cx: &LintContext<'_>, fs: &Arc<dyn FileSystem>, rules: &[&str]) -> Arc<Self> {
         cx.shared(|| {
-            let globs: Vec<String> = rules
-                .iter()
-                .flat_map(|id| ToolchainOptions::of(cx, id).files)
-                .collect();
+            let globs: Vec<String> = rules.iter().flat_map(|id| ToolchainOptions::of(cx, id).files).collect();
             Self::build(cx, fs.as_ref(), &globs)
         })
     }
@@ -168,8 +165,9 @@ fn join(dir: &str, name: &str) -> String {
 
 /// Whether `name` ends in `.<extension>` for one of `extensions`, in any case.
 fn has_extension(name: &str, extensions: &[&str]) -> bool {
-    name.rsplit_once('.')
-        .is_some_and(|(stem, extension)| !stem.is_empty() && extensions.iter().any(|known| extension.eq_ignore_ascii_case(known)))
+    name.rsplit_once('.').is_some_and(|(stem, extension)| {
+        !stem.is_empty() && extensions.iter().any(|known| extension.eq_ignore_ascii_case(known))
+    })
 }
 
 fn is_dockerfile(name: &str) -> bool {
@@ -296,7 +294,13 @@ mod tests {
     fn kinds_follow_the_file_name() {
         assert_eq!(default_kind(".nvmrc", true), Some(ToolchainKind::VersionFiles));
         assert_eq!(default_kind(".nvmrc", false), None);
-        for name in ["Dockerfile", "Dockerfile.prod", "api.Dockerfile", "web.dockerfile", "Containerfile"] {
+        for name in [
+            "Dockerfile",
+            "Dockerfile.prod",
+            "api.Dockerfile",
+            "web.dockerfile",
+            "Containerfile",
+        ] {
             assert_eq!(default_kind(name, false), Some(ToolchainKind::Dockerfiles), "{name}");
         }
         assert_eq!(default_kind("deploy.sh", true), Some(ToolchainKind::ShellScripts));
