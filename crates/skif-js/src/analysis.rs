@@ -222,25 +222,16 @@ pub(crate) fn on_disk(fs: &dyn FileSystem, base: &Path, pattern: &str) -> bool {
     false
 }
 
-/// `dir` of `package` as `[js.workspaces]` keys spell it: `.` for the root.
-fn key_dir(package: &skif_workspace::Package) -> String {
-    if package.is_root {
-        ".".to_owned()
-    } else {
-        package.dir.to_string_lossy().replace('\\', "/")
-    }
-}
-
 /// The configuration key a package's pattern of the list `name` is written under: the `[js.workspaces]` key as
 /// written (so a glob key such as `packages/*` is reported once, as the user wrote it), or the package directory for
-/// a pattern that comes from elsewhere (an override).
+/// a pattern that comes from elsewhere (an override), both as [`WorkspaceKeys::key_dir`] spells them.
 pub(crate) fn workspace_key(
     config: &Config,
     keys: &WorkspaceKeys,
     package: &skif_workspace::Package,
     name: &str,
 ) -> String {
-    let dir = key_dir(package);
+    let dir = keys.key_dir(package);
     let written = keys
         .key(&config.js.workspaces, &dir)
         .map_or(dir.as_str(), String::as_str);
@@ -307,7 +298,7 @@ fn empty_patterns(
             files.iter().any(|(_, _, rel)| globs.matches_any(rel)) || on_disk(disk, &workspace.root, pattern)
         });
     }
-    let keys = WorkspaceKeys::of(&config.js);
+    let keys = &setup.workspace_keys;
     for (id, package) in workspace.iter() {
         let Some(package_setup) = setup.package(id) else {
             continue;
@@ -331,7 +322,7 @@ fn empty_patterns(
                 let key = if from_top_level {
                     format!("js.{name}")
                 } else {
-                    workspace_key(config, &keys, package, name)
+                    workspace_key(config, keys, package, name)
                 };
                 found.judge(key, pattern, || {
                     let globs = Globs::new([pattern]);
@@ -368,7 +359,7 @@ fn unused_ignore_files(
                 || on_disk(disk, &workspace.root, pattern)
         });
     }
-    let keys = WorkspaceKeys::of(&config.js);
+    let keys = &setup.workspace_keys;
     let mut incomplete = HashSet::new();
     for (id, package) in workspace.iter() {
         let Some(package_setup) = setup.package(id) else {
@@ -384,7 +375,7 @@ fn unused_ignore_files(
             if globs.is_empty() {
                 continue;
             }
-            let key = workspace_key(config, &keys, package, "ignore-files");
+            let key = workspace_key(config, keys, package, "ignore-files");
             if package_setup.entries_incomplete {
                 // Its unreached files are not known, so the pattern may hide one: it is not judged anywhere.
                 incomplete.insert((key, pattern.clone()));

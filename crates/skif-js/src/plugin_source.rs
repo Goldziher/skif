@@ -50,7 +50,8 @@ impl PluginSource {
     }
 
     /// Also applies the `plugins` of the `[js.workspaces]` tables in `workspaces` to the packages their keys select
-    /// (`"."` is the root), after the table given to [`new`](Self::new) and before the overrides.
+    /// (`"."` is the root; see [`InputRequest::workspace_key`]), after the table given to [`new`](Self::new) and
+    /// before the overrides.
     #[must_use]
     pub fn with_workspaces(mut self, workspaces: &IndexMap<String, JsWorkspace>) -> Self {
         self.workspaces = workspaces
@@ -58,17 +59,7 @@ impl PluginSource {
             .filter(|(_, workspace)| !workspace.plugins.is_empty())
             .map(|(key, workspace)| (key.clone(), workspace.clone()))
             .collect();
-        let anchor = self.workspace_keys.anchor().map(str::to_owned);
-        self.workspace_keys = WorkspaceKeys::new(&self.workspaces).with_anchor(anchor.as_deref());
-        self
-    }
-
-    /// Matches the keys of the tables given to [`with_workspaces`](Self::with_workspaces) from `anchor`, the root's
-    /// directory relative to the start of the run (`Js::workspaces_anchor`): a key then selects a package when it
-    /// matches the package directory joined to `anchor`. `None` matches them from the root.
-    #[must_use]
-    pub fn with_workspaces_anchor(mut self, anchor: Option<&str>) -> Self {
-        self.workspace_keys = self.workspace_keys.with_anchor(anchor);
+        self.workspace_keys = WorkspaceKeys::new(&self.workspaces);
         self
     }
 
@@ -84,8 +75,9 @@ impl PluginSource {
         self
     }
 
-    /// The plugin table for one package: the global table with the matching overrides folded in.
-    fn plugins_for(&self, name: &str, dir: &Path, key: &str) -> IndexMap<String, PluginConfig> {
+    /// The plugin table for one package: the global table with the matching overrides folded in. `key` is the
+    /// package's directory as the `[js.workspaces]` keys select it.
+    fn plugins_for(&self, name: &str, dir: &Path, key: &str, is_root: bool) -> IndexMap<String, PluginConfig> {
         let mut plugins = self.plugins.clone();
         if let Some(workspace) = self.workspace_keys.table(&self.workspaces, key) {
             for (plugin, incoming) in &workspace.plugins {
@@ -93,7 +85,7 @@ impl PluginSource {
                 plugins.insert(plugin.clone(), merged);
             }
         }
-        if key == "."
+        if is_root
             && let Some(path) = &self.root_tsconfig
         {
             let current = plugins.get(TYPESCRIPT);
@@ -313,15 +305,11 @@ impl InputSource for PluginSource {
         let inherited = inherited_dependencies(request);
         let scripts = scripts(request);
         let dir = request.workspace.root.join(Path::new(&package.dir));
-        let key = if package.is_root {
-            ".".to_owned()
-        } else {
-            package.dir.to_string_lossy().replace('\\', "/")
-        };
         let plugins = self.plugins_for(
             package.display_name(),
             if package.is_root { &request.workspace.root } else { &dir },
-            &key,
+            request.workspace_key,
+            package.is_root,
         );
         let modules = ConfigModules::new(request.fs, request.workspace);
         let context = PluginContext {

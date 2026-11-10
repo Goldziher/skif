@@ -281,8 +281,9 @@ fn warn_empty_tsconfig_projects(targets: &[Target], fs: &dyn FileSystem) {
 }
 
 /// Lints the root of `previous` again from disk. What root discovery decided about it (a standalone package nested
-/// below another root, members another root lints) and what the other roots of the run told it (the files they
-/// import, the files and dependencies they use) is carried over, so the re-lint judges the root as the first lint did.
+/// below another root, the directory its configuration's workspace keys are written from, members another root
+/// lints) and what the other roots of the run told it (the files they import, the files and dependencies they use) is
+/// carried over, so the re-lint judges the root as the first lint did.
 fn lint_once(
     linter: &Linter,
     previous: &Workspace,
@@ -292,6 +293,7 @@ fn lint_once(
 ) -> Result<(Workspace, Report), CliError> {
     let mut workspace = Workspace::discover_with_fs(&previous.root, config, fs)?;
     workspace.set_nested(previous.is_nested());
+    workspace.set_workspace_keys_anchor(previous.workspace_keys_anchor().map(str::to_owned));
     let ignored: BTreeSet<PathBuf> = previous
         .package_ids()
         .filter(|id| previous.is_ignored(*id))
