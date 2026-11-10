@@ -58,6 +58,63 @@ pub struct Report {
     /// cannot see this code. Not rendered.
     #[serde(skip)]
     pub ancestor_dependency_uses: Vec<(PathBuf, String)>,
+    /// The entries of configuration lists that `stale-js-config` judged, used or stale, sorted. A list it could not
+    /// judge (a rule that consults it did not run, a package whose entry files are not all known) is not here. A
+    /// multi-root host decides from them whether an entry of a file several roots read is stale for the whole run
+    /// (`settle_shared_config` of the `skif` crate). Not rendered.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub config_judgements: Vec<ConfigJudgement>,
+}
+
+/// An entry of a configuration list as `stale-js-config` judged it in one run (see [`Report::config_judgements`]).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
+pub struct ConfigJudgement {
+    /// The configuration file the entry is written in, as the location of the finding that reports it stale has it.
+    pub file: PathBuf,
+    /// The key of the list, as written in the file: `js.ignore-dependencies`, `js.workspaces."tools/*".entry`, or
+    /// `js.workspaces` for the keys of that table.
+    pub key: String,
+    /// The entry, as written.
+    pub entry: String,
+    /// The directory of the package whose list it is, relative to the root like `file`, for a list a
+    /// `[js.workspaces]` table gives a package (`js.workspaces."tools/*".ignore-dependencies`): a glob table is
+    /// judged in each package it selects, and each package's list stands on its own. `None` for a top-level list and
+    /// for a pattern or key judged over the whole run of the root.
+    pub package: Option<PathBuf>,
+    /// Whether the entry matched nothing in this run.
+    pub stale: bool,
+    /// The message of the finding that reports the entry stale, which the run emits only when [`stale`](Self::stale).
+    pub message: String,
+}
+
+impl ConfigJudgement {
+    /// The judgement of `entry` of the list `key` in `file`, with the message of the finding that calls it stale.
+    #[must_use]
+    pub fn new(
+        file: impl Into<PathBuf>,
+        key: impl Into<String>,
+        entry: impl Into<String>,
+        stale: bool,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            file: file.into(),
+            key: key.into(),
+            entry: entry.into(),
+            package: None,
+            stale,
+            message: message.into(),
+        }
+    }
+
+    /// The judgement, made of the list of the package in `dir` (see [`package`](Self::package)).
+    #[must_use]
+    pub fn with_package(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.package = Some(dir.into());
+        self
+    }
 }
 
 impl Report {
@@ -78,6 +135,7 @@ impl Report {
             incomplete_packages: Vec::new(),
             other_project_files: Vec::new(),
             ancestor_dependency_uses: Vec::new(),
+            config_judgements: Vec::new(),
         }
     }
 
@@ -108,11 +166,34 @@ impl Report {
         self
     }
 
+    /// Sets the configuration entries `stale-js-config` judged, sorted and without duplicates.
+    #[must_use]
+    pub fn with_config_judgements(mut self, mut judgements: Vec<ConfigJudgement>) -> Self {
+        judgements.sort();
+        judgements.dedup();
+        self.config_judgements = judgements;
+        self
+    }
+
     /// Keeps only the diagnostics `keep` accepts, in their order, and counts the summary again; the number of
     /// packages and everything else stay.
     #[must_use]
     pub fn retain(mut self, keep: impl FnMut(&Diagnostic) -> bool) -> Self {
         self.diagnostics.retain(keep);
+        self.recount();
+        self
+    }
+
+    /// Keeps only the diagnostics `keep` accepts, which it may change in place (without moving them in the order),
+    /// and counts the summary again; the number of packages and everything else stay.
+    #[must_use]
+    pub fn retain_mut(mut self, keep: impl FnMut(&mut Diagnostic) -> bool) -> Self {
+        self.diagnostics.retain_mut(keep);
+        self.recount();
+        self
+    }
+
+    fn recount(&mut self) {
         self.summary = self.diagnostics.iter().fold(
             Summary {
                 packages: self.summary.packages,
@@ -120,7 +201,6 @@ impl Report {
             },
             count,
         );
-        self
     }
 }
 
@@ -426,6 +506,37 @@ mod tests {
             }
         );
         assert_eq!(report.other_project_files, [PathBuf::from("/ws/build/x.ts")]);
+    }
+
+    #[test]
+    fn retain_mut_counts_the_summary_of_the_changed_diagnostics_again() {
+        let report = Report::new(input(), 3).retain_mut(|diagnostic| {
+            diagnostic.severity = Severity::Info;
+            diagnostic.rule.as_str() != "a-rule"
+        });
+        let kept: Vec<(&str, Severity)> = report
+            .diagnostics
+            .iter()
+            .map(|d| (d.rule.as_str(), d.severity))
+            .collect();
+        assert_eq!(
+            kept,
+            [
+                ("c-rule", Severity::Info),
+                ("b-rule", Severity::Info),
+                ("b-rule", Severity::Info)
+            ]
+        );
+        assert_eq!(
+            report.summary,
+            Summary {
+                errors: 0,
+                warnings: 0,
+                infos: 3,
+                fixable: 2,
+                packages: 3
+            }
+        );
     }
 
     #[test]

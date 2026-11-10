@@ -122,7 +122,7 @@ are provided commands; a package that lists the package declaring them still use
   is not placed: the script parser does not know which file runs the command, so a package manager run there is
   handled as filtered and a binary run there by name is judged where the command starts.
 * Neutral, because the commands that `ModuleInfo::commands` holds for a call with a `cwd` option start with
-  `cd $__skif_file_dir__/<path> && ` or `cd $__skif__ && `, and the module cache schema moves to 3.
+  `cd $__skif_file_dir__/<path> &&` or `cd $__skif__ &&`, and the module cache schema moves to 3.
 
 ### Confirmation
 

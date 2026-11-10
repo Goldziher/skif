@@ -208,6 +208,10 @@ pub struct InputRequest<'a> {
     /// The dependencies listed by the `package.json` files above the workspace root (a nested root sees the tools
     /// of the project that contains it), sorted and without duplicates.
     pub ancestor_dependencies: &'a [String],
+    /// The directory of `package` as the `[js.workspaces]` keys select it: `.` for the root package and its directory
+    /// otherwise, both joined to the workspace's [`workspace_keys_anchor`](Workspace::workspace_keys_anchor) when it
+    /// has one (`tools/sub` for the root package of the root in `tools/sub` of a run with an explicit configuration).
+    pub workspace_key: &'a str,
 }
 
 impl std::fmt::Debug for InputRequest<'_> {

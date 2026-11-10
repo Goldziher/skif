@@ -256,6 +256,11 @@ pub struct Discovery {
 /// A root that cannot be loaded is a [`RootFailure`]; the others still load. A workspace that cannot be loaded
 /// still claims the directories its patterns declare.
 ///
+/// Roots can read one configuration file (a `--config` file, or a file above them), and each judges its settings on
+/// its own; a host that lints the targets passes the reports, in this order, to
+/// [`settle_shared_config`](crate::settle_shared_config) so a `stale-js-config` finding about such a file is reported
+/// once, and only when no root used the setting.
+///
 /// # Errors
 /// [`Error::RelativePath`] for a relative `start`.
 pub fn discover_targets(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOverrides) -> Result<Discovery, Error> {
@@ -313,12 +318,26 @@ pub fn discover_targets(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOve
                         || is_enclosed(&root, &enclosing(&root), fs));
                 target.workspace.set_nested(nested);
                 target.workspace.ignore_dirs(&candidates.workspaces);
+                if overrides.config_file.is_some() {
+                    target.workspace.set_workspace_keys_anchor(start_relative(&root, dir));
+                }
                 discovery.targets.push(target);
             }
             Err(error) => discovery.failures.push(RootFailure { root, error }),
         }
     }
     Ok(discovery)
+}
+
+/// `root` relative to `start`, the directory a run with an explicit configuration file started at, when `root` lies
+/// below it: the [`Workspace::set_workspace_keys_anchor`] of the root, so that the `[js.workspaces]` keys and
+/// `ignore-workspaces` globs of the file select packages from `start` (ADR 0098). `"."` is then the root at `start`
+/// alone, and `tools/sub` the root in that directory. `None` for the root at `start`.
+fn start_relative(root: &Path, start: &Path) -> Option<String> {
+    root.strip_prefix(start)
+        .ok()
+        .filter(|rel| !rel.as_os_str().is_empty())
+        .map(crate::slash)
 }
 
 /// Why a configuration file below a root was not applied.
@@ -516,6 +535,98 @@ mod tests {
         let target = load_target(Path::new("/r/a"), &Ceiling::Vcs, &fs, &overrides, &ConfigCache::new()).unwrap();
         assert_eq!(target.config_file, Some(PathBuf::from("/etc/org/skif.toml")));
         assert_eq!(target.config_path(), Some(PathBuf::from("../../etc/org/skif.toml")));
+    }
+
+    fn nested_fs(explicit: &str) -> MemoryFs {
+        MemoryFs::new()
+            .with_file("/r/package.json", r#"{"name": "app", "version": "1.0.0"}"#)
+            .with_file("/r/tools/sub/package.json", r#"{"name": "sub", "version": "1.0.0"}"#)
+            .with_file(
+                "/r/tools/other/package.json",
+                r#"{"name": "other", "version": "1.0.0"}"#,
+            )
+            .with_file("/etc/skif.toml", explicit)
+    }
+
+    fn anchors(start: &str, fs: &MemoryFs, overrides: &ConfigOverrides) -> Vec<(PathBuf, Option<String>)> {
+        discover_all(Path::new(start), fs, overrides)
+            .unwrap()
+            .into_iter()
+            .map(|target| {
+                let anchor = target.workspace.workspace_keys_anchor().map(str::to_owned);
+                (target.root, anchor)
+            })
+            .collect()
+    }
+
+    fn explicit() -> ConfigOverrides {
+        ConfigOverrides::default().with_config_file(Some(PathBuf::from("/etc/skif.toml")))
+    }
+
+    #[test]
+    fn an_explicit_configuration_anchors_the_workspace_keys_of_nested_roots_at_the_start() {
+        for file in [
+            "[js.workspaces.\".\"]\nentry = [\"src/extra.js\"]\n",
+            "[js]\nignore-workspaces = [\"tools/sub/legacy\"]\n",
+            "[js]\nentry = [\"src/extra.js\"]\n",
+        ] {
+            assert_eq!(
+                anchors("/r", &nested_fs(file), &explicit()),
+                [
+                    (PathBuf::from("/r"), None),
+                    (PathBuf::from("/r/tools/other"), Some("tools/other".to_owned())),
+                    (PathBuf::from("/r/tools/sub"), Some("tools/sub".to_owned())),
+                ],
+                "{file}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_configuration_carries_no_anchor_so_anchored_roots_share_it() {
+        let targets = discover_all(
+            Path::new("/r"),
+            &nested_fs("[js.workspaces.\"tools/*\"]\nentry = [\"src/extra.js\"]\n"),
+            &explicit(),
+        )
+        .unwrap();
+        assert_eq!(targets.len(), 3);
+        assert!(targets.iter().all(|target| target.config == targets[0].config));
+    }
+
+    #[test]
+    fn a_start_that_is_no_root_anchors_every_root_below_it() {
+        let fs = MemoryFs::new()
+            .with_file("/r/a/package.json", r#"{"name": "a", "version": "1.0.0"}"#)
+            .with_file("/r/b/sub/package.json", r#"{"name": "sub", "version": "1.0.0"}"#)
+            .with_file("/etc/skif.toml", "[js.workspaces.\"a\"]\nentry = [\"src/extra.js\"]\n");
+        assert_eq!(
+            anchors("/r", &fs, &explicit()),
+            [
+                (PathBuf::from("/r/a"), Some("a".to_owned())),
+                (PathBuf::from("/r/b/sub"), Some("b/sub".to_owned())),
+            ]
+        );
+    }
+
+    #[test]
+    fn discovered_configurations_leave_the_roots_unanchored() {
+        let discovered = nested_fs("").with_file("/r/skif.toml", "[js.workspaces.\".\"]\nentry = [\"src/extra.js\"]\n");
+        assert_eq!(
+            anchors("/r", &discovered, &ConfigOverrides::default()),
+            [
+                (PathBuf::from("/r"), None),
+                (PathBuf::from("/r/tools/other"), None),
+                (PathBuf::from("/r/tools/sub"), None),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_root_a_run_starts_at_is_never_anchored() {
+        let fs = nested_fs("[js.workspaces.\".\"]\nentry = [\"src/extra.js\"]\n");
+        let expected: [(PathBuf, Option<String>); 1] = [(PathBuf::from("/r/tools/sub"), None)];
+        assert_eq!(anchors("/r/tools/sub", &fs, &explicit()), expected);
     }
 
     #[test]

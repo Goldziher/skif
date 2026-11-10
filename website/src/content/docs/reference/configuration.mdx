@@ -635,7 +635,14 @@ report and matches no file on disk (while that rule runs). `[rules] stale-js-con
 `--treat-config-hints-as-errors` (`skif migrate` writes `warn` unless `--strict-hints` is given). An
 `ignore-dependencies` or `ignore-unresolved` entry is not judged when a rule that consults it is off. The
 `ignore-dependencies` list of a package whose entry files skif cannot determine is not judged; the global list is judged
-over the other packages, and an entry that matches a dependency such a package lists is never called stale. It also
+over the other packages, and an entry that matches a dependency such a package lists is never called stale. In a
+multi-root run, a finding about a configuration file several roots read (a `--config` file, or a file above them) is
+reported once, at the highest severity among the copies the run shows, and an entry of its lists only when every root
+that judged it found it stale: a root that used it silences it, and a root that could not judge it (a rule off, entry
+files it cannot determine) has no say. Each package a `[js.workspaces]` glob table selects has a list of its own, so
+one package's use of an entry does not silence it for another. The decision is made over what the run shows, after
+`--fix` and after `--workspace`, `--include` and `--exclude`: a copy those flags leave out of the run does not raise
+the severity of the one reported. It also
 reports knip's tag hints: an `ignore-tags` tag, or `@internal` with `production`, on an export or member that is used
 anyway (while `unused-exports` runs). A tag on an enum or namespace that hides an unused member is needed and not
 reported. The tag hints cover the files whose exports `unused-exports` judges, so in a package with incomplete entries
@@ -1155,7 +1162,12 @@ file that declares them. `$ROOT/` at the start of a pattern anchors it at the ro
 shared preset needs. A pattern that would leave its anchor (`../packages/*` in `config/shared.toml`) never matches, and a lint run warns about it on stderr, naming the file: write `$ROOT/packages/*` instead. Values are read in the scope they
 configure: top-level `[js]` globs are relative to the root, `js` globs of an override or package file are relative
 to each package. `ignore-packages`, `[[ignore]] packages`, group selectors and `[js.workspaces]` keys stay relative
-to the root.
+to the root, with one exception: in a multi-root run with `--config <FILE>`, the `[js.workspaces]` keys and
+`ignore-workspaces` globs of that file are relative to the directory the run starts at. `"."` is then the root in
+that directory only, `"tools/sub"` the root in `tools/sub`, and `"tools/sub/packages/*"` the members of that root,
+so one file can configure every root of the run by its directory. The keys then depend on where the run starts: from
+the repository root the root in `tools/sub` is `"tools/sub"`, from `tools/` it is `"sub"`, so write the file for the
+directory your recursive runs start at.
 
 ### Inspecting the result
 

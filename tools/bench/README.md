@@ -262,7 +262,7 @@ every package and stay compared. `parity.json` lists the directories per reposit
 the globs of the narrowed ones under `narrowed_packages`. See
 [ADR 0053](../../adrs/0053-incomplete-packages-in-the-json-report.md),
 [ADR 0068](../../adrs/0068-what-the-knip-comparison-sets-apart.md) and
-[ADR 0100](../../adrs/0100-knip-comparison-narrowed-scopes-rush-installs-and-dependencies-of-unused-files.md).
+[ADR 0099](../../adrs/0099-knip-comparison-narrowed-scopes-rush-installs-and-dependencies-of-unused-files.md).
 
 ## Policy diff against syncpack
 

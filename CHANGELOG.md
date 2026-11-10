@@ -83,6 +83,27 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Breaking** for multi-root runs with `--config <FILE>` (`-r`, or a start directory without a workspace): the
+  `[js.workspaces]` keys and `ignore-workspaces` globs of the explicit file and what it extends are relative to the
+  directory the run starts at, not to each root. `"."` is the root at the start directory only, and a
+  nested root is configured by its directory from there (`"tools/sub"`, `"tools/sub/packages/*"`, `"tools/*"`); a key
+  written for a nested root as if it were the root needs that directory in front of it
+  ([ADR 0098](adrs/0098-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
+- `--fix` over several roots writes the fixes of every root before it lints any root again or runs an install
+  step, instead of writing, linting again and installing root by root. When writing a later root fails, the files of
+  the earlier roots stay written as before, but their install steps no longer run: the fix summary reports each as
+  skipped because fixing a later root failed, and the run exits 2
+  ([ADR 0098](adrs/0098-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
+- `Workspace` gains `workspace_keys_anchor` and `set_workspace_keys_anchor`, which `discover_targets` sets for the
+  roots below the start of a run with an explicit configuration file; `skif_js::InputRequest` gains `workspace_key`,
+  so a struct literal needs the field. `skif_core::ConfigJudgement` is new, `Report` gains `config_judgements`,
+  `with_config_judgements` and `retain_mut`, and `Emitter` gains `report_config_judgement` and
+  `take_config_judgements`: `stale-js-config` records every entry it judged, with the package of a list a
+  `[js.workspaces]` table gives a package. `skif::settle_shared_config` is new: given the reports of the targets of
+  `discover_targets` in order, it decides the `stale-js-config` findings about a configuration file several roots
+  read, as `skif -r` does; a host that lints the targets itself calls it last, on the reports it shows.
+  `skif::join_lexical` joins a root and a path relative to it with `..` resolved, the form in which those files are
+  compared ([ADR 0098](adrs/0098-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
 - `RuleMeta` gains `version_scoped`, set with `RuleMeta::version_scoped()`; `IgnoreEntry` gains `files` and
   `with_files`; `OverrideScope` gains `unanchored()`.
 - syncpack format keys (`sortAz`, `sortFirst`, `indent`, ...) turn `package-json-format` and `unsorted-dependencies`
@@ -170,7 +191,7 @@ All notable changes to this project are documented here. The format follows
   parity and syncpack runs capture skif's output under their own names in the scratch directory, and `bench:publish`
   writes skip reasons as code spans with whitespace collapsed (an empty one as `(empty)`), so `summary.md` passes
   `format:check`
-  ([ADR 0100](adrs/0100-knip-comparison-narrowed-scopes-rush-installs-and-dependencies-of-unused-files.md),
+  ([ADR 0099](adrs/0099-knip-comparison-narrowed-scopes-rush-installs-and-dependencies-of-unused-files.md),
   [#27](https://github.com/Goldziher/skif/issues/27)).
 
 ### Added
@@ -264,6 +285,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `skif -r --config <FILE>` applied the file's `[js.workspaces]` tables and `ignore-workspaces` globs to every root as
+  if written relative to each, so `[js.workspaces."."]` configured every nested root and `stale-js-config` reported
+  its entries once per root where they matched nothing. The keys and globs of an explicit file are now relative to
+  the start directory: `"."` is the root there and `"tools/sub"` the nested root in that directory. A
+  `stale-js-config` finding about a file several roots of the run read (the explicit file, or a file above them) is
+  reported once, at the highest severity among the roots, and an entry of a list of that file only when every root
+  that could judge it found it stale; each package a glob table selects keeps a list of its own. The decision is made
+  last, over the reports the run shows: after the lint after `--fix` (which lints again every root whose
+  configuration file a fix wrote), after `--workspace`, `--include` and `--exclude`, which no longer lose a finding
+  another root reported first. `skif baseline write -r` records the finding in each root that reports it, so a
+  second write adds nothing ([ADR 0098](adrs/0098-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
 - `mkfifo`, `truncate`, `unlink`, `stdbuf` and the other coreutils programs that were missing from the system
   binaries are no longer reported by `unlisted-binaries`.
 - A command that a source file runs with a `cwd` option (`execa('bun', ['run', 'build'], { cwd })`, `spawn`,
@@ -274,7 +306,7 @@ All notable changes to this project are documented here. The format follows
   `cwd` of `process.cwd()` or `undefined` changes nothing, and one computed from `__dirname` or `import.meta.url`
   runs the command in that directory below the file. A script run in another directory skif can place
   (`cd web && npm run build`) is the script of the package there, so the caller's `build` is not followed
-  ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
+  ([ADR 0097](adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md)).
 - Under pnpm, Yarn Berry, Rush and Bun's isolated linker, a workspace member's binary no longer satisfies a script of a
   package that does not list the member: those link it only for the packages that depend on it, so the script's
   binary is reported unlisted. Bun is isolated with `linker = "isolated"` in `bunfig.toml`, or without a `linker` when
@@ -282,21 +314,21 @@ All notable changes to this project are documented here. The format follows
   `node_modules/.bin`, keep the old answer, and a member's own scripts may always run its binaries. Yarn counts as Berry
   only when `packageManager`, a `.yarnrc.yml` or a Berry `yarn.lock` says so. In a Rush repository (`rush.json` at
   the root), `rush`, `rushx` and `rush-pnpm` are provided commands
-  ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
+  ([ADR 0097](adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md)).
 - A binary that a workflow step, a tool config's command or a source file runs after `cd <dir>` into another workspace
   package (`run: cd sub && pnpm exec rspack`, `execSync('cd sub && rspack serve')`) is credited to that package, as for
   a `package.json` script: a provider it lists is used and the binary is not unlisted at the file
-  ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
+  ([ADR 0097](adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md)).
 - A workflow step's `$GITHUB_WORKSPACE`, `${GITHUB_WORKSPACE}` and `${{ github.workspace }}` name the workspace root,
   so `cd $GITHUB_WORKSPACE/sub && pnpm exec rspack` runs in `sub`, `node $GITHUB_WORKSPACE/scripts/x.js` makes the
-  file an entry and a `working-directory` of `${{ github.workspace }}/sub` is `sub` ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
+  file an entry and a `working-directory` of `${{ github.workspace }}/sub` is `sub` ([ADR 0097](adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md)).
 - A binary that a workflow step runs with `pnpm -C sub exec` is credited to `sub` as from a `package.json` script, but
   not after a `cd` to a directory skif cannot place (`cd /tmp/app && pnpm -C sub exec`), and one that a source file
   runs with `cd web && pnpm --filter sub exec` is no longer credited to `web`
-  ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
+  ([ADR 0097](adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md)).
 - A `cd` inside a subshell no longer changes the directory of the commands after it:
   `(cd "$TMP" && tar xf a.tgz) && npm run build` follows the package's `build` script again
-  ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
+  ([ADR 0097](adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md)).
 - `unused-files` is listed as fixable `sometimes` (`skif rules`, SARIF rule properties, the rules reference) instead
   of `unsafe`: under `[js] discovery = "git"` its findings offer no fix, since the index does not see every untracked
   file ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)); a run that walks the

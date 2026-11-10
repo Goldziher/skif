@@ -227,7 +227,9 @@ struct Lints {
 
 /// Lints `targets` together, as `lint` lints them (its flags applied, roots of a multi-root run crediting each
 /// other's uses), each with its configuration minus the entries its baseline file in `files` contributes. An equal
-/// entry of another configuration file keeps applying.
+/// entry of another configuration file keeps applying. The findings about a configuration file several roots read are
+/// not decided across them ([`roots::settle_shared_config`]): each root records what it reports, so its baseline
+/// silences them whatever the other roots report.
 fn lint_without(mut targets: Vec<Target>, files: &[&Path], lint: &LintArgs, base: &Path) -> Result<Lints, CliError> {
     let filter = Filter::new(lint)?;
     for (target, file) in targets.iter_mut().zip(files) {
