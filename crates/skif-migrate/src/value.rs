@@ -27,7 +27,7 @@ pub(crate) fn entries<'v>(
     value: &'v ConfigValue,
 ) -> Vec<(&'v str, &'v ConfigValue)> {
     let Some(pairs) = value.as_object() else {
-        let message = if matches!(value, ConfigValue::Unknown) {
+        let message = if value.is_unknown() {
             "the value is only known at run time"
         } else {
             "expected an object"
@@ -103,7 +103,7 @@ fn string_item(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue
     match value {
         ConfigValue::String(text) => Some(text.clone()),
         ConfigValue::Regex { pattern, .. } => Some(slash_regex(pattern)),
-        ConfigValue::Unknown => {
+        unknown if unknown.is_unknown() => {
             state.note(src, NoteClass::Human, path, "the value is only known at run time");
             None
         }
@@ -118,7 +118,7 @@ fn string_item(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue
 pub(crate) fn boolean(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue) -> Option<bool> {
     let parsed = value.as_bool();
     if parsed.is_none() {
-        let message = if matches!(value, ConfigValue::Unknown) {
+        let message = if value.is_unknown() {
             "the value is only known at run time"
         } else {
             "expected true or false"
@@ -132,7 +132,7 @@ pub(crate) fn boolean(state: &mut State<'_>, src: &Src, path: &str, value: &Conf
 pub(crate) fn string(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue) -> Option<String> {
     let parsed = value.as_str().map(str::to_owned);
     if parsed.is_none() {
-        let message = if matches!(value, ConfigValue::Unknown) {
+        let message = if value.is_unknown() {
             "the value is only known at run time"
         } else {
             "expected a string"
@@ -222,7 +222,7 @@ pub(crate) fn pattern_items<'v>(
         if let Some(entry) = pattern_entry(item, glob) {
             out.push((entry, item));
         } else {
-            let message = if matches!(item, ConfigValue::Unknown) {
+            let message = if item.is_unknown() {
                 "the value is only known at run time"
             } else {
                 "expected a string or a regular expression"

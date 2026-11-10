@@ -28,7 +28,7 @@ impl Plugin for Vue {
         let Some(webpack) = config.value.get("configureWebpack") else {
             return Vec::new();
         };
-        if *webpack != ConfigValue::Unknown {
+        if !webpack.is_unknown() {
             return objects(webpack)
                 .into_iter()
                 .flat_map(|value| bundler_inputs(&ConfigAst { value, ..*config }, cx))

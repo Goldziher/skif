@@ -13,6 +13,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- An agent skill, `skills/skif`, that teaches coding agents the lint, triage and fix loop, the JSON report,
+  configuration, migration and CI. It installs from GitHub with `npx skills add Goldziher/skif`, or as a plugin from
+  the repository's marketplace manifests (`.claude-plugin/`, `.codex-plugin/`, `.agents/plugins/`) in Claude Code,
+  Codex, Factory Droid and GitHub Copilot CLI. The plugin also registers the MCP server (`skif mcp`), started with
+  `npx -y skif-cli@<release> mcp`, so it needs Node.js but no install of skif. The plugin version and the server's
+  `skif-cli` pin follow the release: `scripts/release-bump.sh` rewrites them and `scripts/check-versions.sh` checks
+  them, and the skill's version pins and rule counts are covered by
+  `scripts/check-doc-pins.sh` and `scripts/check-rule-ids.sh`
+  ([ADR 0102](adrs/0102-agent-skill-distributed-from-the-repository.md)).
 - `toolchain-pin-drift` (`warn`): Node and package-manager versions pinned in `.nvmrc`, `.node-version`,
   `.tool-versions`, `mise.toml`, Dockerfiles (`FROM node:<version>`, `ARG NODE_VERSION`, `corepack prepare`,
   `npm install -g pnpm@<version>`) and GitHub workflows (`actions/setup-node`, `pnpm/action-setup`) are checked
@@ -81,6 +90,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Breaking** for library users that match `skif_js_syntax::ConfigValue` exhaustively: it gains `OneOf`, a value that
+  is one of several known values without knowing which. The evaluator gives it for a condition it cannot decide
+  between values it knows (`process.env.CI ? 'github' : 'list'`, `[ci ? 'blob' : 'list']`, a binding one branch
+  reassigns, a fallback over a key a conditional spread may set), with up to eight alternatives, where it gave
+  `Unknown`. `ConfigValue::is_unknown` and `has_unknown` count it as unknown, so code that does not ask for
+  `ConfigValue::alternatives` reads it as it read `Unknown`; `as_str`, `as_array` and `get` return `None` for it. A
+  spread of a value that is one of several objects adds the keys of each, as a spread of the condition itself does,
+  and `undefined` evaluates to `undefined` (handed out as `null`) instead of an unknown value
+  ([ADR 0103](adrs/0103-one-of-several-known-values-in-config-evaluation.md)).
 - A multi-root run (`skif -r`, and the CLI's other multi-root commands) without `--cache` parses the files more than
   one root can reach through one in-memory module cache shared by its roots: files outside the root parsing them (a
   directory of shared code outside every root) and files of a root nested in it. Such a file is parsed once for the
@@ -327,6 +345,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A Docusaurus plugin, theme or preset written in full (`@scope/docusaurus-plugin-x` given as a theme) is the listed
+  package it names, as Docusaurus loads the name as written first; it was taken for its long form
+  (`@scope/docusaurus-theme-docusaurus-plugin-x`) and reported as unlisted.
 - Bun: a directory listed by its literal path stays a member despite a negation that matches it, as `bun install`
   links it; other managers still remove it ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
 - Bun: `stray-lockfile` reports a root `bun.lockb` next to a `bun.lock`, which Bun ignores ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
@@ -334,6 +355,30 @@ All notable changes to this project are documented here. The format follows
   as a binary of the package that runs them.
 - On Windows, an explicit `--config` path given in the verbatim `\\?\C:\` spelling no longer leaves its findings with absolute
   locations or keeps the baseline it extends from applying to the run.
+- A Playwright `reporter` list whose element or reporter name skif could not evaluate (`...sharedReporters()` of a
+  helper whose two returns differ, `process.env.CI ? 'github' : './reporter.ts'`) was skipped, so the reporter modules
+  it names were reported by `unused-files`. A reporter a condition picks among known values, in the list, an element,
+  a spread of a conditional list (`...(process.env.A11Y ? [['./a11y-reporter.ts']] : [])`) or a list filtered with
+  `.filter(Boolean)`, now credits the module of every branch. A list whose reporter name is still not known (a list
+  parsed from the environment), or a spread of a value the config computes that may set it, leaves the package's
+  entries incomplete and the whole package unjudged, as a reporter module may be any file; an imported base config
+  still narrows to the test conventions. Vitest's `test.reporters` credits a reporter of every branch the same way, and
+  still skips a name it cannot know ([#151](https://github.com/Goldziher/skif/issues/151)).
+- Storybook addons, frameworks and builders named through the `getAbsolutePath` helper the Storybook CLI writes in its
+  ESM form (`` dirname(fileURLToPath(import.meta.resolve(`${value}/package.json`))) ``) are credited, as the CommonJS
+  form already was. An `addons` element, `framework` or `core.builder` whose package is not known statically now
+  leaves the package's dependencies unjudged instead of being skipped; of its files only those of the Storybook config
+  directory (`.storybook/**`, `.rnstorybook/**`), where a local addon lives, are not judged
+  ([#152](https://github.com/Goldziher/skif/issues/152)).
+- A bundler alias to a package rather than a path (`react: 'preact/compat'`, or `foo:
+  fileURLToPath(import.meta.resolve('bar'))`, which `skif-js-syntax` now reads as `'bar'`) was dropped, so imports of
+  `foo` counted as the package `foo`. It is kept as an alias without a target, whose imports are not reported, and the
+  package it points into is a dependency of the config.
+- `skif-js-syntax` evaluates `import.meta.resolve(x)` to `x`, as `require.resolve(x)`, and the directory of a
+  resolved package manifest, `dirname(require.resolve('<pkg>/package.json'))` or with `import.meta.resolve` and
+  `fileURLToPath`, to `<pkg>`, for every plugin. A manifest path that is relative, absolute, starts with `#` or has a
+  `..` segment is not a package's, and `join('@scope', 'name', 'package.json')` names `@scope/name`, not the path
+  `./@scope/name`.
 - `skif -r --config <FILE>` applied the file's `[js.workspaces]` tables and `ignore-workspaces` globs to every root as
   if written relative to each, so `[js.workspaces."."]` configured every nested root and `stale-js-config` reported
   its entries once per root where they matched nothing. The keys and globs of an explicit file are now relative to

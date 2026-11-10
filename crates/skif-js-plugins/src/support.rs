@@ -367,9 +367,8 @@ pub(crate) fn objects(value: &ConfigValue) -> Vec<&ConfigValue> {
 /// Whether a config is unknown, or is a list (of builds) with an unknown element.
 pub(crate) fn config_unknown(config: &ConfigValue) -> bool {
     match config {
-        ConfigValue::Unknown => true,
-        ConfigValue::Array(items) => items.iter().any(|item| matches!(item, ConfigValue::Unknown)),
-        _ => false,
+        ConfigValue::Array(items) => items.iter().any(ConfigValue::is_unknown),
+        other => other.is_unknown(),
     }
 }
 
@@ -390,24 +389,96 @@ pub(crate) fn path_unknown(value: &ConfigValue, path: &[&str], spreads: Spreads)
     let Some((key, rest)) = path.split_first() else {
         return value.has_unknown();
     };
+    match value {
+        ConfigValue::Object(_) => match last_entry(value, key, spreads) {
+            Some(Entry::Value(child)) => path_unknown(child, rest, spreads),
+            Some(Entry::Spread) => true,
+            None => false,
+        },
+        other => other.is_unknown(),
+    }
+}
+
+/// What decides `key` of an object, as [`last_entry`] finds it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Entry<'v> {
+    /// The value of the key's last entry.
+    Value(&'v ConfigValue),
+    /// An unknown spread after the last entry of the key, or without one, which may provide or replace it.
+    Spread,
+}
+
+/// What decides `key` of `object`: its last entry for the key, or an unknown spread that `spreads` counts after it (or
+/// without it). `None` when the object has neither, and for a value that is not an object.
+pub(crate) fn last_entry<'v>(object: &'v ConfigValue, key: &str, spreads: Spreads) -> Option<Entry<'v>> {
     let counted = |name: &str| match spreads {
         Spreads::Any => ConfigValue::is_spread_key(name),
         Spreads::Own => name == OWN_SPREAD,
     };
-    match value {
-        ConfigValue::Unknown => true,
-        ConfigValue::Object(entries) => {
-            let last = entries
-                .iter()
-                .rev()
-                .find(|(name, _)| name == key || counted(name.as_str()));
-            match last {
-                Some((name, child)) if name == key => path_unknown(child, rest, spreads),
-                Some(_) => true,
-                None => false,
+    let (name, value) = object
+        .as_object()?
+        .iter()
+        .rev()
+        .find(|(name, _)| name == key || counted(name.as_str()))?;
+    Some(if name == key {
+        Entry::Value(value)
+    } else {
+        Entry::Spread
+    })
+}
+
+/// A name a config gives a module or package, as [`reporter_names`] reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Named<'v> {
+    /// A name known statically.
+    Known(&'v str),
+    /// A name that is not known statically.
+    Unknown,
+}
+
+/// The name of each reporter a `reporter` or `reporters` value lists: a name, or the first element of a `[name,
+/// options]` pair, for a list of them or a single one. Every alternative of a value that is one of several
+/// ([`ConfigValue::alternatives`]) counts, whether the list, an element or a name is, so that every module a branch
+/// names is credited. Anything else (`null`, an options object, a reporter instance) names nothing.
+pub(crate) fn reporter_names(value: &ConfigValue) -> Vec<Named<'_>> {
+    let mut out = Vec::new();
+    for listed in value.alternatives() {
+        match listed {
+            ConfigValue::Array(items) => {
+                for item in items {
+                    reporter_name(item, &mut out);
+                }
+            }
+            single => reporter_name(single, &mut out),
+        }
+    }
+    out
+}
+
+/// Adds to `out` the names of the reporter `item` of a list names, a name or the first element of a pair.
+fn reporter_name<'v>(item: &'v ConfigValue, out: &mut Vec<Named<'v>>) {
+    for alternative in item.alternatives() {
+        let name = match alternative {
+            ConfigValue::Array(pair) => pair.first(),
+            other => Some(other),
+        };
+        for name in name.map(ConfigValue::alternatives).unwrap_or_default() {
+            match name {
+                ConfigValue::String(name) => out.push(Named::Known(name)),
+                unknown if unknown.is_unknown() => out.push(Named::Unknown),
+                _ => {}
             }
         }
-        _ => false,
+    }
+}
+
+/// Whether the reporters `key` of `object` lists are not all known: a name is not ([`reporter_names`]), or an
+/// unknown spread `spreads` counts may set the key.
+pub(crate) fn reporters_unknown(object: &ConfigValue, key: &str, spreads: Spreads) -> bool {
+    match last_entry(object, key, spreads) {
+        Some(Entry::Value(reporters)) => reporter_names(reporters).contains(&Named::Unknown),
+        Some(Entry::Spread) => true,
+        None => false,
     }
 }
 
@@ -416,18 +487,17 @@ pub(crate) fn path_unknown(value: &ConfigValue, path: &[&str], spreads: Spreads)
 /// project objects is known when each object is, whatever their other options are.
 pub(crate) fn shallow_key_unknown(object: &ConfigValue, key: &str) -> bool {
     match object {
-        ConfigValue::Unknown => true,
         ConfigValue::Object(entries) => match entries
             .iter()
             .rev()
             .find(|(name, _)| name == key || ConfigValue::is_spread_key(name))
         {
             Some((name, _)) if ConfigValue::is_spread_key(name) => true,
-            Some((_, ConfigValue::Unknown)) => true,
-            Some((_, ConfigValue::Array(items))) => items.contains(&ConfigValue::Unknown),
-            _ => false,
+            Some((_, ConfigValue::Array(items))) => items.iter().any(ConfigValue::is_unknown),
+            Some((_, value)) => value.is_unknown(),
+            None => false,
         },
-        _ => false,
+        other => other.is_unknown(),
     }
 }
 
@@ -545,7 +615,9 @@ fn attribute(tag: &str, lower_tag: &str, name: &str) -> Option<String> {
 }
 
 /// The module aliases of a bundler's `resolve.alias`: an object of `find: target` or an array of
-/// `{ find, replacement }`. Targets that are not paths (a package standing in for another) are not aliases.
+/// `{ find, replacement }`. A target that is a package rather than a path (`react: 'preact/compat'`, or the
+/// `import.meta.resolve('pkg')` the evaluator reads as `'pkg'`) is an alias without a target, as the imports it matches
+/// reach that package and not the one they name, and the package is a dependency of the config.
 pub(crate) fn alias_inputs(alias: &ConfigValue, config: &ConfigAst<'_>) -> Vec<PluginInput> {
     let pairs: Vec<(AliasFind<'_>, &ConfigValue)> = match alias {
         ConfigValue::Object(entries) => entries
@@ -566,23 +638,27 @@ pub(crate) fn alias_inputs(alias: &ConfigValue, config: &ConfigAst<'_>) -> Vec<P
             .collect(),
         _ => Vec::new(),
     };
-    pairs
-        .into_iter()
-        .filter_map(|(find, replacement)| {
-            let (find, replacement) = match find {
-                AliasFind::Text(text) => (text.trim_end_matches('$').trim_end_matches('/').to_owned(), replacement),
-                AliasFind::Pattern(pattern) => return pattern_alias(pattern, replacement, config),
-            };
-            if find.is_empty() {
-                return None;
+    let mut out = Vec::new();
+    for (find, replacement) in pairs {
+        let find = match find {
+            AliasFind::Text(text) => text.trim_end_matches('$').trim_end_matches('/').to_owned(),
+            AliasFind::Pattern(pattern) => {
+                out.extend(pattern_alias(pattern, replacement, config));
+                continue;
             }
-            let target = match replacement {
-                ConfigValue::String(path) => Some(alias_target(path, config)?),
-                _ => None,
-            };
-            Some(PluginInput::Alias { find, target })
-        })
-        .collect()
+        };
+        if find.is_empty() {
+            continue;
+        }
+        let target = replacement.as_str().and_then(|path| alias_target(path, config));
+        if target.is_none()
+            && let Some(package) = replacement.as_str().and_then(package_name)
+        {
+            out.push(PluginInput::Dependency(package));
+        }
+        out.push(PluginInput::Alias { find, target });
+    }
+    out
 }
 
 /// The `find` of an alias entry.

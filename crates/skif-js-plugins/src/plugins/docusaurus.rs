@@ -80,7 +80,7 @@ impl Plugin for Docusaurus {
         out
     }
 
-    fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
+    fn resolve_config(&self, config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut out = Vec::new();
         for (key, kind) in [("themes", "theme"), ("plugins", "plugin"), ("presets", "preset")] {
             let Some(ConfigValue::Array(items)) = config.value.get(key) else {
@@ -90,7 +90,13 @@ impl Plugin for Docusaurus {
                 if is_relative(name) {
                     out.push(PluginInput::Entry(join_rel(config.base, name)));
                 } else {
-                    out.extend(package_name(&module_name(name, kind)).map(PluginInput::Dependency));
+                    // Docusaurus loads the name as written when it resolves, and its long form otherwise.
+                    let module = if cx.has_dependency(name) {
+                        name.to_owned()
+                    } else {
+                        module_name(name, kind)
+                    };
+                    out.extend(package_name(&module).map(PluginInput::Dependency));
                 }
             }
         }

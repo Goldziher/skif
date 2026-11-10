@@ -301,6 +301,167 @@ module.exports = {
     );
 }
 
+/// The ESM form of the helper, which the Storybook CLI writes for pnpm and monorepo setups, names the packages too.
+#[test]
+fn storybook_esm_get_absolute_path_idiom_names_the_packages() {
+    let main = "import { dirname } from 'path';\nimport { fileURLToPath } from 'url';\n\
+        function getAbsolutePath(value: string): string {\n\
+          return dirname(fileURLToPath(import.meta.resolve(`${value}/package.json`)));\n}\n\
+        export default {\n  stories: ['../src/**/*.stories.ts'],\n\
+          addons: [getAbsolutePath('@storybook/addon-a11y'), { name: getAbsolutePath('@storybook/addon-docs') }],\n\
+          framework: { name: getAbsolutePath('@storybook/vue3-vite'), options: {} },\n\
+          core: { builder: getAbsolutePath('@storybook/builder-vite') },\n};";
+    let results = run(&[(".storybook/main.ts", main)], &["@storybook/vue3-vite"], &[]);
+    let out = output(&results, "storybook");
+    assert_eq!(
+        deps(out),
+        BTreeSet::from([
+            "@storybook/addon-a11y",
+            "@storybook/addon-docs",
+            "@storybook/builder-vite",
+            "@storybook/vue3-vite",
+        ])
+    );
+    assert!(!out.entries_incomplete, "{:?}", out.incomplete_reasons);
+}
+
+/// An addon, framework or builder whose package is not known statically leaves the packages the config needs unknown,
+/// so the package's dependencies are not judged; the files it may hide are a local addon's, in the Storybook config
+/// directory, so the other files are judged.
+#[test]
+fn storybook_names_not_known_statically_leave_the_entries_incomplete() {
+    let cases = [
+        "import { loadAddon } from 'storybook-helpers';\n\
+         export default { addons: [loadAddon('@storybook/addon-a11y')] };",
+        "export default { addons: ['@storybook/addon-docs', { name: process.env.ADDON }] };",
+        "export default { addons: pick() };",
+        "export default { framework: pick() };",
+        "export default { framework: { name: pick(), options: {} } };",
+        "export default { core: { builder: pick() } };",
+        "export default { core: pick() };",
+    ];
+    for source in cases {
+        let results = run(&[(".storybook/main.ts", source)], &["@storybook/react"], &[]);
+        let out = output(&results, "storybook");
+        assert!(out.entries_incomplete, "{source}");
+        let scope = IncompleteScope::Within(vec![
+            ".storybook/**".to_owned(),
+            ".{storybook,rnstorybook}/**/*.{js,jsx,ts,tsx,mts}".to_owned(),
+        ]);
+        assert!(
+            out.incomplete_reasons
+                .iter()
+                .any(|reason| reason.cause == IncompleteCause::ComputedEntries && reason.scope == scope),
+            "{source}: {:?}",
+            out.incomplete_reasons
+        );
+    }
+    let known = "export default {\n\
+                   addons: ['@storybook/addon-docs', { name: '@storybook/addon-a11y', options: pick() }],\n\
+                   framework: { name: '@storybook/react-vite', options: pick() },\n};";
+    let results = run(&[(".storybook/main.ts", known)], &["@storybook/react"], &[]);
+    let out = output(&results, "storybook");
+    assert!(!out.entries_incomplete, "{:?}", out.incomplete_reasons);
+}
+
+/// A `reporter` list the config computes itself, or an element of it whose module is not known statically, may name
+/// any file of the package as a reporter, so none is judged; the known reporters are still entries.
+#[test]
+fn playwright_reporters_not_known_statically_leave_the_package_unjudged() {
+    let cases = [
+        "import { sharedReporters } from './shared-config';\n\
+         export default defineConfig({\n\
+           testDir: './tests',\n\
+           reporter: [...sharedReporters(), ['./reporters/local.ts']],\n});",
+        "export default { testDir: './tests', reporter: pick(), };",
+        "export default { testDir: './tests', reporter: [[pick(), {}], ['./reporters/local.ts']] };",
+        "export default { testDir: './tests', reporter: process.env.CI ? 'github' : pick() };",
+        "const own = () => JSON.parse(process.env.PW ?? '{}');\nexport default { reporter: 'list', ...own() };",
+    ];
+    for source in cases {
+        let results = run(&[("playwright.config.ts", source)], &["@playwright/test"], &[]);
+        let reasons = &output(&results, "playwright").incomplete_reasons;
+        assert!(
+            reasons
+                .iter()
+                .any(|reason| reason.cause == IncompleteCause::ComputedEntries)
+                && reasons.iter().all(|reason| reason.scope == IncompleteScope::Package),
+            "{source}: {reasons:?}"
+        );
+    }
+    let results = run(&[("playwright.config.ts", cases[0])], &["@playwright/test"], &[]);
+    assert_entries(&output(&results, "playwright").entries, &["reporters/local.ts"]);
+}
+
+/// A reporter list written after an unknown spread replaces whatever the spread sets, so the spread leaves only the
+/// test conventions unknown (it may set `testDir` or `testMatch`), never the whole package.
+#[test]
+fn playwright_reporters_after_an_unknown_spread_keep_the_test_scope() {
+    let source =
+        "const own = () => JSON.parse(process.env.PW ?? '{}');\nexport default { ...own(), reporter: 'html' };";
+    let results = run(&[("playwright.config.ts", source)], &["@playwright/test"], &[]);
+    let out = output(&results, "playwright");
+    assert!(out.entries_incomplete, "{:?}", out.incomplete_reasons);
+    assert!(
+        out.incomplete_reasons
+            .iter()
+            .all(|reason| reason.scope != IncompleteScope::Package),
+        "{:?}",
+        out.incomplete_reasons
+    );
+}
+
+/// Unknown options of a known reporter and a reporter a condition picks among known ones hide no reporter module:
+/// every module a branch names is an entry.
+#[test]
+fn playwright_known_reporters_leave_the_entries_complete() {
+    let cases = [
+        (
+            "export default { reporter: [['list'], ['./reporters/local.ts', { outputFile: process.env.OUT }]] };",
+            Some("reporters/local.ts"),
+        ),
+        ("export default { reporter: process.env.CI ? 'github' : 'list' };", None),
+        ("export default { reporter: [process.env.CI ? 'blob' : 'list'] };", None),
+        (
+            "export default { reporter: [process.env.CI ? ['github'] : null, ['list']].filter(Boolean) };",
+            None,
+        ),
+        (
+            "export default { reporter: [['list'], ...(process.env.A11Y ? [['./reporters/a11y.ts']] : [])] };",
+            Some("reporters/a11y.ts"),
+        ),
+        (
+            "export default { reporter: process.env.CI ? 'github' : './reporters/local.ts' };",
+            Some("reporters/local.ts"),
+        ),
+    ];
+    for (source, entry) in cases {
+        let results = run(&[("playwright.config.ts", source)], &["@playwright/test"], &[]);
+        let out = output(&results, "playwright");
+        assert!(!out.entries_incomplete, "{source}: {:?}", out.incomplete_reasons);
+        if let Some(entry) = entry {
+            assert_entries(&out.entries, &[entry]);
+        }
+    }
+}
+
+/// Vitest reporters read the same way: every reporter a branch names is credited. A reporter name the config computes
+/// leaves the entries complete: a shared config merged into every package computes its reporter list, and the modules
+/// it names belong to the shared package, not to each package it is merged into.
+#[test]
+fn vitest_reporters_of_every_branch_are_credited() {
+    let source = "export default { test: { reporters: process.env.CI ? ['default', './ci.ts'] : 'default' } };";
+    let results = run(&[("vitest.config.ts", source)], &["vitest"], &[]);
+    let out = output(&results, "vitest");
+    assert!(!out.entries_incomplete, "{:?}", out.incomplete_reasons);
+    assert_entries(&out.entries, &["ci.ts"]);
+
+    let source = "export default { test: { reporters: wrap(['default', './ci.ts']) } };";
+    let results = run(&[("vitest.config.ts", source)], &["vitest"], &[]);
+    let out = output(&results, "vitest");
+    assert!(!out.entries_incomplete, "{:?}", out.incomplete_reasons);
+}
+
 #[test]
 fn vite_css_postcss_file_is_read_as_a_postcss_config() {
     let results = run(

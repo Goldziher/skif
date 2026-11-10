@@ -129,6 +129,90 @@ fn storybook_idiom_with_the_path_namespace() {
     assert_eq!(get(&extract("main.js", source), &["addons"]), &strings(&["a-addon"]));
 }
 
+/// The directory of a package's resolved manifest is the package, in the ESM form the Storybook CLI writes too; the
+/// directory of a relative manifest stays a path.
+#[test]
+fn resolved_package_manifest_directories_are_the_package() {
+    let cases = [
+        (
+            "import { dirname } from 'path';\nimport { fileURLToPath } from 'url';\n\
+             function getAbsolutePath(value: string): string {\n\
+               return dirname(fileURLToPath(import.meta.resolve(`${value}/package.json`)));\n}\n\
+             export default { addons: [getAbsolutePath('@storybook/addon-a11y')] };",
+            "@storybook/addon-a11y",
+        ),
+        (
+            "import path from 'node:path';\nimport url from 'node:url';\n\
+             const pkg = (v) => path.dirname(url.fileURLToPath(import.meta.resolve(path.join(v, 'package.json'))));\n\
+             export default { addons: [pkg('a-addon')] };",
+            "a-addon",
+        ),
+        (
+            "import { dirname } from 'path';\n\
+             export default { addons: [dirname(require.resolve('b-addon/package.json'))] };",
+            "b-addon",
+        ),
+        (
+            "import { dirname } from 'path';\n\
+             export default { addons: [dirname(require.resolve('./local/package.json'))] };",
+            "./local",
+        ),
+    ];
+    for (source, expected) in cases {
+        assert_eq!(
+            get(&extract("main.ts", source), &["addons"]),
+            &strings(&[expected]),
+            "{source}"
+        );
+    }
+}
+
+/// A manifest directory names a package only for a bare specifier, a scoped one written in several `join` arguments
+/// included; a relative manifest stays a path, and an absolute one, a subpath import or a path through `..` is
+/// unknown rather than a package or a path.
+#[test]
+fn only_a_bare_manifest_directory_is_a_package() {
+    let value = extract(
+        "main.ts",
+        "import { dirname, join } from 'path';\n\
+         export default {\n\
+           scopedString: dirname(require.resolve('@a/b/package.json')),\n\
+           scopedJoin: dirname(require.resolve(join('@s', 'n', 'package.json'))),\n\
+           relativeJoin: dirname(require.resolve(join('./local', 'package.json'))),\n\
+           absoluteJoin: dirname(require.resolve(join('/abs/x', 'package.json'))),\n\
+           absoluteString: dirname(require.resolve('/abs/x/package.json')),\n\
+           subpathImport: dirname(require.resolve('#internal/package.json')),\n\
+           parent: dirname(require.resolve('a/../b/package.json')),\n\
+           computedJoin: dirname(require.resolve(join(name(), 'package.json'))),\n\
+           unknownSpecifier: import.meta.resolve(specifier),\n\
+         };",
+    );
+    let pairs = [
+        ("scopedString", s("@a/b")),
+        ("scopedJoin", s("@s/n")),
+        ("relativeJoin", s("./local")),
+        ("absoluteJoin", ConfigValue::Unknown),
+        ("absoluteString", ConfigValue::Unknown),
+        ("subpathImport", ConfigValue::Unknown),
+        ("parent", ConfigValue::Unknown),
+        ("computedJoin", ConfigValue::Unknown),
+        ("unknownSpecifier", ConfigValue::Unknown),
+    ];
+    for (key, expected) in pairs {
+        assert_eq!(get(&value, &[key]), &expected, "{key}");
+    }
+}
+
+#[test]
+fn import_meta_resolve_is_the_specifier() {
+    let value = extract(
+        "c.mjs",
+        "export default { loader: import.meta.resolve('css-loader'), local: import.meta.resolve('./loader.js') };",
+    );
+    assert_eq!(get(&value, &["loader"]), &s("css-loader"));
+    assert_eq!(get(&value, &["local"]), &s("./loader.js"));
+}
+
 #[test]
 fn glob_calls_become_their_patterns() {
     let cases = [
@@ -454,7 +538,7 @@ fn a_guarded_spread_keeps_what_its_object_does_not_replace() {
     assert_eq!(get(&value, &["test", "include"]), &strings(&["x/**"]));
     assert_eq!(get(&value, &["test", "setupFiles"]), &strings(&["./s.ts"]));
     // `root` is `web` or `app`.
-    assert_eq!(get(&value, &["root"]), &ConfigValue::Unknown);
+    assert_eq!(get(&value, &["root"]), &ConfigValue::OneOf(vec![s("app"), s("web")]));
 }
 
 #[test]
@@ -531,9 +615,12 @@ fn an_early_return_is_not_skipped_for_the_last_one() {
          export default [make(), known(), loop(), big(), none()];",
     );
     let configs = value.as_array().unwrap();
-    // The two returns share `root`; `test.include` differs, so it is unknown rather than the last return's.
+    // The two returns share `root`; `test.include` differs, so it is one of the two rather than the last return's.
     assert_eq!(get(&configs[0], &["root"]), &s("."));
-    assert_eq!(get(&configs[0], &["test", "include"]), &ConfigValue::Unknown);
+    assert_eq!(
+        get(&configs[0], &["test", "include"]),
+        &ConfigValue::OneOf(vec![strings(&["ci"]), strings(&["all"])])
+    );
     // A known test takes its branch.
     assert_eq!(get(&configs[1], &["a"]), &ConfigValue::Number(1.0));
     assert_eq!(configs[2], ConfigValue::Unknown);
@@ -576,12 +663,59 @@ fn what_code_may_or_may_not_write_is_unknown_after_it() {
          export default [{ some: plugins.length ? 1 : 2, base }, make()];",
     );
     let configs = value.as_array().unwrap();
-    assert_eq!(get(&configs[0], &["some"]), &ConfigValue::Unknown);
+    let one_or_two = ConfigValue::OneOf(vec![ConfigValue::Number(1.0), ConfigValue::Number(2.0)]);
+    assert_eq!(get(&configs[0], &["some"]), &one_or_two);
     assert!(get(&configs[0], &["base"]).get("...").is_some());
-    for key in ["mode", "some", "n"] {
-        assert_eq!(get(&configs[1], &[key]), &ConfigValue::Unknown, "{key}");
+    assert_eq!(get(&configs[1], &["mode"]), &ConfigValue::OneOf(vec![s("a"), s("b")]));
+    for key in ["some", "n"] {
+        assert_eq!(get(&configs[1], &[key]), &one_or_two, "{key}");
     }
     assert!(get(&configs[1], &["c"]).get("...").is_some());
+}
+
+#[test]
+fn a_returned_key_does_not_depend_on_what_else_the_object_reads() {
+    let body = "let mode = 'a'; const list = []; const c = { a: 1 }; let n = 0;\n\
+                if (env()) { mode = 'b'; }\n\
+                for (const x of y) list.push(x);\n\
+                env() && (c.a = 2);\n\
+                if (env()) n++;\n";
+    let one_or_two = ConfigValue::OneOf(vec![ConfigValue::Number(1.0), ConfigValue::Number(2.0)]);
+    // The returned object, the keys that are one of 1 and 2, and the keys whose object may hold more keys.
+    let cases: [(&str, &[&str], &[&str]); 4] = [
+        ("{ mode }", &[], &[]),
+        ("{ mode, n: n ? 1 : 2 }", &["n"], &[]),
+        ("{ mode, c }", &[], &["c"]),
+        ("{ mode, some: list.length ? 1 : 2 }", &["some"], &[]),
+    ];
+    for (returned, one_of_two, opened) in cases {
+        let source =
+            format!("const make = () => {{\n{body}return {returned};\n}};\nexport default [{{ base: 1 }}, make()];");
+        let value = extract("vite.config.ts", &source);
+        let config = &value.as_array().unwrap()[1];
+        assert_eq!(
+            get(config, &["mode"]),
+            &ConfigValue::OneOf(vec![s("a"), s("b")]),
+            "{returned}"
+        );
+        for key in one_of_two {
+            assert_eq!(get(config, &[*key]), &one_or_two, "{returned}: {key}");
+        }
+        for key in opened {
+            assert!(open(get(config, &[*key])), "{returned}: {key}");
+        }
+    }
+}
+
+#[test]
+fn a_top_level_binding_is_not_followed_through_the_statements_that_reassign_it() {
+    // The evaluator reads top-level constants by name, not the module's statements in order, so a top-level `let` is
+    // unknown whatever assigns it.
+    let value = extract(
+        "vite.config.ts",
+        "let mode = 'a';\nif (env()) { mode = 'b'; }\nexport default { mode };",
+    );
+    assert_eq!(get(&value, &["mode"]), &ConfigValue::Unknown);
 }
 
 #[test]
@@ -599,7 +733,10 @@ fn a_return_in_an_else_branch_is_not_read_after_the_code_that_follows() {
     );
     let configs = value.as_array().unwrap();
     // One path returns `{ a: 1 }` and the other `{ a: 2 }`.
-    assert_eq!(get(&configs[0], &["a"]), &ConfigValue::Unknown);
+    assert_eq!(
+        get(&configs[0], &["a"]),
+        &ConfigValue::OneOf(vec![ConfigValue::Number(2.0), ConfigValue::Number(1.0)])
+    );
     // A spread after a key may replace it.
     assert_eq!(get(&configs[1], &["mode"]), &ConfigValue::Unknown);
     assert_eq!(get(&configs[2], &["mode"]), &s("prod"));
@@ -761,7 +898,11 @@ fn the_parameters_of_a_function_the_tool_calls_are_unknown() {
         format!("function config(env = {{}}) {{ return {body}; }}\nexport default config;"),
     ] {
         let value = extract("webpack.config.js", &source);
-        assert_eq!(get(&value, &["entry"]), &ConfigValue::Unknown, "{source}");
+        assert_eq!(
+            get(&value, &["entry"]),
+            &ConfigValue::OneOf(vec![s("./src/analyze.ts"), s("./src/index.ts")]),
+            "{source}"
+        );
         assert_eq!(
             get(&value, &["inputs", "analyze"]),
             &strings(&["./src/analyze.ts"]),
@@ -855,9 +996,16 @@ fn a_key_merged_from_undecided_branches_is_not_definite() {
     assert_eq!(get(&value, &["destructured"]), &strings(&["./a.ts", "./d.ts"]));
     assert_eq!(get(&value, &["nested"]), &strings(&["a", "b"]));
     assert_eq!(get(&value, &["respread"]), &strings(&["./a.ts", "./default.ts"]));
-    for key in ["length", "fallbackLength", "tested", "negated"] {
+    for key in ["length", "fallbackLength", "negated"] {
         assert_eq!(value.get(key), Some(&ConfigValue::Unknown), "{key}: {value:?}");
     }
+    assert_eq!(
+        value.get("tested"),
+        Some(&ConfigValue::OneOf(vec![
+            ConfigValue::Number(1.0),
+            ConfigValue::Number(2.0)
+        ]))
+    );
     assert_eq!(get(&value, &["set"]), &strings(&["./b.ts"]));
     assert_eq!(get(&value, &["setLength"]), &ConfigValue::Number(1.0));
     assert_eq!(
@@ -917,9 +1065,15 @@ fn a_constant_holding_a_read_that_is_not_definite_is_not_definite() {
     assert_eq!(get(&value, &["or"]), &strings(&["./a.ts", "./or.ts"]));
     assert_eq!(get(&value, &["kept"]), &strings(&["./a.ts"]));
     assert_eq!(get(&value, &["local", "coalesced"]), &strings(&["./a.ts", "./b.ts"]));
-    for key in ["length", "tested"] {
-        assert_eq!(value.get(key), Some(&ConfigValue::Unknown), "{key}: {value:?}");
-    }
+    assert_eq!(value.get("length"), Some(&ConfigValue::Unknown), "{value:?}");
+    assert_eq!(
+        value.get("tested"),
+        Some(&ConfigValue::OneOf(vec![
+            ConfigValue::Number(1.0),
+            ConfigValue::Number(2.0)
+        ])),
+        "{value:?}"
+    );
     assert_eq!(
         value.get("local").and_then(|local| local.get("length")),
         Some(&ConfigValue::Unknown),
@@ -974,7 +1128,7 @@ fn a_read_that_is_not_definite_stays_so_through_every_value_it_reaches() {
     );
     assert_eq!(
         get(&spread, &["test", "setupFiles"]),
-        &ConfigValue::Unknown,
+        &ConfigValue::OneOf(vec![strings(&["./ci.ts"]), strings(&["./local.ts"])]),
         "{spread:?}"
     );
     assert_eq!(get(&spread, &["test", "length"]), &ConfigValue::Unknown, "{spread:?}");
@@ -1081,4 +1235,141 @@ fn the_arguments_of_an_unknown_call_returned_or_merged_are_kept() {
     }
     let known = format!("{preset}export default mergeConfig({{ test: {{ setupFiles: ['./s.ts'] }} }}, {{}});");
     assert_eq!(extract(&known).1, Vec::new());
+}
+
+/// A condition the evaluator cannot decide between values it knows is one of them: a ternary, a fallback over a read
+/// that is not definite and a binding one branch reassigns. A branch it does not know leaves the value unknown, and so
+/// do more alternatives than it keeps.
+#[test]
+fn an_undecided_condition_between_known_values_is_one_of_them() {
+    let value = extract(
+        "playwright.config.ts",
+        "const x = { reporter: 'list', ...(process.env.CI ? { reporter: 'github' } : {}) };\n\
+         const make = () => { let mode = 'dev'; if (process.env.CI) { mode = 'ci'; } return mode; };\n\
+         export default {\n\
+           reporter: process.env.CI ? 'github' : 'list',\n\
+           listed: [process.env.CI ? 'blob' : 'list'],\n\
+           same: process.env.CI ? 'list' : 'list',\n\
+           nested: process.env.A ? 'a' : process.env.B ? 'b' : 'a',\n\
+           mixed: process.env.CI ? [['html']] : 'list',\n\
+           optional: process.env.CI ? 'github' : undefined,\n\
+           nullish: process.env.CI ? null : undefined,\n\
+           objects: process.env.CI ? { reporter: 'github', retries: 2 } : { reporter: 'list', retries: 2 },\n\
+           fallback: x.reporter ?? 'dot',\n\
+           reassigned: make(),\n\
+           opaque: process.env.CI ? 'github' : helper(),\n\
+           many: process.env.A ? 'a' : process.env.B ? 'b' : process.env.C ? 'c' : process.env.D ? 'd' \
+             : process.env.E ? 'e' : process.env.F ? 'f' : process.env.G ? 'g' : process.env.H ? 'h' : 'i',\n\
+         };",
+    );
+    let pairs = [
+        ("reporter", ConfigValue::OneOf(vec![s("github"), s("list")])),
+        (
+            "listed",
+            ConfigValue::Array(vec![ConfigValue::OneOf(vec![s("blob"), s("list")])]),
+        ),
+        ("same", s("list")),
+        ("nested", ConfigValue::OneOf(vec![s("a"), s("b")])),
+        (
+            "mixed",
+            ConfigValue::OneOf(vec![ConfigValue::Array(vec![strings(&["html"])]), s("list")]),
+        ),
+        ("optional", ConfigValue::OneOf(vec![s("github"), ConfigValue::Null])),
+        ("nullish", ConfigValue::Null),
+        ("fallback", ConfigValue::OneOf(vec![s("github"), s("list"), s("dot")])),
+        ("reassigned", ConfigValue::OneOf(vec![s("dev"), s("ci")])),
+        ("opaque", ConfigValue::Unknown),
+        ("many", ConfigValue::Unknown),
+    ];
+    for (key, expected) in pairs {
+        assert_eq!(get(&value, &[key]), &expected, "{key}");
+    }
+    assert_eq!(
+        get(&value, &["objects"]),
+        &ConfigValue::Object(vec![
+            ("reporter".to_owned(), ConfigValue::OneOf(vec![s("github"), s("list")])),
+            ("retries".to_owned(), ConfigValue::Number(2.0)),
+        ])
+    );
+}
+
+/// A spread of a value that is one of several objects adds the keys of each, as a spread of the condition itself does.
+#[test]
+fn a_spread_of_one_of_several_values_adds_the_keys_of_each() {
+    let value = extract(
+        "playwright.config.ts",
+        "const extra = process.env.CI ? { reporter: 'github' } : undefined;\n\
+         export default { reporter: 'list', ...extra };",
+    );
+    assert_eq!(value.get(OWN_SPREAD), None, "{value:?}");
+    assert_eq!(
+        get(&value, &["reporter"]),
+        &ConfigValue::OneOf(vec![s("github"), s("list")])
+    );
+}
+
+/// An array spreads the elements of every branch of a condition it cannot decide, or of a value that is one of several
+/// arrays, a branch that adds nothing (`[]`, `null`, a falsy left side of `&&`) included; a branch it does not know
+/// adds an unknown element.
+#[test]
+fn an_array_spreads_the_elements_of_every_branch() {
+    let value = extract(
+        "playwright.config.ts",
+        "const extra = process.env.CI ? ['a'] : ['b'];\n\
+         export default {\n\
+           reporter: [['list'], ...(process.env.A11Y ? [['./reporters/a11y-reporter.ts']] : [])],\n\
+           both: [...(process.env.CI ? ['a'] : ['b', 'a'])],\n\
+           guarded: [...(process.env.CI && ['x'])],\n\
+           held: [...extra],\n\
+           opaque: [...(process.env.CI ? ['a'] : helper())],\n\
+           length: [...(process.env.CI ? ['a'] : [])].length,\n\
+         };",
+    );
+    assert_eq!(
+        get(&value, &["reporter"]),
+        &ConfigValue::Array(vec![strings(&["list"]), strings(&["./reporters/a11y-reporter.ts"])])
+    );
+    assert_eq!(get(&value, &["both"]), &strings(&["a", "b"]));
+    assert_eq!(get(&value, &["guarded"]), &strings(&["x"]));
+    assert_eq!(get(&value, &["held"]), &strings(&["a", "b"]));
+    assert_eq!(
+        get(&value, &["opaque"]),
+        &ConfigValue::Array(vec![ConfigValue::Unknown])
+    );
+    assert_eq!(get(&value, &["length"]), &ConfigValue::Unknown);
+}
+
+/// `.filter(Boolean)` of a known array drops what is falsy and keeps an element that may be falsy as the values it
+/// has when it is not; its length is then unknown. A `Boolean` the module binds itself is not the global.
+#[test]
+fn filter_boolean_keeps_what_may_be_truthy() {
+    let value = extract(
+        "playwright.config.ts",
+        "export default {\n\
+           reporter: [process.env.CI ? ['github'] : null, ['list']].filter(Boolean),\n\
+           guarded: [process.env.CI && 'blob', 'list', false, null, '', 0, undefined].filter(Boolean),\n\
+           optional: [process.env.CI ? 'github' : undefined].filter(Boolean),\n\
+           opaque: [helper()].filter(Boolean),\n\
+           maybe: [process.env.CI && 'x'].filter(Boolean).length,\n\
+           known: ['a', null].filter(Boolean).length,\n\
+         };",
+    );
+    assert_eq!(
+        get(&value, &["reporter"]),
+        &ConfigValue::Array(vec![strings(&["github"]), strings(&["list"])])
+    );
+    assert_eq!(get(&value, &["guarded"]), &strings(&["blob", "list"]));
+    assert_eq!(get(&value, &["optional"]), &strings(&["github"]));
+    assert_eq!(
+        get(&value, &["opaque"]),
+        &ConfigValue::Array(vec![ConfigValue::Unknown])
+    );
+    assert_eq!(get(&value, &["maybe"]), &ConfigValue::Unknown);
+    assert_eq!(get(&value, &["known"]), &ConfigValue::Number(1.0));
+
+    let shadowed = extract(
+        "playwright.config.ts",
+        "const Boolean = (value) => !value;\nexport default { reporter: [null, 'list'].filter(Boolean) };",
+    );
+    assert_eq!(get(&shadowed, &["reporter"]), &ConfigValue::Unknown);
 }

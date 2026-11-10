@@ -566,6 +566,7 @@ tool looks for them:
 | `next` | `{,src/}{app,pages}/**` and `{,src/}{instrumentation,instrumentation-client,middleware,proxy}.*`: the router may take other extensions there |
 | `vite` | `{,src/}{index,main}.*`, the conventional build input a shared base config may set |
 | `vitest`, `playwright` | test files, test and fixture directories (`test`, `tests`, `__tests__`, `__mocks__`, `__fixtures__`, `e2e`, `spec`, `specs`, `fixtures`, `mocks`, `testing`, `test-utils`), files whose name contains `setup` or `teardown`, and files named `*.{test,spec,bench,e2e,integration}*` |
+| `storybook` | for an addon, `framework` or `core.builder` whose package is not known statically, the Storybook config directory (`.storybook/**`, `.rnstorybook/**`), where a local addon lives; the package's dependencies are not judged |
 
 The files in the scope are treated as entries, so what they import is not reported either: those outside the package's
 `project` globs too, and, for a scope of a package with workspace packages below it (a root test config), the matching
@@ -577,8 +578,12 @@ and counts as unparsable only when it writes none), when a `vite` config compute
 `build.rollupOptions.input` or `build.lib.entry` itself or is unknown as a whole (a key is computed by the config itself when an unknown spread inside
 it, or above it of a value the config computes, such as `build: { ...makeLib() }` with `makeLib` declared in the config,
 may set it; a spread of an imported base is shared and narrows), when a `vitest` config computes `root`, `test.include`,
-`test.setupFiles` or `test.globalSetup` itself or is unknown as a whole, when a `playwright` config is unknown as a
-whole, when the plugin gives no scope (any other plugin), when the published build output maps to no source file
+`test.setupFiles`, `test.globalSetup` or a `test.reporters` name itself or is unknown as a whole, when a `playwright`
+config is unknown as a whole or computes its `reporter` list itself (a reporter's name is not known statically, or a
+spread of a value the config computes may set the list: a reporter module may be any file; a reporter a condition picks
+among known ones, `process.env.CI ? 'github' : './reporter.ts'`, credits each), when a `storybook` config is unknown
+as a whole or spreads an unknown value, when the plugin gives no scope (any other plugin), when the published build
+output maps to no source file
 (publishing may expose any file), and when a module of the package imports a computed path (`import(name)`,
 `require(name)`), which may load any of its files. `explain-usage` says which applies: a file in the scope is an entry
 of kind `incomplete-scope`, a file outside it reported by `unused-files` names the scope, and a file of a package left
