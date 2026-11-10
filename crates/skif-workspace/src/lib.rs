@@ -6,14 +6,16 @@
 //! (how many directories each pattern matched, which directories lack a manifest); rules decide what is a problem.
 //!
 //! Patterns follow pnpm semantics for every package manager: `*` matches direct children, `**` any depth
-//! (descending through packages), `!pattern` removes matches after all positive patterns, and `node_modules` and
-//! dot-directories are never entered. A `pnpm-workspace.yaml` without `packages:` selects what pnpm selects then, the
+//! (descending through packages), `!pattern` removes matches after all positive patterns (in a Bun workspace not a
+//! directory a positive pattern names by its literal path, which Bun keeps), and `node_modules` and dot-directories
+//! are never entered. A `pnpm-workspace.yaml` without `packages:` selects what pnpm selects then, the
 //! root and every package below it except `test` and `tests` directories (`@pnpm/find-packages` defaults to
 //! `['.', '**']`); [`DiscoveryFacts::implicit_patterns`] says so. A pattern that cannot be used is listed in
 //! [`Workspace::manifest_errors`] and does not stop discovery.
 
 #![warn(missing_docs)]
 
+mod bun_lock;
 mod catalogs;
 mod detect;
 mod error;
@@ -28,6 +30,7 @@ mod roots;
 mod rush;
 mod workspace;
 
+pub use bun_lock::{BUN_LOCKFILE, BunLockfile, parse_bun_lock};
 pub use catalogs::Catalogs;
 pub use detect::package_manager_from_manifest;
 pub use error::WorkspaceError;
@@ -59,6 +62,7 @@ const _: () = {
     let _ = assert_send_sync::<FieldSpans>;
     let _ = assert_send_sync::<YamlSource>;
     let _ = assert_send_sync::<PnpmLockfile>;
+    let _ = assert_send_sync::<BunLockfile>;
     let _ = assert_send_sync::<DiscoveryFacts>;
     let _ = assert_send_sync::<PatternFact>;
     let _ = assert_send_sync::<WorkspaceSource>;

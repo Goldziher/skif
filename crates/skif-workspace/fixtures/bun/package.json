@@ -1,0 +1,15 @@
+{
+  "name": "bun-fixture",
+  "private": true,
+  "workspaces": {
+    "packages": ["packages/*", "packages/literal", "!packages/literal", "!packages/skipped"],
+    "catalog": {
+      "ms": "^2.1.3"
+    },
+    "catalogs": {
+      "testing": {
+        "picocolors": "^1.1.1"
+      }
+    }
+  }
+}

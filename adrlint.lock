@@ -515,3 +515,8 @@ blake3 = "9e6812cdb8872c5cae48ea45833e72b89075e09dea1ff489e2dfe03554a593de"
 number = 103
 status = "accepted"
 blake3 = "3477d095995f0e6f2ff0f50975831886bbee50b97c4a2e3bc4ec9792385dbd46"
+
+[adrs."adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md"]
+number = 104
+status = "accepted"
+blake3 = "b45b9db02fea6173ec332a286e03ac0672c461b877168e02be7fea6f5086be24"

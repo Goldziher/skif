@@ -58,9 +58,24 @@ fn from_yarn_berry_files(fs: &dyn FileSystem, root: &Path) -> Option<PackageMana
         .then_some(PackageManager::Yarn)
 }
 
+/// A `bunfig.toml` with an `[install]` table configures Bun's installer, so a checkout that commits no lockfile
+/// installs with Bun. One without it configures only Bun's runtime or test runner (`[test]`, `preload`), which a
+/// repository installed by npm or Yarn may use too, so it does not decide.
+fn from_bunfig(fs: &dyn FileSystem, root: &Path) -> Option<PackageManager> {
+    fs.read_to_string(&root.join("bunfig.toml"))
+        .ok()?
+        .parse::<toml::Table>()
+        .ok()?
+        .get("install")
+        .is_some_and(toml::Value::is_table)
+        .then_some(PackageManager::Bun)
+}
+
 /// Detects the package manager, first match wins: `[workspace] package-manager` in the config, the manifest
-/// declaration, the one `rush.json` names, a lockfile (`pnpm-lock.yaml`, `bun.lock`/`bun.lockb`, `yarn.lock`, `package-lock.json`), then the
-/// presence of `pnpm-workspace.yaml`, then the files Yarn Berry leaves (`.yarnrc.yml`, `.yarn/releases`). `None` when nothing indicates a manager.
+/// declaration, the one `rush.json` names, a lockfile (`pnpm-lock.yaml`, `bun.lock`/`bun.lockb`, `yarn.lock`,
+/// `package-lock.json`), then the presence of `pnpm-workspace.yaml`, then the files Yarn Berry leaves
+/// (`.yarnrc.yml`, `.yarn/releases`), then a `bunfig.toml` with an `[install]` table. `None` when nothing indicates
+/// a manager.
 pub(crate) fn detect(
     fs: &dyn FileSystem,
     root: &Path,
@@ -77,6 +92,7 @@ pub(crate) fn detect(
         .or_else(|| from_lockfile(fs, root))
         .or_else(|| has_pnpm_workspace.then_some(PackageManager::Pnpm))
         .or_else(|| from_yarn_berry_files(fs, root))
+        .or_else(|| from_bunfig(fs, root))
 }
 
 /// Whether the workspace uses Yarn Classic (1.x), which has no `workspace:` protocol.

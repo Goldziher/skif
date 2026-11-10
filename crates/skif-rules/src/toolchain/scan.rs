@@ -19,7 +19,14 @@ use skif_lint::LintContext;
 use super::options::{Resolved, ToolchainKind, ToolchainOptions};
 use super::parse::{self, Parsed};
 
-const VERSION_FILES: [&str; 5] = [".nvmrc", ".node-version", ".tool-versions", "mise.toml", ".mise.toml"];
+const VERSION_FILES: [&str; 6] = [
+    ".nvmrc",
+    ".node-version",
+    ".bun-version",
+    ".tool-versions",
+    "mise.toml",
+    ".mise.toml",
+];
 const SUBDIRECTORIES: [&str; 2] = ["docker", "scripts"];
 const WORKFLOWS: &str = ".github/workflows";
 const MANIFEST: &str = "package.json";

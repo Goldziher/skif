@@ -1,0 +1,9 @@
+{
+  "name": "@e2e/b",
+  "version": "0.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "@e2e/a": "file:../a",
+    "is-number": "catalog:"
+  }
+}

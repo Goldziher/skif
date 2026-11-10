@@ -8,7 +8,7 @@ use skif_lint::{LintContext, OptionsError, parse_options};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ToolchainKind {
-    /// `.nvmrc`, `.node-version`, `.tool-versions`, `mise.toml` and `.mise.toml`.
+    /// `.nvmrc`, `.node-version`, `.bun-version`, `.tool-versions`, `mise.toml` and `.mise.toml`.
     VersionFiles,
     /// `Dockerfile`, `Dockerfile.*`, `*.Dockerfile`, `*.dockerfile` and `Containerfile`.
     Dockerfiles,

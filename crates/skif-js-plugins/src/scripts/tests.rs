@@ -368,6 +368,13 @@ fn table() {
         bins("bun check --no-script", &[]),
         bins("bun install", &[]),
         bins("bun run vite", &["vite:bun-run"]),
+        // `--filter` (`-F`) and `--workspaces` run a script of other workspace packages, not a binary here. A name
+        // `bun run --filter` runs is recorded for the packages it names.
+        bins("bun run --workspaces build", &[]),
+        bins("bun run --parallel --workspaces --if-present lint", &[]),
+        bins("bun -F web build", &[]),
+        bins("bun --filter '*' build", &[]),
+        bins("bun run -F './packages/*' --elide-lines 0 dev", &[]),
         // `--cwd` runs in another package: its scripts and binaries are that package's, its files are below it.
         bins("bun run --cwd packages/core fix-node-pty", &[]),
         bins("bun --cwd=packages/core run fix-node-pty", &[]),
@@ -569,6 +576,23 @@ fn filtered_binaries_are_flagged() {
     let info = parse("pnpm --filter web exec vitest && pnpm exec eslint .");
     let flags: Vec<(&str, bool)> = info.binaries.iter().map(|b| (b.name.as_str(), b.filtered)).collect();
     assert_eq!(flags, [("vitest", true), ("eslint", false)]);
+}
+
+#[test]
+fn bun_filter_runs_scripts_only_and_records_no_binary() {
+    // Bun 1.4 runs only package scripts under `--filter`: `bun run --filter web tsc` fails with
+    // `Script "tsc" not found in package "web"` when `web` has no `tsc` script.
+    let used = |script: &str| -> Vec<String> { parse(script).binaries.iter().map(|b| b.name.clone()).collect() };
+    for script in [
+        "bun run --filter web vitest",
+        "bun -F web run vitest",
+        "bun --filter=web run vitest",
+        "bun --filter web run -F api vitest",
+        "bun run --workspaces vitest",
+    ] {
+        assert_eq!(used(script), Vec::<String>::new(), "{script}");
+    }
+    assert_eq!(used("bun run vitest"), ["vitest"]);
 }
 
 #[test]

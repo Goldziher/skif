@@ -3125,11 +3125,20 @@ fn tap() {
 fn bun_is_enabled_by_a_test_script_or_a_lockfile() {
     let results = resolve_with_scripts(&[], &[], &[("test", "bun test --timeout 30000")]);
     let out = output(&results, "bun");
+    // `bun test` finds every JavaScript and TypeScript extension, `.mjs`, `.cjs`, `.mts` and `.cts` too.
     assert_entries(
         &out.entries,
-        &["**/*.{test,spec}.{js,jsx,ts,tsx}", "**/*_{test,spec}.{js,jsx,ts,tsx}"],
+        &[
+            "**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "**/*_{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        ],
     );
     assert!(resolve(&[("bun.lock", "")], &[]).iter().any(|(id, _)| *id == "bun"));
+    // A package of a Bun workspace has no lockfile of its own: its `bunfig.toml` or Bun's types enable the plugin.
+    assert!(resolve(&[("bunfig.toml", "")], &[]).iter().any(|(id, _)| *id == "bun"));
+    for types in ["@types/bun", "bun-types"] {
+        assert!(resolve(&[], &[types]).iter().any(|(id, _)| *id == "bun"), "{types}");
+    }
     assert!(
         !resolve_with_scripts(&[], &[], &[("test", "vitest run")])
             .iter()
@@ -3144,6 +3153,118 @@ fn bun_reads_preloads_from_bunfig() {
     let out = output(&results, "bun");
     assert_entries(&out.entries, &["test/setup.ts"]);
     assert_deps(out, &["happy-dom-setup"]);
+}
+
+#[test]
+fn bun_reads_runtime_preloads_the_security_scanner_and_the_jsx_source_from_bunfig() {
+    let config = "preload = \"./src/preload.ts\"\njsxImportSource = \"preact\"\n\n[install.security]\nscanner = \"@socketsecurity/bun-security-scanner\"\n";
+    let results = resolve(&[("bunfig.toml", config)], &[]);
+    let out = output(&results, "bun");
+    assert_entries(&out.entries, &["src/preload.ts"]);
+    assert_deps(out, &["preact", "@socketsecurity/bun-security-scanner"]);
+}
+
+/// Bun Shell and `Bun.spawn` run commands, `Bun.build` bundles its `entrypoints` from the package directory, and the
+/// `Bun` global uses the type package that declares it.
+#[test]
+fn bun_reads_the_commands_and_entry_points_source_files_hand_to_its_api() {
+    let files = [
+        (
+            "scripts/build.ts",
+            r#"await Bun.build({ entrypoints: ["./src/worker.ts", "src/cli.ts"], outdir: "./dist" });
+            await Bun.$`bun ./scripts/copy-icons.ts ${channel}`;
+            Bun.spawn(["tsc", "-p", "."], { stdout: "inherit" });
+            Bun.spawnSync({ cmd: ["oxlint", flag] });
+            console.log(Bun.version);"#,
+        ),
+        (
+            "scripts/release.ts",
+            r#"import { $, build } from "bun";
+            await $`changeset publish`;
+            await build({ entrypoints: ["./src/server.ts"] });"#,
+        ),
+        (
+            "scripts/other.ts",
+            r#"esbuild.build({ entryPoints: ["src/ignored.ts"] }); $`not-bun`;"#,
+        ),
+    ];
+    let results = resolve(&files, &["@types/bun"]);
+    let out = output(&results, "bun");
+    let mut production = out.production_entries.clone();
+    production.sort();
+    assert_eq!(production, ["src/cli.ts", "src/server.ts", "src/worker.ts"]);
+    // A command's file stays as written; the analysis resolves it from the package directory.
+    assert_entries(&out.entries, &["./scripts/copy-icons.ts"]);
+    let mut binaries = out.referenced_binaries.clone();
+    binaries.sort();
+    // `oxlint` runs without its computed argument; `not-bun` is no Bun Shell command.
+    assert_eq!(binaries, ["changeset", "oxlint", "tsc"]);
+    assert_deps(out, &["@types/bun"]);
+    // A package that does not list a type package is not told to.
+    let mut locked = files.to_vec();
+    locked.push(("bun.lock", ""));
+    let results = resolve(&locked, &["typescript"]);
+    assert_absent(output(&results, "bun"), &["@types/bun", "bun-types"]);
+}
+
+/// The sources of a member below a workspace root are the member's: the root reads none of its commands or entry
+/// points, and the member resolves a `bun run` of its own script against its own scripts.
+#[test]
+fn bun_reads_the_commands_of_its_own_sources_only() {
+    let member_script = r#"import { $ } from "bun";
+        await $`bun run build`;
+        await Bun.build({ entrypoints: ["./src/member.ts"] });"#;
+    let files = [
+        ("package.json", r#"{"name":"root","workspaces":["packages/*"]}"#),
+        ("bun.lock", ""),
+        (
+            "scripts/release.ts",
+            "import { $ } from \"bun\";\nawait $`changeset publish`;",
+        ),
+        (
+            "packages/cli/package.json",
+            r#"{"name":"cli","scripts":{"build":"vite build"}}"#,
+        ),
+        ("packages/cli/script/app-assets.ts", member_script),
+        ("packages/desktop/package.json", r#"{"name":"desktop"}"#),
+        (
+            "packages/desktop/script/dev.ts",
+            "import { $ } from \"bun\";\nawait $`bun run install-electron`;",
+        ),
+    ];
+    let results = resolve(&files, &["@types/bun"]);
+    let root = output(&results, "bun");
+    assert_eq!(root.referenced_binaries, ["changeset"]);
+    assert!(root.production_entries.is_empty(), "{:?}", root.production_entries);
+    // The member's use of the `Bun` global counts for the type package the root lists for its members.
+    assert_deps(root, &["@types/bun"]);
+
+    let results = resolve_with_scripts(
+        &[("bun.lock", ""), ("script/app-assets.ts", member_script)],
+        &[],
+        &[("build", "vite build")],
+    );
+    let member = output(&results, "bun");
+    assert_eq!(member.referenced_binaries, ["vite"]);
+    assert_eq!(member.production_entries, ["src/member.ts"]);
+}
+
+/// `` $`…`.cwd(dir) `` and the `cwd` option of `Bun.spawn` run the command in another directory: its scripts and
+/// binaries are another package's, so none is judged against this one.
+#[test]
+fn bun_runs_a_command_with_a_cwd_in_that_directory() {
+    let source = r#"import { $ } from "bun";
+        await $`bun run build`.cwd(directory);
+        await $`bun run check`.quiet().cwd("packages/web");
+        Bun.spawn(["bun", "run", "lint"], { cwd: directory });
+        Bun.spawn({ cmd: ["bun", "run", "test"], cwd: "packages/web" });
+        await $`oxlint`.cwd(".");
+        await $`bun run format`;"#;
+    let results = resolve(&[("bun.lock", ""), ("scripts/all.ts", source)], &[]);
+    // `format` is no script of this package, so it runs a binary; `oxlint` runs here, `.cwd(".")` changing nothing.
+    let mut binaries = output(&results, "bun").referenced_binaries.clone();
+    binaries.sort();
+    assert_eq!(binaries, ["format", "oxlint"]);
 }
 
 #[test]
