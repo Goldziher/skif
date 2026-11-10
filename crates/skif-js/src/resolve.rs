@@ -1026,15 +1026,44 @@ impl ModuleResolver {
         }
     }
 
-    /// The outcome of an alias: an alias into `node_modules` names the package it points at, and a specifier that
-    /// names a workspace package (`member`) is an import of that package wherever the alias leads, as it is when the
-    /// resolver follows a `tsconfig` mapping.
-    fn aliased(found: Resolved, member: Option<String>) -> Outcome {
+    /// The outcome of an alias of `specifier` in `importer`: an alias into `node_modules` names the package it points
+    /// at, and a specifier that names a workspace package (`member`) is an import of that package when the alias
+    /// leads into its directory or where is not known (generated code that is not there yet), as it is when the
+    /// resolver follows a `tsconfig` mapping. An alias `ui/*` to `./src/ui/*` stays local beside a member named `ui`.
+    fn aliased(&self, found: Resolved, member: Option<String>, (importer, specifier): (&Path, &str)) -> Outcome {
         let package = match &found {
             Resolved::External(name) => Some(name.clone()),
-            _ => member,
+            _ => member.filter(|member| {
+                let path = match &found {
+                    Resolved::File(path) => Some(path.clone()),
+                    Resolved::Generated { dir, .. } => Some(dir.clone()),
+                    _ => self.alias_candidate(importer, specifier),
+                };
+                self.members
+                    .get(member.as_str())
+                    .is_some_and(|known| path.is_none_or(|path| path.starts_with(&known.dir)))
+            }),
         };
         Outcome { target: found, package }
+    }
+
+    /// The path the first alias of `importer` with a known target, else the nearest `tsconfig` mapping, gives
+    /// `specifier`; `None` when no alias with a target matches.
+    fn alias_candidate(&self, importer: &Path, specifier: &str) -> Option<PathBuf> {
+        self.scopes_of(importer)
+            .flat_map(|(_, scope)| &scope.aliases)
+            .find_map(|alias| {
+                let rest = alias_rest(specifier, &alias.find)?;
+                alias.target.as_ref().map(|target| join_normalized(target, rest))
+            })
+            .or_else(|| {
+                let directory = importer.parent()?;
+                self.nearest_paths
+                    .get_or_compute(directory, || self.tsconfigs.nearest(directory).map(Arc::new))?
+                    .candidates(specifier)
+                    .into_iter()
+                    .next()
+            })
     }
 
     /// Resolves `specifier` as written in the file `importer`.
@@ -1101,14 +1130,14 @@ impl ModuleResolver {
             .is_none_or(|resolved| matches!(resolved, Resolved::Unresolved))
             && let Some(found) = self.through_nearest_tsconfig(kind, importer, specifier)
         {
-            return Self::aliased(found, member_name);
+            return self.aliased(found, member_name, (importer, specifier));
         }
         // An alias whose target is missing is not final: bundlers fall through to their lookup directories.
         if let Some(found) = aliased
             .as_ref()
             .filter(|resolved| !matches!(resolved, Resolved::Unresolved))
         {
-            return Self::aliased(found.clone(), member_name);
+            return self.aliased(found.clone(), member_name, (importer, specifier));
         }
         if aliased.is_some()
             && name.is_none()
@@ -1664,6 +1693,45 @@ mod tests {
             r.resolve(importer, "@scope/real").target,
             Resolved::External("@scope/real".to_owned())
         );
+    }
+
+    #[test]
+    fn an_alias_is_an_import_of_the_workspace_package_it_is_named_after_only_inside_that_package() {
+        let inputs = WorkspaceInputs {
+            aliases: vec![
+                alias("ui", Some("src/ui")),
+                alias("@acme/db/types", Some("generated/db-types")),
+                alias("@acme/db", Some("packages/db")),
+            ],
+            ..WorkspaceInputs::default()
+        };
+        let r = resolver_with(
+            &[
+                ("package.json", ROOT),
+                (".gitignore", "packages/db/enums\ngenerated/\n"),
+                ("src/main.ts", ""),
+                ("src/ui/button.ts", ""),
+                ("packages/ui/package.json", r#"{"name":"ui"}"#),
+                ("packages/ui/button.ts", ""),
+                ("packages/db/package.json", r#"{"name":"@acme/db"}"#),
+                ("packages/db/client.ts", ""),
+            ],
+            inputs,
+        );
+        let importer = Path::new("/ws/src/main.ts");
+        let local = r.resolve(importer, "ui/button");
+        assert_eq!(local.target, Resolved::File(PathBuf::from("/ws/src/ui/button.ts")));
+        assert_eq!(local.package, None, "an alias into the importer's own sources is not the member `ui`");
+        let client = r.resolve(importer, "@acme/db/client");
+        assert_eq!(client.target, Resolved::File(PathBuf::from("/ws/packages/db/client.ts")));
+        assert_eq!(client.package, Some("@acme/db".to_owned()));
+        // Generated code that is not there yet (the `.gitignore` lists it) is the member when it lies in the member.
+        let enums = r.resolve(importer, "@acme/db/enums");
+        assert_eq!(enums.target, Resolved::Ignored);
+        assert_eq!(enums.package, Some("@acme/db".to_owned()));
+        let types = r.resolve(importer, "@acme/db/types");
+        assert_eq!(types.target, Resolved::Ignored);
+        assert_eq!(types.package, None, "generated code outside the member is not the member");
     }
 
     #[test]
