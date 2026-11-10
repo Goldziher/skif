@@ -1008,7 +1008,7 @@ pub enum OverrideReading {
 pub struct Policy {
     /// Which version `preferred-semver` favours.
     pub prefer: Prefer,
-    /// Dependency types the policy rules apply to. Empty means production and development dependencies (`dependencies` and `devDependencies`) and a package's own version; name `peer` or `optional` to include them. A list that does not select `local` leaves the own versions out, so no dependent is compared with the version of the workspace package it names.
+    /// Dependency types the policy rules apply to. Empty means production and development dependencies (`dependencies` and `devDependencies`) and a package's own version; name `peer` or `optional` to include them. A list that does not select `local` leaves the own versions out, so no dependent is compared with the version of the workspace package it names. A list of negations only (`["!local"]`) starts from every dependency section, `peerDependencies` and `optionalDependencies` included, as in syncpack; to keep the default sections without the own versions, write `["prod", "dev"]`.
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub dependency_types: DependencyTypes,
     /// How `resolutions`, `overrides` and `pnpm-overrides` entries become dependency instances: `skif` (default) names

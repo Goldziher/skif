@@ -179,7 +179,9 @@ A group that names a type governs it. The catch-all group, and a group that name
 own versions; a type outside those is covered only when `[policy] dependency-types` names it. A `[policy]
 dependency-types` list that does not select `local` (`["prod", "dev"]`, `["!local"]`) takes the own versions out as it
 takes out the sections it does not name: no dependent is then compared with the `version` of the workspace package it
-names, as with syncpack's `--dependency-types prod,dev`. syncpack covers every
+names, as with syncpack's `--dependency-types prod,dev`. The two are not the same: a list of negations only starts, as
+in syncpack, from every dependency section, so `["!local"]` also brings in `peerDependencies` and
+`optionalDependencies`; write `["prod", "dev"]` to keep the default sections. syncpack covers every
 type by default, so a syncpack configuration that relies on that needs `dependency-types = ["prod", "dev",
 "resolutions", "overrides", "pnpm-overrides"]` here. The dependency of an override entry is the package its selector
 names (`react@<18`, `parent>react`, `**/react` are `react`); a nested npm object's `.` entry belongs to its parent.
