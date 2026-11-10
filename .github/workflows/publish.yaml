@@ -20,11 +20,13 @@ on:
       - scripts/check-archive.sh
       - scripts/check-glibc-floor.sh
       - scripts/check-libc-selection.sh
+      - scripts/check-npm-packages-exist.sh
       - scripts/check-npm-tarballs.sh
       - scripts/check-release-gate.sh
       - scripts/check-versions.sh
       - scripts/e2e/resolve-pm-version.sh
       - scripts/load-addon.mjs
+      - scripts/npm-install-smoke.sh
       - scripts/npm-published.sh
       - scripts/publish-crates.sh
       - scripts/release-assets.sh
