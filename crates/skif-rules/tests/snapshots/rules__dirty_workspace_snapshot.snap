@@ -587,7 +587,7 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
   ],
   "summary": {
     "errors": 7,
-    "warnings": 8,
+    "warnings": 10,
     "infos": 0,
     "fixable": 12,
     "packages": 3

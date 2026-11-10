@@ -203,6 +203,20 @@ expression: json.stdout
       "summary": "Members of a dependency family are on different versions in one package, or as resolved by the lockfile."
     },
     {
+      "id": "toolchain-pin-drift",
+      "category": "workspace",
+      "default": "warning",
+      "fixable": "none",
+      "summary": "Node and package-manager versions pinned in version files, Dockerfiles and CI workflows must match the root's."
+    },
+    {
+      "id": "foreign-package-manager-command",
+      "category": "workspace",
+      "default": "warning",
+      "fixable": "none",
+      "summary": "Dockerfiles, CI workflows and shell scripts must not run a package manager other than the workspace's."
+    },
+    {
       "id": "unused-dependencies",
       "category": "js",
       "default": "error",

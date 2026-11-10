@@ -25,3 +25,5 @@ stale-mocks none knip does not read the specifiers of test-runner mocks
 stale-patched-dependencies none no tool checks patchedDependencies against the lockfile and the patch files
 stray-lockfile none no tool reports a lockfile other than the root one
 nested-workspace-root none no tool reports a pnpm-workspace.yaml in a member
+toolchain-pin-drift none no tool compares Node and package-manager pins outside package.json with the root
+foreign-package-manager-command none no tool reads package-manager commands in Dockerfiles, CI or shell scripts
