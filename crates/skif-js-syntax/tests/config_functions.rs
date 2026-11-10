@@ -956,7 +956,10 @@ fn a_key_merged_from_undecided_branches_is_not_definite() {
     }
     assert_eq!(
         value.get("tested"),
-        Some(&ConfigValue::OneOf(vec![ConfigValue::Number(1.0), ConfigValue::Number(2.0)]))
+        Some(&ConfigValue::OneOf(vec![
+            ConfigValue::Number(1.0),
+            ConfigValue::Number(2.0)
+        ]))
     );
     assert_eq!(get(&value, &["set"]), &strings(&["./b.ts"]));
     assert_eq!(get(&value, &["setLength"]), &ConfigValue::Number(1.0));
@@ -1020,7 +1023,10 @@ fn a_constant_holding_a_read_that_is_not_definite_is_not_definite() {
     assert_eq!(value.get("length"), Some(&ConfigValue::Unknown), "{value:?}");
     assert_eq!(
         value.get("tested"),
-        Some(&ConfigValue::OneOf(vec![ConfigValue::Number(1.0), ConfigValue::Number(2.0)])),
+        Some(&ConfigValue::OneOf(vec![
+            ConfigValue::Number(1.0),
+            ConfigValue::Number(2.0)
+        ])),
         "{value:?}"
     );
     assert_eq!(
@@ -1251,7 +1257,10 @@ fn a_spread_of_one_of_several_values_adds_the_keys_of_each() {
          export default { reporter: 'list', ...extra };",
     );
     assert_eq!(value.get(OWN_SPREAD), None, "{value:?}");
-    assert_eq!(get(&value, &["reporter"]), &ConfigValue::OneOf(vec![s("github"), s("list")]));
+    assert_eq!(
+        get(&value, &["reporter"]),
+        &ConfigValue::OneOf(vec![s("github"), s("list")])
+    );
 }
 
 /// An array spreads the elements of every branch of a condition it cannot decide, or of a value that is one of several
@@ -1278,7 +1287,10 @@ fn an_array_spreads_the_elements_of_every_branch() {
     assert_eq!(get(&value, &["both"]), &strings(&["a", "b"]));
     assert_eq!(get(&value, &["guarded"]), &strings(&["x"]));
     assert_eq!(get(&value, &["held"]), &strings(&["a", "b"]));
-    assert_eq!(get(&value, &["opaque"]), &ConfigValue::Array(vec![ConfigValue::Unknown]));
+    assert_eq!(
+        get(&value, &["opaque"]),
+        &ConfigValue::Array(vec![ConfigValue::Unknown])
+    );
     assert_eq!(get(&value, &["length"]), &ConfigValue::Unknown);
 }
 
@@ -1303,7 +1315,10 @@ fn filter_boolean_keeps_what_may_be_truthy() {
     );
     assert_eq!(get(&value, &["guarded"]), &strings(&["blob", "list"]));
     assert_eq!(get(&value, &["optional"]), &strings(&["github"]));
-    assert_eq!(get(&value, &["opaque"]), &ConfigValue::Array(vec![ConfigValue::Unknown]));
+    assert_eq!(
+        get(&value, &["opaque"]),
+        &ConfigValue::Array(vec![ConfigValue::Unknown])
+    );
     assert_eq!(get(&value, &["maybe"]), &ConfigValue::Unknown);
     assert_eq!(get(&value, &["known"]), &ConfigValue::Number(1.0));
 
