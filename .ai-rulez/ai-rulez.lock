@@ -2,9 +2,9 @@
 # Refresh it with `ai-rulez lock`; `ai-rulez generate --locked` fails when it is stale.
 
 version = 1
-ai_rulez_version = '5.11.1'
+ai_rulez_version = '5.12.0'
 scope = 'all'
-tree = 'sha256:2a1acbd9e39fdb9778288197805c0530a9fe8e523b6e1c2d5df8f335c8f8c05a'
+tree = 'sha256:9096790266909475428e6b1a8b57a4e583a394b0f259ce5dff04317d23c50597'
 
 [[served]]
 name = 'adr-workflow'
@@ -82,7 +82,7 @@ digest = 'sha256:c57056e3a74a261b3a9d47638726c7d1f64c76b255838b6aaa3e635f3ffa861
 kind = 'context'
 id = 'architecture'
 path = 'context/architecture.md'
-digest = 'sha256:fcd807346b5cb116e6b9d2e3161664582a6679948f07274e8889c8ae15ff7ac8'
+digest = 'sha256:bde3593c3b02efdac7c76c9913758eb582e70cd3b2bb3df2ebd9c6dd1cdafd58'
 
 [[item]]
 kind = 'context'
