@@ -61,6 +61,23 @@ All notable changes to this project are documented here. The format follows
   [#144](https://github.com/Goldziher/skif/issues/144)).
 - `skif_core::timing::Tally::add` adds a duration the caller measured, for a step that learns which tally it belongs
   to only once it has run.
+- Bun: a root `bunfig.toml` detects Bun when no declaration, lockfile, `pnpm-workspace.yaml` or Yarn Berry file
+  decides ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
+- Bun: `nested-workspace-root` reports a member whose `package.json` declares `workspaces`, at that key, because Bun
+  never installs the directories it lists ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
+- Bun: `stale-patched-dependencies` reads the top-level `patchedDependencies` of the root `package.json` and checks
+  each against `bun.lock`: the release must be one `bun.lock` resolves, and `bun.lock` must record the patch. Without a
+  `bun.lock`, with only a `bun.lockb` or with a `bun.lock` that does not parse, the rule says so once and still checks
+  the files. `skif_workspace::BunLockfile` reads the resolved packages and the patches of `bun.lock` ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
+- `toolchain-pin-drift` reads Bun pins from `.bun-version` and `FROM oven/bun:<version>`.
+- The `bun` plugin finds the files `bun test` runs with every extension it accepts (`.mjs`, `.cjs`, `.mts`, `.cts`
+  too) and the `_test` / `_spec` suffixes; reads the modules of `preload`, `[test] preload` and
+  `[install.security] scanner` and the package of `jsxImportSource` in `bunfig.toml`; parses the commands of Bun Shell
+  (`` $`…` `` imported from `bun`, `` Bun.$`…` ``) and of `Bun.spawn` / `Bun.spawnSync` like `package.json` scripts;
+  reads the `entrypoints` of `Bun.build` as production entries; and counts `@types/bun` or `bun-types` as used where
+  sources use the `Bun` global. It is enabled by `bunfig.toml`, `@types/bun` and `bun-types` too.
+- Config evaluation reads `import.meta.dir`, `import.meta.path` and `import.meta.file`, and a call-extraction global
+  written `Name.*` stands for a module object whose members are its exports.
 
 ### Changed
 
@@ -310,6 +327,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Bun: a directory listed by its literal path stays a member despite a negation that matches it, as `bun install`
+  links it; other managers still remove it ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
+- Bun: `stray-lockfile` reports a root `bun.lockb` next to a `bun.lock`, which Bun ignores ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
+- `bun --filter`, `bun -F` and `bun run --workspaces` are read as runs in other packages: their script is not checked
+  as a binary of the package that runs them.
 - On Windows, an explicit `--config` path given in the verbatim `\\?\C:\` spelling no longer leaves its findings with absolute
   locations or keeps the baseline it extends from applying to the run.
 - `skif -r --config <FILE>` applied the file's `[js.workspaces]` tables and `ignore-workspaces` globs to every root as
