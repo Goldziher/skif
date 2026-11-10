@@ -454,6 +454,20 @@ fn eslint_flat_config_is_read_without_error() {
 }
 
 #[test]
+fn eslint_flat_config_string_extends_name_plugin_configs_not_packages() {
+    let results = resolve(
+        &[(
+            "eslint.config.js",
+            "import js from '@eslint/js';\nimport { defineConfig } from 'eslint/config';\nexport default defineConfig([{ plugins: { js }, extends: ['js/recommended'], settings: { 'import/resolver': { node: {} } } }]);",
+        )],
+        &["eslint"],
+    );
+    let out = output(&results, "eslint");
+    assert_absent(out, &["eslint-config-js", "js"]);
+    assert_deps(out, &["eslint-import-resolver-node"]);
+}
+
+#[test]
 fn eslint_config_in_package_json() {
     let results = resolve(
         &[(

@@ -44,8 +44,11 @@ pub(crate) fn collect(value: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec
     if depth > 8 {
         return;
     }
+    // A string `extends` of a flat config names a config of a plugin the config imports (`js/recommended`), not a
+    // package; knip reads only the settings of a flat config.
+    let flat = config.file_name().starts_with("eslint.config.");
     for object in objects(value) {
-        if let Some(extends) = object.get("extends") {
+        if let Some(extends) = object.get("extends").filter(|_| !flat) {
             for specifier in strings(extends) {
                 out.extend(extends_input(config, specifier));
             }
