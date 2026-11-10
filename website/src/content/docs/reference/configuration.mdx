@@ -644,9 +644,10 @@ file is still reported unused; lint from the top with `-r`, or add it to `entry`
 
 A file a root's code reaches outside the root's own directory counts as used by the root of the run that holds it:
 `require("../tools/detect.js")` in a nested root at `build` keeps the outer root's `tools/detect.js`, and every file it
-imports in turn, out of `unused-files`, and so does an import of a file of a sibling root. Those files are credited
-after every root is linted, so their exports are not judged against that code; linted on its own, the owning root still
-reports them.
+imports in turn, out of `unused-files`, and so does an import of a file of a sibling root. The packages those files
+import count as used by the manifest that lists them at or above the file, so a sibling's `lib.js` that requires
+`lodash` keeps `lodash` out of that sibling's `unused-dependencies`. Those files are credited after every root is
+linted, so their exports are not judged against that code; linted on its own, the owning root still reports them.
 
 The other way round, a nested root that imports or runs a dependency it does not list itself, but a `package.json`
 above it does, uses that dependency through the outer project's `node_modules`: Node.js resolves it from there. In a

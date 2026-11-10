@@ -194,7 +194,8 @@ pub struct RootRun {
 /// What the code of other roots of a multi-root run uses of a root, which the root's own lint cannot see.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OtherRootUses {
-    /// Dependencies of the root's manifests that the code of roots nested in it uses: the manifest path relative to
+    /// Dependencies of the root's manifests that other roots use: those the code of roots nested in it imports or
+    /// runs without listing them, and those the files of this root in `files` import. The manifest path relative to
     /// the root, and the dependency name.
     pub dependencies: BTreeSet<(PathBuf, String)>,
     /// Files of the root, relative to it, that the code of a root outside whose directory they lie reaches (a nested
@@ -212,8 +213,8 @@ impl OtherRootUses {
 const UNUSED_DEPENDENCY_RULES: [&str; 2] = ["unused-dependencies", "unused-dev-dependencies"];
 
 /// The report without the findings that `uses` answers: the unused-dependency findings of dependencies a nested root
-/// imports or runs without listing them (Node.js resolves them from this root's `node_modules`), and the
-/// `unused-files` findings of files another root's code reaches.
+/// imports or runs without listing them (Node.js resolves them from this root's `node_modules`) or that a file of
+/// this root another root's code reaches imports, and the `unused-files` findings of those files.
 pub fn credit_other_root_uses(report: Report, uses: &OtherRootUses) -> Report {
     if uses.is_empty() {
         return report;
@@ -229,8 +230,8 @@ pub fn credit_other_root_uses(report: Report, uses: &OtherRootUses) -> Report {
     })
 }
 
-/// Hands the dependencies that the report of root `from` uses through manifests above it to the innermost root
-/// holding each manifest, as the manifest path relative to that root.
+/// Hands the dependencies that the report of root `from` uses through manifests outside it (above it, or of the files
+/// of other roots it reaches) to the innermost root holding each manifest, as the manifest path relative to that root.
 fn route_ancestor_dependency_uses(targets: &[Target], from: usize, report: &Report, uses: &mut [OtherRootUses]) {
     for (manifest_dir, name) in &report.ancestor_dependency_uses {
         let Some(owner) = owning_root(targets, manifest_dir).filter(|owner| *owner != from) else {

@@ -50,10 +50,12 @@ pub struct Report {
     /// counts them as used by the root that owns them. Not rendered.
     #[serde(skip)]
     pub other_project_files: Vec<PathBuf>,
-    /// Dependencies that the analysed code uses through a `package.json` above the workspace root, which lists them
-    /// when this root does not (Node.js resolves them from that project's `node_modules`): the absolute directory of
-    /// that manifest and the dependency name, sorted. A multi-root host credits them to the root that owns the
-    /// manifest, which cannot see this code. Not rendered.
+    /// Dependencies that the analysed code uses through a `package.json` outside the workspace root (Node.js resolves
+    /// them from that project's `node_modules`): the absolute directory of that manifest and the dependency name,
+    /// sorted. Those the code below the root uses come from a manifest above the root that lists them when this root
+    /// does not; those that files outside the root import (see `other_project_files`) from the innermost manifest at
+    /// or above each file that lists them. A multi-root host credits them to the root that owns the manifest, which
+    /// cannot see this code. Not rendered.
     #[serde(skip)]
     pub ancestor_dependency_uses: Vec<(PathBuf, String)>,
 }
@@ -96,7 +98,7 @@ impl Report {
         self
     }
 
-    /// Sets the dependencies the analysed code uses through manifests above the workspace root, sorted and without
+    /// Sets the dependencies the analysed code uses through manifests outside the workspace root, sorted and without
     /// duplicates.
     #[must_use]
     pub fn with_ancestor_dependency_uses(mut self, mut uses: Vec<(PathBuf, String)>) -> Self {

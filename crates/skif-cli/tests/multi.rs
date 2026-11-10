@@ -947,22 +947,32 @@ fn fixing_keeps_the_files_other_roots_use() {
     assert_eq!(js_findings(&result.json()), Vec::<String>::new());
 }
 
-#[test]
-fn a_file_a_sibling_root_imports_is_used() {
-    // `a` and `b` are standalone packages side by side, linted in the same wave; `b` requires `a/lib.js`.
+/// Two standalone packages side by side, linted in the same wave: `b` requires `../a/lib.js`, which requires
+/// `lodash`, listed only by `a`. Nothing uses `a/orphan.js` or `a`'s `idle`.
+fn siblings_sharing_a_file() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir_all(dir.path().join(".git")).unwrap();
-    for name in ["a", "b"] {
-        put(
-            dir.path(),
-            &format!("{name}/package.json"),
-            &format!(r#"{{"name": "{name}", "version": "0.0.0", "private": true, "main": "index.js"}}"#),
-        );
-    }
+    put(
+        dir.path(),
+        "a/package.json",
+        r#"{"name": "a", "version": "0.0.0", "private": true, "main": "index.js",
+            "dependencies": {"lodash": "4.17.21", "idle": "1.0.0"}}"#,
+    );
+    put(
+        dir.path(),
+        "b/package.json",
+        r#"{"name": "b", "version": "0.0.0", "private": true, "main": "index.js"}"#,
+    );
     put(dir.path(), "a/index.js", "console.log(1);\n");
-    put(dir.path(), "a/lib.js", "module.exports = 1;\n");
+    put(dir.path(), "a/lib.js", "module.exports = require('lodash');\n");
     put(dir.path(), "a/orphan.js", "module.exports = 2;\n");
     put(dir.path(), "b/index.js", "module.exports = require('../a/lib.js');\n");
+    dir
+}
+
+#[test]
+fn a_file_a_sibling_root_imports_and_its_dependencies_are_used() {
+    let dir = siblings_sharing_a_file();
     let (_, report) = json(dir.path(), &[]);
     assert_eq!(root_paths(&report), ["a", "b"]);
     assert_eq!(
@@ -970,4 +980,39 @@ fn a_file_a_sibling_root_imports_is_used() {
         BTreeSet::from(["a/orphan.js".to_owned()]),
         "{report}"
     );
+    assert_eq!(unused_dependencies(&report), ["a/package.json: idle"], "{report}");
+
+    // Linted on its own, `a` cannot see the code of `b`.
+    let (_, alone) = json(&dir.path().join("a"), &[]);
+    assert_eq!(
+        paths_reporting(&alone, "unused-files"),
+        BTreeSet::from(["lib.js".to_owned(), "orphan.js".to_owned()]),
+        "{alone}"
+    );
+    assert_eq!(
+        unused_dependencies(&alone),
+        ["package.json: idle", "package.json: lodash"],
+        "{alone}"
+    );
+}
+
+#[test]
+fn fixing_keeps_a_file_a_sibling_root_imports_and_its_dependencies() {
+    let dir = siblings_sharing_a_file();
+    let result = run(skif()
+        .args([
+            "--fix-unsafe",
+            "--allow-remove-files",
+            "--no-install",
+            "--format",
+            "json",
+        ])
+        .arg(dir.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    assert!(dir.path().join("a/lib.js").exists(), "a/lib.js was removed");
+    assert!(!dir.path().join("a/orphan.js").exists(), "a/orphan.js was kept");
+    let manifest = fs::read_to_string(dir.path().join("a/package.json")).unwrap();
+    assert!(manifest.contains("lodash") && !manifest.contains("idle"), "{manifest}");
+    assert_eq!(js_findings(&result.json()), Vec::<String>::new());
+    assert_eq!(unused_dependencies(&result.json()), Vec::<String>::new());
 }
