@@ -2,9 +2,11 @@
 //! the final reports of those roots (ADR 0099).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use skif_core::{ConfigJudgement, Diagnostic, Report, Severity};
+
+use crate::path::join_lexical;
 
 /// The rule whose findings are decided across roots.
 const STALE_JS_CONFIG: &str = "stale-js-config";
@@ -134,10 +136,10 @@ fn judged_entries<'r>(roots: &[(&Path, &'r Report)]) -> BTreeMap<EntryKey<'r>, V
     for (index, (root, report)) in roots.iter().enumerate() {
         for judgement in &report.config_judgements {
             let key = (
-                join(root, &judgement.file),
+                join_lexical(root, &judgement.file),
                 judgement.key.as_str(),
                 judgement.entry.as_str(),
-                judgement.package.as_deref().map(|dir| join(root, dir)),
+                judgement.package.as_deref().map(|dir| join_lexical(root, dir)),
             );
             entries.entry(key).or_default().push((index, judgement));
         }
@@ -205,24 +207,12 @@ fn other_findings<'r>(
                 continue;
             }
             found
-                .entry((join(root, path), message))
+                .entry((join_lexical(root, path), message))
                 .or_default()
                 .push((index, path, message, severity));
         }
     }
     found
-}
-
-/// `root/path` with `..` segments resolved, so the files that roots reach by different relative paths compare equal.
-fn join(root: &Path, path: &Path) -> PathBuf {
-    let mut joined = PathBuf::new();
-    for component in root.components().chain(path.components()) {
-        match component {
-            Component::ParentDir if joined.pop() => {}
-            other => joined.push(other),
-        }
-    }
-    joined
 }
 
 #[cfg(test)]
@@ -476,15 +466,5 @@ mod tests {
         settle_shared_config(ROOTS.map(Path::new).into_iter().zip(reports.iter_mut()));
         let rules: Vec<&str> = reports[1].diagnostics.iter().map(|d| d.rule.as_str()).collect();
         assert_eq!(rules, ["unused-files"]);
-    }
-
-    #[test]
-    fn join_resolves_parent_segments() {
-        assert_eq!(
-            join(Path::new("/r/tools/a"), Path::new(INNER)),
-            Path::new("/etc/skif.toml")
-        );
-        assert_eq!(join(Path::new("/r"), Path::new(OUTER)), Path::new("/etc/skif.toml"));
-        assert_eq!(join(Path::new("/r/tools/a"), Path::new("")), Path::new("/r/tools/a"));
     }
 }

@@ -10,7 +10,7 @@ use serde_json::{Map, Value};
 use skif::render::RenderOptions;
 use skif::{
     CachedFs, Config, ConfigOverrides, DiscoverOptions, FileSystem, FixPlan, IgnoreEntry, Linter, ModuleCache, OsFs,
-    Prefer, Report, Selector, Target, Workspace, relative_tsconfig,
+    Prefer, Report, Selector, Target, Workspace, join_lexical, relative_tsconfig,
 };
 use skif_core::timing;
 use skif_report::{escape_controls, render_json_with};
@@ -405,7 +405,7 @@ fn fix_roots(
         .iter()
         .map(|(run, plan)| {
             plan.paths()
-                .map(|path| roots::join(&run.workspace.root, path))
+                .map(|path| join_lexical(&run.workspace.root, path))
                 .collect()
         })
         .collect();

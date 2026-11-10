@@ -2,14 +2,14 @@
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rayon::prelude::*;
 use serde_json::{Value, json};
 use skif::{
     ConfigOverrides, Diagnostic, FileSystem, Linter, Location, ModuleCache, OsFs, Report, RuleMeta, RunOptions, Target,
-    Workspace, slash,
+    Workspace, join_lexical, slash,
 };
 
 use crate::error::{CliError, Kind};
@@ -385,20 +385,8 @@ pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Res
         .collect()
 }
 
-/// `prefix/path` with `..` segments resolved, so a config file inherited from a parent directory stays inside the base.
-pub(crate) fn join(prefix: &Path, path: &Path) -> PathBuf {
-    let mut joined = PathBuf::new();
-    for component in prefix.components().chain(path.components()) {
-        match component {
-            Component::ParentDir if joined.pop() => {}
-            other => joined.push(other),
-        }
-    }
-    joined
-}
-
 fn relocate(location: &mut Location, prefix: &Path) {
-    location.path = join(prefix, &location.path);
+    location.path = join_lexical(prefix, &location.path);
 }
 
 /// The report with every path relative to the run's base instead of the root; borrowed when the root is the base.
@@ -423,9 +411,9 @@ pub fn prefixed<'a>(report: &'a Report, prefix: &Path) -> Cow<'a, Report> {
         .iter()
         .cloned()
         .map(|mut package| {
-            package.dir = join(prefix, &package.dir);
+            package.dir = join_lexical(prefix, &package.dir);
             for reason in &mut package.reasons {
-                reason.file = reason.file.take().map(|file| join(prefix, &file));
+                reason.file = reason.file.take().map(|file| join_lexical(prefix, &file));
             }
             package
         })
@@ -474,7 +462,7 @@ pub fn root_json(run: &RootRun, report: &Report) -> Value {
         .workspace
         .all_packages()
         .filter(|package| !run.workspace.is_ignored(package.id))
-        .map(|package| display(&join(&run.prefix, &package.dir)))
+        .map(|package| display(&join_lexical(&run.prefix, &package.dir)))
         .collect();
     json!({
         "path": display(&run.prefix),
@@ -487,16 +475,6 @@ pub fn root_json(run: &RootRun, report: &Report) -> Value {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn join_resolves_parent_segments() {
-        assert_eq!(
-            join(Path::new("a/b"), Path::new("package.json")),
-            Path::new("a/b/package.json")
-        );
-        assert_eq!(join(Path::new("a"), Path::new("../skif.toml")), Path::new("skif.toml"));
-        assert_eq!(join(Path::new(""), Path::new("x")), Path::new("x"));
-    }
 
     #[test]
     fn display_names_the_base_as_a_dot() {

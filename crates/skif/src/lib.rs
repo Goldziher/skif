@@ -132,6 +132,7 @@ mod fix;
 #[cfg(feature = "js-analysis")]
 mod js;
 mod linter;
+mod path;
 mod root;
 mod shared_config;
 mod targets;
@@ -147,6 +148,7 @@ pub use fix::{
 #[cfg(feature = "js-analysis")]
 pub use js::{explain_usage, trace_dependency};
 pub use linter::{Linter, RunOptions, builtin_providers};
+pub use path::join_lexical;
 pub use root::{config_file, find_workspace_root, load_config, resolve_config};
 pub use shared_config::settle_shared_config;
 /// The version a persisted [`ModuleCache`] records: a store written under another version is stale as a whole.
