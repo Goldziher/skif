@@ -400,11 +400,7 @@ impl PackageSetup {
     /// Whether `rel` (relative to the package directory) may be an entry that a config of the package hides, so it
     /// is treated as an entry; never when the hidden entries may be anywhere.
     pub(crate) fn in_incomplete_scope(&self, rel: &str) -> bool {
-        self.entries_incomplete
-            && self
-                .incomplete_scope
-                .as_ref()
-                .is_some_and(|scope| scope.is_match(rel))
+        self.entries_incomplete && self.incomplete_scope.as_ref().is_some_and(|scope| scope.is_match(rel))
     }
 
     /// Whether no file of the package can be judged unused: its entries are incomplete and may be anywhere, or a

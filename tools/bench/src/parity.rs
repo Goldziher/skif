@@ -2756,11 +2756,7 @@ mod tests {
             ("namespaceMembers", "examples/app/src/a.ts|run"),
             ("duplicates", "examples/app/src/a.ts|a|b"),
         ] {
-            assert_eq!(
-                classifier.classify(Side::Tool, category, key),
-                None,
-                "{category} {key}"
-            );
+            assert_eq!(classifier.classify(Side::Tool, category, key), None, "{category} {key}");
             assert_eq!(
                 classifier.classify(Side::Tool, category, &key.replace("examples/app", "examples/other")),
                 Some(NON_MEMBER_PROJECT),
@@ -2935,7 +2931,10 @@ mod tests {
     fn a_published_path_without_a_star_names_only_the_first_source_that_exists() {
         let read: BTreeMap<String, Rc<Value>> = [
             ("", json!({ "name": "root" })),
-            ("packages/x", json!({ "name": "x", "main": "./lib/x.js", "types": "./lib/y.d.ts" })),
+            (
+                "packages/x",
+                json!({ "name": "x", "main": "./lib/x.js", "types": "./lib/y.d.ts" }),
+            ),
         ]
         .into_iter()
         .map(|(dir, manifest)| (dir.to_owned(), Rc::new(manifest)))
@@ -2953,7 +2952,10 @@ mod tests {
             layout.publishes_source_of("packages/x/lib/y.ts"),
             "the path itself when no `src` twin exists"
         );
-        assert!(!layout.publishes_source_of("packages/x/src/y.ts"), "a source that does not exist");
+        assert!(
+            !layout.publishes_source_of("packages/x/src/y.ts"),
+            "a source that does not exist"
+        );
 
         let only_lib = strings(&["packages/x/lib/x.ts", "packages/x/lib/x.tsx"]);
         let is_file = |file: &str| only_lib.contains(file);

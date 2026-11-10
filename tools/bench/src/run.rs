@@ -756,7 +756,12 @@ pub fn run(options: &RunOptions) -> Result<()> {
     }
     // The corpus checkouts stay locked until every target is measured.
     let suite = if options.use_corpus {
-        Some(corpus::fetch_suite(&options.corpus_file, "bench", &[], &options.corpus_dir)?)
+        Some(corpus::fetch_suite(
+            &options.corpus_file,
+            "bench",
+            &[],
+            &options.corpus_dir,
+        )?)
     } else {
         None
     };
