@@ -82,6 +82,7 @@ impl IncompleteScope {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub struct IncompleteEntries {
     /// What could not be read.
     pub cause: IncompleteCause,
@@ -92,6 +93,32 @@ pub struct IncompleteEntries {
     /// `/` separators in a report.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file: Option<PathBuf>,
+}
+
+impl IncompleteEntries {
+    /// Entries left incomplete for `cause`, naming no tool and no file.
+    #[must_use]
+    pub const fn new(cause: IncompleteCause) -> Self {
+        Self {
+            cause,
+            plugin: None,
+            file: None,
+        }
+    }
+
+    /// Names the tool whose configuration could not be read.
+    #[must_use]
+    pub fn with_plugin(mut self, plugin: impl Into<String>) -> Self {
+        self.plugin = Some(plugin.into());
+        self
+    }
+
+    /// Names the file that could not be read.
+    #[must_use]
+    pub fn with_file(mut self, file: impl Into<PathBuf>) -> Self {
+        self.file = Some(file.into());
+        self
+    }
 }
 
 /// What made the entry files of a package incomplete.

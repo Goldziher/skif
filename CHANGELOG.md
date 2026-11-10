@@ -41,6 +41,8 @@ All notable changes to this project are documented here. The format follows
   it. The rules read those files through `LintContext::fs`, the file system the run is given
   (`skif_lint::RunOptions::with_fs`), as the rules over a lockfile and patch files do
   ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
+- `skif::Target::retain_ignore` filters the `[[ignore]]` entries of a target with its `origins` kept aligned, through
+  `skif_config::Origins::retain_list`, which renumbers the entries of one list.
 
 ### Changed
 
@@ -54,6 +56,18 @@ All notable changes to this project are documented here. The format follows
   ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
 - The shell tokenizer of the `package.json` script parser moved from `skif-js-plugins` to `skif_core::shell`
   (`tokenize`, `Tokens`, `Segment`, `Word`), so rules outside the JS analysis split command lines with it.
+- **Breaking** for `allow` entries that hold glob metacharacters (`*`, `?`, `[`, `{`): the `allow` option of
+  `stray-lockfile` and `nested-workspace-root` takes globs (`packages/*/package-lock.json`), each compiled once per
+  run. An entry still matches its own path literally first, so `app/[id]/package-lock.json` allows that file, but it
+  now also allows every other file it matches as a glob. An invalid glob, a `!` pattern and the package selector
+  `$LOCAL` are configuration errors naming the entry (`allow[0]: ...`). Entries were compared as exact paths only.
+- **Breaking** for library users: `skif_config::Assignment` and `skif_core::IncompleteEntries` (both re-exported by
+  `skif`) are `#[non_exhaustive]`, so a later field is not a breaking change. Build them with `Assignment::new` and
+  `IncompleteEntries::new(cause).with_plugin(..).with_file(..)`.
+- **Breaking** for library hosts of `skif_cli::run`: a panic in the command no longer unwinds out of `run`; it returns
+  exit code `2`, after the `internal` error document on stdout under `--format json`. The first call also chains a
+  hook in front of the process's panic hook, once per process, which records the panic's location and then calls the
+  hook it replaced. A host that sets its own panic hook later drops it, and the document then names only the payload.
 - Finding which exports mention an export in their signature takes time linear in the exports of a file instead of
   quadratic: the names each value export's signature mentions are indexed once per file, and the imports once by module
   and name for re-exports. A file of 40,000 exported functions spent seconds there, and generated barrels and type
@@ -70,8 +84,9 @@ All notable changes to this project are documented here. The format follows
   optional dependencies out as sherif does.
 - Template expressions of `.vue`, `.svelte`, `.astro` and `.mdx` files are parsed as JavaScript under the scopes of
   their block constructs (Vue `v-for`, `v-slot`, `#name`, `slot-scope`; Svelte `{#each}`, `{#await}`, `{:then}`,
-  `{:catch}`, `{#snippet}`, `{@const}`, `let:`; arrow parameters such as `items.map((item) => …)`), so an import
-  that only a template local of the same name mentions is reported as unused
+  `{:catch}`, `{#snippet}`, `{@const}`, `let:`; arrow parameters such as `items.map((item) => …)`), so a member that
+  a template local of the same name as a namespace import reads is no use of that namespace's export (a named import
+  keeps its export used, as in knip)
   ([ADR 0084](adrs/0084-template-scopes-auto-imported-vue-components-and-marko-files.md),
   [#102](https://github.com/Goldziher/skif/issues/102)).
 - A component that `unplugin-vue-components` registers in `components.d.ts` from a file of the project is used only
@@ -87,10 +102,11 @@ All notable changes to this project are documented here. The format follows
 - `BinaryUse` and `DepRef` of `skif_js_plugins::scripts` gain `dir`, the directory a command runs in after `cd`,
   `pushd` or a package manager's directory flag; `skif_js_plugins::scripts` also gains `is_powershell_command` and
   `without_commands`. `IncompleteCause` of `skif-core` gains `NoEntries`.
-- `PluginOutput` of `skif-js-plugins` and `WorkspaceInputs` of `skif-js` are `#[non_exhaustive]`: an input source
-  starts from `WorkspaceInputs::default()` and sets the fields it knows.
-- `Report::other_project_files` lists every file with an absolute path (the files below the workspace root were
-  relative to it) and also lists the files outside the root that the analysed code reaches;
+- **Breaking** for library users: `PluginOutput` of `skif-js-plugins` and `WorkspaceInputs` of `skif-js` are
+  `#[non_exhaustive]`: an input source starts from `WorkspaceInputs::default()` and sets the fields it knows.
+- **Breaking** for library hosts: `Report::other_project_files` lists every file with an absolute path (the files
+  below the workspace root were relative to it) and also lists the files outside the root that the analysed code
+  reaches;
   `Report::ancestor_dependency_uses` also lists the dependencies those files import, with the directory of the manifest
   that lists them ([ADR 0085](adrs/0085-files-other-roots-reach-count-as-used.md),
   [#100](https://github.com/Goldziher/skif/issues/100)).
@@ -207,6 +223,36 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unused-files` is listed as fixable `sometimes` (`skif rules`, SARIF rule properties, the rules reference) instead
+  of `unsafe`: under `[js] discovery = "git"` its findings offer no fix, since the index does not see every untracked
+  file ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)); a run that walks the
+  directories keeps the unsafe fix that deletes the file.
+- An installed package whose manifest declares its binaries with `directories.bin` instead of `bin` provides every
+  file below that directory as a binary, named by its file name as npm links it; its binaries were reported as
+  unlisted and the package as unused. As in npm, a `..` in the directory cannot leave the package, and files and
+  directories whose names start with `.` are skipped.
+- An ESLint config that extends a built-in config (`eslint:recommended`, `eslint:all`) credits `eslint`, so an
+  `eslint` listed only at the root and enabled by a member's config is no longer reported unused. It is an optional
+  reference, never reported as unlisted: a deviation from knip, which credits a plain dependency and reports it where
+  no manifest lists `eslint`.
+- `skif migrate` from knip: with a `workspaces["."]` table, the top-level `entry`, `project` and `paths` are not
+  written (knip reads them for the root workspace from that table alone), instead of being merged with the table's
+  lists, which widened the entries. The top-level `ignore` and `ignoreFiles` are still written: knip applies them to
+  every workspace.
+- A panic in `skif` exits `2` (could not run) in every format, with its message and location on stderr and, under
+  `--format json`, the JSON `error` document (kind `internal`) naming both on stdout. The native binary was killed by
+  `SIGABRT` outside `--format json`, and the npm package surfaced a panic as a JavaScript exception with exit code 1
+  and no document. `skif_cli::run` catches the panic. A JSON report on stdout is written in one piece, so a panic
+  while rendering it no longer leaves a partial report ahead of the `error` document.
+- An unknown rule ID in the configuration names the file and line that set it (`preset.toml:4:1: unknown rule ...`,
+  with `path`, `line` and `column` in the JSON error), also in an extended preset; for a package file the error names
+  the file. It had no location at all. `skif::Target::locate` attributes the error for library hosts.
+- `[js.workspaces."<dir>"]` tables accept `extend-ignore`, `extend-ignore-dependencies`, `extend-ignore-binaries` and
+  `extend-ignore-unresolved`, which append to the list the table inherits through `extends`, as
+  [ADR 0074](adrs/0074-reasons-on-js-ignore-entries.md) says; they were rejected as unknown fields.
+  `skif_config::JsWorkspace` gains the four fields.
+- A file that starts with a UTF-8 byte order mark no longer reports every first-line column one too far (human,
+  compact, JSON, SARIF and LSP), since editors and code hosts hide the mark; `LineIndex` counts no column for it.
 - `skif baseline` records `name@specifier` only for the rules whose finding is about the specifier (`RuleMeta::version_scoped`:
   `version-mismatch`, `semver-range-mismatch`, `policy-conflict`, `unsynced-dependency-family`,
   `incompatible-peer-dependencies`, `catalog-mismatch`, `catalog-version-divergence`); any other finding records the
@@ -215,6 +261,10 @@ All notable changes to this project are documented here. The format follows
 - `skif baseline write` and `prune` exit `2` when the configuration does not apply the baseline: no configuration file
   of the run extends it, or a `reset = ["ignore"]` applied after it drops its entries; `write` reported success while
   the lint run still failed ([ADR 0093](adrs/0093-baseline-entries-follow-what-a-finding-is-about.md)).
+- `skif baseline write` and `prune` set aside only the entries of the baseline file while they lint; a hand-written
+  `[[ignore]]` of another configuration file equal to a baseline entry was set aside too, so `write` recorded its
+  finding into the baseline and the suppression moved there.
+  An error about an entry of the rest (an unknown rule ID) names the file and line that set it, not a baseline entry.
 - `skif baseline check --file` in a directory that does not exist names the directory instead of calling the revision
   bad.
 - The `--format human` help of `skif baseline`, `config`, `migrate`, `rules` and `update` no longer calls every output
@@ -524,8 +574,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- `unresolved-imports` no longer reports test-runner mocks; a mock of a missing module is a `stale-mocks` error
-  instead, with the same default severity, so it can be triaged, baselined or turned off apart from broken imports
+- **Breaking** for configurations that ignore mocks under `unresolved-imports`: `unresolved-imports` no longer reports
+  test-runner mocks; a mock of a missing module is a `stale-mocks` error instead, with the same default severity, so
+  it can be triaged, baselined or turned off apart from broken imports
   ([#111](https://github.com/Goldziher/skif/issues/111)).
 - **Breaking** for library users of `skif-js-syntax`: `Import` has a new public field `call` (an `Option<MockCall>`,
   the test-runner call of a mock import), so code that builds an `Import` with a struct literal must set it. The

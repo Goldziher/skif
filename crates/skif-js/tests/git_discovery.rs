@@ -10,7 +10,7 @@ use std::process::{Command, Stdio};
 use std::sync::Arc;
 
 use skif_config::{Config, JsDiscovery};
-use skif_core::{CachedFs, FileSystem, OsFs};
+use skif_core::{CachedFs, FileSystem, FixSafety, OsFs};
 use skif_js::JsProvider;
 use skif_lint::{Registry, RunOptions, run_unsorted};
 use skif_workspace::Workspace;
@@ -164,7 +164,16 @@ fn unused_files_listed_from_the_index_offer_no_deletion() {
         .filter(|d| d.rule.as_str() == "unused-files")
         .collect();
     assert_eq!(unused.len(), 1, "{unused:?}");
+    assert_eq!(unused[0].location.path, Path::new("src/dead.ts"));
     assert!(unused[0].fixes.is_empty(), "{:?}", unused[0].fixes);
+    assert!(
+        unused[0]
+            .help
+            .as_deref()
+            .is_some_and(|help| help.contains("no fix deletes it") && help.contains("listed from the git index")),
+        "{:?}",
+        unused[0].help
+    );
 
     config.js.discovery = JsDiscovery::Auto;
     let diagnostics = run_unsorted(&provider().0, &workspace, &config, &RunOptions::default()).unwrap();
@@ -173,7 +182,12 @@ fn unused_files_listed_from_the_index_offer_no_deletion() {
         .filter(|d| d.rule.as_str() == "unused-files")
         .collect();
     assert_eq!(unused.len(), 1, "{unused:?}");
-    assert_eq!(unused[0].fixes.len(), 1);
+    let titles: Vec<_> = unused[0]
+        .fixes
+        .iter()
+        .map(|fix| (fix.title.as_str(), fix.safety))
+        .collect();
+    assert_eq!(titles, [("Delete `src/dead.ts`", FixSafety::Unsafe)]);
 }
 
 #[test]

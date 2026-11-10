@@ -118,7 +118,9 @@ compilers knip registers for `@builder.io/qwik-city` and `@stencil/sass`.
 
 ### Consequences
 
-* Good, because an import that only a template local of the same name mentions is reported as unused.
+* Good, because the members a template local of the same name as a namespace import reads (`item.title` under
+  `v-for="item in items"`) are not uses of that namespace's exports. A named import keeps its export used either way,
+  as in knip: importing a name uses it.
 * Good, because a registered Vue component no template uses is reported as an unused file, as knip reports it, and
   the components only such a component uses are unused too.
 * Good, because the imports of `.marko` files keep their files and packages used.

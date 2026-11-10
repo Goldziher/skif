@@ -252,7 +252,8 @@ fn knip_ts_with_workspaces_plugins_and_a_non_static_value() {
     assert_eq!(parsed["rules"]["stale-js-config"].as_str(), Some("warn"));
     assert_eq!(
         migration.config.js.entry,
-        ["src/index.ts!", "scripts/*.ts", "src/index.ts"]
+        ["src/index.ts"],
+        "workspaces[\".\"] replaces the top-level entry, as in knip"
     );
 }
 
@@ -1912,6 +1913,54 @@ fn knip_workspaces_in_the_config_alone_note_the_unmerged_tsconfig_paths() {
     input.config = Some(read("knip", "knip.ts"));
     let migration = migrate(&[input], &options(Profile::Full)).unwrap();
     assert_eq!(class(&migration, MERGED_PATHS), NoteClass::Approximate);
+}
+
+#[test]
+fn knip_root_workspace_table_replaces_the_top_level_entry_project_and_paths() {
+    let migration = knip(
+        Some(
+            r#"{ "entry": ["a.ts"], "project": ["**/*.ts"], "paths": { "@/*": ["./src/*"] }, "workspaces": { ".": { "entry": ["src/index.ts"] } } }"#,
+        ),
+        &[("knip", "knip")],
+    );
+    let doc = table(&migration);
+    let js = doc["js"].as_table().unwrap();
+    assert_eq!(strings(&js["entry"]), ["src/index.ts"]);
+    assert!(!js.contains_key("project") && !js.contains_key("workspaces"), "{js:#?}");
+    for key in ["entry", "project", "paths"] {
+        let ignored = note(&migration, key);
+        assert_eq!(ignored.class, NoteClass::Exact);
+        assert_eq!(
+            ignored.message,
+            format!(
+                "knip configures the root workspace with `workspaces[\".\"]` alone when it is set, so the top-level \
+                 `{key}` has no effect; not written"
+            )
+        );
+    }
+}
+
+#[test]
+fn knip_top_level_ignore_and_ignore_files_apply_with_a_root_workspace_table() {
+    let migration = knip(
+        Some(
+            r#"{ "ignore": ["gen/**"], "ignoreFiles": ["legacy/**"], "workspaces": { ".": { "entry": ["src/index.ts"] } } }"#,
+        ),
+        &[("knip", "knip")],
+    );
+    let doc = table(&migration);
+    let js = doc["js"].as_table().unwrap();
+    assert_eq!(strings(&js["ignore"]), ["gen/**"]);
+    assert_eq!(strings(&js["ignore-files"]), ["legacy/**"]);
+}
+
+#[test]
+fn knip_top_level_entry_applies_without_a_root_workspace_table() {
+    let migration = knip(
+        Some(r#"{ "entry": ["a.ts"], "workspaces": { "packages/*": { "entry": ["src/index.ts"] } } }"#),
+        &[("knip", "knip")],
+    );
+    assert_eq!(strings(&table(&migration)["js"]["entry"]), ["a.ts"]);
 }
 
 #[test]

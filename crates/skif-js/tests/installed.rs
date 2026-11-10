@@ -74,6 +74,68 @@ fn installed_manifests_provide_binaries_and_peers() {
 }
 
 #[test]
+fn an_installed_bin_directory_provides_every_file_below_it() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"r","private":true,"workspaces":["packages/*"],
+                "scripts":{"a":"multi-a","b":"multi-b"},
+                "devDependencies":{"multi":"1"}}"#,
+        ),
+        (
+            "node_modules/multi/package.json",
+            r#"{"name":"multi","directories":{"bin":"./bin"}}"#,
+        ),
+        ("node_modules/multi/bin/multi-a", "#!/usr/bin/env node\n"),
+        ("node_modules/multi/bin/more/multi-b", "#!/usr/bin/env node\n"),
+    ]);
+    assert!(names(&diagnostics, "unlisted-binaries").is_empty(), "{diagnostics:#?}");
+    assert!(
+        names(&diagnostics, "unused-dev-dependencies").is_empty(),
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn a_bin_directory_that_climbs_out_is_clamped_to_the_installed_package() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"r","private":true,"workspaces":["packages/*"],
+                "scripts":{"a":"inside-tool","b":"other-tool"},
+                "devDependencies":{"multi":"1"}}"#,
+        ),
+        (
+            "node_modules/multi/package.json",
+            r#"{"name":"multi","directories":{"bin":"../other/bin"}}"#,
+        ),
+        ("node_modules/multi/other/bin/inside-tool", "#!/usr/bin/env node\n"),
+        ("node_modules/other/bin/other-tool", "#!/usr/bin/env node\n"),
+    ]);
+    assert_eq!(names(&diagnostics, "unlisted-binaries"), ["package.json: other-tool"]);
+}
+
+#[test]
+fn a_bin_directory_skips_dotfiles_and_dot_directories() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"r","private":true,"workspaces":["packages/*"],
+                "scripts":{"a":"multi-a","b":"hidden-tool"},
+                "devDependencies":{"multi":"1"}}"#,
+        ),
+        (
+            "node_modules/multi/package.json",
+            r#"{"name":"multi","directories":{"bin":"bin"}}"#,
+        ),
+        ("node_modules/multi/bin/multi-a", "#!/usr/bin/env node\n"),
+        ("node_modules/multi/bin/.cache/hidden-tool", "#!/usr/bin/env node\n"),
+        ("node_modules/multi/bin/.hidden-tool", "#!/usr/bin/env node\n"),
+    ]);
+    assert_eq!(names(&diagnostics, "unlisted-binaries"), ["package.json: hidden-tool"]);
+}
+
+#[test]
 fn optional_peer_dependencies_must_be_installed_for_development() {
     let diagnostics = lint(&[
         (

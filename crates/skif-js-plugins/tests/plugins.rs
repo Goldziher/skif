@@ -475,6 +475,25 @@ fn eslint_legacy() {
 }
 
 #[test]
+fn eslint_builtin_extends_credit_eslint_as_optional() {
+    let results = resolve(
+        &[(".eslintrc.json", r#"{ "extends": ["eslint:recommended"] }"#)],
+        &["eslint"],
+    );
+    let out = output(&results, "eslint");
+    let eslint: Vec<_> = out
+        .referenced_dependencies
+        .iter()
+        .filter(|dependency| dependency.name == "eslint")
+        .collect();
+    assert_eq!(eslint.len(), 1, "{:?}", out.referenced_dependencies);
+    assert!(
+        eslint[0].optional,
+        "a package that only enables ESLint may get it from the root"
+    );
+}
+
+#[test]
 fn eslint_flat_config_is_read_without_error() {
     let results = resolve(
         &[(

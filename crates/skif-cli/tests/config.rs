@@ -8,7 +8,7 @@ use std::fs;
 use std::path::Path;
 
 use serde_json::Value;
-use support::{run, skif};
+use support::{redact_version, run, skif};
 use tempfile::TempDir;
 
 fn put(root: &Path, relative: &str, content: &str) {
@@ -211,7 +211,7 @@ fn explain_walks_the_whole_chain() {
         .args(["config", "--explain", "lint.fail-on-warnings", "--format", "json"])
         .arg(&ws));
     assert_eq!(json.code, 0, "{}{}", json.stdout, json.stderr);
-    insta::assert_snapshot!("explain_json", json.stdout);
+    insta::assert_snapshot!("explain_json", redact_version(&json.stdout));
 }
 
 #[test]

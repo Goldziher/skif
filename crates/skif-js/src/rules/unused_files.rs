@@ -8,11 +8,14 @@ use super::support::file_location;
 use crate::analysis::JsAnalysis;
 
 /// Metadata of `unused-files`. Warning until the rule reaches corpus parity with knip; `unused-dependencies`, `unlisted-dependencies` and `unresolved-imports` stay errors.
+///
+/// Fixable sometimes: a finding of a run that walks the directories has an unsafe fix that deletes the file, one of a
+/// run that lists the files from the git index (`[js] discovery = "git"`) has none (ADR 0095).
 pub static META: RuleMeta = RuleMeta::new(
     "unused-files",
     Category::Js,
     Some(Severity::Warning),
-    Fixability::Unsafe,
+    Fixability::Sometimes,
     "A project file is not reachable from any entry file.",
 );
 
@@ -65,6 +68,11 @@ impl JsRule for UnusedFiles {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_rule_is_fixable_only_when_the_directories_are_walked() {
+        assert_eq!(META.fixable, Fixability::Sometimes);
+    }
 
     #[test]
     fn the_message_names_the_file_with_forward_slashes() {

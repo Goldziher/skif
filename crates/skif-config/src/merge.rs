@@ -14,13 +14,18 @@ use crate::provenance::{Assignment, Op, Origins, join_key};
 /// `(line, column)`.
 pub(crate) type Spans = HashMap<String, (usize, usize)>;
 
-/// `(table, key, extend key)`: the extend key appends to the key it names, after the key itself applied.
-const EXTEND_KEYS: [(&str, &str, &str); 6] = [
+/// `(table, key, extend key)`: the extend key appends to the key it names, after the key itself applied. The table
+/// [`WORKSPACE_TABLE`] stands for every `[js.workspaces."<dir>"]` table.
+const EXTEND_KEYS: [(&str, &str, &str); 10] = [
     ("workspace", "ignore-packages", "extend-ignore-packages"),
     ("js", "ignore", "extend-ignore"),
     ("js", "ignore-dependencies", "extend-ignore-dependencies"),
     ("js", "ignore-binaries", "extend-ignore-binaries"),
     ("js", "ignore-unresolved", "extend-ignore-unresolved"),
+    (WORKSPACE_TABLE, "ignore", "extend-ignore"),
+    (WORKSPACE_TABLE, "ignore-dependencies", "extend-ignore-dependencies"),
+    (WORKSPACE_TABLE, "ignore-binaries", "extend-ignore-binaries"),
+    (WORKSPACE_TABLE, "ignore-unresolved", "extend-ignore-unresolved"),
     ("catalog", "exclude", "extend-exclude"),
 ];
 
@@ -170,11 +175,46 @@ fn list<'t>(parent: &'t mut Table, key: &str) -> &'t mut Vec<Value> {
     }
 }
 
+const WORKSPACE_TABLE: &str = "js.workspaces.*";
+
+/// The name `EXTEND_KEYS` gives the table at `path`: [`WORKSPACE_TABLE`] for a `[js.workspaces."<dir>"]` table, else
+/// `path` itself.
+fn extend_table(path: &str) -> &str {
+    match path.strip_prefix("js.workspaces.") {
+        Some(dir) if is_one_segment(dir) => WORKSPACE_TABLE,
+        _ => path,
+    }
+}
+
+/// Whether `key`, spelled as [`join_key`] spells a segment, is a single segment: a bare key without `.`, or one quoted
+/// key with no unescaped quote inside.
+fn is_one_segment(key: &str) -> bool {
+    match key.strip_prefix('"').and_then(|rest| rest.strip_suffix('"')) {
+        Some(inner) => !inner.replace("\\\\", "").replace("\\\"", "").contains('"'),
+        None => !key.contains(['.', '[', ']', '"']),
+    }
+}
+
+/// Whether `table`, one parsed file, sets one of the `EXTEND_KEYS` in the table that owns it.
+pub(crate) fn has_extend_keys(table: &Table) -> bool {
+    fn sets_one(table: &Table, path: &str) -> bool {
+        let name = extend_table(path);
+        table.iter().any(|(key, value)| {
+            EXTEND_KEYS
+                .iter()
+                .any(|(owner, _, extend)| *owner == name && *extend == key)
+                || matches!(value, Value::Table(child) if sets_one(child, &join_key(path, key)))
+        })
+    }
+    sets_one(table, "")
+}
+
 fn merge_table(base: &mut Table, layer: &Table, path: &str, cx: &mut Cx<'_>) {
+    let table_name = extend_table(path);
     for (key, value) in layer {
         if EXTEND_KEYS
             .iter()
-            .any(|(table, _, extend)| *table == path && *extend == key)
+            .any(|(table, _, extend)| *table == table_name && *extend == key)
         {
             continue;
         }
@@ -190,7 +230,7 @@ fn merge_table(base: &mut Table, layer: &Table, path: &str, cx: &mut Cx<'_>) {
             cx.record(&child, &child, Op::Set);
         }
     }
-    for (_, key, extend) in EXTEND_KEYS.iter().filter(|(table, _, _)| *table == path) {
+    for (_, key, extend) in EXTEND_KEYS.iter().filter(|(table, _, _)| *table == table_name) {
         if let Some(Value::Array(extra)) = layer.get(*extend) {
             list(base, key).extend(extra.iter().cloned());
             cx.record(&join_key(path, key), &join_key(path, extend), Op::Append);
@@ -334,5 +374,58 @@ fn merge_named(
             existing.push(item.clone());
             tracked.push(assignment);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::{EXTEND_KEYS, WORKSPACE_TABLE, has_extend_keys};
+    use crate::{IgnoreItem, Js, JsWorkspace};
+
+    fn table(text: &str) -> toml::Table {
+        text.parse().unwrap()
+    }
+
+    #[test]
+    fn an_extend_key_counts_only_in_the_table_that_owns_it() {
+        assert!(has_extend_keys(&table("[js]\nextend-ignore = [\"a\"]\n")));
+        assert!(has_extend_keys(&table(
+            "[workspace]\nextend-ignore-packages = [\"a\"]\n"
+        )));
+        assert!(has_extend_keys(&table("[catalog]\nextend-exclude = [\"a\"]\n")));
+        assert!(has_extend_keys(&table(
+            "[js.workspaces.\"apps/web\"]\nextend-ignore-binaries = [\"a\"]\n"
+        )));
+        assert!(!has_extend_keys(&table("[js]\nignore = [\"a\"]\n")));
+        assert!(!has_extend_keys(&table("[catalog]\nextend-ignore = [\"a\"]\n")));
+        assert!(!has_extend_keys(&table(
+            "[js.plugins.vitest]\nextend-ignore = [\"a\"]\n"
+        )));
+    }
+
+    #[test]
+    fn the_extend_lists_checked_for_a_reason_are_the_extend_keys_of_their_table() {
+        let listed = |lists: &[(&'static str, &[IgnoreItem])]| -> BTreeSet<&'static str> {
+            lists
+                .iter()
+                .map(|(key, _)| *key)
+                .filter(|key| key.starts_with("extend-"))
+                .collect()
+        };
+        // `extend-ignore` holds globs of files that are not analysed, not suppressions with a reason.
+        let declared = |owner: &str| -> BTreeSet<&'static str> {
+            EXTEND_KEYS
+                .iter()
+                .filter(|(table, _, extend)| *table == owner && *extend != "extend-ignore")
+                .map(|(_, _, extend)| *extend)
+                .collect()
+        };
+        assert_eq!(listed(&Js::default().ignore_lists()), declared("js"));
+        assert_eq!(
+            listed(&JsWorkspace::default().ignore_lists()),
+            declared(WORKSPACE_TABLE)
+        );
     }
 }

@@ -1,7 +1,8 @@
 //! Which packages and binaries the code and scripts use, against what each manifest lists.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::ffi::OsStr;
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use serde_json::Value;
@@ -326,11 +327,12 @@ fn read_installed(
 ) -> Option<Arc<Installed>> {
     let mut dir = start;
     loop {
-        let manifest = dir.join("node_modules").join(name).join("package.json");
+        let package = dir.join("node_modules").join(name);
+        let manifest = package.join("package.json");
         let entry = cache.entry(manifest.clone()).or_insert_with(|| {
             fs.read_to_string(&manifest)
                 .ok()
-                .and_then(|text| parse_installed(&text, name))
+                .and_then(|text| parse_installed(fs, &package, &text, name))
         });
         if entry.is_some() {
             return entry.clone();
@@ -345,12 +347,68 @@ fn read_installed(
     }
 }
 
-fn parse_installed(text: &str, name: &str) -> Option<Arc<Installed>> {
+fn parse_installed(fs: &dyn FileSystem, dir: &Path, text: &str, name: &str) -> Option<Arc<Installed>> {
     let value: Value = serde_json::from_str(text).ok()?;
+    let bins = if value.get("bin").is_some() {
+        bins_of(&value, name)
+    } else {
+        directory_bins(fs, dir, &value)
+    };
     Some(Arc::new(Installed {
-        bins: bins_of(&value, name),
+        bins,
         peers: peers_of(&value),
     }))
+}
+
+/// The binaries the `directories.bin` of the installed package at `dir` declares, for a manifest without `bin`: every
+/// file below that directory, named by its file name, as npm links them. As in npm, the directory is resolved as if
+/// the package were the file system root, so `..` cannot leave the package, and a file or directory whose name starts
+/// with `.` is skipped.
+fn directory_bins(fs: &dyn FileSystem, dir: &Path, manifest: &Value) -> Vec<String> {
+    let Some(bin_dir) = manifest
+        .get("directories")
+        .and_then(|directories| directories.get("bin"))
+        .and_then(Value::as_str)
+    else {
+        return Vec::new();
+    };
+    let mut pending = vec![dir.join(clamped(Path::new(bin_dir)))];
+    let mut names = BTreeSet::new();
+    while let Some(current) = pending.pop() {
+        let Ok(entries) = fs.read_dir(&current) else {
+            continue;
+        };
+        for entry in entries {
+            let Some(name) = entry.path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if name.starts_with('.') {
+                continue;
+            }
+            if entry.is_dir && !entry.is_symlink {
+                pending.push(entry.path);
+            } else if entry.is_file {
+                names.insert(name.to_owned());
+            }
+        }
+    }
+    names.into_iter().collect()
+}
+
+/// `path` joined onto a root it cannot climb out of: `..` drops the previous component, or nothing at the top, and a
+/// root or prefix is dropped, as npm's `path.join("/", path)` does for `directories.bin`.
+fn clamped(path: &Path) -> PathBuf {
+    let mut parts: Vec<&OsStr> = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => parts.push(part),
+            Component::ParentDir => {
+                parts.pop();
+            }
+            Component::CurDir | Component::RootDir | Component::Prefix(_) => {}
+        }
+    }
+    parts.into_iter().collect()
 }
 
 pub(crate) fn parse_tsconfig(fs: &dyn FileSystem, path: &Path) -> Option<ConfigValue> {

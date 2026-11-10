@@ -92,9 +92,9 @@ fn relative(root: &Path, path: &Path) -> PathBuf {
     path.strip_prefix(root).unwrap_or(path).to_path_buf()
 }
 
-/// The span of the character at the 1-based `line` and `column` (counted in Unicode scalar values, as
-/// [`LineIndex::line_col`] counts them) of the file at the workspace-relative `path`; `None` when the file cannot be
-/// read again.
+/// The span of the character at the 1-based `line` and `column` (counted in Unicode scalar values after a leading
+/// byte order mark, which takes no column, as [`LineIndex::line_col`] counts them) of the file at the
+/// workspace-relative `path`; `None` when the file cannot be read again.
 fn point(cx: &LintContext<'_>, path: &Path, line: u32, column: u32) -> Option<Span> {
     let source = cx.fs().read_to_string(&cx.workspace.root.join(path)).ok()?;
     let start = offset_at(&source, line, column)?;
@@ -103,10 +103,13 @@ fn point(cx: &LintContext<'_>, path: &Path, line: u32, column: u32) -> Option<Sp
     Some(index.span(u32::try_from(start).ok()?, u32::try_from(end).ok()?))
 }
 
-/// The byte offset of the 1-based `line` and `column` in `source`; the end of the line when the column is past it.
+/// The byte offset of the 1-based `line` and `column` in `source`, where a leading byte order mark takes no column;
+/// the end of the line when the column is past it.
 fn offset_at(source: &str, line: u32, column: u32) -> Option<usize> {
     let line_start = match line.checked_sub(2) {
-        None => 0,
+        None => source
+            .strip_prefix('\u{feff}')
+            .map_or(0, |rest| source.len() - rest.len()),
         Some(newlines) => source.match_indices('\n').nth(usize::try_from(newlines).ok()?)?.0 + 1,
     };
     let rest = &source[line_start..];
@@ -153,6 +156,30 @@ mod tests {
         // The error is on one of the two commas after the version; either way it is located, on line 1.
         assert_eq!(located(&files, diagnostic), ",");
         assert_eq!(diagnostic.location.span.unwrap().start_line, 1);
+    }
+
+    #[test]
+    fn a_syntax_error_after_a_byte_order_mark_is_located_on_the_same_character() {
+        let root_json = root("");
+        let broken = r#"{"name":"e"x}"#;
+        let with_bom = format!("\u{feff}{broken}");
+        let locate = |manifest: &str| {
+            let files = [
+                ("package.json", root_json.as_str()),
+                ("packages/e/package.json", manifest),
+            ];
+            let diagnostics = lint(META.id, &files, &config(""));
+            assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+            let span = diagnostics[0].location.span.unwrap();
+            (
+                located(&files, &diagnostics[0]).to_owned(),
+                span.start_line,
+                span.start_col,
+            )
+        };
+        let plain = locate(broken);
+        assert!(!plain.0.is_empty(), "{plain:?}");
+        assert_eq!(locate(&with_bom), plain);
     }
 
     #[test]

@@ -25,8 +25,9 @@ const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
 /// skipped for a member `[workspace] ignore-packages` excludes. A nested workspace outside the patterns is an
 /// independent root and is not reported. There is no fix: the file may hold settings that belong in the root file.
 ///
-/// Options (`[rules.nested-workspace-root] allow`): paths, relative to the workspace root, of `pnpm-workspace.yaml`
-/// files kept on purpose, each a string or `{ name, reason }`. An entry that names no such file is reported as stale.
+/// Options (`[rules.nested-workspace-root] allow`): paths, matched literally first, or globs, relative to the workspace
+/// root, of `pnpm-workspace.yaml` files kept on purpose, each a string or `{ name, reason }`. An entry that matches no
+/// such file is reported as stale.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NestedWorkspaceRoot;
 
