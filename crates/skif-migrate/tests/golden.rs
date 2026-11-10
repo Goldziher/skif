@@ -252,7 +252,8 @@ fn knip_ts_with_workspaces_plugins_and_a_non_static_value() {
     assert_eq!(parsed["rules"]["stale-js-config"].as_str(), Some("warn"));
     assert_eq!(
         migration.config.js.entry,
-        ["src/index.ts!", "scripts/*.ts", "src/index.ts"]
+        ["src/index.ts"],
+        "workspaces[\".\"] replaces the top-level entry, as in knip"
     );
 }
 
