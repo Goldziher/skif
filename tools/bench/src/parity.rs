@@ -1179,7 +1179,7 @@ fn knip_root(repo: &Repo, root: &Path, scratch: &Path) -> Result<PathBuf, String
                 Command::new("git")
                     .arg("-C")
                     .arg(&copy)
-                    .args(["checkout", "--quiet", "--detach", &repo.rev]),
+                    .args(["checkout", "--quiet", "--detach", repo.rev.as_str()]),
                 "checkout",
             )?;
             fs::write(copy.join("package.json"), manifest)
