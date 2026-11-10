@@ -999,6 +999,26 @@ fn tsrx_yields_its_imports_only() {
 }
 
 #[test]
+fn marko_yields_its_imports_and_style_imports() {
+    let source = "import format from './format';\nstatic import { sum } from 'lodash-es';\nimport Card from \"<card>\";\n\nclass {\n  onMount() { import('./lazy'); }\n}\n\n<div>${format(sum([1]))}</div>\n<Card/>\nstyle.scss {\n  @use 'tokens';\n}\n<style>\n@import './plain.css';\n</style>\n";
+    let info = parse("index.marko", source);
+    assert_eq!(
+        specifiers(&info),
+        [
+            ("./format", ImportKind::Static),
+            ("lodash-es", ImportKind::Static),
+            ("./lazy", ImportKind::Dynamic),
+            ("tokens", ImportKind::SideEffect),
+            ("./plain.css", ImportKind::SideEffect),
+        ]
+    );
+    assert!(!info.fatal, "{:?}", info.parse_diagnostics);
+    assert_eq!(info.imports[1].span.start_line, 2);
+    // The template is not read, so every binding counts as used as a whole.
+    assert_eq!(accessed(&info, "format"), (Vec::new(), true));
+}
+
+#[test]
 fn stylus_style_blocks_are_imports() {
     let vue = "<template/>\n<style lang=\"stylus\">\n@require 'nib'\n@import './theme'\n</style>\n";
     let found: Vec<_> = parse("A.vue", vue).imports.into_iter().map(|i| i.specifier).collect();

@@ -137,6 +137,20 @@ fn registered_vue_components_are_used_only_where_a_template_uses_them() {
 }
 
 #[test]
+fn marko_imports_are_followed() {
+    // The tag file is a production entry of the `marko` plugin: its imports keep `format.js` and `lodash-es` used,
+    // and its `<style>` block imports `layout.css`.
+    let diagnostics = lint_fixture("marko-imports");
+    assert_eq!(found(&diagnostics, "unused-files"), ["src/orphan.js: src/orphan.js"]);
+    assert_eq!(
+        found(&diagnostics, "unused-dependencies"),
+        ["package.json: unused-dependency"]
+    );
+    assert_eq!(found(&diagnostics, "unresolved-imports"), Vec::<String>::new());
+    assert_eq!(found(&diagnostics, "unparseable-files"), Vec::<String>::new());
+}
+
+#[test]
 fn stylus_tsrx_snapshot() {
     insta::assert_json_snapshot!("stylus-tsrx", lint_fixture("stylus-tsrx"));
 }
