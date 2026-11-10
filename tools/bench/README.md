@@ -15,15 +15,20 @@ with `--warmup` and `--runs`) on two kinds of targets:
 | Module graph | 10,000 TypeScript files in 100 packages (`--graph-files`, `--graph-packages`; `generate --source-files-per-package`) | `skif` |
 | Pinned corpus | the `bench` repositories of `corpus.toml` | `skif`, `skif --no-js`, `sherif`, `syncpack lint`, `knip --reporter json` |
 
-`sherif`, `syncpack` and `knip` are optional: a tool that is not on `PATH` is skipped with a note. Results go to
-`target/bench-results/` (or `--out`): `summary.md` (tables plus the ADR checks), `summary.json` (schema 1: skif
-version, host, hyperfine version, every target with mean, stddev, median, min and max in ms and the number of runs that exited with an
-error, and the checks), and one raw
-hyperfine export per target under `raw/`. `run` exits non-zero when an ADR 0001 check fails, after writing the
+`sherif`, `syncpack` and `knip` are the versions pinned under `[tools]` in `corpus.toml`, the one place their
+versions are set: `run` installs them once with `npm install --prefix target/bench-generated/tools` and times the
+executables in its `node_modules/.bin` directly, so no `npx` resolution is timed and nothing on `PATH` is used. A tool
+that cannot be installed (no `npm`, a failed install), or knip on a corpus repository whose install failed, is left
+out and recorded with the reason under `skipped_tools`. Results go to `target/bench-results/` (or `--out`):
+`summary.md` (tables plus the ADR checks), `summary.json` (schema 2: skif version and source commit with a `-dirty`
+flag, host, CPU model and logical CPUs, the load average before and after the run, hyperfine version, each comparison
+tool's `--version`, every target with mean, stddev, median, min and max in ms and the number of runs that exited with
+an error, the skipped tools and the checks), and one raw hyperfine export per target under `raw/`. `run` exits non-zero when an ADR 0001 check fails, after writing the
 summary; `--no-enforce` turns that off. A tool that exits with a status above 1 (knip's exit code when it fails or cannot
 load a configuration file) is noted under its table and in the knip check, since its time may be that of a partial run.
 A corpus repository's `bench-knip-args` in `corpus.toml` are passed to knip, so it reads the files skif reads (npm-cli
-sets `--no-gitignore`). hyperfine 1.x and 2.x exports are both read.
+sets `--no-gitignore`), and skif runs with `--recursive` where the repository sets `recursive` (babel), as `parity` runs
+it. hyperfine 1.x and 2.x exports are both read.
 
 ## Targets (ADR 0001)
 
@@ -59,7 +64,7 @@ Directly:
 ```sh
 cargo run --release -p skif-bench -- generate --packages 500 --out DIR [--seed S] [--pm pnpm|npm|yarn|bun] [--catalog] [--mismatch-rate F] [--force]
 cargo run --release -p skif-bench -- corpus fetch [--suite bench|parity] [--only NAME,...] [--file corpus.toml] [--dir target/bench-corpus]
-cargo run --release -p skif-bench -- run [--skif PATH] [--sizes 50,500,2000] [--graph-files 10000] [--pm pnpm] [--no-corpus] [--warmup 3] [--runs 10] [--skif-arg ARG]... [--no-enforce] [--install]
+cargo run --release -p skif-bench -- run [--skif PATH] [--sizes 50,500,2000] [--graph-files 10000] [--pm pnpm] [--no-corpus] [--warmup 3] [--runs 15] [--skif-arg ARG]... [--no-enforce] [--install]
 cargo run --release -p skif-bench -- parity [--skif PATH] [--only NAME,...] [--install] [--recursive] [--repo-knip-config] [--include-test-files] [--check | --write-baseline]
 cargo run --release -p skif-bench -- syncpack-diff [--skif PATH] [--only NAME,...] [--no-fixtures] [--no-corpus] [--check | --write-baseline]
 cargo run --release -p skif-bench -- deadcode [--skif PATH] [--packages 5] [--seed 1] [--knip] [--json] [--out target/bench-deadcode] [--force]
@@ -501,9 +506,9 @@ part.
 
 - **Warm cache.** hyperfine warms up before measuring, so numbers are warm file-cache, not cold start. Compare
   cold runs with `hyperfine --prepare` and a cache purge by hand if that matters.
-- **Comparison tools are measured as installed.** Versions are whatever is on `PATH`, and their output formats and
-  defaults differ; `sherif` and `syncpack` only check manifests, `knip` analyses code. The summary records only the
-  hyperfine version, so note tool versions when sharing numbers.
+- **Comparison tools are the pinned versions.** `run` installs the `[tools]` versions of `corpus.toml` and records
+  each one's `--version` in the summary. Their output formats and defaults differ; `sherif` and `syncpack` only check
+  manifests, `knip` analyses code.
 - **knip needs installed dependencies** to give realistic results: without them it fails to load tool configurations
   that import the repository's own packages (create-t3-turbo's `@acme/tsconfig`), and the time is that of a partial
   run. `run --install` installs each corpus repository first, as `parity --install` does (`mise run bench:publish`
@@ -513,10 +518,11 @@ part.
   `apps/expo/metro.config.js` requires `metro-cache`, which it does not list, and `packages/db/drizzle.config.ts`
   throws without a `POSTGRES_URL`.
 - Non-zero exits are ignored (`--ignore-failure`): linters exit 1 when they find something.
-- The skif command line is `skif . --format json --no-install [--no-js]`; the working directory is the target.
+- The skif command line is `skif . --format json --no-install [--no-js] [--recursive]`; the working directory is the
+  target.
 - Wall-clock times include process start-up. For sub-10 ms runs hyperfine warns about short commands; trust the
   mean over many `--runs`.
-- The corpus pins live in `corpus.toml` (full commit SHAs, the knip and syncpack versions, the suites of each
+- The corpus pins live in `corpus.toml` (full commit SHAs, the knip, syncpack and sherif versions, the suites of each
   repository). Repositories are fetched shallow with `git fetch --depth 1 origin <sha>` (plus a cone sparse checkout
   where `sparse` is set), so `fetch` is idempotent and cheap to repeat. Bump a pin deliberately and refresh the
   baselines in the same change.

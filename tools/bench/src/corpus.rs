@@ -7,11 +7,13 @@ use std::process::Command;
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
-/// Tool versions the comparison commands are pinned to.
+/// Tool versions the comparison commands are pinned to: `parity`, `syncpack-diff` and `deadcode` run them through
+/// `npx`, and `run` installs them into a scratch prefix and times their executables.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Tools {
     pub knip: String,
     pub syncpack: String,
+    pub sherif: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -221,7 +223,7 @@ mod tests {
         let file = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/corpus.toml"));
         let (tools, bench) = select(file, "bench", &[]).unwrap();
         let (_, parity) = select(file, "parity", &[]).unwrap();
-        assert!(!tools.knip.is_empty() && !tools.syncpack.is_empty());
+        assert!(!tools.knip.is_empty() && !tools.syncpack.is_empty() && !tools.sherif.is_empty());
         assert_eq!(bench.len(), 5);
         assert_eq!(parity.len(), manifest().repo.len());
         assert!(select(file, "bench", &["vscode".to_owned()]).is_err());
@@ -251,7 +253,7 @@ mod tests {
         let file = dir.join("corpus.toml");
         fs::write(
             &file,
-            "[tools]\nknip = \"1\"\nsyncpack = \"1\"\n[[repo]]\nname = \"x\"\nurl = \"u\"\nrev = \"main\"\npackage-manager = \"npm\"\n",
+            "[tools]\nknip = \"1\"\nsyncpack = \"1\"\nsherif = \"1\"\n[[repo]]\nname = \"x\"\nurl = \"u\"\nrev = \"main\"\npackage-manager = \"npm\"\n",
         )
         .unwrap();
         assert!(load_manifest(&file).is_err());

@@ -17,9 +17,12 @@
 #   knip-root        "rush": knip runs in a scratch clone with a root package.json whose workspaces come from rush.json
 #   notes            why the repository is in the corpus and what to expect from it
 
+# The comparison tools, pinned in this one place: parity, syncpack-diff and deadcode run them through npx, and
+# `skif-bench run` installs them into a scratch prefix and times their executables.
 [tools]
 knip = "6.44.1"
 syncpack = "15.3.3"
+sherif = "1.13.0"
 
 [[repo]]
 name = "create-t3-turbo"

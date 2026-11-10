@@ -1,5 +1,6 @@
 //! Runs hyperfine for skif and the optional comparison tools, then writes the summary.
 
+use std::collections::BTreeMap;
 use std::env;
 use std::fmt::Write as _;
 use std::fs;
@@ -10,9 +11,10 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::corpus;
+use crate::corpus::{self, Tools};
 use crate::parity;
-use crate::proc::find_on_path;
+use crate::proc::{capture, find_on_path};
+use crate::provenance;
 use crate::sources;
 use skif_bench::generate::{self, Options, PackageManager};
 
@@ -25,7 +27,7 @@ const KNIP_SPEEDUP_TARGET: f64 = 5.0;
 const GRAPH_TARGET_FILES: usize = 10_000;
 const GRAPH_TARGET_MS: f64 = 2000.0;
 /// Version of the `summary.json` layout.
-const SUMMARY_SCHEMA: u32 = 1;
+const SUMMARY_SCHEMA: u32 = 2;
 const GENERATED_SEED: u64 = 1;
 const GENERATED_MISMATCH_RATE: f64 = 0.05;
 /// How long an install of a corpus repository may take, unless the corpus manifest sets its own.
@@ -73,14 +75,27 @@ impl Tool {
         }
     }
 
-    /// The executable that must be on `PATH`, or `None` for skif (given by path).
-    const fn executable(self) -> Option<&'static str> {
+    /// The npm package (and its executable) of a comparison tool, or `None` for skif (given by path).
+    const fn package(self) -> Option<&'static str> {
         match self {
             Self::Skif | Self::SkifManifest => None,
             Self::Sherif => Some("sherif"),
             Self::Syncpack => Some("syncpack"),
             Self::Knip => Some("knip"),
         }
+    }
+}
+
+/// The comparison tools, each at the version `corpus.toml` pins.
+const COMPARISON_TOOLS: [Tool; 3] = [Tool::Sherif, Tool::Syncpack, Tool::Knip];
+
+/// The pinned version of a comparison tool; `None` for skif.
+fn pinned(tools: &Tools, tool: Tool) -> Option<&str> {
+    match tool {
+        Tool::Sherif => Some(&tools.sherif),
+        Tool::Syncpack => Some(&tools.syncpack),
+        Tool::Knip => Some(&tools.knip),
+        Tool::Skif | Tool::SkifManifest => None,
     }
 }
 
@@ -203,15 +218,32 @@ struct TargetCheck {
     passed: bool,
 }
 
+/// A comparison tool left out of a target, or of the whole run (`target` is `None`), and why.
+#[derive(Debug, Clone, Serialize)]
+struct Skipped {
+    tool: String,
+    target: Option<String>,
+    reason: String,
+}
+
 #[derive(Debug, Serialize)]
 struct Summary {
     schema: u32,
     skif: String,
+    /// The skif source commit (`-dirty` with local changes) the harness ran from.
+    source_rev: String,
     host: String,
+    cpu: String,
+    cores: usize,
+    /// The 1, 5 and 15 minute load averages before the first and after the last measurement.
+    load_before: Option<[f64; 3]>,
+    load_after: Option<[f64; 3]>,
     hyperfine: String,
+    /// Each comparison tool's `--version` output, from the install of the versions `corpus.toml` pins.
+    tool_versions: BTreeMap<String, String>,
     warmup: u32,
     runs: u32,
-    skipped_tools: Vec<String>,
+    skipped_tools: Vec<Skipped>,
     targets: Vec<TargetResult>,
     adr_0001_checks: Vec<TargetCheck>,
 }
@@ -226,6 +258,7 @@ fn quote(argument: &str) -> String {
 }
 
 fn skif_command(skif: &Path, extra: &[String], no_js: bool) -> String {
+    // `extra` holds the target's own arguments (such as `--recursive`) after the run's `--skif-arg`s.
     let mut parts = vec![
         quote(&skif.to_string_lossy()),
         ".".to_owned(),
@@ -240,13 +273,15 @@ fn skif_command(skif: &Path, extra: &[String], no_js: bool) -> String {
     parts.join(" ")
 }
 
-fn tool_command(tool: Tool, skif: &Path, extra: &[String], knip_args: &[String]) -> String {
+/// The command line of `tool`, whose executable is `program` (the skif binary for the skif rows).
+fn tool_command(tool: Tool, program: &Path, extra: &[String], knip_args: &[String]) -> String {
+    let quoted = || quote(&program.to_string_lossy());
     match tool {
-        Tool::Skif => skif_command(skif, extra, false),
-        Tool::SkifManifest => skif_command(skif, extra, true),
-        Tool::Sherif => "sherif .".to_owned(),
-        Tool::Syncpack => "syncpack lint".to_owned(),
-        Tool::Knip => std::iter::once("knip --reporter json".to_owned())
+        Tool::Skif => skif_command(program, extra, false),
+        Tool::SkifManifest => skif_command(program, extra, true),
+        Tool::Sherif => format!("{} .", quoted()),
+        Tool::Syncpack => format!("{} lint", quoted()),
+        Tool::Knip => std::iter::once(format!("{} --reporter json", quoted()))
             .chain(knip_args.iter().map(|arg| quote(arg)))
             .collect::<Vec<_>>()
             .join(" "),
@@ -262,6 +297,8 @@ struct Target {
     tools: Vec<Tool>,
     /// The corpus repository's `bench-knip-args`.
     knip_args: Vec<String>,
+    /// skif arguments of this target: `--recursive` where the corpus repository sets `recursive`, as in `parity`.
+    skif_args: Vec<String>,
 }
 
 fn hyperfine(options: &RunOptions, target: &Target, commands: &[(Tool, String)], export: &Path) -> Result<()> {
@@ -385,14 +422,33 @@ fn markdown(summary: &Summary) -> String {
     let mut out = String::from("# skif benchmark results\n\n");
     let _ = write!(
         out,
-        "hyperfine `{}`, {} warmup runs, {} measured runs. Times are wall clock, warm file cache.\n\n",
-        summary.hyperfine, summary.warmup, summary.runs
+        "{} at `{}`; hyperfine `{}`, {} warmup runs, {} measured runs. Times are wall clock, warm file cache.\n\n",
+        summary.skif, summary.source_rev, summary.hyperfine, summary.warmup, summary.runs
     );
-    if !summary.skipped_tools.is_empty() {
+    let _ = write!(
+        out,
+        "Host: {}, {} ({} logical CPUs); load average {} before and {} after the run.\n\n",
+        summary.host,
+        summary.cpu,
+        summary.cores,
+        format_load(summary.load_before),
+        format_load(summary.load_after)
+    );
+    if !summary.tool_versions.is_empty() {
+        let versions: Vec<String> = summary
+            .tool_versions
+            .iter()
+            .map(|(tool, version)| format!("{tool} `{version}`"))
+            .collect();
+        let _ = write!(out, "Comparison tools: {}.\n\n", versions.join(", "));
+    }
+    for skipped in &summary.skipped_tools {
         let _ = write!(
             out,
-            "Skipped (not installed): {}.\n\n",
-            summary.skipped_tools.join(", ")
+            "Not timed: {} on {}: {}.\n\n",
+            skipped.tool,
+            skipped.target.as_deref().unwrap_or("every target"),
+            skipped.reason
         );
     }
     for target in &summary.targets {
@@ -441,6 +497,14 @@ fn markdown(summary: &Summary) -> String {
     out
 }
 
+/// `1.50 / 1.20 / 0.90` for the 1, 5 and 15 minute load averages, `unknown` without them.
+fn format_load(load: Option<[f64; 3]>) -> String {
+    load.map_or_else(
+        || "unknown".to_owned(),
+        |[one, five, fifteen]| format!("{one:.2} / {five:.2} / {fifteen:.2}"),
+    )
+}
+
 fn skif_version(skif: &Path) -> String {
     Command::new(skif).arg("--version").output().map_or_else(
         |_| "unknown".to_owned(),
@@ -456,18 +520,92 @@ fn hyperfine_version() -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-fn available_tools(skipped: &mut Vec<String>) -> Vec<Tool> {
-    let mut tools = Vec::new();
-    for tool in [Tool::Sherif, Tool::Syncpack, Tool::Knip] {
-        let name = tool.executable().unwrap_or_default();
-        if find_on_path(name).is_some() {
-            tools.push(tool);
+/// The `npm install` arguments that put the pinned comparison tools into `prefix`.
+fn tool_install_args(tools: &Tools, prefix: &Path) -> Vec<String> {
+    let mut args: Vec<String> = ["install", "--no-save", "--no-package-lock", "--no-audit", "--no-fund", "--prefix"]
+        .map(str::to_owned)
+        .into();
+    args.push(prefix.to_string_lossy().into_owned());
+    args.extend(
+        COMPARISON_TOOLS
+            .iter()
+            .filter_map(|&tool| Some(format!("{}@{}", tool.package()?, pinned(tools, tool)?))),
+    );
+    args
+}
+
+/// Installs the comparison tools at their pinned versions into `prefix` once, so that hyperfine times their
+/// executables directly (not through `npx`, whose resolution would be timed too), and returns each installed tool
+/// with its executable. A tool that cannot be installed is recorded in `skipped`.
+fn install_tools(tools: &Tools, prefix: &Path, skipped: &mut Vec<Skipped>) -> Result<Vec<(Tool, PathBuf)>> {
+    let mut skip_all = |reason: String| {
+        for tool in COMPARISON_TOOLS {
+            eprintln!("bench: {} is not timed: {reason}", tool.label());
+            skipped.push(Skipped {
+                tool: tool.label().to_owned(),
+                target: None,
+                reason: reason.clone(),
+            });
+        }
+        Vec::new()
+    };
+    if find_on_path("npm").is_none() {
+        return Ok(skip_all("npm is not installed, so the pinned tools cannot be".to_owned()));
+    }
+    fs::create_dir_all(prefix).with_context(|| format!("creating {}", prefix.display()))?;
+    eprintln!("bench: installing the pinned comparison tools into {}", prefix.display());
+    let run = capture(
+        Command::new("npm").args(tool_install_args(tools, prefix)),
+        prefix,
+        "npm-install",
+        INSTALL_TIMEOUT,
+    )?;
+    if run.timed_out || run.code != Some(0) {
+        return Ok(skip_all(format!("npm install of the pinned tools failed: {}", run.failure_summary())));
+    }
+    let mut installed = Vec::new();
+    for tool in COMPARISON_TOOLS {
+        let program = prefix.join("node_modules").join(".bin").join(tool.package().unwrap_or_default());
+        if program.is_file() {
+            installed.push((tool, program));
         } else {
-            eprintln!("bench: {name} not installed, skipping");
-            skipped.push(name.to_owned());
+            skipped.push(Skipped {
+                tool: tool.label().to_owned(),
+                target: None,
+                reason: format!("the pinned install has no {}", program.display()),
+            });
         }
     }
-    tools
+    Ok(installed)
+}
+
+/// The `--version` output of an installed tool, its first line.
+fn tool_version(program: &Path) -> String {
+    Command::new(program).arg("--version").output().map_or_else(
+        |_| "unknown".to_owned(),
+        |output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .unwrap_or("unknown")
+                .trim()
+                .to_owned()
+        },
+    )
+}
+
+fn corpus_target_name(repo: &corpus::Repo) -> String {
+    format!("corpus: {} ({})", repo.name, repo.package_manager)
+}
+
+/// The skif arguments of a corpus repository: `--recursive` where it sets `recursive`, as `parity` runs it, so the
+/// timed run reads the nested roots knip reads from the root.
+fn corpus_skif_args(repo: &corpus::Repo) -> Vec<String> {
+    if repo.recursive {
+        vec!["--recursive".to_owned()]
+    } else {
+        Vec::new()
+    }
 }
 
 /// The ADR 0001 module graph case: one pnpm workspace whose packages hold `graph_files` TypeScript files in total.
@@ -495,6 +633,7 @@ fn graph_target(options: &RunOptions) -> Result<Target> {
         dir: fs::canonicalize(&dir)?,
         tools: vec![Tool::Skif],
         knip_args: Vec::new(),
+        skif_args: Vec::new(),
     })
 }
 
@@ -515,8 +654,22 @@ pub fn run(options: &RunOptions) -> Result<()> {
     let raw = std::path::absolute(options.out.join("raw")).context("resolving the output directory")?;
     fs::create_dir_all(&raw).with_context(|| format!("creating {}", raw.display()))?;
 
+    let source_rev = provenance::source_rev();
+    let (pins, _) = corpus::select(&options.corpus_file, "bench", &[])?;
     let mut skipped = Vec::new();
-    let comparison = available_tools(&mut skipped);
+    let prefix = std::path::absolute(options.generated_dir.join("tools")).context("resolving the tools directory")?;
+    let installed = install_tools(&pins, &prefix, &mut skipped)?;
+    let comparison: Vec<Tool> = installed.iter().map(|(tool, _)| *tool).collect();
+    let tool_versions: BTreeMap<String, String> = installed
+        .iter()
+        .filter_map(|(tool, program)| Some((tool.package()?.to_owned(), tool_version(program))))
+        .collect();
+    let program_of = |tool: Tool| -> PathBuf {
+        installed
+            .iter()
+            .find(|(candidate, _)| *candidate == tool)
+            .map_or_else(|| skif.clone(), |(_, program)| program.clone())
+    };
 
     let mut targets = Vec::new();
     for &size in &options.sizes {
@@ -544,6 +697,7 @@ pub fn run(options: &RunOptions) -> Result<()> {
             dir: fs::canonicalize(&dir)?,
             tools,
             knip_args: Vec::new(),
+            skif_args: Vec::new(),
         });
     }
     if options.graph_files > 0 {
@@ -561,26 +715,34 @@ pub fn run(options: &RunOptions) -> Result<()> {
                 if let Some(reason) = parity::install(&repo, &fs::canonicalize(&dir)?, &scratch, INSTALL_TIMEOUT)? {
                     eprintln!("bench: {} not installed ({reason}), knip is not timed there", repo.name);
                     tools.retain(|tool| *tool != Tool::Knip);
+                    skipped.push(Skipped {
+                        tool: Tool::Knip.label().to_owned(),
+                        target: Some(corpus_target_name(&repo)),
+                        reason: format!("the install failed: {reason}"),
+                    });
                 }
             }
             targets.push(Target {
-                name: format!("corpus: {} ({})", repo.name, repo.package_manager),
+                name: corpus_target_name(&repo),
                 kind: "corpus",
                 packages: None,
                 files: None,
                 dir: fs::canonicalize(&dir)?,
                 tools,
                 knip_args: repo.bench_knip_args.clone(),
+                skif_args: corpus_skif_args(&repo),
             });
         }
     }
 
+    let load_before = provenance::load_average();
     let mut measured = Vec::new();
     for (index, target) in targets.iter().enumerate() {
+        let skif_args: Vec<String> = options.skif_args.iter().chain(&target.skif_args).cloned().collect();
         let commands: Vec<(Tool, String)> = target
             .tools
             .iter()
-            .map(|&tool| (tool, tool_command(tool, &skif, &options.skif_args, &target.knip_args)))
+            .map(|&tool| (tool, tool_command(tool, &program_of(tool), &skif_args, &target.knip_args)))
             .collect();
         let export = raw.join(format!("{index:02}.json"));
         hyperfine(options, target, &commands, &export)?;
@@ -596,8 +758,14 @@ pub fn run(options: &RunOptions) -> Result<()> {
     let summary = Summary {
         schema: SUMMARY_SCHEMA,
         skif: skif_version(&skif),
+        source_rev,
         host: format!("{} {}", env::consts::OS, env::consts::ARCH),
+        cpu: provenance::cpu(),
+        cores: provenance::cores(),
+        load_before,
+        load_after: provenance::load_average(),
         hyperfine: version,
+        tool_versions,
         warmup: options.warmup,
         runs: options.runs,
         skipped_tools: skipped,
@@ -653,11 +821,17 @@ mod tests {
             relative_to_skif: Some(1.0),
             error_runs: 0,
         };
-        let summary = |checks: Vec<TargetCheck>, skipped: Vec<String>| Summary {
+        let summary = |checks: Vec<TargetCheck>, skipped: Vec<Skipped>| Summary {
             schema: SUMMARY_SCHEMA,
             skif: "skif 0.0.0".into(),
+            source_rev: "0123456789ab".into(),
             host: "linux x86_64".into(),
+            cpu: "Intel(R) Xeon(R) CPU @ 2.10GHz".into(),
+            cores: 4,
+            load_before: Some([1.5, 1.25, 1.0]),
+            load_after: None,
             hyperfine: "hyperfine 1.20.0".into(),
+            tool_versions: BTreeMap::from([("knip".to_owned(), "6.44.1".to_owned())]),
             warmup: 1,
             runs: 2,
             skipped_tools: skipped,
@@ -675,10 +849,28 @@ mod tests {
             description: "d".into(),
             passed: true,
         };
-        for text in [
-            markdown(&summary(vec![check], Vec::new())),
-            markdown(&summary(Vec::new(), vec!["knip".into()])),
-        ] {
+        let skipped = Skipped {
+            tool: "knip --reporter json".into(),
+            target: Some("corpus: r (pnpm)".into()),
+            reason: "the install failed: x".into(),
+        };
+        let with_skip = markdown(&summary(Vec::new(), vec![skipped]));
+        assert!(
+            with_skip.contains("Not timed: knip --reporter json on corpus: r (pnpm): the install failed: x."),
+            "{with_skip}"
+        );
+        assert!(
+            with_skip.contains("skif 0.0.0 at `0123456789ab`; hyperfine `hyperfine 1.20.0`"),
+            "{with_skip}"
+        );
+        assert!(
+            with_skip.contains(
+                "Host: linux x86_64, Intel(R) Xeon(R) CPU @ 2.10GHz (4 logical CPUs); load average 1.50 / 1.25 / 1.00 before and unknown after the run."
+            ),
+            "{with_skip}"
+        );
+        assert!(with_skip.contains("Comparison tools: knip `6.44.1`."), "{with_skip}");
+        for text in [markdown(&summary(vec![check], Vec::new())), with_skip] {
             assert!(text.ends_with(" |\n"), "{text:?}");
             assert!(!text.ends_with("\n\n"));
             assert!(!text.contains("\n\n\n"));
@@ -718,8 +910,9 @@ mod tests {
 
     #[test]
     fn knip_gets_the_repository_arguments_and_its_errors_are_reported() {
-        let line = tool_command(Tool::Knip, Path::new("skif"), &[], &["--no-gitignore".to_owned()]);
-        assert_eq!(line, "knip --reporter json --no-gitignore");
+        let knip = Path::new("/bench/tools/node_modules/.bin/knip");
+        let line = tool_command(Tool::Knip, knip, &[], &["--no-gitignore".to_owned()]);
+        assert_eq!(line, "/bench/tools/node_modules/.bin/knip --reporter json --no-gitignore");
         let mut knip = result("knip --reporter json", 1.0);
         knip.error_runs = 3;
         let target = TargetResult {
@@ -736,6 +929,53 @@ mod tests {
             "{}",
             found[0].description
         );
+    }
+
+    #[test]
+    fn the_comparison_tools_are_installed_at_their_pins_and_timed_by_path() {
+        let pins = Tools {
+            knip: "6.44.1".into(),
+            syncpack: "15.3.3".into(),
+            sherif: "1.13.0".into(),
+        };
+        let args = tool_install_args(&pins, Path::new("/bench/tools"));
+        assert_eq!(&args[..1], ["install"]);
+        let prefix = args.iter().position(|arg| arg == "--prefix").unwrap();
+        assert_eq!(args[prefix + 1], "/bench/tools");
+        assert!(args.contains(&"--no-save".to_owned()));
+        assert_eq!(
+            &args[args.len() - 3..],
+            ["sherif@1.13.0", "syncpack@15.3.3", "knip@6.44.1"]
+        );
+        let bin = Path::new("/my tools/node_modules/.bin");
+        assert_eq!(
+            tool_command(Tool::Sherif, &bin.join("sherif"), &[], &[]),
+            "\"/my tools/node_modules/.bin/sherif\" ."
+        );
+        assert_eq!(
+            tool_command(Tool::Syncpack, &bin.join("syncpack"), &[], &[]),
+            "\"/my tools/node_modules/.bin/syncpack\" lint"
+        );
+    }
+
+    #[test]
+    fn a_recursive_corpus_repository_is_timed_recursively() {
+        let file = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/corpus.toml"));
+        let (_, bench) = corpus::select(file, "bench", &[]).unwrap();
+        let babel = bench.iter().find(|repo| repo.name == "babel").unwrap();
+        assert!(babel.recursive);
+        let args = corpus_skif_args(babel);
+        assert_eq!(args, ["--recursive"]);
+        assert_eq!(
+            tool_command(Tool::Skif, Path::new("/s/skif"), &args, &[]),
+            "/s/skif . --format json --no-install --recursive"
+        );
+        assert_eq!(
+            tool_command(Tool::SkifManifest, Path::new("/s/skif"), &args, &[]),
+            "/s/skif . --format json --no-install --no-js --recursive"
+        );
+        let vue = bench.iter().find(|repo| repo.name == "vue-core").unwrap();
+        assert!(corpus_skif_args(vue).is_empty());
     }
 
     #[test]
