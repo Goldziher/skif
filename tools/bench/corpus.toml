@@ -49,7 +49,8 @@ url = "https://github.com/babel/babel.git"
 rev = "7750b3d6912344e8a621a99a393cc2f5d3f4d2db"
 package-manager = "yarn"
 suites = ["bench", "parity"]
-notes = "Large yarn monorepo."
+recursive = true
+notes = "Large yarn monorepo. scripts/repo-utils (linked from the root as `$repo-utils`) and scripts/integration-tests/fixtures/nextjs-10 are standalone projects outside the workspace patterns (nested roots), so skif runs recursively to read the files knip reads from the root."
 
 [[repo]]
 name = "npm-cli"
@@ -70,6 +71,10 @@ url = "https://github.com/angular/angular.git"
 rev = "37563fc32267fd0fcbdff8caf98862962e5d46b5"
 package-manager = "pnpm"
 suites = ["parity"]
+# Not recursive: the nested projects knip reads (packages/compiler-cli/preprocessor, integration/*) lie inside workspace
+# members, so a recursive run does not lint them as roots either (ADR 0022). It would add at most
+# packages/misc/angular-in-memory-web-api and packages/, whose manifest (`{"type": "module"}`) only marks the module
+# type and whose files the workspace already reads.
 notes = "Bazel-driven pnpm workspace; many integration projects."
 
 [[repo]]
