@@ -1388,7 +1388,10 @@ fn the_file_directory_is_placed_quoted() {
     let command = "cd $__skif_file_dir__/../sub && rspack";
     assert_eq!(place_file_dir(command, "a.ts"), "cd ./../sub && rspack");
     assert_eq!(place_file_dir(command, "scripts/a.ts"), "cd 'scripts'/../sub && rspack");
-    assert_eq!(place_file_dir(command, "my scripts/a.ts"), "cd 'my scripts'/../sub && rspack");
+    assert_eq!(
+        place_file_dir(command, "my scripts/a.ts"),
+        "cd 'my scripts'/../sub && rspack"
+    );
     assert_eq!(place_file_dir(command, "it's/a.ts"), r"cd 'it'\''s'/../sub && rspack");
 }
 

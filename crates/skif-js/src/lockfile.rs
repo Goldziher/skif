@@ -35,10 +35,11 @@ pub(crate) struct Locked {
 /// so reading it would make every locked package look like one without binaries; it is skipped. `bun.lock` is parsed
 /// once, for its packages and for its `configVersion`, which is read whichever lockfile the packages come from.
 pub(crate) fn read(fs: &dyn FileSystem, root: &Path) -> Locked {
-    let bun_lock = fs.read_to_string(&root.join("bun.lock")).ok().map(|text| parse_bun(&text));
-    let bun_config_version = bun_lock
-        .as_ref()
-        .and_then(|lock| lock.get("configVersion")?.as_u64());
+    let bun_lock = fs
+        .read_to_string(&root.join("bun.lock"))
+        .ok()
+        .map(|text| parse_bun(&text));
+    let bun_config_version = bun_lock.as_ref().and_then(|lock| lock.get("configVersion")?.as_u64());
     let entries = if let Ok(text) = fs.read_to_string(&root.join("pnpm-lock.yaml")) {
         pnpm(&text)
     } else if let Ok(text) = fs.read_to_string(&root.join("package-lock.json")) {
@@ -322,7 +323,8 @@ mod tests {
 
     #[test]
     fn bun_lock_peers_and_bins() {
-        let entries = bun(&parse_bun(r#"{
+        let entries = bun(&parse_bun(
+            r#"{
   "lockfileVersion": 1,
   "workspaces": { "": { "name": "app", }, },
   "packages": {
@@ -330,7 +332,8 @@ mod tests {
     "oxlint": ["oxlint@1.0.0", "", { "bin": { "oxlint": "bin.js" } }, "sha512-y"],
     "app": ["app@workspace:."],
   },
-}"#));
+}"#,
+        ));
         assert!(entries["@s/react"].peers.contains("@s/dom") && entries["@s/react"].peers.contains("react"));
         assert!(entries["oxlint"].bins.contains("oxlint"));
     }
@@ -353,7 +356,10 @@ mod tests {
             .with_file("/r/pnpm-lock.yaml", "lockfileVersion: '9.0'\n")
             .with_file("/r/bun.lock", lock("\n  \"configVersion\": 1,"));
         assert_eq!(read(&fs, Path::new("/r")).bun_config_version, Some(1));
-        assert_eq!(read(&skif_core::MemoryFs::new(), Path::new("/r")).bun_config_version, None);
+        assert_eq!(
+            read(&skif_core::MemoryFs::new(), Path::new("/r")).bun_config_version,
+            None
+        );
     }
 
     #[test]

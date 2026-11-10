@@ -121,12 +121,7 @@ const RUSH_COMMANDS: &[&str] = &["rush", "rushx", "rush-pnpm"];
 /// on it. An unknown package manager counts as hoisting, so it reports nothing new, and so does a Yarn whose version
 /// the repository does not tell ([`yarn_berry`]).
 /// `bun_config_version` is the `configVersion` of `bun.lock`.
-fn hoists_member_bins(
-    workspace: &Workspace,
-    rush: bool,
-    bun_config_version: Option<u64>,
-    fs: &dyn FileSystem,
-) -> bool {
+fn hoists_member_bins(workspace: &Workspace, rush: bool, bun_config_version: Option<u64>, fs: &dyn FileSystem) -> bool {
     if rush {
         return false;
     }
