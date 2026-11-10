@@ -137,7 +137,10 @@ fn a_pnpmfile_alone_does_not_give_a_project_source_whose_dependencies_are_judged
 #[test]
 fn a_pnpmfile_uses_what_it_imports_in_a_project_with_source() {
     let diagnostics = pnpmfile_project(
-        &[("src/index.js", "import express from 'express';\nexport default express;\n")],
+        &[(
+            "src/index.js",
+            "import express from 'express';\nexport default express;\n",
+        )],
         r#""express":"4.21.0","lodash":"4.17.21","semver":"7.6.0""#,
     );
     assert_eq!(
