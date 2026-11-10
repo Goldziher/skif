@@ -354,8 +354,11 @@ impl Collector<'_, '_> {
             // As for the scripts of `package.json`: a binary fetched on demand, run in another workspace or that the
             // script parser ignores is never unlisted here.
             let judged = !optional || binary.via != BinaryVia::Direct || binary.bin_path;
-            if judged && !binary.filtered && !binary.via.is_ephemeral() && !is_ignored_binary(&binary.name) {
-                let run = BinaryRef::new(binary.name.clone(), from, binary.dir.clone());
+            // A filtered binary counts only as a credit to the package of the directory it runs in.
+            let dir = binary.relocation_dir().map(str::to_owned);
+            let placed = !binary.filtered || dir.is_some();
+            if judged && placed && !binary.via.is_ephemeral() && !is_ignored_binary(&binary.name) {
+                let run = BinaryRef::new(binary.name.clone(), from, dir, binary.filtered);
                 if !self.out.run_binaries.contains(&run) {
                     self.out.run_binaries.push(run);
                 }

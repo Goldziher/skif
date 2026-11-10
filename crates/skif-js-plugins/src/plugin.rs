@@ -436,18 +436,23 @@ pub struct BinaryRef {
     pub from: PathBuf,
     /// The directory the command runs the binary in after `cd` or `pushd`, relative to the directory of the package
     /// the plugin runs for, where the command starts, `/`-separated; `None` there and when the directory is not a
-    /// static relative path (see [`BinaryUse::dir`](crate::scripts::BinaryUse::dir)).
+    /// static relative path (see [`BinaryUse::relocation_dir`](crate::scripts::BinaryUse::relocation_dir)).
     pub dir: Option<String>,
+    /// The command runs the binary in `dir` without naming a workspace (`pnpm -C sub exec rspack`): it is credited to
+    /// the package there and never judged where the command starts.
+    pub filtered: bool,
 }
 
 impl BinaryRef {
-    /// The binary `name` that a command read from `from` runs, in `dir` (see [`BinaryRef::dir`]).
+    /// The binary `name` that a command read from `from` runs, in `dir` (see [`BinaryRef::dir`] and
+    /// [`BinaryRef::filtered`]).
     #[must_use]
-    pub fn new(name: String, from: &Path, dir: Option<String>) -> Self {
+    pub fn new(name: String, from: &Path, dir: Option<String>, filtered: bool) -> Self {
         Self {
             name,
             from: from.to_path_buf(),
             dir,
+            filtered,
         }
     }
 }

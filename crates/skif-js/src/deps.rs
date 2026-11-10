@@ -1140,6 +1140,9 @@ impl DependencyUsage {
                     self.provide_binary(target, &run.name);
                     continue;
                 }
+                if run.filtered {
+                    continue;
+                }
                 let file = relative(&run.file, &workspace.root).map_or_else(|| run.file.clone(), PathBuf::from);
                 self.run_binary(setup, id, &run.name, &file);
             }
@@ -1180,7 +1183,7 @@ impl DependencyUsage {
                 .into_iter()
                 .filter(|binary| !is_ignored_binary(&binary.name));
             for binary in binaries.chain(global_binaries) {
-                if let Some(target) = self.relocated(id, binary.dir.as_deref()) {
+                if let Some(target) = self.relocated(id, binary.relocation_dir()) {
                     self.provide_binary(target, &binary.name);
                     continue;
                 }

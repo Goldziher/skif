@@ -692,3 +692,42 @@ fn source_commands_with_a_cwd_of_the_file_run_in_that_directory() {
         "{diagnostics:#?}"
     );
 }
+
+/// A binary that a package manager runs in another workspace package's directory without naming a workspace
+/// (`pnpm -C sub exec`) is credited to that package wherever the command is read, a workflow as a script; one whose
+/// command names the workspaces it runs in (`--filter sub`) is not credited to the directory it starts in.
+#[test]
+fn filtered_binaries_are_credited_to_their_directory_only_without_named_workspaces() {
+    let root = manifest(&format!(
+        r#""name":"root","private":true,{PNPM},"main":"scripts/build.mjs""#
+    ));
+    let workflow = "name: build\non: [push]\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      \
+                    - run: pnpm -C sub exec rspack build\n";
+    let files = [
+        ("package.json", root.as_str()),
+        ("pnpm-workspace.yaml", "packages:\n  - sub\n  - web\n"),
+        (
+            "sub/package.json",
+            r#"{"name":"sub","private":true,"main":"index.js","devDependencies":{"@rspack/cli":"1.0.0"}}"#,
+        ),
+        ("sub/index.js", "module.exports = 1;\n"),
+        (
+            "web/package.json",
+            r#"{"name":"web","private":true,"main":"index.js","devDependencies":{"rimraf":"6.0.0"}}"#,
+        ),
+        ("web/index.js", "module.exports = 2;\n"),
+        (".github/workflows/build.yml", workflow),
+        (
+            "scripts/build.mjs",
+            "import { execSync } from 'node:child_process';\n\
+             execSync('cd web && pnpm --filter sub exec rimraf dist');\n",
+        ),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        ["web/package.json: rimraf"],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(found(&diagnostics, "unlisted-binaries"), none(), "{diagnostics:#?}");
+}
