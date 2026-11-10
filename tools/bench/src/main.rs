@@ -43,7 +43,7 @@ enum Command {
         #[command(subcommand)]
         action: CorpusAction,
     },
-    /// Benchmark skif (and any installed comparison tools) with hyperfine.
+    /// Benchmark skif and the pinned comparison tools with hyperfine.
     Run(RunArgs),
     /// Compare skif's findings with a pinned knip on the corpus.
     Parity(ParityArgs),
@@ -278,7 +278,7 @@ struct RunArgs {
     #[arg(long, default_value_t = 3)]
     warmup: u32,
     /// Hyperfine measured runs.
-    #[arg(long, default_value_t = 10)]
+    #[arg(long, default_value_t = 15)]
     runs: u32,
     /// Source files of the module graph case (ADR 0001: 10,000 files); 0 skips it.
     #[arg(long, default_value_t = 10_000)]

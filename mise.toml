@@ -39,7 +39,7 @@ alias = ["fmt:check"]
 run = ["cargo fmt --all -- --check", "poly fmt ."]
 
 [tasks.bench]
-description = "Build skif in release mode and benchmark it with hyperfine (needs hyperfine; sherif, syncpack and knip are used when installed)"
+description = "Build skif in release mode and benchmark it with hyperfine against the sherif, syncpack and knip pinned in tools/bench/corpus.toml (needs hyperfine and npm)"
 run = [
   "cargo build --release --locked -p skif-cli",
   "cargo run --release --locked -p skif-bench -- run --skif target/release/skif",
