@@ -1068,7 +1068,10 @@ fn package_managers_after_cd_to_an_unknown_directory_work_on_the_package_there()
         assert!(info.run_scripts.is_empty(), "{script}: {:?}", info.run_scripts);
     }
     // A binary run by name there is still judged where the script starts, as before.
-    assert_eq!(judged_binaries(&parse_script("cd /tmp && vitest run", &ctx)), ["vitest"]);
+    assert_eq!(
+        judged_binaries(&parse_script("cd /tmp && vitest run", &ctx)),
+        ["vitest"]
+    );
     // Back where the script starts, or in a static directory, the package's scripts are followed.
     for script in [
         "pushd /tmp && popd && npm run build",
