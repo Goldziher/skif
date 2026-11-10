@@ -111,9 +111,10 @@ An unknown rule id is rejected with a closest-match suggestion. See the [rules](
 #### Toolchain files
 
 `toolchain-pin-drift` and `foreign-package-manager-command` read the files beside the manifests: in the root and every package directory the version files
-(`.nvmrc`, `.node-version`, `.tool-versions`, `mise.toml`, `.mise.toml`), Dockerfiles (`Dockerfile`, `Dockerfile.*`,
+(`.nvmrc`, `.node-version`, `.bun-version`, `.tool-versions`, `mise.toml`, `.mise.toml`), Dockerfiles (`Dockerfile`, `Dockerfile.*`,
 `*.Dockerfile`, `Containerfile`) and `*.sh`, the last two also in their `docker` and `scripts` subdirectories, and the
-root's `.github/workflows/*.yml`. A file below a directory with a `package.json` that is not a workspace package
+root's `.github/workflows/*.yml`. A Dockerfile pins Node with `FROM node:<version>` and Bun with
+`FROM oven/bun:<version>`. A file below a directory with a `package.json` that is not a workspace package
 belongs to another project and is not read. Every one of these files takes `#` comments, which suppress a finding
 there; the reason after `--` is required, and a comment without one suppresses nothing:
 
