@@ -14,7 +14,7 @@ use skif_workspace::PackageId;
 use crate::analysis::JsAnalysis;
 use crate::discover::relative;
 use crate::globs::Globs;
-use crate::graph::{Module, ModuleId, Target};
+use crate::graph::{Module, ModuleId, ResolvedImport, Target};
 use crate::input::IncompleteEntries;
 use crate::manifest_paths::{crossing_stars, manifest_targets, source_candidates, source_patterns};
 use crate::resolve::join_normalized;
@@ -101,7 +101,8 @@ pub enum Absence {
 pub struct Importer {
     /// The importing file, relative to the workspace root.
     pub file: String,
-    /// 1-based line of the import.
+    /// 1-based line of the import; 0 for an import with no location, that of a registered component a template of the
+    /// file uses (ADR 0084).
     pub line: u32,
     /// How the import is written.
     pub kind: ImportKind,
@@ -118,7 +119,8 @@ pub struct Importer {
 pub struct ExportUser {
     /// The importing file, relative to the workspace root.
     pub file: String,
-    /// 1-based line of the import.
+    /// 1-based line of the import; 0 for an import with no location, that of a registered component a template of the
+    /// file uses (ADR 0084).
     pub line: u32,
     /// What the import takes.
     pub how: String,
@@ -326,6 +328,10 @@ impl UsageReport {
         } else {
             let _ = writeln!(out, "  imported by {} place(s):", self.imported_by.len());
             for importer in self.imported_by.iter().take(MAX_LISTED) {
+                if importer.line == 0 {
+                    let _ = writeln!(out, "    {} ({COMPONENT_USE})", importer.file);
+                    continue;
+                }
                 let _ = writeln!(
                     out,
                     "    {}:{} ({}: {})",
@@ -352,6 +358,15 @@ impl UsageReport {
         }
         out
     }
+}
+
+/// How a template's use of a registered component is described: the import skif adds for it has no location.
+const COMPONENT_USE: &str = "a template uses it as a registered component";
+
+/// The line of `import` for a report: 0 for the import of a registered component a template uses, which has no
+/// location of its own.
+fn import_line(resolved: &ResolvedImport, import: &Import) -> u32 {
+    if resolved.component { 0 } else { import.span.start_line }
 }
 
 /// The stable name of an import kind, as in the JSON output.
@@ -404,6 +419,10 @@ fn render_export(export: &ExportReport, depth: usize, out: &mut String) {
         } else {
             "; no entry file reaches the importer"
         };
+        if user.line == 0 {
+            let _ = writeln!(out, "{pad}  imported by {} ({COMPONENT_USE}{unreached})", user.file);
+            continue;
+        }
         let _ = writeln!(
             out,
             "{pad}  imported by {}:{} ({}{unreached})",
@@ -449,7 +468,21 @@ fn describe_name(name: &ImportedName) -> String {
         ImportedKind::Default => "default".to_owned(),
         ImportedKind::Named(export) => export.clone(),
         ImportedKind::Namespace if name.escapes => "the namespace, used as a whole".to_owned(),
+        ImportedKind::Namespace if name.accessed_members.is_empty() => "the namespace, no member read".to_owned(),
         ImportedKind::Namespace => format!("the namespace, members {}", name.accessed_members.join(", ")),
+    }
+}
+
+/// What one name of an import of `kind` takes: an `export * from` forwards every export rather than reading members.
+fn describe_imported(kind: ImportKind, name: &ImportedName) -> String {
+    let star = kind == ImportKind::ExportFrom
+        && name.kind == ImportedKind::Namespace
+        && !name.escapes
+        && name.accessed_members.is_empty();
+    if star {
+        "every export, re-exported".to_owned()
+    } else {
+        describe_name(name)
     }
 }
 
@@ -556,7 +589,7 @@ impl JsAnalysis<'_> {
             entry,
             imported_by: self.importers(module, &walk),
             chain_from_entry: chain,
-            export: export.map(|name| self.explain_export(module, name, 0, &mut walk)),
+            export: export.map(|name| self.explain_export(module, name, 0, &mut walk, false)),
         }
     }
 
@@ -770,9 +803,9 @@ impl JsAnalysis<'_> {
                 if let Some(import) = importer.info.imports.get(resolved.import) {
                     found.push(Importer {
                         file: slashed(&importer.path),
-                        line: import.span.start_line,
+                        line: import_line(resolved, import),
                         kind: import.kind,
-                        names: import.names.iter().map(describe_name).collect(),
+                        names: import.names.iter().map(|name| describe_imported(import.kind, name)).collect(),
                         reachable: walk.reachable.contains(importer_id),
                     });
                 }
@@ -814,7 +847,17 @@ impl JsAnalysis<'_> {
         None
     }
 
-    fn explain_export(&self, module: &Module, name: &str, depth: usize, walk: &mut Walk) -> ExportReport {
+    /// Why export `name` of `module` counts as used. With `through_star`, `module` forwards the name with an
+    /// `export * from`, which declares no export of that name, and the name is followed through its users and
+    /// re-exports all the same.
+    fn explain_export(
+        &self,
+        module: &Module,
+        name: &str,
+        depth: usize,
+        walk: &mut Walk,
+        through_star: bool,
+    ) -> ExportReport {
         let mut report = ExportReport {
             name: name.to_owned(),
             file: slashed(&module.path),
@@ -829,17 +872,19 @@ impl JsAnalysis<'_> {
             entries_incomplete: false,
             already_explained: false,
         };
-        let Some(export) = module.info.exports.iter().find(|export| export.name == name) else {
+        let export = module.info.exports.iter().find(|export| export.name == name);
+        if export.is_none() && !through_star {
             return report;
-        };
+        }
         if !walk.seen.insert((module.id, name.to_owned())) {
             report.already_explained = true;
             report.verdict = Verdict::Unused;
             return report;
         }
         report.entry_public = module.is_entry && !self.setup.includes_entry_exports(module.owner);
-        report.tagged_public = self.is_tagged_public(export);
-        report.is_re_export = matches!(export.kind, ExportKind::ReExport | ExportKind::StarReExport);
+        report.tagged_public = export.is_some_and(|export| self.is_tagged_public(export));
+        report.is_re_export =
+            export.is_none_or(|export| matches!(export.kind, ExportKind::ReExport | ExportKind::StarReExport));
         report.entries_incomplete = !self.judges_exports_of(module);
         for importer_id in self.graph.imported_by(module.id) {
             let importer = self.graph.module(*importer_id);
@@ -853,7 +898,7 @@ impl JsAnalysis<'_> {
                 if let Some(how) = uses_export(import, name) {
                     report.users.push(ExportUser {
                         file: slashed(&importer.path),
-                        line: import.span.start_line,
+                        line: import_line(resolved, import),
                         how,
                         reachable: walk.reachable.contains(importer_id),
                     });
@@ -863,9 +908,16 @@ impl JsAnalysis<'_> {
                 self.explain_reexports(importer, module, name, depth, walk, &mut report.re_exports);
             }
         }
-        report.registered = self.setup.is_registered(module.owner, export);
-        let used = report.registered || self.exports.is_used(module.id, name);
-        report.in_used_signature = !used && self.in_used_signature(module, export, &mut HashSet::new());
+        report.registered = export.is_some_and(|export| self.setup.is_registered(module.owner, export));
+        let forwarded_use = export.is_none()
+            && (!report.users.is_empty()
+                || report
+                    .re_exports
+                    .iter()
+                    .any(|re_export| matches!(re_export.export.verdict, Verdict::Used | Verdict::Public)));
+        let used = report.registered || forwarded_use || self.exports.is_used(module.id, name);
+        report.in_used_signature = !used
+            && export.is_some_and(|export| self.in_used_signature(module, export, &mut HashSet::new()));
         report.verdict = if report.entry_public || report.tagged_public {
             Verdict::Public
         } else if used || report.in_used_signature {
@@ -911,15 +963,12 @@ impl JsAnalysis<'_> {
             if !forwarded {
                 continue;
             }
-            let exposed = if export.kind == ExportKind::StarReExport && export.name == "*" {
-                name
-            } else {
-                export.name.as_str()
-            };
+            let through_star = export.kind == ExportKind::StarReExport && export.name == "*";
+            let exposed = if through_star { name } else { export.name.as_str() };
             out.push(ReExport {
                 file: slashed(&importer.path),
                 name: exposed.to_owned(),
-                export: self.explain_export(importer, exposed, depth + 1, walk),
+                export: self.explain_export(importer, exposed, depth + 1, walk, through_star),
             });
         }
     }
