@@ -6,7 +6,8 @@
 //! [`command_in_call_dir`]).
 
 use skif_js_syntax::{
-    ConfigValue, ImportedCall, command_in_call_dir, extract_command_calls, file_call_options, literal_command,
+    ConfigValue, ImportedCall, command_in_call_dir, command_line_call, extract_command_calls, file_call_options,
+    literal_command,
 };
 
 use crate::plugin::{Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
@@ -60,10 +61,7 @@ fn execa_script(call: &ImportedCall) -> Option<String> {
         "execa" | "execaSync" | "$sync" | "default" | "sync" => safe_command(arguments),
         "execaNode" | "node" => literal_command(arguments)
             .map(|command| command_in_call_dir(format!("node {command}"), file_call_options(arguments))),
-        "execaCommand" | "execaCommandSync" | "command" | "commandSync" => {
-            let command = arguments.first().and_then(ConfigValue::as_str)?;
-            Some(command_in_call_dir(command.to_owned(), arguments.get(1)))
-        }
+        "execaCommand" | "execaCommandSync" | "command" | "commandSync" => command_line_call(arguments),
         _ => None,
     }
 }

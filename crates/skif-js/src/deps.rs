@@ -1178,11 +1178,7 @@ impl DependencyUsage {
                 }
             }
             for run in &package_setup.run_binaries {
-                if let Some(target) = self.relocated(id, run.dir.as_deref()) {
-                    self.provide_binary(target, &run.name);
-                    continue;
-                }
-                if run.filtered {
+                if self.judged_elsewhere(id, &run.name, run.dir.as_deref(), run.filtered) {
                     continue;
                 }
                 let file = relative(&run.file, &workspace.root).map_or_else(|| run.file.clone(), PathBuf::from);
@@ -1203,11 +1199,11 @@ impl DependencyUsage {
         context: &ScriptContext,
     ) {
         // A call whose `cwd` is computed from the file's location runs in the file's directory.
-        let file_dir = self.dir_in_package(id, file);
+        let path = self.path_in_package(id, file);
         for command in commands {
-            let command = file_dir
+            let command = path
                 .as_deref()
-                .map_or_else(|| command.clone(), |dir| place_file_dir(command, dir));
+                .map_or_else(|| command.clone(), |path| place_file_dir(command, path));
             let info = parse_script(&command, context);
             for dependency in &info.dependencies {
                 if let Some(found) = self.find_listed(id, &dependency.name) {
@@ -1225,11 +1221,7 @@ impl DependencyUsage {
                 .into_iter()
                 .filter(|binary| !is_ignored_binary(&binary.name));
             for binary in binaries.chain(global_binaries) {
-                if let Some(target) = self.relocated(id, binary.relocation_dir()) {
-                    self.provide_binary(target, &binary.name);
-                    continue;
-                }
-                if binary.filtered {
+                if self.judged_elsewhere(id, &binary.name, binary.relocation_dir(), binary.filtered) {
                     continue;
                 }
                 if binary.via.is_ephemeral() {
@@ -1241,19 +1233,15 @@ impl DependencyUsage {
         }
     }
 
-    /// The directory of `file`, relative to the root, relative to the directory of package `id`, `/`-separated and
-    /// empty for the package directory itself; `None` when the file is not below it.
-    fn dir_in_package(&self, id: PackageId, file: &Path) -> Option<String> {
+    /// `file`, relative to the root, as a path relative to the directory of package `id`, `/`-separated; `None` when
+    /// the file is not below it.
+    fn path_in_package(&self, id: PackageId, file: &Path) -> Option<String> {
         let base = self.dirs.iter().find(|(package, _)| *package == id)?.1.as_str();
-        let parent = file.parent()?.to_string_lossy().replace('\\', "/");
+        let path = file.to_string_lossy().replace('\\', "/");
         if base.is_empty() {
-            return Some(parent);
+            return Some(path);
         }
-        let rest = parent.strip_prefix(base)?;
-        if rest.is_empty() {
-            return Some(String::new());
-        }
-        rest.strip_prefix('/').map(str::to_owned)
+        path.strip_prefix(base)?.strip_prefix('/').map(str::to_owned)
     }
 
     /// The other workspace package whose directory holds `dir`, where a command of package `id` runs a binary after
@@ -1263,6 +1251,17 @@ impl DependencyUsage {
     fn relocated(&self, id: PackageId, dir: Option<&str>) -> Option<PackageId> {
         let target = package_in_dir(&self.dirs, id, dir?);
         (target != id).then_some(target)
+    }
+
+    /// Whether binary `name`, which a command of package `id` runs in `dir` or `filtered` to other workspaces, is no
+    /// binary of `id`: in another package's directory ([`Self::relocated`]) it is credited to that package, and a
+    /// filtered one belongs to the workspaces the filter names.
+    fn judged_elsewhere(&mut self, id: PackageId, name: &str, dir: Option<&str>, filtered: bool) -> bool {
+        if let Some(target) = self.relocated(id, dir) {
+            self.provide_binary(target, name);
+            return true;
+        }
+        filtered
     }
 
     /// A binary that a command read from `file` (relative to the root) runs in package `id`: a use of the dependency

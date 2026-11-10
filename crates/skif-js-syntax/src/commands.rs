@@ -7,7 +7,7 @@
 use oxc_ast::ast::Program;
 
 use crate::config::{
-    ConfigValue, ImportedCall, command_in_call_dir, file_call_options, imported_calls_in, literal_command,
+    ImportedCall, command_in_call_dir, command_line_call, file_call_options, imported_calls_in, literal_command,
 };
 use crate::model::Import;
 
@@ -37,10 +37,7 @@ fn command(call: &ImportedCall) -> Option<String> {
     }
     let arguments = &call.arguments;
     match call.export.as_str() {
-        "exec" | "execSync" => {
-            let command = arguments.first().and_then(ConfigValue::as_str)?;
-            Some(command_in_call_dir(command.to_owned(), arguments.get(1)))
-        }
+        "exec" | "execSync" => command_line_call(arguments),
         "spawn" | "spawnSync" | "execFile" | "execFileSync" => {
             literal_command(arguments).map(|command| command_in_call_dir(command, file_call_options(arguments)))
         }

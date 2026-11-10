@@ -1382,14 +1382,14 @@ fn child_process_commands_with_a_cwd_of_the_process_or_the_file() {
     );
 }
 
-/// The file's directory takes the place of `$__skif_file_dir__` quoted, so a shell reads it as part of one word.
+/// The directory of the file takes the place of `$__skif_file_dir__` quoted, so a shell reads it as part of one word.
 #[test]
 fn the_file_directory_is_placed_quoted() {
     let command = "cd $__skif_file_dir__/../sub && rspack";
-    assert_eq!(place_file_dir(command, ""), "cd ./../sub && rspack");
-    assert_eq!(place_file_dir(command, "scripts"), "cd 'scripts'/../sub && rspack");
-    assert_eq!(place_file_dir(command, "my scripts"), "cd 'my scripts'/../sub && rspack");
-    assert_eq!(place_file_dir(command, "it's"), r"cd 'it'\''s'/../sub && rspack");
+    assert_eq!(place_file_dir(command, "a.ts"), "cd ./../sub && rspack");
+    assert_eq!(place_file_dir(command, "scripts/a.ts"), "cd 'scripts'/../sub && rspack");
+    assert_eq!(place_file_dir(command, "my scripts/a.ts"), "cd 'my scripts'/../sub && rspack");
+    assert_eq!(place_file_dir(command, "it's/a.ts"), r"cd 'it'\''s'/../sub && rspack");
 }
 
 #[test]
