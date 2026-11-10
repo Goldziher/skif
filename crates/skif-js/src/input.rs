@@ -31,7 +31,7 @@ pub struct RunBinary {
     pub file: PathBuf,
 }
 
-/// A package that a tool's config file names itself (a `tsconfig` `extends`, an ESLint plugin, a Prisma generator):
+/// A package that a tool's config file names itself (a `tsconfig` `extends`, an eslint plugin, a Prisma generator):
 /// the config needs it installed. See [`WorkspaceInputs::config_dependencies`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigDependency {
