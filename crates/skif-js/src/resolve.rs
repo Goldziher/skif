@@ -2042,11 +2042,11 @@ generated/index.ts
         let todos = Path::new("/ws/src/routes/todos/+page.svelte");
         let about = Path::new("/ws/src/routes/about/+page.svelte");
 
-        // The config is generated but its ignored `types` root directory is not: the route types are unknown, as
-        // below any ignored `rootDirs` directory not generated yet.
+        // The config is generated but its ignored `types` root directory is not: the route types are unknown, like
+        // any relative import that may resolve below an ignored `rootDirs` directory not generated yet.
         let r = resolver(&files);
         assert_eq!(r.resolve(todos, "./$types").target, Resolved::Ignored);
-        assert_eq!(r.resolve(todos, "./missing").target, Resolved::Unresolved);
+        assert_eq!(r.resolve(todos, "./missing").target, Resolved::Ignored);
 
         // Once the types directory is generated, a route type it lacks is unresolved.
         let r = resolver(&[
