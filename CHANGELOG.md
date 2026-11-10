@@ -206,6 +206,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- npm package: a panic in `skif` exits `2` (could not run) with the JSON `error` document (kind `internal`) under
+  `--format json`, as the native binary does; it surfaced as a JavaScript exception with exit code 1 and no document.
+  `skif_cli::run` catches the panic.
 - An unknown rule ID in the configuration names the file and line that set it (`preset.toml:4:1: unknown rule ...`,
   with `path`, `line` and `column` in the JSON error), also in an extended preset; for a package file the error names
   the file. It had no location at all. `skif::Target::locate` attributes the error for library hosts.

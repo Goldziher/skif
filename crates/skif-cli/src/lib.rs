@@ -46,8 +46,31 @@ use output::emit_error;
 /// Runs the CLI with `args` (the first item is the program name, as in `std::env::args_os`) and returns the exit
 /// code. The npm addon calls this; the `skif` binary calls [`run_to_exit`], which differs only in what happens to
 /// memory, so their behaviour cannot drift.
+///
+/// A panic in skif is caught and exits 2 with the panic message on stderr, as the binary's
+/// [`install_panic_hook`] does; with `--format json` stdout also receives the `error` document (kind `internal`).
 pub fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
-    run_with(args, Teardown::Free)
+    let raw: Vec<OsString> = args.into_iter().collect();
+    exit_two_on_panic(&raw, || run_with(raw.clone(), Teardown::Free))
+}
+
+/// `body`'s exit code, or 2 when it panics, after the `internal` error document when `raw` asks for JSON. The panic
+/// hook has already printed the message to stderr.
+fn exit_two_on_panic(raw: &[OsString], body: impl FnOnce() -> u8) -> u8 {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)).unwrap_or_else(|payload| {
+        if wants_json(raw) {
+            let message = payload
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                .unwrap_or("panic");
+            emit_error(
+                &CliError::new(Kind::Internal, format!("internal error: {message}")),
+                Format::Json,
+            );
+        }
+        2
+    })
 }
 
 /// Like [`run`], for a process that exits as soon as this returns: the lint command leaves its diagnostics, workspace
@@ -136,4 +159,25 @@ fn wants_json(raw: &[OsString]) -> bool {
         .find(|value| !value.contains('='))
         .or_else(|| values.first())
         .is_some_and(|value| value.split('=').next() == Some("json"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(list: &[&str]) -> Vec<OsString> {
+        list.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn a_panic_exits_two_in_every_format() {
+        for raw in [args(&["skif"]), args(&["skif", "--format", "json"])] {
+            assert_eq!(exit_two_on_panic(&raw, || panic!("boom")), 2);
+        }
+    }
+
+    #[test]
+    fn without_a_panic_the_exit_code_is_the_body_s() {
+        assert_eq!(exit_two_on_panic(&args(&["skif", "--format", "json"]), || 1), 1);
+    }
 }
