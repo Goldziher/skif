@@ -88,6 +88,7 @@ old one.
 | 0078 | [Plugin Gaps: Config Functions Called Statically, File Tasks, Templates and Installed Versions](0078-plugin-gaps-config-functions-file-tasks-and-templates.md) | accepted |
 | 0079 | [Namespace Reads Through Test-Runner Spies and Imports Awaited Together](0079-namespace-reads-through-spies-and-imports-awaited-together.md) | accepted |
 | 0080 | [knip Workspaces, Skipped Directories and Published Sources in the knip Comparison](0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md) | accepted |
+| 0085 | [Install Hooks Are Not Project Source, SvelteKit Route Types Before Sync, and Builtin-Named Packages](0085-install-hooks-sveltekit-route-types-and-builtin-named-packages.md) | accepted |
 
 ## Effective statements
 
