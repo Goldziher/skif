@@ -110,6 +110,10 @@ All notable changes to this project are documented here. The format follows
   ([ADR 0083](adrs/0083-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
 - The types the signatures of an overloaded function mention are used when the function is, from every signature, not
   only the last one.
+- A classic (v1) `yarn.lock` is no longer read for the binaries and peers of packages that are not installed: it
+  records no `bin`, so every locked package looked like one without binaries, and the devDependencies whose binaries
+  scripts run were reported by `unused-dev-dependencies` (and removed by `--fix-unsafe`). Only a Berry lock, with its
+  `__metadata:` block, is read.
 
 ### Changed
 
