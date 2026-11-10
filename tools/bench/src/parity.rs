@@ -25,6 +25,7 @@ use crate::diff::{
 };
 use crate::proc::{Captured, capture, find_on_path};
 use crate::provenance;
+use crate::run::table_cell;
 
 /// skif rule to knip issue type.
 const RULE_CATEGORIES: [(&str, &str); 14] = [
@@ -1822,7 +1823,9 @@ fn markdown(tool: &str, entries: &BTreeMap<String, Entry>) -> String {
             }
             let _ = writeln!(
                 out,
-                "| {name} | {status} | {} | {} | {} | {unjudged} | {} |",
+                "| {} | {} | {} | {} | {} | {unjudged} | {} |",
+                table_cell(name),
+                table_cell(&status),
                 sum(|c| c.skif_only),
                 sum(|c| c.tool_only),
                 sum(|c| c.both),
@@ -1831,8 +1834,9 @@ fn markdown(tool: &str, entries: &BTreeMap<String, Entry>) -> String {
         } else {
             let _ = writeln!(
                 out,
-                "| {name} | skipped: {} | - | - | - | - | - |",
-                entry.reason.as_deref().unwrap_or("")
+                "| {} | skipped: {} | - | - | - | - | - |",
+                table_cell(name),
+                table_cell(entry.reason.as_deref().unwrap_or(""))
             );
         }
     }
@@ -2471,6 +2475,10 @@ mod tests {
                     .with_tool_errors(1)
                     .with_invalid(Some("configs import unbuilt packages".to_owned())),
             ),
+            (
+                "u".to_owned(),
+                Entry::skipped("knip failed (exit 2): no report; stderr: a | b\nc"),
+            ),
         ]);
         let table = markdown("knip", &entries);
         assert!(table.contains("Dependencies installed: no."), "{table}");
@@ -2481,6 +2489,10 @@ mod tests {
             "{table}"
         );
         assert!(table.contains("| r | compared | 1 | 2 | 3 | 4 | 5 |"), "{table}");
+        assert!(
+            table.contains("| u | skipped: knip failed (exit 2): no report; stderr: a \\| b c | - | - | - | - | - |\n"),
+            "{table}"
+        );
         assert!(
             table.contains("| s | compared; knip could not load 2 config files | 1 | 2 | 3 | 0 | 0 |"),
             "{table}"

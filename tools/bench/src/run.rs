@@ -505,6 +505,11 @@ fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// `text` (on [`one_line`]) as the text of a Markdown table cell: a `|` would end the cell, so it is escaped.
+pub fn table_cell(text: &str) -> String {
+    one_line(text).replace('|', "\\|")
+}
+
 /// What the summary writes for an empty reason.
 const EMPTY_TEXT: &str = "(empty)";
 
@@ -967,6 +972,15 @@ mod tests {
             one_line("AMD EPYC 7763 64-Core Processor   "),
             "AMD EPYC 7763 64-Core Processor"
         );
+    }
+
+    #[test]
+    fn table_cells_escape_pipes_and_stay_on_one_line() {
+        assert_eq!(
+            table_cell("knip failed: a | b\nstderr:  c"),
+            "knip failed: a \\| b stderr: c"
+        );
+        assert_eq!(table_cell("plain"), "plain");
     }
 
     #[test]
