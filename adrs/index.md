@@ -109,6 +109,7 @@ old one.
 | 0099 | [The knip Comparison: Narrowed Incomplete Scopes, an Installed Rush Repository and Dependencies Only Unused Files Import](0099-knip-comparison-narrowed-scopes-rush-installs-and-dependencies-of-unused-files.md) | accepted |
 | 0100 | [The knip Comparison: n8n Node Files and the Files Published Sources Import](0100-knip-comparison-n8n-node-files-and-what-published-sources-import.md) | accepted |
 | 0101 | [A Module Cache Shared by the Roots of a Run](0101-a-module-cache-shared-by-the-roots-of-a-run.md) | accepted |
+| 0102 | [An Agent Skill Distributed From the Repository](0102-agent-skill-distributed-from-the-repository.md) | accepted |
 
 ## Effective statements
 
