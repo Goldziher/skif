@@ -79,11 +79,16 @@ pub(super) fn emit(cx: &LintContext<'_>, out: &mut Emitter<'_>) {
     }
     for (release, finding) in findings {
         let group = &cx.config.version_groups[finding.group];
-        let by = group
-            .label
-            .as_deref()
-            .map_or_else(|| "a banned version group".to_owned(), |label| format!("the banned version group `{label}`"));
-        let path = finding.chain.iter().map(|key| display_key(key)).collect::<Vec<_>>().join(" > ");
+        let by = group.label.as_deref().map_or_else(
+            || "a banned version group".to_owned(),
+            |label| format!("the banned version group `{label}`"),
+        );
+        let path = finding
+            .chain
+            .iter()
+            .map(|key| display_key(key))
+            .collect::<Vec<_>>()
+            .join(" > ");
         let name = &lock.snapshots[finding.key].name;
         let version = &lock.snapshots[finding.key].version;
         let package = importer_package(cx.workspace, finding.importer);
@@ -281,22 +286,31 @@ snapshots:
         let (diagnostics, _) = banned(Some("lockfileVersion: '9.0'\nimporters: [\n"), BAN_BAD);
         assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
         assert!(
-            diagnostics[0]
-                .message
-                .starts_with("`pnpm-lock.yaml` cannot be read ("),
+            diagnostics[0].message.starts_with("`pnpm-lock.yaml` cannot be read ("),
             "{}",
             diagnostics[0].message
         );
-        assert!(diagnostics[0].message.ends_with("so nothing is checked for the `scope = \"lockfile\"` version groups"));
+        assert!(
+            diagnostics[0]
+                .message
+                .ends_with("so nothing is checked for the `scope = \"lockfile\"` version groups")
+        );
         assert_eq!(diagnostics[0].location.path, Path::new("pnpm-lock.yaml"));
         let (old, _) = banned(Some("lockfileVersion: '6.0'\n"), BAN_BAD);
-        assert!(old[0].message.contains("lockfileVersion 6.0 is not supported"), "{}", old[0].message);
+        assert!(
+            old[0].message.contains("lockfileVersion 6.0 is not supported"),
+            "{}",
+            old[0].message
+        );
     }
 
     #[test]
     fn without_a_lockfile_group_the_lockfile_is_not_read() {
         // A lockfile that does not parse would be reported if anything read it.
-        let (diagnostics, _) = banned(Some("not: [valid\n"), "[[version-groups]]\ndependencies = [\"bad\"]\npolicy = \"banned\"\n");
+        let (diagnostics, _) = banned(
+            Some("not: [valid\n"),
+            "[[version-groups]]\ndependencies = [\"bad\"]\npolicy = \"banned\"\n",
+        );
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 }

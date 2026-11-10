@@ -173,7 +173,11 @@ fn effective_families(config: &Config) -> Vec<Family> {
     let builtin = BUILTIN.iter().filter_map(|(name, patterns)| match configured(name) {
         Some(family) if !family.enabled => None,
         Some(family) if !family.packages.is_empty() => compile(name, family.packages.clone(), Some(family)),
-        family => compile(name, patterns.iter().map(|pattern| (*pattern).to_owned()).collect(), family),
+        family => compile(
+            name,
+            patterns.iter().map(|pattern| (*pattern).to_owned()).collect(),
+            family,
+        ),
     });
     let custom = config
         .dependency_families

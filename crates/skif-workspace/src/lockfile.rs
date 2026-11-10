@@ -201,7 +201,11 @@ impl PnpmLockfile {
             let mut dependencies = Vec::new();
             for section in ["dependencies", "optionalDependencies"] {
                 if let Some(Value::Object(edges)) = entry.get(section) {
-                    dependencies.extend(edges.iter().filter_map(|(name, version)| snapshot_key(name, &scalar(version))));
+                    dependencies.extend(
+                        edges
+                            .iter()
+                            .filter_map(|(name, version)| snapshot_key(name, &scalar(version))),
+                    );
                 }
             }
             let snapshot = Snapshot {
@@ -266,7 +270,12 @@ impl PnpmLockfile {
             }
         }
         while let Some(key) = queue.pop_front() {
-            for dependency in self.snapshots.get(key).into_iter().flat_map(|snapshot| &snapshot.dependencies) {
+            for dependency in self
+                .snapshots
+                .get(key)
+                .into_iter()
+                .flat_map(|snapshot| &snapshot.dependencies)
+            {
                 if let Some((dependency, _)) = self.snapshots.get_key_value(dependency.as_str())
                     && !parents.contains_key(dependency.as_str())
                 {
@@ -494,7 +503,10 @@ snapshots:
         let left = &lock.snapshots["left@1.0.0(patch_hash=abc123)"];
         assert_eq!((left.name.as_str(), left.version.as_str()), ("left", "1.0.0"));
         assert_eq!(left.patch_hash.as_deref(), Some("abc123"));
-        assert_eq!(lock.snapshots["mid@2.0.0"].dependencies, ["bad@1.0.0", "left@1.0.0(patch_hash=abc123)"]);
+        assert_eq!(
+            lock.snapshots["mid@2.0.0"].dependencies,
+            ["bad@1.0.0", "left@1.0.0(patch_hash=abc123)"]
+        );
         assert_eq!(
             lock.patched_dependencies["left@1.0.0"],
             LockedPatch {
@@ -546,7 +558,10 @@ snapshots:
         );
         assert_eq!(split_key("1.0.0"), None);
         assert_eq!(split_key("@scope/name"), None);
-        assert_eq!(snapshot_key("string-width-cjs", "string-width@4.2.3").as_deref(), Some("string-width@4.2.3"));
+        assert_eq!(
+            snapshot_key("string-width-cjs", "string-width@4.2.3").as_deref(),
+            Some("string-width@4.2.3")
+        );
         assert_eq!(snapshot_key("lib", "link:../lib"), None);
     }
 
@@ -561,11 +576,18 @@ snapshots:
 
     #[test]
     fn a_lockfile_that_is_not_format_9_or_not_yaml_is_an_error() {
-        let parse = |text: &str| PnpmLockfile::parse(PathBuf::from(PNPM_LOCKFILE), Arc::from(text)).unwrap_err().to_string();
+        let parse = |text: &str| {
+            PnpmLockfile::parse(PathBuf::from(PNPM_LOCKFILE), Arc::from(text))
+                .unwrap_err()
+                .to_string()
+        };
         assert!(parse("lockfileVersion: '6.0'\n").contains("lockfileVersion 6.0 is not supported"));
         assert!(parse("importers: {}\n").contains("lockfileVersion none is not supported"));
         assert!(parse("lockfileVersion: '9.0'\nimporters: [a]\n").contains("`importers` must be a mapping"));
-        assert!(parse("lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies: [a]\n").contains("importer `.`: `dependencies` must be a mapping"));
+        assert!(
+            parse("lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies: [a]\n")
+                .contains("importer `.`: `dependencies` must be a mapping")
+        );
         let broken = parse("lockfileVersion: '9.0'\nsnapshots:\n  a@1.0.0: {\n");
         assert!(broken.starts_with("invalid \"pnpm-lock.yaml\""), "{broken}");
     }
