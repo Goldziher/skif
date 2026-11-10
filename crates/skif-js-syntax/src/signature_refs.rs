@@ -142,10 +142,23 @@ fn type_container(declaration: &Declaration<'_>, out: &mut Vec<(String, HashSet<
     out.push((name.as_str().to_owned(), visitor.names));
 }
 
+/// The local bindings of the imports by specifier and imported name. A name imported twice keeps its first binding.
+fn import_bindings(info: &ModuleInfo) -> HashMap<(&str, &ImportedKind), &str> {
+    let mut bindings = HashMap::new();
+    for import in &info.imports {
+        for name in &import.names {
+            if let Some(local) = name.local.as_deref() {
+                bindings.entry((import.specifier.as_str(), &name.kind)).or_insert(local);
+            }
+        }
+    }
+    bindings
+}
+
 /// The local binding of an import that brings in what `export { a } from "x"` re-exports: `a` of `import { a } from
 /// "x"` (same specifier, same name). A signature that mentions the binding mentions the re-export, as in knip, which
 /// matches the names in a signature against the exported names.
-fn reexported_binding(info: &ModuleInfo, export: &Export) -> Option<String> {
+fn reexported_binding<'a>(bindings: &HashMap<(&str, &ImportedKind), &'a str>, export: &Export) -> Option<&'a str> {
     if export.kind != ExportKind::ReExport || export.local_name.is_some() {
         return None;
     }
@@ -154,12 +167,7 @@ fn reexported_binding(info: &ModuleInfo, export: &Export) -> Option<String> {
         "default" => ImportedKind::Default,
         name => ImportedKind::Named(name.to_owned()),
     };
-    info.imports
-        .iter()
-        .filter(|import| import.specifier == from)
-        .flat_map(|import| &import.names)
-        .filter(|name| name.kind == wanted)
-        .find_map(|name| name.local.clone())
+    bindings.get(&(from, &wanted)).copied()
 }
 
 /// Fills [`crate::model::Export::referenced_in`] for every export mentioned in the signature of another value export.
@@ -218,13 +226,28 @@ pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
             map.entry(local).or_default().push(name);
             map
         });
+    // Only value exports can contain: index the names their signatures mention once, instead of walking every container
+    // for every export.
+    let mut mentioned_by: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (container, names) in &mentions {
+        if !exported_as.contains_key(container) {
+            continue;
+        }
+        for name in names {
+            mentioned_by.entry(*name).or_default().push(*container);
+        }
+    }
+    let bindings = import_bindings(info);
     let mut referenced_in: Vec<Vec<String>> = Vec::with_capacity(info.exports.len());
     for export in &info.exports {
         let mut containing = Vec::new();
-        let binding = reexported_binding(info, export);
-        if let Some(local) = export.local_name.as_deref().or(binding.as_deref()) {
-            for (container, names) in &mentions {
-                if *container != local && names.contains(local) {
+        if let Some(local) = export
+            .local_name
+            .as_deref()
+            .or_else(|| reexported_binding(&bindings, export))
+        {
+            for container in mentioned_by.get(local).into_iter().flatten() {
+                if *container != local {
                     containing.extend(exported_as.get(container).into_iter().flatten().cloned());
                 }
             }
