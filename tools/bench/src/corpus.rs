@@ -247,6 +247,17 @@ mod tests {
     }
 
     #[test]
+    fn opencode_installs_with_a_pinned_bun() {
+        let repos = manifest().repo;
+        let opencode = repos.iter().find(|r| r.name == "opencode").unwrap();
+        assert_eq!(
+            &opencode.install_command[..5],
+            ["mise", "x", "bun@1.3.14", "--", "bun"]
+        );
+        assert!(opencode.install_command.iter().any(|arg| arg == "--frozen-lockfile"));
+    }
+
+    #[test]
     fn rejects_branch_pins() {
         let dir = std::env::temp_dir().join(format!("skif-bench-corpus-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();

@@ -184,6 +184,8 @@ url = "https://github.com/sst/opencode.git"
 rev = "3ba597f7769e19cc3b5f67e3d6667e7b6318f6a3"
 package-manager = "bun"
 suites = ["parity"]
+# The bun of mise.lock, pinned here so a relock or an ambient bun cannot change what the frozen install resolves.
+install-command = ["mise", "x", "bun@1.3.14", "--", "bun", "install", "--ignore-scripts", "--frozen-lockfile"]
 notes = "bun workspace."
 
 [[repo]]
