@@ -664,6 +664,31 @@ fn sherif_exact_leaves_out_the_specifiers_sherif_does_not_compare() {
 }
 
 #[test]
+fn an_empty_root_dependencies_object_is_noted_for_sherif() {
+    let empty = migrate(
+        &[sherif_input(r#"{ "name": "demo", "private": true, "dependencies": {}, "scripts": { "lint": "sherif" } }"#)],
+        &options(Profile::Exact),
+    )
+    .unwrap();
+    let noted = note(&empty, "dependencies");
+    assert_eq!(noted.class, NoteClass::Approximate);
+    assert!(noted.message.contains("empty-dependencies, an error"), "{noted:#?}");
+
+    for package_json in [
+        r#"{ "name": "demo", "private": true, "dependencies": { "x": "1.0.0" } }"#,
+        r#"{ "name": "demo", "private": true, "devDependencies": {} }"#,
+        r#"{ "name": "demo", "private": true, "dependencies": {}, "sherif": { "ignoreRule": ["empty-dependencies"] } }"#,
+    ] {
+        let migration = migrate(&[sherif_input(package_json)], &options(Profile::Exact)).unwrap();
+        assert!(
+            !migration.notes.iter().any(|note| note.path == "dependencies"),
+            "{package_json}: {:#?}",
+            migration.notes
+        );
+    }
+}
+
+#[test]
 fn the_sherif_group_follows_the_groups_of_an_existing_file() {
     let migration = migrate(
         &[sherif_input(&package(&[("lint", "sherif")]))],
