@@ -16,16 +16,21 @@ pub static META: RuleMeta = RuleMeta::new(
     Fixability::None,
     "A file imports a package that neither its `package.json` nor any `package.json` above it lists. An import that \
      only the tsconfig `paths` of another package map has the detail `ForeignTsconfigPaths`: it needs a mapping, not \
-     a dependency.",
+     a dependency. A package a tool config names (a tsconfig `extends`, an ESLint or Oxlint plugin, a Prisma \
+     generator) is reported at the config with the detail `ConfigReference`.",
 );
 
 /// The `detail` of a finding whose specifier only the `paths` of another package's TypeScript configuration map: the
 /// fix is a mapping in the importing package's configuration or an import by package name, not a dependency.
 const FOREIGN_TSCONFIG_PATHS: &str = "ForeignTsconfigPaths";
 
+/// The `detail` of a finding for a package that a tool config names rather than a module imports.
+const CONFIG_REFERENCE: &str = "ConfigReference";
+
 /// Reports imports of packages the manifest does not list, once per file and package. In strict mode production code
 /// must import from `dependencies` or `peerDependencies`, so a package listed only elsewhere is reported too. An
-/// import that only another package's `tsconfig` `paths` map is reported as a missing mapping.
+/// import that only another package's `tsconfig` `paths` map is reported as a missing mapping. A package a tool config
+/// names and no manifest lists is reported at the config.
 pub struct UnlistedDependencies;
 
 impl JsRule for UnlistedDependencies {
@@ -113,6 +118,34 @@ impl JsRule for UnlistedDependencies {
                     .dependency(unlisted.name.clone())
                     .help(help)
                     .build(),
+            );
+        }
+        for unlisted in &analysis.dependencies.unlisted_config {
+            if analysis.ignores_dependency(unlisted.package, &unlisted.name) {
+                continue;
+            }
+            let Some(package) = analysis.workspace.package(unlisted.package) else {
+                continue;
+            };
+            let file = unlisted.file.to_string_lossy().replace('\\', "/");
+            out.emit(
+                diagnostic(
+                    &META,
+                    format!(
+                        "`{file}` references `{}`, which is not listed in `package.json`",
+                        unlisted.name
+                    ),
+                    Location::new(unlisted.file.clone(), None),
+                )
+                .package(package.display_name())
+                .dependency(unlisted.name.clone())
+                .detail(CONFIG_REFERENCE)
+                .help(format!(
+                    "add `{}` to the devDependencies of `{}`, or add it to `ignore-dependencies`",
+                    unlisted.name,
+                    package.display_name()
+                ))
+                .build(),
             );
         }
     }

@@ -1760,6 +1760,50 @@ datasource db {
     assert_absent(out, &["./generators/custom.js", "tsx scripts/gen.ts"]);
 }
 
+/// The file that references `name` for plugin `id`, and whether that file names the package itself.
+fn reference_of(results: &[(PluginId, PluginOutput)], id: &str, name: &str) -> Option<(String, bool)> {
+    output(results, id)
+        .referenced_dependencies
+        .iter()
+        .find(|d| d.name == name)
+        .map(|d| (d.from.to_string_lossy().replace('\\', "/"), d.named_by_config))
+}
+
+/// A package a config names itself (a `tsconfig` `extends` or plugin, a Prisma generator) is recorded at that file as
+/// named by it; one a command of a config names is a reference of the config but not named by it (ADR 0083).
+#[test]
+fn packages_a_config_names_are_recorded_at_the_file_that_names_them() {
+    let tsconfig =
+        r#"{"extends":"@acme/tsconfig/base.json","compilerOptions":{"plugins":[{"name":"@effect/language-service"}]}}"#;
+    let schema = "generator kysely {\n  provider = \"prisma-kysely\"\n}\n";
+    let staged = r#"{"*.ts":"node --require=esbuild-register check.ts"}"#;
+    let results = resolve(
+        &[
+            ("tsconfig.json", tsconfig),
+            ("prisma/schema.prisma", schema),
+            (".lintstagedrc.json", staged),
+        ],
+        &["typescript", "prisma", "lint-staged"],
+    );
+    let named = |file: &str| Some((format!("{DIR}/{file}"), true));
+    assert_eq!(
+        reference_of(&results, "typescript", "@acme/tsconfig"),
+        named("tsconfig.json")
+    );
+    assert_eq!(
+        reference_of(&results, "typescript", "@effect/language-service"),
+        named("tsconfig.json")
+    );
+    assert_eq!(
+        reference_of(&results, "prisma", "prisma-kysely"),
+        named("prisma/schema.prisma")
+    );
+    assert_eq!(
+        reference_of(&results, "lint-staged", "esbuild-register"),
+        Some((format!("{DIR}/.lintstagedrc.json"), false))
+    );
+}
+
 /// A package a config names only to tune a tool that runs without it (Vite's `optimizeDeps.include`, an
 /// `eslint-plugin-import` resolver) is an optional reference, as knip reads them: it is never unlisted (ADR 0083).
 #[test]

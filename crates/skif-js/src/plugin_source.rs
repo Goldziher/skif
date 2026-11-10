@@ -9,8 +9,8 @@ use skif_js_plugins::{PluginContext, PluginOutput, resolve_plugins};
 use crate::config_check::relative_tsconfig;
 use crate::config_modules::ConfigModules;
 use crate::input::{
-    BuildDir, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope, InputRequest, InputSource,
-    PathAlias, RunBinary, WorkspaceInputs,
+    BuildDir, ConfigDependency, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope,
+    InputRequest, InputSource, PathAlias, RunBinary, WorkspaceInputs,
 };
 use crate::setup::WorkspaceKeys;
 
@@ -204,6 +204,15 @@ fn inputs(output: PluginOutput) -> WorkspaceInputs {
         ignore_binaries,
         virtual_modules: output.virtual_modules,
         dependencies: names(&output.referenced_dependencies, false).collect(),
+        config_dependencies: output
+            .referenced_dependencies
+            .iter()
+            .filter(|dependency| dependency.named_by_config && !dependency.optional)
+            .map(|dependency| ConfigDependency {
+                name: dependency.name.clone(),
+                file: dependency.from.clone(),
+            })
+            .collect(),
         binaries: output.referenced_binaries,
         run_binaries: output
             .run_binaries

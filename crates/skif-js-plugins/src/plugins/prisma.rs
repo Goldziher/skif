@@ -65,11 +65,10 @@ fn generator_inputs(cx: &PluginContext<'_>, patterns: &[String]) -> Vec<PluginIn
         let Ok(text) = cx.fs.read_to_string(&cx.dir.join(&file)) else {
             continue;
         };
-        let dir = file.rsplit_once('/').map_or("", |(dir, _)| dir);
         out.extend(
             generator_providers(&text)
                 .into_iter()
-                .filter_map(|p| provider_input(dir, p)),
+                .filter_map(|p| provider_input(&file, p)),
         );
     }
     out
@@ -130,9 +129,10 @@ fn find_unquoted(line: &str, needle: &str) -> Option<usize> {
     None
 }
 
-/// A provider as an input: a relative path is an entry next to the schema `dir`, a command is a script and a bare
-/// name is a package.
-fn provider_input(dir: &str, provider: &str) -> Option<PluginInput> {
+/// A provider of the schema `file` as an input: a relative path is an entry next to the schema, a command is a script
+/// and a bare name is a package the schema names.
+fn provider_input(file: &str, provider: &str) -> Option<PluginInput> {
+    let dir = file.rsplit_once('/').map_or("", |(dir, _)| dir);
     if provider.is_empty() || matches!(provider, "prisma-client-js" | "prisma-client") {
         return None;
     }
@@ -142,7 +142,10 @@ fn provider_input(dir: &str, provider: &str) -> Option<PluginInput> {
     if is_relative(provider) {
         return Some(PluginInput::Entry(join_rel(dir, provider)));
     }
-    package_name(provider).map(PluginInput::Dependency)
+    package_name(provider).map(|name| PluginInput::FileDependency {
+        file: file.to_owned(),
+        name,
+    })
 }
 
 #[cfg(test)]

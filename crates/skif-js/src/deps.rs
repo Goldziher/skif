@@ -252,6 +252,17 @@ pub struct UnlistedBinary {
     pub file: Option<PathBuf>,
 }
 
+/// A package that a tool's config file names and no manifest lists; see [`DependencyUsage::unlisted_config`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnlistedConfigDependency {
+    /// The package that owns the config file: the innermost workspace package whose directory holds it.
+    pub package: PackageId,
+    /// The package the config names.
+    pub name: String,
+    /// The config file, relative to the workspace root with `/` separators.
+    pub file: PathBuf,
+}
+
 /// The binaries and peer dependencies a package declares.
 pub(crate) struct Installed {
     pub(crate) bins: Vec<String>,
@@ -440,6 +451,16 @@ pub(crate) fn member_dirs(workspace: &Workspace) -> Vec<(String, PathBuf)> {
         .collect()
 }
 
+/// The innermost workspace package whose directory holds `file` (absolute); `None` for a file outside every package.
+fn config_owner(workspace: &Workspace, setup: &Setup, file: &Path) -> Option<PackageId> {
+    workspace
+        .iter()
+        .filter_map(|(id, _)| setup.package(id).map(|package_setup| (id, &package_setup.dir)))
+        .filter(|(_, dir)| file.starts_with(dir))
+        .max_by_key(|(_, dir)| dir.components().count())
+        .map(|(id, _)| id)
+}
+
 /// For every package, the packages whose directory contains it, innermost first, and the root last. With `isolate`
 /// (`--strict`) none: each package uses only what its own manifest lists.
 fn package_ancestors(workspace: &Workspace, isolate: bool) -> Vec<Vec<PackageId>> {
@@ -500,6 +521,8 @@ pub struct DependencyUsage {
     pub unlisted: Vec<UnlistedImport>,
     /// Script binaries that nothing provides, in package order.
     pub unlisted_binaries: Vec<UnlistedBinary>,
+    /// Packages that tool configs name and no manifest lists, in package order.
+    pub unlisted_config: Vec<UnlistedConfigDependency>,
 }
 
 impl DependencyUsage {
@@ -532,6 +555,7 @@ impl DependencyUsage {
         usage.collect_member_bins(workspace);
         usage.collect_imports(workspace, setup, graph);
         usage.collect_scripts(workspace, setup);
+        usage.collect_config_dependencies(workspace, setup);
         usage
     }
 
@@ -834,6 +858,24 @@ impl DependencyUsage {
         if site.type_only && types.is_some() {
             return;
         }
+        if self.provided_unlisted(workspace, package, owner, name) {
+            return;
+        }
+        self.unlisted.push(UnlistedImport {
+            package: owner,
+            name: name.to_owned(),
+            module: site.module,
+            span: site.span,
+            specifier: site.specifier.to_owned(),
+            target: site.target.cloned(),
+            foreign_paths: None,
+        });
+    }
+
+    /// Whether package `name`, which no manifest of `package` (`owner`) or above lists, is there all the same: a peer
+    /// dependency of a listed package, the runtime of an `engines` entry, or (for a private package) a workspace
+    /// member, which is then a use of it.
+    fn provided_unlisted(&mut self, workspace: &Workspace, package: &Package, owner: PackageId, name: &str) -> bool {
         // A peer dependency of a listed package is provided by whoever installs that package; strict mode, like
         // knip's, does not count on that.
         let scopes = std::iter::once(owner).chain(self.ancestors[owner.index()].iter().copied());
@@ -842,7 +884,7 @@ impl DependencyUsage {
                 .into_iter()
                 .any(|scope| self.hosts[scope.index()].contains_key(name))
         {
-            return;
+            return true;
         }
         // The runtime an `engines` entry names provides its module (`vscode` for an extension), also to the packages
         // inside the one that declares it, such as the client and server of an extension.
@@ -858,21 +900,72 @@ impl DependencyUsage {
                     .is_some()
             });
         if provided_by_engine {
-            return;
+            return true;
         }
         if !self.strict && package.private && self.members.contains(name) {
             self.reference_in(owner, name);
+            return true;
+        }
+        false
+    }
+
+    /// The packages that the tool configs of every package name themselves (a `tsconfig` `extends`, an ESLint plugin,
+    /// a Prisma generator), judged against the package that owns the config file: a listed one is used, one nothing
+    /// lists or provides is unlisted at the config. A config in `node_modules`, outside the root, in a fixture
+    /// directory or matched by an `ignore` pattern is not judged, and production mode judges none: configs serve
+    /// development.
+    fn collect_config_dependencies(&mut self, workspace: &Workspace, setup: &Setup) {
+        if setup.production {
             return;
         }
-        self.unlisted.push(UnlistedImport {
+        for (id, _) in workspace.iter() {
+            let Some(package_setup) = setup.package(id) else {
+                continue;
+            };
+            for dependency in &package_setup.config_dependencies {
+                let Some(file) = relative(&dependency.file, &workspace.root) else {
+                    continue;
+                };
+                let in_node_modules = file.split('/').any(|part| part == "node_modules");
+                if in_node_modules || in_fixture_directory(Path::new(&file)) || setup.global_ignore.matches_any(&file) {
+                    continue;
+                }
+                let owner = config_owner(workspace, setup, &dependency.file).unwrap_or(id);
+                let ignored = setup.package(owner).is_some_and(|owner_setup| {
+                    relative(&dependency.file, &owner_setup.dir).is_some_and(|rel| owner_setup.ignore.matches_any(&rel))
+                });
+                if ignored {
+                    continue;
+                }
+                self.config_dependency(workspace, owner, &dependency.name, &file);
+            }
+        }
+    }
+
+    /// Package `name` that the config `file` (relative to the root) of package `owner` names: a use of the manifest
+    /// that lists it, else unlisted at the file unless the package itself, the runtime or something else provides it.
+    fn config_dependency(&mut self, workspace: &Workspace, owner: PackageId, name: &str, file: &str) {
+        if let Some(found) = self.find_listed(owner, name) {
+            self.reference(found, name);
+            return;
+        }
+        let Some(package) = workspace.package(owner) else {
+            return;
+        };
+        if RUNTIME_PACKAGES.contains(&name) || package.name.as_deref() == Some(name) {
+            return;
+        }
+        if self.provided_unlisted(workspace, package, owner, name) {
+            return;
+        }
+        let unlisted = UnlistedConfigDependency {
             package: owner,
             name: name.to_owned(),
-            module: site.module,
-            span: site.span,
-            specifier: site.specifier.to_owned(),
-            target: site.target.cloned(),
-            foreign_paths: None,
-        });
+            file: PathBuf::from(file),
+        };
+        if !self.unlisted_config.contains(&unlisted) {
+            self.unlisted_config.push(unlisted);
+        }
     }
 
     fn collect_scripts(&mut self, workspace: &Workspace, setup: &Setup) {
