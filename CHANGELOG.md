@@ -206,6 +206,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- An ESLint config that extends a built-in config (`eslint:recommended`, `eslint:all`) credits `eslint`, as knip does,
+  so an `eslint` listed only at the root and enabled by a member's config is no longer reported unused.
 - `skif migrate` from knip: with a `workspaces["."]` table, the top-level `entry`, `project` and `ignore` are not
   written (knip reads the root workspace from that table alone), instead of being merged with the table's lists into
   `[js]`, which widened the entries.
