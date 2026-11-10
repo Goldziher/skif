@@ -626,20 +626,33 @@ plugins.
 **Packages tool configs name.** A package that a tool config names itself is a dependency of the package whose
 directory holds the config: a `tsconfig` `extends`, `compilerOptions.types` or `compilerOptions.plugins` entry, an
 Oxlint `jsPlugins` entry, an ESLint plugin, parser or shareable config, a Babel preset or plugin, a PostCSS plugin, a
-Prisma `generator` `provider`, and what the other plugins read the same way. A listed one is used; one no manifest lists
+Prisma `generator` `provider`, and what the other plugins read the same way, including a fixed name a plugin derives
+from a config value (`importHelpers: true` names `tslib`), as knip does. A listed one is used; one no manifest lists
 is reported by `unlisted-dependencies` at the config with the detail `ConfigReference`
 ("`tsconfig.json` references `@acme/tsconfig`, which is not listed in `package.json`"). Built-in names
-(`eslint:recommended`, `prisma-client-js`) and relative paths are no packages. A package that a command in a config
-names (`node --require x` in a hook), one a plugin assumes without reading a config, and an optional reference (Vite's
-`optimizeDeps.include`, an `eslint-plugin-import` resolver) is only a use and never reported. `ignore-dependencies`
-silences a package; a config below `node_modules`, in a fixture directory or matched by `ignore` is not judged, and
-production mode judges no config.
+(`eslint:recommended`, `prisma-client-js`, a `generator client` block), relative paths and the string `extends` of an
+ESLint flat config (`js/recommended`) are no packages. A package that a command in a config names (`node --require x`
+in a hook), one a plugin assumes without reading a config, and an optional reference (Vite's `optimizeDeps.include`,
+an `eslint-plugin-import` resolver) is only a use and never reported. A config that imports the package it names is
+reported once, for the import.
+
+A `tsconfig` compiler option (`types`, `jsxImportSource`, `plugins`, `importHelpers`) applies to each package that
+reads the config, so a shared base config is satisfied when its owner or the package extending it lists the package;
+an `ignore-dependencies` entry of the extending package silences it too. A `types` entry is satisfied by the package it
+names or its `@types` package: `types: ["cypress"]` with `cypress` listed at the root needs nothing more, and
+`@cloudflare/workers-types` or `@types/node` name themselves.
+
+`ignore-dependencies` silences a package; a config below `node_modules`, that git ignores (generated, such as
+`.nuxt/tsconfig.json`), in a fixture directory (unless `include-fixtures`) or matched by `ignore` is not judged.
+Production mode judges no config, and so `--strict`, which implies it, judges none either.
 
 `declare module 'pkg'` declares the package, so its imports need no dependency, and so does a pattern with a literal
 start (`declare module 'pkg/*'`) for the imports it matches. A declared subpath (`declare module 'pkg/data.json'`)
-declares that module only: the package's other imports still need it listed. A specifier that names a workspace
-package is an import of that package also when a `tsconfig` mapping or a bundler alias resolves it, wherever the
-mapping leads.
+declares that module only: the package's other imports still need it listed. An import that an alias leads into
+another package (`react` to `preact/compat`) is covered by a declaration of any module of that package. A specifier
+that names a workspace package is an import of that package also when a `tsconfig` mapping or a bundler alias resolves
+it into the package's directory, to generated code there included; an alias into other code (`ui/*` to `./src/ui/*`
+beside a workspace package `ui`) stays local.
 
 A directory below a package with a `package.json` of its own that is not an analysed workspace member (one excluded
 with `ignore-packages` included) is a separate project, often a root of its own in a recursive run (a `build` or
