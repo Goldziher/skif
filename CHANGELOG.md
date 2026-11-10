@@ -11,6 +11,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The shell tokenizer of the `package.json` script parser moved from `skif-js-plugins` to `skif_core::shell`
+  (`tokenize`, `Tokens`, `Segment`, `Word`), so rules outside the JS analysis split command lines with it.
+
+### Changed
+
 - Template expressions of `.vue`, `.svelte`, `.astro` and `.mdx` files are parsed as JavaScript under the scopes of
   their block constructs (Vue `v-for`, `v-slot`, `#name`, `slot-scope`; Svelte `{#each}`, `{#await}`, `{:then}`,
   `{:catch}`, `{#snippet}`, `{@const}`, `let:`; arrow parameters such as `items.map((item) => …)`), so an import
