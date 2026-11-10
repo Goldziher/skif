@@ -4,7 +4,8 @@
 #   lib/libc.sh              the glibc 2.34 floor: gnu on 2.34 or newer, musl below it or when undetectable
 #   gh-action-resolve.sh     tag and asset selection per runner, the version baked into a release of the Action
 #   gh-action-install.sh     checksum and attestation verification, extraction, outputs, the verified cache-hit path
-#   gh-action-run.sh         argument assembly, the translated sherif configuration (from-sherif)
+#   gh-action-run.sh         argument assembly, lint-only flags, the translated sherif configuration (from-sherif),
+#                            the subcommand list against the CLI's
 #
 # The launcher is served from a file:// release directory (SKIF_RELEASE_URL), the Action from a stub `gh`.
 #
@@ -207,6 +208,14 @@ libc_case "ldd alone: Ubuntu 22.04" gnu "" "ldd (Ubuntu GLIBC 2.35-0ubuntu3.8) 2
 libc_case "musl banner gets musl" musl "" "musl libc (x86_64)"
 libc_case "an unidentifiable libc gets musl" musl "" ""
 libc_case "an unparseable version gets musl" musl "glibc banana" ""
+
+# A glibc host with the musl loader installed (Debian's musl package puts it in /lib) is still glibc. `compgen` is
+# shadowed by a function that reports the loader, so no host file is needed.
+# shellcheck disable=SC2016
+expect "libc: glibc 2.35 with /lib/ld-musl-* installed" 0 env PATH="${libc_stubs}:${PATH}" STUB_GETCONF="glibc 2.35" \
+  STUB_LDD="ldd (Ubuntu GLIBC 2.35-0ubuntu3.8) 2.35" bash -c \
+  'compgen() { [[ "$*" == *ld-musl* ]] && echo /lib/ld-musl-x86_64.so.1; }; source "$1/scripts/lib/libc.sh" && skif_libc' _ "$repo"
+[[ "$(tail -n 1 "${work}/out")" == gnu ]] || fail "libc: a glibc host with the musl loader picked '$(tail -n 1 "${work}/out")', want gnu"
 
 # The container smoke check: it must pass when the rule matches the expectation and fail when it does not.
 smoke_bins="${work}/smoke-bins"
@@ -438,6 +447,9 @@ run_case() {
 run_case "no arguments" "" ARGS= FAIL_ON_WARNINGS=false
 run_case "arguments are split on spaces" "--format sarif --output skif.sarif" ARGS="--format sarif --output skif.sarif"
 run_case "fail-on-warnings is appended" "--no-js --fail-on-warnings" ARGS="--no-js" FAIL_ON_WARNINGS=true
+run_case "fail-on-warnings is appended to a bare lint run" "--fail-on-warnings" ARGS= FAIL_ON_WARNINGS=true
+run_case "fail-on-warnings is not passed to baseline" "baseline write" ARGS="baseline write" FAIL_ON_WARNINGS=true
+run_case "fail-on-warnings is not passed to rules" "rules --format json" ARGS="rules --format json" FAIL_ON_WARNINGS=true
 run_case "globs are passed through unexpanded" "*.json" ARGS="*.json"
 run_case "one argument per line keeps spaces" "--config my dir/skif.toml --no-js" ARGS=$'--config\nmy dir/skif.toml\n--no-js'
 run_case "blank lines and a trailing newline are dropped" "--no-js" ARGS=$'\n--no-js\n\n'
@@ -464,9 +476,28 @@ sherif_case "from-sherif is off by default" "" FROM_SHERIF=
 sherif_case "an explicit --no-config wins" "--no-config" ARGS="--no-config"
 sherif_case "an explicit --config wins" "--config=a.toml" ARGS="--config=a.toml"
 sherif_case "a subcommand is not a lint run" "rules" ARGS="rules"
+sherif_case "a baseline run reads the translation through a file that extends the baseline" \
+  "baseline check --base origin/main --config TMP/skif-baseline-run.toml" ARGS="baseline check --base origin/main"
+grep -q "extends = \\[\".*/skif.toml\", \"${work}/sherif/skif.baseline.toml\"\\]" "${work}"/runner/skif-from-sherif.*/skif-baseline-run.toml ||
+  fail "run: the baseline run config does not extend the translation and the baseline"
+sherif_case "a baseline run gets the translation but not fail-on-warnings" \
+  "baseline prune --config TMP/skif-baseline-run.toml" ARGS="baseline prune" FAIL_ON_WARNINGS=true
+sherif_case "a lint run gets both" "--fail-on-warnings --config TMP/skif.toml" ARGS= FAIL_ON_WARNINGS=true
 touch "${work}/sherif/.skif.toml"
 sherif_case "an existing skif configuration wins" "" ARGS=
 rm "${work}/sherif/.skif.toml"
+# The Action's subcommand list is the CLI's: the variants of `Command` in args.rs, kebab-cased as clap names them,
+# plus clap's own `help`.
+cli_subcommands="$(
+  sed -n '/^pub enum Command {/,/^}/s/^    \([A-Z][A-Za-z]*\).*/\1/p' crates/skif-cli/src/args.rs |
+    sed -e 's/\([a-z]\)\([A-Z]\)/\1-\2/g' | tr '[:upper:]' '[:lower:]'
+  echo help
+)"
+action_subcommands="$(sed -n 's/^subcommands=" \(.*\) "$/\1/p' scripts/gh-action-run.sh | tr ' ' '\n')"
+[[ "$(wc -l <<<"$cli_subcommands")" -ge 10 ]] || fail "run: found too few subcommands in args.rs: ${cli_subcommands}"
+[[ "$(sort <<<"$cli_subcommands")" == "$(sort <<<"$action_subcommands")" ]] ||
+  fail "run: gh-action-run.sh subcommands '$(tr '\n' ' ' <<<"$action_subcommands")' differ from args.rs '$(tr '\n' ' ' <<<"$cli_subcommands")'"
+
 expect "run: an unknown from-sherif value" 2 env PATH="${stubs}:${PATH}" WORKING_DIRECTORY="${work}/sherif" FROM_SHERIF=auto \
   bash scripts/gh-action-run.sh
 expect_in_out "run: unknown from-sherif" 'from-sherif must be "true" or "false"'

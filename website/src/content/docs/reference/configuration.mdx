@@ -132,8 +132,10 @@ and [ADR 0088](https://github.com/Goldziher/skif/blob/main/adrs/0088-foreign-pac
 
 ### `[[ignore]]`
 
-Each entry narrows by `rules`, `packages` and `dependencies`. An empty list does not narrow that dimension, but at
-least one list must be set.
+Each entry narrows by `rules`, `packages`, `dependencies` and `files`. An empty list does not narrow that dimension, but
+at least one list must be set. `files` matches the path of the file a finding is located in, relative to the workspace
+root (`src/legacy/**`), as written in every configuration file: unlike the `files` of `[[overrides]]`, it is not
+anchored at the file that declares it.
 
 ```toml
 [[ignore]]
@@ -1104,7 +1106,7 @@ allowed in it.
 
 Patterns that select packages or files in an override, and `extends` paths, are relative to the directory of the
 file that declares them. `$ROOT/` at the start of a pattern anchors it at the root being linted instead, which a
-shared preset needs. A pattern that would leave its anchor never matches. Values are read in the scope they
+shared preset needs. A pattern that would leave its anchor (`../packages/*` in `config/shared.toml`) never matches, and a lint run warns about it on stderr, naming the file: write `$ROOT/packages/*` instead. Values are read in the scope they
 configure: top-level `[js]` globs are relative to the root, `js` globs of an override or package file are relative
 to each package. `ignore-packages`, `[[ignore]] packages`, group selectors and `[js.workspaces]` keys stay relative
 to the root.

@@ -250,7 +250,7 @@ pub(crate) fn document(mut members: Map<String, Value>) -> Result<String, CliErr
     Ok(text)
 }
 
-fn with_errors(members: &mut Map<String, Value>, failures: &[RootError]) {
+pub(crate) fn with_errors(members: &mut Map<String, Value>, failures: &[RootError]) {
     if !failures.is_empty() {
         members.insert(
             "errors".to_owned(),

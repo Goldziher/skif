@@ -83,49 +83,80 @@ impl Invocation {
             .filter(|word| !word.starts_with('-'))
     }
 
-    /// Whether `--long` (or the short form `-s`) is present and not switched off with `--long=false`.
+    /// Whether `--long` (or the short form `-s`) is present and not switched off with `--long=false`. A short flag
+    /// counts in every spelling, `-s`, `-s=value` and `-svalue`.
     pub(crate) fn has(&self, long: &str, short: Option<&str>) -> bool {
         self.args.iter().any(|arg| {
             arg == &format!("--{long}")
                 || arg
                     .strip_prefix(&format!("--{long}="))
                     .is_some_and(|value| !matches!(value, "false" | "0"))
-                || short.is_some_and(|short| arg == &format!("-{short}"))
+                || short.is_some_and(|short| short_value(arg, short).is_some())
         })
     }
 
-    /// The values of every `--long value`, `--long=value`, `-s value` pair, split at commas.
+    /// The values of every `--long value`, `--long=value`, `-s value`, `-s=value` and `-svalue`, split at commas.
     pub(crate) fn values(&self, long: &str, short: Option<&str>) -> Vec<String> {
+        self.collect_values(long, short)
+            .iter()
+            .flat_map(|value| value.split(','))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// The values as [`values`](Self::values) reads them, but whole: for a tool that does not split at commas.
+    pub(crate) fn whole_values(&self, long: &str, short: Option<&str>) -> Vec<String> {
+        self.collect_values(long, short)
+            .into_iter()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+            .collect()
+    }
+
+    fn collect_values(&self, long: &str, short: Option<&str>) -> Vec<String> {
+        let long_flag = format!("--{long}");
         let mut out = Vec::new();
         let mut args = self.args.iter().peekable();
         while let Some(arg) = args.next() {
-            let long_flag = format!("--{long}");
-            let value = if *arg == long_flag || short.is_some_and(|short| *arg == format!("-{short}")) {
+            let separate = *arg == long_flag || short.is_some_and(|short| *arg == format!("-{short}"));
+            let value = if separate {
                 args.next_if(|next| !next.starts_with('-')).cloned()
             } else {
-                arg.strip_prefix(&format!("{long_flag}=")).map(str::to_owned)
+                arg.strip_prefix(&format!("{long_flag}="))
+                    .or_else(|| short.and_then(|short| short_value(arg, short)))
+                    .map(str::to_owned)
             };
-            if let Some(value) = value {
-                out.extend(
-                    value
-                        .split(',')
-                        .map(str::trim)
-                        .filter(|v| !v.is_empty())
-                        .map(str::to_owned),
-                );
-            }
+            out.extend(value);
         }
         out
     }
 
-    /// The flags that are present, as `--long` or `-s`, whatever their values.
+    /// The flags that are present, as `--long` or `-s`, whatever their values: `-s=value` and `-svalue` are `-s`.
     pub(crate) fn flags(&self) -> Vec<String> {
         self.args
             .iter()
             .filter(|arg| arg.starts_with('-') && arg.len() > 1)
-            .map(|arg| arg.split_once('=').map_or(arg.as_str(), |(flag, _)| flag).to_owned())
+            .map(|arg| {
+                if arg.starts_with("--") {
+                    arg.split_once('=').map_or(arg.as_str(), |(flag, _)| flag).to_owned()
+                } else {
+                    arg.chars().take(2).collect()
+                }
+            })
             .collect()
     }
+}
+
+/// What follows the short flag `-s` in `arg`: empty for `-s` alone, the value of `-s=value` and `-svalue`, and `None`
+/// for any other word.
+fn short_value<'a>(arg: &'a str, short: &str) -> Option<&'a str> {
+    if arg.starts_with("--") {
+        return None;
+    }
+    let rest = arg.strip_prefix('-')?.strip_prefix(short)?;
+    Some(rest.strip_prefix('=').unwrap_or(rest))
 }
 
 fn is_tool_word(word: &str, tool: Tool) -> bool {
@@ -559,6 +590,24 @@ mod tests {
             found.values("ignore-dependency", Some("i")),
             ["react", "x", "@scope/pkg", "other"]
         );
+    }
+
+    #[test]
+    fn short_flags_take_attached_values() {
+        let value = package(r#"{ "a": "sherif -p=@x/y -ireact -i=lodash -r root-package-private-field -f" }"#);
+        let found = &invocations(&value, Tool::Sherif)[0];
+        assert_eq!(found.values("ignore-package", Some("p")), ["@x/y"]);
+        assert_eq!(found.values("ignore-dependency", Some("i")), ["react", "lodash"]);
+        assert_eq!(found.values("ignore-rule", Some("r")), ["root-package-private-field"]);
+        assert!(found.has("ignore-package", Some("p")));
+        assert!(found.has("fix", Some("f")));
+        assert!(!found.has("select", Some("s")));
+        assert_eq!(found.flags(), ["-p", "-i", "-i", "-r", "-f"]);
+
+        let long = package(r#"{ "a": "knip --include-entry-exports --include=files" }"#);
+        let found = &invocations(&long, Tool::Knip)[0];
+        assert_eq!(found.values("include", Some("i")), ["files"], "a long flag is not a short one");
+        assert_eq!(found.flags(), ["--include-entry-exports", "--include"]);
     }
 
     #[test]

@@ -9,7 +9,7 @@ use crate::dependency_types::{DependencyType, DependencyTypes};
 use crate::error::ConfigError;
 use crate::overrides::ConfigOverrides;
 use crate::rules::{Level, RuleConfig, rules_map};
-use crate::selector::{Selector, anchor_patterns};
+use crate::selector::{Selector, anchor_patterns, unanchored};
 
 #[cfg(feature = "schema")]
 use crate::schema::RuleConfigSchema;
@@ -372,9 +372,13 @@ impl Config {
             return invalid(message);
         }
         for (index, entry) in self.ignore.iter().enumerate() {
-            if entry.rules.is_empty() && entry.packages.is_empty() && entry.dependencies.is_empty() {
+            if entry.rules.is_empty()
+                && entry.packages.is_empty()
+                && entry.dependencies.is_empty()
+                && entry.files.is_empty()
+            {
                 return invalid(format!(
-                    "ignore[{index}]: set at least one of `rules`, `packages` or `dependencies`; an entry without filters would suppress every diagnostic"
+                    "ignore[{index}]: set at least one of `rules`, `packages`, `dependencies` or `files`; an entry without filters would suppress every diagnostic"
                 ));
             }
             if entry.reason.as_deref().is_some_and(|reason| reason.trim().is_empty()) {
@@ -801,6 +805,12 @@ pub struct IgnoreEntry {
     /// Dependency names; an empty selector matches every dependency.
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub dependencies: Selector,
+    /// Paths of the files a finding is located in, relative to the workspace root (`src/legacy.ts`, `src/old/**`); an
+    /// empty selector matches every file. The paths are matched as written in every configuration file, not anchored
+    /// at the file that declares the entry.
+    #[serde(skip_serializing_if = "Selector::is_empty")]
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub files: Selector,
     /// Why the suppression exists. `--require-ignore-reasons` and `[lint] require-ignore-reasons` fail a run on an
     /// entry without one.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -830,6 +840,13 @@ impl IgnoreEntry {
     #[must_use]
     pub fn with_dependencies(mut self, dependencies: Selector) -> Self {
         self.dependencies = dependencies;
+        self
+    }
+
+    /// Limits the entry to the findings located in the files `files` selects.
+    #[must_use]
+    pub fn with_files(mut self, files: Selector) -> Self {
+        self.files = files;
         self
     }
 
@@ -2582,6 +2599,7 @@ pub struct OverrideScope {
     has_files: bool,
     packages: Selector,
     files: Selector,
+    unanchored: Vec<String>,
 }
 
 impl OverrideScope {
@@ -2597,7 +2615,18 @@ impl OverrideScope {
             has_files: !scoped.files.is_empty(),
             packages: anchor_patterns(scoped.packages.patterns(), declared_in, root, false)?,
             files: anchor_patterns(scoped.files.patterns(), declared_in, root, true)?,
+            unanchored: unanchored(scoped.packages.patterns(), false)
+                .into_iter()
+                .chain(unanchored(scoped.files.patterns(), true))
+                .collect(),
         })
+    }
+
+    /// The `packages` and `files` patterns, as written, that leave the directory they are anchored at (`../packages/*`)
+    /// and so match nothing; a host warns about them.
+    #[must_use]
+    pub fn unanchored(&self) -> &[String] {
+        &self.unanchored
     }
 
     fn applies_to(&self, package: Option<(&str, &Path)>, file: Option<&Path>) -> bool {

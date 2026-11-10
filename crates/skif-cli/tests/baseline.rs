@@ -288,6 +288,19 @@ fn check_against_a_git_revision() {
     let unknown = baseline(dir.path(), "check", &["--base", "no-such-revision"]);
     assert_eq!(unknown.code, 2, "{}{}", unknown.stdout, unknown.stderr);
     assert_eq!(unknown.json()["error"]["kind"], "usage");
+
+    let missing = dir.path().join("no-such-dir").join(BASELINE);
+    let elsewhere = baseline(
+        dir.path(),
+        "check",
+        &["--base", "HEAD", "--file", missing.to_str().unwrap()],
+    );
+    assert_eq!(elsewhere.code, 2, "{}{}", elsewhere.stdout, elsewhere.stderr);
+    let message = elsewhere.json()["error"]["message"].as_str().unwrap().to_owned();
+    assert!(
+        message.contains("does not exist") && !message.contains("is not a commit"),
+        "{message}"
+    );
 }
 
 #[test]
@@ -510,4 +523,212 @@ fn check_ignores_the_order_of_an_entry_s_patterns() {
     assert_eq!(checked.code, 0, "{}{}", checked.stdout, checked.stderr);
     assert_eq!(checked.json()["added"], json!([]));
     assert_eq!(checked.json()["removed"], json!([]));
+}
+
+/// Makes `@cli/a` private with `@types/node` at `version` in its `dependencies`, a `types-in-dependencies` finding.
+fn set_types_node(dir: &Path, version: &str) {
+    fs::write(
+        dir.join("packages").join("a").join("package.json"),
+        format!(
+            "{{\n  \"name\": \"@cli/a\",\n  \"version\": \"0.0.0\",\n  \"private\": true,\n  \"dependencies\": {{\n    \"@types/node\": \"{version}\",\n    \"is-number\": \"7.0.0\"\n  }}\n}}\n"
+        ),
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_finding_that_is_not_about_the_version_survives_a_bump() {
+    let dir = fixture("mismatch");
+    set_types_node(dir.path(), "^22.0.0");
+    let before = lint(dir.path());
+    let rules: Vec<Value> = before.json()["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|diagnostic| diagnostic["rule"].clone())
+        .collect();
+    assert!(rules.contains(&json!("types-in-dependencies")), "{}", before.stdout);
+
+    let written = baseline(dir.path(), "write", &[]);
+    assert_eq!(written.code, 0, "{}{}", written.stdout, written.stderr);
+    assert_eq!(
+        written.json()["added"],
+        json!([
+            {
+                "rules": ["types-in-dependencies"],
+                "packages": ["@cli/a"],
+                "dependencies": ["@types/node"],
+                "reason": "baseline",
+            },
+            entry("b", "6.0.0"),
+        ]),
+        "the version rule keeps its specifier, the other one records the name alone"
+    );
+
+    set_types_node(dir.path(), "^22.1.0");
+    let bumped = lint(dir.path());
+    assert_eq!(bumped.code, 0, "{}{}", bumped.stdout, bumped.stderr);
+    let again = baseline(dir.path(), "write", &[]);
+    assert_eq!(again.code, 0, "{}{}", again.stdout, again.stderr);
+    assert_eq!(again.json()["added"], json!([]));
+    assert_eq!(again.json()["written"], false);
+}
+
+fn rules_of(document: &Value, key: &str) -> Vec<Value> {
+    document[key]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["rules"][0].clone())
+        .collect()
+}
+
+#[test]
+fn a_finding_about_a_file_is_recorded_for_that_file_only() {
+    let dir = fixture("js");
+    let app = dir.path().join("packages").join("app");
+    fs::write(app.join("stale.js"), "console.log('stale');\n").unwrap();
+
+    let written = baseline(dir.path(), "write", &[]);
+    assert_eq!(written.code, 0, "{}{}", written.stdout, written.stderr);
+    let files: Vec<Value> = written.json()["added"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["rules"] == json!(["unused-files"]))
+        .cloned()
+        .collect();
+    assert_eq!(
+        files,
+        [json!({
+            "rules": ["unused-files"],
+            "packages": ["@cli/app"],
+            "dependencies": [],
+            "files": ["packages/app/stale.js"],
+            "reason": "baseline",
+        })]
+    );
+    let text = fs::read_to_string(dir.path().join(BASELINE)).unwrap();
+    assert!(
+        text.contains("rules = [\"unused-files\"]\npackages = [\"@cli/app\"]\nfiles = [\"packages/app/stale.js\"]\n"),
+        "{text}"
+    );
+    assert_eq!(lint(dir.path()).code, 0);
+
+    fs::write(app.join("newer.js"), "console.log('newer');\n").unwrap();
+    let grown = lint(dir.path());
+    assert_eq!(grown.code, 0, "unused-files is a warning: {}", grown.stdout);
+    let paths: Vec<Value> = grown.json()["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["rule"] == "unused-files")
+        .map(|diagnostic| diagnostic["location"]["path"].clone())
+        .collect();
+    assert_eq!(paths, [json!("packages/app/newer.js")], "{}", grown.stdout);
+    let again = baseline(dir.path(), "write", &[]);
+    assert_eq!(rules_of(&again.json(), "added"), [json!("unused-files")]);
+}
+
+#[test]
+fn a_reset_of_ignore_that_drops_the_baseline_is_an_error() {
+    let dir = fixture("mismatch");
+    fs::write(
+        dir.path().join("skif.toml"),
+        "reset = [\"ignore\"]\n\n[js]\nenabled = false\n",
+    )
+    .unwrap();
+    let written = baseline(dir.path(), "write", &[]);
+    assert_eq!(written.code, 2, "{}{}", written.stdout, written.stderr);
+    let error = written.json()["error"].clone();
+    assert_eq!(error["kind"], "config", "{error}");
+    let message = error["message"].as_str().unwrap();
+    assert!(
+        message.contains("does not apply") && message.contains("reset = [\"ignore\"]"),
+        "{message}"
+    );
+
+    let pruned = baseline(dir.path(), "prune", &[]);
+    assert_eq!(pruned.code, 2, "{}{}", pruned.stdout, pruned.stderr);
+    assert!(
+        pruned.json()["error"]["message"].as_str().unwrap().contains("reset"),
+        "{}",
+        pruned.stdout
+    );
+}
+
+#[test]
+fn the_lint_flags_decide_what_is_recorded() {
+    let dir = fixture("js");
+    let written = baseline(dir.path(), "write", &["--production"]);
+    assert_eq!(written.code, 0, "{}{}", written.stdout, written.stderr);
+    let rules = rules_of(&written.json(), "added");
+    assert!(rules.contains(&json!("unused-dependencies")), "{rules:?}");
+    assert!(
+        !rules.contains(&json!("unused-dev-dependencies")),
+        "--production analyses no dev dependencies: {rules:?}"
+    );
+    let production = run(skif().args(["--production", "--format", "json"]).arg(dir.path()));
+    assert_eq!(production.code, 0, "{}{}", production.stdout, production.stderr);
+}
+
+/// A directory without a `package.json` holding two copies of the `mismatch` fixture, `one` and `two`.
+fn two_roots() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    for name in ["one", "two"] {
+        let root = dir.path().join(name);
+        fs::create_dir_all(&root).unwrap();
+        support::copy_fixture("mismatch", &root);
+    }
+    dir
+}
+
+#[test]
+fn every_root_below_a_directory_without_a_manifest_gets_its_own_baseline() {
+    let dir = two_roots();
+    let written = baseline(dir.path(), "write", &[]);
+    assert_eq!(written.code, 0, "{}{}", written.stdout, written.stderr);
+    let document = written.json();
+    assert_eq!(document["command"], "write");
+    let roots = document["roots"].as_array().unwrap();
+    let summary: Vec<(Value, Value, Value)> = roots
+        .iter()
+        .map(|root| (root["root"].clone(), root["file"].clone(), root["added"].clone()))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            (json!("one"), json!(BASELINE), json!([entry("b", "6.0.0")])),
+            (json!("two"), json!(BASELINE), json!([entry("b", "6.0.0")])),
+        ]
+    );
+    for name in ["one", "two"] {
+        assert!(dir.path().join(name).join(BASELINE).is_file(), "{name}");
+    }
+    assert_eq!(lint(dir.path()).code, 0);
+
+    let human = run(skif().args(["baseline", "prune"]).arg(dir.path()));
+    assert_eq!(human.code, 0, "{}{}", human.stdout, human.stderr);
+    assert_eq!(
+        human.stdout,
+        "Nothing to prune in one/skif.baseline.toml (1 entry)\nNothing to prune in two/skif.baseline.toml (1 entry)\n"
+    );
+
+    let empty = tempfile::NamedTempFile::new().unwrap();
+    let recursive = baseline(
+        &dir.path().join("one"),
+        "check",
+        &["-r", "--base-file", empty.path().to_str().unwrap()],
+    );
+    assert_eq!(recursive.code, 1, "{}{}", recursive.stdout, recursive.stderr);
+    assert_eq!(recursive.json()["roots"][0]["added"], json!([entry("b", "6.0.0")]));
+}
+
+#[test]
+fn a_file_argument_needs_a_single_root() {
+    let dir = two_roots();
+    let written = baseline(dir.path(), "write", &["--file", "debt.toml"]);
+    assert_eq!(written.code, 2, "{}{}", written.stdout, written.stderr);
+    assert_eq!(written.json()["error"]["kind"], "usage");
+    assert!(!dir.path().join("one").join(BASELINE).exists());
 }

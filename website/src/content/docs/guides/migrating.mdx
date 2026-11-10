@@ -67,8 +67,8 @@ mapping is read from the sources of the tools (sherif 1.13, syncpack 15.3, knip 
 | `version-mismatch`, `semver-range-mismatch`, `banned-dependency`, `invalid-local-version`, `policy-conflict` | syncpack `lint`: the version and semver group states, `IsBanned`, `InvalidLocalVersion` and the conflict states |
 | `catalog-mismatch` | syncpack: `DiffersToCatalog`, in every highest or lowest version group (skif keeps it on in every group) |
 | `catalog-not-used`, `catalog-missing-entry`, `unresolved-catalog-references` | syncpack only with a `policy: catalog` version group (`NotUsingCatalog`, `MissingFromCatalog`, `DependsOnMissingCatalogDefinition`); knip covers `unresolved-catalog-references` through `catalogReferences` |
-| `unsorted-dependencies` | syncpack only when `sortAz` names a dependency map |
-| `package-json-format` | syncpack `format`: when a format key is set or a script runs `syncpack format` (the rule is off by default) |
+| `unsorted-dependencies` | syncpack only when `sortAz` names a dependency map and a script runs `syncpack format` |
+| `package-json-format` | syncpack `format`: when a script runs `syncpack format` (the rule is off by default; format keys alone are written to `[format]` for `skif format`) |
 | the rules of the knip issue types that stay enabled | knip (`unused-files`, `unused-dependencies`, `unused-dev-dependencies`, `unused-optional-peer-dependencies`, `unlisted-dependencies`, `unlisted-binaries`, `unresolved-imports`, `unused-exports`, `unused-types`, `unused-namespace-exports`, `unused-namespace-types`, `duplicate-exports`, `unused-enum-members`, `unused-namespace-members`, `unused-catalog-entries`, `unresolved-catalog-references`, `circular-imports`) |
 | `workspace-protocol`, `local-path-dependency`, `incompatible-peer-dependencies`, `member-toolchain-fields`, `toolchain-pin-drift`, `foreign-package-manager-command`, `stray-lockfile`, `nested-workspace-root` | none of the three |
 | `unparseable-files` | none: knip skips a file it cannot parse without reporting it |
@@ -99,7 +99,12 @@ Every construct that was not copied one to one has a note with the file, the key
 | `ignoreRule`, `-r` | `[rules] <id> = "off"`, with the rule ids renamed (`multiple-dependency-versions` is `version-mismatch`, `unordered-dependencies` is `unsorted-dependencies`, ...). A rule that another migrated tool still checks stays on and the report says so (H): a repository that ignores `multiple-dependency-versions` in sherif because syncpack owns it keeps syncpack's version groups |
 | `ignorePackage`, `-p` | `[workspace] ignore-packages`, a path without its `./` prefix (`./apps/*` is `apps/*`): skif matches a package's directory relative to the root. A path written without `./` matched no package in sherif and does in skif (A) |
 | `multiple-dependency-versions` | `[policy] dependency-types = ["prod", "dev"]`, the sections sherif compares. sherif never compares a dependency with the version of the workspace package it names, and skif does not either without `local` in the list ([ADR 0072](https://github.com/Goldziher/skif/blob/main/adrs/0072-a-policy-scope-without-local-leaves-the-own-versions-out.md)). Migrated with syncpack, the list is the union of both scopes. When sherif ignores `multiple-dependency-versions`, no scope is written |
+| specifiers sherif does not parse | the `exact` profile writes a last `[[version-groups]]` entry, `not compared by sherif`, with `policy = "ignored"` over the specifier types sherif's semver parser rejects (`latest` and `*`, dist-tags, `\|\|`, hyphen and space-separated ranges, `workspace:`, `npm:`, git, file, link and url specifiers). A range sherif read but skif cannot classify (`>= 1.0.0` with a space, `1.x`) is `unsupported` and is left out too (A). The `full` profile writes no group, because `policy-conflict` would report it when no dependency uses such a specifier; the note shows the entry. Migrated with syncpack, which compared every specifier, no group is written |
+| a dependency in both `dependencies` and `devDependencies` of one package | nothing to write, noted as approximate: sherif read only the `devDependencies` specifier, skif compares both entries, so two different specifiers in one package are a `version-mismatch` |
+| `unsync-similar-dependencies` | `unsynced-dependency-family`, which reads the sections of `[policy] dependency-types` (dependencies and devDependencies after a sherif migration) and never compares a dependency listed in two sections with itself. A `catalog:` reference counts as the version of its catalog entry, which sherif left out (A) |
+| an empty root `dependencies` object | nothing to write, noted as approximate: sherif reported it as `root-package-dependencies` (a warning), skif reports it as `empty-dependencies` (an error); remove the empty object |
 | `ignoreDependency`, `-i` | `[[ignore]]` with `rules = ["version-mismatch"]`, the only rule sherif applied it to |
+| a flag value with a comma (`-i a,b`) | not written (H): sherif takes a value whole, so `a,b` matched nothing; pass each name with its own flag |
 | `ignoreDependency` as `name@version` | the same entry, noted as approximate (below) |
 | `failOnWarnings`, `--fail-on-warnings` | `[lint] fail-on-warnings` |
 | `select`, `-s` | `[policy] prefer` |
@@ -129,7 +134,8 @@ moves from sherif to skif report something sherif did not, or exit with a differ
 - **Ranges and dist-tags are compared.** sherif leaves out of `multiple-dependency-versions` every specifier its
   parser rejects: npm ranges such as `>=1.2.0 <2.0.0` or `^1.0.0 || ^2.0.0`, and dist-tags such as `latest`. skif
   parses npm's range syntax, so these take part in `version-mismatch`; `latest` or a dist-tag that differs from the
-  other specifiers is reported as a mismatch that has no fix. **Changes results**: new `version-mismatch` errors.
+  other specifiers is reported as a mismatch that has no fix. **Changes results**: new `version-mismatch` errors,
+  unless the configuration comes from `skif migrate --profile exact`, which leaves these specifiers out as sherif did.
 - **Workspace patterns follow pnpm.** sherif expands `**` one level deep, reads a negation as a literal directory (so
   `!**/test/**` excludes nothing), and matches a name prefix below the root (`packages/foo-*`) against the whole
   pattern, so it finds nothing there. skif matches `**` at any depth (only directories with a `package.json`, so the
@@ -162,7 +168,7 @@ skif adds beyond sherif's are listed under the [report](#the-report)'s extra che
 | --- | --- |
 | `versionGroups[]` with `label`, `dependencies`, `packages`, `dependencyTypes`, `specifierTypes` | `[[version-groups]]` with the same keys |
 | `isBanned`, `isIgnored`, `pinVersion`, `snapTo`, `preferVersion`, `policy: sameRange`, `policy: sameMinor` | `policy = "banned"`, `"ignored"`, `"pinned"` with `pin`, `"snapped-to"` with `snap-to`, `prefer`, `"same-range"`, `"same-minor"`. As in syncpack, a `policy` wins over `snapTo`; `preferVersion` with `policy: sameMinor` is not written (A), since a skif same-minor group picks no version to align on |
-| `policy: catalog` | `[catalog] mode = "prefer"` when the group selects every dependency (A: skif reports a dependency without `catalog:` as a warning, and only when at least `min-packages` packages use it; syncpack reports every instance as an error). A group with `dependencies`, `packages`, `dependencyTypes` or `specifierTypes` is not written (H): the catalog setting is global, so writing it would check every dependency |
+| `policy: catalog` | `[catalog] mode = "enforce"` and `min-packages = 1` when the group selects every dependency, with `catalog-not-used`, `catalog-missing-entry` and `unresolved-catalog-references` at `error`: like syncpack, skif then reports every instance without `catalog:` as an error. A group with `dependencies`, `packages`, `dependencyTypes` or `specifierTypes` is not written (H): the catalog setting is global, so writing it would check every dependency |
 | `policy: semverRangeOnly` | `policy = "semver-range-only"` |
 | `severity` | none (H): levels are set per rule |
 | `semverGroups[]` with `range` | `[[semver-groups]]` |
@@ -173,9 +179,10 @@ skif adds beyond sherif's are listed under the [report](#the-report)'s extra che
 | `customTypes` with `strategy` `name@version`, `version`, `versionsByName` or `name~version` | `[[custom-types]]` with `name`, `path` and `strategy` (`"name@version"`, `"version"`, `"versions-by-name"`, `"name~version"` with `name-path` from `namePath`) |
 | a custom type whose name is a built-in token (`dev`, `overrides`, ...) | `[[custom-types]]` under `<name>-custom` (A); groups that name the token select the built-in type |
 | a custom type for `optionalDependencies` | the native `optional` dependency type |
+| a custom type's `source` | `"PackageJson"`, syncpack's default, is translated like a type without it; `"PnpmWorkspace"` is not (X): skif reads custom types from `package.json` only |
 | `dependencyGroups`, `strict`, `sourceMode` | none (X or H) |
 | `source` | dropped when it lists the workspace patterns (D); otherwise H |
-| `sortFirst`, `sortAz`, `sortExports`, `sortPackages`, `formatBugs`, `formatRepository`, `indent` | `[format]` `sort-first`, `sort-az`, `sort-exports`, `sort-packages`, `format-bugs`, `format-repository`, `indent`, and `package-json-format = "error"`. skif sorts in byte order where syncpack uses a collator (A), by default moves only `types` first and `default` last among `exports` conditions, since reordering the others changes resolution; a configured `sortExports` naming others becomes an unsafe fix (A), collapses `bugs` and `repository` only when nothing is lost (A), and with `indent` also checks the layout (A). `unsorted-dependencies` stays on when `sortAz` names a dependency map |
+| `sortFirst`, `sortAz`, `sortExports`, `sortPackages`, `formatBugs`, `formatRepository`, `indent` | `[format]` `sort-first`, `sort-az`, `sort-exports`, `sort-packages`, `format-bugs`, `format-repository`, `indent`, and `package-json-format = "error"` when a script runs `syncpack format`. Without such a script the settings are written for `skif format` only and no layout rule is turned on (A): `syncpack lint` never checks the layout. skif sorts in byte order where syncpack uses a collator (A), by default moves only `types` first and `default` last among `exports` conditions, since reordering the others changes resolution; a configured `sortExports` naming others becomes an unsafe fix (A), collapses `bugs` and `repository` only when nothing is lost (A), and with `indent` also checks the layout (A). `unsorted-dependencies` stays on when `sortAz` names a dependency map and a script runs `syncpack format` |
 | a script running `syncpack format` | `package-json-format = "error"`; run `skif format` or `skif format --check` in its place |
 | `updateGroups[]` with `target` or `isIgnored` | `[[update-groups]]` with `target` or `ignored = true`, and the same selectors; a group with both, neither, or another target is not written (H) |
 | `minimumReleaseAge`, `maxConcurrentRequests` | `[update] minimum-release-age`, `max-concurrent-requests` |
@@ -329,15 +336,18 @@ reason = "baseline"
 ```
 
 Version findings are recorded as `name@specifier`, so a baselined `react@^17.0.2` silences that version only; a
-package that moves to another version, or a new package, is reported again. This replaces a script that shrinks
+package that moves to another version, or a new package, is reported again. Other findings about a dependency are
+recorded by its name, so a version bump does not reopen them. This replaces a script that shrinks
 sherif's `ignoreDependency` to the variants still reported, and per-member `pinVersion` groups in syncpack. Edit a
 `reason` to say why an entry stays; later runs of `write` and `prune` keep it, and `--require-ignore-reasons` accepts
 the entries. `check` compares entries by what they suppress, so a reworded reason never fails it. A finding that has
 no package or dependency (a finding about the workspace as a whole) is not recorded, since its entry would
 turn the rule off; fix it or set the rule's level instead. Neither is a finding in a root `package.json` without a
-`name`, since no `[[ignore]]` package pattern selects the root alone; give the root a unique `name` to record it. Entries are as narrow as `[[ignore]]` allows: an
-`unused-exports` entry covers every unused export of its package until it is pruned. See the
-[CLI reference](../../reference/cli/#baseline) for the flags.
+`name`, since no `[[ignore]]` package pattern selects the root alone; give the root a unique `name` to record it. A finding about a file
+(`unused-files`, `unused-exports`) is recorded for that file, so a new unused file or export elsewhere fails the run.
+Give `write` and `prune` the lint flags your CI run uses (`--strict`, `--production`, `--config ci.toml`), so the
+baseline holds the findings that run reports; in a repository of several projects, `-r` gives each its own baseline.
+See the [CLI reference](../../reference/cli/#baseline) for the flags.
 
 ## What stays by hand
 
