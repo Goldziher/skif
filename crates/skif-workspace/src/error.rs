@@ -36,6 +36,14 @@ pub enum WorkspaceError {
         /// What is wrong.
         message: String,
     },
+    /// `pnpm-lock.yaml` could not be parsed, has an unexpected shape or is not lockfile format 9.
+    #[error("invalid {path:?}: {message}")]
+    InvalidLockfile {
+        /// Workspace-relative path of the file.
+        path: PathBuf,
+        /// What is wrong.
+        message: String,
+    },
     /// `.yarnrc.yml` could not be parsed; the workspace is discovered without its catalogs.
     #[error("invalid {path:?}: {message}")]
     InvalidYarnrc {

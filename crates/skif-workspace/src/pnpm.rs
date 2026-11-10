@@ -31,34 +31,51 @@ impl YamlSource {
     /// flow mapping (`overrides: {a: 1}`) is not, and gives `None`.
     #[must_use]
     pub fn override_span(&self, selector: &str) -> Option<Span> {
-        let bom = if self.source.starts_with('\u{feff}') {
-            '\u{feff}'.len_utf8()
-        } else {
-            0
-        };
-        let mut in_overrides = false;
-        let mut offset = bom;
-        for line in self.source[bom..].split_inclusive('\n') {
-            let content = line.trim_end_matches(['\r', '\n']);
-            let trimmed = content.trim_start();
-            let indent = content.len() - trimmed.len();
-            if !trimmed.is_empty() && !trimmed.starts_with('#') {
-                let entry = mapping_entry(trimmed);
-                if indent == 0 {
-                    in_overrides = entry.is_some_and(|(key, ..)| key == "overrides");
-                } else if in_overrides
-                    && let Some((key, value_at, value_len)) = entry
-                    && key == selector
-                {
-                    let start = offset + indent;
-                    let end = offset + indent + value_at + value_len;
-                    return Some(self.line_index.span(to_u32(start), to_u32(end)));
-                }
-            }
-            offset += line.len();
-        }
-        None
+        self.entry_span("overrides", selector)
     }
+
+    /// The span of the `key: value` entry directly under the top-level `section:` mapping, from the key through the
+    /// value (the key alone when the value is on the following lines), as [`override_span`](Self::override_span)
+    /// reads `overrides:`.
+    #[must_use]
+    pub fn entry_span(&self, section: &str, key: &str) -> Option<Span> {
+        entry_span(&self.source, &self.line_index, section, key)
+    }
+}
+
+/// The span of the `key: value` entry directly under the top-level `section:` block mapping of the YAML `source`: the
+/// first entry of the section sets the indentation its entries share, so a deeper line naming `key` is not taken.
+pub(crate) fn entry_span(source: &str, line_index: &LineIndex, section: &str, key: &str) -> Option<Span> {
+    let bom = if source.starts_with('\u{feff}') {
+        '\u{feff}'.len_utf8()
+    } else {
+        0
+    };
+    let mut in_section = false;
+    let mut entry_indent = None;
+    let mut offset = bom;
+    for line in source[bom..].split_inclusive('\n') {
+        let content = line.trim_end_matches(['\r', '\n']);
+        let trimmed = content.trim_start();
+        let indent = content.len() - trimmed.len();
+        if !trimmed.is_empty() && !trimmed.starts_with('#') {
+            let entry = mapping_entry(trimmed);
+            if indent == 0 {
+                in_section = entry.is_some_and(|(name, ..)| name == section);
+                entry_indent = None;
+            } else if in_section
+                && *entry_indent.get_or_insert(indent) == indent
+                && let Some((name, value_at, value_len)) = entry
+                && name == key
+            {
+                let start = offset + indent;
+                let end = offset + indent + value_at + value_len;
+                return Some(line_index.span(to_u32(start), to_u32(end)));
+            }
+        }
+        offset += line.len();
+    }
+    None
 }
 
 /// The key of a `key: value` line (without indentation) and the offset and length of the value's token in it; the
