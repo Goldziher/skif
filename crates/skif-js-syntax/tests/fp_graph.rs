@@ -156,7 +156,10 @@ fn re_exports_and_type_containers_name_every_containing_value_export() {
         [
             ("Props", vec!["render".to_owned()]),
             ("Theme", vec!["Alias".to_owned(), "Store".to_owned()]),
-            ("default", vec!["Alias".to_owned(), "Store".to_owned(), "render".to_owned()]),
+            (
+                "default",
+                vec!["Alias".to_owned(), "Store".to_owned(), "render".to_owned()]
+            ),
             ("Config", vec![]),
             ("Store", vec![]),
             ("Alias", vec![]),
