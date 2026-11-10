@@ -37,6 +37,9 @@ All notable changes to this project are documented here. The format follows
   ([ADR 0065](adrs/0065-narrowed-scope-for-incomplete-entries.md)); the human note names the globs after the package.
   `skif_core::IncompletePackage` gains the `scope` field and `with_scope`, and `IncompleteScope` moved from
   `skif-js` to `skif-core` (`skif_js::IncompleteScope` re-exports it).
+- `skif_js::in_incomplete_scope` tells whether a path relative to a package lies in a narrowed incomplete scope, as the
+  analysis matches the globs, and `skif_js::is_out_dir` whether a published path's first directory is build output
+  whose source twin is `src`.
 - `skif_rules::toolchain_provider()` provides the rules over toolchain files, and `skif_rules::providers()` includes
   it. The rules read those files through `LintContext::fs`, the file system the run is given
   (`skif_lint::RunOptions::with_fs`), as the rules over a lockfile and patch files do
@@ -111,6 +114,19 @@ All notable changes to this project are documented here. The format follows
   checkout, marks n8n as not a valid comparison, runs knip on rushstack in a scratch copy with a root manifest made
   from `rush.json`, and refuses to check against a baseline recorded with another knip version or category set
   ([#27](https://github.com/Goldziher/skif/issues/27), [#95](https://github.com/Goldziher/skif/issues/95)).
+- The knip comparison reads the `scope` of each `incomplete-packages` entry and sets apart a file, export, type or
+  member of a narrowed package only when the scope's globs match its file (dependencies stay unjudged in the whole
+  package); applies `non-member-project` to every in-file issue type; sets apart knip-only dependencies that only
+  files knip reports unused import (`used-in-knip-unused-file`, from an import scan of those files) and knip's findings
+  in the root files of a Rush repository (`rush-root-file`); and maps published paths below a build directory and
+  without an extension to their sources in `published-source`. rushstack is installed with `install-run-rush.js`, and
+  knip runs in its checkout with the scratch root manifest there only while knip runs, so it reads the installed
+  `node_modules`. A corpus `build-command` runs after the install (n8n builds its `@n8n/*-config` packages and
+  `@n8n/constants`), the parity and syncpack runs capture skif's output under their own names in the scratch
+  directory, and `bench:publish` writes skip reasons as code spans with whitespace collapsed, so `summary.md` passes
+  `format:check`
+  ([ADR 0100](adrs/0100-knip-comparison-narrowed-scopes-rush-installs-and-dependencies-of-unused-files.md),
+  [#27](https://github.com/Goldziher/skif/issues/27)).
 
 ### Added
 

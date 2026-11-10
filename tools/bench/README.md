@@ -117,12 +117,19 @@ nearly every import as unresolved or unlisted. `--install` installs each reposit
 `--frozen-lockfile`, `npm ci`, `bun install --frozen-lockfile`); the installed state is cached in the checkout. A
 repository is skipped, with the reason in the report, when its package manager is not on `PATH`, the install fails or
 times out, skif fails, or knip prints no JSON; the reason names the first error line the install printed, on stderr
-or stdout, or knip's error. A repository with `install = false` in `corpus.toml` (rushstack: Rush keeps its lockfiles
-under `common/config`) is compared uninstalled, so the tools say themselves whether they can run there. knip has no
-Rush support and stops with `Unable to find package.json` without a root manifest, so rushstack sets
-`knip-root = "rush"`: knip runs in a scratch clone of the checkout (`git clone` under the output directory)
-that gets a root `package.json` with the `projectFolder` of every `rush.json` project as its `workspaces`. The
-checkout itself is never written, and the keys of both reports stay relative to their own root. Without `--install` the run is quick but dominated by that noise. Whether a repository counts as installed is read
+or stdout, or knip's error. A repository with `install = false` in `corpus.toml` is compared uninstalled, so the
+tools say themselves whether they can run there. rushstack installs with `node common/scripts/install-run-rush.js
+install --bypass-policy`, which links each project's `node_modules`. knip has no Rush support and stops with
+`Unable to find package.json` without a root manifest, so rushstack sets `knip-root = "rush"`: while knip runs, the
+checkout gets a root `package.json` with the `projectFolder` of every `rush.json` project as its `workspaces`, so knip
+reads the installed `node_modules` and both reports share one root. The manifest carries a `//` mark and is removed
+after the knip run; one an interrupted run leaves behind is removed when the checkout is next fetched, so skif and the
+syncpack diff never read it. It makes the Rush root a workspace for knip, which skif does not analyse, so knip's
+findings in root files outside every project (`.prettierrc.js`, `common/scripts`) are the `rush-root-file` known
+deviation. A repository may set `build-command` (program first) in `corpus.toml`, run after a successful install:
+n8n builds the `@n8n/*-config` packages and `@n8n/constants` with their workspace dependencies, whose built `dist`
+its tool configurations import. The install marker records the build command, so a checkout installed without it is
+installed again. Without `--install` the run is quick but dominated by that noise. Whether a repository counts as installed is read
 from the checkout (the `.skif-bench-installed` marker holds the pinned commit once an install succeeded), not from the
 flag: `parity.md` says `yes`, `no` or `partial (n of m)`, each baseline entry records its own `installed`, and
 `--check` rejects an entry whose checkout is installed differently from when it was recorded. A repository may set `install-command` (program first; `rules-js` installs with
@@ -157,7 +164,11 @@ cell in `parity.md` (and `invalid` in the baseline) carries the reason, so its c
 file follows from the `files` disagreement, which is counted once already. A finding only skif reports in a file knip
 lists under `files` is the `in-knip-unused-file` known deviation, and a finding only knip reports in a file skif
 reports unused is `in-skif-unused-file`; unused files themselves and the manifest categories (`dependencies`,
-`devDependencies`, `optionalPeerDependencies`, `binaries`) stay compared.
+`devDependencies`, `optionalPeerDependencies`, `binaries`) stay compared. A dependency only knip reports unused is
+`used-in-knip-unused-file` when a file of the same workspace that knip lists under `files` imports the package (an
+`@types/` package when it imports the runtime package): the harness parses those files with skif's parser
+(`skif-js-syntax`) for their bare imports, requires, re-exports and dynamic imports. knip does not analyse such a
+file, so it never sees the import skif credits; the harness does not check that this import is the one skif counts.
 
 **Labels.** `exports`, `types`, `nsExports` and `nsTypes` key the same `<file>|<name>`, and the tools label some
 differently: knip calls a `const enum` a type and files an export under `nsExports` when any importer uses a namespace,
@@ -195,19 +206,21 @@ manifest, not by listing findings:
 - `knip-unjudged-manifest`: an unused dependency or a script binary only skif reports, on a `package.json` that is not
   one of knip's workspaces and that knip reports nothing on. knip judges its workspaces' manifests only; skif's
   recursive run lints a nested project as a root of its own.
-- `non-member-project`: an unused file only knip reports, or an unlisted dependency only knip reports that the file's
-  own manifest lists, below a project directory that is not one of knip's workspaces. knip counts those files to an
-  enclosing workspace without their own manifest's entries and dependencies; skif's analysis of the enclosing
-  workspace skips the directory.
+- `non-member-project`: a finding only knip reports in a file (an unused file, export, type or member, a duplicate, an
+  unresolved import, or an unlisted dependency that the file's own manifest lists) below a project directory that is
+  not one of knip's workspaces. knip counts those files to an enclosing workspace without their own manifest's entries
+  and dependencies; skif's analysis of the enclosing workspace skips the directory.
 - `skipped-directory`: a finding only knip reports in a file below a directory skif's file discovery skips by name
   (`node_modules`, `dist`, `.next`, `.vercel` and the other build output names, `out`, `target` and `coverage`
   directly in a package directory, and hidden directories other than tool ones such as `.github`), unless the
   directory is a workspace member.
 - `published-source`: an unused TypeScript file only knip reports whose path its package publishes with a built
   extension (`main`, `module`, `types`, `bin`, an `exports` leaf with `*` patterns, as `.js`, `.mjs`, `.cjs`, `.jsx` or
-  a `.d.ts` variant). skif makes the source beside a published path an entry; knip maps a published path to source
-  only through a tsconfig `outDir`. Paths mapped through a build directory (`out/main.js` to `src/main.ts`) stay
-  compared.
+  a `.d.ts` variant) or without one (`./out/main`). A published path below a build directory (`dist`, `lib`, `out`,
+  `esm` and the others of `skif_js::is_out_dir`, also with a flavour suffix such as `lib-commonjs`) also names the
+  same path below `src`, as skif maps it: `./lib-commonjs/*.js` publishes every `src/**/*.ts`. skif makes the source of
+  a published path an entry; knip maps a published path to source only through a tsconfig `outDir`. The files only
+  such an entry reaches stay compared.
 
 `non-member-project` and `published-source` check where a finding is, not why skif has no finding there. Unlisted
 dependencies a `declare module` satisfies, and npm's `lib/commands` files that skif reaches through a computed
@@ -216,18 +229,20 @@ dependencies a `declare module` satisfies, and npm's `lib/commands` files that s
 
 **Not judged by skif.** skif lists under `incomplete-packages` in its JSON report the packages whose entry files it
 cannot all know (a tool config it cannot read), and does not report their unused dependencies, exports, types and
-members, nor the files the config could make entries. A finding only knip reports in `files`, `dependencies`,
-`devDependencies`, `exports`, `types`, `nsExports`, `nsTypes`, `enumMembers` or `namespaceMembers` whose package (the
-deepest directory above it with a `package.json`) is one of those is counted as `not-judged-by-skif`: in its own
-column of `parity.md`, apart from the agreement counts and the other known deviations, and ignored by `--check`.
-`unlisted`, `unresolved`, `binaries` and `duplicates` are judged in every package and stay compared. For `files`,
-`exports`, `types` and the members the count is an upper bound: skif judges them outside a narrowed scope
-([ADR 0065](../../adrs/0065-narrowed-scope-for-incomplete-entries.md),
-[ADR 0081](../../adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md)), but its JSON does not say
-which packages are narrowed or what their scope is, so a knip-only finding outside a narrowed scope is set apart
-although skif judged it (thousands in n8n). Only the dependency categories are unjudged in every listed package. `parity.json` lists the directories per repository under `not_judged_packages`. See
-[ADR 0053](../../adrs/0053-incomplete-packages-in-the-json-report.md) and
-[ADR 0068](../../adrs/0068-what-the-knip-comparison-sets-apart.md).
+members, nor the files the config could make entries. A finding only knip reports in `dependencies` or
+`devDependencies` whose package (the deepest directory above it with a `package.json`) is one of those is counted as
+`not-judged-by-skif`, and so is one in `files`, `exports`, `types`, `nsExports`, `nsTypes`, `enumMembers` or
+`namespaceMembers` in a file skif left unjudged: any file of the package when its entry's `scope` is `"package"`, only
+a file its globs match (relative to the package directory, matched as skif matches them) when the scope is
+`{"within": [...]}` ([ADR 0065](../../adrs/0065-narrowed-scope-for-incomplete-entries.md),
+[ADR 0081](../../adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md)); a package listed twice gets
+the union of its scopes. These are counted in their own column of `parity.md`, apart from the agreement counts and the
+other known deviations, and ignored by `--check`. `unlisted`, `unresolved`, `binaries` and `duplicates` are judged in
+every package and stay compared. `parity.json` lists the directories per repository under `not_judged_packages`, and
+the globs of the narrowed ones under `narrowed_packages`. See
+[ADR 0053](../../adrs/0053-incomplete-packages-in-the-json-report.md),
+[ADR 0068](../../adrs/0068-what-the-knip-comparison-sets-apart.md) and
+[ADR 0100](../../adrs/0100-knip-comparison-narrowed-scopes-rush-installs-and-dependencies-of-unused-files.md).
 
 ## Policy diff against syncpack
 
