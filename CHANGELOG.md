@@ -150,6 +150,10 @@ All notable changes to this project are documented here. The format follows
   `deno compile`, `parcel build`, `bunchee`, `microbundle`, `pkg` or `nexe`, or naming a path at or in `bin` as its
   output (`--outfile bin/cli.js`, `-o bin/cli`), is a build step. knip reports no such path either; ADR 0069 said it
   did ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
+- A Serverless handler with a variable read when the CLI runs and a fallback (`src/${opt:stage, 'dev'}/b.main`) is
+  an entry for every value of the variable (`src/**/b.{js,ts}`), not only its fallback, so the handlers of the other
+  stages are no longer `unused-files`. A `${self:…}` variable still takes its fallback
+  ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
 
 ### Changed
 
