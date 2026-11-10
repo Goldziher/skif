@@ -3,7 +3,7 @@
 //! The tree has 100 packages with 210 directories of one module each (more than 20 000 directories and 21 000
 //! modules), a pnpm-style `node_modules` (a virtual store at the root, symbolic links in every package) and a git
 //! index. It is generated once per run in the system's temporary directory. The groups compare the directory walk with
-//! the git index (`[js] discovery`: `auto` checks each directory against the index time, `git` trusts the index), the
+//! the git index (`[js] discovery`: `auto` walks, `git` checks each directory against the index time), the
 //! listing of every directory, the lookup of a module's extensions in those listings, and the listing of the same
 //! directories after one in a hundred changed. Every mode must report the same diagnostics as the walk before it is
 //! timed. Without `git` on the `PATH` the index groups
@@ -214,8 +214,8 @@ fn bench_discovery(c: &mut Criterion) {
     }
     group.finish();
 
-    // One directory in a hundred changes after the index was written: `auto` lists those from disk, `git` does not
-    // see the new files, and the walk lists everything from disk.
+    // One directory in a hundred changes after the index was written: `git` lists those from disk, the others from
+    // the index, and the walk (`walk`, `auto`) lists everything from disk.
     for directory in directories.iter().step_by(100) {
         write(&directory.join("fresh.ts"), "export const fresh = 1;\n");
     }
@@ -230,12 +230,10 @@ fn bench_discovery(c: &mut Criterion) {
         .collect::<Vec<_>>();
     let walked_entries = touched[0].1;
     for (name, entries) in &touched {
-        if *name != "git-index" {
-            assert_eq!(
-                *entries, walked_entries,
-                "the {name} listing must see the files added after the index"
-            );
-        }
+        assert_eq!(
+            *entries, walked_entries,
+            "the {name} listing must see the files added after the index"
+        );
     }
     let mut group = c.benchmark_group("js_listing_touched");
     group.sample_size(10);
