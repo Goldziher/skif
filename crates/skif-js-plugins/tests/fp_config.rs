@@ -371,7 +371,7 @@ fn playwright_reporters_not_known_statically_leave_the_package_unjudged() {
            reporter: [...sharedReporters(), ['./reporters/local.ts']],\n});",
         "export default { testDir: './tests', reporter: pick(), };",
         "export default { testDir: './tests', reporter: [[pick(), {}], ['./reporters/local.ts']] };",
-        "export default { testDir: './tests', reporter: process.env.CI ? 'github' : './reporters/local.ts' };",
+        "export default { testDir: './tests', reporter: process.env.CI ? 'github' : pick() };",
         "const own = () => JSON.parse(process.env.PW ?? '{}');\nexport default { reporter: 'list', ...own() };",
     ];
     for source in cases {
@@ -389,24 +389,63 @@ fn playwright_reporters_not_known_statically_leave_the_package_unjudged() {
     assert_entries(&output(&results, "playwright").entries, &["reporters/local.ts"]);
 }
 
-/// Unknown options of a known reporter, and a base config the reporter list replaces, hide no reporter module.
+/// Unknown options of a known reporter, a base config the reporter list replaces, and a reporter a condition picks
+/// among known ones hide no reporter module: every module a branch names is an entry.
 #[test]
 fn playwright_known_reporters_leave_the_entries_complete() {
     let cases = [
-        "export default { reporter: [['list'], ['./reporters/local.ts', { outputFile: process.env.OUT }]] };",
-        "const own = () => JSON.parse(process.env.PW ?? '{}');\nexport default { ...own(), reporter: 'html' };",
+        (
+            "export default { reporter: [['list'], ['./reporters/local.ts', { outputFile: process.env.OUT }]] };",
+            Some("reporters/local.ts"),
+        ),
+        (
+            "const own = () => JSON.parse(process.env.PW ?? '{}');\nexport default { ...own(), reporter: 'html' };",
+            None,
+        ),
+        ("export default { reporter: process.env.CI ? 'github' : 'list' };", None),
+        ("export default { reporter: [process.env.CI ? 'blob' : 'list'] };", None),
+        (
+            "export default { reporter: [process.env.CI ? ['github'] : null, ['list']].filter(Boolean) };",
+            None,
+        ),
+        (
+            "export default { reporter: [['list'], ...(process.env.A11Y ? [['./reporters/a11y.ts']] : [])] };",
+            Some("reporters/a11y.ts"),
+        ),
+        (
+            "export default { reporter: process.env.CI ? 'github' : './reporters/local.ts' };",
+            Some("reporters/local.ts"),
+        ),
     ];
-    for source in cases {
+    for (source, entry) in cases {
         let results = run(&[("playwright.config.ts", source)], &["@playwright/test"], &[]);
         let out = output(&results, "playwright");
-        assert!(
-            !out.incomplete_reasons
-                .iter()
-                .any(|reason| reason.cause == IncompleteCause::ComputedEntries),
-            "{source}: {:?}",
-            out.incomplete_reasons
-        );
+        assert!(!out.entries_incomplete, "{source}: {:?}", out.incomplete_reasons);
+        if let Some(entry) = entry {
+            assert_entries(&out.entries, &[entry]);
+        }
     }
+}
+
+/// Vitest reporters read the same way: every reporter a branch names is credited, and a reporter name the config
+/// computes in a way that is not known may be any file of the package.
+#[test]
+fn vitest_reporters_of_every_branch_are_credited() {
+    let source = "export default { test: { reporters: process.env.CI ? ['default', './ci.ts'] : 'default' } };";
+    let results = run(&[("vitest.config.ts", source)], &["vitest"], &[]);
+    let out = output(&results, "vitest");
+    assert!(!out.entries_incomplete, "{:?}", out.incomplete_reasons);
+    assert_entries(&out.entries, &["ci.ts"]);
+
+    let source = "export default { test: { reporters: ['default', pick()] } };";
+    let results = run(&[("vitest.config.ts", source)], &["vitest"], &[]);
+    let reasons = &output(&results, "vitest").incomplete_reasons;
+    assert!(
+        reasons
+            .iter()
+            .any(|reason| reason.cause == IncompleteCause::ComputedEntries && reason.scope == IncompleteScope::Package),
+        "{reasons:?}"
+    );
 }
 
 #[test]

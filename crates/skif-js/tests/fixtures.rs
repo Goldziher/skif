@@ -303,15 +303,19 @@ fn incomplete_configs_narrow_what_is_not_judged() {
     insta::assert_json_snapshot!("incomplete_scopes", diagnostics);
 }
 
-/// The `playwright-computed-reporters` fixture: `e2e` spreads a reporter helper whose two returns differ, so the
-/// reporter modules it names are unknown and no file of the package is judged; `smoke` lists its reporters, an
-/// unknown option of one included, so its stale reporter is reported.
+/// The `playwright-computed-reporters` fixture: `e2e` spreads a reporter helper whose two returns differ and a
+/// reporter list a condition adds, so every reporter either names is credited and its stale reporter is reported;
+/// `opaque` spreads reporters it parses from the environment, which may name any file, so no file of it is judged;
+/// `smoke` lists its reporters, an unknown option of one included, so its stale reporter is reported.
 #[test]
-fn a_computed_playwright_reporter_list_leaves_the_package_unjudged() {
+fn computed_playwright_reporter_lists_credit_every_branch() {
     let diagnostics = Run::new("playwright-computed-reporters", "").lint_with_plugins();
     assert_eq!(
         found(&diagnostics, "unused-files"),
-        ["packages/smoke/reporters/stale-reporter.ts: packages/smoke/reporters/stale-reporter.ts"]
+        [
+            "packages/e2e/reporters/stale-reporter.ts: packages/e2e/reporters/stale-reporter.ts",
+            "packages/smoke/reporters/stale-reporter.ts: packages/smoke/reporters/stale-reporter.ts",
+        ]
     );
 }
 

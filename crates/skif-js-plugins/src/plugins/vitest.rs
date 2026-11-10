@@ -7,8 +7,8 @@ use crate::plugin::{
 };
 use crate::plugins::vite;
 use crate::support::{
-    Spreads, alias_inputs, config_unknown, convention_scope, entry_glob, entry_strings, get_in, module_input, name_of,
-    objects, package_name, path_unknown, project_files, shallow_key_unknown, strings,
+    Named, Spreads, alias_inputs, config_unknown, convention_scope, entry_glob, entry_strings, get_in, module_input,
+    objects, package_name, path_unknown, project_files, reporter_names, reporters_unknown, shallow_key_unknown, strings,
 };
 
 /// Where test runners find what a config names besides the test files of [`SPEC`]: test and fixture directories, and
@@ -70,8 +70,8 @@ impl Plugin for Vitest {
     }
 
     /// What a spread or merged base test config hides is tests: test files, test directories and setup modules. A
-    /// file key the config computes itself, or a config unknown as a whole (a factory called with this package's
-    /// options), may name any file.
+    /// file key or a reporter list the config computes itself, or a config unknown as a whole (a factory called with
+    /// this package's options), may name any file.
     fn incomplete_scope(&self, _cause: IncompleteCause, config: &ConfigAst<'_>) -> IncompleteScope {
         if computes_files(config.value, 0) {
             return IncompleteScope::Package;
@@ -90,7 +90,8 @@ const FILE_KEYS: &[&[&str]] = &[
 ];
 
 /// Whether a config, a workspace list of them or a project they nest is unknown as a whole or computes one of
-/// [`FILE_KEYS`] itself, leaving aside what an imported base config it spreads or merges may set ([`Spreads::Own`]).
+/// [`FILE_KEYS`] or a reporter name of `test.reporters` itself, leaving aside what an imported base config it spreads
+/// or merges may set ([`Spreads::Own`]).
 fn computes_files(value: &ConfigValue, depth: u8) -> bool {
     if depth > 8 {
         return false;
@@ -100,6 +101,9 @@ fn computes_files(value: &ConfigValue, depth: u8) -> bool {
     }
     objects(value).into_iter().any(|object| {
         FILE_KEYS.iter().any(|path| path_unknown(object, path, Spreads::Own))
+            || object
+                .get("test")
+                .is_some_and(|test| reporters_unknown(test, "reporters", Spreads::Own))
             || ["workspace", "projects"]
                 .iter()
                 .filter_map(|key| get_in(object, &["test", key]))
@@ -153,18 +157,15 @@ fn test_options(test: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<Plugin
     if let Some(environment) = test.get("environment").and_then(ConfigValue::as_str) {
         out.extend(environment_input(config, environment));
     }
-    if let Some(reporters) = test.get("reporters") {
-        let reporters: Vec<&ConfigValue> = match reporters {
-            ConfigValue::Array(items) => items.iter().collect(),
-            other => vec![other],
-        };
-        for name in reporters.into_iter().filter_map(name_of) {
-            if name == "html" {
-                // The HTML reporter serves the UI package, which Vitest offers to install when it is missing.
-                out.push(PluginInput::OptionalDependency("@vitest/ui".to_owned()));
-            } else if !BUILTIN_REPORTERS.contains(&name) {
+    for named in test.get("reporters").map(reporter_names).unwrap_or_default() {
+        match named {
+            // The HTML reporter serves the UI package, which Vitest offers to install when it is missing.
+            Named::Known("html") => out.push(PluginInput::OptionalDependency("@vitest/ui".to_owned())),
+            Named::Known(name) if !BUILTIN_REPORTERS.contains(&name) => {
                 out.extend(module_input(config.base, name, false));
             }
+            Named::Known(_) => {}
+            Named::Unknown => out.push(PluginInput::EntriesIncomplete),
         }
     }
     if let Some(coverage) = test.get("coverage") {

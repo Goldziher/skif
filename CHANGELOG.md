@@ -319,11 +319,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
-- A Playwright `reporter` list whose element or reporter name skif cannot evaluate (`...sharedReporters()` of a helper
-  whose two returns differ, `process.env.CI ? 'github' : './reporter.ts'`) was skipped, so the reporter modules it
-  names were reported by `unused-files`. Such a list, or a spread of a value the config computes that may set it, now
-  leaves the package's entries incomplete and the whole package unjudged, as a reporter module may be any file; an
-  imported base config still narrows to the test conventions
+- A Playwright `reporter` list whose element or reporter name skif could not evaluate (`...sharedReporters()` of a
+  helper whose two returns differ, `process.env.CI ? 'github' : './reporter.ts'`) was skipped, so the reporter modules
+  it names were reported by `unused-files`. A reporter a condition picks among known values, in the list, an element,
+  a spread of a conditional list (`...(process.env.A11Y ? [['./a11y-reporter.ts']] : [])`) or a list filtered with
+  `.filter(Boolean)`, now credits the module of every branch. A list whose reporter name is still not known (a list
+  parsed from the environment), or a spread of a value the config computes that may set it, leaves the package's
+  entries incomplete and the whole package unjudged, as a reporter module may be any file; an imported base config
+  still narrows to the test conventions. Vitest's `test.reporters` is read the same way: a reporter of every branch is
+  credited, and one whose name is not known leaves the package unjudged instead of being skipped
   ([#151](https://github.com/Goldziher/skif/issues/151)).
 - Storybook addons, frameworks and builders named through the `getAbsolutePath` helper the Storybook CLI writes in its
   ESM form (`` dirname(fileURLToPath(import.meta.resolve(`${value}/package.json`))) ``) are credited, as the CommonJS
