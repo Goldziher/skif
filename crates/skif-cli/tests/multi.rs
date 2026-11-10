@@ -855,6 +855,28 @@ fn fixing_keeps_the_dependencies_a_nested_root_uses() {
     assert_eq!(unused_dependencies(&result.json()), Vec::<String>::new());
 }
 
+#[test]
+fn fixing_a_root_that_holds_other_roots_alone_warns_about_their_uses() {
+    let dir = outer_with_nested_user();
+    let alone = run(skif()
+        .args(["--fix-unsafe", "--dry-run", "--no-install", "--format", "json"])
+        .arg(dir.path()));
+    assert!(
+        alone.stderr.contains("warning: ")
+            && alone.stderr.contains("other roots (build)")
+            && alone.stderr.contains("run with -r"),
+        "{}",
+        alone.stderr
+    );
+
+    let recursive = run(skif()
+        .args(["-r", "--fix-unsafe", "--dry-run", "--no-install", "--format", "json"])
+        .arg(dir.path()));
+    assert!(!recursive.stderr.contains("other roots"), "{}", recursive.stderr);
+    let unfixed = run(skif().args(["--format", "json"]).arg(dir.path()));
+    assert!(!unfixed.stderr.contains("other roots"), "only a fix warns: {}", unfixed.stderr);
+}
+
 /// An outer root and a nested root `build` that use each other's files: a workflow of the outer root runs
 /// `build/tools/report.js`, and `build/index.js` requires the outer `tools/detect.js`, which requires
 /// `tools/helper.js`. Nothing uses `tools/orphan.js` or `build/tools/unused.js`.
