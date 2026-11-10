@@ -303,6 +303,78 @@ fn incomplete_configs_narrow_what_is_not_judged() {
     insta::assert_json_snapshot!("incomplete_scopes", diagnostics);
 }
 
+/// The `incomplete-judged` fixture: `narrowed` merges an unknown base into its Vitest config, so its unknown entries
+/// lie in the test scope, whose files are entries; `whole` has a Vitest config unknown as a whole. The exports, types
+/// and enum members outside the narrowed scope are judged (ADR 0081), those of the scope's setup module and of the
+/// package unjudged as a whole are not.
+#[test]
+fn exports_outside_a_narrowed_incomplete_scope_are_judged() {
+    let diagnostics = Run::new("incomplete-judged", "").lint_with_plugins();
+    assert_eq!(
+        found(&diagnostics, "unused-exports"),
+        [
+            "packages/narrowed/src/seed.ts: unusedSeed",
+            "packages/narrowed/src/util.ts: stale",
+        ]
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-types"),
+        ["packages/narrowed/src/util.ts: Stale"]
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-enum-members"),
+        ["packages/narrowed/src/util.ts: Color.Green"]
+    );
+    assert_eq!(found(&diagnostics, "unused-files"), none());
+}
+
+/// A file of the narrowed scope is an entry even when the package's `project` globs leave it out: the setup module
+/// under `test/` still counts as importing `seed`.
+#[test]
+fn a_scope_file_outside_the_project_globs_still_imports() {
+    let diagnostics = Run::new(
+        "incomplete-judged",
+        "[js.workspaces.\"packages/narrowed\"]\nproject = [\"src/**\"]\n",
+    )
+    .lint_with_plugins();
+    assert_eq!(
+        found(&diagnostics, "unused-exports"),
+        [
+            "packages/narrowed/src/seed.ts: unusedSeed",
+            "packages/narrowed/src/util.ts: stale",
+        ]
+    );
+}
+
+/// With `include-entry-exports`, the exports of the files of a narrowed scope stay unjudged: such a file may be an
+/// entry its configs hide, whose exports the tool uses. Exports outside the scope are still judged.
+#[test]
+fn exports_in_a_narrowed_scope_stay_unjudged_with_include_entry_exports() {
+    let diagnostics = Run::new("incomplete-judged", "[js]\ninclude-entry-exports = true\n").lint_with_plugins();
+    let unused = found(&diagnostics, "unused-exports");
+    assert!(
+        unused
+            .iter()
+            .any(|export| export == "packages/narrowed/src/util.ts: stale"),
+        "{unused:?}"
+    );
+    assert!(
+        !unused
+            .iter()
+            .any(|export| export.starts_with("packages/narrowed/test/")),
+        "{unused:?}"
+    );
+}
+
+/// The narrowed scope of a root test config also matches the files of the packages nested below it: the setup module
+/// of a nested package is an entry of the root, so what it imports from the root is used.
+#[test]
+fn a_root_scope_counts_the_imports_of_nested_packages() {
+    let diagnostics = Run::new("incomplete-root-scope", "").lint_with_plugins();
+    assert_eq!(found(&diagnostics, "unused-exports"), ["src/seed.ts: unusedSeed"]);
+    assert_eq!(found(&diagnostics, "unused-files"), none());
+}
+
 #[test]
 fn monorepo_dependencies() {
     let diagnostics = Run::new("monorepo", "").lint();

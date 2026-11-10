@@ -53,7 +53,7 @@ impl Plugin for Eleventy {
                 Some(ConfigValue::Object(entries)) => entries
                     .iter()
                     .map(|(path, _)| path.as_str())
-                    .filter(|path| *path != "...")
+                    .filter(|path| !ConfigValue::is_spread_key(path))
                     .collect(),
                 _ => Vec::new(),
             };
