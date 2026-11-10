@@ -181,7 +181,7 @@ the old tools stays where it is. The [migration guide](../../guides/migrating/) 
 | `--profile <exact\|full>` | `exact` (default) keeps only the checks the old tools ran and turns off, in `[rules]`, the other rules skif enables by default. `full` leaves skif's defaults for them. |
 | `--output <FILE>` | Write here instead of `PATH/skif.toml`. `-` prints the configuration to stdout. |
 | `--merge` | Combine with the existing configuration file (`skif.toml` or `.skif.toml`), which is edited in place: its comments and order stay, tables it lacks are appended under a banner, and in a table both define the existing value wins and lists are united. Values the `exact` profile added (marked with a `# skif migrate: not checked by ...` comment) do not count as existing values, so migrating tools in several steps ends with the same checks as one `--from sherif,syncpack,knip` run. |
-| `--force` | Replace the existing configuration file (`skif.toml` or `.skif.toml`, whichever exists). Without `--merge` or `--force` the command refuses to overwrite one. |
+| `--force` | Replace the existing configuration file (`skif.toml` or `.skif.toml`, whichever exists). Without `--merge` or `--force` the command refuses to overwrite one. When the replaced file had an `extends` (a `skif baseline` file, a shared preset), a warning names the files, which the new file no longer extends. |
 | `--dry-run` | Print the configuration to stdout and the report to stderr; write nothing. |
 | `--format <human\|json>` | `json` prints one document on stdout with `version`, `skif`, `profile`, `tools`, `translated`, `default`, `needs-human`, `extra-checks`, `notes`, `written`, `kept-existing` and, when nothing is written, `toml`. |
 | `--strict` | Exit `1` when any construct needs a human. |
