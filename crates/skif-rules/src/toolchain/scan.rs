@@ -1,5 +1,5 @@
-//! Finding the toolchain files of a workspace through the [`FileSystem`] and reading them, once per run for every
-//! toolchain rule.
+//! Finding the toolchain files of a workspace through the run's [`FileSystem`] ([`LintContext::fs`]) and reading
+//! them, once per run for every toolchain rule.
 //!
 //! The usual places are the root and every package directory that is not ignored (version files, Dockerfiles and
 //! `*.sh`), their `docker` and `scripts` subdirectories (Dockerfiles and `*.sh`) and the root's `.github/workflows`.
@@ -65,10 +65,10 @@ pub(crate) struct Scan {
 impl Scan {
     /// The scan of the run, built by the first toolchain rule that asks for it; `rules` are the ids of every
     /// toolchain rule, whose `files` globs it reads too.
-    pub fn of(cx: &LintContext<'_>, fs: &Arc<dyn FileSystem>, rules: &[&str]) -> Arc<Self> {
+    pub fn of(cx: &LintContext<'_>, rules: &[&str]) -> Arc<Self> {
         cx.shared(|| {
             let globs: Vec<String> = rules.iter().flat_map(|id| ToolchainOptions::of(cx, id).files).collect();
-            Self::build(cx, fs.as_ref(), &globs)
+            Self::build(cx, cx.fs(), &globs)
         })
     }
 

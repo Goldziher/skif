@@ -1,7 +1,5 @@
-use std::sync::Arc;
-
 use skif_config::PackageManager;
-use skif_core::{Category, FileSystem, Fixability, RuleMeta, Severity};
+use skif_core::{Category, Fixability, RuleMeta, Severity};
 use skif_lint::{Emitter, LintContext, OptionsError, Rule};
 
 use super::commands::{Invocation, basename, invocation, manager_name};
@@ -33,23 +31,8 @@ const DEFAULT_KINDS: [ToolchainKind; 3] = [
 /// Read-only commands (`npm view`, `npm whoami`, `yarn info`), a global install of the workspace's own manager
 /// (`npm install -g pnpm@9`) and the files of projects outside the workspace are not reported. The options are those of
 /// every toolchain rule: `kinds` (default Dockerfiles, workflows and shell scripts), `files` and `ignore-files`.
-pub struct ForeignPackageManagerCommand {
-    fs: Arc<dyn FileSystem>,
-}
-
-impl ForeignPackageManagerCommand {
-    /// The rule, reading toolchain files through `fs`.
-    #[must_use]
-    pub fn new(fs: Arc<dyn FileSystem>) -> Self {
-        Self { fs }
-    }
-}
-
-impl std::fmt::Debug for ForeignPackageManagerCommand {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ForeignPackageManagerCommand").finish_non_exhaustive()
-    }
-}
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ForeignPackageManagerCommand;
 
 /// The command of `chosen` that does what `quoted` (the foreign program through its subcommand) does.
 fn equivalent(chosen: PackageManager, quoted: &[&str]) -> String {
@@ -123,7 +106,7 @@ impl Rule for ForeignPackageManagerCommand {
         let Ok(options) = ToolchainOptions::of(cx, META.id).resolve(&DEFAULT_KINDS) else {
             return;
         };
-        let scan = Scan::of(cx, &self.fs, &rule_ids());
+        let scan = Scan::of(cx, &rule_ids());
         for file in scan.files_for(&options) {
             for command in &file.parsed.commands {
                 if let Some(found) = invocation(&command.words, chosen) {

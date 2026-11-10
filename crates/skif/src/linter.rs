@@ -17,10 +17,10 @@ use crate::error::Error;
 /// The rule providers compiled into this build, in registration order.
 ///
 /// The manifest and toolchain rules come with the `manifest` feature and the JS analysis rules with `js-analysis`;
-/// the toolchain rules read version files, Dockerfiles, workflows and shell scripts through `fs`, and the JS rules read
-/// source files through it and take their plugin switches from `config`, so a host that lints unsaved buffers passes
-/// its own [`FileSystem`]. Empty when neither feature is on. A host that adds its own rules passes these plus its own
-/// to [`Linter::with_providers`].
+/// the JS rules read source files through `fs` and take their plugin switches from `config`, so a host that lints
+/// unsaved buffers passes its own [`FileSystem`]. The other rules that read files (toolchain files, a lockfile, patch
+/// files) read the file system the linter runs with (see [`Linter::with_fs`]). Empty when neither feature is on. A
+/// host that adds its own rules passes these plus its own to [`Linter::with_providers`].
 #[must_use]
 pub fn builtin_providers(config: &Config, fs: Arc<dyn FileSystem>) -> Vec<Box<dyn RuleProvider>> {
     #[cfg(any(feature = "manifest", feature = "js-analysis"))]
@@ -28,10 +28,7 @@ pub fn builtin_providers(config: &Config, fs: Arc<dyn FileSystem>) -> Vec<Box<dy
     #[cfg(not(any(feature = "manifest", feature = "js-analysis")))]
     let providers: Vec<Box<dyn RuleProvider>> = Vec::new();
     #[cfg(feature = "manifest")]
-    {
-        providers.extend(skif_rules::providers());
-        providers.push(Box::new(skif_rules::toolchain_provider(Arc::clone(&fs))));
-    }
+    providers.extend(skif_rules::providers());
     #[cfg(feature = "js-analysis")]
     providers.push(Box::new(crate::js::provider(config, fs, None)));
     #[cfg(not(feature = "js-analysis"))]
@@ -229,8 +226,6 @@ impl Linter {
         let mut providers: Vec<Box<dyn RuleProvider>> = skif_rules::providers();
         #[cfg(not(feature = "manifest"))]
         let mut providers: Vec<Box<dyn RuleProvider>> = Vec::new();
-        #[cfg(feature = "manifest")]
-        providers.push(Box::new(skif_rules::toolchain_provider(Arc::clone(&shared))));
         providers.push(Box::new(crate::js::provider(config, shared, Some(modules))));
         let mut linter = Self::with_providers(config, providers)?;
         linter.cache = Some(cache);
@@ -239,7 +234,8 @@ impl Linter {
 
     /// Builds a linter over exactly `providers`; pass [`builtin_providers`] plus your own to extend the built-ins.
     ///
-    /// Rules that read files beyond the discovered workspace (a lockfile, patch files) read the real file system.
+    /// Rules that read files beyond the discovered workspace (toolchain files, a lockfile, patch files) read the real
+    /// file system.
     ///
     /// # Errors
     /// As [`Linter::new`].
