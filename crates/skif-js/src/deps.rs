@@ -744,7 +744,9 @@ impl DependencyUsage {
                     self.handle_import(workspace, name, &site);
                 } else if let Some(import) = module.info.imports.get(resolved.import) {
                     // A path alias can stand in for a package the manifest lists: the alias serves development,
-                    // the listed dependency is what consumers install.
+                    // the listed dependency is what consumers install. A bare builtin name (`events`, `buffer`) uses
+                    // a listed package of that name, the polyfill a bundler resolves it to for the browser; a
+                    // `node:` specifier names no package.
                     self.reference_listed(module.owner, &import.specifier);
                 }
             }

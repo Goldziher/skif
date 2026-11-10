@@ -80,6 +80,29 @@ fn trailing_slash_imports_name_npm_packages_not_builtins() {
     assert!(diagnostics.is_empty(), "{diagnostics:#?}");
 }
 
+#[test]
+fn bare_builtin_imports_use_a_listed_package_of_that_name() {
+    // A bundler resolves `events` to the listed polyfill for the browser; `node:util` is only ever the builtin.
+    let package = manifest(&format!(
+        r#""name":"app","version":"1.0.0","private":true,{PNPM},"main":"index.js","dependencies":{{"events":"3.3.0","util":"0.12.5"}}"#
+    ));
+    let diagnostics = lint_files(
+        &[
+            ("package.json", &package),
+            (
+                "index.js",
+                "import { EventEmitter } from 'events';\nimport { format } from 'node:util';\nexport default [EventEmitter, format];\n",
+            ),
+        ],
+        "",
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-dependencies"),
+        ["package.json: util"],
+        "{diagnostics:#?}"
+    );
+}
+
 /// A project with a `.pnpmfile.cjs` that requires `semver`, the files `source` and a manifest listing `dependencies`;
 /// `src/index.js` is its `main` when `source` has it.
 fn pnpmfile_project(source: &[(&'static str, &'static str)], dependencies: &str) -> Vec<Diagnostic> {
