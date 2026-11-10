@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use skif_config::{Config, ConfigError};
-use skif_core::{Diagnostic, FileSystem, IncompletePackage, Report};
+use skif_core::{ConfigJudgement, Diagnostic, FileSystem, IncompletePackage, Report};
 use skif_workspace::{Workspace, map_ordered};
 
 use crate::context::{FsRef, LintContext, SharedCache};
@@ -148,7 +148,8 @@ pub fn run(
         Report::new(collected.diagnostics, workspace.all_packages().count() - root_stand_in)
             .with_incomplete_packages(collected.incomplete_packages)
             .with_other_project_files(collected.other_project_files)
-            .with_ancestor_dependency_uses(collected.ancestor_dependency_uses),
+            .with_ancestor_dependency_uses(collected.ancestor_dependency_uses)
+            .with_config_judgements(collected.config_judgements),
     )
 }
 
@@ -178,6 +179,8 @@ struct Collected {
     other_project_files: Vec<PathBuf>,
     /// The dependencies the analysed code uses through manifests outside the workspace root.
     ancestor_dependency_uses: Vec<(PathBuf, String)>,
+    /// The configuration entries the rules judged.
+    config_judgements: Vec<ConfigJudgement>,
 }
 
 /// Runs every enabled rule and returns the diagnostics, the incomplete packages, the files of other projects and the
@@ -233,11 +236,13 @@ fn execute(registry: &Registry, cx: &LintContext<'_>, options: &RunOptions<'_>) 
     }
     let other_project_files = root.take_other_project_files();
     let ancestor_dependency_uses = root.take_ancestor_dependency_uses();
+    let config_judgements = root.take_config_judgements();
     let (diagnostics, incomplete_packages) = root.into_parts();
     Ok(Collected {
         diagnostics,
         incomplete_packages,
         other_project_files,
         ancestor_dependency_uses,
+        config_judgements,
     })
 }

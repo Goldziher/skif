@@ -58,6 +58,50 @@ pub struct Report {
     /// cannot see this code. Not rendered.
     #[serde(skip)]
     pub ancestor_dependency_uses: Vec<(PathBuf, String)>,
+    /// The entries of configuration lists that `stale-js-config` judged, used or stale, sorted. A list it could not
+    /// judge (a rule that consults it did not run, a package whose entry files are not all known) is not here. A
+    /// multi-root host decides from them whether an entry of a file several roots read is stale for the whole run.
+    /// Not rendered.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub config_judgements: Vec<ConfigJudgement>,
+}
+
+/// An entry of a configuration list as `stale-js-config` judged it in one run (see [`Report::config_judgements`]).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
+pub struct ConfigJudgement {
+    /// The configuration file the entry is written in, as the location of the finding that reports it stale has it.
+    pub file: PathBuf,
+    /// The key of the list, as written in the file: `js.ignore-dependencies`, `js.workspaces."tools/*".entry`, or
+    /// `js.workspaces` for the keys of that table.
+    pub key: String,
+    /// The entry, as written.
+    pub entry: String,
+    /// Whether the entry matched nothing in this run.
+    pub stale: bool,
+    /// The message of the finding that reports the entry stale, which the run emits only when [`stale`](Self::stale).
+    pub message: String,
+}
+
+impl ConfigJudgement {
+    /// The judgement of `entry` of the list `key` in `file`, with the message of the finding that calls it stale.
+    #[must_use]
+    pub fn new(
+        file: impl Into<PathBuf>,
+        key: impl Into<String>,
+        entry: impl Into<String>,
+        stale: bool,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            file: file.into(),
+            key: key.into(),
+            entry: entry.into(),
+            stale,
+            message: message.into(),
+        }
+    }
 }
 
 impl Report {
@@ -78,6 +122,7 @@ impl Report {
             incomplete_packages: Vec::new(),
             other_project_files: Vec::new(),
             ancestor_dependency_uses: Vec::new(),
+            config_judgements: Vec::new(),
         }
     }
 
@@ -108,11 +153,38 @@ impl Report {
         self
     }
 
+    /// Sets the configuration entries `stale-js-config` judged, sorted and without duplicates.
+    #[must_use]
+    pub fn with_config_judgements(mut self, mut judgements: Vec<ConfigJudgement>) -> Self {
+        judgements.sort();
+        judgements.dedup();
+        self.config_judgements = judgements;
+        self
+    }
+
     /// Keeps only the diagnostics `keep` accepts, in their order, and counts the summary again; the number of
     /// packages and everything else stay.
     #[must_use]
     pub fn retain(mut self, keep: impl FnMut(&Diagnostic) -> bool) -> Self {
         self.diagnostics.retain(keep);
+        self.recount();
+        self
+    }
+
+    /// Adds `diagnostics`, sorts them in with the others and counts the summary again; the number of packages and
+    /// everything else stay.
+    #[must_use]
+    pub fn extended(mut self, diagnostics: Vec<Diagnostic>) -> Self {
+        if diagnostics.is_empty() {
+            return self;
+        }
+        self.diagnostics.extend(diagnostics);
+        sort(&mut self.diagnostics);
+        self.recount();
+        self
+    }
+
+    fn recount(&mut self) {
         self.summary = self.diagnostics.iter().fold(
             Summary {
                 packages: self.summary.packages,
@@ -120,7 +192,6 @@ impl Report {
             },
             count,
         );
-        self
     }
 }
 
@@ -426,6 +497,23 @@ mod tests {
             }
         );
         assert_eq!(report.other_project_files, [PathBuf::from("/ws/build/x.ts")]);
+    }
+
+    #[test]
+    fn extended_sorts_the_added_diagnostics_in_and_counts_them() {
+        let all = Report::new(input(), 3);
+        let (kept, taken): (Vec<Diagnostic>, Vec<Diagnostic>) = all
+            .diagnostics
+            .clone()
+            .into_iter()
+            .partition(|diagnostic| diagnostic.rule.as_str() != "b-rule");
+        let judgement = ConfigJudgement::new("skif.toml", "js.entry", "x.js", true, "m");
+        let report = Report::new(kept, 3)
+            .with_config_judgements(vec![judgement.clone(), judgement.clone()])
+            .extended(taken);
+        assert_eq!(report.diagnostics, all.diagnostics);
+        assert_eq!(report.summary, all.summary);
+        assert_eq!(report.config_judgements, [judgement]);
     }
 
     #[test]

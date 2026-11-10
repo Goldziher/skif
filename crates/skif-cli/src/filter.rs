@@ -224,7 +224,8 @@ impl Filter {
         })
     }
 
-    /// Narrows the report of one root to what the flags select.
+    /// Narrows the report of one root to what the flags select. The configuration judgements stay, so the findings
+    /// about a configuration file several roots read can be decided again after fixing.
     pub fn apply(&self, workspace: &Workspace, report: Report) -> Report {
         if self.workspaces.is_none() && self.include.is_none() && self.exclude.is_empty() {
             return report;
@@ -240,7 +241,7 @@ impl Filter {
             .filter(|diagnostic| self.reports_rule(diagnostic.rule.as_str()))
             .filter(|diagnostic| self.selects(owner(workspace, diagnostic)))
             .collect();
-        Report::new(diagnostics, packages)
+        Report::new(diagnostics, packages).with_config_judgements(report.config_judgements)
     }
 
     /// Narrows every root's report, after checking that `--workspace` selects a package in at least one of them.

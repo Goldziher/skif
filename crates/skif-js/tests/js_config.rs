@@ -8,9 +8,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use skif_config::Config;
-use skif_core::{Diagnostic, FileSystem, MemoryFs, Severity};
+use skif_core::{Diagnostic, FileSystem, MemoryFs, Report, Severity};
 use skif_js::{JsProvider, PluginSource};
-use skif_lint::{Registry, RunOptions, run_unsorted};
+use skif_lint::{Registry, RunOptions, run, run_unsorted};
 use skif_workspace::Workspace;
 
 const ROOT: &str = "/ws";
@@ -26,6 +26,18 @@ fn lint(files: &[(&str, &str)], toml: &str) -> Vec<Diagnostic> {
 
 /// [`lint`] with the `[js.workspaces]` keys matched from `anchor`, as for a root below the start of a run.
 fn lint_anchored(files: &[(&str, &str)], toml: &str, anchor: Option<&str>) -> Vec<Diagnostic> {
+    let (registry, workspace, config) = prepared(files, toml, anchor);
+    run_unsorted(&registry, &workspace, &config, &RunOptions::default()).unwrap()
+}
+
+/// The whole report of linting `files` with `toml`.
+fn report(files: &[(&str, &str)], toml: &str) -> Report {
+    let (registry, workspace, config) = prepared(files, toml, None);
+    run(&registry, &workspace, &config, &RunOptions::default()).unwrap()
+}
+
+/// The JS provider, the workspace of `files` with its keys anchored at `anchor`, and the configuration `toml`.
+fn prepared(files: &[(&str, &str)], toml: &str, anchor: Option<&str>) -> (Registry, Workspace, Config) {
     let memory = files.iter().fold(MemoryFs::new(), |memory, (path, text)| {
         memory.with_file(Path::new(ROOT).join(path), text)
     });
@@ -38,7 +50,7 @@ fn lint_anchored(files: &[(&str, &str)], toml: &str, anchor: Option<&str>) -> Ve
         .with_overrides(&config.overrides);
     let provider = JsProvider::new(fs).with_input_source(Arc::new(source));
     let registry = Registry::new(vec![Box::new(provider)]).unwrap();
-    run_unsorted(&registry, &workspace, &config, &RunOptions::default()).unwrap()
+    (registry, workspace, config)
 }
 
 /// `path: message` of the diagnostics of `rule`, sorted.
@@ -388,6 +400,73 @@ fn anchored_workspace_keys_select_packages_by_their_directory_below_the_start() 
             "`zzz` in `js.workspaces.\"repo/packages/a\".ignore-dependencies` matched nothing",
         ]
     );
+}
+
+#[test]
+fn stale_js_config_records_every_entry_it_judged_under_the_key_it_is_written_at() {
+    let files = two_packages("export {};\n");
+    let report = report(
+        &files,
+        "[js]\nignore-dependencies = [\"left\", \"zzz\"]\n[js.workspaces.\"packages/*\"]\nignore-binaries = [\"tsc\"]\n",
+    );
+    let file = &report.config_judgements[0].file;
+    assert!(report.config_judgements.iter().all(|judgement| &judgement.file == file));
+    let judged: Vec<(&str, &str, bool, &str)> = report
+        .config_judgements
+        .iter()
+        .map(|judgement| {
+            (
+                judgement.key.as_str(),
+                judgement.entry.as_str(),
+                judgement.stale,
+                judgement.message.as_str(),
+            )
+        })
+        .collect();
+    // `left` silences the unused `left` of both packages; the glob table's entry is judged in each package it
+    // selects, under the key as written, and named by the package in the finding.
+    assert_eq!(
+        judged,
+        [
+            (
+                "js.ignore-dependencies",
+                "left",
+                false,
+                "`left` in `js.ignore-dependencies` matched nothing"
+            ),
+            (
+                "js.ignore-dependencies",
+                "zzz",
+                true,
+                "`zzz` in `js.ignore-dependencies` matched nothing"
+            ),
+            (
+                "js.workspaces",
+                "packages/*",
+                false,
+                "`packages/*` in `js.workspaces` matched nothing"
+            ),
+            (
+                "js.workspaces.\"packages/*\".ignore-binaries",
+                "tsc",
+                true,
+                "`tsc` in `js.workspaces.\"packages/a\".ignore-binaries` matched nothing"
+            ),
+            (
+                "js.workspaces.\"packages/*\".ignore-binaries",
+                "tsc",
+                true,
+                "`tsc` in `js.workspaces.\"packages/b\".ignore-binaries` matched nothing"
+            ),
+        ]
+    );
+}
+
+#[test]
+fn a_list_stale_js_config_cannot_judge_records_nothing() {
+    let files = two_packages("export {};\n");
+    let toml = "[js]\nignore-dependencies = [\"zzz\"]\n[rules]\nunused-dependencies = \"off\"\n";
+    assert!(report(&files, toml).config_judgements.is_empty());
 }
 
 #[test]

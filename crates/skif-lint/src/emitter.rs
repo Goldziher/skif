@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use skif_core::{Diagnostic, IncompletePackage};
+use skif_core::{ConfigJudgement, Diagnostic, IncompletePackage};
 
 use crate::context::{EnabledRules, LintContext};
 use crate::ignore::Suppressions;
@@ -24,6 +24,7 @@ pub struct Emitter<'a> {
     incomplete_packages: Vec<IncompletePackage>,
     other_project_files: Vec<PathBuf>,
     ancestor_dependency_uses: Vec<(PathBuf, String)>,
+    config_judgements: Vec<ConfigJudgement>,
 }
 
 impl<'a> Emitter<'a> {
@@ -39,6 +40,7 @@ impl<'a> Emitter<'a> {
             incomplete_packages: Vec::new(),
             other_project_files: Vec::new(),
             ancestor_dependency_uses: Vec::new(),
+            config_judgements: Vec::new(),
         }
     }
 
@@ -61,11 +63,12 @@ impl<'a> Emitter<'a> {
             incomplete_packages: Vec::new(),
             other_project_files: Vec::new(),
             ancestor_dependency_uses: Vec::new(),
+            config_judgements: Vec::new(),
         }
     }
 
-    /// Appends the diagnostics, incomplete packages, files of other projects and ancestor dependency uses collected by
-    /// `other`.
+    /// Appends the diagnostics, incomplete packages, files of other projects, ancestor dependency uses and
+    /// configuration judgements collected by `other`.
     pub fn merge(&mut self, other: Self) {
         if self.diagnostics.is_empty() {
             self.diagnostics = other.diagnostics;
@@ -75,6 +78,7 @@ impl<'a> Emitter<'a> {
         self.incomplete_packages.extend(other.incomplete_packages);
         self.other_project_files.extend(other.other_project_files);
         self.ancestor_dependency_uses.extend(other.ancestor_dependency_uses);
+        self.config_judgements.extend(other.config_judgements);
     }
 
     /// Merges `parts` in order, with the same result as calling [`merge`](Self::merge) for each.
@@ -181,6 +185,20 @@ impl<'a> Emitter<'a> {
     #[must_use]
     pub fn take_ancestor_dependency_uses(&mut self) -> Vec<(PathBuf, String)> {
         std::mem::take(&mut self.ancestor_dependency_uses)
+    }
+
+    /// Records how a rule judged an entry of a configuration list (see
+    /// [`Report::config_judgements`](skif_core::Report::config_judgements)), so a multi-root host can decide whether
+    /// an entry of a file several roots read is stale for the whole run. It is recorded whether or not the finding
+    /// that calls the entry stale is kept.
+    pub fn report_config_judgement(&mut self, judgement: ConfigJudgement) {
+        self.config_judgements.push(judgement);
+    }
+
+    /// Takes the recorded configuration judgements, in emission order.
+    #[must_use]
+    pub fn take_config_judgements(&mut self) -> Vec<ConfigJudgement> {
+        std::mem::take(&mut self.config_judgements)
     }
 
     /// The kept diagnostics, in emission order.

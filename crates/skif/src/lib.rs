@@ -181,10 +181,10 @@ pub use skif_config::{
 /// `[[custom-types]]` and the places a version can be declared.
 pub use skif_config::{CustomStrategy, CustomType, DependencyType};
 pub use skif_core::{
-    BufferFs, CachedFs, Category, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem, Fix, FixOp,
-    FixPreference, FixSafety, Fixability, IncompleteCause, IncompleteEntries, IncompletePackage, IncompleteScope,
-    InsertPosition, JsonAction, Location, MemoryFs, OsFs, PathKind, PathSeg, Related, Report, RuleId, RuleMeta,
-    Severity, Span, Summary, TextEdit, YamlAction, diagnostic, slash,
+    BufferFs, CachedFs, Category, ConfigJudgement, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem,
+    Fix, FixOp, FixPreference, FixSafety, Fixability, IncompleteCause, IncompleteEntries, IncompletePackage,
+    IncompleteScope, InsertPosition, JsonAction, Location, MemoryFs, OsFs, PathKind, PathSeg, Related, Report, RuleId,
+    RuleMeta, Severity, Span, Summary, TextEdit, YamlAction, diagnostic, slash,
 };
 pub use skif_lint::{
     Emitter, EnabledRules, Executor, ExecutorError, LintContext, LintError, ProviderError, RegistryError, Rule,
