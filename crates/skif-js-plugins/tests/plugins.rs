@@ -3436,7 +3436,7 @@ fn serverless_framework_handlers_plugins_and_file_variables() {
         &[
             (
                 "serverless.yml",
-                "service: api\nplugins:\n  - serverless-offline\n  - ./plugins/local.js\ncustom:\n  esbuild:\n    inject: [./shims.js]\n  dir: ${self:custom.base}/handlers\n  base: src\nfunctions:\n  hello:\n    handler: src/hello.main\n  typed:\n    handler: src/typed.ts.handler\n  more: ${file(./functions.yml):extra}\n  dynamic:\n    handler: ${self:custom.dir}/dynamic.main\n  staged:\n    handler: src/${opt:stage, 'dev'}/staged.main\n  missing:\n    handler: ${self:custom.none}/missing.main\n  fallback:\n    handler: ${self:custom.none, 'lib'}/fallback.main\n  within:\n    handler: src/fn-${opt:stage}.main\n  glob:\n    handler: src/jobs/*.main\n  any:\n    handler: ${opt:file}.main\n  anywhere:\n    handler: ${opt:dir}/${opt:file}.main\n",
+                "service: api\nplugins:\n  - serverless-offline\n  - ./plugins/local.js\ncustom:\n  esbuild:\n    inject: [./shims.js]\n  dir: ${self:custom.base}/handlers\n  base: src\nfunctions:\n  hello:\n    handler: src/hello.main\n  typed:\n    handler: src/typed.ts.handler\n  more: ${file(./functions.yml):extra}\n  dynamic:\n    handler: ${self:custom.dir}/dynamic.main\n  staged:\n    handler: src/${opt:stage, 'dev'}/staged.main\n  missing:\n    handler: ${self:custom.none}/missing.main\n  fallback:\n    handler: ${self:custom.none, 'lib'}/fallback.main\n  within:\n    handler: src/fn-${opt:stage}.main\n  envfallback:\n    handler: src/env-${env:FN, 'a'}.main\n  glob:\n    handler: src/jobs/*.main\n  any:\n    handler: ${opt:file}.main\n  anywhere:\n    handler: ${opt:dir}/${opt:file}.main\n",
             ),
             ("functions.yml", "extra:\n  handler: src/extra.run\n"),
         ],
@@ -3453,13 +3453,22 @@ fn serverless_framework_handlers_plugins_and_file_variables() {
             "shims.js",
             "src/extra.{js,ts}",
             "src/handlers/dynamic.{js,ts}",
-            "src/dev/staged.{js,ts}",
+            "src/**/staged.{js,ts}",
             "**/missing.{js,ts}",
             "lib/fallback.{js,ts}",
             "src/fn-*.{js,ts}",
+            "src/env-*.{js,ts}",
             "src/jobs/*.{js,ts}",
         ],
     );
+    // The fallback of a CLI option or an environment variable is one of its values, not the only one.
+    for one_stage in ["src/dev/staged.{js,ts}", "src/env-a.{js,ts}"] {
+        assert!(
+            !out.production_entries.iter().any(|entry| entry == one_stage),
+            "{one_stage}: {:?}",
+            out.production_entries
+        );
+    }
     for any_file in ["*.{js,ts}", "**/*.{js,ts}", "**.{js,ts}"] {
         assert!(
             !out.production_entries.iter().any(|entry| entry == any_file),
