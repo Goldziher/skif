@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 use skif_config::{PluginConfig, PluginOptions};
 use skif_core::MemoryFs;
 use skif_js_plugins::registry;
-use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
+use skif_js_plugins::{DepRef, PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
@@ -393,14 +393,25 @@ fn typescript() {
         out,
         &[
             "@tsconfig/node20",
-            "@types/node",
+            "node",
             "vitest",
             "@emotion/react",
             "tslib",
             "typescript-plugin-css-modules",
-            "@types/jest",
+            "jest",
         ],
     );
+    assert_absent(out, &["@types/node", "@types/jest"]);
+    // A compiler option names the package for each package reading the config, `types` only its types.
+    let flags = |name: &str| {
+        out.referenced_dependencies
+            .iter()
+            .find(|d| d.name == name)
+            .map(|d| (d.type_only, d.reader_may_list))
+    };
+    assert_eq!(flags("node"), Some((true, true)));
+    assert_eq!(flags("@emotion/react"), Some((false, true)));
+    assert_eq!(flags("@tsconfig/node20"), Some((false, false)));
     assert!(out.config_files.iter().any(|f| f.ends_with("packages/a/tsconfig.json")));
     assert!(out.provided_binaries.contains(&"tsc".to_string()));
 }
@@ -1818,6 +1829,32 @@ fn packages_a_config_names_are_recorded_at_the_file_that_names_them() {
     );
 }
 
+/// References to one package from one file merge: optional only when every one is, and a config reference only when
+/// a config names it in a required reference, so an optional config reference beside a command naming the package is
+/// no config reference.
+#[test]
+fn references_to_a_package_from_one_file_merge() {
+    let from = Path::new("/ws/vite.config.ts");
+    let mut reference = DepRef::new("esbuild-register".to_owned(), from, true, true);
+    assert!(!reference.named_by_config, "an optional reference is no config reference");
+    reference.merge(&DepRef::new("esbuild-register".to_owned(), from, false, false));
+    assert!(!reference.optional);
+    assert!(!reference.named_by_config, "a command does not make the optional config reference required");
+    let compiler = DepRef {
+        type_only: true,
+        reader_may_list: true,
+        ..DepRef::new("esbuild-register".to_owned(), from, false, true)
+    };
+    reference.merge(&compiler);
+    assert!(reference.named_by_config && reference.type_only && reference.reader_may_list);
+    reference.merge(&DepRef::new("esbuild-register".to_owned(), from, false, true));
+    assert!(reference.named_by_config);
+    assert!(
+        !reference.type_only && !reference.reader_may_list,
+        "a reference only the owner satisfies needs the package itself"
+    );
+}
+
 /// A package a config names only to tune a tool that runs without it (Vite's `optimizeDeps.include`, an
 /// `eslint-plugin-import` resolver) is an optional reference, as knip reads them: it is never unlisted (ADR 0083).
 #[test]
@@ -2259,7 +2296,7 @@ fn angular_links_the_typescript_and_karma_configs_of_its_targets() {
     ];
     let results = resolve(&files, &["@angular/cli"]);
     let out = output(&results, "angular");
-    assert_deps(out, &["@types/node", "preact", "karma-jasmine"]);
+    assert_deps(out, &["node", "preact", "karma-jasmine"]);
     for file in ["tsconfig.app.json", "tsconfig.spec.json", "karma.conf.js"] {
         assert!(
             out.config_files.iter().any(|path| path.ends_with(file)),

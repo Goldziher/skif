@@ -16,7 +16,7 @@ use crate::plugin::{
 use crate::registry;
 use crate::script_config::{config_flags, config_paths, flag_values};
 use crate::scripts::{BinaryVia, ScriptContext, is_ignored_binary, parse_script};
-use crate::support::{join_rel, looks_like_file};
+use crate::support::{join_lexically, join_rel, looks_like_file};
 
 const MAX_CONFIG_DEPTH: u8 = 16;
 
@@ -162,11 +162,18 @@ impl Collector<'_, '_> {
                     push_unique(&mut self.out.entries, path.clone());
                     push_unique(&mut self.out.production_entries, path);
                 }
-                PluginInput::Dependency(name) => self.dependency(name, from, false, config.is_some()),
-                PluginInput::OptionalDependency(name) => self.dependency(name, from, true, config.is_some()),
+                PluginInput::Dependency(name) => self.dependency(DepRef::new(name, from, false, config.is_some())),
+                PluginInput::OptionalDependency(name) => {
+                    self.dependency(DepRef::new(name, from, true, config.is_some()));
+                }
+                PluginInput::CompilerDependency { name, type_only } => self.dependency(DepRef {
+                    type_only,
+                    reader_may_list: true,
+                    ..DepRef::new(name, from, false, config.is_some())
+                }),
                 PluginInput::Binary(name) => push_unique(&mut self.out.referenced_binaries, name),
                 PluginInput::ConfigFile(path) => {
-                    if depth < MAX_CONFIG_DEPTH && self.ctx.fs.is_file(&self.ctx.dir.join(&path)) {
+                    if depth < MAX_CONFIG_DEPTH && self.ctx.fs.is_file(&join_lexically(self.ctx.dir, &path)) {
                         self.queue.push_back(Queued {
                             path,
                             depth: depth + 1,
@@ -184,7 +191,7 @@ impl Collector<'_, '_> {
                 }
                 PluginInput::FileDependency { file, name } => {
                     let source = self.ctx.dir.join(&file);
-                    self.dependency(name, &source, false, true);
+                    self.dependency(DepRef::new(name, &source, false, true));
                 }
                 PluginInput::Ignore(glob) => push_unique(&mut self.out.ignore, glob),
                 PluginInput::Alias { find, target } => {
@@ -247,26 +254,16 @@ impl Collector<'_, '_> {
         }
     }
 
-    /// Records package `name` as referenced from `from`; `named_by_config` when the config read names it itself (see
-    /// [`DepRef::named_by_config`]).
-    fn dependency(&mut self, name: String, from: &Path, optional: bool, named_by_config: bool) {
+    /// Records `reference`, merged into an earlier reference to the same package from the same file.
+    fn dependency(&mut self, reference: DepRef) {
         match self
             .out
             .referenced_dependencies
             .iter_mut()
-            .find(|d| d.name == name && d.from == from)
+            .find(|d| d.name == reference.name && d.from == reference.from)
         {
-            Some(existing) => {
-                existing.optional &= optional;
-                existing.named_by_config |= named_by_config;
-            }
-            None => self.out.referenced_dependencies.push(DepRef {
-                name,
-                from: from.to_path_buf(),
-                span: None,
-                optional,
-                named_by_config,
-            }),
+            Some(existing) => existing.merge(&reference),
+            None => self.out.referenced_dependencies.push(reference),
         }
     }
 
@@ -303,7 +300,7 @@ impl Collector<'_, '_> {
             push_unique(&mut self.out.entries, file.path);
         }
         for dep in info.dependencies {
-            self.dependency(dep.name, from, dep.ephemeral, false);
+            self.dependency(DepRef::new(dep.name, from, dep.ephemeral, false));
         }
     }
 
@@ -468,7 +465,7 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
             Some(linked) => linked,
             None => plugin,
         };
-        let path = ctx.dir.join(&relative);
+        let path = join_lexically(ctx.dir, &relative);
         let Ok(source) = ctx.fs.read_to_string(&path) else {
             continue;
         };

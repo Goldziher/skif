@@ -142,6 +142,16 @@ pub enum PluginInput {
         /// The script text.
         script: String,
     },
+    /// A package that a compiler option of a `tsconfig` names (`types`, `jsxImportSource`, `plugins`,
+    /// `importHelpers`). The option applies to the package reading the config, so that package may list it as well
+    /// as the one that owns the config, as knip's `alsoReferenceOwner` has it ([`DepRef::reader_may_list`]).
+    CompilerDependency {
+        /// The package name, without version or subpath.
+        name: String,
+        /// The option loads only the package's types (`types`): its `DefinitelyTyped` package serves as well
+        /// ([`DepRef::type_only`]).
+        type_only: bool,
+    },
     /// A package that a file of the tool which is not a config names, such as the `provider` of a Prisma schema's
     /// `generator`: recorded against `file` and judged like a package a config names
     /// ([`DepRef::named_by_config`]).
@@ -354,10 +364,51 @@ pub struct DepRef {
     pub span: Option<Range<usize>>,
     /// The reference does not require the package to be declared (optional peers, on-demand fetches).
     pub optional: bool,
-    /// A config file the plugin read names the package itself, rather than a command the config holds or a package
-    /// the plugin assumes without a config: the config needs it installed, so a required reference no manifest lists
-    /// is an unlisted dependency at `from`.
+    /// A config file the plugin read names the package itself in a required reference, rather than in an optional
+    /// one, in a command the config holds or as a package the plugin assumes without a config: the config needs it
+    /// installed, so no manifest listing it is an unlisted dependency at `from`.
     pub named_by_config: bool,
+    /// The config reference loads only the package's types (`compilerOptions.types`): the package's `DefinitelyTyped`
+    /// package (`@types/…`) satisfies it as well, as an import of types only is satisfied.
+    pub type_only: bool,
+    /// The package reading the config may list the package the config reference names instead of the package that
+    /// owns `from`: a compiler option of a shared base `tsconfig` applies to each package extending it.
+    pub reader_may_list: bool,
+}
+
+impl DepRef {
+    /// A reference to package `name` from `from` without a span; `named_by_config` when a config names it itself,
+    /// which only a required reference keeps.
+    #[must_use]
+    pub fn new(name: String, from: &Path, optional: bool, named_by_config: bool) -> Self {
+        Self {
+            name,
+            from: from.to_path_buf(),
+            span: None,
+            optional,
+            named_by_config: named_by_config && !optional,
+            type_only: false,
+            reader_may_list: false,
+        }
+    }
+
+    /// Folds `other`, a reference to the same package from the same file, into this one: it is optional only when
+    /// both are, and a config reference when either is a required one, judged as that config reference demands (both
+    /// of them when both are config references).
+    pub fn merge(&mut self, other: &Self) {
+        self.optional &= other.optional;
+        if !other.named_by_config {
+            return;
+        }
+        if self.named_by_config {
+            self.type_only &= other.type_only;
+            self.reader_may_list &= other.reader_may_list;
+        } else {
+            self.named_by_config = true;
+            self.type_only = other.type_only;
+            self.reader_may_list = other.reader_may_list;
+        }
+    }
 }
 
 /// A binary that a command read from a file runs; see [`PluginOutput::run_binaries`].
