@@ -44,16 +44,19 @@ what they import is used, but they are not source. A package whose only files at
 only entries, are install hooks, and that has no script, has unknown entries as a package with no source file does.
 
 **SvelteKit route types.** A relative import `./$types`, `./$types.js` or `./$types.d.ts` in a script is not
-unresolved while a relative `extends` entry of the nearest `tsconfig.json` or `jsconfig.json` names a file that does
-not exist and that git ignores. Once the extended config exists, its `rootDirs` resolve the import, and a route type
-that is still missing is unresolved like any other file.
+unresolved while a path `extends` entry of the nearest `tsconfig.json` or `jsconfig.json`, or of a config it extends
+(a route's own config that extends the root one), names a file that does not exist and that git ignores. Once the
+extended config exists, its `rootDirs` decide, as for React Router's `./+types/root`: while the ignored types
+directory they name is absent too, a route type below it is not unresolved; once that directory exists, a route type
+it lacks is unresolved like any other file.
 
 **Builtin-named packages.** A bare builtin specifier (`events`, `buffer`, `util`) is a use of a listed package of the
 same name: webpack 5, Vite and other bundlers resolve it to the installed package when they build for the browser,
 which is why projects list these polyfills. A `node:` specifier names the builtin only and uses no package; a
 trailing slash (`events/`) names the package, as before
 ([ADR 0044](0044-monorepo-js-corrections-builtins-html-entries-referenced-paths-extglob-helpers-and-stylesheets.md)).
-skif and knip disagree on these packages by design.
+This is how skif already resolved these imports: the decision records it and a test pins it, nothing changes. skif
+and knip disagree on these packages by design.
 
 ### Consequences
 
@@ -66,10 +69,12 @@ skif and knip disagree on these packages by design.
 
 ### Confirmation
 
-* `crates/skif-js/tests/monorepo_regressions.rs`: `a_pnpmfile_alone_does_not_give_a_project_source_whose_dependencies_are_judged`,
-  `a_pnpmfile_uses_what_it_imports_in_a_project_with_source` and
-  `bare_builtin_imports_use_a_listed_package_of_that_name`.
-* `crates/skif-js/src/resolve.rs`: `sveltekit_route_types_are_unknown_while_the_extended_config_is_not_generated`.
+* `crates/skif-js/tests/monorepo_regressions.rs`: `a_pnpmfile_alone_does_not_give_a_project_source_whose_dependencies_are_judged`
+  and `a_pnpmfile_uses_what_it_imports_in_a_project_with_source`;
+  `bare_builtin_imports_use_a_listed_package_of_that_name` pins the existing behaviour for builtin-named packages.
+* `crates/skif-js/src/resolve.rs`: `sveltekit_route_types_are_unknown_while_the_extended_config_is_not_generated`,
+  `sveltekit_route_types_are_unknown_while_a_config_extended_through_another_is_not_generated` and
+  `sveltekit_route_types_follow_the_root_dirs_of_the_generated_config`.
 * `adrlint lint adrs`, `adrlint format --check adrs` and `adrlint lock --check` pass.
 
 ## Pros and Cons of the Options
