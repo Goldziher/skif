@@ -10,5 +10,11 @@
   "homepage": "https://goldziher.github.io/skif/",
   "repository": "https://github.com/Goldziher/skif",
   "license": "MIT",
-  "keywords": ["dependencies", "monorepo", "lint", "package-json", "knip", "sherif", "syncpack"]
+  "keywords": ["dependencies", "monorepo", "lint", "package-json", "knip", "sherif", "syncpack"],
+  "mcpServers": {
+    "skif": {
+      "command": "npx",
+      "args": ["-y", "skif-cli@0.2.0", "mcp"]
+    }
+  }
 }

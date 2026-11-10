@@ -12,6 +12,12 @@
   "license": "MIT",
   "keywords": ["dependencies", "monorepo", "lint", "package-json", "knip", "sherif", "syncpack"],
   "skills": "./skills/",
+  "mcpServers": {
+    "skif": {
+      "command": "npx",
+      "args": ["-y", "skif-cli@0.2.0", "mcp"]
+    }
+  },
   "interface": {
     "displayName": "skif",
     "shortDescription": "Dependency linter for JavaScript and TypeScript monorepos",

@@ -6,7 +6,7 @@
 #   Cargo.toml                              [workspace.package] version and internal dependency pins
 #   crates/*/Cargo.toml                     internal dependency pins
 #   npm-package/package.json                version (the platform packages take it from `napi version`)
-#   .claude-plugin/plugin.json,             the agent plugin version
+#   .claude-plugin/plugin.json,             the agent plugin version and the skif-cli version its MCP server runs
 #   .codex-plugin/plugin.json
 #   poly-hooks.toml                         pinned npm channel version
 #   scripts/pre-commit/run-skif.sh          SKIF_VERSION default
@@ -57,10 +57,12 @@ jq --arg v "$version" '.version = $v' npm-package/package.json >"$tmp"
 cat "$tmp" >npm-package/package.json
 rm -f "$tmp"
 
-# The top-level `version` line only, so the manifests keep the layout the formatter gives them.
+# The top-level `version` line and the `skif-cli@` pin of the MCP server, so the manifests keep the layout the
+# formatter gives them.
 for manifest in .claude-plugin/plugin.json .codex-plugin/plugin.json; do
   echo "${manifest} -> ${version}"
   rewrite "$manifest" "s/^(  \"version\": \")[^\"]*(\")/\1${version}\2/"
+  rewrite "$manifest" "s/(\"skif-cli@)[^\"]*(\")/\1${version}\2/g"
 done
 
 echo "poly-hooks.toml, scripts/pre-commit/run-skif.sh -> ${version}"

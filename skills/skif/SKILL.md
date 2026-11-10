@@ -24,6 +24,11 @@ Use `skif` when it is on `PATH` (`skif --version`). Otherwise run the npm packag
 pins skif (a `skif-cli` dev dependency, the GitHub Action, a pre-commit hook), use that version. Other install
 channels are in [references/commands.md](references/commands.md#install).
 
+The skif plugin also registers skif's MCP server, `skif`, which runs `npx -y skif-cli@<release> mcp`. When its
+tools `lint`, `explain_usage` and `list_rules` are available, use them to lint, explain and list rules: they return
+the documents the matching commands print with `--format json` (see
+[references/json-output.md](references/json-output.md)). The server never writes files: run `skif --fix` to fix.
+
 ## The loop
 
 1. **Lint as data.** Run `skif --format json` in the project (`-r` to cover every workspace and standalone package
