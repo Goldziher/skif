@@ -148,7 +148,8 @@ pub fn render_to_stdout(
 ) -> Result<(), CliError> {
     let options = render_options(report, rendering, fs)?;
     let mut out = io::BufWriter::with_capacity(64 * 1024, io::stdout().lock());
-    let written = write_rendered(rendering.format == Format::Json, &mut out, |out| {
+    let buffer = (rendering.format == Format::Json).then(|| report.diagnostics.len() * JSON_BYTES_PER_DIAGNOSTIC);
+    let written = write_rendered(buffer, &mut out, |out| {
         write_report(report, roots, rendering, &options, fixes, out)
     });
     match written.and_then(|()| out.flush()) {
@@ -160,18 +161,21 @@ pub fn render_to_stdout(
     }
 }
 
-/// Writes what `render` produces to `out`. With `buffered` (JSON) it is rendered into memory first and written in one
-/// piece, so a renderer error or a panic partway through leaves `out` untouched and the error document that follows
-/// is the only one on stdout; otherwise it streams.
+/// A rough size of one diagnostic in the JSON report, to reserve the buffer it is rendered into at once.
+const JSON_BYTES_PER_DIAGNOSTIC: usize = 256;
+
+/// Writes what `render` produces to `out`. With a `buffer` capacity (JSON) it is rendered into memory first and written
+/// in one piece, so a renderer error or a panic partway through leaves `out` untouched and the error document that
+/// follows is the only one on stdout; otherwise it streams.
 fn write_rendered(
-    buffered: bool,
+    buffer: Option<usize>,
     out: &mut dyn Write,
     render: impl FnOnce(&mut dyn Write) -> io::Result<()>,
 ) -> io::Result<()> {
-    if !buffered {
+    let Some(capacity) = buffer else {
         return render(out);
-    }
-    let mut buffer = Vec::new();
+    };
+    let mut buffer = Vec::with_capacity(capacity);
     render(&mut buffer)?;
     out.write_all(&buffer)
 }
@@ -318,10 +322,10 @@ mod tests {
 
     use super::*;
 
-    fn render_partially(buffered: bool) -> Vec<u8> {
+    fn render_partially(buffer: Option<usize>) -> Vec<u8> {
         let mut out = Vec::new();
         let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            write_rendered(buffered, &mut out, |out| {
+            write_rendered(buffer, &mut out, |out| {
                 out.write_all(br#"{"version": 1, "diagnostics": ["#)?;
                 panic!("renderer bug")
             })
@@ -332,18 +336,18 @@ mod tests {
 
     #[test]
     fn a_panic_while_rendering_json_writes_nothing() {
-        assert_eq!(render_partially(true), b"");
+        assert_eq!(render_partially(Some(0)), b"");
     }
 
     #[test]
     fn a_panic_while_streaming_leaves_what_was_rendered() {
-        assert_eq!(render_partially(false), br#"{"version": 1, "diagnostics": ["#);
+        assert_eq!(render_partially(None), br#"{"version": 1, "diagnostics": ["#);
     }
 
     #[test]
     fn a_buffered_rendering_is_written_whole() {
         let mut out = Vec::new();
-        write_rendered(true, &mut out, |out| out.write_all(b"{}\n")).unwrap();
+        write_rendered(Some(1), &mut out, |out| out.write_all(b"{}\n")).unwrap();
         assert_eq!(out, b"{}\n");
     }
 
