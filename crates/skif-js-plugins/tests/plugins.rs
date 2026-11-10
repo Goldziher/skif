@@ -5679,7 +5679,7 @@ fn machine_tool_commands_judge_only_binaries_reached_through_a_package_manager()
         (
             ".railway/railway.ts",
             r#"import { service } from "railway/iac";
-service("api", { build: "cargo build && pnpm exec railtool" });"#,
+service("api", { build: "railbuild && pnpm exec railtool" });"#,
         ),
         (
             "mise.toml",
@@ -5720,7 +5720,7 @@ service("api", { build: "cargo build && pnpm exec railtool" });"#,
         ("mcp", "code-index"),
         ("tauri", "trunk"),
         ("travis", "codecov"),
-        ("railway", "cargo"),
+        ("railway", "railbuild"),
         ("mise", "actionlint"),
     ] {
         let referenced = &output(&results, id).referenced_binaries;
