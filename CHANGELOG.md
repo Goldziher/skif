@@ -113,6 +113,9 @@ All notable changes to this project are documented here. The format follows
 - The Next.js plugin reads `turbopack.resolveAlias` and `turbopack.rules`, as knip does: a package an alias points to
   (`"react-native": "react-native-web"`, also in a list or a `browser` condition) and the loaders of a rule are used
   dependencies, and an alias to a path (`"@ui": "./src/ui"`) is a module alias.
+- A zx file that switches to PowerShell (`usePwsh()`, `usePowerShell()`, `$.shell = 'pwsh'`) runs no binary for a
+  cmdlet (`New-Item`, `Remove-Item`) or a default PowerShell alias (`gci`, `ni`), so `unlisted-binaries` no longer
+  reports them.
 
 ### Changed
 

@@ -20,7 +20,7 @@ use std::ops::Range;
 
 use indexmap::IndexMap;
 
-pub use tables::{IGNORED_BINARIES, SHELL_BUILTINS, is_ignored_binary, is_shell_builtin};
+pub use tables::{IGNORED_BINARIES, SHELL_BUILTINS, is_ignored_binary, is_powershell_command, is_shell_builtin};
 
 pub use skif_config::PackageManager;
 
@@ -187,6 +187,23 @@ pub fn split_commands(script: &str) -> Vec<Vec<String>> {
         .map(|segment| segment.words.into_iter().map(|word| word.text).collect())
         .filter(|words: &Vec<String>| !words.is_empty())
         .collect()
+}
+
+/// `script` with the simple commands whose program word `drop` accepts blanked out, so that parsing the result
+/// leaves them out (the cmdlets of a script PowerShell runs). Every other byte keeps its offset.
+#[must_use]
+pub fn without_commands(script: &str, drop: impl Fn(&str) -> bool) -> String {
+    let mut out = script.to_owned();
+    for segment in tokenize::tokenize(script).segments {
+        if let (Some(first), Some(last)) = (segment.words.first(), segment.words.last())
+            && !first.dynamic
+            && drop(&first.text)
+        {
+            let span = first.span.start..last.span.end;
+            out.replace_range(span.clone(), &" ".repeat(span.len()));
+        }
+    }
+    out
 }
 
 /// Parses `script` and follows references to other scripts of the same package.

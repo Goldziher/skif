@@ -852,7 +852,9 @@ counterpart. These differences are deliberate:
   call with a literal argument that is not a plain word (`"a && b"`) is skipped. `execa` also reads the default export
   of execa 5 and earlier (`execa.sync`, `execa.command`, `execa.node`). `zx` reads `$` in files that start with
   `#!/usr/bin/env zx` and, unlike knip, also where `$` is imported from `zx`, in files that import `zx/globals` and
-  under a shebang such as `#!/usr/bin/env -S npx zx`.
+  under a shebang such as `#!/usr/bin/env -S npx zx`. In a file that switches zx to PowerShell (`usePwsh()`,
+  `usePowerShell()` or `$.shell = 'pwsh'`), a cmdlet named `Verb-Noun` (`New-Item`) or a default PowerShell alias
+  (`gci`, `ni`) is no binary.
 - `next-mdx` and `starlight` read the options of the `@next/mdx` and `@astrojs/starlight` calls in the config source;
   a plugin or component passed as an imported binding is not a string and is already an import.
 - `unplugin-auto-import` and `unplugin-vue-components` make the declaration files they generate (`auto-imports.d.ts`,

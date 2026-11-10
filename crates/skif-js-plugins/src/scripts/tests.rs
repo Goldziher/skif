@@ -1,6 +1,9 @@
 use proptest::prelude::*;
 
-use super::{BinaryVia, FileTree, ScriptContext, ScriptInfo, is_ignored_binary, parse_script};
+use super::{
+    BinaryVia, FileTree, ScriptContext, ScriptInfo, is_ignored_binary, is_powershell_command, parse_script,
+    without_commands,
+};
 
 type Scripts = &'static [(&'static str, &'static str)];
 type Names = &'static [&'static str];
@@ -915,4 +918,23 @@ fn functions_the_script_defines_are_not_binaries() {
     assert_eq!(binaries_of(&parse(script)), ["tsc", "turbo"]);
     // A call before the definition names the function too.
     assert_eq!(binaries_of(&parse("setup; setup() { vitest run; }")), ["vitest"]);
+}
+
+#[test]
+fn powershell_commands_are_cmdlets_and_default_aliases() {
+    for name in ["New-Item", "Remove-Item", "Get-ChildItem", "Invoke-WebRequest", "gci", "ni", "iwr", "GCI"] {
+        assert!(is_powershell_command(name), "{name}");
+    }
+    for name in ["ts-node", "npm-run-all", "new-item", "New-", "-Item", "tsc", "turbo"] {
+        assert!(!is_powershell_command(name), "{name}");
+    }
+}
+
+#[test]
+fn without_commands_blanks_the_dropped_commands_only() {
+    let script = "New-Item -Path 'a b' -Force && tsc --build; gci | Remove-Item; vitest run";
+    let kept = without_commands(script, is_powershell_command);
+    assert_eq!(kept.len(), script.len());
+    assert_eq!(binaries_of(&parse(&kept)), ["tsc", "vitest"]);
+    assert_eq!(binaries_of(&parse(script)), ["New-Item", "Remove-Item", "gci", "tsc", "vitest"]);
 }
