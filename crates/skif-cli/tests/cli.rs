@@ -1311,6 +1311,50 @@ fn json_names_the_packages_whose_files_and_dependencies_were_not_judged() {
 }
 
 #[test]
+fn json_tells_a_package_without_entries_from_one_publishing_unmapped_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let put = |relative: &str, content: &str| {
+        let path = dir.path().join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    };
+    fs::create_dir_all(dir.path().join(".git")).unwrap();
+    put(
+        "package.json",
+        r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
+    );
+    put(
+        "packages/remote/package.json",
+        r#"{"name":"remote","version":"1.0.0","private":true,"dependencies":{"express":"4.21.0"}}"#,
+    );
+    put(
+        "packages/lib/package.json",
+        r#"{"name":"lib","version":"1.0.0","private":true,"main":"./dist/index.js","dependencies":{"left-pad":"1.3.0"}}"#,
+    );
+    put("packages/lib/lib/index.ts", "export const main = 1;\n");
+
+    let json = run(skif().args(["--format", "json"]).arg(dir.path()));
+    let document = json.json();
+    assert_eq!(
+        document["incomplete-packages"],
+        serde_json::json!([
+            {
+                "name": "lib",
+                "dir": "packages/lib",
+                "reasons": [{ "cause": "unmapped-published", "file": "packages/lib/package.json" }],
+            },
+            {
+                "name": "remote",
+                "dir": "packages/remote",
+                "reasons": [{ "cause": "no-entries", "file": "packages/remote/package.json" }],
+            },
+        ]),
+        "{}",
+        json.stdout
+    );
+}
+
+#[test]
 fn a_conditional_spread_in_a_vitest_config_leaves_the_package_judged() {
     let dir = tempfile::tempdir().unwrap();
     let put = |relative: &str, content: &str| {

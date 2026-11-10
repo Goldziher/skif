@@ -1,6 +1,9 @@
 use proptest::prelude::*;
 
-use super::{BinaryVia, FileTree, ScriptContext, ScriptInfo, is_ignored_binary, parse_script};
+use super::{
+    BinaryVia, FileTree, ScriptContext, ScriptInfo, is_ignored_binary, is_powershell_command, parse_script,
+    without_commands,
+};
 
 type Scripts = &'static [(&'static str, &'static str)];
 type Names = &'static [&'static str];
@@ -915,4 +918,84 @@ fn functions_the_script_defines_are_not_binaries() {
     assert_eq!(binaries_of(&parse(script)), ["tsc", "turbo"]);
     // A call before the definition names the function too.
     assert_eq!(binaries_of(&parse("setup; setup() { vitest run; }")), ["vitest"]);
+}
+
+#[test]
+fn powershell_commands_are_cmdlets_and_default_aliases() {
+    for name in ["New-Item", "Remove-Item", "Get-ChildItem", "Invoke-WebRequest", "gci", "ni", "iwr", "GCI"] {
+        assert!(is_powershell_command(name), "{name}");
+    }
+    for name in ["ts-node", "npm-run-all", "new-item", "New-", "-Item", "tsc", "turbo"] {
+        assert!(!is_powershell_command(name), "{name}");
+    }
+}
+
+#[test]
+fn without_commands_blanks_the_dropped_commands_only() {
+    let script = "New-Item -Path 'a b' -Force && tsc --build; gci | Remove-Item; vitest run";
+    let kept = without_commands(script, is_powershell_command);
+    assert_eq!(kept.len(), script.len());
+    assert_eq!(binaries_of(&parse(&kept)), ["tsc", "vitest"]);
+    assert_eq!(binaries_of(&parse(script)), ["New-Item", "Remove-Item", "gci", "tsc", "vitest"]);
+}
+
+/// The binaries of `script` with the directory each runs in, sorted.
+fn binary_dirs(script: &str) -> Vec<(String, Option<String>)> {
+    let mut found: Vec<(String, Option<String>)> = parse(script)
+        .binaries
+        .into_iter()
+        .map(|binary| (binary.name, binary.dir))
+        .collect();
+    found.sort();
+    found
+}
+
+fn at(name: &str, dir: Option<&str>) -> (String, Option<String>) {
+    (name.to_owned(), dir.map(str::to_owned))
+}
+
+#[test]
+fn commands_after_cd_run_in_its_directory() {
+    assert_eq!(binary_dirs("cd sub && pnpm exec rspack serve"), [at("rspack", Some("sub"))]);
+    assert_eq!(
+        binary_dirs("tsc && cd packages/a && cd ../b && eslint . ; cd .. && vitest"),
+        [at("eslint", Some("packages/b")), at("tsc", None), at("vitest", Some("packages"))]
+    );
+    assert_eq!(binary_dirs("pushd web && vite build && popd && tsup"), [at("tsup", None), at("vite", Some("web"))]);
+    // A directory that is not a static relative path is not followed.
+    assert_eq!(
+        binary_dirs("cd $DIR && tsc; cd /tmp && vite; cd ~ && tsup; cd - && eslint"),
+        [at("eslint", None), at("tsc", None), at("tsup", None), at("vite", None)]
+    );
+    // A script of its own (`sh -c`, a substitution) keeps its `cd` to itself.
+    assert_eq!(binary_dirs("sh -c 'cd a && vite' && tsc"), [at("tsc", None), at("vite", Some("a"))]);
+    assert_eq!(binary_dirs("cd .. && cd sub && tsc"), [at("tsc", Some("../sub"))]);
+    assert_eq!(binary_dirs("cd sub/.. && tsc"), [at("tsc", None)]);
+}
+
+#[test]
+fn files_and_packages_after_cd_are_in_its_directory() {
+    let info = parse("cd tools && node -r @x/hook ./build.js");
+    assert_eq!(files_of(&info), ["tools/build.js"]);
+    let dirs: Vec<(&str, Option<&str>)> = info
+        .dependencies
+        .iter()
+        .map(|dependency| (dependency.name.as_str(), dependency.dir.as_deref()))
+        .collect();
+    assert_eq!(dirs, [("@x/hook", Some("tools"))]);
+}
+
+#[test]
+fn directory_flags_of_package_managers_set_the_directory() {
+    for script in ["pnpm -C sub exec rspack", "pnpm --dir sub exec rspack", "npm --prefix sub exec rspack"] {
+        let info = parse(script);
+        let binary = info.binaries.iter().find(|binary| binary.name == "rspack");
+        assert_eq!(
+            binary.map(|binary| (binary.dir.as_deref(), binary.filtered)),
+            Some((Some("sub"), true)),
+            "{script}: {:?}",
+            info.binaries
+        );
+    }
+    assert_eq!(binary_dirs("pnpm -C sub exec rspack && tsc"), [at("rspack", Some("sub")), at("tsc", None)]);
 }

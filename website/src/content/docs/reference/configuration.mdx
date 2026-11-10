@@ -677,6 +677,14 @@ their own tools, so a binary they run by name is never reported there; one they 
 (`pnpm exec x`, `yarn x`) or a `node_modules/.bin` path is, as knip does. A GitHub Actions step whose `shell` is not a
 POSIX shell (`pwsh`, `cmd`, `python`) is not read.
 
+**Scripts that change directory.** A `package.json` script command after `cd <dir>` or `pushd <dir>` (until `popd`),
+and one that `npm --prefix <dir> exec`, `pnpm -C <dir> exec` (`--dir`) or `yarn --cwd <dir> exec` runs, runs in that
+directory: the files it names are relative to it, and when the directory is in another workspace package, the binaries
+it runs and the packages it loads are credited to that package, as for `pnpm --filter <name>`, and are never unlisted.
+In a directory of the package itself or of no workspace package, a command after `cd` stays a command of the script's
+package and one a directory flag runs is not judged, as before. A directory that is not a static relative path
+(`cd $DIR`, `cd /tmp`, `cd -`) is not followed. knip judges these commands at the script's own package.
+
 **`ignore-global-binaries`** (default `true`, top level only) keeps `unlisted-binaries` quiet about the system and
 platform tools scripts run (`rm`, `curl`, `git`, `docker`), which are installed globally, like knip's
 `ignoreGlobalBinaries`. Set it to `false` to report each one that no dependency provides, unless `ignore-binaries`
@@ -917,7 +925,9 @@ counterpart. These differences are deliberate:
   call with a literal argument that is not a plain word (`"a && b"`) is skipped. `execa` also reads the default export
   of execa 5 and earlier (`execa.sync`, `execa.command`, `execa.node`). `zx` reads `$` in files that start with
   `#!/usr/bin/env zx` and, unlike knip, also where `$` is imported from `zx`, in files that import `zx/globals` and
-  under a shebang such as `#!/usr/bin/env -S npx zx`.
+  under a shebang such as `#!/usr/bin/env -S npx zx`. In a file that switches zx to PowerShell (`usePwsh()`,
+  `usePowerShell()` or `$.shell = 'pwsh'`), a cmdlet named `Verb-Noun` (`New-Item`) or a default PowerShell alias
+  (`gci`, `ni`) is no binary.
 - `next-mdx` and `starlight` read the options of the `@next/mdx` and `@astrojs/starlight` calls in the config source;
   a plugin or component passed as an imported binding is not a string and is already an import.
 - `unplugin-auto-import` and `unplugin-vue-components` make the declaration files they generate (`auto-imports.d.ts`,
