@@ -1,0 +1,15 @@
+{
+  "name": "skif",
+  "description": "The skif agent skill for linting JavaScript and TypeScript monorepo dependencies.",
+  "owner": {
+    "name": "Na'aman Hirschfeld",
+    "email": "nhirschfeld@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "skif",
+      "description": "Lint JavaScript and TypeScript monorepo dependencies with skif: workspace, manifest, version and catalog rules, and unused or unlisted dependencies, files and exports, with format-preserving fixes.",
+      "source": "./"
+    }
+  ]
+}

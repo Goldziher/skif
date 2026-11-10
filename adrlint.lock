@@ -505,3 +505,13 @@ blake3 = "0d014a0c3b3f28324f493ec466e5780daf7054d8552fdbaad4607ff6b08e5ecb"
 number = 101
 status = "accepted"
 blake3 = "d94557e88f84119a280c26f584cdf5231ffb9da37b066e84f56e4261eb15b11f"
+
+[adrs."adrs/0102-agent-skill-distributed-from-the-repository.md"]
+number = 102
+status = "accepted"
+blake3 = "9e6812cdb8872c5cae48ea45833e72b89075e09dea1ff489e2dfe03554a593de"
+
+[adrs."adrs/0103-one-of-several-known-values-in-config-evaluation.md"]
+number = 103
+status = "accepted"
+blake3 = "041d29fc320fd8adccf81602bca19dda8d4381947c5f2e188442f56b1ddafce3"

@@ -10,7 +10,8 @@
 #
 # CHANGELOG.md and adrs/ record history and are never scanned.
 
-# Prints the documentation files that may hold pins, relative to the repository root.
+# Prints the documentation files that may hold pins, relative to the repository root: the READMEs, the website and
+# the agent skills under skills/.
 skif_doc_pin_files() {
   local file
   for file in README.md CONTRIBUTING.md; do
@@ -18,6 +19,9 @@ skif_doc_pin_files() {
   done
   if [[ -d website/src/content/docs ]]; then
     find website/src/content/docs -type f \( -name '*.md' -o -name '*.mdx' \) | LC_ALL=C sort
+  fi
+  if [[ -d skills ]]; then
+    find skills -type f -name '*.md' | LC_ALL=C sort
   fi
   return 0
 }

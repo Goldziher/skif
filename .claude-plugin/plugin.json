@@ -1,0 +1,21 @@
+{
+  "name": "skif",
+  "description": "Lint JavaScript and TypeScript monorepo dependencies with skif: workspace, manifest, version and catalog rules, and unused or unlisted dependencies, files and exports, with format-preserving fixes.",
+  "version": "0.2.0",
+  "author": {
+    "name": "Na'aman Hirschfeld",
+    "email": "nhirschfeld@gmail.com",
+    "url": "https://github.com/Goldziher"
+  },
+  "homepage": "https://goldziher.github.io/skif/",
+  "repository": "https://github.com/Goldziher/skif",
+  "license": "MIT",
+  "icon": "./.claude-plugin/icon.png",
+  "keywords": ["dependencies", "monorepo", "lint", "package-json", "knip", "sherif", "syncpack"],
+  "mcpServers": {
+    "skif": {
+      "command": "npx",
+      "args": ["-y", "skif-cli@0.2.0", "mcp"]
+    }
+  }
+}
