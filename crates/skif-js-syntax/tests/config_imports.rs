@@ -502,7 +502,10 @@ fn a_workspace_factory_is_called_with_the_options_it_is_given() {
         eval(&wrapped),
         obj(vec![(
             "test",
-            obj(vec![("setupFiles", strings(&["./setup.ts"])), ("environment", s("jsdom"))]),
+            obj(vec![
+                ("setupFiles", strings(&["./setup.ts"])),
+                ("environment", s("jsdom"))
+            ]),
         )])
     );
 }
@@ -530,12 +533,22 @@ fn the_arguments_of_an_exported_call_that_cannot_be_followed_are_kept() {
         "import { createVitestConfig } from '@acme/vitest-preset';\n\
          const config = await createVitestConfig({ setupFiles: ['./config/boot.ts'] });\nexport default config;",
     ] {
-        assert_eq!(extract(source), (ConfigValue::Unknown, vec![options.clone()]), "{source}");
+        assert_eq!(
+            extract(source),
+            (ConfigValue::Unknown, vec![options.clone()]),
+            "{source}"
+        );
     }
     let known = "export default { test: { setupFiles: ['./config/boot.ts'] } };";
     assert_eq!(
         extract(known),
-        (obj(vec![("test", obj(vec![("setupFiles", strings(&["./config/boot.ts"]))]))]), Vec::new())
+        (
+            obj(vec![(
+                "test",
+                obj(vec![("setupFiles", strings(&["./config/boot.ts"]))])
+            )]),
+            Vec::new()
+        )
     );
     let unknown = "export default JSON.parse(process.env.CONFIG);";
     assert_eq!(

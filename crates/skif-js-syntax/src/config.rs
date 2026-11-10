@@ -2783,7 +2783,10 @@ fn defined<'p, 'a>(call: &'p CallExpression<'a>) -> Option<&'p Expression<'a>> {
         _ => return None,
     };
     let is_define = callee.starts_with("define") && callee.len() > "define".len();
-    call.arguments.first().and_then(Argument::as_expression).filter(|_| is_define)
+    call.arguments
+        .first()
+        .and_then(Argument::as_expression)
+        .filter(|_| is_define)
 }
 
 /// How a config combinator merges its arguments.
