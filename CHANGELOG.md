@@ -307,8 +307,10 @@ All notable changes to this project are documented here. The format follows
   (`export default createVitestConfig({ setupFiles: ['./setup.ts'] })`, `defineConfig(createBase(options))`) is known:
   a factory reading `options.setupFiles ?? []` no longer leaves the package's entries incomplete.
 - A config exporting the result of a call that cannot be followed (a factory of an installed package) stays unknown
-  and the package's entries incomplete, but the existing files of the package named in the call's arguments are
-  entries, so the modules they import are reached.
+  and the package's entries incomplete, but the existing files of the package the call's arguments name as a path
+  (`./setup.ts`, `test/setup.ts`) are entries, so the modules they import are reached. A bare name (`chart.js`) is a
+  package even where a file of that name exists, and a file under an exclusion key (`exclude`, `coverage.exclude`,
+  `ignores`, `testPathIgnorePatterns`) is not an entry.
 - The `vite`, `vitest` and `electron-vite` plugins read the build input of Vite 8 from `build.rolldownOptions.input`,
   before `build.rollupOptions.input`, as knip does: its pages and modules are entries, so their files and the
   packages they import are no longer reported unused, and a computed Rolldown input leaves the package's entries

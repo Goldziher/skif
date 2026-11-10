@@ -895,7 +895,9 @@ factory of a workspace package (`createVitestConfig({ setupFiles: ["./setup.ts"]
 `defineConfig(createBase(options))`) is called with the arguments given, so what it builds from its options is known. A
 config that exports the result of a call that cannot be followed, such as a factory of an installed package, is
 unknown and leaves the package's entries incomplete, but each string of the call's arguments that names an existing file
-of the package, relative to the config file, is an entry.
+of the package as a path (`./setup.ts`, `test/setup.ts`), relative to the config file, is an entry. A bare name such as
+`chart.js` is a package even where a file of that name exists, and a file listed under an exclusion key (`exclude`,
+`coverage.exclude`, `ignores`, `ignorePatterns`, `testPathIgnorePatterns`) is left out.
 A conditional (`cond ? a : b`, `&&`, `||`, `??`) whose test is known takes its branch, so a key spread in only when
 `pinCjs.length` is truthy is left out when `pinCjs` defaults to `[]`. A value with an unknown test is what both branches
 share: a key only one branch sets is unknown and the other keys stay known. A spread with an unknown test

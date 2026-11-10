@@ -17,9 +17,25 @@ use crate::plugin::{
 use crate::registry;
 use crate::script_config::{config_flags, config_paths, flag_values};
 use crate::scripts::{BinaryVia, ScriptContext, is_ignored_binary, parse_script};
-use crate::support::{is_relative, join_lexically, join_rel, leaf_strings, looks_like_file};
+use crate::support::{is_relative, join_lexically, join_rel, looks_like_file};
 
 const MAX_CONFIG_DEPTH: u8 = 16;
+
+/// Keys under which a tool config lists files to leave out (`exclude`, `coverage.exclude`, `ignores`,
+/// `testPathIgnorePatterns`): a file named there is not one a factory is given to run.
+const EXCLUSION_KEYS: &[&str] = &[
+    "exclude",
+    "excludes",
+    "ignore",
+    "ignores",
+    "ignored",
+    "ignorePatterns",
+    "testPathIgnorePatterns",
+    "coveragePathIgnorePatterns",
+    "modulePathIgnorePatterns",
+    "transformIgnorePatterns",
+    "watchPathIgnorePatterns",
+];
 
 /// Resolves every enabled plugin for the workspace in `ctx`, in registry order.
 ///
@@ -585,12 +601,14 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
 
 /// The files named in `arguments`, the arguments of a call a config exports that the evaluator cannot follow
 /// (`createConfig({ setupFiles: ['./setup.ts'] })`): a factory hands the files it is given to the tool, so each string
-/// that names an existing file of the package, relative to the config's directory `base`, is an entry. The config stays
-/// unknown, and the package's entries incomplete, for what the factory adds itself.
+/// that names an existing file of the package as a path (`./setup.ts`, `test/setup.ts`), relative to the config's
+/// directory `base`, is an entry. A bare name (`chart.js`) is a package however a file is named, and a string under an
+/// exclusion key ([`EXCLUSION_KEYS`]) names a file to leave out. The config stays unknown, and the package's entries
+/// incomplete, for what the factory adds itself.
 fn argument_entries(ctx: &PluginContext<'_>, base: &str, arguments: &[ConfigValue]) -> Vec<PluginInput> {
     let mut entries: Vec<String> = Vec::new();
-    for text in arguments.iter().flat_map(leaf_strings).map(str::trim) {
-        if !(is_relative(text) || looks_like_file(text)) || text.starts_with('/') {
+    for text in arguments.iter().flat_map(included_strings).map(str::trim) {
+        if !(is_relative(text) || text.contains('/')) || text.starts_with('/') {
             continue;
         }
         let path = join_rel(base, text);
@@ -599,6 +617,20 @@ fn argument_entries(ctx: &PluginContext<'_>, base: &str, arguments: &[ConfigValu
         }
     }
     entries.into_iter().map(PluginInput::Entry).collect()
+}
+
+/// The strings in `value`, however deeply nested, except those under an exclusion key ([`EXCLUSION_KEYS`]).
+fn included_strings(value: &ConfigValue) -> Vec<&str> {
+    match value {
+        ConfigValue::String(text) => vec![text.as_str()],
+        ConfigValue::Array(items) => items.iter().flat_map(included_strings).collect(),
+        ConfigValue::Object(entries) => entries
+            .iter()
+            .filter(|(key, _)| !EXCLUSION_KEYS.contains(&key.as_str()))
+            .flat_map(|(_, value)| included_strings(value))
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// Where the entries hidden by `config`, which plugin `reader` reads, can lie; anywhere when the plugin is unknown.
@@ -691,13 +723,17 @@ mod tests {
     }
 
     /// The strings in the arguments of an exported call the evaluator cannot follow that name an existing file of the
-    /// package, relative to the config's directory, are entries; a package name, a missing file, a directory and a
-    /// path outside the package are not.
+    /// package as a path, relative to the config's directory, are entries; a bare name (a package, even where a file of
+    /// that name exists), a string under an exclusion key, a missing file, a directory and a path outside the package
+    /// are not.
     #[test]
     fn the_files_an_unknown_factory_is_given_are_entries() {
         let fs = MemoryFs::new()
             .with_file("/ws/test/config/boot.ts", "")
+            .with_file("/ws/test/config/skip.ts", "")
             .with_file("/ws/test/vitest.setup.ts", "")
+            .with_file("/ws/test/chart.js", "")
+            .with_file("/ws/test/fixtures/ignored.ts", "")
             .with_file("/ws/shared.ts", "");
         let scripts = IndexMap::new();
         let plugins = IndexMap::new();
@@ -723,6 +759,18 @@ mod tests {
                         text("vitest.setup.ts"),
                     ]),
                 ),
+                ("exclude".to_owned(), ConfigValue::Array(vec![text("./config/skip.ts")])),
+                (
+                    "coverage".to_owned(),
+                    ConfigValue::Object(vec![(
+                        "exclude".to_owned(),
+                        ConfigValue::Array(vec![text("fixtures/ignored.ts")]),
+                    )]),
+                ),
+                (
+                    "testPathIgnorePatterns".to_owned(),
+                    ConfigValue::Array(vec![text("./config/skip.ts")]),
+                ),
                 ("environment".to_owned(), text("jsdom")),
                 ("chart".to_owned(), text("chart.js")),
                 ("root".to_owned(), text("./config")),
@@ -730,13 +778,14 @@ mod tests {
             ]),
             text("../shared.ts"),
             text("./config/boot.ts"),
+            text("fixtures/ignored.ts"),
         ];
         assert_eq!(
             argument_entries(&ctx, "test", &arguments),
             [
                 PluginInput::Entry("test/config/boot.ts".to_owned()),
-                PluginInput::Entry("test/vitest.setup.ts".to_owned()),
                 PluginInput::Entry("shared.ts".to_owned()),
+                PluginInput::Entry("test/fixtures/ignored.ts".to_owned()),
             ]
         );
     }
