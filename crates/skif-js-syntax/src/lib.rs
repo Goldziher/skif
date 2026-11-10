@@ -1,7 +1,9 @@
 //! The oxc boundary of skif: one JavaScript or TypeScript file in, skif-owned facts out.
 //!
 //! [`parse_module`] returns a [`ModuleInfo`] (imports, exports, in-file references, removal ranges) and
-//! [`extract_config_object`] statically evaluates the object a tool config file exports. No oxc type appears in the
+//! [`extract_config_object`] statically evaluates the object a tool config file exports. [`extract_config`] returns an
+//! [`ExtractedConfig`]: that value and, when it is unknown because the file exports a call the evaluator cannot follow,
+//! the evaluated arguments of the call, following imports when given a [`ModuleLoader`]. No oxc type appears in the
 //! public API, every public type is `Send + Sync`, and an oxc allocator lives only for the duration of one call.
 //!
 //! Supported inputs are `.js .mjs .cjs .jsx .ts .mts .cts .tsx` and `.d.ts` files, plus the `<script>` blocks (and
