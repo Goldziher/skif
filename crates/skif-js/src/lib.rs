@@ -61,6 +61,7 @@ pub use input::{
     BuildDir, ConfigDependency, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope,
     InputRequest, InputSource, PathAlias, RunBinary, WorkspaceInputs,
 };
+#[doc(hidden)]
 pub use manifest_paths::is_out_dir;
 #[doc(hidden)]
 pub use manifest_paths::source_candidates;

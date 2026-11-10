@@ -37,11 +37,11 @@ All notable changes to this project are documented here. The format follows
   ([ADR 0065](adrs/0065-narrowed-scope-for-incomplete-entries.md)); the human note names the globs after the package.
   `skif_core::IncompletePackage` gains the `scope` field and `with_scope`, and `IncompleteScope` moved from
   `skif-js` to `skif-core` (`skif_js::IncompleteScope` re-exports it).
-- `skif_js::IncompleteScopeGlobs` (hidden from the documentation, for the benchmark harness) compiles the globs of a
-  narrowed incomplete scope once and tells whether a path relative to the package lies in it, as the analysis matches
-  them, `skif_js::is_out_dir` whether a published path's first directory is build output whose source twin is
-  `src`, and `skif_js::source_candidates` (also hidden) lists the sources a published path may map to, most likely
-  first.
+- Three helpers for the benchmark harness, all hidden from the documentation: `skif_js::IncompleteScopeGlobs`
+  compiles the globs of a narrowed incomplete scope once and tells whether a path relative to the package lies in it,
+  as the analysis matches them; `skif_js::is_out_dir` tells whether a published path's first directory is build output
+  whose source twin is `src`; and `skif_js::source_candidates` lists the sources a published path may map to, most
+  likely first.
 - `skif_rules::toolchain_provider()` provides the rules over toolchain files, and `skif_rules::providers()` includes
   it. The rules read those files through `LintContext::fs`, the file system the run is given
   (`skif_lint::RunOptions::with_fs`), as the rules over a lockfile and patch files do
