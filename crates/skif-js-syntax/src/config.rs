@@ -241,6 +241,8 @@ enum Value {
         flags: String,
     },
     Unknown,
+    /// One of several values, not knowing which; see [`one_of`]. Handed out as [`ConfigValue::OneOf`].
+    OneOf(Vec<Value>),
     /// A value that is not definite: a key merged from the branches of a condition the evaluator cannot decide
     /// ([`any_entries`]), which the object may lack or hold any one of the values its union lists in, and every value
     /// that carries a read of one on: a key of an object or a binding holding it, an argument, a value a function
@@ -320,7 +322,8 @@ impl From<ConfigValue> for Value {
                     .collect(),
             ),
             ConfigValue::Regex { pattern, flags } => Self::Regex { pattern, flags },
-            ConfigValue::Unknown | ConfigValue::OneOf(_) => Self::Unknown,
+            ConfigValue::Unknown => Self::Unknown,
+            ConfigValue::OneOf(alternatives) => Self::OneOf(alternatives.into_iter().map(Self::from).collect()),
         }
     }
 }
@@ -341,6 +344,19 @@ impl From<Value> for ConfigValue {
             ),
             Value::Regex { pattern, flags } => Self::Regex { pattern, flags },
             Value::Unknown => Self::Unknown,
+            Value::OneOf(alternatives) => {
+                // `null` and `undefined` are both handed out as `null`.
+                let mut out: Vec<Self> = Vec::new();
+                for alternative in alternatives.into_iter().map(Self::from) {
+                    if !out.contains(&alternative) {
+                        out.push(alternative);
+                    }
+                }
+                match out.len() {
+                    1 => out.pop().unwrap_or(Self::Unknown),
+                    _ => Self::OneOf(out),
+                }
+            }
             Value::Maybe(value) => Self::from(*value),
         }
     }
@@ -368,7 +384,9 @@ pub trait ModuleLoader {
 /// the config file's directory (`"."`, `"./src"`, `"../shared"`).
 ///
 /// `a ? b : c` takes the branch a known test selects; with an unknown test it is what both branches share (for two
-/// objects, every key either has, unknown where they differ or only one has it). `a && b`, `a || b`, `a ?? b` and `!a`
+/// objects, every key either has, one of their values where they differ and unknown where only one has it), and for
+/// other values that differ [`ConfigValue::OneOf`] the two (`process.env.CI ? 'github' : 'list'`), unknown when a
+/// branch is unknown or there would be more than eight alternatives. `a && b`, `a || b`, `a ?? b` and `!a`
 /// are followed when `a` is known, and `.length` of a known string or array is its length. A member `a.b` of a known
 /// object is the value of its key `b`, unknown when an unknown spread may set it or the object may inherit it (a member
 /// of `Object.prototype`, an object with a `__proto__`), and `undefined` (handed out as `null`) when the object does
@@ -382,9 +400,10 @@ pub trait ModuleLoader {
 /// An `if (test) return a;` before a function's last `return` is followed the same way: a known test takes its branch,
 /// and an unknown one makes the value what both returns share. A spread of a conditional with an unknown test
 /// (`...(tmp && { cacheDir: tmp })`, `...(ci ? { a } : {})`) adds every key a branch sets: a list gets the elements of
-/// every branch (a string counting as a list of one), a nested object merges the same way, and any other value the
-/// branches do not share is unknown; only a branch that is not an object (or `null`, a boolean, a number or an empty
-/// string) leaves the spread unknown.
+/// every branch (a string counting as a list of one), a nested object merges the same way, any other value every
+/// branch sets is one of them and one only some branches set is unknown; only a branch that is not an object (or
+/// `null`, a boolean, a number or an empty string) leaves the spread unknown. A spread of a value that is one of
+/// several adds the keys of each the same way.
 ///
 /// Functions are followed: a returned config function may declare local `const`/`let` bindings and local functions,
 /// assign members of a local object, and call top-level or local functions with known arguments, a parameter not passed
@@ -756,6 +775,7 @@ fn as_imported(value: Value) -> Value {
                 .collect(),
         ),
         Value::Array(items) => Value::Array(items.into_iter().map(as_imported).collect()),
+        Value::OneOf(alternatives) => Value::OneOf(alternatives.into_iter().map(as_imported).collect()),
         Value::Maybe(value) => Value::Maybe(Box::new(as_imported(*value))),
         other => other,
     }
@@ -1798,7 +1818,7 @@ fn is_module_exports_assignment(stmt: &Statement<'_>) -> bool {
 /// The number of values `value` consists of, itself included.
 fn node_count(value: &Value) -> usize {
     1 + match value {
-        Value::Array(items) => items.iter().map(node_count).sum(),
+        Value::Array(items) | Value::OneOf(items) => items.iter().map(node_count).sum(),
         Value::Object(entries) => entries.iter().map(|(_, item)| node_count(item)).sum(),
         Value::Maybe(value) => node_count(value),
         _ => 0,
@@ -2048,6 +2068,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         match name {
             "__dirname" => Value::String(normalized(&[self.dir])),
             "__filename" => Value::String(self.file_path()),
+            "undefined" => Value::Undefined,
             _ => Value::Unknown,
         }
     }
@@ -2305,8 +2326,12 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 }
             },
             _ => match self.expr(expr, depth) {
-                Value::Maybe(value) => vec![Value::Undefined, *value],
-                value => vec![value],
+                Value::Maybe(value) => {
+                    let mut out = vec![Value::Undefined];
+                    out.extend(alternatives(*value));
+                    out
+                }
+                value => alternatives(value),
             },
         }
     }
@@ -2330,7 +2355,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         }
     }
 
-    /// `test ? a : b`: the branch a known test takes, or what both branches have in common when the test is unknown.
+    /// `test ? a : b`: the branch a known test takes, or when the test is unknown what both branches have in common or
+    /// one of them ([`either`]).
     fn conditional(&self, conditional: &'p ConditionalExpression<'a>, depth: u32) -> Value {
         match self.truthy(&conditional.test, depth) {
             Some(true) => self.expr(&conditional.consequent, depth),
@@ -2674,7 +2700,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 .flat_map(|(argument, value)| self.unknown_call_arguments(argument, value, depth))
                 .collect();
         }
-        if *value.definite() != Value::Unknown {
+        if !matches!(value.definite(), Value::Unknown | Value::OneOf(_)) {
             return Vec::new();
         }
         recorded.unwrap_or_else(|| self.arguments(call, depth))
@@ -3249,13 +3275,15 @@ fn merged_value(current: Value, incoming: Value, deep: bool) -> Value {
             Value::Array(left)
         }
         // A deep merge keeps what the known side has and whatever the unknown side may add to it.
-        (true, Value::Object(mut known), Value::Unknown) | (true, Value::Unknown, Value::Object(mut known)) => {
+        (true, Value::Object(mut known), Value::Unknown | Value::OneOf(_))
+        | (true, Value::Unknown | Value::OneOf(_), Value::Object(mut known)) => {
             if !known.iter().any(|(k, _)| ConfigValue::is_spread_key(k)) {
                 known.push((UNKNOWN_SPREAD.to_owned(), Value::Unknown));
             }
             Value::Object(known)
         }
-        (true, Value::Array(mut known), Value::Unknown) | (true, Value::Unknown, Value::Array(mut known)) => {
+        (true, Value::Array(mut known), Value::Unknown | Value::OneOf(_))
+        | (true, Value::Unknown | Value::OneOf(_), Value::Array(mut known)) => {
             known.push(Value::Unknown);
             Value::Array(known)
         }
@@ -3459,7 +3487,7 @@ fn left_is_value(operator: LogicalOperator, left: &Value) -> Option<bool> {
         LogicalOperator::And => truthiness(left).map(|truthy| !truthy),
         LogicalOperator::Or => truthiness(left),
         LogicalOperator::Coalesce => match left {
-            Value::Unknown | Value::Maybe(_) => None,
+            Value::Unknown | Value::OneOf(_) | Value::Maybe(_) => None,
             Value::Null | Value::Undefined => Some(false),
             _ => Some(true),
         },
@@ -3490,7 +3518,7 @@ fn spread_entries(value: Value) -> Option<Vec<(String, Value)>> {
         Value::Object(entries) => Some(entries),
         Value::Null | Value::Undefined | Value::Bool(_) | Value::Number(_) => Some(Vec::new()),
         Value::String(s) => s.is_empty().then(Vec::new),
-        Value::Array(_) | Value::Regex { .. } | Value::Unknown | Value::Maybe(_) => None,
+        Value::Array(_) | Value::Regex { .. } | Value::Unknown | Value::OneOf(_) | Value::Maybe(_) => None,
     }
 }
 
@@ -3588,7 +3616,8 @@ fn any_entries(objects: &[Option<&[(String, Value)]>], before: &[(String, Value)
 /// The value of a key that holds one of `values`, `None` standing for a branch that leaves it out: the value itself
 /// when every branch sets it alike; for lists, the elements of all of them, a string counting as a list of one, so
 /// that every file or package a branch names is credited; for objects, each key any of them has, merged the same way;
-/// anything else is unknown, such as two different strings or a string only some branches set.
+/// for other values every branch sets, such as two different strings, one of them ([`one_of`]); anything else is
+/// unknown, such as a string only some branches set.
 fn any_of(values: &[Option<Value>]) -> Value {
     let present: Vec<&Value> = values.iter().flatten().collect();
     let Some(&first) = present.first() else {
@@ -3624,7 +3653,52 @@ fn any_of(values: &[Option<Value>]) -> Value {
             Some(_) => None,
         })
         .collect();
-    objects.map_or(Value::Unknown, |objects| Value::Object(any_entries(&objects, &[])))
+    if let Some(objects) = objects {
+        return Value::Object(any_entries(&objects, &[]));
+    }
+    if present.len() < values.len() {
+        return Value::Unknown;
+    }
+    one_of(present.into_iter().cloned())
+}
+
+/// The most values a [`Value::OneOf`] holds; a value that may be one of more is unknown.
+const MAX_ALTERNATIVES: usize = 8;
+
+/// A value that is one of `values`, not knowing which: the value itself when they are all the same, otherwise a
+/// [`Value::OneOf`] of the different ones in the order first seen, a `OneOf` among them flattened into its
+/// alternatives. Unknown when one of them is unknown or not definite, or when there are more than
+/// [`MAX_ALTERNATIVES`]; a caller that knows the value is not definite marks that itself.
+fn one_of(values: impl IntoIterator<Item = Value>) -> Value {
+    let mut out: Vec<Value> = Vec::new();
+    for value in values {
+        let nested = match value {
+            Value::Unknown | Value::Maybe(_) => return Value::Unknown,
+            Value::OneOf(nested) => nested,
+            other => vec![other],
+        };
+        for alternative in nested {
+            if !out.contains(&alternative) {
+                out.push(alternative);
+            }
+        }
+        if out.len() > MAX_ALTERNATIVES {
+            return Value::Unknown;
+        }
+    }
+    match out.len() {
+        0 => Value::Unknown,
+        1 => out.pop().unwrap_or(Value::Unknown),
+        _ => Value::OneOf(out),
+    }
+}
+
+/// The values `value` may be: the alternatives of a [`Value::OneOf`], or the value itself.
+fn alternatives(value: Value) -> Vec<Value> {
+    match value {
+        Value::OneOf(alternatives) => alternatives,
+        other => vec![other],
+    }
 }
 
 /// Whether every one of `values` is present and they are all the same.
@@ -3642,15 +3716,16 @@ fn truthiness(value: &Value) -> Option<bool> {
         Value::Number(n) => Some(*n != 0.0 && !n.is_nan()),
         Value::String(s) => Some(!s.is_empty()),
         Value::Array(_) | Value::Object(_) | Value::Regex { .. } => Some(true),
-        Value::Unknown | Value::Maybe(_) => None,
+        Value::Unknown | Value::OneOf(_) | Value::Maybe(_) => None,
     }
 }
 
 /// The value of an expression that is `a` or `b`, not knowing which: the value itself when both are equal; for two
 /// objects, an object with every key either has, whose value is what both have in common when both have the key and
-/// [`ConfigValue::Unknown`] when only one does (it may be present or not); anything else is unknown. No key appears
-/// that neither branch has, so other keys stay known, and a key that may differ is unknown wherever it is read. It is
-/// not definite ([`Value::Maybe`]) when `a` or `b` is not.
+/// [`ConfigValue::Unknown`] when only one does (it may be present or not); anything else is one of the two
+/// ([`one_of`]), unknown when either is. No key appears that neither branch has, so other keys stay known, and a key
+/// that may differ is one of its values, or unknown, wherever it is read. It is not definite ([`Value::Maybe`]) when
+/// `a` or `b` is not.
 fn either(a: &Value, b: &Value) -> Value {
     if a == b {
         return a.clone();
@@ -3659,7 +3734,7 @@ fn either(a: &Value, b: &Value) -> Value {
         return Value::doubtful(either(a.definite(), b.definite()), false);
     }
     let (Value::Object(left), Value::Object(right)) = (a, b) else {
-        return Value::Unknown;
+        return one_of([a.clone(), b.clone()]);
     };
     let mut keys: Vec<&str> = Vec::new();
     for (key, _) in left.iter().chain(right) {

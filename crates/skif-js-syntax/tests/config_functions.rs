@@ -502,7 +502,7 @@ fn a_guarded_spread_keeps_what_its_object_does_not_replace() {
     assert_eq!(get(&value, &["test", "include"]), &strings(&["x/**"]));
     assert_eq!(get(&value, &["test", "setupFiles"]), &strings(&["./s.ts"]));
     // `root` is `web` or `app`.
-    assert_eq!(get(&value, &["root"]), &ConfigValue::Unknown);
+    assert_eq!(get(&value, &["root"]), &ConfigValue::OneOf(vec![s("app"), s("web")]));
 }
 
 #[test]
@@ -579,9 +579,12 @@ fn an_early_return_is_not_skipped_for_the_last_one() {
          export default [make(), known(), loop(), big(), none()];",
     );
     let configs = value.as_array().unwrap();
-    // The two returns share `root`; `test.include` differs, so it is unknown rather than the last return's.
+    // The two returns share `root`; `test.include` differs, so it is one of the two rather than the last return's.
     assert_eq!(get(&configs[0], &["root"]), &s("."));
-    assert_eq!(get(&configs[0], &["test", "include"]), &ConfigValue::Unknown);
+    assert_eq!(
+        get(&configs[0], &["test", "include"]),
+        &ConfigValue::OneOf(vec![strings(&["ci"]), strings(&["all"])])
+    );
     // A known test takes its branch.
     assert_eq!(get(&configs[1], &["a"]), &ConfigValue::Number(1.0));
     assert_eq!(configs[2], ConfigValue::Unknown);
@@ -624,10 +627,12 @@ fn what_code_may_or_may_not_write_is_unknown_after_it() {
          export default [{ some: plugins.length ? 1 : 2, base }, make()];",
     );
     let configs = value.as_array().unwrap();
-    assert_eq!(get(&configs[0], &["some"]), &ConfigValue::Unknown);
+    let one_or_two = ConfigValue::OneOf(vec![ConfigValue::Number(1.0), ConfigValue::Number(2.0)]);
+    assert_eq!(get(&configs[0], &["some"]), &one_or_two);
     assert!(get(&configs[0], &["base"]).get("...").is_some());
-    for key in ["mode", "some", "n"] {
-        assert_eq!(get(&configs[1], &[key]), &ConfigValue::Unknown, "{key}");
+    assert_eq!(get(&configs[1], &["mode"]), &ConfigValue::OneOf(vec![s("a"), s("b")]));
+    for key in ["some", "n"] {
+        assert_eq!(get(&configs[1], &[key]), &one_or_two, "{key}");
     }
     assert!(get(&configs[1], &["c"]).get("...").is_some());
 }
@@ -647,7 +652,10 @@ fn a_return_in_an_else_branch_is_not_read_after_the_code_that_follows() {
     );
     let configs = value.as_array().unwrap();
     // One path returns `{ a: 1 }` and the other `{ a: 2 }`.
-    assert_eq!(get(&configs[0], &["a"]), &ConfigValue::Unknown);
+    assert_eq!(
+        get(&configs[0], &["a"]),
+        &ConfigValue::OneOf(vec![ConfigValue::Number(2.0), ConfigValue::Number(1.0)])
+    );
     // A spread after a key may replace it.
     assert_eq!(get(&configs[1], &["mode"]), &ConfigValue::Unknown);
     assert_eq!(get(&configs[2], &["mode"]), &s("prod"));
@@ -809,7 +817,11 @@ fn the_parameters_of_a_function_the_tool_calls_are_unknown() {
         format!("function config(env = {{}}) {{ return {body}; }}\nexport default config;"),
     ] {
         let value = extract("webpack.config.js", &source);
-        assert_eq!(get(&value, &["entry"]), &ConfigValue::Unknown, "{source}");
+        assert_eq!(
+            get(&value, &["entry"]),
+            &ConfigValue::OneOf(vec![s("./src/analyze.ts"), s("./src/index.ts")]),
+            "{source}"
+        );
         assert_eq!(
             get(&value, &["inputs", "analyze"]),
             &strings(&["./src/analyze.ts"]),
@@ -903,9 +915,13 @@ fn a_key_merged_from_undecided_branches_is_not_definite() {
     assert_eq!(get(&value, &["destructured"]), &strings(&["./a.ts", "./d.ts"]));
     assert_eq!(get(&value, &["nested"]), &strings(&["a", "b"]));
     assert_eq!(get(&value, &["respread"]), &strings(&["./a.ts", "./default.ts"]));
-    for key in ["length", "fallbackLength", "tested", "negated"] {
+    for key in ["length", "fallbackLength", "negated"] {
         assert_eq!(value.get(key), Some(&ConfigValue::Unknown), "{key}: {value:?}");
     }
+    assert_eq!(
+        value.get("tested"),
+        Some(&ConfigValue::OneOf(vec![ConfigValue::Number(1.0), ConfigValue::Number(2.0)]))
+    );
     assert_eq!(get(&value, &["set"]), &strings(&["./b.ts"]));
     assert_eq!(get(&value, &["setLength"]), &ConfigValue::Number(1.0));
     assert_eq!(
@@ -965,9 +981,12 @@ fn a_constant_holding_a_read_that_is_not_definite_is_not_definite() {
     assert_eq!(get(&value, &["or"]), &strings(&["./a.ts", "./or.ts"]));
     assert_eq!(get(&value, &["kept"]), &strings(&["./a.ts"]));
     assert_eq!(get(&value, &["local", "coalesced"]), &strings(&["./a.ts", "./b.ts"]));
-    for key in ["length", "tested"] {
-        assert_eq!(value.get(key), Some(&ConfigValue::Unknown), "{key}: {value:?}");
-    }
+    assert_eq!(value.get("length"), Some(&ConfigValue::Unknown), "{value:?}");
+    assert_eq!(
+        value.get("tested"),
+        Some(&ConfigValue::OneOf(vec![ConfigValue::Number(1.0), ConfigValue::Number(2.0)])),
+        "{value:?}"
+    );
     assert_eq!(
         value.get("local").and_then(|local| local.get("length")),
         Some(&ConfigValue::Unknown),
@@ -1022,7 +1041,7 @@ fn a_read_that_is_not_definite_stays_so_through_every_value_it_reaches() {
     );
     assert_eq!(
         get(&spread, &["test", "setupFiles"]),
-        &ConfigValue::Unknown,
+        &ConfigValue::OneOf(vec![strings(&["./ci.ts"]), strings(&["./local.ts"])]),
         "{spread:?}"
     );
     assert_eq!(get(&spread, &["test", "length"]), &ConfigValue::Unknown, "{spread:?}");
@@ -1129,4 +1148,72 @@ fn the_arguments_of_an_unknown_call_returned_or_merged_are_kept() {
     }
     let known = format!("{preset}export default mergeConfig({{ test: {{ setupFiles: ['./s.ts'] }} }}, {{}});");
     assert_eq!(extract(&known).1, Vec::new());
+}
+
+/// A condition the evaluator cannot decide between values it knows is one of them: a ternary, a fallback over a read
+/// that is not definite and a binding one branch reassigns. A branch it does not know leaves the value unknown, and so
+/// do more alternatives than it keeps.
+#[test]
+fn an_undecided_condition_between_known_values_is_one_of_them() {
+    let value = extract(
+        "playwright.config.ts",
+        "const x = { reporter: 'list', ...(process.env.CI ? { reporter: 'github' } : {}) };\n\
+         const make = () => { let mode = 'dev'; if (process.env.CI) { mode = 'ci'; } return mode; };\n\
+         export default {\n\
+           reporter: process.env.CI ? 'github' : 'list',\n\
+           listed: [process.env.CI ? 'blob' : 'list'],\n\
+           same: process.env.CI ? 'list' : 'list',\n\
+           nested: process.env.A ? 'a' : process.env.B ? 'b' : 'a',\n\
+           mixed: process.env.CI ? [['html']] : 'list',\n\
+           optional: process.env.CI ? 'github' : undefined,\n\
+           nullish: process.env.CI ? null : undefined,\n\
+           objects: process.env.CI ? { reporter: 'github', retries: 2 } : { reporter: 'list', retries: 2 },\n\
+           fallback: x.reporter ?? 'dot',\n\
+           reassigned: make(),\n\
+           opaque: process.env.CI ? 'github' : helper(),\n\
+           many: process.env.A ? 'a' : process.env.B ? 'b' : process.env.C ? 'c' : process.env.D ? 'd' \
+             : process.env.E ? 'e' : process.env.F ? 'f' : process.env.G ? 'g' : process.env.H ? 'h' : 'i',\n\
+         };",
+    );
+    let pairs = [
+        ("reporter", ConfigValue::OneOf(vec![s("github"), s("list")])),
+        (
+            "listed",
+            ConfigValue::Array(vec![ConfigValue::OneOf(vec![s("blob"), s("list")])]),
+        ),
+        ("same", s("list")),
+        ("nested", ConfigValue::OneOf(vec![s("a"), s("b")])),
+        (
+            "mixed",
+            ConfigValue::OneOf(vec![ConfigValue::Array(vec![strings(&["html"])]), s("list")]),
+        ),
+        ("optional", ConfigValue::OneOf(vec![s("github"), ConfigValue::Null])),
+        ("nullish", ConfigValue::Null),
+        ("fallback", ConfigValue::OneOf(vec![s("github"), s("list"), s("dot")])),
+        ("reassigned", ConfigValue::OneOf(vec![s("dev"), s("ci")])),
+        ("opaque", ConfigValue::Unknown),
+        ("many", ConfigValue::Unknown),
+    ];
+    for (key, expected) in pairs {
+        assert_eq!(get(&value, &[key]), &expected, "{key}");
+    }
+    assert_eq!(
+        get(&value, &["objects"]),
+        &ConfigValue::Object(vec![
+            ("reporter".to_owned(), ConfigValue::OneOf(vec![s("github"), s("list")])),
+            ("retries".to_owned(), ConfigValue::Number(2.0)),
+        ])
+    );
+}
+
+/// A spread of a value that is one of several objects adds the keys of each, as a spread of the condition itself does.
+#[test]
+fn a_spread_of_one_of_several_values_adds_the_keys_of_each() {
+    let value = extract(
+        "playwright.config.ts",
+        "const extra = process.env.CI ? { reporter: 'github' } : undefined;\n\
+         export default { reporter: 'list', ...extra };",
+    );
+    assert_eq!(value.get(OWN_SPREAD), None, "{value:?}");
+    assert_eq!(get(&value, &["reporter"]), &ConfigValue::OneOf(vec![s("github"), s("list")]));
 }
