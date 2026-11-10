@@ -637,7 +637,7 @@ mod tests {
             .collect();
         assert_eq!(names, ["cd", "tar", "npm", "a", "b", "c"]);
         assert_eq!(tokens.subshells, [0..2, 4..5, 3..5]);
-        assert!(tokenize("{ cd sub; rspack; }").subshells.is_empty());
-        assert_eq!(tokenize("(cd sub && rspack").subshells, [0..2]);
+        assert_eq!(tokenize("{ cd sub; rspack; }").subshells.len(), 0);
+        assert_eq!(tokenize("(cd sub && rspack").subshells, vec![0..2_usize]);
     }
 }

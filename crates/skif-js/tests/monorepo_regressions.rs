@@ -742,11 +742,14 @@ fn bun_links_member_binaries_as_its_linker_says() {
     let lock_v0 = "{\n  \"lockfileVersion\": 1,\n  \"workspaces\": {},\n}\n";
     let isolated: &[&str] = &["packages/app/package.json: mytool"];
     let hoisted: &[&str] = &[];
-    let cases: [(Vec<(&str, &str)>, &[&str]); 5] = [
+    let cases: [BunCase; 5] = [
         (vec![("bunfig.toml", "[install]\nlinker = \"isolated\"\n")], isolated),
         (vec![("bun.lock", lock_v1)], isolated),
         (
-            vec![("bunfig.toml", "[install]\nlinker = \"hoisted\"\n"), ("bun.lock", lock_v1)],
+            vec![
+                ("bunfig.toml", "[install]\nlinker = \"hoisted\"\n"),
+                ("bun.lock", lock_v1),
+            ],
             hoisted,
         ),
         (vec![("bun.lock", lock_v0)], hoisted),
@@ -758,3 +761,5 @@ fn bun_links_member_binaries_as_its_linker_says() {
         assert_eq!(unlisted_member_binaries(&all), expected, "{all:?}");
     }
 }
+
+type BunCase<'a> = (Vec<(&'a str, &'a str)>, &'a [&'a str]);

@@ -1200,7 +1200,9 @@ fn mark_cwd<'p, 'a>(options: &mut ConfigValue, expression: &'p Expression<'a>, p
     }
     if let ConfigValue::String(path) = &mut entries[index].1
         && file_relative
-        && path.chars().all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '.' | '/' | '+' | '-'))
+        && path
+            .chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '.' | '/' | '+' | '-'))
     {
         *path = format!("{FILE_DIR}/{path}");
     }
@@ -1213,7 +1215,9 @@ fn sets_undefined(expression: &Expression<'_>, key: &str) -> bool {
     };
     let last = object.properties.iter().rev().find_map(|property| match property {
         ObjectPropertyKind::ObjectProperty(p)
-            if p.key.static_name().is_some_and(|name| crate::js_string(name.as_js_str()) == key) =>
+            if p.key
+                .static_name()
+                .is_some_and(|name| crate::js_string(name.as_js_str()) == key) =>
         {
             Some(&p.value)
         }
