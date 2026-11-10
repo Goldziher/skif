@@ -355,6 +355,20 @@ pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), 
     Ok(())
 }
 
+/// Whether the `workspaces` key of `config` has a `"."` entry, which knip then reads for the root workspace instead of
+/// the top-level keys.
+fn configures_root_workspace(config: &ConfigValue) -> bool {
+    config
+        .get("workspaces")
+        .and_then(ConfigValue::as_object)
+        .is_some_and(|dirs| {
+            dirs.iter().any(|(dir, _)| {
+                let normalized = dir.trim_start_matches("./").trim_end_matches('/');
+                normalized.is_empty() || normalized == "."
+            })
+        })
+}
+
 /// Whether the `workspaces` key of `config` names a directory other than the root: a `"."` entry alone configures the
 /// root package only. A value that cannot be read counts, since it may name one.
 fn configures_member_workspace(config: &ConfigValue) -> bool {
@@ -403,10 +417,20 @@ fn level(state: &mut State<'_>, src: &Src, path: &str, text: &str) -> Option<Lev
 fn read_root(state: &mut State<'_>, src: &Src, root: &str, config: &ConfigValue, plan: &mut Plan) {
     let target = Target::Root;
     table(&mut state.doc, &target.js());
+    let root_workspace = configures_root_workspace(config);
     for (key, item) in entries(state, src, root, config) {
         let path = join(root, key);
         match key {
             "$schema" => {}
+            "entry" | "project" | "ignore" if root_workspace => state.note(
+                src,
+                NoteClass::Exact,
+                path,
+                format!(
+                    "knip configures the root workspace with `workspaces[\".\"]` alone when it is set, so the \
+                     top-level `{key}` has no effect; not written"
+                ),
+            ),
             "workspaces" => workspaces(state, src, &path, item),
             "ignoreWorkspaces" => {
                 let list = reasoned(src, &target, key, string_items(state, src, &path, item));
