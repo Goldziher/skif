@@ -679,7 +679,11 @@ that holds the command. A binary fetched on demand (`npx x`, `pnpm dlx x`) is ne
 arguments are computed is not read. The steps of CI workflows, Git hooks and task runners run on machines that bring
 their own tools, so a binary they run by name is never reported there; one they run through a package manager
 (`pnpm exec x`, `yarn x`) or a `node_modules/.bin` path is, as knip does. A GitHub Actions step whose `shell` is not a
-POSIX shell (`pwsh`, `cmd`, `python`) is not read.
+POSIX shell (`pwsh`, `cmd`, `python`) is not read. The binary of a workspace member is provided where the package
+manager puts it on the `PATH`: with npm, Yarn Classic and Bun, which link every member's binaries into the root
+`node_modules/.bin`, for every package; with pnpm, Yarn Berry and in a Rush repository only for the packages that list
+the member and for the member's own scripts. In a Rush repository (a `rush.json` at the root), `rush`, `rushx` and
+`rush-pnpm` are Rush's own commands and never unlisted.
 
 **Scripts that change directory.** A `package.json` script command after `cd <dir>` or `pushd <dir>` (until `popd`),
 and one that `npm --prefix <dir> exec`, `pnpm -C <dir> exec` (`--dir`) or `yarn --cwd <dir> exec` runs, runs in that
