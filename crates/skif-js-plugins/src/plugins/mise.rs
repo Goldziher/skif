@@ -4,7 +4,9 @@
 //! File tasks are read too: the files under the directories `task_config.includes` names or, when no config sets
 //! `includes`, under `mise-tasks/`, `.mise-tasks/`, `mise/tasks/`, `.mise/tasks/` and `.config/mise/tasks/`. A
 //! JavaScript or TypeScript file task is an entry, and the command its shebang runs it with
-//! (`#!/usr/bin/env -S npx tsx`) a script. A shell one (a shebang of `sh`, `bash`, `zsh`, `dash` or `ksh`, or without
+//! (`#!/usr/bin/env -S npx tsx`) a script. An extensionless one whose shebang runs it with `node`, `bun`, `deno`,
+//! `tsx`, `ts-node` or one of those through `npx` (`mise-tasks/gen`) cannot be a module of the graph, which knows a
+//! file's language by its extension, so the relative modules it imports are entries in its place. A shell one (a shebang of `sh`, `bash`, `zsh`, `dash` or `ksh`, or without
 //! a shebang one of those extensions) is a script, run in the workspace or in the directory of its `#MISE dir="…"`
 //! header (`# [MISE]`, `//MISE` and `:: MISE` too). A task for another interpreter, and a file without a shebang whose
 //! extension is not a shell's (`README`, `NOTES.md`), is not read.
@@ -12,7 +14,9 @@
 //! The binaries a task runs by name are machine tools (mise installs those its `[tools]` names), so only those it
 //! reaches through a package manager are judged (`optional_binaries`); a file task's are recorded with the task file.
 
-use skif_js_syntax::ConfigValue;
+use std::path::Path;
+
+use skif_js_syntax::{ConfigValue, ImportKind, ParseOptions, parse_module};
 
 use crate::config_load::load_config;
 use crate::files::find_files;
@@ -146,15 +150,18 @@ fn file_task(cx: &PluginContext<'_>, file: String) -> Vec<PluginInput> {
     let source = cx.fs.read_to_string(&cx.dir.join(&file)).ok();
     let text = source.as_deref().unwrap_or_default();
     let shebang = text.lines().next().and_then(|line| line.strip_prefix("#!"));
-    if is_source {
-        let runner = shebang
-            .map(shebang_words)
-            .filter(|words| !words.is_empty())
-            .map(|words| PluginInput::SourceScript {
-                script: format!("{} {file}", words.join(" ")),
-                file: file.clone(),
-            });
-        let mut out = vec![PluginInput::Entry(file)];
+    let words = shebang.map(shebang_words).unwrap_or_default();
+    let javascript = extension.is_none() && runs_javascript(&words);
+    if is_source || javascript {
+        let runner = (!words.is_empty()).then(|| PluginInput::SourceScript {
+            script: format!("{} {file}", words.join(" ")),
+            file: file.clone(),
+        });
+        let mut out = if is_source {
+            vec![PluginInput::Entry(file)]
+        } else {
+            imported_modules(&file, text, &words)
+        };
         out.extend(runner);
         return out;
     }
@@ -175,6 +182,72 @@ fn file_task(cx: &PluginContext<'_>, file: String) -> Vec<PluginInput> {
         Some(PluginInput::Script(script)) => vec![PluginInput::SourceScript { file, script }],
         other => other.into_iter().collect(),
     }
+}
+
+/// Programs that run a file as JavaScript or TypeScript.
+const JS_RUNNERS: &[&str] = &["node", "bun", "deno", "tsx", "ts-node"];
+
+/// Whether the shebang command `words` ([`shebang_words`]) runs the file as JavaScript or TypeScript: one of
+/// [`JS_RUNNERS`], directly or through `npx`, `pnpx` or `bunx` (`npx -y tsx`).
+fn runs_javascript(words: &[&str]) -> bool {
+    let mut words = words.iter().copied();
+    let Some(program) = words.next() else {
+        return false;
+    };
+    if JS_RUNNERS.contains(&program) {
+        return true;
+    }
+    ["npx", "pnpx", "bunx"].contains(&program)
+        && words
+            .find(|word| !word.starts_with('-'))
+            .is_some_and(|runner| JS_RUNNERS.contains(&runner))
+}
+
+/// Extensions a relative specifier without one may resolve to, as a glob alternation.
+const MODULE_GLOB_EXTENSIONS: &str = "{js,mjs,cjs,jsx,ts,mts,cts,tsx}";
+
+/// The relative modules the extensionless JavaScript file task `file` imports or requires, as entries relative to the
+/// workspace: the file itself for a specifier with a code extension, else the files and `index` files it may resolve
+/// to. Parsed as TypeScript when its runner is not plain `node`.
+fn imported_modules(file: &str, text: &str, words: &[&str]) -> Vec<PluginInput> {
+    let as_typescript = words.iter().any(|word| *word != "node" && JS_RUNNERS.contains(word));
+    let parsed = format!("{file}.{}", if as_typescript { "ts" } else { "js" });
+    let Ok(module) = parse_module(Path::new(&parsed), text, &ParseOptions::default()) else {
+        return Vec::new();
+    };
+    let dir = parent_dir(file);
+    let mut out: Vec<PluginInput> = Vec::new();
+    for import in &module.imports {
+        let loads = matches!(
+            import.kind,
+            ImportKind::Static
+                | ImportKind::TypeOnly
+                | ImportKind::SideEffect
+                | ImportKind::Dynamic
+                | ImportKind::Require
+                | ImportKind::ExportFrom
+        );
+        let specifier = import.specifier.as_str();
+        if !loads || !(specifier.starts_with("./") || specifier.starts_with("../")) {
+            continue;
+        }
+        let path = join_rel(dir, specifier);
+        let has_extension = path
+            .rsplit('/')
+            .next()
+            .and_then(|name| name.rsplit_once('.'))
+            .is_some_and(|(stem, extension)| !stem.is_empty() && SOURCE_EXTENSIONS.contains(&extension));
+        let entry = if has_extension {
+            path
+        } else {
+            format!("{path}{{,/index}}.{MODULE_GLOB_EXTENSIONS}")
+        };
+        let entry = PluginInput::Entry(entry);
+        if !out.contains(&entry) {
+            out.push(entry);
+        }
+    }
+    out
 }
 
 /// The command a shebang line runs: its program and arguments, or the words after `env` and its options
