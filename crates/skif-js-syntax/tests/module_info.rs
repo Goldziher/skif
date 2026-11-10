@@ -1340,7 +1340,10 @@ fn template_locals_do_not_use_the_imports_they_shadow() {
         assert_eq!(accessed(&info, "item"), (Vec::<String>::new(), false), "{path}");
         assert_eq!(accessed(&info, "row"), (Vec::<String>::new(), false), "{path}");
         let (members, escapes) = accessed(&info, "items");
-        assert!(escapes || !members.is_empty(), "{path}: the source of the loop is a use");
+        assert!(
+            escapes || !members.is_empty(),
+            "{path}: the source of the loop is a use"
+        );
     }
     // The same import used outside the construct that shadows it is used.
     let vue = "<script setup>\nimport item from './item';\nimport { items } from './data';\n</script>\n<template><li v-for=\"item in items\">{{ item }}</li><p>{{ item.label }}</p></template>\n";

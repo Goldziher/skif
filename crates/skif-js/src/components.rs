@@ -25,7 +25,10 @@ pub(crate) struct Registered {
 /// header in the first 300 characters.
 pub(crate) fn is_generated(path: &Path, source: &str) -> bool {
     let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
-    if ![".d.ts", ".d.mts", ".d.cts"].iter().any(|suffix| name.ends_with(suffix)) {
+    if ![".d.ts", ".d.mts", ".d.cts"]
+        .iter()
+        .any(|suffix| name.ends_with(suffix))
+    {
         return false;
     }
     let head = source.char_indices().nth(300).map_or(source, |(at, _)| &source[..at]);
