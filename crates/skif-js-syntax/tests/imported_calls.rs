@@ -89,14 +89,19 @@ fn the_cwd_option_is_read_as_a_directory_only_for_command_calls() {
     assert_eq!(cwd(&plain[0]), Some(s(".")));
     let kept = cwd(&plain[1]);
     assert!(
-        kept.as_ref().and_then(ConfigValue::as_str).is_some_and(|dir| !dir.starts_with(FILE_DIR)),
+        kept.as_ref()
+            .and_then(ConfigValue::as_str)
+            .is_some_and(|dir| !dir.starts_with(FILE_DIR)),
         "{kept:?}"
     );
     let commands = extract_command_calls(source, Path::new("src/run.ts"), &["lib"], &[]);
     assert_eq!(cwd(&commands[0]), None);
     let marked = cwd(&commands[1]);
     assert!(
-        marked.as_ref().and_then(ConfigValue::as_str).is_some_and(|dir| dir.starts_with(FILE_DIR)),
+        marked
+            .as_ref()
+            .and_then(ConfigValue::as_str)
+            .is_some_and(|dir| dir.starts_with(FILE_DIR)),
         "{marked:?}"
     );
 }

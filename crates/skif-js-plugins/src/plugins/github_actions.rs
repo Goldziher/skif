@@ -27,14 +27,22 @@ struct DirVariable {
 
 /// The directory of the action a composite action's step runs, read as the directory the step starts in.
 const ACTION_PATH: DirVariable = DirVariable {
-    spellings: &["${{ github.action_path }}", "${{github.action_path}}", "${GITHUB_ACTION_PATH}"],
+    spellings: &[
+        "${{ github.action_path }}",
+        "${{github.action_path}}",
+        "${GITHUB_ACTION_PATH}",
+    ],
     bare: "$GITHUB_ACTION_PATH",
 };
 
 /// The directory a workflow checks the repository out to, where a step starts unless it sets a `working-directory`:
 /// the workspace root.
 const WORKSPACE: DirVariable = DirVariable {
-    spellings: &["${{ github.workspace }}", "${{github.workspace}}", "${GITHUB_WORKSPACE}"],
+    spellings: &[
+        "${{ github.workspace }}",
+        "${{github.workspace}}",
+        "${GITHUB_WORKSPACE}",
+    ],
     bare: "$GITHUB_WORKSPACE",
 };
 
