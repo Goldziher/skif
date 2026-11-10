@@ -162,8 +162,8 @@ impl Collector<'_, '_> {
                     push_unique(&mut self.out.entries, path.clone());
                     push_unique(&mut self.out.production_entries, path);
                 }
-                PluginInput::Dependency(name) => self.dependency(name, from, false),
-                PluginInput::OptionalDependency(name) => self.dependency(name, from, true),
+                PluginInput::Dependency(name) => self.dependency(name, from, false, config.is_some()),
+                PluginInput::OptionalDependency(name) => self.dependency(name, from, true, config.is_some()),
                 PluginInput::Binary(name) => push_unique(&mut self.out.referenced_binaries, name),
                 PluginInput::ConfigFile(path) => {
                     if depth < MAX_CONFIG_DEPTH && self.ctx.fs.is_file(&self.ctx.dir.join(&path)) {
@@ -181,6 +181,10 @@ impl Collector<'_, '_> {
                 PluginInput::SourceScript { file, script } => {
                     let source = self.ctx.dir.join(&file);
                     self.script(&script, &source, false);
+                }
+                PluginInput::FileDependency { file, name } => {
+                    let source = self.ctx.dir.join(&file);
+                    self.dependency(name, &source, false, true);
                 }
                 PluginInput::Ignore(glob) => push_unique(&mut self.out.ignore, glob),
                 PluginInput::Alias { find, target } => {
@@ -243,19 +247,25 @@ impl Collector<'_, '_> {
         }
     }
 
-    fn dependency(&mut self, name: String, from: &Path, optional: bool) {
+    /// Records package `name` as referenced from `from`; `named_by_config` when the config read names it itself (see
+    /// [`DepRef::named_by_config`]).
+    fn dependency(&mut self, name: String, from: &Path, optional: bool, named_by_config: bool) {
         match self
             .out
             .referenced_dependencies
             .iter_mut()
             .find(|d| d.name == name && d.from == from)
         {
-            Some(existing) => existing.optional &= optional,
+            Some(existing) => {
+                existing.optional &= optional;
+                existing.named_by_config |= named_by_config;
+            }
             None => self.out.referenced_dependencies.push(DepRef {
                 name,
                 from: from.to_path_buf(),
                 span: None,
                 optional,
+                named_by_config,
             }),
         }
     }
@@ -293,7 +303,7 @@ impl Collector<'_, '_> {
             push_unique(&mut self.out.entries, file.path);
         }
         for dep in info.dependencies {
-            self.dependency(dep.name, from, dep.ephemeral);
+            self.dependency(dep.name, from, dep.ephemeral, false);
         }
     }
 

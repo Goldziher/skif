@@ -17,8 +17,8 @@ use crate::deps::member_dirs;
 use crate::globs::{Globs, Names};
 use crate::graph::ModuleGraph;
 use crate::input::{
-    BuildDir, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope, InputRequest, InputSource,
-    PathAlias, RunBinary, WorkspaceInputs,
+    BuildDir, ConfigDependency, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope,
+    InputRequest, InputSource, PathAlias, RunBinary, WorkspaceInputs,
 };
 use crate::listed::{self, Listed};
 use crate::resolve::join_normalized;
@@ -371,6 +371,8 @@ pub(crate) struct PackageSetup {
     pub used_in_file: IgnoreExportsUsedInFile,
     /// Packages referenced by plugins and by scripts.
     pub referenced_dependencies: Vec<String>,
+    /// The packages that the tool configs plugins read name themselves, with the config file.
+    pub config_dependencies: Vec<ConfigDependency>,
     /// Binaries run by plugins.
     pub referenced_binaries: Vec<String>,
     /// The binaries that commands in the files plugins read run, with the file.
@@ -766,6 +768,7 @@ impl Setup {
                     .ignore_exports_used_in_file
                     .unwrap_or_else(|| js.ignore_exports_used_in_file.clone()),
                 referenced_dependencies,
+                config_dependencies: plugin.config_dependencies,
                 referenced_binaries: plugin.binaries,
                 run_binaries: plugin.run_binaries,
                 scripts,

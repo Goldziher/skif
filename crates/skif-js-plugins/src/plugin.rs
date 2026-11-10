@@ -142,6 +142,15 @@ pub enum PluginInput {
         /// The script text.
         script: String,
     },
+    /// A package that a file of the tool which is not a config names, such as the `provider` of a Prisma schema's
+    /// `generator`: recorded against `file` and judged like a package a config names
+    /// ([`DepRef::named_by_config`]).
+    FileDependency {
+        /// The file, relative to the workspace directory.
+        file: String,
+        /// The package name, without version or subpath.
+        name: String,
+    },
     /// A glob of files the config owns.
     Ignore(String),
     /// A module alias (`resolve.alias`, `compilerOptions.paths`): imports of `find` and `find/…` lead to `target`.
@@ -345,6 +354,10 @@ pub struct DepRef {
     pub span: Option<Range<usize>>,
     /// The reference does not require the package to be declared (optional peers, on-demand fetches).
     pub optional: bool,
+    /// A config file the plugin read names the package itself, rather than a command the config holds or a package
+    /// the plugin assumes without a config: the config needs it installed, so a required reference no manifest lists
+    /// is an unlisted dependency at `from`.
+    pub named_by_config: bool,
 }
 
 /// A binary that a command read from a file runs; see [`PluginOutput::run_binaries`].
