@@ -405,6 +405,17 @@ impl Config {
             if let Some(message) = selector_problem(&family.packages) {
                 return invalid(format!("dependency-families[{index}]: {message}"));
             }
+            match family.anchor.as_deref() {
+                Some(_) if family.scope.is_manifests() => {
+                    return invalid(format!(
+                        "dependency-families[{index}]: `anchor` is only valid with `scope = \"importer\"` or `scope = \"lockfile\"`"
+                    ));
+                }
+                Some(anchor) if anchor.trim().is_empty() => {
+                    return invalid(format!("dependency-families[{index}]: `anchor` must not be empty"));
+                }
+                _ => {}
+            }
         }
         Ok(())
     }
@@ -1032,6 +1043,28 @@ pub enum VersionPolicy {
     SemverRangeOnly,
 }
 
+/// What a version group judges.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum GroupScope {
+    /// The dependency instances the manifests declare.
+    #[default]
+    Manifests,
+    /// Every package `pnpm-lock.yaml` resolves, transitive ones included; only with policy `banned`. The group claims
+    /// no manifest instance, so those fall through to the groups after it.
+    Lockfile,
+}
+
+impl GroupScope {
+    /// Whether this is the default, [`Manifests`](Self::Manifests).
+    #[must_use]
+    pub const fn is_manifests(&self) -> bool {
+        matches!(self, Self::Manifests)
+    }
+}
+
 /// One `[[version-groups]]` entry; first match wins. Selectors accept `!` negation and `$LOCAL`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -1062,9 +1095,19 @@ pub struct VersionGroup {
     /// Allowed with `preferred-semver`; overrides `[policy] prefer`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prefer: Option<Prefer>,
+    /// `manifests` (default) judges the declared dependencies; `lockfile` judges what `pnpm-lock.yaml` resolves.
+    #[serde(skip_serializing_if = "GroupScope::is_manifests")]
+    pub scope: GroupScope,
 }
 
 impl VersionGroup {
+    /// Sets what the group judges: the manifests or the lockfile.
+    #[must_use]
+    pub const fn with_scope(mut self, scope: GroupScope) -> Self {
+        self.scope = scope;
+        self
+    }
+
     /// Sets the label shown in diagnostics.
     #[must_use]
     pub fn with_label(mut self, label: impl Into<String>) -> Self {
@@ -1152,6 +1195,16 @@ impl VersionGroup {
         }
         if self.prefer.is_some() && self.policy != VersionPolicy::PreferredSemver {
             return Some("`prefer` is only valid with policy `preferred-semver`");
+        }
+        if self.scope == GroupScope::Lockfile {
+            if self.policy != VersionPolicy::Banned {
+                return Some("`scope = \"lockfile\"` is only valid with policy `banned`");
+            }
+            if !self.dependency_types.is_empty() || !self.specifier_types.is_empty() {
+                return Some(
+                    "`dependency-types` and `specifier-types` select manifest entries and are not valid with `scope = \"lockfile\"`",
+                );
+            }
         }
         None
     }
@@ -1810,6 +1863,29 @@ impl Format {
     }
 }
 
+/// Where the members of a dependency family must share a version.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum FamilyScope {
+    /// Within each package, as its manifest declares them.
+    #[default]
+    Manifests,
+    /// Within what each importer of `pnpm-lock.yaml` resolves, transitive packages included.
+    Importer,
+    /// Across everything `pnpm-lock.yaml` resolves.
+    Lockfile,
+}
+
+impl FamilyScope {
+    /// Whether this is the default, [`Manifests`](Self::Manifests).
+    #[must_use]
+    pub const fn is_manifests(&self) -> bool {
+        matches!(self, Self::Manifests)
+    }
+}
+
 /// One `[[dependency-families]]` entry: packages that must share a version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -1824,6 +1900,14 @@ pub struct DependencyFamily {
     /// `false` disables a built-in family of the same name.
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// `manifests` (default) compares the versions each package declares; `importer` and `lockfile` compare what
+    /// `pnpm-lock.yaml` resolves, per importer or across the lockfile.
+    #[serde(default, skip_serializing_if = "FamilyScope::is_manifests")]
+    pub scope: FamilyScope,
+    /// With a lockfile scope: a package whose resolved majors each allow one version of every member, so `@types/react`
+    /// may resolve once per major of `react`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<String>,
 }
 
 impl DependencyFamily {
@@ -1838,7 +1922,23 @@ impl DependencyFamily {
             name: name.into(),
             packages: packages.into_iter().map(Into::into).collect(),
             enabled: true,
+            scope: FamilyScope::Manifests,
+            anchor: None,
         }
+    }
+
+    /// Sets where the members must share a version.
+    #[must_use]
+    pub const fn with_scope(mut self, scope: FamilyScope) -> Self {
+        self.scope = scope;
+        self
+    }
+
+    /// Sets the anchor package: with a lockfile scope, every member may resolve once per major of it.
+    #[must_use]
+    pub fn with_anchor(mut self, anchor: impl Into<String>) -> Self {
+        self.anchor = Some(anchor.into());
+        self
     }
 
     /// Enables or disables the family; `false` disables a built-in family of the same name.
