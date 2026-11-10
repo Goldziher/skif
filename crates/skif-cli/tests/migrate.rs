@@ -133,6 +133,60 @@ fn a_sherif_migration_does_not_compare_dependents_with_the_version_of_a_workspac
     );
 }
 
+/// The dependencies `version-mismatch` reports, each once, in byte order.
+fn mismatched_dependencies(report: &serde_json::Value) -> Vec<String> {
+    let names: BTreeSet<String> = report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["rule"] == "version-mismatch")
+        .map(|diagnostic| diagnostic["dependency"].as_str().unwrap().to_owned())
+        .collect();
+    names.into_iter().collect()
+}
+
+#[test]
+fn a_sherif_migration_compares_only_the_specifiers_sherif_compared() {
+    let dir = project(
+        r#"{ "name": "demo", "private": true, "packageManager": "npm@10.9.0", "workspaces": ["packages/*"],
+             "scripts": { "check": "sherif" } }"#,
+    );
+    for (name, manifest) in [
+        (
+            "a",
+            r#"{ "name": "a", "version": "1.0.0", "dependencies": { "bar": "latest", "baz": "^1.0.0 || ^2.0.0", "foo": "*", "x1": ">= 1.0.0" } }"#,
+        ),
+        (
+            "b",
+            r#"{ "name": "b", "version": "1.0.0", "dependencies": { "bar": "^1.0.0", "baz": "^1.0.0", "foo": "^1.0.0", "x1": ">=1.0.0", "x2": "~1.2.0" } }"#,
+        ),
+        ("c", r#"{ "name": "c", "version": "1.0.0", "dependencies": { "x2": "~1.3.0" } }"#),
+    ] {
+        let package = dir.path().join("packages").join(name);
+        fs::create_dir_all(&package).unwrap();
+        fs::write(package.join("package.json"), manifest).unwrap();
+    }
+    let unmigrated = run(skif()
+        .args(["--no-js", "--no-config", "--format", "json"])
+        .arg(dir.path()));
+    assert_eq!(
+        mismatched_dependencies(&unmigrated.json()),
+        ["bar", "baz", "foo", "x1", "x2"],
+        "skif compares every specifier: {}",
+        unmigrated.stdout
+    );
+
+    let written = run(&mut migrate(dir.path()));
+    assert_eq!(written.code, 0, "{}{}", written.stdout, written.stderr);
+    let linted = run(skif().args(["--no-js", "--format", "json"]).arg(dir.path()));
+    assert_eq!(
+        mismatched_dependencies(&linted.json()),
+        ["x2"],
+        "sherif compares semver versions and ranges only: {}",
+        linted.stdout
+    );
+}
+
 #[test]
 fn merge_keeps_the_comments_of_the_existing_file() {
     let dir = project(SHERIF_PACKAGE);

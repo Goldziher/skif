@@ -75,6 +75,8 @@ pub(crate) struct State<'a> {
     pub doc: Doc,
     pub notes: Vec<Note>,
     pub tools: Vec<Tool>,
+    /// sherif's version check was migrated: [`State::finish`] leaves out the specifiers sherif never compared.
+    pub sherif_versions: Option<Src>,
     kept: Vec<(String, Tool)>,
     deferred: Vec<DeferredOff>,
     settings: Vec<(String, RuleSetting)>,
@@ -87,6 +89,7 @@ impl<'a> State<'a> {
             doc: Doc::default(),
             notes: Vec::new(),
             tools: Vec::new(),
+            sherif_versions: None,
             kept: Vec::new(),
             deferred: Vec::new(),
             settings: Vec::new(),
@@ -289,6 +292,11 @@ impl<'a> State<'a> {
                     .table(&["js"])
                     .set_commented("enabled", Val::Bool(false), marker);
             }
+        }
+        if let Some(src) = self.sherif_versions.take() {
+            // The group owns nothing in a workspace without such specifiers, which only `policy-conflict` reports.
+            let silent = exact && extra_checks.iter().any(|id| id == crate::sherif::UNUSED_GROUP_RULE);
+            crate::sherif::leave_out_unparsed(&mut self, &src, silent);
         }
         self.write_rules();
         let body = self.doc.render(&[]);

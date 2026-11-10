@@ -404,7 +404,13 @@ fn a_bare_sherif_run_writes_only_the_scope_sherif_compares() {
     assert_eq!(parsed.len(), 1, "{}", migration.toml);
     assert_eq!(strings(&parsed["policy"]["dependency-types"]), ["prod", "dev"]);
     assert_eq!(parsed["policy"].as_table().unwrap().len(), 1, "{}", migration.toml);
-    assert_eq!(migration.notes.len(), 1, "{:#?}", migration.notes);
+    let paths: Vec<&str> = migration.notes.iter().map(|note| note.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        ["multiple-dependency-versions", "multiple-dependency-versions: specifiers"],
+        "{:#?}",
+        migration.notes
+    );
     assert_eq!(class(&migration, "multiple-dependency-versions"), NoteClass::Exact);
 }
 
@@ -586,6 +592,84 @@ fn sherif_writes_no_scope_when_it_ignores_its_version_check() {
             migration.toml
         );
     }
+}
+
+/// The specifier types sherif's semver parser rejects, so `multiple-dependency-versions` never compared them.
+const SHERIF_UNPARSED: [&str; 11] = [
+    "alias",
+    "file",
+    "git",
+    "latest",
+    "link",
+    "missing",
+    "range-complex",
+    "tag",
+    "unsupported",
+    "url",
+    "workspace-protocol",
+];
+
+#[test]
+fn sherif_exact_leaves_out_the_specifiers_sherif_does_not_compare() {
+    let bare = || sherif_input(&package(&[("lint", "sherif")]));
+    let migration = migrate(&[bare()], &options(Profile::Exact)).unwrap();
+    let parsed = table(&migration);
+    let groups = parsed["version-groups"].as_array().unwrap();
+    assert_eq!(groups.len(), 1, "{}", migration.toml);
+    assert_eq!(strings(&groups[0]["specifier-types"]), SHERIF_UNPARSED);
+    assert_eq!(groups[0]["policy"].as_str(), Some("ignored"));
+    assert!(groups[0].get("dependency-types").is_none(), "the group keeps sherif's scope");
+    assert_eq!(
+        migration.config.version_groups[0].policy,
+        skif_config::VersionPolicy::Ignored
+    );
+    assert_eq!(
+        parsed["rules"]["policy-conflict"].as_str(),
+        Some("off"),
+        "nothing reports the group when the workspace has no such specifier"
+    );
+    assert_eq!(
+        class(&migration, "multiple-dependency-versions: specifiers"),
+        NoteClass::Approximate
+    );
+    assert!(note(&migration, "multiple-dependency-versions: specifiers").message.contains("`>= 1.0.0`"));
+
+    let full = migrate(&[bare()], &options(Profile::Full)).unwrap();
+    assert!(table(&full).get("version-groups").is_none(), "{}", full.toml);
+    let hint = note(&full, "multiple-dependency-versions: specifiers");
+    assert_eq!(hint.class, NoteClass::Approximate);
+    assert!(
+        hint.suggestion
+            .as_deref()
+            .is_some_and(|suggestion| suggestion.contains("\"range-complex\"") && suggestion.contains("policy = \"ignored\"")),
+        "{hint:#?}"
+    );
+
+    let mut syncpack = ToolInput::new(Tool::Syncpack);
+    syncpack.package_json = Some(text("package.json", &package(&[("lint", "syncpack lint")])));
+    for inputs in [[bare(), syncpack.clone()], [syncpack.clone(), bare()]] {
+        let both = migrate(&inputs, &options(Profile::Exact)).unwrap();
+        assert!(both.config.version_groups.is_empty(), "syncpack compared every specifier: {}", both.toml);
+        assert!(note(&both, "multiple-dependency-versions: specifiers").message.contains("syncpack"));
+    }
+}
+
+#[test]
+fn the_sherif_group_follows_the_groups_of_an_existing_file() {
+    let migration = migrate(
+        &[sherif_input(&package(&[("lint", "sherif")]))],
+        &options(Profile::Exact),
+    )
+    .unwrap();
+    let existing = "[[version-groups]]\nlabel = \"mine\"\ndependencies = [\"react\"]\npolicy = \"pinned\"\npin = \"18.3.1\"\n";
+    let merged: toml::Table = migration.merge_into(existing).unwrap().toml.parse().unwrap();
+    let labels: Vec<&str> = merged["version-groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|group| group["label"].as_str().unwrap())
+        .collect();
+    assert_eq!(labels, ["mine", "not compared by sherif"]);
 }
 
 #[test]
