@@ -595,8 +595,8 @@ mod tests {
         assert_eq!(cache.hits.load(Ordering::Relaxed), 2);
     }
 
-    fn empty_module() -> Option<CachedModule> {
-        Some(CachedModule(ModuleInfo::default()))
+    fn empty_module() -> CachedModule {
+        CachedModule(ModuleInfo::default())
     }
 
     #[test]
@@ -614,21 +614,21 @@ mod tests {
                     parses.fetch_add(1, Ordering::SeqCst);
                     started.send(()).unwrap();
                     released.recv().unwrap();
-                    empty_module()
+                    Some(empty_module())
                 })
             });
             has_started.recv().unwrap();
             let second = scope.spawn(move || {
                 cache.get_or_insert_with(key, &mut || {
                     parses.fetch_add(1, Ordering::SeqCst);
-                    empty_module()
+                    Some(empty_module())
                 })
             });
             // Time for the second lookup to start a parse of its own if it did not wait.
             std::thread::sleep(std::time::Duration::from_millis(50));
             release.send(()).unwrap();
-            assert_eq!(first.join().unwrap(), empty_module());
-            assert_eq!(second.join().unwrap(), empty_module());
+            assert_eq!(first.join().unwrap(), Some(empty_module()));
+            assert_eq!(second.join().unwrap(), Some(empty_module()));
         });
         assert_eq!(parses.load(Ordering::SeqCst), 1);
         assert_eq!(store.puts.load(Ordering::Relaxed), 1);
@@ -649,7 +649,7 @@ mod tests {
                     cache.get_or_insert_with(key, &mut || {
                         parses.fetch_add(1, Ordering::SeqCst);
                         std::thread::sleep(std::time::Duration::from_millis(20));
-                        empty_module()
+                        Some(empty_module())
                     })
                 });
             }
@@ -673,11 +673,11 @@ mod tests {
         let mut parsed = false;
         let found = cache.get_or_insert_with(key, &mut || {
             parsed = true;
-            empty_module()
+            Some(empty_module())
         });
         assert!(parsed);
-        assert_eq!(found, empty_module());
-        assert_eq!(cache.get(key), empty_module());
+        assert_eq!(found, Some(empty_module()));
+        assert_eq!(cache.get(key), Some(empty_module()));
     }
 
     #[test]
