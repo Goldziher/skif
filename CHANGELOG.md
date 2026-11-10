@@ -221,8 +221,10 @@ All notable changes to this project are documented here. The format follows
   file below that directory as a binary, named by its file name as npm links it; its binaries were reported as
   unlisted and the package as unused. As in npm, a `..` in the directory cannot leave the package, and files and
   directories whose names start with `.` are skipped.
-- An ESLint config that extends a built-in config (`eslint:recommended`, `eslint:all`) credits `eslint`, as knip does,
-  so an `eslint` listed only at the root and enabled by a member's config is no longer reported unused.
+- An ESLint config that extends a built-in config (`eslint:recommended`, `eslint:all`) credits `eslint`, so an
+  `eslint` listed only at the root and enabled by a member's config is no longer reported unused. It is an optional
+  reference, never reported as unlisted: a deviation from knip, which credits a plain dependency and reports it where
+  no manifest lists `eslint`.
 - `skif migrate` from knip: with a `workspaces["."]` table, the top-level `entry`, `project` and `paths` are not
   written (knip reads them for the root workspace from that table alone), instead of being merged with the table's
   lists, which widened the entries. The top-level `ignore` and `ignoreFiles` are still written: knip applies them to
