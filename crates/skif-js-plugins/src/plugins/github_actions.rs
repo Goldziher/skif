@@ -28,7 +28,11 @@ const ACTION_PATH_VARIABLES: &[&str] = &[
 /// The spellings of the directory a workflow checks the repository out to, where a step starts unless it sets a
 /// `working-directory`: the workspace root. The bare `$GITHUB_WORKSPACE` is replaced apart, since a longer name may
 /// start with it.
-const WORKSPACE_VARIABLES: &[&str] = &["${{ github.workspace }}", "${{github.workspace}}", "${GITHUB_WORKSPACE}"];
+const WORKSPACE_VARIABLES: &[&str] = &[
+    "${{ github.workspace }}",
+    "${{github.workspace}}",
+    "${GITHUB_WORKSPACE}",
+];
 
 /// The bare spelling of [`WORKSPACE_VARIABLES`].
 const WORKSPACE_VARIABLE: &str = "$GITHUB_WORKSPACE";
