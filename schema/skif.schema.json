@@ -567,6 +567,10 @@
             }
           ],
           "description": "Allowed with `preferred-semver`; overrides `[policy] prefer`."
+        },
+        "scope": {
+          "$ref": "#/$defs/GroupScope",
+          "description": "`manifests` (default) judges the declared dependencies; `lockfile` judges what `pnpm-lock.yaml` resolves."
         }
       },
       "description": "One `[[version-groups]]` entry; first match wins. Selectors accept `!` negation and `$LOCAL`."
@@ -615,6 +619,21 @@
         }
       ],
       "description": "The policy of a version group."
+    },
+    "GroupScope": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "manifests",
+          "description": "The dependency instances the manifests declare."
+        },
+        {
+          "type": "string",
+          "const": "lockfile",
+          "description": "Every package `pnpm-lock.yaml` resolves, transitive ones included; only with policy `banned`. The group claims\nno manifest instance, so those fall through to the groups after it."
+        }
+      ],
+      "description": "What a version group judges."
     },
     "SemverGroup": {
       "type": "object",
@@ -874,12 +893,43 @@
           "type": "boolean",
           "description": "`false` disables a built-in family of the same name.",
           "default": true
+        },
+        "scope": {
+          "$ref": "#/$defs/FamilyScope",
+          "description": "`manifests` (default) compares the versions each package declares; `importer` and `lockfile` compare what\n`pnpm-lock.yaml` resolves, per importer or across the lockfile."
+        },
+        "anchor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "With a lockfile scope: a package whose resolved majors each allow one version of every member, so `@types/react`\nmay resolve once per major of `react`."
         }
       },
       "required": [
         "name"
       ],
       "description": "One `[[dependency-families]]` entry: packages that must share a version."
+    },
+    "FamilyScope": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "manifests",
+          "description": "Within each package, as its manifest declares them."
+        },
+        {
+          "type": "string",
+          "const": "importer",
+          "description": "Within what each importer of `pnpm-lock.yaml` resolves, transitive packages included."
+        },
+        {
+          "type": "string",
+          "const": "lockfile",
+          "description": "Across everything `pnpm-lock.yaml` resolves."
+        }
+      ],
+      "description": "Where the members of a dependency family must share a version."
     },
     "Update": {
       "type": "object",

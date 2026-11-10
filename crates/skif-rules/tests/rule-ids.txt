@@ -24,6 +24,7 @@ unused-catalog-entries
 workspace-protocol
 unsynced-dependency-family
 package-json-format
+stale-patched-dependencies
 stray-lockfile
 nested-workspace-root
 toolchain-pin-drift

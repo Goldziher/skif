@@ -11,6 +11,7 @@ mod package_json_format;
 mod root_package_dependencies;
 mod root_package_manager_field;
 mod root_package_private_field;
+mod stale_patched_dependencies;
 mod stray_lockfile;
 pub(crate) mod support;
 mod types_in_dependencies;
@@ -29,6 +30,7 @@ pub use root_package_dependencies::RootPackageDependencies;
 pub use root_package_manager_field::RootPackageManagerField;
 pub use root_package_private_field::RootPackagePrivateField;
 use skif_lint::{Rule, RulesProvider};
+pub use stale_patched_dependencies::{StalePatchedDependencies, StalePatchedDependenciesOptions};
 pub use stray_lockfile::StrayLockfile;
 pub use types_in_dependencies::TypesInDependencies;
 pub use unmatched_workspace_patterns::UnmatchedWorkspacePatterns;
@@ -55,6 +57,7 @@ pub fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(NestedWorkspaceRoot),
         Box::new(LocalPathDependency),
         Box::new(PackageJsonFormat),
+        Box::new(StalePatchedDependencies),
     ]
 }
 

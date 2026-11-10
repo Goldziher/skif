@@ -18,6 +18,7 @@ mod catalogs;
 mod detect;
 mod error;
 mod lerna;
+mod lockfile;
 mod manifest;
 mod package;
 mod parallel;
@@ -30,6 +31,10 @@ mod workspace;
 pub use catalogs::Catalogs;
 pub use detect::package_manager_from_manifest;
 pub use error::WorkspaceError;
+pub use lockfile::{
+    LockedDependency, LockedPatch, OTHER_LOCKFILES, PNPM_LOCKFILE, PnpmLockfile, Resolutions, Snapshot, snapshot_key,
+    split_key,
+};
 pub use manifest::{DependencyEntry, FieldSpans, Manifest};
 pub use package::{Package, PackageId};
 pub use parallel::{join, map_ordered};
@@ -53,6 +58,7 @@ const _: () = {
     let _ = assert_send_sync::<WorkspaceError>;
     let _ = assert_send_sync::<FieldSpans>;
     let _ = assert_send_sync::<YamlSource>;
+    let _ = assert_send_sync::<PnpmLockfile>;
     let _ = assert_send_sync::<DiscoveryFacts>;
     let _ = assert_send_sync::<PatternFact>;
     let _ = assert_send_sync::<WorkspaceSource>;

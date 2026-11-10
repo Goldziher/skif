@@ -18,14 +18,15 @@ pub fn config(toml: &str) -> Config {
     Config::from_toml_str(toml).unwrap()
 }
 
-fn memory_fs(files: Files<'_>) -> MemoryFs {
+/// The files under `/ws`.
+pub fn memory(files: Files<'_>) -> MemoryFs {
     files.iter().fold(MemoryFs::new(), |fs, (path, content)| {
         fs.with_file(Path::new("/ws").join(path), content)
     })
 }
 
 pub fn workspace(files: Files<'_>, config: &Config) -> Workspace {
-    Workspace::discover_with_fs(Path::new("/ws"), config, &memory_fs(files)).unwrap()
+    Workspace::discover_with_fs(Path::new("/ws"), config, &memory(files)).unwrap()
 }
 
 /// Runs every built-in provider, the toolchain rules reading `files` too, and keeps the diagnostics of `rule`.
@@ -33,14 +34,14 @@ pub fn lint(rule: &str, files: Files<'_>, config: &Config) -> Vec<Diagnostic> {
     lint_with(rule, files, config, &RunOptions::default())
 }
 
-/// As [`lint`], with the given run options.
+/// As [`lint`], with the given run options; the rules read the lockfile and patch files from the same in-memory files.
 pub fn lint_with(rule: &str, files: Files<'_>, config: &Config, options: &RunOptions<'_>) -> Vec<Diagnostic> {
-    let fs = memory_fs(files);
+    let fs = memory(files);
     let workspace = Workspace::discover_with_fs(Path::new("/ws"), config, &fs).unwrap();
     let mut providers = crate::providers();
-    providers.push(Box::new(crate::toolchain_provider(Arc::new(fs))));
+    providers.push(Box::new(crate::toolchain_provider(Arc::new(fs.clone()))));
     let registry = Registry::new(providers).unwrap();
-    run_unsorted(&registry, &workspace, config, options)
+    run_unsorted(&registry, &workspace, config, &options.with_fs(&fs))
         .unwrap()
         .into_iter()
         .filter(|diagnostic| diagnostic.rule.as_str() == rule)

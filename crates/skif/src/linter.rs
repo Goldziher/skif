@@ -190,7 +190,8 @@ impl Linter {
         Self::with_fs(config, Arc::new(OsFs))
     }
 
-    /// Builds a linter over the built-in rules whose toolchain rules and JS analysis read files through `fs`.
+    /// Builds a linter over the built-in rules whose toolchain rules, JS analysis and rules over a lockfile and patch
+    /// files read through `fs`.
     ///
     /// Directory listings, existence checks and small configuration files read through `fs` are remembered for the
     /// duration of the runs in flight: a [`run_with`](Self::run_with) that starts while none is running begins with an
@@ -237,6 +238,8 @@ impl Linter {
     }
 
     /// Builds a linter over exactly `providers`; pass [`builtin_providers`] plus your own to extend the built-ins.
+    ///
+    /// Rules that read files beyond the discovered workspace (a lockfile, patch files) read the real file system.
     ///
     /// # Errors
     /// As [`Linter::new`].
@@ -326,6 +329,10 @@ impl Linter {
             run_options = run_options.with_config_path(path);
         }
         run_options = run_options.with_extra_entries(options.extra_entries);
+        // The rules that read a lockfile or patch files read them through the file system this linter was built with.
+        if let Some(cache) = self.cache.as_deref() {
+            run_options = run_options.with_fs(cache);
+        }
         Ok(skif_lint::run(&self.registry, workspace, &config, &run_options)?)
     }
 

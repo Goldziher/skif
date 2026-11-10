@@ -11,7 +11,7 @@ use skif_lint::{Registry, RuleProvider, RunOptions, run};
 use skif_rules::{manifest_provider, policy_provider, providers};
 use skif_workspace::Workspace;
 
-const EXPECTED: [&str; 14] = [
+const EXPECTED: [&str; 15] = [
     "empty-dependencies",
     "root-package-private-field",
     "root-package-manager-field",
@@ -26,6 +26,7 @@ const EXPECTED: [&str; 14] = [
     "nested-workspace-root",
     "local-path-dependency",
     "package-json-format",
+    "stale-patched-dependencies",
 ];
 
 /// The manifest rules only: the snapshot fixtures are not meant to exercise the policy rules.
@@ -108,6 +109,7 @@ fn categories_and_fixability_follow_the_adr() {
         "missing-package-manifest",
         "stray-lockfile",
         "nested-workspace-root",
+        "stale-patched-dependencies",
     ];
     for id in workspace_rules {
         assert_eq!(by_id(id).category, Category::Workspace, "{id}");

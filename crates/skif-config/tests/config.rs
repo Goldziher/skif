@@ -4,8 +4,9 @@ use std::path::{Path, PathBuf};
 
 use skif_config::{
     Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, CustomStrategy, DEFAULT_DISCOVER_IGNORE,
-    FIXTURE_DIRECTORIES, IgnoreEntry, IgnoreExportsUsedInFile, IgnoreItem, Level, PackageManager, PluginConfig, Prefer,
-    RuleConfig, Selector, SemverRange, UpdateTarget, VersionPolicy, discover, discover_with_fs,
+    FIXTURE_DIRECTORIES, FamilyScope, GroupScope, IgnoreEntry, IgnoreExportsUsedInFile, IgnoreItem, Level,
+    PackageManager, PluginConfig, Prefer, RuleConfig, Selector, SemverRange, UpdateTarget, VersionPolicy, discover,
+    discover_with_fs,
 };
 use skif_core::{MemoryFs, Severity};
 
@@ -385,6 +386,49 @@ fn inconsistent_groups_are_rejected() {
         let err = Config::from_toml_str(&format!("[[version-groups]]\n{body}\n")).unwrap_err();
         assert!(matches!(err, ConfigError::Invalid { .. }), "{body}");
         assert!(err.to_string().contains(expected), "{body}: {err}");
+    }
+}
+
+#[test]
+fn lockfile_scopes_are_read_and_checked() {
+    let config = Config::from_toml_str(
+        "[[version-groups]]\ndependencies = [\"bad\"]\npolicy = \"banned\"\nscope = \"lockfile\"\n\n\
+         [[dependency-families]]\nname = \"types\"\npackages = [\"@types/react\"]\nscope = \"importer\"\nanchor = \"react\"\n",
+    )
+    .unwrap();
+    assert_eq!(config.version_groups[0].scope, GroupScope::Lockfile);
+    assert_eq!(config.dependency_families[0].scope, FamilyScope::Importer);
+    assert_eq!(config.dependency_families[0].anchor.as_deref(), Some("react"));
+    // The default scope is not written back, so existing configurations serialize as before.
+    let plain = Config::from_toml_str("[[version-groups]]\npolicy = \"banned\"\n").unwrap();
+    assert_eq!(plain.version_groups[0].scope, GroupScope::Manifests);
+    assert!(!plain.to_toml_string().unwrap().contains("scope"));
+    let cases = [
+        (
+            "[[version-groups]]\nscope = \"lockfile\"\n",
+            "version-groups[0]: `scope = \"lockfile\"` is only valid with policy `banned`",
+        ),
+        (
+            "[[version-groups]]\npolicy = \"banned\"\nscope = \"lockfile\"\ndependency-types = [\"dev\"]\n",
+            "version-groups[0]: `dependency-types` and `specifier-types` select manifest entries",
+        ),
+        (
+            "[[version-groups]]\npolicy = \"banned\"\nscope = \"lockfile\"\nspecifier-types = [\"exact\"]\n",
+            "version-groups[0]: `dependency-types` and `specifier-types` select manifest entries",
+        ),
+        (
+            "[[dependency-families]]\nname = \"x\"\npackages = [\"a\"]\nanchor = \"b\"\n",
+            "dependency-families[0]: `anchor` is only valid with `scope = \"importer\"` or `scope = \"lockfile\"`",
+        ),
+        (
+            "[[dependency-families]]\nname = \"x\"\npackages = [\"a\"]\nscope = \"lockfile\"\nanchor = \"\"\n",
+            "dependency-families[0]: `anchor` must not be empty",
+        ),
+        ("[[version-groups]]\nscope = \"resolved\"\n", "unknown variant"),
+    ];
+    for (source, expected) in cases {
+        let error = Config::from_toml_str(source).unwrap_err();
+        assert!(error.to_string().contains(expected), "{source}: {error}");
     }
 }
 

@@ -5,6 +5,15 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
 {
   "diagnostics": [
     {
+      "rule": "stale-patched-dependencies",
+      "severity": "warning",
+      "message": "skif reads `pnpm-lock.yaml` only; `package-lock.json` is not checked for the `patchedDependencies` entries",
+      "help": "lockfile checks support pnpm (lockfile format 9) only",
+      "location": {
+        "path": "package-lock.json"
+      }
+    },
+    {
       "rule": "root-package-manager-field",
       "severity": "error",
       "message": "the root package does not declare its package manager",
@@ -247,6 +256,25 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
           ]
         }
       ]
+    },
+    {
+      "rule": "stale-patched-dependencies",
+      "severity": "warning",
+      "message": "the patch file `patches/left-pad@1.3.0.patch` of `left-pad@1.3.0` does not exist",
+      "help": "restore the file, or remove the entry if the patch is no longer needed",
+      "location": {
+        "path": "package.json",
+        "span": {
+          "start": 245,
+          "end": 261,
+          "start-line": 13,
+          "start-col": 7,
+          "end-line": 13,
+          "end-col": 23
+        }
+      },
+      "dependency": "left-pad",
+      "specifier": "1.3.0"
     },
     {
       "rule": "member-toolchain-fields",
