@@ -104,6 +104,7 @@ old one.
 | 0094 | [Script Commands Run Where They Change Directory To, and the No-Entries Cause](0094-script-directories-and-the-no-entries-cause.md) | accepted |
 | 0095 | [Untracked Files Under the Default Discovery, Workspace Files Discovery Cannot Read, and Fixes That Converge in One Run](0095-untracked-files-member-manifest-errors-and-converging-fixes.md) | accepted |
 | 0096 | [The knip Comparison: Findings Inside Unused Files, Invalid knip Runs and Configs knip Cannot Load on Both Sides](0096-knip-comparison-findings-in-unused-files-invalid-runs-and-two-sided-config-errors.md) | accepted |
+| 0098 | [Commands in Other Directories and the Binaries of Workspace Members](0098-commands-in-other-directories-and-binaries-of-workspace-members.md) | accepted |
 
 ## Effective statements
 
@@ -270,3 +271,5 @@ the lines below stay as written; this table says which record governs.
 | [0053](0053-incomplete-packages-in-the-json-report.md), lines 40-41 | an `incomplete-packages` entry carries `name`, `dir` and the causes | [0095](0095-untracked-files-member-manifest-errors-and-converging-fixes.md): it also carries `scope`, `"package"` or `{"within": [globs]}` |
 | [0087](0087-toolchain-pins-outside-package-json-and-the-toolchain-pin-drift-rule.md), lines 97-99 | the toolchain rules get a `FileSystem` through `toolchain_provider(fs)` | [0095](0095-untracked-files-member-manifest-errors-and-converging-fixes.md): they read through `LintContext::fs`, and `skif_rules::providers()` includes the toolchain provider |
 | [0068](0068-what-the-knip-comparison-sets-apart.md), "Configs knip cannot load" paragraph | `knip-config-error` is a knip-only finding in a package with a configuration knip could not load | [0096](0096-knip-comparison-findings-in-unused-files-invalid-runs-and-two-sided-config-errors.md): it is a finding only one tool reports there; `in-knip-unused-file`, `in-skif-unused-file` and `knip-invalid` are further deviations |
+| [0094](0094-script-directories-and-the-no-entries-cause.md), lines 46-47 | after `cd` to a directory that is not a static relative path, the commands are judged where the script starts | [0098](0098-commands-in-other-directories-and-binaries-of-workspace-members.md): a binary run by name still is; a package manager run there works on the package of that directory, as with a filter |
+| [0094](0094-script-directories-and-the-no-entries-cause.md), lines 56-57 | the commands of tool configs, workflow steps and source files keep their judgement after `cd` | [0098](0098-commands-in-other-directories-and-binaries-of-workspace-members.md): a binary they run after `cd` into another workspace package is credited to that package |
