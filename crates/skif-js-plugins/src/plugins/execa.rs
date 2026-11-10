@@ -6,7 +6,7 @@
 //! [`command_in_call_dir`]).
 
 use skif_js_syntax::{
-    ConfigValue, ImportedCall, command_in_call_dir, extract_imported_calls, file_call_options, literal_command,
+    ConfigValue, ImportedCall, command_in_call_dir, extract_command_calls, file_call_options, literal_command,
 };
 
 use crate::plugin::{Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
@@ -34,7 +34,7 @@ impl Plugin for Execa {
         let mut out = Vec::new();
         for (source, text) in sources_containing(cx, "execa") {
             let path = cx.dir.join(&source);
-            for call in extract_imported_calls(&text, &path, &["execa"], &[]) {
+            for call in extract_command_calls(&text, &path, &["execa"], &[]) {
                 out.extend(execa_script(&call).map(|script| PluginInput::SourceScript {
                     file: source.clone(),
                     script,

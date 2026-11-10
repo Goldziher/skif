@@ -1050,9 +1050,10 @@ pub struct ImportedCall {
     /// The export called: `"default"` for the default export or the module object itself (`pino(…)`), the export's
     /// name for a named import (`execa(…)`), or the member called on the module object (`pino.transport(…)`).
     pub export: String,
-    /// The statically evaluated arguments, in order; empty for a tagged template. The `cwd` option of an options
-    /// object is left out when it names the directory the call runs in anyway (`process.cwd()`, `'.'`, `undefined`),
-    /// and starts with [`FILE_DIR`] when the file's own location computes it.
+    /// The statically evaluated arguments, in order; empty for a tagged template. For a call that runs a command
+    /// ([`extract_command_calls`]), the `cwd` option of an options object is left out when it names the directory the
+    /// call runs in anyway (`process.cwd()`, `'.'`, `undefined`), and starts with [`FILE_DIR`] when the file's own
+    /// location computes it.
     pub arguments: Vec<ConfigValue>,
     /// For a tagged template (`` $`cmd ${x}` ``), its raw text with every substitution replaced by
     /// [`TEMPLATE_SUBSTITUTION`]; `None` for a call.
@@ -1083,6 +1084,28 @@ pub fn extract_imported_calls(
     modules: &[&str],
     globals: &[(&str, &str)],
 ) -> Vec<ImportedCall> {
+    parse_imported_calls(source, path, modules, globals, false)
+}
+
+/// The calls of [`extract_imported_calls`] for functions that run a command (`execa`, `nano-spawn`), whose `cwd`
+/// option is read as the directory the command runs in (see [`ImportedCall::arguments`]).
+#[must_use]
+pub fn extract_command_calls(
+    source: &str,
+    path: &Path,
+    modules: &[&str],
+    globals: &[(&str, &str)],
+) -> Vec<ImportedCall> {
+    parse_imported_calls(source, path, modules, globals, true)
+}
+
+fn parse_imported_calls(
+    source: &str,
+    path: &Path,
+    modules: &[&str],
+    globals: &[(&str, &str)],
+    commands: bool,
+) -> Vec<ImportedCall> {
     let Ok(source_type) = SourceType::from_path(path) else {
         return Vec::new();
     };
@@ -1097,16 +1120,18 @@ pub fn extract_imported_calls(
         return Vec::new();
     }
     let file = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
-    imported_calls_in(&ret.program, file, modules, globals)
+    imported_calls_in(&ret.program, file, modules, globals, commands)
 }
 
 /// The calls and tagged templates in a parsed `program` whose function is imported from one of `modules`, as
-/// [`extract_imported_calls`] finds them; `file` is the file name `__filename` evaluates to.
+/// [`extract_imported_calls`] finds them, or with `commands` as [`extract_command_calls`] does; `file` is the file name
+/// `__filename` evaluates to.
 pub(crate) fn imported_calls_in(
     program: &Program<'_>,
     file: &str,
     modules: &[&str],
     globals: &[(&str, &str)],
+    commands: bool,
 ) -> Vec<ImportedCall> {
     let imported = imported_functions(program, modules, globals);
     if imported.is_empty() {
@@ -1119,6 +1144,7 @@ pub(crate) fn imported_calls_in(
         bindings: &bindings,
         file,
         imported: &imported,
+        commands,
         found: Vec::new(),
     };
     finder.visit_program(program);
@@ -1305,6 +1331,8 @@ struct CallFinder<'t, 'p, 'a> {
     file: &'t str,
     /// Local name to module and named export (`None` for the default export or the module object).
     imported: &'t ImportedFunctions,
+    /// The calls run commands, so their `cwd` option is marked (see [`mark_cwd`]).
+    commands: bool,
     found: Vec<ImportedCall>,
 }
 
@@ -1342,7 +1370,7 @@ impl<'a> Visit<'a> for CallFinder<'_, '_, 'a> {
                         .map_or(ConfigValue::Unknown, |e| eval.expr(e, 0))
                 })
                 .collect();
-            if arguments.iter().any(|argument| argument.get("cwd").is_some()) {
+            if self.commands && arguments.iter().any(|argument| argument.get("cwd").is_some()) {
                 let probe = Evaluator {
                     dir: PROBE_DIR,
                     ..Evaluator::in_file(self.top, self.bindings, self.file, HashMap::new())

@@ -86,7 +86,8 @@ All notable changes to this project are documented here. The format follows
 - `skif-js-syntax` exports `file_call_options`, `command_in_call_dir`, `place_file_dir` and `FILE_DIR`, and the
   commands `ModuleInfo::commands` holds for a `node:child_process` call with a `cwd` option start with
   `cd $__skif_file_dir__/<path> && ` when the file's own location computes it, else with `cd $__skif__ && `; a `cwd`
-  of `process.cwd()`, `'.'` or `undefined` is left out of `ImportedCall::arguments`. `CACHE_SCHEMA` is `3`.
+  of `process.cwd()`, `'.'` or `undefined` is left out of the `ImportedCall::arguments` of the new
+  `extract_command_calls`, while `extract_imported_calls` keeps every option as written. `CACHE_SCHEMA` is `3`.
 - `BinaryRef` of `skif-js-plugins` and `RunBinary` of `skif-js` gain `dir`, the directory the command runs the binary
   in after `cd`, and `filtered`, set when a package manager runs it there without naming a workspace; both are
   `#[non_exhaustive]`: build them with `BinaryRef::new` and `RunBinary::new`. `BinaryUse` of
