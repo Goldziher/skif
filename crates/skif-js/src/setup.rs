@@ -14,7 +14,7 @@ use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 use crate::ancestors;
 use crate::config_check::relative_tsconfig;
 use crate::deps::member_dirs;
-use crate::globs::{Globs, Names, regex_set};
+use crate::globs::{Globs, IncompleteScopeGlobs, Names, regex_set};
 use crate::graph::ModuleGraph;
 use crate::input::{
     BuildDir, ConfigDependency, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope,
@@ -396,13 +396,6 @@ pub(crate) struct PackageSetup {
     pub custom_elements: Vec<CustomElementLibrary>,
 }
 
-/// The narrowed scope of an incomplete package; see [`PackageSetup::incomplete_scope`].
-pub(crate) struct IncompleteScopeGlobs {
-    /// The globs as the input sources gave them, for `explain-usage`.
-    pub patterns: Vec<String>,
-    pub globs: Globs,
-}
-
 impl PackageSetup {
     /// Whether `rel` (relative to the package directory) may be an entry that a config of the package hides, so it
     /// is treated as an entry; never when the hidden entries may be anywhere.
@@ -411,7 +404,7 @@ impl PackageSetup {
             && self
                 .incomplete_scope
                 .as_ref()
-                .is_some_and(|scope| scope.globs.is_match(rel))
+                .is_some_and(|scope| scope.is_match(rel))
     }
 
     /// Whether no file of the package can be judged unused: its entries are incomplete and may be anywhere, or a
@@ -853,10 +846,9 @@ impl Setup {
                 plugin_entry_files,
                 entries_incomplete: plugin.entries_incomplete,
                 incomplete_scope: match &plugin.incomplete_scope {
-                    IncompleteScope::Within(patterns) if plugin.entries_incomplete => Some(IncompleteScopeGlobs {
-                        globs: Globs::new(patterns),
-                        patterns: patterns.clone(),
-                    }),
+                    IncompleteScope::Within(patterns) if plugin.entries_incomplete => {
+                        Some(IncompleteScopeGlobs::new(patterns.clone()))
+                    }
                     _ => None,
                 },
                 widened_by: None,
