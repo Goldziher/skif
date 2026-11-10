@@ -1,7 +1,7 @@
 //! The pinned corpus: real monorepos fetched at fixed commits.
 
 use std::fs::{self, File, OpenOptions, TryLockError};
-use std::io::Write as _;
+use std::io::{ErrorKind, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -222,7 +222,8 @@ pub fn fetch_repo(repo: &Repo, cache: &Path) -> Result<PathBuf> {
 /// it from the fetch to the end of its pass over the repository, so two runs never install into, write a scratch
 /// root manifest into or time the same checkout at once. The lock is the operating system's file lock on
 /// [`lock_path`], so a run that dies leaves no stale lock; the file holds the process id of the holder for the error
-/// message and is left in place.
+/// message and is left in place. On Windows the lock also keeps other processes from reading the file, so the message
+/// there names no process id.
 #[derive(Debug)]
 pub struct CheckoutLock {
     _file: File,
@@ -239,17 +240,28 @@ pub fn lock_path(dir: &Path) -> PathBuf {
 /// Takes the lock of the checkout `dir`, or fails at once when another process holds it.
 ///
 /// # Errors
-/// Fails when another process holds the lock, naming its process id when the lock file says it, or when the lock
-/// file cannot be opened, locked or written.
+/// Fails when another process holds the lock, naming its process id when the lock file can be read, or when the lock
+/// file cannot be opened, locked or written; a corpus directory that is not writable is named as such, since every
+/// command that locks a checkout also writes into it.
 pub fn lock_checkout(dir: &Path) -> Result<CheckoutLock> {
     let path = lock_path(dir);
-    let mut file = OpenOptions::new()
+    let opened = OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
-        .open(&path)
-        .with_context(|| format!("opening the lock file {}", path.display()))?;
+        .open(&path);
+    let mut file = match opened {
+        Ok(file) => file,
+        Err(error) if matches!(error.kind(), ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem) => {
+            bail!(
+                "cannot create the lock file {} ({error}): the corpus directory is not writable, and skif-bench \
+                 fetches, installs and writes into its checkouts; use a writable corpus directory",
+                path.display()
+            );
+        }
+        Err(error) => return Err(error).with_context(|| format!("opening the lock file {}", path.display())),
+    };
     match file.try_lock() {
         Ok(()) => {}
         Err(TryLockError::WouldBlock) => {
@@ -448,6 +460,27 @@ mod tests {
         assert!(again.is_ok(), "a released lock is free: {again:?}");
         drop(again);
         fs::remove_dir_all(&cache).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_corpus_directory_that_is_not_writable_is_named_as_such() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let cache = std::env::temp_dir().join(format!("skif-bench-lock-read-only-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&cache);
+        fs::create_dir_all(&cache).unwrap();
+        fs::set_permissions(&cache, fs::Permissions::from_mode(0o555)).unwrap();
+        // A superuser writes into a read-only directory anyway, so there is nothing to refuse.
+        let writable = File::create(cache.join("probe")).is_ok();
+        let result = lock_checkout(&cache.join("jest"));
+        fs::set_permissions(&cache, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::remove_dir_all(&cache).unwrap();
+        if writable {
+            return;
+        }
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("the corpus directory is not writable"), "{error}");
+        assert!(error.contains("jest.lock"), "{error}");
     }
 
     #[test]

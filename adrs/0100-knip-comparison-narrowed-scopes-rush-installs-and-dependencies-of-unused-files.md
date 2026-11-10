@@ -79,8 +79,11 @@ confirms that knip loads those configurations.
 before fetching it and hold it until their pass over the repositories ends; `run` holds it until every target is
 measured. The lock is the operating system's file lock (`std::fs::File::try_lock`) on `<name>.lock` beside the
 checkout, the same on Linux, macOS and Windows. A second run fails at once, naming the lock file and the process id the
-file holds. The operating system releases the lock when its process ends, so a run that dies leaves no stale lock and
-no process-id check is needed; the file itself stays.
+file holds; on Windows the lock is mandatory and keeps other processes from reading the file, so the message there
+says only that another process holds it. The operating system releases the lock when its process ends, so a run that
+dies leaves no stale lock and no process-id check is needed; the file itself stays. A lock file that cannot be created
+because the corpus directory is not writable is an error that says so: every command that locks a checkout fetches,
+installs or writes into it, so running without the lock on a read-only cache would only move the failure later.
 
 **`non-member-project`.** Every in-file category: a finding only knip reports in `files`, `exports`, `types`,
 `nsExports`, `nsTypes`, `enumMembers`, `namespaceMembers`, `duplicates` or `unresolved` in a file below a project that
