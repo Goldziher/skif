@@ -5601,7 +5601,7 @@ fn machine_tool_commands_judge_only_binaries_reached_through_a_package_manager()
         ),
         (
             ".mcp.json",
-            r#"{"mcpServers":{"py":{"command":"uvx","args":["some-server"]},"own":{"command":"pnpm","args":["exec","mcptool"]}}}"#,
+            r#"{"mcpServers":{"py":{"command":"uvx","args":["some-server"]},"index":{"command":"code-index"},"own":{"command":"pnpm","args":["exec","mcptool"]}}}"#,
         ),
         (
             "src-tauri/tauri.conf.json",
@@ -5651,7 +5651,7 @@ service("api", { build: "cargo build && pnpm exec railtool" });"#,
         ]
     );
     // A binary run by name is still a credit.
-    for (id, name) in [("mcp", "uvx"), ("tauri", "trunk"), ("travis", "codecov"), ("railway", "cargo"), ("mise", "actionlint")] {
+    for (id, name) in [("mcp", "code-index"), ("tauri", "trunk"), ("travis", "codecov"), ("railway", "cargo"), ("mise", "actionlint")] {
         let referenced = &output(&results, id).referenced_binaries;
         assert!(referenced.iter().any(|binary| binary == name), "{id}: {referenced:?}");
     }
