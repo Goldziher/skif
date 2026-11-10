@@ -49,8 +49,9 @@ pub fn relative_tsconfig(path: &str) -> Option<String> {
     Some(segments.join("/"))
 }
 
-fn globs(key: &str, patterns: &[String]) -> Problem {
+fn globs<S: AsRef<str>>(key: &str, patterns: &[S]) -> Problem {
     for (index, pattern) in patterns.iter().enumerate() {
+        let pattern = pattern.as_ref();
         if let Some(message) = glob_problem(pattern) {
             return invalid(format!("{key}[{index}]: invalid glob `{pattern}`: {message}"));
         }
@@ -59,8 +60,9 @@ fn globs(key: &str, patterns: &[String]) -> Problem {
 }
 
 /// Entries of an ignore list: exact names, globs or regular expressions, optionally ending in `!`.
-fn names(key: &str, entries: &[String]) -> Problem {
+fn names<S: AsRef<str>>(key: &str, entries: &[S]) -> Problem {
     for (index, entry) in entries.iter().enumerate() {
+        let entry = entry.as_ref();
         let body = entry.strip_suffix('!').unwrap_or(entry);
         if let Err(message) = listed::check(body) {
             return invalid(format!("{key}[{index}]: invalid pattern `{entry}`: {message}"));

@@ -72,6 +72,10 @@
 //! A root nested in another cannot see what the outer root imports from it. A host that wants those files counted
 //! lints the enclosing roots first and passes the files their reports list in [`Report::other_project_files`],
 //! made relative to the nested root, to [`RunOptions::with_extra_entries`] of the nested root's run, as `skif -r` does.
+//! The other way round, an outer root cannot see that a nested root imports or runs a dependency only the outer
+//! manifest lists, which Node.js resolves from the outer `node_modules`: the nested root's report lists those in
+//! [`Report::ancestor_dependency_uses`], and `skif -r` drops the outer root's unused-dependency findings for them
+//! (with [`Report::retain`]).
 //!
 //! # Features
 //!
@@ -166,9 +170,9 @@ pub use skif_config::Workspace as WorkspaceConfig;
 pub use skif_config::{
     Assignment, CONFIG_FILE_NAMES, Catalog, CatalogMode, Ceiling, Config, ConfigBuilder, ConfigCache, ConfigError,
     ConfigLoader, ConfigOverrides, ConfigSource, DependencyFamily, DependencyTypes, ExportKinds, IgnoreEntry,
-    IgnoreExportsUsedInFile, InstanceFilter, Js, JsWorkspace, Level, Lint, Op, Origins, Override, OverrideScope,
-    PackageJs, PackageManager, PluginConfig, PluginOptions, Policy, Prefer, ResetKey, ResolvedConfig, RuleConfig,
-    RuleOptions, Selector, SemverGroup, SemverRange, SourceKind, UpdateGroup, UpdateTarget, VersionGroup,
+    IgnoreExportsUsedInFile, IgnoreItem, InstanceFilter, Js, JsWorkspace, Level, Lint, Op, Origins, Override,
+    OverrideScope, PackageJs, PackageManager, PluginConfig, PluginOptions, Policy, Prefer, ResetKey, ResolvedConfig,
+    RuleConfig, RuleOptions, Selector, SemverGroup, SemverRange, SourceKind, UpdateGroup, UpdateTarget, VersionGroup,
     VersionPolicy, WorkspaceProtocol, join_key,
 };
 /// `[[custom-types]]` and the places a version can be declared.
@@ -181,7 +185,7 @@ pub use skif_core::{
 };
 pub use skif_lint::{
     Emitter, EnabledRules, Executor, ExecutorError, LintContext, LintError, ProviderError, RegistryError, Rule,
-    RuleProvider, RulesProvider,
+    RuleProvider, RulesProvider, dependency_name, ignore_matches,
 };
 pub use skif_workspace::{DiscoverOptions, Package, PackageId, RootKind, Workspace, WorkspaceError};
 

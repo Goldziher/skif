@@ -1,4 +1,5 @@
-//! Facts that live in comments: triple-slash references, `JSDoc` imports and the `@jsxImportSource` pragma.
+//! Facts that live in comments: triple-slash references, `JSDoc` imports, the `@jsxImportSource` pragma and the
+//! test environment pragmas (`@jest-environment`, `@vitest-environment`).
 
 use oxc_ast::ast::Program;
 use oxc_span::{GetSpan, Span as OxcSpan};
@@ -8,8 +9,8 @@ use crate::model::{Import, ImportKind, ImportedKind, ImportedName, ModuleInfo};
 
 /// Records the comment-borne facts of `program` in `info`.
 ///
-/// Triple-slash directives and `@jsxImportSource` only count in the comments before the first statement; `JSDoc`
-/// imports count anywhere.
+/// Triple-slash directives, `@jsxImportSource` and the test environment pragmas only count in the comments before the
+/// first statement; `JSDoc` imports count anywhere.
 pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInfo) {
     let first_token = program
         .directives
@@ -35,6 +36,16 @@ pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInf
             if let Some(import) = triple_slash_reference(ctx, text, comment.span) {
                 info.imports.push(import);
             }
+            for (specifier, start, len) in environment_pragmas(text) {
+                let start = comment.span.start + start;
+                info.imports.push(Import {
+                    specifier,
+                    kind: ImportKind::SideEffect,
+                    names: Vec::new(),
+                    span: ctx.span(OxcSpan::new(start, start + len)),
+                    call: None,
+                });
+            }
         }
         if text.starts_with("/**") {
             let flat = flatten(text);
@@ -47,6 +58,7 @@ pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInf
                     specifier,
                     kind: ImportKind::TypeOnly,
                     names,
+                    call: None,
                     span: ctx.span(comment.span),
                 });
             }
@@ -68,6 +80,46 @@ fn jsx_import_source(comment: &str) -> Option<(String, u32)> {
     (!value.is_empty()).then_some((value, offset))
 }
 
+/// The environments that `@jest-environment <name>` and `@vitest-environment <name>` pragmas select, as the module the
+/// test runner loads for them, each with the offset and length of the pragma within `comment`. `node` needs no
+/// module; a path stays a path. Jest's `jsdom` is `jest-environment-jsdom` and Vitest's `edge-runtime` is
+/// `@edge-runtime/vm`; any other name is the package it names, as knip reads it.
+fn environment_pragmas(comment: &str) -> Vec<(String, u32, u32)> {
+    let mut out = Vec::new();
+    for (tool, pragma) in [("jest", "@jest-environment"), ("vitest", "@vitest-environment")] {
+        let mut from = 0;
+        while let Some(found) = comment[from..].find(pragma) {
+            let at = from + found;
+            from = at + pragma.len();
+            let rest = &comment[from..];
+            let value = rest.trim_start_matches([' ', '\t']);
+            if value.len() == rest.len() {
+                continue;
+            }
+            let name: String = value
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '@' | '.' | '/' | '-'))
+                .collect();
+            if name.is_empty() || name == "node" {
+                continue;
+            }
+            let end = from + (rest.len() - value.len()) + name.len();
+            let specifier = if tool == "jest" && name == "jsdom" {
+                "jest-environment-jsdom".to_owned()
+            } else if tool == "vitest" && name == "edge-runtime" {
+                "@edge-runtime/vm".to_owned()
+            } else {
+                name
+            };
+            if let (Ok(start), Ok(len)) = (u32::try_from(at), u32::try_from(end - at)) {
+                out.push((specifier, start, len));
+            }
+        }
+    }
+    out.sort_by_key(|(_, start, _)| *start);
+    out
+}
+
 fn attribute(tag: &str, key: &str) -> Option<String> {
     let rest = tag[tag.find(&format!("{key}="))? + key.len() + 1..].trim_start();
     let quote = rest.chars().next().filter(|c| matches!(c, '"' | '\''))?;
@@ -86,6 +138,7 @@ fn triple_slash_reference(ctx: &Ctx<'_>, text: &str, span: OxcSpan) -> Option<Im
             specifier: types,
             kind: ImportKind::TypeOnly,
             names: vec![type_name(ImportedKind::Namespace, None, true)],
+            call: None,
             span,
         });
     }
@@ -99,6 +152,7 @@ fn triple_slash_reference(ctx: &Ctx<'_>, text: &str, span: OxcSpan) -> Option<Im
         specifier,
         kind: ImportKind::SideEffect,
         names: Vec::new(),
+        call: None,
         span,
     })
 }

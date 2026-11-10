@@ -32,7 +32,10 @@ impl Plugin for Zx {
             let globals: &[(&str, &str)] = if has_globals(&text) { &[("$", "zx")] } else { &[] };
             for call in extract_imported_calls(&text, &path, &["zx"], globals) {
                 if call.export == "$" {
-                    out.extend(call.template.map(PluginInput::Script));
+                    out.extend(call.template.map(|script| PluginInput::SourceScript {
+                        file: source.clone(),
+                        script,
+                    }));
                 }
             }
         }

@@ -23,6 +23,7 @@ static SPEC: PluginSpec = PluginSpec {
         ".config/lefthook-local.{yml,yaml,json,jsonc,toml}",
     ],
     binaries: &["lefthook"],
+    optional_binaries: true,
     ..PluginSpec::DEFAULT
 };
 

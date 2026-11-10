@@ -345,3 +345,63 @@ blake3 = "2926ac0821d6aaec6a5d092fcb93ae0544d62b343c130fdd264b0ce2126aaf40"
 number = 69
 status = "accepted"
 blake3 = "ed83230883a6ef48d711054621d12056541fd0dcaf19b53680ab8ba4b0953bdd"
+
+[adrs."adrs/0070-windows-npm-packages.md"]
+number = 70
+status = "accepted"
+blake3 = "dbb1278e439fe950386b766042e2c7d0ece4563a635a7764be1880e983bba778"
+
+[adrs."adrs/0071-skif-baseline-a-suppression-baseline-that-can-only-shrink.md"]
+number = 71
+status = "accepted"
+blake3 = "33557f4edc8cb573b09ff0710a1f0b37bba6149504bafd2403ee42fe0382a65c"
+
+[adrs."adrs/0072-a-policy-scope-without-local-leaves-the-own-versions-out.md"]
+number = 72
+status = "accepted"
+blake3 = "be3c661d0f5b7752708bb3fc149df73bf3411ad4ba24389431e4a005f2673685"
+
+[adrs."adrs/0073-stale-mocks-test-runner-mocks-of-missing-modules-under-their-own-rule.md"]
+number = 73
+status = "accepted"
+blake3 = "558b715ede45fe2cc182b73013f46be4647c5fec4cf926d5783be1fc42753019"
+
+[adrs."adrs/0074-reasons-on-js-ignore-entries.md"]
+number = 74
+status = "accepted"
+blake3 = "e5221c6df9a4f9d014d42e9d5ca5b613e76323b7137acd3e40b232b03f8a7e1a"
+
+[adrs."adrs/0075-imports-only-another-packages-tsconfig-paths-map.md"]
+number = 75
+status = "accepted"
+blake3 = "daa35a8e48c913e9edcfda5c2872efda2da9266207162c0d935ac07b6e8a2cb2"
+
+[adrs."adrs/0076-binaries-run-outside-scripts-and-unlisted-corrections.md"]
+number = 76
+status = "accepted"
+blake3 = "fb1be06eeb0327b08046522ea964275d5b24ea3e4a0cdbe5baa9b273bee49913"
+
+[adrs."adrs/0077-dependencies-nested-roots-use-count-for-the-enclosing-manifest.md"]
+number = 77
+status = "accepted"
+blake3 = "7774fd0976ceed66731ac85519fa78e63ab64bf2dbd01209a76c17cd6bb9222e"
+
+[adrs."adrs/0078-plugin-gaps-config-functions-file-tasks-and-templates.md"]
+number = 78
+status = "accepted"
+blake3 = "6471642cfc88d7ac22591def79698a697902e801a81a8e380673297c9254a90c"
+
+[adrs."adrs/0079-namespace-reads-through-spies-and-imports-awaited-together.md"]
+number = 79
+status = "accepted"
+blake3 = "22ae44d47fcc639dcfbec4b034a96ceb19c5ec5a7e2b9a46c6a8fa1495e85c96"
+
+[adrs."adrs/0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md"]
+number = 80
+status = "accepted"
+blake3 = "146de07beffbb5df2477c3a90b9089e0d9359608487f601e147db5728d4e9a4b"
+
+[adrs."adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md"]
+number = 81
+status = "accepted"
+blake3 = "5692c3e8b2fd450f0976d1949b6c90177acdb7b7296acf13911f4353eb8de12d"

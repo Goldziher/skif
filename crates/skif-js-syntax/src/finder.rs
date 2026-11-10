@@ -4,17 +4,20 @@
 use std::collections::{HashMap, HashSet};
 
 use oxc_ast::ast::{
-    Argument, ArrayExpressionElement, AssignmentExpression, AssignmentOperator, AssignmentTarget, BindingPattern,
-    CallExpression, ComputedMemberExpression, Decorator, Expression, FormalParameters, IdentifierReference,
-    ImportExpression, JSXElement, JSXFragment, ObjectPropertyKind, Program, Statement, StaticMemberExpression,
-    TSAsExpression, TSExternalModuleDeclaration, TSImportEqualsDeclaration, TSImportType, TSImportTypeQualifier,
-    TSIndexedAccessType, TSLiteral, TSModuleReference, TSType, TSTypeQueryExprName, VariableDeclarator,
+    Argument, ArrayExpressionElement, ArrayPattern, AssignmentExpression, AssignmentOperator, AssignmentTarget,
+    BindingPattern, CallExpression, ComputedMemberExpression, Decorator, Expression, FormalParameters,
+    IdentifierReference, ImportExpression, JSXElement, JSXFragment, ObjectPropertyKind, Program, Statement,
+    StaticMemberExpression, TSAsExpression, TSExternalModuleDeclaration, TSImportEqualsDeclaration, TSImportType,
+    TSImportTypeQualifier, TSIndexedAccessType, TSLiteral, TSModuleReference, TSType, TSTypeQueryExprName,
+    VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
 
 use crate::collect::{Ctx, collect_import, imported_kind};
-use crate::model::{Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, ModuleInfo, is_source_query};
+use crate::model::{
+    Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, MockCall, ModuleInfo, is_source_query,
+};
 
 pub(crate) struct Finder<'c, 's> {
     ctx: &'c Ctx<'s>,
@@ -29,6 +32,8 @@ pub(crate) struct Finder<'c, 's> {
     module_file: bool,
     /// Local names of the `Component` decorator imported from `@angular/core` or `@stencil/core`.
     component_decorators: HashSet<String>,
+    /// Start offsets of the `import("x")` expressions a mock names (`vi.mock(import("x"))`), which are not imports.
+    mocked_imports: HashSet<u32>,
 }
 
 impl Finder<'_, '_> {
@@ -75,6 +80,7 @@ impl<'c, 's> Finder<'c, 's> {
             indexed_types: HashMap::new(),
             module_file: is_module_file(program),
             component_decorators: component_decorator_names(info),
+            mocked_imports: HashSet::new(),
             ctx,
             info,
         }
@@ -157,35 +163,21 @@ fn template_glob(expr: &Expression<'_>) -> Option<String> {
     relative.then(|| parts.join("*"))
 }
 
-/// Test-runner calls whose first argument names a module: `vi.mock("x")`, `jest.requireActual("x")`.
-const MOCK_CALLS: &[(&str, &[&str])] = &[
-    (
-        "vi",
-        &["mock", "doMock", "unmock", "doUnmock", "importActual", "importMock"],
-    ),
-    (
-        "jest",
-        &[
-            "mock",
-            "doMock",
-            "unmock",
-            "dontMock",
-            "requireActual",
-            "requireMock",
-            "createMockFromModule",
-            "genMockFromModule",
-        ],
-    ),
-];
-
-fn is_mock_call(member: &StaticMemberExpression<'_>) -> bool {
+/// The test-runner call (`vi.mock`, `jest.requireActual`) that `member` is, if any.
+fn mock_call(member: &StaticMemberExpression<'_>) -> Option<MockCall> {
     let Expression::Identifier(object) = &member.object else {
-        return false;
+        return None;
     };
-    let property = member.property.name.as_str();
-    MOCK_CALLS
-        .iter()
-        .any(|(runner, methods)| object.name.as_str() == *runner && methods.contains(&property))
+    MockCall::find(object.name.as_str(), member.property.name.as_str())
+}
+
+/// The module a mock names: a string, or Vitest's typed `vi.mock(import("x"))`, whose `import()` is then claimed by
+/// the mock rather than recorded as a dynamic import.
+fn mock_specifier(first: &Expression<'_>) -> Option<(String, Option<u32>)> {
+    match first.get_inner_expression() {
+        Expression::ImportExpression(import) => static_string(&import.source).map(|s| (s, Some(import.span.start))),
+        other => static_string(other).map(|s| (s, None)),
+    }
 }
 
 /// `jest.mock("x", factory, { virtual: true })` mocks a module that does not exist.
@@ -272,6 +264,42 @@ fn bindings_for_pattern(pattern: &BindingPattern<'_>) -> Vec<ImportedName> {
     }
 }
 
+/// The bindings `const [a, { b }] = await Promise.all([import("x"), import("y")])` takes from each `import()`, keyed
+/// by the start of the import: the element of the array pattern at the import's position, read like the pattern of
+/// `const a = await import("x")`. An import after a spread element, or without an element of the pattern at its
+/// position (a hole, a shorter pattern, a rest element), gets no entry and stays used as a whole.
+fn promise_all_bindings(init: &Expression<'_>, pattern: &ArrayPattern<'_>) -> Vec<(u32, Vec<ImportedName>)> {
+    let inner = match init.get_inner_expression() {
+        Expression::AwaitExpression(a) => a.argument.get_inner_expression(),
+        other => other,
+    };
+    let Expression::CallExpression(call) = inner else {
+        return Vec::new();
+    };
+    let Expression::StaticMemberExpression(callee) = call.callee.get_inner_expression() else {
+        return Vec::new();
+    };
+    if !is_ident(&callee.object, "Promise") || callee.property.name.as_str() != "all" {
+        return Vec::new();
+    }
+    let Some(Argument::ArrayExpression(array)) = call.arguments.first() else {
+        return Vec::new();
+    };
+    array
+        .elements
+        .iter()
+        .take_while(|element| !matches!(element, ArrayExpressionElement::SpreadElement(_)))
+        .zip(&pattern.elements)
+        .filter_map(|(element, binding)| {
+            let binding = binding.as_ref()?;
+            let Expression::ImportExpression(import) = element.as_expression()?.get_inner_expression() else {
+                return None;
+            };
+            Some((import.span.start, bindings_for_pattern(binding)))
+        })
+        .collect()
+}
+
 /// The export a qualified import type names and the member it reads of that export: `A` and `None` for
 /// `import("x").A`, `A` and `Some("B")` for `import("x").A.B` (and `.A.B.C`).
 fn qualifier_parts<'q>(qualifier: &'q TSImportTypeQualifier<'_>) -> (&'q str, Option<&'q str>) {
@@ -331,6 +359,7 @@ impl Finder<'_, '_> {
                     specifier,
                     kind: ImportKind::SideEffect,
                     names: Vec::new(),
+                    call: None,
                     span: self.ctx.span(value.span()),
                 });
             }
@@ -360,10 +389,12 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
     }
 
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
-        if let Some(init) = &it.init
-            && let Some(start) = module_call_start(init)
-        {
-            self.pending.insert(start, bindings_for_pattern(&it.id));
+        if let Some(init) = &it.init {
+            if let Some(start) = module_call_start(init) {
+                self.pending.insert(start, bindings_for_pattern(&it.id));
+            } else if let BindingPattern::ArrayPattern(pattern) = &it.id {
+                self.pending.extend(promise_all_bindings(init, pattern));
+            }
         }
         walk::walk_variable_declarator(self, it);
     }
@@ -384,6 +415,10 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
     }
 
     fn visit_import_expression(&mut self, it: &ImportExpression<'a>) {
+        if self.mocked_imports.remove(&it.span.start) {
+            walk::walk_import_expression(self, it);
+            return;
+        }
         let names = self.pending.remove(&it.span.start);
         let span = self.ctx.span(it.span);
         if let Some(specifier) = static_string(&it.source) {
@@ -391,6 +426,7 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
                 specifier,
                 kind: ImportKind::Dynamic,
                 names: names.unwrap_or_else(escaping_namespace),
+                call: None,
                 span,
             });
         } else {
@@ -433,6 +469,7 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
                     ImportKind::Require
                 },
                 names: vec![bound],
+                call: None,
                 span: self.ctx.span(it.span),
             });
         }
@@ -498,6 +535,7 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
             specifier: crate::js_string(it.source.value),
             kind: ImportKind::TypeOnly,
             names: vec![bound],
+            call: None,
             span: self.ctx.span(it.span),
         });
         walk::walk_ts_import_type(self, it);
@@ -631,6 +669,7 @@ impl Finder<'_, '_> {
                         specifier,
                         kind: ImportKind::Require,
                         names,
+                        call: None,
                         span,
                     });
                 }
@@ -646,6 +685,7 @@ impl Finder<'_, '_> {
                             specifier,
                             kind: ImportKind::Require,
                             names: Vec::new(),
+                            call: None,
                             span,
                         }),
                         None => self.info.unresolved_dynamic.push(span),
@@ -653,14 +693,19 @@ impl Finder<'_, '_> {
                 } else if is_import_meta(&m.object) && (property == "glob" || property == "globEager") {
                     let options = it.arguments.get(1).and_then(Argument::as_expression);
                     self.glob(first, options, span);
-                } else if is_mock_call(m)
+                } else if let Some(call) = mock_call(m)
                     && !is_virtual_mock(it)
-                    && let Some(specifier) = first.and_then(static_string).filter(|s| !s.is_empty())
+                    && let Some((specifier, import)) = first.and_then(mock_specifier)
+                    && !specifier.is_empty()
                 {
+                    if let Some(start) = import {
+                        self.mocked_imports.insert(start);
+                    }
                     self.info.imports.push(Import {
                         specifier,
                         kind: ImportKind::Mock,
                         names: Vec::new(),
+                        call: Some(call),
                         span,
                     });
                 }
@@ -677,6 +722,7 @@ impl Finder<'_, '_> {
                 specifier,
                 kind: ImportKind::ImportMetaGlob,
                 names: escaping_namespace(),
+                call: None,
                 span,
             });
         } else {
@@ -706,6 +752,7 @@ impl Finder<'_, '_> {
                         specifier,
                         kind,
                         names: escaping_namespace(),
+                        call: None,
                         span,
                     });
                 }

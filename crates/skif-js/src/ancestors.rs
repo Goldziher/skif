@@ -13,7 +13,7 @@ const SECTIONS: [&str; 4] = [
 ];
 
 /// Whether `dir` is where the repository starts: it holds the `.git` entry.
-fn is_repository_root(fs: &dyn FileSystem, dir: &Path) -> bool {
+pub(crate) fn is_repository_root(fs: &dyn FileSystem, dir: &Path) -> bool {
     let kind = fs.kind(&dir.join(".git"));
     kind.is_dir || kind.is_file
 }

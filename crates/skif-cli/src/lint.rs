@@ -160,12 +160,23 @@ pub fn overrides(args: &LintArgs) -> ConfigOverrides {
         .with_no_config(args.no_config)
 }
 
-/// Fails on the first `[[ignore]]` entry without a `reason`.
-fn require_reasons(config: &Config) -> Result<(), CliError> {
-    match config.ignore.iter().position(|entry| entry.reason.is_none()) {
-        Some(index) => Err(CliError::new(
+/// Fails on the first suppression without a `reason` (an `[[ignore]]` entry or an entry of a `[js]` ignore list) when
+/// `--require-ignore-reasons` or `[lint] require-ignore-reasons` asks for reasons; the flag is named when both do.
+fn require_reasons(args: &LintArgs, config: &Config) -> Result<(), CliError> {
+    let required_by = if args.require_ignore_reasons {
+        "--require-ignore-reasons"
+    } else if config.lint.require_ignore_reasons {
+        "[lint] require-ignore-reasons"
+    } else {
+        return Ok(());
+    };
+    match config.missing_ignore_reason() {
+        Some(entry) => Err(CliError::new(
             Kind::Config,
-            format!("ignore[{index}]: no `reason`, which --require-ignore-reasons requires"),
+            format!(
+                "{entry}: no `reason`, which {required_by} requires (the position is in the list merged from every \
+                 config file and its `extend-*` keys)"
+            ),
         )),
         None => Ok(()),
     }
@@ -174,9 +185,7 @@ fn require_reasons(config: &Config) -> Result<(), CliError> {
 /// The flags that are not plain configuration overrides, applied over a loaded configuration.
 pub(crate) fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliError> {
     // Before the flags add entries of their own, which have nowhere to carry a reason.
-    if args.require_ignore_reasons {
-        require_reasons(config)?;
-    }
+    require_reasons(args, config)?;
     for (rule, package) in &args.ignore_rule_for_package {
         config.ignore.push(
             IgnoreEntry::default()
@@ -272,12 +281,12 @@ fn warn_empty_tsconfig_projects(targets: &[Target], fs: &dyn FileSystem) {
 }
 
 /// Lints the root of `previous` again from disk. What root discovery decided about it (a standalone package nested
-/// below another root, members another root lints) is carried over, so the re-lint judges the root as the first
-/// lint did.
+/// below another root, members another root lints) and what the other roots of the run told it (the files they
+/// import, the dependencies they use) is carried over, so the re-lint judges the root as the first lint did.
 fn lint_once(
     linter: &Linter,
     previous: &Workspace,
-    (config, config_path, extra_entries): (&Config, Option<&Path>, &[PathBuf]),
+    (config, config_path, extra_entries, nested_uses): RootInputs<'_>,
     fs: &dyn FileSystem,
     filter: &Filter,
 ) -> Result<(Workspace, Report), CliError> {
@@ -291,6 +300,7 @@ fn lint_once(
         .collect();
     workspace.ignore_dirs(&ignored);
     let report = roots::lint_loaded(linter, &workspace, config_path, extra_entries)?;
+    let report = roots::credit_nested_uses(report, nested_uses);
     let report = filter.apply(&workspace, report);
     Ok((workspace, report))
 }
@@ -357,10 +367,14 @@ fn run_exit_code(args: &LintArgs, runs: &[RootRun], aggregate: &Report) -> u8 {
 /// error that stopped it (the files are already changed by then, so the summary is still owed to the user).
 type Relint = Result<(Workspace, Report), CliError>;
 
+/// What linting one root again needs: its configuration, the configuration file, the files enclosing roots import
+/// and the dependencies nested roots use.
+type RootInputs<'a> = (&'a Config, Option<&'a Path>, &'a [PathBuf], &'a roots::NestedUses);
+
 fn write_and_relint(
     (args, filter): (&LintArgs, &Filter),
     linter: &Linter,
-    (config, config_path, extra_entries): (&Config, Option<&Path>, &[PathBuf]),
+    inputs: RootInputs<'_>,
     state: (Workspace, Report),
     plan: FixPlan,
     fs: &CachedFs<OsFs>,
@@ -380,23 +394,21 @@ fn write_and_relint(
     }
     // The written files are stale in the cache; the re-lint must read them from disk.
     fs.clear();
-    Ok(
-        match lint_once(linter, &workspace, (config, config_path, extra_entries), fs, filter) {
-            Ok((workspace, report)) => {
-                let changed: Vec<&Path> = plan.paths().collect();
-                let install = install_step(args, &changed, &workspace);
-                (
-                    FixRun {
-                        plan,
-                        install,
-                        preview: None,
-                    },
-                    Ok((workspace, report)),
-                )
-            }
-            Err(error) => (FixRun::relint_failed(plan), Err(error)),
-        },
-    )
+    Ok(match lint_once(linter, &workspace, inputs, fs, filter) {
+        Ok((workspace, report)) => {
+            let changed: Vec<&Path> = plan.paths().collect();
+            let install = install_step(args, &changed, &workspace);
+            (
+                FixRun {
+                    plan,
+                    install,
+                    preview: None,
+                },
+                Ok((workspace, report)),
+            )
+        }
+        Err(error) => (FixRun::relint_failed(plan), Err(error)),
+    })
 }
 
 /// What fixing every root left behind: the re-linted roots with their fix runs, or the exit code of a run that
@@ -434,11 +446,12 @@ fn fix_roots(
             workspace,
             report,
             extra_entries,
+            nested_uses,
         } = run;
         let written = write_and_relint(
             (args, filter),
             linters.get(linter),
-            (&config, config_path.as_deref(), &extra_entries),
+            (&config, config_path.as_deref(), &extra_entries, &nested_uses),
             (workspace, report),
             plan,
             fs,
@@ -466,6 +479,7 @@ fn fix_roots(
                 workspace,
                 report,
                 extra_entries,
+                nested_uses,
             }),
             Err(error) => {
                 let prefixes: Vec<&Path> = done

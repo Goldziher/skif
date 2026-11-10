@@ -137,3 +137,14 @@ fn stylus_and_tsrx_imports_are_followed() {
     );
     assert_eq!(found(&diagnostics, "unresolved-imports"), Vec::<String>::new());
 }
+
+#[test]
+fn rstest_project_excludes_hold_against_the_default_test_globs() {
+    let diagnostics = lint_fixture("rstest-projects");
+    // `packages/a/rstest.config.ts` excludes `legacy/**`: the root config's default test globs do not bring its test
+    // back, the exclusion stays below `packages/a`, and a test deeper than a listing would reach is still an entry.
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["packages/a/legacy/old.test.ts: packages/a/legacy/old.test.ts"]
+    );
+}

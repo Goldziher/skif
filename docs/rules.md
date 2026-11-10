@@ -13,6 +13,7 @@
 | [`circular-imports`](#circular-imports) | js | off | none |
 | [`duplicate-exports`](#duplicate-exports) | js | warning | none |
 | [`stale-js-config`](#stale-js-config) | js | warning | none |
+| [`stale-mocks`](#stale-mocks) | js | error | none |
 | [`unlisted-binaries`](#unlisted-binaries) | js | warning | none |
 | [`unlisted-dependencies`](#unlisted-dependencies) | js | error | none |
 | [`unparseable-files`](#unparseable-files) | js | warning | none |
@@ -119,9 +120,17 @@ A `[js]` setting matched nothing or is redundant, a published entry file is miss
 - Default severity: warning
 - Fixable: none
 
+## stale-mocks
+
+A test-runner mock names a relative or aliased module that does not exist.
+
+- Category: js
+- Default severity: error
+- Fixable: none
+
 ## unlisted-binaries
 
-A script runs a binary that no listed dependency provides.
+A script, or a command in a workflow, tool config or source file, runs a binary that no listed dependency provides.
 
 - Category: js
 - Default severity: warning
@@ -129,7 +138,7 @@ A script runs a binary that no listed dependency provides.
 
 ## unlisted-dependencies
 
-A file imports a package that neither its `package.json` nor any `package.json` above it lists.
+A file imports a package that neither its `package.json` nor any `package.json` above it lists. An import that only the tsconfig `paths` of another package map has the detail `ForeignTsconfigPaths`: it needs a mapping, not a dependency.
 
 - Category: js
 - Default severity: error

@@ -3,8 +3,8 @@
 #
 # Usage: scripts/check-npm-tarballs.sh <directory-of-tarballs> <version>
 #
-# The directory must hold exactly the umbrella `skif-cli` and the six platform packages, no more and no fewer. The
-# umbrella must ship the generated loader (index.js, index.d.ts) and the bin, and list the six platform packages
+# The directory must hold exactly the umbrella `skif-cli` and the eight platform packages, no more and no fewer. The
+# umbrella must ship the generated loader (index.js, index.d.ts) and the bin, and list the eight platform packages
 # as optional dependencies; each platform package must ship its .node addon. This is what turns a missing
 # artifact (the loader is generated, not committed) into a failed job instead of a broken release. Every package
 # also carries LICENSE and ATTRIBUTIONS.md, the notices the MIT and ISC code inside the addon requires.
@@ -20,6 +20,8 @@ platforms=(
   linux-arm64-musl
   linux-x64-gnu
   linux-x64-musl
+  win32-arm64-msvc
+  win32-x64-msvc
 )
 
 failures=0
@@ -37,7 +39,7 @@ expected_files="$(
 # `find -printf` is GNU only; strip the leading "./" instead so the check also runs on macOS.
 actual_files="$(cd "$dir" && find . -maxdepth 1 -type f -name '*.tgz' 2>/dev/null | sed 's|^\./||' | LC_ALL=C sort || true)"
 if [[ "$expected_files" != "$actual_files" ]]; then
-  fail "the packed tarballs are not the umbrella plus the six platform packages"
+  fail "the packed tarballs are not the umbrella plus the eight platform packages"
   diff <(echo "$expected_files") <(echo "$actual_files") >&2 || true
 fi
 
@@ -61,7 +63,7 @@ if [[ -f "${dir}/skif-cli-${version}.tgz" ]]; then
     jq -r '(.optionalDependencies // {}) | to_entries[] | "\(.key)@\(.value)"' | LC_ALL=C sort)"
   wanted="$(for platform in "${platforms[@]}"; do echo "skif-${platform}@${version}"; done | LC_ALL=C sort)"
   if [[ "$declared" != "$wanted" ]]; then
-    fail "the umbrella's optionalDependencies are not the six platform packages at ${version}"
+    fail "the umbrella's optionalDependencies are not the eight platform packages at ${version}"
     diff <(echo "$wanted") <(echo "$declared") >&2 || true
   fi
 fi
@@ -79,4 +81,4 @@ if [[ "$failures" -ne 0 ]]; then
   echo "${failures} problem(s) in the npm tarballs" >&2
   exit 1
 fi
-echo "npm tarballs: the umbrella and the six platform packages are complete"
+echo "npm tarballs: the umbrella and the eight platform packages are complete"

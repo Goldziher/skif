@@ -1,6 +1,7 @@
 //! Cases where the corpus runs showed skif and knip disagreeing and skif was wrong: members read in their own file,
-//! types in destructured exports, `new URL` targets, `require` assertions, fixture directories,
-//! wildcard `exports`, same-name pairs and duplicate exports.
+//! types in destructured exports, `new URL` targets, `require` assertions, imports awaited together with
+//! `Promise.all`, spies on a namespace member, fixture directories, wildcard `exports`, same-name pairs and duplicate
+//! exports.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -105,6 +106,28 @@ fn the_types_in_a_destructured_export_belong_to_it() {
 }
 
 #[test]
+fn a_re_export_of_a_binding_in_the_signature_of_a_used_export_is_used() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        ("index.ts", "import { Service } from './service';\nnew Service();\n"),
+        (
+            "options.ts",
+            "export interface Options { a: string }\nexport interface Other { b: string }\n",
+        ),
+        (
+            "service.ts",
+            "import type { Options } from './options';\nexport type { Options, Other } from './options';\n\
+             export class Service { run(options: Options): void {} }\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-types"),
+        ["options.ts: Other", "service.ts: Other"],
+        "`Options` names the parameter type of the used `Service`"
+    );
+}
+
+#[test]
 fn a_new_url_target_is_used_as_a_whole() {
     let diagnostics = lint_files(&[
         PACKAGE,
@@ -136,6 +159,47 @@ fn a_require_asserted_with_typeof_import_uses_only_what_it_destructures() {
 }
 
 #[test]
+fn imports_awaited_together_use_only_what_their_bindings_read() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        (
+            "index.ts",
+            "export async function load() {\n\
+               const [{ used }, helpers] = await Promise.all([import('./named'), import('./spaced')]);\n\
+               return [used(), helpers.read()];\n\
+             }\n",
+        ),
+        (
+            "named.ts",
+            "export function used() {}\nexport function unusedNamed() {}\n",
+        ),
+        (
+            "spaced.ts",
+            "export function read() {}\nexport function unusedSpaced() {}\n",
+        ),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-exports"), ["named.ts: unusedNamed"]);
+    assert_eq!(
+        found(&diagnostics, "unused-namespace-exports"),
+        ["spaced.ts: unusedSpaced"]
+    );
+}
+
+#[test]
+fn a_spy_on_a_namespace_uses_only_the_member_it_spies_on() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        (
+            "index.ts",
+            "import * as utils from './utils';\nexport const stub = (vi: any) => vi.spyOn(utils, 'spied');\n",
+        ),
+        ("utils.ts", "export function spied() {}\nexport function unspied() {}\n"),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-namespace-exports"), ["utils.ts: unspied"]);
+    assert_eq!(found(&diagnostics, "unused-exports"), none());
+}
+
+#[test]
 fn a_value_and_a_type_with_one_name_are_reported_once() {
     let diagnostics = lint_files(&[
         PACKAGE,
@@ -161,6 +225,23 @@ fn duplicate_exports_follow_initialisers_and_ignore_export_clauses() {
         found(&diagnostics, "duplicate-exports"),
         ["lib.ts: f", "lib.ts: h"],
         "`f` and `g` share a binding through the initialiser, `h` is also the default; `A as B` is a deliberate alias"
+    );
+}
+
+#[test]
+fn an_export_initialised_with_an_alias_export_duplicates_it() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        ("index.ts", "import * as lib from './lib';\nconsole.log(lib);\n"),
+        (
+            "lib.ts",
+            "const base = () => 1;\nexport const first = base;\nexport const second = first;\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "duplicate-exports"),
+        ["lib.ts: first"],
+        "`second` is `first`, itself initialised with the unexported `base`"
     );
 }
 

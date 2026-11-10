@@ -4,6 +4,7 @@ mod circular_imports;
 mod duplicate_exports;
 mod members;
 mod stale_js_config;
+mod stale_mocks;
 mod support;
 mod unlisted_binaries;
 mod unlisted_dependencies;
@@ -26,6 +27,7 @@ use skif_lint::Emitter;
 pub use circular_imports::CircularImports;
 pub use duplicate_exports::DuplicateExports;
 pub use stale_js_config::StaleJsConfig;
+pub use stale_mocks::StaleMocks;
 pub use unlisted_binaries::UnlistedBinaries;
 pub use unlisted_dependencies::UnlistedDependencies;
 pub use unparseable_files::UnparseableFiles;
@@ -66,6 +68,7 @@ pub fn rules() -> Vec<Box<dyn JsRule>> {
         Box::new(UnusedDevDependencies),
         Box::new(UnlistedDependencies),
         Box::new(UnresolvedImports),
+        Box::new(StaleMocks),
         Box::new(UnlistedBinaries),
         Box::new(UnusedOptionalPeerDependencies),
         Box::new(UnusedFiles),

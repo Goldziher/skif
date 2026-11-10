@@ -1,5 +1,8 @@
 //! Vue: the `configureWebpack` object of `vue.config.*` is a webpack config, and `vue-cli-service lint` runs
-//! `@vue/cli-plugin-eslint`.
+//! `@vue/cli-plugin-eslint`. A function `configureWebpack` is called statically with a base config, as knip calls it:
+//! the object it returns, or the base config as it leaves it (`config.entry = { … }`), is the webpack config.
+
+use skif_js_syntax::{ConfigValue, extract_property_calls};
 
 use crate::files::find_files;
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
@@ -25,9 +28,24 @@ impl Plugin for Vue {
         let Some(webpack) = config.value.get("configureWebpack") else {
             return Vec::new();
         };
-        objects(webpack)
-            .into_iter()
-            .flat_map(|value| bundler_inputs(&ConfigAst { value, ..*config }, cx))
+        if *webpack != ConfigValue::Unknown {
+            return objects(webpack)
+                .into_iter()
+                .flat_map(|value| bundler_inputs(&ConfigAst { value, ..*config }, cx))
+                .collect();
+        }
+        // What the function does not let be read (a plugin pushed onto the config) leaves the entries as they were:
+        // Vue CLI takes its entries from `pages` and `src/main`, not from the webpack config. Only an `entry` the
+        // function sets to something unknown (`config.entry = entries()`) hides entries; a change the evaluator does
+        // not follow inside `entry` (`config.entry.app = x`) is not seen.
+        extract_property_calls(config.source, config.path, "configureWebpack", &base_config())
+            .iter()
+            .flat_map(|value| {
+                let sets_unknown_entry = value.get("entry").is_some_and(ConfigValue::has_unknown);
+                bundler_inputs(&ConfigAst { value, ..*config }, cx)
+                    .into_iter()
+                    .filter(move |input| sets_unknown_entry || *input != PluginInput::EntriesIncomplete)
+            })
             .collect()
     }
 
@@ -38,6 +56,26 @@ impl Plugin for Vue {
             Vec::new()
         }
     }
+}
+
+/// The webpack config a function `configureWebpack` is called with: knip's base config, a development build with no
+/// entries, aliases, plugins or rules.
+fn base_config() -> ConfigValue {
+    let object = |entries: Vec<(&str, ConfigValue)>| {
+        ConfigValue::Object(
+            entries
+                .into_iter()
+                .map(|(key, value)| (key.to_owned(), value))
+                .collect(),
+        )
+    };
+    object(vec![
+        ("mode", ConfigValue::String("development".to_owned())),
+        ("entry", object(Vec::new())),
+        ("resolve", object(Vec::new())),
+        ("plugins", ConfigValue::Array(Vec::new())),
+        ("module", object(vec![("rules", ConfigValue::Array(Vec::new()))])),
+    ])
 }
 
 /// Whether a command of `script` is `vue-cli-service lint …`: `lint` is its first positional argument, the command.

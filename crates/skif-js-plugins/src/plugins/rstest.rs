@@ -1,12 +1,22 @@
 //! Rstest: test files and mocks (`include`, under `root`), the test environment, setup files, browser mode, aliases
 //! and the coverage provider of `rstest.config.*`, and the configs or directories its `projects` name.
+//!
+//! A project's `exclude` list (`["src/legacy/**"]` or `{ patterns: [...] }`) and its negated `include` patterns are
+//! `!` entries below the project's root, which remove the files they match from the package's entries, so the
+//! default test and mock globs, kept as every plugin keeps its conventional entries, cannot bring an excluded file
+//! back. A `!` entry applies to every entry of the package, not to its project alone: a file that one project excludes
+//! and another project with the same root includes is not an entry. Rstest's own default exclusions
+//! (`node_modules`, `dist` and tool directories) are not added, as they would drop those directories from the entries
+//! of every plugin, so `{ override }` changes nothing. The modules a test mocks with `rs.mock("x")` are read by the
+//! parser with the other test runners' mock calls.
 
 use skif_js_syntax::ConfigValue;
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::script_config::flag_values;
 use crate::support::{
-    alias_inputs, entry_glob, get_in, join_rel, module_input, objects, package_name, project_files, strings,
+    alias_inputs, entry_glob, entry_pattern, get_in, join_rel, module_input, objects, package_name, project_files,
+    strings,
 };
 
 /// The `rstest` plugin.
@@ -70,11 +80,20 @@ impl Plugin for Rstest {
     }
 }
 
-/// What one project names, with paths relative to its `root`.
+/// What one project names, with paths relative to its `root`. Excluded and negated patterns are `!` entries.
 fn add_project(project: &ConfigValue, root: &str, config: &ConfigAst<'_>, out: &mut Vec<PluginInput>) {
     let include = project.get("include").map_or_else(|| vec![TEST_FILES], strings);
     for pattern in include.into_iter().chain([MOCKS]) {
-        out.extend(entry_glob(root, pattern).map(PluginInput::Entry));
+        out.extend(entry_pattern(root, pattern).map(PluginInput::Entry));
+    }
+    let exclude = project.get("exclude");
+    let excluded = exclude
+        .and_then(|exclude| exclude.get("patterns"))
+        .or(exclude)
+        .map(strings)
+        .unwrap_or_default();
+    for pattern in excluded {
+        out.extend(entry_glob(root, pattern).map(|glob| PluginInput::Entry(format!("!{glob}"))));
     }
     let env = project.get("testEnvironment");
     let env = env.and_then(ConfigValue::as_str).or_else(|| env?.get("name")?.as_str());

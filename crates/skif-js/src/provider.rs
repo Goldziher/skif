@@ -137,6 +137,9 @@ impl RuleProvider for JsProvider {
         for file in analysis.other_project_files() {
             out.report_other_project_file(file);
         }
+        for (manifest_dir, name) in analysis.dependencies.ancestor_uses() {
+            out.report_ancestor_dependency_use(manifest_dir, name);
+        }
         let (last, concurrent): (Vec<&dyn JsRule>, Vec<&dyn JsRule>) =
             active.iter().copied().partition(|rule| rule.runs_last());
         let base = &*out;

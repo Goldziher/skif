@@ -63,8 +63,18 @@ file that governs the start directory and only affects root discovery in a recur
 
 ```toml
 [lint]
-fail-on-warnings = true    # exit non-zero when only warnings were reported
+fail-on-warnings = true          # exit non-zero when only warnings were reported
+require-ignore-reasons = true    # fail when a suppression has no `reason`, as --require-ignore-reasons does
 ```
+
+`require-ignore-reasons` makes the suppressions that can carry a `reason` say why they exist: an `[[ignore]]` entry,
+also one of an override, and an entry of the `[js]` lists `ignore-files`, `ignore-dependencies`, `ignore-binaries`,
+`ignore-unresolved`, `ignore-workspaces` and `ignore-members` and their `extend-` keys, at the top level, per workspace
+and in overrides. `[workspace] ignore-packages` and `[js] ignore` take plain globs and are not checked. A run with an
+entry that has no `reason` fails with exit code 2, naming the entry (``js.ignore-dependencies[1] `left-pad`: no
+`reason` ``). The check reads the merged configuration, so the key and position are those of the merged list: an entry
+added with `extend-ignore-dependencies` or inherited through `extends` is named by the list it was merged into, and its
+name finds it in the files. The key and `--require-ignore-reasons` do the same; either one turns the check on.
 
 ### `[rules]`
 
@@ -106,8 +116,14 @@ dependencies = ["left-pad"]
 reason = "pinned until the legacy importer is gone"
 ```
 
-`reason` is optional and records why the entry exists. `--require-ignore-reasons` fails a run on an entry without one,
-so a baseline of suppressions can be reviewed and ratcheted down.
+`reason` is optional and records why the entry exists. `--require-ignore-reasons` and `[lint] require-ignore-reasons`
+fail a run on an entry without one, and on an entry of a `[js]` ignore list without one, so a baseline of
+suppressions can be reviewed and ratcheted down. Entries that flags add are exempt. `skif baseline` writes such
+entries for the current findings into a file of their own and keeps it from growing (see the
+[CLI reference](../cli/#baseline)).
+
+A `dependencies` pattern of the form `name@specifier` matches only the instances written with that specifier
+(`react@^17.0.2`); a bare name matches every version.
 
 ### `[policy]`
 
@@ -131,7 +147,10 @@ negated with `!`:
 | any `[[custom-types]]` name | The versions that custom type reads |
 
 A group that names a type governs it. The catch-all group, and a group that names no type, cover `prod`, `dev` and the
-own versions; a type outside those is covered only when `[policy] dependency-types` names it. syncpack covers every
+own versions; a type outside those is covered only when `[policy] dependency-types` names it. A `[policy]
+dependency-types` list that does not select `local` (`["prod", "dev"]`, `["!local"]`) takes the own versions out as it
+takes out the sections it does not name: no dependent is then compared with the `version` of the workspace package it
+names, as with syncpack's `--dependency-types prod,dev`. syncpack covers every
 type by default, so a syncpack configuration that relies on that needs `dependency-types = ["prod", "dev",
 "resolutions", "overrides", "pnpm-overrides"]` here. The dependency of an override entry is the package its selector
 names (`react@<18`, `parent>react`, `**/react` are `react`); a nested npm object's `.` entry belongs to its parent.
@@ -398,16 +417,38 @@ ignored. `skif migrate` copies a knip pattern as written, so run `skif` once aft
 reported with the compiler's message. A pattern that does not compile is a configuration error. An entry ending in
 `!` applies in production mode only (`"left!"`).
 
-**`ignore-unresolved`** lists import specifiers that are never reported by `unresolved-imports`, at the top level and
-per workspace. `ignore-dependencies` also silences `unresolved-imports` for a matching specifier, because plugins
+**Reasons on ignore entries.** Every ignore list (`ignore-files`, `ignore-dependencies`, `ignore-binaries`,
+`ignore-unresolved`, `ignore-members`, `ignore-workspaces` and the `extend-` keys, at the top level, in
+`[js.workspaces."<dir>"]` and in the `js` of an override) takes an inline table in place of a string, so the entry
+records why it exists:
+
+```toml
+[js.workspaces."packages/app"]
+ignore-dependencies = [
+  "left-pad",
+  { name = "some-loader", reason = "false positive: loaded by the bundler from a config string" },
+]
+```
+
+`name` holds what the string form holds (a name, a glob or a slash-delimited regular expression, with the `!`
+production marker), and `reason` is optional. The two forms mix in one list and match the same. A blank `reason` is a
+configuration error, and `--require-ignore-reasons` or `[lint] require-ignore-reasons` fails a run on an entry without
+one. `stale-js-config` reports a table entry that matched nothing by its `name`.
+
+**`ignore-unresolved`** lists import specifiers that are never reported by `unresolved-imports` or `stale-mocks`, at the
+top level and per workspace. `ignore-dependencies` also silences both for a matching specifier, because plugins
 declare virtual modules through it; use `ignore-unresolved` for your own. Two small differences from knip remain:
 an unresolved import is located at the start of its statement, not at the specifier, and `import "./dir"` of a
 directory with neither an index file nor a `package.json` is reported where knip is silent. A directory with a
 `package.json` whose `main` or `exports` point at build output that does not exist resolves to the source file behind
 it (`dist` to `src`), and is not reported when there is none. A relative import of a missing file that a `.gitignore`
-of the root or of a package lists (also as `./dir` for an ignored `dir/index.ts`, or without its extension) is taken
-for generated and not reported, and a `#` specifier is reported only when the nearest `package.json` declares
-`imports`. Since the generated module may import any source file beside it, those files are reached and their exports
+lists (also as `./dir` for an ignored `dir/index.ts`, or without its extension) is taken for generated and not
+reported: the `.gitignore` of the root, of a package, or of any directory between the file and the git repository
+root, such as a `src/temp/.gitignore` that ignores its own contents or the `.gitignore` of a folder above a nested
+root. So is one that names an ignored path below another `rootDirs` directory of the nearest `tsconfig.json` that is
+not generated yet (`./+types/root` of a React Router route, from `.react-router/types`), a root-relative import of a
+JSON or other non-code file (`import logo from "/vite.svg"`, served from the bundler's public directory), and a `#`
+specifier unless the nearest `package.json` declares `imports`. Since the generated module may import any source file beside it, those files are reached and their exports
 count as used: the files of the ignored file's directory, of an ignored directory and below it, or, for the ignored
 index of a directory (`src/migrations/sqlite/index.ts` named as `./migrations/sqlite`), of the directory holding that
 directory and below it (`src/migrations/**`), within the importing package. When those files would be the package
@@ -554,6 +595,17 @@ The rest of knip's configuration hints are part of `stale-js-config` too:
   as the files the analysis reached suggest missing entries, with knip's thresholds. A single-package workspace gets one hint; otherwise
   each package with more than one unused file gets one, largest first.
 
+**Where binaries are run.** `unlisted-binaries` reads the commands of the `package.json` scripts, the commands that
+plugins read from the files of their tools (workflow steps of `.github/workflows`, Git hooks, `lint-staged` tasks and the
+other configs that hold commands) and the literal commands that source files reachable from an entry run through
+`node:child_process` (`exec`, `execSync`, `spawn`, `spawnSync`, `execFile`, `execFileSync`), `execa`, `zx` and
+`nano-spawn`. A binary of a script is reported at the script in `package.json`; one of any other command at the file
+that holds the command. A binary fetched on demand (`npx x`, `pnpm dlx x`) is never reported, and a command whose
+arguments are computed is not read. The steps of CI workflows, Git hooks and task runners run on machines that bring
+their own tools, so a binary they run by name is never reported there; one they run through a package manager
+(`pnpm exec x`, `yarn x`) or a `node_modules/.bin` path is, as knip does. A GitHub Actions step whose `shell` is not a
+POSIX shell (`pwsh`, `cmd`, `python`) is not read.
+
 **`ignore-global-binaries`** (default `true`, top level only) keeps `unlisted-binaries` quiet about the system and
 platform tools scripts run (`rm`, `curl`, `git`, `docker`), which are installed globally, like knip's
 `ignoreGlobalBinaries`. Set it to `false` to report each one that no dependency provides, unless `ignore-binaries`
@@ -595,6 +647,13 @@ imports, used in the root at `build`. Only the files the enclosing root's own co
 unused export of a file they import is still reported. A nested root is therefore linted after the roots that enclose
 it. A root linted on its own (`skif build`) cannot know what an outer root it was not given imports, so there such a
 file is still reported unused; lint from the top with `-r`, or add it to `entry`.
+
+The other way round, a nested root that imports or runs a dependency it does not list itself, but a `package.json`
+above it does, uses that dependency through the outer project's `node_modules`: Node.js resolves it from there. In a
+multi-root run the root that owns that manifest (the innermost one that lists the dependency) then does not report it
+in `unused-dependencies` or `unused-dev-dependencies`, so `gulp-rename` in the root `devDependencies` stays used when
+only `build/lib/gulp.ts` of a nested root at `build` imports it. The outer root linted on its own cannot see the
+nested root's code and still reports it.
 
 A package with no source file at or below its directory, no entry and no script, such as a `remote/package.json` that
 only lists what code elsewhere in the repository installs it for, has no code skif could check its dependencies
@@ -638,6 +697,10 @@ the `@tsrx/*` packages its package lists. Like `.mdx`, `.tsrx` files are not in 
 
 Test files are entries when a test-runner plugin is enabled (Jest, Vitest, Mocha, Playwright, Cypress and the like),
 with the patterns of that plugin; a project without a runner reports unused test files like any other, as knip does.
+Jest's defaults include files named just `test.js` or `spec.ts`. A Playwright `testMatch` regular expression becomes a
+glob when it is made of literals, `.*`, character classes (`[jt]`), the `?` quantifier, anchors and groups
+(`/.*\.e2e\.tsx?/` matches `**/*.e2e.ts{x,}*` below `testDir`); any other expression makes every script below
+`testDir` an entry.
 Add other test files to `entry`. Directories named `fixtures` or `__fixtures__` hold test data: their imports are not checked for unresolved or
 unlisted packages, and their files are not reported by `unused-files` nor their exports by `unused-exports`,
 `unused-types`, the namespace rules and `unused-enum-members`. **`include-fixtures = true`** reports those files and
@@ -652,8 +715,11 @@ as used, unless a parameter or local of the same name shadows it; the declaratio
 members. A file that another loads with `new URL("./x", import.meta.url)` is used as a whole. A module that a test mocks
 (`vi.mock("x")`, `jest.mock("x")`, `jest.requireActual("x")` and the like, read from the syntax tree, so a call written
 inside a string does not count) stays reachable, and a listed package it names is used, but mocking a package that no
-`package.json` lists is not an unlisted import; a `{ virtual: true }` mock is ignored. In an n8n node package the files
-listed in `package.json` `n8n.nodes` and `n8n.credentials` are entries; a `dist/nodes/A.node.js` there maps to
+`package.json` lists is not an unlisted import; a `{ virtual: true }` mock is ignored. A relative or aliased mock
+whose module does not exist (`vi.mock("./gone")`, Vitest's `vi.mock(import("./gone"))`; a query such as `?react` is
+dropped before resolving) is reported by `stale-mocks`, an error as such a call was under `unresolved-imports`, so that
+it can be triaged or baselined apart; a package name that resolves to nothing is not reported. In an n8n node package
+the files listed in `package.json` `n8n.nodes` and `n8n.credentials` are entries; a `dist/nodes/A.node.js` there maps to
 `nodes/A.node.ts`, since such packages compile without a `rootDir`. The `vite` and `vitest` plugins honour Vite's
 `root` (relative to the config file): `root: "src"` makes the scripts of `src/index.html` entries, and a `/`-rooted
 script `src` or `build.rollupOptions.input` HTML file starts at `src`; a `root` that is not a static string leaves the
@@ -716,10 +782,18 @@ counterpart. These differences are deliberate:
 - `unplugin-auto-import` and `unplugin-vue-components` make the declaration files they generate (`auto-imports.d.ts`,
   `components.d.ts`) entries, so the components and composables these import are used; knip compiles every `.vue`
   file against them instead, which also tells which of them a template uses.
-- `vue` reads an object `configureWebpack` as a webpack config and does not call a function one, and credits
+- `vue` reads `configureWebpack` as a webpack config. A function one is called statically with knip's base config
+  (`mode`, empty `entry`, `resolve`, `plugins` and `module.rules`): the object it returns, or the base config as it
+  leaves it (`config.entry = { … }`), is read; what it reads from its argument's members is not known, and an
+  `entry` it sets to an unknown value marks the entries incomplete. It credits
   `@vue/cli-plugin-eslint` when a script runs `vue-cli-service lint`.
-- `serverless-framework` reads `${file(./x.yml)}` and `${file(./x.yml):a.b}` variables, but no other variable kind; a
-  `handler` holding another variable or a glob is skipped.
+- `serverless-framework` reads `${file(./x.yml)}` and `${file(./x.yml):a.b}` variables. In a `handler`, a
+  `${self:a.b}` variable is the string at `a.b` of the config, else its quoted fallback (`${opt:stage, 'dev'}`), and
+  any other variable (`${opt:stage}`, `${env:DIR}`), whose value is known only when the CLI runs, is a wildcard: `**`
+  when it fills a path segment, as it may stand for several, and `*` within one. A wildcard is a trade-off: it can
+  still miss files (a variable within a segment that stands for a path) and makes a wider entry, which can keep an
+  unused file from being reported. A handler that is a glob is an entry glob, unless it names any file
+  (`${opt:file}.main`).
 - `github-action` leaves out the `dist/` and `build/` files an `action.yml` runs, as build output; knip also removes
   them from the project files.
 - `azure-pipelines` (the `script` and `bash` steps of `azure-pipelines.yml`, `.azure-pipelines/**` and the templates
@@ -727,14 +801,35 @@ counterpart. These differences are deliberate:
   is no plugin: the command of `glob -c "<command>" <patterns>` is read where the script parser meets it.
 - `sst`, `quasar`, `stencil` and `orval` read their options wherever the config writes them (a `handler` inside
   `run()`, Stencil's `export const config`), as knip does. `sst` also reads the handlers of the modules
-  `sst.config.ts` imports by relative path (`await import("./infra/api")`, `./infra/api.js` for `infra/api.ts`), and
-  cuts the export off a `.route()` handler; it does not read SST 2 stacks. `quasar` takes the first `sourceFiles`,
+  `sst.config.ts` imports by relative path (`await import("./infra/api")`, `./infra/api.js` for `infra/api.ts`), so
+  the SST 2 stacks of `app.stack(…)` too, and cuts the export off a `.route()` handler. It also reads the handler
+  shorthand of SST 2 constructs: the string values of `routes`, `subscribers`, `notifications` and `targets`, and a
+  `function`, `job` or `consumer` string. `quasar` takes the first `sourceFiles`,
   `boot` and `css` written anywhere.
-- `qwik` and `stencil` do not compile `.mdx` or Sass files, and `stencil` does not mark component style URLs as used.
-  `eleventy` does not read passthrough copies. `rstest` does not apply `exclude` and does not read `rs.mock()`.
-- `react-email` credits both `@react-email/ui` and `@react-email/preview-server` for a preview command, as the
-  installed major version is not known. `payload` keeps migrations and `payload-types.ts` from being reported
-  through `ignore`. `mise` does not read file tasks. `taskfile` skips commands holding a `{{…}}` template.
+- `qwik` and `stencil` do not compile `.mdx` or Sass files. `stencil`'s component style URLs are imports of the
+  component (see above), so the stylesheets are used.
+- `eleventy` reads `addPassthroughCopy("img")` and `addPassthroughCopy({ "src/js": "js" })` calls: a directory makes
+  its JavaScript and TypeScript files production entries, a file or glob is one, and a path into `node_modules` names
+  a package. A path computed from a local of the config function is not known.
+- `rstest` applies `exclude` (a list or `{ patterns }`) and negated `include` patterns as `!` entries below the
+  project's root, so its default test and mock globs do not bring an excluded file back. A `!` entry removes files from
+  all the package's entries, so a file one project excludes is no entry of another project with the same root either;
+  knip lists each project's files instead. Rstest's default exclusions (`node_modules`, `dist`, tool directories) are
+  not added. `rs.mock("x")`, `rs.doMock()`, `rs.importActual()` and
+  the other module calls of `rs` and `rstest` are mock imports, like `vi.mock()`.
+- `react-email` credits `@react-email/ui` for a preview command from React Email 6 and
+  `@react-email/preview-server` before, by the installed version (`node_modules/react-email/package.json` in the
+  package or an ancestor up to the workspace root), else by the first number of the declared range; both when neither is known. `payload`
+  keeps migrations and `payload-types.ts` from being reported through `ignore`.
+- `mise` reads file tasks under the directories of `task_config.includes` or, when no config sets `includes`, under
+  `mise-tasks/`, `.mise-tasks/`, `mise/tasks/`, `.mise/tasks/` and `.config/mise/tasks/`. A JavaScript or TypeScript
+  file is an entry, and the command of its shebang (`#!/usr/bin/env -S npx tsx`) a script; a shell script (a shebang
+  of `sh`, `bash`, `zsh`, `dash` or `ksh`, or without a shebang one of those extensions) is a script run in its
+  `#MISE dir="…"` (also `# [MISE]`, `//MISE`) or the package. A task for another interpreter, or a file without a
+  shebang whose extension is not a shell's (`README`), is not read. knip reads no file tasks.
+- `taskfile` expands `{{.NAME}}` from the task's and the Taskfile's `vars` (a string only), `{{.ROOT_DIR}}` and
+  `{{.TASKFILE_DIR}}`; any other template (`{{.CLI_ARGS}}`, an `sh:` variable, a function) is a word that is not
+  known, so the rest of the command is still read, and an include holding one is skipped.
   `unplugin-vue-i18n` is no plugin: knip's has nothing to port.
 - `marko` does not compile `.marko` files or read the tag libraries of installed packages; it credits `marko` when
   a template exists. `unplugin-vue-markdown` is no plugin: skif compiles no Markdown.

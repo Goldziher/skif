@@ -200,7 +200,7 @@ expression: json.stdout
       "category": "js",
       "default": "error",
       "fixable": "none",
-      "summary": "A file imports a package that neither its `package.json` nor any `package.json` above it lists."
+      "summary": "A file imports a package that neither its `package.json` nor any `package.json` above it lists. An import that only the tsconfig `paths` of another package map has the detail `ForeignTsconfigPaths`: it needs a mapping, not a dependency."
     },
     {
       "id": "unresolved-imports",
@@ -210,11 +210,18 @@ expression: json.stdout
       "summary": "An import specifier does not resolve to a file or a package."
     },
     {
+      "id": "stale-mocks",
+      "category": "js",
+      "default": "error",
+      "fixable": "none",
+      "summary": "A test-runner mock names a relative or aliased module that does not exist."
+    },
+    {
       "id": "unlisted-binaries",
       "category": "js",
       "default": "warning",
       "fixable": "none",
-      "summary": "A script runs a binary that no listed dependency provides."
+      "summary": "A script, or a command in a workflow, tool config or source file, runs a binary that no listed dependency provides."
     },
     {
       "id": "unused-optional-peer-dependencies",

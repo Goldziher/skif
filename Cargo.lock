@@ -2313,6 +2313,7 @@ dependencies = [
  "serde",
  "serde_json",
  "skif",
+ "skif-workspace",
  "toml",
 ]
 
@@ -2337,6 +2338,7 @@ dependencies = [
  "skif-report",
  "tempfile",
  "toml",
+ "toml_edit",
  "ureq",
  "which",
 ]

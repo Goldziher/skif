@@ -37,6 +37,8 @@ pub enum Command {
     ExplainUsage(ExplainUsageArgs),
     /// Translate the configuration of sherif, syncpack and knip into a `skif.toml`; never deletes a file.
     Migrate(MigrateArgs),
+    /// Record the current findings as `[[ignore]]` entries in a baseline file, prune it, or fail when it grew.
+    Baseline(BaselineArgs),
     /// Update dependencies to newer published versions from the npm registry; the only command that uses the network.
     Update(UpdateArgs),
     /// List every dependency the version groups govern, by version group, with its specifiers and states.
@@ -358,6 +360,64 @@ pub struct MigrateArgs {
 }
 
 #[derive(Debug, clap::Args)]
+pub struct BaselineArgs {
+    #[command(subcommand)]
+    pub command: BaselineCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum BaselineCommand {
+    /// Lint, and add an `[[ignore]]` entry to the baseline file for every error and warning no entry of it matches;
+    /// the root's `skif.toml` is made to extend the file.
+    Write(BaselineWriteArgs),
+    /// Lint, and remove the entries of the baseline file that match no finding.
+    Prune(BaselineFileArgs),
+    /// Exit 1 when the baseline file has entries that its version at `--base` (or `--base-file`) lacks.
+    Check(BaselineCheckArgs),
+}
+
+/// The baseline file every `skif baseline` command works on.
+#[derive(Debug, clap::Args)]
+pub struct BaselineFileArgs {
+    /// A path inside a project, resolved to its workspace root as for linting.
+    #[arg(default_value = ".")]
+    pub path: PathBuf,
+
+    /// The baseline file [default: `skif.baseline.toml` in the workspace root].
+    #[arg(long, value_name = "FILE")]
+    pub file: Option<PathBuf>,
+
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = RulesFormat::Human)]
+    pub format: RulesFormat,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct BaselineWriteArgs {
+    #[command(flatten)]
+    pub common: BaselineFileArgs,
+
+    /// The `reason` of every entry this run adds.
+    #[arg(long, value_name = "TEXT", default_value = "baseline")]
+    pub reason: String,
+}
+
+#[derive(Debug, clap::Args)]
+#[command(group(ArgGroup::new("against").args(["base", "base_file"]).required(true)))]
+pub struct BaselineCheckArgs {
+    #[command(flatten)]
+    pub common: BaselineFileArgs,
+
+    /// Compare with the baseline file at this git revision (`origin/main`); a file the revision lacks is empty.
+    #[arg(long, value_name = "REF")]
+    pub base: Option<String>,
+
+    /// Compare with this file instead of a git revision.
+    #[arg(long, value_name = "FILE")]
+    pub base_file: Option<PathBuf>,
+}
+
+#[derive(Debug, clap::Args)]
 pub struct ConfigArgs {
     /// A path inside a project, resolved to its root as for linting.
     #[arg(default_value = ".")]
@@ -516,7 +576,7 @@ pub struct LintArgs {
     #[arg(long, value_name = "RULE:PACKAGE", value_parser = parse_rule_package)]
     pub ignore_rule_for_package: Vec<(String, String)>,
 
-    /// Fail when an `[[ignore]]` entry of a configuration file has no `reason`.
+    /// Fail when an `[[ignore]]` entry or a `[js]` ignore-list entry of a configuration file has no `reason`.
     #[arg(long)]
     pub require_ignore_reasons: bool,
 

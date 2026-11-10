@@ -261,6 +261,47 @@ impl Config {
             || !self.catalog.extend_exclude.is_empty()
     }
 
+    /// The first suppression without a `reason`, named by its key: an `[[ignore]]` entry (`ignore[0]`, also one of an
+    /// override: `overrides[1].ignore[0]`) or an entry of a `[js]` ignore list, with its name
+    /// (``js.workspaces."apps/web".ignore-dependencies[2] `left-pad` ``). `None` when every one has a reason, which
+    /// is what `--require-ignore-reasons` and `[lint] require-ignore-reasons` require.
+    ///
+    /// The check reads this configuration as it is, so on a merged one the key and position are those of the merged
+    /// list: an entry a file adds with `extend-ignore-dependencies`, or inherits through `extends`, is named by the
+    /// list it was merged into and its place there, and the name of the entry is what finds it in the files.
+    #[must_use]
+    pub fn missing_ignore_reason(&self) -> Option<String> {
+        unreasoned_entry("ignore", &self.ignore)
+            .or_else(|| {
+                self.js_ignore_lists().into_iter().find_map(|(key, items)| {
+                    items
+                        .iter()
+                        .enumerate()
+                        .find(|(_, item)| item.reason.is_none())
+                        .map(|(index, item)| format!("{key}[{index}] `{}`", item.name))
+                })
+            })
+            .or_else(|| {
+                self.overrides
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, scoped)| unreasoned_entry(&format!("overrides[{index}].ignore"), &scoped.ignore))
+            })
+    }
+
+    /// Every `[js]` ignore list under its full key: those of the top level, of each `[js.workspaces]` table and of
+    /// the `js` of each override.
+    fn js_ignore_lists(&self) -> Vec<(String, &[IgnoreItem])> {
+        let mut lists = keyed("js", &self.js.ignore_lists());
+        for (dir, workspace) in &self.js.workspaces {
+            lists.extend(keyed(&format!("js.workspaces.\"{dir}\""), &workspace.ignore_lists()));
+        }
+        for (index, scoped) in self.overrides.iter().enumerate() {
+            lists.extend(keyed(&format!("overrides[{index}].js"), &scoped.js.ignore_lists()));
+        }
+        lists
+    }
+
     /// Serializes back to TOML.
     ///
     /// # Errors
@@ -317,6 +358,14 @@ impl Config {
             }
             if entry.reason.as_deref().is_some_and(|reason| reason.trim().is_empty()) {
                 return invalid(format!("ignore[{index}]: `reason` is empty; say why or remove it"));
+            }
+        }
+        for (key, items) in self.js_ignore_lists() {
+            let blank = items
+                .iter()
+                .position(|item| item.reason.as_deref().is_some_and(|reason| reason.trim().is_empty()));
+            if let Some(index) = blank {
+                return invalid(format!("{key}[{index}]: `reason` is empty; say why or remove it"));
             }
         }
         if let Some(message) = self.format.inconsistency() {
@@ -648,6 +697,22 @@ impl Workspace {
     }
 }
 
+/// The ignore lists `lists` under their keys prefixed with `prefix`.
+fn keyed<'c>(prefix: &str, lists: &[(&str, &'c [IgnoreItem])]) -> Vec<(String, &'c [IgnoreItem])> {
+    lists
+        .iter()
+        .map(|(key, items)| (format!("{prefix}.{key}"), *items))
+        .collect()
+}
+
+/// `key[index]` of the first entry of `entries` without a reason.
+fn unreasoned_entry(key: &str, entries: &[IgnoreEntry]) -> Option<String> {
+    entries
+        .iter()
+        .position(|entry| entry.reason.is_none())
+        .map(|index| format!("{key}[{index}]"))
+}
+
 /// `[lint]`
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -659,6 +724,10 @@ pub struct Lint {
     /// Caps the severity of every diagnostic: a rule configured above this level reports at it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_level: Option<Level>,
+    /// Fail the run when a suppression has no `reason`: an `[[ignore]]` entry, also one of an override, or an entry of
+    /// a `[js]` ignore list. The same check as `--require-ignore-reasons`; either one turns it on.
+    #[serde(skip_serializing_if = "is_false")]
+    pub require_ignore_reasons: bool,
 }
 
 impl Lint {
@@ -673,6 +742,13 @@ impl Lint {
     #[must_use]
     pub const fn with_max_level(mut self, max_level: Level) -> Self {
         self.max_level = Some(max_level);
+        self
+    }
+
+    /// Sets `require-ignore-reasons`.
+    #[must_use]
+    pub const fn with_require_ignore_reasons(mut self, require: bool) -> Self {
+        self.require_ignore_reasons = require;
         self
     }
 }
@@ -692,7 +768,8 @@ pub struct IgnoreEntry {
     /// Dependency names; an empty selector matches every dependency.
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub dependencies: Selector,
-    /// Why the suppression exists. `--require-ignore-reasons` fails a run on an entry without one.
+    /// Why the suppression exists. `--require-ignore-reasons` and `[lint] require-ignore-reasons` fail a run on an
+    /// entry without one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
@@ -728,6 +805,136 @@ impl IgnoreEntry {
     pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
         self.reason = Some(reason.into());
         self
+    }
+}
+
+/// One entry of a `[js]` ignore list (`ignore-dependencies`, `ignore-files`, ...): a bare string, or an inline table
+/// `{ name = "...", reason = "..." }` that records why the entry exists.
+///
+/// `name` holds whatever the list takes as a bare string: a name, a glob or a slash-delimited regular expression,
+/// with the same `!` production marker. Without a `reason` the entry is written back as a bare string. Compared with a
+/// string, an entry compares its `name`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct IgnoreItem {
+    /// The name, glob or regular expression the list matches.
+    pub name: String,
+    /// Why the entry exists. `--require-ignore-reasons` and `[lint] require-ignore-reasons` fail a run on an entry
+    /// without one.
+    pub reason: Option<String>,
+}
+
+impl IgnoreItem {
+    /// An entry for `name` without a reason.
+    #[must_use]
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            reason: None,
+        }
+    }
+
+    /// Records why the entry exists.
+    #[must_use]
+    pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
+        self.reason = Some(reason.into());
+        self
+    }
+}
+
+impl From<&str> for IgnoreItem {
+    fn from(name: &str) -> Self {
+        Self::new(name)
+    }
+}
+
+impl From<String> for IgnoreItem {
+    fn from(name: String) -> Self {
+        Self::new(name)
+    }
+}
+
+impl AsRef<str> for IgnoreItem {
+    fn as_ref(&self) -> &str {
+        &self.name
+    }
+}
+
+impl PartialEq<str> for IgnoreItem {
+    fn eq(&self, other: &str) -> bool {
+        self.name == other
+    }
+}
+
+impl PartialEq<&str> for IgnoreItem {
+    fn eq(&self, other: &&str) -> bool {
+        self.name == *other
+    }
+}
+
+impl PartialEq<String> for IgnoreItem {
+    fn eq(&self, other: &String) -> bool {
+        &self.name == other
+    }
+}
+
+impl Serialize for IgnoreItem {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap as _;
+
+        match &self.reason {
+            None => serializer.serialize_str(&self.name),
+            Some(reason) => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("name", &self.name)?;
+                map.serialize_entry("reason", reason)?;
+                map.end()
+            }
+        }
+    }
+}
+
+/// The table form of an [`IgnoreItem`].
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct IgnoreItemTable {
+    name: String,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+/// Read by hand rather than as an untagged enum, so that a mistyped key of the table form is reported by name
+/// (`unknown field "reson"`) instead of serde's "data did not match any variant".
+impl<'de> Deserialize<'de> for IgnoreItem {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = IgnoreItem;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a string, or a table of `name` and `reason`")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                Ok(IgnoreItem::new(value))
+            }
+
+            fn visit_string<E: serde::de::Error>(self, value: String) -> Result<Self::Value, E> {
+                Ok(IgnoreItem::new(value))
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+                IgnoreItemTable::deserialize(serde::de::value::MapAccessDeserializer::new(map)).map(|table| {
+                    IgnoreItem {
+                        name: table.name,
+                        reason: table.reason,
+                    }
+                })
+            }
+        }
+
+        deserializer.deserialize_any(Visitor)
     }
 }
 
@@ -768,7 +975,7 @@ pub enum OverrideReading {
 pub struct Policy {
     /// Which version `preferred-semver` favours.
     pub prefer: Prefer,
-    /// Dependency types the policy rules apply to. Empty means production and development dependencies (`dependencies` and `devDependencies`); name `peer` or `optional` to include them.
+    /// Dependency types the policy rules apply to. Empty means production and development dependencies (`dependencies` and `devDependencies`) and a package's own version; name `peer` or `optional` to include them. A list that does not select `local` leaves the own versions out, so no dependent is compared with the version of the workspace package it names.
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub dependency_types: DependencyTypes,
     /// How `resolutions`, `overrides` and `pnpm-overrides` entries become dependency instances: `skif` (default) names
@@ -809,7 +1016,8 @@ pub enum VersionPolicy {
     Pinned,
     /// The matched dependencies must not be used.
     Banned,
-    /// The matched dependencies are not checked.
+    /// The matched dependencies are not checked: versions may differ and no semver group applies to them
+    /// (`semver-range-only` keeps the semver groups).
     Ignored,
     /// Every range must overlap every other range.
     SameRange,
@@ -1697,24 +1905,24 @@ pub struct Js {
     pub ignore: Vec<String>,
     /// Globs of files, relative to the workspace root, never reported by `unused-files`; other rules still analyse
     /// them (knip's `ignoreFiles`).
-    pub ignore_files: Vec<String>,
+    pub ignore_files: Vec<IgnoreItem>,
     /// Dependencies never reported as unused or unlisted.
-    pub ignore_dependencies: Vec<String>,
+    pub ignore_dependencies: Vec<IgnoreItem>,
     /// Binaries never reported as unlisted.
-    pub ignore_binaries: Vec<String>,
+    pub ignore_binaries: Vec<IgnoreItem>,
     /// Never report the system and shell tools scripts run (`rm`, `curl`, `git`, `docker`) as unlisted binaries,
     /// since they are installed globally rather than from npm (knip's `ignoreGlobalBinaries`). On by default; turn it
     /// off to have `unlisted-binaries` report them unless a dependency provides them.
     pub ignore_global_binaries: bool,
     /// Import specifiers never reported as unresolved. Entries are exact specifiers, globs or regular expressions
     /// (`/^@org\/.+$/`), see the `[js]` documentation.
-    pub ignore_unresolved: Vec<String>,
+    pub ignore_unresolved: Vec<IgnoreItem>,
     /// Workspace directories (globs) the JavaScript analysis skips. Manifest and policy rules still check them.
-    pub ignore_workspaces: Vec<String>,
+    pub ignore_workspaces: Vec<IgnoreItem>,
     /// Exports that other code in the same file uses are not reported: `true` for every kind, or a table of kinds.
     pub ignore_exports_used_in_file: IgnoreExportsUsedInFile,
     /// Enum and namespace member names (globs or regular expressions) never reported as unused.
-    pub ignore_members: Vec<String>,
+    pub ignore_members: Vec<IgnoreItem>,
     /// Analyse production code only.
     pub production: bool,
     /// knip's strict mode. Each workspace package uses only the dependencies its own manifest lists: an import is
@@ -1758,16 +1966,31 @@ pub struct Js {
     pub extend_ignore: Vec<String>,
     /// Appended to `ignore-dependencies` instead of replacing it. Folded away when the configuration is resolved.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub extend_ignore_dependencies: Vec<String>,
+    pub extend_ignore_dependencies: Vec<IgnoreItem>,
     /// Appended to `ignore-binaries` instead of replacing it. Folded away when the configuration is resolved.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub extend_ignore_binaries: Vec<String>,
+    pub extend_ignore_binaries: Vec<IgnoreItem>,
     /// Appended to `ignore-unresolved` instead of replacing it. Folded away when the configuration is resolved.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub extend_ignore_unresolved: Vec<String>,
+    pub extend_ignore_unresolved: Vec<IgnoreItem>,
 }
 
 impl Js {
+    /// The ignore lists under their keys, in the order the keys are documented.
+    pub(crate) fn ignore_lists(&self) -> [(&'static str, &[IgnoreItem]); 9] {
+        [
+            ("ignore-files", self.ignore_files.as_slice()),
+            ("ignore-dependencies", self.ignore_dependencies.as_slice()),
+            ("ignore-binaries", self.ignore_binaries.as_slice()),
+            ("ignore-unresolved", self.ignore_unresolved.as_slice()),
+            ("ignore-workspaces", self.ignore_workspaces.as_slice()),
+            ("ignore-members", self.ignore_members.as_slice()),
+            ("extend-ignore-dependencies", self.extend_ignore_dependencies.as_slice()),
+            ("extend-ignore-binaries", self.extend_ignore_binaries.as_slice()),
+            ("extend-ignore-unresolved", self.extend_ignore_unresolved.as_slice()),
+        ]
+    }
+
     /// Sets the entry globs.
     #[must_use]
     pub fn with_entry<I, S>(mut self, entry: I) -> Self
@@ -1787,6 +2010,17 @@ impl Js {
         S: Into<String>,
     {
         self.project = project.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Sets `ignore-dependencies`, from names or [`IgnoreItem`]s with a reason.
+    #[must_use]
+    pub fn with_ignore_dependencies<I, S>(mut self, ignore_dependencies: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<IgnoreItem>,
+    {
+        self.ignore_dependencies = ignore_dependencies.into_iter().map(Into::into).collect();
         self
     }
 
@@ -1955,13 +2189,13 @@ pub struct JsWorkspace {
     /// Globs of files that are not analysed.
     pub ignore: Vec<String>,
     /// Globs of files, relative to the workspace directory, never reported by `unused-files`.
-    pub ignore_files: Vec<String>,
+    pub ignore_files: Vec<IgnoreItem>,
     /// Dependencies never reported as unused or unlisted.
-    pub ignore_dependencies: Vec<String>,
+    pub ignore_dependencies: Vec<IgnoreItem>,
     /// Binaries never reported as unlisted.
-    pub ignore_binaries: Vec<String>,
+    pub ignore_binaries: Vec<IgnoreItem>,
     /// Import specifiers never reported as unresolved in this workspace.
-    pub ignore_unresolved: Vec<String>,
+    pub ignore_unresolved: Vec<IgnoreItem>,
     /// Report unused exports of entry files of this workspace; unset inherits `[js] include-entry-exports`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include_entry_exports: Option<bool>,
@@ -1969,11 +2203,24 @@ pub struct JsWorkspace {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_exports_used_in_file: Option<IgnoreExportsUsedInFile>,
     /// Enum and namespace member names never reported as unused in this workspace.
-    pub ignore_members: Vec<String>,
+    pub ignore_members: Vec<IgnoreItem>,
     /// Module aliases as in a `tsconfig` `paths` map: `{ "alias/*" = ["./target/*"] }`, targets relative to the workspace.
     pub paths: IndexMap<String, Vec<String>>,
     /// Plugin switches and options for this workspace, applied over `[js.plugins]`.
     pub plugins: IndexMap<String, PluginConfig>,
+}
+
+impl JsWorkspace {
+    /// The ignore lists under their keys.
+    pub(crate) fn ignore_lists(&self) -> [(&'static str, &[IgnoreItem]); 5] {
+        [
+            ("ignore-files", self.ignore_files.as_slice()),
+            ("ignore-dependencies", self.ignore_dependencies.as_slice()),
+            ("ignore-binaries", self.ignore_binaries.as_slice()),
+            ("ignore-unresolved", self.ignore_unresolved.as_slice()),
+            ("ignore-members", self.ignore_members.as_slice()),
+        ]
+    }
 }
 
 /// `[js.plugins] <name> = true | { ... }`
@@ -2073,31 +2320,49 @@ pub struct PackageJs {
     pub ignore: Option<Vec<String>>,
     /// Replaces the ignored dependencies; an empty list clears what the package inherits.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ignore_dependencies: Option<Vec<String>>,
+    pub ignore_dependencies: Option<Vec<IgnoreItem>>,
     /// Replaces the ignored binaries; an empty list clears what the package inherits.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ignore_binaries: Option<Vec<String>>,
+    pub ignore_binaries: Option<Vec<IgnoreItem>>,
     /// Appended to the ignore globs.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extend_ignore: Vec<String>,
     /// Appended to the ignored dependencies.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub extend_ignore_dependencies: Vec<String>,
+    pub extend_ignore_dependencies: Vec<IgnoreItem>,
     /// Appended to the ignored binaries.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub extend_ignore_binaries: Vec<String>,
+    pub extend_ignore_binaries: Vec<IgnoreItem>,
     /// Replaces the ignored unresolved specifiers; an empty list clears what the package inherits.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ignore_unresolved: Option<Vec<String>>,
+    pub ignore_unresolved: Option<Vec<IgnoreItem>>,
     /// Appended to the ignored unresolved specifiers.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub extend_ignore_unresolved: Vec<String>,
+    pub extend_ignore_unresolved: Vec<IgnoreItem>,
     /// Plugin switches and options for the selected packages.
     #[serde(skip_serializing_if = "IndexMap::is_empty")]
     pub plugins: IndexMap<String, PluginConfig>,
 }
 
 impl PackageJs {
+    /// The ignore lists under their keys; a key that is not set is an empty list.
+    pub(crate) fn ignore_lists(&self) -> [(&'static str, &[IgnoreItem]); 6] {
+        [
+            (
+                "ignore-dependencies",
+                self.ignore_dependencies.as_deref().unwrap_or_default(),
+            ),
+            ("ignore-binaries", self.ignore_binaries.as_deref().unwrap_or_default()),
+            (
+                "ignore-unresolved",
+                self.ignore_unresolved.as_deref().unwrap_or_default(),
+            ),
+            ("extend-ignore-dependencies", self.extend_ignore_dependencies.as_slice()),
+            ("extend-ignore-binaries", self.extend_ignore_binaries.as_slice()),
+            ("extend-ignore-unresolved", self.extend_ignore_unresolved.as_slice()),
+        ]
+    }
+
     /// Whether no key is set.
     #[must_use]
     pub fn is_empty(&self) -> bool {

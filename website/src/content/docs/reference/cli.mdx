@@ -11,6 +11,8 @@ skif init [PATH]
 skif config [PATH] [-r] (--show | --explain <KEY> [--package <NAME>]) [--format human|json]
 skif explain-usage <FILE[#EXPORT]> [PATH]
 skif migrate [PATH] [--from sherif|syncpack|knip|auto,...] [--profile exact|full] [--merge | --force] [--dry-run]
+skif baseline write|prune [PATH] [--file <FILE>] [--format human|json]
+skif baseline check [PATH] (--base <REF> | --base-file <FILE>) [--file <FILE>] [--format human|json]
 skif update [PATH] [--check | --interactive] [--target latest|minor|patch] [--dependencies <NAME>...] [--no-install] [--format human|json]
 skif list [PATH] [-r] [--show instances,statuses,hints,ignored,all,none] [FILTERS]
 skif json [PATH] [-r] [FILTERS]
@@ -54,6 +56,7 @@ of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2
 | `skif config [PATH]` | Show how the configuration of the root at `PATH` was built (see below). |
 | `skif explain-usage <FILE[#EXPORT]> [PATH]` | Explain why the JavaScript analysis counts a file, or one export of it, as used (see below). |
 | `skif migrate [PATH]` | Translate the configuration of sherif, syncpack and knip into a `skif.toml` (see below). |
+| `skif baseline write\|prune\|check [PATH]` | Record the current findings as `[[ignore]]` entries in a baseline file the root's `skif.toml` extends, remove the entries that match nothing, or fail when the baseline gained entries (see below). |
 | `skif update [PATH]` | Update dependencies to newer published versions from the npm registry, or with `--check` only report them (see below). The only command that uses the network. |
 | `skif list [PATH]` | List every dependency the version groups and the catalog govern, by version group, with its specifiers and states (see below). |
 | `skif json [PATH]` | Print every dependency instance the version groups and the catalog govern as one JSON object per line (see below). |
@@ -87,7 +90,7 @@ of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2
 | `--ignore-package <NAME>` | Ignore a package by name or glob in every rule. Repeatable. The flags replace `[workspace] ignore-packages` from the configuration files instead of adding to it. |
 | `--ignore-dependency <NAME>` | Ignore a dependency in every rule. Repeatable. Adds to the `[[ignore]]` entries of the configuration files. sherif's `-i` only silenced its version check; for that scope write an `[[ignore]]` entry with `rules = ["version-mismatch"]`, as `skif migrate` does. |
 | `--ignore-rule-for-package <RULE:PACKAGE>` | Ignore one rule for one package. Repeatable. Adds to the `[[ignore]]` entries of the configuration files. |
-| `--require-ignore-reasons` | Fail with exit code 2 when an `[[ignore]]` entry of a configuration file has no `reason`. Entries from flags are exempt. |
+| `--require-ignore-reasons` | Fail with exit code 2 when an `[[ignore]]` entry or an entry of a `[js]` ignore list of a configuration file has no `reason`, naming the entry. Entries from flags are exempt. `[lint] require-ignore-reasons = true` does the same from the file. |
 | `--config <FILE>` | Use this configuration file (and the files it extends) for every root instead of discovering `skif.toml` files. Conflicts with `--no-config`. |
 | `--no-config` | Read no configuration file: the defaults plus the other flags. |
 | `--no-js` | Skip JavaScript analysis. Overrides `[js] enabled`. |
@@ -147,7 +150,7 @@ as the JavaScript part of a lint run.
 | Flag | Meaning |
 | --- | --- |
 | `--production`, `--config <FILE>`, `--no-config` | Analyse as the lint run with the same flag does. |
-| `--format <human\|json>` | `json` prints one document with `version`, `skif` and a `report` member: `file`, `in-graph`, `entry` (the rule that makes the file an entry), `imported-by` (`file`, `line`, `kind`, `names`, `reachable`), `chain-from-entry` and, with `#EXPORT`, `export` (`verdict`, `users`, `re-exports`, `entry-public`, `tagged-public`, `in-used-signature`, `entries-incomplete` when it is true and, for a custom element, `registered`). |
+| `--format <human\|json>` | `json` prints one document with `version`, `skif` and a `report` member: `file`, `in-graph`, `entry` (the rule that makes the file an entry: `entry-glob`, `config-file`, `script`, `published`, `incomplete-scope`, `external-entry-glob` for a glob of another package that points outside it, `enclosing-entry-glob` for a plugin glob of a package that contains the file's package, or `unknown`), `imported-by` (`file`, `line`, `kind`, `names`, `reachable`), `chain-from-entry` and, with `#EXPORT`, `export` (`verdict`, `users`, `re-exports`, `entry-public`, `tagged-public`, `in-used-signature`, `entries-incomplete` when it is true and, for a custom element, `registered`). |
 
 A file that is not part of the module graph exits `2` with the reason; in JSON mode the `error` document carries the
 same `report`, whose `absence` is one of `unused-file` (reported by `unused-files`), `package-excluded`,
@@ -186,6 +189,41 @@ the old tools stays where it is. The [migration guide](../../guides/migrating/) 
 
 Exit `0` when the file was produced (also when notes need a human, unless `--strict`), `1` with `--strict` and such notes,
 `2` when a configuration cannot be read or the output cannot be written.
+
+## Baseline
+
+`skif baseline` records the findings of a repository that adopts skif with problems it cannot fix at once, as
+`[[ignore]]` entries in a file of their own, so the lint run is clean from day one and the list can only shrink. The
+[adoption guide](../../guides/migrating/#adopting-skif-on-an-existing-repository) shows the workflow.
+
+| Command | Does |
+| --- | --- |
+| `skif baseline write [PATH]` | Lint the root at `PATH` (resolved as for linting) without the baseline's entries, and add an entry for every error and warning that no entry of the baseline matches. Existing entries and their reasons stay. When no configuration file of the root reaches the baseline through `extends`, its path is added to the `extends` of the root's `skif.toml` (or `.skif.toml`, created when there is none), keeping the rest of that file as it was. Running it again changes nothing. |
+| `skif baseline prune [PATH]` | Lint the same way and remove the entries that match no finding. The file stays when it is left empty. |
+| `skif baseline check [PATH]` | Exit `1` when the baseline has an entry that its earlier version lacks, and print the added entries. Entries are compared by `rules`, `packages` and `dependencies`, not by `reason`. Lints nothing. |
+
+Each entry names the rule, the package (its name, or its directory relative to the root when two packages share the
+name) and the dependency. A finding that carries the specifier as written, as every version rule's does, is recorded
+as `name@specifier`, so the entry silences only that version: a member moving to a third version, or a new member on
+another one, fails the run again. Glob characters in a name or specifier are written as one-character classes (`[*]`),
+and a leading `!` as `{!}` so it is not read as an exclusion, so the entry matches literally. `info` findings are not recorded, and neither is a finding with neither a package nor
+a dependency, which an entry could only cover by turning its rule off, nor one in a root package without a name of its
+own, which no package pattern selects alone; `write` lists those on stderr with the cause. Entries are
+sorted, each written once, and the file holds nothing but `[[ignore]]` entries: the commands rewrite it whole, so a
+comment written inside it is not kept, while an edited `reason` is.
+
+| Flag | Meaning |
+| --- | --- |
+| `--file <FILE>` | The baseline file. Default `skif.baseline.toml` in the workspace root. |
+| `--reason <TEXT>` | `write` only: the `reason` of the entries it adds. Default `baseline`. |
+| `--base <REF>` | `check` only: compare with the baseline file at this git revision (`origin/main`), read with `git show`. A file that did not exist at the revision is an empty baseline. A revision that is not a commit is a usage error. |
+| `--base-file <FILE>` | `check` only: compare with this file instead, for runs without git. One of `--base` and `--base-file` is required. |
+| `--format <human\|json>` | `json` prints one document with `version`, `skif`, `command`, `file` (relative to the root), `entries` (how many the file holds), `added` and `removed` (each entry with `rules`, `packages`, `dependencies` and `reason`); `write` adds `extended` (the configuration file whose `extends` gained the baseline, else `null`) and `unrecorded` (`rule`, `package`, `dependency`, `message`, and `cause`: `workspace-wide` or `unnamed-root`), `write` and `prune` add `written`, `check` adds `base`. |
+
+`write` and `prune` exit `0` when they finished and `2` when they could not run (a baseline file with other keys, a
+missing file for `prune`, an invalid configuration). `check` exits `0` when the baseline gained no entry, `1` when it
+did and `2` when it could not run. `check --base` is the one place the CLI runs `git`; it needs the revision fetched
+(`git fetch origin main` in a shallow CI checkout).
 
 ## Updating
 
@@ -308,7 +346,7 @@ formatting in every lint instead, set `package-json-format = "error"` in `[rules
 | Code | Meaning |
 | --- | --- |
 | `0` | Clean. Warnings within `--max-warnings` are allowed, and `info` never counts. |
-| `1` | Problems remain. |
+| `1` | Problems remain; for `skif baseline check`, the baseline gained entries. |
 | `2` | skif could not run: invalid or ambiguous configuration, no `package.json` found at or below `PATH`, bad flags, a refused `--fix` or `skif update`, a failed install step, or a package the registry could not answer for in `skif update`. |
 
 ## Output formats

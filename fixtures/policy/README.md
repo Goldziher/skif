@@ -6,7 +6,7 @@ workspace protocol, dependency families and the policy conflicts between them
 tests in `crates/skif-rules/tests` (`policy_conformance.rs` and `policy_catalog_conformance.rs`) walk them, run the
 policy rules and compare the result with `expected.json`.
 
-There are 192 cases in 17 groups. Each case is a minimal monorepo plus the `skif.toml` under
+There are 193 cases in 17 groups. Each case is a minimal monorepo plus the `skif.toml` under
 test and the diagnostics skif must report for it, so a failing case points at one behaviour.
 
 ## Attribution
@@ -42,7 +42,7 @@ Groups: `version-mismatch`, `pinned`, `banned`, `ignored`, `same-range`, `same-m
 | `catalog` | 32 |
 | `catalog-groups` | 6 |
 | `dependency-families` | 11 |
-| `dependency-types` | 13 |
+| `dependency-types` | 14 |
 | `ignored` | 6 |
 | `invalid-local-version` | 8 |
 | `pinned` | 6 |

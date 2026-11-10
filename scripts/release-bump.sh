@@ -9,6 +9,8 @@
 #   poly-hooks.toml                         pinned npm channel version
 #   scripts/pre-commit/run-skif.sh          SKIF_VERSION default
 #   action.yml                              BAKED_VERSION, the version the Action installs by default
+#   README.md, CONTRIBUTING.md, website     the Action, pre-commit and Poly pins of the examples (lib/doc-pins.sh);
+#                                           a pre-release leaves them on the previous release
 #   Cargo.lock                              refreshed with `cargo update --workspace`; a failure fails the bump
 #
 # Set SKIP_CARGO_UPDATE=1 to leave Cargo.lock alone (offline bumps).
@@ -60,6 +62,15 @@ rewrite scripts/pre-commit/run-skif.sh "s/^(SKIF_VERSION=\"\\$\\{SKIF_VERSION:-)
 echo "action.yml -> ${version}"
 rewrite action.yml "s/^( *BAKED_VERSION: \")[^\"]*(\")/\1${version}\2/"
 
+# shellcheck source=lib/doc-pins.sh
+source scripts/lib/doc-pins.sh
+if [[ "$version" == *-* ]]; then
+  echo "documentation pins: ${version} is a pre-release, left unchanged"
+else
+  echo "documentation pins -> v$(skif_release_line "$version"), v${version}"
+  skif_rewrite_doc_pins "$version"
+fi
+
 if [[ "${SKIP_CARGO_UPDATE:-0}" != "1" ]]; then
   update_log="$(mktemp)"
   if ! cargo update --workspace >/dev/null 2>"$update_log"; then
@@ -72,3 +83,4 @@ if [[ "${SKIP_CARGO_UPDATE:-0}" != "1" ]]; then
 fi
 
 bash scripts/check-versions.sh "$version"
+bash scripts/check-doc-pins.sh "$version"

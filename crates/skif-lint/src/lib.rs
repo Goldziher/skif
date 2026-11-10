@@ -32,6 +32,7 @@ mod scoped;
 
 pub use context::{DEFAULT_CONFIG_FILE, EnabledRules, LintContext};
 pub use emitter::Emitter;
+pub use ignore::{dependency_name, ignore_matches};
 pub use provider::{OptionsError, ProviderError, Rule, RuleProvider, RulesProvider, parse_options, reject_options};
 pub use registry::{Registry, RegistryError};
 pub use runner::{Executor, ExecutorError, LintError, RunOptions, run, run_unsorted};
