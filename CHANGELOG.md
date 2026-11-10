@@ -206,6 +206,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- An unknown rule ID in the configuration names the file and line that set it (`preset.toml:4:1: unknown rule ...`,
+  with `path`, `line` and `column` in the JSON error), also in an extended preset; for a package file the error names
+  the file. It had no location at all. `skif::Target::locate` attributes the error for library hosts.
 - `[js.workspaces."<dir>"]` tables accept `extend-ignore`, `extend-ignore-dependencies`, `extend-ignore-binaries` and
   `extend-ignore-unresolved`, which append to the list the table inherits through `extends`, as
   [ADR 0074](adrs/0074-reasons-on-js-ignore-entries.md) says; they were rejected as unknown fields.
