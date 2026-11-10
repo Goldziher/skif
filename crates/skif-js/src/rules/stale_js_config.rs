@@ -294,7 +294,10 @@ fn keyed_ignore_lists<'a>(analysis: &'a JsAnalysis<'_>, ran: &dyn Fn(&[&str]) ->
             setup.global_ignore_unresolved.verdicts(),
         ));
     }
-    keyed.push(JudgedList::new("js.ignore-workspaces", setup.ignore_workspaces.verdicts()));
+    keyed.push(JudgedList::new(
+        "js.ignore-workspaces",
+        setup.ignore_workspaces.verdicts(),
+    ));
     for (id, package) in analysis.workspace.iter() {
         let Some(package_setup) = setup.package(id) else {
             continue;

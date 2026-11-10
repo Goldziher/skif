@@ -1263,7 +1263,11 @@ fn a_start_directory_that_is_no_root_keys_every_root_by_its_directory() {
 #[test]
 fn a_discovered_file_several_roots_inherit_is_judged_across_them() {
     let (_dir, repo, _file) = nested_root_with_explicit_config("");
-    put(&repo, "skif.toml", "[js]\nignore-dependencies = [\"left-pad\", \"gone\"]\n");
+    put(
+        &repo,
+        "skif.toml",
+        "[js]\nignore-dependencies = [\"left-pad\", \"gone\"]\n",
+    );
     put(
         &repo,
         "tools/sub/package.json",
@@ -1316,7 +1320,10 @@ fn the_lint_after_fixing_decides_shared_settings_again() {
         .arg(&file)
         .arg(&repo));
     assert!(fixed.code == 0 || fixed.code == 1, "{}{}", fixed.stdout, fixed.stderr);
-    assert!(!repo.join("tools/sub/legacy/old.js").exists(), "the unused file was kept");
+    assert!(
+        !repo.join("tools/sub/legacy/old.js").exists(),
+        "the unused file was kept"
+    );
     let fixed = fixed.json();
     assert_eq!(
         messages_of(&fixed, "stale-js-config"),

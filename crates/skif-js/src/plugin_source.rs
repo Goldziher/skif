@@ -85,9 +85,7 @@ impl PluginSource {
                 plugins.insert(plugin.clone(), merged);
             }
         }
-        if is_root
-            && let Some(path) = &self.root_tsconfig
-        {
+        if is_root && let Some(path) = &self.root_tsconfig {
             let current = plugins.get(TYPESCRIPT);
             if let Some(read) = with_config_file(current, path) {
                 plugins.insert(TYPESCRIPT.to_owned(), read);

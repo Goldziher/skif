@@ -249,7 +249,11 @@ fn shared_config_drops(roots: &[(&Path, &Report)]) -> Vec<BTreeSet<(PathBuf, Str
     for (index, (root, report)) in roots.iter().enumerate() {
         for judgement in &report.config_judgements {
             settings
-                .entry((join(root, &judgement.file), judgement.key.as_str(), judgement.entry.as_str()))
+                .entry((
+                    join(root, &judgement.file),
+                    judgement.key.as_str(),
+                    judgement.entry.as_str(),
+                ))
                 .or_default()
                 .push((index, judgement));
         }
