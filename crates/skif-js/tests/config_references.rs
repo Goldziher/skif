@@ -272,7 +272,10 @@ fn tsconfig_types_are_satisfied_by_the_package_or_its_types_package() {
         ["packages/app/tsconfig.json: mocha"]
     );
     let unused = found(&diagnostics, "unused-dev-dependencies");
-    for listed in ["package.json: @types/jest", "packages/app/package.json: @cloudflare/workers-types"] {
+    for listed in [
+        "package.json: @types/jest",
+        "packages/app/package.json: @cloudflare/workers-types",
+    ] {
         assert!(!unused.contains(&listed.to_owned()), "{listed} is used: {unused:?}");
     }
 }
@@ -337,7 +340,10 @@ fn gitignored_configs_are_not_judged_and_include_fixtures_judges_fixture_configs
     ];
     assert_eq!(found(&lint(&files), "unlisted-dependencies"), none());
     assert_eq!(
-        found(&lint_with(&files, "[js]\ninclude-fixtures = true\n"), "unlisted-dependencies"),
+        found(
+            &lint_with(&files, "[js]\ninclude-fixtures = true\n"),
+            "unlisted-dependencies"
+        ),
         ["fixtures/tsconfig.json: @acme/fixture"]
     );
 }

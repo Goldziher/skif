@@ -1721,9 +1721,15 @@ mod tests {
         let importer = Path::new("/ws/src/main.ts");
         let local = r.resolve(importer, "ui/button");
         assert_eq!(local.target, Resolved::File(PathBuf::from("/ws/src/ui/button.ts")));
-        assert_eq!(local.package, None, "an alias into the importer's own sources is not the member `ui`");
+        assert_eq!(
+            local.package, None,
+            "an alias into the importer's own sources is not the member `ui`"
+        );
         let client = r.resolve(importer, "@acme/db/client");
-        assert_eq!(client.target, Resolved::File(PathBuf::from("/ws/packages/db/client.ts")));
+        assert_eq!(
+            client.target,
+            Resolved::File(PathBuf::from("/ws/packages/db/client.ts"))
+        );
         assert_eq!(client.package, Some("@acme/db".to_owned()));
         // Generated code that is not there yet (the `.gitignore` lists it) is the member when it lies in the member.
         let enums = r.resolve(importer, "@acme/db/enums");
@@ -1731,7 +1737,10 @@ mod tests {
         assert_eq!(enums.package, Some("@acme/db".to_owned()));
         let types = r.resolve(importer, "@acme/db/types");
         assert_eq!(types.target, Resolved::Ignored);
-        assert_eq!(types.package, None, "generated code outside the member is not the member");
+        assert_eq!(
+            types.package, None,
+            "generated code outside the member is not the member"
+        );
     }
 
     #[test]
