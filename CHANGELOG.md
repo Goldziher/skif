@@ -310,6 +310,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- On Windows, an explicit `--config` path given in the verbatim `\\?\C:\` spelling no longer leaves its findings with absolute
+  locations or keeps the baseline it extends from applying to the run.
 - `skif -r --config <FILE>` applied the file's `[js.workspaces]` tables and `ignore-workspaces` globs to every root as
   if written relative to each, so `[js.workspaces."."]` configured every nested root and `stale-js-config` reported
   its entries once per root where they matched nothing. The keys and globs of an explicit file are now relative to
