@@ -1,7 +1,9 @@
-//! `parse_module` over a small corpus of realistic TS, TSX and JS files in `benches/corpus`.
+//! `parse_module` over a small corpus of realistic TS, TSX and JS files in `benches/corpus`, and over generated files
+//! with many exports, whose time grows linearly with the number of exports.
 
 #![allow(clippy::expect_used)]
 
+use std::fmt::Write as _;
 use std::hint::black_box;
 use std::path::Path;
 
@@ -52,5 +54,43 @@ fn bench_files(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_corpus, bench_files);
+/// `count` exported type aliases, each mentioned in the signature of an exported function.
+fn signatures(count: usize) -> String {
+    (0..count).fold(String::new(), |mut source, i| {
+        let _ = writeln!(source, "export type T{i} = {{ v: number }};");
+        let _ = writeln!(source, "export function f{i}(p: T{i}): T{i} {{ return p; }}");
+        source
+    })
+}
+
+/// A barrel of `count` imported names re-exported from the same module.
+fn barrel(count: usize) -> String {
+    (0..count).fold(String::new(), |mut source, i| {
+        let _ = writeln!(source, "import {{ v{i} }} from './values';");
+        let _ = writeln!(source, "export {{ v{i} }} from './values';");
+        source
+    })
+}
+
+fn bench_many_exports(c: &mut Criterion) {
+    let mut group = c.benchmark_group("parse_module/exports");
+    group.sample_size(10);
+    let cases = [
+        ("signatures", 10_000, signatures(10_000)),
+        ("signatures", 40_000, signatures(40_000)),
+        ("barrel", 10_000, barrel(10_000)),
+    ];
+    for (label, count, source) in &cases {
+        group.throughput(Throughput::Elements(*count as u64));
+        group.bench_with_input(BenchmarkId::new(*label, count), source, |b, source| {
+            b.iter(|| {
+                parse_module(Path::new("many.ts"), black_box(source), &ParseOptions::default())
+                    .expect("generated file parses")
+            });
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(benches, bench_corpus, bench_files, bench_many_exports);
 criterion_main!(benches);
