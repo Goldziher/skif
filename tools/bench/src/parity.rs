@@ -171,7 +171,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 13] = [
     },
     Deviation {
         id: NON_MEMBER_PROJECT,
-        reason: "knip reports these unused files, and these unlisted dependencies that the file's own `package.json` lists, below a directory with its own `package.json` (one with fields besides `type`, `sideEffects` and `imports`) that is not one of knip's workspaces (as in `knip-unjudged-manifest`). knip counts such files to an enclosing workspace, without the entry files, plugins and dependencies of their own manifest; skif's analysis of the enclosing workspace skips the directory, and a recursive run lints it as a root of its own when no workspace member encloses it (ADR 0022). The harness checks the manifests, not why skif has no finding for each one",
+        reason: "knip reports these findings in a file (unused files, exports, types, members, duplicates and unresolved imports, and unlisted dependencies that the file's own `package.json` lists) below a directory with its own `package.json` (one with fields besides `type`, `sideEffects` and `imports`) that is not one of knip's workspaces (as in `knip-unjudged-manifest`). knip counts such files to an enclosing workspace, without the entry files, plugins and dependencies of their own manifest; skif's analysis of the enclosing workspace skips the directory, and a recursive run lints it as a root of its own when no workspace member encloses it (ADR 0022). The harness checks the manifests, not why skif has no finding for each one",
     },
     Deviation {
         id: SKIPPED_DIRECTORY,
@@ -878,16 +878,17 @@ impl Classifier<'_> {
             && !self.knip_manifests.contains(path)
     }
 
-    /// Whether a finding only knip reports is an unused file, or an unlisted dependency the file's own manifest lists,
-    /// below a project directory that is not one of knip's workspaces.
+    /// Whether a finding only knip reports in a file (any category but the manifest ones) lies below a project
+    /// directory that is not one of knip's workspaces; an unlisted dependency only when that project's own manifest
+    /// lists it, since skif judges the project's imports against that manifest.
     fn non_member_project(&self, category: &str, key: &str) -> bool {
-        if !matches!(category, "files" | "unlisted") {
+        if MANIFEST_CATEGORIES.contains(&category) {
             return false;
         }
         let Some(dir) = self.layout.non_member_project(key_path(key)) else {
             return false;
         };
-        category == "files"
+        category != "unlisted"
             || key
                 .split_once('|')
                 .is_some_and(|(_, name)| self.layout.lists(&dir, package_name(name)))
@@ -2330,7 +2331,7 @@ mod tests {
     }
 
     #[test]
-    fn knip_only_files_and_listed_unlisted_below_non_member_projects_split_off() {
+    fn knip_only_findings_in_files_below_non_member_projects_split_off() {
         let manifests = [
             ("", json!({ "name": "root", "workspaces": ["packages/*"] })),
             ("packages/a", json!({ "name": "a" })),
@@ -2359,9 +2360,28 @@ mod tests {
                 "the project's own manifest lists the package"
             );
             for (category, key) in [
-                ("unlisted", "examples/app/src/a.ts|zod"),
                 ("exports", "examples/app/src/a.ts|unused"),
-                ("unresolved", "examples/app/src/a.ts|./gone"),
+                ("types", "examples/app/src/a.ts|Unused"),
+                ("nsExports", "examples/app/src/a.ts|helper"),
+                ("nsTypes", "examples/app/src/a.ts|Helper"),
+                ("enumMembers", "examples/app/src/a.ts|Red"),
+                ("namespaceMembers", "examples/app/src/a.ts|run"),
+                ("duplicates", "examples/app/src/a.ts|a|b"),
+                ("unresolved", "examples/app/src/a.ts|../../types/cache"),
+                ("unresolved", "packages/a/vendor/lib/index.js|./gone"),
+            ] {
+                assert_eq!(
+                    classifier.classify(Side::Tool, category, key),
+                    Some(NON_MEMBER_PROJECT),
+                    "{category} {key}"
+                );
+            }
+            for (category, key) in [
+                ("unlisted", "examples/app/src/a.ts|zod"),
+                ("dependencies", "examples/app/package.json|left-pad"),
+                ("binaries", "examples/app/package.json|tsc"),
+                ("exports", "packages/a/src/a.ts|unused"),
+                ("unresolved", "scripts/a.ts|./gone"),
                 ("files", "packages/a/src/orphan.ts"),
                 ("files", "scripts/orphan.ts"),
             ] {
