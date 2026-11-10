@@ -23,6 +23,7 @@ clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 skif-js.workspace = true
+skif-js-syntax.workspace = true
 skif-workspace.workspace = true
 toml.workspace = true
 
