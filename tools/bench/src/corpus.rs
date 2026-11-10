@@ -223,7 +223,7 @@ mod tests {
         let repos = manifest().repo;
         let n8n = repos.iter().find(|r| r.name == "n8n").unwrap();
         assert!(n8n.knip_invalid.as_deref().is_some_and(|why| why.contains("dist")));
-        assert!(repos.iter().filter(|r| r.knip_invalid.is_some()).count() == 1);
+        assert_eq!(repos.iter().filter(|r| r.knip_invalid.is_some()).count(), 1);
     }
 
     #[test]

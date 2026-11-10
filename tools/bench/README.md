@@ -113,8 +113,10 @@ repository is skipped, with the reason in the report, when its package manager i
 times out, skif fails, or knip prints no JSON; the reason names the first error line the install printed, on stderr
 or stdout, or knip's error. A repository with `install = false` in `corpus.toml` (rushstack: Rush keeps its lockfiles
 under `common/config`) is compared uninstalled, so the tools say themselves whether they can run there: knip has no
-Rush support and stops with `Unable to find package.json`, which becomes the skip reason. Without `--install` the run is quick but dominated by that noise; the baseline records which way it was made and
-`--check` rejects a mismatch. A repository may set `install-command` (program first; `rules-js` installs with
+Rush support and stops with `Unable to find package.json`, which becomes the skip reason. Without `--install` the run is quick but dominated by that noise. Whether a repository counts as installed is read
+from the checkout (the `.skif-bench-installed` marker holds the pinned commit once an install succeeded), not from the
+flag: `parity.md` says `yes`, `no` or `partial (n of m)`, each baseline entry records its own `installed`, and
+`--check` rejects an entry whose checkout is installed differently from when it was recorded. A repository may set `install-command` (program first; `rules-js` installs with
 the pnpm its `MODULE.bazel` pins) and `install-timeout-secs` (`vercel-examples`) in `corpus.toml`.
 
 **Scope.** knip runs with an empty configuration (`--config` to a `{}` file in the scratch directory), so a repository's

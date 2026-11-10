@@ -941,7 +941,7 @@ fn install_command(repo: &Repo, dir: &Path) -> Result<(String, Vec<String>), Str
 pub fn install(repo: &Repo, dir: &Path, scratch: &Path, default_timeout: Duration) -> Result<Option<String>> {
     let timeout = repo.install_timeout_secs.map_or(default_timeout, Duration::from_secs);
     let marker = dir.join(INSTALLED_MARKER);
-    if fs::read_to_string(&marker).is_ok_and(|rev| rev.trim() == repo.rev) {
+    if is_installed(repo, dir) {
         return Ok(None);
     }
     let (program, args) = match install_command(repo, dir) {
@@ -973,6 +973,22 @@ pub fn install(repo: &Repo, dir: &Path, scratch: &Path, default_timeout: Duratio
     }
     fs::write(&marker, &repo.rev).with_context(|| format!("writing {}", marker.display()))?;
     Ok(None)
+}
+
+/// Whether the dependencies of a checkout are installed at its pinned commit: its install marker holds the commit.
+pub fn is_installed(repo: &Repo, dir: &Path) -> bool {
+    fs::read_to_string(dir.join(INSTALLED_MARKER)).is_ok_and(|rev| rev.trim() == repo.rev)
+}
+
+/// How many of the compared repositories were installed: `yes`, `no` or `partial (n of m)`.
+fn installed_summary(entries: &BTreeMap<String, Entry>) -> String {
+    let compared: Vec<&Entry> = entries.values().filter(|entry| entry.status == COMPARED).collect();
+    let installed = compared.iter().filter(|entry| entry.installed == Some(true)).count();
+    match installed {
+        0 => "no".to_owned(),
+        n if n == compared.len() => "yes".to_owned(),
+        n => format!("partial ({n} of {})", compared.len()),
+    }
 }
 
 struct Outcome {
@@ -1082,9 +1098,10 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
         classifier.classify(side, category, key)
     });
     let (counts, samples) = diff::compare(&split.skif, &split.tool);
+    let installed = is_installed(repo, &root);
     let detail = json!({
         "status": COMPARED,
-        "installed": installs,
+        "installed": installed,
         "recursive": recursive,
         "knip_exit": knip_run.code,
         "knip_errors": knip_errors,
@@ -1103,7 +1120,8 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
         entry: Entry::compared(counts)
             .with_known(split.known)
             .with_tool_errors(knip_errors.len())
-            .with_invalid(repo.knip_invalid.clone()),
+            .with_invalid(repo.knip_invalid.clone())
+            .with_installed(installed),
         detail,
     })
 }
@@ -1167,10 +1185,10 @@ fn category_detail(counts: &BTreeMap<String, Counts>, samples: &BTreeMap<String,
     )
 }
 
-fn markdown(tool: &str, installed: bool, entries: &BTreeMap<String, Entry>) -> String {
+fn markdown(tool: &str, entries: &BTreeMap<String, Entry>) -> String {
     let mut out = format!(
         "# skif findings parity with {tool}\n\nDependencies installed: {}.\n\n| Repository | Status | skif only | {tool} only | Both | Not judged by skif | Known deviations |\n| --- | --- | ---: | ---: | ---: | ---: | ---: |\n",
-        if installed { "yes" } else { "no" }
+        installed_summary(entries)
     );
     for (name, entry) in entries {
         if entry.status == COMPARED {
@@ -1239,11 +1257,12 @@ pub fn run(options: &Options) -> Result<()> {
         details.insert(repo.name.clone(), outcome.detail);
         entries.insert(repo.name.clone(), outcome.entry);
     }
-    let table = markdown(&tool, options.install, &entries);
+    let table = markdown(&tool, &entries);
     fs::create_dir_all(&options.out).with_context(|| format!("creating {}", options.out.display()))?;
     let full = json!({
         "tool": tool,
-        "installed": options.install,
+        "installed": installed_summary(&entries),
+        "install_requested": options.install,
         "recursive": options.recursive,
         "repo_knip_config": options.repo_knip_config,
         "include_test_files": options.include_test_files,
@@ -1258,7 +1277,7 @@ pub fn run(options: &Options) -> Result<()> {
     let current = Baseline {
         schema: BASELINE_SCHEMA,
         tool,
-        installed: options.install,
+        installed: entries.values().all(|entry| entry.installed != Some(false)),
         entries,
     };
     diff::conclude(&options.gate, &current)
@@ -1769,7 +1788,8 @@ mod tests {
                     .with_invalid(Some("configs import unbuilt packages".to_owned())),
             ),
         ]);
-        let table = markdown("knip", false, &entries);
+        let table = markdown("knip", &entries);
+        assert!(table.contains("Dependencies installed: no."), "{table}");
         assert!(
             table.contains(
                 "| t | compared; knip could not load 1 config files; not a valid comparison: configs import unbuilt packages | 1 | 2 | 3 | 0 | 0 |"
@@ -1782,6 +1802,38 @@ mod tests {
             "{table}"
         );
         assert!(table.contains("`not-judged-by-skif`"), "{table}");
+    }
+
+    #[test]
+    fn the_install_state_comes_from_the_checkout_markers() {
+        let dir = std::env::temp_dir().join(format!("skif-bench-parity-installed-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let mut repo: Repo = toml::from_str(&format!(
+            "name = \"r\"\nurl = \"u\"\nrev = \"{}\"\npackage-manager = \"pnpm\"\n",
+            "a".repeat(40)
+        ))
+        .unwrap();
+        assert!(!is_installed(&repo, &dir));
+        fs::write(dir.join(INSTALLED_MARKER), format!("{}\n", "a".repeat(40))).unwrap();
+        assert!(is_installed(&repo, &dir));
+        repo.rev = "b".repeat(40);
+        assert!(!is_installed(&repo, &dir), "a marker of another commit is stale");
+        fs::remove_dir_all(&dir).unwrap();
+
+        let entry = |installed: bool| Entry::compared(BTreeMap::new()).with_installed(installed);
+        let mut entries = BTreeMap::from([
+            ("a".to_owned(), entry(true)),
+            ("b".to_owned(), entry(true)),
+            ("skipped".to_owned(), Entry::skipped("knip failed")),
+        ]);
+        assert_eq!(installed_summary(&entries), "yes");
+        entries.insert("c".to_owned(), entry(false));
+        assert_eq!(installed_summary(&entries), "partial (2 of 3)");
+        assert_eq!(
+            installed_summary(&BTreeMap::from([("c".to_owned(), entry(false))])),
+            "no"
+        );
     }
 
     fn strings(items: &[&str]) -> BTreeSet<String> {
