@@ -1039,6 +1039,34 @@ fn directory_flags_of_package_managers_set_the_directory() {
     );
 }
 
+#[test]
+fn directory_flags_below_an_unknown_directory_are_unknown() {
+    for script in [
+        "cd /tmp/app && pnpm -C packages/web exec rspack",
+        "cd $DIR && pnpm --dir packages/web exec rspack",
+        "cd /tmp/app && npm --prefix packages/web exec rspack",
+        "cd /tmp/app && yarn --cwd packages/web exec rspack",
+    ] {
+        let info = parse(script);
+        let binary = info.binaries.iter().find(|binary| binary.name == "rspack");
+        assert_eq!(
+            binary.map(|binary| (binary.dir.as_deref(), binary.filtered)),
+            Some((None, true)),
+            "{script}: {:?}",
+            info.binaries
+        );
+    }
+    // The flag's directory lasts for its command only.
+    assert_eq!(
+        binary_dirs("pnpm -C /abs exec rspack && cd sub && vite"),
+        [at("rspack", None), at("vite", Some("sub"))]
+    );
+    assert_eq!(
+        binary_dirs("pushd $OUT && popd && pnpm -C sub exec rspack"),
+        [at("rspack", Some("sub"))]
+    );
+}
+
 /// The binaries of `info` that are judged at the script's package: those run neither filtered nor in another directory.
 fn judged_binaries(info: &ScriptInfo) -> Vec<String> {
     sorted(

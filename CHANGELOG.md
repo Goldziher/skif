@@ -236,8 +236,9 @@ All notable changes to this project are documented here. The format follows
 - A workflow step's `$GITHUB_WORKSPACE`, `${GITHUB_WORKSPACE}` and `${{ github.workspace }}` name the workspace root,
   so `cd $GITHUB_WORKSPACE/sub && pnpm exec rspack` runs in `sub` and `node $GITHUB_WORKSPACE/scripts/x.js` makes the
   file an entry ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
-- A binary that a workflow step runs with `pnpm -C sub exec` is credited to `sub` as from a `package.json` script, and
-  one that a source file runs with `cd web && pnpm --filter sub exec` is no longer credited to `web`
+- A binary that a workflow step runs with `pnpm -C sub exec` is credited to `sub` as from a `package.json` script, but
+  not after a `cd` to a directory skif cannot place (`cd /tmp/app && pnpm -C sub exec`), and one that a source file
+  runs with `cd web && pnpm --filter sub exec` is no longer credited to `web`
   ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
 - A `cd` inside a subshell no longer changes the directory of the commands after it:
   `(cd "$TMP" && tar xf a.tgz) && npm run build` follows the package's `build` script again
