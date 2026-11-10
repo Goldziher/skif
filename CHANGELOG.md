@@ -296,6 +296,14 @@ All notable changes to this project are documented here. The format follows
   package owning that module: it is no longer reported unlisted at the importing config, nor unused in the shared
   config package that lists it. `DepRef::from` of `skif-js-plugins` names that module
   ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
+- A member of a statically known object is read as the value of its key, so a shared config spread into a config
+  whose key extends it (`{ ...base, plugins: [...base.plugins, 'stylelint-own'] }`) keeps the packages the shared
+  config names: they are judged against the package owning it instead of being lost, which reported them unused there,
+  and only what the importing config adds is its own. A key the object does not have reads as `undefined`, one an
+  unknown spread may set as unknown.
+- A tool config built by a factory of a workspace package from the options it is given
+  (`export default createVitestConfig({ setupFiles: ['./setup.ts'] })`, `defineConfig(createBase(options))`) is known:
+  a factory reading `options.setupFiles ?? []` no longer leaves the package's entries incomplete.
 - The `vite`, `vitest` and `electron-vite` plugins read the build input of Vite 8 from `build.rolldownOptions.input`,
   before `build.rollupOptions.input`, as knip does: its pages and modules are entries, so their files and the
   packages they import are no longer reported unused, and a computed Rolldown input leaves the package's entries

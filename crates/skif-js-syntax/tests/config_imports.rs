@@ -150,7 +150,8 @@ fn namespace_members_required_modules_and_called_functions_are_evaluated() {
         obj(vec![
             ("a", strings(&["src/**"])),
             ("b", obj(vec![("name", s("x"))])),
-            ("c", ConfigValue::Unknown),
+            // `legacy` has no `ignored` key: the member is `undefined`.
+            ("c", ConfigValue::Null),
             ("d", obj(vec![("files", strings(&["a.js"]))])),
         ])
     );
@@ -419,6 +420,87 @@ fn the_own_spreads_of_an_imported_module_are_imported_ones() {
         obj(vec![(
             "build",
             obj(vec![("outDir", s("dist")), (UNKNOWN_SPREAD, ConfigValue::Unknown)])
+        )])
+    );
+}
+
+/// A shared config spread into a config and a member of it spread into a key the config replaces
+/// (`plugins: [...base.plugins, 'x']`) keep what the shared config names; an unknown spread after a key leaves the key
+/// unknown, and a key a known object does not have is `undefined`.
+#[test]
+fn a_member_of_an_imported_config_is_its_value() {
+    let loader = files(&[
+        (
+            "/ws/app/config.ts",
+            "import base from '@fx/base';\nimport { open } from './open';\n\
+             export default { ...base, plugins: [...base.plugins, 'stylelint-own'], rules: { ...base.rules }, \
+             a: open.a, b: open.b, c: base.missing ?? 'fallback' };",
+        ),
+        (
+            "/ws/base/index.ts",
+            "export default { customSyntax: 'postcss-scss', plugins: ['stylelint-scss'], rules: { 'scss/at-rule-no-unknown': true } };",
+        ),
+        (
+            "/ws/app/open.ts",
+            "export const open = { a: 1, ...JSON.parse(process.env.X ?? '{}') };",
+        ),
+    ]);
+    assert_eq!(
+        eval(&loader),
+        obj(vec![
+            ("customSyntax", s("postcss-scss")),
+            ("plugins", strings(&["stylelint-scss"])),
+            ("rules", obj(vec![("scss/at-rule-no-unknown", ConfigValue::Bool(true))])),
+            ("plugins", strings(&["stylelint-scss", "stylelint-own"])),
+            ("rules", obj(vec![("scss/at-rule-no-unknown", ConfigValue::Bool(true))])),
+            ("a", ConfigValue::Unknown),
+            ("b", ConfigValue::Unknown),
+            ("c", s("fallback")),
+        ])
+    );
+}
+
+/// A config factory of a workspace package is called with the arguments the config gives it: what the factory reads
+/// of its options, with defaults for those not given, is known, called directly or wrapped in `defineConfig`.
+#[test]
+fn a_workspace_factory_is_called_with_the_options_it_is_given() {
+    let factory = "import { defineConfig } from 'vitest/config';\n\
+         export function createVitestConfig(options = {}) {\n\
+           return defineConfig({ test: { globals: true, setupFiles: [...(options.setupFiles ?? []), './shared.ts'], \
+         include: options.include ?? ['src/**/*.test.ts'] } });\n\
+         }\n\
+         export const createBase = (options) => ({ test: { setupFiles: options.setupFiles, environment: options.environment } });";
+    let expected = obj(vec![(
+        "test",
+        obj(vec![
+            ("globals", ConfigValue::Bool(true)),
+            ("setupFiles", strings(&["./setup.ts", "./shared.ts"])),
+            ("include", strings(&["src/**/*.test.ts"])),
+        ]),
+    )]);
+    let direct = files(&[
+        (
+            "/ws/app/config.ts",
+            "import { createVitestConfig } from '@fx/base';\n\
+             export default createVitestConfig({ setupFiles: ['./setup.ts'] });",
+        ),
+        ("/ws/base/index.ts", factory),
+    ]);
+    assert_eq!(eval(&direct), expected);
+    let wrapped = files(&[
+        (
+            "/ws/app/config.ts",
+            "import { defineConfig } from 'vitest/config';\nimport { createBase } from '@fx/base';\n\
+             const options = { setupFiles: ['./setup.ts'], environment: 'jsdom' };\n\
+             export default defineConfig(createBase(options));",
+        ),
+        ("/ws/base/index.ts", factory),
+    ]);
+    assert_eq!(
+        eval(&wrapped),
+        obj(vec![(
+            "test",
+            obj(vec![("setupFiles", strings(&["./setup.ts"])), ("environment", s("jsdom"))]),
         )])
     );
 }
