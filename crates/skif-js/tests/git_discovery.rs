@@ -1,5 +1,6 @@
 //! `[js] discovery = "auto"` gives the result of the directory walk on a real git work tree, whatever happened on disk
-//! since the last `git add`; `git` trusts the index alone. The tests need the `git` binary and skip without it.
+//! since the last `git add`; `git` lists unchanged tracked directories from the index. The tests need the `git` binary
+//! and skip without it.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -127,16 +128,48 @@ fn untracked_files_and_directories_are_found() {
 }
 
 #[test]
-fn the_index_alone_is_blind_to_files_created_or_deleted_since_the_last_add() {
+fn an_untracked_file_older_than_the_last_index_write_is_found() {
+    let Some((_dir, root)) = repository() else { return };
+    write(&root, "src/extra.ts", "import { dead } from \"./dead\";\nexport const extra = dead;\n");
+    // Committing another file rewrites the index after `src/extra.ts` was created, so `src` is older than the index.
+    write(&root, "notes.txt", "notes\n");
+    assert!(git(&root, &["add", "notes.txt"]) && git(&root, &["commit", "-q", "-m", "notes"]));
+    let walked = same_as_the_walk(&root);
+    assert!(walked.contains(&"unused-files src/extra.ts".to_owned()), "{walked:?}");
+}
+
+#[test]
+fn the_index_listing_sees_files_created_or_deleted_since_the_index_was_written() {
     let Some((_dir, root)) = repository() else { return };
     write(&root, "src/fresh.ts", "export const fresh = 1;\n");
     fs::remove_file(root.join("src/dead.ts")).unwrap();
     let indexed = findings(&provider().0, &root, JsDiscovery::Git);
-    assert!(
-        !indexed.contains(&"unused-files src/fresh.ts".to_owned()),
-        "{indexed:?}"
-    );
+    assert!(indexed.contains(&"unused-files src/fresh.ts".to_owned()), "{indexed:?}");
     assert!(!indexed.contains(&"unused-files src/dead.ts".to_owned()), "{indexed:?}");
+}
+
+#[test]
+fn unused_files_listed_from_the_index_offer_no_deletion() {
+    let Some((_dir, root)) = repository() else { return };
+    let mut config = Config::default();
+    config.js.discovery = JsDiscovery::Git;
+    let workspace = Workspace::discover_with_fs(&root, &config, &OsFs).unwrap();
+    let diagnostics = run_unsorted(&provider().0, &workspace, &config, &RunOptions::default()).unwrap();
+    let unused: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.rule.as_str() == "unused-files")
+        .collect();
+    assert_eq!(unused.len(), 1, "{unused:?}");
+    assert!(unused[0].fixes.is_empty(), "{:?}", unused[0].fixes);
+
+    config.js.discovery = JsDiscovery::Auto;
+    let diagnostics = run_unsorted(&provider().0, &workspace, &config, &RunOptions::default()).unwrap();
+    let unused: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.rule.as_str() == "unused-files")
+        .collect();
+    assert_eq!(unused.len(), 1, "{unused:?}");
+    assert_eq!(unused[0].fixes.len(), 1);
 }
 
 #[test]

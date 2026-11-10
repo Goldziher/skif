@@ -5,11 +5,13 @@
 //! directory from the index and hands everything else to the file system it wraps.
 //!
 //! The index knows tracked files only, so by itself it is blind to a file that was created or deleted since the last
-//! `git add`. Like git's untracked cache, [`Listing::VerifyDirectories`] closes that gap cheaply: a directory is
-//! `stat`ed (no `opendir`) and compared with the modification time of the index file. A directory modified at or
-//! after that time (equal counts as modified, the racy-git rule) is listed for real, which finds untracked files and
-//! directories and drops deleted files; an older one cannot have gained or lost an entry since the index was written
-//! and is served from the index. [`Listing::IndexOnly`] skips the check and is blind to untracked and deleted files.
+//! `git add`. A directory is therefore `stat`ed (no `opendir`) and compared with the modification time of the index
+//! file. A directory modified at or after that time (equal counts as modified, the racy-git rule) is listed for real,
+//! which finds untracked files and directories and drops deleted files; an older one cannot have gained or lost an
+//! entry since the index was written and is served from the index. That is still blind to an untracked file created
+//! before the index was last written (any `git add`, `git commit` or refreshing `git status` writes it), which the
+//! index does not record, so only `[js] discovery = "git"` uses the overlay (ADR 0095). On a file system without
+//! modification times the index alone is trusted.
 //!
 //! Whatever is listed is confirmed when it is used: [`IndexedFs`] answers existence checks from the real file system,
 //! so a tracked file that was deleted is never reported as present.
@@ -31,15 +33,6 @@ const EXTENDED_SKIP_WORKTREE: u16 = 0x4000;
 const MODE_TYPE_SHIFT: u32 = 12;
 const TYPE_REGULAR: u32 = 0o10;
 const TYPE_SYMLINK: u32 = 0o12;
-
-/// How much the overlay trusts the index.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Listing {
-    /// Every tracked directory is listed from the index, whatever happened on disk since it was written.
-    IndexOnly,
-    /// A directory modified since the index was written is listed from disk, the others from the index.
-    VerifyDirectories,
-}
 
 /// The big-endian `u32` of `bytes` at `at`.
 fn be32(bytes: &[u8], at: usize) -> Option<u32> {
@@ -493,14 +486,9 @@ fn config_path(fs: &dyn FileSystem, git_dir: &Path) -> PathBuf {
 
 /// `fs` with the files tracked below `root` served from the git index, or `None` when `root` is not in a git work
 /// tree, the index cannot be read, verified or understood (another format or hash width, a split or sparse index) or
-/// nothing below `root` is tracked. With [`Listing::VerifyDirectories`] a file system that cannot report modification
-/// times is not overlaid either, because nothing could tell a changed directory from an unchanged one.
-pub(crate) fn indexed_fs(
-    fs: &Arc<dyn FileSystem>,
-    root: &Path,
-    cache: &IndexCache,
-    listing: Listing,
-) -> Option<Arc<dyn FileSystem>> {
+/// nothing below `root` is tracked. A directory modified since the index was written is listed from disk; when `fs`
+/// reports no modification time for the index, every tracked directory is listed from the index.
+pub(crate) fn indexed_fs(fs: &Arc<dyn FileSystem>, root: &Path, cache: &IndexCache) -> Option<Arc<dyn FileSystem>> {
     let (work_tree, git_dir) = locate(fs.as_ref(), root)?;
     if fs
         .read_to_string(&config_path(fs.as_ref(), &git_dir))
@@ -510,16 +498,10 @@ pub(crate) fn indexed_fs(
     }
     let index = git_dir.join("index");
     let modified = fs.modified(&index);
-    if listing == Listing::VerifyDirectories && modified.is_none() {
-        return None;
-    }
     let tracked = cache.get(fs.as_ref(), &index, modified)?;
     let tree = TrackedTree::build(root, root.strip_prefix(&work_tree).ok()?, &tracked);
     tree.dirs.contains_key(root).then_some(())?;
-    let trust = match (listing, modified) {
-        (Listing::VerifyDirectories, Some(index_modified)) => Trust::ChangedSince(index_modified),
-        _ => Trust::Always,
-    };
+    let trust = modified.map_or(Trust::Always, Trust::ChangedSince);
     Some(Arc::new(IndexedFs::new(Arc::clone(fs), tree, trust)))
 }
 
@@ -1026,9 +1008,9 @@ mod tests {
         })
     }
 
-    fn overlay(disk: &Arc<Disk>, listing: Listing) -> Option<Arc<dyn FileSystem>> {
+    fn overlay(disk: &Arc<Disk>) -> Option<Arc<dyn FileSystem>> {
         let fs: Arc<dyn FileSystem> = disk.clone();
-        indexed_fs(&fs, Path::new("/ws"), &IndexCache::default(), listing)
+        indexed_fs(&fs, Path::new("/ws"), &IndexCache::default())
     }
 
     fn listed(fs: &dyn FileSystem, dir: &str) -> Vec<String> {
@@ -1042,7 +1024,7 @@ mod tests {
     #[test]
     fn a_file_deleted_but_not_staged_is_not_listed() {
         let disk = work_tree(&["src/a.ts"], &["src/a.ts", "src/gone.ts"], &[("src", 200)]);
-        let fs = overlay(&disk, Listing::VerifyDirectories).unwrap();
+        let fs = overlay(&disk).unwrap();
         assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts"]);
         assert!(!fs.is_file(Path::new("/ws/src/gone.ts")));
         assert_eq!(fs.kind(Path::new("/ws/src/gone.ts")), PathKind::NONE);
@@ -1053,7 +1035,7 @@ mod tests {
         // The directory is older than the index (the index was refreshed after the deletion), so the listing is the
         // index's; the existence check still sees the file is gone.
         let disk = work_tree(&["src/a.ts"], &["src/a.ts", "src/gone.ts"], &[("src", 50)]);
-        let fs = overlay(&disk, Listing::VerifyDirectories).unwrap();
+        let fs = overlay(&disk).unwrap();
         assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts", "gone.ts"]);
         assert_eq!(fs.kind(Path::new("/ws/src/gone.ts")), PathKind::NONE);
         assert_eq!(fs.kind(Path::new("/ws/src/a.ts")), PathKind::FILE);
@@ -1062,7 +1044,7 @@ mod tests {
     #[test]
     fn a_new_untracked_file_is_listed_when_its_directory_changed() {
         let disk = work_tree(&["src/a.ts", "src/new.ts"], &["src/a.ts"], &[("src", 200)]);
-        let fs = overlay(&disk, Listing::VerifyDirectories).unwrap();
+        let fs = overlay(&disk).unwrap();
         assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts", "new.ts"]);
     }
 
@@ -1073,7 +1055,7 @@ mod tests {
             &["src/a.ts"],
             &[("", 200), ("src", 50)],
         );
-        let fs = overlay(&disk, Listing::VerifyDirectories).unwrap();
+        let fs = overlay(&disk).unwrap();
         assert_eq!(listed(fs.as_ref(), "/ws"), [".git", "fresh", "src"]);
         assert_eq!(listed(fs.as_ref(), "/ws/fresh"), ["deep"]);
         assert_eq!(listed(fs.as_ref(), "/ws/fresh/deep"), ["x.ts"]);
@@ -1083,43 +1065,39 @@ mod tests {
     #[test]
     fn a_directory_modified_at_the_index_time_counts_as_changed() {
         let equal = work_tree(&["src/a.ts", "src/new.ts"], &["src/a.ts"], &[("src", INDEX_TIME)]);
-        let fs = overlay(&equal, Listing::VerifyDirectories).unwrap();
+        let fs = overlay(&equal).unwrap();
         assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts", "new.ts"]);
         let older = work_tree(&["src/a.ts", "src/new.ts"], &["src/a.ts"], &[("src", INDEX_TIME - 1)]);
-        let fs = overlay(&older, Listing::VerifyDirectories).unwrap();
+        let fs = overlay(&older).unwrap();
         assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts"]);
     }
 
     #[test]
     fn a_directory_without_a_modification_time_is_listed_from_disk() {
         let disk = work_tree(&["src/a.ts", "src/new.ts"], &["src/a.ts"], &[]);
-        let fs = overlay(&disk, Listing::VerifyDirectories).unwrap();
+        let fs = overlay(&disk).unwrap();
         assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts", "new.ts"]);
     }
 
     #[test]
-    fn index_only_listings_ignore_the_directory_times() {
+    fn without_modification_times_the_index_alone_is_trusted() {
         let disk = work_tree(
             &["src/a.ts", "src/new.ts"],
             &["src/a.ts", "src/gone.ts"],
             &[("src", 200)],
         );
-        let fs = overlay(&disk, Listing::IndexOnly).unwrap();
-        assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts", "gone.ts"]);
-        assert_eq!(fs.kind(Path::new("/ws/src/gone.ts")), PathKind::NONE);
-    }
-
-    #[test]
-    fn verifying_directories_needs_modification_times() {
-        let disk = work_tree(&["src/a.ts"], &["src/a.ts"], &[]);
         let bare = Arc::new(Disk {
             times: HashMap::new(),
             files: disk.files.clone(),
             index: disk.index.clone(),
             index_reads: AtomicUsize::new(0),
         });
-        assert!(overlay(&bare, Listing::VerifyDirectories).is_none());
-        assert!(overlay(&bare, Listing::IndexOnly).is_some());
+        let fs = overlay(&bare).unwrap();
+        assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts", "gone.ts"]);
+        assert_eq!(fs.kind(Path::new("/ws/src/gone.ts")), PathKind::NONE);
+        // With the times, the changed directory is listed from disk.
+        let fs = overlay(&disk).unwrap();
+        assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts", "new.ts"]);
     }
 
     #[test]
@@ -1131,12 +1109,12 @@ mod tests {
             &[("src", 50)],
         );
         let first: Arc<dyn FileSystem> = before.clone();
-        let fs = indexed_fs(&first, Path::new("/ws"), &cache, Listing::VerifyDirectories).unwrap();
+        let fs = indexed_fs(&first, Path::new("/ws"), &cache).unwrap();
         assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts", "dead.ts"]);
 
         let after = work_tree(&["src/a.ts"], &["src/a.ts", "src/dead.ts"], &[("src", 300)]);
         let second: Arc<dyn FileSystem> = after.clone();
-        let fs = indexed_fs(&second, Path::new("/ws"), &cache, Listing::VerifyDirectories).unwrap();
+        let fs = indexed_fs(&second, Path::new("/ws"), &cache).unwrap();
         assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts"]);
     }
 
@@ -1146,10 +1124,10 @@ mod tests {
         let fs: Arc<dyn FileSystem> = disk.clone();
         let cache = IndexCache::default();
         for _ in 0..3 {
-            assert!(indexed_fs(&fs, Path::new("/ws"), &cache, Listing::VerifyDirectories).is_some());
+            assert!(indexed_fs(&fs, Path::new("/ws"), &cache).is_some());
         }
         assert_eq!(disk.index_reads.load(Ordering::SeqCst), 1);
-        assert!(indexed_fs(&fs, Path::new("/ws"), &IndexCache::default(), Listing::IndexOnly).is_some());
+        assert!(indexed_fs(&fs, Path::new("/ws"), &IndexCache::default()).is_some());
         assert_eq!(disk.index_reads.load(Ordering::SeqCst), 2);
     }
 
@@ -1158,14 +1136,14 @@ mod tests {
         let cache = IndexCache::default();
         let old = work_tree(&["a.ts"], &["a.ts"], &[]);
         let fs: Arc<dyn FileSystem> = old.clone();
-        assert!(indexed_fs(&fs, Path::new("/ws"), &cache, Listing::IndexOnly).is_some());
+        assert!(indexed_fs(&fs, Path::new("/ws"), &cache).is_some());
         let mut newer = work_tree(&["a.ts"], &["a.ts"], &[]);
         Arc::get_mut(&mut newer)
             .unwrap()
             .times
             .insert(PathBuf::from("/ws/.git/index"), at(INDEX_TIME + 5));
         let fs: Arc<dyn FileSystem> = newer.clone();
-        assert!(indexed_fs(&fs, Path::new("/ws"), &cache, Listing::IndexOnly).is_some());
+        assert!(indexed_fs(&fs, Path::new("/ws"), &cache).is_some());
         assert_eq!(newer.index_reads.load(Ordering::SeqCst), 1);
     }
 
@@ -1179,7 +1157,7 @@ mod tests {
                 "[core]\n\tbare = false\n[extensions]\n\tobjectformat = sha256\n",
             );
         }
-        assert!(overlay(&disk, Listing::IndexOnly).is_none());
+        assert!(overlay(&disk).is_none());
         let mut sha1_repository = work_tree(&["a.ts"], &["a.ts"], &[]);
         {
             let disk = Arc::get_mut(&mut sha1_repository).unwrap();
@@ -1188,7 +1166,7 @@ mod tests {
                 .clone()
                 .with_file("/ws/.git/config", "[core]\n\tbare = false\n");
         }
-        assert!(overlay(&sha1_repository, Listing::IndexOnly).is_some());
+        assert!(overlay(&sha1_repository).is_some());
     }
 
     #[test]
@@ -1204,7 +1182,7 @@ mod tests {
             times: HashMap::from([(PathBuf::from("/main/.git/worktrees/w/index"), at(INDEX_TIME))]),
             index_reads: AtomicUsize::new(0),
         });
-        assert!(overlay(&disk, Listing::IndexOnly).is_none());
+        assert!(overlay(&disk).is_none());
     }
 
     #[test]
@@ -1212,9 +1190,9 @@ mod tests {
         let disk = work_tree(&["a.ts"], &["other/a.ts"], &[]);
         let fs: Arc<dyn FileSystem> = disk.clone();
         let cache = IndexCache::default();
-        assert!(indexed_fs(&fs, Path::new("/ws/app"), &cache, Listing::IndexOnly).is_none());
+        assert!(indexed_fs(&fs, Path::new("/ws/app"), &cache).is_none());
         let plain: Arc<dyn FileSystem> = Arc::new(MemoryFs::new().with_file("/ws/a.ts", ""));
-        assert!(indexed_fs(&plain, Path::new("/ws"), &cache, Listing::IndexOnly).is_none());
+        assert!(indexed_fs(&plain, Path::new("/ws"), &cache).is_none());
     }
 
     #[test]
@@ -1229,7 +1207,7 @@ mod tests {
             index_reads: AtomicUsize::new(0),
         });
         let fs: Arc<dyn FileSystem> = disk;
-        assert!(indexed_fs(&fs, Path::new("/repo/app"), &IndexCache::default(), Listing::IndexOnly).is_some());
+        assert!(indexed_fs(&fs, Path::new("/repo/app"), &IndexCache::default()).is_some());
     }
 
     #[cfg(unix)]
@@ -1254,7 +1232,7 @@ mod tests {
         ];
         std::fs::write(root.join(".git/index"), index(2, &items, b"")).unwrap();
         let fs: Arc<dyn FileSystem> = Arc::new(skif_core::OsFs);
-        let overlay = indexed_fs(&fs, &root, &IndexCache::default(), Listing::IndexOnly).unwrap();
+        let overlay = indexed_fs(&fs, &root, &IndexCache::default()).unwrap();
         for sub in ["src", "shared"] {
             assert_eq!(
                 overlay.read_dir(&root.join(sub)).unwrap(),

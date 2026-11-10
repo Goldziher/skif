@@ -37,6 +37,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `[js] discovery = "auto"`, the default, walks the directories instead of listing tracked directories from the git
+  index. The index cannot tell whether an unchanged directory holds an untracked file created before the index was
+  last written (a `git add` or `git commit` of another file does that), and such a file, an entry or the only importer
+  of another file, then went missing: false `unused-exports` and `unused-files`, and a `--fix --allow-remove-files`
+  that deleted a tracked file only it used. `discovery = "git"` now does what `auto` did (the index, with every
+  directory modified since it was written listed from disk) instead of trusting the index alone, and its
+  `unused-files` findings offer no fix that deletes the file
+  ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
 - The shell tokenizer of the `package.json` script parser moved from `skif-js-plugins` to `skif_core::shell`
   (`tokenize`, `Tokens`, `Segment`, `Word`), so rules outside the JS analysis split command lines with it.
 
