@@ -15,6 +15,7 @@ pub(crate) mod groups;
 mod inspect;
 pub(crate) mod instances;
 mod lockfile_bans;
+mod lockfile_families;
 mod report;
 mod specifiers;
 mod state;
