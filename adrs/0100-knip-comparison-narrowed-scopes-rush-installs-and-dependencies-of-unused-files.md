@@ -24,8 +24,9 @@ gaps in what they cover, each a difference that says nothing about whether skif 
    skif does not analyse.
 3. `non-member-project` covered unused files and listed unlisted dependencies only. The other findings in the files
    of such a project (unresolved imports, exports, members) have the same cause.
-4. A dependency knip reports unused because the only files importing it are files knip lists as unused is downstream
-   of the `files` disagreement, but `in-knip-unused-file` leaves the manifest categories compared.
+4. A dependency one tool reports unused because the only files importing it are files that tool lists as unused is
+   downstream of the `files` disagreement, but `in-knip-unused-file` and `in-skif-unused-file` leave the manifest
+   categories compared.
 5. `published-source` did not follow a published path below a build directory to `src`, nor a published path without
    an extension, both of which skif maps to source.
 
@@ -91,9 +92,14 @@ apart.
 **`used-in-knip-unused-file`.** A finding only knip reports in `dependencies`, `devDependencies` or
 `optionalPeerDependencies` whose package a file of the same knip workspace imports, where knip lists that file under
 `files` and skif does not report it unused. A file both tools report unused credits the package on neither side, so a
-dependency only it imports stays compared. An `@types/` package counts as imported with its runtime package. The harness parses the files knip lists as
-unused with `skif-js-syntax` and reads their bare specifiers (imports, type imports, requires, re-exports and dynamic
-imports; not globs or test-runner mocks).
+dependency only it imports stays compared. An `@types/` package counts as imported with its runtime package. The
+harness parses the files knip lists as unused with `skif-js-syntax` and reads their bare specifiers (imports, type
+imports, requires, re-exports and dynamic imports; not globs or test-runner mocks).
+
+**`used-in-skif-unused-file`.** The mirror on skif's side, from the same import scan: a finding only skif reports in
+`dependencies`, `devDependencies` or `optionalPeerDependencies` whose package a file of the same knip workspace
+imports, where skif reports that file unused and knip does not. skif credits no import of a file it calls unused,
+while knip analyses the file and credits the import.
 
 **`published-source`.** A published path also names its source below `src` when its first directory is a build
 directory as skif decides it (`skif_js::is_out_dir`: `dist`, `lib`, `out`, `esm` and the others, also with a flavour
@@ -103,9 +109,11 @@ picks it: the first of `skif_js::source_candidates` that exists in the checkout,
 `lib/x.ts` present, `./lib/x.js` names `src/x.ts` and `lib/x.ts` stays compared. A pattern with `*` names every file
 it matches. The files that only such an entry reaches stay compared.
 
-**Precedence.** `knip-unread`, the file classifications, the wider `fixture-file`, `rush-root-file`,
-`not-judged-by-skif`, `skipped-directory`, `non-member-project`, `published-source`, `in-skif-unused-file`,
-`used-in-knip-unused-file`, then `knip-config-error`.
+**Precedence.** For a finding only knip reports: `knip-unread`, the file classifications, the wider `fixture-file`,
+`rush-root-file`, `not-judged-by-skif`, `skipped-directory`, `non-member-project`, `published-source`,
+`in-skif-unused-file`, `used-in-knip-unused-file`, then `knip-config-error`. For a finding only skif reports:
+`knip-unread`, `foreign-tsconfig-paths`, `knip-unjudged-manifest`, `in-knip-unused-file`, `used-in-skif-unused-file`,
+then `knip-config-error`.
 
 ### Consequences
 
@@ -124,7 +132,7 @@ it matches. The files that only such an entry reaches stay compared.
 
 * The harness unit tests in `tools/bench` set apart a knip-only file inside a narrowed scope and keep one outside it
   compared, treat dependencies as unjudged in any listed package, classify every in-file category below a non-member
-  project, a dependency only a knip-unused file imports, a Rush root file and the sources of build-directory and
+  project, a dependency only a file one tool alone calls unused imports (on either side), a Rush root file and the sources of build-directory and
   extensionless published paths, and write and remove the Rush scratch root manifest; they record the install and
   build commands in the install marker and refuse a checkout whose lock another holder has, until it is released.
 * `adrlint lint adrs`, `adrlint format --check adrs` and `adrlint lock --check` pass.
