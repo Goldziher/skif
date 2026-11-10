@@ -86,6 +86,15 @@ fn names(items: &[IgnoreItem]) -> Vec<String> {
     items.iter().map(|item| item.name.clone()).collect()
 }
 
+/// The directory of `package` relative to its root, `.` for the root package.
+fn own_dir(package: &Package) -> String {
+    if package.is_root {
+        ".".to_owned()
+    } else {
+        package.dir.to_string_lossy().replace('\\', "/")
+    }
+}
+
 fn normalize_dir(dir: &str) -> &str {
     let dir = dir.trim_start_matches("./").trim_end_matches('/');
     if dir.is_empty() { "." } else { dir }
@@ -266,9 +275,16 @@ impl WorkspaceKeys {
     /// The directory of `package` as the keys select it and findings spell it: `.` for the root package and its
     /// directory otherwise, joined to the anchor (see [`anchored`]).
     pub(crate) fn key_dir(&self, package: &Package) -> String {
-        let dir = package.dir.to_string_lossy().replace('\\', "/");
-        let dir = if package.is_root { "." } else { dir.as_str() };
-        anchored(self.anchor.as_deref(), dir).into_owned()
+        anchored(self.anchor.as_deref(), &own_dir(package)).into_owned()
+    }
+
+    /// The key, as written in `workspaces`, whose table configures `package`, as [`Self::table`] picks it.
+    pub(crate) fn package_key<'a>(
+        &self,
+        workspaces: &'a IndexMap<String, JsWorkspace>,
+        package: &Package,
+    ) -> Option<&'a String> {
+        self.key(workspaces, &own_dir(package))
     }
 
     /// The table of `workspaces` that stands for `dir` (`"."` or empty for the root). `workspaces` is the map the
@@ -785,7 +801,7 @@ impl Setup {
             );
             let mut plugin = WorkspaceInputs::default();
             let workspace_key = workspace_keys.key_dir(package);
-            let table_key = workspace_keys.key(&js.workspaces, &dir_name).cloned();
+            let table_key = workspace_keys.package_key(&js.workspaces, package).cloned();
             let request = InputRequest {
                 workspace,
                 package,
