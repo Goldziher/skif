@@ -301,6 +301,65 @@ module.exports = {
     );
 }
 
+/// The ESM form of the helper, which the Storybook CLI writes for pnpm and monorepo setups, names the packages too.
+#[test]
+fn storybook_esm_get_absolute_path_idiom_names_the_packages() {
+    let main = "import { dirname } from 'path';\nimport { fileURLToPath } from 'url';\n\
+        function getAbsolutePath(value: string): string {\n\
+          return dirname(fileURLToPath(import.meta.resolve(`${value}/package.json`)));\n}\n\
+        export default {\n  stories: ['../src/**/*.stories.ts'],\n\
+          addons: [getAbsolutePath('@storybook/addon-a11y'), { name: getAbsolutePath('@storybook/addon-docs') }],\n\
+          framework: { name: getAbsolutePath('@storybook/vue3-vite'), options: {} },\n\
+          core: { builder: getAbsolutePath('@storybook/builder-vite') },\n};";
+    let results = run(&[(".storybook/main.ts", main)], &["@storybook/vue3-vite"], &[]);
+    let out = output(&results, "storybook");
+    assert_eq!(
+        deps(out),
+        BTreeSet::from([
+            "@storybook/addon-a11y",
+            "@storybook/addon-docs",
+            "@storybook/builder-vite",
+            "@storybook/vue3-vite",
+        ])
+    );
+    assert!(!out.entries_incomplete, "{:?}", out.incomplete_reasons);
+}
+
+/// An addon, framework or builder whose package is not known statically leaves the packages the config needs unknown,
+/// so the package's dependencies are not judged.
+#[test]
+fn storybook_names_not_known_statically_leave_the_entries_incomplete() {
+    let cases = [
+        "import { loadAddon } from 'storybook-helpers';\n\
+         export default { addons: [loadAddon('@storybook/addon-a11y')] };",
+        "export default { addons: ['@storybook/addon-docs', { name: process.env.ADDON }] };",
+        "export default { addons: pick() };",
+        "export default { framework: pick() };",
+        "export default { framework: { name: pick(), options: {} } };",
+        "export default { core: { builder: pick() } };",
+        "export default { core: pick() };",
+    ];
+    for source in cases {
+        let results = run(&[(".storybook/main.ts", source)], &["@storybook/react"], &[]);
+        let out = output(&results, "storybook");
+        assert!(out.entries_incomplete, "{source}");
+        assert!(
+            out.incomplete_reasons
+                .iter()
+                .any(|reason| reason.cause == IncompleteCause::ComputedEntries
+                    && reason.scope == IncompleteScope::Package),
+            "{source}: {:?}",
+            out.incomplete_reasons
+        );
+    }
+    let known = "export default {\n\
+                   addons: ['@storybook/addon-docs', { name: '@storybook/addon-a11y', options: pick() }],\n\
+                   framework: { name: '@storybook/react-vite', options: pick() },\n};";
+    let results = run(&[(".storybook/main.ts", known)], &["@storybook/react"], &[]);
+    let out = output(&results, "storybook");
+    assert!(!out.entries_incomplete, "{:?}", out.incomplete_reasons);
+}
+
 /// A `reporter` list the config computes itself, or an element of it whose module is not known statically, may name
 /// any file of the package as a reporter, so none is judged; the known reporters are still entries.
 #[test]

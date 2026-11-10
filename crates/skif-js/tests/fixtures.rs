@@ -315,6 +315,19 @@ fn a_computed_playwright_reporter_list_leaves_the_package_unjudged() {
     );
 }
 
+/// The `storybook-addon-helpers` fixture: `ui` wraps its addons and framework in the ESM `getAbsolutePath` helper the
+/// Storybook CLI writes, which names the packages, so its addons are used and its dead file is judged; `docs` picks an
+/// addon at run time, so its dependencies are not judged.
+#[test]
+fn storybook_addons_behind_get_absolute_path_are_used() {
+    let diagnostics = Run::new("storybook-addon-helpers", "").lint_with_plugins();
+    assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none());
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["packages/ui/src/dead.ts: packages/ui/src/dead.ts"]
+    );
+}
+
 /// The `incomplete-judged` fixture: `narrowed` merges an unknown base into its Vitest config, so its unknown entries
 /// lie in the test scope, whose files are entries; `whole` has a Vitest config unknown as a whole. The exports, types
 /// and enum members outside the narrowed scope are judged (ADR 0081), those of the scope's setup module and of the

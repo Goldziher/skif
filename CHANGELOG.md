@@ -291,6 +291,12 @@ All notable changes to this project are documented here. The format follows
   leaves the package's entries incomplete and the whole package unjudged, as a reporter module may be any file; an
   imported base config still narrows to the test conventions
   ([#151](https://github.com/Goldziher/skif/issues/151)).
+- Storybook addons, frameworks and builders named through the `getAbsolutePath` helper the Storybook CLI writes in its
+  ESM form (`` dirname(fileURLToPath(import.meta.resolve(`${value}/package.json`))) ``) are credited, as the CommonJS
+  form already was: `skif-js-syntax` evaluates `import.meta.resolve(x)` to `x` and the directory of a resolved
+  `<package>/package.json` to the package. An `addons` element, `framework` or `core.builder` whose package is not
+  known statically now leaves the package's entries incomplete, so its dependencies are not judged, instead of being
+  skipped ([#152](https://github.com/Goldziher/skif/issues/152)).
 - `skif -r --config <FILE>` applied the file's `[js.workspaces]` tables and `ignore-workspaces` globs to every root as
   if written relative to each, so `[js.workspaces."."]` configured every nested root and `stale-js-config` reported
   its entries once per root where they matched nothing. The keys and globs of an explicit file are now relative to

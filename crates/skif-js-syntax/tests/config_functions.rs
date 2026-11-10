@@ -129,6 +129,50 @@ fn storybook_idiom_with_the_path_namespace() {
     assert_eq!(get(&extract("main.js", source), &["addons"]), &strings(&["a-addon"]));
 }
 
+/// The directory of a package's resolved manifest is the package, in the ESM form the Storybook CLI writes too; the
+/// directory of a relative manifest stays a path.
+#[test]
+fn resolved_package_manifest_directories_are_the_package() {
+    let cases = [
+        (
+            "import { dirname } from 'path';\nimport { fileURLToPath } from 'url';\n\
+             function getAbsolutePath(value: string): string {\n\
+               return dirname(fileURLToPath(import.meta.resolve(`${value}/package.json`)));\n}\n\
+             export default { addons: [getAbsolutePath('@storybook/addon-a11y')] };",
+            "@storybook/addon-a11y",
+        ),
+        (
+            "import path from 'node:path';\nimport url from 'node:url';\n\
+             const pkg = (v) => path.dirname(url.fileURLToPath(import.meta.resolve(path.join(v, 'package.json'))));\n\
+             export default { addons: [pkg('a-addon')] };",
+            "a-addon",
+        ),
+        (
+            "import { dirname } from 'path';\n\
+             export default { addons: [dirname(require.resolve('b-addon/package.json'))] };",
+            "b-addon",
+        ),
+        (
+            "import { dirname } from 'path';\n\
+             export default { addons: [dirname(require.resolve('./local/package.json'))] };",
+            "./local",
+        ),
+    ];
+    for (source, expected) in cases {
+        assert_eq!(get(&extract("main.ts", source), &["addons"]), &strings(&[expected]), "{source}");
+    }
+}
+
+#[test]
+fn import_meta_resolve_is_the_specifier() {
+    let value = extract(
+        "c.mjs",
+        "export default { loader: import.meta.resolve('css-loader'), local: import.meta.resolve('./loader.js') };",
+    );
+    assert_eq!(get(&value, &["loader"]), &s("css-loader"));
+    assert_eq!(get(&value, &["local"]), &s("./loader.js"));
+}
+
 #[test]
 fn glob_calls_become_their_patterns() {
     let cases = [

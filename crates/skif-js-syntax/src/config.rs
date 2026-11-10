@@ -371,9 +371,10 @@ pub trait ModuleLoader {
 /// function the tool calls (the exported config function, the callback given to `defineConfig`) is passed what the
 /// config does not say, so each of its parameters is unknown, a default included: `(env = {}) => env.analyze ? a : b`
 /// keeps both branches. `await x` and
-/// `Promise.resolve(x)` evaluate to `x`; `require.resolve('pkg')` evaluates to `'pkg'`, and the storybook idiom
-/// `dirname(require.resolve(join('pkg', 'package.json')))` to `'pkg'`. A call of a glob function (`glob`,
-/// `fast-glob`, `globby`, `tinyglobby`, however imported) evaluates to the array of its literal patterns, so a
+/// `Promise.resolve(x)` evaluate to `x`; `require.resolve('pkg')` and `import.meta.resolve('pkg')` evaluate to
+/// `'pkg'`, and the storybook idioms `dirname(require.resolve(join('pkg', 'package.json')))` and
+/// `` dirname(fileURLToPath(import.meta.resolve(`${pkg}/package.json`))) `` to `'pkg'`. A call of a glob function
+/// (`glob`, `fast-glob`, `globby`, `tinyglobby`, however imported) evaluates to the array of its literal patterns, so a
 /// dynamic `entry` becomes entry globs. `process.cwd()` and a first `path.resolve` argument that is not absolute are
 /// taken to be the config file's directory, which is right when the tool runs from the package that holds the
 /// config and a heuristic otherwise. The directory itself is `"."`, so `dirname(__dirname)` is `".."`. A URL with a
@@ -2409,45 +2410,64 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         values
     }
 
-    /// `dirname(require.resolve(join(pkg, 'package.json')))`, the directory of a package, which is `pkg` itself.
+    /// The directory of a package's manifest, which is the package itself: `dirname(require.resolve(join(pkg,
+    /// 'package.json')))`, the idiom the Storybook CLI writes, also with `import.meta.resolve` for `require.resolve`,
+    /// its URL turned into a path with `fileURLToPath`, and the manifest written as a string
+    /// (`` `${pkg}/package.json` ``, `'pkg/package.json'`) instead of the `join`. A manifest of a relative or absolute
+    /// path is not a package's.
     fn package_directory(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
         if !self.is_path_function(&call.callee, "dirname") {
             return None;
         }
-        let Some(Expression::CallExpression(resolve)) = single_argument(call).map(Expression::get_inner_expression)
-        else {
+        let mut resolved = single_argument(call)?.get_inner_expression();
+        if let Expression::CallExpression(to_path) = resolved
+            && self.is_file_url_to_path(&to_path.callee)
+        {
+            resolved = single_argument(to_path)?.get_inner_expression();
+        }
+        let Expression::CallExpression(resolve) = resolved else {
             return None;
         };
-        if !is_require_resolve(resolve) {
+        if !is_module_resolve(resolve) {
             return None;
         }
-        let Some(Expression::CallExpression(join)) = single_argument(resolve).map(Expression::get_inner_expression)
-        else {
+        let manifest = single_argument(resolve)?.get_inner_expression();
+        if let Expression::CallExpression(join) = manifest
+            && self.is_path_function(&join.callee, "join")
+        {
+            let mut arguments = join.arguments.iter().filter_map(Argument::as_expression);
+            let (package, file) = (arguments.next()?, arguments.next()?);
+            if arguments.next().is_some() || static_string(file).as_deref() != Some("package.json") {
+                return None;
+            }
+            return Some(self.expr(package, depth));
+        }
+        let Value::String(manifest) = self.expr(manifest, depth) else {
             return None;
         };
-        if !self.is_path_function(&join.callee, "join") {
-            return None;
-        }
-        let mut arguments = join.arguments.iter().filter_map(Argument::as_expression);
-        let (package, file) = (arguments.next()?, arguments.next()?);
-        if arguments.next().is_some() || static_string(file).as_deref() != Some("package.json") {
-            return None;
-        }
-        Some(self.expr(package, depth))
+        let package = manifest.strip_suffix("/package.json")?;
+        let bare = !package.is_empty() && !package.starts_with(['.', '/', '\\']) && !package.contains(':');
+        bare.then(|| Value::String(package.to_owned()))
     }
 
-    /// `require.resolve(x)` and `Promise.resolve(x)`, which evaluate to `x`.
+    /// Whether `callee` is `fileURLToPath` of the `url` module, however it was imported.
+    fn is_file_url_to_path(&self, callee: &Expression<'_>) -> bool {
+        match callee.get_inner_expression() {
+            Expression::Identifier(id) => self.bindings.file_url_to_path.contains(id.name.as_str()),
+            Expression::StaticMemberExpression(member) => {
+                member.property.name.as_str() == "fileURLToPath"
+                    && matches!(
+                        member.object.get_inner_expression(),
+                        Expression::Identifier(object) if self.bindings.url_modules.contains(object.name.as_str())
+                    )
+            }
+            _ => false,
+        }
+    }
+
+    /// `require.resolve(x)`, `import.meta.resolve(x)` and `Promise.resolve(x)`, which evaluate to `x`.
     fn resolve_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
-        let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
-            return None;
-        };
-        let Expression::Identifier(object) = member.object.get_inner_expression() else {
-            return None;
-        };
-        let known = matches!(
-            (object.name.as_str(), member.property.name.as_str()),
-            ("require" | "Promise", "resolve")
-        );
+        let known = is_module_resolve(call) || is_resolve_of(call, "Promise");
         known.then(|| single_argument(call).map_or(Value::Unknown, |arg| self.expr(arg, depth)))
     }
 
@@ -3703,12 +3723,24 @@ fn required_package(call: &CallExpression<'_>, depth: u32) -> Option<Value> {
     (!module.starts_with(['.', '/'])).then_some(Value::String(module))
 }
 
-fn is_require_resolve(call: &CallExpression<'_>) -> bool {
+/// Whether `call` resolves a module specifier: `require.resolve(…)` or `import.meta.resolve(…)`.
+fn is_module_resolve(call: &CallExpression<'_>) -> bool {
+    is_resolve_of(call, "require")
+        || matches!(
+            call.callee.get_inner_expression(),
+            Expression::StaticMemberExpression(m)
+                if m.property.name.as_str() == "resolve"
+                    && matches!(m.object.get_inner_expression(), Expression::ImportMeta(_))
+        )
+}
+
+/// Whether `call` is `<object>.resolve(…)` of the global `object`.
+fn is_resolve_of(call: &CallExpression<'_>, object: &str) -> bool {
     matches!(
         call.callee.get_inner_expression(),
         Expression::StaticMemberExpression(m)
             if m.property.name.as_str() == "resolve"
-                && matches!(m.object.get_inner_expression(), Expression::Identifier(o) if o.name.as_str() == "require")
+                && matches!(m.object.get_inner_expression(), Expression::Identifier(o) if o.name.as_str() == object)
     )
 }
 

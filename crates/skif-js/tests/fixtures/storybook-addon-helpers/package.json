@@ -1,0 +1,5 @@
+{
+  "name": "fx-root",
+  "private": true,
+  "workspaces": ["packages/*"]
+}
