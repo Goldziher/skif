@@ -158,17 +158,19 @@ fn parse_block(
     let collected = collect::collect(&ctx, &ret.program, &mut info);
     finder::Finder::new(&ctx, &mut info, &ret.program).visit_program(&ret.program);
     info.imports.sort_by_key(|i| i.span.start);
+    // One semantic analysis serves every pass below that needs scopes; it is built only if one does.
+    let analysis = semantic::Analysis::new(&ret.program, options.in_file_references);
     if options.member_accesses {
         let excluded: HashSet<(u32, u32)> = collected.reexport_spans.iter().copied().collect();
-        members::track(&ret.program, &mut info, &excluded);
+        members::track(&ret.program, &analysis, &mut info, &excluded);
         if let Some(uses) = uses {
-            *uses = members::uses(&ret.program);
+            *uses = members::uses(&ret.program, &analysis);
         }
     }
     if options.in_file_references {
-        mark_in_file_references(&ret.program, &collected.export_clause_spans, &mut info);
+        mark_in_file_references(&analysis, &collected.export_clause_spans, &mut info);
         signature_refs::mark(&ret.program, &mut info);
-        members::mark_local_reads(&ret.program, &mut info);
+        members::mark_local_reads(&ret.program, &analysis, &mut info);
     }
     info.directives = ret
         .program
@@ -176,7 +178,7 @@ fn parse_block(
         .iter()
         .map(|d| d.directive.as_str().to_string())
         .collect();
-    custom_elements::mark(&ret.program, &mut info);
+    custom_elements::mark(&ret.program, &analysis, &mut info);
     comments::collect(&ctx, &ret.program, &mut info);
     info.commands = commands::child_process_commands(&ret.program, &info.imports);
     info
@@ -303,7 +305,7 @@ fn add_style_and_source_imports(info: &mut ModuleInfo, blocks: &sfc::Blocks, sou
     info.imports.sort_by_key(|import| import.span.start);
 }
 
-fn mark_in_file_references(program: &oxc_ast::ast::Program<'_>, excluded: &[oxc_span::Span], info: &mut ModuleInfo) {
+fn mark_in_file_references(analysis: &semantic::Analysis<'_>, excluded: &[oxc_span::Span], info: &mut ModuleInfo) {
     let wanted: HashSet<String> = info
         .exports
         .iter()
@@ -315,7 +317,7 @@ fn mark_in_file_references(program: &oxc_ast::ast::Program<'_>, excluded: &[oxc_
         })
         .filter_map(|e| e.local_name.clone())
         .collect();
-    let referenced = semantic::referenced_locals(program, &wanted, excluded);
+    let referenced = semantic::referenced_locals(analysis, &wanted, excluded);
     for export in &mut info.exports {
         let used = export.local_name.as_ref().is_some_and(|l| referenced.contains(l))
             && !matches!(

@@ -13,9 +13,10 @@ use oxc_ast::ast::{
     StaticMemberExpression, TSQualifiedName, TSTypeName, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
-use oxc_semantic::{Scoping, SemanticBuilder};
+use oxc_semantic::Scoping;
 
 use crate::model::{ImportKind, ModuleInfo};
+use crate::semantic::Analysis;
 
 /// How one name is used in a program: the members read through it and how many uses there are in all.
 #[derive(Default)]
@@ -249,7 +250,12 @@ fn spied_member<'c, 'a>(call: &'c CallExpression<'a>) -> Option<(&'c IdentifierR
 /// Fills `accessed_members` and `escapes` of every bound import name from uses in `program`.
 ///
 /// `excluded` holds the `(start, end)` spans of identifiers that mention a binding without using it.
-pub(crate) fn track(program: &oxc_ast::ast::Program<'_>, info: &mut ModuleInfo, excluded: &HashSet<(u32, u32)>) {
+pub(crate) fn track(
+    program: &oxc_ast::ast::Program<'_>,
+    analysis: &Analysis<'_>,
+    info: &mut ModuleInfo,
+    excluded: &HashSet<(u32, u32)>,
+) {
     let mut slots = HashMap::new();
     let mut scoped = HashSet::new();
     for import in &info.imports {
@@ -265,12 +271,11 @@ pub(crate) fn track(program: &oxc_ast::ast::Program<'_>, info: &mut ModuleInfo, 
     if slots.is_empty() {
         return;
     }
-    let scoping = SemanticBuilder::new().build(program).semantic.into_scoping();
     let mut tracker = Tracker {
         slots,
         open: false,
         excluded,
-        scoping: &scoping,
+        scoping: analysis.scoping(),
         scoped: Some(scoped),
     };
     tracker.visit_program(program);
@@ -291,14 +296,13 @@ pub(crate) fn track(program: &oxc_ast::ast::Program<'_>, info: &mut ModuleInfo, 
 
 /// The uses of every name in `program`, imported or not. Component files use it to credit imports of one script
 /// block that another block reads.
-pub(crate) fn uses(program: &oxc_ast::ast::Program<'_>) -> Uses {
+pub(crate) fn uses(program: &oxc_ast::ast::Program<'_>, analysis: &Analysis<'_>) -> Uses {
     let excluded = HashSet::new();
-    let scoping = SemanticBuilder::new().build(program).semantic.into_scoping();
     let mut tracker = Tracker {
         slots: Uses::new(),
         open: true,
         excluded: &excluded,
-        scoping: &scoping,
+        scoping: analysis.scoping(),
         scoped: None,
     };
     tracker.visit_program(program);
@@ -421,7 +425,7 @@ impl<'a> Visit<'a> for LocalReads<'_> {
 
 /// Fills [`crate::model::Export::members_read_in_file`] of every enum and namespace export from the uses in `program`:
 /// `E.A` anywhere in the file, and a namespace member read by its bare name inside the namespace body.
-pub(crate) fn mark_local_reads(program: &oxc_ast::ast::Program<'_>, info: &mut ModuleInfo) {
+pub(crate) fn mark_local_reads(program: &oxc_ast::ast::Program<'_>, analysis: &Analysis<'_>, info: &mut ModuleInfo) {
     let wanted: HashSet<String> = info
         .exports
         .iter()
@@ -450,7 +454,7 @@ pub(crate) fn mark_local_reads(program: &oxc_ast::ast::Program<'_>, info: &mut M
         }
     }
     if !namespaces.is_empty() {
-        for (name, members) in crate::semantic::namespace_bare_reads(program, &namespaces) {
+        for (name, members) in crate::semantic::namespace_bare_reads(program, analysis, &namespaces) {
             tracker.reads.entry(name).or_default().extend(members);
         }
     }
