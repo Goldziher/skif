@@ -2,7 +2,8 @@
 # Tests the release scripts against stubs and fixtures, so the first real tag is not their first run:
 #   homebrew-update.sh, scoop-update.sh   formula and manifest output from a checksums.txt (missing asset, bad hash)
 #   publish-crates.sh                     crates.io probe 200 / 404 / 429 and the publish order, with stub cargo and curl
-#   release-bump.sh, check-versions.sh    a bump on a temp copy of the tree, then the consistency check
+#   release-bump.sh, check-versions.sh    a bump on a temp copy of the tree, then the consistency check and the
+#   check-doc-pins.sh                     documentation pins it rewrites
 #   check-archive.sh, check-release-gate.sh, check-npm-tarballs.sh, check-glibc-floor.sh, e2e/resolve-pm-version.sh
 #
 # Usage: scripts/test-release-scripts.sh
@@ -179,7 +180,7 @@ crates_case "a missing VERSION is refused" 1 404 ok VERSION=
 tree="${work}/tree"
 mkdir -p "$tree"
 tar -cf - Cargo.toml Cargo.lock crates/*/Cargo.toml npm-package/package.json poly-hooks.toml .pre-commit-hooks.yaml action.yml scripts \
-  .github/workflows/publish.yaml |
+  .github/workflows/publish.yaml README.md CONTRIBUTING.md website/src/content/docs |
   tar -xf - -C "$tree"
 current="$(bash scripts/check-versions.sh 2>/dev/null | sed -n 's/.*agree on \(.*\)/\1/p')"
 [[ -n "$current" ]] || fail "check-versions: the repository itself is inconsistent"
@@ -219,6 +220,22 @@ cat "${work}/package.json" >"${tree}/npm-package/package.json"
 expect "check-versions catches a drifted npm version" 1 bash "${tree}/scripts/check-versions.sh" 9.8.7
 expect_in_out "check-versions drift" "npm-package/package.json version"
 
+# The documentation pins follow a final release and stay on the previous one through a pre-release.
+integrations="${tree}/website/src/content/docs/guides/integrations.mdx"
+grep -qF 'Goldziher/skif@v9' "${tree}/README.md" || fail "release-bump: README Action pin"
+grep -qF 'rev: v9.8.7' "${tree}/README.md" || fail "release-bump: README pre-commit rev"
+grep -qF 'revision = "v9.8.7"' "$integrations" || fail "release-bump: Poly revision"
+grep -qF 'Goldziher/skif@v9' "${tree}/website/src/content/docs/start/quickstart.mdx" || fail "release-bump: quickstart Action pin"
+expect "check-doc-pins after the bump" 0 bash "${tree}/scripts/check-doc-pins.sh" 9.8.7
+expect "release-bump to a pre-release" 0 env SKIP_CARGO_UPDATE=1 bash "${tree}/scripts/release-bump.sh" 9.9.0-rc.1
+expect_in_out "release-bump pre-release pins" "9.9.0-rc.1 is a pre-release, left unchanged"
+grep -qF 'rev: v9.8.7' "${tree}/README.md" || fail "release-bump: a pre-release moved the pre-commit rev"
+expect "release-bump to a 0.x release" 0 env SKIP_CARGO_UPDATE=1 bash "${tree}/scripts/release-bump.sh" 0.7.1
+grep -qF 'Goldziher/skif@v0.7' "${tree}/README.md" || fail "release-bump: a 0.x release floats as v0.M"
+grep -qF 'rev: v0.7.1' "$integrations" || fail "release-bump: 0.x pre-commit rev"
+[[ "$(grep -c 'Goldziher/skif@v' "$integrations")" -eq "$(grep -c 'Goldziher/skif@v0\.7$' "$integrations")" ]] ||
+  fail "release-bump: an Action pin in integrations.mdx was not rewritten"
+
 # ---------------------------------------------------------------- check-archive
 archive_dir="${work}/archives"
 mkdir -p "${archive_dir}/full" "${archive_dir}/bare"
@@ -239,7 +256,7 @@ fi
 expect "check-archive needs an archive" 2 bash scripts/check-archive.sh
 
 # ---------------------------------------------------------------- check-npm-tarballs
-platforms=(darwin-arm64 darwin-x64 linux-arm64-gnu linux-arm64-musl linux-x64-gnu linux-x64-musl)
+platforms=(darwin-arm64 darwin-x64 linux-arm64-gnu linux-arm64-musl linux-x64-gnu linux-x64-musl win32-arm64-msvc win32-x64-msvc)
 
 # pack_tarball <directory> <tarball name> <package.json content> <member...>: a tarball whose members all sit under package/.
 pack_tarball() {
@@ -255,7 +272,7 @@ pack_tarball() {
   tar czf "${out}/${name}" -C "$stage" package
 }
 
-# npm_fixture <directory> <version>: the complete umbrella plus the six platform packages.
+# npm_fixture <directory> <version>: the complete umbrella plus the eight platform packages.
 npm_fixture() {
   local out="$1" version="$2" optional platform
   mkdir -p "$out"
@@ -273,7 +290,12 @@ expect "check-npm-tarballs accepts the complete set" 0 bash scripts/check-npm-ta
 npm_fixture "${work}/npm-missing" 1.2.3
 rm "${work}/npm-missing/skif-linux-x64-musl-1.2.3.tgz"
 expect "check-npm-tarballs rejects a missing platform package" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-missing" 1.2.3
-expect_in_out "check-npm-tarballs missing platform" "not the umbrella plus the six platform packages"
+expect_in_out "check-npm-tarballs missing platform" "not the umbrella plus the eight platform packages"
+
+npm_fixture "${work}/npm-no-windows" 1.2.3
+rm "${work}/npm-no-windows/skif-win32-arm64-msvc-1.2.3.tgz"
+expect "check-npm-tarballs rejects a set without a Windows package" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-no-windows" 1.2.3
+expect_in_out "check-npm-tarballs missing Windows platform" "skif-win32-arm64-msvc-1.2.3.tgz"
 
 # GNU tar fails on a closed pipe (bsdtar exits 0), so a reader that stops at its first match reports a present member as
 # missing under pipefail. The stub keeps listing past the pipe buffer and dies the same way on every platform.
@@ -306,6 +328,11 @@ npm_fixture "${work}/npm-no-addon" 1.2.3
 pack_tarball "${work}/npm-no-addon" skif-linux-x64-gnu-1.2.3.tgz '{}' LICENSE ATTRIBUTIONS.md
 expect "check-npm-tarballs rejects a platform package without its addon" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-no-addon" 1.2.3
 expect_in_out "check-npm-tarballs missing addon" "skif.linux-x64-gnu.node"
+
+npm_fixture "${work}/npm-no-windows-addon" 1.2.3
+pack_tarball "${work}/npm-no-windows-addon" skif-win32-x64-msvc-1.2.3.tgz '{}' LICENSE ATTRIBUTIONS.md
+expect "check-npm-tarballs rejects a Windows package without its addon" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-no-windows-addon" 1.2.3
+expect_in_out "check-npm-tarballs missing Windows addon" "skif.win32-x64-msvc.node"
 
 npm_fixture "${work}/npm-bad-optional" 1.2.3
 pack_tarball "${work}/npm-bad-optional" skif-cli-1.2.3.tgz '{"optionalDependencies": {"skif-darwin-arm64": "1.2.3"}}' \

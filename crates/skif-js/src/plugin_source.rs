@@ -10,7 +10,7 @@ use crate::config_check::relative_tsconfig;
 use crate::config_modules::ConfigModules;
 use crate::input::{
     BuildDir, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope, InputRequest, InputSource,
-    PathAlias, WorkspaceInputs,
+    PathAlias, RunBinary, WorkspaceInputs,
 };
 use crate::setup::WorkspaceKeys;
 
@@ -205,6 +205,14 @@ fn inputs(output: PluginOutput) -> WorkspaceInputs {
         virtual_modules: output.virtual_modules,
         dependencies: names(&output.referenced_dependencies, false).collect(),
         binaries: output.referenced_binaries,
+        run_binaries: output
+            .run_binaries
+            .into_iter()
+            .map(|run| RunBinary {
+                name: run.name,
+                file: run.from,
+            })
+            .collect(),
         config_files: output.config_files,
         aliases: output
             .aliases

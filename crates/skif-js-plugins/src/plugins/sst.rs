@@ -1,11 +1,15 @@
 //! SST: the function handlers of `sst.config.ts`, written as a `handler` property (`new sst.aws.Function("Api",
 //! { handler: "src/api.handler" })`) or as the handler of `api.route("GET /", "src/get.handler")`, in the config or in
 //! the modules it imports by relative path (`await import("./infra/api")`, `./infra/api.js` for `infra/api.ts`), are
-//! production entries.
+//! production entries. SST 2 stacks, which `sst.config.ts` imports (`app.stack(API)` with `API` from `./stacks/API`),
+//! are read the same way, along with the shorthand of SST 2 constructs that names a handler as a plain string: the
+//! values of `routes`, `subscribers`, `notifications` and `targets` (`"GET /": "src/list.main"`) and a `function`,
+//! `job` or `consumer` string (`{ function: "src/create.main" }`). SST 3 accepts a `function` string as well.
 
 use std::collections::BTreeSet;
+use std::path::Path;
 
-use skif_js_syntax::{ImportKind, ParseOptions, extract_property_values, parse_module};
+use skif_js_syntax::{ConfigValue, ImportKind, ParseOptions, extract_property_values, parse_module};
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::support::{is_relative, join_rel, leaf_strings, parent_dir};
@@ -46,6 +50,7 @@ impl Plugin for Sst {
             for value in extract_property_values(&source, &path, "handler") {
                 handlers.extend(leaf_strings(&value).into_iter().map(str::to_owned));
             }
+            handlers.extend(shorthand_handlers(&source, &path));
             handlers.extend(route_handlers(&source));
             let options = ParseOptions {
                 in_file_references: false,
@@ -125,6 +130,35 @@ fn handler_entry(handler: &str, base: &str) -> Option<PluginInput> {
         format!("{module}.{{{}}}", EXTENSIONS.join(","))
     };
     Some(PluginInput::ProductionEntry(join_rel(base, &file)))
+}
+
+/// Keys of SST 2 constructs whose object maps names to functions, each written as a handler string or an object.
+const FUNCTION_MAPS: &[&str] = &["routes", "subscribers", "notifications", "targets"];
+
+/// Keys whose string value is a handler (`job: "src/cron.handler"`); an object value holds a `handler` or `function`.
+const FUNCTION_KEYS: &[&str] = &["function", "job", "consumer"];
+
+/// The handlers written in the string shorthand of SST constructs: the string values of a [`FUNCTION_MAPS`] object
+/// and a string under one of [`FUNCTION_KEYS`]. An object value is not read here: its `handler` or `function` is
+/// found on its own.
+fn shorthand_handlers(source: &str, path: &Path) -> Vec<String> {
+    let maps = FUNCTION_MAPS.iter().flat_map(|key| {
+        extract_property_values(source, path, key)
+            .into_iter()
+            .flat_map(|value| match value {
+                ConfigValue::Object(entries) => entries
+                    .into_iter()
+                    .filter_map(|(_, value)| value.as_str().map(str::to_owned))
+                    .collect::<Vec<_>>(),
+                _ => Vec::new(),
+            })
+    });
+    let keys = FUNCTION_KEYS.iter().flat_map(|key| {
+        extract_property_values(source, path, key)
+            .into_iter()
+            .filter_map(|value| value.as_str().map(str::to_owned))
+    });
+    maps.chain(keys).collect()
 }
 
 /// The string literal handlers of `.route(<route>, "<handler>")` calls, read from the text.

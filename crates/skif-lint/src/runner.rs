@@ -133,12 +133,13 @@ pub fn run(
     config: &Config,
     options: &RunOptions<'_>,
 ) -> Result<Report, LintError> {
-    let (diagnostics, incomplete_packages, other_project_files) = collect(registry, workspace, config, options)?;
+    let collected = collect(registry, workspace, config, options)?;
     let root_stand_in = usize::from(!workspace.has_root_manifest());
     Ok(
-        Report::new(diagnostics, workspace.all_packages().count() - root_stand_in)
-            .with_incomplete_packages(incomplete_packages)
-            .with_other_project_files(other_project_files),
+        Report::new(collected.diagnostics, workspace.all_packages().count() - root_stand_in)
+            .with_incomplete_packages(collected.incomplete_packages)
+            .with_other_project_files(collected.other_project_files)
+            .with_ancestor_dependency_uses(collected.ancestor_dependency_uses),
     )
 }
 
@@ -155,15 +156,23 @@ pub fn run_unsorted(
     config: &Config,
     options: &RunOptions<'_>,
 ) -> Result<Vec<Diagnostic>, LintError> {
-    collect(registry, workspace, config, options).map(|(diagnostics, _, _)| diagnostics)
+    collect(registry, workspace, config, options).map(|collected| collected.diagnostics)
 }
 
-/// The diagnostics in merge order, the packages the providers could not judge and the files of other projects the
-/// analysed code imports.
-type Collected = (Vec<Diagnostic>, Vec<IncompletePackage>, Vec<PathBuf>);
+/// What the providers of a run recorded.
+struct Collected {
+    /// The diagnostics, in merge order.
+    diagnostics: Vec<Diagnostic>,
+    /// The packages the providers could not judge.
+    incomplete_packages: Vec<IncompletePackage>,
+    /// The files of other projects the analysed code imports.
+    other_project_files: Vec<PathBuf>,
+    /// The dependencies the analysed code uses through manifests above the workspace root.
+    ancestor_dependency_uses: Vec<(PathBuf, String)>,
+}
 
-/// Runs every enabled rule and returns the diagnostics, the incomplete packages and the files of other projects the
-/// providers recorded.
+/// Runs every enabled rule and returns the diagnostics, the incomplete packages, the files of other projects and the
+/// ancestor dependency uses the providers recorded.
 fn collect(
     registry: &Registry,
     workspace: &Workspace,
@@ -213,6 +222,12 @@ fn execute(registry: &Registry, cx: &LintContext<'_>, options: &RunOptions<'_>) 
         return Err(LintError::Cancelled);
     }
     let other_project_files = root.take_other_project_files();
+    let ancestor_dependency_uses = root.take_ancestor_dependency_uses();
     let (diagnostics, incomplete_packages) = root.into_parts();
-    Ok((diagnostics, incomplete_packages, other_project_files))
+    Ok(Collected {
+        diagnostics,
+        incomplete_packages,
+        other_project_files,
+        ancestor_dependency_uses,
+    })
 }

@@ -1,12 +1,13 @@
-//! Members read through imported bindings (`ns.a`, `Enum.A`, `const { a } = ns`, `ns.Type`).
+//! Members read through imported bindings (`ns.a`, `Enum.A`, `const { a } = ns`, `ns.Type`, and the member a test
+//! runner spies on, `vi.spyOn(ns, "a")`).
 //!
 //! Matching is by name, not by scope: a shadowing local with the same name can only make a binding look more used.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use oxc_ast::ast::{
-    BindingPattern, ComputedMemberExpression, Expression, IdentifierReference, StaticMemberExpression, TSQualifiedName,
-    TSTypeName, VariableDeclarator,
+    Argument, BindingPattern, CallExpression, ComputedMemberExpression, Expression, IdentifierReference,
+    StaticMemberExpression, TSQualifiedName, TSTypeName, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 
@@ -89,6 +90,13 @@ impl<'a> Visit<'a> for Tracker<'_> {
         walk::walk_ts_qualified_name(self, it);
     }
 
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        if let Some((object, member)) = spied_member(it) {
+            self.member(object, &member);
+        }
+        walk::walk_call_expression(self, it);
+    }
+
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
         if let Some(Expression::Identifier(id)) = it.init.as_ref().map(Expression::get_inner_expression)
             && let BindingPattern::ObjectPattern(pattern) = &it.id
@@ -108,6 +116,27 @@ impl<'a> Visit<'a> for Tracker<'_> {
         }
         walk::walk_variable_declarator(self, it);
     }
+}
+
+/// The object and the member of a test runner's spy on a named member: `vi.spyOn(ns, "a")`, `jest.spyOn(ns, "a")` and
+/// Jasmine's `spyOn(ns, "a")` read `a` of `ns` and nothing else of it.
+fn spied_member<'c>(call: &'c CallExpression<'_>) -> Option<(&'c str, String)> {
+    let is_spy = match &call.callee {
+        Expression::StaticMemberExpression(callee) => {
+            callee.property.name.as_str() == "spyOn"
+                && matches!(&callee.object, Expression::Identifier(runner) if matches!(runner.name.as_str(), "vi" | "jest"))
+        }
+        Expression::Identifier(callee) => callee.name.as_str() == "spyOn",
+        _ => false,
+    };
+    if !is_spy {
+        return None;
+    }
+    let Some(Argument::Identifier(object)) = call.arguments.first() else {
+        return None;
+    };
+    let member = crate::finder::static_string(call.arguments.get(1)?.as_expression()?)?;
+    Some((object.name.as_str(), member))
 }
 
 /// Fills `accessed_members` and `escapes` of every bound import name from uses in `program`.

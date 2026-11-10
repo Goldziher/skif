@@ -32,8 +32,11 @@ The flags matter because they change what the old tool checked: `knip --dependen
 `--from auto` (the default) migrates every tool that has a file, a `package.json` key or a script in the project.
 
 Scripts are found behind package-manager launchers (`pnpm exec knip`, `npx knip`, `npm run knip -- --include files`),
-environment prefixes (`CI=1 knip`, `cross-env`, `dotenv --`), `turbo run` and `nx exec`, and inside `concurrently "knip"
-"syncpack lint"` and `sh -c`. A script that names the tool in any other command is reported, because its flags were not
+environment prefixes (`CI=1 knip`, `cross-env`, `dotenv --`), `turbo run` and `nx exec`, as the package's entry file
+(`node ./node_modules/knip/bin/knip.js`), and inside `concurrently "knip" "syncpack lint"` and `sh -c`. A command that
+runs another script named like the tool (`"ci": "pnpm run knip"` next to a `knip` script) is not a run of its own; when
+it passes arguments on (`pnpm run knip -- --include files`), it is a run with that script's flags and those. A switch
+given as `--production=false` is off. A script that names the tool in any other command is reported, because its flags were not
 read. Each command of a script is one run of the old tool, but skif has one configuration: when two runs of a tool pass
 different flags, the result is their union (or, for `[js] production`, left out) and the report names both scripts.
 
@@ -70,6 +73,7 @@ mapping is read from the sources of the tools (sherif 1.13, syncpack 15.3, knip 
 | `workspace-protocol`, `local-path-dependency`, `incompatible-peer-dependencies`, `member-toolchain-fields` | none of the three |
 | `unparseable-files` | none: knip skips a file it cannot parse without reporting it |
 | `stale-js-config` | none unless `treatConfigHintsAsErrors` is set: skif's configuration hints differ from knip's |
+| `stale-mocks` | none: knip does not read the specifiers of `vi.mock`, `jest.mock` and the like, so the `exact` profile turns it off |
 
 Migrated tools are combined: a rule is kept when any of them runs it. Without sherif, for example,
 `unmatched-workspace-patterns` is turned off.
@@ -93,7 +97,8 @@ Every construct that was not copied one to one has a note with the file, the key
 | sherif | skif |
 | --- | --- |
 | `ignoreRule`, `-r` | `[rules] <id> = "off"`, with the rule ids renamed (`multiple-dependency-versions` is `version-mismatch`, `unordered-dependencies` is `unsorted-dependencies`, ...). A rule that another migrated tool still checks stays on and the report says so (H): a repository that ignores `multiple-dependency-versions` in sherif because syncpack owns it keeps syncpack's version groups |
-| `ignorePackage`, `-p` | `[workspace] ignore-packages` |
+| `ignorePackage`, `-p` | `[workspace] ignore-packages`, a path without its `./` prefix (`./apps/*` is `apps/*`): skif matches a package's directory relative to the root. A path written without `./` matched no package in sherif and does in skif (A) |
+| `multiple-dependency-versions` | `[policy] dependency-types = ["prod", "dev"]`, the sections sherif compares. sherif never compares a dependency with the version of the workspace package it names, and skif does not either without `local` in the list ([ADR 0072](https://github.com/Goldziher/skif/blob/main/adrs/0072-a-policy-scope-without-local-leaves-the-own-versions-out.md)). Migrated with syncpack, the list is the union of both scopes. When sherif ignores `multiple-dependency-versions`, no scope is written |
 | `ignoreDependency`, `-i` | `[[ignore]]` with `rules = ["version-mismatch"]`, the only rule sherif applied it to |
 | `ignoreDependency` as `name@version` | the same entry, noted as approximate (below) |
 | `failOnWarnings`, `--fail-on-warnings` | `[lint] fail-on-warnings` |
@@ -111,19 +116,59 @@ sherif saw no mismatch. The report says so for each such entry. Where that matte
 The [GitHub Action](../integrations/#github-action) applies this translation on its own to a project that has no skif
 configuration yet, so a job that replaces sherif keeps its flags.
 
+### Fixed relative to sherif
+
+Porting the rules fixed these behaviours of sherif 1.13.0. The ones marked **changes results** can make a CI job that
+moves from sherif to skif report something sherif did not, or exit with a different code, on an unchanged repository.
+
+- **Prerelease ordering.** sherif lets the prerelease tag decide the order before the version numbers, so
+  `15.0.0-rc.0` ranks below `14.2.3` and `--fix --select highest` rewrites the prerelease to the older stable version
+  ([QuiiBz/sherif#164](https://github.com/QuiiBz/sherif/issues/164)). skif orders versions as npm does: a prerelease
+  ranks below its own release only, so `version-mismatch` aligns on `15.0.0-rc.0` and reports `14.2.3`.
+  **Changes results**: the package reported, and the version a fix writes, can differ.
+- **Ranges and dist-tags are compared.** sherif leaves out of `multiple-dependency-versions` every specifier its
+  parser rejects: npm ranges such as `>=1.2.0 <2.0.0` or `^1.0.0 || ^2.0.0`, and dist-tags such as `latest`. skif
+  parses npm's range syntax, so these take part in `version-mismatch`; `latest` or a dist-tag that differs from the
+  other specifiers is reported as a mismatch that has no fix. **Changes results**: new `version-mismatch` errors.
+- **Workspace patterns follow pnpm.** sherif expands `**` one level deep, reads a negation as a literal directory (so
+  `!**/test/**` excludes nothing), and matches a name prefix below the root (`packages/foo-*`) against the whole
+  pattern, so it finds nothing there. skif matches `**` at any depth (only directories with a `package.json`, so the
+  directories in between are not reported as missing a manifest;
+  [QuiiBz/sherif#161](https://github.com/QuiiBz/sherif/issues/161)), applies glob negations such as `!**/test/**`, and
+  matches `packages/foo-*`. **Changes results**: packages sherif skipped are linted.
+- **The install step.** After a fix sherif picks the package manager from the lockfiles of the current directory,
+  asks when there is none, and runs it in the current directory; on Windows it cannot start the `.cmd` shim corepack
+  installs ([QuiiBz/sherif#110](https://github.com/QuiiBz/sherif/issues/110)). skif takes the `packageManager` field
+  first, then the lockfiles of the workspace root, never asks, runs the install in the workspace root, and finds the
+  executable through `PATHEXT`.
+- **CI detection.** sherif refuses `--fix` whenever `CI` is set, including `CI=false`. skif refuses it only when `CI`
+  is truthy: set, not empty, and not `0`, `false`, `no` or `off`.
+- **Exit codes.** sherif exits `1` both for findings and when it cannot run (no workspace declaration, an invalid
+  `package.json`, a failed install). skif exits `1` for findings only and `2` when it cannot run (see
+  [Exit codes](../../reference/cli/#exit-codes)). **Changes results**: a script that tests for exit `1` misses a run
+  that failed.
+- **No workspace declaration.** sherif stops with an error when the root has neither `workspaces` nor
+  `pnpm-workspace.yaml`. skif lints such a package on its own (see
+  [Single packages](../workspaces/#single-packages)). **Changes results**: a run that failed now reports findings.
+
+skif also covers an open sherif request: `incompatible-peer-dependencies` (a warning by default) reports a
+`devDependencies` version outside the package's own `peerDependencies` range
+([QuiiBz/sherif#63](https://github.com/QuiiBz/sherif/issues/63)); with `fail-on-warnings` it fails the run. The rules
+skif adds beyond sherif's are listed under the [report](#the-report)'s extra checks.
+
 ## syncpack
 
 | syncpack | skif |
 | --- | --- |
 | `versionGroups[]` with `label`, `dependencies`, `packages`, `dependencyTypes`, `specifierTypes` | `[[version-groups]]` with the same keys |
-| `isBanned`, `isIgnored`, `pinVersion`, `snapTo`, `preferVersion`, `policy: sameRange`, `policy: sameMinor` | `policy = "banned"`, `"ignored"`, `"pinned"` with `pin`, `"snapped-to"` with `snap-to`, `prefer`, `"same-range"`, `"same-minor"` |
-| `policy: catalog` | `[catalog] mode = "prefer"` when the group selects every dependency. A group with `dependencies`, `packages`, `dependencyTypes` or `specifierTypes` is not written (H): the catalog setting is global, so writing it would check every dependency |
+| `isBanned`, `isIgnored`, `pinVersion`, `snapTo`, `preferVersion`, `policy: sameRange`, `policy: sameMinor` | `policy = "banned"`, `"ignored"`, `"pinned"` with `pin`, `"snapped-to"` with `snap-to`, `prefer`, `"same-range"`, `"same-minor"`. As in syncpack, a `policy` wins over `snapTo`; `preferVersion` with `policy: sameMinor` is not written (A), since a skif same-minor group picks no version to align on |
+| `policy: catalog` | `[catalog] mode = "prefer"` when the group selects every dependency (A: skif reports a dependency without `catalog:` as a warning, and only when at least `min-packages` packages use it; syncpack reports every instance as an error). A group with `dependencies`, `packages`, `dependencyTypes` or `specifierTypes` is not written (H): the catalog setting is global, so writing it would check every dependency |
 | `policy: semverRangeOnly` | `policy = "semver-range-only"` |
 | `severity` | none (H): levels are set per rule |
 | `semverGroups[]` with `range` | `[[semver-groups]]` |
 | `semverGroups[]` with `isIgnored` or `isDisabled` | `[[semver-groups]]` with `ignored = true` |
 | `dependencyTypes` with `prod`, `dev`, `peer`, `local`, `resolutions`, `overrides`, `pnpmOverrides` and `!` negation | the same tokens (`pnpmOverrides` is `pnpm-overrides`) |
-| `dependencyTypes: ["**"]` | no `dependency-types` key: every type |
+| `dependencyTypes: ["**"]` | no `dependency-types` key: every type (`dependencies` and `packages` of `["**"]` select everything too) |
 | `specifierTypes` | `specifier-types` with the types skif knows; `hosted-git` is `git` (A), `**` is no filter, and a type skif does not know (`delete`) is dropped (A) or, when the group selects only such types, the group is not written (X) |
 | `customTypes` with `strategy` `name@version`, `version`, `versionsByName` or `name~version` | `[[custom-types]]` with `name`, `path` and `strategy` (`"name@version"`, `"version"`, `"versions-by-name"`, `"name~version"` with `name-path` from `namePath`) |
 | a custom type whose name is a built-in token (`dev`, `overrides`, ...) | `[[custom-types]]` under `<name>-custom` (A); groups that name the token select the built-in type |
@@ -135,7 +180,13 @@ configuration yet, so a job that replaces sherif keeps its flags.
 | `updateGroups[]` with `target` or `isIgnored` | `[[update-groups]]` with `target` or `ignored = true`, and the same selectors; a group with both, neither, or another target is not written (H) |
 | `minimumReleaseAge`, `maxConcurrentRequests` | `[update] minimum-release-age`, `max-concurrent-requests` |
 | the override sections (`pnpmOverrides`, `overrides`, `resolutions`) | `[policy] override-reading = "syncpack"`: an override key is its own dependency, so `parent@4>child` is not compared with `child`; nested objects and `pnpm.overrides` of a `package.json` are not read, as in syncpack 15 (`pnpmOverrides` is the `overrides` of `pnpm-workspace.yaml`). Without it skif would compare them with the dependency they replace |
-| `--dependency-types` | `[policy] dependency-types` |
+| `--dependency-types` | `[policy] dependency-types`. syncpack filters every instance by it before a group sees one, so a group's `dependencyTypes` is cut to that scope, and a group left with no type is not written |
+
+A comment above a group in a YAML or JSON-with-comments `.syncpackrc` (or a JavaScript config) is written as a comment
+above its `[[version-groups]]`, `[[semver-groups]]` or `[[update-groups]]` entry, after the line naming where the group
+came from. Groups are matched to their comments by position, so the comment on a spread or on a group after one is not
+carried over, since the spread changes the positions. sherif's configuration is a `package.json` key, and JSON has no comments, so there is nothing to carry over
+from it.
 
 Without `--dependency-types`, `[policy] dependency-types` is set to the scope syncpack lints by default (`prod`, `dev`,
 `peer`, `local`, `resolutions`, `overrides`, `pnpm-overrides` and your custom types; optional dependencies are not part
@@ -186,8 +237,47 @@ regular expression literal in a JavaScript or TypeScript config, are written as 
 `literal*` and `literal`. A pattern that only ends in `*` (`@org/*`) stays a glob; knip would have compiled it as a
 regular expression matching a superset of that.
 
+A comment on an entry of an ignore list (`ignoreDependencies`, `ignoreBinaries`, `ignoreUnresolved`, `ignoreMembers`,
+`ignoreFiles`, `ignoreWorkspaces`) becomes its `reason`: a comment on the lines directly above the entry, or after it
+on the line where it ends, in any knip configuration file (`knip.json`, `knip.jsonc`, `.knip.json`, `.knip.jsonc`,
+`knip.{js,ts,mjs,cjs,mts,cts}`, `knip.config.*`); the `knip` key of `package.json` is JSON and has none. A list
+written as a top-level constant and named by the key (`const deps = [...]; export default { ignoreDependencies: deps
+}`) keeps its comments too; the entries a spread (`...shared`) brings in do not. Entries without a comment stay plain
+strings.
+
+```ts
+workspaces: {
+    'packages/app': {
+        ignoreDependencies: [
+            // false positive: loaded by the bundler from a config string
+            'some-loader',
+        ],
+    },
+},
+```
+
+becomes
+
+```toml
+[js.workspaces."packages/app"]
+ignore-dependencies = [
+  { name = "some-loader", reason = "false positive: loaded by the bundler from a config string" },
+]
+```
+
+so `skif --require-ignore-reasons` can enforce a reason on every entry from then on. A comment separated from the entry
+by a blank line, or on the line of the opening bracket, is not attached, and tool directives such as
+`// eslint-disable-next-line` are left out.
+
 Settings that knip scopes to one workspace stay in that workspace's table. `--workspace` narrowed the old run to some
 workspaces; it is not written to the configuration, and the script can pass the same `--workspace` to skif.
+
+knip merges the tsconfig `paths` of every workspace, so a package could import through the `paths` of another one.
+`skif migrate` translates configuration and does not analyse the sources, so its report cannot list such imports: in
+a workspace of several packages it adds an approximate note, at `tsconfig paths`, that says so. The imports appear on
+the first `skif` run as `unlisted-dependencies` findings with the detail `ForeignTsconfigPaths`, each naming the
+tsconfig that declares the pattern (a config the package's own one extends, when the `paths` are inherited). Add the mapping to the importing package's tsconfig, or import the module
+by its package name; adding a dependency does not fix them.
 
 ## Several tools
 
@@ -215,6 +305,39 @@ knip's levels, removes `[js] enabled = false`, and leaves rules the first step a
 yourself, and `off` values that came from a tool's own configuration (`ignoreRule`, knip's `rules`), always win. One
 case is only seen in a single run: when sherif ignores a rule that syncpack keeps checking, migrate both together so the
 rule stays on.
+
+## Adopting skif on an existing repository
+
+A repository rarely starts clean. Record what is there as a baseline, fix it over time, and keep CI from accepting new
+findings:
+
+```sh
+skif baseline write             # record every error and warning in skif.baseline.toml
+skif                            # clean: skif.toml now extends the baseline
+skif baseline prune             # after fixing some findings, drop the entries that match nothing
+skif baseline check --base origin/main   # in CI: fail when the baseline gained entries
+```
+
+`write` adds one `[[ignore]]` entry per finding, with the rule, the package and the dependency:
+
+```toml
+[[ignore]]
+rules = ["version-mismatch"]
+packages = ["@acme/web"]
+dependencies = ["react@^17.0.2"]
+reason = "baseline"
+```
+
+Version findings are recorded as `name@specifier`, so a baselined `react@^17.0.2` silences that version only; a
+package that moves to another version, or a new package, is reported again. This replaces a script that shrinks
+sherif's `ignoreDependency` to the variants still reported, and per-member `pinVersion` groups in syncpack. Edit a
+`reason` to say why an entry stays; later runs of `write` and `prune` keep it, and `--require-ignore-reasons` accepts
+the entries. `check` compares entries by what they suppress, so a reworded reason never fails it. A finding that has
+no package or dependency (a finding about the workspace as a whole) is not recorded, since its entry would
+turn the rule off; fix it or set the rule's level instead. Neither is a finding in a root `package.json` without a
+`name`, since no `[[ignore]]` package pattern selects the root alone; give the root a unique `name` to record it. Entries are as narrow as `[[ignore]]` allows: an
+`unused-exports` entry covers every unused export of its package until it is pruned. See the
+[CLI reference](../../reference/cli/#baseline) for the flags.
 
 ## What stays by hand
 

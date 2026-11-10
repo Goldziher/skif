@@ -20,6 +20,8 @@ static SPEC: PluginSpec = PluginSpec {
     entry: &[
         "**/__tests__/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
         "**/*.{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        // Jest's `**/?(*.)+(spec|test).[jt]s?(x)` also matches a file named just `test.js` or `spec.ts`.
+        "**/{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
         "**/__mocks__/**/*.{js,ts,jsx,tsx}",
     ],
     package_json_key: Some("jest"),

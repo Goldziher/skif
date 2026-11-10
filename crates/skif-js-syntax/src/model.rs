@@ -32,6 +32,171 @@ pub enum ImportKind {
     Mock,
 }
 
+/// A test-runner call that names a module, recorded on an [`ImportKind::Mock`] import. It serializes as the call is
+/// written (`"vi.mock"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum MockCall {
+    /// `vi.mock("x")`.
+    #[serde(rename = "vi.mock")]
+    ViMock,
+    /// `vi.doMock("x")`.
+    #[serde(rename = "vi.doMock")]
+    ViDoMock,
+    /// `vi.unmock("x")`.
+    #[serde(rename = "vi.unmock")]
+    ViUnmock,
+    /// `vi.doUnmock("x")`.
+    #[serde(rename = "vi.doUnmock")]
+    ViDoUnmock,
+    /// `vi.importActual("x")`.
+    #[serde(rename = "vi.importActual")]
+    ViImportActual,
+    /// `vi.importMock("x")`.
+    #[serde(rename = "vi.importMock")]
+    ViImportMock,
+    /// `jest.mock("x")`.
+    #[serde(rename = "jest.mock")]
+    JestMock,
+    /// `jest.doMock("x")`.
+    #[serde(rename = "jest.doMock")]
+    JestDoMock,
+    /// `jest.unmock("x")`.
+    #[serde(rename = "jest.unmock")]
+    JestUnmock,
+    /// `jest.dontMock("x")`.
+    #[serde(rename = "jest.dontMock")]
+    JestDontMock,
+    /// `jest.requireActual("x")`.
+    #[serde(rename = "jest.requireActual")]
+    JestRequireActual,
+    /// `jest.requireMock("x")`.
+    #[serde(rename = "jest.requireMock")]
+    JestRequireMock,
+    /// `jest.createMockFromModule("x")`.
+    #[serde(rename = "jest.createMockFromModule")]
+    JestCreateMockFromModule,
+    /// `jest.genMockFromModule("x")`.
+    #[serde(rename = "jest.genMockFromModule")]
+    JestGenMockFromModule,
+    /// `rs.mock("x")` (also written `rstest.mock`).
+    #[serde(rename = "rs.mock")]
+    RsMock,
+    /// `rs.mockRequire("x")` (also written `rstest.mockRequire`).
+    #[serde(rename = "rs.mockRequire")]
+    RsMockRequire,
+    /// `rs.doMock("x")` (also written `rstest.doMock`).
+    #[serde(rename = "rs.doMock")]
+    RsDoMock,
+    /// `rs.doMockRequire("x")` (also written `rstest.doMockRequire`).
+    #[serde(rename = "rs.doMockRequire")]
+    RsDoMockRequire,
+    /// `rs.unmock("x")` (also written `rstest.unmock`).
+    #[serde(rename = "rs.unmock")]
+    RsUnmock,
+    /// `rs.doUnmock("x")` (also written `rstest.doUnmock`).
+    #[serde(rename = "rs.doUnmock")]
+    RsDoUnmock,
+    /// `rs.unmockRequire("x")` (also written `rstest.unmockRequire`).
+    #[serde(rename = "rs.unmockRequire")]
+    RsUnmockRequire,
+    /// `rs.doUnmockRequire("x")` (also written `rstest.doUnmockRequire`).
+    #[serde(rename = "rs.doUnmockRequire")]
+    RsDoUnmockRequire,
+    /// `rs.importActual("x")` (also written `rstest.importActual`).
+    #[serde(rename = "rs.importActual")]
+    RsImportActual,
+    /// `rs.importMock("x")` (also written `rstest.importMock`).
+    #[serde(rename = "rs.importMock")]
+    RsImportMock,
+    /// `rs.requireActual("x")` (also written `rstest.requireActual`).
+    #[serde(rename = "rs.requireActual")]
+    RsRequireActual,
+    /// `rs.requireMock("x")` (also written `rstest.requireMock`).
+    #[serde(rename = "rs.requireMock")]
+    RsRequireMock,
+}
+
+impl MockCall {
+    /// Every call: the `vi` ones, then the `jest` ones, then rstest's (<https://rstest.rs/api/runtime-api/rstest/mock-modules>).
+    pub const ALL: [Self; 26] = [
+        Self::ViMock,
+        Self::ViDoMock,
+        Self::ViUnmock,
+        Self::ViDoUnmock,
+        Self::ViImportActual,
+        Self::ViImportMock,
+        Self::JestMock,
+        Self::JestDoMock,
+        Self::JestUnmock,
+        Self::JestDontMock,
+        Self::JestRequireActual,
+        Self::JestRequireMock,
+        Self::JestCreateMockFromModule,
+        Self::JestGenMockFromModule,
+        Self::RsMock,
+        Self::RsMockRequire,
+        Self::RsDoMock,
+        Self::RsDoMockRequire,
+        Self::RsUnmock,
+        Self::RsDoUnmock,
+        Self::RsUnmockRequire,
+        Self::RsDoUnmockRequire,
+        Self::RsImportActual,
+        Self::RsImportMock,
+        Self::RsRequireActual,
+        Self::RsRequireMock,
+    ];
+
+    /// The call as written: `vi.mock`, `jest.requireActual`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ViMock => "vi.mock",
+            Self::ViDoMock => "vi.doMock",
+            Self::ViUnmock => "vi.unmock",
+            Self::ViDoUnmock => "vi.doUnmock",
+            Self::ViImportActual => "vi.importActual",
+            Self::ViImportMock => "vi.importMock",
+            Self::JestMock => "jest.mock",
+            Self::JestDoMock => "jest.doMock",
+            Self::JestUnmock => "jest.unmock",
+            Self::JestDontMock => "jest.dontMock",
+            Self::JestRequireActual => "jest.requireActual",
+            Self::JestRequireMock => "jest.requireMock",
+            Self::JestCreateMockFromModule => "jest.createMockFromModule",
+            Self::JestGenMockFromModule => "jest.genMockFromModule",
+            Self::RsMock => "rs.mock",
+            Self::RsMockRequire => "rs.mockRequire",
+            Self::RsDoMock => "rs.doMock",
+            Self::RsDoMockRequire => "rs.doMockRequire",
+            Self::RsUnmock => "rs.unmock",
+            Self::RsDoUnmock => "rs.doUnmock",
+            Self::RsUnmockRequire => "rs.unmockRequire",
+            Self::RsDoUnmockRequire => "rs.doUnmockRequire",
+            Self::RsImportActual => "rs.importActual",
+            Self::RsImportMock => "rs.importMock",
+            Self::RsRequireActual => "rs.requireActual",
+            Self::RsRequireMock => "rs.requireMock",
+        }
+    }
+
+    /// The call `object.property`, when it is one. `rstest` is an alias of `rs`.
+    #[must_use]
+    pub fn find(object: &str, property: &str) -> Option<Self> {
+        let object = if object == "rstest" { "rs" } else { object };
+        Self::ALL
+            .into_iter()
+            .find(|call| call.as_str().split_once('.') == Some((object, property)))
+    }
+}
+
+impl std::fmt::Display for MockCall {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Which export of the target module a binding refers to.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -72,6 +237,9 @@ pub struct Import {
     pub kind: ImportKind,
     /// Bindings it brings in.
     pub names: Vec<ImportedName>,
+    /// The test-runner call of an [`ImportKind::Mock`] (`vi.mock`, `jest.requireActual`); `None` for every other kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call: Option<MockCall>,
     /// Location of the whole statement or call.
     pub span: Span,
 }
@@ -271,6 +439,10 @@ pub struct ModuleInfo {
     /// exist already and declares nothing on its own.
     #[serde(default)]
     pub augmented_modules: Vec<String>,
+    /// The command lines the file runs through `node:child_process` (`execSync('tsc -b')`, `spawn('eslint', ['.'])`),
+    /// in source order without duplicates; only literal commands. They are parsed like the scripts of `package.json`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commands: Vec<String>,
     /// Syntax errors the parser recovered from; the other fields describe the recovered program. For component
     /// files, the issues of every script block.
     pub parse_diagnostics: Vec<ParseIssue>,

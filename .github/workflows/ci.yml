@@ -217,7 +217,7 @@ jobs:
         run: bash scripts/test-npm-published.sh
       - name: Test the release scripts (Homebrew, Scoop, crates.io, version bump, archive and release gates)
         run: bash scripts/test-release-scripts.sh
-      - name: Test the repository guards (pins, headers, rule ids, plugin lists, layering, package contents, oxc patch, npm smoke)
+      - name: Test the repository guards (pins, headers, rule ids, plugin lists, doc pins, layering, package contents, oxc patch, npm smoke)
         run: bash scripts/test-check-scripts.sh
       - name: Test the install scripts (pre-commit launcher and the Action's resolve, install and run steps)
         run: bash scripts/test-install-scripts.sh
@@ -299,6 +299,8 @@ jobs:
       - uses: actions/checkout@v7
       - name: Check that every release surface agrees on one version
         run: scripts/check-versions.sh
+      - name: Check that the documentation examples pin the current release line
+        run: scripts/check-doc-pins.sh
       - name: Check that oxc is pinned exactly and dependencies are inherited from the workspace
         run: scripts/check-pins.sh
       - name: Check the syncpack-vendored files' attribution headers and ATTRIBUTIONS.md

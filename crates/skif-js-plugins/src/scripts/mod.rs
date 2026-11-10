@@ -2,7 +2,8 @@
 //!
 //! The parser is a pure, never-panicking, best-effort interpreter of POSIX-style command lines. It
 //! understands quoting, separators (`&&`, `||`, `;`, `|`, `&`), subshells, command substitution,
-//! redirections, environment assignments and the argument conventions of the common package
+//! redirections, here-documents (whose bodies are input, not commands), `case` patterns, the functions a script
+//! defines (calling one runs no binary), environment assignments and the argument conventions of the common package
 //! managers (`npm`, `npx`, `pnpm`, `yarn`, `bun`), process wrappers (`cross-env`, `dotenv`, ...),
 //! task runners (`concurrently`, `npm-run-all`, `turbo`) and script runners (`node`, `tsx`,
 //! `ts-node`, ...). Nothing is executed and the file system is never consulted.
@@ -108,6 +109,9 @@ pub struct BinaryUse {
     pub span: Range<usize>,
     /// How the binary was reached.
     pub via: BinaryVia,
+    /// The command spells the binary as a `node_modules/.bin` path (`./node_modules/.bin/tsc`), so it has to be
+    /// installed as a dependency's binary rather than found on the `PATH`.
+    pub bin_path: bool,
     /// The command targets another workspace (`pnpm --filter web exec vitest`), so the binary
     /// belongs to that workspace's manifest rather than the current one.
     pub filtered: bool,

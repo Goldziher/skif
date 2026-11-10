@@ -7,7 +7,7 @@ expression: "redact(&json.stdout, dir.path())"
   "skif": "0.2.0",
   "error": {
     "kind": "config",
-    "message": "[ROOT]/skif.toml:2:1: unknown field `bogus`, expected `fail-on-warnings` or `max-level`",
+    "message": "[ROOT]/skif.toml:2:1: unknown field `bogus`, expected one of `fail-on-warnings`, `max-level`, `require-ignore-reasons`",
     "path": "[ROOT]/skif.toml",
     "line": 2,
     "column": 1

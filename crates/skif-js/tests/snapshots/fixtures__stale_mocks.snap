@@ -1,0 +1,204 @@
+---
+source: crates/skif-js/tests/fixtures.rs
+expression: diagnostics
+---
+[
+  {
+    "rule": "stale-mocks",
+    "severity": "error",
+    "message": "`vi.mock('./gone')` names a module that does not exist",
+    "help": "remove the call, or point it at the module's new path",
+    "location": {
+      "path": "src/a.test.ts",
+      "span": {
+        "start": 69,
+        "end": 104,
+        "start-line": 4,
+        "start-col": 1,
+        "end-line": 4,
+        "end-col": 36
+      }
+    },
+    "package": "stale-mocks"
+  },
+  {
+    "rule": "stale-mocks",
+    "severity": "error",
+    "message": "`jest.mock('./gone-jest')` names a module that does not exist",
+    "help": "remove the call, or point it at the module's new path",
+    "location": {
+      "path": "src/legacy.test.ts",
+      "span": {
+        "start": 0,
+        "end": 24,
+        "start-line": 1,
+        "start-col": 1,
+        "end-line": 1,
+        "end-col": 25
+      }
+    },
+    "package": "stale-mocks"
+  },
+  {
+    "rule": "stale-mocks",
+    "severity": "error",
+    "message": "`jest.doMock('./gone-jest-do-mock')` names a module that does not exist",
+    "help": "remove the call, or point it at the module's new path",
+    "location": {
+      "path": "src/legacy.test.ts",
+      "span": {
+        "start": 26,
+        "end": 72,
+        "start-line": 2,
+        "start-col": 1,
+        "end-line": 2,
+        "end-col": 47
+      }
+    },
+    "package": "stale-mocks"
+  },
+  {
+    "rule": "stale-mocks",
+    "severity": "error",
+    "message": "`jest.requireActual('./gone-required')` names a module that does not exist",
+    "help": "remove the call, or point it at the module's new path",
+    "location": {
+      "path": "src/legacy.test.ts",
+      "span": {
+        "start": 151,
+        "end": 188,
+        "start-line": 4,
+        "start-col": 16,
+        "end-line": 4,
+        "end-col": 53
+      }
+    },
+    "package": "stale-mocks"
+  },
+  {
+    "rule": "stale-mocks",
+    "severity": "error",
+    "message": "`vi.doMock('./gone-do-mock')` names a module that does not exist",
+    "help": "remove the call, or point it at the module's new path",
+    "location": {
+      "path": "src/variants.test.ts",
+      "span": {
+        "start": 71,
+        "end": 98,
+        "start-line": 4,
+        "start-col": 1,
+        "end-line": 4,
+        "end-col": 28
+      }
+    },
+    "package": "stale-mocks"
+  },
+  {
+    "rule": "stale-mocks",
+    "severity": "error",
+    "message": "`vi.unmock('./gone-unmock')` names a module that does not exist",
+    "help": "remove the call, or point it at the module's new path",
+    "location": {
+      "path": "src/variants.test.ts",
+      "span": {
+        "start": 100,
+        "end": 126,
+        "start-line": 5,
+        "start-col": 1,
+        "end-line": 5,
+        "end-col": 27
+      }
+    },
+    "package": "stale-mocks"
+  },
+  {
+    "rule": "stale-mocks",
+    "severity": "error",
+    "message": "`vi.mock('./missing-icon.svg?react')` names a module that does not exist",
+    "help": "remove the call, or point it at the module's new path",
+    "location": {
+      "path": "src/variants.test.ts",
+      "span": {
+        "start": 157,
+        "end": 192,
+        "start-line": 7,
+        "start-col": 1,
+        "end-line": 7,
+        "end-col": 36
+      }
+    },
+    "package": "stale-mocks"
+  },
+  {
+    "rule": "stale-mocks",
+    "severity": "error",
+    "message": "`vi.mock('@/lib/gone')` names a module that does not exist",
+    "help": "remove the call, or point it at the module's new path",
+    "location": {
+      "path": "src/variants.test.ts",
+      "span": {
+        "start": 217,
+        "end": 238,
+        "start-line": 9,
+        "start-col": 1,
+        "end-line": 9,
+        "end-col": 22
+      }
+    },
+    "package": "stale-mocks"
+  },
+  {
+    "rule": "stale-mocks",
+    "severity": "error",
+    "message": "`vi.importActual('./gone-actual')` names a module that does not exist",
+    "help": "remove the call, or point it at the module's new path",
+    "location": {
+      "path": "src/variants.test.ts",
+      "span": {
+        "start": 342,
+        "end": 374,
+        "start-line": 14,
+        "start-col": 16,
+        "end-line": 14,
+        "end-col": 48
+      }
+    },
+    "package": "stale-mocks"
+  },
+  {
+    "rule": "stale-mocks",
+    "severity": "error",
+    "message": "`vi.mock('./gone-typed')` names a module that does not exist",
+    "help": "remove the call, or point it at the module's new path",
+    "location": {
+      "path": "src/variants.test.ts",
+      "span": {
+        "start": 395,
+        "end": 438,
+        "start-line": 16,
+        "start-col": 1,
+        "end-line": 16,
+        "end-col": 44
+      }
+    },
+    "package": "stale-mocks"
+  },
+  {
+    "rule": "unresolved-imports",
+    "severity": "error",
+    "message": "cannot resolve `./missing-import`",
+    "help": "check the path, the `tsconfig` paths, the bundler aliases and the package `exports`",
+    "location": {
+      "path": "src/variants.test.ts",
+      "span": {
+        "start": 43,
+        "end": 69,
+        "start-line": 2,
+        "start-col": 1,
+        "end-line": 2,
+        "end-col": 27
+      }
+    },
+    "package": "stale-mocks"
+  }
+]

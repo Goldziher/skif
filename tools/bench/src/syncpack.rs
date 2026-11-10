@@ -191,13 +191,13 @@ fn translate(text: &str) -> Result<Translated, String> {
     })
 }
 
-/// The `--dependency-types` value for a fixture's `[policy] dependency-types` (or the default): always with `local`.
+/// The `--dependency-types` value for a fixture's `[policy] dependency-types`: skif's default scope (with `local`) when
+/// the list is absent or empty, the list itself otherwise, which takes the own versions out on both sides when it
+/// does not name `local` (ADR 0072).
 fn dependency_types(translated: Option<&str>) -> String {
     match translated {
-        None => DEFAULT_DEPENDENCY_TYPES.to_owned(),
-        Some(types) if types.split(',').any(|t| t == "local") => types.to_owned(),
-        Some("") => "local".to_owned(),
-        Some(types) => format!("{types},local"),
+        None | Some("") => DEFAULT_DEPENDENCY_TYPES.to_owned(),
+        Some(types) => types.to_owned(),
     }
 }
 
@@ -813,11 +813,11 @@ range = "~"
     }
 
     #[test]
-    fn syncpack_is_always_asked_for_the_local_instance() {
+    fn syncpack_is_asked_for_the_local_instance_when_the_scope_selects_it() {
         assert_eq!(dependency_types(None), "prod,dev,local");
-        assert_eq!(dependency_types(Some("prod,dev")), "prod,dev,local");
+        assert_eq!(dependency_types(Some("")), "prod,dev,local");
+        assert_eq!(dependency_types(Some("prod,dev")), "prod,dev");
         assert_eq!(dependency_types(Some("dev,local")), "dev,local");
-        assert_eq!(dependency_types(Some("")), "local");
     }
 
     #[test]

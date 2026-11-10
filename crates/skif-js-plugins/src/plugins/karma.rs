@@ -1,4 +1,5 @@
-//! Karma: the frameworks and plugins of the config are packages, `files` are entries.
+//! Karma: the frameworks and plugins of the config are packages (`jasmine` also needs `jasmine-core`), `files` are
+//! entries.
 
 use skif_js_syntax::ConfigValue;
 
@@ -27,11 +28,13 @@ impl Plugin for Karma {
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut out = Vec::new();
         if let Some(frameworks) = config.value.get("frameworks") {
-            out.extend(
-                strings(frameworks)
-                    .into_iter()
-                    .map(|name| PluginInput::Dependency(conventional(name, "karma"))),
-            );
+            for name in strings(frameworks) {
+                out.push(PluginInput::Dependency(conventional(name, "karma")));
+                // `karma-jasmine` runs the specs with the `jasmine-core` its user installs (a peer dependency).
+                if name == "jasmine" {
+                    out.push(PluginInput::Dependency("jasmine-core".to_owned()));
+                }
+            }
         }
         if let Some(plugins) = config.value.get("plugins") {
             out.extend(

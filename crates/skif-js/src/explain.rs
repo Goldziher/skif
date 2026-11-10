@@ -40,6 +40,9 @@ pub enum EntryReason {
     Published,
     /// Matched by an entry glob of another package that points outside that package.
     ExternalEntryGlob,
+    /// Matched by an entry glob a plugin gives a package that contains this one, such as a root
+    /// `playwright.config.ts` naming the tests of a member.
+    EnclosingEntryGlob,
     /// In the narrowed scope of a package whose entries are incomplete: a config the analysis cannot fully read may
     /// make it an entry, so it is treated as one (ADR 0065).
     IncompleteScope,
@@ -59,6 +62,7 @@ impl EntryReason {
                 "published by package.json (main, module, types, bin, exports, n8n nodes and credentials)"
             }
             Self::ExternalEntryGlob => "matches an entry glob of another package that points outside it",
+            Self::EnclosingEntryGlob => "matches an entry glob a plugin gives a package that contains its package",
             Self::IncompleteScope => {
                 "may be an entry of a configuration that is not fully known, so it is treated as one (narrowed scope)"
             }
@@ -596,6 +600,15 @@ impl JsAnalysis<'_> {
             if package.in_incomplete_scope(&rel) {
                 return EntryReason::IncompleteScope;
             }
+        }
+        let enclosing = self.workspace.iter().any(|(id, _)| {
+            id != module.owner
+                && self.setup.package(id).is_some_and(|other| {
+                    relative(&module.abs, &other.dir).is_some_and(|rel| other.shared_entry.is_match(&rel))
+                })
+        });
+        if enclosing {
+            return EntryReason::EnclosingEntryGlob;
         }
         let path = slashed(&module.path);
         let external = self.workspace.iter().any(|(id, _)| {

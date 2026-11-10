@@ -599,10 +599,40 @@ fn current_script_breaks_cycles() {
 #[test]
 fn ignored_binaries() {
     for name in [
-        "cd", "echo", "rm", "cp", "mkdir", "exit", "break", "continue", "test", "[", "true", "false", "git", "jq",
-        "gh", "kubectl", "deno",
+        "cd",
+        "echo",
+        "rm",
+        "cp",
+        "mkdir",
+        "exit",
+        "break",
+        "continue",
+        "test",
+        "[",
+        "true",
+        "false",
+        "git",
+        "jq",
+        "gh",
+        "kubectl",
+        "deno",
+        "taskkill",
+        "taskkill.exe",
+        "xcode-select",
+        "sysctl",
+        "service",
+        "update-rc.d",
+        "c++",
+        "signtool.exe",
+        "powershell.exe",
+        "osascript",
+        "hg",
     ] {
         assert!(is_ignored_binary(name), "{name}");
+    }
+    // Tools that a base system lacks stay binaries.
+    for name in ["sqlite3", "stripe", "sentry-cli", "openssl", "relay-compiler"] {
+        assert!(!is_ignored_binary(name), "{name}");
     }
     for name in ["node", "tsc", "vite", "rimraf"] {
         assert!(!is_ignored_binary(name), "{name}");
@@ -731,7 +761,7 @@ fn recursive_run_of_a_local_script_is_followed() {
 
 #[test]
 fn flags_and_subcommands_load_packages() {
-    let cases: [(&str, &[&str]); 5] = [
+    let cases: [(&str, &[&str]); 7] = [
         ("vitest --ui", &["@vitest/ui"]),
         (
             "vitest run --coverage",
@@ -742,6 +772,8 @@ fn flags_and_subcommands_load_packages() {
             &["@vitest/coverage-istanbul", "@vitest/coverage-v8"],
         ),
         ("webpack serve --mode development", &["webpack-dev-server"]),
+        ("next lint --dir src", &["eslint", "eslint-config-next"]),
+        ("next build", &[]),
         ("vitest run", &[]),
     ];
     for (script, expected_deps) in cases {
@@ -829,4 +861,58 @@ fn shell_builtins_are_neither_binaries_nor_global_binaries() {
     let info = parse("cd x && mapfile -t a < f && readarray b < f && caller && echo hi && rm -rf out && git pull");
     assert_eq!(names(&info.binaries), Vec::<String>::new());
     assert_eq!(names(&info.global_binaries), ["rm", "git"]);
+}
+
+#[test]
+fn here_document_bodies_are_input_not_commands() {
+    let script = "node <<'NODE'\nconst fs = require('fs');\nconsole.error(fs.readFileSync('x'))\nNODE\ntsc -p .";
+    assert_eq!(binaries_of(&parse(script)), ["tsc"]);
+    let script = "cat > ~/.netrc <<-EOF\n\tmachine github.com\n\tlogin x\n\tEOF\nvitest run";
+    assert_eq!(binaries_of(&parse(script)), ["vitest"]);
+    // Two documents opened on one line are read one after the other.
+    let script = "cat <<A; cat <<\"B\"\nnot-a-bin\nA\nalso-not\nB\neslint .";
+    assert_eq!(binaries_of(&parse(script)), ["eslint"]);
+    // A here-string is a word, not a document; a document without its delimiter runs to the end.
+    assert_eq!(binaries_of(&parse("grep x <<< \"$y\"\nprettier .")), ["prettier"]);
+    assert_eq!(binaries_of(&parse("tsup\ncat <<EOF\nnot-a-bin\n")), ["tsup"]);
+}
+
+#[test]
+fn case_patterns_are_not_commands() {
+    let script = concat!(
+        "case \"$(uname -s)\" in\n",
+        "  Linux) tsc ;;\n",
+        "  Darwin|FreeBSD)\n",
+        "    vitest run\n",
+        "    ;;\n",
+        "  # a comment\n",
+        "  *) exit 1 ;;\n",
+        "esac\n",
+        "eslint .",
+    );
+    assert_eq!(binaries_of(&parse(script)), ["eslint", "tsc", "vitest"]);
+    // On one line, nested, with `;&`, and a last item without `;;`.
+    let script = "case $a in x) case $b in y) prettier ;; esac ;; z) rimraf dist ;& *) tsup\nesac";
+    assert_eq!(binaries_of(&parse(script)), ["prettier", "rimraf", "tsup"]);
+    assert_eq!(
+        binaries_of(&parse("case $? in 124|137) echo timeout ;; esac")),
+        [] as [&str; 0]
+    );
+}
+
+#[test]
+fn functions_the_script_defines_are_not_binaries() {
+    let script = concat!(
+        "build_args() {\n",
+        "  echo --filter\n",
+        "}\n",
+        "function hashes {\n",
+        "  turbo run build --dry=json\n",
+        "}\n",
+        "log () { echo \"$1\"; }\n",
+        "hashes && build_args && log hi && tsc",
+    );
+    assert_eq!(binaries_of(&parse(script)), ["tsc", "turbo"]);
+    // A call before the definition names the function too.
+    assert_eq!(binaries_of(&parse("setup; setup() { vitest run; }")), ["vitest"]);
 }

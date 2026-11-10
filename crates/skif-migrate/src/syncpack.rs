@@ -9,7 +9,7 @@ use crate::doc::Val;
 use crate::keys;
 use crate::notes::{NoteClass, Tool};
 use crate::scripts::{self, Invocation};
-use crate::state::{Level, Src, State};
+use crate::state::{Level, Src, State, intersected_scope, str_list, united_scope};
 use crate::tables;
 use crate::value::{at, boolean, entries, join, read, string, string_list};
 use crate::{MigrateError, ToolInput};
@@ -147,7 +147,7 @@ pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), 
     let found = match (&input.config, &package) {
         (Some(file), _) => Some((
             read(file, Tool::Syncpack)?,
-            Src::new(Tool::Syncpack, file.path.clone()),
+            Src::read(Tool::Syncpack, file),
             String::new(),
         )),
         (None, Some(package)) => scripts::config_key(Tool::Syncpack, package).map(|config| {
@@ -509,20 +509,24 @@ impl Selectors {
         true
     }
 
-    fn comment(&self, path: &str) -> Vec<String> {
+    /// The comment lines written above the group: where it came from with its label, then the comment the
+    /// configuration file has on it, if any.
+    fn comment(&self, src: &Src, path: &str, list: &str, index: usize) -> Vec<String> {
         let origin = format!("syncpack {path}");
-        vec![
+        let mut lines = vec![
             self.label
                 .as_ref()
                 .map_or(origin.clone(), |label| format!("{origin}: {label}")),
-        ]
+        ];
+        lines.extend(src.comments.on_element(list, index).map(str::to_owned));
+        lines
     }
 
     /// Whether the group selects every dependency of every package, so its policy is not narrowed to anything.
     fn selects_everything(&self) -> bool {
         let filters = |tokens: &[String]| tokens.iter().any(|token| token != "**");
-        self.dependencies.is_empty()
-            && self.packages.is_empty()
+        !filters(&self.dependencies)
+            && !filters(&self.packages)
             && !self.dependency_types.as_deref().is_some_and(filters)
             && !filters(&self.specifier_types)
     }
@@ -679,11 +683,11 @@ fn version_groups(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigVa
         return;
     };
     for (index, group) in groups.iter().enumerate() {
-        version_group(state, src, &at(path, index), group, run);
+        version_group(state, src, &at(path, index), index, group, run);
     }
 }
 
-fn version_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigValue, run: &mut Run) {
+fn version_group(state: &mut State<'_>, src: &Src, path: &str, index: usize, group: &ConfigValue, run: &mut Run) {
     let mut selectors = Selectors::default();
     let mut options = GroupKeys::default();
     for (key, item) in entries(state, src, path, group) {
@@ -742,7 +746,7 @@ fn version_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigVal
         catalog_policy(state, src, path, &selectors);
         return;
     }
-    let comments = selectors.comment(path);
+    let comments = selectors.comment(src, path, "versionGroups", index);
     let element = state.doc.element(&["version-groups"], comments);
     selectors.write(element, &types, &specifiers);
     match policy {
@@ -775,11 +779,14 @@ fn catalog_policy(state: &mut State<'_>, src: &Src, path: &str, selectors: &Sele
     if selectors.selects_everything() {
         state.doc.table(&["catalog"]).set("mode", Val::str("prefer"));
         state.keep(Tool::Syncpack, tables::syncpack_rules("catalog-policy"));
-        state.note(
+        state.note_with(
             src,
-            NoteClass::Exact,
+            NoteClass::Approximate,
             join(path, "policy"),
-            "written to [catalog] mode = \"prefer\"; the group selected every dependency",
+            "written to [catalog] mode = \"prefer\"; the group selected every dependency. skif reports a dependency \
+             without `catalog:` as a warning, and only one used in at least `min-packages` packages (2 by default); \
+             syncpack reported every such instance as an error",
+            "set [catalog] mode = \"enforce\" and min-packages = 1 for syncpack's strictness",
         );
     } else {
         state.note_with(
@@ -815,12 +822,10 @@ fn group_policy(
     if let Some(pin) = &options.pin {
         return Some(Policy::Pinned(pin.clone()));
     }
-    if !options.snap_to.is_empty() {
-        return Some(Policy::Snapped(options.snap_to.clone()));
-    }
+    // syncpack reads `policy` before `snapTo`.
     let policy_path = join(path, "policy");
-    match named {
-        None => Some(Policy::Preferred),
+    let policy = match named {
+        None => None,
         Some("sameRange") => Some(Policy::SameRange),
         Some("sameMinor") => Some(Policy::SameMinor),
         Some("banned") => Some(Policy::Banned),
@@ -834,9 +839,20 @@ fn group_policy(
                 policy_path,
                 format!("`{other}` is not a policy skif knows; the group uses the default policy"),
             );
-            Some(Policy::Preferred)
+            None
         }
+    };
+    if matches!(policy, Some(Policy::SameMinor)) && options.prefer.is_some() {
+        state.note(
+            src,
+            NoteClass::Approximate,
+            join(path, "preferVersion"),
+            "not written: a skif same-minor group reports a mismatch without picking the version to align on",
+        );
     }
+    policy
+        .or_else(|| (!options.snap_to.is_empty()).then(|| Policy::Snapped(options.snap_to.clone())))
+        .or(Some(Policy::Preferred))
 }
 
 fn semver_groups(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue, types: &Types) {
@@ -845,11 +861,11 @@ fn semver_groups(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigVal
         return;
     };
     for (index, group) in groups.iter().enumerate() {
-        semver_group(state, src, &at(path, index), group, types);
+        semver_group(state, src, &at(path, index), index, group, types);
     }
 }
 
-fn semver_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigValue, types: &Types) {
+fn semver_group(state: &mut State<'_>, src: &Src, path: &str, index: usize, group: &ConfigValue, types: &Types) {
     let mut selectors = Selectors::default();
     let mut range = None;
     let mut ignored = false;
@@ -898,7 +914,7 @@ fn semver_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigValu
             }
         }
     }
-    let comments = selectors.comment(path);
+    let comments = selectors.comment(src, path, "semverGroups", index);
     let element = state.doc.element(&["semver-groups"], comments);
     selectors.write(element, &dependency_types, &specifiers);
     if ignored {
@@ -952,11 +968,11 @@ fn update_groups(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigVal
         );
     }
     for (index, group) in groups.iter().enumerate() {
-        update_group(state, src, &at(path, index), group, types);
+        update_group(state, src, &at(path, index), index, group, types);
     }
 }
 
-fn update_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigValue, types: &Types) {
+fn update_group(state: &mut State<'_>, src: &Src, path: &str, index: usize, group: &ConfigValue, types: &Types) {
     let mut selectors = Selectors::default();
     let mut target = None;
     let mut ignored = false;
@@ -1005,7 +1021,7 @@ fn update_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigValu
             return;
         }
     };
-    let comments = selectors.comment(path);
+    let comments = selectors.comment(src, path, "updateGroups", index);
     let element = state.doc.element(&["update-groups"], comments);
     selectors.write(element, &dependency_types, &specifiers);
     match target {
@@ -1132,17 +1148,19 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, workspa
     }
 }
 
-/// The tokens of every scope in `scopes`, united in order; a run without `--dependency-types` counts as `default`.
-fn union_scope(scopes: &[(String, Option<Vec<String>>)], default: &[String]) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for (_, scope) in scopes {
-        for token in scope.as_deref().unwrap_or(default) {
-            if !out.contains(token) {
-                out.push(token.clone());
-            }
-        }
-    }
-    out
+/// The scope that selects what any run in `scopes` selects, a run without `--dependency-types` counting as
+/// `default`, or `None` when no list says it: the runs together select a type that the united list excludes.
+fn united_runs(scopes: &[(String, Option<Vec<String>>)], default: &[String]) -> Option<Vec<String>> {
+    let lists: Vec<Vec<String>> = scopes
+        .iter()
+        .map(|(_, scope)| scope.clone().unwrap_or_else(|| default.to_vec()))
+        .collect();
+    let united = lists.iter().cloned().reduce(|a, b| united_scope(&a, &b))?;
+    let lost = united.iter().filter_map(|token| token.strip_prefix('!')).any(|name| {
+        let name = [name.to_owned()];
+        lists.iter().any(|list| intersected_scope(list, &name).is_some())
+    });
+    (!lost).then_some(united)
 }
 
 fn emit_scope(state: &mut State<'_>, src: &Src, run: &Run) {
@@ -1155,35 +1173,35 @@ fn emit_scope(state: &mut State<'_>, src: &Src, run: &Run) {
         .collect::<Vec<&str>>()
         .join(", ");
     let narrowed = run.scopes.iter().any(|(_, scope)| scope.is_some());
-    let tokens = if !narrowed {
-        default
+    let (tokens, from_scripts) = if !narrowed {
+        (default, false)
     } else if !differ {
-        run.scopes[0].1.clone().unwrap_or(default)
+        (run.scopes[0].1.clone().unwrap_or(default), true)
+    } else if let Some(united) = united_runs(&run.scopes, &default) {
+        state.note_with(
+            src,
+            NoteClass::Approximate,
+            format!("{names}: --dependency-types"),
+            "these scripts lint different dependency types; skif has one scope, so [policy] dependency-types is \
+             their union",
+            "narrow single checks with `dependency-types` on a [[version-groups]] or [[semver-groups]] entry",
+        );
+        (united, true)
     } else {
-        let united = union_scope(&run.scopes, &default);
-        if united.iter().any(|token| token.starts_with('!')) {
-            state.note_with(
-                src,
-                NoteClass::Human,
-                format!("{names}: --dependency-types"),
-                "these scripts lint different dependency types and some of them exclude types with `!`; the default \
-                 scope was written",
-                "set [policy] dependency-types by hand, or list the types per [[version-groups]] entry",
-            );
-            default
-        } else {
-            state.note_with(
-                src,
-                NoteClass::Approximate,
-                format!("{names}: --dependency-types"),
-                "these scripts lint different dependency types; skif has one scope, so [policy] dependency-types is \
-                 their union",
-                "narrow single checks with `dependency-types` on a [[version-groups]] or [[semver-groups]] entry",
-            );
-            united
-        }
+        state.note_with(
+            src,
+            NoteClass::Human,
+            format!("{names}: --dependency-types"),
+            "these scripts lint different dependency types and together select types that no dependency-types list \
+             can name at once; the default scope was written",
+            "set [policy] dependency-types by hand, or list the types per [[version-groups]] entry",
+        );
+        (default, false)
     };
-    state.doc.table(&["policy"]).set("dependency-types", Val::strs(tokens));
+    if from_scripts {
+        narrow_groups(state, src, &tokens);
+    }
+    state.widen_scope(tokens);
     if !narrowed {
         state.note(
             src,
@@ -1191,6 +1209,42 @@ fn emit_scope(state: &mut State<'_>, src: &Src, run: &Run) {
             "dependencyTypes",
             "[policy] dependency-types is the scope syncpack lints by default: prod, dev, peer, local, resolutions, \
              overrides, pnpm overrides and your custom types; optional dependencies are not part of it",
+        );
+    }
+}
+
+/// `syncpack lint --dependency-types` filters every instance before the groups see it, so a group that names a type
+/// outside the run's scope never got one. skif lets a group govern the types it names, so each group's list is cut to
+/// the scope, and a group left with no type is dropped.
+fn narrow_groups(state: &mut State<'_>, src: &Src, scope: &[String]) {
+    let mut dropped: Vec<String> = Vec::new();
+    for table in ["version-groups", "semver-groups"] {
+        state.doc.edit_elements(&[table], |section| {
+            let Some(types) = section.get("dependency-types").map(str_list) else {
+                return true;
+            };
+            let Some(narrowed) = intersected_scope(&types, scope) else {
+                let origin = section.comments.first().map_or("", String::as_str);
+                let origin = origin.strip_prefix("syncpack ").unwrap_or(origin);
+                dropped.push(origin.split(": ").next().unwrap_or(origin).to_owned());
+                return false;
+            };
+            if narrowed != types {
+                section.set("dependency-types", Val::strs(narrowed));
+            }
+            true
+        });
+    }
+    for path in dropped {
+        state.note(
+            src,
+            NoteClass::Exact,
+            path,
+            format!(
+                "the group only covers dependency types outside --dependency-types {}, so syncpack never gave it an \
+                 instance; it was not written",
+                scope.join(",")
+            ),
         );
     }
 }

@@ -688,6 +688,69 @@ fn member_accesses_through_imports() {
 }
 
 #[test]
+fn imports_awaited_together_bind_the_element_of_the_array_pattern_at_their_position() {
+    let source = "async function f() {\n  const [{ a }, ns, , skipped, ...rest] = await Promise.all([\n    import('./x'),\n    import('./y'),\n    import('./hole'),\n    import('./skipped'),\n    import('./rest'),\n  ]);\n  ns.b;\n  use(a, rest);\n}\n";
+    let info = parse("a.ts", source);
+    let by_specifier = |specifier: &str| {
+        info.imports
+            .iter()
+            .find(|import| import.specifier == specifier)
+            .unwrap_or_else(|| panic!("no import of {specifier}"))
+    };
+    let x = &by_specifier("./x").names;
+    assert_eq!(x.len(), 1);
+    assert_eq!(x[0].kind, ImportedKind::Named("a".into()));
+    assert_eq!(x[0].local.as_deref(), Some("a"));
+    let y = &by_specifier("./y").names[0];
+    assert_eq!(y.kind, ImportedKind::Namespace);
+    assert_eq!(y.accessed_members, ["b"]);
+    assert!(!y.escapes, "`ns.b` reads one member");
+    let skipped = &by_specifier("./skipped").names[0];
+    assert_eq!(skipped.kind, ImportedKind::Namespace);
+    assert_eq!(skipped.local.as_deref(), Some("skipped"));
+    assert!(
+        skipped.accessed_members.is_empty() && !skipped.escapes,
+        "a binding never read uses nothing"
+    );
+    for whole in ["./hole", "./rest"] {
+        let names = &by_specifier(whole).names;
+        assert!(
+            names.len() == 1 && names[0].kind == ImportedKind::Namespace && names[0].escapes,
+            "{whole}: {names:?}"
+        );
+    }
+}
+
+#[test]
+fn imports_awaited_together_after_a_spread_are_used_as_a_whole() {
+    let source = "async function f() {\n  const [a, b] = await Promise.all([...others, import('./x')]);\n  a.c;\n}\n";
+    let info = parse("a.ts", source);
+    let names = &info.imports[0].names;
+    assert!(names.len() == 1 && names[0].escapes, "{names:?}");
+}
+
+#[test]
+fn a_spy_on_a_namespace_member_reads_that_member() {
+    for source in [
+        "import * as ns from 'x'; vi.spyOn(ns, 'a').mockReturnValue(1);",
+        "import * as ns from 'x'; jest.spyOn(ns, 'a');",
+        "import * as ns from 'x'; spyOn(ns, `a`);",
+    ] {
+        let info = parse("a.test.ts", source);
+        let ns = &info.imports[0].names[0];
+        assert_eq!(ns.accessed_members, ["a"], "{source}");
+        assert!(!ns.escapes, "{source}");
+    }
+    for source in [
+        "import * as ns from 'x'; vi.spyOn(ns, name);",
+        "import * as ns from 'x'; other.spyOn(ns, 'a');",
+    ] {
+        let info = parse("a.test.ts", source);
+        assert!(info.imports[0].names[0].escapes, "{source}");
+    }
+}
+
+#[test]
 fn namespace_that_escapes_is_flagged() {
     for source in [
         "import * as ns from 'x'; use(ns);",
@@ -1071,6 +1134,52 @@ fn triple_slash_references_are_imports_only_in_the_header() {
         specifiers(&info),
         [("node", ImportKind::TypeOnly), ("./extra.d.ts", ImportKind::SideEffect)]
     );
+}
+
+#[test]
+fn test_environment_pragmas_are_imports_only_in_the_header() {
+    let source = "/**\n * @jest-environment jsdom\n */\n// @vitest-environment happy-dom\n\
+                  /* @vitest-environment edge-runtime */\n// @jest-environment node\n\
+                  // @jest-environment ./env/custom.js\n\
+                  export const a = 1;\n// @jest-environment late-env\n";
+    let info = parse("a.test.ts", source);
+    assert_eq!(
+        specifiers(&info),
+        [
+            ("jest-environment-jsdom", ImportKind::SideEffect),
+            ("happy-dom", ImportKind::SideEffect),
+            ("@edge-runtime/vm", ImportKind::SideEffect),
+            ("./env/custom.js", ImportKind::SideEffect),
+        ]
+    );
+    let span = info.imports[0].span;
+    assert_eq!(slice(source, span.start, span.end), "@jest-environment jsdom");
+}
+
+#[test]
+fn child_process_calls_are_commands() {
+    let source = "import { execSync, spawn as run } from 'node:child_process';\nimport * as cp from 'child_process';\n\
+                  execSync('sqlite3 db.sqlite .dump');\nrun('openssl', ['req', '-x509']);\n\
+                  cp.execFileSync('docker-compose', ['up', '-d']);\ncp.spawnSync('gopls', [flag]);\n\
+                  cp.exec(`git ${command}`);\ncp.spawn('sh', ['-c', 'a && b']);\ncp.fork('./worker.js');\n\
+                  execSync('sqlite3 db.sqlite .dump');\n";
+    let info = parse("a.ts", source);
+    assert_eq!(
+        info.commands,
+        [
+            "sqlite3 db.sqlite .dump",
+            "openssl req -x509",
+            "docker-compose up -d",
+            "gopls"
+        ]
+    );
+    let required = parse(
+        "b.cjs",
+        "const { execFileSync } = require('child_process');\nexecFileSync('xcopy', ['/E']);\n",
+    );
+    assert_eq!(required.commands, ["xcopy /E"]);
+    let other = parse("c.ts", "import { exec } from './exec';\nexec('not-a-command');\n");
+    assert!(other.commands.is_empty(), "{:?}", other.commands);
 }
 
 #[test]

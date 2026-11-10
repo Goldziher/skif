@@ -2,7 +2,7 @@
 //! it.
 
 use skif_js_plugins::registry;
-use skif_js_syntax::ConfigValue;
+use skif_js_syntax::{ConfigValue, PathSegment};
 
 use crate::doc::{Doc, Section, Val};
 use crate::keys;
@@ -10,7 +10,7 @@ use crate::notes::{NoteClass, Tool};
 use crate::scripts::{self, Invocation};
 use crate::state::{Level, Src, State};
 use crate::tables::{self, KnipType};
-use crate::value::{boolean, entries, join, pattern_list, read, string, string_list};
+use crate::value::{boolean, entries, join, pattern_items, read, string, string_items, string_list};
 use crate::{MigrateError, ToolInput};
 
 /// What `--dependencies` and its siblings include. `--dependencies` also adds `devDependencies` and
@@ -326,7 +326,7 @@ pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), 
     let mut plan = Plan::default();
     let mut src = Src::new(Tool::Knip, package_name);
     let found = match (&input.config, &package) {
-        (Some(file), _) => Some((read(file, Tool::Knip)?, Src::new(Tool::Knip, file.path.clone()), "")),
+        (Some(file), _) => Some((read(file, Tool::Knip)?, Src::read(Tool::Knip, file), "")),
         (None, Some(package)) => {
             scripts::config_key(Tool::Knip, package).map(|config| (config.clone(), src.clone(), "knip"))
         }
@@ -344,8 +344,29 @@ pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), 
         scripts::note_unrecognised(state, &src, package, Tool::Knip);
         note_differing_flags(state, &src, &invocations);
     }
+    let multi_package = !input.workspace_patterns.is_empty()
+        || found
+            .as_ref()
+            .is_some_and(|(config, _, _)| config.get("workspaces").is_some());
+    if multi_package {
+        note_merged_tsconfig_paths(state, &src);
+    }
     apply(state, &src, &plan);
     Ok(())
+}
+
+/// knip resolves every import with the tsconfig `paths` of all workspaces together; skif resolves an import with the
+/// `paths` of the configuration its file follows. skif-migrate reads no tsconfig, so in a workspace of several
+/// packages the difference is noted whether or not their configs set `paths`.
+fn note_merged_tsconfig_paths(state: &mut State<'_>, src: &Src) {
+    state.note_with(
+        src,
+        NoteClass::Approximate,
+        "tsconfig paths",
+        "knip merges the tsconfig paths of all workspaces; skif does not, so an import that only another package's \
+         paths map is reported as unlisted-dependencies with detail ForeignTsconfigPaths",
+        "map the specifier in the tsconfig of the importing package, or import the module by the name of its package",
+    );
 }
 
 fn level(state: &mut State<'_>, src: &Src, path: &str, text: &str) -> Option<Level> {
@@ -374,7 +395,7 @@ fn read_root(state: &mut State<'_>, src: &Src, root: &str, config: &ConfigValue,
             "$schema" => {}
             "workspaces" => workspaces(state, src, &path, item),
             "ignoreWorkspaces" => {
-                let list = string_list(state, src, &path, item);
+                let list = reasoned(src, &target, key, string_items(state, src, &path, item));
                 write_list(state, src, &target.js(), keys::JS_IGNORE_WORKSPACES, &path, list, "");
             }
             "include" | "exclude" => {
@@ -524,25 +545,74 @@ fn tags(state: &mut State<'_>, src: &Src, path: &str, list: &[String], plan: &mu
     }
 }
 
-/// Writes `list` to `key` of the table `path` and notes it. Nothing happens for an empty list.
+/// The entries of the knip list `key` of `target`, each with the comment the configuration file has on it (on the
+/// lines above it or after it on its line) as its reason.
+fn reasoned(
+    src: &Src,
+    target: &Target,
+    key: &str,
+    items: Vec<(String, &ConfigValue)>,
+) -> Vec<(String, Option<String>)> {
+    items
+        .into_iter()
+        .map(|(entry, value)| {
+            let literal = match value {
+                ConfigValue::String(text) | ConfigValue::Regex(text) => Some(text.as_str()),
+                _ => None,
+            };
+            let reason = literal
+                .and_then(|literal| src.comments.on_value(literal, |array| is_list(array, key, target)))
+                .map(str::to_owned);
+            (entry, reason)
+        })
+        .collect()
+}
+
+/// Whether `array` is the path of the knip list `key` of `target`: under `workspaces.<dir>` for a workspace
+/// directory, elsewhere (or under the `"."` workspace) for the root.
+fn is_list(array: &[PathSegment], key: &str, target: &Target) -> bool {
+    if !matches!(array.last(), Some(PathSegment::Key(last)) if last == key) {
+        return false;
+    }
+    let workspace = match array {
+        [.., PathSegment::Key(parent), PathSegment::Key(dir), _] if parent == "workspaces" => {
+            Some(dir.trim_start_matches("./").trim_end_matches('/'))
+        }
+        _ => None,
+    };
+    match target {
+        Target::Root => workspace.is_none_or(|dir| dir.is_empty() || dir == "."),
+        Target::Dir(dir) => workspace == Some(dir.as_str()),
+    }
+}
+
+/// The entries of `list`, none with a reason.
+fn plain(list: Vec<String>) -> Vec<(String, Option<String>)> {
+    list.into_iter().map(|entry| (entry, None)).collect()
+}
+
+/// Writes `list` to `key` of the table `path` and notes it. Nothing happens for an empty list. An entry with a reason
+/// is written as a `{ name, reason }` table.
 fn write_list(
     state: &mut State<'_>,
     src: &Src,
     path: &[String],
     key: &str,
     note_path: &str,
-    list: Vec<String>,
+    list: Vec<(String, Option<String>)>,
     extra: &str,
 ) {
     if list.is_empty() {
         return;
     }
-    let marked = list.iter().any(|entry| entry.ends_with('!'));
-    table(&mut state.doc, path).extend_strs(key, list);
-    let suffix = if marked {
-        " (the `!` production markers are kept)"
-    } else {
-        ""
+    let marked = list.iter().any(|(entry, _)| entry.ends_with('!'));
+    let reasons = list.iter().filter(|(_, reason)| reason.is_some()).count();
+    table(&mut state.doc, path).extend_entries(key, list);
+    let suffix = match (marked, reasons) {
+        (true, 0) => " (the `!` production markers are kept)".to_owned(),
+        (false, 0) => String::new(),
+        (true, _) => format!(" (the `!` production markers are kept; {reasons} with their comment as `reason`)"),
+        (false, _) => format!(" ({reasons} with their comment as `reason`)"),
     };
     state.note(
         src,
@@ -599,15 +669,15 @@ fn workspace_key(state: &mut State<'_>, src: &Src, target: &Target, key: &str, p
     let js = target.js();
     match key {
         "entry" | "project" | "ignore" => {
-            let list = string_list(state, src, path, item);
+            let list = plain(string_list(state, src, path, item));
             write_list(state, src, &js, key, path, list, "");
         }
         "ignoreFiles" => {
-            let list = string_list(state, src, path, item);
+            let list = reasoned(src, target, key, string_items(state, src, path, item));
             write_list(state, src, &js, "ignore-files", path, list, "");
         }
         "ignoreDependencies" | "ignoreBinaries" => {
-            let list = pattern_list(state, src, path, item, true);
+            let list = reasoned(src, target, key, pattern_items(state, src, path, item, true));
             let name = if key == "ignoreDependencies" {
                 "ignore-dependencies"
             } else {
@@ -616,7 +686,7 @@ fn workspace_key(state: &mut State<'_>, src: &Src, target: &Target, key: &str, p
             write_list(state, src, &js, name, path, list, "");
         }
         "ignoreUnresolved" => {
-            let list = pattern_list(state, src, path, item, false);
+            let list = reasoned(src, target, key, pattern_items(state, src, path, item, false));
             let name = if *target == Target::Root {
                 keys::JS_IGNORE_UNRESOLVED
             } else {
@@ -642,7 +712,7 @@ fn workspace_key(state: &mut State<'_>, src: &Src, target: &Target, key: &str, p
         }
         "paths" => paths(state, src, target, path, item),
         "ignoreMembers" => {
-            let list = pattern_list(state, src, path, item, false);
+            let list = reasoned(src, target, key, pattern_items(state, src, path, item, false));
             write_list(state, src, &js, keys::JS_IGNORE_MEMBERS, path, list, "");
         }
         "ignoreExportsUsedInFile" => ignore_exports_used_in_file(state, src, target, path, item),

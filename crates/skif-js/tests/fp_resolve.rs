@@ -3,13 +3,13 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use skif_config::Config;
 use skif_core::{Diagnostic, FileSystem, MemoryFs};
 use skif_js::{JsProvider, PluginSource};
-use skif_lint::{Registry, RunOptions, run_unsorted};
+use skif_lint::{Registry, RunOptions, run, run_unsorted};
 use skif_workspace::Workspace;
 
 fn lint_at(root: &str, files: &[(&str, &str)]) -> Vec<Diagnostic> {
@@ -115,6 +115,39 @@ fn ancestor_manifests_make_imports_listed() {
         ],
     );
     assert_eq!(names(&diagnostics, "unlisted-dependencies"), strings(&["other"]));
+}
+
+#[test]
+fn uses_through_ancestor_manifests_are_reported_with_the_innermost_manifest() {
+    // `left-pad` is listed by both ancestors, so Node.js resolves it from the inner one; `oxfmt` only the outer lists,
+    // and the script runs it. `own` is the child's own dependency and `idle` nobody uses.
+    let middle = r#"{"name":"middle","private":true,"dependencies":{"left-pad":"1.0.0"}}"#;
+    let outer = r#"{"name":"repo","private":true,"dependencies":{"left-pad":"1.0.0","idle":"1.0.0"},
+        "devDependencies":{"oxfmt":"0.1.0"}}"#;
+    let child = r#"{"name":"child","private":true,"main":"index.js","dependencies":{"own":"1.0.0"},
+        "scripts":{"format":"oxfmt ."}}"#;
+    let memory = [
+        ("/ws/.git/HEAD", ""),
+        ("/ws/package.json", outer),
+        ("/ws/tools/package.json", middle),
+        ("/ws/tools/child/package.json", child),
+        ("/ws/tools/child/index.js", "import 'left-pad';\nimport 'own';\n"),
+    ]
+    .iter()
+    .fold(MemoryFs::new(), |memory, (path, text)| memory.with_file(path, text));
+    let config = Config::from_toml_str("").unwrap();
+    let workspace = Workspace::discover_with_fs(Path::new("/ws/tools/child"), &config, &memory).unwrap();
+    let fs: Arc<dyn FileSystem> = Arc::new(memory);
+    let provider = JsProvider::new(fs).with_input_source(Arc::new(PluginSource::new(config.js.plugins.clone())));
+    let registry = Registry::new(vec![Box::new(provider)]).unwrap();
+    let report = run(&registry, &workspace, &config, &RunOptions::default()).unwrap();
+    assert_eq!(
+        report.ancestor_dependency_uses,
+        [
+            (PathBuf::from("/ws"), "oxfmt".to_owned()),
+            (PathBuf::from("/ws/tools"), "left-pad".to_owned())
+        ]
+    );
 }
 
 #[test]

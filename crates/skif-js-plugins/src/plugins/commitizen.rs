@@ -3,7 +3,7 @@
 use skif_js_syntax::ConfigValue;
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::support::{module_input, package_name};
+use crate::support::{below_node_modules, module_input, package_name};
 
 /// The `commitizen` plugin.
 pub struct Commitizen;
@@ -27,8 +27,7 @@ impl Plugin for Commitizen {
         let Some(path) = config.value.get("path").and_then(ConfigValue::as_str) else {
             return Vec::new();
         };
-        let installed = path.trim_start_matches("./").strip_prefix("node_modules/");
-        match installed {
+        match below_node_modules(path) {
             Some(name) => package_name(name).map(PluginInput::Dependency),
             None => module_input(config.base, path, false),
         }

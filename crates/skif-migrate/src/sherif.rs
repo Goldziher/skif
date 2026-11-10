@@ -70,6 +70,7 @@ struct Settings {
 pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), MigrateError> {
     state.keep(Tool::Sherif, tables::sherif_rules());
     let Some(package_json) = &input.package_json else {
+        emit_scope(state, &Src::new(Tool::Sherif, "package.json"));
         return Ok(());
     };
     let src = Src::new(Tool::Sherif, package_json.path.clone());
@@ -251,16 +252,10 @@ fn emit(state: &mut State<'_>, src: &Src, settings: &Settings) {
         state.ignore_rules(src, settings.ignore_rule.origin(), settings.ignore_rule.values.clone());
     }
     if !settings.ignore_package.is_empty() {
-        state
-            .doc
-            .table(&["workspace"])
-            .extend_strs("ignore-packages", settings.ignore_package.values.iter().cloned());
-        state.note(
-            src,
-            NoteClass::Exact,
-            settings.ignore_package.origin(),
-            "written to [workspace] ignore-packages",
-        );
+        emit_ignored_packages(state, src, &settings.ignore_package);
+    }
+    if !settings.ignore_rule.values.iter().any(|id| id == VERSION_RULE) {
+        emit_scope(state, src);
     }
     emit_dependencies(state, src, &settings.ignore_dependency);
     if !settings.fail_on_warnings.is_empty() {
@@ -301,6 +296,70 @@ fn emit(state: &mut State<'_>, src: &Src, settings: &Settings) {
     }
 }
 
+/// The skif rule sherif's `multiple-dependency-versions` maps to.
+const VERSION_RULE: &str = "version-mismatch";
+
+/// The sections sherif compares versions in. It never compares a dependency with a package's own `version`, so the
+/// scope leaves `local` out (ADR 0072).
+const SCOPE: &[&str] = &["prod", "dev"];
+
+/// `[policy] dependency-types` as sherif's `multiple-dependency-versions` saw the workspace.
+fn emit_scope(state: &mut State<'_>, src: &Src) {
+    state.widen_scope(SCOPE.iter().map(|token| (*token).to_owned()).collect());
+    state.note(
+        src,
+        NoteClass::Exact,
+        "multiple-dependency-versions",
+        "[policy] dependency-types covers dependencies and devDependencies, the sections sherif compares; like \
+         sherif, skif then does not compare a dependency with the version of the workspace package it names",
+    );
+}
+
+/// `ignorePackage` values for `[workspace] ignore-packages`. sherif matches a path with its `./` prefix
+/// (`./apps/legacy`, `./integrations/*`) and skif matches the directory relative to the root, so the prefix goes.
+fn emit_ignored_packages(state: &mut State<'_>, src: &Src, setting: &Setting) {
+    let values: Vec<String> = setting.values.iter().map(|value| package_pattern(value)).collect();
+    let bare_paths: Vec<&str> = setting
+        .values
+        .iter()
+        .filter(|value| !value.starts_with("./") && !value.starts_with('@') && value.contains('/'))
+        .map(String::as_str)
+        .collect();
+    state.doc.table(&["workspace"]).extend_strs("ignore-packages", values);
+    state.note(
+        src,
+        NoteClass::Exact,
+        setting.origin(),
+        "written to [workspace] ignore-packages, paths without their `./` prefix",
+    );
+    if !bare_paths.is_empty() {
+        state.note_with(
+            src,
+            NoteClass::Approximate,
+            setting.origin(),
+            format!(
+                "{} look like paths without `./`, which sherif matched against no package; skif ignores the packages in \
+                 those directories",
+                bare_paths.join(", ")
+            ),
+            "remove the entries if those packages should still be checked",
+        );
+    }
+}
+
+/// A sherif package path as skif matches it: `./apps/*` is `apps/*`; a name stays as written.
+fn package_pattern(value: &str) -> String {
+    let mut rest = value;
+    while let Some(stripped) = rest.strip_prefix("./") {
+        rest = stripped;
+    }
+    if rest.is_empty() {
+        ".".to_owned()
+    } else {
+        rest.to_owned()
+    }
+}
+
 fn emit_dependencies(state: &mut State<'_>, src: &Src, setting: &Setting) {
     if setting.is_empty() || setting.values.is_empty() {
         return;
@@ -309,7 +368,7 @@ fn emit_dependencies(state: &mut State<'_>, src: &Src, setting: &Setting) {
         &["ignore"],
         vec!["migrated from sherif ignoreDependency, which only silenced its version check".to_owned()],
     );
-    element.set("rules", Val::strs(["version-mismatch"]));
+    element.set("rules", Val::strs([VERSION_RULE]));
     element.set("dependencies", Val::strs(setting.values.iter().cloned()));
     state.note(
         src,

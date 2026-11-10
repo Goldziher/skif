@@ -405,6 +405,42 @@ fn stale_js_config_judges_ignore_dependencies_over_the_packages_whose_dependenci
 }
 
 #[test]
+fn ignore_entries_with_a_reason_suppress_and_are_judged_like_strings() {
+    let files = vec![
+        MANIFEST,
+        (
+            "packages/a/package.json",
+            r#"{"name":"@x/a","dependencies":{"some-loader":"1","left":"1"}}"#,
+        ),
+        ("packages/a/src/index.ts", "import \"./missing\";\n"),
+    ];
+    let before = lint(&files, "");
+    assert_eq!(found(&before, "unused-dependencies").len(), 2);
+    assert_eq!(found(&before, "unresolved-imports").len(), 1);
+
+    let diagnostics = lint(
+        &files,
+        r#"
+[js]
+ignore-unresolved = [{ name = "./missing", reason = "generated before the build" }]
+ignore-dependencies = [{ name = "nothing-here", reason = "kept for a package that is gone" }]
+
+[js.workspaces."packages/a"]
+ignore-dependencies = [
+  "left",
+  { name = "some-loader", reason = "false positive: loaded by the bundler from a config string" },
+]
+"#,
+    );
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none());
+    assert_eq!(found(&diagnostics, "unresolved-imports"), none());
+    assert_eq!(
+        messages(&diagnostics),
+        ["`nothing-here` in `js.ignore-dependencies` matched nothing"]
+    );
+}
+
+#[test]
 fn stale_js_config_can_be_raised_to_an_error() {
     let files = two_packages("export {};\n");
     let diagnostics = lint(

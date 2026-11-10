@@ -68,18 +68,31 @@ pub(crate) fn at(parent: &str, index: usize) -> String {
 /// A string, or an array of strings. Elements that are not static or not strings are noted and skipped. A regular
 /// expression literal is written as `/pattern/`.
 pub(crate) fn string_list(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue) -> Vec<String> {
+    string_items(state, src, path, value)
+        .into_iter()
+        .map(|(text, _)| text)
+        .collect()
+}
+
+/// [`string_list`], each string with the value it was read from.
+pub(crate) fn string_items<'v>(
+    state: &mut State<'_>,
+    src: &Src,
+    path: &str,
+    value: &'v ConfigValue,
+) -> Vec<(String, &'v ConfigValue)> {
     let mut out = Vec::new();
     match value {
         ConfigValue::Array(items) => {
             for (index, item) in items.iter().enumerate() {
                 if let Some(text) = string_item(state, src, &at(path, index), item) {
-                    out.push(text);
+                    out.push((text, item));
                 }
             }
         }
         other => {
             if let Some(text) = string_item(state, src, path, other) {
-                out.push(text);
+                out.push((text, other));
             }
         }
     }
@@ -187,14 +200,14 @@ pub(crate) fn pattern_entry(value: &ConfigValue, glob: bool) -> Option<String> {
     }
 }
 
-/// A list of ignore entries, with the notes of [`string_list`].
-pub(crate) fn pattern_list(
+/// A list of ignore entries, each with the value it was read from, with the notes of [`string_list`].
+pub(crate) fn pattern_items<'v>(
     state: &mut State<'_>,
     src: &Src,
     path: &str,
-    value: &ConfigValue,
+    value: &'v ConfigValue,
     glob: bool,
-) -> Vec<String> {
+) -> Vec<(String, &'v ConfigValue)> {
     let items: Vec<&ConfigValue> = match value {
         ConfigValue::Array(items) => items.iter().collect(),
         other => vec![other],
@@ -207,7 +220,7 @@ pub(crate) fn pattern_list(
             path.to_owned()
         };
         if let Some(entry) = pattern_entry(item, glob) {
-            out.push(entry);
+            out.push((entry, item));
         } else {
             let message = if matches!(item, ConfigValue::Unknown) {
                 "the value is only known at run time"

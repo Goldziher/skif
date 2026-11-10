@@ -16,8 +16,10 @@
 
 #![warn(missing_docs)]
 
+mod array_comments;
 mod cache;
 mod collect;
+mod commands;
 mod comments;
 mod config;
 mod custom_elements;
@@ -44,18 +46,20 @@ use oxc_parser::{ParseOptions as OxcParseOptions, Parser};
 use oxc_span::SourceType;
 use skif_core::LineIndex;
 
+pub use array_comments::{ElementComment, PathSegment, extract_array_comments};
 pub use cache::{
     CACHE_SCHEMA, CACHE_SCHEMA_DIGEST, CachedModule, MemoryModuleCache, ModuleCache, ModuleKey, cache_version,
     parse_cached,
 };
 pub use config::{
     ConfigValue, ImportedCall, ModuleLoader, TEMPLATE_SUBSTITUTION, extract_config_object, extract_config_object_with,
-    extract_constructor_options, extract_imported_calls, extract_property_values,
+    extract_constructor_options, extract_imported_calls, extract_method_calls, extract_property_calls,
+    extract_property_values, literal_command,
 };
 pub use error::SyntaxError;
 pub use model::{
-    Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, Member, ModuleInfo, ParseIssue, ParseOptions,
-    Registration, Removal, RemovalKind, coalesce_ranges, is_source_query,
+    Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, Member, MockCall, ModuleInfo, ParseIssue,
+    ParseOptions, Registration, Removal, RemovalKind, coalesce_ranges, is_source_query,
 };
 pub use style::{is_stylesheet, parse_stylesheet};
 
@@ -174,6 +178,7 @@ fn parse_block(
         .collect();
     custom_elements::mark(&ret.program, &mut info);
     comments::collect(&ctx, &ret.program, &mut info);
+    info.commands = commands::child_process_commands(&ret.program, &info.imports);
     info
 }
 
@@ -288,6 +293,7 @@ fn add_style_and_source_imports(info: &mut ModuleInfo, blocks: &sfc::Blocks, sou
             specifier: reference.specifier.clone(),
             kind: ImportKind::SideEffect,
             names: Vec::new(),
+            call: None,
             span: lines.span(
                 u32::try_from(reference.start).unwrap_or(u32::MAX),
                 u32::try_from(reference.end).unwrap_or(u32::MAX),

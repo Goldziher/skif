@@ -1,6 +1,7 @@
 use std::collections::HashSet;
+use std::path::PathBuf;
 
-use skif_core::{Category, Fixability, RuleMeta, Severity, diagnostic};
+use skif_core::{Category, Fixability, Location, Related, RuleMeta, Severity, diagnostic};
 use skif_lint::Emitter;
 
 use super::JsRule;
@@ -13,11 +14,18 @@ pub static META: RuleMeta = RuleMeta::new(
     Category::Js,
     Some(Severity::Error),
     Fixability::None,
-    "A file imports a package that neither its `package.json` nor any `package.json` above it lists.",
+    "A file imports a package that neither its `package.json` nor any `package.json` above it lists. An import that \
+     only the tsconfig `paths` of another package map has the detail `ForeignTsconfigPaths`: it needs a mapping, not \
+     a dependency.",
 );
 
+/// The `detail` of a finding whose specifier only the `paths` of another package's TypeScript configuration map: the
+/// fix is a mapping in the importing package's configuration or an import by package name, not a dependency.
+const FOREIGN_TSCONFIG_PATHS: &str = "ForeignTsconfigPaths";
+
 /// Reports imports of packages the manifest does not list, once per file and package. In strict mode production code
-/// must import from `dependencies` or `peerDependencies`, so a package listed only elsewhere is reported too.
+/// must import from `dependencies` or `peerDependencies`, so a package listed only elsewhere is reported too. An
+/// import that only another package's `tsconfig` `paths` map is reported as a missing mapping.
 pub struct UnlistedDependencies;
 
 impl JsRule for UnlistedDependencies {
@@ -49,6 +57,35 @@ impl JsRule for UnlistedDependencies {
                 .iter()
                 .find(|entry| entry.name == unlisted.name)
                 .map(|entry| entry.kind.field());
+            if listed_as.is_none()
+                && let Some(foreign) = &unlisted.foreign_paths
+            {
+                let message = format!(
+                    "`{}` resolves only through the `paths` of `{}`; add the mapping to this package's tsconfig or \
+                     import it by package name",
+                    unlisted.specifier, foreign.config
+                );
+                let help = format!(
+                    "map `{}` in the tsconfig of `{}` as `{}` does, or import the module by the name of the package \
+                     that exports it",
+                    foreign.pattern,
+                    package.display_name(),
+                    foreign.config
+                );
+                out.emit(
+                    diagnostic(&META, message, module_location(module, unlisted.span))
+                        .package(package.display_name())
+                        .dependency(unlisted.name.clone())
+                        .detail(FOREIGN_TSCONFIG_PATHS)
+                        .related(Related::new(
+                            format!("`{}` maps `{}` here", foreign.pattern, unlisted.specifier),
+                            Location::new(PathBuf::from(&foreign.config), None),
+                        ))
+                        .help(help)
+                        .build(),
+                );
+                continue;
+            }
             let (message, help) = match listed_as {
                 Some(field) => (
                     format!(

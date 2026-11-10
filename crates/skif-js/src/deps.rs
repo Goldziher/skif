@@ -1,18 +1,21 @@
 //! Which packages and binaries the code and scripts use, against what each manifest lists.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use serde_json::Value;
 use skif_core::{DependencyKind, FileSystem, Span};
+use skif_js_plugins::scripts::{ScriptContext, is_ignored_binary, parse_script};
 use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object};
 use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 
 use crate::ancestors::{external_manifests, listed_names};
-use crate::graph::{ModuleGraph, ModuleId};
+use crate::discover::relative;
+use crate::fixture::in_fixture_directory;
+use crate::graph::{ModuleGraph, ModuleId, Target};
 use crate::lockfile;
-use crate::scripts::ScriptBinary;
+use crate::scripts::{ScriptBinary, script_context};
 use crate::setup::Setup;
 use crate::specifier::{RUNTIME_PACKAGES, package_name, typed_package, types_package};
 use crate::tsconfig_paths::resolve_extends;
@@ -22,7 +25,8 @@ use crate::tsconfig_paths::resolve_extends;
 enum Listed {
     /// In the manifest of this package (the importer or a package that contains it, or the root).
     Package(PackageId),
-    /// In a manifest above the workspace root, which skif does not judge.
+    /// In a manifest above the workspace root, which this run does not judge; the use is recorded for the root that
+    /// owns that manifest ([`DependencyUsage::ancestor_uses`]).
     External,
 }
 
@@ -177,9 +181,13 @@ const BINARY_PACKAGES: &[(&str, &str)] = &[
 ];
 
 /// Where a package import is written, as [`DependencyUsage::handle_import`] judges it.
-struct ImportSite {
+struct ImportSite<'s> {
     /// The package whose file imports it.
     owner: PackageId,
+    /// The specifier as written.
+    specifier: &'s str,
+    /// What the specifier resolved to; `None` for a `@jsxImportSource` pragma, which is not resolved.
+    target: Option<&'s Target>,
     module: ModuleId,
     span: Option<Span>,
     /// It brings in types only and is not a re-export, so an `@types` package can stand in for the package.
@@ -199,6 +207,7 @@ fn is_declaration_file(path: &Path) -> bool {
 
 /// An import of a package the manifest does not list.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct UnlistedImport {
     /// The package whose file imports it.
     pub package: PackageId,
@@ -208,17 +217,39 @@ pub struct UnlistedImport {
     pub module: ModuleId,
     /// Where the import is written: the import statement, or the `@jsxImportSource` pragma.
     pub span: Option<Span>,
+    /// The specifier as written, such as `name/subpath`.
+    pub specifier: String,
+    /// What the specifier resolved to: a module of the graph, a package by name (installed or not) or nothing. `None`
+    /// for a `@jsxImportSource` pragma, which is not resolved.
+    pub target: Option<Target>,
+    /// The `paths` pattern of another package's TypeScript configuration that maps the specifier, when the
+    /// configuration the importing file follows maps it not.
+    pub foreign_paths: Option<ForeignMapping>,
 }
 
-/// A script binary that no dependency provides.
+/// A `paths` pattern of a TypeScript configuration the importing file does not follow.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForeignMapping {
+    /// The configuration file that declares the pattern (the one found for a package, or a configuration it
+    /// extends), relative to the workspace root with `/` separators.
+    pub config: String,
+    /// The pattern, as written.
+    pub pattern: String,
+}
+
+/// A binary that a script or a command read from a file runs and no dependency provides.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnlistedBinary {
-    /// The package whose script runs it.
+    /// The package whose script or file runs it.
     pub package: PackageId,
     /// The binary name.
     pub name: String,
-    /// The script that runs it.
+    /// The `package.json` script that runs it; empty when `file` is set.
     pub script: String,
+    /// The file whose command runs it, relative to the workspace root with `/` separators, when that is not a
+    /// `package.json` script: a workflow, hook or tool config a plugin reads, or a source file that runs it through
+    /// `node:child_process`, `execa` or `zx`.
+    pub file: Option<PathBuf>,
 }
 
 /// The binaries and peer dependencies a package declares.
@@ -453,14 +484,18 @@ pub struct DependencyUsage {
     /// For every package, whether its `tsconfig.json` sets a `jsxImportSource` other than `react`, so JSX files do not
     /// use React.
     other_jsx_runtime: Vec<bool>,
-    /// Names listed by the manifests above the workspace root.
-    external_listed: HashSet<String>,
+    /// Names listed by the manifests above the workspace root, each with the directory of the innermost manifest that
+    /// lists it: Node.js resolves it from there.
+    external_listed: HashMap<String, PathBuf>,
+    /// The names of `external_listed` that this workspace uses.
+    external_used: BTreeSet<String>,
     hosts: Vec<HashMap<String, Vec<String>>>,
     bins: Vec<HashMap<String, Vec<String>>>,
     member_bins: BTreeMap<String, Vec<String>>,
     members: HashSet<String>,
-    /// Binaries that `node_modules/.bin` directories of ancestor projects put on the `PATH`.
-    ancestor_bins: HashSet<String>,
+    /// Binaries that `node_modules/.bin` directories of ancestor projects put on the `PATH`, each with the dependencies
+    /// of those projects that provide it.
+    ancestor_bins: HashMap<String, Vec<String>>,
     /// Imports of packages that are not listed, in module order.
     pub unlisted: Vec<UnlistedImport>,
     /// Script binaries that nothing provides, in package order.
@@ -597,16 +632,24 @@ impl DependencyUsage {
         let mut cache = HashMap::new();
         for (dir, manifest) in external_manifests(fs, &workspace.root) {
             for name in listed_names(&manifest) {
-                self.external_listed.insert(name.to_owned());
-                self.ancestor_bins.insert(unscoped(name).to_owned());
-                self.ancestor_bins.extend(
+                self.external_listed
+                    .entry(name.to_owned())
+                    .or_insert_with(|| dir.clone());
+                let mut bins = vec![unscoped(name).to_owned()];
+                bins.extend(
                     BINARY_PACKAGES
                         .iter()
                         .filter(|(_, package)| *package == name)
                         .map(|(bin, _)| (*bin).to_owned()),
                 );
                 if let Some(installed) = read_installed(fs, &dir, &dir, name, &mut cache) {
-                    self.ancestor_bins.extend(installed.bins.iter().cloned());
+                    bins.extend(installed.bins.iter().cloned());
+                }
+                for bin in bins {
+                    let providers = self.ancestor_bins.entry(bin).or_default();
+                    if !providers.iter().any(|provider| provider == name) {
+                        providers.push(name.to_owned());
+                    }
                 }
             }
         }
@@ -628,12 +671,23 @@ impl DependencyUsage {
             .chain(self.ancestors[id.index()].iter().copied())
             .find(|scope| self.listed[scope.index()].contains(name))
             .map(Listed::Package)
-            .or_else(|| self.external_listed.contains(name).then_some(Listed::External))
+            .or_else(|| self.external_listed.contains_key(name).then_some(Listed::External))
+    }
+
+    /// Whether `name` is a workspace package or a manifest of the workspace, or above it, lists it: an unlisted import
+    /// of it wants a `package.json` entry, whatever `paths` of another package also map it.
+    pub(crate) fn known_package(&self, name: &str) -> bool {
+        self.members.contains(name)
+            || self.external_listed.contains_key(name)
+            || self.listed.iter().any(|listed| listed.contains(name))
     }
 
     fn reference(&mut self, listed: Listed, name: &str) {
-        if let Listed::Package(id) = listed {
-            self.reference_in(id, name);
+        match listed {
+            Listed::Package(id) => self.reference_in(id, name),
+            Listed::External => {
+                self.external_used.insert(name.to_owned());
+            }
         }
     }
 
@@ -677,11 +731,13 @@ impl DependencyUsage {
                     // package stands in for the package.
                     let type_only =
                         (resolved.type_only && kind != Some(ImportKind::ExportFrom)) || (self.strict && declaration);
-                    let span = module.info.imports.get(resolved.import).map(|import| import.span);
+                    let import = module.info.imports.get(resolved.import);
                     let site = ImportSite {
                         owner: module.owner,
+                        specifier: import.map_or(name.as_str(), |import| import.specifier.as_str()),
+                        target: Some(&resolved.target),
                         module: module.id,
-                        span,
+                        span: import.map(|import| import.span),
                         type_only,
                         declaration,
                     };
@@ -707,14 +763,24 @@ impl DependencyUsage {
                     }
                 }
             }
+            if !module.info.commands.is_empty() && !module.ignored && !in_fixture_directory(&module.path) {
+                let context = workspace
+                    .package(module.owner)
+                    .map_or_else(ScriptContext::new, |package| script_context(package.manifest.value()));
+                self.collect_commands(setup, module.owner, &module.path, &module.info.commands, &context);
+            }
             // `declare module 'pkg'` augments the package, which has to be installed for that to compile. It stays
             // out of `imports`: declaring a module the project does not list is not an unlisted import.
             for name in module.info.ambient_modules.iter().chain(&module.info.augmented_modules) {
                 self.reference_listed(module.owner, name);
             }
-            if let Some(source) = module.info.jsx_import_source.as_deref().and_then(package_name) {
+            if let Some(pragma) = module.info.jsx_import_source.as_deref()
+                && let Some(source) = package_name(pragma)
+            {
                 let site = ImportSite {
                     owner: module.owner,
+                    specifier: pragma,
+                    target: None,
                     module: module.id,
                     span: module.info.jsx_import_source_span,
                     type_only: false,
@@ -734,18 +800,18 @@ impl DependencyUsage {
     /// Where an import of a package may be listed. In strict mode, production code (any file but a declaration file,
     /// whose imports knip treats as type-only) may import only what its own package lists in `dependencies` or
     /// `peerDependencies`, as in knip's `DependencyDeputy.isInDependencies`.
-    fn find_listed_for(&self, site: &ImportSite, name: &str) -> Option<Listed> {
+    fn find_listed_for(&self, site: &ImportSite<'_>, name: &str) -> Option<Listed> {
         if !self.strict || site.declaration {
             return self.find_listed(site.owner, name);
         }
         if self.production_listed[site.owner.index()].contains(name) {
             Some(Listed::Package(site.owner))
         } else {
-            self.external_listed.contains(name).then_some(Listed::External)
+            self.external_listed.contains_key(name).then_some(Listed::External)
         }
     }
 
-    fn handle_import(&mut self, workspace: &Workspace, name: &str, site: &ImportSite) {
+    fn handle_import(&mut self, workspace: &Workspace, name: &str, site: &ImportSite<'_>) {
         let owner = site.owner;
         if RUNTIME_PACKAGES.contains(&name) {
             return;
@@ -778,13 +844,20 @@ impl DependencyUsage {
         {
             return;
         }
-        if package
-            .manifest
-            .value()
-            .get("engines")
-            .and_then(|engines| engines.get(name))
-            .is_some()
-        {
+        // The runtime an `engines` entry names provides its module (`vscode` for an extension), also to the packages
+        // inside the one that declares it, such as the client and server of an extension.
+        let provided_by_engine = std::iter::once(owner)
+            .chain(self.ancestors[owner.index()].iter().copied())
+            .filter_map(|scope| workspace.package(scope))
+            .any(|scope| {
+                scope
+                    .manifest
+                    .value()
+                    .get("engines")
+                    .and_then(|engines| engines.get(name))
+                    .is_some()
+            });
+        if provided_by_engine {
             return;
         }
         if !self.strict && package.private && self.members.contains(name) {
@@ -796,6 +869,9 @@ impl DependencyUsage {
             name: name.to_owned(),
             module: site.module,
             span: site.span,
+            specifier: site.specifier.to_owned(),
+            target: site.target.cloned(),
+            foreign_paths: None,
         });
     }
 
@@ -810,7 +886,7 @@ impl DependencyUsage {
                 }
             }
             for bin in &package_setup.referenced_binaries {
-                self.provide_binary(id, bin);
+                self.provide_binary_or_ancestor(id, bin);
             }
             for binary in &package_setup.scripts.ephemeral_binaries {
                 self.provide_binary(id, &binary.name);
@@ -826,18 +902,91 @@ impl DependencyUsage {
                 &package_setup.scripts.global_binaries
             };
             for binary in package_setup.scripts.binaries.iter().chain(global_binaries) {
-                if !self.provide_binary(id, &binary.name)
-                    && !self.ancestor_bins.contains(&binary.name)
-                    && !setup.ignores_binary(id, &binary.name)
-                {
+                if !self.provide_binary_or_ancestor(id, &binary.name) && !setup.ignores_binary(id, &binary.name) {
                     self.unlisted_binaries.push(UnlistedBinary {
                         package: id,
                         name: binary.name.clone(),
                         script: binary.script.clone(),
+                        file: None,
                     });
                 }
             }
+            for run in &package_setup.run_binaries {
+                let file = relative(&run.file, &workspace.root).map_or_else(|| run.file.clone(), PathBuf::from);
+                self.run_binary(setup, id, &run.name, &file);
+            }
         }
+    }
+
+    /// The binaries the `node:child_process` commands of the source file `file` (relative to the root) run, owned by
+    /// package `id` whose scripts `context` holds: a binary fetched on demand credits the dependency that provides it,
+    /// any other is a use of one or unlisted at the file.
+    fn collect_commands(
+        &mut self,
+        setup: &Setup,
+        id: PackageId,
+        file: &Path,
+        commands: &[String],
+        context: &ScriptContext,
+    ) {
+        for command in commands {
+            let info = parse_script(command, context);
+            for dependency in &info.dependencies {
+                if let Some(found) = self.find_listed(id, &dependency.name) {
+                    self.reference(found, &dependency.name);
+                }
+            }
+            // As for the scripts of `package.json`: the system binaries count only with `ignore-global-binaries` off.
+            let global_binaries = if setup.ignore_global_binaries {
+                Vec::new()
+            } else {
+                info.global_binaries
+            };
+            let binaries = info
+                .binaries
+                .into_iter()
+                .filter(|binary| !is_ignored_binary(&binary.name));
+            for binary in binaries.chain(global_binaries) {
+                if binary.filtered {
+                    continue;
+                }
+                if binary.via.is_ephemeral() {
+                    self.provide_binary(id, &binary.name);
+                } else {
+                    self.run_binary(setup, id, &binary.name, file);
+                }
+            }
+        }
+    }
+
+    /// A binary that a command read from `file` (relative to the root) runs in package `id`: a use of the dependency
+    /// that provides it, else an unlisted binary reported at the file.
+    fn run_binary(&mut self, setup: &Setup, id: PackageId, name: &str, file: &Path) {
+        if self.provide_binary(id, name) || self.ancestor_bins.contains_key(name) || setup.ignores_binary(id, name) {
+            return;
+        }
+        let binary = UnlistedBinary {
+            package: id,
+            name: name.to_owned(),
+            script: String::new(),
+            file: Some(file.to_path_buf()),
+        };
+        if !self.unlisted_binaries.contains(&binary) {
+            self.unlisted_binaries.push(binary);
+        }
+    }
+
+    /// Marks the dependencies that provide binary `bin` as used by `id`, else those of the projects above the workspace
+    /// root that put it on the `PATH`. False when none does.
+    fn provide_binary_or_ancestor(&mut self, id: PackageId, bin: &str) -> bool {
+        if self.provide_binary(id, bin) {
+            return true;
+        }
+        let Some(providers) = self.ancestor_bins.get(bin) else {
+            return false;
+        };
+        self.external_used.extend(providers.iter().cloned());
+        true
     }
 
     /// Marks the dependencies that provide binary `bin` as used by `id`. False when none does.
@@ -848,11 +997,14 @@ impl DependencyUsage {
             if let Some(deps) = self.bins[scope.index()].get(bin) {
                 provided.extend(deps.iter().map(|dep| (Listed::Package(scope), dep.clone())));
             }
+            // A dependency named like the binary is assumed to provide it only while its manifest is unknown: an
+            // installed or locked one whose manifest lacks the binary (the `stripe` SDK, not the CLI) does not.
             provided.extend(
                 self.listed[scope.index()]
                     .iter()
                     .filter(|dep| {
-                        unscoped(dep) == bin || BINARY_PACKAGES.iter().any(|(b, package)| *b == bin && package == dep)
+                        (unscoped(dep) == bin && !self.known_bins[scope.index()].contains(*dep))
+                            || BINARY_PACKAGES.iter().any(|(b, package)| *b == bin && package == dep)
                     })
                     .map(|dep| (Listed::Package(scope), dep.clone())),
             );
@@ -929,5 +1081,16 @@ impl DependencyUsage {
     #[must_use]
     pub fn is_listed(&self, id: PackageId, name: &str) -> bool {
         self.listed[id.index()].contains(name)
+    }
+
+    /// The dependencies this workspace uses that only a `package.json` above its root lists, each with the directory
+    /// of the innermost such manifest, by name: Node.js resolves them from that project's `node_modules`, so they are
+    /// used dependencies of that project, which cannot see this code.
+    #[must_use]
+    pub fn ancestor_uses(&self) -> Vec<(PathBuf, String)> {
+        self.external_used
+            .iter()
+            .filter_map(|name| Some((self.external_listed.get(name)?.clone(), name.clone())))
+            .collect()
     }
 }

@@ -18,6 +18,7 @@ static SPEC: PluginSpec = PluginSpec {
     package_json_key: Some("husky"),
     binaries: &["husky"],
     ignore: &[".husky/_/**"],
+    optional_binaries: true,
     ..PluginSpec::DEFAULT
 };
 
