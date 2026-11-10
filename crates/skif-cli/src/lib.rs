@@ -6,8 +6,11 @@
 //! the binary calls [`run_to_exit`], which behaves the same but leaves the memory of a run to the operating system.
 
 use std::ffi::OsString;
+use std::io::Write;
+use std::sync::{Mutex, Once, PoisonError};
 
 use clap::Parser;
+use serde_json::Map;
 
 mod args;
 mod baseline;
@@ -41,36 +44,62 @@ use env::Env;
 pub use error::{CliError, Kind};
 use lint::Teardown;
 pub use lint::lint_to_json;
-use output::emit_error;
+use output::{emit_error, emit_error_to};
 
 /// Runs the CLI with `args` (the first item is the program name, as in `std::env::args_os`) and returns the exit
 /// code. The npm addon calls this; the `skif` binary calls [`run_to_exit`], which differs only in what happens to
 /// memory, so their behaviour cannot drift.
 ///
-/// A panic in skif is caught and exits 2 with the panic message on stderr, as the binary's
-/// [`install_panic_hook`] does; with `--format json` stdout also receives the `error` document (kind `internal`).
+/// A panic in skif is caught and exits 2, as the binary's [`install_panic_hook`] makes it do; the panic hook prints
+/// the message and its location to stderr, and with `--format json` stdout also receives the `error` document (kind
+/// `internal`) naming both.
 pub fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
     let raw: Vec<OsString> = args.into_iter().collect();
-    exit_two_on_panic(&raw, || run_with(raw.clone(), Teardown::Free))
+    exit_two_on_panic(&raw, &mut std::io::stdout(), || run_with(raw.clone(), Teardown::Free))
 }
 
-/// `body`'s exit code, or 2 when it panics, after the `internal` error document when `raw` asks for JSON. The panic
-/// hook has already printed the message to stderr.
-fn exit_two_on_panic(raw: &[OsString], body: impl FnOnce() -> u8) -> u8 {
+/// The last panic seen by the hook [`record_panics`] chains in front of the host's: its message and location, which
+/// the payload that `catch_unwind` returns does not carry.
+static LAST_PANIC: Mutex<Option<String>> = Mutex::new(None);
+
+/// Chains a hook in front of the current panic hook, once per process, that records each panic in [`LAST_PANIC`]
+/// and then calls the hook it replaced, so the host's panic handling is unchanged.
+fn record_panics() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            *LAST_PANIC.lock().unwrap_or_else(PoisonError::into_inner) = Some(info.to_string());
+            previous(info);
+        }));
+    });
+}
+
+/// `body`'s exit code, or 2 when it panics, after the `internal` error document on `stdout` when `raw` asks for JSON.
+/// The panic hook has already printed the message and location to stderr.
+fn exit_two_on_panic(raw: &[OsString], stdout: &mut dyn Write, body: impl FnOnce() -> u8) -> u8 {
+    record_panics();
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)).unwrap_or_else(|payload| {
+        let recorded = LAST_PANIC.lock().unwrap_or_else(PoisonError::into_inner).take();
         if wants_json(raw) {
-            let message = payload
-                .downcast_ref::<&str>()
-                .copied()
-                .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
-                .unwrap_or("panic");
-            emit_error(
-                &CliError::new(Kind::Internal, format!("internal error: {message}")),
-                Format::Json,
-            );
+            let report = recorded.unwrap_or_else(|| {
+                payload
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                    .unwrap_or("panic")
+                    .to_owned()
+            });
+            emit_error_to(&internal_error(&report), Format::Json, Map::new(), stdout);
         }
         2
     })
+}
+
+/// The error a panic becomes; `report` is the panic hook's description of it (`panicked at <location>:` and the
+/// message).
+fn internal_error(report: &str) -> CliError {
+    CliError::new(Kind::Internal, format!("internal error: {report}"))
 }
 
 /// Like [`run`], for a process that exits as soon as this returns: the lint command leaves its diagnostics, workspace
@@ -106,22 +135,20 @@ fn run_with(args: impl IntoIterator<Item = OsString>, teardown: Teardown) -> u8 
     }
 }
 
-/// Keeps the JSON contract when skif itself panics: in `--format json` mode stdout still receives exactly one
-/// `error` document (kind `internal`) and the process exits 2, instead of aborting with a bare message on stderr.
+/// Makes a panic in skif exit 2 (could not run) in every format, after the default hook has printed its message and
+/// location to stderr; in `--format json` mode stdout also receives exactly one `error` document (kind `internal`).
+/// The release binary is built with `panic = "abort"`, and the hook runs before the abort, so the process exits 2
+/// instead of being killed by `SIGABRT`.
 ///
-/// For the `skif` binary only; an embedding host owns its own panic handling. Without `--format json` the default
-/// hook is left alone.
+/// For the `skif` binary only; an embedding host owns its own panic handling.
 pub fn install_panic_hook(raw: &[OsString]) {
-    if !wants_json(raw) {
-        return;
-    }
+    let json = wants_json(raw);
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         default(info);
-        emit_error(
-            &CliError::new(Kind::Internal, format!("internal error: {info}")),
-            Format::Json,
-        );
+        if json {
+            emit_error(&internal_error(&info.to_string()), Format::Json);
+        }
         std::process::exit(2);
     }));
 }
@@ -171,13 +198,29 @@ mod tests {
 
     #[test]
     fn a_panic_exits_two_in_every_format() {
-        for raw in [args(&["skif"]), args(&["skif", "--format", "json"])] {
-            assert_eq!(exit_two_on_panic(&raw, || panic!("boom")), 2);
+        for (raw, json) in [(args(&["skif"]), false), (args(&["skif", "--format", "json"]), true)] {
+            let mut stdout = Vec::new();
+            assert_eq!(exit_two_on_panic(&raw, &mut stdout, || panic!("boom")), 2);
+            if !json {
+                assert!(stdout.is_empty(), "{}", String::from_utf8_lossy(&stdout));
+                continue;
+            }
+            let document: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+            assert_eq!(document["error"]["kind"], "internal", "{document:#}");
+            let message = document["error"]["message"].as_str().unwrap();
+            assert!(
+                message.starts_with("internal error: panicked at ")
+                    && message.contains("lib.rs:")
+                    && message.ends_with(":\nboom"),
+                "the message names the location and the panic: {message}"
+            );
         }
     }
 
     #[test]
     fn without_a_panic_the_exit_code_is_the_body_s() {
-        assert_eq!(exit_two_on_panic(&args(&["skif", "--format", "json"]), || 1), 1);
+        let mut stdout = Vec::new();
+        assert_eq!(exit_two_on_panic(&args(&["skif", "--format", "json"]), &mut stdout, || 1), 1);
+        assert!(stdout.is_empty());
     }
 }

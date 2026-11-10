@@ -22,7 +22,11 @@ use crate::write::write_atomic;
 /// Writes `bytes` to stdout; a failure (a full disk, a closed descriptor) is an error, not something to swallow.
 /// A reader that went away (`skif | head`) is not a failure of the run: the output is simply no longer wanted.
 pub fn write_stdout(bytes: &[u8]) -> Result<(), CliError> {
-    let mut out = io::stdout().lock();
+    write_to(&mut io::stdout().lock(), bytes)
+}
+
+/// Like [`write_stdout`], to `out`, which stands for stdout.
+fn write_to(out: &mut dyn Write, bytes: &[u8]) -> Result<(), CliError> {
     match out.write_all(bytes).and_then(|()| out.flush()) {
         Err(error) if error.kind() != io::ErrorKind::BrokenPipe => {
             Err(CliError::new(Kind::Io, format!("cannot write to stdout: {error}")))
@@ -45,9 +49,14 @@ pub fn emit_error(error: &CliError, format: Format) {
 
 /// Like [`emit_error`], with `extra` top-level members in the JSON document (the `fix` object of a completed fix).
 pub fn emit_error_with(error: &CliError, format: Format, extra: Map<String, serde_json::Value>) {
+    emit_error_to(error, format, extra, &mut io::stdout().lock());
+}
+
+/// Like [`emit_error_with`], with the JSON document written to `stdout`.
+pub fn emit_error_to(error: &CliError, format: Format, extra: Map<String, serde_json::Value>, stdout: &mut dyn Write) {
     if format == Format::Json
         && let Some(buffer) = error_document(error, extra)
-        && write_stdout(buffer.as_bytes()).is_ok()
+        && write_to(stdout, buffer.as_bytes()).is_ok()
     {
         return;
     }
