@@ -245,7 +245,7 @@ pub fn credit_other_root_uses(report: Report, uses: &OtherRootUses) -> Report {
 /// reports it.
 fn shared_config_drops(roots: &[(&Path, &Report)]) -> Vec<BTreeSet<(PathBuf, String)>> {
     let mut drops: Vec<BTreeSet<(PathBuf, String)>> = vec![BTreeSet::new(); roots.len()];
-    let mut settings: BTreeMap<(PathBuf, &str, &str), Vec<(usize, &ConfigJudgement)>> = BTreeMap::new();
+    let mut settings: BTreeMap<SettingKey<'_>, Vec<(usize, &ConfigJudgement)>> = BTreeMap::new();
     for (index, (root, report)) in roots.iter().enumerate() {
         for judgement in &report.config_judgements {
             settings
@@ -273,7 +273,7 @@ fn shared_config_drops(roots: &[(&Path, &Report)]) -> Vec<BTreeSet<(PathBuf, Str
         let used = judgements.iter().any(|(_, judgement)| !judgement.stale);
         let keeper = judgements
             .iter()
-            .find(|(index, judgement)| !used && judgement.stale && reports(*index, *judgement))
+            .find(|(index, judgement)| !used && judgement.stale && reports(*index, judgement))
             .map(|(index, _)| *index);
         for (index, judgement) in judgements {
             if judgement.stale && keeper != Some(*index) {
@@ -735,7 +735,7 @@ mod tests {
         runs[0].report = report(&[], &[]);
         settle_shared_config_findings(&mut runs);
         assert_eq!((messages(&runs[0]), messages(&runs[1])), (vec![], vec![DEPENDENCY]));
-        assert!(runs[1].withheld.is_empty());
+        assert_eq!(runs[1].withheld.len(), 0);
         assert_eq!(runs[1].report.summary.warnings, 1);
     }
 
