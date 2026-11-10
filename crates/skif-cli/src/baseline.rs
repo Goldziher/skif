@@ -13,18 +13,21 @@ use std::process::{Command, Output};
 
 use serde_json::{Map, Value, json};
 use skif::{
-    CONFIG_FILE_NAMES, CachedFs, Config, ConfigOverrides, Diagnostic, IgnoreEntry, OsFs, Selector, Severity, Target,
-    Workspace, dependency_name, ignore_matches, slash,
+    CONFIG_FILE_NAMES, CachedFs, Config, Diagnostic, IgnoreEntry, OsFs, Selector, Severity, Target, Workspace,
+    dependency_name, ignore_matches, slash,
 };
+use skif_report::escape_controls;
 
 use crate::args::{
-    BaselineArgs, BaselineCheckArgs, BaselineCommand, BaselineFileArgs, BaselineWriteArgs, Format, RulesFormat,
+    BaselineArgs, BaselineCheckArgs, BaselineCommand, BaselineFileArgs, BaselinePruneArgs, BaselineWriteArgs, Format,
+    LintArgs, RulesFormat,
 };
-use crate::config::{document, relative};
+use crate::config::{document, relative, with_errors};
 use crate::error::{CliError, Kind};
-use crate::lint::canonical;
+use crate::filter::Filter;
+use crate::lint::{self, canonical};
 use crate::output::{emit_error, stderr_line, write_stdout};
-use crate::roots::{self, Linters};
+use crate::roots::{self, Linters, Resolved, RootError};
 use crate::write::write_atomic;
 
 const CLEAN: u8 = 0;
@@ -44,7 +47,7 @@ const HEADER: &str = "\
 pub fn run(args: &BaselineArgs) -> u8 {
     let (common, result) = match &args.command {
         BaselineCommand::Write(write) => (&write.common, write_baseline(write)),
-        BaselineCommand::Prune(prune) => (prune, prune_baseline(prune)),
+        BaselineCommand::Prune(prune) => (&prune.common, prune_baseline(prune)),
         BaselineCommand::Check(check) => (&check.common, check_baseline(check)),
     };
     match result {
@@ -65,15 +68,91 @@ struct Baseline {
 /// Baseline entries paired with the indices of the findings each one matches.
 type Matched<'a> = Vec<(&'a IgnoreEntry, &'a Vec<usize>)>;
 
-/// The root at `PATH`, resolved as for linting, and the absolute path of its baseline file.
-fn locate(args: &BaselineFileArgs) -> Result<(Target, PathBuf), CliError> {
+/// A root a command covers and the absolute path of its baseline file.
+struct Root {
+    target: Target,
+    file: PathBuf,
+}
+
+/// The roots a command covers.
+struct Roots {
+    /// The workspace root of a single-root run, the invocation directory of a multi-root run; the files the human
+    /// output names are relative to it.
+    base: PathBuf,
+    /// Whether the run covers every root below `PATH`: the JSON document then lists one member per root.
+    multi: bool,
+    roots: Vec<Root>,
+    /// Roots a multi-root run found but could not load.
+    failures: Vec<RootError>,
+}
+
+/// The roots at `PATH`, resolved as `lint` resolves them, each with its baseline file: `--file`, which names the
+/// baseline of a single root, or `skif.baseline.toml` in the root.
+fn locate(args: &BaselineFileArgs, lint: &LintArgs) -> Result<Roots, CliError> {
     let start = canonical(&args.path)?;
-    let target = skif::find_target(&start, &CachedFs::new(OsFs), &ConfigOverrides::default())?;
-    let file = match &args.file {
-        None => target.root.join(DEFAULT_FILE),
-        Some(file) => resolve_file(file)?,
+    let Resolved {
+        base,
+        targets,
+        multi,
+        failures,
+        truncated: _,
+    } = roots::resolve(&start, lint.recursive, &CachedFs::new(OsFs), &lint::overrides(lint))?;
+    let file = args.file.as_deref().map(resolve_file).transpose()?;
+    if file.is_some() && targets.len() > 1 {
+        return Err(CliError::new(
+            Kind::Usage,
+            format!(
+                "--file names one baseline file, but {} holds {} roots; leave it out to use {DEFAULT_FILE} in each root",
+                args.path.display(),
+                targets.len()
+            ),
+        ));
+    }
+    let roots = targets
+        .into_iter()
+        .map(|target| Root {
+            file: file.clone().unwrap_or_else(|| target.root.join(DEFAULT_FILE)),
+            target,
+        })
+        .collect();
+    Ok(Roots {
+        base,
+        multi,
+        roots,
+        failures,
+    })
+}
+
+/// Fails when the configuration of `target` does not apply the baseline file `file` holding `entries`: no
+/// configuration file it reads extends the file (`--config` names one that does not), or a file applied after the
+/// baseline resets `ignore` and so drops its entries. A baseline that does not apply would leave the lint run failing
+/// on every finding it records, while `write` and `prune` report success.
+fn check_applied(target: &Target, file: &Path, entries: &[IgnoreEntry]) -> Result<(), CliError> {
+    if entries.is_empty() {
+        return Ok(());
+    }
+    let cause = if target.sources.iter().all(|source| source.path.as_path() != file) {
+        "no configuration file of the run extends it (a file given with --config must extend it itself)"
+    } else {
+        let applied: BTreeSet<(Key, Option<&str>)> = target
+            .config
+            .ignore
+            .iter()
+            .map(|entry| (key(entry), entry.reason.as_deref()))
+            .collect();
+        if entries
+            .iter()
+            .all(|entry| applied.contains(&(key(entry), entry.reason.as_deref())))
+        {
+            return Ok(());
+        }
+        "a configuration file applied after it resets `ignore` (`reset = [\"ignore\"]`), which drops its entries; \
+         put the reset in a file listed before the baseline in `extends`, or remove it"
     };
-    Ok((target, file))
+    Err(config_error(
+        file,
+        &format!("the baseline does not apply to the lint run: {cause}"),
+    ))
 }
 
 /// `file` made absolute, with its directory spelled as the OS resolves it when it exists, so it compares equal to the
@@ -124,39 +203,58 @@ fn parse_entries(text: &str) -> Result<Vec<IgnoreEntry>, String> {
         .map_err(|error| error.to_string())
 }
 
-/// What a lint run for the baseline returns: the workspace, the findings and the IDs of the rules whose findings are
-/// about a specifier ([`skif::RuleMeta::version_scoped`]).
+/// What the lint run of one root found: its workspace and its findings.
 struct Linted {
     workspace: Workspace,
     diagnostics: Vec<Diagnostic>,
+}
+
+/// What the lint run of every root found, in the order of the roots, and the IDs of the rules whose findings are about
+/// a specifier ([`skif::RuleMeta::version_scoped`]).
+struct Lints {
+    roots: Vec<Linted>,
     version_scoped: BTreeSet<&'static str>,
 }
 
-/// Lints `target` with its configuration minus the entries of the baseline file.
-fn lint_without(mut target: Target, baseline: &[IgnoreEntry]) -> Result<Linted, CliError> {
-    let recorded: BTreeSet<(Key, Option<&str>)> = baseline
-        .iter()
-        .map(|entry| (key(entry), entry.reason.as_deref()))
-        .collect();
-    target
-        .config
-        .ignore
-        .retain(|entry| !recorded.contains(&(key(entry), entry.reason.as_deref())));
-    let root = target.root.clone();
-    let linters = Linters::build(std::slice::from_ref(&target))?;
+/// Lints `targets` together, as `lint` lints them (its flags applied, roots of a multi-root run crediting each
+/// other's uses), each with its configuration minus the entries of its baseline file in `baselines`.
+fn lint_without(
+    mut targets: Vec<Target>,
+    baselines: &[&[IgnoreEntry]],
+    lint: &LintArgs,
+    base: &Path,
+) -> Result<Lints, CliError> {
+    let filter = Filter::new(lint)?;
+    for (target, baseline) in targets.iter_mut().zip(baselines) {
+        lint::adjust(lint, &mut target.config)?;
+        filter.configure(&mut target.config)?;
+        let recorded: BTreeSet<(Key, Option<&str>)> = baseline
+            .iter()
+            .map(|entry| (key(entry), entry.reason.as_deref()))
+            .collect();
+        target
+            .config
+            .ignore
+            .retain(|entry| !recorded.contains(&(key(entry), entry.reason.as_deref())));
+    }
+    lint::apply_tsconfig(lint, &mut targets)?;
+    let linters = Linters::build(&targets)?;
     let version_scoped = linters
         .rules()
         .into_iter()
         .filter(|meta| meta.version_scoped)
         .map(|meta| meta.id)
         .collect();
-    let run = roots::lint_targets(&root, vec![target], &linters)?
-        .into_iter()
-        .next()
-        .ok_or_else(|| CliError::new(Kind::Internal, "the root was not linted"))?;
-    Ok(Linted {
-        workspace: run.workspace,
-        diagnostics: run.report.diagnostics,
+    let mut runs = roots::lint_targets(base, targets, &linters)?;
+    filter.apply_runs(&mut runs)?;
+    Ok(Lints {
+        roots: runs
+            .into_iter()
+            .map(|run| Linted {
+                workspace: run.workspace,
+                diagnostics: run.report.diagnostics,
+            })
+            .collect(),
         version_scoped,
     })
 }
@@ -305,21 +403,19 @@ fn file_pattern(diagnostic: &Diagnostic) -> Option<String> {
 /// file would need an entry of its rule alone, which turns the rule off for the whole workspace, and one in an unnamed
 /// root package that names no file an entry no package pattern narrows to it.
 fn entry_for(
-    linted: &Linted,
+    workspace: &Workspace,
+    version_scoped: &BTreeSet<&'static str>,
     diagnostic: &Diagnostic,
     reason: &str,
 ) -> Result<Result<IgnoreEntry, Unrecorded>, CliError> {
     let file = file_pattern(diagnostic);
-    let package = match package_pattern(&linted.workspace, diagnostic) {
+    let package = match package_pattern(workspace, diagnostic) {
         Ok(package) => package,
         // The file alone narrows the entry to findings of the root package's files.
         Err(Unrecorded::UnnamedRoot) if file.is_some() => None,
         Err(unrecorded) => return Ok(Err(unrecorded)),
     };
-    let dependency = dependency_pattern(
-        diagnostic,
-        linted.version_scoped.contains(diagnostic.rule.as_str()),
-    );
+    let dependency = dependency_pattern(diagnostic, version_scoped.contains(diagnostic.rule.as_str()));
     if package.is_none() && dependency.is_none() && file.is_none() {
         return Ok(Err(Unrecorded::WorkspaceWide));
     }
@@ -476,16 +572,9 @@ fn list_entries(out: &mut String, sign: char, entries: &[&IgnoreEntry]) {
     }
 }
 
-/// The members every `skif baseline` JSON document starts with.
-fn members(
-    command: &str,
-    file: &str,
-    entries: usize,
-    added: &[&IgnoreEntry],
-    removed: &[&IgnoreEntry],
-) -> Map<String, Value> {
+/// The members every `skif baseline` JSON document has for a root.
+fn members(file: &str, entries: usize, added: &[&IgnoreEntry], removed: &[&IgnoreEntry]) -> Map<String, Value> {
     let mut members = Map::new();
-    members.insert("command".to_owned(), json!(command));
     members.insert("file".to_owned(), json!(file));
     members.insert("entries".to_owned(), json!(entries));
     members.insert("added".to_owned(), entries_json(added));
@@ -507,17 +596,110 @@ fn unrecorded_json((diagnostic, unrecorded): &(&Diagnostic, Unrecorded)) -> Valu
     })
 }
 
+/// What a command did in one root: the root, its JSON members, its human output and its exit code.
+struct Outcome {
+    root: PathBuf,
+    members: Map<String, Value>,
+    human: String,
+    code: u8,
+}
+
+/// Prints what `command` did in every root of `roots` and returns the exit code: one JSON document (a multi-root run
+/// lists one member per root under `roots`) or the human output of each root; `2` when a root could not be loaded.
+fn emit(command: &str, roots: &Roots, outcomes: Vec<Outcome>, format: RulesFormat) -> Result<u8, CliError> {
+    let code = if roots.failures.is_empty() {
+        outcomes.iter().map(|outcome| outcome.code).max().unwrap_or(CLEAN)
+    } else {
+        COULD_NOT_RUN
+    };
+    match format {
+        RulesFormat::Json => {
+            let mut members = Map::new();
+            members.insert("command".to_owned(), json!(command));
+            if roots.multi {
+                let listed = outcomes.into_iter().map(|mut outcome| {
+                    let mut member = Map::new();
+                    member.insert("root".to_owned(), json!(relative(&roots.base, &outcome.root)));
+                    member.append(&mut outcome.members);
+                    Value::Object(member)
+                });
+                members.insert("roots".to_owned(), Value::Array(listed.collect()));
+                with_errors(&mut members, &roots.failures);
+            } else if let Some(mut outcome) = outcomes.into_iter().next() {
+                members.append(&mut outcome.members);
+            }
+            write_stdout(document(members)?.as_bytes())?;
+        }
+        RulesFormat::Human => {
+            let out: String = outcomes.into_iter().map(|outcome| outcome.human).collect();
+            write_stdout(out.as_bytes())?;
+            for failure in &roots.failures {
+                stderr_line(&format!("error: {}", escape_controls(&failure.describe())));
+            }
+        }
+    }
+    Ok(code)
+}
+
+/// A root of a `write` or `prune` run once its target went to the lint run: its directory, its baseline file, whether
+/// its configuration already extends that file, and what the file holds.
+struct Place {
+    root: PathBuf,
+    file: PathBuf,
+    extended: bool,
+    baseline: Option<Baseline>,
+}
+
+impl Place {
+    /// The entries of the baseline file, none for a file that does not exist.
+    fn entries(&self) -> &[IgnoreEntry] {
+        self.baseline
+            .as_ref()
+            .map_or(&[][..], |baseline| baseline.entries.as_slice())
+    }
+}
+
+/// Reads the baseline file of every root and splits the roots into their places and their targets.
+fn read_places(roots: &mut Roots) -> Result<(Vec<Place>, Vec<Target>), CliError> {
+    let mut places = Vec::with_capacity(roots.roots.len());
+    let mut targets = Vec::with_capacity(roots.roots.len());
+    for Root { target, file } in std::mem::take(&mut roots.roots) {
+        let baseline = read_baseline(&file)?;
+        places.push(Place {
+            root: target.root.clone(),
+            extended: target.sources.iter().any(|source| source.path == file),
+            file,
+            baseline,
+        });
+        targets.push(target);
+    }
+    Ok((places, targets))
+}
+
 fn write_baseline(args: &BaselineWriteArgs) -> Result<u8, CliError> {
-    let (target, file) = locate(&args.common)?;
-    let root = target.root.clone();
-    let extended_already = target.sources.iter().any(|source| source.path == file);
-    let current = read_baseline(&file)?;
-    let existing = current
-        .as_ref()
-        .map(|baseline| baseline.entries.clone())
-        .unwrap_or_default();
-    let linted = lint_without(target, &existing)?;
-    let covered: BTreeSet<usize> = ignore_matches(&linted.workspace, &existing, &linted.diagnostics)
+    let lint = args.lint.lint_args(&args.common.path, args.common.recursive);
+    let mut roots = locate(&args.common, &lint)?;
+    let (places, targets) = read_places(&mut roots)?;
+    let baselines: Vec<&[IgnoreEntry]> = places.iter().map(Place::entries).collect();
+    let lints = lint_without(targets, &baselines, &lint, &roots.base)?;
+    let mut outcomes = Vec::with_capacity(places.len());
+    for (place, linted) in places.iter().zip(&lints.roots) {
+        outcomes.push(write_root(place, linted, &lints.version_scoped, (args, &lint), &roots.base)?);
+    }
+    emit("write", &roots, outcomes, args.common.format)
+}
+
+/// Records the findings of one root that no entry of its baseline matches, makes its configuration extend the
+/// baseline file, and checks that the configuration applies it.
+fn write_root(
+    place: &Place,
+    linted: &Linted,
+    version_scoped: &BTreeSet<&'static str>,
+    (args, lint): (&BaselineWriteArgs, &LintArgs),
+    base: &Path,
+) -> Result<Outcome, CliError> {
+    let existing = place.entries();
+    let covered: BTreeSet<usize> = ignore_matches(&linted.workspace, existing, &linted.diagnostics)
         .into_iter()
         .flatten()
         .collect();
@@ -527,7 +709,7 @@ fn write_baseline(args: &BaselineWriteArgs) -> Result<u8, CliError> {
         if covered.contains(&index) || !is_recorded(diagnostic) {
             continue;
         }
-        match entry_for(&linted, diagnostic, &args.reason)? {
+        match entry_for(&linted.workspace, version_scoped, diagnostic, &args.reason)? {
             Ok(entry) => added.push(entry),
             Err(cause) => unrecorded.push((diagnostic, cause)),
         }
@@ -535,115 +717,136 @@ fn write_baseline(args: &BaselineWriteArgs) -> Result<u8, CliError> {
     let added = sorted_unique(added);
     let entries = sorted_unique(existing.iter().cloned().chain(added.iter().cloned()).collect());
     let text = render(&entries);
-    let mut written = write_if_changed(&file, &text, current.as_ref().map(|baseline| baseline.text.as_str()))?;
+    let current = place.baseline.as_ref().map(|baseline| baseline.text.as_str());
+    let mut written = write_if_changed(&place.file, &text, current)?;
     // After the baseline file, so the configuration never extends a file that does not exist.
-    let extended = if extended_already {
+    let extended = if place.extended {
         None
     } else {
-        Some(add_extends(&root, &file)?)
+        Some(add_extends(&place.root, &place.file)?)
     };
     written |= extended.is_some();
+    // Resolved again, so a `reset` of the file that now extends the baseline is seen.
+    if let Ok(target) = skif::find_target(&place.root, &CachedFs::new(OsFs), &lint::overrides(lint))
+        && target.root == place.root
+    {
+        check_applied(&target, &place.file, &entries)?;
+    }
 
-    let shown = relative(&root, &file);
     let added: Vec<&IgnoreEntry> = added.iter().collect();
-    let extended = extended.map(|config| relative(&root, &config));
-    match args.common.format {
-        RulesFormat::Json => {
-            let mut members = members("write", &shown, entries.len(), &added, &[]);
-            members.insert("extended".to_owned(), json!(extended));
-            members.insert(
-                "unrecorded".to_owned(),
-                Value::Array(unrecorded.iter().map(unrecorded_json).collect()),
-            );
-            members.insert("written".to_owned(), json!(written));
-            write_stdout(document(members)?.as_bytes())?;
+    let extended = extended.map(|config| relative(&place.root, &config));
+    let mut members = members(&relative(&place.root, &place.file), entries.len(), &added, &[]);
+    members.insert("extended".to_owned(), json!(extended));
+    members.insert(
+        "unrecorded".to_owned(),
+        Value::Array(unrecorded.iter().map(unrecorded_json).collect()),
+    );
+    members.insert("written".to_owned(), json!(written));
+
+    let shown = relative(base, &place.file);
+    let mut human = String::new();
+    if args.common.format == RulesFormat::Human {
+        for (diagnostic, cause) in &unrecorded {
+            stderr_line(&format!(
+                "warning: not recorded: {} ({}): {}",
+                diagnostic.rule.as_str(),
+                diagnostic.message,
+                cause.note()
+            ));
         }
-        RulesFormat::Human => {
-            for (diagnostic, cause) in &unrecorded {
-                stderr_line(&format!(
-                    "warning: not recorded: {} ({}): {}",
-                    diagnostic.rule.as_str(),
-                    diagnostic.message,
-                    cause.note()
-                ));
-            }
-            let mut out = String::new();
-            if added.is_empty() {
-                let _ = writeln!(
-                    out,
-                    "{shown} is up to date ({})",
-                    counted(entries.len(), "entry", "entries")
-                );
-            } else {
-                let _ = writeln!(
-                    out,
-                    "Recorded {} in {shown} ({} in total)",
-                    counted(added.len(), "new entry", "new entries"),
-                    entries.len()
-                );
-                list_entries(&mut out, '+', &added);
-            }
-            if let Some(config) = &extended {
-                let _ = writeln!(out, "Added {shown} to `extends` in {config}");
-            }
-            write_stdout(out.as_bytes())?;
+        if added.is_empty() {
+            let _ = writeln!(
+                human,
+                "{shown} is up to date ({})",
+                counted(entries.len(), "entry", "entries")
+            );
+        } else {
+            let _ = writeln!(
+                human,
+                "Recorded {} in {shown} ({} in total)",
+                counted(added.len(), "new entry", "new entries"),
+                entries.len()
+            );
+            list_entries(&mut human, '+', &added);
+        }
+        if let Some(config) = &extended {
+            let _ = writeln!(human, "Added {} to `extends` in {config}", relative(&place.root, &place.file));
         }
     }
-    Ok(CLEAN)
+    Ok(Outcome {
+        root: place.root.clone(),
+        members,
+        human,
+        code: CLEAN,
+    })
 }
 
-fn prune_baseline(args: &BaselineFileArgs) -> Result<u8, CliError> {
-    let (target, file) = locate(args)?;
-    let root = target.root.clone();
-    let Some(current) = read_baseline(&file)? else {
-        return Err(CliError {
-            path: Some(slash(&file)),
-            ..CliError::new(
-                Kind::Config,
-                format!("{} does not exist; `skif baseline write` creates it", file.display()),
-            )
-        });
-    };
-    let linted = lint_without(target, &current.entries)?;
-    let matches = ignore_matches(&linted.workspace, &current.entries, &linted.diagnostics);
-    let (kept, removed): (Matched<'_>, Matched<'_>) = current
-        .entries
+fn prune_baseline(args: &BaselinePruneArgs) -> Result<u8, CliError> {
+    let lint = args.lint.lint_args(&args.common.path, args.common.recursive);
+    let mut roots = locate(&args.common, &lint)?;
+    let (places, targets) = read_places(&mut roots)?;
+    for (place, target) in places.iter().zip(&targets) {
+        let Some(baseline) = &place.baseline else {
+            return Err(CliError {
+                path: Some(slash(&place.file)),
+                ..CliError::new(
+                    Kind::Config,
+                    format!("{} does not exist; `skif baseline write` creates it", place.file.display()),
+                )
+            });
+        };
+        check_applied(target, &place.file, &baseline.entries)?;
+    }
+    let baselines: Vec<&[IgnoreEntry]> = places.iter().map(Place::entries).collect();
+    let lints = lint_without(targets, &baselines, &lint, &roots.base)?;
+    let mut outcomes = Vec::with_capacity(places.len());
+    for (place, linted) in places.iter().zip(&lints.roots) {
+        outcomes.push(prune_root(place, linted, args.common.format, &roots.base)?);
+    }
+    emit("prune", &roots, outcomes, args.common.format)
+}
+
+/// Removes the entries of one root's baseline that match no finding of its lint run.
+fn prune_root(place: &Place, linted: &Linted, format: RulesFormat, base: &Path) -> Result<Outcome, CliError> {
+    let entries = place.entries();
+    let text = place.baseline.as_ref().map(|baseline| baseline.text.as_str());
+    let matches = ignore_matches(&linted.workspace, entries, &linted.diagnostics);
+    let (kept, removed): (Matched<'_>, Matched<'_>) = entries
         .iter()
         .zip(&matches)
         .partition(|(_, found)| !found.is_empty());
     let kept = sorted_unique(kept.into_iter().map(|(entry, _)| entry.clone()).collect());
     let removed = sorted_unique(removed.into_iter().map(|(entry, _)| entry.clone()).collect());
-    let written = write_if_changed(&file, &render(&kept), Some(current.text.as_str()))?;
+    let written = write_if_changed(&place.file, &render(&kept), text)?;
 
-    let shown = relative(&root, &file);
     let removed: Vec<&IgnoreEntry> = removed.iter().collect();
-    match args.format {
-        RulesFormat::Json => {
-            let mut members = members("prune", &shown, kept.len(), &[], &removed);
-            members.insert("written".to_owned(), json!(written));
-            write_stdout(document(members)?.as_bytes())?;
-        }
-        RulesFormat::Human => {
-            let mut out = String::new();
-            if removed.is_empty() {
-                let _ = writeln!(
-                    out,
-                    "Nothing to prune in {shown} ({})",
-                    counted(kept.len(), "entry", "entries")
-                );
-            } else {
-                let _ = writeln!(
-                    out,
-                    "Removed {} from {shown} ({} left)",
-                    counted(removed.len(), "entry", "entries"),
-                    kept.len()
-                );
-                list_entries(&mut out, '-', &removed);
-            }
-            write_stdout(out.as_bytes())?;
+    let mut members = members(&relative(&place.root, &place.file), kept.len(), &[], &removed);
+    members.insert("written".to_owned(), json!(written));
+    let shown = relative(base, &place.file);
+    let mut human = String::new();
+    if format == RulesFormat::Human {
+        if removed.is_empty() {
+            let _ = writeln!(
+                human,
+                "Nothing to prune in {shown} ({})",
+                counted(kept.len(), "entry", "entries")
+            );
+        } else {
+            let _ = writeln!(
+                human,
+                "Removed {} from {shown} ({} left)",
+                counted(removed.len(), "entry", "entries"),
+                kept.len()
+            );
+            list_entries(&mut human, '-', &removed);
         }
     }
-    Ok(CLEAN)
+    Ok(Outcome {
+        root: place.root.clone(),
+        members,
+        human,
+        code: CLEAN,
+    })
 }
 
 fn git(dir: &Path, args: &[&str]) -> Result<Output, CliError> {
@@ -689,14 +892,38 @@ fn at_revision(file: &Path, revision: &str) -> Result<Option<String>, CliError> 
 }
 
 fn check_baseline(args: &BaselineCheckArgs) -> Result<u8, CliError> {
-    let (target, file) = locate(&args.common)?;
+    let lint = LintArgs {
+        path: args.common.path.clone(),
+        recursive: args.common.recursive,
+        ..LintArgs::default()
+    };
+    let mut roots = locate(&args.common, &lint)?;
+    if args.base.is_none() && roots.roots.len() > 1 {
+        return Err(CliError::new(
+            Kind::Usage,
+            format!(
+                "--base-file names one baseline file, but {} holds {} roots; give --base <REF>",
+                args.common.path.display(),
+                roots.roots.len()
+            ),
+        ));
+    }
+    let mut outcomes = Vec::with_capacity(roots.roots.len());
+    for root in std::mem::take(&mut roots.roots) {
+        outcomes.push(check_root(&root.target.root, &root.file, args, &roots.base)?);
+    }
+    emit("check", &roots, outcomes, args.common.format)
+}
+
+/// Compares one root's baseline file with its earlier version.
+fn check_root(root: &Path, file: &Path, args: &BaselineCheckArgs, shown_from: &Path) -> Result<Outcome, CliError> {
     let current = sorted_unique(
-        read_baseline(&file)?
+        read_baseline(file)?
             .map(|baseline| baseline.entries)
             .unwrap_or_default(),
     );
     let (base, text) = match (&args.base, &args.base_file) {
-        (Some(revision), _) => (revision.clone(), at_revision(&file, revision)?),
+        (Some(revision), _) => (revision.clone(), at_revision(file, revision)?),
         (None, Some(path)) => (
             slash(path),
             Some(fs::read_to_string(path).map_err(|error| CliError::io("cannot read", path, &error))?),
@@ -714,33 +941,32 @@ fn check_baseline(args: &BaselineCheckArgs) -> Result<u8, CliError> {
     let added: Vec<&IgnoreEntry> = current.iter().filter(|entry| !old_keys.contains(&key(entry))).collect();
     let removed: Vec<&IgnoreEntry> = old.iter().filter(|entry| !current_keys.contains(&key(entry))).collect();
 
-    let shown = relative(&target.root, &file);
-    match args.common.format {
-        RulesFormat::Json => {
-            let mut members = members("check", &shown, current.len(), &added, &removed);
-            members.insert("base".to_owned(), json!(base));
-            write_stdout(document(members)?.as_bytes())?;
-        }
-        RulesFormat::Human => {
-            let mut out = String::new();
-            if added.is_empty() {
-                let _ = write!(out, "{shown} gained no entries compared with {base}");
-                if !removed.is_empty() {
-                    let _ = write!(out, " ({} fewer)", removed.len());
-                }
-                out.push('\n');
-            } else {
-                let _ = writeln!(
-                    out,
-                    "{shown} gained {} compared with {base}",
-                    counted(added.len(), "entry", "entries")
-                );
-                list_entries(&mut out, '+', &added);
+    let mut members = members(&relative(root, file), current.len(), &added, &removed);
+    members.insert("base".to_owned(), json!(base));
+    let shown = relative(shown_from, file);
+    let mut human = String::new();
+    if args.common.format == RulesFormat::Human {
+        if added.is_empty() {
+            let _ = write!(human, "{shown} gained no entries compared with {base}");
+            if !removed.is_empty() {
+                let _ = write!(human, " ({} fewer)", removed.len());
             }
-            write_stdout(out.as_bytes())?;
+            human.push('\n');
+        } else {
+            let _ = writeln!(
+                human,
+                "{shown} gained {} compared with {base}",
+                counted(added.len(), "entry", "entries")
+            );
+            list_entries(&mut human, '+', &added);
         }
     }
-    Ok(if added.is_empty() { CLEAN } else { GREW })
+    Ok(Outcome {
+        root: root.to_path_buf(),
+        members,
+        human,
+        code: if added.is_empty() { CLEAN } else { GREW },
+    })
 }
 
 #[cfg(test)]

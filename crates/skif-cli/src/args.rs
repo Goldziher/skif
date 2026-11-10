@@ -132,7 +132,7 @@ pub struct InstancesArgs {
 }
 
 /// syncpack's instance filters: what the version-group policies see in this run.
-#[derive(Debug, Default, clap::Args)]
+#[derive(Debug, Clone, Default, clap::Args)]
 pub struct FilterArgs {
     /// Only the dependencies whose name matches this name or glob (`react`, `@types/**`, `!eslint`), in the
     /// version-group and semver-group rules only. Repeatable. syncpack's `--dependencies`.
@@ -371,7 +371,7 @@ pub enum BaselineCommand {
     /// the root's `skif.toml` is made to extend the file.
     Write(BaselineWriteArgs),
     /// Lint, and remove the entries of the baseline file that match no finding.
-    Prune(BaselineFileArgs),
+    Prune(BaselinePruneArgs),
     /// Exit 1 when the baseline file has entries that its version at `--base` (or `--base-file`) lacks.
     Check(BaselineCheckArgs),
 }
@@ -379,11 +379,17 @@ pub enum BaselineCommand {
 /// The baseline file every `skif baseline` command works on.
 #[derive(Debug, clap::Args)]
 pub struct BaselineFileArgs {
-    /// A path inside a project, resolved to its workspace root as for linting.
+    /// A path inside a project, resolved to its workspace root as for linting. Without a `package.json` here or above,
+    /// every project below is covered, each with its own baseline file.
     #[arg(default_value = ".")]
     pub path: PathBuf,
 
-    /// The baseline file [default: `skif.baseline.toml` in the workspace root].
+    /// Cover every workspace and standalone package at or below PATH, each with its own configuration and its own
+    /// baseline file (`skif.baseline.toml` in its root).
+    #[arg(short, long, conflicts_with = "file")]
+    pub recursive: bool,
+
+    /// The baseline file [default: `skif.baseline.toml` in the workspace root]; only for a single root.
     #[arg(long, value_name = "FILE")]
     pub file: Option<PathBuf>,
 
@@ -397,9 +403,156 @@ pub struct BaselineWriteArgs {
     #[command(flatten)]
     pub common: BaselineFileArgs,
 
+    #[command(flatten)]
+    pub lint: BaselineLintArgs,
+
     /// The `reason` of every entry this run adds.
     #[arg(long, value_name = "TEXT", default_value = "baseline")]
     pub reason: String,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct BaselinePruneArgs {
+    #[command(flatten)]
+    pub common: BaselineFileArgs,
+
+    #[command(flatten)]
+    pub lint: BaselineLintArgs,
+}
+
+/// The lint flags `skif baseline write` and `prune` take: those that change which findings a run reports, so the
+/// baseline is recorded and pruned against the findings of the lint run it is meant for (`skif --strict` in CI).
+/// Each means what it means for a lint run.
+#[derive(Debug, Default, clap::Args)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent command-line switch"
+)]
+pub struct BaselineLintArgs {
+    /// Use this configuration file (and the files it extends) instead of discovering `skif.toml` files.
+    #[arg(long, value_name = "FILE")]
+    pub config: Option<PathBuf>,
+
+    /// Set a rule's level, as ID=off|info|warn|error. Repeatable.
+    #[arg(long = "rule", value_name = "ID=LEVEL", value_parser = parse_rule_level)]
+    pub rules: Vec<(String, Level)>,
+
+    /// Turn a rule off. Repeatable.
+    #[arg(long, value_name = "ID")]
+    pub ignore_rule: Vec<String>,
+
+    /// Ignore a package by name or glob in every rule; replaces the file's list. Repeatable.
+    #[arg(long, value_name = "NAME")]
+    pub ignore_package: Vec<String>,
+
+    /// Ignore a dependency in every rule. Repeatable.
+    #[arg(long, value_name = "NAME")]
+    pub ignore_dependency: Vec<String>,
+
+    /// Ignore one rule for one package, as RULE:PACKAGE. Repeatable.
+    #[arg(long, value_name = "RULE:PACKAGE", value_parser = parse_rule_package)]
+    pub ignore_rule_for_package: Vec<(String, String)>,
+
+    /// Skip JavaScript analysis.
+    #[arg(long)]
+    pub no_js: bool,
+
+    /// Only analyse production code in JavaScript analysis.
+    #[arg(long)]
+    pub production: bool,
+
+    /// knip's strict mode, as for a lint run.
+    #[arg(long)]
+    pub strict: bool,
+
+    /// Also analyse the source files that `.gitignore` files hide.
+    #[arg(long)]
+    pub no_gitignore: bool,
+
+    /// Report unused exports of entry files too, overriding `[js] include-entry-exports`.
+    #[arg(long)]
+    pub include_entry_exports: bool,
+
+    /// The TypeScript configuration of the root package, relative to the workspace root (overrides `[js] tsconfig`).
+    #[arg(short = 't', long = "tsconfig", visible_alias = "tsConfig", value_name = "FILE")]
+    pub tsconfig: Option<String>,
+
+    /// Take the project files of each package from its `tsconfig.json` instead of the `project` globs.
+    #[arg(long)]
+    pub use_tsconfig_files: bool,
+
+    /// Which version a version alignment targets, overriding `[policy] prefer`.
+    #[arg(long, value_enum)]
+    pub select: Option<Select>,
+
+    /// Only the findings of these workspace packages, by name or directory relative to the root. Repeatable.
+    #[arg(short = 'W', long, value_name = "NAME|DIR")]
+    pub workspace: Vec<String>,
+
+    /// Only these knip issue types or skif rule ids. Comma separated, repeatable.
+    #[arg(long, value_name = "TYPE|RULE", value_delimiter = ',')]
+    pub include: Vec<String>,
+
+    /// Not these knip issue types or skif rule ids. Comma separated, repeatable.
+    #[arg(long, value_name = "TYPE|RULE", value_delimiter = ',')]
+    pub exclude: Vec<String>,
+
+    /// Shortcut for `--include` of knip's dependency issue types.
+    #[arg(long)]
+    pub dependencies: bool,
+
+    /// Shortcut for `--include` of knip's export issue types.
+    #[arg(long)]
+    pub exports: bool,
+
+    /// Shortcut for `--include files`.
+    #[arg(long)]
+    pub files: bool,
+
+    /// Shortcut for `--include cycles`.
+    #[arg(long)]
+    pub cycles: bool,
+
+    /// Leave out exports tagged with these `JSDoc` tags, written `-TAG`. Comma separated, repeatable.
+    #[arg(long, value_name = "-TAG", value_delimiter = ',', allow_hyphen_values = true)]
+    pub tags: Vec<String>,
+
+    #[command(flatten)]
+    pub filter: FilterArgs,
+}
+
+impl BaselineLintArgs {
+    /// The arguments of the lint run these flags describe, for `path`.
+    pub fn lint_args(&self, path: &Path, recursive: bool) -> LintArgs {
+        LintArgs {
+            path: path.to_path_buf(),
+            recursive,
+            rules: self.rules.clone(),
+            ignore_rule: self.ignore_rule.clone(),
+            ignore_package: self.ignore_package.clone(),
+            ignore_dependency: self.ignore_dependency.clone(),
+            ignore_rule_for_package: self.ignore_rule_for_package.clone(),
+            no_js: self.no_js,
+            config: self.config.clone(),
+            production: self.production,
+            no_gitignore: self.no_gitignore,
+            include_entry_exports: self.include_entry_exports,
+            tsconfig: self.tsconfig.clone(),
+            use_tsconfig_files: self.use_tsconfig_files,
+            strict: self.strict,
+            select: self.select,
+            workspace: self.workspace.clone(),
+            include: self.include.clone(),
+            exclude: self.exclude.clone(),
+            dependencies: self.dependencies,
+            exports: self.exports,
+            files: self.files,
+            cycles: self.cycles,
+            tags: self.tags.clone(),
+            filter: self.filter.clone(),
+            ..LintArgs::default()
+        }
+    }
 }
 
 #[derive(Debug, clap::Args)]
