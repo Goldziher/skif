@@ -206,6 +206,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `skif migrate` from knip: with a `workspaces["."]` table, the top-level `entry`, `project` and `ignore` are not
+  written (knip reads the root workspace from that table alone), instead of being merged with the table's lists into
+  `[js]`, which widened the entries.
 - npm package: a panic in `skif` exits `2` (could not run) with the JSON `error` document (kind `internal`) under
   `--format json`, as the native binary does; it surfaced as a JavaScript exception with exit code 1 and no document.
   `skif_cli::run` catches the panic.

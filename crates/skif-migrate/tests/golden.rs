@@ -1915,6 +1915,40 @@ fn knip_workspaces_in_the_config_alone_note_the_unmerged_tsconfig_paths() {
 }
 
 #[test]
+fn knip_root_workspace_table_replaces_the_top_level_entry_project_and_ignore() {
+    let migration = knip(
+        Some(
+            r#"{ "entry": ["a.ts"], "project": ["**/*.ts"], "ignore": ["gen/**"], "workspaces": { ".": { "entry": ["src/index.ts"] } } }"#,
+        ),
+        &[("knip", "knip")],
+    );
+    let doc = table(&migration);
+    let js = doc["js"].as_table().unwrap();
+    assert_eq!(strings(&js["entry"]), ["src/index.ts"]);
+    assert!(!js.contains_key("project") && !js.contains_key("ignore"), "{js:#?}");
+    for key in ["entry", "project", "ignore"] {
+        let ignored = note(&migration, key);
+        assert_eq!(ignored.class, NoteClass::Exact);
+        assert_eq!(
+            ignored.message,
+            format!(
+                "knip configures the root workspace with `workspaces[\".\"]` alone when it is set, so the top-level \
+                 `{key}` has no effect; not written"
+            )
+        );
+    }
+}
+
+#[test]
+fn knip_top_level_entry_applies_without_a_root_workspace_table() {
+    let migration = knip(
+        Some(r#"{ "entry": ["a.ts"], "workspaces": { "packages/*": { "entry": ["src/index.ts"] } } }"#),
+        &[("knip", "knip")],
+    );
+    assert_eq!(strings(&table(&migration)["js"]["entry"]), ["a.ts"]);
+}
+
+#[test]
 fn knip_in_a_single_package_project_says_nothing_about_tsconfig_paths() {
     for config in [
         r#"{ "entry": ["src/index.ts"] }"#,

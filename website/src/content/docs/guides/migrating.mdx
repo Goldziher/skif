@@ -219,7 +219,7 @@ way, pass `--dependency` (syncpack's `--dependencies`; skif's `--dependencies` i
 | `--tsConfig`, `-t` | `[js] tsconfig` (knip has no configuration key for it); scripts that pass different values get a note and the last one is written |
 | `--use-tsconfig-files` | `[js] use-tsconfig-files = true` |
 | `paths` | `[js.workspaces."<dir>"] paths`, with `"."` for the root |
-| `workspaces["<dir>"]` | `[js.workspaces."<dir>"]`; `workspaces["."]` is merged into `[js]` |
+| `workspaces["<dir>"]` | `[js.workspaces."<dir>"]`; `workspaces["."]` is merged into `[js]` and, as in knip, replaces the top-level `entry`, `project` and `ignore`, which are then not written |
 | plugin keys (`vitest: true`, `"config.ts"`, `["a", "b"]`, `{ config, entry, project }`) | `[js.plugins]`, or `[js.workspaces."<dir>".plugins]` inside a workspace |
 | `rules`, `include`, `exclude`, and `--include`, `--exclude`, `--dependencies`, `--exports`, `--files`, `--cycles` | a level for each rule of the issue types that stay enabled, worked out as knip 6 does (the flags override the configuration; `--dependencies` also covers the catalog types and the dev dependencies; an include of only `nsExports` or `nsTypes` adds the defaults); the `exact` profile turns the others off |
 | the `catalog` issue type, when it stays enabled | `[rules] unused-catalog-entries` and `[catalog] report-unused-entries = true`: knip reports unused catalog entries by default, skif only with that key |
