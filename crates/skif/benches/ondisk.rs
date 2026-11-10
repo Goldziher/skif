@@ -4,13 +4,17 @@
 //! The in-memory benches cannot show where a real run spends its time: in directory walks and file system calls.
 //! `uncached` reads the disk directly, `cached` shares one [`CachedFs`] across the run as the command line does.
 //! Run it with `SKIF_TIMINGS=1` to see the phases of a single run on stderr.
+//!
+//! `shared_closure_on_disk` lints 10 and 40 standalone packages that all import one directory of shared code outside
+//! them: `separate` builds a linter per root, each parsing the shared code itself, and `shared` builds them with
+//! [`Linter::for_targets`], which parses it once for the run. The root count should not multiply the parse time.
 
 #![allow(clippy::expect_used)]
 
 use std::path::Path;
 use std::sync::Arc;
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use rayon::prelude::*;
 use skif::{CachedFs, ConfigOverrides, FileSystem, Linter, OsFs};
 use skif_bench::ondisk::{self, OnDisk, OnDiskOptions};
@@ -40,6 +44,74 @@ fn lint_recursive(root: &Path, overrides: &ConfigOverrides, cached: bool) -> usi
         .sum()
 }
 
+/// The modules of the shared directory.
+const SHARED_FILES: usize = 400;
+/// The functions each shared module exports.
+const SHARED_FUNCTIONS: usize = 50;
+
+/// Writes `roots` standalone packages below `root` whose entry files import `shared/index.ts`, which re-exports
+/// [`SHARED_FILES`] modules outside every package.
+fn write_shared_closure(root: &Path, roots: usize) {
+    let shared = root.join("shared");
+    std::fs::create_dir_all(&shared).expect("directory is created");
+    for file in 0..SHARED_FILES {
+        let body: String = (0..SHARED_FUNCTIONS)
+            .map(|function| {
+                format!("export function f{file}_{function}(x: number): number {{\n  return x + {function};\n}}\n")
+            })
+            .collect();
+        std::fs::write(shared.join(format!("m{file}.ts")), body).expect("file is written");
+    }
+    let index: String = (0..SHARED_FILES)
+        .map(|file| format!("export * from './m{file}';\n"))
+        .collect();
+    std::fs::write(shared.join("index.ts"), index).expect("file is written");
+    for package in 0..roots {
+        let dir = root.join(format!("p{package}"));
+        std::fs::create_dir_all(&dir).expect("directory is created");
+        std::fs::write(
+            dir.join("package.json"),
+            format!(r#"{{"name": "p{package}", "version": "1.0.0", "main": "index.ts"}}"#),
+        )
+        .expect("file is written");
+        std::fs::write(
+            dir.join("index.ts"),
+            format!("import {{ f0_0 }} from '../shared/index';\nexport const value{package} = f0_0({package});\n"),
+        )
+        .expect("file is written");
+    }
+}
+
+/// [`lint_recursive`] with the linters of the run built by [`Linter::for_targets`], sharing one module cache.
+fn lint_recursive_shared(root: &Path) -> usize {
+    let fs: Arc<dyn FileSystem> = Arc::new(CachedFs::new(OsFs));
+    let targets =
+        skif::discover_all(root, fs.as_ref(), &ConfigOverrides::default()).expect("generated roots are discoverable");
+    let linters = Linter::for_targets(&targets, fs).expect("built-in rules register");
+    targets
+        .par_iter()
+        .zip(&linters)
+        .map(|(target, linter)| linter.run(&target.workspace).expect("run succeeds").diagnostics.len())
+        .sum()
+}
+
+fn bench_shared_closure(c: &mut Criterion) {
+    let mut group = c.benchmark_group("shared_closure_on_disk");
+    group.sample_size(10);
+    for roots in [10, 40] {
+        let dir = tempfile::tempdir().expect("temporary directory");
+        write_shared_closure(dir.path(), roots);
+        let root = std::fs::canonicalize(dir.path()).expect("temporary directory resolves");
+        group.bench_with_input(BenchmarkId::new("separate", roots), &root, |b, root| {
+            b.iter(|| lint_recursive(root, &ConfigOverrides::default(), true));
+        });
+        group.bench_with_input(BenchmarkId::new("shared", roots), &root, |b, root| {
+            b.iter(|| lint_recursive_shared(root));
+        });
+    }
+    group.finish();
+}
+
 fn bench_recursive(c: &mut Criterion) {
     if std::env::var_os("SKIF_TIMINGS").is_some_and(|value| !value.is_empty() && value != "0") {
         let _ = skif_core::timing::enable_stderr();
@@ -64,5 +136,5 @@ fn bench_recursive(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_recursive);
+criterion_group!(benches, bench_recursive, bench_shared_closure);
 criterion_main!(benches);
