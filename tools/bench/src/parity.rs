@@ -839,7 +839,11 @@ fn resolve_relative(dir: &str, specifier: &str, is_file: &FileProbe<'_>) -> Opti
     };
     std::iter::once(path.clone())
         .chain(RESOLVED_EXTENSIONS.iter().map(|extension| format!("{stem}{extension}")))
-        .chain(RESOLVED_EXTENSIONS.iter().map(|extension| format!("{index}{extension}")))
+        .chain(
+            RESOLVED_EXTENSIONS
+                .iter()
+                .map(|extension| format!("{index}{extension}")),
+        )
         .find(|candidate| is_file(candidate))
 }
 
@@ -3319,8 +3323,14 @@ mod tests {
                  import text from './Raw.ts?raw';\n\
                  import { outside } from '../../../../../outside';\n",
             ),
-            ("packages/nodes/nodes/A/GenericFunctions.ts", "export const request = 1;\n"),
-            ("packages/nodes/nodes/A/descriptions/index.ts", "export * from './Fields.js';\n"),
+            (
+                "packages/nodes/nodes/A/GenericFunctions.ts",
+                "export const request = 1;\n",
+            ),
+            (
+                "packages/nodes/nodes/A/descriptions/index.ts",
+                "export * from './Fields.js';\n",
+            ),
             ("packages/nodes/nodes/A/descriptions/Fields.ts", "export const a = 1;\n"),
             ("packages/nodes/nodes/A/Raw.ts", "export const raw = 1;\n"),
             ("packages/nodes/nodes/Both.ts", "import { other } from './Other';\n"),
@@ -3354,12 +3364,25 @@ mod tests {
         let files = strings(&["src/a.ts", "src/b/index.tsx", "src/c.mts", "index.ts"]);
         let is_file = |file: &str| files.contains(file);
         assert_eq!(resolve_relative("src", "./a", &is_file).as_deref(), Some("src/a.ts"));
-        assert_eq!(resolve_relative("src/b", "../a.js", &is_file).as_deref(), Some("src/a.ts"));
-        assert_eq!(resolve_relative("src", "./b", &is_file).as_deref(), Some("src/b/index.tsx"));
-        assert_eq!(resolve_relative("src", "./c.mjs", &is_file).as_deref(), Some("src/c.mts"));
+        assert_eq!(
+            resolve_relative("src/b", "../a.js", &is_file).as_deref(),
+            Some("src/a.ts")
+        );
+        assert_eq!(
+            resolve_relative("src", "./b", &is_file).as_deref(),
+            Some("src/b/index.tsx")
+        );
+        assert_eq!(
+            resolve_relative("src", "./c.mjs", &is_file).as_deref(),
+            Some("src/c.mts")
+        );
         assert_eq!(resolve_relative("src", "..", &is_file).as_deref(), Some("index.ts"));
         assert_eq!(resolve_relative("src", "./missing", &is_file), None);
-        assert_eq!(resolve_relative("src", "../../a", &is_file), None, "outside the checkout");
+        assert_eq!(
+            resolve_relative("src", "../../a", &is_file),
+            None,
+            "outside the checkout"
+        );
     }
 
     #[test]
