@@ -75,7 +75,9 @@ fn compile(name: &str) -> Result<Selector, String> {
         return Err(format!("`{name}` cannot exclude; list the files to allow"));
     }
     if normalized(name) == LOCAL {
-        return Err(format!("`{name}` selects workspace packages, not files; list the files to allow"));
+        return Err(format!(
+            "`{name}` selects workspace packages, not files; list the files to allow"
+        ));
     }
     Selector::new([normalized(name)]).map_err(|error| match error {
         ConfigError::Invalid { message, .. } => message,

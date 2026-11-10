@@ -220,7 +220,10 @@ mod tests {
     #[test]
     fn without_a_panic_the_exit_code_is_the_body_s() {
         let mut stdout = Vec::new();
-        assert_eq!(exit_two_on_panic(&args(&["skif", "--format", "json"]), &mut stdout, || 1), 1);
-        assert!(stdout.is_empty());
+        assert_eq!(
+            exit_two_on_panic(&args(&["skif", "--format", "json"]), &mut stdout, || 1),
+            1
+        );
+        assert_eq!(stdout, b"");
     }
 }

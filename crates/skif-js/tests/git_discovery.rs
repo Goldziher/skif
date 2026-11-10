@@ -167,8 +167,10 @@ fn unused_files_listed_from_the_index_offer_no_deletion() {
     assert_eq!(unused[0].location.path, Path::new("src/dead.ts"));
     assert!(unused[0].fixes.is_empty(), "{:?}", unused[0].fixes);
     assert!(
-        unused[0].help.as_deref().is_some_and(|help| help.contains("no fix deletes it")
-            && help.contains("listed from the git index")),
+        unused[0]
+            .help
+            .as_deref()
+            .is_some_and(|help| help.contains("no fix deletes it") && help.contains("listed from the git index")),
         "{:?}",
         unused[0].help
     );
@@ -180,7 +182,11 @@ fn unused_files_listed_from_the_index_offer_no_deletion() {
         .filter(|d| d.rule.as_str() == "unused-files")
         .collect();
     assert_eq!(unused.len(), 1, "{unused:?}");
-    let titles: Vec<_> = unused[0].fixes.iter().map(|fix| (fix.title.as_str(), fix.safety)).collect();
+    let titles: Vec<_> = unused[0]
+        .fixes
+        .iter()
+        .map(|fix| (fix.title.as_str(), fix.safety))
+        .collect();
     assert_eq!(titles, [("Delete `src/dead.ts`", FixSafety::Unsafe)]);
 }
 
