@@ -309,7 +309,10 @@ fn static_is<'t>(attribute: &Attribute<'t>) -> Option<&'t str> {
     let name = match attribute.name {
         "is" => value.strip_prefix("vue:").unwrap_or(value),
         ":is" | "v-bind:is" => {
-            let quote = value.chars().next().filter(|quote| matches!(*quote, '\'' | '"' | '`'))?;
+            let quote = value
+                .chars()
+                .next()
+                .filter(|quote| matches!(*quote, '\'' | '"' | '`'))?;
             let inner = value.strip_prefix(quote)?.strip_suffix(quote)?;
             if inner.contains([quote, '\\']) || inner.contains("${") {
                 return None;
@@ -756,7 +759,8 @@ impl<'t> Scanner<'t, '_> {
     fn attribute(&mut self, attribute: &Attribute<'t>) {
         let name = attribute.name;
         self.attribute_name(name, attribute.value.is_some());
-        let handler = self.flavor == Flavor::Vue && (name.starts_with('@') || name == "v-on" || name.starts_with("v-on:"));
+        let handler =
+            self.flavor == Flavor::Vue && (name.starts_with('@') || name == "v-on" || name.starts_with("v-on:"));
         match &attribute.value {
             Some(Value::Braced(code)) => self.expression(code),
             Some(Value::Quoted(code) | Value::Bare(code)) if self.is_expression_attribute(name) => {

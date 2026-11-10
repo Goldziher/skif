@@ -1369,9 +1369,18 @@ fn is_attributes_and_resolve_component_calls_name_components() {
     let vue = "<script setup>\nimport { h, resolveComponent } from 'vue';\nconst Icon = () => h(resolveComponent('AppIcon'));\n</script>\n<template><component is=\"AppButton\"/><component :is=\"'app-card'\"/><Icon/></template>\n";
     assert_eq!(
         parse("A.vue", vue).template_tags,
-        ["AppButton", "AppIcon", "Icon", "app-card", "component", "script", "template"]
+        [
+            "AppButton",
+            "AppIcon",
+            "Icon",
+            "app-card",
+            "component",
+            "script",
+            "template"
+        ]
     );
-    let render = "import { h, resolveComponent } from 'vue';\nexport const render = () => h(resolveComponent('app-card'));\n";
+    let render =
+        "import { h, resolveComponent } from 'vue';\nexport const render = () => h(resolveComponent('app-card'));\n";
     assert_eq!(parse("render.ts", render).template_tags, ["app-card"]);
     assert_eq!(
         parse("plain.ts", "export const a = 1;\n").template_tags,

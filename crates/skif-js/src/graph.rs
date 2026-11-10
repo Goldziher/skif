@@ -648,9 +648,10 @@ impl<'a> Builder<'a> {
         let inputs = self.inputs;
         let owner = self.modules[id.index()].owner;
         let untagged = *self.untagged.entry(owner).or_insert_with(|| {
-            inputs.setup.package(owner).is_none_or(|package| {
-                components::may_be_used_untagged(inputs.fs, package, inputs.candidates)
-            })
+            inputs
+                .setup
+                .package(owner)
+                .is_none_or(|package| components::may_be_used_untagged(inputs.fs, package, inputs.candidates))
         });
         !untagged
     }
