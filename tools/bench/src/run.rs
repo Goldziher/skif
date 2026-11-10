@@ -232,6 +232,8 @@ struct Summary {
     skif: String,
     /// The skif source commit (`-dirty` with local changes) the harness ran from.
     source_rev: String,
+    /// When the measurement ended, in seconds since the Unix epoch.
+    measured_at: u64,
     host: String,
     cpu: String,
     cores: usize,
@@ -759,6 +761,9 @@ pub fn run(options: &RunOptions) -> Result<()> {
         schema: SUMMARY_SCHEMA,
         skif: skif_version(&skif),
         source_rev,
+        measured_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_secs()),
         host: format!("{} {}", env::consts::OS, env::consts::ARCH),
         cpu: provenance::cpu(),
         cores: provenance::cores(),
@@ -825,6 +830,7 @@ mod tests {
             schema: SUMMARY_SCHEMA,
             skif: "skif 0.0.0".into(),
             source_rev: "0123456789ab".into(),
+            measured_at: 1_794_268_800,
             host: "linux x86_64".into(),
             cpu: "Intel(R) Xeon(R) CPU @ 2.10GHz".into(),
             cores: 4,
