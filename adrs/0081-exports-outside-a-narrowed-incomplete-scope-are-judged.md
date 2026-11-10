@@ -46,23 +46,35 @@ Chosen option: "Judge the exports outside a narrowed scope, read esbuild build s
 unjudged", because both narrowings follow from facts the analysis has, and the dependency narrowing would rest on
 string matching against configs skif often cannot read.
 
-**Exports outside the scope.** Every project file in the narrowed scope of an incomplete package is an entry of the
-module graph (ADR 0065), so every import an unknown entry can make is already counted. `JsAnalysis::judges_exports_of`
+**Exports outside the scope.** Every file the narrowed scope of an incomplete package matches is an entry of the
+module graph (ADR 0065), so every import an unknown entry can make is already counted. That includes the files outside
+the package's `project` globs (a setup module in `test/` when `project` is `src/**`) and the files of the analysed
+workspace packages nested below it that the scope matches (a nested package's setup module under a root test config):
+a file the scope matches but the graph does not follow would hide what it imports. `JsAnalysis::judges_exports_of`
 is true for a module of a complete package, false for a module of a package unjudged as a whole (no scope, an
 unparsable config, `unmapped-published`, or a computed `import()` that widened the scope), and otherwise true exactly
-when the module lies outside the scope. `unused-exports`, `unused-types`, `unused-namespace-exports`,
-`unused-namespace-types`, `unused-enum-members` and `unused-namespace-members` use it through
-`reports_exports_of`. A module in the scope may itself be an unknown entry whose exports the tool reads, so its
-exports stay unjudged even with `include-entry-exports`. `explain-usage` sets `entries-incomplete` and the verdict
-`not-judged` only for an export the rules do not judge.
+when the module lies outside the scope (`PackageSetup::judges`, which `unused-files` uses too). `unused-exports`,
+`unused-types`, `unused-namespace-exports`, `unused-namespace-types`, `unused-enum-members`,
+`unused-namespace-members` and the unneeded-tag hints of `stale-js-config` use it through `reports_exports_of`, so
+those hints now also fire outside the scope of a narrowed package. A module in the scope may itself be an unknown
+entry whose exports the tool reads, so its exports stay unjudged even with `include-entry-exports`. `explain-usage`
+sets `entries-incomplete` and the verdict `not-judged` only for an export the rules do not judge.
+
+**What narrows.** Judging exports makes a wrong narrowing cost more, so a Vite or Vitest entry key counts as computed
+by the config itself, leaving the package unjudged as a whole, whenever a value the config computes may set it: an
+unknown spread inside the key (`entry: { index, ...pick() }`), and an unknown spread or merge above it of a call of,
+or a reference to, a function or constant the config declares, or a parameter of a function it evaluates
+(`build: { ...makeLib() }`). The evaluator records such a spread under its own marker key (`OWN_SPREAD`, next to
+`UNKNOWN_SPREAD`); a value of an imported module, a constant that only holds one
+(`const base = require('./base')`) and a global keep the shared marker, and only those narrow.
 
 **esbuild build scripts.** esbuild has no config file format, so `esbuild.config.*` and `esbuild.*` are scripts that
 call its API. A new `Plugin::read_script` hook gives the value of a config that parses but exports nothing
 recognised; the default keeps it unparsable. The esbuild plugin returns one build per `entryPoints` property the
-script writes anywhere (`extract_property_values`, evaluated against the script's top-level bindings), so
-`entryPoints` of a top-level `run({ ... })` and of a `build({ ... })` inside a function are both read; a computed
-value leaves the entries incomplete (`computed-entries`), and a script that writes no `entryPoints` stays
-unparsable.
+script writes anywhere (`extract_property_values`, evaluated against the script's top-level bindings, a name a
+surrounding function, block, loop or `catch` declares being unknown), so `entryPoints` of a top-level `run({ ... })`
+and of a `build({ ... })` inside a function are both read; a computed value leaves the entries incomplete
+(`computed-entries`), and a script that writes no `entryPoints` stays unparsable.
 
 **Dependencies stay unjudged** in every incomplete package. An unread base config names packages by string
 (`environment: 'jsdom'`, coverage provider `'v8'` for `@vitest/coverage-v8`, reporters, setup modules), often from an
@@ -82,6 +94,11 @@ npm or workspace package the evaluator does not reach, and those packages are de
   through it is reported, as ADR 0065 already accepts for files.
 * Bad, because an esbuild script that passes options built elsewhere (`build(options)`) next to one that writes
   `entryPoints` loses the entries of the former.
+* Bad, because the `entryPoints` a script hands to an imported helper (`run({ entryPoints }, process.argv)`) are
+  trusted as the whole build: a helper that adds or replaces entry points hides them, and an export only such an
+  entry uses is reported.
+* Bad, because a Vite or Vitest config that spreads a value it computes itself above an entry key now leaves its
+  package unjudged as a whole where ADR 0065 narrowed it.
 * Bad, because the knip harness of ADR 0068 still sets apart every knip-only export, type and member of a listed
   package as `not-judged-by-skif`, so the comparison does not show the gain until the report or the harness tells a
   narrowed package from one unjudged as a whole.
@@ -92,7 +109,16 @@ npm or workspace package the evaluator does not reach, and those packages are de
   `incomplete-judged` fixture: the unused export, type and enum member outside the scope are reported, the export of
   the scope's setup module and of a package with a config unknown as a whole are not. Before this change it reports
   none.
-* `crates/skif-js/tests/explain_absence.rs` `an_export_outside_the_narrowed_scope_is_judged` checks the verdicts.
+* `crates/skif-js/tests/fixtures.rs` `a_scope_file_outside_the_project_globs_still_imports` (`project = ["src/**"]`)
+  and `a_root_scope_counts_the_imports_of_nested_packages` (the `incomplete-root-scope` fixture) keep an export used
+  only by a scope file outside the graph's other entries unreported, and
+  `exports_in_a_narrowed_scope_stay_unjudged_with_include_entry_exports` keeps the scope's exports unjudged.
+* `crates/skif-js/tests/explain_absence.rs` `an_export_outside_the_narrowed_scope_is_judged` and
+  `a_computed_import_keeps_the_package_unjudged` check the verdicts.
+* `crates/skif-js-plugins/tests/fp_config.rs` `computed_unparsable_and_unscoped_configs_stay_package_wide` and
+  `incomplete_configs_are_scoped_to_what_the_tool_could_make_an_entry` tell a spread of a value the config computes
+  from one of an imported base; `crates/skif-js-syntax/tests/config_functions.rs`
+  `an_unknown_spread_the_config_computes_itself_is_its_own` checks the markers.
 * `crates/skif-js-plugins/tests/fp_config.rs` `esbuild_build_scripts_name_their_entry_points` reads the helper-call and
   in-function shapes and keeps computed and absent `entryPoints` incomplete.
 * `adrlint lint adrs`, `adrlint format --check adrs` and `adrlint lock --check` pass.
@@ -122,7 +148,9 @@ form of it, and it is not a package of the tool.
 ## More Information
 
 * Amends: [ADR 0065](0065-narrowed-scope-for-incomplete-entries.md) (exports, types and members of a narrowed package
-  are judged outside the scope; an esbuild script with `entryPoints` is not unparsable)
+  are judged outside the scope; every file the scope matches is an entry, outside `project` and in nested packages
+  too; a spread of a value the config computes above an entry key does not narrow; an esbuild script with
+  `entryPoints` is not unparsable)
 * Related decisions: [ADR 0053](0053-incomplete-packages-in-the-json-report.md),
   [ADR 0068](0068-what-the-knip-comparison-sets-apart.md),
   [ADR 0069](0069-a-published-path-into-nothing-is-reported-not-an-incomplete-entry.md)
