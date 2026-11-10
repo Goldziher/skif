@@ -17,8 +17,10 @@ const OUT_DIRS: &[&str] = &[
     "commonjs", "umd", "amd", "types",
 ];
 
-/// Whether `directory`, the first segment of a published path, is build output.
-pub(crate) fn is_out_dir(directory: &str) -> bool {
+/// Whether `directory`, the first segment of a published path, is build output whose source twin is `src`
+/// (`dist`, `lib`, `out`, `esm` and the like, also with a flavour suffix such as `lib-commonjs`).
+#[must_use]
+pub fn is_out_dir(directory: &str) -> bool {
     let base = directory.split(['-', '_', '.']).next().unwrap_or(directory);
     OUT_DIRS.contains(&base)
 }

@@ -60,6 +60,7 @@ pub use input::{
     BuildDir, ConfigDependency, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope,
     InputRequest, InputSource, PathAlias, RunBinary, WorkspaceInputs,
 };
+pub use manifest_paths::is_out_dir;
 pub use plugin_source::PluginSource;
 pub use provider::{JsProvider, PROVIDER_ID};
 pub use rules::{
