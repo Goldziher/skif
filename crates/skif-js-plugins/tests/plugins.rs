@@ -3095,7 +3095,7 @@ fn biome_root_reference_is_the_config_of_the_farthest_ancestor() {
     };
     let results = resolve_plugins(&ctx);
     let out = output(&results, "biome");
-    let root_config_read = out.config_files.iter().any(|f| f == &app.join("../../biome.json"));
+    let root_config_read = out.config_files.iter().any(|f| f == &repo.join("biome.json"));
     let dependencies_found = deps(out).contains("@org/biome-base");
     std::fs::remove_dir_all(&repo).unwrap();
     assert!(root_config_read, "{:?}", out.config_files);

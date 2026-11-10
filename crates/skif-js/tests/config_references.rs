@@ -1,5 +1,5 @@
-//! Packages that tool configs name (ADR 0083): a `tsconfig` `extends`, `types` or plugin, an Oxlint or ESLint plugin
-//! or shareable config, a Prisma generator, a Babel preset or plugin and a PostCSS plugin are unlisted dependencies at
+//! Packages that tool configs name (ADR 0083): a `tsconfig` `extends`, `types` or plugin, an oxlint or eslint plugin
+//! or shareable config, a Prisma generator, a Babel preset or plugin and a postcss plugin are unlisted dependencies at
 //! the config when no manifest lists them, and uses of the manifest that does.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -92,7 +92,7 @@ fn packages_a_tsconfig_names_are_unlisted_at_the_tsconfig() {
     );
 }
 
-/// Oxlint `jsPlugins` and ESLint plugins and shareable configs name packages; a built-in config (`eslint:recommended`),
+/// Oxlint `jsPlugins` and eslint plugins and shareable configs name packages; a built-in config (`eslint:recommended`),
 /// a local plugin file and an import resolver (an optional reference) do not need one listed.
 #[test]
 fn lint_plugins_and_shareable_configs_are_unlisted_at_the_lint_config() {
@@ -123,8 +123,8 @@ fn lint_plugins_and_shareable_configs_are_unlisted_at_the_lint_config() {
     );
 }
 
-/// A Prisma generator's `provider`, Babel presets and plugins and PostCSS plugins name packages; a built-in generator,
-/// a relative provider or plugin and a PostCSS plugin turned off do not.
+/// A Prisma generator's `provider`, Babel presets and plugins and postcss plugins name packages; a built-in generator,
+/// a relative provider or plugin and a postcss plugin turned off do not.
 #[test]
 fn generators_presets_and_postcss_plugins_are_unlisted_at_their_file() {
     let diagnostics = lint(&[
