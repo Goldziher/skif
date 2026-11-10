@@ -6,10 +6,11 @@
 //! JavaScript or TypeScript file task is an entry, and the command its shebang runs it with
 //! (`#!/usr/bin/env -S npx tsx`) a script. An extensionless one whose shebang runs it with `node`, `bun`, `deno`,
 //! `tsx`, `ts-node` or one of those through `npx` (`mise-tasks/gen`) cannot be a module of the graph, which knows a
-//! file's language by its extension, so the relative modules it imports are entries in its place. A shell one (a shebang of `sh`, `bash`, `zsh`, `dash` or `ksh`, or without
-//! a shebang one of those extensions) is a script, run in the workspace or in the directory of its `#MISE dir="…"`
-//! header (`# [MISE]`, `//MISE` and `:: MISE` too). A task for another interpreter, and a file without a shebang whose
-//! extension is not a shell's (`README`, `NOTES.md`), is not read.
+//! file's language by its extension, so the relative modules it imports are entries in its place. A shell one (a
+//! shebang of `sh`, `bash`, `zsh`, `dash` or `ksh`, or without a shebang one of those extensions) is a script, run in
+//! the workspace or in the directory of its `#MISE dir="…"` header (`# [MISE]`, `//MISE` and `:: MISE` too). A task
+//! for another interpreter, and a file without a shebang whose extension is not a shell's (`README`, `NOTES.md`), is
+//! not read.
 //!
 //! The binaries a task runs by name are machine tools (mise installs those its `[tools]` names), so only those it
 //! reaches through a package manager are judged (`optional_binaries`); a file task's are recorded with the task file.
