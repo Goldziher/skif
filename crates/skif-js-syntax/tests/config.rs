@@ -202,6 +202,12 @@ fn computed_paths_are_relative_to_the_config_directory() {
             "./src",
         ),
         (
+            "Bun's import.meta.dir and import.meta.path",
+            "c.ts",
+            "import { join, dirname } from 'node:path';\nexport default { a: join(import.meta.dir, 'src'), b: join(dirname(import.meta.path), 'lib'), c: import.meta.file };",
+            "./src",
+        ),
+        (
             "URL of the directory itself",
             "c.mjs",
             "export default { a: new URL('.', import.meta.url).pathname };",
@@ -224,6 +230,13 @@ fn computed_paths_are_relative_to_the_config_directory() {
         let value = extract(file, source).unwrap();
         assert_eq!(value.get("a"), Some(&s(expected)), "{name}");
     }
+    let bun = extract(
+        "c.ts",
+        "import { join, dirname } from 'node:path';\nexport default { b: join(dirname(import.meta.path), 'lib'), c: import.meta.file };",
+    )
+    .unwrap();
+    assert_eq!(bun.get("b"), Some(&s("./lib")));
+    assert_eq!(bun.get("c"), Some(&s("c.ts")));
     let value = extract(
         "c.cjs",
         "const { join: j } = require('node:path');\nmodule.exports = { b: j(__dirname, 'a', 'b'), c: `${__dirname}/lib`, d: __dirname + '/lib' };",
