@@ -224,7 +224,7 @@ pub fn credit_other_root_uses(report: Report, uses: &OtherRootUses) -> Report {
                 uses.dependencies
                     .contains(&(diagnostic.location.path.clone(), name.clone()))
             });
-        let used_file = diagnostic.rule == "unused-files" && uses.files.contains(&diagnostic.location.path);
+        let used_file = diagnostic.rule.as_str() == "unused-files" && uses.files.contains(&diagnostic.location.path);
         !(used_dependency || used_file)
     })
 }
