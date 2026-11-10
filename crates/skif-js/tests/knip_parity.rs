@@ -1,7 +1,7 @@
 //! Cases where the corpus runs showed skif and knip disagreeing and skif was wrong: members read in their own file,
 //! types in destructured exports, `new URL` targets, `require` assertions, imports awaited together with
-//! `Promise.all`, spies on a namespace member, parameters that shadow an import, fixture directories, wildcard
-//! `exports`, same-name pairs and duplicate exports.
+//! `Promise.all`, spies on a namespace member, enums read through a namespace, parameters that shadow an import,
+//! fixture directories, wildcard `exports`, same-name pairs and duplicate exports.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -197,6 +197,40 @@ fn a_spy_on_a_namespace_uses_only_the_member_it_spies_on() {
     ]);
     assert_eq!(found(&diagnostics, "unused-namespace-exports"), ["utils.ts: unspied"]);
     assert_eq!(found(&diagnostics, "unused-exports"), none());
+}
+
+#[test]
+fn an_enum_read_through_a_namespace_uses_only_the_members_read_on_it() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        (
+            "index.ts",
+            "import * as C from './constants';\nimport * as R from './reexports';\n\
+             console.log(C.Ids.Open, C.Ids['Close'], C.Kinds, C.Grouped.Inner, R.Levels.High);\n\
+             export let mode: C.Modes.On | undefined;\n",
+        ),
+        (
+            "constants.ts",
+            "export const enum Ids { Open = 'open', Close = 'close', Unused = 'unused' }\n\
+             export enum Kinds { A, B }\nexport const enum Modes { On, Off }\n\
+             export namespace Grouped { export const Inner = 1; export const Other = 2; }\n",
+        ),
+        ("levels.ts", "export enum Levels { High, Low }\n"),
+        ("reexports.ts", "export { Levels } from './levels';\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-enum-members"),
+        [
+            "constants.ts: Ids.Unused",
+            "constants.ts: Modes.Off",
+            "levels.ts: Levels.Low"
+        ],
+        "`C.Kinds` is used as a whole; `R.Levels` follows the re-export"
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-namespace-members"),
+        ["constants.ts: Grouped.Other"]
+    );
 }
 
 #[test]
