@@ -326,7 +326,8 @@ fn storybook_esm_get_absolute_path_idiom_names_the_packages() {
 }
 
 /// An addon, framework or builder whose package is not known statically leaves the packages the config needs unknown,
-/// so the package's dependencies are not judged.
+/// so the package's dependencies are not judged; the files it may hide are a local addon's, in the Storybook config
+/// directory, so the other files are judged.
 #[test]
 fn storybook_names_not_known_statically_leave_the_entries_incomplete() {
     let cases = [
@@ -343,11 +344,14 @@ fn storybook_names_not_known_statically_leave_the_entries_incomplete() {
         let results = run(&[(".storybook/main.ts", source)], &["@storybook/react"], &[]);
         let out = output(&results, "storybook");
         assert!(out.entries_incomplete, "{source}");
+        let scope = IncompleteScope::Within(vec![
+            ".storybook/**".to_owned(),
+            ".{storybook,rnstorybook}/**/*.{js,jsx,ts,tsx,mts}".to_owned(),
+        ]);
         assert!(
             out.incomplete_reasons
                 .iter()
-                .any(|reason| reason.cause == IncompleteCause::ComputedEntries
-                    && reason.scope == IncompleteScope::Package),
+                .any(|reason| reason.cause == IncompleteCause::ComputedEntries && reason.scope == scope),
             "{source}: {:?}",
             out.incomplete_reasons
         );

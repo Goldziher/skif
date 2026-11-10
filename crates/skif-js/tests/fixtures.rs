@@ -321,14 +321,18 @@ fn computed_playwright_reporter_lists_credit_every_branch() {
 
 /// The `storybook-addon-helpers` fixture: `ui` wraps its addons and framework in the ESM `getAbsolutePath` helper the
 /// Storybook CLI writes, which names the packages, so its addons are used and its dead file is judged; `docs` picks an
-/// addon at run time, so its dependencies are not judged.
+/// addon at run time, so its dependencies are not judged, but an addon only hides files of its `.storybook`
+/// directory, so its dead file is judged too.
 #[test]
 fn storybook_addons_behind_get_absolute_path_are_used() {
     let diagnostics = Run::new("storybook-addon-helpers", "").lint_with_plugins();
     assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none());
     assert_eq!(
         found(&diagnostics, "unused-files"),
-        ["packages/ui/src/dead.ts: packages/ui/src/dead.ts"]
+        [
+            "packages/docs/src/dead.ts: packages/docs/src/dead.ts",
+            "packages/ui/src/dead.ts: packages/ui/src/dead.ts",
+        ]
     );
 }
 
