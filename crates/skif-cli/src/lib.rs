@@ -7,7 +7,8 @@
 
 use std::ffi::OsString;
 use std::io::Write;
-use std::sync::{Mutex, Once, PoisonError};
+use std::cell::Cell;
+use std::sync::Once;
 
 use clap::Parser;
 use serde_json::Map;
@@ -58,9 +59,12 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
     exit_two_on_panic(&raw, &mut std::io::stdout(), || run_with(raw.clone(), Teardown::Free))
 }
 
-/// The last panic seen by the hook [`record_panics`] chains in front of the host's: its message and location, which
-/// the payload that `catch_unwind` returns does not carry.
-static LAST_PANIC: Mutex<Option<String>> = Mutex::new(None);
+thread_local! {
+    /// The last panic of this thread seen by the hook [`record_panics`] chains in front of the host's: its message
+    /// and location, which the payload that `catch_unwind` returns does not carry. Per thread, since `catch_unwind`
+    /// runs on the thread that panicked and a panic elsewhere in the process must not be reported as this one.
+    static LAST_PANIC: Cell<Option<String>> = const { Cell::new(None) };
+}
 
 /// Chains a hook in front of the current panic hook, once per process, that records each panic in [`LAST_PANIC`]
 /// and then calls the hook it replaced, so the host's panic handling is unchanged.
@@ -69,18 +73,21 @@ fn record_panics() {
     ONCE.call_once(|| {
         let previous = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
-            *LAST_PANIC.lock().unwrap_or_else(PoisonError::into_inner) = Some(info.to_string());
+            // A panic while the thread's locals are torn down goes unrecorded; the payload then describes it.
+            let _ = LAST_PANIC.try_with(|last| last.set(Some(info.to_string())));
             previous(info);
         }));
     });
 }
 
 /// `body`'s exit code, or 2 when it panics, after the `internal` error document on `stdout` when `raw` asks for JSON.
-/// The panic hook has already printed the message and location to stderr.
+/// The panic hook has already printed the message and location to stderr. The document names the location the hook
+/// recorded on this thread, or only the payload when the hook did not run (a host replaced it).
 fn exit_two_on_panic(raw: &[OsString], stdout: &mut dyn Write, body: impl FnOnce() -> u8) -> u8 {
     record_panics();
+    LAST_PANIC.with(|last| last.set(None));
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)).unwrap_or_else(|payload| {
-        let recorded = LAST_PANIC.lock().unwrap_or_else(PoisonError::into_inner).take();
+        let recorded = LAST_PANIC.with(Cell::take);
         if wants_json(raw) {
             let report = recorded.unwrap_or_else(|| {
                 payload
@@ -96,8 +103,8 @@ fn exit_two_on_panic(raw: &[OsString], stdout: &mut dyn Write, body: impl FnOnce
     })
 }
 
-/// The error a panic becomes; `report` is the panic hook's description of it (`panicked at <location>:` and the
-/// message).
+/// The error a panic becomes; `report` describes it: the panic hook's `panicked at <location>:` and the message, or
+/// the payload alone.
 fn internal_error(report: &str) -> CliError {
     CliError::new(Kind::Internal, format!("internal error: {report}"))
 }
@@ -215,6 +222,35 @@ mod tests {
                 "the message names the location and the panic: {message}"
             );
         }
+    }
+
+    /// The JSON `error` message of a run of `body` that exits 2.
+    fn panic_message(body: impl FnOnce() -> u8) -> String {
+        let mut stdout = Vec::new();
+        assert_eq!(exit_two_on_panic(&args(&["skif", "--format", "json"]), &mut stdout, body), 2);
+        let document: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+        document["error"]["message"].as_str().unwrap().to_owned()
+    }
+
+    #[test]
+    fn a_panic_on_another_thread_is_not_reported_as_this_one() {
+        // `resume_unwind` skips the panic hook, so only the payload describes this panic; the other thread's panic
+        // goes through the hook while this run is in progress.
+        let message = panic_message(|| {
+            let other = std::thread::spawn(|| std::panic::panic_any("another thread's panic"));
+            assert!(other.join().is_err(), "the other thread panicked");
+            std::panic::resume_unwind(Box::new("boom"))
+        });
+        assert_eq!(message, "internal error: boom");
+    }
+
+    #[test]
+    fn a_panic_caught_earlier_on_this_thread_is_not_reported_again() {
+        record_panics();
+        let earlier = std::panic::catch_unwind(|| std::panic::panic_any("an earlier panic"));
+        assert!(earlier.is_err(), "the earlier body panicked");
+        let message = panic_message(|| std::panic::resume_unwind(Box::new(String::from("boom"))));
+        assert_eq!(message, "internal error: boom");
     }
 
     #[test]
