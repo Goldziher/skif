@@ -240,26 +240,16 @@ impl Config {
         let from_toml = |err: &toml::de::Error| ConfigError::from_toml(err, source, path);
         let document = toml::de::DeTable::parse(source).map_err(|err| from_toml(&err))?;
         let config = Self::from_document(document.clone(), source, path, true)?;
-        if !config.has_extend_keys() {
+        let table = toml::Table::deserialize(toml::de::Deserializer::from(document)).map_err(|err| from_toml(&err))?;
+        if !crate::merge::has_extend_keys(&table) {
             return Ok(config);
         }
-        let table = toml::Table::deserialize(toml::de::Deserializer::from(document)).map_err(|err| from_toml(&err))?;
         let mut merger = crate::merge::Merger::default();
         merger.apply(0, &table, &std::collections::HashMap::new());
         let folded = merger.into_table();
         toml::Value::Table(folded)
             .try_into()
             .map_err(|err: toml::de::Error| ConfigError::invalid(path, err.message()))
-    }
-
-    fn has_extend_keys(&self) -> bool {
-        !self.workspace.extend_ignore_packages.is_empty()
-            || !self.js.extend_ignore.is_empty()
-            || !self.js.extend_ignore_dependencies.is_empty()
-            || !self.js.extend_ignore_binaries.is_empty()
-            || !self.js.extend_ignore_unresolved.is_empty()
-            || !self.catalog.extend_exclude.is_empty()
-            || self.js.workspaces.values().any(JsWorkspace::has_extend_keys)
     }
 
     /// The first suppression without a `reason`, named by its key: an `[[ignore]]` entry (`ignore[0]`, also one of an
@@ -2376,13 +2366,6 @@ impl JsWorkspace {
             ("extend-ignore-binaries", self.extend_ignore_binaries.as_slice()),
             ("extend-ignore-unresolved", self.extend_ignore_unresolved.as_slice()),
         ]
-    }
-
-    fn has_extend_keys(&self) -> bool {
-        !self.extend_ignore.is_empty()
-            || !self.extend_ignore_dependencies.is_empty()
-            || !self.extend_ignore_binaries.is_empty()
-            || !self.extend_ignore_unresolved.is_empty()
     }
 }
 

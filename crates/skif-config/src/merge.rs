@@ -195,6 +195,20 @@ fn is_one_segment(key: &str) -> bool {
     }
 }
 
+/// Whether `table`, one parsed file, sets one of the `EXTEND_KEYS` in the table that owns it.
+pub(crate) fn has_extend_keys(table: &Table) -> bool {
+    fn sets_one(table: &Table, path: &str) -> bool {
+        let name = extend_table(path);
+        table.iter().any(|(key, value)| {
+            EXTEND_KEYS
+                .iter()
+                .any(|(owner, _, extend)| *owner == name && *extend == key)
+                || matches!(value, Value::Table(child) if sets_one(child, &join_key(path, key)))
+        })
+    }
+    sets_one(table, "")
+}
+
 fn merge_table(base: &mut Table, layer: &Table, path: &str, cx: &mut Cx<'_>) {
     let table_name = extend_table(path);
     for (key, value) in layer {
@@ -360,5 +374,47 @@ fn merge_named(
             existing.push(item.clone());
             tracked.push(assignment);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::{EXTEND_KEYS, WORKSPACE_TABLE, has_extend_keys};
+    use crate::{IgnoreItem, Js, JsWorkspace};
+
+    fn table(text: &str) -> toml::Table {
+        text.parse().unwrap()
+    }
+
+    #[test]
+    fn an_extend_key_counts_only_in_the_table_that_owns_it() {
+        assert!(has_extend_keys(&table("[js]\nextend-ignore = [\"a\"]\n")));
+        assert!(has_extend_keys(&table("[workspace]\nextend-ignore-packages = [\"a\"]\n")));
+        assert!(has_extend_keys(&table("[catalog]\nextend-exclude = [\"a\"]\n")));
+        assert!(has_extend_keys(&table(
+            "[js.workspaces.\"apps/web\"]\nextend-ignore-binaries = [\"a\"]\n"
+        )));
+        assert!(!has_extend_keys(&table("[js]\nignore = [\"a\"]\n")));
+        assert!(!has_extend_keys(&table("[catalog]\nextend-ignore = [\"a\"]\n")));
+        assert!(!has_extend_keys(&table("[js.plugins.vitest]\nextend-ignore = [\"a\"]\n")));
+    }
+
+    #[test]
+    fn the_extend_lists_checked_for_a_reason_are_the_extend_keys_of_their_table() {
+        let listed = |lists: &[(&'static str, &[IgnoreItem])]| -> BTreeSet<&'static str> {
+            lists.iter().map(|(key, _)| *key).filter(|key| key.starts_with("extend-")).collect()
+        };
+        // `extend-ignore` holds globs of files that are not analysed, not suppressions with a reason.
+        let declared = |owner: &str| -> BTreeSet<&'static str> {
+            EXTEND_KEYS
+                .iter()
+                .filter(|(table, _, extend)| *table == owner && *extend != "extend-ignore")
+                .map(|(_, _, extend)| *extend)
+                .collect()
+        };
+        assert_eq!(listed(&Js::default().ignore_lists()), declared("js"));
+        assert_eq!(listed(&JsWorkspace::default().ignore_lists()), declared(WORKSPACE_TABLE));
     }
 }
