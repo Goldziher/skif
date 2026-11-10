@@ -1196,7 +1196,9 @@ const PROBE_DIR: &str = "__skif__/probe";
 /// Every call and tagged template in `source` whose function is imported from one of `modules` (`import`, `import * as`,
 /// or a top-level `require`, plain or destructured), with its arguments statically evaluated as in
 /// [`extract_config_object`]. `globals` names functions available without an import, as `(name, module)` pairs (the
-/// `$` of a zx script). Shadowed names are not tracked. Returns nothing when the file does not parse.
+/// `$` of a zx script); a name written `Bun.*` stands for the module object itself, so `` Bun.$`…` `` and
+/// `Bun.build(…)` call the exports `$` and `build` of the module. Shadowed names are not tracked. Returns nothing when
+/// the file does not parse.
 #[must_use]
 pub fn extract_imported_calls(
     source: &str,
@@ -1401,7 +1403,10 @@ type Entries<'v> = &'v [(String, Value)];
 fn imported_functions(program: &Program<'_>, modules: &[&str], globals: &[(&str, &str)]) -> ImportedFunctions {
     let mut imported: ImportedFunctions = globals
         .iter()
-        .map(|(name, module)| ((*name).to_owned(), ((*module).to_owned(), Some((*name).to_owned()))))
+        .map(|(name, module)| match name.strip_suffix(".*") {
+            Some(object) => (object.to_owned(), ((*module).to_owned(), None)),
+            None => ((*name).to_owned(), ((*module).to_owned(), Some((*name).to_owned()))),
+        })
         .collect();
     let named = |export: String| Some(export).filter(|e| e != "default");
     for stmt in &program.body {
