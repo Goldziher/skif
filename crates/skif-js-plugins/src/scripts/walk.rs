@@ -1094,7 +1094,7 @@ impl<'c> Walker<'c> {
     }
 
     /// The target of `bun run <target>`: a script, a file or a binary. With `cwd`, it runs in that directory. Run in
-    /// other packages, a binary is recorded only when the command names them (`--filter web`).
+    /// other packages (`--filter`, `--workspaces`), Bun runs only their scripts, so no binary is recorded.
     fn bun_target(&mut self, from: &[Word], frame: &Frame, filtered: bool, cwd: Option<&str>) {
         let Some(word) = from.first() else {
             return;
@@ -1103,7 +1103,7 @@ impl<'c> Walker<'c> {
             self.run_script_word(word, frame, filtered);
         } else if is_path_like(&word.text) {
             self.file_in(cwd, &word.text, frame.span(&word.span));
-        } else if !filtered || !self.workspaces.is_empty() {
+        } else if !filtered {
             self.command(
                 from,
                 frame,

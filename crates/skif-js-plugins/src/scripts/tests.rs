@@ -374,7 +374,7 @@ fn table() {
         bins("bun run --parallel --workspaces --if-present lint", &[]),
         bins("bun -F web build", &[]),
         bins("bun --filter '*' build", &[]),
-        bins("bun run -F './packages/*' --elide-lines 0 dev", &["dev:bun-run"]),
+        bins("bun run -F './packages/*' --elide-lines 0 dev", &[]),
         // `--cwd` runs in another package: its scripts and binaries are that package's, its files are below it.
         bins("bun run --cwd packages/core fix-node-pty", &[]),
         bins("bun --cwd=packages/core run fix-node-pty", &[]),
@@ -578,27 +578,21 @@ fn filtered_binaries_are_flagged() {
     assert_eq!(flags, [("vitest", true), ("eslint", false)]);
 }
 
-/// `bun run --filter` (`-F`), before or after `run`, names the packages a binary it runs belongs to, as `pnpm --filter`
-/// does; `--workspaces` names none, so the binary is not recorded at all.
 #[test]
-fn bun_filter_names_the_workspaces_of_a_binary() {
-    let used = |script: &str| -> Vec<(String, bool, Vec<String>)> {
-        parse(script)
-            .binaries
-            .iter()
-            .map(|binary| (binary.name.clone(), binary.filtered, binary.workspaces.clone()))
-            .collect()
-    };
-    let web = vec![("vitest".to_owned(), true, vec!["web".to_owned()])];
-    assert_eq!(used("bun run --filter web vitest"), web);
-    assert_eq!(used("bun -F web run vitest"), web);
-    assert_eq!(used("bun --filter=web run vitest"), web);
-    assert_eq!(
-        used("bun --filter web run -F api vitest"),
-        [("vitest".to_owned(), true, vec!["web".to_owned(), "api".to_owned()])]
-    );
-    assert_eq!(used("bun run --workspaces vitest"), []);
-    assert_eq!(used("bun run vitest"), [("vitest".to_owned(), false, Vec::new())]);
+fn bun_filter_runs_scripts_only_and_records_no_binary() {
+    // Bun 1.4 runs only package scripts under `--filter`: `bun run --filter web tsc` fails with
+    // `Script "tsc" not found in package "web"` when `web` has no `tsc` script.
+    let used = |script: &str| -> Vec<String> { parse(script).binaries.iter().map(|b| b.name.clone()).collect() };
+    for script in [
+        "bun run --filter web vitest",
+        "bun -F web run vitest",
+        "bun --filter=web run vitest",
+        "bun --filter web run -F api vitest",
+        "bun run --workspaces vitest",
+    ] {
+        assert_eq!(used(script), Vec::<String>::new(), "{script}");
+    }
+    assert_eq!(used("bun run vitest"), ["vitest"]);
 }
 
 #[test]

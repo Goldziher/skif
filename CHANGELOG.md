@@ -356,8 +356,7 @@ All notable changes to this project are documented here. The format follows
   links it; other managers still remove it ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
 - Bun: `stray-lockfile` reports a root `bun.lockb` next to a `bun.lock`, which Bun ignores ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
 - `bun --filter`, `bun -F` and `bun run --workspaces` are read as runs in other packages: their script is not checked
-  as a binary of the package that runs them. A binary `bun run --filter <name>` runs is credited to the workspaces it
-  names, as for `pnpm --filter`.
+  as a binary of any package, since Bun runs only package scripts there.
 - On Windows, an explicit `--config` path given in the verbatim `\\?\C:\` spelling no longer leaves its findings with absolute
   locations or keeps the baseline it extends from applying to the run.
 - A Playwright `reporter` list whose element or reporter name skif could not evaluate (`...sharedReporters()` of a
