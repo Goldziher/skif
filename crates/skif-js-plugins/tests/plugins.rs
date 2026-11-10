@@ -3621,6 +3621,35 @@ fn execa_default_import_and_zx_globals_are_read() {
 }
 
 #[test]
+fn zx_under_powershell_runs_no_cmdlet_binaries() {
+    let files = [
+        (
+            "scripts/pwsh.mjs",
+            "import { $, usePwsh } from 'zx';\nusePwsh();\nawait $`New-Item -ItemType Directory -Path out -Force`;\nawait $`Remove-Item out -Recurse; gci out && tsc --build`;\n",
+        ),
+        (
+            "scripts/shell.mjs",
+            "import { $ } from 'zx';\n$.shell = 'C:/Program Files/PowerShell/7/pwsh.exe';\nawait $`Get-ChildItem dist | ni x; wrangler deploy`;\n",
+        ),
+        ("scripts/bash.mjs", "import { $ } from 'zx';\nawait $`New-Item x && gci && turbo build`;\n"),
+    ];
+    let results = resolve(&files, &["zx"]);
+    let runs = |file: &str| -> Vec<String> {
+        let mut names: Vec<String> = output(&results, "zx")
+            .run_binaries
+            .iter()
+            .filter(|run| run.from.ends_with(file))
+            .map(|run| run.name.clone())
+            .collect();
+        names.sort();
+        names
+    };
+    assert_eq!(runs("scripts/pwsh.mjs"), ["tsc"]);
+    assert_eq!(runs("scripts/shell.mjs"), ["wrangler"]);
+    assert_eq!(runs("scripts/bash.mjs"), ["New-Item", "gci", "turbo"]);
+}
+
+#[test]
 fn execa_and_nano_spawn_skip_calls_with_an_unsafe_argument() {
     let files = [
         (
