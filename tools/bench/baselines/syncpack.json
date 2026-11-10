@@ -6,25 +6,20 @@
     "angular": {
       "status": "compared",
       "categories": {
-        "DependsOnInvalidLocalPackage": {
-          "skif_only": 0,
-          "tool_only": 1,
-          "both": 0
-        },
         "DiffersToHighestOrLowestSemver": {
-          "skif_only": 32,
-          "tool_only": 32,
-          "both": 51
-        },
-        "DiffersToLocal": {
-          "skif_only": 1,
-          "tool_only": 0,
-          "both": 0
-        },
-        "InvalidLocalVersion": {
           "skif_only": 0,
-          "tool_only": 3,
-          "both": 0
+          "tool_only": 0,
+          "both": 51
+        }
+      },
+      "known_deviations": {
+        "missing-local-version": {
+          "skif_only": 0,
+          "tool_only": 4
+        },
+        "unread-by-syncpack": {
+          "skif_only": 33,
+          "tool_only": 0
         }
       }
     },
@@ -33,48 +28,58 @@
       "categories": {
         "DiffersToCatalog": {
           "skif_only": 0,
-          "tool_only": 7,
-          "both": 0
+          "tool_only": 0,
+          "both": 1
         },
         "DiffersToHighestOrLowestSemver": {
           "skif_only": 0,
-          "tool_only": 2,
+          "tool_only": 0,
           "both": 6
-        },
-        "DiffersToLocal": {
-          "skif_only": 0,
-          "tool_only": 140,
-          "both": 0
         },
         "NonSemverMismatch": {
           "skif_only": 0,
           "tool_only": 0,
           "both": 2
         }
+      },
+      "known_deviations": {
+        "satisfied-local-range": {
+          "skif_only": 0,
+          "tool_only": 11
+        }
       }
     },
     "cal-com": {
-      "status": "skipped",
-      "reason": "syncpack failed: ✗ Config property 'filter' is not recognised",
-      "categories": {}
+      "status": "compared",
+      "categories": {
+        "DiffersToHighestOrLowestSemver": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 45
+        }
+      },
+      "known_deviations": {
+        "floating-specifier": {
+          "skif_only": 0,
+          "tool_only": 2
+        },
+        "missing-local-version": {
+          "skif_only": 0,
+          "tool_only": 1
+        },
+        "satisfied-local-range": {
+          "skif_only": 0,
+          "tool_only": 3
+        }
+      }
     },
     "create-t3-turbo": {
       "status": "compared",
-      "categories": {
-        "DependsOnInvalidLocalPackage": {
+      "categories": {},
+      "known_deviations": {
+        "missing-local-version": {
           "skif_only": 0,
-          "tool_only": 48,
-          "both": 0
-        },
-        "DiffersToCatalog": {
-          "skif_only": 0,
-          "tool_only": 1,
-          "both": 0
-        },
-        "InvalidLocalVersion": {
-          "skif_only": 0,
-          "tool_only": 14,
-          "both": 0
+          "tool_only": 62
         }
       }
     },
@@ -83,43 +88,174 @@
       "categories": {
         "DependsOnInvalidLocalPackage": {
           "skif_only": 0,
-          "tool_only": 1,
+          "tool_only": 0,
+          "both": 4
+        },
+        "DependsOnMissingCatalogDefinition": {
+          "skif_only": 2,
+          "tool_only": 0,
+          "both": 0
+        },
+        "DependsOnMissingSnapTarget": {
+          "skif_only": 0,
+          "tool_only": 0,
           "both": 4
         },
         "DiffersToCatalog": {
           "skif_only": 0,
           "tool_only": 0,
-          "both": 1
+          "both": 6
         },
         "DiffersToHighestOrLowestSemver": {
           "skif_only": 0,
           "tool_only": 2,
-          "both": 17
+          "both": 30
         },
         "DiffersToLocal": {
           "skif_only": 0,
           "tool_only": 0,
-          "both": 3
+          "both": 4
+        },
+        "DiffersToPin": {
+          "skif_only": 1,
+          "tool_only": 0,
+          "both": 10
+        },
+        "DiffersToSnapTarget": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 5
         },
         "InvalidLocalVersion": {
           "skif_only": 0,
-          "tool_only": 1,
+          "tool_only": 0,
           "both": 6
         },
+        "IsBanned": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 19
+        },
+        "MatchConflictsWithHighestOrLowestSemver": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "MatchConflictsWithLocal": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "MatchConflictsWithSnapTarget": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "MismatchConflictsWithHighestOrLowestSemver": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "MismatchConflictsWithLocal": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "MismatchConflictsWithSnapTarget": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
         "NonSemverMismatch": {
-          "skif_only": 1,
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 4
+        },
+        "PinOverridesSemverRange": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "PinOverridesSemverRangeMismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "RefuseToBanLocal": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "RefuseToPinLocal": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "RefuseToSnapLocal": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "SameMinorHasMajorMismatch": {
+          "skif_only": 0,
           "tool_only": 0,
           "both": 2
+        },
+        "SameMinorMismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "SameMinorOverridesSemverRange": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "SameMinorOverridesSemverRangeMismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "SameRangeMismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 7
+        },
+        "SemverRangeMismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 26
         }
       },
       "cases": {
-        "compared": 37,
-        "identical": 35,
-        "skipped": 120,
+        "compared": 143,
+        "identical": 138,
+        "skipped": 50,
         "differing": [
-          "invalid-local-version/missing-version-field-not-reported",
-          "version-mismatch/latest-ranks-as-highest"
+          "catalog/unresolved-reported-with-mode-off",
+          "catalog/yarnrc-catalogs",
+          "dependency-types/overrides-pinned-by-group",
+          "version-mismatch/latest-ranks-as-highest",
+          "version-mismatch/npm-alias-not-aligned-with-plain-dependency"
         ]
+      },
+      "known_deviations": {
+        "floating-specifier": {
+          "skif_only": 1,
+          "tool_only": 1
+        },
+        "missing-local-version": {
+          "skif_only": 0,
+          "tool_only": 3
+        },
+        "shorthand-ranking": {
+          "skif_only": 1,
+          "tool_only": 1
+        },
+        "unread-by-syncpack": {
+          "skif_only": 5,
+          "tool_only": 0
+        }
       }
     },
     "jest": {
@@ -127,13 +263,14 @@
       "categories": {
         "DiffersToHighestOrLowestSemver": {
           "skif_only": 0,
-          "tool_only": 40,
+          "tool_only": 1,
           "both": 0
-        },
-        "NonSemverMismatch": {
+        }
+      },
+      "known_deviations": {
+        "floating-specifier": {
           "skif_only": 25,
-          "tool_only": 0,
-          "both": 0
+          "tool_only": 25
         }
       }
     },
@@ -142,78 +279,68 @@
       "categories": {
         "DiffersToCatalog": {
           "skif_only": 0,
-          "tool_only": 61,
+          "tool_only": 0,
           "both": 15
         },
         "DiffersToHighestOrLowestSemver": {
-          "skif_only": 1,
-          "tool_only": 36,
-          "both": 239
-        },
-        "DiffersToLocal": {
           "skif_only": 0,
-          "tool_only": 134,
-          "both": 0
+          "tool_only": 0,
+          "both": 239
         }
       }
     },
     "n8n": {
       "status": "compared",
       "categories": {
-        "DependsOnInvalidLocalPackage": {
-          "skif_only": 0,
-          "tool_only": 1,
-          "both": 0
-        },
         "DiffersToCatalog": {
           "skif_only": 0,
-          "tool_only": 12,
+          "tool_only": 0,
           "both": 11
         },
         "DiffersToHighestOrLowestSemver": {
-          "skif_only": 1,
-          "tool_only": 7,
+          "skif_only": 0,
+          "tool_only": 0,
           "both": 11
         },
         "DiffersToLocal": {
           "skif_only": 0,
-          "tool_only": 1,
-          "both": 1
-        },
-        "InvalidLocalVersion": {
-          "skif_only": 0,
-          "tool_only": 2,
-          "both": 0
-        },
-        "NonSemverMismatch": {
-          "skif_only": 1,
           "tool_only": 0,
-          "both": 0
+          "both": 1
+        }
+      },
+      "known_deviations": {
+        "missing-local-version": {
+          "skif_only": 0,
+          "tool_only": 3
         }
       }
     },
     "next-js": {
       "status": "compared",
       "categories": {
-        "DependsOnInvalidLocalPackage": {
-          "skif_only": 0,
-          "tool_only": 5,
-          "both": 0
-        },
         "DiffersToHighestOrLowestSemver": {
-          "skif_only": 1,
-          "tool_only": 20,
+          "skif_only": 0,
+          "tool_only": 0,
           "both": 68
         },
         "DiffersToLocal": {
           "skif_only": 0,
-          "tool_only": 3,
+          "tool_only": 0,
           "both": 1
-        },
-        "InvalidLocalVersion": {
+        }
+      },
+      "known_deviations": {
+        "missing-local-version": {
           "skif_only": 0,
-          "tool_only": 10,
-          "both": 0
+          "tool_only": 15
+        },
+        "satisfied-local-range": {
+          "skif_only": 0,
+          "tool_only": 2
+        },
+        "shorthand-ranking": {
+          "skif_only": 1,
+          "tool_only": 2
         }
       }
     },
@@ -224,66 +351,53 @@
           "skif_only": 0,
           "tool_only": 0,
           "both": 57
-        },
-        "DiffersToLocal": {
+        }
+      },
+      "known_deviations": {
+        "satisfied-local-range": {
           "skif_only": 0,
-          "tool_only": 27,
-          "both": 0
+          "tool_only": 27
         }
       }
     },
     "opencode": {
       "status": "compared",
       "categories": {
-        "DependsOnInvalidLocalPackage": {
-          "skif_only": 0,
-          "tool_only": 3,
-          "both": 0
-        },
         "DiffersToCatalog": {
           "skif_only": 0,
-          "tool_only": 8,
+          "tool_only": 0,
           "both": 18
         },
         "DiffersToHighestOrLowestSemver": {
-          "skif_only": 3,
-          "tool_only": 3,
+          "skif_only": 0,
+          "tool_only": 0,
           "both": 4
-        },
-        "DiffersToLocal": {
+        }
+      },
+      "known_deviations": {
+        "missing-local-version": {
           "skif_only": 0,
-          "tool_only": 1,
-          "both": 0
-        },
-        "InvalidLocalVersion": {
-          "skif_only": 0,
-          "tool_only": 7,
-          "both": 0
+          "tool_only": 10
         }
       }
     },
     "rules-js": {
       "status": "compared",
       "categories": {
-        "DependsOnInvalidLocalPackage": {
-          "skif_only": 0,
-          "tool_only": 4,
-          "both": 0
-        },
         "DiffersToHighestOrLowestSemver": {
           "skif_only": 0,
-          "tool_only": 4,
+          "tool_only": 2,
           "both": 3
-        },
-        "InvalidLocalVersion": {
-          "skif_only": 0,
-          "tool_only": 5,
-          "both": 0
-        },
-        "NonSemverMismatch": {
+        }
+      },
+      "known_deviations": {
+        "floating-specifier": {
           "skif_only": 1,
-          "tool_only": 0,
-          "both": 0
+          "tool_only": 2
+        },
+        "missing-local-version": {
+          "skif_only": 0,
+          "tool_only": 9
         }
       }
     },
@@ -291,14 +405,14 @@
       "status": "compared",
       "categories": {
         "DiffersToHighestOrLowestSemver": {
-          "skif_only": 147,
+          "skif_only": 0,
           "tool_only": 0,
-          "both": 0
+          "both": 147
         },
         "DiffersToLocal": {
-          "skif_only": 28,
+          "skif_only": 0,
           "tool_only": 0,
-          "both": 0
+          "both": 28
         }
       }
     },
@@ -307,38 +421,37 @@
       "categories": {
         "DiffersToCatalog": {
           "skif_only": 0,
-          "tool_only": 25,
+          "tool_only": 0,
           "both": 644
         },
         "DiffersToHighestOrLowestSemver": {
-          "skif_only": 40,
-          "tool_only": 2,
+          "skif_only": 0,
+          "tool_only": 0,
           "both": 26
-        },
-        "DiffersToLocal": {
+        }
+      },
+      "known_deviations": {
+        "missing-local-version": {
           "skif_only": 0,
-          "tool_only": 444,
-          "both": 0
+          "tool_only": 165
         },
-        "InvalidLocalVersion": {
+        "satisfied-local-range": {
           "skif_only": 0,
-          "tool_only": 165,
-          "both": 0
+          "tool_only": 444
         }
       }
     },
     "vercel-examples": {
       "status": "compared",
-      "categories": {
-        "DiffersToHighestOrLowestSemver": {
+      "categories": {},
+      "known_deviations": {
+        "floating-specifier": {
           "skif_only": 0,
-          "tool_only": 1,
-          "both": 0
+          "tool_only": 1
         },
-        "InvalidLocalVersion": {
+        "missing-local-version": {
           "skif_only": 0,
-          "tool_only": 1,
-          "both": 0
+          "tool_only": 1
         }
       }
     },
@@ -346,14 +459,28 @@
       "status": "compared",
       "categories": {
         "DiffersToHighestOrLowestSemver": {
-          "skif_only": 5,
-          "tool_only": 2,
+          "skif_only": 0,
+          "tool_only": 0,
           "both": 79
         },
         "DiffersToLocal": {
           "skif_only": 0,
           "tool_only": 0,
           "both": 1
+        }
+      },
+      "known_deviations": {
+        "npm-alias": {
+          "skif_only": 0,
+          "tool_only": 1
+        },
+        "shorthand-ranking": {
+          "skif_only": 1,
+          "tool_only": 1
+        },
+        "unread-by-syncpack": {
+          "skif_only": 4,
+          "tool_only": 0
         }
       }
     },
@@ -367,13 +494,14 @@
         },
         "DiffersToHighestOrLowestSemver": {
           "skif_only": 0,
-          "tool_only": 2,
+          "tool_only": 0,
           "both": 1
-        },
-        "InvalidLocalVersion": {
+        }
+      },
+      "known_deviations": {
+        "missing-local-version": {
           "skif_only": 0,
-          "tool_only": 1,
-          "both": 0
+          "tool_only": 1
         }
       }
     }
