@@ -5,22 +5,18 @@ use std::sync::Arc;
 
 use skif_config::Config;
 use skif_core::FileSystem;
-use skif_js::{DependencyTrace, InputSource, JsAnalysis, JsProvider, ModuleCache, PluginSource, UsageReport};
+use skif_js::{DependencyTrace, InputSource, JsAnalysis, JsProvider, PluginSource, UsageReport};
 use skif_workspace::Workspace;
 
-/// Builds the JS provider that reads through `fs`, parses through `modules` when given, and takes its tool knowledge
-/// from the plugin table.
-pub(crate) fn provider(config: &Config, fs: Arc<dyn FileSystem>, modules: Option<Arc<dyn ModuleCache>>) -> JsProvider {
-    let provider = JsProvider::new(fs).with_input_source(Arc::new(
+/// Builds the JS provider that reads through `fs` and takes its tool knowledge from the plugin table; a module cache
+/// is added by the caller.
+pub(crate) fn provider(config: &Config, fs: Arc<dyn FileSystem>) -> JsProvider {
+    JsProvider::new(fs).with_input_source(Arc::new(
         PluginSource::new(config.js.plugins.clone())
             .with_workspaces(&config.js.workspaces)
             .with_root_tsconfig(config.js.tsconfig.as_deref())
             .with_overrides(&config.overrides),
-    ));
-    match modules {
-        Some(modules) => provider.with_module_cache(modules),
-        None => provider,
-    }
+    ))
 }
 
 /// Explains why the JavaScript analysis counts `file` (relative to the workspace root) as used, and with `export`

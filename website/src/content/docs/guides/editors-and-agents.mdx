@@ -68,7 +68,9 @@ Parsing source files is the largest part of a JavaScript analysis. skif keeps th
 a key of its file name, its text and the parser's version, so an unchanged file is not parsed again and a changed
 file always is: the cache never changes a report. Everything else (configuration, manifests, the module graph, the
 rules) is computed on every run. The design is recorded in
-[ADR 0066](https://github.com/Goldziher/skif/blob/main/adrs/0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md).
+[ADR 0066](https://github.com/Goldziher/skif/blob/main/adrs/0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md)
+and, for multi-root runs,
+[ADR 0101](https://github.com/Goldziher/skif/blob/main/adrs/0101-a-module-cache-shared-by-the-roots-of-a-run.md).
 
 - **`skif --cache`** keeps the results between runs in `node_modules/.cache/skif/modules.bin` below the workspace
   root (or below the invocation directory of a multi-root run); `--cache-location <DIR>` puts the file elsewhere.
@@ -76,7 +78,14 @@ rules) is computed on every run. The design is recorded in
   it does not grow with edits; a narrower run (`--production`, one root of several) drops the entries it did not
   use. A damaged file, or one written by another skif version, is ignored and replaced. If the file cannot be
   written, skif prints a warning and the exit code is unchanged. A warm run still reads every file, so the gain is
-  the parse share of a run, which `--performance` shows as `js parse` beside `js module cache: H hits, M misses`.
+  the parse share of a run, which `--performance` shows as `js parse` beside
+  `js module cache: H hits, M misses, W waits`.
+- **`skif -r`** without `--cache` keeps one cache in memory for the run, shared by its roots, for the files more than
+  one root can reach: files outside the root parsing them (shared code outside every root) and files of a root
+  nested in it. Such a file is parsed once, not once per root; each root parses its own files without the cache, so
+  roots that share no code keep nothing in it. With `--cache` every file is shared the same way. Roots linted in
+  parallel wait for a parse already under way rather than repeating it; `--performance` counts those lookups as
+  waits and reports their time as `js parse wait`.
 - **`--watch`** keeps the cache in memory across its runs (with `--cache` also on disk, written after each run).
 - **`skif lsp`** and **`skif mcp`** keep one in memory per project, for as long as the server runs; they never read
   or write `modules.bin`.

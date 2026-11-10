@@ -96,9 +96,17 @@ impl Tally {
         }
         let start = Instant::now();
         let value = work();
-        let nanos = u64::try_from(start.elapsed().as_nanos()).unwrap_or(u64::MAX);
-        self.nanos.fetch_add(nanos, Ordering::Relaxed);
+        self.add(start.elapsed());
         value
+    }
+
+    /// Adds `elapsed`, measured by the caller, when timings are on: for a step that learns which tally it belongs to
+    /// only once it has run.
+    pub fn add(&self, elapsed: Duration) {
+        if enabled() {
+            let nanos = u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX);
+            self.nanos.fetch_add(nanos, Ordering::Relaxed);
+        }
     }
 
     /// Prints the accumulated time under `label` (thread time, so it can exceed the wall time) and resets it.
@@ -129,7 +137,20 @@ mod tests {
         assert!(!enable(|_| {}));
         assert!(enabled());
         assert_eq!(phase("during the sink", || 2), 2);
+        let tally = Tally::new();
+        tally.add(Duration::from_millis(3));
+        tally.add(Duration::from_millis(4));
+        tally.report("added by the caller");
+        tally.report("after the reset");
         let lines = LINES.lock().unwrap();
+        assert!(
+            lines.contains(&"skif timing: added by the caller (summed over threads): 7.0 ms".to_owned()),
+            "{lines:?}"
+        );
+        assert!(
+            lines.contains(&"skif timing: after the reset (summed over threads): 0.0 ms".to_owned()),
+            "{lines:?}"
+        );
         assert_eq!(lines.iter().filter(|line| line.contains("before the sink")).count(), 0);
         let during: Vec<&String> = lines.iter().filter(|line| line.contains("during the sink")).collect();
         assert_eq!(during.len(), 1);

@@ -52,8 +52,10 @@
 //! let discovery = discover_targets(Path::new("/r"), &fs, &ConfigOverrides::default())?;
 //! assert!(discovery.failures.is_empty());
 //! assert_eq!(discovery.targets.len(), 2);
-//! for target in &discovery.targets {
-//!     let linter = Linter::with_fs(&target.config, Arc::new(fs.clone()))?;
+//! // One linter per root; with `js-analysis` they share one module cache, so code several roots import is parsed
+//! // once for the run.
+//! let linters = Linter::for_targets(&discovery.targets, Arc::new(fs.clone()))?;
+//! for (target, linter) in discovery.targets.iter().zip(&linters) {
 //!     let config_path = target.config_path();
 //!     let mut options = RunOptions::default();
 //!     if let Some(path) = &config_path {
@@ -68,6 +70,9 @@
 //! A host that lints repeatedly, such as an editor, passes the same [`ModuleCache`] to every
 //! [`Linter::with_module_cache`] (feature `js-analysis`), so only changed files are parsed again, and lints unsaved
 //! buffers through a [`BufferFs`] over the disk. Neither changes a report: a cold, a warm and no cache report alike.
+//! A host with a cache of its own lints the targets of a multi-root run with [`Linter::for_targets_with_cache`], where
+//! a lookup of a file another root is parsing waits for that parse; a host that builds its linters itself shares one
+//! [`SharedModules`] from [`Linter::shared_modules`] between them with [`Linter::with_shared_modules`].
 //!
 //! A root nested in another cannot see what the outer root imports from it. A host that wants those files counted
 //! lints the enclosing roots first and passes the files their reports list in [`Report::other_project_files`],
@@ -157,8 +162,8 @@ pub use skif_js::cache_version as module_cache_version;
 #[cfg(feature = "js-analysis")]
 pub use skif_js::{
     Absence, CachedModule, DependencyImport, DependencyListing, DependencyTrace, EntryReason, ExportReport, ExportUser,
-    Importer, MemoryModuleCache, ModuleCache, ModuleKey, ReExport, UsageReport, Verdict, empty_tsconfig_projects,
-    relative_tsconfig,
+    Importer, MemoryModuleCache, ModuleCache, ModuleKey, ReExport, SharedModules, UsageReport, Verdict,
+    empty_tsconfig_projects, relative_tsconfig,
 };
 /// The state of one dependency instance, from [`Linter::instances`].
 #[cfg(feature = "manifest")]
@@ -249,6 +254,7 @@ const _: () = {
     {
         let _ = assert_send_sync::<UsageReport>;
         let _ = assert_send_sync::<MemoryModuleCache>;
+        let _ = assert_send_sync::<SharedModules>;
         let _ = assert_send_sync::<CachedModule>;
         let _ = assert_send_sync::<ModuleKey>;
         let _ = assert_send_sync::<std::sync::Arc<dyn ModuleCache>>;
