@@ -115,18 +115,40 @@ const RUSH_JSON: &str = "rush.json";
 /// The commands Rush itself provides to the scripts of a Rush repository.
 const RUSH_COMMANDS: &[&str] = &["rush", "rushx", "rush-pnpm"];
 
-/// Whether the binaries of a workspace member are on the `PATH` of every package: npm, Yarn Classic and Bun hoist the
-/// members into the root `node_modules` and link their binaries into its `.bin`, while pnpm, Yarn Berry and Rush link a
-/// member's binaries only into the packages that depend on it. An unknown package manager counts as hoisting, so it
-/// reports nothing new.
-fn hoists_member_bins(workspace: &Workspace, rush: bool) -> bool {
+/// Whether the binaries of a workspace member are on the `PATH` of every package: npm, Yarn Classic and Bun's hoisted
+/// linker hoist the members into the root `node_modules` and link their binaries into its `.bin`, while pnpm, Yarn
+/// Berry, Rush and Bun's isolated linker ([`bun_isolated`]) link a member's binaries only into the packages that depend
+/// on it. An unknown package manager counts as hoisting, so it reports nothing new.
+fn hoists_member_bins(workspace: &Workspace, rush: bool, fs: &dyn FileSystem) -> bool {
     if rush {
         return false;
     }
     match workspace.package_manager {
         Some(PackageManager::Pnpm) => false,
         Some(PackageManager::Yarn) => workspace.facts.yarn_classic,
+        Some(PackageManager::Bun) => !bun_isolated(fs, &workspace.root),
         _ => true,
+    }
+}
+
+/// Whether Bun installs the workspace at `root` with its isolated linker. `linker` in the `[install]` table of the
+/// root `bunfig.toml` decides; without one, the `configVersion` of `bun.lock` does: from 1 (written by Bun 1.3.2 and
+/// later for a new project) a workspace is isolated, before it hoisted. Without either, Bun's choice cannot be read from
+/// the repository, so it counts as hoisted. The global `~/.bunfig.toml` and `bun install --linker` are not read.
+fn bun_isolated(fs: &dyn FileSystem, root: &Path) -> bool {
+    let linker = fs
+        .read_to_string(&root.join("bunfig.toml"))
+        .ok()
+        .and_then(|text| text.parse::<toml::Table>().ok())
+        .and_then(|table| Some(table.get("install")?.get("linker")?.as_str()?.to_owned()));
+    match linker.as_deref() {
+        Some("isolated") => true,
+        Some("hoisted") => false,
+        _ => fs
+            .read_to_string(&root.join("bun.lock"))
+            .ok()
+            .and_then(|text| lockfile::bun_config_version(&text))
+            .is_some_and(|version| version >= 1),
     }
 }
 
@@ -613,7 +635,7 @@ impl DependencyUsage {
             dirs: package_dirs(workspace),
             ..Self::default()
         };
-        usage.member_bins_hoisted = hoists_member_bins(workspace, usage.rush);
+        usage.member_bins_hoisted = hoists_member_bins(workspace, usage.rush, fs);
         usage.read_manifests(workspace, fs, sequential);
         let tsconfigs = TsconfigMemo::new(fs);
         usage.collect_ambient_types(workspace, setup, &tsconfigs);

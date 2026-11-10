@@ -178,6 +178,15 @@ fn strip_trailing_commas(text: &str) -> String {
     out
 }
 
+/// The `configVersion` of a `bun.lock`, which sets the linker Bun defaults to; `None` when it records none or does not
+/// parse.
+pub(crate) fn bun_config_version(text: &str) -> Option<u64> {
+    serde_json::from_str::<Value>(&strip_trailing_commas(text))
+        .ok()?
+        .get("configVersion")?
+        .as_u64()
+}
+
 fn bun(text: &str) -> Entries {
     let mut entries = Entries::new();
     let Ok(value) = serde_json::from_str::<Value>(&strip_trailing_commas(text)) else {
@@ -312,6 +321,15 @@ mod tests {
 }"#);
         assert!(entries["@s/react"].peers.contains("@s/dom") && entries["@s/react"].peers.contains("react"));
         assert!(entries["oxlint"].bins.contains("oxlint"));
+    }
+
+    #[test]
+    fn bun_lock_config_version() {
+        let lock = |config: &str| format!("{{\n  \"lockfileVersion\": 1,{config}\n  \"workspaces\": {{}},\n}}\n");
+        assert_eq!(bun_config_version(&lock("\n  \"configVersion\": 1,")), Some(1));
+        assert_eq!(bun_config_version(&lock("\n  \"configVersion\": 0,")), Some(0));
+        assert_eq!(bun_config_version(&lock("")), None);
+        assert_eq!(bun_config_version("not json"), None);
     }
 
     #[test]

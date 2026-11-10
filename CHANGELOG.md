@@ -222,10 +222,11 @@ All notable changes to this project are documented here. The format follows
   `cwd` of `process.cwd()` or `undefined` changes nothing, and one computed from `__dirname` or `import.meta.url`
   runs the command in that directory below the file
   ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
-- Under pnpm, Yarn Berry and Rush, a workspace member's binary no longer satisfies a script of a package that does not
-  list the member: those package managers link it only for the packages that depend on it, so the script's binary is
-  reported unlisted. npm, Yarn Classic and Bun, which link every member's binaries into the root `node_modules/.bin`,
-  keep the old answer, and a member's own scripts may always run its binaries. In a Rush repository (`rush.json` at
+- Under pnpm, Yarn Berry, Rush and Bun's isolated linker, a workspace member's binary no longer satisfies a script of a
+  package that does not list the member: those link it only for the packages that depend on it, so the script's
+  binary is reported unlisted. Bun is isolated with `linker = "isolated"` in `bunfig.toml`, or without a `linker` when
+  `bun.lock` has `configVersion` 1. npm, Yarn Classic and hoisted Bun, which link every member's binaries into the root
+  `node_modules/.bin`, keep the old answer, and a member's own scripts may always run its binaries. In a Rush repository (`rush.json` at
   the root), `rush`, `rushx` and `rush-pnpm` are provided commands
   ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
 - A binary that a workflow step, a tool config's command or a source file runs after `cd <dir>` into another workspace
