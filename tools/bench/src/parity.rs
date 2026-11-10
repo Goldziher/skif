@@ -1239,7 +1239,7 @@ fn strip_jsonc(text: &str) -> String {
             }
             continue;
         }
-        match (character, chars.peek()) {
+        match (character, chars.peek().copied()) {
             ('"', _) => {
                 in_string = true;
                 out.push(character);
