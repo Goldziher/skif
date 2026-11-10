@@ -616,3 +616,106 @@ fn a_finding_about_a_file_is_recorded_for_that_file_only() {
     let again = baseline(dir.path(), "write", &[]);
     assert_eq!(rules_of(&again.json(), "added"), [json!("unused-files")]);
 }
+
+#[test]
+fn a_reset_of_ignore_that_drops_the_baseline_is_an_error() {
+    let dir = fixture("mismatch");
+    fs::write(
+        dir.path().join("skif.toml"),
+        "reset = [\"ignore\"]\n\n[js]\nenabled = false\n",
+    )
+    .unwrap();
+    let written = baseline(dir.path(), "write", &[]);
+    assert_eq!(written.code, 2, "{}{}", written.stdout, written.stderr);
+    let error = written.json()["error"].clone();
+    assert_eq!(error["kind"], "config", "{error}");
+    let message = error["message"].as_str().unwrap();
+    assert!(
+        message.contains("does not apply") && message.contains("reset = [\"ignore\"]"),
+        "{message}"
+    );
+
+    let pruned = baseline(dir.path(), "prune", &[]);
+    assert_eq!(pruned.code, 2, "{}{}", pruned.stdout, pruned.stderr);
+    assert!(
+        pruned.json()["error"]["message"].as_str().unwrap().contains("reset"),
+        "{}",
+        pruned.stdout
+    );
+}
+
+#[test]
+fn the_lint_flags_decide_what_is_recorded() {
+    let dir = fixture("js");
+    let written = baseline(dir.path(), "write", &["--production"]);
+    assert_eq!(written.code, 0, "{}{}", written.stdout, written.stderr);
+    let rules = rules_of(&written.json(), "added");
+    assert!(rules.contains(&json!("unused-dependencies")), "{rules:?}");
+    assert!(
+        !rules.contains(&json!("unused-dev-dependencies")),
+        "--production analyses no dev dependencies: {rules:?}"
+    );
+    let production = run(skif().args(["--production", "--format", "json"]).arg(dir.path()));
+    assert_eq!(production.code, 0, "{}{}", production.stdout, production.stderr);
+}
+
+/// A directory without a `package.json` holding two copies of the `mismatch` fixture, `one` and `two`.
+fn two_roots() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    for name in ["one", "two"] {
+        let root = dir.path().join(name);
+        fs::create_dir_all(&root).unwrap();
+        support::copy_fixture("mismatch", &root);
+    }
+    dir
+}
+
+#[test]
+fn every_root_below_a_directory_without_a_manifest_gets_its_own_baseline() {
+    let dir = two_roots();
+    let written = baseline(dir.path(), "write", &[]);
+    assert_eq!(written.code, 0, "{}{}", written.stdout, written.stderr);
+    let document = written.json();
+    assert_eq!(document["command"], "write");
+    let roots = document["roots"].as_array().unwrap();
+    let summary: Vec<(Value, Value, Value)> = roots
+        .iter()
+        .map(|root| (root["root"].clone(), root["file"].clone(), root["added"].clone()))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            (json!("one"), json!(BASELINE), json!([entry("b", "6.0.0")])),
+            (json!("two"), json!(BASELINE), json!([entry("b", "6.0.0")])),
+        ]
+    );
+    for name in ["one", "two"] {
+        assert!(dir.path().join(name).join(BASELINE).is_file(), "{name}");
+    }
+    assert_eq!(lint(dir.path()).code, 0);
+
+    let human = run(skif().args(["baseline", "prune"]).arg(dir.path()));
+    assert_eq!(human.code, 0, "{}{}", human.stdout, human.stderr);
+    assert_eq!(
+        human.stdout,
+        "Nothing to prune in one/skif.baseline.toml (1 entry)\nNothing to prune in two/skif.baseline.toml (1 entry)\n"
+    );
+
+    let empty = tempfile::NamedTempFile::new().unwrap();
+    let recursive = baseline(
+        &dir.path().join("one"),
+        "check",
+        &["-r", "--base-file", empty.path().to_str().unwrap()],
+    );
+    assert_eq!(recursive.code, 1, "{}{}", recursive.stdout, recursive.stderr);
+    assert_eq!(recursive.json()["roots"][0]["added"], json!([entry("b", "6.0.0")]));
+}
+
+#[test]
+fn a_file_argument_needs_a_single_root() {
+    let dir = two_roots();
+    let written = baseline(dir.path(), "write", &["--file", "debt.toml"]);
+    assert_eq!(written.code, 2, "{}{}", written.stdout, written.stderr);
+    assert_eq!(written.json()["error"]["kind"], "usage");
+    assert!(!dir.path().join("one").join(BASELINE).exists());
+}
