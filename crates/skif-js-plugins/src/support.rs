@@ -424,23 +424,21 @@ pub(crate) fn convention_scope(spec: &PluginSpec, config: &ConfigAst<'_>, conven
 }
 
 /// Whether the value at `path` is unknown in the config's own text, leaving aside what a spread or merge of an
-/// unknown value may add: a key the config computes itself, not one an imported base config may set.
+/// unknown value may add on the way to the key: a key the config computes itself, not one an imported base config may
+/// set. An unknown spread inside the value at `path` (`entry: { index, ...computed() }`) is the config's own and
+/// makes it unknown.
 pub(crate) fn own_path_unknown(value: &ConfigValue, path: &[&str]) -> bool {
-    path_unknown(&without_spreads(value), path)
-}
-
-/// `value` without the unknown spreads of its objects, at every depth.
-fn without_spreads(value: &ConfigValue) -> ConfigValue {
+    let Some((key, rest)) = path.split_first() else {
+        return value.has_unknown();
+    };
     match value {
-        ConfigValue::Object(entries) => ConfigValue::Object(
-            entries
-                .iter()
-                .filter(|(key, _)| key != "...")
-                .map(|(key, value)| (key.clone(), without_spreads(value)))
-                .collect(),
-        ),
-        ConfigValue::Array(items) => ConfigValue::Array(items.iter().map(without_spreads).collect()),
-        other => other.clone(),
+        ConfigValue::Unknown => true,
+        ConfigValue::Object(entries) => entries
+            .iter()
+            .rev()
+            .find(|(name, _)| name == key)
+            .is_some_and(|(_, child)| own_path_unknown(child, rest)),
+        _ => false,
     }
 }
 
