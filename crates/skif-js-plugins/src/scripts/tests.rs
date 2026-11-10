@@ -595,11 +595,7 @@ fn bun_filter_names_the_workspaces_of_a_binary() {
     assert_eq!(used("bun --filter=web run vitest"), web);
     assert_eq!(
         used("bun --filter web run -F api vitest"),
-        [(
-            "vitest".to_owned(),
-            true,
-            vec!["web".to_owned(), "api".to_owned()]
-        )]
+        [("vitest".to_owned(), true, vec!["web".to_owned(), "api".to_owned()])]
     );
     assert_eq!(used("bun run --workspaces vitest"), []);
     assert_eq!(used("bun run vitest"), [("vitest".to_owned(), false, Vec::new())]);

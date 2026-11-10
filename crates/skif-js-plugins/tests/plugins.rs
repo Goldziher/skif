@@ -3217,8 +3217,14 @@ fn bun_reads_the_commands_of_its_own_sources_only() {
     let files = [
         ("package.json", r#"{"name":"root","workspaces":["packages/*"]}"#),
         ("bun.lock", ""),
-        ("scripts/release.ts", "import { $ } from \"bun\";\nawait $`changeset publish`;"),
-        ("packages/cli/package.json", r#"{"name":"cli","scripts":{"build":"vite build"}}"#),
+        (
+            "scripts/release.ts",
+            "import { $ } from \"bun\";\nawait $`changeset publish`;",
+        ),
+        (
+            "packages/cli/package.json",
+            r#"{"name":"cli","scripts":{"build":"vite build"}}"#,
+        ),
         ("packages/cli/script/app-assets.ts", member_script),
         ("packages/desktop/package.json", r#"{"name":"desktop"}"#),
         (

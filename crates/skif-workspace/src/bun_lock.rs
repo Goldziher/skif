@@ -159,10 +159,7 @@ mod tests {
             serde_json::json!({"lockfileVersion": 1})
         );
         let lock = BunLockfile::parse(PathBuf::from(BUN_LOCKFILE), &format!("\u{feff}{LOCK}")).unwrap();
-        assert_eq!(
-            lock,
-            BunLockfile::parse(PathBuf::from(BUN_LOCKFILE), LOCK).unwrap()
-        );
+        assert_eq!(lock, BunLockfile::parse(PathBuf::from(BUN_LOCKFILE), LOCK).unwrap());
     }
 
     #[test]

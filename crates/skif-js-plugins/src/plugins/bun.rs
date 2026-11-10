@@ -77,7 +77,10 @@ impl Plugin for Bun {
                 api_inputs(&call, &source, &mut out);
             }
         }
-        let listed: Vec<&str> = TYPE_PACKAGES.into_iter().filter(|name| cx.has_dependency(name)).collect();
+        let listed: Vec<&str> = TYPE_PACKAGES
+            .into_iter()
+            .filter(|name| cx.has_dependency(name))
+            .collect();
         if !listed.is_empty() && (uses_global || !sources_containing(cx, "Bun.").is_empty()) {
             out.extend(listed.into_iter().map(|name| PluginInput::Dependency(name.to_owned())));
         }
