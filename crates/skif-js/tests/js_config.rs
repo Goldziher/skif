@@ -29,13 +29,12 @@ fn lint_anchored(files: &[(&str, &str)], toml: &str, anchor: Option<&str>) -> Ve
     let memory = files.iter().fold(MemoryFs::new(), |memory, (path, text)| {
         memory.with_file(Path::new(ROOT).join(path), text)
     });
-    let mut config = Config::from_toml_str(toml).unwrap();
-    config.js.workspaces_anchor = anchor.map(str::to_owned);
-    let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
+    let config = Config::from_toml_str(toml).unwrap();
+    let mut workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
+    workspace.set_workspace_keys_anchor(anchor.map(str::to_owned));
     let fs: Arc<dyn FileSystem> = Arc::new(memory);
     let source = PluginSource::new(config.js.plugins.clone())
         .with_workspaces(&config.js.workspaces)
-        .with_workspaces_anchor(config.js.workspaces_anchor.as_deref())
         .with_overrides(&config.overrides);
     let provider = JsProvider::new(fs).with_input_source(Arc::new(source));
     let registry = Registry::new(vec![Box::new(provider)]).unwrap();
@@ -388,6 +387,19 @@ fn anchored_workspace_keys_select_packages_by_their_directory_below_the_start() 
             "`.` in `js.workspaces` matched nothing",
             "`zzz` in `js.workspaces.\"repo/packages/a\".ignore-dependencies` matched nothing",
         ]
+    );
+}
+
+#[test]
+fn findings_spell_an_overridden_package_by_its_directory_below_the_start() {
+    let files = two_packages("export {};\n");
+    let toml = "[[overrides]]\npackages = [\"./packages/a\"]\n[overrides.js]\nentry = [\"gone.ts\"]\n";
+    let diagnostics = lint_anchored(&files, toml, Some("repo"));
+    // The pattern comes from an override, not a `[js.workspaces]` table, so the key names the package's directory
+    // as a key of the file would select it.
+    assert_eq!(
+        messages(&diagnostics),
+        ["`gone.ts` in `js.workspaces.\"repo/packages/a\".entry` matched nothing"]
     );
 }
 

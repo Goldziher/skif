@@ -2099,14 +2099,6 @@ pub struct Js {
     pub cycles: JsCycles,
     /// Per-workspace overrides keyed by directory. The key `"."` is the root workspace.
     pub workspaces: IndexMap<String, JsWorkspace>,
-    /// The directory of this root relative to the start of a multi-root run, when the `[js.workspaces]` keys and
-    /// `ignore-workspaces` globs are written relative to the start instead of the root: a key or glob then selects a
-    /// package when it matches the package directory joined to this one, and `"."` is the start directory. Set for
-    /// the roots below the start of a run with an explicit `--config` file (ADR 0099); `None` matches them from the
-    /// root itself. Not a configuration key, so a file never sets it.
-    #[serde(skip)]
-    #[cfg_attr(feature = "schema", schemars(skip))]
-    pub workspaces_anchor: Option<String>,
     /// Plugin switches keyed by plugin name.
     pub plugins: IndexMap<String, PluginConfig>,
     /// Appended to `ignore` instead of replacing it. Folded away when the configuration is resolved.
@@ -2241,7 +2233,6 @@ impl Default for Js {
             discovery: JsDiscovery::Auto,
             cycles: JsCycles::default(),
             workspaces: IndexMap::new(),
-            workspaces_anchor: None,
             plugins: IndexMap::new(),
             extend_ignore: Vec::new(),
             extend_ignore_dependencies: Vec::new(),

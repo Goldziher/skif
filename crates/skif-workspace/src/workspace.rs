@@ -127,6 +127,9 @@ pub struct Workspace {
     ignored: Vec<bool>,
     /// Whether this is a standalone package found below another root of a recursive run.
     nested: bool,
+    /// The root's directory relative to the directory the `[js.workspaces]` keys of its configuration are written
+    /// from, when that is not the root (see [`set_workspace_keys_anchor`](Self::set_workspace_keys_anchor)).
+    workspace_keys_anchor: Option<String>,
 }
 
 struct Declared {
@@ -612,6 +615,7 @@ impl Workspace {
             by_name,
             ignored,
             nested: false,
+            workspace_keys_anchor: None,
         })
     }
 
@@ -713,6 +717,23 @@ impl Workspace {
     /// make sense for a repository's outermost project (`root-package-manager-field`) skip.
     pub const fn set_nested(&mut self, nested: bool) {
         self.nested = nested;
+    }
+
+    /// The root's directory, with `/` separators, relative to the directory the `[js.workspaces]` keys and
+    /// `ignore-workspaces` globs of its configuration are written from, when that is not the root (see
+    /// [`set_workspace_keys_anchor`](Self::set_workspace_keys_anchor)).
+    #[must_use]
+    pub fn workspace_keys_anchor(&self) -> Option<&str> {
+        self.workspace_keys_anchor.as_deref()
+    }
+
+    /// Has the `[js.workspaces]` keys and `ignore-workspaces` globs select packages from `anchor`, this root's
+    /// directory relative to the directory they are written from: a key or glob then selects a package when it
+    /// matches the package directory joined to `anchor`, and `"."` is that directory, not this root. A recursive run
+    /// with an explicit configuration file sets it for the roots below its start; `None`, the default, matches them
+    /// from the root.
+    pub fn set_workspace_keys_anchor(&mut self, anchor: Option<String>) {
+        self.workspace_keys_anchor = anchor;
     }
 
     /// Excludes the members at `dirs` (absolute paths) from analysis as `ignore-packages` would, because another
