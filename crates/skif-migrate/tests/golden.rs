@@ -410,6 +410,7 @@ fn a_bare_sherif_run_writes_only_the_scope_sherif_compares() {
         [
             "multiple-dependency-versions",
             "multiple-dependency-versions: dependencies and devDependencies",
+            "unsync-similar-dependencies",
             "multiple-dependency-versions: specifiers"
         ],
         "{:#?}",
@@ -661,6 +662,29 @@ fn sherif_exact_leaves_out_the_specifiers_sherif_does_not_compare() {
         assert!(both.config.version_groups.is_empty(), "syncpack compared every specifier: {}", both.toml);
         assert!(note(&both, "multiple-dependency-versions: specifiers").message.contains("syncpack"));
     }
+}
+
+#[test]
+fn sherif_family_differences_are_noted() {
+    let scoped = migrate(&[sherif_input(&package(&[("lint", "sherif")]))], &options(Profile::Exact)).unwrap();
+    let noted = note(&scoped, "unsync-similar-dependencies");
+    assert_eq!(noted.class, NoteClass::Approximate);
+    assert!(noted.message.contains("`catalog:`"), "{noted:#?}");
+    assert!(!noted.message.contains("optionalDependencies"), "the scope keeps them out: {noted:#?}");
+
+    let unscoped = migrate(
+        &[sherif_input(&package(&[("lint", "sherif -r multiple-dependency-versions")]))],
+        &options(Profile::Exact),
+    )
+    .unwrap();
+    assert!(note(&unscoped, "unsync-similar-dependencies").message.contains("optionalDependencies take part"));
+
+    let ignored = migrate(
+        &[sherif_input(&package(&[("lint", "sherif -r unsync-similar-dependencies")]))],
+        &options(Profile::Exact),
+    )
+    .unwrap();
+    assert!(!ignored.notes.iter().any(|note| note.path == "unsync-similar-dependencies"));
 }
 
 #[test]

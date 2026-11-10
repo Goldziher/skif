@@ -276,8 +276,12 @@ fn emit(state: &mut State<'_>, src: &Src, settings: &Settings) {
     if !settings.ignore_package.is_empty() {
         emit_ignored_packages(state, src, &settings.ignore_package);
     }
-    if !settings.ignore_rule.values.iter().any(|id| id == VERSION_RULE) {
+    let ignores = |id: &str| settings.ignore_rule.values.iter().any(|ignored| ignored == id);
+    if !ignores(VERSION_RULE) {
         emit_scope(state, src);
+    }
+    if !ignores(FAMILY_RULE) {
+        note_families(state, src, !ignores(VERSION_RULE));
     }
     emit_dependencies(state, src, &settings.ignore_dependency);
     if !settings.fail_on_warnings.is_empty() {
@@ -320,6 +324,28 @@ fn emit(state: &mut State<'_>, src: &Src, settings: &Settings) {
 
 /// The skif rule sherif's `multiple-dependency-versions` maps to.
 const VERSION_RULE: &str = "version-mismatch";
+
+/// The skif rule sherif's `unsync-similar-dependencies` maps to.
+const FAMILY_RULE: &str = "unsynced-dependency-family";
+
+/// `unsynced-dependency-family` reads the sections of `[policy] dependency-types`, so with the scope written it reads
+/// dependencies and devDependencies as sherif did; what still differs is said here.
+fn note_families(state: &mut State<'_>, src: &Src, scoped: bool) {
+    let sections = if scoped {
+        ""
+    } else {
+        "; and with no [policy] dependency-types written, optionalDependencies take part, which sherif never read"
+    };
+    state.note_with(
+        src,
+        NoteClass::Approximate,
+        "unsync-similar-dependencies",
+        format!(
+            "skif compares a `catalog:` reference by the version of its catalog entry, which sherif left out{sections}"
+        ),
+        "align the family members, or set `unsynced-dependency-family` to \"off\" in [rules]",
+    );
+}
 
 /// The sections sherif compares versions in. It never compares a dependency with a package's own `version`, so the
 /// scope leaves `local` out (ADR 0072).
