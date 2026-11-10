@@ -120,14 +120,20 @@ const RUSH_COMMANDS: &[&str] = &["rush", "rushx", "rush-pnpm"];
 /// Berry, Rush and Bun's isolated linker ([`bun_isolated`]) link a member's binaries only into the packages that depend
 /// on it. An unknown package manager counts as hoisting, so it reports nothing new, and so does a Yarn whose version
 /// the repository does not tell ([`yarn_berry`]).
-fn hoists_member_bins(workspace: &Workspace, rush: bool, fs: &dyn FileSystem) -> bool {
+/// `bun_config_version` is the `configVersion` of `bun.lock`.
+fn hoists_member_bins(
+    workspace: &Workspace,
+    rush: bool,
+    bun_config_version: Option<u64>,
+    fs: &dyn FileSystem,
+) -> bool {
     if rush {
         return false;
     }
     match workspace.package_manager {
         Some(PackageManager::Pnpm) => false,
         Some(PackageManager::Yarn) => !yarn_berry(workspace, fs),
-        Some(PackageManager::Bun) => !bun_isolated(fs, &workspace.root),
+        Some(PackageManager::Bun) => !bun_isolated(fs, &workspace.root, bun_config_version),
         _ => true,
     }
 }
@@ -152,10 +158,10 @@ fn yarn_berry(workspace: &Workspace, fs: &dyn FileSystem) -> bool {
 }
 
 /// Whether Bun installs the workspace at `root` with its isolated linker. `linker` in the `[install]` table of the
-/// root `bunfig.toml` decides; without one, the `configVersion` of `bun.lock` does: from 1 (written by Bun 1.3.2 and
-/// later for a new project) a workspace is isolated, before it hoisted. Without either, Bun's choice cannot be read from
-/// the repository, so it counts as hoisted. The global `~/.bunfig.toml` and `bun install --linker` are not read.
-fn bun_isolated(fs: &dyn FileSystem, root: &Path) -> bool {
+/// root `bunfig.toml` decides; without one, `config_version`, the `configVersion` of `bun.lock`, does: from 1 (written
+/// by Bun 1.3.2 and later for a new project) a workspace is isolated, before it hoisted. Without either, Bun's choice
+/// cannot be read from the repository, so it counts as hoisted. The global `~/.bunfig.toml` and `bun install --linker` are not read.
+fn bun_isolated(fs: &dyn FileSystem, root: &Path, config_version: Option<u64>) -> bool {
     let linker = fs
         .read_to_string(&root.join("bunfig.toml"))
         .ok()
@@ -164,11 +170,7 @@ fn bun_isolated(fs: &dyn FileSystem, root: &Path) -> bool {
     match linker.as_deref() {
         Some("isolated") => true,
         Some("hoisted") => false,
-        _ => fs
-            .read_to_string(&root.join("bun.lock"))
-            .ok()
-            .and_then(|text| lockfile::bun_config_version(&text))
-            .is_some_and(|version| version >= 1),
+        _ => config_version.is_some_and(|version| version >= 1),
     }
 }
 
@@ -655,8 +657,9 @@ impl DependencyUsage {
             dirs: package_dirs(workspace),
             ..Self::default()
         };
-        usage.member_bins_hoisted = hoists_member_bins(workspace, usage.rush, fs);
-        usage.read_manifests(workspace, fs, sequential);
+        let locked = lockfile::read(fs, &workspace.root);
+        usage.member_bins_hoisted = hoists_member_bins(workspace, usage.rush, locked.bun_config_version, fs);
+        usage.read_manifests(workspace, &locked.packages, fs, sequential);
         let tsconfigs = TsconfigMemo::new(fs);
         usage.collect_ambient_types(workspace, setup, &tsconfigs);
         usage.collect_jsx_runtimes(workspace, setup, &tsconfigs);
@@ -669,8 +672,15 @@ impl DependencyUsage {
         usage
     }
 
-    fn read_manifests(&mut self, workspace: &Workspace, fs: &dyn FileSystem, sequential: bool) {
-        let locked = lockfile::read(fs, &workspace.root);
+    /// Reads what each listed dependency provides from its installed manifest, else a workspace package's own, else
+    /// `locked`, the packages of the lockfile.
+    fn read_manifests(
+        &mut self,
+        workspace: &Workspace,
+        locked: &HashMap<String, Arc<Installed>>,
+        fs: &dyn FileSystem,
+        sequential: bool,
+    ) {
         // A workspace package is linked into `node_modules` on install; without an install its own manifest says the
         // same.
         let linked: HashMap<String, Arc<Installed>> = workspace
