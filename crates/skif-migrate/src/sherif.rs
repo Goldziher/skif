@@ -220,25 +220,40 @@ fn select_value(state: &mut State<'_>, src: &Src, path: &str, select: &str, sett
     }
 }
 
+/// The values of a sherif flag. sherif takes each value whole: `-i a,b` names one dependency, `a,b`, which matches
+/// none, so such a value is noted and left out.
+fn flag_values(state: &mut State<'_>, src: &Src, invocation: &Invocation, long: &str, short: &str) -> Vec<String> {
+    let (whole, joined): (Vec<String>, Vec<String>) = invocation
+        .whole_values(long, Some(short))
+        .into_iter()
+        .partition(|value| !value.contains(','));
+    for value in joined {
+        state.note_with(
+            src,
+            NoteClass::Human,
+            format!("{}: --{long}", invocation.path()),
+            format!("sherif does not split values at commas, so `{value}` matched nothing; it was not written"),
+            format!("pass each name with its own flag (`-{short} a -{short} b`) if every one should be ignored"),
+        );
+    }
+    whole
+}
+
 fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, settings: &mut Settings) {
     let origin = |flag: &str| format!("{}: {flag}", invocation.path());
-    for name in invocation.values("ignore-rule", Some("r")) {
+    for name in invocation.whole_values("ignore-rule", Some("r")) {
         if let Some(id) = rule_id(state, src, &origin("--ignore-rule"), &name) {
             settings.ignore_rule.add(&origin("--ignore-rule"), [id]);
         }
     }
-    settings.ignore_package.add(
-        &origin("--ignore-package"),
-        invocation.values("ignore-package", Some("p")),
-    );
-    settings.ignore_dependency.add(
-        &origin("--ignore-dependency"),
-        invocation.values("ignore-dependency", Some("i")),
-    );
+    let packages = flag_values(state, src, invocation, "ignore-package", "p");
+    settings.ignore_package.add(&origin("--ignore-package"), packages);
+    let dependencies = flag_values(state, src, invocation, "ignore-dependency", "i");
+    settings.ignore_dependency.add(&origin("--ignore-dependency"), dependencies);
     if invocation.has("fail-on-warnings", None) {
         settings.fail_on_warnings.mark(&origin("--fail-on-warnings"));
     }
-    if let Some(select) = invocation.values("select", Some("s")).pop() {
+    if let Some(select) = invocation.whole_values("select", Some("s")).pop() {
         select_value(state, src, &origin("--select"), &select, settings);
     }
     if invocation.has("fix", Some("f")) {

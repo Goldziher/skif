@@ -540,6 +540,35 @@ fn a_bare_knip_run_writes_no_js_setting() {
 }
 
 #[test]
+fn sherif_short_flags_with_attached_values_are_translated() {
+    let migration = migrate(
+        &[sherif_input(&package(&[("lint", "sherif -p=@x/y -ireact -i=lodash")]))],
+        &options(Profile::Exact),
+    )
+    .unwrap();
+    let parsed = table(&migration);
+    assert_eq!(strings(&parsed["workspace"]["ignore-packages"]), ["@x/y"]);
+    assert_eq!(strings(&parsed["ignore"][0]["dependencies"]), ["react", "lodash"]);
+    assert!(!migration.needs_human(), "{:#?}", migration.notes);
+}
+
+#[test]
+fn sherif_values_are_not_split_at_commas() {
+    let migration = migrate(
+        &[sherif_input(&package(&[("lint", "sherif -i react,vue -i lodash -p a,b")]))],
+        &options(Profile::Exact),
+    )
+    .unwrap();
+    let parsed = table(&migration);
+    assert_eq!(strings(&parsed["ignore"][0]["dependencies"]), ["lodash"]);
+    assert!(parsed.get("workspace").is_none(), "{}", migration.toml);
+    let joined = note(&migration, "scripts.lint: --ignore-dependency");
+    assert_eq!(joined.class, NoteClass::Human);
+    assert!(joined.message.contains("`react,vue` matched nothing"), "{joined:#?}");
+    assert_eq!(class(&migration, "scripts.lint: --ignore-package"), NoteClass::Human);
+}
+
+#[test]
 fn sherif_runs_that_differ_are_combined_with_a_note() {
     let mut input = ToolInput::new(Tool::Sherif);
     input.package_json = Some(text(
