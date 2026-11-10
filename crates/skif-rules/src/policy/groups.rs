@@ -157,14 +157,17 @@ impl<'c> Groups<'c> {
                 configured: Some(index),
                 label: group.label.as_deref(),
                 policy: policy_of(group, config.policy.prefer),
-                selectors: Some(Selectors::new(
-                    workspace,
-                    &group.dependencies,
-                    &group.packages,
-                    &group.dependency_types,
-                    scope,
-                    &group.specifier_types,
-                )),
+                // A lockfile-scoped group judges what the lockfile resolves (`lockfile_bans`) and claims no instance.
+                selectors: group.scope.is_manifests().then(|| {
+                    Selectors::new(
+                        workspace,
+                        &group.dependencies,
+                        &group.packages,
+                        &group.dependency_types,
+                        scope,
+                        &group.specifier_types,
+                    )
+                }),
             })
             .collect();
         groups.push(Group {

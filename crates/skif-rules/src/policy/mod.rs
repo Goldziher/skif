@@ -14,6 +14,7 @@ mod fields;
 pub(crate) mod groups;
 mod inspect;
 pub(crate) mod instances;
+mod lockfile_bans;
 mod report;
 mod specifiers;
 mod state;
@@ -90,6 +91,9 @@ impl RuleProvider for PolicyProvider {
             instances.mark_catalog_owned(&owned);
             let analysis = analysis::Analysis::from_instances(cx.workspace, cx.config, instances, cx.sequential);
             report::emit(&analysis, cx.config_file(), out, cx.sequential);
+        }
+        if enabled.contains(BANNED_DEPENDENCY.id) {
+            lockfile_bans::emit(cx, out);
         }
         Ok(())
     }
