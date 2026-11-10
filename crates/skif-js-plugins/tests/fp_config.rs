@@ -445,8 +445,9 @@ fn playwright_known_reporters_leave_the_entries_complete() {
     }
 }
 
-/// Vitest reporters read the same way: every reporter a branch names is credited, and a reporter name the config
-/// computes in a way that is not known may be any file of the package.
+/// Vitest reporters read the same way: every reporter a branch names is credited. A reporter name the config computes
+/// leaves the entries complete: a shared config merged into every package computes its reporter list, and the modules
+/// it names belong to the shared package, not to each package it is merged into.
 #[test]
 fn vitest_reporters_of_every_branch_are_credited() {
     let source = "export default { test: { reporters: process.env.CI ? ['default', './ci.ts'] : 'default' } };";
@@ -455,15 +456,10 @@ fn vitest_reporters_of_every_branch_are_credited() {
     assert!(!out.entries_incomplete, "{:?}", out.incomplete_reasons);
     assert_entries(&out.entries, &["ci.ts"]);
 
-    let source = "export default { test: { reporters: ['default', pick()] } };";
+    let source = "export default { test: { reporters: wrap(['default', './ci.ts']) } };";
     let results = run(&[("vitest.config.ts", source)], &["vitest"], &[]);
-    let reasons = &output(&results, "vitest").incomplete_reasons;
-    assert!(
-        reasons
-            .iter()
-            .any(|reason| reason.cause == IncompleteCause::ComputedEntries && reason.scope == IncompleteScope::Package),
-        "{reasons:?}"
-    );
+    let out = output(&results, "vitest");
+    assert!(!out.entries_incomplete, "{:?}", out.incomplete_reasons);
 }
 
 #[test]
