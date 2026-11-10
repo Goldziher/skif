@@ -120,7 +120,7 @@ times out, skif fails, or knip prints no JSON; the reason names the first error 
 or stdout, or knip's error. A repository with `install = false` in `corpus.toml` (rushstack: Rush keeps its lockfiles
 under `common/config`) is compared uninstalled, so the tools say themselves whether they can run there. knip has no
 Rush support and stops with `Unable to find package.json` without a root manifest, so rushstack sets
-`knip-root = "rush"`: knip runs in a scratch clone of the checkout (`git clone --shared` under the output directory)
+`knip-root = "rush"`: knip runs in a scratch clone of the checkout (`git clone` under the output directory)
 that gets a root `package.json` with the `projectFolder` of every `rush.json` project as its `workspaces`. The
 checkout itself is never written, and the keys of both reports stay relative to their own root. Without `--install` the run is quick but dominated by that noise. Whether a repository counts as installed is read
 from the checkout (the `.skif-bench-installed` marker holds the pinned commit once an install succeeded), not from the

@@ -32,9 +32,12 @@ export function markers(name, mdx) {
 export function replaceBlock(text, name, body, { mdx = false, file = "the file" } = {}) {
   const [start, end] = markers(name, mdx);
   const from = text.indexOf(start);
-  const to = text.indexOf(end);
-  if (from < 0 || to < from) {
+  const to = from < 0 ? -1 : text.indexOf(end, from + start.length);
+  if (from < 0 || to < 0) {
     throw new Error(`${file}: the ${start} and ${end} markers are missing`);
+  }
+  if (text.indexOf(start, to) >= 0) {
+    throw new Error(`${file}: the ${start} marker appears more than once`);
   }
   return `${text.slice(0, from + start.length)}\n${body.trimEnd()}\n${text.slice(to)}`;
 }

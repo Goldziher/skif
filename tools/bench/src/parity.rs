@@ -1167,10 +1167,10 @@ fn knip_root(repo: &Repo, root: &Path, scratch: &Path) -> Result<PathBuf, String
                 fs::remove_dir_all(&copy).map_err(|error| format!("cleaning {}: {error}", copy.display()))?;
             }
             fs::create_dir_all(scratch).map_err(|error| format!("creating {}: {error}", scratch.display()))?;
-            // A shared clone borrows the checkout's objects, so the copy costs only its working tree.
+            // The checkout is only read: the clone, its objects and the root manifest all live in the scratch directory.
             git_step(
                 Command::new("git")
-                    .args(["clone", "--quiet", "--shared", "--no-checkout"])
+                    .args(["clone", "--quiet", "--no-checkout"])
                     .arg(root)
                     .arg(&copy),
                 "clone",

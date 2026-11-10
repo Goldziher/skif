@@ -404,6 +404,15 @@ pub fn check(baseline: &Baseline, current: &Baseline, tolerance: Tolerance) -> V
             problems.push(format!("{name}: not in the baseline"));
             continue;
         };
+        if was.status != now.status {
+            problems.push(format!(
+                "{name}: was {}, is now {}{}",
+                was.status,
+                now.status,
+                now.reason.as_deref().map_or_else(String::new, |r| format!(" ({r})"))
+            ));
+            continue;
+        }
         if let Some(installed) = now.installed {
             let recorded = was.installed.unwrap_or(baseline.installed);
             if recorded != installed {
@@ -418,15 +427,6 @@ pub fn check(baseline: &Baseline, current: &Baseline, tolerance: Tolerance) -> V
                 "{name}: the baseline was recorded with recursive: {}, this run used recursive: {}; re-record it with --write-baseline",
                 was.recursive.map_or_else(|| "unknown".to_owned(), |recorded| recorded.to_string()),
                 now.recursive.unwrap_or_default()
-            ));
-            continue;
-        }
-        if was.status != now.status {
-            problems.push(format!(
-                "{name}: was {}, is now {}{}",
-                was.status,
-                now.status,
-                now.reason.as_deref().map_or_else(String::new, |r| format!(" ({r})"))
             ));
             continue;
         }
@@ -493,7 +493,12 @@ pub fn conclude(gate: &Gate, current: &Baseline) -> Result<()> {
             if let Some(reason) = incomparable(&old, current) {
                 eprintln!("baseline: dropping its {} earlier entries: {reason}", old.entries.len());
             } else if per_entry || old.installed == current.installed {
-                merged.entries = old.entries;
+                // An earlier entry without its own install state was recorded under the old file's flag.
+                let mut earlier = old.entries;
+                for entry in earlier.values_mut().filter(|entry| entry.status == COMPARED) {
+                    entry.installed.get_or_insert(old.installed);
+                }
+                merged.entries = earlier;
                 merged.entries.extend(current.entries.clone());
             }
         }
@@ -707,6 +712,16 @@ mod tests {
         conclude(&gate, &now).unwrap();
         assert_eq!(read_baseline(&file).unwrap().entries.keys().collect::<Vec<_>>(), ["new"]);
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_status_change_is_reported_before_the_run_facts() {
+        let base = baseline(&[("r", Entry::skipped("knip failed"))]);
+        let now = baseline(&[(
+            "r",
+            Entry::compared(counts(1, 1, 1)).with_installed(false).with_run(false, "aaa"),
+        )]);
+        assert_eq!(check(&base, &now, TOLERANCE), ["r: was skipped, is now compared"]);
     }
 
     #[test]
