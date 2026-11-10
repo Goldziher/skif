@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 use skif_config::{PluginConfig, PluginOptions};
 use skif_core::MemoryFs;
 use skif_js_plugins::registry;
-use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
+use skif_js_plugins::{DepRef, PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
@@ -393,14 +393,25 @@ fn typescript() {
         out,
         &[
             "@tsconfig/node20",
-            "@types/node",
+            "node",
             "vitest",
             "@emotion/react",
             "tslib",
             "typescript-plugin-css-modules",
-            "@types/jest",
+            "jest",
         ],
     );
+    assert_absent(out, &["@types/node", "@types/jest"]);
+    // A compiler option names the package for each package reading the config, `types` only its types.
+    let flags = |name: &str| {
+        out.referenced_dependencies
+            .iter()
+            .find(|d| d.name == name)
+            .map(|d| (d.type_only, d.reader_may_list))
+    };
+    assert_eq!(flags("node"), Some((true, true)));
+    assert_eq!(flags("@emotion/react"), Some((false, true)));
+    assert_eq!(flags("@tsconfig/node20"), Some((false, false)));
     assert!(out.config_files.iter().any(|f| f.ends_with("packages/a/tsconfig.json")));
     assert!(out.provided_binaries.contains(&"tsc".to_string()));
 }
@@ -451,6 +462,20 @@ fn eslint_flat_config_is_read_without_error() {
     );
     let out = output(&results, "eslint");
     assert!(out.config_files.iter().any(|f| f.ends_with("eslint.config.js")));
+}
+
+#[test]
+fn eslint_flat_config_string_extends_name_plugin_configs_not_packages() {
+    let results = resolve(
+        &[(
+            "eslint.config.js",
+            "import js from '@eslint/js';\nimport { defineConfig } from 'eslint/config';\nexport default defineConfig([{ plugins: { js }, extends: ['js/recommended'], settings: { 'import/resolver': { node: {} } } }]);",
+        )],
+        &["eslint"],
+    );
+    let out = output(&results, "eslint");
+    assert_absent(out, &["eslint-config-js", "js"]);
+    assert_deps(out, &["eslint-import-resolver-node"]);
 }
 
 #[test]
@@ -1857,6 +1882,113 @@ datasource db {
     assert_absent(out, &["./generators/custom.js", "tsx scripts/gen.ts"]);
 }
 
+/// The file that references `name` for plugin `id`, and whether that file names the package itself.
+fn reference_of(results: &[(PluginId, PluginOutput)], id: &str, name: &str) -> Option<(String, bool)> {
+    output(results, id)
+        .referenced_dependencies
+        .iter()
+        .find(|d| d.name == name)
+        .map(|d| (d.from.to_string_lossy().replace('\\', "/"), d.named_by_config))
+}
+
+/// A package a config names itself (a `tsconfig` `extends` or plugin, a Prisma generator) is recorded at that file as
+/// named by it; one a command of a config names is a reference of the config but not named by it (ADR 0086).
+#[test]
+fn packages_a_config_names_are_recorded_at_the_file_that_names_them() {
+    let tsconfig =
+        r#"{"extends":"@acme/tsconfig/base.json","compilerOptions":{"plugins":[{"name":"@effect/language-service"}]}}"#;
+    let schema = "generator kysely {\n  provider = \"prisma-kysely\"\n}\n";
+    let staged = r#"{"*.ts":"node --require=esbuild-register check.ts"}"#;
+    let results = resolve(
+        &[
+            ("tsconfig.json", tsconfig),
+            ("prisma/schema.prisma", schema),
+            (".lintstagedrc.json", staged),
+        ],
+        &["typescript", "prisma", "lint-staged"],
+    );
+    let named = |file: &str| Some((format!("{DIR}/{file}"), true));
+    assert_eq!(
+        reference_of(&results, "typescript", "@acme/tsconfig"),
+        named("tsconfig.json")
+    );
+    assert_eq!(
+        reference_of(&results, "typescript", "@effect/language-service"),
+        named("tsconfig.json")
+    );
+    assert_eq!(
+        reference_of(&results, "prisma", "prisma-kysely"),
+        named("prisma/schema.prisma")
+    );
+    assert_eq!(
+        reference_of(&results, "lint-staged", "esbuild-register"),
+        Some((format!("{DIR}/.lintstagedrc.json"), false))
+    );
+}
+
+/// References to one package from one file merge: optional only when every one is, and a config reference only when
+/// a config names it in a required reference, so an optional config reference beside a command naming the package is
+/// no config reference.
+#[test]
+fn references_to_a_package_from_one_file_merge() {
+    let from = Path::new("/ws/vite.config.ts");
+    let mut reference = DepRef::new("esbuild-register".to_owned(), from, true, true);
+    assert!(
+        !reference.named_by_config,
+        "an optional reference is no config reference"
+    );
+    reference.merge(&DepRef::new("esbuild-register".to_owned(), from, false, false));
+    assert!(!reference.optional);
+    assert!(
+        !reference.named_by_config,
+        "a command does not make the optional config reference required"
+    );
+    let compiler = DepRef {
+        type_only: true,
+        reader_may_list: true,
+        ..DepRef::new("esbuild-register".to_owned(), from, false, true)
+    };
+    reference.merge(&compiler);
+    assert!(reference.named_by_config && reference.type_only && reference.reader_may_list);
+    reference.merge(&DepRef::new("esbuild-register".to_owned(), from, false, true));
+    assert!(reference.named_by_config);
+    assert!(
+        !reference.type_only && !reference.reader_may_list,
+        "a reference only the owner satisfies needs the package itself"
+    );
+}
+
+/// A package a config names only to tune a tool that runs without it (Vite's `optimizeDeps.include`, an
+/// `eslint-plugin-import` resolver) is an optional reference, as knip reads them: it is never unlisted (ADR 0086).
+#[test]
+fn packages_named_only_to_tune_a_tool_are_optional_references() {
+    let results = resolve(
+        &[
+            (
+                "vite.config.ts",
+                r#"export default { optimizeDeps: { include: ["@acme/ui", "react > scheduler"] } };"#,
+            ),
+            (
+                ".eslintrc.json",
+                r#"{"plugins":["import"],"settings":{"import/resolver":{"node":{},"typescript":{}}}}"#,
+            ),
+        ],
+        &["vite", "eslint"],
+    );
+    let optional = |id: &str, name: &str| {
+        output(&results, id)
+            .referenced_dependencies
+            .iter()
+            .find(|d| d.name == name)
+            .map(|d| d.optional)
+    };
+    assert_eq!(optional("vite", "@acme/ui"), Some(true));
+    assert_eq!(optional("vite", "react"), Some(true));
+    assert_eq!(optional("eslint", "eslint-import-resolver-node"), Some(true));
+    assert_eq!(optional("eslint", "eslint-import-resolver-typescript"), Some(true));
+    assert_eq!(optional("eslint", "eslint-plugin-import"), Some(false));
+}
+
 #[test]
 fn graphql_codegen() {
     let config = r#"export default {
@@ -2267,7 +2399,7 @@ fn angular_links_the_typescript_and_karma_configs_of_its_targets() {
     ];
     let results = resolve(&files, &["@angular/cli"]);
     let out = output(&results, "angular");
-    assert_deps(out, &["@types/node", "preact", "karma-jasmine"]);
+    assert_deps(out, &["node", "preact", "karma-jasmine"]);
     for file in ["tsconfig.app.json", "tsconfig.spec.json", "karma.conf.js"] {
         assert!(
             out.config_files.iter().any(|path| path.ends_with(file)),
@@ -3060,7 +3192,7 @@ fn biome_root_reference_is_the_config_of_the_farthest_ancestor() {
     };
     let results = resolve_plugins(&ctx);
     let out = output(&results, "biome");
-    let root_config_read = out.config_files.iter().any(|f| f == &app.join("../../biome.json"));
+    let root_config_read = out.config_files.iter().any(|f| f == &repo.join("biome.json"));
     let dependencies_found = deps(out).contains("@org/biome-base");
     std::fs::remove_dir_all(&repo).unwrap();
     assert!(root_config_read, "{:?}", out.config_files);

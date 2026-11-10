@@ -49,6 +49,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `unlisted-dependencies` reports a package that a tool config names itself and no manifest lists, at the config
+  with the detail `ConfigReference`: a `tsconfig` `extends`, `types` or plugin, an Oxlint `jsPlugins` entry, an
+  ESLint plugin, parser or shareable config, a Babel preset or plugin, a PostCSS plugin, a Prisma generator and the
+  other packages plugins read from configs. The config belongs to the innermost package whose directory holds it.
+  Packages that a command in a config names, that a plugin assumes without a config, and optional references are not
+  reported; `ignore-dependencies` and `ignore` apply, a gitignored config or one in a fixture directory (unless
+  `include-fixtures`) is not judged, and production mode judges no config. A `tsconfig` compiler option of a shared
+  base config is satisfied by the package extending it as well as the base's owner, and a `types` entry by the
+  package or its `@types` package. Plugins record the dependencies a non-config file names with
+  `PluginInput::FileDependency` and compiler options with `PluginInput::CompilerDependency`; `DepRef` has
+  `named_by_config`, `type_only` and `reader_may_list`, with `DepRef::new` and `DepRef::merge`
+  ([ADR 0086](adrs/0086-packages-tool-configs-name-are-unlisted-at-the-config.md), [#96](https://github.com/Goldziher/skif/issues/96)).
 - `.marko` files are read: their `import` statements and `import()` calls, and the imports of their `<style>` and
   concise `style { … }` blocks. A reached `.marko` file uses `marko`
   ([ADR 0084](adrs/0084-template-scopes-auto-imported-vue-components-and-marko-files.md)).
@@ -141,6 +153,19 @@ All notable changes to this project are documented here. The format follows
   `tsconfig.json` or `jsconfig.json` extends is not generated and is gitignored
   ([ADR 0082](adrs/0082-install-hooks-sveltekit-route-types-and-builtin-named-packages.md),
   [#99](https://github.com/Goldziher/skif/issues/99)).
+- `declare module 'pkg/sub'` declares that module only, no longer the whole package: the other imports of `pkg` are
+  judged by `unlisted-dependencies` again. `declare module 'pkg'` and a pattern such as `declare module 'pkg/*'` still
+  cover the imports they match ([ADR 0086](adrs/0086-packages-tool-configs-name-are-unlisted-at-the-config.md), [#96](https://github.com/Goldziher/skif/issues/96)).
+- A specifier that names a workspace package is an import of that package also when a `tsconfig` mapping or bundler
+  alias leads it to generated code in that package that is not there yet, as it already was when the mapping leads to
+  an existing file; an alias into other code is not the package. An import an alias leads into another package is
+  covered by a `declare module` of any module of that package ([ADR 0086](adrs/0086-packages-tool-configs-name-are-unlisted-at-the-config.md), [#96](https://github.com/Goldziher/skif/issues/96)).
+- A string `extends` of an ESLint flat config names a plugin's config, no `eslint-config-*` package, and a Prisma
+  `generator` block named `client…` is not read, as knip reads them. A config that a sibling package extends through
+  `../` is read at its own path ([ADR 0086](adrs/0086-packages-tool-configs-name-are-unlisted-at-the-config.md)).
+- Vite's `optimizeDeps.include` and the resolvers of `eslint-plugin-import` settings are optional references, as knip
+  reads them: a listed one is never unused and an unlisted one is never reported
+  ([ADR 0086](adrs/0086-packages-tool-configs-name-are-unlisted-at-the-config.md)).
 - In a multi-root run (`skif -r`), a file another root uses is no longer reported by `unused-files` or deleted by
   `--allow-remove-files`: a file of a nested root that a workflow step or another tool configuration of an enclosing
   root names is an entry of the nested root, and a file a root's code reaches outside its own directory (an import of

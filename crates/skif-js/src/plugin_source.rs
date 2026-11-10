@@ -9,10 +9,11 @@ use skif_js_plugins::{PluginContext, PluginOutput, resolve_plugins};
 use crate::config_check::relative_tsconfig;
 use crate::config_modules::ConfigModules;
 use crate::input::{
-    BuildDir, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope, InputRequest, InputSource,
-    PathAlias, RunBinary, WorkspaceInputs,
+    BuildDir, ConfigDependency, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope,
+    InputRequest, InputSource, PathAlias, RunBinary, WorkspaceInputs,
 };
 use crate::setup::WorkspaceKeys;
+use crate::specifier::types_package;
 
 /// Feeds the entries, project files and references of every enabled plugin to the module graph.
 #[derive(Debug, Clone)]
@@ -165,11 +166,16 @@ fn scripts(request: &InputRequest<'_>) -> IndexMap<String, String> {
         .unwrap_or_default()
 }
 
+/// The packages of the `optional` (or required) references; a reference to types only also names the package's
+/// `DefinitelyTyped` package, which a manifest may list in its place.
 fn names(output: &[skif_js_plugins::DepRef], optional: bool) -> impl Iterator<Item = String> + '_ {
     output
         .iter()
         .filter(move |dependency| dependency.optional == optional)
-        .map(|dependency| dependency.name.clone())
+        .flat_map(|dependency| {
+            let types = types_package(&dependency.name).filter(|_| dependency.type_only);
+            std::iter::once(dependency.name.clone()).chain(types)
+        })
 }
 
 /// The scope of every reason together; the whole package when there is none.
@@ -205,6 +211,17 @@ fn inputs(output: PluginOutput) -> WorkspaceInputs {
         ignore_binaries,
         virtual_modules: output.virtual_modules,
         dependencies: names(&output.referenced_dependencies, false).collect(),
+        config_dependencies: output
+            .referenced_dependencies
+            .iter()
+            .filter(|dependency| dependency.named_by_config)
+            .map(|dependency| ConfigDependency {
+                name: dependency.name.clone(),
+                file: dependency.from.clone(),
+                type_only: dependency.type_only,
+                reader_may_list: dependency.reader_may_list,
+            })
+            .collect(),
         binaries: output.referenced_binaries,
         run_binaries: output
             .run_binaries

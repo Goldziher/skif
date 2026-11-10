@@ -2,7 +2,7 @@
 //!
 //! A `generator` block's `provider` names the package that generates code (`prisma-kysely`, `zod-prisma-types`), a
 //! command (`node ./gen.js`) or a path relative to the schema file. The built-in `prisma-client-js` and
-//! `prisma-client` providers name no package.
+//! `prisma-client` providers name no package, and as for knip a block whose name starts with `client` is not read.
 
 use skif_js_syntax::ConfigValue;
 
@@ -65,38 +65,43 @@ fn generator_inputs(cx: &PluginContext<'_>, patterns: &[String]) -> Vec<PluginIn
         let Ok(text) = cx.fs.read_to_string(&cx.dir.join(&file)) else {
             continue;
         };
-        let dir = file.rsplit_once('/').map_or("", |(dir, _)| dir);
         out.extend(
             generator_providers(&text)
                 .into_iter()
-                .filter_map(|p| provider_input(dir, p)),
+                .filter_map(|p| provider_input(&file, p)),
         );
     }
     out
 }
 
 /// The literal `provider` of every `generator` block of a schema, also of a block on one line
-/// (`generator x { provider = "y" }`).
+/// (`generator x { provider = "y" }`). A block whose name starts with `client` (`generator client`) generates the
+/// Prisma client and is skipped, as knip skips it.
 fn generator_providers(text: &str) -> Vec<&str> {
     let mut providers = Vec::new();
-    let mut in_generator = false;
+    // Inside a `generator` block: whether its provider is read.
+    let mut in_generator: Option<bool> = None;
     for line in text.lines() {
         let line = &line[..find_unquoted(line, "//").unwrap_or(line.len())];
         let mut field = line.trim();
-        if !in_generator {
-            let Some(open) = field
+        if in_generator.is_none() {
+            let Some((name, open)) = field
                 .strip_prefix("generator")
                 .filter(|rest| rest.starts_with(char::is_whitespace))
-                .and_then(|rest| rest.find('{').map(|at| &rest[at + 1..]))
+                .and_then(|rest| rest.find('{').map(|at| (rest[..at].trim(), &rest[at + 1..])))
             else {
                 continue;
             };
-            in_generator = true;
+            in_generator = Some(!name.starts_with("client"));
             field = open.trim();
         }
+        let read = in_generator == Some(true);
         if let Some(close) = find_unquoted(field, "}") {
             field = field[..close].trim();
-            in_generator = false;
+            in_generator = None;
+        }
+        if !read {
+            continue;
         }
         if let Some(value) = field.strip_prefix("provider").map(str::trim_start)
             && let Some(value) = value.strip_prefix('=').map(str::trim_start)
@@ -130,9 +135,10 @@ fn find_unquoted(line: &str, needle: &str) -> Option<usize> {
     None
 }
 
-/// A provider as an input: a relative path is an entry next to the schema `dir`, a command is a script and a bare
-/// name is a package.
-fn provider_input(dir: &str, provider: &str) -> Option<PluginInput> {
+/// A provider of the schema `file` as an input: a relative path is an entry next to the schema, a command is a script
+/// and a bare name is a package the schema names.
+fn provider_input(file: &str, provider: &str) -> Option<PluginInput> {
+    let dir = file.rsplit_once('/').map_or("", |(dir, _)| dir);
     if provider.is_empty() || matches!(provider, "prisma-client-js" | "prisma-client") {
         return None;
     }
@@ -142,7 +148,10 @@ fn provider_input(dir: &str, provider: &str) -> Option<PluginInput> {
     if is_relative(provider) {
         return Some(PluginInput::Entry(join_rel(dir, provider)));
     }
-    package_name(provider).map(PluginInput::Dependency)
+    package_name(provider).map(|name| PluginInput::FileDependency {
+        file: file.to_owned(),
+        name,
+    })
 }
 
 #[cfg(test)]
@@ -159,7 +168,15 @@ generator two {
 datasource db { provider = "postgresql" }
 // generator old { provider = "commented-out" }
 generator three { output = "x" }
+generator client { provider = "prisma-client-ts" }
+generator clientExtras {
+  provider = "client-extras"
+}
+generator myclient { provider = "custom-client" }
 "#;
-        assert_eq!(generator_providers(schema), ["single-line", "node ./gen//index.js"]);
+        assert_eq!(
+            generator_providers(schema),
+            ["single-line", "node ./gen//index.js", "custom-client"]
+        );
     }
 }

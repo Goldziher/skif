@@ -533,13 +533,7 @@ impl<'a> JsAnalysis<'a> {
         });
         mark_foreign_paths(&resolver, &graph, &mut dependencies);
 
-        let mut ambient_modules = collect_ambient_modules(fs.as_ref(), &graph, &candidates, (sequential, modules));
-        // `declare module 'pkg/sub'` also declares `pkg`: both spellings are looked up by name.
-        let packages: Vec<String> = ambient_modules
-            .iter()
-            .filter_map(|declared| package_name(declared))
-            .collect();
-        ambient_modules.extend(packages);
+        let ambient_modules = collect_ambient_modules(fs.as_ref(), &graph, &candidates, (sequential, modules));
         let outside_graph: HashSet<String> = candidates
             .iter()
             .filter(|candidate| graph.id_of(&candidate.abs).is_none())
@@ -599,11 +593,43 @@ impl<'a> JsAnalysis<'a> {
         }
     }
 
-    /// Whether the project declares package `name` itself with `declare module 'name'`, so importing it needs no
-    /// dependency.
+    /// Whether the project declares the module that `specifier` imports with `declare module`, so importing it needs
+    /// no dependency: the specifier itself, the package it names (`declare module 'pkg'` also covers `pkg/sub`), or a
+    /// pattern with one `*` and a literal start that matches it (`declare module 'pkg/*'`). A declared subpath
+    /// (`declare module 'pkg/data.json'`) declares that module only, not the rest of the package.
     #[must_use]
-    pub fn declares_module(&self, name: &str) -> bool {
-        self.ambient_modules.contains(name)
+    pub fn declares_module(&self, specifier: &str) -> bool {
+        if self.ambient_modules.contains(specifier) {
+            return true;
+        }
+        if package_name(specifier).is_some_and(|package| self.ambient_modules.contains(&package)) {
+            return true;
+        }
+        self.ambient_modules.iter().any(|declared| {
+            declared.split_once('*').is_some_and(|(prefix, suffix)| {
+                !prefix.is_empty()
+                    && !suffix.contains('*')
+                    && specifier.len() >= prefix.len() + suffix.len()
+                    && specifier.starts_with(prefix)
+                    && specifier.ends_with(suffix)
+            })
+        })
+    }
+
+    /// Whether the project declares the module an import of package `name` written as `specifier` reaches, as
+    /// [`Self::declares_module`] judges it. A specifier an alias leads into another package (`react` to
+    /// `preact/compat`) does not tell which module of `name` it reaches, so a declaration of `name` or of any module
+    /// inside it (`declare module 'preact/compat'`) covers it.
+    #[must_use]
+    pub fn declares_import(&self, specifier: &str, name: &str) -> bool {
+        if self.declares_module(specifier) {
+            return true;
+        }
+        package_name(specifier).as_deref() != Some(name)
+            && self
+                .ambient_modules
+                .iter()
+                .any(|declared| package_name(declared).as_deref() == Some(name))
     }
 
     /// Whether `[js] production` is on.

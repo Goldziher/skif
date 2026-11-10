@@ -81,6 +81,14 @@ counted, as it maps every specifier, and neither is a pattern whose targets are 
 into `node_modules`, or to missing files). An import of a workspace package, of a package a manifest lists or of an
 installed package keeps the advice to add it to `package.json`.
 
+Both tools report a package that a tool config names and no manifest lists (a `tsconfig` `extends`, an Oxlint or
+ESLint plugin, a Prisma generator) at the config. knip reads some of them as files to resolve, so one with an unscoped
+name that it cannot find is reported as unresolved or not at all; skif reports each as unlisted, with the detail
+`ConfigReference`. A Sass importer
+that a config builds in code (`sassOptions.importer` from `sass-alias`) is not read, so the imports its aliases serve
+(`@import "@sass/abstracts/mixins"`) are reported as unlisted packages; list the alias in `ignore-dependencies`
+(`"@sass/*"`).
+
 ## Configuration
 
 skif reads `skif.toml` or `.skif.toml` only. It does not read `sherif`, `.syncpackrc` or `knip.json`

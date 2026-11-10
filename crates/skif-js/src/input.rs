@@ -31,6 +31,22 @@ pub struct RunBinary {
     pub file: PathBuf,
 }
 
+/// A package that a tool's config file names itself (a `tsconfig` `extends`, an eslint plugin, a Prisma generator):
+/// the config needs it installed. See [`WorkspaceInputs::config_dependencies`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigDependency {
+    /// The package name, without version or subpath.
+    pub name: String,
+    /// The file that names it, absolute.
+    pub file: PathBuf,
+    /// The reference loads only the package's types (`compilerOptions.types`): its `DefinitelyTyped` package
+    /// (`@types/…`) satisfies it as well.
+    pub type_only: bool,
+    /// The package reading the config may list it instead of the package that owns `file`: a compiler option of a
+    /// shared base `tsconfig` applies to each package extending it.
+    pub reader_may_list: bool,
+}
+
 /// Build output that maps back to source: `dist` to `src` for a `tsconfig` with `outDir` and `rootDir`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildDir {
@@ -90,6 +106,10 @@ pub struct WorkspaceInputs {
     pub virtual_modules: Vec<String>,
     /// Packages the tool uses without importing them, such as an `ESLint` parser named in a config.
     pub dependencies: Vec<String>,
+    /// The packages of `dependencies` that a config file names itself and needs installed, with that file:
+    /// `unlisted-dependencies` reports the ones no manifest lists at the file. Packages that a command in a config
+    /// names, optional ones and those a tool assumes without a config are not among them.
+    pub config_dependencies: Vec<ConfigDependency>,
     /// Binaries the tool runs without a script naming them.
     pub binaries: Vec<String>,
     /// The binaries of `binaries` that a command read from a file runs, with that file: `unlisted-binaries` reports
@@ -163,6 +183,7 @@ impl WorkspaceInputs {
         self.ignore_binaries.extend(other.ignore_binaries);
         self.virtual_modules.extend(other.virtual_modules);
         self.dependencies.extend(other.dependencies);
+        self.config_dependencies.extend(other.config_dependencies);
         self.binaries.extend(other.binaries);
         self.run_binaries.extend(other.run_binaries);
         self.config_files.extend(other.config_files);
