@@ -109,8 +109,8 @@ impl Plugin for Vite {
     }
 }
 
-/// The `index.html` scripts and the build input entries ([`build_input_key`]) of a config; the vitest plugin reuses them
-/// the way knip does.
+/// The `index.html` scripts and the build input entries ([`build_input_key`]) of a config; the vitest plugin reuses
+/// them the way knip does.
 ///
 /// `root` moves the project root, where Vite looks for `index.html` and resolves `/`-rooted paths (the `src` of a
 /// script tag, an HTML input written as `/page.html`), relative to the config file. A `root` that is not a static
