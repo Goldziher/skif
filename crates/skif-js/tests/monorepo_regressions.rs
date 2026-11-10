@@ -80,6 +80,50 @@ fn trailing_slash_imports_name_npm_packages_not_builtins() {
     assert!(diagnostics.is_empty(), "{diagnostics:#?}");
 }
 
+/// A project with a `.pnpmfile.cjs` that requires `semver`, the files `source` and a manifest listing `dependencies`;
+/// `src/index.js` is its `main` when `source` has it.
+fn pnpmfile_project(source: &[(&'static str, &'static str)], dependencies: &str) -> Vec<Diagnostic> {
+    let main = if source.iter().any(|(path, _)| *path == "src/index.js") {
+        r#""main":"src/index.js","#
+    } else {
+        ""
+    };
+    let package = manifest(&format!(
+        r#""name":"remote","version":"1.0.0","private":true,{PNPM},{main}"dependencies":{{{dependencies}}}"#
+    ));
+    let mut files = vec![
+        ("package.json", package.as_str()),
+        ("pnpm-workspace.yaml", "pnpmfile: .pnpmfile.cjs\n"),
+        (
+            ".pnpmfile.cjs",
+            "const semver = require('semver');\nmodule.exports = { hooks: { readPackage: (pkg) => (semver.valid(pkg.version) ? pkg : pkg) } };\n",
+        ),
+    ];
+    files.extend_from_slice(source);
+    lint_files(&files, "")
+}
+
+#[test]
+fn a_pnpmfile_alone_does_not_give_a_project_source_whose_dependencies_are_judged() {
+    // vscode's `remote`: the manifest lists what the server installs, and the pnpm hook is its only JavaScript. Were
+    // the hook project code, `express` would be unused.
+    let diagnostics = pnpmfile_project(&[], r#""express":"4.21.0","semver":"7.6.0""#);
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none(), "{diagnostics:#?}");
+}
+
+#[test]
+fn a_pnpmfile_uses_what_it_imports_in_a_project_with_source() {
+    let diagnostics = pnpmfile_project(
+        &[("src/index.js", "import express from 'express';\nexport default express;\n")],
+        r#""express":"4.21.0","lodash":"4.17.21","semver":"7.6.0""#,
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-dependencies"),
+        ["package.json: lodash"],
+        "{diagnostics:#?}"
+    );
+}
+
 #[test]
 fn vitest_adds_index_html_scripts_without_the_vite_plugin() {
     let package = manifest(&format!(
