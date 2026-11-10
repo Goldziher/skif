@@ -168,39 +168,9 @@ fn npm(text: &str) -> Entries {
     entries
 }
 
-/// `bun.lock` is JSONC: strips the trailing commas outside of strings so it parses as JSON.
-fn strip_trailing_commas(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let mut out = String::with_capacity(text.len());
-    let mut in_string = false;
-    let mut escaped = false;
-    for (index, &c) in chars.iter().enumerate() {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if c == '"' {
-                in_string = false;
-            }
-        } else if c == '"' {
-            in_string = true;
-        } else if c == ','
-            && chars[index + 1..]
-                .iter()
-                .find(|next| !next.is_whitespace())
-                .is_some_and(|next| matches!(next, '}' | ']'))
-        {
-            continue;
-        }
-        out.push(c);
-    }
-    out
-}
-
 /// `bun.lock` as JSON; `null` when it does not parse.
 fn parse_bun(text: &str) -> Value {
-    serde_json::from_str(&strip_trailing_commas(text)).unwrap_or(Value::Null)
+    skif_workspace::parse_bun_lock(text).unwrap_or(Value::Null)
 }
 
 fn bun(value: &Value) -> Entries {
@@ -345,6 +315,7 @@ mod tests {
             (lock("\n  \"configVersion\": 1,"), Some(1)),
             (lock("\n  \"configVersion\": 0,"), Some(0)),
             (lock(""), None),
+            (format!("\u{feff}{}", lock("\n  \"configVersion\": 1,")), Some(1)),
             ("not json".to_owned(), None),
         ];
         for (text, expected) in cases {

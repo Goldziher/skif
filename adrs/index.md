@@ -111,6 +111,7 @@ old one.
 | 0101 | [A Module Cache Shared by the Roots of a Run](0101-a-module-cache-shared-by-the-roots-of-a-run.md) | accepted |
 | 0102 | [An Agent Skill Distributed From the Repository](0102-agent-skill-distributed-from-the-repository.md) | accepted |
 | 0103 | [One of Several Known Values in Config Evaluation, and the Scopes of Computed Reporters and Storybook Addons](0103-one-of-several-known-values-in-config-evaluation.md) | accepted |
+| 0104 | [Bun Workspace Semantics: Literal Members, Its Two Lockfiles, Nested Workspaces and Patches](0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md) | accepted |
 
 ## Effective statements
 
@@ -293,3 +294,8 @@ the lines below stay as written; this table says which record governs.
 | [0065](0065-narrowed-scope-for-incomplete-entries.md), line 54 | Vitest's scope is `Package` when the config computes `root`, `test.include`, `test.setupFiles` or `test.globalSetup` itself or is unknown as a whole | [0103](0103-one-of-several-known-values-in-config-evaluation.md): also when it computes a name of `test.reporters` itself |
 | [0065](0065-narrowed-scope-for-incomplete-entries.md), line 55 | Playwright's scope is `Package` only when the config is unknown as a whole | [0103](0103-one-of-several-known-values-in-config-evaluation.md): also when it computes its `reporter` list itself, a reporter name not known statically or a spread of a value the config computes that may set the list |
 | [0065](0065-narrowed-scope-for-incomplete-entries.md), lines 50-55 | the plugins with a narrowed scope are `next`, `vite`, `vitest` and `playwright` | [0103](0103-one-of-several-known-values-in-config-evaluation.md): `storybook` narrows an unknown addon, framework or builder to its config directory and project globs |
+| [0005](0005-workspace-discovery.md), pattern expansion | pnpm semantics for every manager: a negation removes every directory it matches | [0104](0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md): under Bun, a directory listed by its literal path stays a member despite a negation |
+| [0005](0005-workspace-discovery.md), package-manager detection | nothing indicates a manager without a declaration, a lockfile or `pnpm-workspace.yaml` | [0104](0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md): a root `bunfig.toml` detects Bun as the last step |
+| [0089](0089-stray-lockfiles-and-nested-workspace-roots.md), `stray-lockfile` | Bun reads `bun.lock` and `bun.lockb` at the root | [0104](0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md): a root `bun.lockb` next to a `bun.lock` is reported, because Bun ignores it |
+| [0089](0089-stray-lockfiles-and-nested-workspace-roots.md), `nested-workspace-root` | only a `pnpm-workspace.yaml` in a selected directory is reported | [0104](0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md): under Bun, a member that declares `workspaces` is reported too |
+| [0091](0091-stale-patched-dependencies.md), rule | the entries come from pnpm and the lockfile is `pnpm-lock.yaml` | [0104](0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md): under Bun, the top-level `patchedDependencies` are checked against `bun.lock` |

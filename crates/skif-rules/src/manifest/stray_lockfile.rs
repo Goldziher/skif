@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use skif_core::{Category, Fix, FixOp, FixSafety, Fixability, Location, RuleMeta, Severity, diagnostic, slash};
 use skif_lint::{Emitter, LintContext, OptionsError, Rule};
-use skif_workspace::{LOCKFILES, Package, PackageManager, Workspace};
+use skif_workspace::{BUN_LOCKFILE, LOCKFILES, Package, PackageManager, Workspace};
 
 use super::allow_list::{self, AllowList};
 
@@ -13,10 +13,13 @@ pub static META: RuleMeta = RuleMeta::new(
     Category::Workspace,
     Some(Severity::Warning),
     Fixability::Unsafe,
-    "A lockfile other than the root lockfile of the package manager: one in a workspace member, or another manager's at the root.",
+    "A lockfile other than the root lockfile of the package manager: one in a workspace member, another manager's at the root, or Bun's `bun.lockb` next to the `bun.lock` Bun reads.",
 );
 
 const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
+
+/// Bun's legacy binary lockfile, which Bun does not read while its text `bun.lock` is next to it.
+const BUN_BINARY_LOCKFILE: &str = "bun.lockb";
 
 /// The package manager that writes the lockfile called `name`.
 fn writer(name: &str) -> &'static str {
@@ -35,7 +38,7 @@ fn is_root_lockfile(manager: PackageManager, name: &str) -> bool {
         PackageManager::Npm => matches!(name, "package-lock.json" | "npm-shrinkwrap.json"),
         PackageManager::Pnpm => name == "pnpm-lock.yaml",
         PackageManager::Yarn => name == "yarn.lock",
-        PackageManager::Bun => matches!(name, "bun.lock" | "bun.lockb"),
+        PackageManager::Bun => matches!(name, BUN_LOCKFILE | BUN_BINARY_LOCKFILE),
         _ => true,
     }
 }
@@ -49,6 +52,17 @@ fn manager_name(manager: PackageManager) -> &'static str {
         PackageManager::Bun => "Bun",
         _ => "the package manager",
     }
+}
+
+/// Whether the root lockfile `name` is Bun's binary one next to a `bun.lock` at the root, which Bun installs from.
+fn is_shadowed_bun_lockfile(workspace: &Workspace, name: &str) -> bool {
+    name == BUN_BINARY_LOCKFILE
+        && workspace.package_manager == Some(PackageManager::Bun)
+        && workspace
+            .facts
+            .package_manager_files
+            .iter()
+            .any(|path| path == Path::new(BUN_LOCKFILE))
 }
 
 /// A lockfile the rule reports unless the allow-list names it.
@@ -86,7 +100,8 @@ fn strays(workspace: &Workspace) -> Vec<Stray<'_>> {
             let dir = path.parent().unwrap_or_else(|| Path::new(""));
             if dir.as_os_str().is_empty() {
                 let manager = workspace.package_manager?;
-                return (!is_root_lockfile(manager, name)).then_some(Stray { path, package: None });
+                let stray = !is_root_lockfile(manager, name) || is_shadowed_bun_lockfile(workspace, name);
+                return stray.then_some(Stray { path, package: None });
             }
             if nested.contains(dir) {
                 return None;
@@ -100,8 +115,9 @@ fn strays(workspace: &Workspace) -> Vec<Stray<'_>> {
         .collect()
 }
 
-/// Reports lockfiles a workspace install does not read: every lockfile in a member directory, and a lockfile at the
-/// root that another package manager than the workspace's writes.
+/// Reports lockfiles a workspace install does not read: every lockfile in a member directory, a lockfile at the
+/// root that another package manager than the workspace's writes, and Bun's binary `bun.lockb` next to a `bun.lock`,
+/// which Bun installs from instead.
 ///
 /// Every supported manager keeps one lockfile for the whole workspace at its root, so a member's lockfile is a
 /// leftover that only misleads the tools run in that directory. Without a known package manager the root lockfiles
@@ -139,8 +155,13 @@ impl Rule for StrayLockfile {
                 .file_name()
                 .and_then(|name| name.to_str())
                 .unwrap_or_default();
+            let at_root = stray.path.parent().is_none_or(|dir| dir.as_os_str().is_empty());
             let (message, help) = match (stray.package, workspace.package_manager) {
-                (None, Some(manager)) if stray.path.parent().is_none_or(|dir| dir.as_os_str().is_empty()) => (
+                (None, Some(_)) if at_root && is_shadowed_bun_lockfile(workspace, name) => (
+                    format!("`{file}` is Bun's legacy binary lockfile, which Bun ignores next to `bun.lock`"),
+                    "delete it; Bun installs from `bun.lock`, so the binary lockfile only goes stale",
+                ),
+                (None, Some(manager)) if at_root => (
                     format!(
                         "`{file}` is a lockfile of {}, but the workspace uses {}",
                         writer(name),
@@ -200,7 +221,8 @@ mod tests {
             ("pnpm", vec!["pnpm-lock.yaml"]),
             ("npm", vec!["package-lock.json", "npm-shrinkwrap.json"]),
             ("yarn", vec!["yarn.lock"]),
-            ("bun", vec!["bun.lock", "bun.lockb"]),
+            ("bun", vec!["bun.lock"]),
+            ("bun", vec!["bun.lockb"]),
         ];
         for (manager, lockfiles) in cases {
             let root_json = format!(
@@ -213,6 +235,38 @@ mod tests {
             files.extend(lockfiles.iter().map(|name| (*name, "")));
             assert_eq!(paths(&lint(META.id, &files, &config(""))), [] as [&str; 0], "{manager}");
         }
+    }
+
+    #[test]
+    fn a_bun_binary_lockfile_next_to_the_text_lockfile_is_reported() {
+        let root_json = r#"{"name":"root","private":true,"packageManager":"bun@1.4.4","workspaces":["packages/*"]}"#;
+        let files = with_root(
+            root_json,
+            &[
+                ("bun.lock", "{}"),
+                ("bun.lockb", ""),
+                ("packages/a/package.json", MEMBER_A),
+            ],
+        );
+        let diagnostics = lint(META.id, &files, &config(""));
+        assert_eq!(paths(&diagnostics), ["bun.lockb"]);
+        assert_eq!(
+            diagnostics[0].message,
+            "`bun.lockb` is Bun's legacy binary lockfile, which Bun ignores next to `bun.lock`"
+        );
+        assert!(diagnostics[0].package.is_none());
+        // Another manager reads neither, so both are reported as its foreign lockfiles.
+        let pnpm_root = root("");
+        let files = with_root(
+            &pnpm_root,
+            &[("pnpm-lock.yaml", ""), ("bun.lock", "{}"), ("bun.lockb", "")],
+        );
+        let diagnostics = lint(META.id, &files, &config(""));
+        assert_eq!(paths(&diagnostics), ["bun.lock", "bun.lockb"]);
+        assert_eq!(
+            diagnostics[1].message,
+            "`bun.lockb` is a lockfile of Bun, but the workspace uses pnpm"
+        );
     }
 
     #[test]

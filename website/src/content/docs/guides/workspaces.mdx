@@ -36,6 +36,8 @@ First match wins:
 4. Lockfile presence: `pnpm-lock.yaml`, `bun.lock` / `bun.lockb`, `yarn.lock`, `package-lock.json`.
 5. A `pnpm-workspace.yaml` implies pnpm.
 6. A `.yarnrc.yml` or a `.yarn/releases` directory implies Yarn (Berry), for checkouts that do not commit `yarn.lock`.
+7. A root `bunfig.toml` with an `[install]` table implies Bun, for checkouts that do not commit `bun.lock`. A
+   `bunfig.toml` that only configures `bun test` or the runtime does not.
 
 If nothing indicates a manager, skif does not guess npm. Rules and fixes that depend on the manager skip what
 would be wrong for some manager; an npm workspace never receives a `workspace:*` specifier, and neither does
@@ -48,11 +50,14 @@ Discovery does not read the lockfile. Three checks do, on the first run that nee
 `[[version-groups]]` entry with `scope = "lockfile"`, `unsynced-dependency-family` for a `[[dependency-families]]`
 entry with `scope = "importer"` or `"lockfile"`, and `stale-patched-dependencies` when the root `pnpm-workspace.yaml` or
 `package.json` (`pnpm.patchedDependencies`) declares patches. They read `pnpm-lock.yaml` of the root in lockfile format
-9 (pnpm 9 and 10) only. `yarn.lock`, `package-lock.json`, `bun.lock` and older pnpm formats are not read; such a check
+9 (pnpm 9 and 10). In a Bun workspace `stale-patched-dependencies` reads the top-level `patchedDependencies` of the root
+`package.json`, the only ones Bun applies, and checks them against `bun.lock`; the two other checks do not read
+`bun.lock`. `yarn.lock`, `package-lock.json`, the binary `bun.lockb` and older pnpm formats are not read; such a check
 then reports that nothing was checked, as it does when there is no lockfile or it does not parse.
 
 `stale-patched-dependencies` reports a patch whose `name@version` the lockfile no longer resolves (the patch stopped
-applying after a bump) or resolves without a patch hash, a patch file that does not exist, a patch file outside the
+applying after a bump) or resolves without a patch hash (in `bun.lock`: without the entry Bun records in its own
+`patchedDependencies` when it applies a patch), a patch file that does not exist, a patch file outside the
 `allowed-patch-paths` globs (the paths a build context copies), and a `*.patch` file no entry references in the
 directories of the referenced patches and `patches/` (or the `patch-dirs` you configure). The entries are reported at
 their key.
@@ -62,8 +67,12 @@ their key.
 The patterns come from `pnpm-workspace.yaml` for a pnpm workspace, else from the `workspaces` of the root
 `package.json`, a leftover `pnpm-workspace.yaml`, the projects of `rush.json`, and last the `packages` of a
 `lerna.json` next to the root `package.json` (a Lerna monorepo without package-manager workspaces, as syncpack reads
-it). `lerna.json` is read only when nothing before it declares members; an invalid one is then ignored. Patterns follow pnpm semantics for every package manager: `dir/*` for direct children that contain a
-`package.json`, `dir/**` for nested packages, and `!pattern` to remove matches. Wildcards never enter
+it). `lerna.json` is read only when nothing before it declares members; an invalid one is then ignored.
+Patterns follow pnpm semantics for every package manager: `dir/*` for direct children that contain a `package.json`,
+`dir/**` for nested packages, and `!pattern` to remove matches. One exception follows Bun: in a Bun workspace a
+negation does not remove a directory that a pattern names by its literal path (`packages/tool`), as `bun install`
+keeps it. Bun's object form (`"workspaces": { "packages": [...], "catalog": {...}, "catalogs": {...} }`)
+and catalogs at the top level of the root `package.json` are both read. Wildcards never enter
 `node_modules` or dot-directories, but a pattern that names a dot-directory (`.vscode/extensions/*`) does. The JS
 analysis, which skips hidden directories other than tool configuration ones, then walks such a directory for the
 members below it, and only for those.
@@ -79,13 +88,16 @@ run, so the run fails until the file is fixed, as sherif does.
 Every package manager installs a workspace from one lockfile at its root. `stray-lockfile` reports any other
 lockfile it finds: one in a member's directory (`package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock`,
 `pnpm-lock.yaml`, `bun.lock`, `bun.lockb`), and one at the root that another manager than the detected one writes
-(`package-lock.json` next to `pnpm-lock.yaml` in a pnpm workspace). npm's two lockfiles and Bun's two are both
-accepted at the root. Without a detected manager the root lockfiles are not judged. Its unsafe fix deletes the file.
+(`package-lock.json` next to `pnpm-lock.yaml` in a pnpm workspace). npm's two lockfiles are both accepted at the root,
+and so is either of Bun's; a binary `bun.lockb` next to `bun.lock` is reported, because Bun installs from `bun.lock` and
+ignores the binary file. Without a detected manager the root lockfiles are not judged. Its unsafe fix deletes the file.
 
 `nested-workspace-root` reports a `pnpm-workspace.yaml` in a member's directory: pnpm takes the nearest one above the
 working directory, so an install in that member leaves the root workspace. skif lints such a member as a root of its
 own in a recursive run, and the enclosing workspace still reports the file; the member's own lockfile is left to that
-root. A nested workspace that the patterns do not select is an independent project and is not reported.
+root. A nested workspace that the patterns do not select is an independent project and is not reported. In a Bun
+workspace it also reports a member `package.json` that declares `workspaces`: Bun reads the field from the root
+`package.json` only, so it never installs the packages such a member lists.
 
 Both rules look at the root and the directories the workspace patterns select, not deeper, and skip files a
 `.gitignore`, an `.ignore` or `.git/info/exclude` excludes and members `[workspace] ignore-packages` excludes. A

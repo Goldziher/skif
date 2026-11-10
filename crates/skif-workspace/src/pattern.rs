@@ -65,6 +65,13 @@ pub(crate) fn negation(raw: &str) -> Result<Negation, String> {
     Ok(Negation { matchers })
 }
 
+/// The root-relative directory a positive pattern names without any glob character (`packages/tool`); `None` for a
+/// glob or the root itself.
+pub(crate) fn literal_dir(raw: &str) -> Option<String> {
+    let normalized = normalize(raw);
+    (!normalized.is_empty() && !normalized.contains(GLOB_CHARS)).then_some(normalized)
+}
+
 fn reject_parent_segments(pattern: &str) -> Result<(), String> {
     if pattern.split('/').any(|segment| segment == "..") {
         return Err("`..` would select directories outside the workspace root".to_owned());

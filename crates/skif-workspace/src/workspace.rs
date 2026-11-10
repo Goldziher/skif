@@ -501,6 +501,8 @@ impl Workspace {
         let mut facts = Vec::new();
         let mut candidates = BTreeSet::new();
         let mut negations = Vec::new();
+        // Bun keeps a directory a positive pattern names by its literal path, whatever a negation says.
+        let mut literal_dirs = BTreeSet::new();
         for (index, raw, span) in &declared.patterns {
             let negated = raw.trim_start().starts_with('!');
             let mut invalid = |message: String| {
@@ -521,6 +523,9 @@ impl Workspace {
             } else {
                 match Pattern::new(raw) {
                     Ok(pattern) => {
+                        if package_manager == Some(PackageManager::Bun) {
+                            literal_dirs.extend(pattern::literal_dir(raw));
+                        }
                         let found = expander.expand(&pattern);
                         let count = found.len();
                         candidates.extend(found);
@@ -540,7 +545,10 @@ impl Workspace {
         }
         let mut selected = candidates.clone();
         for (index, matcher) in negations {
-            let hits: Vec<&String> = candidates.iter().filter(|dir| matcher.is_match(dir.as_str())).collect();
+            let hits: Vec<&String> = candidates
+                .iter()
+                .filter(|dir| matcher.is_match(dir.as_str()) && !literal_dirs.contains(dir.as_str()))
+                .collect();
             if let Some(fact) = facts.get_mut(index) {
                 fact.matched = hits.len();
             }

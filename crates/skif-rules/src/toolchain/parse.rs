@@ -181,17 +181,24 @@ fn lines_at(source: &str) -> Vec<(usize, &str)> {
 }
 
 fn version_file(name: &str, source: &str, pins: &mut Vec<Pin>) {
-    match name {
-        ".nvmrc" | ".node-version" => {
-            let first = lines_at(source).into_iter().find_map(|(start, line)| {
-                let code = line.split('#').next().unwrap_or_default();
-                words_at(code).first().map(|&(offset, word)| (start + offset, word))
-            });
-            if let Some((at, word)) = first {
-                let version = word.strip_prefix(['v', 'V']).unwrap_or(word);
-                pins.extend(pin(Tool::Node, version, at + word.len() - version.len(), name));
-            }
+    // `.bun-version` is the file `oven-sh/setup-bun` reads with `bun-version-file`.
+    let single = match name {
+        ".nvmrc" | ".node-version" => Some(Tool::Node),
+        ".bun-version" => Some(Tool::Manager(PackageManager::Bun)),
+        _ => None,
+    };
+    if let Some(tool) = single {
+        let first = lines_at(source).into_iter().find_map(|(start, line)| {
+            let code = line.split('#').next().unwrap_or_default();
+            words_at(code).first().map(|&(offset, word)| (start + offset, word))
+        });
+        if let Some((at, word)) = first {
+            let version = word.strip_prefix(['v', 'V']).unwrap_or(word);
+            pins.extend(pin(tool, version, at + word.len() - version.len(), name));
         }
+        return;
+    }
+    match name {
         ".tool-versions" => {
             for (start, line) in lines_at(source) {
                 let code = line.split('#').next().unwrap_or_default();
@@ -313,22 +320,27 @@ fn instruction(source: &str, range: Range<usize>, parsed: &mut Parsed) {
     }
 }
 
-/// The Node version of `FROM [--platform=...] node:<version>[-variant]`; any image whose last path segment is
-/// `node` counts (`node`, `docker.io/library/node`, `registry:5000/node`).
+/// The Node version of `FROM [--platform=...] node:<version>[-variant]`, or the Bun version of
+/// `FROM oven/bun:<version>[-variant]`; any image whose last path segment is `node` counts (`node`,
+/// `docker.io/library/node`, `registry:5000/node`), and any whose last two are `oven/bun`.
 fn from_pin(body: &str, base: usize) -> Option<Pin> {
     let &(offset, image) = words_at(body).iter().find(|(_, word)| !word.starts_with("--"))?;
     let image = image.split('@').next().unwrap_or(image);
     let name_start = image.rfind('/').map_or(0, |slash| slash + 1);
     let colon = name_start + image[name_start..].find(':')?;
-    if &image[name_start..colon] != "node" {
-        return None;
-    }
+    let (tool, label) = match &image[name_start..colon] {
+        "node" => (Tool::Node, "FROM node"),
+        "bun" if image[..name_start].trim_end_matches('/').rsplit('/').next() == Some("oven") => {
+            (Tool::Manager(PackageManager::Bun), "FROM oven/bun")
+        }
+        _ => return None,
+    };
     let tag = &image[colon + 1..];
     let version = tag.split('-').next().unwrap_or(tag);
     if !version.starts_with(|c: char| c.is_ascii_digit()) {
         return None;
     }
-    pin(Tool::Node, version, base + offset + colon + 1, "FROM node")
+    pin(tool, version, base + offset + colon + 1, label)
 }
 
 /// `ARG NODE_VERSION=20.11.1`, `ENV PNPM_VERSION=9.1.0` and the legacy `ENV NODE_VERSION 20.11.1`.
@@ -605,6 +617,26 @@ mod tests {
             ]
         );
         assert_eq!(pins(ToolchainKind::VersionFiles, ".nvmrc", "\n"), []);
+        assert_eq!(
+            pins(ToolchainKind::VersionFiles, ".bun-version", "# pinned for CI\n1.3.0\n"),
+            [row(Tool::Manager(PackageManager::Bun), "1.3.0", ".bun-version")]
+        );
+    }
+
+    #[test]
+    fn dockerfiles_pin_bun_through_the_official_image() {
+        let source = "\
+FROM oven/bun:1.3.3-alpine AS deps
+FROM docker.io/oven/bun:1.2 AS build
+FROM oven/bun:latest
+FROM example/bun:1.0.0
+FROM bun:1.0.0
+";
+        let bun = Tool::Manager(PackageManager::Bun);
+        assert_eq!(
+            pins(ToolchainKind::Dockerfiles, "Dockerfile", source),
+            [row(bun, "1.3.3", "FROM oven/bun"), row(bun, "1.2", "FROM oven/bun")]
+        );
     }
 
     #[test]

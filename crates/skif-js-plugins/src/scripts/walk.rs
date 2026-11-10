@@ -14,6 +14,12 @@ use super::{
 
 const MAX_DEPTH: usize = 32;
 
+/// The flags of `bun` and `bun run` that run the command in other workspace packages.
+const BUN_WORKSPACE_FLAGS: &[&str] = &["filter", "F", "workspaces"];
+
+/// The flags of `bun` and `bun run` that name the workspace packages the command runs in.
+const BUN_FILTER_FLAGS: &[&str] = &["filter", "F"];
+
 /// Maps byte ranges of the text being walked back to the originally parsed script.
 #[derive(Clone, Debug)]
 enum Map {
@@ -1018,6 +1024,8 @@ impl<'c> Walker<'c> {
         self.restore_dir(cwd);
     }
 
+    /// `bun`: `--filter` (`-F`) and `--workspaces` run the command in other workspace packages; a binary the command
+    /// runs belongs to the packages `--filter` names.
     fn bun(&mut self, args: &[Word], frame: &Frame, st: St) {
         let parsed = args::parse(args, tables::BUN_VALUE_FLAGS, true);
         for value in parsed.values(&["preload", "r", "import", "require"]) {
@@ -1025,12 +1033,19 @@ impl<'c> Walker<'c> {
         }
         // `--cwd <dir>` runs the command in another directory: its scripts and binaries are that package's.
         let mut cwd = parsed.values(&["cwd"]).next().map(|value| value.text.clone());
-        let mut filtered = st.filtered || self.unknown_dir || parsed.has(&["filter"]) || cwd.is_some();
+        let mut filtered = st.filtered || self.unknown_dir || parsed.has(BUN_WORKSPACE_FLAGS) || cwd.is_some();
         let Some(&ci) = parsed.positionals.first() else {
             return;
         };
         let after = &args[parsed.rest..];
         let cmd = args[ci].text.as_str();
+        let inner = (cmd == "run").then(|| args::parse(after, tables::BUN_VALUE_FLAGS, false));
+        let names = parsed
+            .values(BUN_FILTER_FLAGS)
+            .chain(inner.iter().flat_map(|inner| inner.values(BUN_FILTER_FLAGS)))
+            .map(|value| value.text.clone())
+            .collect();
+        let saved = std::mem::replace(&mut self.workspaces, names);
         match cmd {
             "x" => self.exec_like(
                 after,
@@ -1042,14 +1057,15 @@ impl<'c> Walker<'c> {
                 false,
             ),
             "run" => {
-                let inner = args::parse(after, tables::BUN_VALUE_FLAGS, false);
-                filtered |= inner.has(&["filter"]);
-                if let Some(value) = inner.values(&["cwd"]).next() {
-                    cwd = Some(value.text.clone());
-                    filtered = true;
-                }
-                if let Some(&i) = inner.positionals.first() {
-                    self.bun_target(&after[i..], frame, filtered, cwd.as_deref());
+                if let Some(inner) = &inner {
+                    filtered |= inner.has(BUN_WORKSPACE_FLAGS);
+                    if let Some(value) = inner.values(&["cwd"]).next() {
+                        cwd = Some(value.text.clone());
+                        filtered = true;
+                    }
+                    if let Some(&i) = inner.positionals.first() {
+                        self.bun_target(&after[i..], frame, filtered, cwd.as_deref());
+                    }
                 }
             }
             _ => {
@@ -1063,6 +1079,7 @@ impl<'c> Walker<'c> {
                 }
             }
         }
+        self.workspaces = saved;
     }
 
     /// A file a command run in `cwd` names, as a path relative to the package directory. Nothing is recorded when
@@ -1076,7 +1093,8 @@ impl<'c> Walker<'c> {
         }
     }
 
-    /// The target of `bun run <target>`: a script, a file or a binary. With `cwd`, it runs in that directory.
+    /// The target of `bun run <target>`: a script, a file or a binary. With `cwd`, it runs in that directory. Run in
+    /// other packages (`--filter`, `--workspaces`), Bun runs only their scripts, so no binary is recorded.
     fn bun_target(&mut self, from: &[Word], frame: &Frame, filtered: bool, cwd: Option<&str>) {
         let Some(word) = from.first() else {
             return;

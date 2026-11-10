@@ -158,6 +158,31 @@ fn negated_fact_counts_removed_directories() {
 }
 
 #[test]
+fn bun_keeps_a_directory_listed_by_its_literal_path_despite_a_negation() {
+    let tree = [
+        ("packages/a/package.json", pkg("a")),
+        ("packages/literal/package.json", pkg("literal")),
+        ("packages/globbed/package.json", pkg("globbed")),
+    ];
+    let run = |package_manager: &str| {
+        let manifest = format!(
+            r#"{{"name":"root","packageManager":"{package_manager}","workspaces":["packages/*","./packages/literal/","!packages/literal","!packages/glob*"]}}"#
+        );
+        let mut files: Vec<(&str, &str)> = tree.iter().map(|(p, c)| (*p, c.as_str())).collect();
+        files.push(("package.json", manifest.as_str()));
+        let workspace = discover(&files, &Config::default()).unwrap();
+        let removed: Vec<usize> = workspace.facts.patterns[2..].iter().map(|fact| fact.matched).collect();
+        (dirs(&workspace), removed)
+    };
+    assert_eq!(
+        run("bun@1.4.4"),
+        (vec!["packages/a".to_owned(), "packages/literal".to_owned()], vec![0, 1])
+    );
+    // npm lets a negation remove a directory whatever selected it.
+    assert_eq!(run("npm@11.0.0"), (vec!["packages/a".to_owned()], vec![1, 1]));
+}
+
+#[test]
 fn pattern_spans_in_package_json() {
     let workspace = run(&["packages/a", "tool"]);
     let fact = &workspace.facts.patterns[1];
@@ -353,6 +378,39 @@ fn package_manager_precedence() {
     assert_eq!(
         ws(plain, &[("pnpm-workspace.yaml", "packages: []\n")], &config),
         Some(PackageManager::Pnpm)
+    );
+    // `bunfig.toml` with an `[install]` table is the last resort: a lockfile, `pnpm-workspace.yaml` or the files Yarn
+    // Berry leaves decide first.
+    let bunfig = ("bunfig.toml", "[install]\nlinker = \"isolated\"\n");
+    assert_eq!(ws(plain, &[bunfig], &config), Some(PackageManager::Bun));
+    assert_eq!(
+        ws(plain, &[("bunfig.toml", "install.linker = \"hoisted\"\n")], &config),
+        Some(PackageManager::Bun)
+    );
+    assert_eq!(
+        ws(plain, &[bunfig, ("pnpm-workspace.yaml", "packages: []\n")], &config),
+        Some(PackageManager::Pnpm)
+    );
+    // A `bunfig.toml` for `bun test` or the runtime alone does not make an npm workspace a Bun one.
+    for runtime_only in [
+        "[test]\npreload = [\"./setup.ts\"]\n",
+        "preload = [\"./setup.ts\"]\n",
+        "",
+        "[install\n",
+    ] {
+        assert_eq!(
+            ws(plain, &[("bunfig.toml", runtime_only)], &config),
+            None,
+            "{runtime_only:?}"
+        );
+    }
+    assert_eq!(
+        ws(plain, &[bunfig, ("package-lock.json", "")], &config),
+        Some(PackageManager::Npm)
+    );
+    assert_eq!(
+        ws(plain, &[bunfig, (".yarnrc.yml", "")], &config),
+        Some(PackageManager::Yarn)
     );
 
     let mut forced = Config::default();
