@@ -604,7 +604,7 @@ mod tests {
                 row(PNPM, "9", "mise.toml [tools] npm:pnpm")
             ]
         );
-        assert!(pins(ToolchainKind::VersionFiles, ".nvmrc", "\n").is_empty());
+        assert_eq!(pins(ToolchainKind::VersionFiles, ".nvmrc", "\n"), []);
     }
 
     #[test]

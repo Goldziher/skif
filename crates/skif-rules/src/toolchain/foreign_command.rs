@@ -247,7 +247,7 @@ RUN npx pnpm@9.1.0 install
             ("examples/legacy/build.sh", "npm run build\n"),
         ];
         let globbed = "[rules.foreign-package-manager-command]\nfiles = [\"examples/**\"]\n";
-        assert!(findings(&files, globbed).is_empty());
+        assert_eq!(findings(&files, globbed), []);
     }
 
     #[test]
@@ -295,7 +295,7 @@ yarn install
             [row("docker/Dockerfile", 1, "npm ci")]
         );
         let off = "[[ignore]]\nrules = [\"foreign-package-manager-command\"]\npackages = [\"root\"]\n";
-        assert!(findings(&files, off).is_empty());
+        assert_eq!(findings(&files, off), []);
     }
 
     #[test]
@@ -311,7 +311,7 @@ yarn install
         );
         let unknown = r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#;
         let files = [("package.json", unknown), ("Dockerfile", "RUN npm ci\nRUN yarn\n")];
-        assert!(findings(&files, "").is_empty());
+        assert_eq!(findings(&files, ""), []);
         let lockfile = [
             ("package.json", unknown),
             ("yarn.lock", ""),
