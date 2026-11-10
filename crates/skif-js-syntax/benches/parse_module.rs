@@ -76,12 +76,12 @@ fn bench_many_exports(c: &mut Criterion) {
     let mut group = c.benchmark_group("parse_module/exports");
     group.sample_size(10);
     let cases = [
-        ("signatures", 10_000, signatures(10_000)),
+        ("signatures", 10_000_u64, signatures(10_000)),
         ("signatures", 40_000, signatures(40_000)),
         ("barrel", 10_000, barrel(10_000)),
     ];
     for (label, count, source) in &cases {
-        group.throughput(Throughput::Elements(*count as u64));
+        group.throughput(Throughput::Elements(*count));
         group.bench_with_input(BenchmarkId::new(*label, count), source, |b, source| {
             b.iter(|| {
                 parse_module(Path::new("many.ts"), black_box(source), &ParseOptions::default())
