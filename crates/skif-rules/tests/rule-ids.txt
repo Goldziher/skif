@@ -24,3 +24,5 @@ unused-catalog-entries
 workspace-protocol
 unsynced-dependency-family
 package-json-format
+toolchain-pin-drift
+foreign-package-manager-command

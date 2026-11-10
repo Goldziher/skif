@@ -6,6 +6,7 @@ catalog-version-divergence
 circular-imports
 duplicate-exports
 empty-dependencies
+foreign-package-manager-command
 incompatible-peer-dependencies
 invalid-local-version
 local-path-dependency
@@ -19,6 +20,7 @@ root-package-private-field
 semver-range-mismatch
 stale-js-config
 stale-mocks
+toolchain-pin-drift
 types-in-dependencies
 unlisted-binaries
 unlisted-dependencies

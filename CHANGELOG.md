@@ -9,6 +9,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `toolchain-pin-drift` (`warn`): Node and package-manager versions pinned in `.nvmrc`, `.node-version`,
+  `.tool-versions`, `mise.toml`, Dockerfiles (`FROM node:<version>`, `ARG NODE_VERSION`, `corepack prepare`,
+  `npm install -g pnpm@<version>`) and GitHub workflows (`actions/setup-node`, `pnpm/action-setup`) are checked
+  against the root: the first root version file, else `engines.node`, and `packageManager`. A finding names the file,
+  the line and both versions; a range that admits the root's version is no drift. A Dockerfile that runs
+  `corepack enable` without `corepack prepare` is reported at `info`. Options `kinds`, `files` and `ignore-files`, and
+  `# skif-ignore-next-line` / `# skif-ignore-file` comments with a required reason
+  ([ADR 0087](adrs/0087-toolchain-pins-outside-package-json-and-the-toolchain-pin-drift-rule.md),
+  [#138](https://github.com/Goldziher/skif/issues/138)).
+- `foreign-package-manager-command` (`warn`): Dockerfile `RUN` instructions, workflow `run:` steps and `*.sh` scripts
+  (plus the `files` globs) that run a package manager other than the workspace's are reported: `npm ci`, `npm install`,
+  `npm run`, `npx` and the like in a pnpm or yarn workspace, a bare `yarn` or `yarn <script>` in another. Read-only
+  commands (`npm view`, `npm whoami`), a global install of the workspace's own manager and files of projects outside
+  the workspace are not; the same options and suppression comments as `toolchain-pin-drift` apply
+  ([ADR 0088](adrs/0088-foreign-package-manager-commands.md), [#139](https://github.com/Goldziher/skif/issues/139)).
+- `skif_rules::toolchain_provider(fs)` provides the rules over toolchain files, which read through a `FileSystem`;
+  `skif::builtin_providers` registers it with the manifest rules.
+
+### Changed
+
+- The shell tokenizer of the `package.json` script parser moved from `skif-js-plugins` to `skif_core::shell`
+  (`tokenize`, `Tokens`, `Segment`, `Word`), so rules outside the JS analysis split command lines with it.
+
 ### Changed
 
 - Template expressions of `.vue`, `.svelte`, `.astro` and `.mdx` files are parsed as JavaScript under the scopes of

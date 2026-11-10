@@ -46,6 +46,7 @@ pub mod incomplete;
 pub mod package_id;
 pub mod report;
 pub mod rule;
+pub mod shell;
 pub mod span;
 pub mod timing;
 
