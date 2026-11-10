@@ -2,6 +2,7 @@
 # Tests the release scripts against stubs and fixtures, so the first real tag is not their first run:
 #   homebrew-update.sh, scoop-update.sh   formula and manifest output from a checksums.txt (missing asset, bad hash)
 #   publish-crates.sh                     crates.io probe 200 / 404 / 429 and the publish order, with stub cargo and curl
+#   semver-checks.sh                      every crate of the publish list checked, the job summary, with stub cargo and curl
 #   release-bump.sh, check-versions.sh    a bump on a temp copy of the tree, then the consistency check and the
 #   check-doc-pins.sh                     documentation pins it rewrites
 #   check-archive.sh, check-release-gate.sh, check-npm-tarballs.sh, check-glibc-floor.sh, e2e/resolve-pm-version.sh
@@ -177,6 +178,66 @@ crates_case "a persistent 429 fails the release" 1 404 rate-limit-always
 
 crates_case "'already exists' is a skip" 0 404 exists
 crates_case "a missing VERSION is refused" 1 404 ok VERSION=
+
+# ---------------------------------------------------------------- semver-checks
+# Stub curl answers the crates.io crate probe from ${STUB_CODES}/<crate> (default 200); stub cargo logs every call and
+# fails `semver-checks --package <crate>` for the crates in STUB_BREAKING.
+semver_stubs="${work}/semver-stubs"
+mkdir -p "$semver_stubs" "${work}/codes"
+cat >"${semver_stubs}/curl" <<'STUB'
+#!/usr/bin/env bash
+crate="${*: -1}"
+crate="${crate##*/}"
+cat "${STUB_CODES:?}/${crate}" 2>/dev/null || printf 200
+STUB
+cat >"${semver_stubs}/cargo" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >>"${STUB_LOG:?}"
+[[ "$1 $2" == "semver-checks --package" ]] || { echo "unexpected cargo $*" >&2; exit 99; }
+if [[ " ${STUB_BREAKING:-} " == *" $3 "* ]]; then
+  echo "--- failure struct_pub_field_now_doc_hidden in $3 ---"
+  exit 1
+fi
+echo "Summary no semver update required for $3"
+STUB
+chmod +x "${semver_stubs}"/*
+
+# semver_case <label> <expected exit> <env...>: the summary goes to ${work}/semver-summary.md, cargo calls to semver.log.
+semver_case() {
+  local label="$1" want="$2"
+  shift 2
+  rm -f "${work}/semver-summary.md" "${work}/semver.log"
+  expect "semver-checks: ${label}" "$want" env PATH="${semver_stubs}:${PATH}" STUB_LOG="${work}/semver.log" \
+    STUB_CODES="${work}/codes" GITHUB_STEP_SUMMARY="${work}/semver-summary.md" "$@" bash scripts/semver-checks.sh
+}
+publish_list="$(sed -n '/^crates=(/,/^)/s/^  \([a-z][a-z-]*\)$/\1/p' scripts/publish-crates.sh)"
+[[ "$(wc -l <<<"$publish_list" | tr -d ' ')" -eq 14 ]] || fail "semver-checks: expected 14 crates in publish-crates.sh"
+
+semver_case "every published crate is checked" 0
+checked="$(sed -n 's/^semver-checks --package \([^ ]*\) --all-features$/\1/p' "${work}/semver.log")"
+[[ "$checked" == "$publish_list" ]] || fail "semver-checks: checked '$(paste -sd, - <<<"$checked")', want the publish list"
+grep -qxF '| `skif-js` | pass |' "${work}/semver-summary.md" || fail "semver-checks: no pass row for skif-js in the summary"
+grep -qF '## Public API (cargo-semver-checks)' "${work}/semver-summary.md" || fail "semver-checks: no summary heading"
+
+semver_case "a breaking change in a re-exported crate" 1 STUB_BREAKING="skif-config skif-js"
+grep -qxF '| `skif-config` | **semver update required** (exit 1) |' "${work}/semver-summary.md" ||
+  fail "semver-checks: skif-config is not reported as needing a semver update"
+grep -qF 'struct_pub_field_now_doc_hidden in skif-js' "${work}/semver-summary.md" ||
+  fail "semver-checks: the summary does not carry the skif-js report"
+grep -qxF '| `skif` | pass |' "${work}/semver-summary.md" || fail "semver-checks: skif is not reported as passing"
+expect_in_out "semver-checks breaking" "skif-config skif-js need attention"
+
+printf 404 >"${work}/codes/skif-migrate"
+semver_case "a crate not on crates.io yet is skipped" 0
+grep -qxF '| `skif-migrate` | skipped: not on crates.io yet |' "${work}/semver-summary.md" ||
+  fail "semver-checks: skif-migrate is not reported as skipped"
+! grep -q -- '--package skif-migrate ' "${work}/semver.log" || fail "semver-checks: an unpublished crate was checked"
+
+printf 503 >"${work}/codes/skif-migrate"
+semver_case "a registry error is not a pass" 1
+grep -qxF '| `skif-migrate` | not checked: crates.io did not answer |' "${work}/semver-summary.md" ||
+  fail "semver-checks: a registry error is not reported"
+rm "${work}/codes/skif-migrate"
 
 # ---------------------------------------------------------------- release-bump + check-versions
 tree="${work}/tree"
