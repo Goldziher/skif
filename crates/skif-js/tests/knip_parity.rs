@@ -1,7 +1,7 @@
 //! Cases where the corpus runs showed skif and knip disagreeing and skif was wrong: members read in their own file,
 //! types in destructured exports, `new URL` targets, `require` assertions, imports awaited together with
-//! `Promise.all`, spies on a namespace member, fixture directories, wildcard `exports`, same-name pairs and duplicate
-//! exports.
+//! `Promise.all`, spies on a namespace member, parameters that shadow an import, fixture directories, wildcard
+//! `exports`, same-name pairs and duplicate exports.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -197,6 +197,30 @@ fn a_spy_on_a_namespace_uses_only_the_member_it_spies_on() {
     ]);
     assert_eq!(found(&diagnostics, "unused-namespace-exports"), ["utils.ts: unspied"]);
     assert_eq!(found(&diagnostics, "unused-exports"), none());
+}
+
+#[test]
+fn a_parameter_that_shadows_a_namespace_import_does_not_use_the_namespace() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        ("index.ts", "import { scan } from './lexer';\nscan('x');\n"),
+        (
+            "lexer.ts",
+            "import * as chars from './chars';\n\
+             export function scan(input: string) { return chars.isDigit(input.length) && attempt(input); }\n\
+             function attempt(chars: string) { return chars.length > 0 && check(chars); }\n\
+             function check(_: string) { return true; }\n",
+        ),
+        (
+            "chars.ts",
+            "export const isDigit = (c: number) => c > 0;\nexport const $PIPE = 124;\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-namespace-exports"),
+        ["chars.ts: $PIPE"],
+        "the parameter `chars` is passed around, not the namespace"
+    );
 }
 
 #[test]

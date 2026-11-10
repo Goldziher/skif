@@ -751,6 +751,21 @@ fn a_spy_on_a_namespace_member_reads_that_member() {
 }
 
 #[test]
+fn a_parameter_or_local_with_the_name_of_an_import_reads_nothing_of_it() {
+    let source = "import * as chars from './chars';\nimport { a } from './a';\nchars.isDigit(1);\n\
+                  function attempt(chars: string, kind: chars.Kind) { return use(chars, chars.length, chars['at']); }\n\
+                  const f = () => { const a = { b: 1 }; return [a, a.b]; };\n\
+                  class L { m(chars: string[]) { const { x } = chars; vi.spyOn(chars, 'y'); } }\n";
+    let info = parse("lexer.ts", source);
+    assert_eq!(
+        accessed(&info, "chars"),
+        (vec!["Kind".to_owned(), "isDigit".to_owned()], false),
+        "the parameters named `chars` shadow the import; the type `chars.Kind` still names it"
+    );
+    assert_eq!(accessed(&info, "a"), (Vec::new(), false), "only the local `a` is read");
+}
+
+#[test]
 fn namespace_that_escapes_is_flagged() {
     for source in [
         "import * as ns from 'x'; use(ns);",

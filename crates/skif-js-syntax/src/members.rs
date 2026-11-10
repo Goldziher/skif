@@ -1,7 +1,10 @@
 //! Members read through imported bindings (`ns.a`, `Enum.A`, `const { a } = ns`, `ns.Type`, and the member a test
 //! runner spies on, `vi.spyOn(ns, "a")`).
 //!
-//! Matching is by name, not by scope: a shadowing local with the same name can only make a binding look more used.
+//! The binding of an `import` declaration is matched by scope: a parameter or local of an inner scope with the same
+//! name shadows it and reads nothing of it. Other bindings (`const ns = await import("x")`, `const x = require("x")`
+//! in a function) are matched by name, as knip does for dynamic imports: a shadowing local can only make them look
+//! more used.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -10,8 +13,9 @@ use oxc_ast::ast::{
     StaticMemberExpression, TSQualifiedName, TSTypeName, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
+use oxc_semantic::{Scoping, SemanticBuilder};
 
-use crate::model::ModuleInfo;
+use crate::model::{ImportKind, ModuleInfo};
 
 /// How one name is used in a program: the members read through it and how many uses there are in all.
 #[derive(Default)]
@@ -37,9 +41,32 @@ struct Tracker<'e> {
     open: bool,
     /// `(start, end)` of identifier references that are not uses (the local side of `export { x }` of an import).
     excluded: &'e HashSet<(u32, u32)>,
+    /// The scopes of the program, to tell an import binding from a shadowing one.
+    scoping: &'e Scoping,
+    /// The names matched by scope; `None` matches every name by scope.
+    scoped: Option<HashSet<String>>,
 }
 
 impl Tracker<'_> {
+    /// Whether `id` may name the tracked binding of its name: always for a name matched by name, otherwise unless it
+    /// resolves to a binding of an inner scope that is not an import (a parameter or local that shadows it).
+    fn may_be_tracked(&self, id: &IdentifierReference<'_>) -> bool {
+        if self
+            .scoped
+            .as_ref()
+            .is_some_and(|scoped| !scoped.contains(id.name.as_str()))
+        {
+            return true;
+        }
+        id.reference_id
+            .get()
+            .and_then(|reference| self.scoping.get_reference(reference).symbol_id())
+            .is_none_or(|symbol| {
+                self.scoping.symbol_scope_id(symbol) == self.scoping.root_scope_id()
+                    || self.scoping.symbol_flags(symbol).is_import()
+            })
+    }
+
     fn slot(&mut self, local: &str) -> Option<&mut Slot> {
         if self.open {
             Some(self.slots.entry(local.to_owned()).or_default())
@@ -58,7 +85,7 @@ impl Tracker<'_> {
 
 impl<'a> Visit<'a> for Tracker<'_> {
     fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
-        if self.excluded.contains(&(it.span.start, it.span.end)) {
+        if self.excluded.contains(&(it.span.start, it.span.end)) || !self.may_be_tracked(it) {
             return;
         }
         if let Some(slot) = self.slot(it.name.as_str()) {
@@ -67,7 +94,9 @@ impl<'a> Visit<'a> for Tracker<'_> {
     }
 
     fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
-        if let Expression::Identifier(id) = &it.object {
+        if let Expression::Identifier(id) = &it.object
+            && self.may_be_tracked(id)
+        {
             self.member(id.name.as_str(), it.property.name.as_str());
         }
         walk::walk_static_member_expression(self, it);
@@ -75,6 +104,7 @@ impl<'a> Visit<'a> for Tracker<'_> {
 
     fn visit_computed_member_expression(&mut self, it: &ComputedMemberExpression<'a>) {
         if let Expression::Identifier(id) = &it.object
+            && self.may_be_tracked(id)
             && let Expression::StringLiteral(s) = &it.expression
             && let Some(member) = s.value.as_str()
         {
@@ -84,21 +114,26 @@ impl<'a> Visit<'a> for Tracker<'_> {
     }
 
     fn visit_ts_qualified_name(&mut self, it: &TSQualifiedName<'a>) {
-        if let TSTypeName::IdentifierReference(id) = &it.left {
+        if let TSTypeName::IdentifierReference(id) = &it.left
+            && self.may_be_tracked(id)
+        {
             self.member(id.name.as_str(), it.right.name.as_str());
         }
         walk::walk_ts_qualified_name(self, it);
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
-        if let Some((object, member)) = spied_member(it) {
-            self.member(object, &member);
+        if let Some((object, member)) = spied_member(it)
+            && self.may_be_tracked(object)
+        {
+            self.member(object.name.as_str(), &member);
         }
         walk::walk_call_expression(self, it);
     }
 
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
         if let Some(Expression::Identifier(id)) = it.init.as_ref().map(Expression::get_inner_expression)
+            && self.may_be_tracked(id)
             && let BindingPattern::ObjectPattern(pattern) = &it.id
             && pattern.rest.is_none()
         {
@@ -120,7 +155,7 @@ impl<'a> Visit<'a> for Tracker<'_> {
 
 /// The object and the member of a test runner's spy on a named member: `vi.spyOn(ns, "a")`, `jest.spyOn(ns, "a")` and
 /// Jasmine's `spyOn(ns, "a")` read `a` of `ns` and nothing else of it.
-fn spied_member<'c>(call: &'c CallExpression<'_>) -> Option<(&'c str, String)> {
+fn spied_member<'c, 'a>(call: &'c CallExpression<'a>) -> Option<(&'c IdentifierReference<'a>, String)> {
     let is_spy = match &call.callee {
         Expression::StaticMemberExpression(callee) => {
             callee.property.name.as_str() == "spyOn"
@@ -136,7 +171,7 @@ fn spied_member<'c>(call: &'c CallExpression<'_>) -> Option<(&'c str, String)> {
         return None;
     };
     let member = crate::finder::static_string(call.arguments.get(1)?.as_expression()?)?;
-    Some((object.name.as_str(), member))
+    Some((&**object, member))
 }
 
 /// Fills `accessed_members` and `escapes` of every bound import name from uses in `program`.
@@ -144,20 +179,27 @@ fn spied_member<'c>(call: &'c CallExpression<'_>) -> Option<(&'c str, String)> {
 /// `excluded` holds the `(start, end)` spans of identifiers that mention a binding without using it.
 pub(crate) fn track(program: &oxc_ast::ast::Program<'_>, info: &mut ModuleInfo, excluded: &HashSet<(u32, u32)>) {
     let mut slots = HashMap::new();
+    let mut scoped = HashSet::new();
     for import in &info.imports {
         for n in &import.names {
             if let Some(local) = &n.local {
                 slots.insert(local.clone(), Slot::default());
+                if matches!(import.kind, ImportKind::Static | ImportKind::TypeOnly) {
+                    scoped.insert(local.clone());
+                }
             }
         }
     }
     if slots.is_empty() {
         return;
     }
+    let scoping = SemanticBuilder::new().build(program).semantic.into_scoping();
     let mut tracker = Tracker {
         slots,
         open: false,
         excluded,
+        scoping: &scoping,
+        scoped: Some(scoped),
     };
     tracker.visit_program(program);
     for import in &mut info.imports {
@@ -175,10 +217,13 @@ pub(crate) fn track(program: &oxc_ast::ast::Program<'_>, info: &mut ModuleInfo, 
 /// block that another block reads.
 pub(crate) fn uses(program: &oxc_ast::ast::Program<'_>) -> Uses {
     let excluded = HashSet::new();
+    let scoping = SemanticBuilder::new().build(program).semantic.into_scoping();
     let mut tracker = Tracker {
         slots: Uses::new(),
         open: true,
         excluded: &excluded,
+        scoping: &scoping,
+        scoped: None,
     };
     tracker.visit_program(program);
     tracker.slots
