@@ -166,7 +166,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 11] = [
     },
     Deviation {
         id: SKIPPED_DIRECTORY,
-        reason: "knip reports these findings in files below a directory that skif's file discovery skips by name, unless the directory is a workspace member: `node_modules`, `.git`, `dist`, `.next`, `.turbo`, `.svelte-kit`, `storybook-static`, `.yarn`, `.vercel` and `.nuxt`; `out`, `target` and `coverage` directly in the root or a package directory; and every hidden directory but `.github`, `.storybook`, `.rnstorybook`, `.config`, `.vitepress`, `.vuepress`, `.husky` and `.changeset`. skif reads no file there",
+        reason: "knip reports these findings in files below a directory that skif's file discovery skips by name, unless the file lies in a workspace member at or below that directory: `node_modules`, `.git`, `dist`, `.next`, `.turbo`, `.svelte-kit`, `storybook-static`, `.yarn`, `.vercel` and `.nuxt`; `out`, `target` and `coverage` directly in the root or a package directory; and every hidden directory but `.github`, `.storybook`, `.rnstorybook`, `.config`, `.vitepress`, `.vuepress`, `.husky` and `.changeset`. skif reads no file there",
     },
     Deviation {
         id: PUBLISHED_SOURCE,
@@ -667,7 +667,9 @@ impl<'a> Layout<'a> {
 
     /// Whether a directory of `path` is one skif's file discovery skips by name: [`SKIPPED_DIRECTORIES`] (those of
     /// [`PACKAGE_ROOT_ONLY_DIRECTORIES`] directly in the root or a package directory) and hidden directories other
-    /// than [`TOOL_DIRECTORIES`], unless the directory is a workspace member.
+    /// than [`TOOL_DIRECTORIES`], unless the directory is a workspace member. A skipped directory that holds members
+    /// (`.vscode/extensions/*`) is walked for those members only, so a file there counts as skipped unless it lies
+    /// in one of them.
     fn in_skipped_directory(&self, path: &str) -> bool {
         let Some((directories, _)) = path.rsplit_once('/') else {
             return false;
@@ -684,13 +686,21 @@ impl<'a> Layout<'a> {
             let by_name =
                 SKIPPED_DIRECTORIES.contains(&name) || (name.starts_with('.') && !TOOL_DIRECTORIES.contains(&name));
             let here = !PACKAGE_ROOT_ONLY_DIRECTORIES.contains(&name) || parent.is_empty() || self.is_package(parent);
-            if by_name && here && !self.members.contains(dir) {
+            if by_name && here && !self.members.contains(dir) && !self.in_member_below(dir, path) {
                 return true;
             }
             parent = dir;
             start = end + 1;
         }
         false
+    }
+
+    /// Whether `path` lies in a workspace member below the directory `dir`.
+    fn in_member_below(&self, dir: &str, path: &str) -> bool {
+        let prefix = format!("{dir}/");
+        self.members
+            .iter()
+            .any(|member| member.starts_with(&prefix) && path.starts_with(&format!("{member}/")))
     }
 
     /// Whether `path` is a TypeScript file whose package publishes its path with a built extension.
@@ -1894,10 +1904,14 @@ mod tests {
             ("", json!({ "name": "root" })),
             ("packages/a", json!({ "name": "a" })),
             (".tools", json!({ "name": "tools" })),
+            (".vscode/extensions/helper", json!({ "name": "helper" })),
         ];
-        with_classifier(&["packages/a", ".tools"], &manifests, &[], |classifier| {
+        let members = ["packages/a", ".tools", ".vscode/extensions/helper"];
+        with_classifier(&members, &manifests, &[], |classifier| {
             for (category, key) in [
                 ("files", ".claude/skills/template/index.ts"),
+                ("files", ".vscode/extensions/stray.ts"),
+                ("files", ".vscode/extensions/helper/.cache/x.ts"),
                 ("files", "app/.vercel/output/functions/index.func/index.js"),
                 ("files", "out/main.js"),
                 ("files", "packages/a/coverage/report.js"),
@@ -1914,6 +1928,7 @@ mod tests {
                 ".github/scripts/release.ts",
                 ".storybook/main.ts",
                 ".tools/index.ts",
+                ".vscode/extensions/helper/src/extension.ts",
                 "packages/a/src/out/emit.ts",
                 "packages/a/src/target.ts",
             ] {
