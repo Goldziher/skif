@@ -206,6 +206,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- An installed package whose manifest declares its binaries with `directories.bin` instead of `bin` provides every
+  file below that directory as a binary, named by its file name as npm links it; its binaries were reported as
+  unlisted and the package as unused.
 - An ESLint config that extends a built-in config (`eslint:recommended`, `eslint:all`) credits `eslint`, as knip does,
   so an `eslint` listed only at the root and enabled by a member's config is no longer reported unused.
 - `skif migrate` from knip: with a `workspaces["."]` table, the top-level `entry`, `project` and `ignore` are not
