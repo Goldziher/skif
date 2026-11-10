@@ -11,7 +11,7 @@ use skif_lint::{Registry, RuleProvider, RunOptions, run};
 use skif_rules::{manifest_provider, policy_provider, providers};
 use skif_workspace::Workspace;
 
-const EXPECTED: [&str; 12] = [
+const EXPECTED: [&str; 13] = [
     "empty-dependencies",
     "root-package-private-field",
     "root-package-manager-field",
@@ -24,6 +24,7 @@ const EXPECTED: [&str; 12] = [
     "missing-package-manifest",
     "local-path-dependency",
     "package-json-format",
+    "stale-patched-dependencies",
 ];
 
 /// The manifest rules only: the snapshot fixtures are not meant to exercise the policy rules.
@@ -101,13 +102,15 @@ fn rule_ids_are_unique_kebab_case_and_documented() {
 #[test]
 fn categories_and_fixability_follow_the_adr() {
     let by_id = |id: &str| registry().get(id).unwrap();
-    for id in ["unmatched-workspace-patterns", "missing-package-manifest"] {
+    let workspace = [
+        "unmatched-workspace-patterns",
+        "missing-package-manifest",
+        "stale-patched-dependencies",
+    ];
+    for id in workspace {
         assert_eq!(by_id(id).category, Category::Workspace, "{id}");
     }
-    for id in EXPECTED
-        .iter()
-        .filter(|id| !id.contains("workspace-patterns") && !id.contains("package-manifest"))
-    {
+    for id in EXPECTED.iter().filter(|id| !workspace.contains(id)) {
         assert_eq!(by_id(id).category, Category::Manifest, "{id}");
     }
     for id in ["root-package-manager-field", "incompatible-peer-dependencies"] {

@@ -9,6 +9,7 @@ mod package_json_format;
 mod root_package_dependencies;
 mod root_package_manager_field;
 mod root_package_private_field;
+mod stale_patched_dependencies;
 pub(crate) mod support;
 mod types_in_dependencies;
 mod unmatched_workspace_patterns;
@@ -23,6 +24,7 @@ pub use package_json_format::PackageJsonFormat;
 pub use root_package_dependencies::RootPackageDependencies;
 pub use root_package_manager_field::RootPackageManagerField;
 pub use root_package_private_field::RootPackagePrivateField;
+pub use stale_patched_dependencies::{StalePatchedDependencies, StalePatchedDependenciesOptions};
 use skif_lint::{Rule, RulesProvider};
 pub use types_in_dependencies::TypesInDependencies;
 pub use unmatched_workspace_patterns::UnmatchedWorkspacePatterns;
@@ -47,6 +49,7 @@ pub fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(MissingPackageManifest),
         Box::new(LocalPathDependency),
         Box::new(PackageJsonFormat),
+        Box::new(StalePatchedDependencies),
     ]
 }
 
