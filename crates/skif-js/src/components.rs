@@ -130,7 +130,10 @@ fn lang_of(attributes: &str) -> Option<&str> {
         if !before.is_some_and(char::is_whitespace) {
             return None;
         }
-        let value = attributes[at + "lang".len()..].trim_start().strip_prefix('=')?.trim_start();
+        let value = attributes[at + "lang".len()..]
+            .trim_start()
+            .strip_prefix('=')?
+            .trim_start();
         let quote = value.chars().next().filter(|c| matches!(c, '"' | '\''))?;
         value[1..].split(quote).next()
     })

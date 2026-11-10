@@ -931,7 +931,11 @@ fn next_reads_turbopack_aliases_and_loaders() {
     assert_deps(out, &["react-native-web", "@x/b", "@svgr/webpack", "raw-loader"]);
     assert!(!deps(out).contains("react-native"), "{:?}", deps(out));
     assert!(out.aliases.contains(&alias("@ui", Some("src/ui"))), "{:?}", out.aliases);
-    assert!(!out.aliases.iter().any(|a| a.find == "react-native"), "{:?}", out.aliases);
+    assert!(
+        !out.aliases.iter().any(|a| a.find == "react-native"),
+        "{:?}",
+        out.aliases
+    );
     assert!(out.provided_binaries.contains(&"next".to_string()));
 }
 
@@ -2012,7 +2016,14 @@ datasource db {
     assert_deps(out, &["prisma-kysely", "zod-prisma-types"]);
     assert_absent(
         out,
-        &["prisma-client-js", "prisma-client-py", "prisma-client-go", "postgresql", "commented-out", "npx"],
+        &[
+            "prisma-client-js",
+            "prisma-client-py",
+            "prisma-client-go",
+            "postgresql",
+            "commented-out",
+            "npx",
+        ],
     );
     let manifest = r#"{"name":"app","prisma":{"schema":"db/main.prisma"}}"#;
     let results = resolve(
@@ -3776,7 +3787,10 @@ fn zx_under_powershell_runs_no_cmdlet_binaries() {
             "scripts/shell.mjs",
             "import { $ } from 'zx';\n$.shell = 'C:/Program Files/PowerShell/7/pwsh.exe';\nawait $`Get-ChildItem dist | ni x; wrangler deploy`;\n",
         ),
-        ("scripts/bash.mjs", "import { $ } from 'zx';\nawait $`New-Item x && gci && turbo build`;\n"),
+        (
+            "scripts/bash.mjs",
+            "import { $ } from 'zx';\nawait $`New-Item x && gci && turbo build`;\n",
+        ),
     ];
     let results = resolve(&files, &["zx"]);
     let runs = |file: &str| -> Vec<String> {
@@ -4674,7 +4688,10 @@ fn mise_extensionless_javascript_file_tasks_make_what_they_load_entries() {
                 "mise-tasks/check",
                 "#!/usr/bin/env -S npx -y tsx\nimport { a } from \"../src/a\";\nconst n: number = a;\n",
             ),
-            ("mise-tasks/py", "#!/usr/bin/env python3\nimport x from \"../src/never.js\"\n"),
+            (
+                "mise-tasks/py",
+                "#!/usr/bin/env python3\nimport x from \"../src/never.js\"\n",
+            ),
         ],
         &[],
     );
@@ -4688,7 +4705,9 @@ fn mise_extensionless_javascript_file_tasks_make_what_they_load_entries() {
         ],
     );
     assert!(
-        !out.entries.iter().any(|entry| entry.contains("never") || entry.contains("luxon")),
+        !out.entries
+            .iter()
+            .any(|entry| entry.contains("never") || entry.contains("luxon")),
         "{:?}",
         out.entries
     );
@@ -5644,10 +5663,7 @@ fn ci_and_hook_commands_judge_only_binaries_reached_through_a_package_manager_or
 #[test]
 fn machine_tool_commands_judge_only_binaries_reached_through_a_package_manager() {
     let files = [
-        (
-            "package.json",
-            r#"{"name":"app","repository":"github:acme/app"}"#,
-        ),
+        ("package.json", r#"{"name":"app","repository":"github:acme/app"}"#),
         (
             ".mcp.json",
             r#"{"mcpServers":{"py":{"command":"uvx","args":["some-server"]},"index":{"command":"code-index"},"own":{"command":"pnpm","args":["exec","mcptool"]}}}"#,
@@ -5700,7 +5716,13 @@ service("api", { build: "cargo build && pnpm exec railtool" });"#,
         ]
     );
     // A binary run by name is still a credit.
-    for (id, name) in [("mcp", "code-index"), ("tauri", "trunk"), ("travis", "codecov"), ("railway", "cargo"), ("mise", "actionlint")] {
+    for (id, name) in [
+        ("mcp", "code-index"),
+        ("tauri", "trunk"),
+        ("travis", "codecov"),
+        ("railway", "cargo"),
+        ("mise", "actionlint"),
+    ] {
         let referenced = &output(&results, id).referenced_binaries;
         assert!(referenced.iter().any(|binary| binary == name), "{id}: {referenced:?}");
     }

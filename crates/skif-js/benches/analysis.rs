@@ -100,7 +100,10 @@ const GITIGNORE_LINES: usize = 2_000;
 
 fn shared_base_fs(packages: usize) -> MemoryFs {
     let types: Vec<String> = (0..BASE_TYPES).map(|i| format!("\"@bench/t{i}\"")).collect();
-    let gitignore: String = (0..GITIGNORE_LINES).map(|i| format!("generated-{i}/\n")).collect();
+    let gitignore = (0..GITIGNORE_LINES).fold(String::new(), |mut text, i| {
+        let _ = writeln!(text, "generated-{i}/");
+        text
+    });
     let mut fs = MemoryFs::new()
         .with_file(
             format!("{ROOT}/package.json"),
@@ -117,7 +120,10 @@ fn shared_base_fs(packages: usize) -> MemoryFs {
             format!("{dir}/package.json"),
             format!("{{\"name\": \"@bench/p{package}\", \"private\": true, \"main\": \"src/index.ts\"}}"),
         );
-        fs.insert(format!("{dir}/tsconfig.json"), "{\"extends\": \"../../tsconfig.base.json\"}");
+        fs.insert(
+            format!("{dir}/tsconfig.json"),
+            "{\"extends\": \"../../tsconfig.base.json\"}",
+        );
         fs.insert(format!("{dir}/src/index.ts"), "export const run = (): number => 1;\n");
     }
     fs
@@ -129,8 +135,8 @@ fn bench_config_references(c: &mut Criterion) {
     for packages in [50, 200] {
         let fs = shared_base_fs(packages);
         let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &fs).expect("workspace discovers");
-        let provider = JsProvider::new(Arc::new(fs))
-            .with_input_source(Arc::new(PluginSource::new(config.js.plugins.clone())));
+        let provider =
+            JsProvider::new(Arc::new(fs)).with_input_source(Arc::new(PluginSource::new(config.js.plugins.clone())));
         let registry = Registry::new(vec![Box::new(provider)]).expect("the JS provider registers");
         group.throughput(Throughput::Elements(packages as u64));
         group.sample_size(10);

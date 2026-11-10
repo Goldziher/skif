@@ -139,7 +139,12 @@ fn find_unquoted(line: &str, needle: &str) -> Option<usize> {
 
 /// Providers that name no npm package: Prisma's built-in clients, and the Python and Go clients, which pip and Go
 /// install.
-const NO_PACKAGE_PROVIDERS: &[&str] = &["prisma-client", "prisma-client-js", "prisma-client-py", "prisma-client-go"];
+const NO_PACKAGE_PROVIDERS: &[&str] = &[
+    "prisma-client",
+    "prisma-client-js",
+    "prisma-client-py",
+    "prisma-client-go",
+];
 
 /// A provider of the schema `file` as an input: a relative path is an entry next to the schema, a command is a script
 /// and a bare name is a package the schema names.

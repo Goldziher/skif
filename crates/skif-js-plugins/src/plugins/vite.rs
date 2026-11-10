@@ -15,12 +15,7 @@ use crate::support::{
 
 /// The keys Vite takes entry files from: the project root holding `index.html`, the build inputs and the library
 /// entries.
-const ENTRY_KEYS: &[&[&str]] = &[
-    &["root"],
-    BUILD_INPUTS[0],
-    BUILD_INPUTS[1],
-    &["build", "lib", "entry"],
-];
+const ENTRY_KEYS: &[&[&str]] = &[&["root"], BUILD_INPUTS[0], BUILD_INPUTS[1], &["build", "lib", "entry"]];
 
 /// Where a config sets the build input: Vite 8 bundles with Rolldown and reads `build.rolldownOptions`, earlier
 /// versions `build.rollupOptions`, which Vite 8 still takes as an alias.

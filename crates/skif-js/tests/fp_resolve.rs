@@ -285,7 +285,11 @@ fn a_classic_yarn_lock_does_not_hide_the_binaries_of_used_dev_dependencies() {
         Vec::<String>::new(),
         "{diagnostics:#?}"
     );
-    assert_eq!(names(&diagnostics, "unlisted-binaries"), Vec::<String>::new(), "{diagnostics:#?}");
+    assert_eq!(
+        names(&diagnostics, "unlisted-binaries"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
 }
 
 #[test]
