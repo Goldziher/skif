@@ -282,11 +282,11 @@ fn warn_empty_tsconfig_projects(targets: &[Target], fs: &dyn FileSystem) {
 
 /// Lints the root of `previous` again from disk. What root discovery decided about it (a standalone package nested
 /// below another root, members another root lints) and what the other roots of the run told it (the files they
-/// import, the dependencies they use) is carried over, so the re-lint judges the root as the first lint did.
+/// import, the files and dependencies they use) is carried over, so the re-lint judges the root as the first lint did.
 fn lint_once(
     linter: &Linter,
     previous: &Workspace,
-    (config, config_path, extra_entries, nested_uses): RootInputs<'_>,
+    (config, config_path, extra_entries, other_root_uses): RootInputs<'_>,
     fs: &dyn FileSystem,
     filter: &Filter,
 ) -> Result<(Workspace, Report), CliError> {
@@ -300,7 +300,7 @@ fn lint_once(
         .collect();
     workspace.ignore_dirs(&ignored);
     let report = roots::lint_loaded(linter, &workspace, config_path, extra_entries)?;
-    let report = roots::credit_nested_uses(report, nested_uses);
+    let report = roots::credit_other_root_uses(report, other_root_uses);
     let report = filter.apply(&workspace, report);
     Ok((workspace, report))
 }
@@ -368,8 +368,8 @@ fn run_exit_code(args: &LintArgs, runs: &[RootRun], aggregate: &Report) -> u8 {
 type Relint = Result<(Workspace, Report), CliError>;
 
 /// What linting one root again needs: its configuration, the configuration file, the files enclosing roots import
-/// and the dependencies nested roots use.
-type RootInputs<'a> = (&'a Config, Option<&'a Path>, &'a [PathBuf], &'a roots::NestedUses);
+/// and what other roots use of it.
+type RootInputs<'a> = (&'a Config, Option<&'a Path>, &'a [PathBuf], &'a roots::OtherRootUses);
 
 fn write_and_relint(
     (args, filter): (&LintArgs, &Filter),
@@ -446,12 +446,12 @@ fn fix_roots(
             workspace,
             report,
             extra_entries,
-            nested_uses,
+            other_root_uses,
         } = run;
         let written = write_and_relint(
             (args, filter),
             linters.get(linter),
-            (&config, config_path.as_deref(), &extra_entries, &nested_uses),
+            (&config, config_path.as_deref(), &extra_entries, &other_root_uses),
             (workspace, report),
             plan,
             fs,
@@ -479,7 +479,7 @@ fn fix_roots(
                 workspace,
                 report,
                 extra_entries,
-                nested_uses,
+                other_root_uses,
             }),
             Err(error) => {
                 let prefixes: Vec<&Path> = done

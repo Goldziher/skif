@@ -41,10 +41,13 @@ pub struct Report {
     /// by directory.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub incomplete_packages: Vec<IncompletePackage>,
-    /// Files of other projects (a directory below a package that holds a `package.json` of its own, such as a nested
-    /// root) that the analysed code imports, relative to the workspace root and sorted. The run does not judge them;
-    /// a multi-root host hands them to the root that owns them as extra entries
-    /// (see `RunOptions::with_extra_entries` of the `skif` crate). Not rendered.
+    /// Files of other projects that the analysed code uses, sorted. The run does not judge them. Those below the
+    /// workspace root, relative to it, belong to a project of their own (a directory below a package that holds a
+    /// `package.json`, such as a nested root) and are imported, run by a script or named as an entry by a plugin; a
+    /// multi-root host hands them to the root that owns them as extra entries (see `RunOptions::with_extra_entries`
+    /// of the `skif` crate). Those outside the workspace root, absolute, are every file there the analysed code
+    /// reaches, directly or through other such files, or that a plugin names; a multi-root host counts them as used
+    /// by the root that owns them. Not rendered.
     #[serde(skip)]
     pub other_project_files: Vec<PathBuf>,
     /// Dependencies that the analysed code uses through a `package.json` above the workspace root, which lists them

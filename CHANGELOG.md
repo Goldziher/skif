@@ -60,6 +60,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- In a multi-root run (`skif -r`), a file another root uses is no longer reported by `unused-files` or deleted by
+  `--allow-remove-files`: a file of a nested root that a workflow step or another tool configuration of an enclosing
+  root names is an entry of the nested root, and a file a root's code reaches outside its own directory (an import of
+  the enclosing root's `.github/actions/detect.ts`, of a sibling root's file, and what those import) counts as used
+  by the root that holds it. `Report::other_project_files` lists those files with absolute paths, and
+  `NestedUses` of the CLI becomes `OtherRootUses`
+  ([ADR 0084](adrs/0084-files-other-roots-reach-count-as-used.md),
+  [#100](https://github.com/Goldziher/skif/issues/100)).
+- The JS analysis walks a hidden directory that holds workspace members, such as `.vscode/extensions/*`, for those
+  members, which it used to skip with the rest of the directory; the knip comparison's `skipped-directory` deviation
+  follows ([ADR 0084](adrs/0084-files-other-roots-reach-count-as-used.md),
+  [#100](https://github.com/Goldziher/skif/issues/100)).
 - The `jasmine` framework of a Karma config uses `jasmine-core` as well as `karma-jasmine`, as knip counts it
   ([#98](https://github.com/Goldziher/skif/issues/98)).
 - `next lint` in a script uses `eslint` and `eslint-config-next`, which it runs

@@ -80,6 +80,8 @@ pub struct JsAnalysis<'a> {
     pub(crate) unused_ignore_files: Vec<EmptyPattern>,
     /// The other configuration hints: redundant and top-level patterns, `project` extensions, missing package entries.
     pub(crate) config_hints: Vec<ConfigHint>,
+    /// Files plugins name as entries that are no file of this analysis, absolute; see [`Self::other_project_files`].
+    other_root_entries: Vec<PathBuf>,
 }
 
 /// What one run of the analysis shares with the other runs of its host.
@@ -166,6 +168,11 @@ fn mark_foreign_paths(resolver: &ModuleResolver, graph: &ModuleGraph, dependenci
     for (index, mark) in marks {
         dependencies.unlisted[index].foreign_paths = Some(mark);
     }
+}
+
+/// Whether `path` lies below a `node_modules` directory: installed code, not a file of any project.
+fn is_installed(path: &Path) -> bool {
+    path.components().any(|component| component.as_os_str() == "node_modules")
 }
 
 /// Directories [`on_disk`] does not enter unless the pattern names them: installed packages and git internals are
@@ -492,6 +499,7 @@ impl<'a> JsAnalysis<'a> {
         });
         setup.mark_entries_incomplete(&found.unknown);
         let entries = found.files;
+        let other_root_entries = found.other_roots;
         let config_hints = {
             let entry_set: HashSet<PathBuf> = entries.iter().cloned().collect();
             config_hints(&HintInputs {
@@ -595,6 +603,7 @@ impl<'a> JsAnalysis<'a> {
             empty_patterns,
             unused_ignore_files,
             config_hints,
+            other_root_entries,
         }
     }
 
@@ -644,13 +653,31 @@ impl<'a> JsAnalysis<'a> {
         self.setup.package(id).is_some_and(|package| package.entries_incomplete)
     }
 
-    /// The files of other projects ([`Module::foreign`], such as a nested root) that a module of this workspace
-    /// imports, relative to the workspace root, sorted. Only the files its own code reaches directly: what those
-    /// import is for the owning project to follow, so that a multi-root run makes these, and only these, its entries.
+    /// The files of other projects that this workspace uses, sorted: relative to the workspace root for those below
+    /// it, absolute for those outside it.
+    ///
+    /// Below the root are the files of projects of their own ([`Module::foreign`], such as a nested root) that a
+    /// module of this workspace imports, that a script runs, or that a plugin names as an entry (a workflow step's
+    /// `node build/report.ts`). Only the files its own code reaches directly: what those import is for the owning
+    /// project to follow, so that a multi-root run makes these, and only these, its entries.
+    ///
+    /// Outside the root are every module the graph reached there (`../tools/detect.ts` and what it imports in
+    /// turn), as the graph follows them, and the files a plugin names there; installed code is left out. A multi-root
+    /// run counts them as used by the root that owns them, which was linted without this code.
     #[must_use]
     pub fn other_project_files(&self) -> Vec<PathBuf> {
+        let root = &self.workspace.root;
         let mut files = BTreeSet::new();
-        for module in self.graph.modules().iter().filter(|module| !module.foreign) {
+        for module in self.graph.modules() {
+            if module.foreign {
+                if module.is_entry {
+                    files.insert(module.path.clone());
+                }
+                continue;
+            }
+            if !module.abs.starts_with(root) && !is_installed(&module.abs) {
+                files.insert(module.abs.clone());
+            }
             for import in &module.imports {
                 let targets = match &import.target {
                     Target::Module(id) => std::slice::from_ref(id),
@@ -664,6 +691,11 @@ impl<'a> JsAnalysis<'a> {
                 }
             }
         }
+        files.extend(
+            self.other_root_entries
+                .iter()
+                .map(|file| relative(file, root).map_or_else(|| file.clone(), PathBuf::from)),
+        );
         files.into_iter().collect()
     }
 

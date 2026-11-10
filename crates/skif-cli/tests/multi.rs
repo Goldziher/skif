@@ -854,3 +854,112 @@ fn fixing_keeps_the_dependencies_a_nested_root_uses() {
     );
     assert_eq!(unused_dependencies(&result.json()), Vec::<String>::new());
 }
+
+/// An outer root and a nested root `build` that use each other's files: a workflow of the outer root runs
+/// `build/tools/report.js`, and `build/index.js` requires the outer `tools/detect.js`, which requires
+/// `tools/helper.js`. Nothing uses `tools/orphan.js` or `build/tools/unused.js`.
+fn roots_using_each_others_files() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join(".git")).unwrap();
+    put(
+        dir.path(),
+        "package.json",
+        r#"{"name": "outer", "version": "0.0.0", "private": true, "packageManager": "npm@11.6.2", "main": "index.js"}"#,
+    );
+    put(dir.path(), "index.js", "console.log(1);\n");
+    put(
+        dir.path(),
+        ".github/workflows/ci.yml",
+        "on: push\njobs:\n  report:\n    runs-on: ubuntu-latest\n    steps:\n      - run: node build/tools/report.js\n",
+    );
+    put(dir.path(), "tools/detect.js", "module.exports = require('./helper.js');\n");
+    put(dir.path(), "tools/helper.js", "module.exports = 1;\n");
+    put(dir.path(), "tools/orphan.js", "module.exports = 2;\n");
+    put(
+        dir.path(),
+        "build/package.json",
+        r#"{"name": "build", "version": "0.0.0", "private": true, "main": "index.js"}"#,
+    );
+    put(dir.path(), "build/index.js", "module.exports = require('../tools/detect.js');\n");
+    put(dir.path(), "build/tools/report.js", "console.log(2);\n");
+    put(dir.path(), "build/tools/unused.js", "console.log(3);\n");
+    dir
+}
+
+#[test]
+fn a_file_another_root_runs_or_imports_is_used() {
+    let dir = roots_using_each_others_files();
+    let (_, report) = json(dir.path(), &["-r"]);
+    assert_eq!(root_paths(&report), [".", "build"]);
+    assert_eq!(
+        paths_reporting(&report, "unused-files"),
+        BTreeSet::from(["build/tools/unused.js".to_owned(), "tools/orphan.js".to_owned()]),
+        "{report}"
+    );
+
+    // Linted on its own, neither root can know what the other one uses.
+    let (_, outer) = json(dir.path(), &[]);
+    assert_eq!(
+        paths_reporting(&outer, "unused-files"),
+        BTreeSet::from([
+            "tools/detect.js".to_owned(),
+            "tools/helper.js".to_owned(),
+            "tools/orphan.js".to_owned()
+        ]),
+        "{outer}"
+    );
+    let (_, build) = json(&dir.path().join("build"), &[]);
+    assert_eq!(
+        paths_reporting(&build, "unused-files"),
+        BTreeSet::from(["tools/report.js".to_owned(), "tools/unused.js".to_owned()]),
+        "{build}"
+    );
+}
+
+#[test]
+fn fixing_keeps_the_files_other_roots_use() {
+    let dir = roots_using_each_others_files();
+    let result = run(skif()
+        .args([
+            "-r",
+            "--fix-unsafe",
+            "--allow-remove-files",
+            "--no-install",
+            "--format",
+            "json",
+        ])
+        .arg(dir.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    for kept in ["tools/detect.js", "tools/helper.js", "build/tools/report.js"] {
+        assert!(dir.path().join(kept).exists(), "{kept} was removed");
+    }
+    for removed in ["tools/orphan.js", "build/tools/unused.js"] {
+        assert!(!dir.path().join(removed).exists(), "{removed} was kept");
+    }
+    assert_eq!(js_findings(&result.json()), Vec::<String>::new());
+}
+
+#[test]
+fn a_file_a_sibling_root_imports_is_used() {
+    // `a` and `b` are standalone packages side by side, linted in the same wave; `b` requires `a/lib.js`.
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join(".git")).unwrap();
+    for name in ["a", "b"] {
+        put(
+            dir.path(),
+            &format!("{name}/package.json"),
+            &format!(r#"{{"name": "{name}", "version": "0.0.0", "private": true, "main": "index.js"}}"#),
+        );
+    }
+    put(dir.path(), "a/index.js", "console.log(1);\n");
+    put(dir.path(), "a/lib.js", "module.exports = 1;\n");
+    put(dir.path(), "a/orphan.js", "module.exports = 2;\n");
+    put(dir.path(), "b/index.js", "module.exports = require('../a/lib.js');\n");
+    let (_, report) = json(dir.path(), &[]);
+    assert_eq!(root_paths(&report), ["a", "b"]);
+    assert_eq!(
+        paths_reporting(&report, "unused-files"),
+        BTreeSet::from(["a/orphan.js".to_owned()]),
+        "{report}"
+    );
+}

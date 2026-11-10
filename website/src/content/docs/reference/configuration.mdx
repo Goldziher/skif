@@ -634,12 +634,19 @@ analysed root that a script of a `package.json` above it runs (up to the git rep
 `node build/npm/postinstall.ts` in the outer project keeps `build/npm/postinstall.ts` used in the nested root at
 `build` (except in production mode, where scripts give no entries).
 
-In a multi-root run (`skif -r`) the files of a nested root that an enclosing root of the same run imports are entries
-of the nested root: `import { x } from "../build/lib/x"` in the outer `src` keeps `build/lib/x.ts`, and what it
-imports, used in the root at `build`. Only the files the enclosing root's own code imports become entries, so an
-unused export of a file they import is still reported. A nested root is therefore linted after the roots that enclose
+In a multi-root run (`skif -r`) the files of a nested root that an enclosing root of the same run imports, runs from
+a script or names in a tool configuration are entries of the nested root: `import { x } from "../build/lib/x"` in
+the outer `src` keeps `build/lib/x.ts`, and what it imports, used in the root at `build`, and so does a workflow step
+`node build/lib/report.ts` for `build/lib/report.ts`. Only the files the enclosing root's own code and configuration
+reach directly become entries, so an unused export of a file they import is still reported. A nested root is therefore linted after the roots that enclose
 it. A root linted on its own (`skif build`) cannot know what an outer root it was not given imports, so there such a
 file is still reported unused; lint from the top with `-r`, or add it to `entry`.
+
+A file a root's code reaches outside the root's own directory counts as used by the root of the run that holds it:
+`require("../tools/detect.js")` in a nested root at `build` keeps the outer root's `tools/detect.js`, and every file it
+imports in turn, out of `unused-files`, and so does an import of a file of a sibling root. Those files are credited
+after every root is linted, so their exports are not judged against that code; linted on its own, the owning root still
+reports them.
 
 The other way round, a nested root that imports or runs a dependency it does not list itself, but a `package.json`
 above it does, uses that dependency through the outer project's `node_modules`: Node.js resolves it from there. In a
