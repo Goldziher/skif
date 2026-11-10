@@ -957,7 +957,7 @@ fn fix_incomplete(args: &LintArgs, headline: &str, error: &CliError, fixes: &[Ro
     if args.format() == Format::Json {
         let mut extra = Map::new();
         extra.insert("fix".to_owned(), fix::fixes_json(fixes));
-        emit_error_with(&error, Format::Json, extra);
+        emit_error_with(&error, Format::Json, extra, &mut std::io::stdout().lock());
     } else {
         // Stdout carries the report in every format but `human`, so the summary goes to stderr there.
         if args.format() == Format::Human {
