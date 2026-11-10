@@ -451,6 +451,8 @@ mod tests {
         let dir = cache.join("jest");
         assert_eq!(lock_path(&dir), cache.join("jest.lock"));
         let held = lock_checkout(&dir).unwrap();
+        // Windows locks are mandatory: the holder's PID cannot be read while the lock is held.
+        #[cfg(unix)]
         assert_eq!(
             fs::read_to_string(lock_path(&dir)).unwrap(),
             std::process::id().to_string()
