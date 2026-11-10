@@ -27,7 +27,7 @@ include = [
 globset.workspace = true
 ignore.workspace = true
 indexmap.workspace = true
-jsonc-parser.workspace = true
+jsonc-parser = { workspace = true, features = ["serde"] }
 rayon.workspace = true
 rustc-hash.workspace = true
 serde-saphyr.workspace = true
