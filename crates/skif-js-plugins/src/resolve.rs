@@ -255,8 +255,7 @@ impl Collector<'_, '_> {
                 PluginInput::SourceScript { file, script } => {
                     let source = self.ctx.dir.join(&file);
                     // A call whose `cwd` is computed from the file's location runs in the file's directory.
-                    let file_dir = file.rsplit_once('/').map_or("", |(dir, _)| dir);
-                    self.script(&place_file_dir(&script, file_dir), &source, optional);
+                    self.script(&place_file_dir(&script, &file), &source, optional);
                 }
                 PluginInput::FileDependency { file, name } => {
                     let source = self.ctx.dir.join(&file);

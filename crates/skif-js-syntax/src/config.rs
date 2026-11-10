@@ -1175,6 +1175,14 @@ pub fn literal_command(arguments: &[ConfigValue]) -> Option<String> {
     Some(words.join(" "))
 }
 
+/// The command of a `(command line, options)` call such as `execSync('tsc -b', { cwd })`, in the directory its `cwd`
+/// option names (see [`command_in_call_dir`]); `None` unless the command line is a string.
+#[must_use]
+pub fn command_line_call(arguments: &[ConfigValue]) -> Option<String> {
+    let command = arguments.first().and_then(ConfigValue::as_str)?;
+    Some(command_in_call_dir(command.to_owned(), arguments.get(1)))
+}
+
 /// The options object of a `(file, [arguments], options)` call such as `spawn('eslint', ['.'], { cwd })`: the argument
 /// after the arguments array, or the second argument when that is no array.
 #[must_use]
@@ -1199,11 +1207,12 @@ pub fn command_in_call_dir(command: String, options: Option<&ConfigValue>) -> St
     }
 }
 
-/// `command` with `dir`, the directory of the file that runs it relative to the directory where the command starts
-/// (`/`-separated, empty for that directory itself), in place of [`FILE_DIR`], single-quoted so that a shell reads it
-/// as part of one word whatever it holds (`cd 'my scripts'/../sub`).
+/// `command` with the directory of `file`, the file that runs it as a `/`-separated path relative to the directory
+/// where the command starts, in place of [`FILE_DIR`], single-quoted so that a shell reads it as part of one word
+/// whatever it holds (`cd 'my scripts'/../sub`).
 #[must_use]
-pub fn place_file_dir(command: &str, dir: &str) -> String {
+pub fn place_file_dir(command: &str, file: &str) -> String {
+    let dir = file.rsplit_once('/').map_or("", |(dir, _)| dir);
     let quoted = if dir.is_empty() {
         ".".to_owned()
     } else {
