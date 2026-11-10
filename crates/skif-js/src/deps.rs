@@ -1,6 +1,7 @@
 //! Which packages and binaries the code and scripts use, against what each manifest lists.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::ffi::OsStr;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -360,39 +361,54 @@ fn parse_installed(fs: &dyn FileSystem, dir: &Path, text: &str, name: &str) -> O
 }
 
 /// The binaries the `directories.bin` of the installed package at `dir` declares, for a manifest without `bin`: every
-/// file below that directory, named by its file name, as npm links them. A directory outside the package declares
-/// none.
+/// file below that directory, named by its file name, as npm links them. As in npm, the directory is resolved as if
+/// the package were the file system root, so `..` cannot leave the package, and a file or directory whose name starts
+/// with `.` is skipped.
 fn directory_bins(fs: &dyn FileSystem, dir: &Path, manifest: &Value) -> Vec<String> {
     let Some(bin_dir) = manifest
         .get("directories")
         .and_then(|directories| directories.get("bin"))
         .and_then(Value::as_str)
-        .map(Path::new)
-        .filter(|bin_dir| {
-            bin_dir
-                .components()
-                .all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
-        })
     else {
         return Vec::new();
     };
-    let mut pending = vec![dir.join(bin_dir)];
+    let mut pending = vec![dir.join(clamped(Path::new(bin_dir)))];
     let mut names = BTreeSet::new();
     while let Some(current) = pending.pop() {
         let Ok(entries) = fs.read_dir(&current) else {
             continue;
         };
         for entry in entries {
+            let Some(name) = entry.path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if name.starts_with('.') {
+                continue;
+            }
             if entry.is_dir && !entry.is_symlink {
                 pending.push(entry.path);
-            } else if entry.is_file
-                && let Some(file) = entry.path.file_name().and_then(|file| file.to_str())
-            {
-                names.insert(file.to_owned());
+            } else if entry.is_file {
+                names.insert(name.to_owned());
             }
         }
     }
     names.into_iter().collect()
+}
+
+/// `path` joined onto a root it cannot climb out of: `..` drops the previous component, or nothing at the top, and a
+/// root or prefix is dropped, as npm's `path.join("/", path)` does for `directories.bin`.
+fn clamped(path: &Path) -> PathBuf {
+    let mut parts: Vec<&OsStr> = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => parts.push(part),
+            Component::ParentDir => {
+                parts.pop();
+            }
+            Component::CurDir | Component::RootDir | Component::Prefix(_) => {}
+        }
+    }
+    parts.into_iter().collect()
 }
 
 pub(crate) fn parse_tsconfig(fs: &dyn FileSystem, path: &Path) -> Option<ConfigValue> {
