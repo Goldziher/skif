@@ -113,11 +113,27 @@ fn vue_auto_imports_snapshot() {
 
 #[test]
 fn vue_auto_import_declarations_keep_components_and_composables_used() {
-    // The generated `components.d.ts` and `auto-imports.d.ts` are ambient entries whose `typeof import()` types
-    // reach every registered component and composable.
+    // The generated `auto-imports.d.ts` is an ambient entry whose `typeof import()` types reach every registered
+    // composable; the component `components.d.ts` registers is used by the template of `App.vue`.
     let diagnostics = lint_fixture("vue-auto-imports");
     assert_eq!(found(&diagnostics, "unused-files"), Vec::<String>::new());
     assert_eq!(found(&diagnostics, "unused-exports"), Vec::<String>::new());
+}
+
+#[test]
+fn registered_vue_components_are_used_only_where_a_template_uses_them() {
+    // `components.d.ts` registers five components. `App.vue` uses `AppButton` and, in kebab-case, `AppCard`, whose
+    // template uses `AppIcon`; `AppNested` is used only by `AppUnused`, which no template uses.
+    let diagnostics = lint_fixture("vue-auto-components");
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        [
+            "src/components/AppNested.vue: src/components/AppNested.vue",
+            "src/components/AppUnused.vue: src/components/AppUnused.vue",
+        ]
+    );
+    assert_eq!(found(&diagnostics, "unresolved-imports"), Vec::<String>::new());
+    assert_eq!(found(&diagnostics, "circular-imports"), Vec::<String>::new());
 }
 
 #[test]

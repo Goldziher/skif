@@ -443,6 +443,11 @@ pub struct ModuleInfo {
     /// in source order without duplicates; only literal commands. They are parsed like the scripts of `package.json`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub commands: Vec<String>,
+    /// The tag names of the template of a `.vue` file as written, sorted and without duplicates (`AppButton`,
+    /// `app-card`, `div`): `unplugin-vue-components` imports the components it registers into the files whose
+    /// template uses their tag (ADR 0082). Empty for every other file.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub template_tags: Vec<String>,
     /// Syntax errors the parser recovered from; the other fields describe the recovered program. For component
     /// files, the issues of every script block.
     pub parse_diagnostics: Vec<ParseIssue>,
