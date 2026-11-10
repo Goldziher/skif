@@ -476,9 +476,12 @@ sherif_case "from-sherif is off by default" "" FROM_SHERIF=
 sherif_case "an explicit --no-config wins" "--no-config" ARGS="--no-config"
 sherif_case "an explicit --config wins" "--config=a.toml" ARGS="--config=a.toml"
 sherif_case "a subcommand is not a lint run" "rules" ARGS="rules"
-sherif_case "baseline is a subcommand" "baseline check --base origin/main" ARGS="baseline check --base origin/main"
-sherif_case "a subcommand gets neither the translation nor fail-on-warnings" "baseline prune" ARGS="baseline prune" \
-  FAIL_ON_WARNINGS=true
+sherif_case "a baseline run reads the translation through a file that extends the baseline" \
+  "baseline check --base origin/main --config TMP/skif-baseline-run.toml" ARGS="baseline check --base origin/main"
+grep -q "extends = \\[\".*/skif.toml\", \"${work}/sherif/skif.baseline.toml\"\\]" "${work}"/runner/skif-from-sherif.*/skif-baseline-run.toml ||
+  fail "run: the baseline run config does not extend the translation and the baseline"
+sherif_case "a baseline run gets the translation but not fail-on-warnings" \
+  "baseline prune --config TMP/skif-baseline-run.toml" ARGS="baseline prune" FAIL_ON_WARNINGS=true
 sherif_case "a lint run gets both" "--fail-on-warnings --config TMP/skif.toml" ARGS= FAIL_ON_WARNINGS=true
 touch "${work}/sherif/.skif.toml"
 sherif_case "an existing skif configuration wins" "" ARGS=

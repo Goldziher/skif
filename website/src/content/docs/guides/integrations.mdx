@@ -35,6 +35,9 @@ without it. The action does not do this for a skif subcommand in `args` (`rules`
 `--config` or `--no-config`. The translation is done by the action, not by skif: the skif binary never reads sherif
 configuration while linting ([ADR 0039](https://github.com/Goldziher/skif/blob/main/adrs/0039-skif-migrate-a-one-shot-translator-from-sherif-syncpack-and-knip.md)). Commit the output of
 `skif migrate` to settle the configuration and drop the input; from then on the action reads `skif.toml`.
+`skif baseline write`, `prune` and `check` get the translation too, through a temporary file that extends it and then
+the baseline file (`--file`, or `skif.baseline.toml`), since a baseline applies only through a configuration that
+extends it.
 
 A release moves a floating tag: `@vN` for a stable major N from 1 on, and `@v0.M` for a 0.x line. `@v0` itself never
 moves, because a 0.x minor release may break; pin `@v0.2` to take every 0.2.x patch and nothing else. Every release of the action installs the skif version it was

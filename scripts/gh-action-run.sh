@@ -38,6 +38,31 @@ is_lint_run() {
   [ "${#parsed_args[@]}" -eq 0 ] || [[ "$subcommands" != *" ${parsed_args[0]} "* ]]
 }
 
+# `skif baseline write|prune|check` lints like a run does, so it takes the translated sherif configuration too.
+is_baseline_run() {
+  [ "${#parsed_args[@]}" -ge 2 ] && [ "${parsed_args[0]}" = "baseline" ] &&
+    case "${parsed_args[1]}" in write | prune | check) true ;; *) false ;; esac
+}
+
+# The baseline file a baseline run names with --file, or skif's default in the working directory.
+baseline_file() {
+  local arg next=false
+  for arg in "${parsed_args[@]}"; do
+    if [ "$next" = true ]; then
+      printf '%s\n' "$arg"
+      return
+    fi
+    case "$arg" in
+    --file) next=true ;;
+    --file=*)
+      printf '%s\n' "${arg#--file=}"
+      return
+      ;;
+    esac
+  done
+  printf '%s\n' "skif.baseline.toml"
+}
+
 if [ "${FAIL_ON_WARNINGS:-false}" = "true" ] && is_lint_run; then
   parsed_args+=("--fail-on-warnings")
 fi
@@ -70,7 +95,7 @@ use_sherif_config() {
   if [ ! -f package.json ] || ! grep -q 'sherif' package.json; then
     return 1
   fi
-  is_lint_run || return 1
+  is_lint_run || is_baseline_run || return 1
   local arg
   for arg in ${parsed_args[@]+"${parsed_args[@]}"}; do
     case "$arg" in --config | --config=* | --no-config) return 1 ;; esac
@@ -84,11 +109,20 @@ if use_sherif_config; then
   echo "::group::Translate the sherif configuration (skif migrate --from sherif)"
   skif migrate --from sherif --profile full --strict --output "$sherif_config" || status=$?
   echo "::endgroup::"
+  run_config="$sherif_config"
+  if is_baseline_run; then
+    # A baseline applies only through a configuration that extends it, so the run reads a file extending the
+    # translation first and the baseline after it.
+    file="$(baseline_file)"
+    case "$file" in /*) ;; *) file="${PWD}/${file}" ;; esac
+    run_config="$(dirname "$sherif_config")/skif-baseline-run.toml"
+    printf 'extends = ["%s", "%s"]\n' "$sherif_config" "$file" >"$run_config"
+  fi
   case "$status" in
-  0) parsed_args+=("--config" "$sherif_config") ;;
+  0) parsed_args+=("--config" "$run_config") ;;
   1)
     echo "::warning::Some sherif settings were not translated; see the skif migrate report. Run skif migrate and commit skif.toml to settle them."
-    parsed_args+=("--config" "$sherif_config")
+    parsed_args+=("--config" "$run_config")
     ;;
   *) echo "::warning::skif migrate could not translate the sherif configuration; skif runs without it." ;;
   esac
