@@ -70,7 +70,7 @@ mapping is read from the sources of the tools (sherif 1.13, syncpack 15.3, knip 
 | `unsorted-dependencies` | syncpack only when `sortAz` names a dependency map |
 | `package-json-format` | syncpack `format`: when a format key is set or a script runs `syncpack format` (the rule is off by default) |
 | the rules of the knip issue types that stay enabled | knip (`unused-files`, `unused-dependencies`, `unused-dev-dependencies`, `unused-optional-peer-dependencies`, `unlisted-dependencies`, `unlisted-binaries`, `unresolved-imports`, `unused-exports`, `unused-types`, `unused-namespace-exports`, `unused-namespace-types`, `duplicate-exports`, `unused-enum-members`, `unused-namespace-members`, `unused-catalog-entries`, `unresolved-catalog-references`, `circular-imports`) |
-| `workspace-protocol`, `local-path-dependency`, `incompatible-peer-dependencies`, `member-toolchain-fields`, `toolchain-pin-drift` | none of the three |
+| `workspace-protocol`, `local-path-dependency`, `incompatible-peer-dependencies`, `member-toolchain-fields`, `toolchain-pin-drift`, `foreign-package-manager-command` | none of the three |
 | `unparseable-files` | none: knip skips a file it cannot parse without reporting it |
 | `stale-js-config` | none unless `treatConfigHintsAsErrors` is set: skif's configuration hints differ from knip's |
 | `stale-mocks` | none: knip does not read the specifiers of `vi.mock`, `jest.mock` and the like, so the `exact` profile turns it off |

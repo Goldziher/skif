@@ -1,4 +1,6 @@
 //! Rules over the toolchain files beside `package.json`: version files, Dockerfiles, CI workflows and shell scripts.
+//! [`ToolchainPinDrift`] checks the Node and package-manager versions they pin against the root, and
+//! [`ForeignPackageManagerCommand`] the package managers their commands run.
 //!
 //! The rules share one scan of those files per run (see `scan`), read through the [`FileSystem`] the provider is
 //! built with, so they come in their own provider: [`toolchain_provider`]. Every file kind takes `#` comments, and
@@ -6,6 +8,7 @@
 //! there; the `ignore-files` option suppresses a whole file from the configuration.
 
 mod commands;
+mod foreign_command;
 mod options;
 mod parse;
 mod pin_drift;
@@ -18,6 +21,7 @@ use std::sync::Arc;
 use skif_core::{FileSystem, Related, RuleMeta, Severity, diagnostic};
 use skif_lint::{Emitter, LintContext, Rule, RulesProvider};
 
+pub use foreign_command::ForeignPackageManagerCommand;
 pub use options::{ToolchainKind, ToolchainOptions};
 pub use pin_drift::ToolchainPinDrift;
 
@@ -27,14 +31,17 @@ use scan::ToolchainFile;
 pub const PROVIDER_ID: &str = "toolchain";
 
 /// The ids of the toolchain rules; the scan reads the `files` globs of each.
-fn rule_ids() -> [&'static str; 1] {
-    [pin_drift::META.id]
+fn rule_ids() -> [&'static str; 2] {
+    [pin_drift::META.id, foreign_command::META.id]
 }
 
 /// The toolchain rules reading through `fs`, in the order their diagnostics are merged.
 #[must_use]
 pub fn rules(fs: Arc<dyn FileSystem>) -> Vec<Box<dyn Rule>> {
-    vec![Box::new(ToolchainPinDrift::new(fs))]
+    vec![
+        Box::new(ToolchainPinDrift::new(Arc::clone(&fs))),
+        Box::new(ForeignPackageManagerCommand::new(fs)),
+    ]
 }
 
 /// The provider of the toolchain rules, with id `"toolchain"`, reading the files through `fs`.

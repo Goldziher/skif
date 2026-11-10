@@ -145,6 +145,142 @@ pub(crate) fn command_pins(words: &[Word]) -> Vec<Pin> {
     positional.filter_map(|word| spec_pin(word, &label)).collect()
 }
 
+/// npm subcommands that install, run or change dependencies; the others (`view`, `whoami`, `publish`, ...) are not
+/// reported.
+const NPM_COMMANDS: &[&str] = &[
+    "add", "cit", "clean-install", "ci", "dedupe", "ddp", "exec", "i", "ic", "in", "install", "install-ci-test",
+    "install-clean", "install-test", "isntall", "isntall-clean", "it", "link", "ln", "prune", "r", "rb", "rebuild",
+    "remove", "restart", "rm", "rum", "run", "run-script", "start", "stop", "t", "test", "tst", "un", "uninstall",
+    "unlink", "up", "update", "upgrade", "urn", "x",
+];
+
+/// bun subcommands that install or change dependencies; `bun <file>` and `bun run` also run code as a runtime.
+const BUN_COMMANDS: &[&str] = &["a", "add", "i", "install", "link", "remove", "rm", "unlink", "update"];
+
+/// yarn and pnpm subcommands that only read or talk to the registry; every other subcommand, a script name
+/// included, runs the manager.
+const READ_ONLY: &[&str] = &[
+    "adduser", "audit", "bin", "cache", "config", "doctor", "help", "info", "la", "licenses", "list", "ll", "login",
+    "logout", "ls", "npm", "outdated", "owner", "pack", "publish", "root", "search", "show", "store", "team", "view",
+    "whoami", "why",
+];
+
+/// Flags that print and exit.
+const INFO_FLAGS: &[&str] = &["--version", "-v", "--help", "-h"];
+
+/// Flags of `manager` that take the next word as their value.
+fn takes_value(manager: PackageManager, flag: &str) -> bool {
+    let common = matches!(flag, "--registry" | "--loglevel" | "--userconfig" | "--cwd" | "--prefix");
+    common
+        || match manager {
+            PackageManager::Npm => matches!(flag, "-w" | "--workspace" | "-C"),
+            PackageManager::Pnpm => matches!(flag, "--filter" | "-F" | "--dir" | "-C"),
+            _ => false,
+        }
+}
+
+/// The index in `args` of the first word that is neither a flag nor a flag's value.
+fn subcommand(manager: PackageManager, args: &[Word]) -> Option<usize> {
+    let mut index = 0;
+    while let Some(word) = args.get(index) {
+        if !word.text.starts_with('-') {
+            return Some(index);
+        }
+        index += if takes_value(manager, &word.text) { 2 } else { 1 };
+    }
+    None
+}
+
+/// A command that runs a package manager other than the workspace's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Invocation {
+    /// The manager it runs.
+    pub manager: PackageManager,
+    /// The indices of the command's first and last word to quote: the program through its subcommand.
+    pub words: (usize, usize),
+}
+
+/// Whether the arguments from the subcommand at `sub` install only `chosen` (or corepack) globally:
+/// `npm install -g pnpm@9`, `yarn global add pnpm`.
+fn installs_chosen_globally(manager: PackageManager, args: &[Word], sub: usize, chosen: PackageManager) -> bool {
+    let rest = &args[sub + 1..];
+    let mut packages: Vec<&str> = positionals(rest).map(|word| split_spec(&word.text).0).collect();
+    let installs = if manager == PackageManager::Yarn {
+        let global_add = args[sub].text == "global" && packages.first() == Some(&"add");
+        if global_add {
+            packages.remove(0);
+        }
+        global_add
+    } else {
+        matches!(args[sub].text.as_str(), "install" | "i" | "in" | "add" | "a")
+            && args.iter().any(|word| is_global_flag(&word.text))
+    };
+    installs
+        && !packages.is_empty()
+        && packages
+            .iter()
+            .all(|name| *name == manager_name(chosen) || *name == "corepack")
+}
+
+/// The invocation of a package manager other than `chosen` that `words` runs, if any.
+///
+/// Reported: npm's install, run and exec subcommands and `npx`; yarn bare, or with any subcommand or script name
+/// that is not [`READ_ONLY`]; pnpm likewise (`pnpx`, `pnpm dlx`); bun's install subcommands and `bunx`. Not
+/// reported: only `--version` or `--help`, a read-only subcommand, a global install of `chosen` itself, and a runner
+/// (`npx pnpm@9 install`) or `corepack <manager>` that runs `chosen`.
+pub(crate) fn invocation(words: &[Word], chosen: PackageManager) -> Option<Invocation> {
+    let first = program(words)?;
+    let mut start = first;
+    if basename(&words[first].text) == "corepack" {
+        start += 1;
+        manager_named(&words.get(start)?.text)?;
+    }
+    let (manager, runner) = match basename(&words[start].text) {
+        "npm" => (PackageManager::Npm, false),
+        "npx" => (PackageManager::Npm, true),
+        "pnpm" => (PackageManager::Pnpm, false),
+        "pnpx" => (PackageManager::Pnpm, true),
+        "yarn" | "yarnpkg" => (PackageManager::Yarn, false),
+        "bun" => (PackageManager::Bun, false),
+        "bunx" => (PackageManager::Bun, true),
+        _ => return None,
+    };
+    if manager == chosen {
+        return None;
+    }
+    let args = &words[start + 1..];
+    let found = |last: usize| Some(Invocation { manager, words: (first, last) });
+    let runs_chosen = |target: Option<&Word>| {
+        target.is_some_and(|word| split_spec(&word.text).0 == manager_name(chosen))
+    };
+    if runner {
+        let target = args.iter().position(|word| !word.text.starts_with('-'));
+        if runs_chosen(target.map(|index| &args[index])) {
+            return None;
+        }
+        return found(target.map_or(start, |index| start + 1 + index));
+    }
+    let Some(sub) = subcommand(manager, args) else {
+        let bare_install = manager == PackageManager::Yarn
+            && !args.iter().any(|word| INFO_FLAGS.contains(&word.text.as_str()));
+        return if bare_install { found(start) } else { None };
+    };
+    let word = &args[sub];
+    if word.dynamic || installs_chosen_globally(manager, args, sub, chosen) {
+        return None;
+    }
+    let text = word.text.as_str();
+    if matches!(text, "dlx" | "x") && runs_chosen(positionals(&args[sub + 1..]).next()) {
+        return None;
+    }
+    let reported = match manager {
+        PackageManager::Npm => NPM_COMMANDS.contains(&text),
+        PackageManager::Bun => BUN_COMMANDS.contains(&text) || text == "x",
+        _ => !READ_ONLY.contains(&text),
+    };
+    if reported { found(start + 1 + sub) } else { None }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,5 +347,77 @@ mod tests {
         assert_eq!(corepack(&words("corepack enable pnpm")), Some(Corepack::Enable));
         assert_eq!(corepack(&words("corepack prepare --activate")), Some(Corepack::Prepare));
         assert_eq!(corepack(&words("npm ci")), None);
+    }
+
+    fn foreign(line: &str, chosen: PackageManager) -> Option<(String, String)> {
+        let words = words(line);
+        let found = invocation(&words, chosen)?;
+        let quoted: Vec<&str> = words[found.words.0..=found.words.1]
+            .iter()
+            .map(|word| word.text.as_str())
+            .collect();
+        Some((manager_name(found.manager).to_owned(), quoted.join(" ")))
+    }
+
+    #[test]
+    fn invocations_of_another_manager_are_found() {
+        let pnpm = PackageManager::Pnpm;
+        let cases = [
+            ("npm ci", Some(("npm", "npm ci"))),
+            ("npm install --omit=dev", Some(("npm", "npm install"))),
+            ("npm --prefix web run build", Some(("npm", "npm --prefix web run"))),
+            ("npm run-script build", Some(("npm", "npm run-script"))),
+            ("npm test", Some(("npm", "npm test"))),
+            ("npm start", Some(("npm", "npm start"))),
+            ("npm exec vite", Some(("npm", "npm exec"))),
+            ("npx tsc --noEmit", Some(("npm", "npx tsc"))),
+            ("npx", Some(("npm", "npx"))),
+            ("yarn", Some(("yarn", "yarn"))),
+            ("yarn --frozen-lockfile", Some(("yarn", "yarn"))),
+            ("yarn add left-pad", Some(("yarn", "yarn add"))),
+            ("yarn install", Some(("yarn", "yarn install"))),
+            ("yarn run build", Some(("yarn", "yarn run"))),
+            ("yarn build", Some(("yarn", "yarn build"))),
+            ("sudo npm i -g typescript", Some(("npm", "npm i"))),
+            ("corepack yarn install", Some(("yarn", "corepack yarn install"))),
+            ("bunx prettier", Some(("bun", "bunx prettier"))),
+            ("bun install", Some(("bun", "bun install"))),
+            ("npm view pnpm version", None),
+            ("npm whoami", None),
+            ("npm publish --access public", None),
+            ("npm --version", None),
+            ("yarn --version", None),
+            ("yarn info react", None),
+            ("npm install -g pnpm@9.1.0 corepack", None),
+            ("npm i --global pnpm", None),
+            ("yarn global add pnpm", None),
+            ("bun add -g pnpm", None),
+            ("npx pnpm@9 install", None),
+            ("npx -y pnpm install", None),
+            ("corepack pnpm install", None),
+            ("pnpm install --frozen-lockfile", None),
+            ("pnpm", None),
+            ("bun run build.ts", None),
+            ("$PM install", None),
+        ];
+        for (line, expected) in cases {
+            assert_eq!(
+                foreign(line, pnpm),
+                expected.map(|(manager, text)| (manager.to_owned(), text.to_owned())),
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_chosen_manager_decides_what_is_foreign() {
+        assert_eq!(foreign("pnpm install", PackageManager::Yarn), Some(("pnpm".to_owned(), "pnpm install".to_owned())));
+        assert_eq!(foreign("pnpm dlx create-vite", PackageManager::Npm), Some(("pnpm".to_owned(), "pnpm dlx".to_owned())));
+        assert_eq!(foreign("pnpm why react", PackageManager::Npm), None);
+        assert_eq!(foreign("yarn dlx yarn@4 --version", PackageManager::Npm), Some(("yarn".to_owned(), "yarn dlx".to_owned())));
+        assert_eq!(foreign("pnpm dlx npm@10 ci", PackageManager::Npm), None);
+        assert_eq!(foreign("npm ci", PackageManager::Npm), None);
+        assert_eq!(foreign("yarn", PackageManager::Npm), Some(("yarn".to_owned(), "yarn".to_owned())));
+        assert_eq!(foreign("npm install -g yarn", PackageManager::Yarn), None);
     }
 }

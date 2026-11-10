@@ -95,6 +95,7 @@ old one.
 | 0085 | [Files Other Roots Reach Count as Used, Members Below Hidden Directories Are Analysed, and Jest's testRegex Adds Entries](0085-files-other-roots-reach-count-as-used.md) | accepted |
 | 0086 | [Packages Tool Configs Name Are Unlisted at the Config, Declared Subpaths and Workspace Packages Behind Aliases](0086-packages-tool-configs-name-are-unlisted-at-the-config.md) | accepted |
 | 0087 | [Toolchain Pins Outside `package.json` and the `toolchain-pin-drift` Rule](0087-toolchain-pins-outside-package-json-and-the-toolchain-pin-drift-rule.md) | accepted |
+| 0088 | [Commands of Another Package Manager and the `foreign-package-manager-command` Rule](0088-foreign-package-manager-commands.md) | accepted |
 
 ## Effective statements
 
