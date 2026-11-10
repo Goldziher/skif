@@ -95,7 +95,7 @@ Rules with options:
 | Rule | Option | Values |
 | --- | --- | --- |
 | `member-toolchain-fields` | `mode` | `forbid` (default) reports every `packageManager` or `engines` field a private member declares; `match-root` allows a field equal to the root's. |
-| `stray-lockfile`, `nested-workspace-root` | `allow` | Paths, relative to the workspace root, of files kept on purpose: a string or `{ name, reason }`. An entry that names no file the rule would report is reported. See [lockfiles and nested workspaces](../../guides/workspaces/#lockfiles-and-nested-workspaces). |
+| `stray-lockfile`, `nested-workspace-root` | `allow` | Paths or globs, relative to the workspace root, of files kept on purpose: a string or `{ name, reason }`, matched as a literal path first and then as a glob. An invalid glob, a `!` pattern or `$LOCAL` is a configuration error; an entry that matches no file the rule would report is reported. See [lockfiles and nested workspaces](../../guides/workspaces/#lockfiles-and-nested-workspaces). |
 | `stale-patched-dependencies` | `patch-dirs` | Directories, relative to the root, searched for `*.patch` files no `patchedDependencies` entry references. Empty (default) means the directories of the referenced patches and `patches`. |
 | `stale-patched-dependencies` | `allowed-patch-paths` | Globs, relative to the root, that every patch file must match (`["patches/**"]`, the paths a build context copies); empty (default) allows any path. |
 | `unused-exports`, `unused-types` | `ignore-tags` | JSDoc tag names, without the `@` (a list of strings), that exempt an export. It is read from `unused-exports` and applies to `unused-types` as well. `public`, `beta`, `alpha` and `alias` always exempt, and `alias` also keeps an export out of `duplicate-exports`. |
@@ -467,7 +467,9 @@ jest = { enabled = true, config = ["jest.config.cjs"] }
 tables, keyed by directory (a glob such as `packages/*` works, an exact key wins over a glob, and `"."` is the root
 workspace; `*` stops at `/`, so `packages/*` does not select `packages/a/nested`, and when several glob keys select a
 directory the first in file order wins), take `entry`, `project`, `ignore`, `ignore-files`, `ignore-dependencies`, `ignore-binaries`,
-`ignore-unresolved`, `ignore-members`, `ignore-exports-used-in-file`, `include-entry-exports`, `paths` and `plugins`. A plugin entry is
+`ignore-unresolved`, `ignore-members`, `ignore-exports-used-in-file`, `include-entry-exports`, `paths` and `plugins`,
+plus `extend-ignore`, `extend-ignore-dependencies`, `extend-ignore-binaries` and `extend-ignore-unresolved`, which
+append to the list the table inherits through `extends`. A plugin entry is
 `true`, `false` or a table with `enabled`, `config`, `entry` and `project`; the plugin names are checked, and a
 misspelt one is a configuration error with the closest name suggested. The `"."` table adds to the top-level ignore
 lists and replaces its `entry` and `project`.
@@ -722,8 +724,10 @@ Prisma `generator` `provider`, and what the other plugins read the same way, inc
 from a config value (`importHelpers: true` names `tslib`), as knip does. A listed one is used; one no manifest lists
 is reported by `unlisted-dependencies` at the config with the detail `ConfigReference`
 ("`tsconfig.json` references `@acme/tsconfig`, which is not listed in `package.json`"). Built-in names
-(`eslint:recommended`, `prisma-client-js`, a `generator client` block), relative paths and the string `extends` of an
-ESLint flat config (`js/recommended`) are no packages. A package that a command in a config names (`node --require x`
+(`prisma-client-js`, a `generator client` block), relative paths and the string `extends` of an ESLint flat config
+(`js/recommended`) are no packages. A built-in ESLint config (`eslint:recommended`) is an optional reference to
+`eslint`; knip credits it as a plain dependency, which it reports where no manifest lists `eslint`, but skif does not,
+since a package that only enables ESLint may get it from the root. A package that a command in a config names (`node --require x`
 in a hook), one a plugin assumes without reading a config, and an optional reference (Vite's `optimizeDeps.include`,
 an `eslint-plugin-import` resolver) is only a use and never reported. A config that imports the package it names is
 reported once, for the import.
@@ -798,7 +802,9 @@ that member. `<style>` blocks and `src` attributes of `<script>` and `<style>` t
 parsed as JavaScript, so a name an expression binds itself (`items.map((item) => item.id)`) is no use, and neither is a
 template local: the alias of a Vue `v-for` and the props of `v-slot`, `#name` and `slot-scope`, and the names Svelte's
 `{#each}`, `{#await}`, `{:then}`, `{:catch}`, `{#snippet}`, `{@const}` and `let:` bind, within the element or block
-that binds them. An import that only such a local of the same name mentions is unused. An expression that does not
+that binds them. A member that such a local of the same name as a namespace import reads (`item.title` under
+`v-for="item in items"`) is no use of that namespace's export; a named import keeps its export used either way, as in
+knip. An expression that does not
 parse is read token by token, which can only make an import look more used. Nothing in a template is type-checked.
 Imports of one script block count as used when another block reads them.
 
@@ -1054,7 +1060,7 @@ reset = ["version-groups"]
 | Scalars (`fail-on-warnings`, `package-manager`, `mode`, ...) | The later file replaces |
 | Tables (`[workspace]`, `[lint]`, `[policy]`, `[catalog]`, `[js]`, ...) | Merge key by key |
 | Arrays of strings | The later file replaces |
-| `extend-ignore-packages` (`[workspace]`), `extend-ignore`, `extend-ignore-dependencies`, `extend-ignore-binaries`, `extend-ignore-unresolved` (`[js]`), `extend-exclude` (`[catalog]`) | Append to the inherited list, after the plain key of the same file |
+| `extend-ignore-packages` (`[workspace]`), `extend-ignore`, `extend-ignore-dependencies`, `extend-ignore-binaries`, `extend-ignore-unresolved` (`[js]` and `[js.workspaces."<dir>"]`), `extend-exclude` (`[catalog]`) | Append to the inherited list, after the plain key of the same file |
 | `[rules]` | Per rule: a level keeps the inherited options; a table of options replaces the options and keeps the level |
 | `[js.plugins]` | Per plugin: `true` or `false` keeps the options; a table replaces them |
 | `[[ignore]]`, `[[overrides]]` | Append |

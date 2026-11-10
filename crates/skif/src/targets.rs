@@ -4,8 +4,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
 use rayon::prelude::*;
-use skif_config::{Ceiling, Config, ConfigCache, ConfigLoader, ConfigOverrides, ConfigSource, Origins};
+use skif_config::{
+    Assignment, Ceiling, Config, ConfigCache, ConfigError, ConfigLoader, ConfigOverrides, ConfigSource, Origins,
+    SourceKind, join_key,
+};
 use skif_core::FileSystem;
+use skif_lint::LintError;
 use skif_workspace::{
     DiscoverOptions, RootKind, Workspace, claim_roots, declared_member_dirs, declares_workspace, repository_root,
     scan_candidates,
@@ -54,6 +58,79 @@ impl Target {
         let mut path: PathBuf = std::iter::repeat_n("..", base.len() - common).collect();
         path.extend(&target[common..]);
         Some(path)
+    }
+
+    /// Keeps the `[[ignore]]` entries of [`config`](Self::config) at the indices `keep` accepts, with
+    /// [`origins`](Self::origins) renumbered to match, so a later error about an entry still names the file that set
+    /// it.
+    pub fn retain_ignore(&mut self, keep: impl Fn(usize) -> bool) {
+        let entries = std::mem::take(&mut self.config.ignore);
+        self.config.ignore = entries
+            .into_iter()
+            .enumerate()
+            .filter(|(index, _)| keep(*index))
+            .map(|(_, entry)| entry)
+            .collect();
+        self.origins.retain_list("ignore", keep);
+    }
+
+    /// `error`, raised while building a linter for this target, with an unknown rule ID attributed to the file (and,
+    /// for a file of the chain, the line and column) that names it: a `[rules]` key, an `[[ignore]]` entry or an
+    /// override. Any other error is returned as it is.
+    ///
+    /// A located error is a [`ConfigError::Parse`] whose `message` is the [`ConfigError::UnknownRule`] text, its
+    /// suggestion included, since that variant has no fields for a file and position; a host that matches on
+    /// `UnknownRule` should do so before calling this. An error with no recorded origin stays `UnknownRule`.
+    #[must_use]
+    pub fn locate(&self, error: Error) -> Error {
+        match error {
+            Error::Config(error) => Error::Config(self.locate_config(error)),
+            Error::Lint(LintError::Config(error)) => Error::Lint(LintError::Config(self.locate_config(error))),
+            other => other,
+        }
+    }
+
+    fn locate_config(&self, error: ConfigError) -> ConfigError {
+        let ConfigError::UnknownRule { rule, .. } = &error else {
+            return error;
+        };
+        let Some(assignment) = self.rule_origin(rule) else {
+            return error;
+        };
+        let Some(source) = self.sources.get(assignment.source) else {
+            return error;
+        };
+        // A package file is recorded as a whole, so its position says nothing about the rule.
+        let known = |position: usize| (position > 0 && source.kind != SourceKind::Package).then_some(position);
+        ConfigError::Parse {
+            path: Some(source.path.clone()),
+            message: error.to_string(),
+            span: None,
+            line: known(assignment.line),
+            column: known(assignment.column),
+        }
+    }
+
+    /// The assignment that put `rule` into the configuration: its `[rules]` key, else the first `[[ignore]]` entry
+    /// naming it, else the first override that does.
+    fn rule_origin(&self, rule: &str) -> Option<&Assignment> {
+        let names = |rules: &[String]| rules.iter().any(|id| id == rule);
+        let own = join_key("rules", rule);
+        let ignore = || {
+            let index = self.config.ignore.iter().position(|entry| names(&entry.rules))?;
+            self.origins.last(&format!("ignore[{index}]"))
+        };
+        let scoped = || {
+            let index = self.config.overrides.iter().position(|scoped| {
+                scoped.rules.contains_key(rule) || scoped.ignore.iter().any(|entry| names(&entry.rules))
+            })?;
+            self.origins.last(&format!("overrides[{index}]"))
+        };
+        self.origins
+            .last(&format!("{own}.level"))
+            .or_else(|| self.origins.last(&format!("{own}.options")))
+            .or_else(ignore)
+            .or_else(scoped)
     }
 }
 

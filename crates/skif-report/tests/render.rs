@@ -120,16 +120,10 @@ fn with_incomplete() -> Report {
             "web".to_owned(),
             "packages/web".into(),
             vec![
-                IncompleteEntries {
-                    cause: IncompleteCause::UnknownSpread,
-                    plugin: Some("vite".to_owned()),
-                    file: Some("packages/web/vite.config.ts".into()),
-                },
-                IncompleteEntries {
-                    cause: IncompleteCause::UnmappedPublished,
-                    plugin: None,
-                    file: Some("packages/web/package.json".into()),
-                },
+                IncompleteEntries::new(IncompleteCause::UnknownSpread)
+                    .with_plugin("vite")
+                    .with_file("packages/web/vite.config.ts"),
+                IncompleteEntries::new(IncompleteCause::UnmappedPublished).with_file("packages/web/package.json"),
             ],
         )
         .with_scope(IncompleteScope::Within(vec![
@@ -139,11 +133,7 @@ fn with_incomplete() -> Report {
         IncompletePackage::new(
             "root".to_owned(),
             "".into(),
-            vec![IncompleteEntries {
-                cause: IncompleteCause::Unspecified,
-                plugin: None,
-                file: None,
-            }],
+            vec![IncompleteEntries::new(IncompleteCause::Unspecified)],
         ),
     ])
 }
@@ -219,7 +209,11 @@ fn json_paths_are_relativised_to_root() {
 fn json_error_document() {
     let mut out = Vec::new();
     render_json_error("bad \"config\"", &mut out).unwrap();
-    insta::assert_snapshot!(String::from_utf8(out).unwrap());
+    let document = String::from_utf8(out).unwrap();
+    insta::assert_snapshot!(document.replace(
+        &format!("\"skif\": \"{}\"", env!("CARGO_PKG_VERSION")),
+        "\"skif\": \"[VERSION]\""
+    ));
 }
 
 #[test]

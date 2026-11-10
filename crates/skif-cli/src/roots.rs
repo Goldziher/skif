@@ -150,10 +150,11 @@ impl Linters {
                 index
             } else {
                 let fs = fs.map_or_else(|| Arc::new(OsFs) as Arc<dyn FileSystem>, Arc::clone);
-                linters.push(match modules {
-                    Some(modules) => Linter::with_module_cache(&target.config, fs, Arc::clone(modules))?,
-                    None => Linter::with_fs(&target.config, fs)?,
-                });
+                let linter = match modules {
+                    Some(modules) => Linter::with_module_cache(&target.config, fs, Arc::clone(modules)),
+                    None => Linter::with_fs(&target.config, fs),
+                };
+                linters.push(linter.map_err(|error| target.locate(error))?);
                 linters.len() - 1
             };
             of_target.push(index);
@@ -525,11 +526,11 @@ mod tests {
             IncompletePackage::new(
                 name.to_owned(),
                 dir.into(),
-                vec![IncompleteEntries {
-                    cause: IncompleteCause::UnknownSpread,
-                    plugin: Some("vite".to_owned()),
-                    file: Some(file.into()),
-                }],
+                vec![
+                    IncompleteEntries::new(IncompleteCause::UnknownSpread)
+                        .with_plugin("vite")
+                        .with_file(file),
+                ],
             )
         };
         let nested = Report::new(Vec::new(), 1).with_incomplete_packages(vec![package(".", "", "vite.config.ts")]);

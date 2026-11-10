@@ -97,8 +97,11 @@ list the file under `allow`:
 allow = [{ name = "tools/codegen/package-lock.json", reason = "the build installs this tool on its own" }]
 ```
 
-An entry is a path relative to the root, as a string or with a `reason`. An entry that names no file the rule would
-report is itself reported, at the configuration file, unless that file was inherited from a directory above the root.
+An entry is a path or a glob relative to the root (`examples/*/package-lock.json`; `*` also crosses `/`), as a string or
+with a `reason`. It matches its own path literally first, so `app/[id]/package-lock.json` names that file, and then as
+a glob. A pattern that is not a valid glob, starts with `!` or is `$LOCAL` is a configuration error. An entry that matches
+no file the rule would report is itself reported, at the configuration file, unless that file was inherited from a
+directory above the root.
 
 ## Monorepo configuration
 

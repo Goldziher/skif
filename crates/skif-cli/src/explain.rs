@@ -23,7 +23,7 @@ pub fn run(args: &ExplainUsageArgs) -> u8 {
         Ok(()) => CLEAN,
         Err(failure) => {
             let (error, extra) = *failure;
-            emit_error_with(&error, format, extra);
+            emit_error_with(&error, format, extra, &mut std::io::stdout().lock());
             COULD_NOT_RUN
         }
     }

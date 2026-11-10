@@ -1,10 +1,10 @@
 ---
 source: crates/skif-report/tests/render.rs
-expression: "String::from_utf8(out).unwrap()"
+expression: "document.replace(&format!(\"\\\"skif\\\": \\\"{}\\\"\", env!(\"CARGO_PKG_VERSION\")),\n\"\\\"skif\\\": \\\"[VERSION]\\\"\")"
 ---
 {
   "version": 1,
-  "skif": "0.2.0",
+  "skif": "[VERSION]",
   "error": {
     "message": "bad \"config\""
   }

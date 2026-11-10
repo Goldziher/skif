@@ -78,6 +78,7 @@ pub enum Op {
 
 /// One place that set a key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Assignment {
     /// Index into the `sources` of the resolved configuration.
     pub source: usize,
@@ -87,6 +88,19 @@ pub struct Assignment {
     pub column: usize,
     /// What the assignment did to the key.
     pub op: Op,
+}
+
+impl Assignment {
+    /// An assignment by source `source` at `line` and `column` (0 when unknown) that did `op`.
+    #[must_use]
+    pub const fn new(source: usize, line: usize, column: usize, op: Op) -> Self {
+        Self {
+            source,
+            line,
+            column,
+            op,
+        }
+    }
 }
 
 /// The assignments behind every resolved key, oldest first.
@@ -135,6 +149,39 @@ impl Origins {
         self.entries.is_empty()
     }
 
+    /// Keeps the entries of the list `list` (`ignore`, `overrides`, ...) at the indices `keep` accepts and numbers
+    /// them from 0 again, so the keys stay aligned with the list filtered the same way: with entries 0 and 1 dropped,
+    /// `ignore[2]` becomes `ignore[0]`. The keys below an entry (`overrides[2].rules`) move with it; other keys stay.
+    pub fn retain_list(&mut self, list: &str, keep: impl Fn(usize) -> bool) {
+        let prefix = format!("{list}[");
+        let split = |key: &str| -> Option<(usize, String)> {
+            let (digits, tail) = key.strip_prefix(prefix.as_str())?.split_once(']')?;
+            Some((digits.parse().ok()?, tail.to_owned()))
+        };
+        let len = self
+            .entries
+            .keys()
+            .filter_map(|key| split(key))
+            .map(|(index, _)| index + 1)
+            .max();
+        let mut kept = 0;
+        let renumbered: Vec<Option<usize>> = (0..len.unwrap_or(0))
+            .map(|index| {
+                keep(index).then(|| {
+                    kept += 1;
+                    kept - 1
+                })
+            })
+            .collect();
+        self.entries = std::mem::take(&mut self.entries)
+            .into_iter()
+            .filter_map(|(key, assignments)| match split(&key) {
+                None => Some((key, assignments)),
+                Some((index, tail)) => renumbered[index].map(|new| (format!("{prefix}{new}]{tail}"), assignments)),
+            })
+            .collect();
+    }
+
     pub(crate) fn push(&mut self, key: String, assignment: Assignment) {
         self.entries.entry(key).or_default().push(assignment);
     }
@@ -167,7 +214,35 @@ impl ResolvedConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::join_key;
+    use super::{Assignment, Op, Origins, join_key};
+
+    #[test]
+    fn retaining_list_entries_numbers_the_kept_ones_from_zero() {
+        let mut origins = Origins::default();
+        for (key, source) in [
+            ("ignore", 0),
+            ("ignore[0]", 1),
+            ("ignore[1]", 1),
+            ("ignore[2]", 2),
+            ("ignore[3]", 3),
+            ("overrides[0].rules", 4),
+            ("ignored", 5),
+        ] {
+            origins.push(key.to_owned(), Assignment::new(source, 1, 1, Op::Append));
+        }
+        origins.retain_list("ignore", |index| index >= 2);
+        let keys: Vec<(&str, usize)> = origins.iter().map(|(key, list)| (key, list[0].source)).collect();
+        assert_eq!(
+            keys,
+            [
+                ("ignore", 0),
+                ("ignore[0]", 2),
+                ("ignore[1]", 3),
+                ("overrides[0].rules", 4),
+                ("ignored", 5)
+            ]
+        );
+    }
 
     #[test]
     fn keys_with_separators_are_quoted() {

@@ -81,7 +81,9 @@ pub(crate) fn collect(value: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec
 
 fn extends_input(config: &ConfigAst<'_>, specifier: &str) -> Option<PluginInput> {
     if specifier.starts_with("eslint:") {
-        return None;
+        // A built-in config (`eslint:recommended`) ships with ESLint itself. knip credits `eslint` as a plain
+        // dependency; skif deviates and credits it as optional, since a member may get ESLint from the root.
+        return Some(PluginInput::OptionalDependency("eslint".to_owned()));
     }
     if let Some(rest) = specifier.strip_prefix("plugin:") {
         let parts: Vec<&str> = rest.split('/').collect();
