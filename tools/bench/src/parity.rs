@@ -1243,12 +1243,14 @@ fn install_command(repo: &Repo, dir: &Path) -> Result<(String, Vec<String>), Str
 }
 
 /// Installs the dependencies of a checkout without running lifecycle scripts, then runs the repository's
-/// `build-command` if it has one; `Some(reason)` when either fails.
+/// `build-command` if it has one, within `build-timeout-secs` (the install's time limit when unset); `Some(reason)` when
+/// either fails.
 ///
 /// # Errors
 /// Fails when a command cannot be started or the marker cannot be written.
 pub fn install(repo: &Repo, dir: &Path, scratch: &Path, default_timeout: Duration) -> Result<Option<String>> {
     let timeout = repo.install_timeout_secs.map_or(default_timeout, Duration::from_secs);
+    let build_timeout = repo.build_timeout_secs.map_or(timeout, Duration::from_secs);
     let marker = dir.join(INSTALLED_MARKER);
     if is_installed(repo, dir) {
         return Ok(None);
@@ -1261,7 +1263,7 @@ pub fn install(repo: &Repo, dir: &Path, scratch: &Path, default_timeout: Duratio
         return Ok(Some(reason));
     }
     if let Some((program, args)) = repo.build_command.split_first()
-        && let Some(reason) = run_step(repo, dir, scratch, ("build", program, args), timeout)?
+        && let Some(reason) = run_step(repo, dir, scratch, ("build", program, args), build_timeout)?
     {
         return Ok(Some(reason));
     }
@@ -1368,15 +1370,17 @@ fn unused_files(keys: &Keys) -> &BTreeSet<String> {
     keys.get("files").unwrap_or(&NONE)
 }
 
-/// skif's report on a checkout.
+/// skif's report on a checkout, and why its install or build failed, if it did.
 struct SkifRun {
     doc: Value,
     run: Captured,
     recursive: bool,
+    install_failure: Option<String>,
 }
 
 /// Installs the checkout when the run and the repository ask for it, then runs skif on it; `Ok(Err(reason))` when the
-/// repository is skipped.
+/// repository is skipped. A failed install or build does not skip it: both tools run on what the checkout holds,
+/// which counts as not installed, and the failure is recorded with the run.
 fn install_and_run_skif(
     options: &Options,
     skif: &Path,
@@ -1385,11 +1389,13 @@ fn install_and_run_skif(
     scratch: &Path,
 ) -> Result<Result<SkifRun, String>> {
     // A repository with `install = false` is compared uninstalled, so a tool that cannot run there says why itself.
-    if options.install
-        && repo.install
-        && let Some(reason) = install(repo, root, scratch, options.timeout)?
-    {
-        return Ok(Err(format!("install: {reason}")));
+    let install_failure = if options.install && repo.install {
+        install(repo, root, scratch, options.timeout)?
+    } else {
+        None
+    };
+    if let Some(reason) = &install_failure {
+        eprintln!("parity: {} is compared without a complete install: {reason}", repo.name);
     }
     let mut command = Command::new(skif);
     command
@@ -1420,7 +1426,12 @@ fn install_and_run_skif(
             .unwrap_or("no diagnostics in the output");
         return Ok(Err(format!("skif failed: {message}")));
     }
-    Ok(Ok(SkifRun { doc, run, recursive }))
+    Ok(Ok(SkifRun {
+        doc,
+        run,
+        recursive,
+        install_failure,
+    }))
 }
 
 /// knip's report on a checkout, with knip's workspaces as they were while it ran.
@@ -1594,6 +1605,7 @@ fn parity_repo(
     let detail = json!({
         "status": COMPARED,
         "installed": installed,
+        "install_failure": skif_run.install_failure,
         "recursive": skif_run.recursive,
         "skif_rev": skif_rev,
         "knip_exit": knip_run.run.code,
@@ -1982,6 +1994,7 @@ mod tests {
             knip_invalid: None,
             knip_root: None,
             build_command: Vec::new(),
+            build_timeout_secs: None,
         };
         let dir = Path::new("/nonexistent");
         assert_eq!(install_command(&repo("npm", true), dir).unwrap().1[0], "ci");
@@ -2473,6 +2486,36 @@ mod tests {
             "{table}"
         );
         assert!(table.contains("`not-judged-by-skif`"), "{table}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_build_runs_within_its_own_time_limit_and_a_failed_one_writes_no_marker() {
+        let dir = std::env::temp_dir().join(format!("skif-bench-parity-build-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let scratch = dir.join("scratch");
+        let mut repo: Repo = toml::from_str(&format!(
+            "name = \"r\"\nurl = \"u\"\nrev = \"{}\"\npackage-manager = \"pnpm\"\n\
+             install-command = [\"sh\", \"-c\", \"exit 0\"]\n\
+             build-command = [\"sleep\", \"30\"]\nbuild-timeout-secs = 1\n",
+            "a".repeat(40)
+        ))
+        .unwrap();
+        assert_eq!(repo.build_timeout_secs, Some(1));
+        let reason = install(&repo, &dir, &scratch, Duration::from_secs(600)).unwrap();
+        assert_eq!(reason.as_deref(), Some("sleep build timed out after 1 s"));
+        assert!(!is_installed(&repo, &dir), "a timed-out build leaves the checkout not installed");
+
+        repo.build_command = vec!["sh".to_owned(), "-c".to_owned(), "exit 4".to_owned()];
+        let reason = install(&repo, &dir, &scratch, Duration::from_secs(600)).unwrap().unwrap();
+        assert!(reason.starts_with("sh build failed"), "{reason}");
+        assert!(!is_installed(&repo, &dir));
+
+        repo.build_command = vec!["sh".to_owned(), "-c".to_owned(), "exit 0".to_owned()];
+        assert_eq!(install(&repo, &dir, &scratch, Duration::from_secs(600)).unwrap(), None);
+        assert!(is_installed(&repo, &dir));
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

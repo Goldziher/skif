@@ -80,6 +80,9 @@ pub struct Repo {
     /// lifecycle scripts leaves unbuilt.
     #[serde(default)]
     pub build_command: Vec<String>,
+    /// Seconds the `build-command` may take; the install's time limit when unset.
+    #[serde(default)]
+    pub build_timeout_secs: Option<u64>,
 }
 
 /// The `knip-root` of a Rush repository: knip runs in the checkout with a root `package.json` made from `rush.json`,

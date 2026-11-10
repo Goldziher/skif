@@ -10,6 +10,7 @@
 #   install-command  optional install command (program first) replacing the package manager's default
 #   install-timeout-secs  optional install time limit, replacing the global --timeout-secs for the install only
 #   build-command    optional command (program first) run after the install, building packages the configs load
+#   build-timeout-secs  optional build-command time limit, the install's when unset
 #   recursive        true when skif must run with --recursive here (nested roots that are not workspace members)
 #   knip-unread      path prefixes knip does not read here; one-sided findings below them are a known deviation
 #   entry            entry files of the root workspace neither tool finds (globs); both get them besides their defaults
