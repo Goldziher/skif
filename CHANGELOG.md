@@ -13,6 +13,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- An agent skill, `skills/skif`, that teaches coding agents the lint, triage and fix loop, the JSON report,
+  configuration, migration and CI. It installs from GitHub with `npx skills add Goldziher/skif`, or as a plugin from
+  the repository's marketplace manifests (`.claude-plugin/`, `.codex-plugin/`, `.agents/plugins/`) in Claude Code,
+  Codex, Factory Droid and GitHub Copilot CLI. The plugin version follows the release: `scripts/release-bump.sh`
+  rewrites it and `scripts/check-versions.sh` checks it, and the skill's version pins and rule counts are covered by
+  `scripts/check-doc-pins.sh` and `scripts/check-rule-ids.sh`
+  ([ADR 0100](adrs/0100-agent-skill-distributed-from-the-repository.md)).
 - `toolchain-pin-drift` (`warn`): Node and package-manager versions pinned in `.nvmrc`, `.node-version`,
   `.tool-versions`, `mise.toml`, Dockerfiles (`FROM node:<version>`, `ARG NODE_VERSION`, `corepack prepare`,
   `npm install -g pnpm@<version>`) and GitHub workflows (`actions/setup-node`, `pnpm/action-setup`) are checked
