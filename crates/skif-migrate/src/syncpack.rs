@@ -121,6 +121,8 @@ struct MappedTypes {
     tokens: Vec<String>,
     /// Every positive token named something skif cannot read, so the group would cover nothing skif checks.
     covers_nothing: bool,
+    /// The dropped names that are neither built-in nor custom types, which syncpack rejects.
+    rejected: Vec<String>,
 }
 
 #[derive(Default)]
@@ -509,6 +511,11 @@ fn map_types(state: &mut State<'_>, src: &Src, path: &str, tokens: &[String], ty
             None => {}
         }
     }
+    let rejected = dropped
+        .iter()
+        .filter(|name| types.kind(name).is_none())
+        .cloned()
+        .collect();
     let covers_nothing = positive && !kept_positive;
     if !dropped.is_empty() && !covers_nothing {
         state.note(
@@ -524,6 +531,7 @@ fn map_types(state: &mut State<'_>, src: &Src, path: &str, tokens: &[String], ty
     MappedTypes {
         tokens: kept,
         covers_nothing,
+        rejected,
     }
 }
 
@@ -614,6 +622,19 @@ impl Selectors {
             return Some(Vec::new());
         };
         let mapped = map_types(state, src, &join(path, "dependencyTypes"), tokens, types);
+        if mapped.covers_nothing && !mapped.rejected.is_empty() {
+            state.note(
+                src,
+                NoteClass::Human,
+                join(path, "dependencyTypes"),
+                format!(
+                    "{} is neither a built-in nor a custom dependency type, so syncpack rejected the file; the group \
+                     was not written",
+                    mapped.rejected.join(", ")
+                ),
+            );
+            return None;
+        }
         if mapped.covers_nothing {
             state.note_with(
                 src,

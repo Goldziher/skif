@@ -966,6 +966,24 @@ fn a_group_that_only_covers_a_type_skif_cannot_read_is_not_written() {
 }
 
 #[test]
+fn a_group_on_a_type_syncpack_does_not_know_is_noted_as_invalid_for_syncpack() {
+    let migration = syncpack(
+        r#"{ "versionGroups": [{ "dependencyTypes": ["optionalDependencies"], "isBanned": true }] }"#,
+        Profile::Full,
+    );
+    assert!(table(&migration).get("version-groups").is_none(), "{}", migration.toml);
+    let noted = note(&migration, "versionGroups[0].dependencyTypes");
+    assert_eq!(noted.class, NoteClass::Human);
+    assert!(
+        noted
+            .message
+            .contains("optionalDependencies is neither a built-in nor a custom dependency type"),
+        "{noted:#?}"
+    );
+    assert!(!noted.message.contains("skif does not read"), "{noted:#?}");
+}
+
+#[test]
 fn a_group_outside_the_lint_scope_is_not_also_noted_as_written() {
     let mut input = ToolInput::new(Tool::Syncpack);
     input.config = Some(text(
