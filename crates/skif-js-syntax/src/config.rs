@@ -11,7 +11,7 @@ use oxc_ast::ast::{
     Argument, ArrayExpressionElement, ArrowFunctionExpression, AssignmentOperator, AssignmentTarget,
     AssignmentTargetPropertyIdentifier, BinaryOperator, BindingIdentifier, BindingPattern, BlockStatement,
     CallExpression, CatchClause, ConditionalExpression, Declaration, ExportDefaultDeclarationKind, Expression,
-    ExpressionStatement, ForInStatement, ForOfStatement, ForStatement, Function, IfStatement,
+    ExpressionStatement, ForInStatement, ForOfStatement, ForStatement, Function, IdentifierReference, IfStatement,
     ImportDeclarationSpecifier, ImportOrExportKind, LogicalExpression, LogicalOperator, NewExpression, ObjectProperty,
     ObjectPropertyKind, Program, ReturnStatement, SimpleAssignmentTarget, Statement, StaticMemberExpression,
     TaggedTemplateExpression, TemplateLiteral, UnaryExpression, UnaryOperator, VariableDeclaration,
@@ -129,9 +129,6 @@ pub const UNKNOWN_SPREAD: &str = "...";
 /// (`build: { ...makeLib() }`). A value imported from another module records these as [`UNKNOWN_SPREAD`] too.
 pub const OWN_SPREAD: &str = "...own";
 
-/// The prefix of a [`maybe_key`].
-const MAYBE_PREFIX: &str = "\0maybe:";
-
 impl ConfigValue {
     /// Whether `key` is a key an object records an unknown spread under, [`UNKNOWN_SPREAD`] or [`OWN_SPREAD`].
     #[must_use]
@@ -201,6 +198,115 @@ impl ConfigValue {
             Self::Array(items) => items.iter().any(Self::has_unknown),
             Self::Object(entries) => entries.iter().any(|(_, v)| v.has_unknown()),
             _ => false,
+        }
+    }
+}
+
+/// A value as the evaluator holds it: a [`ConfigValue`] that may also record that a value is not definite. Only
+/// the evaluator sees it; what it hands out is converted to a [`ConfigValue`], which has no such record.
+#[derive(Debug, Clone, PartialEq)]
+enum Value {
+    Null,
+    Bool(bool),
+    Number(f64),
+    String(String),
+    Array(Vec<Value>),
+    Object(Vec<(String, Value)>),
+    Regex { pattern: String, flags: String },
+    Unknown,
+    /// A value that is not definite: as the value of an object's key, one merged from the branches of a condition the
+    /// evaluator cannot decide ([`any_entries`]), which the object may lack or hold any one of the values its union
+    /// lists in.
+    Maybe(Box<Value>),
+}
+
+impl Value {
+    /// The value of `key` when this is an object, as [`ConfigValue::get`] finds it.
+    fn get(&self, key: &str) -> Option<&Value> {
+        match self {
+            Self::Object(entries) => entries.iter().rev().find(|(k, _)| k == key).map(|(_, v)| v),
+            _ => None,
+        }
+    }
+
+    /// The string when this is a string.
+    fn as_str(&self) -> Option<&str> {
+        match self {
+            Self::String(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// `value`, or a [`Value::Maybe`] of it when it is not `definite`.
+    fn doubtful(value: Self, definite: bool) -> Self {
+        if definite || !value.is_definite() {
+            value
+        } else {
+            Self::Maybe(Box::new(value))
+        }
+    }
+
+    /// The value without its [`Value::Maybe`], and whether it is definite.
+    fn split(self) -> (Self, bool) {
+        match self {
+            Self::Maybe(value) => (*value, false),
+            value => (value, true),
+        }
+    }
+
+    /// Whether the value is definite, not a [`Value::Maybe`].
+    fn is_definite(&self) -> bool {
+        !matches!(self, Self::Maybe(_))
+    }
+
+    /// The value inside a [`Value::Maybe`], or the value itself.
+    fn definite(&self) -> &Self {
+        match self {
+            Self::Maybe(value) => &**value,
+            value => value,
+        }
+    }
+
+    /// The value inside a [`Value::Maybe`], or the value itself, to change in place.
+    fn definite_mut(&mut self) -> &mut Self {
+        match self {
+            Self::Maybe(value) => &mut **value,
+            value => value,
+        }
+    }
+}
+
+impl From<ConfigValue> for Value {
+    fn from(value: ConfigValue) -> Self {
+        match value {
+            ConfigValue::Null => Self::Null,
+            ConfigValue::Bool(b) => Self::Bool(b),
+            ConfigValue::Number(n) => Self::Number(n),
+            ConfigValue::String(s) => Self::String(s),
+            ConfigValue::Array(items) => Self::Array(items.into_iter().map(Self::from).collect()),
+            ConfigValue::Object(entries) => {
+                Self::Object(entries.into_iter().map(|(key, value)| (key, Self::from(value))).collect())
+            }
+            ConfigValue::Regex { pattern, flags } => Self::Regex { pattern, flags },
+            ConfigValue::Unknown => Self::Unknown,
+        }
+    }
+}
+
+impl From<Value> for ConfigValue {
+    fn from(value: Value) -> Self {
+        match value {
+            Value::Null => Self::Null,
+            Value::Bool(b) => Self::Bool(b),
+            Value::Number(n) => Self::Number(n),
+            Value::String(s) => Self::String(s),
+            Value::Array(items) => Self::Array(items.into_iter().map(Self::from).collect()),
+            Value::Object(entries) => {
+                Self::Object(entries.into_iter().map(|(key, value)| (key, Self::from(value))).collect())
+            }
+            Value::Regex { pattern, flags } => Self::Regex { pattern, flags },
+            Value::Unknown => Self::Unknown,
+            Value::Maybe(value) => Self::from(*value),
         }
     }
 }
@@ -359,10 +465,10 @@ fn evaluate_config(source: &str, path: &Path, modules: Option<&Modules<'_>>) -> 
         value
     };
     let captured = eval.captured.borrow_mut().take();
-    let value = settled(captured.unwrap_or(value));
+    let value = ConfigValue::from(captured.unwrap_or(value));
     let call_arguments = match exported {
         Exported::Expression(expr) if matches!(value, ConfigValue::Unknown) => {
-            eval.unknown_call_arguments(expr, 0).into_iter().map(settled).collect()
+            eval.unknown_call_arguments(expr, 0).into_iter().map(ConfigValue::from).collect()
         }
         _ => Vec::new(),
     };
@@ -515,7 +621,7 @@ struct Modules<'l> {
     /// time, so it is not cached.
     cuts: Cell<usize>,
     /// The value of every export evaluated without arguments so far, by module and export, computed without a cut.
-    values: RefCell<HashMap<(PathBuf, Imported), Option<ConfigValue>>>,
+    values: RefCell<HashMap<(PathBuf, Imported), Option<Value>>>,
     /// What the loader returned for each importing directory and specifier.
     loaded: RefCell<HashMap<(PathBuf, String), Option<LoadedModule>>>,
 }
@@ -547,8 +653,8 @@ impl Modules<'_> {
         from: &Path,
         specifier: &str,
         imported: &Imported,
-        args: Option<&[ConfigValue]>,
-    ) -> Option<ConfigValue> {
+        args: Option<&[Value]>,
+    ) -> Option<Value> {
         let (path, source) = self.load(from, specifier)?;
         let key = (path.clone(), imported.clone());
         if args.is_none()
@@ -558,7 +664,7 @@ impl Modules<'_> {
         }
         if self.cut(&key) {
             self.cuts.set(self.cuts.get() + 1);
-            return Some(ConfigValue::Unknown);
+            return Some(Value::Unknown);
         }
         self.loads.borrow_mut().insert(path.clone());
         self.evaluations.set(self.evaluations.get() + 1);
@@ -588,8 +694,8 @@ impl Modules<'_> {
         path: &Path,
         source: &str,
         imported: &Imported,
-        args: Option<&[ConfigValue]>,
-    ) -> Option<ConfigValue> {
+        args: Option<&[Value]>,
+    ) -> Option<Value> {
         let source_type = SourceType::from_path(path).ok()?;
         let allocator = Allocator::default();
         let ret = Parser::new(&allocator, source, source_type)
@@ -599,7 +705,7 @@ impl Modules<'_> {
             })
             .parse();
         if ret.diagnostics.errors().next().is_some() {
-            return Some(ConfigValue::Unknown);
+            return Some(Value::Unknown);
         }
         let program = &ret.program;
         let top = top_level(program);
@@ -625,7 +731,7 @@ impl Modules<'_> {
             captured: RefCell::new(None),
         };
         match imported {
-            Imported::Namespace => Some(ConfigValue::Unknown),
+            Imported::Namespace => Some(Value::Unknown),
             Imported::Default => Some(match exported(program)? {
                 Exported::Function(function) => eval.invoke(Callable::Function(function), args, true, 0),
                 Exported::Expression(expr) => {
@@ -633,7 +739,7 @@ impl Modules<'_> {
                         (None, _, _) => eval.expr(expr, 0),
                         (Some(args), Some(callable), _) => eval.invoke(callable, Some(args), true, 0),
                         (Some(args), None, Expression::Identifier(id)) => eval.call_named(id.name.as_str(), args),
-                        (Some(_), None, _) => ConfigValue::Unknown,
+                        (Some(_), None, _) => Value::Unknown,
                     }
                 }
             })
@@ -648,7 +754,7 @@ impl Modules<'_> {
                 let (table, stars) = export_table(program);
                 match table.get(name) {
                     Some(ExportSource::Local(local)) => Some(match args {
-                        None => eval.identifier(local, 0),
+                        None => eval.identifier(local, 0).split().0,
                         Some(args) => eval.call_named(local, args),
                     }),
                     Some(ExportSource::From(from, imported)) => self.evaluate(path, from, imported, args),
@@ -661,9 +767,9 @@ impl Modules<'_> {
 
 /// A value of another module as the module importing it sees it: what that module computes itself is a value taken
 /// from elsewhere, so each [`OWN_SPREAD`] becomes an [`UNKNOWN_SPREAD`].
-fn as_imported(value: ConfigValue) -> ConfigValue {
+fn as_imported(value: Value) -> Value {
     match value {
-        ConfigValue::Object(entries) => ConfigValue::Object(
+        Value::Object(entries) => Value::Object(
             entries
                 .into_iter()
                 .map(|(key, value)| {
@@ -676,7 +782,8 @@ fn as_imported(value: ConfigValue) -> ConfigValue {
                 })
                 .collect(),
         ),
-        ConfigValue::Array(items) => ConfigValue::Array(items.into_iter().map(as_imported).collect()),
+        Value::Array(items) => Value::Array(items.into_iter().map(as_imported).collect()),
+        Value::Maybe(value) => Value::Maybe(Box::new(as_imported(*value))),
         other => other,
     }
 }
@@ -748,7 +855,7 @@ impl<'p, 'a> Callable<'p, 'a> {
 /// What a name is bound to inside a function being evaluated.
 #[derive(Clone)]
 enum Binding<'p, 'a> {
-    Value(ConfigValue),
+    Value(Value),
     Callable(Callable<'p, 'a>),
 }
 
@@ -968,9 +1075,9 @@ fn normalized(parts: &[&str]) -> String {
 }
 
 /// The result of a `path` or `url` function, `Unknown` when an argument is not a known relative path.
-fn apply_path_function(function: &str, args: &[ConfigValue]) -> ConfigValue {
-    let Some(parts) = args.iter().map(ConfigValue::as_str).collect::<Option<Vec<&str>>>() else {
-        return ConfigValue::Unknown;
+fn apply_path_function(function: &str, args: &[Value]) -> Value {
+    let Some(parts) = args.iter().map(Value::as_str).collect::<Option<Vec<&str>>>() else {
+        return Value::Unknown;
     };
     let absolute = |part: &&str| part.starts_with(['/', '\\']);
     let path = match (function, parts.as_slice()) {
@@ -980,9 +1087,9 @@ fn apply_path_function(function: &str, args: &[ConfigValue]) -> ConfigValue {
         ("normalize", [path]) => normalized(&[*path]),
         ("resolve", parts) if !parts.iter().any(absolute) => normalized(parts),
         ("join", parts) if !parts.first().is_some_and(absolute) => normalized(parts),
-        _ => return ConfigValue::Unknown,
+        _ => return Value::Unknown,
     };
-    ConfigValue::String(path)
+    Value::String(path)
 }
 
 /// Statically evaluates the option `key` of every `new constructor({ … })` in `source`, however the constructor was
@@ -1015,7 +1122,7 @@ pub fn extract_constructor_options(source: &str, path: &Path, constructor: &str,
         found: Vec::new(),
     };
     finder.visit_program(program);
-    finder.found.into_iter().map(settled).collect()
+    finder.found.into_iter().map(ConfigValue::from).collect()
 }
 
 /// Statically evaluates the value of every property named `key` of every object literal in `source`, however deeply
@@ -1058,7 +1165,7 @@ fn find_properties(source: &str, path: &Path, key: &str, call_with: Option<&Conf
         found: Vec::new(),
     };
     finder.visit_program(&program);
-    finder.found.into_iter().map(settled).collect()
+    finder.found.into_iter().map(ConfigValue::from).collect()
 }
 
 /// Statically evaluates the arguments of every call of a method named `method` in `source`, whatever object it is
@@ -1084,7 +1191,7 @@ pub fn extract_method_calls(source: &str, path: &Path, method: &str) -> Vec<Vec<
     finder
         .found
         .into_iter()
-        .map(|arguments| arguments.into_iter().map(settled).collect())
+        .map(|arguments| arguments.into_iter().map(ConfigValue::from).collect())
         .collect()
 }
 
@@ -1172,14 +1279,7 @@ pub(crate) fn imported_calls_in(
         found: Vec::new(),
     };
     finder.visit_program(program);
-    finder
-        .found
-        .into_iter()
-        .map(|call| ImportedCall {
-            arguments: call.arguments.into_iter().map(settled).collect(),
-            ..call
-        })
-        .collect()
+    finder.found
 }
 
 /// The command line of a `(file, [arguments])` call such as `spawn('eslint', ['.'])`: the file and its literal
@@ -1211,7 +1311,7 @@ pub fn literal_command(arguments: &[ConfigValue]) -> Option<String> {
 type ImportedFunctions = HashMap<String, (String, Option<String>)>;
 
 /// The entries of one object literal, as a spread branch lists them.
-type Entries<'v> = &'v [(String, ConfigValue)];
+type Entries<'v> = &'v [(String, Value)];
 
 fn imported_functions(program: &Program<'_>, modules: &[&str], globals: &[(&str, &str)]) -> ImportedFunctions {
     let mut imported: ImportedFunctions = globals
@@ -1326,7 +1426,7 @@ impl<'a> Visit<'a> for CallFinder<'_, '_, 'a> {
                 .map(|argument| {
                     argument
                         .as_expression()
-                        .map_or(ConfigValue::Unknown, |e| eval.expr(e, 0))
+                        .map_or(ConfigValue::Unknown, |e| ConfigValue::from(eval.expr(e, 0)))
                 })
                 .collect();
             self.found.push(ImportedCall {
@@ -1363,7 +1463,7 @@ struct OptionFinder<'t, 'p, 'a> {
     file: &'t str,
     constructor: &'t str,
     key: &'t str,
-    found: Vec<ConfigValue>,
+    found: Vec<Value>,
 }
 
 impl<'a> Visit<'a> for OptionFinder<'_, '_, 'a> {
@@ -1419,7 +1519,7 @@ struct MethodCallFinder<'t, 'p, 'a> {
     bindings: &'t ModuleBindings,
     file: &'t str,
     method: &'t str,
-    found: Vec<Vec<ConfigValue>>,
+    found: Vec<Vec<Value>>,
 }
 
 impl<'a> Visit<'a> for MethodCallFinder<'_, '_, 'a> {
@@ -1434,7 +1534,7 @@ impl<'a> Visit<'a> for MethodCallFinder<'_, '_, 'a> {
                 .map(|argument| {
                     argument
                         .as_expression()
-                        .map_or(ConfigValue::Unknown, |e| eval.expr(e, 0))
+                        .map_or(Value::Unknown, |e| eval.expr(e, 0))
                 })
                 .collect();
             self.found.push(arguments);
@@ -1452,10 +1552,10 @@ struct PropertyFinder<'t, 'p, 'a> {
     /// value.
     call_with: Option<&'t ConfigValue>,
     /// The top-level constants evaluated so far, carried from one property to the next so each is evaluated once.
-    evaluated: HashMap<String, ConfigValue>,
+    evaluated: HashMap<String, Value>,
     /// The names the scopes around the current node declare, innermost last: they shadow top-level bindings.
     shadowed: Vec<Vec<String>>,
-    found: Vec<ConfigValue>,
+    found: Vec<Value>,
 }
 
 impl PropertyFinder<'_, '_, '_> {
@@ -1537,13 +1637,13 @@ impl<'a> Visit<'a> for PropertyFinder<'_, '_, 'a> {
                 .shadowed
                 .iter()
                 .flatten()
-                .map(|name| (name.clone(), Binding::Value(ConfigValue::Unknown)))
+                .map(|name| (name.clone(), Binding::Value(Value::Unknown)))
                 .collect();
             if !shadowed.is_empty() {
                 eval.frames.borrow_mut().push(shadowed);
             }
             let value = match (self.call_with, callable) {
-                (Some(argument), Some(callable)) => eval.call_with(callable, argument.clone(), 0),
+                (Some(argument), Some(callable)) => eval.call_with(callable, Value::from(argument.clone()), 0),
                 _ => eval.expr(&it.value, 0),
             };
             self.found.push(value);
@@ -1614,10 +1714,11 @@ fn is_module_exports_assignment(stmt: &Statement<'_>) -> bool {
 }
 
 /// The number of values `value` consists of, itself included.
-fn node_count(value: &ConfigValue) -> usize {
+fn node_count(value: &Value) -> usize {
     1 + match value {
-        ConfigValue::Array(items) => items.iter().map(node_count).sum(),
-        ConfigValue::Object(entries) => entries.iter().map(|(_, item)| node_count(item)).sum(),
+        Value::Array(items) => items.iter().map(node_count).sum(),
+        Value::Object(entries) => entries.iter().map(|(_, item)| node_count(item)).sum(),
+        Value::Maybe(value) => node_count(value),
         _ => 0,
     }
 }
@@ -1641,7 +1742,7 @@ struct Evaluator<'c, 'p, 'a> {
     /// Follows imports; `None` when imports are not followed.
     modules: Option<&'c Modules<'c>>,
     /// The value of every top-level constant evaluated so far.
-    evaluated: RefCell<HashMap<String, ConfigValue>>,
+    evaluated: RefCell<HashMap<String, Value>>,
     /// The constants being evaluated, outermost first; a constant that refers back to one of them is unknown.
     chain: RefCell<Vec<String>>,
     /// The bindings of the functions being evaluated, outermost first.
@@ -1652,7 +1753,7 @@ struct Evaluator<'c, 'p, 'a> {
     /// the object the function hands the real config to with `config.set({ … })`.
     config_setter: RefCell<Option<String>>,
     /// The argument of the last `<config_setter>.set(…)` call evaluated.
-    captured: RefCell<Option<ConfigValue>>,
+    captured: RefCell<Option<Value>>,
 }
 
 /// The imports of an evaluator that follows none.
@@ -1665,7 +1766,7 @@ impl<'c, 'p, 'a> Evaluator<'c, 'p, 'a> {
         top: &'c TopLevel<'p, 'a>,
         bindings: &'c ModuleBindings,
         file: &'c str,
-        evaluated: HashMap<String, ConfigValue>,
+        evaluated: HashMap<String, Value>,
     ) -> Self {
         Self {
             consts: &top.consts,
@@ -1689,66 +1790,71 @@ impl<'c, 'p, 'a> Evaluator<'c, 'p, 'a> {
 }
 
 impl<'p, 'a> Evaluator<'_, 'p, 'a> {
-    fn expr(&self, expr: &'p Expression<'a>, depth: u32) -> ConfigValue {
+    fn expr(&self, expr: &'p Expression<'a>, depth: u32) -> Value {
         if depth > MAX_DEPTH {
-            return ConfigValue::Unknown;
+            return Value::Unknown;
         }
         let depth = depth + 1;
         let inner = expr.get_inner_expression();
         match inner {
-            Expression::NullLiteral(_) => ConfigValue::Null,
-            Expression::BooleanLiteral(b) => ConfigValue::Bool(b.value),
-            Expression::NumericLiteral(n) => ConfigValue::Number(n.value),
-            Expression::StringLiteral(_) => static_string(inner).map_or(ConfigValue::Unknown, ConfigValue::String),
-            Expression::RegExpLiteral(r) => ConfigValue::Regex {
+            Expression::NullLiteral(_) => Value::Null,
+            Expression::BooleanLiteral(b) => Value::Bool(b.value),
+            Expression::NumericLiteral(n) => Value::Number(n.value),
+            Expression::StringLiteral(_) => static_string(inner).map_or(Value::Unknown, Value::String),
+            Expression::RegExpLiteral(r) => Value::Regex {
                 pattern: r.regex.pattern.text.as_str().to_owned(),
                 flags: r.regex.flags.to_string(),
             },
             Expression::TemplateLiteral(template) => self.template(template, depth),
             Expression::BinaryExpression(b) if b.operator == BinaryOperator::Addition => {
                 match (self.expr(&b.left, depth), self.expr(&b.right, depth)) {
-                    (ConfigValue::String(left), ConfigValue::String(right)) => ConfigValue::String(left + &right),
-                    _ => ConfigValue::Unknown,
+                    (Value::String(left), Value::String(right)) => Value::String(left + &right),
+                    _ => Value::Unknown,
                 }
             }
             Expression::StaticMemberExpression(member) => self.member(member, depth).0,
             Expression::NewExpression(new) => self.url(new, depth),
             Expression::UnaryExpression(u) if u.operator == UnaryOperator::UnaryNegation => {
                 match self.expr(&u.argument, depth) {
-                    ConfigValue::Number(n) => ConfigValue::Number(-n),
-                    _ => ConfigValue::Unknown,
+                    Value::Number(n) => Value::Number(-n),
+                    _ => Value::Unknown,
                 }
             }
             Expression::UnaryExpression(u) if u.operator == UnaryOperator::LogicalNot => self
                 .truthy(&u.argument, depth)
-                .map_or(ConfigValue::Unknown, |t| ConfigValue::Bool(!t)),
+                .map_or(Value::Unknown, |t| Value::Bool(!t)),
             Expression::LogicalExpression(l) => self.logical(l, depth).0,
             Expression::ConditionalExpression(c) => self.conditional(c, depth),
             Expression::AwaitExpression(a) => self.expr(&a.argument, depth),
             Expression::ArrayExpression(a) => self.array(&a.elements, depth),
             Expression::ObjectExpression(o) => self.object(&o.properties, depth),
-            Expression::Identifier(id) => {
-                let value = self.identifier(id.name.as_str(), depth);
-                match self.unstable.of_reference(id) {
-                    Some(change) => unstable(value, change),
-                    None => value,
-                }
-            }
+            Expression::Identifier(id) => self.reference(id, depth).0,
             Expression::CallExpression(c) => self.call(c, depth),
             Expression::ArrowFunctionExpression(f) => self.invoke(Callable::Arrow(f), None, false, depth),
             Expression::FunctionExpression(f) => self.invoke(Callable::Function(f), None, false, depth),
-            _ => ConfigValue::Unknown,
+            _ => Value::Unknown,
         }
+    }
+
+    /// The value the name `id` refers to ([`Self::identifier`]), as code the evaluator does not follow may leave it,
+    /// with whether it is definite ([`Self::read`]).
+    fn reference(&self, id: &IdentifierReference<'a>, depth: u32) -> (Value, bool) {
+        let (value, definite) = self.identifier(id.name.as_str(), depth).split();
+        let value = match self.unstable.of_reference(id) {
+            Some(change) => unstable(value, change),
+            None => value,
+        };
+        (value, definite)
     }
 
     /// The value of a name: a binding of a function being evaluated, a top-level constant (evaluated once however
     /// often it is referenced), a top-level function called with arguments that cannot be known (as the tool calls a
     /// config function the config exports by name), or a path global.
-    fn identifier(&self, name: &str, depth: u32) -> ConfigValue {
+    fn identifier(&self, name: &str, depth: u32) -> Value {
         if let Some(binding) = self.lookup(name) {
             return match binding {
                 Binding::Value(value) => value,
-                Binding::Callable(_) => ConfigValue::Unknown,
+                Binding::Callable(_) => Value::Unknown,
             };
         }
         let Some(&init) = self.consts.get(name) else {
@@ -1763,7 +1869,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         {
             let chain = self.chain.borrow();
             if chain.len() >= MAX_CONST_CHAIN || chain.iter().any(|active| active == name) {
-                return ConfigValue::Unknown;
+                return Value::Unknown;
             }
         }
         self.chain.borrow_mut().push(name.to_owned());
@@ -1775,7 +1881,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         *self.frames.borrow_mut() = saved;
         self.chain.borrow_mut().pop();
         let value = if node_count(&value) > MAX_CONST_NODES {
-            ConfigValue::Unknown
+            Value::Unknown
         } else if self.changed.contains(name) {
             changed(value)
         } else if let Some(change) = self.unstable.of_top(name) {
@@ -1810,11 +1916,11 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     }
 
     /// The path of the module's directory (`__dirname`) or of the module itself (`__filename`).
-    fn global(&self, name: &str) -> ConfigValue {
+    fn global(&self, name: &str) -> Value {
         match name {
-            "__dirname" => ConfigValue::String(normalized(&[self.dir])),
-            "__filename" => ConfigValue::String(self.file_path()),
-            _ => ConfigValue::Unknown,
+            "__dirname" => Value::String(normalized(&[self.dir])),
+            "__filename" => Value::String(self.file_path()),
+            _ => Value::Unknown,
         }
     }
 
@@ -1825,7 +1931,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// The value an imported name stands for, called with `args` when given. `None` when the name is not imported or
     /// its module is not followed.
-    fn import_value(&self, name: &str, args: Option<&[ConfigValue]>) -> Option<ConfigValue> {
+    fn import_value(&self, name: &str, args: Option<&[Value]>) -> Option<Value> {
         let binding = self.imports.get(name)?;
         self.modules?
             .evaluate(self.path, &binding.specifier, &binding.imported, args)
@@ -1907,7 +2013,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     }
 
     /// A call of an imported function whose module is followed; `None` otherwise, before evaluating any argument.
-    fn imported_call(&self, name: &str, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
+    fn imported_call(&self, name: &str, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
         let binding = self.imports.get(name)?;
         let modules = self.modules?;
         if !modules.follows(self.path, &binding.specifier) {
@@ -1918,26 +2024,26 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     }
 
     /// `ns.name` of a namespace import `ns`: the export `name` of its module.
-    fn namespace_member(&self, namespace: &str, name: &str) -> ConfigValue {
+    fn namespace_member(&self, namespace: &str, name: &str) -> Value {
         let (Some(binding), Some(modules)) = (self.imports.get(namespace), self.modules) else {
-            return ConfigValue::Unknown;
+            return Value::Unknown;
         };
         modules
             .evaluate(self.path, &binding.specifier, &Imported::named(name.to_owned()), None)
-            .unwrap_or(ConfigValue::Unknown)
+            .unwrap_or(Value::Unknown)
     }
 
     /// Calls the function `name` of this module, declared or imported, with `args`.
-    fn call_named(&self, name: &str, args: &[ConfigValue]) -> ConfigValue {
+    fn call_named(&self, name: &str, args: &[Value]) -> Value {
         match self.functions.get(name) {
             Some(callable) => self.invoke(*callable, Some(args), true, 0),
-            None => self.import_value(name, Some(args)).unwrap_or(ConfigValue::Unknown),
+            None => self.import_value(name, Some(args)).unwrap_or(Value::Unknown),
         }
     }
 
     /// `module.exports` of the module a `require('./x')` call loads. A package is followed only where its value is the
     /// config (`module.exports = require('@scope/config')`); nested in a config a required package is a name.
-    fn required_value(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
+    fn required_value(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
         let modules = self.modules?;
         if !matches!(call.callee.get_inner_expression(), Expression::Identifier(id) if id.name.as_str() == "require") {
             return None;
@@ -1949,7 +2055,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         modules.evaluate(self.path, &specifier, &Imported::Default, None)
     }
 
-    fn template(&self, template: &'p TemplateLiteral<'a>, depth: u32) -> ConfigValue {
+    fn template(&self, template: &'p TemplateLiteral<'a>, depth: u32) -> Value {
         let mut out = String::new();
         for (index, quasi) in template.quasis.iter().enumerate() {
             out.push_str(
@@ -1959,27 +2065,26 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     .map_or_else(|| quasi.value.raw.as_str().to_owned(), crate::js_string),
             );
             if let Some(expression) = template.expressions.get(index) {
-                let ConfigValue::String(text) = self.expr(expression, depth) else {
-                    return ConfigValue::Unknown;
+                let Value::String(text) = self.expr(expression, depth) else {
+                    return Value::Unknown;
                 };
                 out.push_str(&text);
             }
         }
-        ConfigValue::String(out)
+        Value::String(out)
     }
 
     /// The value of `expr` and whether it is definite. A read of a key merged from the branches of a condition the
     /// evaluator cannot decide ([`Field::Maybe`]) is not: it is the union of the values the key may hold, and the key
     /// may be absent. Neither is a member of it, nor `a ?? b` or `a || b` over it, which is the union of both sides.
-    fn read(&self, expr: &'p Expression<'a>, depth: u32) -> (ConfigValue, bool) {
+    fn read(&self, expr: &'p Expression<'a>, depth: u32) -> (Value, bool) {
         if depth > MAX_DEPTH {
-            return (ConfigValue::Unknown, true);
+            return (Value::Unknown, true);
         }
-        let depth = depth + 1;
         match expr.get_inner_expression() {
-            Expression::StaticMemberExpression(member) => self.member(member, depth),
-            Expression::LogicalExpression(logical) => self.logical(logical, depth),
-            other => (self.expr(other, depth), true),
+            Expression::StaticMemberExpression(member) => self.member(member, depth + 1),
+            Expression::LogicalExpression(logical) => self.logical(logical, depth + 1),
+            _ => (self.expr(expr, depth), true),
         }
     }
 
@@ -1994,11 +2099,11 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// `import.meta.dirname`, `import.meta.filename`, `import.meta.url`, the `pathname` of a `new URL(…)`, an export
     /// of a namespace import, the `length` of a known string or array, and a key of a known object ([`member_of`]),
     /// with whether the value is definite ([`Self::read`]): the `length` of a value that is not is unknown.
-    fn member(&self, member: &'p StaticMemberExpression<'a>, depth: u32) -> (ConfigValue, bool) {
+    fn member(&self, member: &'p StaticMemberExpression<'a>, depth: u32) -> (Value, bool) {
         let property = member.property.name.as_str();
         let value = match (member.object.get_inner_expression(), property) {
-            (Expression::ImportMeta(_), "dirname") => ConfigValue::String(normalized(&[self.dir])),
-            (Expression::ImportMeta(_), "filename" | "url") => ConfigValue::String(self.file_path()),
+            (Expression::ImportMeta(_), "dirname") => Value::String(normalized(&[self.dir])),
+            (Expression::ImportMeta(_), "filename" | "url") => Value::String(self.file_path()),
             (object @ Expression::NewExpression(_), "pathname") => self.expr(object, depth),
             (Expression::Identifier(object), _)
                 if self
@@ -2012,12 +2117,12 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             (object, _) => {
                 let (value, definite) = self.read(object, depth);
                 return match (&value, property) {
-                    (_, "length") if !definite => (ConfigValue::Unknown, true),
-                    (ConfigValue::String(_) | ConfigValue::Array(_), "length") => (length_of(&value), true),
+                    (_, "length") if !definite => (Value::Unknown, true),
+                    (Value::String(_) | Value::Array(_), "length") => (length_of(&value), true),
                     _ => match member_of(&value, property) {
                         Field::Known(value) => (value, true),
                         Field::Maybe(value) => (value, false),
-                        Field::Absent => (ConfigValue::Null, true),
+                        Field::Absent => (Value::Null, true),
                     },
                 };
             }
@@ -2028,11 +2133,11 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// `a && b`, `a || b` and `a ?? b`, when `a` decides which side is the value, with whether the value is definite
     /// ([`Self::read`]): over an `a` that is not, `a ?? b` and `a || b` are the union of both sides ([`any_of`]) and
     /// `a && b` is unknown; the side a definite `a` selects is as definite as it is.
-    fn logical(&self, logical: &'p LogicalExpression<'a>, depth: u32) -> (ConfigValue, bool) {
+    fn logical(&self, logical: &'p LogicalExpression<'a>, depth: u32) -> (Value, bool) {
         let (left, definite) = self.read(&logical.left, depth);
         if !definite {
             return match logical.operator {
-                LogicalOperator::And => (ConfigValue::Unknown, true),
+                LogicalOperator::And => (Value::Unknown, true),
                 LogicalOperator::Or | LogicalOperator::Coalesce => {
                     (any_of(&[Some(left), Some(self.expr(&logical.right, depth))]), false)
                 }
@@ -2041,7 +2146,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         match left_is_value(logical.operator, &left) {
             Some(true) => (left, true),
             Some(false) => self.read(&logical.right, depth),
-            None => (ConfigValue::Unknown, true),
+            None => (Value::Unknown, true),
         }
     }
 
@@ -2049,9 +2154,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// condition, and one per branch for `test ? a : b`, `a && b`, `a || b` and `a ?? b` whose test is unknown
     /// (parenthesised or not). A left side that adds nothing when spread is [`ConfigValue::Null`]: the falsy `a` of
     /// `a && b`, and a comparison, negation or `void` on the left of `||` or `??`.
-    fn possibilities(&self, expr: &'p Expression<'a>, depth: u32) -> Vec<ConfigValue> {
+    fn possibilities(&self, expr: &'p Expression<'a>, depth: u32) -> Vec<Value> {
         if depth > MAX_DEPTH {
-            return vec![ConfigValue::Unknown];
+            return vec![Value::Unknown];
         }
         match expr.get_inner_expression() {
             Expression::LogicalExpression(logical) => {
@@ -2065,7 +2170,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 // The left side as the value: a falsy `a` of `a && b`, a comparison, a negation and `void` add
                 // nothing.
                 let left = if primitive || logical.operator == LogicalOperator::And {
-                    ConfigValue::Null
+                    Value::Null
                 } else {
                     left
                 };
@@ -2095,14 +2200,14 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// Adds to `out` what spreading `argument` adds. A conditional spread whose branches are all known adds every key
     /// a branch sets, with what the branches have in common (see [`any_of`]); a branch that is not known adds the
     /// marker key `...`.
-    fn spread(&self, argument: &'p Expression<'a>, out: &mut Vec<(String, ConfigValue)>, depth: u32) {
-        let branches: Option<Vec<Vec<(String, ConfigValue)>>> = self
+    fn spread(&self, argument: &'p Expression<'a>, out: &mut Vec<(String, Value)>, depth: u32) {
+        let branches: Option<Vec<Vec<(String, Value)>>> = self
             .possibilities(argument, depth)
             .into_iter()
             .map(spread_entries)
             .collect();
         match branches {
-            None => out.push((self.spread_key(argument).to_owned(), ConfigValue::Unknown)),
+            None => out.push((self.spread_key(argument).to_owned(), Value::Unknown)),
             Some(mut branches) if branches.len() == 1 => out.extend(branches.pop().unwrap_or_default()),
             Some(branches) => {
                 let added = spread_any(out, &branches);
@@ -2112,7 +2217,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     }
 
     /// `test ? a : b`: the branch a known test takes, or what both branches have in common when the test is unknown.
-    fn conditional(&self, conditional: &'p ConditionalExpression<'a>, depth: u32) -> ConfigValue {
+    fn conditional(&self, conditional: &'p ConditionalExpression<'a>, depth: u32) -> Value {
         match self.truthy(&conditional.test, depth) {
             Some(true) => self.expr(&conditional.consequent, depth),
             Some(false) => self.expr(&conditional.alternate, depth),
@@ -2124,20 +2229,20 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     }
 
     /// `new URL('./x', import.meta.url)` as the path it names.
-    fn url(&self, new: &'p NewExpression<'a>, depth: u32) -> ConfigValue {
+    fn url(&self, new: &'p NewExpression<'a>, depth: u32) -> Value {
         let is_url =
             matches!(new.callee.get_inner_expression(), Expression::Identifier(id) if id.name.as_str() == "URL");
         let mut args = new.arguments.iter().map(|arg| {
             arg.as_expression()
-                .map_or(ConfigValue::Unknown, |e| self.expr(e, depth))
+                .map_or(Value::Unknown, |e| self.expr(e, depth))
         });
         match (is_url, args.next(), args.next(), args.next()) {
-            (true, Some(ConfigValue::String(relative)), Some(ConfigValue::String(base)), None)
+            (true, Some(Value::String(relative)), Some(Value::String(base)), None)
                 if !relative.starts_with('/') && !relative.contains(':') && !base.contains(':') =>
             {
-                ConfigValue::String(normalized(&[base.as_str(), "..", relative.as_str()]))
+                Value::String(normalized(&[base.as_str(), "..", relative.as_str()]))
             }
-            _ => ConfigValue::Unknown,
+            _ => Value::Unknown,
         }
     }
 
@@ -2161,7 +2266,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     }
 
     /// A call of a `path` or `url` function, or of `process.cwd()`; `None` for any other call.
-    fn path_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
+    fn path_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
         let function = match call.callee.get_inner_expression() {
             Expression::Identifier(id) => {
                 let name = id.name.as_str();
@@ -2188,7 +2293,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 if path_function || url_function {
                     property
                 } else if object == "process" && property == "cwd" {
-                    return Some(ConfigValue::String(".".to_owned()));
+                    return Some(Value::String(".".to_owned()));
                 } else {
                     return None;
                 }
@@ -2199,18 +2304,18 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     }
 
     /// The values of a call's arguments; a spread argument is unknown.
-    fn arguments(&self, call: &'p CallExpression<'a>, depth: u32) -> Vec<ConfigValue> {
+    fn arguments(&self, call: &'p CallExpression<'a>, depth: u32) -> Vec<Value> {
         call.arguments
             .iter()
             .map(|arg| {
                 arg.as_expression()
-                    .map_or(ConfigValue::Unknown, |e| self.expr(e, depth))
+                    .map_or(Value::Unknown, |e| self.expr(e, depth))
             })
             .collect()
     }
 
     /// `dirname(require.resolve(join(pkg, 'package.json')))`, the directory of a package, which is `pkg` itself.
-    fn package_directory(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
+    fn package_directory(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
         if !self.is_path_function(&call.callee, "dirname") {
             return None;
         }
@@ -2237,7 +2342,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     }
 
     /// `require.resolve(x)` and `Promise.resolve(x)`, which evaluate to `x`.
-    fn resolve_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
+    fn resolve_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
         let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
             return None;
         };
@@ -2248,11 +2353,11 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             (object.name.as_str(), member.property.name.as_str()),
             ("require" | "Promise", "resolve")
         );
-        known.then(|| single_argument(call).map_or(ConfigValue::Unknown, |arg| self.expr(arg, depth)))
+        known.then(|| single_argument(call).map_or(Value::Unknown, |arg| self.expr(arg, depth)))
     }
 
     /// A call of a glob function as the array of its literal patterns.
-    fn glob_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
+    fn glob_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
         let is_glob = match call.callee.get_inner_expression() {
             Expression::Identifier(id) => self.bindings.glob_names.contains(id.name.as_str()),
             Expression::StaticMemberExpression(member) => {
@@ -2269,17 +2374,17 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         }
         Some(match call.arguments.first().and_then(Argument::as_expression) {
             Some(patterns) => match self.expr(patterns, depth) {
-                ConfigValue::String(pattern) => ConfigValue::Array(vec![ConfigValue::String(pattern)]),
-                array @ ConfigValue::Array(_) => array,
-                _ => ConfigValue::Unknown,
+                Value::String(pattern) => Value::Array(vec![Value::String(pattern)]),
+                array @ Value::Array(_) => array,
+                _ => Value::Unknown,
             },
-            None => ConfigValue::Unknown,
+            None => Value::Unknown,
         })
     }
 
     /// `defineConfig(a, [b, c], ...d)` of `eslint/config` and `tseslint.config(…)`: the flat config list of all their
     /// arguments, nested lists flattened.
-    fn flat_config_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
+    fn flat_config_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
         let combines = match call.callee.get_inner_expression() {
             Expression::Identifier(id) => self.bindings.flat_config_functions.contains(id.name.as_str()),
             Expression::StaticMemberExpression(member) => {
@@ -2300,15 +2405,15 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 Argument::SpreadElement(spread) => self.expr(&spread.argument, depth),
                 other => other
                     .as_expression()
-                    .map_or(ConfigValue::Unknown, |e| self.expr(e, depth)),
+                    .map_or(Value::Unknown, |e| self.expr(e, depth)),
             };
             flatten_into(value, &mut list);
         }
-        Some(ConfigValue::Array(list))
+        Some(Value::Array(list))
     }
 
     /// A call of a top-level function or of a function declared inside the function being evaluated.
-    fn local_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
+    fn local_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
         let Expression::Identifier(id) = call.callee.get_inner_expression() else {
             return None;
         };
@@ -2326,9 +2431,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// A call of a config combinator (`mergeConfig`, `defu`, `Object.assign`, `deepmerge`, `merge`): the merge of the
     /// object arguments. An argument that cannot be known contributes a `...` entry, so the known part still applies.
-    fn merge_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
+    fn merge_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
         let style = merge_style(&call.callee, self.bindings)?;
-        let mut merged: Option<Vec<(String, ConfigValue)>> = None;
+        let mut merged: Option<Vec<(String, Value)>> = None;
         let expressions = call.arguments.iter().map(Argument::as_expression);
         let mut values: Vec<_> = self.arguments(call, depth).into_iter().zip(expressions).collect();
         if style == MergeStyle::FirstWins {
@@ -2336,8 +2441,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         }
         for (value, expression) in values {
             match value {
-                ConfigValue::Null | ConfigValue::Bool(_) => {}
-                ConfigValue::Object(entries) => {
+                Value::Null | Value::Bool(_) => {}
+                Value::Object(entries) => {
                     let base = merged.get_or_insert_with(Vec::new);
                     merge_objects(base, entries, style != MergeStyle::Shallow);
                 }
@@ -2345,13 +2450,13 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     let key = expression.map_or(UNKNOWN_SPREAD, |expression| self.spread_key(expression));
                     merge_objects(
                         merged.get_or_insert_with(Vec::new),
-                        vec![(key.to_owned(), ConfigValue::Unknown)],
+                        vec![(key.to_owned(), Value::Unknown)],
                         false,
                     );
                 }
             }
         }
-        Some(merged.map_or(ConfigValue::Unknown, ConfigValue::Object))
+        Some(merged.map_or(Value::Unknown, Value::Object))
     }
 
     /// Records the argument of `<config_setter>.set(…)` as the config; returns whether `call` is such a call.
@@ -2373,9 +2478,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         true
     }
 
-    fn call(&self, call: &'p CallExpression<'a>, depth: u32) -> ConfigValue {
+    fn call(&self, call: &'p CallExpression<'a>, depth: u32) -> Value {
         if self.capture_set(call, depth) {
-            return ConfigValue::Unknown;
+            return Value::Unknown;
         }
         let special = self
             .required_value(call, depth)
@@ -2390,12 +2495,12 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         if let Some(value) = special {
             return value;
         }
-        defined(call).map_or(ConfigValue::Unknown, |first| self.expr(first, depth))
+        defined(call).map_or(Value::Unknown, |first| self.expr(first, depth))
     }
 
     /// The arguments of the call `expr` evaluates to unknown, looking through `await`, a `define*` call to the
     /// expression it wraps and a top-level constant to its initialiser; see [`ExtractedConfig::call_arguments`].
-    fn unknown_call_arguments(&self, expr: &'p Expression<'a>, depth: u32) -> Vec<ConfigValue> {
+    fn unknown_call_arguments(&self, expr: &'p Expression<'a>, depth: u32) -> Vec<Value> {
         if depth > MAX_DEPTH {
             return Vec::new();
         }
@@ -2425,12 +2530,12 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     fn invoke(
         &self,
         callable: Callable<'p, 'a>,
-        args: Option<&[ConfigValue]>,
+        args: Option<&[Value]>,
         isolate: bool,
         depth: u32,
-    ) -> ConfigValue {
+    ) -> Value {
         if self.calls.get() >= MAX_CALLS {
-            return ConfigValue::Unknown;
+            return Value::Unknown;
         }
         self.calls.set(self.calls.get() + 1);
         let params = match callable {
@@ -2448,24 +2553,24 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             let value = match (args.map(|args| args.get(index)), &param.initializer) {
                 (Some(Some(value)), _) => value.clone(),
                 (Some(None), Some(default)) => self.expr(default, depth),
-                (None | Some(None), _) => ConfigValue::Unknown,
+                (None | Some(None), _) => Value::Unknown,
             };
             self.bind_pattern(&param.pattern, value, depth);
         }
         if let Some(param) = &params.rest {
-            self.bind_pattern(&param.rest.argument, ConfigValue::Unknown, depth);
+            self.bind_pattern(&param.rest.argument, Value::Unknown, depth);
         }
         let value = match callable {
             Callable::Arrow(f) => match f.get_expression() {
                 Some(body) => self.expr(body, depth),
                 None => f
                     .get_function_body()
-                    .map_or(ConfigValue::Unknown, |b| self.returned(&b.statements, depth)),
+                    .map_or(Value::Unknown, |b| self.returned(&b.statements, depth)),
             },
             Callable::Function(f) => f
                 .body
                 .as_ref()
-                .map_or(ConfigValue::Unknown, |b| self.returned(&b.statements, depth)),
+                .map_or(Value::Unknown, |b| self.returned(&b.statements, depth)),
         };
         self.frames.borrow_mut().pop();
         if isolate {
@@ -2476,7 +2581,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// Calls `callable` with `argument` as its first parameter: the value it returns or, when a block body finishes
     /// without a `return`, the value it leaves that parameter with.
-    fn call_with(&self, callable: Callable<'p, 'a>, argument: ConfigValue, depth: u32) -> ConfigValue {
+    fn call_with(&self, callable: Callable<'p, 'a>, argument: Value, depth: u32) -> Value {
         let statements = match callable {
             Callable::Arrow(f) => f.get_function_body().map(|body| &body.statements),
             Callable::Function(f) => f.body.as_ref().map(|body| &body.statements),
@@ -2491,16 +2596,16 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         self.frames.borrow_mut().push(Frame::new());
         self.bind(&name, argument);
         for param in params.items.iter().skip(1) {
-            self.bind_pattern(&param.pattern, ConfigValue::Unknown, depth);
+            self.bind_pattern(&param.pattern, Value::Unknown, depth);
         }
         if let Some(param) = &params.rest {
-            self.bind_pattern(&param.rest.argument, ConfigValue::Unknown, depth);
+            self.bind_pattern(&param.rest.argument, Value::Unknown, depth);
         }
         let returned = self.run(statements, depth);
         let frame = self.frames.borrow_mut().pop();
         returned.unwrap_or_else(|| match frame.and_then(|mut frame| frame.remove(&name)) {
-            Some(Binding::Value(value)) => value,
-            _ => ConfigValue::Unknown,
+            Some(Binding::Value(value)) => value.split().0,
+            _ => Value::Unknown,
         })
     }
 
@@ -2510,7 +2615,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// several values in ([`Field::Maybe`]) takes the union of those and the default; a name that cannot be known (an
     /// array pattern, a rest element, a key an unknown spread may provide) is bound to [`ConfigValue::Unknown`], so it
     /// does not resolve to a binding of an outer scope.
-    fn bind_pattern(&self, pattern: &'p BindingPattern<'a>, value: ConfigValue, depth: u32) {
+    fn bind_pattern(&self, pattern: &'p BindingPattern<'a>, value: Value, depth: u32) {
         match pattern {
             BindingPattern::BindingIdentifier(id) => self.bind(id.name.as_str(), value),
             BindingPattern::AssignmentPattern(p) => self.bind_pattern(&p.left, value, depth),
@@ -2518,7 +2623,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 for property in &object.properties {
                     let field = match property.key.static_name() {
                         Some(key) => member_of(&value, &crate::js_string(key.as_js_str())),
-                        None => Field::Known(ConfigValue::Unknown),
+                        None => Field::Known(Value::Unknown),
                     };
                     match (&property.value, field) {
                         (BindingPattern::AssignmentPattern(p), Field::Absent) => {
@@ -2532,23 +2637,23 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                         (element, Field::Known(field) | Field::Maybe(field)) => {
                             self.bind_pattern(element, field, depth);
                         }
-                        (element, Field::Absent) => self.bind_pattern(element, ConfigValue::Null, depth),
+                        (element, Field::Absent) => self.bind_pattern(element, Value::Null, depth),
                     }
                 }
                 if let Some(rest) = &object.rest {
-                    self.bind_pattern(&rest.argument, ConfigValue::Unknown, depth);
+                    self.bind_pattern(&rest.argument, Value::Unknown, depth);
                 }
             }
             BindingPattern::ArrayPattern(_) => {
                 for id in pattern.get_binding_identifiers() {
-                    self.bind(id.name.as_str(), ConfigValue::Unknown);
+                    self.bind(id.name.as_str(), Value::Unknown);
                 }
             }
         }
     }
 
     /// Binds `name` to `value` in the innermost frame.
-    fn bind(&self, name: &str, value: ConfigValue) {
+    fn bind(&self, name: &str, value: Value) {
         self.bind_to(name, Binding::Value(value));
     }
 
@@ -2561,11 +2666,11 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// Value returned by a function body: its single expression or the value of the `return` it reaches.
     /// Declarations before it are bound in the innermost frame.
-    fn returned(&self, statements: &'p [Statement<'a>], depth: u32) -> ConfigValue {
+    fn returned(&self, statements: &'p [Statement<'a>], depth: u32) -> Value {
         if let [Statement::ExpressionStatement(s)] = statements {
             return self.expr(&s.expression, depth);
         }
-        self.run(statements, depth).unwrap_or(ConfigValue::Unknown)
+        self.run(statements, depth).unwrap_or(Value::Unknown)
     }
 
     /// Runs `statements` in the innermost frame: the value of the `return` they reach, or `None` when they finish
@@ -2574,7 +2679,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// or may not be reached (in a loop, a `switch`, a `try`, a larger branch) makes the value unknown, never only the
     /// last `return`. A statement that may or may not run (a branch of an unknown test, a loop) leaves every local it
     /// assigns or changes unknown, so the value after it is never the one from before it.
-    fn run(&self, statements: &'p [Statement<'a>], depth: u32) -> Option<ConfigValue> {
+    fn run(&self, statements: &'p [Statement<'a>], depth: u32) -> Option<Value> {
         for (index, statement) in statements.iter().enumerate() {
             match statement {
                 Statement::ReturnStatement(r) => {
@@ -2585,7 +2690,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     return Some(
                         r.argument
                             .as_ref()
-                            .map_or(ConfigValue::Unknown, |e| self.expr(e, depth)),
+                            .map_or(Value::Unknown, |e| self.expr(e, depth)),
                     );
                 }
                 Statement::ExpressionStatement(s) => self.mutation(&s.expression, depth),
@@ -2612,7 +2717,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                         return Some(value);
                     }
                 }
-                other if returns(other) => return Some(ConfigValue::Unknown),
+                other if returns(other) => return Some(Value::Unknown),
                 other => match other.as_declaration() {
                     Some(Declaration::VariableDeclaration(v)) => {
                         self.havoc(Writes::of_statement(other));
@@ -2633,7 +2738,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// Runs the statements of a block in a frame of their own, so a `const` or `let` declared in it does not replace a
     /// binding outside it. A `var` it declares is function-scoped, and is left unknown outside the block.
-    fn block(&self, statements: &'p [Statement<'a>], depth: u32) -> Option<ConfigValue> {
+    fn block(&self, statements: &'p [Statement<'a>], depth: u32) -> Option<Value> {
         self.frames.borrow_mut().push(Frame::new());
         let value = self.run(statements, depth);
         self.frames.borrow_mut().pop();
@@ -2642,7 +2747,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             vars.visit_statement(statement);
         }
         for name in vars.0 {
-            self.assign(&name, Binding::Value(ConfigValue::Unknown));
+            self.assign(&name, Binding::Value(Value::Unknown));
         }
         value
     }
@@ -2665,7 +2770,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 let joined = match (frame.get(&name), other.get(&name)) {
                     (Some(Binding::Value(a)), Some(Binding::Value(b))) => Binding::Value(join(a, b)),
                     (Some(Binding::Callable(a)), Some(Binding::Callable(b))) if a.same(*b) => Binding::Callable(*a),
-                    _ => Binding::Value(ConfigValue::Unknown),
+                    _ => Binding::Value(Value::Unknown),
                 };
                 frame.insert(name, joined);
             }
@@ -2674,7 +2779,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         if *captured != consequent_captured {
             *captured = Some(match (&*captured, &consequent_captured) {
                 (Some(a), Some(b)) => either(a, b),
-                _ => ConfigValue::Unknown,
+                _ => Value::Unknown,
             });
         }
     }
@@ -2682,17 +2787,17 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// The value of an `if` with an unknown test followed by `rest`, where a branch returns: what a branch's single
     /// `return x` and the other path's value have in common, or unknown when a branch does more. A branch that goes on
     /// to `rest` leaves what it assigns unknown there.
-    fn either_return(&self, statement: &'p IfStatement<'a>, rest: &'p [Statement<'a>], depth: u32) -> ConfigValue {
-        let path = |branch: Option<&'p Statement<'a>>| -> Option<ConfigValue> {
+    fn either_return(&self, statement: &'p IfStatement<'a>, rest: &'p [Statement<'a>], depth: u32) -> Value {
+        let path = |branch: Option<&'p Statement<'a>>| -> Option<Value> {
             match branch.map(single_return) {
                 // A branch that returns its value.
                 Some(Some(r)) => Some(
                     r.argument
                         .as_ref()
-                        .map_or(ConfigValue::Unknown, |e| self.expr(e, depth)),
+                        .map_or(Value::Unknown, |e| self.expr(e, depth)),
                 ),
                 // A branch that does more than return, and may return.
-                Some(None) if branch.is_some_and(returns) => Some(ConfigValue::Unknown),
+                Some(None) if branch.is_some_and(returns) => Some(Value::Unknown),
                 // No branch, or one that does not return: control goes on to the statements after the `if`.
                 _ => None,
             }
@@ -2709,13 +2814,13 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     self.havoc(Writes::of_statement(branch));
                 }
             }
-            self.run(rest, depth).unwrap_or(ConfigValue::Unknown)
+            self.run(rest, depth).unwrap_or(Value::Unknown)
         };
         let (a, b) = match (consequent, alternate) {
             (Some(a), Some(b)) => (a, b),
             (Some(a), None) => (a, after()),
             (None, Some(b)) => (after(), b),
-            (None, None) => return ConfigValue::Unknown,
+            (None, None) => return Value::Unknown,
         };
         either(&a, &b)
     }
@@ -2733,9 +2838,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             let value = declarator
                 .init
                 .as_ref()
-                .map_or(ConfigValue::Unknown, |init| self.expr(init, depth));
+                .map_or(Value::Unknown, |init| self.expr(init, depth));
             let value = if node_count(&value) > MAX_CONST_NODES {
-                ConfigValue::Unknown
+                Value::Unknown
             } else {
                 value
             };
@@ -2746,7 +2851,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// Leaves every local `writes` assigns unknown, and every local object or array it changes partly unknown.
     fn havoc(&self, writes: Writes) {
         for name in writes.assigned {
-            self.assign(&name, Binding::Value(ConfigValue::Unknown));
+            self.assign(&name, Binding::Value(Value::Unknown));
         }
         let mut changed = writes.changed;
         changed.sort_unstable();
@@ -2770,7 +2875,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                         let value = if assign {
                             self.expr(&a.right, depth)
                         } else {
-                            ConfigValue::Unknown
+                            Value::Unknown
                         };
                         self.assign(id.name.as_str(), Binding::Value(value));
                     }
@@ -2797,22 +2902,19 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         }
     }
 
-    /// Sets `key` of the local object `name`.
-    fn set_key(&self, name: &str, key: &str, value: ConfigValue) {
+    /// Sets `key` of the local object `name`, which then holds `value` there.
+    fn set_key(&self, name: &str, key: &str, value: Value) {
         let mut frames = self.frames.borrow_mut();
-        let binding = frames.iter_mut().rev().find_map(|frame| frame.get_mut(name));
-        match binding {
-            Some(Binding::Value(ConfigValue::Object(entries))) => {
-                match entries.iter_mut().find(|(existing, _)| existing == key) {
-                    Some((_, slot)) => *slot = value,
-                    None => entries.push((key.to_owned(), value)),
-                }
-                // The key now holds the value set.
-                let marker = maybe_key(key);
-                entries.retain(|(existing, _)| *existing != marker);
-            }
+        let Some(Binding::Value(held)) = frames.iter_mut().rev().find_map(|frame| frame.get_mut(name)) else {
+            return;
+        };
+        match held.definite_mut() {
+            Value::Object(entries) => match entries.iter_mut().find(|(existing, _)| existing == key) {
+                Some((_, slot)) => *slot = value,
+                None => entries.push((key.to_owned(), value)),
+            },
             // `list.length = 0` on an array.
-            Some(Binding::Value(ConfigValue::Array(items))) => items.push(ConfigValue::Unknown),
+            Value::Array(items) => items.push(Value::Unknown),
             _ => {}
         }
     }
@@ -2820,46 +2922,46 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// Records that the local `name` was changed in a way the evaluator does not follow.
     fn taint(&self, name: &str) {
         let mut frames = self.frames.borrow_mut();
-        let binding = frames.iter_mut().rev().find_map(|frame| frame.get_mut(name));
-        match binding {
-            Some(Binding::Value(ConfigValue::Object(entries))) => {
-                entries.push((UNKNOWN_SPREAD.to_owned(), ConfigValue::Unknown));
-            }
-            Some(Binding::Value(ConfigValue::Array(items))) => items.push(ConfigValue::Unknown),
+        let Some(Binding::Value(held)) = frames.iter_mut().rev().find_map(|frame| frame.get_mut(name)) else {
+            return;
+        };
+        match held.definite_mut() {
+            Value::Object(entries) => entries.push((UNKNOWN_SPREAD.to_owned(), Value::Unknown)),
+            Value::Array(items) => items.push(Value::Unknown),
             _ => {}
         }
     }
 
-    fn array(&self, elements: &'p [ArrayExpressionElement<'a>], depth: u32) -> ConfigValue {
+    fn array(&self, elements: &'p [ArrayExpressionElement<'a>], depth: u32) -> Value {
         let mut out = Vec::new();
         for element in elements {
             match element {
                 ArrayExpressionElement::SpreadElement(s) => match self.expr(&s.argument, depth) {
-                    ConfigValue::Array(items) => out.extend(items),
-                    _ => out.push(ConfigValue::Unknown),
+                    Value::Array(items) => out.extend(items),
+                    _ => out.push(Value::Unknown),
                 },
                 other => out.push(
                     other
                         .as_expression()
-                        .map_or(ConfigValue::Unknown, |e| self.expr(e, depth)),
+                        .map_or(Value::Unknown, |e| self.expr(e, depth)),
                 ),
             }
         }
-        ConfigValue::Array(out)
+        Value::Array(out)
     }
 
-    fn object(&self, properties: &'p [ObjectPropertyKind<'a>], depth: u32) -> ConfigValue {
-        let mut out: Vec<(String, ConfigValue)> = Vec::new();
+    fn object(&self, properties: &'p [ObjectPropertyKind<'a>], depth: u32) -> Value {
+        let mut out: Vec<(String, Value)> = Vec::new();
         for property in properties {
             match property {
                 ObjectPropertyKind::SpreadProperty(s) => self.spread(&s.argument, &mut out, depth),
                 ObjectPropertyKind::ObjectProperty(p) => {
                     let Some(key) = p.key.static_name() else {
-                        out.push((UNKNOWN_SPREAD.to_owned(), ConfigValue::Unknown));
+                        out.push((UNKNOWN_SPREAD.to_owned(), Value::Unknown));
                         continue;
                     };
                     let value = if p.method || p.kind != oxc_ast::ast::PropertyKind::Init {
-                        ConfigValue::Unknown
+                        Value::Unknown
                     } else {
                         self.expr(&p.value, depth)
                     };
@@ -2867,7 +2969,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 }
             }
         }
-        ConfigValue::Object(out)
+        Value::Object(out)
     }
 }
 
@@ -2926,8 +3028,8 @@ fn merge_style(callee: &Expression<'_>, bindings: &ModuleBindings) -> Option<Mer
 }
 
 /// Merges `incoming` into `base`; with `deep`, an object meeting an object merges and an array meeting an array
-/// concatenates, otherwise the incoming value replaces the earlier one in place.
-fn merge_objects(base: &mut Vec<(String, ConfigValue)>, incoming: Vec<(String, ConfigValue)>, deep: bool) {
+/// concatenates, otherwise the incoming value replaces the earlier one in place ([`merged_value`]).
+fn merge_objects(base: &mut Vec<(String, Value)>, incoming: Vec<(String, Value)>, deep: bool) {
     for (key, value) in incoming {
         let Some(index) = base.iter().position(|(k, _)| *k == key) else {
             base.push((key, value));
@@ -2937,36 +3039,39 @@ fn merge_objects(base: &mut Vec<(String, ConfigValue)>, incoming: Vec<(String, C
             continue;
         }
         let slot = &mut base[index].1;
-        match (deep, std::mem::replace(slot, ConfigValue::Unknown), value) {
-            (true, ConfigValue::Object(mut left), ConfigValue::Object(right)) => {
-                merge_objects(&mut left, right, true);
-                *slot = ConfigValue::Object(left);
-            }
-            (true, ConfigValue::Array(mut left), ConfigValue::Array(right)) => {
-                left.extend(right);
-                *slot = ConfigValue::Array(left);
-            }
-            // A deep merge keeps what the known side has and whatever the unknown side may add to it.
-            (true, ConfigValue::Object(mut known), ConfigValue::Unknown)
-            | (true, ConfigValue::Unknown, ConfigValue::Object(mut known)) => {
-                if !known.iter().any(|(k, _)| ConfigValue::is_spread_key(k)) {
-                    known.push((UNKNOWN_SPREAD.to_owned(), ConfigValue::Unknown));
-                }
-                *slot = ConfigValue::Object(known);
-            }
-            (true, ConfigValue::Array(mut known), ConfigValue::Unknown)
-            | (true, ConfigValue::Unknown, ConfigValue::Array(mut known)) => {
-                known.push(ConfigValue::Unknown);
-                *slot = ConfigValue::Array(known);
-            }
-            (_, _, value) => {
-                *slot = value;
-                // The key now holds the incoming value, which brings its own marker when it has one.
-                let marker = maybe_key(&key);
-                base.retain(|(existing, _)| *existing != marker);
-            }
-        }
+        *slot = merged_value(std::mem::replace(slot, Value::Unknown), value, deep);
     }
+}
+
+/// What a key holds after a merge ([`merge_objects`]) meets its `current` value with an `incoming` one: with `deep`,
+/// the merge of two objects or two lists, or of one and an unknown value, definite only when both sides are;
+/// otherwise the incoming value, as definite as it is.
+fn merged_value(current: Value, incoming: Value, deep: bool) -> Value {
+    let (current, current_definite) = current.split();
+    let (incoming, incoming_definite) = incoming.split();
+    let merged = match (deep, current, incoming) {
+        (true, Value::Object(mut left), Value::Object(right)) => {
+            merge_objects(&mut left, right, true);
+            Value::Object(left)
+        }
+        (true, Value::Array(mut left), Value::Array(right)) => {
+            left.extend(right);
+            Value::Array(left)
+        }
+        // A deep merge keeps what the known side has and whatever the unknown side may add to it.
+        (true, Value::Object(mut known), Value::Unknown) | (true, Value::Unknown, Value::Object(mut known)) => {
+            if !known.iter().any(|(k, _)| ConfigValue::is_spread_key(k)) {
+                known.push((UNKNOWN_SPREAD.to_owned(), Value::Unknown));
+            }
+            Value::Object(known)
+        }
+        (true, Value::Array(mut known), Value::Unknown) | (true, Value::Unknown, Value::Array(mut known)) => {
+            known.push(Value::Unknown);
+            Value::Array(known)
+        }
+        (_, _, incoming) => return Value::doubtful(incoming, incoming_definite),
+    };
+    Value::doubtful(merged, current_definite && incoming_definite)
 }
 
 /// A statement that is only a `return` (or a block holding just one).
@@ -3124,43 +3229,44 @@ impl<'a> Visit<'a> for Vars {
 
 /// A value that code the evaluator does not follow may have changed: an object may have any other key and an array
 /// any other element, as [`Evaluator::taint`] leaves them; anything else is unknown.
-fn changed(value: ConfigValue) -> ConfigValue {
+fn changed(value: Value) -> Value {
     match value {
-        ConfigValue::Object(mut entries) => {
-            entries.push((UNKNOWN_SPREAD.to_owned(), ConfigValue::Unknown));
-            ConfigValue::Object(entries)
+        Value::Object(mut entries) => {
+            entries.push((UNKNOWN_SPREAD.to_owned(), Value::Unknown));
+            Value::Object(entries)
         }
-        ConfigValue::Array(mut items) => {
-            items.push(ConfigValue::Unknown);
-            ConfigValue::Array(items)
+        Value::Array(mut items) => {
+            items.push(Value::Unknown);
+            Value::Array(items)
         }
-        _ => ConfigValue::Unknown,
+        Value::Maybe(value) => Value::Maybe(Box::new(changed(*value))),
+        _ => Value::Unknown,
     }
 }
 
 /// A value code the evaluator does not follow may have changed as `change` says.
-fn unstable(value: ConfigValue, change: Change) -> ConfigValue {
+fn unstable(value: Value, change: Change) -> Value {
     match (change, value) {
         (
             Change::Contents,
-            value @ (ConfigValue::Null
-            | ConfigValue::Bool(_)
-            | ConfigValue::Number(_)
-            | ConfigValue::String(_)
-            | ConfigValue::Regex { .. }),
+            value @ (Value::Null
+            | Value::Bool(_)
+            | Value::Number(_)
+            | Value::String(_)
+            | Value::Regex { .. }),
         ) => value,
         (_, value) => changed(value),
     }
 }
 
 /// Whether the left side of `left <operator> right` is the value of the expression; `None` when that is not known.
-fn left_is_value(operator: LogicalOperator, left: &ConfigValue) -> Option<bool> {
+fn left_is_value(operator: LogicalOperator, left: &Value) -> Option<bool> {
     match operator {
         LogicalOperator::And => truthiness(left).map(|truthy| !truthy),
         LogicalOperator::Or => truthiness(left),
         LogicalOperator::Coalesce => match left {
-            ConfigValue::Unknown => None,
-            ConfigValue::Null => Some(false),
+            Value::Unknown | Value::Maybe(_) => None,
+            Value::Null => Some(false),
             _ => Some(true),
         },
     }
@@ -3185,127 +3291,102 @@ fn is_void(expr: &Expression<'_>) -> bool {
 
 /// The entries spreading `value` adds to an object: those of an object, none for `null`, a boolean, a number or an
 /// empty string, and `None` for anything else, whose entries are not known.
-fn spread_entries(value: ConfigValue) -> Option<Vec<(String, ConfigValue)>> {
+fn spread_entries(value: Value) -> Option<Vec<(String, Value)>> {
     match value {
-        ConfigValue::Object(entries) => Some(entries),
-        ConfigValue::Null | ConfigValue::Bool(_) | ConfigValue::Number(_) => Some(Vec::new()),
-        ConfigValue::String(s) => s.is_empty().then(Vec::new),
-        ConfigValue::Array(_) | ConfigValue::Regex { .. } | ConfigValue::Unknown => None,
+        Value::Object(entries) => Some(entries),
+        Value::Null | Value::Bool(_) | Value::Number(_) => Some(Vec::new()),
+        Value::String(s) => s.is_empty().then(Vec::new),
+        Value::Array(_) | Value::Regex { .. } | Value::Unknown | Value::Maybe(_) => None,
     }
 }
 
 /// The value of `key` in the entries of an object and whether it is definite: the last entry for it, unknown when an
-/// unknown spread follows it, and not definite when a marker for it ([`maybe_key`]) follows it; `None` when the object
-/// has neither.
-fn entry_value(entries: &[(String, ConfigValue)], key: &str) -> Option<(ConfigValue, bool)> {
-    let mut definite = true;
-    for (name, value) in entries.iter().rev() {
-        if name == key {
-            return Some((value.clone(), definite));
-        }
-        if ConfigValue::is_spread_key(name) {
-            return Some((ConfigValue::Unknown, true));
-        }
-        if name.strip_prefix(MAYBE_PREFIX) == Some(key) {
-            definite = false;
-        }
-    }
-    None
-}
-
-/// The key an object records right after `key` when `key` was merged from the branches of a condition the evaluator
-/// cannot decide ([`any_entries`]): the object may lack it, or hold any one of the values its union lists. Only the
-/// evaluator sees it: a value leaving it is [`settled`].
-fn maybe_key(key: &str) -> String {
-    format!("{MAYBE_PREFIX}{key}")
-}
-
-/// `value` without the keys [`maybe_key`] adds, as the evaluator hands it out.
-fn settled(value: ConfigValue) -> ConfigValue {
-    match value {
-        ConfigValue::Object(entries) => ConfigValue::Object(
-            entries
-                .into_iter()
-                .filter(|(key, _)| !key.starts_with(MAYBE_PREFIX))
-                .map(|(key, value)| (key, settled(value)))
-                .collect(),
-        ),
-        ConfigValue::Array(items) => ConfigValue::Array(items.into_iter().map(settled).collect()),
-        other => other,
-    }
+/// unknown spread follows it, and not definite when it is a [`Value::Maybe`]; `None` when the object has neither.
+fn entry_value(entries: &[(String, Value)], key: &str) -> Option<(Value, bool)> {
+    entries
+        .iter()
+        .rev()
+        .find(|(name, _)| name == key || ConfigValue::is_spread_key(name))
+        .map(|(name, value)| {
+            if name == key {
+                value.clone().split()
+            } else {
+                (Value::Unknown, true)
+            }
+        })
 }
 
 /// What a member read or a destructuring takes from a key of a value.
 enum Field {
     /// The key's value: unknown when an unknown spread may set it, the object may inherit it or the value is not a
     /// known object.
-    Known(ConfigValue),
+    Known(Value),
     /// The union of the values ([`any_of`]) of a key merged from the branches of a condition the evaluator cannot
     /// decide: the object may lack the key or hold any one of them.
-    Maybe(ConfigValue),
+    Maybe(Value),
     /// The object does not have the key: it is `undefined`.
     Absent,
 }
 
 /// The `length` of a string or an array; unknown for an array with an unknown element, which may stand for a spread of
 /// any length.
-fn length_of(value: &ConfigValue) -> ConfigValue {
+fn length_of(value: &Value) -> Value {
     let length = match value {
-        ConfigValue::String(text) => Some(text.encode_utf16().count()),
-        ConfigValue::Array(items) if !items.contains(&ConfigValue::Unknown) => Some(items.len()),
+        Value::String(text) => Some(text.encode_utf16().count()),
+        Value::Array(items) if !items.contains(&Value::Unknown) => Some(items.len()),
         _ => None,
     };
     length
         .and_then(|length| u32::try_from(length).ok())
-        .map_or(ConfigValue::Unknown, |length| ConfigValue::Number(f64::from(length)))
+        .map_or(Value::Unknown, |length| Value::Number(f64::from(length)))
 }
 
 /// `value.key`, as a member read or a destructuring takes it: the value of `key` in a known object ([`entry_value`]),
 /// not definite for a key merged from undecided branches; unknown for a member of anything else and for a key the
 /// object may inherit ([`inherits`]); and absent when the object has neither the key nor an unknown spread.
-fn member_of(value: &ConfigValue, key: &str) -> Field {
-    let ConfigValue::Object(entries) = value else {
-        return Field::Known(ConfigValue::Unknown);
+fn member_of(value: &Value, key: &str) -> Field {
+    let Value::Object(entries) = value else {
+        return Field::Known(Value::Unknown);
     };
     match entry_value(entries, key) {
         Some((value, true)) => Field::Known(value),
         Some((value, false)) => Field::Maybe(value),
-        None if inherits(entries, key) => Field::Known(ConfigValue::Unknown),
+        None if inherits(entries, key) => Field::Known(Value::Unknown),
         None => Field::Absent,
     }
 }
 
 /// Whether an object with `entries` may inherit `key` it does not have itself: a member of `Object.prototype`, or any
 /// key when the object sets its prototype (`{ __proto__: base }`), which the evaluator does not follow.
-fn inherits(entries: &[(String, ConfigValue)], key: &str) -> bool {
+fn inherits(entries: &[(String, Value)], key: &str) -> bool {
     OBJECT_PROTOTYPE_MEMBERS.contains(&key) || entries.iter().any(|(name, _)| name == "__proto__")
 }
 
 /// The entries a spread of one of `branches` adds after `before`; see [`any_entries`].
-fn spread_any(before: &[(String, ConfigValue)], branches: &[Vec<(String, ConfigValue)>]) -> Vec<(String, ConfigValue)> {
-    let objects: Vec<Option<&[(String, ConfigValue)]>> =
+fn spread_any(before: &[(String, Value)], branches: &[Vec<(String, Value)>]) -> Vec<(String, Value)> {
+    let objects: Vec<Option<&[(String, Value)]>> =
         branches.iter().map(|branch| Some(branch.as_slice())).collect();
     any_entries(&objects, before)
 }
 
 /// The entries of an object that is one of `objects`, `None` standing for a branch without the object: each key any
 /// of them has, with [`any_of`] what each leaves it (its own value, or the one in `before` when it does not have the
-/// key), followed by its [`maybe_key`] unless every branch leaves it the same definite value, and the marker key `...`
-/// last when one of them has an unknown spread.
+/// key), a [`Value::Maybe`] unless every branch leaves it the same definite value, and the marker key `...` last when
+/// one of them has an unknown spread.
 fn any_entries(
-    objects: &[Option<&[(String, ConfigValue)]>],
-    before: &[(String, ConfigValue)],
-) -> Vec<(String, ConfigValue)> {
+    objects: &[Option<&[(String, Value)]>],
+    before: &[(String, Value)],
+) -> Vec<(String, Value)> {
     let entries = || objects.iter().flatten().copied().flatten();
     let mut keys: Vec<&str> = Vec::new();
     for (key, _) in entries() {
-        if !ConfigValue::is_spread_key(key) && !key.starts_with(MAYBE_PREFIX) && !keys.contains(&key.as_str()) {
+        if !ConfigValue::is_spread_key(key) && !keys.contains(&key.as_str()) {
             keys.push(key);
         }
     }
-    let mut out: Vec<(String, ConfigValue)> = Vec::new();
+    let mut out: Vec<(String, Value)> = Vec::new();
     for key in keys {
-        let fields: Vec<Option<(ConfigValue, bool)>> = objects
+        let fields: Vec<Option<(Value, bool)>> = objects
             .iter()
             .map(|object| {
                 object
@@ -3316,16 +3397,13 @@ fn any_entries(
         let each_definite = fields
             .iter()
             .all(|field| field.as_ref().is_some_and(|(_, definite)| *definite));
-        let values: Vec<Option<ConfigValue>> = fields.into_iter().map(|field| field.map(|(value, _)| value)).collect();
+        let values: Vec<Option<Value>> = fields.into_iter().map(|field| field.map(|(value, _)| value)).collect();
         let definite = each_definite && agree(&values);
-        out.push((key.to_owned(), any_of(&values)));
-        if !definite {
-            out.push((maybe_key(key), ConfigValue::Null));
-        }
+        out.push((key.to_owned(), Value::doubtful(any_of(&values), definite)));
     }
     for marker in [UNKNOWN_SPREAD, OWN_SPREAD] {
         if entries().any(|(key, _)| key == marker) {
-            out.push((marker.to_owned(), ConfigValue::Unknown));
+            out.push((marker.to_owned(), Value::Unknown));
         }
     }
     out
@@ -3335,75 +3413,79 @@ fn any_entries(
 /// when every branch sets it alike; for lists, the elements of all of them, a string counting as a list of one, so
 /// that every file or package a branch names is credited; for objects, each key any of them has, merged the same way;
 /// anything else is unknown, such as two different strings or a string only some branches set.
-fn any_of(values: &[Option<ConfigValue>]) -> ConfigValue {
-    let present: Vec<&ConfigValue> = values.iter().flatten().collect();
+fn any_of(values: &[Option<Value>]) -> Value {
+    let present: Vec<&Value> = values.iter().flatten().collect();
     let Some(&first) = present.first() else {
-        return ConfigValue::Unknown;
+        return Value::Unknown;
     };
     if agree(values) {
         return first.clone();
     }
-    let lists: Option<Vec<&[ConfigValue]>> = present
+    let lists: Option<Vec<&[Value]>> = present
         .iter()
         .map(|&value| match value {
-            ConfigValue::Array(list) => Some(list.as_slice()),
-            ConfigValue::String(_) => Some(std::slice::from_ref(value)),
+            Value::Array(list) => Some(list.as_slice()),
+            Value::String(_) => Some(std::slice::from_ref(value)),
             _ => None,
         })
         .collect();
     if let Some(lists) = lists
-        && present.iter().any(|value| matches!(value, ConfigValue::Array(_)))
+        && present.iter().any(|value| matches!(value, Value::Array(_)))
     {
-        let mut items: Vec<ConfigValue> = Vec::new();
+        let mut items: Vec<Value> = Vec::new();
         for item in lists.into_iter().flatten() {
             if !items.contains(item) {
                 items.push(item.clone());
             }
         }
-        return ConfigValue::Array(items);
+        return Value::Array(items);
     }
     let objects: Option<Vec<Option<Entries<'_>>>> = values
         .iter()
         .map(|value| match value {
             None => Some(None),
-            Some(ConfigValue::Object(entries)) => Some(Some(entries.as_slice())),
+            Some(Value::Object(entries)) => Some(Some(entries.as_slice())),
             Some(_) => None,
         })
         .collect();
-    objects.map_or(ConfigValue::Unknown, |objects| {
-        ConfigValue::Object(any_entries(&objects, &[]))
+    objects.map_or(Value::Unknown, |objects| {
+        Value::Object(any_entries(&objects, &[]))
     })
 }
 
 /// Whether every one of `values` is present and they are all the same.
-fn agree(values: &[Option<ConfigValue>]) -> bool {
+fn agree(values: &[Option<Value>]) -> bool {
     values
         .first()
         .is_some_and(|first| first.is_some() && values.iter().all(|value| value == first))
 }
 
 /// Whether a value is truthy in JavaScript; `None` when it is unknown.
-fn truthiness(value: &ConfigValue) -> Option<bool> {
+fn truthiness(value: &Value) -> Option<bool> {
     match value {
-        ConfigValue::Null => Some(false),
-        ConfigValue::Bool(b) => Some(*b),
-        ConfigValue::Number(n) => Some(*n != 0.0 && !n.is_nan()),
-        ConfigValue::String(s) => Some(!s.is_empty()),
-        ConfigValue::Array(_) | ConfigValue::Object(_) | ConfigValue::Regex { .. } => Some(true),
-        ConfigValue::Unknown => None,
+        Value::Null => Some(false),
+        Value::Bool(b) => Some(*b),
+        Value::Number(n) => Some(*n != 0.0 && !n.is_nan()),
+        Value::String(s) => Some(!s.is_empty()),
+        Value::Array(_) | Value::Object(_) | Value::Regex { .. } => Some(true),
+        Value::Unknown | Value::Maybe(_) => None,
     }
 }
 
 /// The value of an expression that is `a` or `b`, not knowing which: the value itself when both are equal; for two
 /// objects, an object with every key either has, whose value is what both have in common when both have the key and
 /// [`ConfigValue::Unknown`] when only one does (it may be present or not); anything else is unknown. No key appears
-/// that neither branch has, so other keys stay known, and a key that may differ is unknown wherever it is read.
-fn either(a: &ConfigValue, b: &ConfigValue) -> ConfigValue {
+/// that neither branch has, so other keys stay known, and a key that may differ is unknown wherever it is read. It is
+/// not definite ([`Value::Maybe`]) when `a` or `b` is not.
+fn either(a: &Value, b: &Value) -> Value {
     if a == b {
         return a.clone();
     }
-    let (ConfigValue::Object(left), ConfigValue::Object(right)) = (a, b) else {
-        return ConfigValue::Unknown;
+    if !a.is_definite() || !b.is_definite() {
+        return Value::doubtful(either(a.definite(), b.definite()), false);
+    }
+    let (Value::Object(left), Value::Object(right)) = (a, b) else {
+        return Value::Unknown;
     };
     let mut keys: Vec<&str> = Vec::new();
     for (key, _) in left.iter().chain(right) {
@@ -3411,41 +3493,45 @@ fn either(a: &ConfigValue, b: &ConfigValue) -> ConfigValue {
             keys.push(key);
         }
     }
-    let mut out: Vec<(String, ConfigValue)> = keys
+    let mut out: Vec<(String, Value)> = keys
         .into_iter()
         .map(|key| {
             let value = match (a.get(key), b.get(key)) {
                 (Some(x), Some(y)) => either(x, y),
-                _ => ConfigValue::Unknown,
+                (Some(only), None) | (None, Some(only)) => Value::doubtful(Value::Unknown, only.is_definite()),
+                (None, None) => Value::Unknown,
             };
             (key.to_owned(), value)
         })
         .collect();
     for marker in [UNKNOWN_SPREAD, OWN_SPREAD] {
         if a.get(marker).is_some() || b.get(marker).is_some() {
-            out.push((marker.to_owned(), ConfigValue::Unknown));
+            out.push((marker.to_owned(), Value::Unknown));
         }
     }
-    ConfigValue::Object(out)
+    Value::Object(out)
 }
 
 /// What a binding holds after one of two branches left it `a` and the other `b`: as [`either`], except that a list
 /// one branch appended to (`plugins.push(x)`) keeps the elements both have.
-fn join(a: &ConfigValue, b: &ConfigValue) -> ConfigValue {
+fn join(a: &Value, b: &Value) -> Value {
+    if !a.is_definite() || !b.is_definite() {
+        return Value::doubtful(join(a.definite(), b.definite()), false);
+    }
     match (a, b) {
-        (ConfigValue::Array(x), ConfigValue::Array(y)) if x != y && (x.starts_with(y) || y.starts_with(x)) => {
+        (Value::Array(x), Value::Array(y)) if x != y && (x.starts_with(y) || y.starts_with(x)) => {
             let mut common = if x.len() < y.len() { x.clone() } else { y.clone() };
-            common.push(ConfigValue::Unknown);
-            ConfigValue::Array(common)
+            common.push(Value::Unknown);
+            Value::Array(common)
         }
         _ => either(a, b),
     }
 }
 
 /// Appends a flat config, or the configs of a (nested) list of them, to `list`.
-fn flatten_into(value: ConfigValue, list: &mut Vec<ConfigValue>) {
+fn flatten_into(value: Value, list: &mut Vec<Value>) {
     match value {
-        ConfigValue::Array(items) => {
+        Value::Array(items) => {
             for item in items {
                 flatten_into(item, list);
             }
@@ -3466,7 +3552,7 @@ fn single_argument<'p, 'a>(call: &'p CallExpression<'a>) -> Option<&'p Expressio
 /// `require('pkg')` and the factory call `require('pkg')(options)` nested in a config value (a `PostCSS` plugin list),
 /// as the package name. A top-level `require` stays unknown: it is a whole config, not a name. Relative paths stay
 /// unknown too, as they load a module rather than name a package.
-fn required_package(call: &CallExpression<'_>, depth: u32) -> Option<ConfigValue> {
+fn required_package(call: &CallExpression<'_>, depth: u32) -> Option<Value> {
     if depth < 2 {
         return None;
     }
@@ -3481,7 +3567,7 @@ fn required_package(call: &CallExpression<'_>, depth: u32) -> Option<ConfigValue
         return None;
     }
     let module = single_argument(call).and_then(static_string)?;
-    (!module.starts_with(['.', '/'])).then_some(ConfigValue::String(module))
+    (!module.starts_with(['.', '/'])).then_some(Value::String(module))
 }
 
 fn is_require_resolve(call: &CallExpression<'_>) -> bool {
