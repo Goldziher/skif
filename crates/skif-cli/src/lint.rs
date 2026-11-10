@@ -665,6 +665,7 @@ fn execute(args: &LintArgs, env: Env, teardown: Teardown, modules: Option<&dyn C
         roots::resolve(&start, args.recursive, &fs, &overrides(args))
     })?;
     note_truncated(&truncated);
+    warn_unanchored_patterns(&targets);
     if args.debug {
         trace::debug_targets(&base, &targets);
     }
@@ -792,6 +793,30 @@ fn execute(args: &LintArgs, env: Env, teardown: Teardown, modules: Option<&dyn C
         std::mem::forget(fs);
     }
     Ok(code)
+}
+
+/// Warns, once per file and pattern, about the `[[overrides]]` patterns that leave the directory they are anchored at
+/// (`../packages/*`): they match nothing.
+fn warn_unanchored_patterns(targets: &[Target]) {
+    let mut seen: BTreeSet<(PathBuf, &str)> = BTreeSet::new();
+    for target in targets {
+        for scope in target.config.overrides.iter().filter_map(|scoped| scoped.scope.as_ref()) {
+            let file = target
+                .sources
+                .get(scope.source)
+                .map_or_else(|| scope.declared_in.clone(), |source| source.path.clone());
+            for pattern in scope.unanchored() {
+                if seen.insert((file.clone(), pattern.as_str())) {
+                    stderr_line(&format!(
+                        "warning: {}: the [[overrides]] pattern `{}` leaves the directory it is anchored at, so it \
+                         matches nothing; write a path from the workspace root as `$ROOT/<path>`",
+                        file.display(),
+                        escape_controls(pattern)
+                    ));
+                }
+            }
+        }
+    }
 }
 
 /// The rules whose fixes remove a dependency of a manifest.
