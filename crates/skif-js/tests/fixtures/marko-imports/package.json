@@ -1,0 +1,9 @@
+{
+  "name": "marko-imports",
+  "private": true,
+  "dependencies": {
+    "lodash-es": "4.17.21",
+    "marko": "5.37.0",
+    "unused-dependency": "1.0.0"
+  }
+}
