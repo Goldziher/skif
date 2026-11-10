@@ -495,3 +495,8 @@ blake3 = "36dd7581c234838d522e16f36cb2f07070bd871167f8bc4a3693ab0174b0c318"
 number = 99
 status = "accepted"
 blake3 = "f8cbce76e3c0e59a8d52f44abe32658453144508410428e33c5962965ef64711"
+
+[adrs."adrs/0100-agent-skill-distributed-from-the-repository.md"]
+number = 100
+status = "accepted"
+blake3 = "b56e5411efca15efa2c4ed94994003ddbf86451ad97de89812de6c3790d99a40"
