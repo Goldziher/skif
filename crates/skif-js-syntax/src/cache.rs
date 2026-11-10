@@ -203,7 +203,7 @@ mod tests {
     /// One source per language the parsers know and one of test-runner mocks, plus the bench corpus: the probe whose
     /// parse output the schema digest pins.
     fn probe_corpus() -> Vec<(PathBuf, String)> {
-        let inline: [(&str, &str); 13] = [
+        let inline: [(&str, &str); 14] = [
             (
                 "a.ts",
                 "import { a, type B } from './b';\nimport * as ns from 'ns';\nexport const c = a + ns.x;\n\
@@ -229,8 +229,8 @@ mod tests {
             (
                 "f.vue",
                 "<script setup lang=\"ts\">\nimport Child from './Child.vue';\nimport { ref } from 'vue';\n\
-                 const n = ref(0);\n</script>\n<template><Child :n=\"n\" /></template>\n\
-                 <style lang=\"scss\">@use './theme';</style>\n",
+                 const n = ref(0);\n</script>\n<template><Child :n=\"n\" /><app-card v-for=\"item in items\" />\
+                 <component is=\"AppBadge\" /></template>\n<style lang=\"scss\">@use './theme';</style>\n",
             ),
             (
                 "g.svelte",
@@ -257,6 +257,11 @@ mod tests {
             (
                 "l.scss",
                 "@use 'sass:math';\n@use './vars' as v;\n@forward './mixins';\n.a { b: v.$c; }\n",
+            ),
+            (
+                "n.marko",
+                "import format from './format';\nimport Card from '<card>';\n<div>${format(input.value)}</div>\n\
+                 style.less {\n  @import './theme.less';\n}\n",
             ),
             (
                 "m.test.ts",
