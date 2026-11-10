@@ -2027,6 +2027,45 @@ generated/index.ts
     }
 
     #[test]
+    fn sveltekit_route_types_follow_the_root_dirs_of_the_generated_config() {
+        let files = [
+            ("package.json", r#"{"name":"app","private":true}"#),
+            (".gitignore", "node_modules\n/.svelte-kit\n"),
+            ("tsconfig.json", r#"{"extends":"./.svelte-kit/tsconfig.json"}"#),
+            (
+                ".svelte-kit/tsconfig.json",
+                r#"{"compilerOptions":{"rootDirs":["..","./types"]}}"#,
+            ),
+            ("src/routes/todos/+page.svelte", ""),
+            ("src/routes/about/+page.svelte", ""),
+        ];
+        let todos = Path::new("/ws/src/routes/todos/+page.svelte");
+        let about = Path::new("/ws/src/routes/about/+page.svelte");
+
+        // The config is generated but its ignored `types` root directory is not: the route types are unknown, as
+        // below any ignored `rootDirs` directory not generated yet.
+        let r = resolver(&files);
+        assert_eq!(r.resolve(todos, "./$types").target, Resolved::Ignored);
+        assert_eq!(r.resolve(todos, "./missing").target, Resolved::Unresolved);
+
+        // Once the types directory is generated, a route type it lacks is unresolved.
+        let r = resolver(&[
+            files[0],
+            files[1],
+            files[2],
+            files[3],
+            files[4],
+            files[5],
+            (".svelte-kit/types/src/routes/todos/$types.d.ts", ""),
+        ]);
+        assert_eq!(
+            r.resolve(todos, "./$types").target,
+            Resolved::File(PathBuf::from("/ws/.svelte-kit/types/src/routes/todos/$types.d.ts"))
+        );
+        assert_eq!(r.resolve(about, "./$types").target, Resolved::Unresolved);
+    }
+
+    #[test]
     fn hash_specifiers_are_unresolved_only_where_the_package_declares_imports() {
         let r = resolver(&[
             ("package.json", ROOT),
