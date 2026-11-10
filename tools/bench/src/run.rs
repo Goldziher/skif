@@ -92,9 +92,9 @@ const COMPARISON_TOOLS: [Tool; 3] = [Tool::Sherif, Tool::Syncpack, Tool::Knip];
 /// The pinned version of a comparison tool; `None` for skif.
 fn pinned(tools: &Tools, tool: Tool) -> Option<&str> {
     match tool {
-        Tool::Sherif => Some(&tools.sherif),
-        Tool::Syncpack => Some(&tools.syncpack),
-        Tool::Knip => Some(&tools.knip),
+        Tool::Sherif => Some(tools.sherif.as_str()),
+        Tool::Syncpack => Some(tools.syncpack.as_str()),
+        Tool::Knip => Some(tools.knip.as_str()),
         Tool::Skif | Tool::SkifManifest => None,
     }
 }

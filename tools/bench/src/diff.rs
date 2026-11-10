@@ -416,7 +416,7 @@ pub fn check(baseline: &Baseline, current: &Baseline, tolerance: Tolerance) -> V
         if now.recursive.is_some() && was.recursive != now.recursive {
             problems.push(format!(
                 "{name}: the baseline was recorded with recursive: {}, this run used recursive: {}; re-record it with --write-baseline",
-                was.recursive.map_or_else(|| "unknown".to_owned(), |r| r.to_string()),
+                was.recursive.map_or_else(|| "unknown".to_owned(), |recorded| recorded.to_string()),
                 now.recursive.unwrap_or_default()
             ));
             continue;
