@@ -26,8 +26,8 @@ pub(crate) struct EntryFiles {
     /// Packages whose real entries are unknown, so their files and dependencies cannot be judged unused: those that
     /// publish build output or bin files none of which maps back to a source file, and those with no source file at
     /// or below their directory other than a package manager's install hook (`.pnpmfile.cjs`), no other entry and no
-    /// script, whose manifest only lists what code elsewhere installs it for. A published path that names no file at all ([`names_no_file`]) is no entry and does not make a package's
-    /// entries unknown (ADR 0069).
+    /// script, whose manifest only lists what code elsewhere installs it for. A published path that names no file at
+    /// all ([`names_no_file`]) is no entry and does not make a package's entries unknown (ADR 0069).
     pub unknown: Vec<PackageId>,
     /// The entry files something other than the configured and default `entry` globs makes entries: plugins, the
     /// manifest, tool configuration files and scripts (with `include-entry-exports`, only plugin entry globs and the
