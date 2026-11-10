@@ -263,9 +263,7 @@ fn split_key(context: &str) -> (&str, Option<&str>) {
 
 /// The leading keyword of a Svelte tag and the rest: `each items as item` is `each` and ` items as item`.
 fn keyword(tag: &str) -> (&str, &str) {
-    let end = tag
-        .find(|c: char| !c.is_ascii_alphabetic())
-        .unwrap_or(tag.len());
+    let end = tag.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(tag.len());
     (&tag[..end], &tag[end..])
 }
 
@@ -1062,12 +1060,12 @@ mod tests {
                 &["DataTable", "defaults"],
                 &["row", "cells"],
             ),
-            ("<Pager v-slot=\"page\">{{ page.number }}</Pager>", &["Pager"], &["page"]),
             (
-                "<Pager v-slot=\"page\"/><p>{{ page }}</p>",
-                &["Pager", "page"],
-                &[],
+                "<Pager v-slot=\"page\">{{ page.number }}</Pager>",
+                &["Pager"],
+                &["page"],
             ),
+            ("<Pager v-slot=\"page\"/><p>{{ page }}</p>", &["Pager", "page"], &[]),
             ("<old slot-scope=\"scope\">{{ scope.row }}</old>", &[], &["scope"]),
             (
                 "<p :title=\"list.map((entry) => entry.id)\" @click=\"count++; save(entry)\"/>",
@@ -1089,7 +1087,11 @@ mod tests {
                 &["rows"],
                 &["row", "i"],
             ),
-            ("{#each rows as { id, label }}{id}{label}{/each}", &["rows"], &["id", "label"]),
+            (
+                "{#each rows as { id, label }}{id}{label}{/each}",
+                &["rows"],
+                &["id", "label"],
+            ),
             ("{#each rows as row}{/each}{row}", &["rows", "row"], &[]),
             ("{#each rows as row}{:else}{row}{/each}", &["rows", "row"], &[]),
             (
@@ -1105,7 +1107,11 @@ mod tests {
             ("<List let:cell>{cell}</List>", &["List"], &["cell"]),
             ("<List let:cell={item}>{item}</List>{item}", &["List", "item"], &[]),
             ("<List let:cell={item}>{item}</List>", &["List"], &["item", "cell"]),
-            ("{#snippet field(value, extra)}{value}{extra}{/snippet}", &[], &["value", "extra"]),
+            (
+                "{#snippet field(value, extra)}{value}{extra}{/snippet}",
+                &[],
+                &["value", "extra"],
+            ),
             (
                 "{#if ok}{@const total = sum(rows)}{total}{/if}",
                 &["ok", "sum", "rows"],
