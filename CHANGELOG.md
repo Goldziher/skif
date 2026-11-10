@@ -172,6 +172,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- One `--fix` or `--fix-unsafe` run applies a value fix (`version-mismatch`, `semver-range-mismatch`,
+  `catalog-not-used`) in an object that `unsorted-dependencies` also sorts. The two were planned as overlapping edits,
+  so the value fix was skipped as a conflict and only a second run applied it; such fixes are now planned together
+  ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
 - A bare-major range such as `^2` or `~1` stands for the versions it covers: `"a": "^2"` on a workspace package at
   `2.3.0` is valid, and `^2` overlaps `~2.1.0` in a `same-range` group. Before, the range was padded to
   `^2.HUGE.HUGE`, as in syncpack, and accepted no version.
