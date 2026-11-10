@@ -188,7 +188,9 @@ impl State {
             Self::SameMinorOverridesSemverRange | Self::SameMinorOverridesSemverRangeMismatch => {
                 "must use a range that stays within one minor, which overrides its semver group"
             }
-            Self::NonSemverMismatch => "differs from the other specifiers and none of them is a semver version",
+            Self::NonSemverMismatch => {
+                "differs from the other specifiers, and not every one of them is a semver version to align on"
+            }
             Self::SameRangeMismatch => "has a range that does not overlap the ranges of all other instances",
             Self::SameMinorMismatch => "is not on the same minor version as the other instances",
             Self::SameMinorHasMajorMismatch => "is not on the same major version as the other instances",
@@ -357,6 +359,14 @@ mod tests {
             assert_eq!(state.is_fixable(), fixable, "{name}");
             assert!(!state.summary().is_empty(), "{name}");
         }
+    }
+
+    #[test]
+    fn a_non_semver_mismatch_does_not_claim_that_no_specifier_is_semver() {
+        // `*` next to `^3.0.0` and `latest` next to `beta` end in the same state; the summary fits both.
+        let summary = State::NonSemverMismatch.summary();
+        assert!(!summary.contains("none of them"), "{summary}");
+        assert!(summary.contains("not every one of them is a semver version"), "{summary}");
     }
 
     #[test]
