@@ -86,7 +86,9 @@ ignores the binary file. Without a detected manager the root lockfiles are not j
 `nested-workspace-root` reports a `pnpm-workspace.yaml` in a member's directory: pnpm takes the nearest one above the
 working directory, so an install in that member leaves the root workspace. skif lints such a member as a root of its
 own in a recursive run, and the enclosing workspace still reports the file; the member's own lockfile is left to that
-root. A nested workspace that the patterns do not select is an independent project and is not reported.
+root. A nested workspace that the patterns do not select is an independent project and is not reported. In a Bun
+workspace it also reports a member `package.json` that declares `workspaces`: Bun reads the field from the root
+`package.json` only, so it never installs the packages such a member lists.
 
 Both rules look at the root and the directories the workspace patterns select, not deeper, and skip files a
 `.gitignore`, an `.ignore` or `.git/info/exclude` excludes and members `[workspace] ignore-packages` excludes. A
