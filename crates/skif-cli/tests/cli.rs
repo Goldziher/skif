@@ -126,6 +126,51 @@ fn unknown_rule_in_config_exits_two() {
 }
 
 #[test]
+fn an_unknown_rule_names_the_file_and_line_that_set_it() {
+    let dir = fixture("clean");
+    fs::write(dir.path().join("skif.toml"), "extends = [\"preset.toml\"]\n").unwrap();
+    fs::write(
+        dir.path().join("preset.toml"),
+        "[lint]\nfail-on-warnings = false\n[rules]\nunsorted-dependency = \"error\"\n",
+    )
+    .unwrap();
+    let result = run(skif().args(["--format", "json"]).arg(dir.path()));
+    assert_eq!(result.code, 2);
+    let error = &result.json()["error"];
+    assert_eq!(error["kind"], "config");
+    assert!(Path::new(error["path"].as_str().unwrap()).ends_with("preset.toml"), "{error}");
+    assert_eq!(error["line"], 4);
+    assert_eq!(error["column"], 1);
+    let message = error["message"].as_str().unwrap();
+    assert!(
+        message.ends_with(
+            "preset.toml:4:1: unknown rule \"unsorted-dependency\"; did you mean \"unsorted-dependencies\"?"
+        ),
+        "{message}"
+    );
+}
+
+#[test]
+fn an_unknown_rule_of_a_package_file_names_that_file() {
+    let dir = fixture("clean");
+    fs::write(dir.path().join("skif.toml"), "").unwrap();
+    fs::write(
+        dir.path().join("packages/a/skif.toml"),
+        "[[ignore]]\nrules = [\"no-such-rule\"]\nreason = \"x\"\n",
+    )
+    .unwrap();
+    let result = run(skif().args(["--format", "json"]).arg(dir.path()));
+    assert_eq!(result.code, 2);
+    let error = &result.json()["error"];
+    assert_eq!(error["kind"], "config");
+    assert!(
+        Path::new(error["path"].as_str().unwrap()).ends_with(Path::new("packages/a/skif.toml")),
+        "{error}"
+    );
+    assert!(error["message"].as_str().unwrap().contains("unknown rule \"no-such-rule\""), "{error}");
+}
+
+#[test]
 fn both_config_files_exit_two() {
     let dir = fixture("clean");
     fs::write(dir.path().join("skif.toml"), "").unwrap();
