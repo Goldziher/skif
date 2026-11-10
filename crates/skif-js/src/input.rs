@@ -24,6 +24,7 @@ pub struct PathAlias {
 /// A binary that a command read from a file runs: a step of a workflow, a hook, a task of a tool config, or a source
 /// file calling `execa` or `zx`. See [`WorkspaceInputs::run_binaries`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct RunBinary {
     /// The binary's name as the command spells it.
     pub name: String,
@@ -32,6 +33,14 @@ pub struct RunBinary {
     /// The directory the command runs the binary in after `cd` or `pushd`, relative to the package directory where
     /// the command starts, `/`-separated; `None` there and when the directory is not a static relative path.
     pub dir: Option<String>,
+}
+
+impl RunBinary {
+    /// The binary `name` that a command read from `file` runs, in `dir` (see [`RunBinary::dir`]).
+    #[must_use]
+    pub fn new(name: String, file: PathBuf, dir: Option<String>) -> Self {
+        Self { name, file, dir }
+    }
 }
 
 /// A package that a tool's config file names itself (a `tsconfig` `extends`, an eslint plugin, a Prisma generator):

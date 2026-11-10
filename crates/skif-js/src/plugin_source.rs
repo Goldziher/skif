@@ -226,11 +226,7 @@ fn inputs(output: PluginOutput) -> WorkspaceInputs {
         run_binaries: output
             .run_binaries
             .into_iter()
-            .map(|run| RunBinary {
-                name: run.name,
-                file: run.from,
-                dir: run.dir,
-            })
+            .map(|run| RunBinary::new(run.name, run.from, run.dir))
             .collect(),
         config_files: output.config_files,
         aliases: output
