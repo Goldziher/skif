@@ -154,7 +154,6 @@ pub const IGNORED_BINARIES: &[&str] = &[
     "unlink",
     "unzip",
     "uptime",
-    "users",
     "vdir",
     "wc",
     "wget",

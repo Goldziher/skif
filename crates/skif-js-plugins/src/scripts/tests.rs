@@ -636,11 +636,12 @@ fn ignored_binaries() {
         "truncate",
         "unlink",
         "stdbuf",
+        "uptime",
     ] {
         assert!(is_ignored_binary(name), "{name}");
     }
-    // Tools that a base system lacks stay binaries.
-    for name in ["sqlite3", "stripe", "sentry-cli", "openssl", "relay-compiler"] {
+    // Tools that a base system lacks, and words a workspace's own command may well be named, stay binaries.
+    for name in ["sqlite3", "stripe", "sentry-cli", "openssl", "relay-compiler", "users"] {
         assert!(!is_ignored_binary(name), "{name}");
     }
     for name in ["node", "tsc", "vite", "rimraf"] {
