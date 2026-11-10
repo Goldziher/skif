@@ -2,7 +2,7 @@
 //!
 //! A `generator` block's `provider` names the package that generates code (`prisma-kysely`, `zod-prisma-types`), a
 //! command (`node ./gen.js`) or a path relative to the schema file. The built-in `prisma-client-js` and
-//! `prisma-client` providers name no package.
+//! `prisma-client` providers name no package, and as for knip a block whose name starts with `client` is not read.
 
 use skif_js_syntax::ConfigValue;
 
@@ -75,27 +75,33 @@ fn generator_inputs(cx: &PluginContext<'_>, patterns: &[String]) -> Vec<PluginIn
 }
 
 /// The literal `provider` of every `generator` block of a schema, also of a block on one line
-/// (`generator x { provider = "y" }`).
+/// (`generator x { provider = "y" }`). A block whose name starts with `client` (`generator client`) generates the
+/// Prisma client and is skipped, as knip skips it.
 fn generator_providers(text: &str) -> Vec<&str> {
     let mut providers = Vec::new();
-    let mut in_generator = false;
+    // Inside a `generator` block: whether its provider is read.
+    let mut in_generator: Option<bool> = None;
     for line in text.lines() {
         let line = &line[..find_unquoted(line, "//").unwrap_or(line.len())];
         let mut field = line.trim();
-        if !in_generator {
-            let Some(open) = field
+        if in_generator.is_none() {
+            let Some((name, open)) = field
                 .strip_prefix("generator")
                 .filter(|rest| rest.starts_with(char::is_whitespace))
-                .and_then(|rest| rest.find('{').map(|at| &rest[at + 1..]))
+                .and_then(|rest| rest.find('{').map(|at| (rest[..at].trim(), &rest[at + 1..])))
             else {
                 continue;
             };
-            in_generator = true;
+            in_generator = Some(!name.starts_with("client"));
             field = open.trim();
         }
+        let read = in_generator == Some(true);
         if let Some(close) = find_unquoted(field, "}") {
             field = field[..close].trim();
-            in_generator = false;
+            in_generator = None;
+        }
+        if !read {
+            continue;
         }
         if let Some(value) = field.strip_prefix("provider").map(str::trim_start)
             && let Some(value) = value.strip_prefix('=').map(str::trim_start)
@@ -162,7 +168,15 @@ generator two {
 datasource db { provider = "postgresql" }
 // generator old { provider = "commented-out" }
 generator three { output = "x" }
+generator client { provider = "prisma-client-ts" }
+generator clientExtras {
+  provider = "client-extras"
+}
+generator myclient { provider = "custom-client" }
 "#;
-        assert_eq!(generator_providers(schema), ["single-line", "node ./gen//index.js"]);
+        assert_eq!(
+            generator_providers(schema),
+            ["single-line", "node ./gen//index.js", "custom-client"]
+        );
     }
 }
