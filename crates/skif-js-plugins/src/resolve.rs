@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use skif_config::{PluginConfig, PluginOptions};
 use skif_js_syntax::{ConfigValue, ModuleLoader};
 
-use crate::config_load::{from_json, load_config_with};
+use crate::config_load::{from_json, load_config_and_call_arguments};
 use crate::files::find_files;
 use crate::plugin::{
     BinaryRef, BuildDir, ConfigAst, DepRef, Enabler, IncompleteCause, IncompleteEntries, IncompleteScope, PathAlias,
@@ -17,7 +17,7 @@ use crate::plugin::{
 use crate::registry;
 use crate::script_config::{config_flags, config_paths, flag_values};
 use crate::scripts::{BinaryVia, ScriptContext, is_ignored_binary, parse_script};
-use crate::support::{join_lexically, join_rel, looks_like_file};
+use crate::support::{is_relative, join_lexically, join_rel, leaf_strings, looks_like_file};
 
 const MAX_CONFIG_DEPTH: u8 = 16;
 
@@ -545,9 +545,9 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
             loaded: RefCell::new(Vec::new()),
         });
         let modules = recording.as_ref().map(|recording| recording as &dyn ModuleLoader);
-        let value = match load_config_with(&path, &source, modules) {
-            Some(value) => value,
-            None if !reader.reads_config() => ConfigValue::Null,
+        let (value, call_arguments) = match load_config_and_call_arguments(&path, &source, modules) {
+            Some(found) => found,
+            None if !reader.reads_config() => (ConfigValue::Null, Vec::new()),
             None => {
                 let Some(value) = reader.read_script(&path, &source) else {
                     if is_structured(&path) && !source.trim().is_empty() {
@@ -556,7 +556,7 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
                     }
                     continue;
                 };
-                value
+                (value, Vec::new())
             }
         };
         let ast = ConfigAst {
@@ -571,13 +571,34 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
             let scope = reader.incomplete_scope(cause, &ast);
             collector.mark_incomplete(reader.spec().id, &path, cause, scope);
         }
-        let inputs = reader.resolve_config(&ast, ctx);
+        let mut inputs = reader.resolve_config(&ast, ctx);
+        if reader.reads_config() {
+            inputs.extend(argument_entries(ctx, ast.base, &call_arguments));
+        }
         collector.imported = recording
             .map(|recording| recording.loaded.into_inner())
             .unwrap_or_default();
         collector.absorb(reader.spec().id, inputs, (&path, Some(&ast)), depth);
         collector.imported.clear();
     }
+}
+
+/// The files named in `arguments`, the arguments of a call a config exports that the evaluator cannot follow
+/// (`createConfig({ setupFiles: ['./setup.ts'] })`): a factory hands the files it is given to the tool, so each string
+/// that names an existing file of the package, relative to the config's directory `base`, is an entry. The config stays
+/// unknown, and the package's entries incomplete, for what the factory adds itself.
+fn argument_entries(ctx: &PluginContext<'_>, base: &str, arguments: &[ConfigValue]) -> Vec<PluginInput> {
+    let mut entries: Vec<String> = Vec::new();
+    for text in arguments.iter().flat_map(leaf_strings).map(str::trim) {
+        if !(is_relative(text) || looks_like_file(text)) || text.starts_with('/') {
+            continue;
+        }
+        let path = join_rel(base, text);
+        if !path.starts_with("..") && ctx.fs.is_file(&ctx.dir.join(&path)) && !entries.contains(&path) {
+            entries.push(path);
+        }
+    }
+    entries.into_iter().map(PluginInput::Entry).collect()
 }
 
 /// Where the entries hidden by `config`, which plugin `reader` reads, can lie; anywhere when the plugin is unknown.
@@ -667,5 +688,52 @@ mod tests {
             .map(|reason| reason.plugin)
             .collect();
         assert_eq!(plugins, ["vite"]);
+    }
+
+    /// The strings in the arguments of an exported call the evaluator cannot follow that name an existing file of the
+    /// package, relative to the config's directory, are entries; a package name, a missing file, a directory and a
+    /// path outside the package are not.
+    #[test]
+    fn the_files_an_unknown_factory_is_given_are_entries() {
+        let fs = MemoryFs::new()
+            .with_file("/ws/test/config/boot.ts", "")
+            .with_file("/ws/test/vitest.setup.ts", "")
+            .with_file("/ws/shared.ts", "");
+        let scripts = IndexMap::new();
+        let plugins = IndexMap::new();
+        let ctx = PluginContext {
+            dir: Path::new("/ws"),
+            is_root: true,
+            package_name: None,
+            dependencies: &[],
+            inherited_dependencies: &[],
+            scripts: &scripts,
+            fs: &fs,
+            plugins: &plugins,
+            modules: None,
+        };
+        let text = |value: &str| ConfigValue::String(value.to_owned());
+        let arguments = [
+            ConfigValue::Object(vec![
+                (
+                    "setupFiles".to_owned(),
+                    ConfigValue::Array(vec![text("./config/boot.ts"), text("./missing.ts"), text("vitest.setup.ts")]),
+                ),
+                ("environment".to_owned(), text("jsdom")),
+                ("chart".to_owned(), text("chart.js")),
+                ("root".to_owned(), text("./config")),
+                ("outside".to_owned(), text("../../elsewhere.ts")),
+            ]),
+            text("../shared.ts"),
+            text("./config/boot.ts"),
+        ];
+        assert_eq!(
+            argument_entries(&ctx, "test", &arguments),
+            [
+                PluginInput::Entry("test/config/boot.ts".to_owned()),
+                PluginInput::Entry("test/vitest.setup.ts".to_owned()),
+                PluginInput::Entry("shared.ts".to_owned()),
+            ]
+        );
     }
 }

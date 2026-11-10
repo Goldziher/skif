@@ -41,6 +41,8 @@ All notable changes to this project are documented here. The format follows
   it. The rules read those files through `LintContext::fs`, the file system the run is given
   (`skif_lint::RunOptions::with_fs`), as the rules over a lockfile and patch files do
   ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
+- `skif_js_syntax::extract_config` returns an `ExtractedConfig`: the exported value and, when that is unknown because
+  the config exports a call the evaluator cannot follow, the call's evaluated arguments (`call_arguments`).
 
 ### Changed
 
@@ -304,6 +306,9 @@ All notable changes to this project are documented here. The format follows
 - A tool config built by a factory of a workspace package from the options it is given
   (`export default createVitestConfig({ setupFiles: ['./setup.ts'] })`, `defineConfig(createBase(options))`) is known:
   a factory reading `options.setupFiles ?? []` no longer leaves the package's entries incomplete.
+- A config exporting the result of a call that cannot be followed (a factory of an installed package) stays unknown
+  and the package's entries incomplete, but the existing files of the package named in the call's arguments are
+  entries, so the modules they import are reached.
 - The `vite`, `vitest` and `electron-vite` plugins read the build input of Vite 8 from `build.rolldownOptions.input`,
   before `build.rollupOptions.input`, as knip does: its pages and modules are entries, so their files and the
   packages they import are no longer reported unused, and a computed Rolldown input leaves the package's entries

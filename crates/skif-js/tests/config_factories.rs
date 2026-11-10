@@ -1,5 +1,6 @@
 //! Tool configs built by a factory (`export default createVitestConfig({ setupFiles: ['./config/boot.ts'] })`): a
-//! factory of a workspace package is evaluated with the options it is given.
+//! factory of a workspace package is evaluated with the options it is given, and the files named in the options of a
+//! factory that cannot be followed are entries, while the package stays incomplete.
 //!
 //! Every case is a minimal synthetic workspace.
 
@@ -10,7 +11,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use skif_config::Config;
-use skif_core::{FileSystem, IncompletePackage, MemoryFs};
+use skif_core::{FileSystem, IncompletePackage, IncompleteScope, MemoryFs};
 use skif_js::{InputSource, JsAnalysis, PluginSource};
 use skif_workspace::Workspace;
 
@@ -76,5 +77,20 @@ fn a_workspace_factory_config_is_evaluated_with_its_options() {
     );
     let (incomplete, boot) = analyse(&files, "packages/app/config/boot.ts");
     assert_eq!(incomplete, Vec::new());
+    assert_eq!(boot["in-graph"], true, "{boot}");
+}
+
+/// A factory of an installed package cannot be followed: the setup module named in its options is still an entry, and
+/// the package stays incomplete, as a whole, for what the factory may add itself.
+#[test]
+fn the_files_an_unknown_factory_is_given_are_entries_of_an_incomplete_package() {
+    let files = workspace(
+        "import { defineConfig } from 'vitest/config';\n\
+         import { createVitestConfig } from '@acme/vitest-preset';\n\
+         export default defineConfig(createVitestConfig({ setupFiles: ['./config/boot.ts'] }));\n",
+    );
+    let (incomplete, boot) = analyse(&files, "packages/app/config/boot.ts");
+    let scopes: Vec<&IncompleteScope> = incomplete.iter().map(|package| &package.scope).collect();
+    assert_eq!(scopes, [&IncompleteScope::Package]);
     assert_eq!(boot["in-graph"], true, "{boot}");
 }
