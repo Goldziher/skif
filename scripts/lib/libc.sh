@@ -35,13 +35,15 @@ skif_version_ge() {
   ((have_major > want_major || (have_major == want_major && have_minor >= want_minor)))
 }
 
-# Prints `gnu` when the host's glibc meets the floor, otherwise `musl`.
+# Prints `gnu` when the host's glibc meets the floor, otherwise `musl`. The libc is the one `ldd` and `getconf` report,
+# not whichever loaders are installed: a glibc host may carry /lib/ld-musl-* (Debian's musl package), and a musl host
+# without glibc evidence gets musl anyway.
 skif_libc() {
   local banner version
   # The banner is captured on its own: musl's `ldd --version` exits non-zero, which a pipeline would turn into a
   # failure under pipefail.
   banner="$(ldd --version 2>&1 || true)"
-  if [[ "$banner" == *musl* ]] || compgen -G '/lib/ld-musl-*' >/dev/null; then
+  if [[ "$banner" == *musl* ]]; then
     echo musl
     return 0
   fi
