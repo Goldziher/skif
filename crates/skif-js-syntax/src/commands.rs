@@ -23,7 +23,7 @@ pub(crate) fn child_process_commands(program: &Program<'_>, imports: &[Import]) 
         return Vec::new();
     }
     let mut commands: Vec<String> = Vec::new();
-    for command in imported_calls_in(program, "", MODULES, &[]).iter().filter_map(command) {
+    for command in imported_calls_in(program, "", MODULES, &[], true).iter().filter_map(command) {
         if !commands.contains(&command) {
             commands.push(command);
         }

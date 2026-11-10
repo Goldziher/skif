@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use skif_js_syntax::{ConfigValue, ImportedCall, extract_imported_calls};
+use skif_js_syntax::{ConfigValue, FILE_DIR, ImportedCall, extract_command_calls, extract_imported_calls};
 
 fn calls(source: &str, modules: &[&str], globals: &[(&str, &str)]) -> Vec<ImportedCall> {
     extract_imported_calls(source, Path::new("src/run.ts"), modules, globals)
@@ -77,4 +77,26 @@ fn required_modules_and_globals_count() {
     assert_eq!((found[1].module.as_str(), found[1].export.as_str()), ("zx", "$"));
     assert_eq!(calls("not valid (", &["x"], &[]), []);
     assert_eq!(calls("foo()", &["x"], &[]), []);
+}
+
+/// Only the calls that run a command read their `cwd` option as the directory the command runs in: any other call keeps
+/// the option as the source evaluates it.
+#[test]
+fn the_cwd_option_is_read_as_a_directory_only_for_command_calls() {
+    let source = "import { run } from 'lib';\nrun({ cwd: '.' });\nrun({ cwd: __dirname });\n";
+    let cwd = |call: &ImportedCall| call.arguments.first().and_then(|options| options.get("cwd")).cloned();
+    let plain = calls(source, &["lib"], &[]);
+    assert_eq!(cwd(&plain[0]), Some(s(".")));
+    let kept = cwd(&plain[1]);
+    assert!(
+        kept.as_ref().and_then(ConfigValue::as_str).is_some_and(|dir| !dir.starts_with(FILE_DIR)),
+        "{kept:?}"
+    );
+    let commands = extract_command_calls(source, Path::new("src/run.ts"), &["lib"], &[]);
+    assert_eq!(cwd(&commands[0]), None);
+    let marked = cwd(&commands[1]);
+    assert!(
+        marked.as_ref().and_then(ConfigValue::as_str).is_some_and(|dir| dir.starts_with(FILE_DIR)),
+        "{marked:?}"
+    );
 }
