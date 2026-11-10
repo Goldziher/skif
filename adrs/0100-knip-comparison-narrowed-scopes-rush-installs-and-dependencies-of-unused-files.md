@@ -109,6 +109,12 @@ picks it: the first of `skif_js::source_candidates` that exists in the checkout,
 `lib/x.ts` present, `./lib/x.js` names `src/x.ts` and `lib/x.ts` stays compared. A pattern with `*` names every file
 it matches. The files that only such an entry reaches stay compared.
 
+**Owning package.** The package a finding belongs to, for the narrowed scope of `not-judged-by-skif`, for
+`knip-config-error`, `rush-root-file` and `published-source`, and for the `out`, `target` and `coverage` directories
+of `skipped-directory`, is the deepest directory above its file with a project manifest as skif's file discovery
+decides it: a `package.json` holding only `type`, `sideEffects` or `imports` (`{"type": "module"}` in `src/esm`) is a
+marker for the files below it and belongs to the package above.
+
 **Precedence.** For a finding only knip reports: `knip-unread`, the file classifications, the wider `fixture-file`,
 `rush-root-file`, `not-judged-by-skif`, `skipped-directory`, `non-member-project`, `published-source`,
 `in-skif-unused-file`, `used-in-knip-unused-file`, then `knip-config-error`. For a finding only skif reports:
