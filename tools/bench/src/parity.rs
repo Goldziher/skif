@@ -1145,10 +1145,11 @@ fn install_command(repo: &Repo, dir: &Path) -> Result<(String, Vec<String>), Str
     Ok((program.to_owned(), args.iter().map(|a| (*a).to_owned()).collect()))
 }
 
-/// Installs the dependencies of a checkout without running lifecycle scripts; `Some(reason)` when that fails.
+/// Installs the dependencies of a checkout without running lifecycle scripts, then runs the repository's
+/// `build-command` if it has one; `Some(reason)` when either fails.
 ///
 /// # Errors
-/// Fails when the install cannot be started or the marker cannot be written.
+/// Fails when a command cannot be started or the marker cannot be written.
 pub fn install(repo: &Repo, dir: &Path, scratch: &Path, default_timeout: Duration) -> Result<Option<String>> {
     let timeout = repo.install_timeout_secs.map_or(default_timeout, Duration::from_secs);
     let marker = dir.join(INSTALLED_MARKER);
@@ -1159,36 +1160,67 @@ pub fn install(repo: &Repo, dir: &Path, scratch: &Path, default_timeout: Duratio
         Ok(command) => command,
         Err(reason) => return Ok(Some(reason)),
     };
-    if find_on_path(&program).is_none() {
+    if let Some(reason) = run_step(repo, dir, scratch, ("install", &program, &args), timeout)? {
+        return Ok(Some(reason));
+    }
+    if let Some((program, args)) = repo.build_command.split_first()
+        && let Some(reason) = run_step(repo, dir, scratch, ("build", program, args), timeout)?
+    {
+        return Ok(Some(reason));
+    }
+    fs::write(&marker, install_marker(repo)).with_context(|| format!("writing {}", marker.display()))?;
+    Ok(None)
+}
+
+/// Runs one step (`install` or `build`: its name, program and arguments) of the install in the checkout, with its
+/// output captured in the scratch directory under the step's name; `Some(reason)` when it cannot run or fails.
+fn run_step(
+    repo: &Repo,
+    dir: &Path,
+    scratch: &Path,
+    (step, program, args): (&str, &str, &[String]),
+    timeout: Duration,
+) -> Result<Option<String>> {
+    if find_on_path(program).is_none() {
         return Ok(Some(format!("{program} is not installed")));
     }
     eprintln!("parity: {} {program} {}", repo.name, args.join(" "));
     let run = capture(
-        Command::new(&program)
-            .args(&args)
+        Command::new(program)
+            .args(args)
             .current_dir(dir)
             .env("CI", "1")
             .env("COREPACK_ENABLE_DOWNLOAD_PROMPT", "0"),
         scratch,
-        "install",
+        step,
         timeout,
     )?;
     if run.timed_out {
         return Ok(Some(format!(
-            "{program} install timed out after {} s",
+            "{program} {step} timed out after {} s",
             timeout.as_secs()
         )));
     }
     if run.code != Some(0) {
-        return Ok(Some(format!("{program} install failed: {}", run.failure_summary())));
+        return Ok(Some(format!("{program} {step} failed: {}", run.failure_summary())));
     }
-    fs::write(&marker, &repo.rev).with_context(|| format!("writing {}", marker.display()))?;
     Ok(None)
 }
 
-/// Whether the dependencies of a checkout are installed at its pinned commit: its install marker holds the commit.
+/// What the install marker of a checkout holds once the install (and the build, if any) succeeded: the pinned commit,
+/// and the build command on a second line, so a marker written before the command was added or changed is stale.
+fn install_marker(repo: &Repo) -> String {
+    if repo.build_command.is_empty() {
+        repo.rev.clone()
+    } else {
+        format!("{}\nbuild: {}", repo.rev, repo.build_command.join(" "))
+    }
+}
+
+/// Whether the dependencies of a checkout are installed at its pinned commit: its install marker holds the commit
+/// (and the build command, see [`install_marker`]).
 pub fn is_installed(repo: &Repo, dir: &Path) -> bool {
-    fs::read_to_string(dir.join(INSTALLED_MARKER)).is_ok_and(|rev| rev.trim() == repo.rev)
+    fs::read_to_string(dir.join(INSTALLED_MARKER)).is_ok_and(|marker| marker.trim() == install_marker(repo))
 }
 
 /// How many of the compared repositories were installed: `yes`, `no` or `partial (n of m)`.
@@ -1742,6 +1774,7 @@ mod tests {
             bench_knip_args: Vec::new(),
             knip_invalid: None,
             knip_root: None,
+            build_command: Vec::new(),
         };
         let dir = Path::new("/nonexistent");
         assert_eq!(install_command(&repo("npm", true), dir).unwrap().1[0], "ci");
@@ -2248,6 +2281,17 @@ mod tests {
         assert!(!is_installed(&repo, &dir));
         fs::write(dir.join(INSTALLED_MARKER), format!("{}\n", "a".repeat(40))).unwrap();
         assert!(is_installed(&repo, &dir));
+        repo.build_command = vec!["pnpm".to_owned(), "run".to_owned(), "build".to_owned()];
+        assert!(
+            !is_installed(&repo, &dir),
+            "a marker written without the build is stale"
+        );
+        fs::write(dir.join(INSTALLED_MARKER), install_marker(&repo)).unwrap();
+        assert!(is_installed(&repo, &dir));
+        assert_eq!(
+            install_marker(&repo),
+            format!("{}\nbuild: pnpm run build", "a".repeat(40))
+        );
         repo.rev = "b".repeat(40);
         assert!(!is_installed(&repo, &dir), "a marker of another commit is stale");
         fs::remove_dir_all(&dir).unwrap();
