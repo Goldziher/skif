@@ -140,6 +140,7 @@ pub(crate) fn import(name: &str, specifier: &str, first: bool) -> Import {
             local: Some(name.to_owned()),
             is_type: false,
             accessed_members: Vec::new(),
+            nested_members: std::collections::BTreeMap::new(),
             escapes: true,
         }]
     } else {
