@@ -83,7 +83,9 @@ pub const IN_KNIP_UNUSED_FILE: &str = "in-knip-unused-file";
 pub const IN_SKIF_UNUSED_FILE: &str = "in-skif-unused-file";
 
 /// The categories skif does not judge in a package whose entry files are not all known: files and dependencies
-/// (ADR 0053), and exports, types and members, which skif stopped reporting there with #48 (ADR 0068).
+/// (ADR 0053), and exports, types and members, which skif stopped reporting there with #48 (ADR 0068). In a package
+/// whose scope is narrowed, skif judges the files, exports, types and members outside the scope (ADR 0065, ADR 0081);
+/// the JSON report does not tell such a package from one unjudged as a whole, so the whole package is set apart.
 const NOT_JUDGED_CATEGORIES: [&str; 9] = [
     "files",
     "dependencies",
@@ -151,7 +153,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 13] = [
     },
     Deviation {
         id: NOT_JUDGED,
-        reason: "skif lists the package under `incomplete-packages`: a tool config it cannot read leaves its entry files unknown, so it does not judge the package's dependencies, exports, types and members, nor the files the config could make entries (the whole package unless the config's scope is narrowed, ADR 0065, which its JSON does not say)",
+        reason: "skif lists the package under `incomplete-packages`: a tool config it cannot read leaves its entry files unknown, so it does not judge the package's dependencies, nor its files, exports, types and members where the config could make entries. Where the config's scope is narrowed (ADR 0065, ADR 0081) skif judges the files, exports, types and members outside it, but its JSON does not say which packages are narrowed, so this count is an upper bound for those categories",
     },
     Deviation {
         id: KNIP_CONFIG_ERROR,
