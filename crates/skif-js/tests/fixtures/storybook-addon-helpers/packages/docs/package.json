@@ -1,0 +1,14 @@
+{
+  "name": "@fx/docs",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "storybook": "storybook dev"
+  },
+  "devDependencies": {
+    "@storybook/addon-links": "^9.0.0",
+    "@storybook/react-vite": "^9.0.0",
+    "storybook": "^9.0.0"
+  }
+}

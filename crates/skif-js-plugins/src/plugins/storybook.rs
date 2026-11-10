@@ -2,8 +2,10 @@
 
 use skif_js_syntax::ConfigValue;
 
-use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::support::{entry_glob, module_input, objects, strings};
+use crate::plugin::{
+    ConfigAst, Enabler, IncompleteCause, IncompleteScope, Plugin, PluginContext, PluginInput, PluginSpec,
+};
+use crate::support::{Entry, Spreads, entry_glob, join_rel, last_entry, module_input, objects, strings};
 
 /// The `storybook` plugin.
 pub struct Storybook;
@@ -44,30 +46,42 @@ impl Plugin for Storybook {
             out.extend(entry_glob(config.base, &pattern).map(PluginInput::Entry));
         }
         let mut addons = Vec::new();
-        for addon in value
-            .get("addons")
-            .and_then(ConfigValue::as_array)
-            .into_iter()
-            .flatten()
-        {
-            if let Some(name) = name_or_string(addon) {
-                out.extend(module_input(config.base, name, false));
-                addons.push(name);
+        for listed in value.get("addons").map(ConfigValue::alternatives).unwrap_or_default() {
+            match listed {
+                ConfigValue::Array(listed) => {
+                    for addon in listed {
+                        for name in packages_named(addon, &mut out) {
+                            out.extend(module_input(config.base, name, false));
+                            addons.push(name);
+                        }
+                    }
+                }
+                unknown if unknown.is_unknown() => out.push(PluginInput::EntriesIncomplete),
+                _ => {}
             }
         }
-        if let Some(builder) = value
-            .get("core")
-            .and_then(|c| c.get("builder"))
-            .and_then(name_or_string)
-        {
-            if builder.starts_with("webpack") {
-                out.push(PluginInput::Dependency(format!("@storybook/builder-{builder}")));
-                out.push(PluginInput::Dependency(format!("@storybook/manager-{builder}")));
-            } else {
-                out.extend(module_input(config.base, builder, false));
+        if let Some(core) = value.get("core") {
+            if core.is_unknown() || last_entry(core, "builder", Spreads::Any) == Some(Entry::Spread) {
+                out.push(PluginInput::EntriesIncomplete);
+            }
+            let builders = core
+                .get("builder")
+                .map(|builder| packages_named(builder, &mut out))
+                .unwrap_or_default();
+            for builder in builders {
+                if builder.starts_with("webpack") {
+                    out.push(PluginInput::Dependency(format!("@storybook/builder-{builder}")));
+                    out.push(PluginInput::Dependency(format!("@storybook/manager-{builder}")));
+                } else {
+                    out.extend(module_input(config.base, builder, false));
+                }
             }
         }
-        if let Some(framework) = value.get("framework").and_then(name_or_string) {
+        for framework in value
+            .get("framework")
+            .map(|framework| packages_named(framework, &mut out))
+            .unwrap_or_default()
+        {
             out.extend(module_input(config.base, framework, false));
         }
         if addons.contains(&"@storybook/addon-vitest") {
@@ -77,12 +91,44 @@ impl Plugin for Storybook {
         }
         out
     }
+
+    /// What the config hides when it names an addon, the framework or the builder in a way that is not known
+    /// statically is a package, whose dependencies are then not judged, or a local addon, which lives in the
+    /// Storybook config directory; any other file of the package is judged. A config unknown as a whole, or one that
+    /// spreads or merges in an unknown value, may name stories anywhere.
+    fn incomplete_scope(&self, cause: IncompleteCause, config: &ConfigAst<'_>) -> IncompleteScope {
+        if cause != IncompleteCause::ComputedEntries {
+            return IncompleteScope::Package;
+        }
+        let mut globs = vec![join_rel(config.base, "**")];
+        globs.extend(SPEC.project.iter().map(|glob| (*glob).to_owned()));
+        IncompleteScope::Within(globs)
+    }
 }
 
-fn name_or_string(value: &ConfigValue) -> Option<&str> {
-    value
-        .as_str()
-        .or_else(|| value.get("name").and_then(ConfigValue::as_str))
+/// The packages an addon, the framework or the builder names: a string, or the `name` of an object with options, for
+/// each of the values it may be ([`ConfigValue::alternatives`]). When a name is not known statically, or a spread may
+/// set it, the packages the config needs are not all known, so [`PluginInput::EntriesIncomplete`] is added to `out`.
+fn packages_named<'v>(value: &'v ConfigValue, out: &mut Vec<PluginInput>) -> Vec<&'v str> {
+    let mut names = Vec::new();
+    for alternative in value.alternatives() {
+        if last_entry(alternative, "name", Spreads::Any) == Some(Entry::Spread) {
+            out.push(PluginInput::EntriesIncomplete);
+        }
+        let name = if alternative.as_object().is_some() {
+            alternative.get("name")
+        } else {
+            Some(alternative)
+        };
+        for name in name.map(ConfigValue::alternatives).unwrap_or_default() {
+            match name {
+                ConfigValue::String(name) => names.push(name.as_str()),
+                unknown if unknown.is_unknown() => out.push(PluginInput::EntriesIncomplete),
+                _ => {}
+            }
+        }
+    }
+    names
 }
 
 /// Story globs, with `{ directory, files }` objects expanded.

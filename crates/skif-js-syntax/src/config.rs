@@ -118,6 +118,12 @@ pub enum ConfigValue {
     },
     /// Anything that cannot be known without running the code.
     Unknown,
+    /// One of these values, without knowing which: the branches of a condition that cannot be decided statically
+    /// (`process.env.CI ? 'github' : 'list'`). There are at least two alternatives, all different, and none is
+    /// [`ConfigValue::Unknown`] or another `OneOf`, though an array or object alternative may hold unknown parts.
+    /// [`ConfigValue::is_unknown`] and [`ConfigValue::has_unknown`] count it as unknown, so code that does not ask
+    /// for its [`ConfigValue::alternatives`] treats it as an unknown value.
+    OneOf(Vec<ConfigValue>),
 }
 
 /// The key under which an object records an unknown spread, or an unknown argument of a merge, of a value the module
@@ -190,11 +196,26 @@ impl ConfigValue {
         }
     }
 
-    /// Whether the value, or anything inside it, is [`ConfigValue::Unknown`].
+    /// Whether the value is not known as one value: [`ConfigValue::Unknown`], or [`ConfigValue::OneOf`] of several.
+    #[must_use]
+    pub fn is_unknown(&self) -> bool {
+        matches!(self, Self::Unknown | Self::OneOf(_))
+    }
+
+    /// The values this may be: the alternatives of a [`ConfigValue::OneOf`], or the value itself.
+    #[must_use]
+    pub fn alternatives(&self) -> &[ConfigValue] {
+        match self {
+            Self::OneOf(alternatives) => alternatives,
+            other => std::slice::from_ref(other),
+        }
+    }
+
+    /// Whether the value, or anything inside it, is [`ConfigValue::Unknown`] or [`ConfigValue::OneOf`].
     #[must_use]
     pub fn has_unknown(&self) -> bool {
         match self {
-            Self::Unknown => true,
+            Self::Unknown | Self::OneOf(_) => true,
             Self::Array(items) => items.iter().any(Self::has_unknown),
             Self::Object(entries) => entries.iter().any(|(_, v)| v.has_unknown()),
             _ => false,
@@ -220,6 +241,8 @@ enum Value {
         flags: String,
     },
     Unknown,
+    /// One of several values, not knowing which; see [`one_of`]. Handed out as [`ConfigValue::OneOf`].
+    OneOf(Vec<Value>),
     /// A value that is not definite: a key merged from the branches of a condition the evaluator cannot decide
     /// ([`any_entries`]), which the object may lack or hold any one of the values its union lists in, and every value
     /// that carries a read of one on: a key of an object or a binding holding it, an argument, a value a function
@@ -300,6 +323,7 @@ impl From<ConfigValue> for Value {
             ),
             ConfigValue::Regex { pattern, flags } => Self::Regex { pattern, flags },
             ConfigValue::Unknown => Self::Unknown,
+            ConfigValue::OneOf(alternatives) => Self::OneOf(alternatives.into_iter().map(Self::from).collect()),
         }
     }
 }
@@ -320,6 +344,19 @@ impl From<Value> for ConfigValue {
             ),
             Value::Regex { pattern, flags } => Self::Regex { pattern, flags },
             Value::Unknown => Self::Unknown,
+            Value::OneOf(alternatives) => {
+                // `null` and `undefined` are both handed out as `null`.
+                let mut out: Vec<Self> = Vec::new();
+                for alternative in alternatives.into_iter().map(Self::from) {
+                    if !out.contains(&alternative) {
+                        out.push(alternative);
+                    }
+                }
+                match out.len() {
+                    1 => out.pop().unwrap_or(Self::Unknown),
+                    _ => Self::OneOf(out),
+                }
+            }
             Value::Maybe(value) => Self::from(*value),
         }
     }
@@ -347,7 +384,9 @@ pub trait ModuleLoader {
 /// the config file's directory (`"."`, `"./src"`, `"../shared"`).
 ///
 /// `a ? b : c` takes the branch a known test selects; with an unknown test it is what both branches share (for two
-/// objects, every key either has, unknown where they differ or only one has it). `a && b`, `a || b`, `a ?? b` and `!a`
+/// objects, every key either has, one of their values where they differ and unknown where only one has it), and for
+/// other values that differ [`ConfigValue::OneOf`] the two (`process.env.CI ? 'github' : 'list'`), unknown when a
+/// branch is unknown or there would be more than eight alternatives. `a && b`, `a || b`, `a ?? b` and `!a`
 /// are followed when `a` is known, and `.length` of a known string or array is its length. A member `a.b` of a known
 /// object is the value of its key `b`, unknown when an unknown spread may set it or the object may inherit it (a member
 /// of `Object.prototype`, an object with a `__proto__`), and `undefined` (handed out as `null`) when the object does
@@ -361,9 +400,13 @@ pub trait ModuleLoader {
 /// An `if (test) return a;` before a function's last `return` is followed the same way: a known test takes its branch,
 /// and an unknown one makes the value what both returns share. A spread of a conditional with an unknown test
 /// (`...(tmp && { cacheDir: tmp })`, `...(ci ? { a } : {})`) adds every key a branch sets: a list gets the elements of
-/// every branch (a string counting as a list of one), a nested object merges the same way, and any other value the
-/// branches do not share is unknown; only a branch that is not an object (or `null`, a boolean, a number or an empty
-/// string) leaves the spread unknown.
+/// every branch (a string counting as a list of one), a nested object merges the same way, any other value every
+/// branch sets is one of them and one only some branches set is unknown; only a branch that is not an object (or
+/// `null`, a boolean, a number or an empty string) leaves the spread unknown. A spread of a value that is one of
+/// several adds the keys of each the same way. Spread into an array, such a condition or value adds the elements of
+/// every branch (`[...(ci ? ['a'] : [])]`), a branch of `null`, `undefined` or a boolean none. `.filter(Boolean)` of a
+/// known array drops the falsy elements and keeps one that may be falsy as the values it has when it is not
+/// (`[ci ? 'github' : null, ci && 'blob'].filter(Boolean)` keeps `'github'` and `'blob'`).
 ///
 /// Functions are followed: a returned config function may declare local `const`/`let` bindings and local functions,
 /// assign members of a local object, and call top-level or local functions with known arguments, a parameter not passed
@@ -371,9 +414,10 @@ pub trait ModuleLoader {
 /// function the tool calls (the exported config function, the callback given to `defineConfig`) is passed what the
 /// config does not say, so each of its parameters is unknown, a default included: `(env = {}) => env.analyze ? a : b`
 /// keeps both branches. `await x` and
-/// `Promise.resolve(x)` evaluate to `x`; `require.resolve('pkg')` evaluates to `'pkg'`, and the storybook idiom
-/// `dirname(require.resolve(join('pkg', 'package.json')))` to `'pkg'`. A call of a glob function (`glob`,
-/// `fast-glob`, `globby`, `tinyglobby`, however imported) evaluates to the array of its literal patterns, so a
+/// `Promise.resolve(x)` evaluate to `x`; `require.resolve('pkg')` and `import.meta.resolve('pkg')` evaluate to
+/// `'pkg'`, and the storybook idioms `dirname(require.resolve(join('pkg', 'package.json')))` and
+/// `` dirname(fileURLToPath(import.meta.resolve(`${pkg}/package.json`))) `` to `'pkg'`. A call of a glob function
+/// (`glob`, `fast-glob`, `globby`, `tinyglobby`, however imported) evaluates to the array of its literal patterns, so a
 /// dynamic `entry` becomes entry globs. `process.cwd()` and a first `path.resolve` argument that is not absolute are
 /// taken to be the config file's directory, which is right when the tool runs from the package that holds the
 /// config and a heuristic otherwise. The directory itself is `"."`, so `dirname(__dirname)` is `".."`. A URL with a
@@ -734,6 +778,7 @@ fn as_imported(value: Value) -> Value {
                 .collect(),
         ),
         Value::Array(items) => Value::Array(items.into_iter().map(as_imported).collect()),
+        Value::OneOf(alternatives) => Value::OneOf(alternatives.into_iter().map(as_imported).collect()),
         Value::Maybe(value) => Value::Maybe(Box::new(as_imported(*value))),
         other => other,
     }
@@ -1776,7 +1821,7 @@ fn is_module_exports_assignment(stmt: &Statement<'_>) -> bool {
 /// The number of values `value` consists of, itself included.
 fn node_count(value: &Value) -> usize {
     1 + match value {
-        Value::Array(items) => items.iter().map(node_count).sum(),
+        Value::Array(items) | Value::OneOf(items) => items.iter().map(node_count).sum(),
         Value::Object(entries) => entries.iter().map(|(_, item)| node_count(item)).sum(),
         Value::Maybe(value) => node_count(value),
         _ => 0,
@@ -2026,6 +2071,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         match name {
             "__dirname" => Value::String(normalized(&[self.dir])),
             "__filename" => Value::String(self.file_path()),
+            "undefined" => Value::Undefined,
             _ => Value::Unknown,
         }
     }
@@ -2239,8 +2285,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     }
 
     /// The values a spread argument may have: one for an expression whose value is known or not decided by a
-    /// condition, two for one that is not definite (`undefined` and the value, which it may lack), and one per branch
-    /// for `test ? a : b`, `a && b`, `a || b` and `a ?? b` whose test is unknown (parenthesised or not). A left side
+    /// condition, two for one that is not definite (`undefined` and the value, which it may lack), one per branch
+    /// for `test ? a : b`, `a && b`, `a || b` and `a ?? b` whose test is unknown (parenthesised or not), and one per
+    /// alternative of a value that is one of several. A left side
     /// that adds nothing when spread is [`ConfigValue::Null`]: the falsy `a` of `a && b`, and a comparison, negation or
     /// `void` on the left of `||` or `??`.
     fn possibilities(&self, expr: &'p Expression<'a>, depth: u32) -> Vec<Value> {
@@ -2264,10 +2311,10 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     left
                 };
                 match decided {
-                    Some(true) => vec![left],
+                    Some(true) => alternatives(left),
                     Some(false) => self.possibilities(&logical.right, depth + 1),
                     None => {
-                        let mut out = vec![left];
+                        let mut out = alternatives(left);
                         out.extend(self.possibilities(&logical.right, depth + 1));
                         out
                     }
@@ -2283,8 +2330,12 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 }
             },
             _ => match self.expr(expr, depth) {
-                Value::Maybe(value) => vec![Value::Undefined, *value],
-                value => vec![value],
+                Value::Maybe(value) => {
+                    let mut out = vec![Value::Undefined];
+                    out.extend(alternatives(*value));
+                    out
+                }
+                value => alternatives(value),
             },
         }
     }
@@ -2308,7 +2359,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         }
     }
 
-    /// `test ? a : b`: the branch a known test takes, or what both branches have in common when the test is unknown.
+    /// `test ? a : b`: the branch a known test takes, or when the test is unknown what both branches have in common or
+    /// one of them ([`either`]).
     fn conditional(&self, conditional: &'p ConditionalExpression<'a>, depth: u32) -> Value {
         match self.truthy(&conditional.test, depth) {
             Some(true) => self.expr(&conditional.consequent, depth),
@@ -2409,45 +2461,78 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         values
     }
 
-    /// `dirname(require.resolve(join(pkg, 'package.json')))`, the directory of a package, which is `pkg` itself.
+    /// The directory of a package's manifest, which is the package itself: `dirname(require.resolve(join(pkg,
+    /// 'package.json')))`, the idiom the Storybook CLI writes, also with `import.meta.resolve` for `require.resolve`,
+    /// its URL turned into a path with `fileURLToPath`, the package written in several `join` arguments
+    /// (`'@scope', 'name'`), and the manifest written as a string (`` `${pkg}/package.json` ``,
+    /// `'pkg/package.json'`) instead of the `join`. The directory is classified by [`manifest_directory`]: `None`
+    /// leaves a relative path to the path functions.
     fn package_directory(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
         if !self.is_path_function(&call.callee, "dirname") {
             return None;
         }
-        let Some(Expression::CallExpression(resolve)) = single_argument(call).map(Expression::get_inner_expression)
-        else {
+        let mut resolved = single_argument(call)?.get_inner_expression();
+        if let Expression::CallExpression(to_path) = resolved
+            && self.is_file_url_to_path(&to_path.callee)
+        {
+            resolved = single_argument(to_path)?.get_inner_expression();
+        }
+        let Expression::CallExpression(resolve) = resolved else {
             return None;
         };
-        if !is_require_resolve(resolve) {
+        if !is_module_resolve(resolve) {
             return None;
         }
-        let Some(Expression::CallExpression(join)) = single_argument(resolve).map(Expression::get_inner_expression)
-        else {
+        let manifest = single_argument(resolve)?.get_inner_expression();
+        if let Expression::CallExpression(join) = manifest
+            && self.is_path_function(&join.callee, "join")
+        {
+            let arguments: Vec<&Expression<'a>> = join
+                .arguments
+                .iter()
+                .map(Argument::as_expression)
+                .collect::<Option<_>>()?;
+            let (file, segments) = arguments.split_last()?;
+            if segments.is_empty() || static_string(file).as_deref() != Some("package.json") {
+                return None;
+            }
+            let segments: Option<Vec<String>> = segments
+                .iter()
+                .copied()
+                .map(|segment| match self.expr(segment, depth) {
+                    Value::String(text) => Some(text),
+                    _ => None,
+                })
+                .collect();
+            return match segments {
+                Some(segments) => manifest_directory(&segments.join("/")),
+                None => Some(Value::Unknown),
+            };
+        }
+        let Value::String(manifest) = self.expr(manifest, depth) else {
             return None;
         };
-        if !self.is_path_function(&join.callee, "join") {
-            return None;
-        }
-        let mut arguments = join.arguments.iter().filter_map(Argument::as_expression);
-        let (package, file) = (arguments.next()?, arguments.next()?);
-        if arguments.next().is_some() || static_string(file).as_deref() != Some("package.json") {
-            return None;
-        }
-        Some(self.expr(package, depth))
+        manifest_directory(manifest.strip_suffix("/package.json")?)
     }
 
-    /// `require.resolve(x)` and `Promise.resolve(x)`, which evaluate to `x`.
+    /// Whether `callee` is `fileURLToPath` of the `url` module, however it was imported.
+    fn is_file_url_to_path(&self, callee: &Expression<'_>) -> bool {
+        match callee.get_inner_expression() {
+            Expression::Identifier(id) => self.bindings.file_url_to_path.contains(id.name.as_str()),
+            Expression::StaticMemberExpression(member) => {
+                member.property.name.as_str() == "fileURLToPath"
+                    && matches!(
+                        member.object.get_inner_expression(),
+                        Expression::Identifier(object) if self.bindings.url_modules.contains(object.name.as_str())
+                    )
+            }
+            _ => false,
+        }
+    }
+
+    /// `require.resolve(x)`, `import.meta.resolve(x)` and `Promise.resolve(x)`, which evaluate to `x`.
     fn resolve_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
-        let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
-            return None;
-        };
-        let Expression::Identifier(object) = member.object.get_inner_expression() else {
-            return None;
-        };
-        let known = matches!(
-            (object.name.as_str(), member.property.name.as_str()),
-            ("require" | "Promise", "resolve")
-        );
+        let known = is_module_resolve(call) || is_resolve_of(call, "Promise");
         known.then(|| single_argument(call).map_or(Value::Unknown, |arg| self.expr(arg, depth)))
     }
 
@@ -2558,6 +2643,71 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         Some(merged.map_or(Value::Unknown, Value::Object))
     }
 
+    /// `list.filter(Boolean)` of a known array: its elements that may be truthy. An element that may be falsy is kept
+    /// as the values it has when it is not (`ci ? 'github' : null` as `'github'`, and in an array literal `ci &&
+    /// 'github'` as `'github'`), and the array is then not definite, as its length is not.
+    fn filter_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
+        let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
+            return None;
+        };
+        let by_boolean = matches!(
+            single_argument(call).map(Expression::get_inner_expression),
+            Some(Expression::Identifier(id))
+                if id.name.as_str() == "Boolean" && !self.binds("Boolean")
+        );
+        if member.property.name.as_str() != "filter" || !by_boolean {
+            return None;
+        }
+        let (items, mut definite) = match member.object.get_inner_expression() {
+            Expression::ArrayExpression(array) => self.filtered_elements(&array.elements, depth),
+            object => match self.read(object, depth) {
+                (Value::Array(items), definite) => (items, definite),
+                _ => return None,
+            },
+        };
+        let mut kept = Vec::new();
+        for item in items {
+            if let Some((value, may_drop)) = truthy_part(item) {
+                definite &= !may_drop;
+                kept.push(value);
+            }
+        }
+        Some(Value::doubtful(Value::Array(kept), definite))
+    }
+
+    /// Whether the module or a function being evaluated binds `name` itself, shadowing the global.
+    fn binds(&self, name: &str) -> bool {
+        self.lookup(name).is_some()
+            || self.consts.contains_key(name)
+            || self.functions.contains_key(name)
+            || self.imports.contains_key(name)
+    }
+
+    /// The elements of an array literal that `.filter(Boolean)` filters, and whether they are definite: as
+    /// [`Self::array`] has them, except that `test && x` with an unknown test, which is dropped when it is falsy, is
+    /// `x` and leaves them not definite.
+    fn filtered_elements(&self, elements: &'p [ArrayExpressionElement<'a>], depth: u32) -> (Vec<Value>, bool) {
+        let mut items = Vec::new();
+        let mut definite = true;
+        for element in elements {
+            if let Some(Expression::LogicalExpression(and)) =
+                element.as_expression().map(Expression::get_inner_expression)
+                && and.operator == LogicalOperator::And
+                && self.truthy(&and.left, depth).is_none()
+            {
+                items.push(self.expr(&and.right, depth));
+                definite = false;
+                continue;
+            }
+            let (part, part_definite) = self.array(std::slice::from_ref(element), depth).split();
+            if let Value::Array(part) = part {
+                items.extend(part);
+            }
+            definite &= part_definite;
+        }
+        (items, definite)
+    }
+
     /// Records the argument of `<config_setter>.set(…)` as the config; returns whether `call` is such a call.
     fn capture_set(&self, call: &'p CallExpression<'a>, depth: u32) -> bool {
         let Some(setter) = self.config_setter.borrow().clone() else {
@@ -2590,7 +2740,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             .or_else(|| self.glob_call(call, depth))
             .or_else(|| self.flat_config_call(call, depth))
             .or_else(|| self.local_call(call, depth))
-            .or_else(|| self.merge_call(call, depth));
+            .or_else(|| self.merge_call(call, depth))
+            .or_else(|| self.filter_call(call, depth));
         if let Some(value) = special {
             return value;
         }
@@ -2633,7 +2784,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 .flat_map(|(argument, value)| self.unknown_call_arguments(argument, value, depth))
                 .collect();
         }
-        if *value.definite() != Value::Unknown {
+        if !matches!(value.definite(), Value::Unknown | Value::OneOf(_)) {
             return Vec::new();
         }
         recorded.unwrap_or_else(|| self.arguments(call, depth))
@@ -3078,24 +3229,52 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         }
     }
 
-    /// An array literal: a spread of a known array adds its elements, of anything else one unknown element. A spread
-    /// of an array that is not definite leaves the array not definite, as its length and elements are not.
+    /// An array literal: a spread adds the elements [`Self::spread_elements`] finds. A spread of an array that is not
+    /// definite leaves the array not definite, as its length and elements are not.
     fn array(&self, elements: &'p [ArrayExpressionElement<'a>], depth: u32) -> Value {
         let mut out = Vec::new();
         let mut definite = true;
         for element in elements {
             match element {
-                ArrayExpressionElement::SpreadElement(s) => match self.read(&s.argument, depth) {
-                    (Value::Array(items), spread_definite) => {
-                        out.extend(items);
-                        definite &= spread_definite;
-                    }
-                    _ => out.push(Value::Unknown),
-                },
+                ArrayExpressionElement::SpreadElement(s) => {
+                    let (items, spread_definite) = self.spread_elements(&s.argument, depth);
+                    out.extend(items);
+                    definite &= spread_definite;
+                }
                 other => out.push(other.as_expression().map_or(Value::Unknown, |e| self.expr(e, depth))),
             }
         }
         Value::doubtful(Value::Array(out), definite)
+    }
+
+    /// The elements spreading `argument` into an array adds, and whether they are definite: those of a known array;
+    /// for a value with several possibilities ([`Self::possibilities`]: `...(ci ? [a] : [])`, `...(ci && [a])`, a
+    /// value that is one of several arrays or not definite), the elements of each, a possibility of `null`,
+    /// `undefined` or a boolean adding none, which are then not definite; one unknown element for anything else.
+    fn spread_elements(&self, argument: &'p Expression<'a>, depth: u32) -> (Vec<Value>, bool) {
+        let unknown = || (vec![Value::Unknown], true);
+        let mut branches = self.possibilities(argument, depth);
+        if branches.len() == 1 {
+            return match branches.pop() {
+                Some(Value::Array(items)) => (items, true),
+                _ => unknown(),
+            };
+        }
+        let mut items: Vec<Value> = Vec::new();
+        for branch in branches {
+            match branch {
+                Value::Array(listed) => {
+                    for item in listed {
+                        if !items.contains(&item) {
+                            items.push(item);
+                        }
+                    }
+                }
+                Value::Null | Value::Undefined | Value::Bool(_) => {}
+                _ => return unknown(),
+            }
+        }
+        (items, false)
     }
 
     fn object(&self, properties: &'p [ObjectPropertyKind<'a>], depth: u32) -> Value {
@@ -3208,13 +3387,15 @@ fn merged_value(current: Value, incoming: Value, deep: bool) -> Value {
             Value::Array(left)
         }
         // A deep merge keeps what the known side has and whatever the unknown side may add to it.
-        (true, Value::Object(mut known), Value::Unknown) | (true, Value::Unknown, Value::Object(mut known)) => {
+        (true, Value::Object(mut known), Value::Unknown | Value::OneOf(_))
+        | (true, Value::Unknown | Value::OneOf(_), Value::Object(mut known)) => {
             if !known.iter().any(|(k, _)| ConfigValue::is_spread_key(k)) {
                 known.push((UNKNOWN_SPREAD.to_owned(), Value::Unknown));
             }
             Value::Object(known)
         }
-        (true, Value::Array(mut known), Value::Unknown) | (true, Value::Unknown, Value::Array(mut known)) => {
+        (true, Value::Array(mut known), Value::Unknown | Value::OneOf(_))
+        | (true, Value::Unknown | Value::OneOf(_), Value::Array(mut known)) => {
             known.push(Value::Unknown);
             Value::Array(known)
         }
@@ -3396,7 +3577,9 @@ fn changed(value: Value) -> Value {
     }
 }
 
-/// A value code the evaluator does not follow may have changed as `change` says.
+/// A value code the evaluator does not follow may have changed as `change` says. A change of contents leaves a value
+/// that holds no object or array as it is, and changes each alternative of a [`Value::OneOf`] on its own, so a binding
+/// that only may share an object with a changed one keeps the values it may be.
 fn unstable(value: Value, change: Change) -> Value {
     match (change, value) {
         (
@@ -3408,6 +3591,12 @@ fn unstable(value: Value, change: Change) -> Value {
             | Value::String(_)
             | Value::Regex { .. }),
         ) => value,
+        (Change::Contents, Value::OneOf(alternatives)) => Value::OneOf(
+            alternatives
+                .into_iter()
+                .map(|alternative| unstable(alternative, Change::Contents))
+                .collect(),
+        ),
         (_, value) => changed(value),
     }
 }
@@ -3418,7 +3607,7 @@ fn left_is_value(operator: LogicalOperator, left: &Value) -> Option<bool> {
         LogicalOperator::And => truthiness(left).map(|truthy| !truthy),
         LogicalOperator::Or => truthiness(left),
         LogicalOperator::Coalesce => match left {
-            Value::Unknown | Value::Maybe(_) => None,
+            Value::Unknown | Value::OneOf(_) | Value::Maybe(_) => None,
             Value::Null | Value::Undefined => Some(false),
             _ => Some(true),
         },
@@ -3449,7 +3638,7 @@ fn spread_entries(value: Value) -> Option<Vec<(String, Value)>> {
         Value::Object(entries) => Some(entries),
         Value::Null | Value::Undefined | Value::Bool(_) | Value::Number(_) => Some(Vec::new()),
         Value::String(s) => s.is_empty().then(Vec::new),
-        Value::Array(_) | Value::Regex { .. } | Value::Unknown | Value::Maybe(_) => None,
+        Value::Array(_) | Value::Regex { .. } | Value::Unknown | Value::OneOf(_) | Value::Maybe(_) => None,
     }
 }
 
@@ -3547,7 +3736,8 @@ fn any_entries(objects: &[Option<&[(String, Value)]>], before: &[(String, Value)
 /// The value of a key that holds one of `values`, `None` standing for a branch that leaves it out: the value itself
 /// when every branch sets it alike; for lists, the elements of all of them, a string counting as a list of one, so
 /// that every file or package a branch names is credited; for objects, each key any of them has, merged the same way;
-/// anything else is unknown, such as two different strings or a string only some branches set.
+/// for other values every branch sets, such as two different strings, one of them ([`one_of`]); anything else is
+/// unknown, such as a string only some branches set.
 fn any_of(values: &[Option<Value>]) -> Value {
     let present: Vec<&Value> = values.iter().flatten().collect();
     let Some(&first) = present.first() else {
@@ -3583,7 +3773,73 @@ fn any_of(values: &[Option<Value>]) -> Value {
             Some(_) => None,
         })
         .collect();
-    objects.map_or(Value::Unknown, |objects| Value::Object(any_entries(&objects, &[])))
+    if let Some(objects) = objects {
+        return Value::Object(any_entries(&objects, &[]));
+    }
+    if present.len() < values.len() {
+        return Value::Unknown;
+    }
+    one_of(present.into_iter().cloned())
+}
+
+/// The most values a [`Value::OneOf`] holds; a value that may be one of more is unknown.
+const MAX_ALTERNATIVES: usize = 8;
+
+/// A value that is one of `values`, not knowing which: the value itself when they are all the same, otherwise a
+/// [`Value::OneOf`] of the different ones in the order first seen, a `OneOf` among them flattened into its
+/// alternatives. Unknown when one of them is unknown or not definite, or when there are more than
+/// [`MAX_ALTERNATIVES`]; a caller that knows the value is not definite marks that itself.
+fn one_of(values: impl IntoIterator<Item = Value>) -> Value {
+    let mut out: Vec<Value> = Vec::new();
+    for value in values {
+        let nested = match value {
+            Value::Unknown | Value::Maybe(_) => return Value::Unknown,
+            Value::OneOf(nested) => nested,
+            other => vec![other],
+        };
+        for alternative in nested {
+            if !out.contains(&alternative) {
+                out.push(alternative);
+            }
+        }
+        if out.len() > MAX_ALTERNATIVES {
+            return Value::Unknown;
+        }
+    }
+    match out.len() {
+        0 => Value::Unknown,
+        1 => out.pop().unwrap_or(Value::Unknown),
+        _ => Value::OneOf(out),
+    }
+}
+
+/// The values `value` may be: the alternatives of a [`Value::OneOf`], or the value itself.
+fn alternatives(value: Value) -> Vec<Value> {
+    match value {
+        Value::OneOf(alternatives) => alternatives,
+        other => vec![other],
+    }
+}
+
+/// What `.filter(Boolean)` keeps of the element `value`: `None` when it is falsy; otherwise the values it may have that
+/// are not falsy, and whether it may be dropped.
+fn truthy_part(value: Value) -> Option<(Value, bool)> {
+    match truthiness(&value) {
+        Some(false) => None,
+        Some(true) => Some((value, false)),
+        None => match value {
+            Value::OneOf(alternatives) => {
+                let count = alternatives.len();
+                let kept: Vec<Value> = alternatives
+                    .into_iter()
+                    .filter(|alternative| truthiness(alternative) != Some(false))
+                    .collect();
+                let may_drop = kept.len() < count || kept.iter().any(|alternative| truthiness(alternative).is_none());
+                (!kept.is_empty()).then(|| (one_of(kept), may_drop))
+            }
+            other => Some((other, true)),
+        },
+    }
 }
 
 /// Whether every one of `values` is present and they are all the same.
@@ -3601,15 +3857,16 @@ fn truthiness(value: &Value) -> Option<bool> {
         Value::Number(n) => Some(*n != 0.0 && !n.is_nan()),
         Value::String(s) => Some(!s.is_empty()),
         Value::Array(_) | Value::Object(_) | Value::Regex { .. } => Some(true),
-        Value::Unknown | Value::Maybe(_) => None,
+        Value::Unknown | Value::OneOf(_) | Value::Maybe(_) => None,
     }
 }
 
 /// The value of an expression that is `a` or `b`, not knowing which: the value itself when both are equal; for two
 /// objects, an object with every key either has, whose value is what both have in common when both have the key and
-/// [`ConfigValue::Unknown`] when only one does (it may be present or not); anything else is unknown. No key appears
-/// that neither branch has, so other keys stay known, and a key that may differ is unknown wherever it is read. It is
-/// not definite ([`Value::Maybe`]) when `a` or `b` is not.
+/// [`ConfigValue::Unknown`] when only one does (it may be present or not); anything else is one of the two
+/// ([`one_of`]), unknown when either is. No key appears that neither branch has, so other keys stay known, and a key
+/// that may differ is one of its values, or unknown, wherever it is read. It is not definite ([`Value::Maybe`]) when
+/// `a` or `b` is not.
 fn either(a: &Value, b: &Value) -> Value {
     if a == b {
         return a.clone();
@@ -3618,7 +3875,7 @@ fn either(a: &Value, b: &Value) -> Value {
         return Value::doubtful(either(a.definite(), b.definite()), false);
     }
     let (Value::Object(left), Value::Object(right)) = (a, b) else {
-        return Value::Unknown;
+        return one_of([a.clone(), b.clone()]);
     };
     let mut keys: Vec<&str> = Vec::new();
     for (key, _) in left.iter().chain(right) {
@@ -3703,12 +3960,42 @@ fn required_package(call: &CallExpression<'_>, depth: u32) -> Option<Value> {
     (!module.starts_with(['.', '/'])).then_some(Value::String(module))
 }
 
-fn is_require_resolve(call: &CallExpression<'_>) -> bool {
+/// What the directory `dir` of a resolved `package.json` evaluates to: the package for a bare specifier (`pkg`,
+/// `@scope/pkg`, a subpath of one), `None` for a relative path, which the path functions compute, and unknown for
+/// anything else, which names no package: an absolute path, a URL, a subpath import (`#x`), or a path with an empty,
+/// `.` or `..` segment.
+fn manifest_directory(dir: &str) -> Option<Value> {
+    if dir.starts_with('.') {
+        return None;
+    }
+    let package = !dir.starts_with(['/', '#'])
+        && !dir.contains([':', '\\'])
+        && dir.split('/').all(|segment| !matches!(segment, "" | "." | ".."));
+    Some(if package {
+        Value::String(dir.to_owned())
+    } else {
+        Value::Unknown
+    })
+}
+
+/// Whether `call` resolves a module specifier: `require.resolve(…)` or `import.meta.resolve(…)`.
+fn is_module_resolve(call: &CallExpression<'_>) -> bool {
+    is_resolve_of(call, "require")
+        || matches!(
+            call.callee.get_inner_expression(),
+            Expression::StaticMemberExpression(m)
+                if m.property.name.as_str() == "resolve"
+                    && matches!(m.object.get_inner_expression(), Expression::ImportMeta(_))
+        )
+}
+
+/// Whether `call` is `<object>.resolve(…)` of the global `object`.
+fn is_resolve_of(call: &CallExpression<'_>, object: &str) -> bool {
     matches!(
         call.callee.get_inner_expression(),
         Expression::StaticMemberExpression(m)
             if m.property.name.as_str() == "resolve"
-                && matches!(m.object.get_inner_expression(), Expression::Identifier(o) if o.name.as_str() == "require")
+                && matches!(m.object.get_inner_expression(), Expression::Identifier(o) if o.name.as_str() == object)
     )
 }
 
