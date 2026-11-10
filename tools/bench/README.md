@@ -15,20 +15,20 @@ with `--warmup` and `--runs`) on two kinds of targets:
 | Module graph | 10,000 TypeScript files in 100 packages (`--graph-files`, `--graph-packages`; `generate --source-files-per-package`) | `skif` |
 | Pinned corpus | the `bench` repositories of `corpus.toml` | `skif`, `skif --no-js`, `sherif`, `syncpack lint`, `knip --reporter json` |
 
-`sherif`, `syncpack` and `knip` are the versions pinned under `[tools]` in `corpus.toml`, the one place their
-versions are set: `run` installs them once with `npm install --prefix target/bench-generated/tools` and times the
-executables in its `node_modules/.bin` directly, so no `npx` resolution is timed and nothing on `PATH` is used. A tool
-that cannot be installed (no `npm`, a failed install), or knip on a corpus repository whose install failed, is left
-out and recorded with the reason under `skipped_tools`. Results go to `target/bench-results/` (or `--out`):
-`summary.md` (tables plus the ADR checks), `summary.json` (schema 2: skif version and source commit with a `-dirty`
-flag, host, CPU model and logical CPUs, the load average before and after the run, hyperfine version, each comparison
-tool's `--version`, every target with mean, stddev, median, min and max in ms and the number of runs that exited with
-an error, the skipped tools and the checks), and one raw hyperfine export per target under `raw/`. `run` exits non-zero when an ADR 0001 check fails, after writing the
-summary; `--no-enforce` turns that off. A tool that exits with a status above 1 (knip's exit code when it fails or cannot
-load a configuration file) is noted under its table and in the knip check, since its time may be that of a partial run.
-A corpus repository's `bench-knip-args` in `corpus.toml` are passed to knip, so it reads the files skif reads (npm-cli
-sets `--no-gitignore`), and skif runs with `--recursive` where the repository sets `recursive` (babel), as `parity` runs
-it. hyperfine 1.x and 2.x exports are both read.
+`sherif`, `syncpack` and `knip` are the versions pinned under `[tools]` in `corpus.toml`, the one place their versions
+are set: `run` installs them once with `npm install --prefix target/bench-generated/tools` and times the executables in
+its `node_modules/.bin` directly, so no `npx` resolution is timed and nothing on `PATH` is used. A tool that cannot be
+installed (no `npm`, a failed install), or knip on a corpus repository whose install failed, is left out and recorded
+with the reason under `skipped_tools`. Results go to `target/bench-results/` (or `--out`): `summary.md` (tables plus the
+ADR checks), `summary.json` (schema 2: skif version and source commit with a `-dirty` flag, host, CPU model and logical
+CPUs, the load average before and after the run, hyperfine version, each comparison tool's `--version`, every target
+with mean, stddev, median, min and max in ms and the number of runs that exited with an error, the skipped tools and the
+checks), and one raw hyperfine export per target under `raw/`. `run` exits non-zero when an ADR 0001 check fails, after
+writing the summary; `--no-enforce` turns that off. A tool that exits with a status above 1 (knip's exit code when it
+fails or cannot load a configuration file) is noted under its table and in the knip check, since its time may be that of
+a partial run. A corpus repository's `bench-knip-args` in `corpus.toml` are passed to knip, so it reads the files skif
+reads (npm-cli sets `--no-gitignore`), and skif runs with `--recursive` where the repository sets `recursive` (babel),
+as `parity` runs it. hyperfine 1.x and 2.x exports are both read.
 
 ## Targets (ADR 0001)
 
@@ -78,13 +78,15 @@ except on Windows, where the lock keeps other processes from reading the file, t
 dies releases its locks with the process, so there is no stale lock to remove. The corpus directory must be writable:
 a lock file that cannot be created there is an error that says so.
 
-`generate` is deterministic for a seed: the same options produce byte-identical files. It writes a root
-`package.json`, a lockfile stub (and `pnpm-workspace.yaml` for pnpm) so package manager detection works, and
-packages under `apps/*`, `packages/*` and `packages/group/*`. Dependencies are drawn from a fixed pool of about 320
-real npm names with a per-name specifier (caret, tilde, exact, `npm:` alias, a few `github:`, `file:` and `link:`),
-plus `workspace:*` links between packages. `--source-files-per-package N` adds `N` TypeScript modules under `src/` of every package: a chain of modules in which each imports its predecessor, ending in the `src/index.ts` that the manifests name as `main`. `--mismatch-rate` is the probability, per dependency or package, of each
-injected issue: a version mismatch, unsorted `dependencies`, an `@types/*` package in `dependencies`, an empty
-`optionalDependencies`. The command prints the injected counts as JSON.
+`generate` is deterministic for a seed: the same options produce byte-identical files. It writes a root `package.json`,
+a lockfile stub (and `pnpm-workspace.yaml` for pnpm) so package manager detection works, and packages under `apps/*`,
+`packages/*` and `packages/group/*`. Dependencies are drawn from a fixed pool of about 320 real npm names with a
+per-name specifier (caret, tilde, exact, `npm:` alias, a few `github:`, `file:` and `link:`), plus `workspace:*` links
+between packages. `--source-files-per-package N` adds `N` TypeScript modules under `src/` of every package: a chain of
+modules in which each imports its predecessor, ending in the `src/index.ts` that the manifests name as `main`.
+`--mismatch-rate` is the probability, per dependency or package, of each injected issue: a version mismatch, unsorted
+`dependencies`, an `@types/*` package in `dependencies`, an empty `optionalDependencies`. The command prints the
+injected counts as JSON.
 
 Profile with `cargo build --profile profiling` (release plus debug symbols, no stripping).
 
@@ -121,41 +123,41 @@ corpus repositories and are never committed.
 **Dependencies.** knip resolves imports and detects used binaries through `node_modules`, and without them reports
 nearly every import as unresolved or unlisted. `--install` installs each repository first with its package manager and
 `--ignore-scripts` (`pnpm install --frozen-lockfile`, `yarn install --immutable --mode=skip-build` or
-`--frozen-lockfile`, `npm ci`, `bun install --frozen-lockfile`); the installed state is cached in the checkout. When
-the package manager is not on `PATH` or the install or build fails or times out, the repository is still compared on
-what its checkout holds, which counts as not installed, and `parity.json` records why under `install_failure`: the
-first error line the step printed, on stderr or stdout, or its time limit. `--check` then rejects the entry if it was
-recorded installed. A repository is skipped, with the reason in the report, when skif fails or knip prints no JSON. A repository with `install = false` in `corpus.toml` is compared uninstalled, so the
-tools say themselves whether they can run there. rushstack installs with `node common/scripts/install-run-rush.js
-install --bypass-policy`, which links each project's `node_modules`. knip has no Rush support and stops with
-`Unable to find package.json` without a root manifest, so rushstack sets `knip-root = "rush"`: while knip runs, the
-checkout gets a root `package.json` with the `projectFolder` of every `rush.json` project as its `workspaces`, so knip
-reads the installed `node_modules` and both reports share one root. The manifest carries a `//` mark and is removed
-after the knip run; one an interrupted run leaves behind is removed when the checkout is next fetched, so skif and the
-syncpack diff never read it. It makes the Rush root a workspace for knip, which skif does not analyse, so knip's
-findings in root files outside every project (`.prettierrc.js`, `common/scripts`) are the `rush-root-file` known
-deviation. A repository may set `build-command` (program first) in `corpus.toml`, run after a successful install within
-`build-timeout-secs` (the install's time limit when unset):
-n8n builds the `@n8n/*-config` packages and `@n8n/constants` with their workspace dependencies, whose built `dist`
-its tool configurations import. The install marker records the install and build commands, so a checkout installed
-with other commands is installed again. Without `--install` the run is quick but dominated by knip's unresolved and unlisted imports of the
-uninstalled packages. Whether a repository counts as installed is read
-from the checkout (the `.skif-bench-installed` marker holds the pinned commit once an install succeeded), not from the
-flag: `parity.md` says `yes`, `no` or `partial (n of m)`, each baseline entry records its own `installed`, and
-`--check` rejects an entry whose checkout is installed differently from when it was recorded. A repository may set `install-command` (program first; `rules-js` installs with
-the pnpm its `MODULE.bazel` pins, `opencode` with the bun of `mise.lock` through `mise x bun@1.3.14`, so neither
-depends on the package manager on `PATH`) and `install-timeout-secs` (`vercel-examples`) in `corpus.toml`.
+`--frozen-lockfile`, `npm ci`, `bun install --frozen-lockfile`); the installed state is cached in the checkout. When the
+package manager is not on `PATH` or the install or build fails or times out, the repository is still compared on what
+its checkout holds, which counts as not installed, and `parity.json` records why under `install_failure`: the first
+error line the step printed, on stderr or stdout, or its time limit. `--check` then rejects the entry if it was recorded
+installed. A repository is skipped, with the reason in the report, when skif fails or knip prints no JSON. A repository
+with `install = false` in `corpus.toml` is compared uninstalled, so the tools say themselves whether they can run there.
+rushstack installs with `node common/scripts/install-run-rush.js install --bypass-policy`, which links each project's
+`node_modules`. knip has no Rush support and stops with `Unable to find package.json` without a root manifest, so
+rushstack sets `knip-root = "rush"`: while knip runs, the checkout gets a root `package.json` with the `projectFolder`
+of every `rush.json` project as its `workspaces`, so knip reads the installed `node_modules` and both reports share one
+root. The manifest carries a `//` mark and is removed after the knip run; one an interrupted run leaves behind is
+removed when the checkout is next fetched, so skif and the syncpack diff never read it. It makes the Rush root a
+workspace for knip, which skif does not analyse, so knip's findings in root files outside every project
+(`.prettierrc.js`, `common/scripts`) are the `rush-root-file` known deviation. A repository may set `build-command`
+(program first) in `corpus.toml`, run after a successful install within `build-timeout-secs` (the install's time limit
+when unset): n8n builds the `@n8n/*-config` packages and `@n8n/constants` with their workspace dependencies, whose built
+`dist` its tool configurations import. The install marker records the install and build commands, so a checkout
+installed with other commands is installed again. Without `--install` the run is quick but dominated by knip's
+unresolved and unlisted imports of the uninstalled packages. Whether a repository counts as installed is read from the
+checkout (the `.skif-bench-installed` marker holds the pinned commit once an install succeeded), not from the flag:
+`parity.md` says `yes`, `no` or `partial (n of m)`, each baseline entry records its own `installed`, and `--check`
+rejects an entry whose checkout is installed differently from when it was recorded. A repository may set
+`install-command` (program first; `rules-js` installs with the pnpm its `MODULE.bazel` pins, `opencode` with the bun of
+`mise.lock` through `mise x bun@1.3.14`, so neither depends on the package manager on `PATH`) and `install-timeout-secs`
+(`vercel-examples`) in `corpus.toml`.
 
 **Scope.** knip runs with an empty configuration (`--config` to a `{}` file in the scratch directory), so a repository's
-own ignores and disabled issue types do not hide findings; `--repo-knip-config` uses the repository's own. skif runs with
-`--recursive` on repositories that set `recursive = true` in `corpus.toml` (nested roots that are not workspace members),
-or on all with `--recursive`; paths stay relative to the start directory, as in knip's report. A repository's `entry`
-list in `corpus.toml` names entry files of the root workspace that neither tool finds by itself (vscode's workbench and
-workers, which only its bundler script names); both tools get them after their shared defaults (`[js.workspaces."."]`
-in a `--config` file for skif, `workspaces["."].entry` in knip's configuration), so the files only they reach are no
-longer reported as unused on both sides. Enum and namespace
-members are keyed by the member name on both sides. knip's stdout may carry banners around its JSON; the first object
-that is a knip report is used.
+own ignores and disabled issue types do not hide findings; `--repo-knip-config` uses the repository's own. skif runs
+with `--recursive` on repositories that set `recursive = true` in `corpus.toml` (nested roots that are not workspace
+members), or on all with `--recursive`; paths stay relative to the start directory, as in knip's report. A repository's
+`entry` list in `corpus.toml` names entry files of the root workspace that neither tool finds by itself (vscode's
+workbench and workers, which only its bundler script names); both tools get them after their shared defaults
+(`[js.workspaces."."]` in a `--config` file for skif, `workspaces["."].entry` in knip's configuration), so the files
+only they reach are no longer reported as unused on both sides. Enum and namespace members are keyed by the member name
+on both sides. knip's stdout may carry banners around its JSON; the first object that is a knip report is used.
 
 **knip errors.** knip prints `ERROR: Error loading <file>` when a tool configuration of the repository does not load
 (create-t3-turbo's `metro.config.js` requires an unlisted package; vue-core's `vite.config.ts` files read an undefined
@@ -265,10 +267,10 @@ the globs of the narrowed ones under `narrowed_packages`. See
 ## Policy diff against syncpack
 
 `skif-bench syncpack-diff` compares skif's policy rules (`version-mismatch`, `semver-range-mismatch`,
-`banned-dependency`, `invalid-local-version`, `policy-conflict`, `unresolved-catalog-references` and the catalog rules) with `syncpack@<pinned> json`.
-syncpack has no JSON lint reporter, but `json` prints every dependency instance with its status code, and skif's
-diagnostic `detail` carries the same status code names (`DiffersToHighestOrLowestSemver`, `IsBanned`, ...). A finding is
-keyed by status code, `package.json` path and dependency. Two targets:
+`banned-dependency`, `invalid-local-version`, `policy-conflict`, `unresolved-catalog-references` and the catalog rules)
+with `syncpack@<pinned> json`. syncpack has no JSON lint reporter, but `json` prints every dependency instance with its
+status code, and skif's diagnostic `detail` carries the same status code names (`DiffersToHighestOrLowestSemver`,
+`IsBanned`, ...). A finding is keyed by status code, `package.json` path and dependency. Two targets:
 
 - **`fixtures`**: the cases under `fixtures/policy`. The `skif.toml` of each case is translated to a syncpack
   configuration (version groups: banned, pinned, snapped-to, same-range, same-minor, ignored, preferred-semver with
@@ -388,11 +390,11 @@ attributed to its pattern:
 | `vercel-json-command` | a devDependency whose binary only the `buildCommand` of `vercel.json` runs |
 
 The workspace is not installed, so nothing depends on `node_modules`: the only `package.json` script runs `node`, the
-`vercel.json` command runs a listed devDependency named like its binary, and every import of a dependency names a
-listed package. The `skif-bench` unit tests run skif in process on the same workspace (two seeds,
-no binary, network or Node) and fail when it misses a seeded finding or reports a false one. CI exercises neither the `skif` binary invocation nor the knip side: `skif-bench`
-cannot depend on the `skif` binary in its tests, and knip needs Node and the npm registry. Run `deadcode` with `--knip`
-by hand to check them.
+`vercel.json` command runs a listed devDependency named like its binary, and every import of a dependency names a listed
+package. The `skif-bench` unit tests run skif in process on the same workspace (two seeds, no binary, network or Node)
+and fail when it misses a seeded finding or reports a false one. CI exercises neither the `skif` binary invocation nor
+the knip side: `skif-bench` cannot depend on the `skif` binary in its tests, and knip needs Node and the npm registry.
+Run `deadcode` with `--knip` by hand to check them.
 
 Default run (`--packages 5 --seed 1`: 33 seeded findings, 120 live items). skif was measured at the current source
 (after 0.1.1) on 2026-11-08; knip 6.44.1 on 2026-11-07:
@@ -435,9 +437,9 @@ Generated workspaces use seed 1, pnpm layout and a 5 % issue rate, the same as t
 | `skif-js` / `analysis` | `js_analysis/files/{210,2100}` | the JS provider (module graph and all JS rules) over 10 and 100 generated packages of 21 files each |
 | `skif-specifier`, `skif-edit` | see the bench sources | specifier parsing and format-preserving JSON edits |
 
-The `target/` group covers the ADR 0001 manifest and policy budget. The JS analysis speed target (at least 5x faster than
-`knip`) is only measurable end to end with hyperfine on the corpus; `js_analysis` tracks regressions of the in-process
-part.
+The `target/` group covers the ADR 0001 manifest and policy budget. The JS analysis speed target (at least 5x faster
+than `knip`) is only measurable end to end with hyperfine on the corpus; `js_analysis` tracks regressions of the
+in-process part.
 
 ## Caveats
 
