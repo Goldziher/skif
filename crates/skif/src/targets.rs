@@ -179,6 +179,11 @@ pub struct Discovery {
 /// A root that cannot be loaded is a [`RootFailure`]; the others still load. A workspace that cannot be loaded
 /// still claims the directories its patterns declare.
 ///
+/// Roots can read one configuration file (a `--config` file, or a file above them), and each judges its settings on
+/// its own; a host that lints the targets passes the reports, in this order, to
+/// [`settle_shared_config`](crate::settle_shared_config) so a `stale-js-config` finding about such a file is reported
+/// once, and only when no root used the setting.
+///
 /// # Errors
 /// [`Error::RelativePath`] for a relative `start`.
 pub fn discover_targets(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOverrides) -> Result<Discovery, Error> {

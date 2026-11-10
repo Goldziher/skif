@@ -184,6 +184,15 @@ impl Report {
         self
     }
 
+    /// Keeps only the diagnostics `keep` accepts, which it may change in place (without moving them in the order),
+    /// and counts the summary again; the number of packages and everything else stay.
+    #[must_use]
+    pub fn retain_mut(mut self, keep: impl FnMut(&mut Diagnostic) -> bool) -> Self {
+        self.diagnostics.retain_mut(keep);
+        self.recount();
+        self
+    }
+
     /// Adds `diagnostics`, sorts them in with the others and counts the summary again; the number of packages and
     /// everything else stay.
     #[must_use]
@@ -510,6 +519,30 @@ mod tests {
             }
         );
         assert_eq!(report.other_project_files, [PathBuf::from("/ws/build/x.ts")]);
+    }
+
+    #[test]
+    fn retain_mut_counts_the_summary_of_the_changed_diagnostics_again() {
+        let report = Report::new(input(), 3).retain_mut(|diagnostic| {
+            diagnostic.severity = Severity::Info;
+            diagnostic.rule.as_str() != "a-rule"
+        });
+        let kept: Vec<(&str, Severity)> = report
+            .diagnostics
+            .iter()
+            .map(|d| (d.rule.as_str(), d.severity))
+            .collect();
+        assert_eq!(kept, [("c-rule", Severity::Info), ("b-rule", Severity::Info), ("b-rule", Severity::Info)]);
+        assert_eq!(
+            report.summary,
+            Summary {
+                errors: 0,
+                warnings: 0,
+                infos: 3,
+                fixable: 2,
+                packages: 3
+            }
+        );
     }
 
     #[test]
