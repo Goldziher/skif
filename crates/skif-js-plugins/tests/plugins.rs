@@ -3204,7 +3204,9 @@ fn bun_reads_the_commands_and_entry_points_source_files_hand_to_its_api() {
     assert!(!binaries.contains(&"not-bun".to_owned()), "{binaries:?}");
     assert_deps(out, &["@types/bun"]);
     // A package that does not list a type package is not told to.
-    let results = resolve(&files, &["typescript"]);
+    let mut locked = files.to_vec();
+    locked.push(("bun.lock", ""));
+    let results = resolve(&locked, &["typescript"]);
     assert_absent(output(&results, "bun"), &["@types/bun", "bun-types"]);
 }
 
