@@ -62,6 +62,10 @@ All notable changes to this project are documented here. The format follows
 - **Breaking** for library users: `skif_config::Assignment` and `skif_core::IncompleteEntries` (both re-exported by
   `skif`) are `#[non_exhaustive]`, so a later field is not a breaking change. Build them with `Assignment::new` and
   `IncompleteEntries::new(cause).with_plugin(..).with_file(..)`.
+- **Breaking** for library hosts of `skif_cli::run`: a panic in the command no longer unwinds out of `run`; it returns
+  exit code `2`, after the `internal` error document on stdout under `--format json`. The first call also chains a
+  hook in front of the process's panic hook, once per process, which records the panic's location and then calls the
+  hook it replaced. A host that sets its own panic hook later drops it, and the document then names only the payload.
 
 ### Changed
 

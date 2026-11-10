@@ -54,6 +54,11 @@ use output::{emit_error, emit_error_to};
 /// A panic in skif is caught and exits 2, as the binary's [`install_panic_hook`] makes it do; the panic hook prints
 /// the message and its location to stderr, and with `--format json` stdout also receives the `error` document (kind
 /// `internal`) naming both.
+///
+/// To learn the location, the first call chains a hook in front of the process's panic hook (`std::panic::set_hook`),
+/// once per process; it records the panic for the thread that raised it and then calls the hook it replaced, so the
+/// host's own handling still runs. A host that sets its own hook after that call drops the recording hook: a panic
+/// still exits 2, but the `error` document then names only the panic's payload, without the location.
 pub fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
     let raw: Vec<OsString> = args.into_iter().collect();
     exit_two_on_panic(&raw, &mut std::io::stdout(), || run_with(raw.clone(), Teardown::Free))
