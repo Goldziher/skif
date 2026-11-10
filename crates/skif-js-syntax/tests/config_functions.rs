@@ -159,7 +159,11 @@ fn resolved_package_manifest_directories_are_the_package() {
         ),
     ];
     for (source, expected) in cases {
-        assert_eq!(get(&extract("main.ts", source), &["addons"]), &strings(&[expected]), "{source}");
+        assert_eq!(
+            get(&extract("main.ts", source), &["addons"]),
+            &strings(&[expected]),
+            "{source}"
+        );
     }
 }
 
