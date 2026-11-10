@@ -154,6 +154,10 @@ All notable changes to this project are documented here. The format follows
   an entry for every value of the variable (`src/**/b.{js,ts}`), not only its fallback, so the handlers of the other
   stages are no longer `unused-files`. A `${self:…}` variable still takes its fallback
   ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
+- `explain-usage` lists a template's use of a registered Vue component without a line (`line` 0 in JSON, "a template
+  uses it as a registered component" in text) rather than as line 1 of the template's file, follows an export that an
+  `export * from` forwards through the re-exporting module's users rather than calling it no export of that module,
+  and describes an `export *` importer as re-exporting every export.
 
 ### Changed
 
