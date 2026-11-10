@@ -64,7 +64,8 @@ manifest categories stay with `knip-unjudged-manifest`.
 
 **`used-in-knip-unused-file`.** A finding only knip reports in `dependencies`, `devDependencies` or
 `optionalPeerDependencies` whose package a file of the same knip workspace imports, where knip lists that file under
-`files`. An `@types/` package counts as imported with its runtime package. The harness parses the files knip lists as
+`files` and skif does not report it unused. A file both tools report unused credits the package on neither side, so a
+dependency only it imports stays compared. An `@types/` package counts as imported with its runtime package. The harness parses the files knip lists as
 unused with `skif-js-syntax` and reads their bare specifiers (imports, type imports, requires, re-exports and dynamic
 imports; not globs or test-runner mocks).
 

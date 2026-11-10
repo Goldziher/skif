@@ -201,7 +201,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 15] = [
     },
     Deviation {
         id: USED_IN_KNIP_UNUSED_FILE,
-        reason: "knip reports these dependencies as unused, and a file of the same workspace that knip lists as unused imports the package (an import scan of those files with skif's parser; an `@types/` package counts as imported with its runtime package). knip does not analyse an unused file, so it never sees the import skif credits; the disagreement is the file, which `files` already counts once. The harness does not check that the scanned import is the one skif credits",
+        reason: "knip reports these dependencies as unused, and a file of the same workspace that knip lists as unused and skif does not imports the package (an import scan of those files with skif's parser; an `@types/` package counts as imported with its runtime package). knip does not analyse an unused file, so it never sees the import skif credits; the disagreement is the file, which `files` already counts once. The harness does not check that the scanned import is the one skif credits",
     },
 ];
 
@@ -888,8 +888,8 @@ struct Classifier<'a> {
     knip_unused_files: &'a BTreeSet<String>,
     /// The files skif reports as unused.
     skif_unused_files: &'a BTreeSet<String>,
-    /// `<manifest>|<package>` for every package a file knip lists as unused imports, with the manifest of the file's
-    /// workspace (`knip_unused_imports`).
+    /// `<manifest>|<package>` for every package a file only knip lists as unused imports, with the manifest of the
+    /// file's workspace (`knip_unused_imports`).
     knip_unused_imports: &'a BTreeSet<String>,
     /// knip ran with the scratch root manifest of a Rush repository (`knip-root = "rush"`).
     rush_root: bool,
@@ -1024,16 +1024,19 @@ fn imported_packages(path: &str, source: &str) -> BTreeSet<String> {
         .collect()
 }
 
-/// `<manifest>|<package>` for every package that one of the files knip lists as unused imports, where `<manifest>` is
-/// the `package.json` of the file's workspace (`workspace_of`): what knip would have credited had it analysed the
-/// file. `read` gives a file's source; a file it cannot read imports nothing.
+/// `<manifest>|<package>` for every package that one of the files only knip lists as unused (`knip_unused` but not
+/// `skif_unused`) imports, where `<manifest>` is the `package.json` of the file's workspace (`workspace_of`): what knip
+/// would have credited had it analysed the file. A file both tools call unused credits nothing on either side, so a
+/// dependency only it imports is a plain disagreement. `read` gives a file's source; a file it cannot read imports
+/// nothing.
 fn knip_unused_imports(
-    unused: &BTreeSet<String>,
+    knip_unused: &BTreeSet<String>,
+    skif_unused: &BTreeSet<String>,
     read: &dyn Fn(&str) -> Option<String>,
     workspace_of: &dyn Fn(&str) -> String,
 ) -> BTreeSet<String> {
     let mut keys = BTreeSet::new();
-    for file in unused {
+    for file in knip_unused.difference(skif_unused) {
         let Some(source) = read(file) else { continue };
         let workspace = workspace_of(file);
         let manifest = if workspace.is_empty() {
@@ -1377,6 +1380,7 @@ fn parity_repo(
     let empty = BTreeSet::new();
     let unused_imports = knip_unused_imports(
         knip_found.get("files").unwrap_or(&empty),
+        skif_found.get("files").unwrap_or(&empty),
         &|file: &str| fs::read_to_string(root.join(file)).ok(),
         &|file: &str| owner_dir(file, &|dir: &str| layout.is_workspace(dir)),
     );
@@ -2926,11 +2930,9 @@ vi.mock("mocked-package");
             .chain(["libraries/a/src/gone.ts".to_owned()])
             .collect();
         let workspaces = ["libraries/a"];
-        let imports = knip_unused_imports(
-            &unused,
-            &|file: &str| sources.get(file).map(|source| (*source).to_owned()),
-            &|file: &str| owner_dir(file, &|dir: &str| workspaces.contains(&dir)),
-        );
+        let read_source = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let workspace_of = |file: &str| owner_dir(file, &|dir: &str| workspaces.contains(&dir));
+        let imports = knip_unused_imports(&unused, &BTreeSet::new(), &read_source, &workspace_of);
         assert_eq!(
             imports,
             strings(&[
@@ -2940,6 +2942,16 @@ vi.mock("mocked-package");
                 "package.json|root-only",
             ]),
             "a file counts to its workspace, an unreadable one imports nothing"
+        );
+        assert_eq!(
+            knip_unused_imports(
+                &unused,
+                &strings(&["libraries/a/src/dead.ts", "scripts/dead.ts"]),
+                &read_source,
+                &workspace_of
+            ),
+            strings(&["libraries/a/package.json|from-nested"]),
+            "a file skif calls unused too credits nothing on either side"
         );
 
         let read: BTreeMap<String, Rc<Value>> =
@@ -2990,6 +3002,23 @@ vi.mock("mocked-package");
                 "{side:?} {category} {key}"
             );
         }
+
+        let skif_unused = strings(&["libraries/a/src/dead.ts"]);
+        let imports = knip_unused_imports(&unused, &skif_unused, &read_source, &workspace_of);
+        let both_unused = Classifier {
+            skif_unused_files: &skif_unused,
+            knip_unused_imports: &imports,
+            ..classifier
+        };
+        assert_eq!(
+            both_unused.classify(Side::Tool, "dependencies", "libraries/a/package.json|left-pad"),
+            None,
+            "a dependency only a file both tools call unused imports stays compared"
+        );
+        assert_eq!(
+            both_unused.classify(Side::Tool, "devDependencies", "libraries/a/package.json|from-nested"),
+            Some(USED_IN_KNIP_UNUSED_FILE)
+        );
     }
 
     #[test]
