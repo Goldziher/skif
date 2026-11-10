@@ -29,6 +29,11 @@ gaps in what they cover, each a difference that says nothing about whether skif 
 5. `published-source` did not follow a published path below a build directory to `src`, nor a published path without
    an extension, both of which skif maps to source.
 
+Two more gaps were in how the harness prepares a checkout. n8n's tool configurations import the built `dist` of the
+workspace's own config packages, which an install without lifecycle scripts never builds, so knip loaded none of them.
+And nothing stopped two runs from using the same checkout at once, where one installs or writes the Rush scratch root
+manifest while the other reads or times it.
+
 ## Decision Drivers
 
 * A difference is counted once, where it arises
@@ -48,7 +53,8 @@ Chosen option: "Read the scope, run knip in the installed Rush checkout, and wid
 under `incomplete-packages` is set apart whatever its `scope`. One in `files`, `exports`, `types`, `nsExports`,
 `nsTypes`, `enumMembers` or `namespaceMembers` is set apart when the package's `scope` is `"package"`, or when it is
 `{"within": [globs]}` and the file's path relative to the package directory matches one of the globs, as skif matches
-them (`skif_js::in_incomplete_scope`). A directory listed twice gets the union of its scopes.
+them (`skif_js::IncompleteScopeGlobs`, compiled once per package). A directory listed twice gets the union of its
+scopes.
 
 **Rush.** rushstack is installed with `node common/scripts/install-run-rush.js install --bypass-policy`. For
 `knip-root = "rush"` the harness writes the root `package.json` made from `rush.json` into the checkout while knip
@@ -56,6 +62,21 @@ runs there and removes it afterwards, so knip reads the `node_modules` Rush link
 share one root. The manifest carries a `//` mark; one an interrupted run leaves is removed when the checkout is next
 fetched, and the harness refuses to replace a root manifest without the mark. A finding only knip reports in a file of
 a Rush root that lies in no package is the `rush-root-file` known deviation.
+
+**Install and build commands.** A corpus repository may set `build-command` (program first), run in the checkout
+after a successful install and before the install counts as done; a failed or timed-out build skips the repository
+with the reason, as a failed install does. n8n builds `@n8n/oxlint-config`, `@n8n/vitest-config`,
+`@n8n/eslint-config`, `@n8n/stylelint-config` and `@n8n/constants` with the workspace packages each depends on. The
+install marker holds the pinned commit and, when the repository sets them, its `install-command` and `build-command`,
+so a checkout installed with other commands is installed again. n8n keeps its `knip-invalid` mark until a parity run
+confirms that knip loads those configurations.
+
+**Checkout lock.** `corpus fetch`, `run`, `parity` and `syncpack-diff` take an exclusive lock on each corpus checkout
+before fetching it and hold it until their pass over the repositories ends; `run` holds it until every target is
+measured. The lock is the operating system's file lock (`std::fs::File::try_lock`) on `<name>.lock` beside the
+checkout, the same on Linux, macOS and Windows. A second run fails at once, naming the lock file and the process id the
+file holds. The operating system releases the lock when its process ends, so a run that dies leaves no stale lock and
+no process-id check is needed; the file itself stays.
 
 **`non-member-project`.** Every in-file category: a finding only knip reports in `files`, `exports`, `types`,
 `nsExports`, `nsTypes`, `enumMembers`, `namespaceMembers`, `duplicates` or `unresolved` in a file below a project that
@@ -91,18 +112,21 @@ it matches. The files that only such an entry reaches stay compared.
 * Good, because `not-judged-by-skif` no longer hides the findings skif judged in a narrowed package.
 * Good, because rushstack is compared with knip installed, as the other repositories are.
 * Good, because the dependencies and in-file findings downstream of a `files` or project disagreement are counted once.
+* Good, because two runs on one corpus directory cannot interleave, and the second says which process holds it.
 * Bad, because the harness writes into the rushstack checkout while knip runs, and a run killed at that moment leaves
   a root manifest until the checkout is next fetched.
 * Bad, because the import scan does not establish that the import it finds is the one skif credits, so a real skif
   difference there is hidden as long as the file disagreement lasts.
 * Bad, because the category set changes, so every baseline entry has to be recorded again before `--check` compares it.
+* Bad, because a `build-command` runs the repository's own build scripts, which the install without scripts avoids.
 
 ### Confirmation
 
 * The harness unit tests in `tools/bench` set apart a knip-only file inside a narrowed scope and keep one outside it
   compared, treat dependencies as unjudged in any listed package, classify every in-file category below a non-member
   project, a dependency only a knip-unused file imports, a Rush root file and the sources of build-directory and
-  extensionless published paths, and write and remove the Rush scratch root manifest.
+  extensionless published paths, and write and remove the Rush scratch root manifest; they record the install and
+  build commands in the install marker and refuse a checkout whose lock another holder has, until it is released.
 * `adrlint lint adrs`, `adrlint format --check adrs` and `adrlint lock --check` pass.
 
 ## Pros and Cons of the Options
