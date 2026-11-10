@@ -571,6 +571,61 @@ fn a_write_failure_in_a_later_root_still_reports_the_earlier_fixes() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn a_file_two_roots_fix_is_written_by_the_first_and_refused_to_the_second() {
+    // The outer workspace lists `packages/inner/x/y`, a member of the nested workspace too, so both roots plan to
+    // remove its empty `devDependencies`.
+    let dir = tempfile::tempdir().unwrap();
+    put(
+        dir.path(),
+        "package.json",
+        r#"{"name": "outer", "version": "0.0.0", "private": true, "packageManager": "npm@11.6.2",
+            "workspaces": ["packages/inner/x/*"]}"#,
+    );
+    put(
+        dir.path(),
+        "packages/inner/package.json",
+        r#"{"name": "inner", "version": "0.0.0", "private": true, "packageManager": "npm@11.6.2",
+            "workspaces": ["x/*"]}"#,
+    );
+    put(
+        dir.path(),
+        "packages/inner/x/y/package.json",
+        r#"{"name": "y", "version": "0.0.0", "private": true, "devDependencies": {}}"#,
+    );
+    let log = tempfile::tempdir().unwrap();
+    let record = log.path().join("record.txt");
+    let npm = shim("npm", &record, 0);
+    let result = run(skif()
+        .env("PATH", npm.path())
+        .args(["-r", "--fix", "--format", "json"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    let document = result.json();
+    assert_eq!(document["error"]["kind"], "io", "{document}");
+    assert_eq!(
+        document["error"]["message"],
+        "fixes were written to earlier roots, but fixing a later root failed: refusing to modify x/y/package.json: it \
+         changed after the fixes were planned",
+        "{document}"
+    );
+    assert_eq!(
+        strings(&document["fix"]["changed"]),
+        ["packages/inner/x/y/package.json"],
+        "{document}"
+    );
+    assert_eq!(
+        document["fix"]["install"],
+        serde_json::json!({"status": "skipped", "reason": "fixing a later root failed"}),
+        "{document}"
+    );
+    assert_eq!(invocations(&record), Vec::<(String, PathBuf)>::new());
+    let member: Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("packages/inner/x/y/package.json")).unwrap()).unwrap();
+    assert!(member.get("devDependencies").is_none(), "{member}");
+}
+
 fn paths_reporting(report: &Value, rule: &str) -> BTreeSet<String> {
     report["diagnostics"]
         .as_array()
@@ -1332,6 +1387,61 @@ fn the_lint_after_fixing_decides_shared_settings_again() {
     );
     // The roots report what a fresh lint of the fixed tree reports, the finding with the first root.
     let fresh = recursive_with_config(&repo, &file);
+    assert_eq!(root_summaries(&fixed), root_summaries(&fresh), "{fixed}\n{fresh}");
+}
+
+#[test]
+fn fixing_one_root_decides_a_discovered_file_both_roots_read_as_a_fresh_lint() {
+    // No fix writes a `skif.toml`, so the shared file stays as it is: the nested root's fix deletes the only file one
+    // of its patterns matched, and only the nested root is linted again, as the outer root has nothing to fix.
+    let (_dir, repo, _file) = nested_root_with_explicit_config("");
+    fs::remove_file(repo.join("src/extra.js")).unwrap();
+    put(&repo, "skif.toml", "[js]\nproject = [\"src/**\", \"legacy/**\"]\n");
+    put(&repo, "tools/sub/legacy/old.js", "module.exports = 7;\n");
+    let lint = || {
+        let result = run(skif().args(["--format", "json", "--recursive"]).arg(&repo));
+        assert!(
+            result.code == 0 || result.code == 1,
+            "{}{}",
+            result.stdout,
+            result.stderr
+        );
+        result.json()
+    };
+    let before = lint();
+    assert_eq!(root_paths(&before), [".", "tools/sub"], "{before}");
+    assert_eq!(
+        messages_of(&before, "stale-js-config"),
+        Vec::<String>::new(),
+        "{before}"
+    );
+    let fixed = run(skif()
+        .args([
+            "--fix-unsafe",
+            "--allow-remove-files",
+            "--no-install",
+            "--format",
+            "json",
+            "--recursive",
+        ])
+        .arg(&repo));
+    assert!(fixed.code == 0 || fixed.code == 1, "{}{}", fixed.stdout, fixed.stderr);
+    let fixed = fixed.json();
+    assert_eq!(
+        strings(&fixed["fix"]["changed"]),
+        ["tools/sub/legacy/old.js", "tools/sub/src/tool.js"],
+        "{fixed}"
+    );
+    assert_eq!(
+        messages_of(&fixed, "stale-js-config"),
+        ["skif.toml: `legacy/**` in `js.project` matched nothing"],
+        "{fixed}"
+    );
+    let fresh = lint();
+    assert_eq!(
+        messages_of(&fresh, "stale-js-config"),
+        messages_of(&fixed, "stale-js-config")
+    );
     assert_eq!(root_summaries(&fixed), root_summaries(&fresh), "{fixed}\n{fresh}");
 }
 
