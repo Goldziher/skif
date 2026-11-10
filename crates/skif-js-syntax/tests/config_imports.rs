@@ -5,7 +5,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use skif_js_syntax::{ConfigValue, ModuleLoader, UNKNOWN_SPREAD, extract_config_object, extract_config_object_with};
+use skif_js_syntax::{
+    ConfigValue, ModuleLoader, UNKNOWN_SPREAD, extract_config, extract_config_object, extract_config_object_with,
+};
 
 /// Modules by absolute path; relative specifiers resolve with a `.ts` extension, `@fx/base` to `/ws/base/index.ts`.
 struct Files(BTreeMap<PathBuf, &'static str>);
@@ -503,4 +505,43 @@ fn a_workspace_factory_is_called_with_the_options_it_is_given() {
             obj(vec![("setupFiles", strings(&["./setup.ts"])), ("environment", s("jsdom"))]),
         )])
     );
+}
+
+/// A config exporting the result of a call that cannot be followed (a factory of an installed package) is unknown, and
+/// keeps the arguments of the call, looked through `defineConfig`, `await` and a constant; a config that is known, or
+/// unknown for another reason, keeps none.
+#[test]
+fn the_arguments_of_an_exported_call_that_cannot_be_followed_are_kept() {
+    let loader = files(&[]);
+    let extract = |source: &str| {
+        let path = Path::new("/ws/app/vitest.config.ts");
+        let found = extract_config(source, path, Some(&loader as &dyn ModuleLoader)).expect("config is understood");
+        let without_loader = extract_config(source, path, None).expect("config is understood");
+        assert_eq!(found, without_loader, "{source}");
+        (found.value, found.call_arguments)
+    };
+    let options = obj(vec![("setupFiles", strings(&["./config/boot.ts"]))]);
+    for source in [
+        "import { createVitestConfig } from '@acme/vitest-preset';\n\
+         export default createVitestConfig({ setupFiles: ['./config/boot.ts'] });",
+        "import { defineConfig } from 'vitest/config';\nimport { createBase } from '@acme/vitest-preset';\n\
+         const options = { setupFiles: ['./config/boot.ts'] };\n\
+         export default defineConfig(createBase(options));",
+        "import { createVitestConfig } from '@acme/vitest-preset';\n\
+         const config = await createVitestConfig({ setupFiles: ['./config/boot.ts'] });\nexport default config;",
+    ] {
+        assert_eq!(extract(source), (ConfigValue::Unknown, vec![options.clone()]), "{source}");
+    }
+    let known = "export default { test: { setupFiles: ['./config/boot.ts'] } };";
+    assert_eq!(
+        extract(known),
+        (obj(vec![("test", obj(vec![("setupFiles", strings(&["./config/boot.ts"]))]))]), Vec::new())
+    );
+    let unknown = "export default JSON.parse(process.env.CONFIG);";
+    assert_eq!(
+        extract(unknown).1,
+        vec![ConfigValue::Unknown],
+        "the argument of any unknown call is kept"
+    );
+    assert_eq!(extract("export default config;"), (ConfigValue::Unknown, Vec::new()));
 }

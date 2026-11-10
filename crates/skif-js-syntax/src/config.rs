@@ -234,18 +234,28 @@ pub trait ModuleLoader {
 /// Imports are not followed; [`extract_config_object_with`] follows them.
 #[must_use]
 pub fn extract_config_object(source: &str, path: &Path) -> Option<ConfigValue> {
-    evaluate_config(source, path, None)
+    evaluate_config(source, path, None).map(|config| config.value)
 }
 
-/// Like [`extract_config_object`], and follows the imports `loader` finds: a value imported from another module (a
-/// default or named export, a namespace member, a `require`d `module.exports`) is evaluated statically in that module,
-/// and a call of an imported function with the arguments given. A chain of imports reaches at most eight modules, the
-/// config file included, an export whose value depends on itself through imports is [`ConfigValue::Unknown`] there,
-/// and one config loads at most 64 distinct modules and evaluates at most 1024 imported exports and calls.
-/// Paths an imported module computes from its own location (`__dirname`, `import.meta.url`) come back relative to the
-/// directory of the config file at `path`.
+/// What a config file exports, with the arguments of the call it exports when that call cannot be followed.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtractedConfig {
+    /// The exported value, as [`extract_config_object`] evaluates it.
+    pub value: ConfigValue,
+    /// When `value` is [`ConfigValue::Unknown`] because the file exports the result of a call the evaluator cannot
+    /// follow (`createConfig({ setupFiles: ['./setup.ts'] })` of an installed package), the evaluated arguments of that
+    /// call. A `define*` call (`defineConfig(createBase(options))`) is looked through to the call it wraps, and a
+    /// top-level constant to its initialiser. Empty otherwise.
+    pub call_arguments: Vec<ConfigValue>,
+}
+
+/// Like [`extract_config_object`], following the imports `loader` finds as [`extract_config_object_with`] does, and
+/// keeping the arguments of an exported call that cannot be followed ([`ExtractedConfig::call_arguments`]).
 #[must_use]
-pub fn extract_config_object_with(source: &str, path: &Path, loader: &dyn ModuleLoader) -> Option<ConfigValue> {
+pub fn extract_config(source: &str, path: &Path, loader: Option<&dyn ModuleLoader>) -> Option<ExtractedConfig> {
+    let Some(loader) = loader else {
+        return evaluate_config(source, path, None);
+    };
     let modules = Modules {
         loader,
         root: path.parent().map(Path::to_path_buf).unwrap_or_default(),
@@ -259,7 +269,19 @@ pub fn extract_config_object_with(source: &str, path: &Path, loader: &dyn Module
     evaluate_config(source, path, Some(&modules))
 }
 
-fn evaluate_config(source: &str, path: &Path, modules: Option<&Modules<'_>>) -> Option<ConfigValue> {
+/// Like [`extract_config_object`], and follows the imports `loader` finds: a value imported from another module (a
+/// default or named export, a namespace member, a `require`d `module.exports`) is evaluated statically in that module,
+/// and a call of an imported function with the arguments given. A chain of imports reaches at most eight modules, the
+/// config file included, an export whose value depends on itself through imports is [`ConfigValue::Unknown`] there,
+/// and one config loads at most 64 distinct modules and evaluates at most 1024 imported exports and calls.
+/// Paths an imported module computes from its own location (`__dirname`, `import.meta.url`) come back relative to the
+/// directory of the config file at `path`.
+#[must_use]
+pub fn extract_config_object_with(source: &str, path: &Path, loader: &dyn ModuleLoader) -> Option<ConfigValue> {
+    extract_config(source, path, Some(loader)).map(|config| config.value)
+}
+
+fn evaluate_config(source: &str, path: &Path, modules: Option<&Modules<'_>>) -> Option<ExtractedConfig> {
     let source_type = SourceType::from_path(path).ok()?;
     let allocator = Allocator::default();
     let ret = Parser::new(&allocator, source, source_type)
@@ -310,7 +332,12 @@ fn evaluate_config(source: &str, path: &Path, modules: Option<&Modules<'_>>) -> 
         value
     };
     let captured = eval.captured.borrow_mut().take();
-    Some(captured.unwrap_or(value))
+    let value = captured.unwrap_or(value);
+    let call_arguments = match exported {
+        Exported::Expression(expr) if matches!(value, ConfigValue::Unknown) => eval.unknown_call_arguments(expr, 0),
+        _ => Vec::new(),
+    };
+    Some(ExtractedConfig { value, call_arguments })
 }
 
 /// What an import binds: a module's default export, one named export, or the module namespace.
@@ -2281,15 +2308,31 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         if let Some(value) = special {
             return value;
         }
-        let callee = match call.callee.get_inner_expression() {
-            Expression::Identifier(id) => Some(id.name.as_str()),
-            Expression::StaticMemberExpression(m) => Some(m.property.name.as_str()),
-            _ => None,
-        };
-        let is_define = callee.is_some_and(|n| n.starts_with("define") && n.len() > "define".len());
-        match call.arguments.first().and_then(Argument::as_expression) {
-            Some(first) if is_define => self.expr(first, depth),
-            _ => ConfigValue::Unknown,
+        defined(call).map_or(ConfigValue::Unknown, |first| self.expr(first, depth))
+    }
+
+    /// The arguments of the call `expr` evaluates to unknown, looking through `await`, a `define*` call to the
+    /// expression it wraps and a top-level constant to its initialiser; see [`ExtractedConfig::call_arguments`].
+    fn unknown_call_arguments(&self, expr: &'p Expression<'a>, depth: u32) -> Vec<ConfigValue> {
+        if depth > MAX_DEPTH {
+            return Vec::new();
+        }
+        let depth = depth + 1;
+        match expr.get_inner_expression() {
+            Expression::AwaitExpression(a) => self.unknown_call_arguments(&a.argument, depth),
+            Expression::CallExpression(call) => match defined(call) {
+                Some(first) => self.unknown_call_arguments(first, depth),
+                None => self.arguments(call, depth),
+            },
+            Expression::Identifier(id) if self.lookup(id.name.as_str()).is_none() => {
+                match self.consts.get(id.name.as_str()) {
+                    Some(&init) if !self.functions.contains_key(id.name.as_str()) => {
+                        self.unknown_call_arguments(init, depth)
+                    }
+                    _ => Vec::new(),
+                }
+            }
+            _ => Vec::new(),
         }
     }
 
@@ -2729,6 +2772,18 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         }
         ConfigValue::Object(out)
     }
+}
+
+/// The first argument of a call of a function named `define*` (`defineConfig`, `vitest.defineProject`), which
+/// evaluates to that argument; `None` for any other call.
+fn defined<'p, 'a>(call: &'p CallExpression<'a>) -> Option<&'p Expression<'a>> {
+    let callee = match call.callee.get_inner_expression() {
+        Expression::Identifier(id) => id.name.as_str(),
+        Expression::StaticMemberExpression(m) => m.property.name.as_str(),
+        _ => return None,
+    };
+    let is_define = callee.starts_with("define") && callee.len() > "define".len();
+    call.arguments.first().and_then(Argument::as_expression).filter(|_| is_define)
 }
 
 /// How a config combinator merges its arguments.
