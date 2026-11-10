@@ -240,6 +240,68 @@ fn test_files_and_directories_are_entries_only_through_a_test_runner() {
 }
 
 #[test]
+fn jest_test_regex_and_test_path_ignore_patterns_select_its_test_files() {
+    // `testRegex` replaces the default `testMatch`, so `sum.test.js` is no test. An ignore pattern removes test files
+    // in `__benchmarks__` anywhere and, anchored at `<rootDir>`, only in the top `e2e` directory, where the setup
+    // file stays an entry: the patterns select test files only.
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"devDependencies":{"jest":"29"}}"#,
+        ),
+        (
+            "jest.config.js",
+            r#"module.exports = {
+  testRegex: "\\.check\\.js$",
+  testPathIgnorePatterns: ["/node_modules/", "/__benchmarks__/", "<rootDir>/e2e/"],
+  setupFiles: ["<rootDir>/e2e/setup.js"],
+};
+"#,
+        ),
+        ("src/index.js", "module.exports = 1;\n"),
+        ("src/sum.check.js", "require('./index.js');\n"),
+        ("src/sum.test.js", "require('./index.js');\n"),
+        ("src/__benchmarks__/speed.check.js", "require('../index.js');\n"),
+        ("e2e/flow.check.js", "require('../src/index.js');\n"),
+        ("e2e/setup.js", "module.exports = 3;\n"),
+        ("lib/e2e/deep.check.js", "module.exports = 2;\n"),
+    ];
+    let mut unused = found(&lint_files(&files, ""), "unused-files");
+    unused.sort();
+    assert_eq!(
+        unused,
+        [
+            "e2e/flow.check.js: e2e/flow.check.js",
+            "src/__benchmarks__/speed.check.js: src/__benchmarks__/speed.check.js",
+            "src/sum.test.js: src/sum.test.js"
+        ]
+    );
+}
+
+#[test]
+fn jest_test_path_ignore_patterns_leave_the_entries_of_other_runners_alone() {
+    // vitest's defaults make `e2e/flow.test.js` an entry whatever jest ignores; `e2e/__tests__/helper.js` is a test
+    // of jest's defaults only, which its ignore pattern removes.
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"devDependencies":{"jest":"29","vitest":"3"}}"#,
+        ),
+        (
+            "jest.config.js",
+            r#"module.exports = { testPathIgnorePatterns: ["/e2e/"] };
+"#,
+        ),
+        ("src/index.js", "module.exports = 1;\n"),
+        ("src/__tests__/a.js", "require('../index.js');\n"),
+        ("e2e/flow.test.js", "require('../src/index.js');\n"),
+        ("e2e/__tests__/helper.js", "module.exports = 2;\n"),
+    ];
+    let unused = found(&lint_files(&files, ""), "unused-files");
+    assert_eq!(unused, ["e2e/__tests__/helper.js: e2e/__tests__/helper.js"]);
+}
+
+#[test]
 fn storybook_stories_are_entries_without_a_storybook_config() {
     let diagnostics = lint_files(
         &[

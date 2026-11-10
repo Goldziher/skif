@@ -18,7 +18,7 @@ use crate::globs::{Globs, Names};
 use crate::graph::ModuleGraph;
 use crate::input::{
     BuildDir, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope, InputRequest, InputSource,
-    PathAlias, RunBinary, WorkspaceInputs,
+    PathAlias, RunBinary, ScopedEntries, WorkspaceInputs,
 };
 use crate::listed::{self, Listed};
 use crate::resolve::join_normalized;
@@ -559,6 +559,26 @@ fn is_shared_pattern(pattern: &str) -> bool {
     !body.starts_with("**/") && !body.starts_with("../") && !body.starts_with('/')
 }
 
+/// The entry sets of the tools that keep their entries apart, each with the package's negated entry patterns too.
+/// With `shared`, only the globs that also match files of nested packages ([`is_shared_pattern`]) and no regular
+/// expression, which matches anywhere in a path as `**/` does.
+fn scoped_globs(scoped: &[ScopedEntries], negations: &[String], shared: bool) -> Vec<Globs> {
+    scoped
+        .iter()
+        .map(|set| {
+            let patterns: Vec<String> = set
+                .globs
+                .iter()
+                .filter(|pattern| !shared || is_shared_pattern(pattern))
+                .chain(negations)
+                .cloned()
+                .collect();
+            let regexes: &[String] = if shared { &[] } else { &set.regexes };
+            Globs::with_regexes(&patterns, regexes, &set.ignore_regexes)
+        })
+        .collect()
+}
+
 /// Whether an entry pattern names one path rather than a glob or a negation.
 fn is_literal_path(pattern: &str) -> bool {
     !pattern.is_empty() && !pattern.contains(['*', '?', '[', ']', '{', '}', '!'])
@@ -655,6 +675,11 @@ impl Setup {
             for source in sources {
                 plugin.extend(source.inputs(&request));
             }
+            let scoped_entry = if production {
+                Vec::new()
+            } else {
+                std::mem::take(&mut plugin.scoped_entry)
+            };
             let scripts = scripts::analyze(package);
 
             let mut entry = listed::user_globs(&user.entry, production, &default_entry());
@@ -676,6 +701,7 @@ impl Setup {
             entry.extend(plugin.production_entry);
             let plugin_entry_files: Vec<PathBuf> = plugin_entry
                 .iter()
+                .chain(scoped_entry.iter().flat_map(|scoped| scoped.globs.iter()))
                 .filter(|pattern| is_literal_path(pattern))
                 .map(|pattern| join_normalized(&abs_dir, pattern))
                 .collect();
@@ -739,13 +765,14 @@ impl Setup {
                     .iter()
                     .filter_map(|pattern| workspace_relative(&dir_name, pattern)),
             );
+            let negations: Vec<String> = entry.iter().filter(|pattern| pattern.starts_with('!')).cloned().collect();
             Some(PackageSetup {
                 id,
                 dir: abs_dir,
-                entry: Globs::new(entry),
+                entry: Globs::new(entry).or_each(scoped_globs(&scoped_entry, &negations, false)),
                 external_entry,
-                shared_entry: Globs::new(shared_entry),
-                plugin_entry: Globs::new(plugin_entry),
+                shared_entry: Globs::new(shared_entry).or_each(scoped_globs(&scoped_entry, &negations, true)),
+                plugin_entry: Globs::new(plugin_entry).or_each(scoped_globs(&scoped_entry, &negations, false)),
                 plugin_entry_files,
                 entries_incomplete: plugin.entries_incomplete,
                 incomplete_scope: match &plugin.incomplete_scope {

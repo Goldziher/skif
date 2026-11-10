@@ -112,6 +112,11 @@ struct Collector<'a, 'b> {
     queue: VecDeque<Queued>,
     /// Whether the module resolution options of a config inside another package stay with that package.
     confine_to_package: bool,
+    /// The plugin's default entry globs, which [`PluginInput::ReplaceDefaultEntries`] removes; empty when
+    /// `[js.plugins]` configures the entries.
+    default_entries: Vec<String>,
+    /// The default entry globs and the [`PluginInput::TestEntry`] globs, for [`PluginOutput::test_entries`].
+    test_entries: Vec<String>,
 }
 
 /// A config file waiting to be read.
@@ -161,6 +166,17 @@ impl Collector<'_, '_> {
                 PluginInput::ProductionEntry(path) => {
                     push_unique(&mut self.out.entries, path.clone());
                     push_unique(&mut self.out.production_entries, path);
+                }
+                PluginInput::TestEntry(glob) => {
+                    push_unique(&mut self.out.entries, glob.clone());
+                    push_unique(&mut self.test_entries, glob);
+                }
+                PluginInput::EntryRegex(pattern) => push_unique(&mut self.out.entry_regexes, pattern),
+                PluginInput::EntryIgnoreRegex(pattern) => push_unique(&mut self.out.entry_ignore_regexes, pattern),
+                PluginInput::ReplaceDefaultEntries => {
+                    let defaults = std::mem::take(&mut self.default_entries);
+                    self.out.entries.retain(|entry| !defaults.contains(entry));
+                    self.test_entries.retain(|entry| !defaults.contains(entry));
                 }
                 PluginInput::Dependency(name) => self.dependency(name, from, false),
                 PluginInput::OptionalDependency(name) => self.dependency(name, from, true),
@@ -335,6 +351,16 @@ fn run_plugin(
         },
         queue: VecDeque::new(),
         confine_to_package: matches!(spec.id, "typescript" | "tsrs"),
+        default_entries: if options.entry.is_empty() {
+            spec.entry.iter().map(|glob| (*glob).to_owned()).collect()
+        } else {
+            Vec::new()
+        },
+        test_entries: if options.entry.is_empty() {
+            spec.entry.iter().map(|glob| (*glob).to_owned()).collect()
+        } else {
+            Vec::new()
+        },
     };
     for production in spec.production {
         push_unique(&mut collector.out.entries, (*production).to_string());
@@ -384,7 +410,13 @@ fn run_plugin(
     let inputs = plugin.resolve_workspace(ctx);
     collector.absorb(spec.id, inputs, (&ctx.dir.join("package.json"), None), 0);
     drain(&mut collector, plugin, &mut visited);
-    collector.out
+    let mut out = collector.out;
+    out.test_entries = collector
+        .test_entries
+        .into_iter()
+        .filter(|entry| out.entries.contains(entry))
+        .collect();
+    out
 }
 
 /// Config patterns, and entry and project globs, for the config files and directories that the workspace's scripts
@@ -565,6 +597,8 @@ mod tests {
             out: PluginOutput::default(),
             queue: VecDeque::new(),
             confine_to_package: false,
+            default_entries: Vec::new(),
+            test_entries: Vec::new(),
         };
         collector.absorb(
             "vite",

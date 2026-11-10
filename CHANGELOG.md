@@ -68,6 +68,12 @@ All notable changes to this project are documented here. The format follows
   `NestedUses` of the CLI becomes `OtherRootUses`
   ([ADR 0084](adrs/0084-files-other-roots-reach-count-as-used.md),
   [#100](https://github.com/Goldziher/skif/issues/100)).
+- The `jest` plugin reads `testRegex` (a string or an array), which replaces the default test globs when the
+  package's own config sets it outside `projects`, and `testPathIgnorePatterns`, whose regular expressions keep the
+  test files they match out of Jest's entries while setup files, `__mocks__` and other plugins' entries stay
+  ([#100](https://github.com/Goldziher/skif/issues/100)). `PluginInput` gains `TestEntry`, `EntryRegex`,
+  `EntryIgnoreRegex` and `ReplaceDefaultEntries`, `PluginOutput` gains `test_entries`, `entry_regexes` and
+  `entry_ignore_regexes`, and `WorkspaceInputs` gains `scoped_entry` with the new `ScopedEntries`.
 - The JS analysis walks a hidden directory that holds workspace members, such as `.vscode/extensions/*`, for those
   members, which it used to skip with the rest of the directory; the knip comparison's `skipped-directory` deviation
   follows ([ADR 0084](adrs/0084-files-other-roots-reach-count-as-used.md),
