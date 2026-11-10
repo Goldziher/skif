@@ -243,7 +243,7 @@ rm "${work}/codes/skif-migrate"
 tree="${work}/tree"
 mkdir -p "$tree"
 tar -cf - Cargo.toml Cargo.lock crates/*/Cargo.toml npm-package/package.json poly-hooks.toml .pre-commit-hooks.yaml action.yml scripts \
-  .github/workflows/publish.yaml README.md CONTRIBUTING.md website/src/content/docs |
+  .github/workflows/publish.yaml README.md CONTRIBUTING.md website/src/content/docs .claude-plugin .codex-plugin skills |
   tar -xf - -C "$tree"
 current="$(bash scripts/check-versions.sh 2>/dev/null | sed -n 's/.*agree on \(.*\)/\1/p')"
 [[ -n "$current" ]] || fail "check-versions: the repository itself is inconsistent"
@@ -277,11 +277,20 @@ expect "check-versions with the glibc matrix restored" 0 bash "${tree}/scripts/c
 grep -qF 'SKIF_VERSION="${SKIF_VERSION:-v9.8.7}"' "${tree}/scripts/pre-commit/run-skif.sh" || fail "release-bump: launcher pin"
 grep -qF 'BAKED_VERSION: "9.8.7"' "${tree}/action.yml" || fail "release-bump: the Action's baked version"
 grep -qF '"=9.8.7"' "${tree}/Cargo.toml" || fail "release-bump: internal dependency pin"
+for manifest in .claude-plugin/plugin.json .codex-plugin/plugin.json; do
+  [[ "$(jq -r '.version' "${tree}/${manifest}")" == 9.8.7 ]] || fail "release-bump: ${manifest} version"
+done
 
 jq '.version = "0.0.1"' "${tree}/npm-package/package.json" >"${work}/package.json"
 cat "${work}/package.json" >"${tree}/npm-package/package.json"
 expect "check-versions catches a drifted npm version" 1 bash "${tree}/scripts/check-versions.sh" 9.8.7
 expect_in_out "check-versions drift" "npm-package/package.json version"
+jq '.version = "9.8.7"' "${tree}/npm-package/package.json" >"${work}/package.json"
+cat "${work}/package.json" >"${tree}/npm-package/package.json"
+jq '.version = "0.0.1"' "${tree}/.codex-plugin/plugin.json" >"${work}/plugin.json"
+cat "${work}/plugin.json" >"${tree}/.codex-plugin/plugin.json"
+expect "check-versions catches a drifted agent plugin version" 1 bash "${tree}/scripts/check-versions.sh" 9.8.7
+expect_in_out "check-versions plugin drift" ".codex-plugin/plugin.json version: expected 9.8.7, found 0.0.1"
 
 # The documentation pins follow a final release and stay on the previous one through a pre-release.
 integrations="${tree}/website/src/content/docs/guides/integrations.mdx"
@@ -289,6 +298,7 @@ grep -qF 'Goldziher/skif@v9' "${tree}/README.md" || fail "release-bump: README A
 grep -qF 'rev: v9.8.7' "${tree}/README.md" || fail "release-bump: README pre-commit rev"
 grep -qF 'revision = "v9.8.7"' "$integrations" || fail "release-bump: Poly revision"
 grep -qF 'Goldziher/skif@v9' "${tree}/website/src/content/docs/start/quickstart.mdx" || fail "release-bump: quickstart Action pin"
+grep -qF 'rev: v9.8.7' "${tree}/skills/skif/references/ci.md" || fail "release-bump: the agent skill's pre-commit rev"
 expect "check-doc-pins after the bump" 0 bash "${tree}/scripts/check-doc-pins.sh" 9.8.7
 expect "release-bump to a pre-release" 0 env SKIP_CARGO_UPDATE=1 bash "${tree}/scripts/release-bump.sh" 9.9.0-rc.1
 expect_in_out "release-bump pre-release pins" "9.9.0-rc.1 is a pre-release, left unchanged"
