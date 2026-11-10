@@ -64,6 +64,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Breaking** for library users that match `skif_js_syntax::ConfigValue` exhaustively: it gains `OneOf`, a value that
+  is one of several known values without knowing which. The evaluator gives it for a condition it cannot decide
+  between values it knows (`process.env.CI ? 'github' : 'list'`, `[ci ? 'blob' : 'list']`, a binding one branch
+  reassigns, a fallback over a key a conditional spread may set), with up to eight alternatives, where it gave
+  `Unknown`. `ConfigValue::is_unknown` and `has_unknown` count it as unknown, so code that does not ask for
+  `ConfigValue::alternatives` reads it as it read `Unknown`; `as_str`, `as_array` and `get` return `None` for it. A
+  spread of a value that is one of several objects adds the keys of each, as a spread of the condition itself does,
+  and `undefined` evaluates to `undefined` (handed out as `null`) instead of an unknown value
+  ([ADR 0103](adrs/0103-one-of-several-known-values-in-config-evaluation.md)).
 - A multi-root run (`skif -r`, and the CLI's other multi-root commands) without `--cache` parses the files more than
   one root can reach through one in-memory module cache shared by its roots: files outside the root parsing them (a
   directory of shared code outside every root) and files of a root nested in it. Such a file is parsed once for the
