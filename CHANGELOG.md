@@ -69,8 +69,9 @@ All notable changes to this project are documented here. The format follows
   optional dependencies out as sherif does.
 - Template expressions of `.vue`, `.svelte`, `.astro` and `.mdx` files are parsed as JavaScript under the scopes of
   their block constructs (Vue `v-for`, `v-slot`, `#name`, `slot-scope`; Svelte `{#each}`, `{#await}`, `{:then}`,
-  `{:catch}`, `{#snippet}`, `{@const}`, `let:`; arrow parameters such as `items.map((item) => …)`), so an import
-  that only a template local of the same name mentions is reported as unused
+  `{:catch}`, `{#snippet}`, `{@const}`, `let:`; arrow parameters such as `items.map((item) => …)`), so a member that
+  a template local of the same name as a namespace import reads is no use of that namespace's export (a named import
+  keeps its export used, as in knip)
   ([ADR 0084](adrs/0084-template-scopes-auto-imported-vue-components-and-marko-files.md),
   [#102](https://github.com/Goldziher/skif/issues/102)).
 - A component that `unplugin-vue-components` registers in `components.d.ts` from a file of the project is used only
