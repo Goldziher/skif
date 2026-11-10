@@ -81,6 +81,17 @@ fn yarn_nohoist() {
     assert_eq!(unmatched(&workspace), ["examples/*", "website"]);
 }
 
+/// The members are those the `workspaces` keys of the fixture's `bun.lock` list, as `bun install` (1.4.4) wrote it.
+#[test]
+fn bun_selects_the_members_bun_install_links_and_reads_the_workspaces_catalogs() {
+    let workspace = discover("bun");
+    assert_eq!(workspace.package_manager, Some(PackageManager::Bun));
+    assert_eq!(workspace.facts.source, WorkspaceSource::YarnNohoistWorkspaces);
+    assert_eq!(dirs(&workspace), ["packages/a", "packages/literal"]);
+    assert_eq!(workspace.catalogs.resolve("ms", "catalog:"), Some("^2.1.3"));
+    assert_eq!(workspace.catalogs.resolve("picocolors", "catalog:testing"), Some("^1.1.1"));
+}
+
 #[test]
 fn a_package_without_a_workspace_is_a_single_package() {
     let workspace = Workspace::discover(&fixture("no-workspace-pnpm"), &Config::default()).unwrap();

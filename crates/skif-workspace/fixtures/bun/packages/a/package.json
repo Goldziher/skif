@@ -1,0 +1,9 @@
+{
+  "name": "@fx/a",
+  "version": "1.0.0",
+  "dependencies": {
+    "@fx/literal": "workspace:*",
+    "ms": "catalog:",
+    "picocolors": "catalog:testing"
+  }
+}
