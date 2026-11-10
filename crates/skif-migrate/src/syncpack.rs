@@ -129,8 +129,12 @@ struct Run {
     /// One entry per run of `syncpack lint` (or similar) in a script: the scope its `--dependency-types` gave, which
     /// replaces the default one, or `None` when it gave none.
     scopes: Vec<(String, Option<Vec<String>>)>,
-    /// A format key is set or a script runs `syncpack format`.
+    /// A script runs `syncpack format`.
     formats: bool,
+    /// The format keys written to `[format]`, which only `syncpack format` applies.
+    format_keys: Vec<String>,
+    /// `sortAz` names a dependency map.
+    sorts_dependencies: bool,
 }
 
 pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), MigrateError> {
@@ -184,6 +188,18 @@ pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), 
             state.keep(Tool::Syncpack, [id]);
             state.set_level(id, Level::Error);
         }
+        if run.sorts_dependencies {
+            state.keep(Tool::Syncpack, tables::syncpack_rules("sort-az"));
+        }
+    } else if !run.format_keys.is_empty() {
+        state.note_with(
+            &src,
+            NoteClass::Approximate,
+            run.format_keys.join(", "),
+            "no script runs `syncpack format`, and `syncpack lint` does not check the layout, so these settings only \
+             serve `skif format` and the migration keeps no layout rule for them",
+            "set `package-json-format = \"error\"` in [rules] to check the layout on every run",
+        );
     }
     Ok(())
 }
@@ -268,14 +284,14 @@ fn read_config(
     }
 }
 
-/// Writes a format key to `[format]`; `package-json-format` is turned on once the run is read (ADR 0055).
+/// Writes a format key to `[format]`. `package-json-format` is turned on once the run is read (ADR 0055), and only
+/// when a script runs `syncpack format`: `syncpack lint` never checks the layout.
 fn format_key(state: &mut State<'_>, src: &Src, path: &str, key: &str, item: &ConfigValue, run: &mut Run) {
-    run.formats = true;
     let (target, value) = match key {
         "sortFirst" | "sortAz" | "sortExports" => {
             let names = string_list(state, src, path, item);
             if key == "sortAz" && names.iter().any(|name| DEPENDENCY_MAPS.contains(&name.as_str())) {
-                state.keep(Tool::Syncpack, tables::syncpack_rules("sort-az"));
+                run.sorts_dependencies = true;
             }
             let target = match key {
                 "sortFirst" => "sort-first",
@@ -303,6 +319,7 @@ fn format_key(state: &mut State<'_>, src: &Src, path: &str, key: &str, item: &Co
         }
     };
     state.doc.table(&["format"]).set(target, value);
+    run.format_keys.push(path.to_owned());
     let (class, message) = match key {
         "sortAz" | "sortPackages" => (
             NoteClass::Approximate,
@@ -314,8 +331,8 @@ fn format_key(state: &mut State<'_>, src: &Src, path: &str, key: &str, item: &Co
         ),
         "indent" => (
             NoteClass::Approximate,
-            "written to [format] indent; skif then checks the layout of every package.json, which syncpack never \
-             reports"
+            "written to [format] indent; with package-json-format on, skif checks the layout of every package.json, \
+             which syncpack never reports"
                 .to_owned(),
         ),
         _ => (NoteClass::Exact, format!("written to [format] {target}")),
