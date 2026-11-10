@@ -3746,6 +3746,34 @@ fn run_binaries_name_the_file_whose_command_runs_them() {
     );
 }
 
+/// A command execa or nano-spawn runs with a `cwd` option runs in a directory the parser cannot place: a package
+/// manager's script run there is another package's, while a binary run by name is still the file's.
+#[test]
+fn commands_run_with_a_cwd_run_scripts_of_another_package() {
+    let files = [
+        (
+            "test/a.test.ts",
+            r#"import { execa, execaCommand } from "execa";
+            await execa("bun", ["run", "build"], { cwd: "/tmp/app" });
+            await execaCommand("yarn compile", { cwd: fixture });
+            await execa("vitest", ["run"], { cwd: fixture });
+            await execa("bun", ["run", "bundle"]);"#,
+        ),
+        (
+            "test/b.test.js",
+            r#"import spawn from "nano-spawn"; await spawn("pnpm", ["generate"], { cwd: "packages/web" });"#,
+        ),
+    ];
+    let results = resolve(&files, &["execa", "nano-spawn"]);
+    let runs = |id: &str| -> Vec<String> {
+        let mut names: Vec<String> = output(&results, id).run_binaries.iter().map(|run| run.name.clone()).collect();
+        names.sort();
+        names
+    };
+    assert_eq!(runs("execa"), ["bundle", "vitest"]);
+    assert!(runs("nano-spawn").is_empty(), "{:?}", runs("nano-spawn"));
+}
+
 #[test]
 fn execa_default_import_and_zx_globals_are_read() {
     let files = [

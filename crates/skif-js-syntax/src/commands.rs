@@ -1,10 +1,13 @@
 //! Commands a file runs through `node:child_process`: `execSync('tsc -b')` and `exec(…)` run a command line,
 //! `spawn('eslint', ['.'])`, `spawnSync`, `execFile` and `execFileSync` a file with arguments. Only literal commands
-//! count, as for the `execa` plugin; `fork` runs a module, not a command.
+//! count, as for the `execa` plugin; `fork` runs a module, not a command. A `cwd` option runs the command in a
+//! directory the script parser cannot place.
 
 use oxc_ast::ast::Program;
 
-use crate::config::{ConfigValue, ImportedCall, imported_calls_in, literal_command};
+use crate::config::{
+    ConfigValue, ImportedCall, command_in_call_dir, file_call_options, imported_calls_in, literal_command,
+};
 use crate::model::Import;
 
 const MODULES: &[&str] = &["child_process", "node:child_process"];
@@ -31,9 +34,15 @@ fn command(call: &ImportedCall) -> Option<String> {
     if call.template.is_some() {
         return None;
     }
+    let arguments = &call.arguments;
     match call.export.as_str() {
-        "exec" | "execSync" => call.arguments.first().and_then(ConfigValue::as_str).map(str::to_owned),
-        "spawn" | "spawnSync" | "execFile" | "execFileSync" => literal_command(&call.arguments),
+        "exec" | "execSync" => {
+            let command = arguments.first().and_then(ConfigValue::as_str)?;
+            Some(command_in_call_dir(command.to_owned(), arguments.get(1)))
+        }
+        "spawn" | "spawnSync" | "execFile" | "execFileSync" => {
+            literal_command(arguments).map(|command| command_in_call_dir(command, file_call_options(arguments)))
+        }
         _ => None,
     }
 }

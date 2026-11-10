@@ -1,9 +1,12 @@
 //! execa: the commands a source file runs with `execa('tsx', ['build.ts'])`, `execaCommand('…')`, `execaNode(…)` and
 //! `` $`…` `` are scripts, parsed like the scripts of `package.json`; so are the default export of execa 5 and earlier
 //! (`execa(…)`, `execa.sync(…)`, `execa.command(…)`, `execa.node(…)`). Only literal commands count: a computed argument
-//! is left out, and a call with a literal argument that is not a plain word is skipped.
+//! is left out, and a call with a literal argument that is not a plain word is skipped. A call with a `cwd` option runs
+//! its command in a directory the script parser cannot place.
 
-use skif_js_syntax::{ConfigValue, ImportedCall, extract_imported_calls, literal_command};
+use skif_js_syntax::{
+    ConfigValue, ImportedCall, command_in_call_dir, extract_imported_calls, file_call_options, literal_command,
+};
 
 use crate::plugin::{Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::support::sources_containing;
@@ -51,17 +54,22 @@ fn execa_script(call: &ImportedCall) -> Option<String> {
             _ => None,
         };
     }
+    let arguments = &call.arguments;
     match export {
-        "execa" | "execaSync" | "$sync" | "default" | "sync" => safe_command(&call.arguments),
-        "execaNode" | "node" => safe_command(&call.arguments).map(|command| format!("node {command}")),
+        "execa" | "execaSync" | "$sync" | "default" | "sync" => safe_command(arguments),
+        "execaNode" | "node" => literal_command(arguments)
+            .map(|command| command_in_call_dir(format!("node {command}"), file_call_options(arguments))),
         "execaCommand" | "execaCommandSync" | "command" | "commandSync" => {
-            call.arguments.first().and_then(ConfigValue::as_str).map(str::to_owned)
+            let command = arguments.first().and_then(ConfigValue::as_str)?;
+            Some(command_in_call_dir(command.to_owned(), arguments.get(1)))
         }
         _ => None,
     }
 }
 
-/// The command of a `(file, [arguments])` call; see [`literal_command`].
+/// The command of a `(file, [arguments], options)` call, in the directory its `cwd` option names; see
+/// [`literal_command`] and [`command_in_call_dir`].
 pub(crate) fn safe_command(arguments: &[ConfigValue]) -> Option<String> {
-    literal_command(arguments)
+    let command = literal_command(arguments)?;
+    Some(command_in_call_dir(command, file_call_options(arguments)))
 }
