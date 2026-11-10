@@ -10,6 +10,7 @@
   "homepage": "https://goldziher.github.io/skif/",
   "repository": "https://github.com/Goldziher/skif",
   "license": "MIT",
+  "icon": "./.claude-plugin/icon.png",
   "keywords": ["dependencies", "monorepo", "lint", "package-json", "knip", "sherif", "syncpack"],
   "mcpServers": {
     "skif": {
