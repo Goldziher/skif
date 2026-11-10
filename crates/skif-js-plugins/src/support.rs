@@ -611,7 +611,9 @@ fn attribute(tag: &str, lower_tag: &str, name: &str) -> Option<String> {
 }
 
 /// The module aliases of a bundler's `resolve.alias`: an object of `find: target` or an array of
-/// `{ find, replacement }`. Targets that are not paths (a package standing in for another) are not aliases.
+/// `{ find, replacement }`. A target that is a package rather than a path (`react: 'preact/compat'`, or the
+/// `import.meta.resolve('pkg')` the evaluator reads as `'pkg'`) is an alias without a target, as the imports it matches
+/// reach that package and not the one they name, and the package is a dependency of the config.
 pub(crate) fn alias_inputs(alias: &ConfigValue, config: &ConfigAst<'_>) -> Vec<PluginInput> {
     let pairs: Vec<(AliasFind<'_>, &ConfigValue)> = match alias {
         ConfigValue::Object(entries) => entries
@@ -632,23 +634,27 @@ pub(crate) fn alias_inputs(alias: &ConfigValue, config: &ConfigAst<'_>) -> Vec<P
             .collect(),
         _ => Vec::new(),
     };
-    pairs
-        .into_iter()
-        .filter_map(|(find, replacement)| {
-            let (find, replacement) = match find {
-                AliasFind::Text(text) => (text.trim_end_matches('$').trim_end_matches('/').to_owned(), replacement),
-                AliasFind::Pattern(pattern) => return pattern_alias(pattern, replacement, config),
-            };
-            if find.is_empty() {
-                return None;
+    let mut out = Vec::new();
+    for (find, replacement) in pairs {
+        let find = match find {
+            AliasFind::Text(text) => text.trim_end_matches('$').trim_end_matches('/').to_owned(),
+            AliasFind::Pattern(pattern) => {
+                out.extend(pattern_alias(pattern, replacement, config));
+                continue;
             }
-            let target = match replacement {
-                ConfigValue::String(path) => Some(alias_target(path, config)?),
-                _ => None,
-            };
-            Some(PluginInput::Alias { find, target })
-        })
-        .collect()
+        };
+        if find.is_empty() {
+            continue;
+        }
+        let target = replacement.as_str().and_then(|path| alias_target(path, config));
+        if target.is_none()
+            && let Some(package) = replacement.as_str().and_then(package_name)
+        {
+            out.push(PluginInput::Dependency(package));
+        }
+        out.push(PluginInput::Alias { find, target });
+    }
+    out
 }
 
 /// The `find` of an alias entry.
