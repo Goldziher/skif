@@ -13,6 +13,7 @@
 
 #![allow(clippy::expect_used)]
 
+use std::fmt::Write as _;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -57,16 +58,19 @@ fn write_shared_closure(root: &Path, roots: usize) {
     let shared = root.join("shared");
     std::fs::create_dir_all(&shared).expect("directory is created");
     for file in 0..SHARED_FILES {
-        let body: String = (0..SHARED_FUNCTIONS)
-            .map(|function| {
-                format!("export function f{file}_{function}(x: number): number {{\n  return x + {function};\n}}\n")
-            })
-            .collect();
+        let body = (0..SHARED_FUNCTIONS).fold(String::new(), |mut body, function| {
+            let _ = writeln!(
+                body,
+                "export function f{file}_{function}(x: number): number {{\n  return x + {function};\n}}"
+            );
+            body
+        });
         std::fs::write(shared.join(format!("m{file}.ts")), body).expect("file is written");
     }
-    let index: String = (0..SHARED_FILES)
-        .map(|file| format!("export * from './m{file}';\n"))
-        .collect();
+    let index = (0..SHARED_FILES).fold(String::new(), |mut index, file| {
+        let _ = writeln!(index, "export * from './m{file}';");
+        index
+    });
     std::fs::write(shared.join("index.ts"), index).expect("file is written");
     for package in 0..roots {
         let dir = root.join(format!("p{package}"));

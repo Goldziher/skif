@@ -225,7 +225,7 @@ impl ParseCoalescer {
     ) -> Result<ModuleInfo, SyntaxError> {
         let key = ModuleKey::new(path, source, options);
         self.get_or_parse(cache, key, &mut || {
-            parse_uncached(path, source, options).map(CachedModule)
+            parse_uncached(path, source, *options).map(CachedModule)
         })
         .map(|CachedModule(info)| info)
     }
@@ -363,23 +363,23 @@ pub fn parse_cached(
     options: &ParseOptions,
 ) -> Result<ModuleInfo, SyntaxError> {
     let Some(cache) = cache else {
-        return parse_uncached(path, source, options);
+        return parse_uncached(path, source, *options);
     };
     let key = ModuleKey::new(path, source, options);
     if let Some(CachedModule(info)) = cache.get(key) {
         return Ok(info);
     }
-    let info = parse_uncached(path, source, options)?;
+    let info = parse_uncached(path, source, *options)?;
     cache.put(key, CachedModule(info.clone()));
     Ok(info)
 }
 
 /// Parses `source`, the text of `path`, with the parser its name selects.
-fn parse_uncached(path: &Path, source: &str, options: &ParseOptions) -> Result<ModuleInfo, SyntaxError> {
+fn parse_uncached(path: &Path, source: &str, options: ParseOptions) -> Result<ModuleInfo, SyntaxError> {
     if is_stylesheet(path) {
         Ok(parse_stylesheet(path, source))
     } else {
-        crate::parse_module(path, source, options)
+        crate::parse_module(path, source, &options)
     }
 }
 

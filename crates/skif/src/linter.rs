@@ -304,8 +304,8 @@ impl Linter {
         let modules = Self::shared_modules(targets, host);
         targets
             .iter()
-            .map(|target| {
-                let fs = Arc::clone(&fs);
+            .zip(std::iter::repeat_n(fs, targets.len()))
+            .map(|(target, fs)| {
                 let linter = match &modules {
                     Some(modules) => Self::with_shared_modules(&target.config, fs, modules),
                     None => Self::with_fs(&target.config, fs),
