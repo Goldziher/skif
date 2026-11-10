@@ -468,13 +468,11 @@ fn relint_roots(
     let mut planned = planned.into_iter().zip(again.iter().copied());
     while let Some(((run, plan), again)) = planned.next() {
         let prefix = run.prefix.clone();
-        match relint_root(args, linters.get(run.linter), (run, plan), again, fs) {
-            Ok((run, fix_run)) => {
-                done.push(run);
-                fixes.push(fix_run);
-            }
-            Err((fix_run, error)) => {
-                fixes.push(fix_run);
+        let (fix_run, outcome) = relint_root(args, linters.get(run.linter), (run, plan), again, fs);
+        fixes.push(fix_run);
+        match outcome {
+            Ok(run) => done.push(run),
+            Err(error) => {
                 let (rest, plans): (Vec<PathBuf>, Vec<FixPlan>) =
                     planned.map(|((run, plan), _)| (run.prefix, plan)).unzip();
                 fixes.extend(plans.into_iter().map(FixRun::relint_failed));
@@ -496,25 +494,23 @@ fn relint_roots(
     Fixed::All(done, fixes)
 }
 
-/// Lints the root of `run` again from disk when `again`, and runs its install step after its plan; the fix run of a
-/// root that could not be linted again, and why, otherwise.
+/// Lints the root of `run` again from disk when `again`, and runs its install step after its plan. Returns the fix
+/// run and the root as linted again, or why it could not be linted again.
 fn relint_root(
     args: &LintArgs,
     linter: &Linter,
     (run, plan): (RootRun, FixPlan),
     again: bool,
     fs: &CachedFs<OsFs>,
-) -> Result<(RootRun, FixRun), (FixRun, CliError)> {
+) -> (FixRun, Result<RootRun, CliError>) {
     if !again {
         let install = install_step(args, &[], &run.workspace);
-        return Ok((
-            run,
-            FixRun {
-                plan,
-                install,
-                preview: None,
-            },
-        ));
+        let fix_run = FixRun {
+            plan,
+            install,
+            preview: None,
+        };
+        return (fix_run, Ok(run));
     }
     let inputs = (
         &run.config,
@@ -526,20 +522,21 @@ fn relint_root(
         Ok((workspace, report)) => {
             let changed: Vec<&Path> = plan.paths().collect();
             let install = install_step(args, &changed, &workspace);
-            Ok((
-                RootRun {
+            let fix_run = FixRun {
+                plan,
+                install,
+                preview: None,
+            };
+            (
+                fix_run,
+                Ok(RootRun {
                     workspace,
                     report,
                     ..run
-                },
-                FixRun {
-                    plan,
-                    install,
-                    preview: None,
-                },
-            ))
+                }),
+            )
         }
-        Err(error) => Err((FixRun::relint_failed(plan), error)),
+        Err(error) => (FixRun::relint_failed(plan), Err(error)),
     }
 }
 
