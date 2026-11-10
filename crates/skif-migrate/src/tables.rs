@@ -157,8 +157,10 @@ mod tests {
     }
 
     #[test]
-    fn sherif_has_ten_rules() {
-        assert_eq!(sherif_rules().len(), 10);
+    fn sherif_has_ten_rules_and_one_unnamed_check() {
+        // The ten rules of sherif, and stopping on an invalid manifest (`invalid-workspace-file`).
+        assert_eq!(sherif_rules().len(), 11);
+        assert!(sherif_rules().contains(&"invalid-workspace-file"));
         assert_eq!(sherif_rule("unordered-dependencies"), Some("unsorted-dependencies"));
         assert_eq!(sherif_rule("nope"), None);
     }

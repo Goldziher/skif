@@ -537,8 +537,14 @@ fn a_value_fix_and_a_sort_of_the_same_object_both_apply() {
     // The report orders diagnostics by rule id, so the names decide which fix is planned first; the overlap with
     // the sort is what `overlapping_fix_is_skipped_and_the_earlier_one_wins` would skip.
     for order in [
-        vec![("demo-a-sort", vec![sort.clone()]), ("demo-b-value", vec![set_lodash.clone()])],
-        vec![("demo-a-value", vec![set_lodash.clone()]), ("demo-b-sort", vec![sort.clone()])],
+        vec![
+            ("demo-a-sort", vec![sort.clone()]),
+            ("demo-b-value", vec![set_lodash.clone()]),
+        ],
+        vec![
+            ("demo-a-value", vec![set_lodash.clone()]),
+            ("demo-b-sort", vec![sort.clone()]),
+        ],
     ] {
         let report = report_of(order);
         let plan = apply_fixes(&workspace, &report, &FixSelection::default(), &fs).unwrap();

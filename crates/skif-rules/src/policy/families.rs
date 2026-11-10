@@ -244,13 +244,9 @@ impl Rule for UnsyncedDependencyFamily {
         let mut memberships: HashMap<&str, Vec<usize>> = HashMap::new();
         for package in active_packages(cx.workspace) {
             let mut members_of: Vec<Vec<_>> = families.iter().map(|_| Vec::new()).collect();
-            for entry in package
-                .dependencies
-                .iter()
-                .filter(|entry| {
-                    entry.kind != DependencyKind::PeerDependencies && (scope.is_empty() || scope.matches_kind(entry.kind))
-                })
-            {
+            for entry in package.dependencies.iter().filter(|entry| {
+                entry.kind != DependencyKind::PeerDependencies && (scope.is_empty() || scope.matches_kind(entry.kind))
+            }) {
                 let of = memberships.entry(entry.name.as_str()).or_insert_with(|| {
                     families
                         .iter()
@@ -607,7 +603,11 @@ mod tests {
         assert_eq!(flagged("", alone), Vec::<String>::new());
         let with_member =
             r#""dependencies":{"react":"^18.0.0","react-dom":"^18.2.0"},"devDependencies":{"react":"^18.2.0"}"#;
-        assert_eq!(flagged("", with_member), ["react"], "the older entry is behind react-dom");
+        assert_eq!(
+            flagged("", with_member),
+            ["react"],
+            "the older entry is behind react-dom"
+        );
     }
 
     #[test]

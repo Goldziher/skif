@@ -112,6 +112,13 @@ expression: json.stdout
       "summary": "A `patchedDependencies` entry no longer applies, names a missing file or lies outside the allowed paths, or a patch file is left over."
     },
     {
+      "id": "invalid-workspace-file",
+      "category": "workspace",
+      "default": "error",
+      "fixable": "none",
+      "summary": "A member `package.json`, a workspace pattern or `.yarnrc.yml` cannot be read, so part of the workspace is not linted."
+    },
+    {
       "id": "version-mismatch",
       "category": "policy",
       "default": "error",

@@ -800,7 +800,12 @@ fn execute(args: &LintArgs, env: Env, teardown: Teardown, modules: Option<&dyn C
 fn warn_unanchored_patterns(targets: &[Target]) {
     let mut seen: BTreeSet<(PathBuf, &str)> = BTreeSet::new();
     for target in targets {
-        for scope in target.config.overrides.iter().filter_map(|scoped| scoped.scope.as_ref()) {
+        for scope in target
+            .config
+            .overrides
+            .iter()
+            .filter_map(|scoped| scoped.scope.as_ref())
+        {
             let file = target
                 .sources
                 .get(scope.source)
@@ -826,9 +831,10 @@ const DEPENDENCY_REMOVALS: [&str; 2] = ["unused-dependencies", "unused-dev-depen
 /// root: their code is not analysed, so a dependency of this root that only they use is reported unused and the fix
 /// removes it. `skif -r` credits their uses (ADR 0077).
 fn warn_nested_roots(args: &LintArgs, root: &Path, runs: &[RootRun], fs: &dyn FileSystem) {
-    let removes = runs.iter().flat_map(|run| &run.report.diagnostics).any(|diagnostic| {
-        DEPENDENCY_REMOVALS.contains(&diagnostic.rule.as_str()) && !diagnostic.fixes.is_empty()
-    });
+    let removes = runs
+        .iter()
+        .flat_map(|run| &run.report.diagnostics)
+        .any(|diagnostic| DEPENDENCY_REMOVALS.contains(&diagnostic.rule.as_str()) && !diagnostic.fixes.is_empty());
     if !removes {
         return;
     }

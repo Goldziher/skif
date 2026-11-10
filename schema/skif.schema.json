@@ -429,6 +429,13 @@
           "description": "Dependency names; an empty selector matches every dependency.",
           "default": []
         },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Paths of the files a finding is located in, relative to the workspace root (`src/legacy.ts`, `src/old/**`); an\nempty selector matches every file. The paths are matched as written in every configuration file, not anchored\nat the file that declares the entry."
+        },
         "reason": {
           "type": [
             "string",
@@ -453,7 +460,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Dependency types the policy rules apply to. Empty means production and development dependencies (`dependencies` and `devDependencies`) and a package's own version; name `peer` or `optional` to include them. A list that does not select `local` leaves the own versions out, so no dependent is compared with the version of the workspace package it names.",
+          "description": "Dependency types the policy rules apply to. Empty means production and development dependencies (`dependencies` and `devDependencies`) and a package's own version; name `peer` or `optional` to include them. A list that does not select `local` leaves the own versions out, so no dependent is compared with the version of the workspace package it names. A list of negations only (`[\"!local\"]`) starts from every dependency section, `peerDependencies` and `optionalDependencies` included, as in syncpack; to keep the default sections without the own versions, write `[\"prod\", \"dev\"]`.",
           "default": []
         },
         "override-reading": {
@@ -1155,7 +1162,7 @@
         },
         "discovery": {
           "$ref": "#/$defs/JsDiscovery",
-          "description": "How source files are found: `auto` lists them from the git index and re-lists from disk every directory\nmodified since the index was written, which gives the walk's result without walking every directory; `git`\ntrusts the index alone (faster, blind to untracked and deleted files); `walk` always walks. Both index modes\nfall back to the walk when the workspace is not in a git work tree with a usable SHA-1 index.",
+          "description": "How source files are found: `auto` (the default) and `walk` walk the directories; `git` lists them from the\ngit index and re-lists from disk every directory modified since the index was written (faster, blind to an\nuntracked file older than the last write of the index). `git` falls back to the walk when the workspace is not\nin a git work tree with a usable SHA-1 index.",
           "default": "auto"
         },
         "cycles": {
@@ -1312,12 +1319,12 @@
         {
           "type": "string",
           "const": "auto",
-          "description": "The git index, checked against the file system: a directory modified since the index was written is listed\nfrom disk, so untracked and deleted files are found as the walk finds them. The directory walk when the\nworkspace is not in a git work tree with a usable index."
+          "description": "The directory walk. The git index cannot tell whether an unchanged directory holds an untracked file created\nbefore the index was last written, so the default does not use it."
         },
         {
           "type": "string",
           "const": "git",
-          "description": "The git index alone, without checking the file system: faster, but blind to files created or deleted since the\nlast `git add`. The directory walk when there is no usable index."
+          "description": "The git index, checked against the file system: a directory modified since the index was written is listed\nfrom disk, the others from the index. Faster than the walk, but blind to an untracked file created before the\nlast write of the index (a `git add` or `git commit` of another file); `unused-files` then offers no fix that\ndeletes a file. Suits a fresh checkout. The directory walk when there is no usable index."
         },
         {
           "type": "string",

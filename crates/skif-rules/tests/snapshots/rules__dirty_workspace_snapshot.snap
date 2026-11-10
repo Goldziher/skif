@@ -562,6 +562,23 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
       "package": "@dirty/b"
     },
     {
+      "rule": "invalid-workspace-file",
+      "severity": "error",
+      "message": "`packages/broken/package.json` is not valid JSON: Expected value after colon in object property",
+      "help": "fix the syntax error; until then the package is left out of the run",
+      "location": {
+        "path": "packages/broken/package.json",
+        "span": {
+          "start": 32,
+          "end": 32,
+          "start-line": 2,
+          "start-col": 1,
+          "end-line": 2,
+          "end-col": 1
+        }
+      }
+    },
+    {
       "rule": "missing-package-manifest",
       "severity": "warning",
       "message": "`packages/nomanifest` matches a workspace pattern but has no package.json",
@@ -586,7 +603,7 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
     }
   ],
   "summary": {
-    "errors": 7,
+    "errors": 8,
     "warnings": 10,
     "infos": 0,
     "fixable": 12,

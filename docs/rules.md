@@ -46,6 +46,7 @@
 | [`version-mismatch`](#version-mismatch) | policy | error | sometimes |
 | [`workspace-protocol`](#workspace-protocol) | policy | error | none |
 | [`foreign-package-manager-command`](#foreign-package-manager-command) | workspace | warning | none |
+| [`invalid-workspace-file`](#invalid-workspace-file) | workspace | error | none |
 | [`missing-package-manifest`](#missing-package-manifest) | workspace | warning | unsafe |
 | [`nested-workspace-root`](#nested-workspace-root) | workspace | warning | none |
 | [`stale-patched-dependencies`](#stale-patched-dependencies) | workspace | warning | none |
@@ -391,6 +392,14 @@ Dockerfiles, CI workflows and shell scripts must not run a package manager other
 
 - Category: workspace
 - Default severity: warning
+- Fixable: none
+
+## invalid-workspace-file
+
+A member `package.json`, a workspace pattern or `.yarnrc.yml` cannot be read, so part of the workspace is not linted.
+
+- Category: workspace
+- Default severity: error
 - Fixable: none
 
 ## missing-package-manifest

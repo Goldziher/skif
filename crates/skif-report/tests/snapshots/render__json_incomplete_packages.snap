@@ -97,7 +97,8 @@ expression: "run(&with_incomplete(), Format::Json, &options(false))"
         {
           "cause": "unspecified"
         }
-      ]
+      ],
+      "scope": "package"
     },
     {
       "name": "web",
@@ -112,7 +113,13 @@ expression: "run(&with_incomplete(), Format::Json, &options(false))"
           "cause": "unmapped-published",
           "file": "packages/web/package.json"
         }
-      ]
+      ],
+      "scope": {
+        "within": [
+          "vite.config.*",
+          "src/routes/**"
+        ]
+      }
     }
   ]
 }

@@ -139,10 +139,7 @@ impl Suppressions {
             .packages
             .as_ref()
             .is_none_or(|flags| self.package_flag(diagnostic, flags))
-            && (entry.files.is_empty()
-                || entry
-                    .files
-                    .matches(&skif_core::slash(&diagnostic.location.path), false))
+            && (entry.files.is_empty() || entry.files.matches(&skif_core::slash(&diagnostic.location.path), false))
             && (entry.dependencies.is_empty()
                 || diagnostic.dependency.as_deref().is_some_and(|dependency| {
                     self.dependency_matches(&entry.dependencies, dependency, versioned_name(diagnostic, versioned))

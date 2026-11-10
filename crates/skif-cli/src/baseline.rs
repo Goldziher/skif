@@ -81,7 +81,7 @@ struct Roots {
     base: PathBuf,
     /// Whether the run covers every root below `PATH`: the JSON document then lists one member per root.
     multi: bool,
-    roots: Vec<Root>,
+    all: Vec<Root>,
     /// Roots a multi-root run found but could not load.
     failures: Vec<RootError>,
 }
@@ -118,7 +118,7 @@ fn locate(args: &BaselineFileArgs, lint: &LintArgs) -> Result<Roots, CliError> {
     Ok(Roots {
         base,
         multi,
-        roots,
+        all: roots,
         failures,
     })
 }
@@ -661,9 +661,9 @@ impl Place {
 
 /// Reads the baseline file of every root and splits the roots into their places and their targets.
 fn read_places(roots: &mut Roots) -> Result<(Vec<Place>, Vec<Target>), CliError> {
-    let mut places = Vec::with_capacity(roots.roots.len());
-    let mut targets = Vec::with_capacity(roots.roots.len());
-    for Root { target, file } in std::mem::take(&mut roots.roots) {
+    let mut places = Vec::with_capacity(roots.all.len());
+    let mut targets = Vec::with_capacity(roots.all.len());
+    for Root { target, file } in std::mem::take(&mut roots.all) {
         let baseline = read_baseline(&file)?;
         places.push(Place {
             root: target.root.clone(),
@@ -684,7 +684,13 @@ fn write_baseline(args: &BaselineWriteArgs) -> Result<u8, CliError> {
     let lints = lint_without(targets, &baselines, &lint, &roots.base)?;
     let mut outcomes = Vec::with_capacity(places.len());
     for (place, linted) in places.iter().zip(&lints.roots) {
-        outcomes.push(write_root(place, linted, &lints.version_scoped, (args, &lint), &roots.base)?);
+        outcomes.push(write_root(
+            place,
+            linted,
+            &lints.version_scoped,
+            (args, &lint),
+            &roots.base,
+        )?);
     }
     emit("write", &roots, outcomes, args.common.format)
 }
@@ -770,7 +776,11 @@ fn write_root(
             list_entries(&mut human, '+', &added);
         }
         if let Some(config) = &extended {
-            let _ = writeln!(human, "Added {} to `extends` in {config}", relative(&place.root, &place.file));
+            let _ = writeln!(
+                human,
+                "Added {} to `extends` in {config}",
+                relative(&place.root, &place.file)
+            );
         }
     }
     Ok(Outcome {
@@ -791,7 +801,10 @@ fn prune_baseline(args: &BaselinePruneArgs) -> Result<u8, CliError> {
                 path: Some(slash(&place.file)),
                 ..CliError::new(
                     Kind::Config,
-                    format!("{} does not exist; `skif baseline write` creates it", place.file.display()),
+                    format!(
+                        "{} does not exist; `skif baseline write` creates it",
+                        place.file.display()
+                    ),
                 )
             });
         };
@@ -811,10 +824,8 @@ fn prune_root(place: &Place, linted: &Linted, format: RulesFormat, base: &Path) 
     let entries = place.entries();
     let text = place.baseline.as_ref().map(|baseline| baseline.text.as_str());
     let matches = ignore_matches(&linted.workspace, entries, &linted.diagnostics);
-    let (kept, removed): (Matched<'_>, Matched<'_>) = entries
-        .iter()
-        .zip(&matches)
-        .partition(|(_, found)| !found.is_empty());
+    let (kept, removed): (Matched<'_>, Matched<'_>) =
+        entries.iter().zip(&matches).partition(|(_, found)| !found.is_empty());
     let kept = sorted_unique(kept.into_iter().map(|(entry, _)| entry.clone()).collect());
     let removed = sorted_unique(removed.into_iter().map(|(entry, _)| entry.clone()).collect());
     let written = write_if_changed(&place.file, &render(&kept), text)?;
@@ -869,10 +880,7 @@ fn at_revision(file: &Path, revision: &str) -> Result<Option<String>, CliError> 
     };
     // `git -C` fails on a missing directory, which would read as a bad revision.
     if !dir.is_dir() {
-        return Err(usage(format!(
-            "--file: the directory {} does not exist",
-            dir.display()
-        )));
+        return Err(usage(format!("--file: the directory {} does not exist", dir.display())));
     }
     let verified = git(
         dir,
@@ -905,18 +913,18 @@ fn check_baseline(args: &BaselineCheckArgs) -> Result<u8, CliError> {
         ..LintArgs::default()
     };
     let mut roots = locate(&args.common, &lint)?;
-    if args.base.is_none() && roots.roots.len() > 1 {
+    if args.base.is_none() && roots.all.len() > 1 {
         return Err(CliError::new(
             Kind::Usage,
             format!(
                 "--base-file names one baseline file, but {} holds {} roots; give --base <REF>",
                 args.common.path.display(),
-                roots.roots.len()
+                roots.all.len()
             ),
         ));
     }
-    let mut outcomes = Vec::with_capacity(roots.roots.len());
-    for root in std::mem::take(&mut roots.roots) {
+    let mut outcomes = Vec::with_capacity(roots.all.len());
+    for root in std::mem::take(&mut roots.all) {
         outcomes.push(check_root(&root.target.root, &root.file, args, &roots.base)?);
     }
     emit("check", &roots, outcomes, args.common.format)

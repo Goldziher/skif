@@ -882,7 +882,11 @@ fn fixing_a_root_that_holds_other_roots_alone_warns_about_their_uses() {
         .arg(dir.path()));
     assert!(!recursive.stderr.contains("other roots"), "{}", recursive.stderr);
     let unfixed = run(skif().args(["--format", "json"]).arg(dir.path()));
-    assert!(!unfixed.stderr.contains("other roots"), "only a fix warns: {}", unfixed.stderr);
+    assert!(
+        !unfixed.stderr.contains("other roots"),
+        "only a fix warns: {}",
+        unfixed.stderr
+    );
 }
 
 /// An outer root and a nested root `build` that use each other's files: a workflow of the outer root runs

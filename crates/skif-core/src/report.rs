@@ -470,10 +470,10 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&report).unwrap()["incomplete-packages"],
             serde_json::json!([
-                { "name": "api", "dir": "packages/api", "reasons": [{ "cause": "unspecified" }] },
+                { "name": "api", "dir": "packages/api", "reasons": [{ "cause": "unspecified" }], "scope": "package" },
                 { "name": "web", "dir": "packages/web", "reasons": [
                     { "cause": "unknown-spread", "plugin": "vite", "file": "packages/web/vite.config.ts" }
-                ] },
+                ], "scope": "package" },
             ])
         );
         let empty = serde_json::to_value(Report::new(Vec::new(), 1)).unwrap();

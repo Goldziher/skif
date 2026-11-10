@@ -146,7 +146,9 @@ fn an_override_pattern_that_leaves_its_anchor_is_warned_about() {
     let result = run(skif().args(["--format", "json"]).arg(dir.path()));
     assert_eq!(result.code, 1, "the pattern matches nothing: {}", result.stdout);
     assert!(
-        result.stderr.contains("shared.toml: the [[overrides]] pattern `../packages/*` leaves the directory")
+        result
+            .stderr
+            .contains("shared.toml: the [[overrides]] pattern `../packages/*` leaves the directory")
             && result.stderr.contains("$ROOT/"),
         "{}",
         result.stderr

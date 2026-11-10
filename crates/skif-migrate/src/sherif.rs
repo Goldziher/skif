@@ -123,7 +123,7 @@ fn note_empty_root_dependencies(state: &mut State<'_>, src: &Src, package: &Conf
     let empty = package
         .get("dependencies")
         .and_then(ConfigValue::as_object)
-        .is_some_and(|entries| entries.is_empty());
+        .is_some_and(<[_]>::is_empty);
     if !empty || settings.ignore_rule.values.iter().any(|id| id == "empty-dependencies") {
         return;
     }
@@ -249,7 +249,9 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, setting
     let packages = flag_values(state, src, invocation, "ignore-package", "p");
     settings.ignore_package.add(&origin("--ignore-package"), packages);
     let dependencies = flag_values(state, src, invocation, "ignore-dependency", "i");
-    settings.ignore_dependency.add(&origin("--ignore-dependency"), dependencies);
+    settings
+        .ignore_dependency
+        .add(&origin("--ignore-dependency"), dependencies);
     if invocation.has("fail-on-warnings", None) {
         settings.fail_on_warnings.mark(&origin("--fail-on-warnings"));
     }
@@ -573,10 +575,23 @@ mod tests {
             let kind = Specifier::create(specifier).get_config_identifier();
             assert!(UNPARSED_SPECIFIERS.contains(&kind), "{specifier:?} is {kind}");
         }
-        for specifier in ["1.2.3", "=1.2.3", "1.2.3-beta.1", "^1.2.3", "~1.2", ">=1", "<2.0.0", "1", "1.2"] {
+        for specifier in [
+            "1.2.3",
+            "=1.2.3",
+            "1.2.3-beta.1",
+            "^1.2.3",
+            "~1.2",
+            ">=1",
+            "<2.0.0",
+            "1",
+            "1.2",
+        ] {
             let kind = Specifier::create(specifier).get_config_identifier();
             assert!(!UNPARSED_SPECIFIERS.contains(&kind), "{specifier:?} is {kind}");
         }
-        assert!(!UNPARSED_SPECIFIERS.contains(&"catalog"), "catalog references stay with the catalog rules");
+        assert!(
+            !UNPARSED_SPECIFIERS.contains(&"catalog"),
+            "catalog references stay with the catalog rules"
+        );
     }
 }

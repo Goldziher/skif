@@ -524,9 +524,16 @@ fn hyperfine_version() -> Result<String> {
 
 /// The `npm install` arguments that put the pinned comparison tools into `prefix`.
 fn tool_install_args(tools: &Tools, prefix: &Path) -> Vec<String> {
-    let mut args: Vec<String> = ["install", "--no-save", "--no-package-lock", "--no-audit", "--no-fund", "--prefix"]
-        .map(str::to_owned)
-        .into();
+    let mut args: Vec<String> = [
+        "install",
+        "--no-save",
+        "--no-package-lock",
+        "--no-audit",
+        "--no-fund",
+        "--prefix",
+    ]
+    .map(str::to_owned)
+    .into();
     args.push(prefix.to_string_lossy().into_owned());
     args.extend(
         COMPARISON_TOOLS
@@ -552,10 +559,15 @@ fn install_tools(tools: &Tools, prefix: &Path, skipped: &mut Vec<Skipped>) -> Re
         Vec::new()
     };
     if find_on_path("npm").is_none() {
-        return Ok(skip_all("npm is not installed, so the pinned tools cannot be".to_owned()));
+        return Ok(skip_all(
+            "npm is not installed, so the pinned tools cannot be".to_owned(),
+        ));
     }
     fs::create_dir_all(prefix).with_context(|| format!("creating {}", prefix.display()))?;
-    eprintln!("bench: installing the pinned comparison tools into {}", prefix.display());
+    eprintln!(
+        "bench: installing the pinned comparison tools into {}",
+        prefix.display()
+    );
     let run = capture(
         Command::new("npm").args(tool_install_args(tools, prefix)),
         prefix,
@@ -563,11 +575,17 @@ fn install_tools(tools: &Tools, prefix: &Path, skipped: &mut Vec<Skipped>) -> Re
         INSTALL_TIMEOUT,
     )?;
     if run.timed_out || run.code != Some(0) {
-        return Ok(skip_all(format!("npm install of the pinned tools failed: {}", run.failure_summary())));
+        return Ok(skip_all(format!(
+            "npm install of the pinned tools failed: {}",
+            run.failure_summary()
+        )));
     }
     let mut installed = Vec::new();
     for tool in COMPARISON_TOOLS {
-        let program = prefix.join("node_modules").join(".bin").join(tool.package().unwrap_or_default());
+        let program = prefix
+            .join("node_modules")
+            .join(".bin")
+            .join(tool.package().unwrap_or_default());
         if program.is_file() {
             installed.push((tool, program));
         } else {
@@ -744,7 +762,12 @@ pub fn run(options: &RunOptions) -> Result<()> {
         let commands: Vec<(Tool, String)> = target
             .tools
             .iter()
-            .map(|&tool| (tool, tool_command(tool, &program_of(tool), &skif_args, &target.knip_args)))
+            .map(|&tool| {
+                (
+                    tool,
+                    tool_command(tool, &program_of(tool), &skif_args, &target.knip_args),
+                )
+            })
             .collect();
         let export = raw.join(format!("{index:02}.json"));
         hyperfine(options, target, &commands, &export)?;
@@ -918,7 +941,10 @@ mod tests {
     fn knip_gets_the_repository_arguments_and_its_errors_are_reported() {
         let knip = Path::new("/bench/tools/node_modules/.bin/knip");
         let line = tool_command(Tool::Knip, knip, &[], &["--no-gitignore".to_owned()]);
-        assert_eq!(line, "/bench/tools/node_modules/.bin/knip --reporter json --no-gitignore");
+        assert_eq!(
+            line,
+            "/bench/tools/node_modules/.bin/knip --reporter json --no-gitignore"
+        );
         let mut knip = result("knip --reporter json", 1.0);
         knip.error_runs = 3;
         let target = TargetResult {
@@ -981,7 +1007,7 @@ mod tests {
             "/s/skif . --format json --no-install --no-js --recursive"
         );
         let vue = bench.iter().find(|repo| repo.name == "vue-core").unwrap();
-        assert!(corpus_skif_args(vue).is_empty());
+        assert_eq!(corpus_skif_args(vue), [] as [String; 0]);
     }
 
     #[test]
