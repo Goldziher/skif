@@ -285,7 +285,10 @@ fn an_export_outside_the_narrowed_scope_is_judged() {
             "import base from './vitest.base';\nexport default { ...base };\n",
         ),
         ("src/index.ts", "export const main = 1;\n"),
-        ("test/db-setup.ts", "import '../src/helper';\nexport const fixture = 1;\n"),
+        (
+            "test/db-setup.ts",
+            "import '../src/helper';\nexport const fixture = 1;\n",
+        ),
         ("src/helper.ts", "export const helper = 1;\n"),
     ];
     let explain = |file: &str, export: &str| -> Value {
@@ -294,8 +297,8 @@ fn an_export_outside_the_narrowed_scope_is_judged() {
         let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
         let fs: Arc<dyn FileSystem> = Arc::new(memory);
         let sources: Vec<Arc<dyn InputSource>> = vec![Arc::new(PluginSource::new(config.js.plugins.clone()))];
-        let report = JsAnalysis::build(&workspace, &config, &fs, &sources, true)
-            .explain_usage(Path::new(file), Some(export));
+        let report =
+            JsAnalysis::build(&workspace, &config, &fs, &sources, true).explain_usage(Path::new(file), Some(export));
         serde_json::to_value(report).unwrap()["export"].clone()
     };
     // A side-effect import uses no export.
