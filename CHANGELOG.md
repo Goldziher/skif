@@ -130,6 +130,13 @@ All notable changes to this project are documented here. The format follows
   whole, as sherif does, instead of splitting them at commas.
 - A syncpack custom type with `source: "PackageJson"` is migrated instead of being dropped as reading another file.
 - `unsynced-dependency-family` no longer compares a dependency listed in two sections of a package with itself.
+- The GitHub Action appends `--fail-on-warnings` and the migrated `--config` of `from-sherif` to lint runs only, and
+  knows `baseline` as a subcommand, so `args: baseline check --base origin/main` no longer fails on an unknown flag.
+- A release fails before anything is published when an npm package (the umbrella or a platform package, Windows ones
+  included) does not exist yet or `CHANGELOG.md` has no section for the version; the crates are published only after
+  the Windows addon checks and an install smoke of the packed tarballs with npm and Bun on Windows.
+- cargo-semver-checks runs over every published crate and writes its result to the job summary.
+- Libc detection no longer takes a glibc host with an installed musl loader for musl.
 - An enum or TypeScript namespace read through a namespace import (`ns.E.A`, `ns.E['A']`, the type `ns.E.A`), also
   through a named or `export * as` re-export, uses only the members read on it, so its other members are reported by
   `unused-enum-members` and `unused-namespace-members`. `ns.E` used as a whole still uses every member
