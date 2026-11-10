@@ -7,10 +7,14 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AppBadge: typeof import('./src/components/AppBadge.vue')['default']
     AppButton: typeof import('./src/components/AppButton.vue')['default']
     AppCard: typeof import('./src/components/AppCard.vue')['default']
+    AppDialog: typeof import('./src/components/AppDialog.vue')['default']
     AppIcon: typeof import('./src/components/AppIcon.vue')['default']
     AppNested: typeof import('./src/components/AppNested.vue')['default']
     AppUnused: typeof import('./src/components/AppUnused.vue')['default']
+    Button: typeof import('./src/components/Button.vue')['default']
+    MyField: typeof import('./src/components/MyField.vue')['default']
   }
 }
