@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use skif_core::{Category, ConfigJudgement, Fixability, Location, PathSeg, RuleMeta, Severity, diagnostic};
 use skif_lint::Emitter;
 use skif_workspace::PackageId;
@@ -59,21 +61,24 @@ const UNRESOLVED_RULES: [&str; 1] = ["unresolved-imports"];
 /// files lists, since such a dependency was never checked and the entry may be what keeps it quiet.
 pub struct StaleJsConfig;
 
-/// A configuration list the rule judged: its key as written in the file, the key its findings name, and each entry
-/// with whether it matched nothing.
+/// A configuration list the rule judged: its key as written in the file, the key its findings name, the directory of
+/// the package whose list it is (for a list a `[js.workspaces]` table gives a package), and each entry with whether
+/// it matched nothing.
 struct JudgedList<'a> {
     written: String,
     shown: String,
+    package: Option<&'a Path>,
     verdicts: Vec<(&'a str, bool)>,
 }
 
 impl<'a> JudgedList<'a> {
-    /// A list whose findings name it as it is written.
+    /// A list of no package whose findings name it as it is written.
     fn new(key: impl Into<String>, verdicts: Vec<(&'a str, bool)>) -> Self {
         let written = key.into();
         Self {
             shown: written.clone(),
             written,
+            package: None,
             verdicts,
         }
     }
@@ -87,13 +92,11 @@ impl StaleJsConfig {
         };
         for &(entry, stale) in &list.verdicts {
             let message = format!("`{entry}` in `{}` matched nothing", list.shown);
-            out.report_config_judgement(ConfigJudgement::new(
-                path.clone(),
-                list.written.as_str(),
-                entry,
-                stale,
-                message.as_str(),
-            ));
+            let judgement = ConfigJudgement::new(path.clone(), list.written.as_str(), entry, stale, message.as_str());
+            out.report_config_judgement(match list.package {
+                Some(dir) => judgement.with_package(dir),
+                None => judgement,
+            });
             if stale {
                 out.emit(
                     diagnostic(&META, message, Location::new(path.clone(), None))
@@ -254,27 +257,42 @@ fn unused_by_workspace(analysis: &JsAnalysis<'_>, analysed: &[PackageId]) -> Vec
     sizes
 }
 
+/// Whether the rules that consult each ignore list all ran, so the list can be judged.
+#[derive(Clone, Copy)]
+struct ListsRan {
+    dependencies: bool,
+    binaries: bool,
+    unresolved: bool,
+}
+
 /// The ignore lists (`ignore-dependencies`, `ignore-binaries`, `ignore-unresolved`, `ignore-workspaces`), each entry
-/// with whether it matched nothing. A list is left out when a rule that consults it did not run, or, for a package's
-/// `ignore-dependencies`, when the package's dependencies were not judged. A package's list is named by the package's
-/// directory and written under the key of the `[js.workspaces]` table that configures it.
+/// with whether it matched nothing: the top-level lists, then those of each package. A list is left out when a rule
+/// that consults it did not run, or, for a package's `ignore-dependencies`, when the package's dependencies were not
+/// judged.
 fn keyed_ignore_lists<'a>(analysis: &'a JsAnalysis<'_>, ran: &dyn Fn(&[&str]) -> bool) -> Vec<JudgedList<'a>> {
+    let ran = ListsRan {
+        dependencies: ran(&DEPENDENCY_RULES),
+        binaries: ran(&["unlisted-binaries"]),
+        unresolved: ran(&UNRESOLVED_RULES),
+    };
+    let mut keyed = top_level_ignore_lists(analysis, ran);
+    keyed.extend(package_ignore_lists(analysis, ran));
+    keyed
+}
+
+/// The top-level ignore lists of [`keyed_ignore_lists`]. The global `ignore-dependencies` is judged over the packages
+/// whose dependencies were judged: an entry matching a dependency of a package whose entry files are unknown may be
+/// what keeps it quiet, so it is not called stale.
+fn top_level_ignore_lists<'a>(analysis: &'a JsAnalysis<'_>, ran: ListsRan) -> Vec<JudgedList<'a>> {
     let setup = &analysis.setup;
-    let judged = |id: PackageId| !analysis.is_skipped(id) && !analysis.entries_incomplete(id);
-    let dependencies_ran = ran(&DEPENDENCY_RULES);
-    // The dependencies of a package whose entry files are unknown were not checked, so an entry matching one of
-    // them may be needed.
     let unchecked_dependencies = analysis
         .workspace
         .iter()
         .filter(|(id, _)| !analysis.is_skipped(*id) && analysis.entries_incomplete(*id))
         .flat_map(|(_, package)| package.dependencies.iter().map(|entry| entry.name.as_str()))
         .collect::<Vec<_>>();
-    let unresolved_ran = ran(&UNRESOLVED_RULES);
-    let binaries_ran = ran(&["unlisted-binaries"]);
-
     let mut keyed: Vec<JudgedList<'_>> = Vec::new();
-    if dependencies_ran {
+    if ran.dependencies {
         keyed.push(JudgedList::new(
             "js.ignore-dependencies",
             setup
@@ -282,13 +300,13 @@ fn keyed_ignore_lists<'a>(analysis: &'a JsAnalysis<'_>, ran: &dyn Fn(&[&str]) ->
                 .verdicts_except(&unchecked_dependencies),
         ));
     }
-    if binaries_ran {
+    if ran.binaries {
         keyed.push(JudgedList::new(
             "js.ignore-binaries",
             setup.global_ignore_binaries.verdicts(),
         ));
     }
-    if unresolved_ran {
+    if ran.unresolved {
         keyed.push(JudgedList::new(
             "js.ignore-unresolved",
             setup.global_ignore_unresolved.verdicts(),
@@ -298,27 +316,37 @@ fn keyed_ignore_lists<'a>(analysis: &'a JsAnalysis<'_>, ran: &dyn Fn(&[&str]) ->
         "js.ignore-workspaces",
         setup.ignore_workspaces.verdicts(),
     ));
+    keyed
+}
+
+/// The ignore lists the `[js.workspaces]` tables give each package of [`keyed_ignore_lists`]: named by the package's
+/// directory and written under the key of the table that configures it.
+fn package_ignore_lists<'a>(analysis: &'a JsAnalysis<'_>, ran: ListsRan) -> Vec<JudgedList<'a>> {
+    let setup = &analysis.setup;
+    let mut keyed: Vec<JudgedList<'_>> = Vec::new();
     for (id, package) in analysis.workspace.iter() {
         let Some(package_setup) = setup.package(id) else {
             continue;
         };
         let dir = setup.workspace_keys.key_dir(package);
         let table = package_setup.table_key.as_deref().unwrap_or(dir.as_str());
+        let package_dir: &'a Path = package.dir.as_path();
         let list = |name: &str, verdicts: Vec<(&'a str, bool)>| JudgedList {
             written: format!("js.workspaces.\"{table}\".{name}"),
             shown: format!("js.workspaces.\"{dir}\".{name}"),
+            package: Some(package_dir),
             verdicts,
         };
-        if dependencies_ran && judged(id) {
+        if ran.dependencies && !analysis.is_skipped(id) && !analysis.entries_incomplete(id) {
             keyed.push(list(
                 "ignore-dependencies",
                 package_setup.user_ignore_dependencies.verdicts(),
             ));
         }
-        if binaries_ran {
+        if ran.binaries {
             keyed.push(list("ignore-binaries", package_setup.user_ignore_binaries.verdicts()));
         }
-        if unresolved_ran {
+        if ran.unresolved {
             keyed.push(list("ignore-unresolved", package_setup.ignore_unresolved.verdicts()));
         }
     }
