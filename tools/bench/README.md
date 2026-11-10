@@ -136,6 +136,11 @@ and in the status cell of `parity.md`, and counts a finding only one tool report
 as the `knip-config-error` known deviation rather than as a difference: on knip's side because it ran without that
 configuration's entries, on skif's because knip's view of the package is incomplete.
 
+**Invalid knip runs.** A repository whose knip run cannot be a valid comparison sets `knip-invalid` in `corpus.toml`
+with the reason (n8n: its configs import the workspace's own `@n8n/*-config` packages, which have no built `dist`
+after an install without scripts, so knip loads none of them). It is still compared and recorded, and its status
+cell in `parity.md` (and `invalid` in the baseline) carries the reason, so its counts are not read as agreement.
+
 **Findings inside unused files.** A tool analyses nothing inside a file it reports as unused, so a finding in such a
 file follows from the `files` disagreement, which is counted once already. A finding only skif reports in a file knip
 lists under `files` is the `in-knip-unused-file` known deviation, and a finding only knip reports in a file skif

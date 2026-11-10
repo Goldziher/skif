@@ -64,6 +64,10 @@ pub struct Repo {
     /// `--no-gitignore` where a deny-all `.gitignore` hides the workspaces from knip). `parity` does not use them.
     #[serde(default)]
     pub bench_knip_args: Vec<String>,
+    /// Why knip's report on this repository is not a valid comparison (such as configurations that import workspace
+    /// packages which are never built). The repository is still compared, and the report marks the row with this.
+    #[serde(default)]
+    pub knip_invalid: Option<String>,
 }
 
 const fn default_install() -> bool {
@@ -212,6 +216,14 @@ mod tests {
         assert_eq!(parity.len(), manifest().repo.len());
         assert!(select(file, "bench", &["vscode".to_owned()]).is_err());
         assert_eq!(select(file, "parity", &["jest".to_owned()]).unwrap().1.len(), 1);
+    }
+
+    #[test]
+    fn n8n_is_marked_as_an_invalid_knip_comparison() {
+        let repos = manifest().repo;
+        let n8n = repos.iter().find(|r| r.name == "n8n").unwrap();
+        assert!(n8n.knip_invalid.as_deref().is_some_and(|why| why.contains("dist")));
+        assert!(repos.iter().filter(|r| r.knip_invalid.is_some()).count() == 1);
     }
 
     #[test]

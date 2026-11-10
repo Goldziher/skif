@@ -1088,6 +1088,7 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
         "recursive": recursive,
         "knip_exit": knip_run.code,
         "knip_errors": knip_errors,
+        "knip_invalid": repo.knip_invalid,
         "known_deviations": split.known,
         "known_samples": split.samples,
         "not_judged_packages": unjudged,
@@ -1101,7 +1102,8 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
     Ok(Outcome {
         entry: Entry::compared(counts)
             .with_known(split.known)
-            .with_tool_errors(knip_errors.len()),
+            .with_tool_errors(knip_errors.len())
+            .with_invalid(repo.knip_invalid.clone()),
         detail,
     })
 }
@@ -1177,11 +1179,14 @@ fn markdown(tool: &str, installed: bool, entries: &BTreeMap<String, Entry>) -> S
                 .known_deviations
                 .get(NOT_JUDGED)
                 .map_or(0, |c| c.skif_only + c.tool_only);
-            let status = if entry.tool_errors == 0 {
+            let mut status = if entry.tool_errors == 0 {
                 "compared".to_owned()
             } else {
                 format!("compared; {tool} could not load {} config files", entry.tool_errors)
             };
+            if let Some(reason) = &entry.invalid {
+                let _ = write!(status, "; not a valid comparison: {reason}");
+            }
             let _ = writeln!(
                 out,
                 "| {name} | {status} | {} | {} | {} | {unjudged} | {} |",
@@ -1348,6 +1353,7 @@ mod tests {
             install_command: Vec::new(),
             entry: Vec::new(),
             bench_knip_args: Vec::new(),
+            knip_invalid: None,
         };
         let dir = Path::new("/nonexistent");
         assert_eq!(install_command(&repo("npm", true), dir).unwrap().1[0], "ci");
@@ -1755,9 +1761,21 @@ mod tests {
         ]);
         let entries = BTreeMap::from([
             ("r".to_owned(), Entry::compared(counts.clone()).with_known(known)),
-            ("s".to_owned(), Entry::compared(counts).with_tool_errors(2)),
+            ("s".to_owned(), Entry::compared(counts.clone()).with_tool_errors(2)),
+            (
+                "t".to_owned(),
+                Entry::compared(counts)
+                    .with_tool_errors(1)
+                    .with_invalid(Some("configs import unbuilt packages".to_owned())),
+            ),
         ]);
         let table = markdown("knip", false, &entries);
+        assert!(
+            table.contains(
+                "| t | compared; knip could not load 1 config files; not a valid comparison: configs import unbuilt packages | 1 | 2 | 3 | 0 | 0 |"
+            ),
+            "{table}"
+        );
         assert!(table.contains("| r | compared | 1 | 2 | 3 | 4 | 5 |"), "{table}");
         assert!(
             table.contains("| s | compared; knip could not load 2 config files | 1 | 2 | 3 | 0 | 0 |"),
