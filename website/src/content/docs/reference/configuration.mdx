@@ -467,7 +467,9 @@ jest = { enabled = true, config = ["jest.config.cjs"] }
 tables, keyed by directory (a glob such as `packages/*` works, an exact key wins over a glob, and `"."` is the root
 workspace; `*` stops at `/`, so `packages/*` does not select `packages/a/nested`, and when several glob keys select a
 directory the first in file order wins), take `entry`, `project`, `ignore`, `ignore-files`, `ignore-dependencies`, `ignore-binaries`,
-`ignore-unresolved`, `ignore-members`, `ignore-exports-used-in-file`, `include-entry-exports`, `paths` and `plugins`. A plugin entry is
+`ignore-unresolved`, `ignore-members`, `ignore-exports-used-in-file`, `include-entry-exports`, `paths` and `plugins`,
+plus `extend-ignore`, `extend-ignore-dependencies`, `extend-ignore-binaries` and `extend-ignore-unresolved`, which
+append to the list the table inherits through `extends`. A plugin entry is
 `true`, `false` or a table with `enabled`, `config`, `entry` and `project`; the plugin names are checked, and a
 misspelt one is a configuration error with the closest name suggested. The `"."` table adds to the top-level ignore
 lists and replaces its `entry` and `project`.
@@ -1054,7 +1056,7 @@ reset = ["version-groups"]
 | Scalars (`fail-on-warnings`, `package-manager`, `mode`, ...) | The later file replaces |
 | Tables (`[workspace]`, `[lint]`, `[policy]`, `[catalog]`, `[js]`, ...) | Merge key by key |
 | Arrays of strings | The later file replaces |
-| `extend-ignore-packages` (`[workspace]`), `extend-ignore`, `extend-ignore-dependencies`, `extend-ignore-binaries`, `extend-ignore-unresolved` (`[js]`), `extend-exclude` (`[catalog]`) | Append to the inherited list, after the plain key of the same file |
+| `extend-ignore-packages` (`[workspace]`), `extend-ignore`, `extend-ignore-dependencies`, `extend-ignore-binaries`, `extend-ignore-unresolved` (`[js]` and `[js.workspaces."<dir>"]`), `extend-exclude` (`[catalog]`) | Append to the inherited list, after the plain key of the same file |
 | `[rules]` | Per rule: a level keeps the inherited options; a table of options replaces the options and keeps the level |
 | `[js.plugins]` | Per plugin: `true` or `false` keeps the options; a table replaces them |
 | `[[ignore]]`, `[[overrides]]` | Append |

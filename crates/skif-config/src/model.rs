@@ -259,6 +259,7 @@ impl Config {
             || !self.js.extend_ignore_binaries.is_empty()
             || !self.js.extend_ignore_unresolved.is_empty()
             || !self.catalog.extend_exclude.is_empty()
+            || self.js.workspaces.values().any(JsWorkspace::has_extend_keys)
     }
 
     /// The first suppression without a `reason`, named by its key: an `[[ignore]]` entry (`ignore[0]`, also one of an
@@ -2348,18 +2349,40 @@ pub struct JsWorkspace {
     pub paths: IndexMap<String, Vec<String>>,
     /// Plugin switches and options for this workspace, applied over `[js.plugins]`.
     pub plugins: IndexMap<String, PluginConfig>,
+    /// Appended to `ignore` instead of replacing it. Folded away when the configuration is resolved.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extend_ignore: Vec<String>,
+    /// Appended to `ignore-dependencies` instead of replacing it. Folded away when the configuration is resolved.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extend_ignore_dependencies: Vec<IgnoreItem>,
+    /// Appended to `ignore-binaries` instead of replacing it. Folded away when the configuration is resolved.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extend_ignore_binaries: Vec<IgnoreItem>,
+    /// Appended to `ignore-unresolved` instead of replacing it. Folded away when the configuration is resolved.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extend_ignore_unresolved: Vec<IgnoreItem>,
 }
 
 impl JsWorkspace {
     /// The ignore lists under their keys.
-    pub(crate) fn ignore_lists(&self) -> [(&'static str, &[IgnoreItem]); 5] {
+    pub(crate) fn ignore_lists(&self) -> [(&'static str, &[IgnoreItem]); 8] {
         [
             ("ignore-files", self.ignore_files.as_slice()),
             ("ignore-dependencies", self.ignore_dependencies.as_slice()),
             ("ignore-binaries", self.ignore_binaries.as_slice()),
             ("ignore-unresolved", self.ignore_unresolved.as_slice()),
             ("ignore-members", self.ignore_members.as_slice()),
+            ("extend-ignore-dependencies", self.extend_ignore_dependencies.as_slice()),
+            ("extend-ignore-binaries", self.extend_ignore_binaries.as_slice()),
+            ("extend-ignore-unresolved", self.extend_ignore_unresolved.as_slice()),
         ]
+    }
+
+    fn has_extend_keys(&self) -> bool {
+        !self.extend_ignore.is_empty()
+            || !self.extend_ignore_dependencies.is_empty()
+            || !self.extend_ignore_binaries.is_empty()
+            || !self.extend_ignore_unresolved.is_empty()
     }
 }
 

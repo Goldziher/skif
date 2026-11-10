@@ -119,6 +119,35 @@ fn extend_keys_append_to_the_inherited_list() {
 }
 
 #[test]
+fn extend_keys_append_to_the_inherited_lists_of_a_workspace_table() {
+    let resolved = two(
+        "[js.workspaces.\"apps/web\"]\nignore = [\"i\"]\nignore-dependencies = [\"d\"]\nignore-binaries = [\"b\"]\nignore-unresolved = [\"u\"]\n",
+        "[js.workspaces.\"apps/web\"]\nextend-ignore = [\"i2\"]\nextend-ignore-dependencies = [\"d2\"]\nextend-ignore-binaries = [\"b2\"]\nextend-ignore-unresolved = [{ name = \"u2\", reason = \"generated\" }]\n",
+    );
+    let web = &resolved.config.js.workspaces["apps/web"];
+    assert_eq!(web.ignore, ["i", "i2"]);
+    assert_eq!(web.ignore_dependencies, ["d", "d2"]);
+    assert_eq!(web.ignore_binaries, ["b", "b2"]);
+    assert_eq!(web.ignore_unresolved, ["u", "u2"]);
+    assert_eq!(web.ignore_unresolved[1].reason.as_deref(), Some("generated"));
+    assert!(web.extend_ignore.is_empty() && web.extend_ignore_dependencies.is_empty());
+    assert!(web.extend_ignore_binaries.is_empty() && web.extend_ignore_unresolved.is_empty());
+    let origins = resolved.origins.get("js.workspaces.\"apps/web\".ignore-dependencies");
+    assert_eq!(
+        origins.iter().map(|assignment| (assignment.source, assignment.op)).collect::<Vec<_>>(),
+        [(0, Op::Set), (1, Op::Append)]
+    );
+}
+
+#[test]
+fn a_standalone_file_folds_the_extend_keys_of_a_workspace_table() {
+    let text = "[js.workspaces.\".\"]\nignore-dependencies = [\"a\"]\nextend-ignore-dependencies = [\"b\"]\n";
+    let config = Config::from_toml_str(text).unwrap();
+    assert_eq!(config.js.workspaces["."].ignore_dependencies, ["a", "b"]);
+    assert!(config.js.workspaces["."].extend_ignore_dependencies.is_empty());
+}
+
+#[test]
 fn extend_ignore_unresolved_appends_to_the_inherited_list() {
     let config = two(
         "[js]\nignore-unresolved = [\"a\"]\n",
