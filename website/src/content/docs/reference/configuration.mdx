@@ -674,12 +674,16 @@ builtin, and `events/` only the package.
 
 The default `project` globs include `.vue`, `.svelte` and `.astro` files. Their `<script>` blocks (`<script setup>`,
 `<script context="module">`, any `lang="ts"` or `lang="tsx"`) and the Astro frontmatter are analysed as modules, with
-diagnostics located in the original file. The markup is scanned for identifiers, not compiled: component tags
-(`<MyCard>`, `<my-card>`, `<ui.Card>`), the expressions of `{{ }}`, `{ }`, `:prop`, `v-*`, `@event`, Svelte blocks
-(`{#if x}`) and directives (`use:action`) count as uses of the imports they name, and a read such as `ns.member` counts as
-a use of that member. `<style>` blocks and `src` attributes of `<script>` and `<style>` tags are imports. Matching is by
-name, so a template variable that shadows an import hides it from the unused check, and nothing in a template is
-type-checked. Imports of one script block count as used when another block reads them.
+diagnostics located in the original file. The markup is scanned, not compiled: component tags (`<MyCard>`,
+`<my-card>`, `<ui.Card>`), the expressions of `{{ }}`, `{ }`, `:prop`, `v-*`, `@event`, Svelte blocks (`{#if x}`) and
+directives (`use:action`) count as uses of the imports they name, and a read such as `ns.member` counts as a use of
+that member. `<style>` blocks and `src` attributes of `<script>` and `<style>` tags are imports. The expressions are
+parsed as JavaScript, so a name an expression binds itself (`items.map((item) => item.id)`) is no use, and neither is a
+template local: the alias of a Vue `v-for` and the props of `v-slot`, `#name` and `slot-scope`, and the names Svelte's
+`{#each}`, `{#await}`, `{:then}`, `{:catch}`, `{#snippet}`, `{@const}` and `let:` bind, within the element or block
+that binds them. An import that only such a local of the same name mentions is unused. An expression that does not
+parse is read token by token, which can only make an import look more used. Nothing in a template is type-checked.
+Imports of one script block count as used when another block reads them.
 
 `.mdx` files are read without an MDX compiler: their top-level `import` and `export` statements (at the first column,
 outside frontmatter and fenced code, as MDX delimits them) are analysed as JavaScript with JSX, and the prose is
@@ -695,9 +699,19 @@ the stylesheets are followed and the packages they import count as used. This in
 (`styleUrls: { ios: 'a.ios.css', md: ['a.md.css'] }`); its `assetsDirs` are directories copied as they are, not
 modules, and are not followed. Vue auto-imports are followed through the
 declaration files `unplugin-vue-components` and `unplugin-auto-import` generate (`components.d.ts`,
-`auto-imports.d.ts`): they are entries like every `.d.ts` file, so each registered component and composable counts as
-used, whether or not a template names it. A generated file that `.gitignore` excludes is not read, and the
-components it registers then look unused.
+`auto-imports.d.ts`). A component `components.d.ts` registers from a file of the project is used where a template
+uses its tag, as knip compiles it: each `.vue` file whose template names `AppButton` the way Vue resolves a tag
+(`AppButton`, `app-button`, `appButton`, or `LazyAppButton` and `lazy-app-button`), in a static `is` attribute
+(`<component is="AppButton">`, `:is="'AppButton'"`), and each file that calls `resolveComponent('AppButton')`, imports
+the default export of the file `AppButton` is registered from. A registered component nothing uses so is reported by
+`unused-files`, and so is what only it imports. Native elements (`<button>`) never name a component, and the imports
+added for components are no `circular-imports` cycle. Registrations apply to every workspace of the run. A component
+registered from a package stays an import of the declaration file. A package that may use its components in files
+skif records no tags for keeps every component it registers used: one with a `.tsx` or `.jsx` project file, a
+VitePress or VuePress site, or a bundler config that passes the plugin an `include` matching more than `.vue` files
+(`/\.md$/`) or options skif cannot read. `auto-imports.d.ts` is an entry like every `.d.ts` file, so each composable
+it registers counts as used, whether or not a file names it. A generated file that `.gitignore` excludes is not read,
+and the components it registers then look unused.
 
 Stylesheets that code imports are followed: `@import`, `@use`, `@forward` and the Tailwind at-rules of `.css`,
 `.scss`, `.sass`, `.less` and `.pcss` files, and `@import` and `@require` of Stylus (`.styl`, `.stylus`, and
@@ -706,7 +720,11 @@ glob (`@import "mixins/*"`) is skipped. A reached Stylus file uses the `stylus` 
 are not TypeScript a parser accepts, so only their `import` statements and `import()` calls are read: the packages and
 files they name are used, every imported binding counts as used as a whole, and their exports are not known, so a
 re-export (`export { x } from './y'`) is not followed and `./y` is not reached through it. A reached `.tsrx` file uses
-the `@tsrx/*` packages its package lists. Like `.mdx`, `.tsrx` files are not in the default `project`.
+the `@tsrx/*` packages its package lists. Like `.mdx`, `.tsrx` files are not in the default `project`. `.marko`
+files are read the same way, and so are the imports of their `<style>` blocks and concise `style { … }` blocks
+(`style.less { … }` is Less, `style { … }` Sass); a tag import (`import Card from "<card>"`) names no module and is
+left out. A reached `.marko` file uses the `marko` package, and `.marko` files are not in the default `project`
+either.
 
 Test files are entries when a test-runner plugin is enabled (Jest, Vitest, Mocha, Playwright, Cypress and the like),
 with the patterns of that plugin; a project without a runner reports unused test files like any other, as knip does.
@@ -793,8 +811,9 @@ counterpart. These differences are deliberate:
 - `next-mdx` and `starlight` read the options of the `@next/mdx` and `@astrojs/starlight` calls in the config source;
   a plugin or component passed as an imported binding is not a string and is already an import.
 - `unplugin-auto-import` and `unplugin-vue-components` make the declaration files they generate (`auto-imports.d.ts`,
-  `components.d.ts`) entries, so the components and composables these import are used; knip compiles every `.vue`
-  file against them instead, which also tells which of them a template uses.
+  `components.d.ts`) entries. A local component `components.d.ts` registers is used only where a template uses its
+  tag, as in knip, unless the package may use it in files skif records no tags for (see above); every composable `auto-imports.d.ts` registers is used, while knip credits one only in
+  the `.vue` and `.ts` files that name it.
 - `vue` reads `configureWebpack` as a webpack config. A function one is called statically with knip's base config
   (`mode`, empty `entry`, `resolve`, `plugins` and `module.rules`): the object it returns, or the base config as it
   leaves it (`config.entry = { … }`), is read; what it reads from its argument's members is not known, and an
@@ -819,8 +838,9 @@ counterpart. These differences are deliberate:
   shorthand of SST 2 constructs: the string values of `routes`, `subscribers`, `notifications` and `targets`, and a
   `function`, `job` or `consumer` string. `quasar` takes the first `sourceFiles`,
   `boot` and `css` written anywhere.
-- `qwik` and `stencil` do not compile `.mdx` or Sass files. `stencil`'s component style URLs are imports of the
-  component (see above), so the stylesheets are used.
+- `qwik` and `stencil` need no compiler for `.mdx` or Sass files: skif reads every reached `.mdx` file and Sass
+  stylesheet itself, so Qwik City's `.mdx` routes and the Sass of `stencil`'s component style URLs, which are imports
+  of the component (see above), are read.
 - `eleventy` reads `addPassthroughCopy("img")` and `addPassthroughCopy({ "src/js": "js" })` calls: a directory makes
   its JavaScript and TypeScript files production entries, a file or glob is one, and a path into `node_modules` names
   a package. A path computed from a local of the config function is not known.
@@ -844,8 +864,9 @@ counterpart. These differences are deliberate:
   `{{.TASKFILE_DIR}}`; any other template (`{{.CLI_ARGS}}`, an `sh:` variable, a function) is a word that is not
   known, so the rest of the command is still read, and an include holding one is skipped.
   `unplugin-vue-i18n` is no plugin: knip's has nothing to port.
-- `marko` does not compile `.marko` files or read the tag libraries of installed packages; it credits `marko` when
-  a template exists. `unplugin-vue-markdown` is no plugin: skif compiles no Markdown.
+- `marko` reads `.marko` files for their imports and style blocks (see above) but does not read the tag libraries
+  of installed packages, so a package used only through its tags is not credited; it credits `marko` when a
+  template exists. `unplugin-vue-markdown` is no plugin: skif compiles no Markdown.
 - `varlock` reads the `@plugin` and `@import` decorators in the root comments of the `.env` files under
   `package.json#varlock.loadPath` and those a script passes with `--path`, but not `~/` paths, and does not skip
   git-ignored files; a `@plugin` version (`@varlock/1password-plugin@1.2.0`) is cut off. `railway` counts a service

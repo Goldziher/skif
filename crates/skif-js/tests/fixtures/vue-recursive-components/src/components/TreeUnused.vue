@@ -1,0 +1,3 @@
+<template>
+  <TreeNode :children="[]" />
+</template>
