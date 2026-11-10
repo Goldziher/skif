@@ -241,8 +241,8 @@ pub fn lock_path(dir: &Path) -> PathBuf {
 ///
 /// # Errors
 /// Fails when another process holds the lock, naming its process id when the lock file can be read, or when the lock
-/// file cannot be opened, locked or written; a corpus directory that is not writable is named as such, since every
-/// command that locks a checkout also writes into it.
+/// file cannot be opened, locked or written; a corpus directory that is not writable is named as such, since a read-only
+/// cache is not supported.
 pub fn lock_checkout(dir: &Path) -> Result<CheckoutLock> {
     let path = lock_path(dir);
     let opened = OpenOptions::new()
@@ -256,7 +256,7 @@ pub fn lock_checkout(dir: &Path) -> Result<CheckoutLock> {
         Err(error) if matches!(error.kind(), ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem) => {
             bail!(
                 "cannot create the lock file {} ({error}): the corpus directory is not writable, and skif-bench \
-                 fetches, installs and writes into its checkouts; use a writable corpus directory",
+                 needs a writable one to lock, fetch and install its checkouts",
                 path.display()
             );
         }

@@ -82,8 +82,9 @@ checkout, the same on Linux, macOS and Windows. A second run fails at once, nami
 file holds; on Windows the lock is mandatory and keeps other processes from reading the file, so the message there
 says only that another process holds it. The operating system releases the lock when its process ends, so a run that
 dies leaves no stale lock and no process-id check is needed; the file itself stays. A lock file that cannot be created
-because the corpus directory is not writable is an error that says so: every command that locks a checkout fetches,
-installs or writes into it, so running without the lock on a read-only cache would only move the failure later.
+because the corpus directory is not writable is an error that says so. A read-only cache is not supported: a command
+that locks a checkout may fetch it, install into it or write the Rush scratch root manifest into it, and running
+without the lock only where none of that is needed would make the lock depend on the state of each checkout.
 
 **`non-member-project`.** Every in-file category: a finding only knip reports in `files`, `exports`, `types`,
 `nsExports`, `nsTypes`, `enumMembers`, `namespaceMembers`, `duplicates` or `unresolved` in a file below a project that
