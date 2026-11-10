@@ -565,6 +565,7 @@ tool looks for them:
 | `next` | `{,src/}{app,pages}/**` and `{,src/}{instrumentation,instrumentation-client,middleware,proxy}.*`: the router may take other extensions there |
 | `vite` | `{,src/}{index,main}.*`, the conventional build input a shared base config may set |
 | `vitest`, `playwright` | test files, test and fixture directories (`test`, `tests`, `__tests__`, `__mocks__`, `__fixtures__`, `e2e`, `spec`, `specs`, `fixtures`, `mocks`, `testing`, `test-utils`), files whose name contains `setup` or `teardown`, and files named `*.{test,spec,bench,e2e,integration}*` |
+| `storybook` | for an addon, `framework` or `core.builder` whose package is not known statically, the Storybook config directory (`.storybook/**`, `.rnstorybook/**`), where a local addon lives; the package's dependencies are not judged |
 
 The files in the scope are treated as entries, so what they import is not reported either: those outside the package's
 `project` globs too, and, for a scope of a package with workspace packages below it (a root test config), the matching
