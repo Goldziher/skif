@@ -64,8 +64,10 @@ impl CustomElementLibrary {
 
 /// What an [`InputSource`] contributes for one workspace package.
 ///
-/// Globs are relative to the package directory and use `/` separators. A leading `!` excludes.
+/// Globs are relative to the package directory and use `/` separators. A leading `!` excludes. A source starts from
+/// [`WorkspaceInputs::default`] and fills in the fields it knows, as fields may be added.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct WorkspaceInputs {
     /// Entry files in every mode, such as test files or framework routes.
     pub entry: Vec<String>,

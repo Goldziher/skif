@@ -365,6 +365,7 @@ pub struct BinaryRef {
 /// Globs and paths are relative to the workspace directory, except the absolute `config_files`, the `from` of each
 /// [`DepRef`] and the `from` of each [`BinaryRef`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PluginOutput {
     /// Entry files and globs, including the production ones.
     pub entries: Vec<String>,
