@@ -303,15 +303,92 @@ const VERSION_RULE: &str = "version-mismatch";
 /// scope leaves `local` out (ADR 0072).
 const SCOPE: &[&str] = &["prod", "dev"];
 
+/// The specifier types sherif's `multiple-dependency-versions` never compares. sherif keeps a specifier only when the
+/// `semver` crate reads it as a version or as a range with at least one comparator, so `*`, `latest`, dist-tags,
+/// `||`, hyphen and space-separated ranges and every protocol (`workspace:`, `npm:`, git, file, link, url) take no
+/// part. `catalog:` references are not listed: `version-mismatch` leaves them to the catalog rules anyway.
+pub(crate) const UNPARSED_SPECIFIERS: &[&str] = &[
+    "alias",
+    "file",
+    "git",
+    "latest",
+    "link",
+    "missing",
+    "range-complex",
+    "tag",
+    "unsupported",
+    "url",
+    "workspace-protocol",
+];
+
+/// The rule that reports a version group that owns no dependency.
+pub(crate) const UNUSED_GROUP_RULE: &str = "policy-conflict";
+
+/// The note path for what sherif compared.
+const SPECIFIERS_PATH: &str = "multiple-dependency-versions: specifiers";
+
 /// `[policy] dependency-types` as sherif's `multiple-dependency-versions` saw the workspace.
 fn emit_scope(state: &mut State<'_>, src: &Src) {
     state.widen_scope(SCOPE.iter().map(|token| (*token).to_owned()).collect());
+    state.sherif_versions = Some(src.clone());
     state.note(
         src,
         NoteClass::Exact,
         "multiple-dependency-versions",
         "[policy] dependency-types covers dependencies and devDependencies, the sections sherif compares; like \
          sherif, skif then does not compare a dependency with the version of the workspace package it names",
+    );
+}
+
+/// Leaves the specifiers sherif never compared out of `version-mismatch`, once every tool is read: syncpack compared
+/// them, so a migration with syncpack keeps them. The group is written only when `silent`, that is when nothing
+/// reports it for owning no dependency in a workspace without such specifiers; otherwise the note says how.
+pub(crate) fn leave_out_unparsed(state: &mut State<'_>, src: &Src, silent: bool) {
+    let types = UNPARSED_SPECIFIERS.join(", ");
+    if state.tools.contains(&Tool::Syncpack) {
+        state.note(
+            src,
+            NoteClass::Approximate,
+            SPECIFIERS_PATH,
+            format!(
+                "sherif compared semver versions and ranges only; syncpack compared every specifier, so skif does too \
+                 ({types})"
+            ),
+        );
+        return;
+    }
+    if !silent {
+        let quoted: Vec<String> = UNPARSED_SPECIFIERS.iter().map(|name| format!("\"{name}\"")).collect();
+        state.note_with(
+            src,
+            NoteClass::Approximate,
+            SPECIFIERS_PATH,
+            format!("sherif compared semver versions and ranges only; skif also compares the specifier types {types}"),
+            format!(
+                "to leave them out as sherif did, add a last [[version-groups]] entry with specifier-types = [{}] and \
+                 policy = \"ignored\"",
+                quoted.join(", ")
+            ),
+        );
+        return;
+    }
+    let element = state.doc.element(
+        &["version-groups"],
+        vec!["migrated from sherif, which compared semver versions and ranges only".to_owned()],
+    );
+    element.set("label", Val::str("not compared by sherif"));
+    element.set("specifier-types", Val::strs(UNPARSED_SPECIFIERS.iter().copied()));
+    element.set("policy", Val::str("ignored"));
+    state.note_with(
+        src,
+        NoteClass::Approximate,
+        SPECIFIERS_PATH,
+        format!(
+            "written to [[version-groups]] as an ignored group of the specifier types sherif did not compare \
+             ({types}); a range sherif read but skif does not classify, such as `>= 1.0.0` or `1.x`, is \
+             `unsupported` and is left out as well"
+        ),
+        "write such a range without the space (`>=1.0.0`) or in full (`^1.0.0`) to keep it compared",
     );
 }
 
@@ -391,5 +468,43 @@ fn emit_dependencies(state: &mut State<'_>, src: &Src, setting: &Setting) {
              count when skif picks the version to align on, so the other instances can be reported against it \
              (with `prefer = \"lowest\"`, for example); ignore the name instead if that version must not count",
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use skif_specifier::{CONFIG_IDENTIFIERS, Specifier};
+
+    use super::*;
+
+    #[test]
+    fn the_unparsed_specifier_types_are_the_ones_sherif_leaves_out() {
+        assert!(UNPARSED_SPECIFIERS.iter().all(|name| CONFIG_IDENTIFIERS.contains(name)));
+        let left_out = [
+            "*",
+            "x",
+            "latest",
+            "next",
+            "^1.0.0 || ^2.0.0",
+            "1.0.0 - 2.0.0",
+            ">=1.0.0 <2.0.0",
+            "workspace:*",
+            "npm:other@1.0.0",
+            "git+https://example.com/a/b.git",
+            "github:a/b",
+            "file:../b",
+            "link:../b",
+            "https://example.com/b.tgz",
+            "",
+        ];
+        for specifier in left_out {
+            let kind = Specifier::create(specifier).get_config_identifier();
+            assert!(UNPARSED_SPECIFIERS.contains(&kind), "{specifier:?} is {kind}");
+        }
+        for specifier in ["1.2.3", "=1.2.3", "1.2.3-beta.1", "^1.2.3", "~1.2", ">=1", "<2.0.0", "1", "1.2"] {
+            let kind = Specifier::create(specifier).get_config_identifier();
+            assert!(!UNPARSED_SPECIFIERS.contains(&kind), "{specifier:?} is {kind}");
+        }
+        assert!(!UNPARSED_SPECIFIERS.contains(&"catalog"), "catalog references stay with the catalog rules");
     }
 }
