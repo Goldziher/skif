@@ -8,8 +8,8 @@ use skif_config::{
     Assignment, Ceiling, Config, ConfigCache, ConfigError, ConfigLoader, ConfigOverrides, ConfigSource, Origins,
     SourceKind, join_key,
 };
-use skif_lint::LintError;
 use skif_core::FileSystem;
+use skif_lint::LintError;
 use skif_workspace::{
     DiscoverOptions, RootKind, Workspace, claim_roots, declared_member_dirs, declares_workspace, repository_root,
     scan_candidates,
