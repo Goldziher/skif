@@ -3,7 +3,8 @@
 //! The parser is a pure, never-panicking, best-effort interpreter of POSIX-style command lines. It
 //! understands quoting, separators (`&&`, `||`, `;`, `|`, `&`), subshells, command substitution,
 //! redirections, here-documents (whose bodies are input, not commands), `case` patterns, the functions a script
-//! defines (calling one runs no binary), environment assignments and the argument conventions of the common package
+//! defines (calling one runs no binary), the directory `cd`, `pushd` and `popd` move the commands after them to,
+//! environment assignments and the argument conventions of the common package
 //! managers (`npm`, `npx`, `pnpm`, `yarn`, `bun`), process wrappers (`cross-env`, `dotenv`, ...),
 //! task runners (`concurrently`, `npm-run-all`, `turbo`) and script runners (`node`, `tsx`,
 //! `ts-node`, ...). Nothing is executed and the file system is never consulted.
@@ -118,6 +119,9 @@ pub struct BinaryUse {
     /// The workspaces the command names (`yarn workspace web`, `pnpm --filter web`, `npm -w web`): package names,
     /// patterns or directories; empty when it targets others without naming them.
     pub workspaces: Vec<String>,
+    /// The directory the command runs in (`cd sub && rspack`, `pnpm -C sub exec rspack`), relative to where the script
+    /// starts, `/`-separated; `None` where it starts or when the directory is not a static relative path.
+    pub dir: Option<String>,
 }
 
 /// A file the script runs, loads or passes to a runner.
@@ -150,6 +154,8 @@ pub struct DepRef {
     pub span: Range<usize>,
     /// Fetched on demand (`npx -p pkg`, `pnpm dlx pkg`).
     pub ephemeral: bool,
+    /// The directory the command that needs the package runs in, as [`BinaryUse::dir`].
+    pub dir: Option<String>,
 }
 
 /// Everything a script references.

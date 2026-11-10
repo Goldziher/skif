@@ -509,3 +509,30 @@ fn optional_dependencies_are_not_reported_as_unused() {
         "{diagnostics:#?}"
     );
 }
+
+#[test]
+fn commands_after_cd_into_a_workspace_package_are_judged_there() {
+    let root = manifest(&format!(
+        r#""name":"root","private":true,{PNPM},"scripts":{{"serve":"cd sub && pnpm exec rspack serve","start":"cd sub && node -r @x/register-hook ./start.js","docs":"cd docs && rspack build"}}"#
+    ));
+    let files = [
+        ("package.json", root.as_str()),
+        ("pnpm-workspace.yaml", "packages:\n  - sub\n"),
+        (
+            "sub/package.json",
+            r#"{"name":"sub","private":true,"devDependencies":{"@rspack/cli":"1.0.0","@x/register-hook":"1.0.0"}}"#,
+        ),
+        ("sub/start.js", "console.log('start');\n"),
+    ];
+    let diagnostics = lint_files(&files, "");
+    // `cd sub` runs `rspack` and loads the hook with what `sub` lists; `docs` is no workspace package, so `rspack`
+    // there is still a binary of the root.
+    assert_eq!(
+        found(&diagnostics, "unlisted-binaries"),
+        ["package.json: rspack"],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none(), "{diagnostics:#?}");
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none(), "{diagnostics:#?}");
+    assert_eq!(found(&diagnostics, "unused-files"), none(), "{diagnostics:#?}");
+}

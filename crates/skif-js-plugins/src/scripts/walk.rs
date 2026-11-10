@@ -192,6 +192,11 @@ pub(super) struct Walker<'c> {
     workspaces: Vec<String>,
     /// The functions the script defines; a command calling one runs no binary.
     functions: HashSet<String>,
+    /// The directory the commands run in after a `cd` or `pushd`, relative to where the script starts; `None` there
+    /// and after a change to a directory that is not a static relative path.
+    cwd: Option<String>,
+    /// The directories `pushd` left, for `popd`.
+    pushed: Vec<Option<String>>,
 }
 
 impl<'c> Walker<'c> {
@@ -204,6 +209,8 @@ impl<'c> Walker<'c> {
             depth: 0,
             workspaces: Vec::new(),
             functions: HashSet::new(),
+            cwd: None,
+            pushed: Vec::new(),
         }
     }
 
@@ -218,6 +225,10 @@ impl<'c> Walker<'c> {
             return;
         }
         self.depth += 1;
+        // A `cd` changes the directory of the commands after it in the same text; the text runs in a shell of its own
+        // (another script, `sh -c`, a substitution), so the change ends with it.
+        let cwd = self.cwd.clone();
+        let pushed = self.pushed.len();
         let tokens = tokenize(text);
         self.functions.extend(tokens.functions.iter().cloned());
         let frame = Frame { text, map };
@@ -226,9 +237,12 @@ impl<'c> Walker<'c> {
         }
         for range in &tokens.substitutions {
             if let Some(inner) = text.get(range.clone()) {
+                self.cwd.clone_from(&cwd);
                 self.run_text(inner, &map.shifted(range.start), st);
             }
         }
+        self.cwd = cwd;
+        self.pushed.truncate(pushed);
         self.depth -= 1;
     }
 
@@ -278,6 +292,7 @@ impl<'c> Walker<'c> {
             } else {
                 Vec::new()
             },
+            dir: self.cwd.clone(),
         });
     }
 
@@ -291,6 +306,7 @@ impl<'c> Walker<'c> {
             bin_path: false,
             filtered: st.filtered,
             workspaces: Vec::new(),
+            dir: None,
         });
     }
 
@@ -307,11 +323,11 @@ impl<'c> Walker<'c> {
             self.dep(name, span, false);
             return;
         }
-        self.info.files.push(FileRef {
-            path: path.to_owned(),
-            span,
-            tree,
-        });
+        let path = match &self.cwd {
+            Some(cwd) if !path.starts_with('/') => join_rel(cwd, path),
+            _ => path.to_owned(),
+        };
+        self.info.files.push(FileRef { path, span, tree });
     }
 
     fn package_manager(&mut self, name: &str) {
@@ -376,6 +392,7 @@ impl<'c> Walker<'c> {
             name: name.to_owned(),
             span,
             ephemeral,
+            dir: self.cwd.clone(),
         });
     }
 
@@ -519,6 +536,13 @@ impl<'c> Walker<'c> {
                 if args
                     .iter()
                     .any(|a| a.text.starts_with("-v") || a.text.starts_with("-V")) => {}
+            "cd" | "pushd" => {
+                if name == "pushd" {
+                    self.pushed.push(self.cwd.clone());
+                }
+                self.change_dir(args);
+            }
+            "popd" => self.cwd = self.pushed.pop().flatten(),
             n if tables::passthrough(n).is_some() => self.passthrough(n, args, frame, st),
             n if tables::SHELLS.contains(&n) => self.shell(args, frame, st),
             n if is_shell_builtin(n) => {}
@@ -533,6 +557,33 @@ impl<'c> Walker<'c> {
                 }
             }
         }
+    }
+
+    /// `cd <dir>`: the commands after it run in `dir`. A directory that is not a static relative path (`cd`, `cd -`,
+    /// `cd ~`, `cd /tmp`, `cd $DIR`) is not followed, so they are judged where the script starts.
+    fn change_dir(&mut self, args: &[Word]) {
+        let target = args.iter().find(|word| word.text == "-" || !word.text.starts_with('-'));
+        self.cwd = target.and_then(|word| self.relative_dir(&word.text, word.dynamic));
+    }
+
+    /// `dir` as a directory relative to where the script starts, from the current directory; `None` for the start
+    /// itself and for a directory that is not a static relative path.
+    fn relative_dir(&self, dir: &str, dynamic: bool) -> Option<String> {
+        if dynamic || dir.is_empty() || dir == "-" || dir.starts_with(['/', '~']) || dir.contains(['$', '`', '\\']) {
+            return None;
+        }
+        let joined = join_rel(self.cwd.as_deref().unwrap_or_default(), dir);
+        (!joined.is_empty()).then_some(joined)
+    }
+
+    /// Moves the commands to `dir`, the value of a flag such as `npm --prefix` or `pnpm -C`, and returns the
+    /// directory to restore once they are walked.
+    fn enter_dir(&mut self, dir: Option<&Val>) -> Option<String> {
+        let saved = self.cwd.clone();
+        if let Some(dir) = dir {
+            self.cwd = self.relative_dir(&dir.text, false);
+        }
+        saved
     }
 
     fn passthrough(&mut self, name: &str, args: &[Word], frame: &Frame, st: St) {
@@ -695,6 +746,8 @@ impl<'c> Walker<'c> {
             .map(|value| value.text.clone())
             .collect();
         let saved = std::mem::replace(&mut self.workspaces, names);
+        let prefix = parsed.values(&["prefix"]).chain(trailing.values(&["prefix"])).next();
+        let cwd = self.enter_dir(prefix);
         match args[ci].text.as_str() {
             "run" | "run-script" | "rum" | "urn" => {
                 let inner = args::parse(after, tables::NPM_VALUE_FLAGS, false);
@@ -720,6 +773,7 @@ impl<'c> Walker<'c> {
             }
             _ => {}
         }
+        self.cwd = cwd;
         self.workspaces = saved;
     }
 
@@ -759,6 +813,8 @@ impl<'c> Walker<'c> {
         );
         let targeted = !names.is_empty();
         let saved = std::mem::replace(&mut self.workspaces, names);
+        let dir = parsed.values(&["dir", "C", "prefix"]).next();
+        let cwd = self.enter_dir(dir);
         match cmd {
             "run" | "run-script" => {
                 let inner = args::parse(after, tables::PNPM_VALUE_FLAGS, false);
@@ -812,6 +868,7 @@ impl<'c> Walker<'c> {
                 }
             }
         }
+        self.cwd = cwd;
         self.workspaces = saved;
     }
 
@@ -824,6 +881,7 @@ impl<'c> Walker<'c> {
         let targeted = !self.workspaces.is_empty();
         let after = &args[parsed.rest..];
         let cmd = args[ci].text.as_str();
+        let cwd = self.enter_dir(parsed.values(&["cwd"]).next());
         match cmd {
             "run" => {
                 let inner = args::parse(after, &[], false);
@@ -899,6 +957,7 @@ impl<'c> Walker<'c> {
                 }
             }
         }
+        self.cwd = cwd;
     }
 
     fn bun(&mut self, args: &[Word], frame: &Frame, st: St) {

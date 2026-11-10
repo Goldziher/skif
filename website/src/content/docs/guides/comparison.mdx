@@ -89,6 +89,10 @@ that a config builds in code (`sassOptions.importer` from `sass-alias`) is not r
 (`@import "@sass/abstracts/mixins"`) are reported as unlisted packages; list the alias in `ignore-dependencies`
 (`"@sass/*"`).
 
+A `package.json` script that runs a command after `cd <dir>` (`cd sub && pnpm exec rspack`) is judged by knip at the
+script's own package, so a binary the workspace package in `sub` provides is reported unlisted there and its provider
+unused in `sub`. skif credits the command to the workspace package the directory is in.
+
 ## Configuration
 
 skif reads `skif.toml` or `.skif.toml` only. It does not read `sherif`, `.syncpackrc` or `knip.json`
