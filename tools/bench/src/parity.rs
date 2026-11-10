@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
-use skif_js::{IncompleteScopeGlobs, is_out_dir};
+use skif_js::{IncompleteScopeGlobs, is_out_dir, source_candidates};
 use skif_js_syntax::{ImportKind, ParseOptions, parse_module};
 use skif_workspace::{OsFs, declared_member_dirs};
 
@@ -742,9 +742,10 @@ fn published_stem(clean: &str) -> Option<(&str, &[&str])> {
         })
 }
 
-/// Whether the source file `stem.extension` (relative to its package) is the twin of the published path `target`: the
-/// same path, or for a path below a build directory (`is_out_dir` of `skif-js`: `out`, `lib-commonjs`, ...) the same
-/// path below `src`, as skif maps a published path back to its source.
+/// Whether the source file `stem.extension` (relative to its package) is a twin of the published path pattern
+/// `target` (one with `*`): the same path, or for a path below a build directory (`is_out_dir` of `skif-js`: `out`,
+/// `lib-commonjs`, ...) the same path below `src`. skif makes every file such a pattern matches an entry; a published
+/// path without `*` names one source only ([`Layout::source_of`]).
 fn is_published_twin(target: &str, stem: &str, extension: &str) -> bool {
     let clean = target.trim_start_matches("./");
     let Some((published, sources)) = published_stem(clean) else {
@@ -796,16 +797,25 @@ fn published_paths(manifest: &Value) -> Vec<String> {
 /// it cannot be read or parsed.
 type ManifestReader<'a> = dyn Fn(&str) -> Option<Rc<Value>> + 'a;
 
-/// What the classification reads of a checkout besides the two reports: knip's workspaces and the manifests.
+/// Whether a file exists, by its path relative to the checkout with `/` separators.
+type FileProbe<'a> = dyn Fn(&str) -> bool + 'a;
+
+/// What the classification reads of a checkout besides the two reports: knip's workspaces, the manifests and which
+/// files exist.
 struct Layout<'a> {
     /// The workspace member directories, relative with `/` separators; the root is a workspace without being listed.
     members: BTreeSet<String>,
     manifest: &'a ManifestReader<'a>,
+    is_file: &'a FileProbe<'a>,
 }
 
 impl<'a> Layout<'a> {
-    const fn new(members: BTreeSet<String>, manifest: &'a ManifestReader<'a>) -> Self {
-        Self { members, manifest }
+    const fn new(members: BTreeSet<String>, manifest: &'a ManifestReader<'a>, is_file: &'a FileProbe<'a>) -> Self {
+        Self {
+            members,
+            manifest,
+            is_file,
+        }
     }
 
     fn is_package(&self, dir: &str) -> bool {
@@ -883,7 +893,8 @@ impl<'a> Layout<'a> {
             .any(|member| member.starts_with(&prefix) && path.starts_with(&format!("{member}/")))
     }
 
-    /// Whether `path` is a TypeScript file whose package publishes its path with a built extension.
+    /// Whether `path` is a TypeScript file whose package publishes its path with a built extension: a published path
+    /// with `*` whose pattern it matches ([`is_published_twin`]), or one without `*` that skif maps to it.
     fn publishes_source_of(&self, path: &str) -> bool {
         let Some((stem, extension)) = typescript_source(path) else {
             return false;
@@ -898,9 +909,27 @@ impl<'a> Layout<'a> {
             stem.strip_prefix(dir.as_str()).and_then(|rest| rest.strip_prefix('/'))
         };
         relative.is_some_and(|stem| {
-            published_paths(&manifest)
-                .iter()
-                .any(|target| is_published_twin(target, stem, extension))
+            let source = format!("{stem}.{extension}");
+            published_paths(&manifest).iter().any(|target| {
+                if target.contains('*') {
+                    is_published_twin(target, stem, extension)
+                } else {
+                    self.source_of(&dir, target).is_some_and(|found| found == source)
+                }
+            })
+        })
+    }
+
+    /// The source, relative to the package directory `dir`, that skif maps the published path `target` (without `*`)
+    /// to: the first of `skif_js::source_candidates` that exists, as `map_to_source` in `skif-js` picks it.
+    fn source_of(&self, dir: &str, target: &str) -> Option<String> {
+        source_candidates(target).into_iter().find(|candidate| {
+            let path = if dir.is_empty() {
+                candidate.clone()
+            } else {
+                format!("{dir}/{candidate}")
+            };
+            (self.is_file)(&path)
         })
     }
 }
@@ -1411,7 +1440,8 @@ fn parity_repo(
     let foreign_paths = foreign_tsconfig_paths_keys(&skif_doc, &root);
     let knip_errors = knip_config_errors(&knip_run.stderr, &root);
     let manifest = manifest_reader(&root);
-    let layout = Layout::new(members, &manifest);
+    let is_file = |file: &str| root.join(file).is_file();
+    let layout = Layout::new(members, &manifest, &is_file);
     let knip_failed: BTreeSet<String> = knip_errors
         .iter()
         .map(|file| owner_dir(file, &|dir: &str| layout.is_package(dir)))
@@ -2490,7 +2520,8 @@ mod tests {
             .map(|(dir, manifest)| ((*dir).to_owned(), Rc::new(manifest.clone())))
             .collect();
         let manifest = move |dir: &str| read.get(dir).cloned();
-        let layout = Layout::new(strings(members), &manifest);
+        let every_file = |_: &str| true;
+        let layout = Layout::new(strings(members), &manifest, &every_file);
         let none = BTreeSet::new();
         let judged = strings(judged_by_knip);
         check(&Classifier {
@@ -2684,7 +2715,8 @@ mod tests {
         .map(|(dir, manifest)| (dir.to_owned(), Rc::new(manifest)))
         .collect();
         let manifest = move |dir: &str| read.get(dir).cloned();
-        let layout = Layout::new(strings(&["packages/a"]), &manifest);
+        let every_file = |_: &str| true;
+        let layout = Layout::new(strings(&["packages/a"]), &manifest, &every_file);
         let none = BTreeSet::new();
         let classifier = Classifier {
             knip_unread: &[],
@@ -2875,12 +2907,46 @@ mod tests {
         assert!(is_published_twin("./lib-commonjs/*.js", "src/a/b", "ts"));
         assert!(!is_published_twin("./lib-commonjs/*.js", "lib-commonjs-src/a", "ts"));
         assert!(
-            !is_published_twin("./bundles/index.js", "src/index", "ts"),
+            !is_published_twin("./bundles/*.js", "src/index", "ts"),
             "`bundles` is not a build directory"
         );
         assert!(
-            !is_published_twin("./out/main", "src/main", "js"),
+            !is_published_twin("./out/*", "src/main", "js"),
             "only TypeScript sources"
+        );
+    }
+
+    #[test]
+    fn a_published_path_without_a_star_names_only_the_first_source_that_exists() {
+        let read: BTreeMap<String, Rc<Value>> = [
+            ("", json!({ "name": "root" })),
+            ("packages/x", json!({ "name": "x", "main": "./lib/x.js", "types": "./lib/y.d.ts" })),
+        ]
+        .into_iter()
+        .map(|(dir, manifest)| (dir.to_owned(), Rc::new(manifest)))
+        .collect();
+        let manifest = move |dir: &str| read.get(dir).cloned();
+        let both = strings(&["packages/x/src/x.ts", "packages/x/lib/x.ts", "packages/x/lib/y.ts"]);
+        let is_file = |file: &str| both.contains(file);
+        let layout = Layout::new(strings(&["packages/x"]), &manifest, &is_file);
+        assert!(layout.publishes_source_of("packages/x/src/x.ts"));
+        assert!(
+            !layout.publishes_source_of("packages/x/lib/x.ts"),
+            "skif maps `./lib/x.js` to `src/x.ts`, the first candidate that exists"
+        );
+        assert!(
+            layout.publishes_source_of("packages/x/lib/y.ts"),
+            "the path itself when no `src` twin exists"
+        );
+        assert!(!layout.publishes_source_of("packages/x/src/y.ts"), "a source that does not exist");
+
+        let only_lib = strings(&["packages/x/lib/x.ts", "packages/x/lib/x.tsx"]);
+        let is_file = |file: &str| only_lib.contains(file);
+        let layout = Layout::new(strings(&["packages/x"]), &manifest, &is_file);
+        assert!(layout.publishes_source_of("packages/x/lib/x.ts"));
+        assert!(
+            !layout.publishes_source_of("packages/x/lib/x.tsx"),
+            "`.ts` comes before `.tsx`"
         );
     }
 
@@ -2936,7 +3002,8 @@ mod tests {
         .map(|(dir, manifest)| (dir.to_owned(), Rc::new(manifest)))
         .collect();
         let manifest = move |dir: &str| read.get(dir).cloned();
-        let layout = Layout::new(strings(&["packages/cfg"]), &manifest);
+        let every_file = |_: &str| true;
+        let layout = Layout::new(strings(&["packages/cfg"]), &manifest, &every_file);
         let knip_unused = strings(&["examples/a/src/dead.ts"]);
         let skif_unused = strings(&["packages/b/src/gone.ts"]);
         let failed = strings(&["packages/cfg"]);
@@ -3078,7 +3145,8 @@ vi.mock("mocked-package");
                 .map(|(dir, manifest)| (dir.to_owned(), Rc::new(manifest)))
                 .collect();
         let manifest = move |dir: &str| read.get(dir).cloned();
-        let layout = Layout::new(strings(&workspaces), &manifest);
+        let every_file = |_: &str| true;
+        let layout = Layout::new(strings(&workspaces), &manifest, &every_file);
         let none = BTreeSet::new();
         let classifier = Classifier {
             knip_unread: &[],
@@ -3153,7 +3221,8 @@ vi.mock("mocked-package");
         .map(|(dir, manifest)| (dir.to_owned(), Rc::new(manifest)))
         .collect();
         let manifest = move |dir: &str| read.get(dir).cloned();
-        let layout = Layout::new(strings(&["apps/heft"]), &manifest);
+        let every_file = |_: &str| true;
+        let layout = Layout::new(strings(&["apps/heft"]), &manifest, &every_file);
         let none = BTreeSet::new();
         let complete = BTreeMap::new();
         let classifier = |rush_root: bool| Classifier {
@@ -3214,7 +3283,8 @@ vi.mock("mocked-package");
             .map(|(dir, manifest)| ((*dir).to_owned(), Rc::new(manifest.clone())))
             .collect();
         let manifest = move |dir: &str| read.get(dir).cloned();
-        let layout = Layout::new(BTreeSet::new(), &manifest);
+        let every_file = |_: &str| true;
+        let layout = Layout::new(BTreeSet::new(), &manifest, &every_file);
         let unread = ["examples/app/docs/".to_owned()];
         let not_judged_dirs = BTreeMap::from([("examples/app".to_owned(), NotJudgedScope::Package)]);
         let none = BTreeSet::new();

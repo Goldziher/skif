@@ -62,6 +62,8 @@ pub use input::{
     InputRequest, InputSource, PathAlias, RunBinary, WorkspaceInputs,
 };
 pub use manifest_paths::is_out_dir;
+#[doc(hidden)]
+pub use manifest_paths::source_candidates;
 pub use plugin_source::PluginSource;
 pub use provider::{JsProvider, PROVIDER_ID};
 pub use rules::{

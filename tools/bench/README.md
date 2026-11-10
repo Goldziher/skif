@@ -221,7 +221,9 @@ manifest, not by listing findings:
   extension (`main`, `module`, `types`, `bin`, an `exports` leaf with `*` patterns, as `.js`, `.mjs`, `.cjs`, `.jsx` or
   a `.d.ts` variant) or without one (`./out/main`). A published path below a build directory (`dist`, `lib`, `out`,
   `esm` and the others of `skif_js::is_out_dir`, also with a flavour suffix such as `lib-commonjs`) also names the
-  same path below `src`, as skif maps it: `./lib-commonjs/*.js` publishes every `src/**/*.ts`. skif makes the source of
+  same path below `src`, as skif maps it: `./lib-commonjs/*.js` publishes every `src/**/*.ts`. A published path
+  without `*` names one source only, the first of skif's candidates that exists (`src/x.ts` before `lib/x.ts` for
+  `./lib/x.js`, `.ts` before `.tsx`). skif makes the source of
   a published path an entry; knip maps a published path to source only through a tsconfig `outDir`. The files only
   such an entry reaches stay compared.
 

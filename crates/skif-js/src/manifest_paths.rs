@@ -62,8 +62,11 @@ fn has_other_extension(path: &str) -> bool {
 /// Package-relative candidates for the source of a published file, most likely first.
 ///
 /// `./dist/index.js` yields `src/index.ts`, `src/index.tsx`, `src/index.js`, … and then the same names without the
-/// `src` rewrite. A path with a non-code extension (`./styles.css`) yields only itself.
-pub(crate) fn source_candidates(target: &str) -> Vec<String> {
+/// `src` rewrite. A path with a non-code extension (`./styles.css`) yields only itself. Public for the benchmark
+/// harness, which follows a published path to the source skif maps it to.
+#[doc(hidden)]
+#[must_use]
+pub fn source_candidates(target: &str) -> Vec<String> {
     let clean = target.trim_start_matches("./");
     if has_other_extension(clean) {
         return vec![clean.to_owned()];
