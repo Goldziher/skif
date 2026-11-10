@@ -129,7 +129,7 @@ pub struct Workspace {
     nested: bool,
     /// The root's directory relative to the directory the `[js.workspaces]` keys of its configuration are written
     /// from, when that is not the root (see [`set_workspace_keys_anchor`](Self::set_workspace_keys_anchor)).
-    workspace_keys_anchor: Option<String>,
+    keys_anchor: Option<String>,
 }
 
 struct Declared {
@@ -615,7 +615,7 @@ impl Workspace {
             by_name,
             ignored,
             nested: false,
-            workspace_keys_anchor: None,
+            keys_anchor: None,
         })
     }
 
@@ -724,7 +724,7 @@ impl Workspace {
     /// [`set_workspace_keys_anchor`](Self::set_workspace_keys_anchor)).
     #[must_use]
     pub fn workspace_keys_anchor(&self) -> Option<&str> {
-        self.workspace_keys_anchor.as_deref()
+        self.keys_anchor.as_deref()
     }
 
     /// Has the `[js.workspaces]` keys and `ignore-workspaces` globs select packages from `anchor`, this root's
@@ -733,7 +733,7 @@ impl Workspace {
     /// with an explicit configuration file sets it for the roots below its start; `None`, the default, matches them
     /// from the root.
     pub fn set_workspace_keys_anchor(&mut self, anchor: Option<String>) {
-        self.workspace_keys_anchor = anchor;
+        self.keys_anchor = anchor;
     }
 
     /// Excludes the members at `dirs` (absolute paths) from analysis as `ignore-packages` would, because another
