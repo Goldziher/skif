@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use skif_core::{Category, Fix, FixOp, FixSafety, Fixability, Location, RuleMeta, Severity, diagnostic, slash};
 use skif_lint::{Emitter, LintContext, OptionsError, Rule};
-use skif_workspace::{LOCKFILES, Package, PackageManager, Workspace};
+use skif_workspace::{BUN_LOCKFILE, LOCKFILES, Package, PackageManager, Workspace};
 
 use super::allow_list::{self, AllowList};
 
@@ -13,10 +13,13 @@ pub static META: RuleMeta = RuleMeta::new(
     Category::Workspace,
     Some(Severity::Warning),
     Fixability::Unsafe,
-    "A lockfile other than the root lockfile of the package manager: one in a workspace member, or another manager's at the root.",
+    "A lockfile other than the root lockfile of the package manager: one in a workspace member, another manager's at the root, or Bun's `bun.lockb` next to the `bun.lock` Bun reads.",
 );
 
 const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
+
+/// Bun's legacy binary lockfile, which Bun does not read while its text `bun.lock` is next to it.
+const BUN_BINARY_LOCKFILE: &str = "bun.lockb";
 
 /// The package manager that writes the lockfile called `name`.
 fn writer(name: &str) -> &'static str {
@@ -35,7 +38,7 @@ fn is_root_lockfile(manager: PackageManager, name: &str) -> bool {
         PackageManager::Npm => matches!(name, "package-lock.json" | "npm-shrinkwrap.json"),
         PackageManager::Pnpm => name == "pnpm-lock.yaml",
         PackageManager::Yarn => name == "yarn.lock",
-        PackageManager::Bun => matches!(name, "bun.lock" | "bun.lockb"),
+        PackageManager::Bun => matches!(name, BUN_LOCKFILE | BUN_BINARY_LOCKFILE),
         _ => true,
     }
 }
@@ -51,9 +54,6 @@ fn manager_name(manager: PackageManager) -> &'static str {
     }
 }
 
-/// Bun's legacy binary lockfile, which Bun does not read while its text `bun.lock` is next to it.
-const BUN_BINARY_LOCKFILE: &str = "bun.lockb";
-
 /// Whether the root lockfile `name` is Bun's binary one next to a `bun.lock` at the root, which Bun installs from.
 fn is_shadowed_bun_lockfile(workspace: &Workspace, name: &str) -> bool {
     name == BUN_BINARY_LOCKFILE
@@ -62,7 +62,7 @@ fn is_shadowed_bun_lockfile(workspace: &Workspace, name: &str) -> bool {
             .facts
             .package_manager_files
             .iter()
-            .any(|path| path == Path::new("bun.lock"))
+            .any(|path| path == Path::new(BUN_LOCKFILE))
 }
 
 /// A lockfile the rule reports unless the allow-list names it.
