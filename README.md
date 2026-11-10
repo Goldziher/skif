@@ -120,26 +120,24 @@ Reading the disagreements found false findings on both sides
 ([ADR 0049](adrs/0049-js-corrections-from-adjudicating-knip-disagreements.md)).
 
 <!-- parity:agreement:start -->
-Findings knip@6.44.1 and skif share on 15 pinned repositories (angular, babel, cal-com, create-t3-turbo, jest, mastra, next-js, npm-cli, opencode, rules-js, rushstack, tanstack-query, vercel-examples, vscode, vue-core; 14 of them installed), from `tools/bench/baselines/parity.json`, recorded at skif `32b2c44cb882`.
-
-Not counted, because knip's run there is not a valid comparison: n8n (knip cannot load the configs that import the workspace's own config packages (@n8n/*-config), because the install runs without scripts and those packages have no built dist).
+Findings knip@6.44.1 and skif share on 16 pinned repositories (angular, babel, cal-com, create-t3-turbo, jest, mastra, n8n, next-js, npm-cli, opencode, rules-js, rushstack, tanstack-query, vercel-examples, vscode, vue-core; 16 of them installed), from `tools/bench/baselines/parity.json`, recorded at skif `1c497a74f5fa`.
 
 | Finding | Shared | Of skif's findings | Of knip's findings |
 | --- | ---: | ---: | ---: |
-| Unused files | 10,915 | 100% | 92% |
-| Unused exports | 6,203 | 99% | 93% |
-| Unused types | 2,685 | 99% | 88% |
-| Unused dev dependencies | 1,230 | 99% | 81% |
-| Unlisted dependencies | 806 | 97% | 60% |
-| Unused dependencies | 647 | 99% | 74% |
-| Unused namespace exports | 397 | 100% | 95% |
-| Unused namespace types | 312 | 100% | 90% |
-| Duplicate exports | 146 | 95% | 86% |
+| Unused files | 11,041 | 100% | 96% |
+| Unused exports | 6,918 | 99% | 91% |
+| Unused types | 3,328 | 99% | 89% |
+| Unused dev dependencies | 1,236 | 99% | 98% |
+| Unlisted dependencies | 819 | 97% | 60% |
+| Unused dependencies | 630 | 98% | 95% |
+| Unused namespace exports | 424 | 100% | 76% |
+| Unused namespace types | 312 | 100% | 93% |
+| Duplicate exports | 158 | 96% | 83% |
 | Unused enum members | 129 | 100% | 24% |
-| Unused namespace members | 102 | 100% | 97% |
-| Unlisted binaries | 80 | 87% | 22% |
-| Unresolved imports | 24 | 100% | 36% |
-| Unused optional peer dependencies | 4 | 100% | 67% |
+| Unused namespace members | 105 | 99% | 94% |
+| Unlisted binaries | 85 | 90% | 36% |
+| Unresolved imports | 26 | 100% | 38% |
+| Unused optional peer dependencies | 3 | 60% | 60% |
 <!-- parity:agreement:end -->
 
 Method, caveats and every run: [`tools/bench`](tools/bench/README.md).
