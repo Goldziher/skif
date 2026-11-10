@@ -48,11 +48,14 @@ Discovery does not read the lockfile. Three checks do, on the first run that nee
 `[[version-groups]]` entry with `scope = "lockfile"`, `unsynced-dependency-family` for a `[[dependency-families]]`
 entry with `scope = "importer"` or `"lockfile"`, and `stale-patched-dependencies` when the root `pnpm-workspace.yaml` or
 `package.json` (`pnpm.patchedDependencies`) declares patches. They read `pnpm-lock.yaml` of the root in lockfile format
-9 (pnpm 9 and 10) only. `yarn.lock`, `package-lock.json`, `bun.lock` and older pnpm formats are not read; such a check
+9 (pnpm 9 and 10). In a Bun workspace `stale-patched-dependencies` reads the top-level `patchedDependencies` of the root
+`package.json`, the only ones Bun applies, and checks them against `bun.lock`; the two other checks do not read
+`bun.lock`. `yarn.lock`, `package-lock.json`, the binary `bun.lockb` and older pnpm formats are not read; such a check
 then reports that nothing was checked, as it does when there is no lockfile or it does not parse.
 
 `stale-patched-dependencies` reports a patch whose `name@version` the lockfile no longer resolves (the patch stopped
-applying after a bump) or resolves without a patch hash, a patch file that does not exist, a patch file outside the
+applying after a bump) or resolves without a patch hash (in `bun.lock`: without the entry Bun records in its own
+`patchedDependencies` when it applies a patch), a patch file that does not exist, a patch file outside the
 `allowed-patch-paths` globs (the paths a build context copies), and a `*.patch` file no entry references in the
 directories of the referenced patches and `patches/` (or the `patch-dirs` you configure). The entries are reported at
 their key.
