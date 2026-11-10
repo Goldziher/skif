@@ -29,3 +29,4 @@ stray-lockfile
 nested-workspace-root
 toolchain-pin-drift
 foreign-package-manager-command
+invalid-workspace-file

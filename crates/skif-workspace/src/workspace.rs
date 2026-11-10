@@ -113,7 +113,8 @@ pub struct Workspace {
     /// `.yarnrc.yml` when present and it declares catalogs (Yarn 4.10+).
     pub yarnrc: Option<YamlSource>,
     /// Members whose manifest could not be read or parsed, and workspace patterns that cannot be used (a `..`
-    /// segment, too many brace alternatives); the rest of the workspace is still discovered.
+    /// segment, too many brace alternatives); the rest of the workspace is still discovered. The
+    /// `invalid-workspace-file` rule of `skif-rules` reports them.
     pub manifest_errors: Vec<WorkspaceError>,
     /// Whether the root directory holds a `package.json`. A workspace declared by `pnpm-workspace.yaml` or
     /// `rush.json` alone has none: its root package is then an empty stand-in that is excluded from analysis.

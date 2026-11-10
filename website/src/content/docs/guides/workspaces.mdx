@@ -68,6 +68,12 @@ it). `lerna.json` is read only when nothing before it declares members; an inval
 analysis, which skips hidden directories other than tool configuration ones, then walks such a directory for the
 members below it, and only for those.
 
+What discovery cannot read does not stop the run, but it is not silent either: `invalid-workspace-file` (`error`)
+reports a member `package.json` that is not valid JSON or cannot be read, at the syntax error, a pattern that cannot
+be used (one that climbs out of the root with `..`, or has too many brace alternatives), where it is written, and a
+`.yarnrc.yml` that is not valid YAML. The package, the pattern's matches or the Yarn catalogs are left out of the
+run, so the run fails until the file is fixed, as sherif does.
+
 ## Lockfiles and nested workspaces
 
 Every package manager installs a workspace from one lockfile at its root. `stray-lockfile` reports any other
