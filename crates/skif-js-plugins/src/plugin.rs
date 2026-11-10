@@ -428,6 +428,7 @@ impl DepRef {
 
 /// A binary that a command read from a file runs; see [`PluginOutput::run_binaries`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct BinaryRef {
     /// The binary's name as the command spells it.
     pub name: String,
@@ -437,6 +438,18 @@ pub struct BinaryRef {
     /// the plugin runs for, where the command starts, `/`-separated; `None` there and when the directory is not a
     /// static relative path (see [`BinaryUse::dir`](crate::scripts::BinaryUse::dir)).
     pub dir: Option<String>,
+}
+
+impl BinaryRef {
+    /// The binary `name` that a command read from `from` runs, in `dir` (see [`BinaryRef::dir`]).
+    #[must_use]
+    pub fn new(name: String, from: &Path, dir: Option<String>) -> Self {
+        Self {
+            name,
+            from: from.to_path_buf(),
+            dir,
+        }
+    }
 }
 
 /// Everything one enabled plugin contributes to a workspace.

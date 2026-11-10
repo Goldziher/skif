@@ -88,7 +88,7 @@ All notable changes to this project are documented here. The format follows
   `cd $__skif_file_dir__/<path> && ` when the file's own location computes it, else with `cd $__skif__ && `; a `cwd`
   of `process.cwd()`, `'.'` or `undefined` is left out of `ImportedCall::arguments`. `CACHE_SCHEMA` is `3`.
 - `BinaryRef` of `skif-js-plugins` and `RunBinary` of `skif-js` gain `dir`, the directory the command runs the binary
-  in after `cd`; a struct literal of either needs the new field.
+  in after `cd`, and are `#[non_exhaustive]`: build them with `BinaryRef::new` and `RunBinary::new`.
 - `Tokens` of `skif_core::shell` gains `subshells`, the segments each subshell `( … )` runs.
 - `PluginOutput` of `skif-js-plugins` and `WorkspaceInputs` of `skif-js` are `#[non_exhaustive]`: an input source
   starts from `WorkspaceInputs::default()` and sets the fields it knows.

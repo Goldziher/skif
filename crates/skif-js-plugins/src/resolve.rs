@@ -355,11 +355,7 @@ impl Collector<'_, '_> {
             // script parser ignores is never unlisted here.
             let judged = !optional || binary.via != BinaryVia::Direct || binary.bin_path;
             if judged && !binary.filtered && !binary.via.is_ephemeral() && !is_ignored_binary(&binary.name) {
-                let run = BinaryRef {
-                    name: binary.name.clone(),
-                    from: from.to_path_buf(),
-                    dir: binary.dir.clone(),
-                };
+                let run = BinaryRef::new(binary.name.clone(), from, binary.dir.clone());
                 if !self.out.run_binaries.contains(&run) {
                     self.out.run_binaries.push(run);
                 }
