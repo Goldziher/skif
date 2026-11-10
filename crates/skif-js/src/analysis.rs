@@ -615,6 +615,22 @@ impl<'a> JsAnalysis<'a> {
         })
     }
 
+    /// Whether the project declares the module an import of package `name` written as `specifier` reaches, as
+    /// [`Self::declares_module`] judges it. A specifier an alias leads into another package (`react` to
+    /// `preact/compat`) does not tell which module of `name` it reaches, so a declaration of `name` or of any module
+    /// inside it (`declare module 'preact/compat'`) covers it.
+    #[must_use]
+    pub fn declares_import(&self, specifier: &str, name: &str) -> bool {
+        if self.declares_module(specifier) {
+            return true;
+        }
+        package_name(specifier).as_deref() != Some(name)
+            && self
+                .ambient_modules
+                .iter()
+                .any(|declared| package_name(declared).as_deref() == Some(name))
+    }
+
     /// Whether `[js] production` is on.
     #[must_use]
     pub fn production(&self) -> bool {

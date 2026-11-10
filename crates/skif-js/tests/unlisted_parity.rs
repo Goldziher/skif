@@ -1,7 +1,8 @@
 //! Unlisted dependencies and binaries where the corpus runs showed skif and knip disagreeing and skif was wrong:
 //! test environment pragmas, `node_modules/.bin` paths, bare imports in plain stylesheets, runtime modules that an
 //! enclosing package's `engines` provides, dependencies whose installed manifest has no such binary, a declared
-//! subpath that silenced the whole package and a workspace package reached through an alias into generated code.
+//! subpath that silenced the whole package, a declared module of a package an alias leads into and a workspace package
+//! reached through an alias into generated code.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -298,6 +299,36 @@ fn a_declared_subpath_declares_only_that_module() {
             .any(|finding| finding.starts_with("packages/atoms/src/index.ts")),
         "{unlisted:?}"
     );
+}
+
+/// An alias that leads into another package (`react` to `preact/compat`) reaches a module the specifier does not
+/// tell: a declaration of a module of that package covers the import, while a direct import of another subpath of the
+/// package is still judged.
+#[test]
+fn a_declared_module_covers_an_alias_into_its_package() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","version":"1.0.0","main":"src/index.ts","devDependencies":{"typescript":"5.0.0"}}"#,
+        ),
+        (
+            "tsconfig.json",
+            r#"{"compilerOptions":{"paths":{"react":["./node_modules/preact/compat"]}}}"#,
+        ),
+        (
+            "src/compat.d.ts",
+            "declare module 'preact/compat' {\n  export const h: number;\n}\n",
+        ),
+        (
+            "src/index.ts",
+            "import { h } from 'react';\nimport './hooks';\nexport const view = h;\n",
+        ),
+        (
+            "src/hooks.ts",
+            "import { useState } from 'preact/hooks';\nexport const state = useState;\n",
+        ),
+    ]);
+    assert_eq!(found(&diagnostics, "unlisted-dependencies"), ["src/hooks.ts: preact"]);
 }
 
 /// A workspace package that a `tsconfig` mapping or bundler alias reaches is an import of that package also when the
