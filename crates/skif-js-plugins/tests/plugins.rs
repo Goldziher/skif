@@ -950,11 +950,8 @@ fn next_reads_turbopack_aliases_and_loaders() {
     assert_deps(out, &["react-native-web", "@x/b", "@svgr/webpack", "raw-loader"]);
     assert!(!deps(out).contains("react-native"), "{:?}", deps(out));
     assert!(out.aliases.contains(&alias("@ui", Some("src/ui"))), "{:?}", out.aliases);
-    assert!(
-        !out.aliases.iter().any(|a| a.find == "react-native"),
-        "{:?}",
-        out.aliases
-    );
+    // An alias to a bare package keeps no target: imports of `react-native` are the alias, never a dependency.
+    assert!(out.aliases.contains(&alias("react-native", None)), "{:?}", out.aliases);
     assert!(out.provided_binaries.contains(&"next".to_string()));
 }
 
@@ -1564,6 +1561,34 @@ fn plugins_enabled_in_an_ancestor_apply_to_the_child() {
     output(&prefixed, "storybook");
 }
 
+/// An alias to a module a config resolves (`import.meta.resolve`, the `dirname(require.resolve('x/package.json'))` of
+/// a package's directory) points into that package: the alias is kept, so its imports are not taken for a package of
+/// their own name, and the package is credited.
+#[test]
+fn an_alias_to_a_resolved_package_is_kept() {
+    let sources = [
+        (
+            "vite.config.ts",
+            "import { fileURLToPath } from 'node:url';\n\
+             export default { resolve: { alias: { foo: fileURLToPath(import.meta.resolve('bar')) } } };",
+            "vite",
+        ),
+        (
+            "webpack.config.js",
+            "const path = require('path');\n\
+             module.exports = { resolve: { alias: { foo: path.dirname(require.resolve('bar/package.json')) } } };",
+            "webpack",
+        ),
+    ];
+    for (file, source, plugin) in sources {
+        let results = resolve(&[(file, source)], &[plugin]);
+        let out = output(&results, plugin);
+        assert_eq!(out.aliases, [alias("foo", None)], "{source}");
+        assert_deps(out, &["bar"]);
+        assert!(!deps(out).contains("foo"), "{source}: {:?}", deps(out));
+    }
+}
+
 #[test]
 fn vite_and_webpack_aliases_are_extracted() {
     let results = resolve(
@@ -1576,7 +1601,10 @@ fn vite_and_webpack_aliases_are_extracted() {
     let vite = output(&results, "vite");
     assert!(vite.aliases.contains(&alias("@", Some("src"))), "{:?}", vite.aliases);
     assert!(vite.aliases.contains(&alias("~lib", Some("lib"))), "{:?}", vite.aliases);
-    assert!(!vite.aliases.iter().any(|a| a.find == "react"), "{:?}", vite.aliases);
+    // A package standing in for another: imports of `react` reach `preact`, which the config needs.
+    assert!(vite.aliases.contains(&alias("react", None)), "{:?}", vite.aliases);
+    assert_deps(vite, &["preact"]);
+    assert!(!deps(vite).contains("react"), "{:?}", deps(vite));
 
     let results = resolve(
         &[(
@@ -2218,6 +2246,35 @@ fn docusaurus() {
         ],
     );
     assert_entries(&out.entries, &["local-plugin.js"]);
+}
+
+/// Docusaurus loads a plugin or theme by the name written when that package resolves, and by its long form
+/// (`@scope/docusaurus-theme-x`) otherwise: a listed package written in full is the dependency, not a long form of it.
+#[test]
+fn docusaurus_names_a_listed_package_as_written() {
+    let config = r#"export default {
+      themes: [["@acme/docusaurus-plugin-kapa", {}], "@acme/search"],
+      plugins: ["my-thing"],
+    };"#;
+    let results = resolve(
+        &[("docusaurus.config.ts", config)],
+        &["@docusaurus/core", "@acme/docusaurus-plugin-kapa", "my-thing"],
+    );
+    let out = output(&results, "docusaurus");
+    assert_deps(
+        out,
+        &[
+            "@acme/docusaurus-plugin-kapa",
+            "@acme/docusaurus-theme-search",
+            "my-thing",
+        ],
+    );
+    for long_form in [
+        "@acme/docusaurus-theme-docusaurus-plugin-kapa",
+        "docusaurus-plugin-my-thing",
+    ] {
+        assert!(!deps(out).contains(long_form), "{long_form}: {:?}", deps(out));
+    }
 }
 
 #[test]

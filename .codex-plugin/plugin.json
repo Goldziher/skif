@@ -1,0 +1,38 @@
+{
+  "name": "skif",
+  "version": "0.2.0",
+  "description": "Lint JavaScript and TypeScript monorepo dependencies with skif: workspace, manifest, version and catalog rules, and unused or unlisted dependencies, files and exports, with format-preserving fixes.",
+  "author": {
+    "name": "Na'aman Hirschfeld",
+    "email": "nhirschfeld@gmail.com",
+    "url": "https://github.com/Goldziher"
+  },
+  "homepage": "https://goldziher.github.io/skif/",
+  "repository": "https://github.com/Goldziher/skif",
+  "license": "MIT",
+  "keywords": ["dependencies", "monorepo", "lint", "package-json", "knip", "sherif", "syncpack"],
+  "skills": "./skills/",
+  "mcpServers": {
+    "skif": {
+      "command": "npx",
+      "args": ["-y", "skif-cli@0.2.0", "mcp"]
+    }
+  },
+  "interface": {
+    "displayName": "skif",
+    "shortDescription": "Dependency linter for JavaScript and TypeScript monorepos",
+    "longDescription": "Runs skif to find version mismatches, manifest problems, catalog drift and unused or unlisted dependencies, files and exports in npm, pnpm, yarn and bun workspaces, reads its JSON report, and applies its fixes.",
+    "developerName": "Na'aman Hirschfeld",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "defaultPrompt": [
+      "Lint this monorepo's dependencies with skif.",
+      "Why does skif report this dependency as unused?",
+      "Migrate this repository from sherif, syncpack and knip to skif."
+    ],
+    "websiteURL": "https://goldziher.github.io/skif/",
+    "brandColor": "#F07A1A",
+    "composerIcon": "./.claude-plugin/icon.png",
+    "logo": "./.claude-plugin/icon.png"
+  }
+}

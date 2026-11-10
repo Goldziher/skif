@@ -6,7 +6,10 @@ use crate::plugin::{
     ConfigAst, Enabler, IncompleteCause, IncompleteScope, Plugin, PluginContext, PluginInput, PluginSpec,
 };
 use crate::plugins::vitest::TEST_CONVENTIONS;
-use crate::support::{config_unknown, convention_scope, entry_glob, join_rel, module_input, name_of, objects, strings};
+use crate::support::{
+    Named, Spreads, config_unknown, convention_scope, entry_glob, join_rel, module_input, objects, reporter_names,
+    reporters_unknown, strings,
+};
 
 /// The `playwright` plugin.
 pub struct Playwright;
@@ -45,16 +48,15 @@ impl Plugin for Playwright {
                 out.push(PluginInput::Entry(config.join(path)));
             }
         }
-        if let Some(reporter) = config.value.get("reporter") {
-            let reporters: Vec<&ConfigValue> = match reporter {
-                ConfigValue::Array(items) => items.iter().collect(),
-                other => vec![other],
-            };
-            for name in reporters.into_iter().filter_map(name_of) {
-                if !BUILTIN_REPORTERS.contains(&name) {
-                    out.extend(module_input(config.base, name, true));
-                }
+        for named in config.value.get("reporter").map(reporter_names).unwrap_or_default() {
+            if let Named::Known(name) = named
+                && !BUILTIN_REPORTERS.contains(&name)
+            {
+                out.extend(module_input(config.base, name, true));
             }
+        }
+        if computes_reporters(config.value) {
+            out.push(PluginInput::EntriesIncomplete);
         }
         if let Some(servers) = config.value.get("webServer") {
             for server in objects(servers) {
@@ -66,15 +68,24 @@ impl Plugin for Playwright {
         out
     }
 
-    /// A Playwright config names test files, test directories and setup and teardown modules, nothing else, so a
-    /// spread or merged base hides only those. A config unknown as a whole (a factory called with this package's
-    /// options) may name any file.
+    /// A Playwright config names test files, test directories, setup and teardown modules and reporter modules; an
+    /// imported base config it spreads or merges is taken to hide only the tests and setup modules, where the tool
+    /// looks by convention. A config unknown as a whole (a factory called with this package's options) and a reporter
+    /// list the config computes itself may name any file.
     fn incomplete_scope(&self, _cause: IncompleteCause, config: &ConfigAst<'_>) -> IncompleteScope {
-        if config_unknown(config.value) {
+        if config_unknown(config.value) || computes_reporters(config.value) {
             return IncompleteScope::Package;
         }
         convention_scope(&SPEC, config, TEST_CONVENTIONS)
     }
+}
+
+/// Whether the config computes its `reporter` list in a way that hides which modules it names: a reporter name is not
+/// known statically, every branch of a condition counting ([`reporter_names`]), or a value the config computes itself
+/// and spreads after the key may set it. An imported base config that may set it is an unknown spread of the whole
+/// config, which leaves the entries incomplete already.
+fn computes_reporters(config: &ConfigValue) -> bool {
+    reporters_unknown(config, "reporter", Spreads::Own)
 }
 
 /// Test globs of one project: `testMatch` under its `testDir`, or every test file under a custom `testDir`.

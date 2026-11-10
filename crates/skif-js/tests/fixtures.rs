@@ -303,6 +303,39 @@ fn incomplete_configs_narrow_what_is_not_judged() {
     insta::assert_json_snapshot!("incomplete_scopes", diagnostics);
 }
 
+/// The `playwright-computed-reporters` fixture: `e2e` spreads a reporter helper whose two returns differ and a
+/// reporter list a condition adds, so every reporter either names is credited and its stale reporter is reported;
+/// `opaque` spreads reporters it parses from the environment, which may name any file, so no file of it is judged;
+/// `smoke` lists its reporters, an unknown option of one included, so its stale reporter is reported.
+#[test]
+fn computed_playwright_reporter_lists_credit_every_branch() {
+    let diagnostics = Run::new("playwright-computed-reporters", "").lint_with_plugins();
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        [
+            "packages/e2e/reporters/stale-reporter.ts: packages/e2e/reporters/stale-reporter.ts",
+            "packages/smoke/reporters/stale-reporter.ts: packages/smoke/reporters/stale-reporter.ts",
+        ]
+    );
+}
+
+/// The `storybook-addon-helpers` fixture: `ui` wraps its addons and framework in the ESM `getAbsolutePath` helper the
+/// Storybook CLI writes, which names the packages, so its addons are used and its dead file is judged; `docs` picks an
+/// addon at run time, so its dependencies are not judged, but an addon only hides files of its `.storybook`
+/// directory, so its dead file is judged too.
+#[test]
+fn storybook_addons_behind_get_absolute_path_are_used() {
+    let diagnostics = Run::new("storybook-addon-helpers", "").lint_with_plugins();
+    assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none());
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        [
+            "packages/docs/src/dead.ts: packages/docs/src/dead.ts",
+            "packages/ui/src/dead.ts: packages/ui/src/dead.ts",
+        ]
+    );
+}
+
 /// The `incomplete-judged` fixture: `narrowed` merges an unknown base into its Vitest config, so its unknown entries
 /// lie in the test scope, whose files are entries; `whole` has a Vitest config unknown as a whole. The exports, types
 /// and enum members outside the narrowed scope are judged (ADR 0081), those of the scope's setup module and of the
