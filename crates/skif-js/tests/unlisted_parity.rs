@@ -1,7 +1,7 @@
 //! Unlisted dependencies and binaries where the corpus runs showed skif and knip disagreeing and skif was wrong:
 //! test environment pragmas, `node_modules/.bin` paths, bare imports in plain stylesheets, runtime modules that an
-//! enclosing package's `engines` provides, dependencies whose installed manifest has no such binary and a declared
-//! subpath that silenced the whole package.
+//! enclosing package's `engines` provides, dependencies whose installed manifest has no such binary, a declared
+//! subpath that silenced the whole package and a workspace package reached through an alias into generated code.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -297,5 +297,51 @@ fn a_declared_subpath_declares_only_that_module() {
             .iter()
             .any(|finding| finding.starts_with("packages/atoms/src/index.ts")),
         "{unlisted:?}"
+    );
+}
+
+/// A workspace package that a `tsconfig` mapping or bundler alias reaches is an import of that package also when the
+/// target is generated code that is not there yet (a gitignored directory), as it is when the target exists.
+#[test]
+fn a_workspace_package_through_an_alias_into_generated_code_is_that_package() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*"],"devDependencies":{"typescript":"5.0.0"}}"#,
+        ),
+        (".gitignore", "packages/db/enums\n"),
+        (
+            "packages/db/package.json",
+            r#"{"name":"@acme/db","version":"1.0.0","main":"index.ts"}"#,
+        ),
+        ("packages/db/index.ts", "export const db = 1;\n"),
+        ("packages/db/client.ts", "export const client = 1;\n"),
+        (
+            "packages/atoms/package.json",
+            r#"{"name":"@acme/atoms","version":"1.0.0","main":"src/index.ts"}"#,
+        ),
+        (
+            "packages/atoms/tsconfig.json",
+            r#"{"compilerOptions":{"paths":{"@acme/db/*":["../db/*"]}}}"#,
+        ),
+        (
+            "packages/atoms/src/index.ts",
+            "import './enums';\nimport './client';\nexport const ready = true;\n",
+        ),
+        (
+            "packages/atoms/src/enums.ts",
+            "import { Role } from '@acme/db/enums';\nexport const role = Role;\n",
+        ),
+        (
+            "packages/atoms/src/client.ts",
+            "import { client } from '@acme/db/client';\nexport const c = client;\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unlisted-dependencies"),
+        [
+            "packages/atoms/src/client.ts: @acme/db",
+            "packages/atoms/src/enums.ts: @acme/db",
+        ]
     );
 }

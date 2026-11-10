@@ -1026,11 +1026,13 @@ impl ModuleResolver {
         }
     }
 
-    /// The outcome of an alias: an alias into `node_modules` names the package it points at.
-    fn aliased(found: Resolved) -> Outcome {
+    /// The outcome of an alias: an alias into `node_modules` names the package it points at, and a specifier that
+    /// names a workspace package (`member`) is an import of that package wherever the alias leads, as it is when the
+    /// resolver follows a `tsconfig` mapping.
+    fn aliased(found: Resolved, member: Option<String>) -> Outcome {
         let package = match &found {
             Resolved::External(name) => Some(name.clone()),
-            _ => None,
+            _ => member,
         };
         Outcome { target: found, package }
     }
@@ -1099,14 +1101,14 @@ impl ModuleResolver {
             .is_none_or(|resolved| matches!(resolved, Resolved::Unresolved))
             && let Some(found) = self.through_nearest_tsconfig(kind, importer, specifier)
         {
-            return Self::aliased(found);
+            return Self::aliased(found, member_name);
         }
         // An alias whose target is missing is not final: bundlers fall through to their lookup directories.
         if let Some(found) = aliased
             .as_ref()
             .filter(|resolved| !matches!(resolved, Resolved::Unresolved))
         {
-            return Self::aliased(found.clone());
+            return Self::aliased(found.clone(), member_name);
         }
         if aliased.is_some()
             && name.is_none()
