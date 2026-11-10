@@ -157,6 +157,8 @@ fn a_spread_in_lib_entries_is_incomplete() {
     let out = output(&results, "vite");
     assert!(out.entries_incomplete);
     assert_entries(&out.production_entries, &["src/ds/tokens/index.ts"]);
+    // The spread is inside the entry key, so the config computes the key itself: any file may be an entry.
+    assert!(package_wide(&results, "vite"), "{:?}", out.incomplete_reasons);
 
     let conditional = format!(
         "{helper}import {{ defineConfig }} from 'vite';\nconst lib = (production: boolean) => ({{ build: {{ emptyOutDir: production, lib: {{ entry: {{ ...componentEntries('src/ds/components', 'components') }} }} }} }});\nexport default defineConfig(({{ mode }}) => (process.env.STORYBOOK === 'true' ? {{}} : lib(mode === 'production')));"
@@ -929,11 +931,16 @@ fn incomplete_configs_are_scoped_to_what_the_tool_could_make_an_entry() {
 /// plugin that gives no scope keep the whole package unjudged.
 #[test]
 fn computed_unparsable_and_unscoped_configs_stay_package_wide() {
-    let cases: [(&str, &str, &str); 11] = [
+    let cases: [(&str, &str, &str); 12] = [
         (
             "vite",
             "vite.config.ts",
             "export default { build: { lib: { entry: pick() } } };",
+        ),
+        (
+            "vite",
+            "vite.config.ts",
+            "export default { build: { lib: { entry: { index: 'src/index.ts', ...pick() } } } };",
         ),
         (
             "vite",
