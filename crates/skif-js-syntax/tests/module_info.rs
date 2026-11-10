@@ -1299,6 +1299,38 @@ fn component_templates_credit_the_imports_they_use() {
 }
 
 #[test]
+fn template_locals_do_not_use_the_imports_they_shadow() {
+    // Each file imports `item` and `row` and uses neither: every mention is a template local of the same name.
+    let files = [
+        (
+            "List.vue",
+            "<script setup>\nimport item from './item';\nimport row from './row';\nimport { items } from './data';\n</script>\n<template><ul><li v-for=\"item in items\" :key=\"item.id\">{{ item.label }}</li></ul><Table><template #cell=\"{ row }\">{{ row }}</template></Table></template>\n",
+        ),
+        (
+            "List.svelte",
+            "<script>\n  import item from './item';\n  import row from './row';\n  import { items } from './data';\n</script>\n{#each items as item (item.id)}<p>{item.label}</p>{/each}\n{#await items then row}{row}{/await}\n<Table let:row>{row.cells}</Table>\n",
+        ),
+        (
+            "List.astro",
+            "---\nimport item from './item';\nimport row from './row';\nimport { items } from './data';\n---\n<ul>{items.map((item) => <li>{item.label}</li>)}</ul>\n{items.map(({ row }) => row)}\n",
+        ),
+    ];
+    for (path, source) in files {
+        let info = parse(path, source);
+        assert_eq!(accessed(&info, "item"), (Vec::<String>::new(), false), "{path}");
+        assert_eq!(accessed(&info, "row"), (Vec::<String>::new(), false), "{path}");
+        let (members, escapes) = accessed(&info, "items");
+        assert!(escapes || !members.is_empty(), "{path}: the source of the loop is a use");
+    }
+    // The same import used outside the construct that shadows it is used.
+    let vue = "<script setup>\nimport item from './item';\nimport { items } from './data';\n</script>\n<template><li v-for=\"item in items\">{{ item }}</li><p>{{ item.label }}</p></template>\n";
+    assert_eq!(
+        accessed(&parse("Outside.vue", vue), "item"),
+        (vec!["label".to_owned()], false)
+    );
+}
+
+#[test]
 fn script_blocks_of_one_component_share_their_imports() {
     let svelte = "<script context=\"module\">\n  import * as util from './util';\n</script>\n<script>\n  export let n = util.double(1);\n</script>\n";
     let info = parse("A.svelte", svelte);
