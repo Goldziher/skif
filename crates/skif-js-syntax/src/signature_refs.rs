@@ -8,6 +8,7 @@
 //! mentions is used whenever the name is, as a type or as a value.
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use oxc_ast::ast::{
     ArrowFunctionBody, Class, Declaration, ExportDefaultDeclarationKind, Expression, Function, FunctionBody, Program,
@@ -16,6 +17,9 @@ use oxc_ast::ast::{
 use oxc_ast_visit::{Visit, walk};
 
 use crate::model::{Export, ExportKind, ImportedKind, ModuleInfo};
+
+/// A declaration's local name with the type names it mentions, shared by the bindings of one destructuring declarator.
+type Container = (String, Rc<HashSet<String>>);
 
 /// Type names mentioned in one declaration, optionally leaving out function bodies.
 struct TypeNames {
@@ -86,19 +90,19 @@ fn expression_names(expression: &Expression<'_>) -> HashSet<String> {
 }
 
 /// The value-level declarations of `declaration` with the type names their signatures mention.
-fn containers(declaration: &Declaration<'_>, out: &mut Vec<(String, HashSet<String>)>) {
+fn containers(declaration: &Declaration<'_>, out: &mut Vec<Container>) {
     match declaration {
         Declaration::FunctionDeclaration(function) => {
             if let Some(id) = &function.id {
                 out.push((
                     id.name.as_str().to_owned(),
-                    function_names(function, function.return_type.is_some()),
+                    Rc::new(function_names(function, function.return_type.is_some())),
                 ));
             }
         }
         Declaration::ClassDeclaration(class) => {
             if let Some(id) = &class.id {
-                out.push((id.name.as_str().to_owned(), class_names(class)));
+                out.push((id.name.as_str().to_owned(), Rc::new(class_names(class))));
             }
         }
         Declaration::VariableDeclaration(variables) => {
@@ -107,7 +111,7 @@ fn containers(declaration: &Declaration<'_>, out: &mut Vec<(String, HashSet<Stri
                 if ids.is_empty() {
                     continue;
                 }
-                let names = if let Some(annotation) = &declarator.type_annotation {
+                let names = Rc::new(if let Some(annotation) = &declarator.type_annotation {
                     let mut visitor = TypeNames::new(true);
                     visitor.visit_ts_type_annotation(annotation);
                     visitor.names
@@ -115,8 +119,8 @@ fn containers(declaration: &Declaration<'_>, out: &mut Vec<(String, HashSet<Stri
                     expression_names(init)
                 } else {
                     continue;
-                };
-                out.extend(ids.iter().map(|id| (id.name.as_str().to_owned(), names.clone())));
+                });
+                out.extend(ids.iter().map(|id| (id.name.as_str().to_owned(), Rc::clone(&names))));
             }
         }
         _ => {}
@@ -126,7 +130,7 @@ fn containers(declaration: &Declaration<'_>, out: &mut Vec<(String, HashSet<Stri
 /// The type-level declaration `declaration` (an `interface` or a `type` alias) with the type names it mentions,
 /// including the interfaces it extends. It contains them only for a value export of its name, which can be a separate
 /// clause (`type X = …; const X = …; export { X }`).
-fn type_container(declaration: &Declaration<'_>, out: &mut Vec<(String, HashSet<String>)>) {
+fn type_container(declaration: &Declaration<'_>, out: &mut Vec<Container>) {
     let mut visitor = TypeNames::new(true);
     let name = match declaration {
         Declaration::TSTypeAliasDeclaration(alias) => {
@@ -139,7 +143,7 @@ fn type_container(declaration: &Declaration<'_>, out: &mut Vec<(String, HashSet<
         }
         _ => return,
     };
-    out.push((name.as_str().to_owned(), visitor.names));
+    out.push((name.as_str().to_owned(), Rc::new(visitor.names)));
 }
 
 /// The local bindings of the imports by specifier and imported name. A name imported twice keeps its first binding.
@@ -171,7 +175,7 @@ fn reexported_binding<'a>(bindings: &HashMap<(&str, &ImportedKind), &'a str>, ex
 }
 
 /// The declarations of `program` that can contain type names, exported or not, with the names they mention.
-fn collect_containers(program: &Program<'_>) -> Vec<(String, HashSet<String>)> {
+fn collect_containers(program: &Program<'_>) -> Vec<Container> {
     let mut found = Vec::new();
     for statement in &program.body {
         match statement {
@@ -184,13 +188,13 @@ fn collect_containers(program: &Program<'_>) -> Vec<(String, HashSet<String>)> {
                     if let Some(id) = &function.id {
                         found.push((
                             id.name.as_str().to_owned(),
-                            function_names(function, function.return_type.is_some()),
+                            Rc::new(function_names(function, function.return_type.is_some())),
                         ));
                     }
                 }
                 ExportDefaultDeclarationKind::ClassDeclaration(class) => {
                     if let Some(id) = &class.id {
-                        found.push((id.name.as_str().to_owned(), class_names(class)));
+                        found.push((id.name.as_str().to_owned(), Rc::new(class_names(class))));
                     }
                 }
                 _ => {}
