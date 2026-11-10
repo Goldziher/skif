@@ -279,6 +279,8 @@ grep -qF 'BAKED_VERSION: "9.8.7"' "${tree}/action.yml" || fail "release-bump: th
 grep -qF '"=9.8.7"' "${tree}/Cargo.toml" || fail "release-bump: internal dependency pin"
 for manifest in .claude-plugin/plugin.json .codex-plugin/plugin.json; do
   [[ "$(jq -r '.version' "${tree}/${manifest}")" == 9.8.7 ]] || fail "release-bump: ${manifest} version"
+  [[ "$(jq -c '.mcpServers.skif.args' "${tree}/${manifest}")" == '["-y","skif-cli@9.8.7","mcp"]' ]] ||
+    fail "release-bump: ${manifest} MCP server pin"
 done
 
 jq '.version = "0.0.1"' "${tree}/npm-package/package.json" >"${work}/package.json"
@@ -291,6 +293,16 @@ jq '.version = "0.0.1"' "${tree}/.codex-plugin/plugin.json" >"${work}/plugin.jso
 cat "${work}/plugin.json" >"${tree}/.codex-plugin/plugin.json"
 expect "check-versions catches a drifted agent plugin version" 1 bash "${tree}/scripts/check-versions.sh" 9.8.7
 expect_in_out "check-versions plugin drift" ".codex-plugin/plugin.json version: expected 9.8.7, found 0.0.1"
+jq '.version = "9.8.7"' "${tree}/.codex-plugin/plugin.json" >"${work}/plugin.json"
+cat "${work}/plugin.json" >"${tree}/.codex-plugin/plugin.json"
+cp "${tree}/.claude-plugin/plugin.json" "${work}/claude-plugin.json"
+jq '.mcpServers.skif.args[1] = "skif-cli@0.0.1"' "${work}/claude-plugin.json" >"${tree}/.claude-plugin/plugin.json"
+expect "check-versions catches a drifted MCP server pin" 1 bash "${tree}/scripts/check-versions.sh" 9.8.7
+expect_in_out "check-versions MCP pin drift" ".claude-plugin/plugin.json MCP server skif-cli version: expected 9.8.7, found 0.0.1"
+jq 'del(.mcpServers)' "${work}/claude-plugin.json" >"${tree}/.claude-plugin/plugin.json"
+expect "check-versions catches a missing MCP server pin" 1 bash "${tree}/scripts/check-versions.sh" 9.8.7
+expect_in_out "check-versions MCP pin missing" ".claude-plugin/plugin.json MCP server skif-cli version: expected 9.8.7, found <none>"
+cat "${work}/claude-plugin.json" >"${tree}/.claude-plugin/plugin.json"
 
 # The documentation pins follow a final release and stay on the previous one through a pre-release.
 integrations="${tree}/website/src/content/docs/guides/integrations.mdx"
@@ -303,6 +315,8 @@ expect "check-doc-pins after the bump" 0 bash "${tree}/scripts/check-doc-pins.sh
 expect "release-bump to a pre-release" 0 env SKIP_CARGO_UPDATE=1 bash "${tree}/scripts/release-bump.sh" 9.9.0-rc.1
 expect_in_out "release-bump pre-release pins" "9.9.0-rc.1 is a pre-release, left unchanged"
 grep -qF 'rev: v9.8.7' "${tree}/README.md" || fail "release-bump: a pre-release moved the pre-commit rev"
+[[ "$(jq -r '.mcpServers.skif.args[1]' "${tree}/.claude-plugin/plugin.json")" == skif-cli@9.9.0-rc.1 ]] ||
+  fail "release-bump: a pre-release left the MCP server on the previous release"
 expect "release-bump to a 0.x release" 0 env SKIP_CARGO_UPDATE=1 bash "${tree}/scripts/release-bump.sh" 0.7.1
 grep -qF 'Goldziher/skif@v0.7' "${tree}/README.md" || fail "release-bump: a 0.x release floats as v0.M"
 grep -qF 'rev: v0.7.1' "$integrations" || fail "release-bump: 0.x pre-commit rev"

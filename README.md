@@ -225,7 +225,8 @@ Lefthook.
 <summary><strong>Agent skill for coding agents</strong></summary>
 
 The [`skif` skill](skills/skif/SKILL.md) teaches an agent to lint, triage and fix with skif. It needs skif itself
-(any channel above, or `npx skif-cli`).
+(any channel above, or `npx skif-cli`). Installed as a plugin, it also registers skif's MCP server, run with
+`npx -y skif-cli@<release> mcp`, so the plugin needs Node.js but no separate install.
 
 ```bash
 npx skills add Goldziher/skif                                 # any agent that reads Agent Skills
