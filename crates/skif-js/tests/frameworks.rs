@@ -151,6 +151,30 @@ fn marko_imports_are_followed() {
 }
 
 #[test]
+fn qwik_mdx_routes_are_read_without_a_compiler() {
+    // knip registers its MDX compiler for Qwik City; skif reads every reached `.mdx` file, so the route's import keeps
+    // the component used.
+    let diagnostics = lint_fixture("qwik-mdx");
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["src/components/orphan.tsx: src/components/orphan.tsx"]
+    );
+    assert_eq!(found(&diagnostics, "unresolved-imports"), Vec::<String>::new());
+}
+
+#[test]
+fn stencil_sass_stylesheets_are_read_without_a_compiler() {
+    // knip registers its Sass compiler for `@stencil/sass`; skif follows the `styleUrl` stylesheet and its `@use`
+    // rules itself, so the partial resolves and `bootstrap` is used.
+    let diagnostics = lint_fixture("stencil-sass");
+    assert_eq!(
+        found(&diagnostics, "unused-dependencies"),
+        ["package.json: unused-dependency"]
+    );
+    assert_eq!(found(&diagnostics, "unresolved-imports"), Vec::<String>::new());
+}
+
+#[test]
 fn stylus_tsrx_snapshot() {
     insta::assert_json_snapshot!("stylus-tsrx", lint_fixture("stylus-tsrx"));
 }
