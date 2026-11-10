@@ -580,7 +580,11 @@ mod tests {
             .collect();
         assert_eq!(
             texts,
-            [vec!["apt-get", "update"], vec!["npm", "ci", "--omit=dev"], vec!["pnpm", "build"]]
+            [
+                vec!["apt-get", "update"],
+                vec!["npm", "ci", "--omit=dev"],
+                vec!["pnpm", "build"]
+            ]
         );
         assert_eq!(found[1][0].1, "npm");
         assert_eq!(found[2][0].1, "'pnpm'");
@@ -599,7 +603,11 @@ mod tests {
             .collect();
         assert_eq!(names, ["cat", "yarn"]);
         assert_eq!(
-            tokens.substitutions.iter().map(|range| &src[range.clone()]).collect::<Vec<_>>(),
+            tokens
+                .substitutions
+                .iter()
+                .map(|range| &src[range.clone()])
+                .collect::<Vec<_>>(),
             ["npm view pnpm version"]
         );
     }

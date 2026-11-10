@@ -191,7 +191,10 @@ jobs:
             ("Dockerfile", dockerfile),
             (".github/workflows/ci.yml", workflow),
             ("packages/a/package.json", MEMBER),
-            ("packages/a/scripts/release.sh", "#!/bin/sh\nset -e\nnpm publish\nnpm test\n"),
+            (
+                "packages/a/scripts/release.sh",
+                "#!/bin/sh\nset -e\nnpm publish\nnpm test\n",
+            ),
         ];
         assert_eq!(
             findings(&files, ""),
@@ -209,7 +212,10 @@ jobs:
             .iter()
             .find(|diagnostic| located(&files, diagnostic) == "npm ci")
             .unwrap();
-        assert_eq!(ci.message, "`npm ci` runs npm, but the workspace's package manager is pnpm");
+        assert_eq!(
+            ci.message,
+            "`npm ci` runs npm, but the workspace's package manager is pnpm"
+        );
         assert!(ci.help.as_deref().unwrap().contains("`pnpm install --frozen-lockfile`"));
         assert_eq!(ci.detail.as_deref(), Some("npm"));
         assert_eq!(ci.package.as_deref(), Some("root"));
@@ -256,23 +262,38 @@ yarn install
         let files = [
             ("package.json", ROOT),
             ("deploy.sh", script),
-            ("scripts/legacy.sh", "# skif-ignore-file -- kept on npm until the app moves\nnpm ci\n"),
+            (
+                "scripts/legacy.sh",
+                "# skif-ignore-file -- kept on npm until the app moves\nnpm ci\n",
+            ),
             ("docker/Dockerfile", "RUN npm ci\n"),
         ];
         assert_eq!(
             findings(&files, ""),
-            [row("deploy.sh", 5, "yarn install"), row("docker/Dockerfile", 1, "npm ci")]
+            [
+                row("deploy.sh", 5, "yarn install"),
+                row("docker/Dockerfile", 1, "npm ci")
+            ]
         );
         let diagnostics = lint(META.id, &files, &config(""));
         let unreasoned = diagnostics
             .iter()
             .find(|diagnostic| path_of(diagnostic) == "deploy.sh")
             .unwrap();
-        assert!(unreasoned.help.as_deref().unwrap().contains("comment on line 4 does not apply"));
+        assert!(
+            unreasoned
+                .help
+                .as_deref()
+                .unwrap()
+                .contains("comment on line 4 does not apply")
+        );
         let ignored = "[rules.foreign-package-manager-command]\nignore-files = [{ name = \"docker/*\", reason = \"the image is built from the npm branch\" }]\n";
         assert_eq!(findings(&files, ignored), [row("deploy.sh", 5, "yarn install")]);
         let dockerfiles_only = "[rules.foreign-package-manager-command]\nkinds = [\"dockerfiles\"]\n";
-        assert_eq!(findings(&files, dockerfiles_only), [row("docker/Dockerfile", 1, "npm ci")]);
+        assert_eq!(
+            findings(&files, dockerfiles_only),
+            [row("docker/Dockerfile", 1, "npm ci")]
+        );
         let off = "[[ignore]]\nrules = [\"foreign-package-manager-command\"]\npackages = [\"root\"]\n";
         assert!(findings(&files, off).is_empty());
     }
@@ -280,7 +301,10 @@ yarn install
     #[test]
     fn the_detected_manager_decides_and_without_one_nothing_is_reported() {
         let npm_root = r#"{"name":"root","private":true,"packageManager":"npm@10.8.0","workspaces":["packages/*"]}"#;
-        let files = [("package.json", npm_root), ("Dockerfile", "RUN npm ci\nRUN yarn\nRUN pnpm install\n")];
+        let files = [
+            ("package.json", npm_root),
+            ("Dockerfile", "RUN npm ci\nRUN yarn\nRUN pnpm install\n"),
+        ];
         assert_eq!(
             findings(&files, ""),
             [row("Dockerfile", 2, "yarn"), row("Dockerfile", 3, "pnpm install")]

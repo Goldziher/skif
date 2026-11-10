@@ -21,11 +21,7 @@ fn listed(text: &'static str) -> Vec<&'static str> {
 fn registered() -> BTreeSet<&'static str> {
     let mut providers = skif_rules::providers();
     providers.push(Box::new(skif_rules::toolchain_provider(Arc::new(MemoryFs::new()))));
-    Registry::new(providers)
-        .unwrap()
-        .rules()
-        .map(|meta| meta.id)
-        .collect()
+    Registry::new(providers).unwrap().rules().map(|meta| meta.id).collect()
 }
 
 #[test]

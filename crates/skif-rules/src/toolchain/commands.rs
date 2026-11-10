@@ -148,10 +148,48 @@ pub(crate) fn command_pins(words: &[Word]) -> Vec<Pin> {
 /// npm subcommands that install, run or change dependencies; the others (`view`, `whoami`, `publish`, ...) are not
 /// reported.
 const NPM_COMMANDS: &[&str] = &[
-    "add", "cit", "clean-install", "ci", "dedupe", "ddp", "exec", "i", "ic", "in", "install", "install-ci-test",
-    "install-clean", "install-test", "isntall", "isntall-clean", "it", "link", "ln", "prune", "r", "rb", "rebuild",
-    "remove", "restart", "rm", "rum", "run", "run-script", "start", "stop", "t", "test", "tst", "un", "uninstall",
-    "unlink", "up", "update", "upgrade", "urn", "x",
+    "add",
+    "cit",
+    "clean-install",
+    "ci",
+    "dedupe",
+    "ddp",
+    "exec",
+    "i",
+    "ic",
+    "in",
+    "install",
+    "install-ci-test",
+    "install-clean",
+    "install-test",
+    "isntall",
+    "isntall-clean",
+    "it",
+    "link",
+    "ln",
+    "prune",
+    "r",
+    "rb",
+    "rebuild",
+    "remove",
+    "restart",
+    "rm",
+    "rum",
+    "run",
+    "run-script",
+    "start",
+    "stop",
+    "t",
+    "test",
+    "tst",
+    "un",
+    "uninstall",
+    "unlink",
+    "up",
+    "update",
+    "upgrade",
+    "urn",
+    "x",
 ];
 
 /// bun subcommands that install or change dependencies; `bun <file>` and `bun run` also run code as a runtime.
@@ -170,7 +208,10 @@ const INFO_FLAGS: &[&str] = &["--version", "-v", "--help", "-h"];
 
 /// Flags of `manager` that take the next word as their value.
 fn takes_value(manager: PackageManager, flag: &str) -> bool {
-    let common = matches!(flag, "--registry" | "--loglevel" | "--userconfig" | "--cwd" | "--prefix");
+    let common = matches!(
+        flag,
+        "--registry" | "--loglevel" | "--userconfig" | "--cwd" | "--prefix"
+    );
     common
         || match manager {
             PackageManager::Npm => matches!(flag, "-w" | "--workspace" | "-C"),
@@ -249,10 +290,14 @@ pub(crate) fn invocation(words: &[Word], chosen: PackageManager) -> Option<Invoc
         return None;
     }
     let args = &words[start + 1..];
-    let found = |last: usize| Some(Invocation { manager, words: (first, last) });
-    let runs_chosen = |target: Option<&Word>| {
-        target.is_some_and(|word| split_spec(&word.text).0 == manager_name(chosen))
+    let found = |last: usize| {
+        Some(Invocation {
+            manager,
+            words: (first, last),
+        })
     };
+    let runs_chosen =
+        |target: Option<&Word>| target.is_some_and(|word| split_spec(&word.text).0 == manager_name(chosen));
     if runner {
         let target = args.iter().position(|word| !word.text.starts_with('-'));
         if runs_chosen(target.map(|index| &args[index])) {
@@ -261,8 +306,8 @@ pub(crate) fn invocation(words: &[Word], chosen: PackageManager) -> Option<Invoc
         return found(target.map_or(start, |index| start + 1 + index));
     }
     let Some(sub) = subcommand(manager, args) else {
-        let bare_install = manager == PackageManager::Yarn
-            && !args.iter().any(|word| INFO_FLAGS.contains(&word.text.as_str()));
+        let bare_install =
+            manager == PackageManager::Yarn && !args.iter().any(|word| INFO_FLAGS.contains(&word.text.as_str()));
         return if bare_install { found(start) } else { None };
     };
     let word = &args[sub];
@@ -298,7 +343,9 @@ mod tests {
         command_pins(&words(line))
             .into_iter()
             .map(|pin| {
-                let Tool::Manager(manager) = pin.tool else { panic!("not a manager pin") };
+                let Tool::Manager(manager) = pin.tool else {
+                    panic!("not a manager pin")
+                };
                 (manager_name(manager).to_owned(), pin.version, &line[pin.span])
             })
             .collect()
@@ -317,7 +364,11 @@ mod tests {
         ];
         for (line, expected) in cases {
             let words = words(line);
-            assert_eq!(program(&words).map(|index| words[index].text.as_str()), expected, "{line}");
+            assert_eq!(
+                program(&words).map(|index| words[index].text.as_str()),
+                expected,
+                "{line}"
+            );
         }
     }
 
@@ -335,12 +386,18 @@ mod tests {
             pins("corepack prepare pnpm@9.1.0 --activate"),
             [("pnpm".to_owned(), "9.1.0".to_owned(), "pnpm@9.1.0")]
         );
-        assert_eq!(pins("corepack use yarn@4"), [("yarn".to_owned(), "4".to_owned(), "yarn@4")]);
+        assert_eq!(
+            pins("corepack use yarn@4"),
+            [("yarn".to_owned(), "4".to_owned(), "yarn@4")]
+        );
         assert_eq!(
             pins("npm install --global corepack pnpm@8.15.0"),
             [("pnpm".to_owned(), "8.15.0".to_owned(), "pnpm@8.15.0")]
         );
-        assert_eq!(pins("sudo npm i -g pnpm@9"), [("pnpm".to_owned(), "9".to_owned(), "pnpm@9")]);
+        assert_eq!(
+            pins("sudo npm i -g pnpm@9"),
+            [("pnpm".to_owned(), "9".to_owned(), "pnpm@9")]
+        );
         assert!(pins("npm install pnpm@9").is_empty());
         assert!(pins("npm i -g pnpm").is_empty());
         assert!(pins("corepack prepare pnpm@$PNPM_VERSION").is_empty());
@@ -411,13 +468,25 @@ mod tests {
 
     #[test]
     fn the_chosen_manager_decides_what_is_foreign() {
-        assert_eq!(foreign("pnpm install", PackageManager::Yarn), Some(("pnpm".to_owned(), "pnpm install".to_owned())));
-        assert_eq!(foreign("pnpm dlx create-vite", PackageManager::Npm), Some(("pnpm".to_owned(), "pnpm dlx".to_owned())));
+        assert_eq!(
+            foreign("pnpm install", PackageManager::Yarn),
+            Some(("pnpm".to_owned(), "pnpm install".to_owned()))
+        );
+        assert_eq!(
+            foreign("pnpm dlx create-vite", PackageManager::Npm),
+            Some(("pnpm".to_owned(), "pnpm dlx".to_owned()))
+        );
         assert_eq!(foreign("pnpm why react", PackageManager::Npm), None);
-        assert_eq!(foreign("yarn dlx yarn@4 --version", PackageManager::Npm), Some(("yarn".to_owned(), "yarn dlx".to_owned())));
+        assert_eq!(
+            foreign("yarn dlx yarn@4 --version", PackageManager::Npm),
+            Some(("yarn".to_owned(), "yarn dlx".to_owned()))
+        );
         assert_eq!(foreign("pnpm dlx npm@10 ci", PackageManager::Npm), None);
         assert_eq!(foreign("npm ci", PackageManager::Npm), None);
-        assert_eq!(foreign("yarn", PackageManager::Npm), Some(("yarn".to_owned(), "yarn".to_owned())));
+        assert_eq!(
+            foreign("yarn", PackageManager::Npm),
+            Some(("yarn".to_owned(), "yarn".to_owned()))
+        );
         assert_eq!(foreign("npm install -g yarn", PackageManager::Yarn), None);
     }
 }

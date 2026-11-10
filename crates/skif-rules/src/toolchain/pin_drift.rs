@@ -154,7 +154,11 @@ fn manager_source(root: &Package) -> Option<Source> {
     }
     let declared = manifest.pointer("/devEngines/packageManager")?;
     let entries: Vec<(Option<usize>, &Value)> = match declared {
-        Value::Array(entries) => entries.iter().enumerate().map(|(index, entry)| (Some(index), entry)).collect(),
+        Value::Array(entries) => entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| (Some(index), entry))
+            .collect(),
         entry => vec![(None, entry)],
     };
     entries.into_iter().find_map(|(index, entry)| {
@@ -203,7 +207,11 @@ fn pin_finding(pin: &Pin, source: &Source) -> Finding {
             pin.label, pin.version, source.version, source.origin
         ),
         help: pin_help(pin, source),
-        detail: if pin.tool == Tool::Node { NODE_DETAIL } else { MANAGER_DETAIL },
+        detail: if pin.tool == Tool::Node {
+            NODE_DETAIL
+        } else {
+            MANAGER_DETAIL
+        },
         severity: None,
         related: Some(Related::new(
             format!("the root pins {tool} {} here", source.version),
@@ -218,7 +226,10 @@ fn corepack_finding(span: Range<usize>, manager: Option<&Source>) -> Finding {
             let name = tool_name(source.tool);
             (name, format!("`corepack prepare {name}@{} --activate`", source.version))
         }
-        None => ("package manager", "`corepack prepare <manager>@<version> --activate`".to_owned()),
+        None => (
+            "package manager",
+            "`corepack prepare <manager>@<version> --activate`".to_owned(),
+        ),
     };
     Finding {
         span,
@@ -392,7 +403,10 @@ jobs:
             ]
         );
         let diagnostics = lint(META.id, &files, &config(""));
-        let docker = diagnostics.iter().find(|diagnostic| path_of(diagnostic) == "Dockerfile").unwrap();
+        let docker = diagnostics
+            .iter()
+            .find(|diagnostic| path_of(diagnostic) == "Dockerfile")
+            .unwrap();
         assert_eq!(
             docker.message,
             "`FROM node` pins Node 18.19.0, which does not match 20.11.1 from `.nvmrc`"
@@ -400,13 +414,23 @@ jobs:
         assert_eq!(docker.location.span.unwrap().start_line, 2);
         assert_eq!(docker.related[0].location.path, PathBuf::from(".nvmrc"));
         assert_eq!(docker.package.as_deref(), Some("root"));
-        let workflow_finding = diagnostics.iter().find(|diagnostic| path_of(diagnostic).ends_with("ci.yml")).unwrap();
+        let workflow_finding = diagnostics
+            .iter()
+            .find(|diagnostic| path_of(diagnostic).ends_with("ci.yml"))
+            .unwrap();
         assert!(
-            workflow_finding.help.as_deref().unwrap().contains("node-version-file: .nvmrc"),
+            workflow_finding
+                .help
+                .as_deref()
+                .unwrap()
+                .contains("node-version-file: .nvmrc"),
             "{:?}",
             workflow_finding.help
         );
-        let member = diagnostics.iter().find(|diagnostic| path_of(diagnostic).starts_with("packages/a")).unwrap();
+        let member = diagnostics
+            .iter()
+            .find(|diagnostic| path_of(diagnostic).starts_with("packages/a"))
+            .unwrap();
         assert_eq!(member.package.as_deref(), Some("a"));
     }
 
@@ -419,17 +443,27 @@ jobs:
         ];
         assert_eq!(
             findings(&files, ""),
-            [row("Dockerfile", "20.9.0", NODE_DETAIL), row("Dockerfile", "22", NODE_DETAIL)]
+            [
+                row("Dockerfile", "20.9.0", NODE_DETAIL),
+                row("Dockerfile", "22", NODE_DETAIL)
+            ]
         );
         let diagnostics = lint(META.id, &files, &config(""));
-        assert!(diagnostics[0].message.contains(">=20.10 <21 from `engines.node` of the root package.json"));
+        assert!(
+            diagnostics[0]
+                .message
+                .contains(">=20.10 <21 from `engines.node` of the root package.json")
+        );
     }
 
     #[test]
     fn engines_node_must_admit_the_root_version_file() {
         let root = r#"{"name":"root","private":true,"engines":{"node":">=20"},"workspaces":["packages/*"]}"#;
         let files = [("package.json", root), (".node-version", "18.19.0\n")];
-        assert_eq!(findings(&files, ""), [row("package.json", r#""node":">=20""#, NODE_DETAIL)]);
+        assert_eq!(
+            findings(&files, ""),
+            [row("package.json", r#""node":">=20""#, NODE_DETAIL)]
+        );
         let agreeing = [("package.json", root), (".node-version", "20\n")];
         assert!(findings(&agreeing, "").is_empty());
     }
@@ -439,7 +473,10 @@ jobs:
         let root = r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#;
         let files = [
             ("package.json", root),
-            ("Dockerfile", "FROM node:18\nRUN corepack prepare pnpm@8.15.0 --activate\n"),
+            (
+                "Dockerfile",
+                "FROM node:18\nRUN corepack prepare pnpm@8.15.0 --activate\n",
+            ),
             (".nvmrc", "lts/*\n"),
         ];
         assert!(findings(&files, "").is_empty());
@@ -477,12 +514,18 @@ jobs:
             ]
         );
         let diagnostics = lint(META.id, &files, &config(""));
-        let docker = diagnostics.iter().find(|diagnostic| path_of(diagnostic) == "Dockerfile").unwrap();
+        let docker = diagnostics
+            .iter()
+            .find(|diagnostic| path_of(diagnostic) == "Dockerfile")
+            .unwrap();
         assert_eq!(
             docker.message,
             "`corepack prepare` pins pnpm 8.15.0, which does not match 9.1.0 from `packageManager`"
         );
-        let action = diagnostics.iter().find(|diagnostic| path_of(diagnostic).ends_with(".yaml")).unwrap();
+        let action = diagnostics
+            .iter()
+            .find(|diagnostic| path_of(diagnostic).ends_with(".yaml"))
+            .unwrap();
         assert!(action.help.as_deref().unwrap().contains("remove `version`"));
     }
 
@@ -491,7 +534,10 @@ jobs:
         let root = r#"{"name":"root","private":true,"devEngines":{"packageManager":[{"name":"deno"},{"name":"pnpm","version":"^9.1.0"}]},"workspaces":["packages/*"]}"#;
         let files = [
             ("package.json", root),
-            ("Dockerfile", "RUN corepack prepare pnpm@9.4.0 && corepack prepare pnpm@8.1.0\n"),
+            (
+                "Dockerfile",
+                "RUN corepack prepare pnpm@9.4.0 && corepack prepare pnpm@8.1.0\n",
+            ),
         ];
         assert_eq!(findings(&files, ""), [row("Dockerfile", "pnpm@8.1.0", MANAGER_DETAIL)]);
     }
@@ -500,7 +546,10 @@ jobs:
     fn corepack_enable_without_prepare_is_an_info_finding_in_dockerfiles() {
         let files = [
             ("package.json", ROOT),
-            ("Dockerfile", "FROM node:20\nRUN corepack enable\nRUN pnpm install --frozen-lockfile\n"),
+            (
+                "Dockerfile",
+                "FROM node:20\nRUN corepack enable\nRUN pnpm install --frozen-lockfile\n",
+            ),
             ("Dockerfile.ci", "RUN corepack enable && corepack prepare --activate\n"),
             (
                 ".github/workflows/ci.yml",
@@ -512,7 +561,13 @@ jobs:
         assert_eq!(located(&files, &diagnostics[0]), "corepack enable");
         assert_eq!(diagnostics[0].detail.as_deref(), Some(COREPACK_DETAIL));
         assert_eq!(diagnostics[0].severity, Severity::Info);
-        assert!(diagnostics[0].help.as_deref().unwrap().contains("corepack prepare pnpm@9.1.0 --activate"));
+        assert!(
+            diagnostics[0]
+                .help
+                .as_deref()
+                .unwrap()
+                .contains("corepack prepare pnpm@9.1.0 --activate")
+        );
         let configured = lint(META.id, &files, &config("[rules]\ntoolchain-pin-drift = \"error\"\n"));
         assert_eq!(configured[0].severity, Severity::Error);
     }
@@ -530,20 +585,34 @@ FROM node:16
             (".nvmrc", "20.11.1\n"),
             ("Dockerfile", dockerfile),
             ("docker/Dockerfile", "FROM node:16\n"),
-            ("scripts/old.Dockerfile", "# skif-ignore-file -- kept for the 1.x images\nFROM node:14\n"),
+            (
+                "scripts/old.Dockerfile",
+                "# skif-ignore-file -- kept for the 1.x images\nFROM node:14\n",
+            ),
         ];
         assert_eq!(
             findings(&files, ""),
-            [row("Dockerfile", "16", NODE_DETAIL), row("docker/Dockerfile", "16", NODE_DETAIL)]
+            [
+                row("Dockerfile", "16", NODE_DETAIL),
+                row("docker/Dockerfile", "16", NODE_DETAIL)
+            ]
         );
         let diagnostics = lint(META.id, &files, &config(""));
-        let unreasoned = diagnostics.iter().find(|diagnostic| path_of(diagnostic) == "Dockerfile").unwrap();
+        let unreasoned = diagnostics
+            .iter()
+            .find(|diagnostic| path_of(diagnostic) == "Dockerfile")
+            .unwrap();
         assert!(
-            unreasoned.help.as_deref().unwrap().contains("comment on line 3 does not apply"),
+            unreasoned
+                .help
+                .as_deref()
+                .unwrap()
+                .contains("comment on line 3 does not apply"),
             "{:?}",
             unreasoned.help
         );
-        let ignored = "[rules.toolchain-pin-drift]\nignore-files = [{ name = \"docker/**\", reason = \"built elsewhere\" }]\n";
+        let ignored =
+            "[rules.toolchain-pin-drift]\nignore-files = [{ name = \"docker/**\", reason = \"built elsewhere\" }]\n";
         assert_eq!(findings(&files, ignored), [row("Dockerfile", "16", NODE_DETAIL)]);
         let workflows_only = "[rules.toolchain-pin-drift]\nkinds = [\"workflows\"]\n";
         assert!(findings(&files, workflows_only).is_empty());
@@ -561,7 +630,10 @@ FROM node:16
         ];
         assert!(findings(&files, "").is_empty(), "deploy/ is not a usual place");
         let globbed = "[rules.toolchain-pin-drift]\nfiles = [\"deploy/**\", \"examples/**\"]\n";
-        assert_eq!(findings(&files, globbed), [row("deploy/base.Dockerfile", "18", NODE_DETAIL)]);
+        assert_eq!(
+            findings(&files, globbed),
+            [row("deploy/base.Dockerfile", "18", NODE_DETAIL)]
+        );
         let ignored = "[workspace]\nignore-packages = [\"a\"]\n";
         let member = [
             ("package.json", ROOT),
