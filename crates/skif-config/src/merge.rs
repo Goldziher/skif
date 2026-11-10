@@ -391,20 +391,28 @@ mod tests {
     #[test]
     fn an_extend_key_counts_only_in_the_table_that_owns_it() {
         assert!(has_extend_keys(&table("[js]\nextend-ignore = [\"a\"]\n")));
-        assert!(has_extend_keys(&table("[workspace]\nextend-ignore-packages = [\"a\"]\n")));
+        assert!(has_extend_keys(&table(
+            "[workspace]\nextend-ignore-packages = [\"a\"]\n"
+        )));
         assert!(has_extend_keys(&table("[catalog]\nextend-exclude = [\"a\"]\n")));
         assert!(has_extend_keys(&table(
             "[js.workspaces.\"apps/web\"]\nextend-ignore-binaries = [\"a\"]\n"
         )));
         assert!(!has_extend_keys(&table("[js]\nignore = [\"a\"]\n")));
         assert!(!has_extend_keys(&table("[catalog]\nextend-ignore = [\"a\"]\n")));
-        assert!(!has_extend_keys(&table("[js.plugins.vitest]\nextend-ignore = [\"a\"]\n")));
+        assert!(!has_extend_keys(&table(
+            "[js.plugins.vitest]\nextend-ignore = [\"a\"]\n"
+        )));
     }
 
     #[test]
     fn the_extend_lists_checked_for_a_reason_are_the_extend_keys_of_their_table() {
         let listed = |lists: &[(&'static str, &[IgnoreItem])]| -> BTreeSet<&'static str> {
-            lists.iter().map(|(key, _)| *key).filter(|key| key.starts_with("extend-")).collect()
+            lists
+                .iter()
+                .map(|(key, _)| *key)
+                .filter(|key| key.starts_with("extend-"))
+                .collect()
         };
         // `extend-ignore` holds globs of files that are not analysed, not suppressions with a reason.
         let declared = |owner: &str| -> BTreeSet<&'static str> {
@@ -415,6 +423,9 @@ mod tests {
                 .collect()
         };
         assert_eq!(listed(&Js::default().ignore_lists()), declared("js"));
-        assert_eq!(listed(&JsWorkspace::default().ignore_lists()), declared(WORKSPACE_TABLE));
+        assert_eq!(
+            listed(&JsWorkspace::default().ignore_lists()),
+            declared(WORKSPACE_TABLE)
+        );
     }
 }
