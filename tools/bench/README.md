@@ -210,7 +210,9 @@ manifest, not by listing findings:
 - `non-member-project`: a finding only knip reports in a file (an unused file, export, type or member, a duplicate, an
   unresolved import, or an unlisted dependency that the file's own manifest lists) below a project directory that is
   not one of knip's workspaces. knip counts those files to an enclosing workspace without their own manifest's entries
-  and dependencies; skif's analysis of the enclosing workspace skips the directory.
+  and dependencies; skif's analysis of the enclosing workspace skips the directory. When a recursive skif run lints
+  the project as a package of one of its roots (the `packages` of the JSON `roots`), its exports, types, members and
+  duplicates stay compared, since skif judges them there.
 - `skipped-directory`: a finding only knip reports in a file below a directory skif's file discovery skips by name
   (`node_modules`, `dist`, `.next`, `.vercel` and the other build output names, `out`, `target` and `coverage`
   directly in a package directory, and hidden directories other than tool ones such as `.github`), unless the

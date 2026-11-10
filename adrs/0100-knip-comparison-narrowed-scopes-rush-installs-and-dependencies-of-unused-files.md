@@ -60,7 +60,12 @@ a Rush root that lies in no package is the `rush-root-file` known deviation.
 **`non-member-project`.** Every in-file category: a finding only knip reports in `files`, `exports`, `types`,
 `nsExports`, `nsTypes`, `enumMembers`, `namespaceMembers`, `duplicates` or `unresolved` in a file below a project that
 is not one of knip's workspaces, and one in `unlisted` there when the project's own manifest lists the package. The
-manifest categories stay with `knip-unjudged-manifest`.
+manifest categories stay with `knip-unjudged-manifest`. When a recursive skif run lints the project as a package of one
+of its roots ([ADR 0022](0022-multi-root-analysis-single-package-mode-and-the-plugin-set.md): a directory among the
+`packages` of the JSON `roots`), skif judges the exports, types and members of its files, so `exports`, `types`,
+`nsExports`, `nsTypes`, `enumMembers`, `namespaceMembers` and `duplicates` there stay compared; `files`, `unresolved`
+and `unlisted` depend on the project's own entry files, plugins and manifest, which knip does not read, and stay set
+apart.
 
 **`used-in-knip-unused-file`.** A finding only knip reports in `dependencies`, `devDependencies` or
 `optionalPeerDependencies` whose package a file of the same knip workspace imports, where knip lists that file under
@@ -116,7 +121,8 @@ TypeScript source with that stem. The files that only such an entry reaches stay
   (`non-member-project` covers every in-file category; `published-source` maps build directories and extensionless
   paths) and [ADR 0096](0096-knip-comparison-findings-in-unused-files-invalid-runs-and-two-sided-config-errors.md)
   (the scope of `not-judged-by-skif` is read)
-* Related decisions: [ADR 0053](0053-incomplete-packages-in-the-json-report.md),
+* Related decisions: [ADR 0022](0022-multi-root-analysis-single-package-mode-and-the-plugin-set.md),
+  [ADR 0053](0053-incomplete-packages-in-the-json-report.md),
   [ADR 0065](0065-narrowed-scope-for-incomplete-entries.md),
   [ADR 0068](0068-what-the-knip-comparison-sets-apart.md),
   [ADR 0081](0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md)
