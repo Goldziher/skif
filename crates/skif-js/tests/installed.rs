@@ -97,21 +97,42 @@ fn an_installed_bin_directory_provides_every_file_below_it() {
 }
 
 #[test]
-fn a_bin_directory_outside_the_installed_package_provides_nothing() {
+fn a_bin_directory_that_climbs_out_is_clamped_to_the_installed_package() {
     let diagnostics = lint(&[
         (
             "package.json",
             r#"{"name":"r","private":true,"workspaces":["packages/*"],
-                "scripts":{"a":"other-tool"},
+                "scripts":{"a":"inside-tool","b":"other-tool"},
                 "devDependencies":{"multi":"1"}}"#,
         ),
         (
             "node_modules/multi/package.json",
             r#"{"name":"multi","directories":{"bin":"../other/bin"}}"#,
         ),
+        ("node_modules/multi/other/bin/inside-tool", "#!/usr/bin/env node\n"),
         ("node_modules/other/bin/other-tool", "#!/usr/bin/env node\n"),
     ]);
     assert_eq!(names(&diagnostics, "unlisted-binaries"), ["package.json: other-tool"]);
+}
+
+#[test]
+fn a_bin_directory_skips_dotfiles_and_dot_directories() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"r","private":true,"workspaces":["packages/*"],
+                "scripts":{"a":"multi-a","b":"hidden-tool"},
+                "devDependencies":{"multi":"1"}}"#,
+        ),
+        (
+            "node_modules/multi/package.json",
+            r#"{"name":"multi","directories":{"bin":"bin"}}"#,
+        ),
+        ("node_modules/multi/bin/multi-a", "#!/usr/bin/env node\n"),
+        ("node_modules/multi/bin/.cache/hidden-tool", "#!/usr/bin/env node\n"),
+        ("node_modules/multi/bin/.hidden-tool", "#!/usr/bin/env node\n"),
+    ]);
+    assert_eq!(names(&diagnostics, "unlisted-binaries"), ["package.json: hidden-tool"]);
 }
 
 #[test]
