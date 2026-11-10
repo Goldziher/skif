@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use skif_js_syntax::{ConfigValue, OWN_SPREAD, UNKNOWN_SPREAD, extract_config_object};
+use skif_js_syntax::{ConfigValue, OWN_SPREAD, UNKNOWN_SPREAD, extract_config, extract_config_object};
 
 fn extract(path: &str, source: &str) -> ConfigValue {
     extract_config_object(source, Path::new(path)).expect("config is understood")
@@ -744,4 +744,341 @@ fn an_unknown_spread_the_config_computes_itself_is_its_own() {
         );
         assert_eq!(object.get(OWN_SPREAD), None, "{key}: {object:?}");
     }
+}
+
+/// A function the tool calls (an exported config function, the callback of `defineConfig`, a declared function the
+/// config exports by name) is given arguments the config cannot know: a parameter's default is only what it takes when
+/// nothing is passed, so a test on it is unknown and a spread it guards adds its keys. A call in the config itself
+/// passes what it passes, and a default fills what it leaves out.
+#[test]
+fn the_parameters_of_a_function_the_tool_calls_are_unknown() {
+    let body = "({ entry: env.analyze ? './src/analyze.ts' : './src/index.ts', \
+                inputs: { ...(env.analyze ? { analyze: ['./src/analyze.ts'] } : {}), index: './src/index.ts' } })";
+    for source in [
+        format!("export default function (env = {{}}) {{ return {body}; }}"),
+        format!("export default defineConfig((env = {{}}) => {body});"),
+        format!("module.exports = (env = {{}}) => {body};"),
+        format!("function config(env = {{}}) {{ return {body}; }}\nexport default config;"),
+    ] {
+        let value = extract("webpack.config.js", &source);
+        assert_eq!(get(&value, &["entry"]), &ConfigValue::Unknown, "{source}");
+        assert_eq!(
+            get(&value, &["inputs", "analyze"]),
+            &strings(&["./src/analyze.ts"]),
+            "{source}"
+        );
+        assert_eq!(get(&value, &["inputs", "index"]), &s("./src/index.ts"), "{source}");
+    }
+    let called = extract(
+        "webpack.config.js",
+        &format!("const make = (env = {{}}) => {body};\nexport default make();"),
+    );
+    assert_eq!(get(&called, &["entry"]), &s("./src/index.ts"));
+    assert_eq!(get(&called, &["inputs"]).get("analyze"), None);
+}
+
+/// A key a known object does not have reads as `undefined` alike through a member and through a destructuring, which
+/// then takes its default; a key an unknown spread may set is unknown both ways.
+#[test]
+fn a_missing_key_is_undefined_to_a_member_and_a_destructuring_alike() {
+    let value = extract(
+        "vite.config.ts",
+        "const pick = ({ mode }) => mode ?? 'fallback';\n\
+         const defaulted = ({ mode = 'default' }) => mode;\n\
+         const options = { base: '/' };\n\
+         export default { member: options.mode ?? 'fallback', destructured: pick(options), \
+         defaulted: defaulted(options), open: pick({ ...unknown() }), \
+         openMember: { ...unknown() }.mode ?? 'fallback' };",
+    );
+    assert_eq!(get(&value, &["member"]), &s("fallback"));
+    assert_eq!(get(&value, &["destructured"]), &s("fallback"));
+    assert_eq!(get(&value, &["defaulted"]), &s("default"));
+    assert_eq!(value.get("open"), Some(&ConfigValue::Unknown));
+    assert_eq!(value.get("openMember"), Some(&ConfigValue::Unknown));
+}
+
+/// A key a known object does not have itself may still be inherited: a member of `Object.prototype` (`constructor`,
+/// `toString`, `hasOwnProperty`, `valueOf`) and any key of an object with a `__proto__` are unknown, to a member read
+/// and a destructuring alike, rather than `undefined`.
+#[test]
+fn an_inherited_key_is_unknown_rather_than_undefined() {
+    let value = extract(
+        "vite.config.ts",
+        "const options = { base: '/' };\n\
+         const inherits = { __proto__: { mode: 'prod' }, base: '/' };\n\
+         const pick = ({ toString }) => toString ?? 'fallback';\n\
+         export default { constructor: options.constructor ?? 'fallback', toString: options.toString ?? 'fallback', \
+         hasOwnProperty: options.hasOwnProperty ?? 'fallback', valueOf: options.valueOf ?? 'fallback', \
+         proto: inherits.mode ?? 'fallback', destructured: pick(options), missing: options.mode ?? 'fallback' };",
+    );
+    for key in [
+        "constructor",
+        "toString",
+        "hasOwnProperty",
+        "valueOf",
+        "proto",
+        "destructured",
+    ] {
+        assert_eq!(value.get(key), Some(&ConfigValue::Unknown), "{key}: {value:?}");
+    }
+    assert_eq!(get(&value, &["missing"]), &s("fallback"));
+}
+
+/// A key merged from the branches of a spread whose test is unknown may be absent or hold any one of the values its
+/// union lists, so a read of it is not definite: a fallback (`x.setupFiles ?? ['./default.ts']`, `||`, a destructuring
+/// default) is credited too, a test on it is unknown, and so is its `length`, also through a nested object and a
+/// spread of the object. A key set after the spread is definite again, and the exported object keeps only its keys.
+#[test]
+fn a_key_merged_from_undecided_branches_is_not_definite() {
+    let value = extract(
+        "vitest.config.ts",
+        "const x = { ...(process.env.CI ? { setupFiles: ['./a.ts'], test: { include: ['a'] } } : {}) };\n\
+         const y = { ...(process.env.CI ? { setupFiles: ['./a.ts'] } : {}), setupFiles: ['./b.ts'] };\n\
+         const pick = ({ setupFiles = ['./d.ts'] }) => setupFiles;\n\
+         export default {\n\
+           coalesced: x.setupFiles ?? ['./default.ts'],\n\
+           or: x.setupFiles || ['./or.ts'],\n\
+           destructured: pick(x),\n\
+           nested: x.test.include ?? ['b'],\n\
+           respread: { ...x }.setupFiles ?? ['./default.ts'],\n\
+           length: x.setupFiles.length,\n\
+           fallbackLength: (x.setupFiles ?? []).length,\n\
+           tested: x.setupFiles ? 1 : 2,\n\
+           negated: !x.setupFiles,\n\
+           set: y.setupFiles ?? ['./default.ts'],\n\
+           setLength: y.setupFiles.length,\n\
+           exported: x,\n\
+         };",
+    );
+    assert_eq!(get(&value, &["coalesced"]), &strings(&["./a.ts", "./default.ts"]));
+    assert_eq!(get(&value, &["or"]), &strings(&["./a.ts", "./or.ts"]));
+    assert_eq!(get(&value, &["destructured"]), &strings(&["./a.ts", "./d.ts"]));
+    assert_eq!(get(&value, &["nested"]), &strings(&["a", "b"]));
+    assert_eq!(get(&value, &["respread"]), &strings(&["./a.ts", "./default.ts"]));
+    for key in ["length", "fallbackLength", "tested", "negated"] {
+        assert_eq!(value.get(key), Some(&ConfigValue::Unknown), "{key}: {value:?}");
+    }
+    assert_eq!(get(&value, &["set"]), &strings(&["./b.ts"]));
+    assert_eq!(get(&value, &["setLength"]), &ConfigValue::Number(1.0));
+    assert_eq!(
+        get(&value, &["exported"]),
+        &ConfigValue::Object(vec![
+            ("setupFiles".to_owned(), strings(&["./a.ts"])),
+            (
+                "test".to_owned(),
+                ConfigValue::Object(vec![("include".to_owned(), strings(&["a"]))])
+            ),
+        ])
+    );
+}
+
+/// A key is an ordinary key whatever its name: one that reads like evaluator bookkeeping (`'\0maybe:a'`) is exported as
+/// written and leaves a read of the key it seems to name definite.
+#[test]
+fn a_key_named_like_bookkeeping_is_an_ordinary_key() {
+    let value = extract(
+        "vitest.config.ts",
+        "const x = { a: 'ab', '\\0maybe:a': 1 };\n\
+         export default { exported: x, coalesced: x.a ?? 'fallback', length: x.a.length };",
+    );
+    assert_eq!(
+        get(&value, &["exported"]),
+        &ConfigValue::Object(vec![
+            ("a".to_owned(), s("ab")),
+            ("\0maybe:a".to_owned(), ConfigValue::Number(1.0)),
+        ])
+    );
+    assert_eq!(get(&value, &["coalesced"]), &s("ab"));
+    assert_eq!(get(&value, &["length"]), &ConfigValue::Number(2.0));
+}
+
+/// A constant holding a read that is not definite is not definite either, at the top level and in a function: a
+/// fallback is credited too, and a test on it and its `length` are unknown.
+#[test]
+fn a_constant_holding_a_read_that_is_not_definite_is_not_definite() {
+    let value = extract(
+        "vitest.config.ts",
+        "const x = { ...(process.env.CI ? { setupFiles: ['./a.ts'] } : {}) };\n\
+         const files = x.setupFiles;\n\
+         const local = () => {\n\
+           const held = x.setupFiles;\n\
+           return { coalesced: held ?? ['./b.ts'], length: held.length };\n\
+         };\n\
+         export default {\n\
+           coalesced: files ?? ['./default.ts'],\n\
+           or: files || ['./or.ts'],\n\
+           length: files.length,\n\
+           tested: files ? 1 : 2,\n\
+           kept: files,\n\
+           local: local(),\n\
+         };",
+    );
+    assert_eq!(get(&value, &["coalesced"]), &strings(&["./a.ts", "./default.ts"]));
+    assert_eq!(get(&value, &["or"]), &strings(&["./a.ts", "./or.ts"]));
+    assert_eq!(get(&value, &["kept"]), &strings(&["./a.ts"]));
+    assert_eq!(get(&value, &["local", "coalesced"]), &strings(&["./a.ts", "./b.ts"]));
+    for key in ["length", "tested"] {
+        assert_eq!(value.get(key), Some(&ConfigValue::Unknown), "{key}: {value:?}");
+    }
+    assert_eq!(
+        value.get("local").and_then(|local| local.get("length")),
+        Some(&ConfigValue::Unknown),
+        "{value:?}"
+    );
+}
+
+/// A read that is not definite stays so through every value it reaches: a key of an object (spread, merged or set on
+/// a local), the argument of a call, the value a function returns and a local it is assigned to. A fallback after it is
+/// credited too, so both the file a branch sets and the fallback stay named.
+#[test]
+fn a_read_that_is_not_definite_stays_so_through_every_value_it_reaches() {
+    let base = "const base = { ...(process.env.CI ? { setupFiles: ['./ci.ts'] } : {}) };\n";
+    for source in [
+        "const t = { ...base };\nexport default { test: { setupFiles: t.setupFiles ?? ['./local.ts'] } };",
+        "const t = Object.assign({}, base);\nexport default { test: { setupFiles: t.setupFiles ?? ['./local.ts'] } };",
+        "const t = { files: base.setupFiles };\nexport default { test: { setupFiles: t.files ?? ['./local.ts'] } };",
+        "const t = Object.assign({}, { files: base.setupFiles });\n\
+         export default { test: { setupFiles: t.files ?? ['./local.ts'] } };",
+        "const pick = (o) => o.setupFiles;\nexport default { test: { setupFiles: pick(base) ?? ['./local.ts'] } };",
+        "function pick(o) { const files = o.setupFiles; return files; }\n\
+         export default { test: { setupFiles: pick(base) ?? ['./local.ts'] } };",
+        "const make = (files) => files ?? ['./local.ts'];\n\
+         export default { test: { setupFiles: make(base.setupFiles) } };",
+        "const make = () => { let files; files = base.setupFiles; return files ?? ['./local.ts']; };\n\
+         export default { test: { setupFiles: make() } };",
+    ] {
+        let source = format!("{base}{source}");
+        let value = extract("vitest.config.ts", &source);
+        assert_eq!(
+            get(&value, &["test", "setupFiles"]),
+            &strings(&["./ci.ts", "./local.ts"]),
+            "{source}"
+        );
+    }
+    // A nested function that stores a part of `base` into an object it changes may share that part with `base`
+    // (`sharing.rs`), so the read is unknown rather than the union.
+    let shared = format!(
+        "{base}const make = () => {{ const t = {{}}; t.files = base.setupFiles; return t.files ?? ['./local.ts']; }};\n\
+         export default {{ test: {{ setupFiles: make() }} }};"
+    );
+    assert_eq!(
+        get(&extract("vitest.config.ts", &shared), &["test", "setupFiles"]),
+        &ConfigValue::Unknown
+    );
+    let spread = extract(
+        "vitest.config.ts",
+        &format!(
+            "{base}const files = [...(base.setupFiles ?? [])];\n\
+             export default {{ test: {{ setupFiles: files.length ? files : ['./local.ts'], length: files.length }} }};"
+        ),
+    );
+    assert_eq!(
+        get(&spread, &["test", "setupFiles"]),
+        &ConfigValue::Unknown,
+        "{spread:?}"
+    );
+    assert_eq!(get(&spread, &["test", "length"]), &ConfigValue::Unknown, "{spread:?}");
+}
+
+/// A key an object does not have is `undefined`, so a parameter's or a destructuring's default applies to it, while a
+/// literal `null` skips the default; `??` falls back on both, and an absent key is exported as `null`.
+#[test]
+fn an_absent_key_takes_a_default_and_null_does_not() {
+    let value = extract(
+        "vitest.config.ts",
+        "const base = { test: { include: ['a'] } };\n\
+         function make(setupFiles = ['./setup.ts']) { return setupFiles; }\n\
+         const absent = () => { const o = { f: base.x }; const { f = ['./d.ts'] } = o; return f; };\n\
+         const nulled = () => { const o = { f: null }; const { f = ['./d.ts'] } = o; return f; };\n\
+         export default {\n\
+           parameter: make(base.test.setupFiles),\n\
+           destructured: absent(),\n\
+           nullParameter: make(null),\n\
+           nullDestructured: nulled(),\n\
+           coalesced: base.test.setupFiles ?? ['./c.ts'],\n\
+           nullCoalesced: null ?? ['./n.ts'],\n\
+           exported: { f: base.x },\n\
+         };",
+    );
+    assert_eq!(get(&value, &["parameter"]), &strings(&["./setup.ts"]));
+    assert_eq!(get(&value, &["destructured"]), &strings(&["./d.ts"]));
+    assert_eq!(get(&value, &["nullParameter"]), &ConfigValue::Null);
+    assert_eq!(get(&value, &["nullDestructured"]), &ConfigValue::Null);
+    assert_eq!(get(&value, &["coalesced"]), &strings(&["./c.ts"]));
+    assert_eq!(get(&value, &["nullCoalesced"]), &strings(&["./n.ts"]));
+    assert_eq!(
+        get(&value, &["exported"]),
+        &ConfigValue::Object(vec![("f".to_owned(), ConfigValue::Null)])
+    );
+}
+
+/// The arguments kept for an exported call that cannot be followed are the values the evaluation computed, not a
+/// second evaluation, which would find the call budget spent by what the function did after its arguments.
+#[test]
+fn the_arguments_of_an_unknown_call_are_the_ones_evaluated() {
+    let source = "const files = () => ['./config/boot.ts'];\n\
+                  const heavy = (n) => [heavy(n), heavy(n)];\n\
+                  function createConfig(options) { const spent = heavy(1); return build(options); }\n\
+                  export default createConfig({ setupFiles: files() });";
+    let found = extract_config(source, Path::new("vitest.config.ts"), None).expect("config is understood");
+    assert_eq!(found.value, ConfigValue::Unknown);
+    assert_eq!(
+        found.call_arguments,
+        vec![ConfigValue::Object(vec![(
+            "setupFiles".to_owned(),
+            strings(&["./config/boot.ts"])
+        )])]
+    );
+}
+
+/// The arguments of a call that cannot be followed are kept also when a config function the tool calls returns it,
+/// its parameters unknown whatever top-level binding they shadow, and when a known merge is given its result, directly
+/// or through a constant, next to the known options the merge applies.
+#[test]
+fn the_arguments_of_an_unknown_call_returned_or_merged_are_kept() {
+    let options = ConfigValue::Object(vec![("setupFiles".to_owned(), strings(&["./s.ts"]))]);
+    let extract = |source: &str| {
+        let found = extract_config(source, Path::new("vitest.config.ts"), None).expect("config is understood");
+        (found.value, found.call_arguments)
+    };
+    let preset = "import { defineConfig, mergeConfig } from 'vitest/config';\n\
+                  import { createConfig, createBase } from '@acme/vitest-preset';\n";
+    for returned in [
+        "export default () => createConfig({ setupFiles: ['./s.ts'] });",
+        "export default function () { return createConfig({ setupFiles: ['./s.ts'] }); }",
+        "export default defineConfig(() => createConfig({ setupFiles: ['./s.ts'] }));",
+    ] {
+        let source = format!("{preset}{returned}");
+        assert_eq!(
+            extract(&source),
+            (ConfigValue::Unknown, vec![options.clone()]),
+            "{source}"
+        );
+    }
+    let parameter = format!(
+        "{preset}const env = {{ mode: 'production' }};\n\
+         export default (env) => createConfig({{ setupFiles: ['./s.ts'], mode: env.mode }});"
+    );
+    assert_eq!(
+        extract(&parameter).1,
+        vec![ConfigValue::Object(vec![
+            ("setupFiles".to_owned(), strings(&["./s.ts"])),
+            ("mode".to_owned(), ConfigValue::Unknown),
+        ])]
+    );
+    for merged in [
+        "export default mergeConfig(createBase({ setupFiles: ['./s.ts'] }), { test: { environment: 'jsdom' } });",
+        "const base = createBase({ setupFiles: ['./s.ts'] });\n\
+         export default mergeConfig(base, { test: { environment: 'jsdom' } });",
+        "export default defineConfig(mergeConfig(createBase({ setupFiles: ['./s.ts'] }), \
+         { test: { environment: 'jsdom' } }));",
+    ] {
+        let source = format!("{preset}{merged}");
+        let (value, arguments) = extract(&source);
+        assert_eq!(get(&value, &["test", "environment"]), &s("jsdom"), "{source}");
+        assert_eq!(value.get(UNKNOWN_SPREAD), Some(&ConfigValue::Unknown), "{source}");
+        assert_eq!(arguments, vec![options.clone()], "{source}");
+    }
+    let known = format!("{preset}export default mergeConfig({{ test: {{ setupFiles: ['./s.ts'] }} }}, {{}});");
+    assert_eq!(extract(&known).1, Vec::new());
 }

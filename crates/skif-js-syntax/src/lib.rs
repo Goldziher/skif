@@ -1,8 +1,11 @@
 //! The oxc boundary of skif: one JavaScript or TypeScript file in, skif-owned facts out.
 //!
 //! [`parse_module`] returns a [`ModuleInfo`] (imports, exports, in-file references, removal ranges) and
-//! [`extract_config_object`] statically evaluates the object a tool config file exports. No oxc type appears in the
-//! public API, every public type is `Send + Sync`, and an oxc allocator lives only for the duration of one call.
+//! [`extract_config_object`] statically evaluates the object a tool config file exports. [`extract_config`] returns an
+//! [`ExtractedConfig`]: that value and the evaluated arguments of the calls the evaluator cannot follow that the file
+//! exports, returns from its config function or merges, following imports when given a [`ModuleLoader`]. No oxc type
+//! appears in the public API, every public type is `Send + Sync`, and an oxc allocator lives only for the duration of
+//! one call.
 //!
 //! Supported inputs are `.js .mjs .cjs .jsx .ts .mts .cts .tsx` and `.d.ts` files, plus the `<script>` blocks (and
 //! Astro frontmatter), the `<style>` imports and the markup identifiers of `.vue`, `.svelte` and `.astro` files:
@@ -60,9 +63,9 @@ pub use components::{
     RegisteredComponent, camelize, capitalize, is_native_tag, registered_components, registered_name, resolved_names,
 };
 pub use config::{
-    ConfigValue, ImportedCall, ModuleLoader, OWN_SPREAD, TEMPLATE_SUBSTITUTION, UNKNOWN_SPREAD, extract_config_object,
-    extract_config_object_with, extract_constructor_options, extract_imported_calls, extract_method_calls,
-    extract_property_calls, extract_property_values, literal_command,
+    ConfigValue, ExtractedConfig, ImportedCall, ModuleLoader, OWN_SPREAD, TEMPLATE_SUBSTITUTION, UNKNOWN_SPREAD,
+    extract_config, extract_config_object, extract_config_object_with, extract_constructor_options,
+    extract_imported_calls, extract_method_calls, extract_property_calls, extract_property_values, literal_command,
 };
 pub use error::SyntaxError;
 pub use model::{

@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use skif_js_syntax::{ConfigValue, ModuleLoader, extract_config_object, extract_config_object_with};
+use skif_js_syntax::{ConfigValue, ModuleLoader, extract_config, extract_config_object};
 
 /// Parses `source`, choosing the format from the file name: JavaScript and TypeScript are evaluated statically
 /// (nothing is executed), JSON and JSONC, YAML and TOML are parsed. Values that cannot be known without running
@@ -17,20 +17,30 @@ pub fn load_config(path: &Path, source: &str) -> Option<ConfigValue> {
 /// `modules` follows (a base config of the project or of a workspace package).
 #[must_use]
 pub fn load_config_with(path: &Path, source: &str, modules: Option<&dyn ModuleLoader>) -> Option<ConfigValue> {
+    load_config_and_call_arguments(path, source, modules).map(|(value, _)| value)
+}
+
+/// Like [`load_config_with`], with the arguments of the call a JavaScript or TypeScript config exports when that call
+/// cannot be followed (see [`skif_js_syntax::ExtractedConfig::call_arguments`]); none for any other format.
+pub(crate) fn load_config_and_call_arguments(
+    path: &Path,
+    source: &str,
+    modules: Option<&dyn ModuleLoader>,
+) -> Option<(ConfigValue, Vec<ConfigValue>)> {
     if path.parent().and_then(Path::file_name).is_some_and(|n| n == ".husky") {
-        return Some(ConfigValue::String(source.to_string()));
+        return Some((ConfigValue::String(source.to_string()), Vec::new()));
     }
     let extension = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
-    match extension.as_deref() {
-        Some("js" | "cjs" | "mjs" | "ts" | "cts" | "mts" | "jsx" | "tsx") => match modules {
-            Some(modules) => extract_config_object_with(source, path, modules),
-            None => extract_config_object(source, path),
-        },
+    let value = match extension.as_deref() {
+        Some("js" | "cjs" | "mjs" | "ts" | "cts" | "mts" | "jsx" | "tsx") => {
+            return extract_config(source, path, modules).map(|config| (config.value, config.call_arguments));
+        }
         Some("json" | "jsonc" | "json5") => json_like(source),
         Some("yml" | "yaml") => yaml(source),
         Some("toml") => toml(source),
         _ => json_like(source).or_else(|| yaml(source)),
-    }
+    };
+    value.map(|value| (value, Vec::new()))
 }
 
 /// Converts a parsed JSON document.

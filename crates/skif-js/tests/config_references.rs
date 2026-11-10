@@ -506,3 +506,37 @@ fn packages_an_imported_shared_config_names_are_charged_to_its_package() {
     );
     assert_eq!(found(&diagnostics, "unused-dependencies"), none());
 }
+
+/// A shared config spread into a config whose key extends a member of it (`plugins: [...base.plugins, 'x']`): what the
+/// shared config names stays judged against its package, and only what the importing config adds is its own.
+#[test]
+fn a_member_of_an_imported_shared_config_keeps_its_packages_with_its_package() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
+        ),
+        (
+            "packages/app/package.json",
+            r#"{"name":"@x/app","private":true,"type":"module","main":"src/index.ts","devDependencies":{"@x/style":"workspace:*","stylelint":"16.0.0"}}"#,
+        ),
+        (
+            "packages/app/stylelint.config.mjs",
+            "import base from '@x/style';\nexport default { ...base, plugins: [...base.plugins, 'stylelint-own'] };\n",
+        ),
+        ("packages/app/src/index.ts", "export const a = 1;\n"),
+        (
+            "packages/style/package.json",
+            r#"{"name":"@x/style","private":true,"type":"module","main":"index.js","dependencies":{"postcss-scss":"4.0.0","stylelint-scss":"6.0.0"}}"#,
+        ),
+        (
+            "packages/style/index.js",
+            "export default { customSyntax: 'postcss-scss', plugins: ['stylelint-scss'] };\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unlisted-dependencies"),
+        ["packages/app/stylelint.config.mjs: stylelint-own"]
+    );
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none());
+}
