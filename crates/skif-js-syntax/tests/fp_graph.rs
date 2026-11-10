@@ -92,6 +92,31 @@ fn signature_references_name_the_containing_exports() {
 }
 
 #[test]
+fn a_type_that_shares_its_name_with_a_value_exported_by_a_clause_contains_what_it_names() {
+    let info = parse(
+        "a.ts",
+        "export interface Options { a: string }\nexport interface Result { b: string }\n\
+         export interface Other { c: string }\n\
+         type Service = { run(options: Options): Result };\nconst Service = make();\nexport { Service };\n\
+         export type Alone = { other: Other };\n",
+    );
+    let containing = |name: &str| {
+        info.exports
+            .iter()
+            .find(|export| export.name == name)
+            .map(|export| export.referenced_in.clone())
+            .unwrap()
+    };
+    assert_eq!(containing("Options"), ["Service"]);
+    assert_eq!(containing("Result"), ["Service"]);
+    assert_eq!(
+        containing("Other"),
+        [] as [String; 0],
+        "a type without a value of its name is not followed"
+    );
+}
+
+#[test]
 fn every_binding_of_a_destructured_export_contains_the_types_of_its_initialiser() {
     let info = parse(
         "a.ts",
