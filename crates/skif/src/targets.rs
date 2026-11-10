@@ -60,6 +60,20 @@ impl Target {
         Some(path)
     }
 
+    /// Keeps the `[[ignore]]` entries of [`config`](Self::config) at the indices `keep` accepts, with
+    /// [`origins`](Self::origins) renumbered to match, so a later error about an entry still names the file that set
+    /// it.
+    pub fn retain_ignore(&mut self, keep: impl Fn(usize) -> bool) {
+        let entries = std::mem::take(&mut self.config.ignore);
+        self.config.ignore = entries
+            .into_iter()
+            .enumerate()
+            .filter(|(index, _)| keep(*index))
+            .map(|(_, entry)| entry)
+            .collect();
+        self.origins.retain_list("ignore", keep);
+    }
+
     /// `error`, raised while building a linter for this target, with an unknown rule ID attributed to the file (and,
     /// for a file of the chain, the line and column) that names it: a `[rules]` key, an `[[ignore]]` entry or an
     /// override. Any other error is returned as it is.

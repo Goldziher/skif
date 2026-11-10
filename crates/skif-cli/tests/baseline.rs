@@ -227,6 +227,34 @@ fn a_hand_written_ignore_equal_to_an_entry_keeps_applying_and_prunes_the_entry()
 }
 
 #[test]
+fn an_unknown_rule_after_the_baseline_entries_names_the_configuration_file() {
+    let dir = fixture("mismatch");
+    let recorded = |member: &str| {
+        format!(
+            "[[ignore]]\nrules = [\"version-mismatch\"]\npackages = [\"@cli/{member}\"]\ndependencies = [\"is-number@6.0.0\"]\nreason = \"baseline\"\n"
+        )
+    };
+    fs::write(dir.path().join(BASELINE), format!("{}\n{}", recorded("b"), recorded("c"))).unwrap();
+    fs::write(
+        dir.path().join("skif.toml"),
+        "extends = [\"skif.baseline.toml\"]\nignore = [{ rules = [\"typo-rule\"], reason = \"x\" }]\n[js]\nenabled = false\n",
+    )
+    .unwrap();
+
+    let written = baseline(dir.path(), "write", &[]);
+    assert_eq!(written.code, 2, "{}{}", written.stdout, written.stderr);
+    let error = &written.json()["error"];
+    assert_eq!(error["kind"], "config");
+    assert!(Path::new(error["path"].as_str().unwrap()).ends_with("skif.toml"), "{error}");
+    assert_eq!(error["line"], 2, "{error}");
+    assert_eq!(error["column"], 11, "{error}");
+    assert!(
+        error["message"].as_str().unwrap().contains("unknown rule \"typo-rule\""),
+        "{error}"
+    );
+}
+
+#[test]
 fn prune_without_a_baseline_file_cannot_run() {
     let dir = fixture("mismatch");
     let pruned = baseline(dir.path(), "prune", &[]);
