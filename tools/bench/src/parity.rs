@@ -18,7 +18,10 @@ use serde_json::{Value, json};
 use skif_workspace::{OsFs, declared_member_dirs};
 
 use crate::corpus::{self, RUSH_KNIP_ROOT, Repo, Tools};
-use crate::diff::{self, BASELINE_SCHEMA, Baseline, COMPARED, Counts, Deviation, Entry, Gate, Keys, Samples, Side};
+use crate::diff::{
+    self, BASELINE_SCHEMA, Baseline, COMPARED, CategorySet, Counts, Deviation, Entry, Gate, Keys, Samples, Side,
+};
+use crate::provenance;
 use crate::proc::{capture, find_on_path};
 
 /// skif rule to knip issue type.
@@ -1004,7 +1007,23 @@ fn skipped(reason: impl Into<String>) -> Outcome {
     }
 }
 
-fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: &Path) -> Result<Outcome> {
+/// The categories the comparison counts and the known deviations it sets apart, as the baseline records them.
+fn category_set() -> CategorySet {
+    let compared: BTreeSet<String> = KNIP_CATEGORIES.iter().map(|(_, category)| (*category).to_owned()).collect();
+    CategorySet {
+        compared: compared.into_iter().collect(),
+        known_deviations: KNIP_DEVIATIONS.iter().map(|deviation| deviation.id.to_owned()).collect(),
+    }
+}
+
+fn parity_repo(
+    options: &Options,
+    skif: &Path,
+    tools: &Tools,
+    repo: &Repo,
+    dir: &Path,
+    skif_rev: &str,
+) -> Result<Outcome> {
     let root = fs::canonicalize(dir).with_context(|| format!("resolving {}", dir.display()))?;
     let scratch = options.out.join("scratch").join(&repo.name);
     // A repository with `install = false` is compared uninstalled, so a tool that cannot run there says why itself.
@@ -1107,6 +1126,7 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
         "status": COMPARED,
         "installed": installed,
         "recursive": recursive,
+        "skif_rev": skif_rev,
         "knip_exit": knip_run.code,
         "knip_errors": knip_errors,
         "knip_invalid": repo.knip_invalid,
@@ -1125,7 +1145,8 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
             .with_known(split.known)
             .with_tool_errors(knip_errors.len())
             .with_invalid(repo.knip_invalid.clone())
-            .with_installed(installed),
+            .with_installed(installed)
+            .with_run(recursive, skif_rev),
         detail,
     })
 }
@@ -1368,11 +1389,12 @@ pub fn run(options: &Options) -> Result<()> {
     })?;
     let (tools, repos) = corpus::fetch_suite(&options.corpus_file, "parity", &options.only, &options.corpus_dir)?;
     let tool = format!("knip@{}", tools.knip);
+    let skif_rev = provenance::source_rev();
     let mut entries = BTreeMap::new();
     let mut details = serde_json::Map::new();
     for (repo, dir) in &repos {
         eprintln!("parity: {}", repo.name);
-        let outcome = parity_repo(options, &skif, &tools, repo, dir)?;
+        let outcome = parity_repo(options, &skif, &tools, repo, dir, &skif_rev)?;
         if let Some(reason) = &outcome.entry.reason {
             eprintln!("parity: {} skipped: {reason}", repo.name);
         }
@@ -1385,6 +1407,7 @@ pub fn run(options: &Options) -> Result<()> {
         "tool": tool,
         "installed": installed_summary(&entries),
         "install_requested": options.install,
+        "skif_rev": skif_rev,
         "recursive": options.recursive,
         "repo_knip_config": options.repo_knip_config,
         "include_test_files": options.include_test_files,
@@ -1400,6 +1423,7 @@ pub fn run(options: &Options) -> Result<()> {
         schema: BASELINE_SCHEMA,
         tool,
         installed: entries.values().all(|entry| entry.installed != Some(false)),
+        category_set: Some(category_set()),
         entries,
     };
     diff::conclude(&options.gate, &current)
@@ -1957,6 +1981,17 @@ mod tests {
             installed_summary(&BTreeMap::from([("c".to_owned(), entry(false))])),
             "no"
         );
+    }
+
+    #[test]
+    fn the_recorded_category_set_holds_every_compared_category_and_deviation() {
+        let set = category_set();
+        assert_eq!(set.compared.len(), KNIP_CATEGORIES.len());
+        assert!(set.compared.windows(2).all(|pair| pair[0] < pair[1]), "sorted: {:?}", set.compared);
+        for id in [IN_KNIP_UNUSED_FILE, IN_SKIF_UNUSED_FILE, KNIP_CONFIG_ERROR, NOT_JUDGED] {
+            assert!(set.known_deviations.iter().any(|known| known == id), "{id}");
+        }
+        assert_eq!(set.known_deviations.len(), KNIP_DEVIATIONS.len());
     }
 
     #[test]

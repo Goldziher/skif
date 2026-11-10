@@ -6,6 +6,7 @@ mod evidence;
 mod parity;
 mod precision;
 mod proc;
+mod provenance;
 mod run;
 mod sources;
 mod syncpack;
