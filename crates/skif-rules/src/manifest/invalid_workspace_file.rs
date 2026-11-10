@@ -107,7 +107,9 @@ fn point(cx: &LintContext<'_>, path: &Path, line: u32, column: u32) -> Option<Sp
 /// the end of the line when the column is past it.
 fn offset_at(source: &str, line: u32, column: u32) -> Option<usize> {
     let line_start = match line.checked_sub(2) {
-        None => source.strip_prefix('\u{feff}').map_or(0, |rest| source.len() - rest.len()),
+        None => source
+            .strip_prefix('\u{feff}')
+            .map_or(0, |rest| source.len() - rest.len()),
         Some(newlines) => source.match_indices('\n').nth(usize::try_from(newlines).ok()?)?.0 + 1,
     };
     let rest = &source[line_start..];
@@ -169,7 +171,11 @@ mod tests {
             let diagnostics = lint(META.id, &files, &config(""));
             assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
             let span = diagnostics[0].location.span.unwrap();
-            (located(&files, &diagnostics[0]).to_owned(), span.start_line, span.start_col)
+            (
+                located(&files, &diagnostics[0]).to_owned(),
+                span.start_line,
+                span.start_col,
+            )
         };
         let plain = locate(broken);
         assert!(!plain.0.is_empty(), "{plain:?}");
