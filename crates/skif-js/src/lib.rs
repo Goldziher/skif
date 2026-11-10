@@ -64,6 +64,8 @@ pub use input::{
 #[doc(hidden)]
 pub use manifest_paths::is_out_dir;
 #[doc(hidden)]
+pub use manifest_paths::n8n_load_paths;
+#[doc(hidden)]
 pub use manifest_paths::source_candidates;
 pub use plugin_source::PluginSource;
 pub use provider::{JsProvider, PROVIDER_ID};
