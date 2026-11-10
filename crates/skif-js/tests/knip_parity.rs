@@ -1,7 +1,7 @@
 //! Cases where the corpus runs showed skif and knip disagreeing and skif was wrong: members read in their own file,
 //! types in destructured exports, `new URL` targets, `require` assertions, imports awaited together with
 //! `Promise.all`, spies on a namespace member, enums read through a namespace, parameters that shadow an import,
-//! fixture directories, wildcard `exports`, same-name pairs and duplicate exports.
+//! fixture directories, wildcard `exports`, same-name pairs, types named by a same-name type and duplicate exports.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -254,6 +254,42 @@ fn a_parameter_that_shadows_a_namespace_import_does_not_use_the_namespace() {
         found(&diagnostics, "unused-namespace-exports"),
         ["chars.ts: $PIPE"],
         "the parameter `chars` is passed around, not the namespace"
+    );
+}
+
+#[test]
+fn a_type_that_shares_its_name_with_a_value_export_credits_what_it_names() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        (
+            "index.ts",
+            "import type { Service } from './client';\nimport { IStore } from './store';\n\
+             export let client: Service | undefined;\nconsole.log(IStore);\n",
+        ),
+        (
+            "client.ts",
+            "export interface Interface { run(): void }\n\
+             export class ClientService { constructor(readonly impl: Interface) {} }\n\
+             export const Service = ClientService;\nexport type Service = ClientService;\nexport class Unrelated {}\n",
+        ),
+        (
+            "store.ts",
+            "declare function createDecorator<T>(id: string): T;\nexport interface Base { close(): void }\n\
+             export const IStore = createDecorator<IStore>('store');\n\
+             export interface IStore extends Base { read(options: ReadOptions): Entry }\n\
+             export interface ReadOptions { key: string }\nexport type Entry = string;\n\
+             export interface Orphan { x: number }\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-exports"),
+        ["client.ts: Unrelated"],
+        "the type `Service` names `ClientService`, used as a type"
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-types"),
+        ["store.ts: Orphan"],
+        "the interface `IStore` shares its name with the used value"
     );
 }
 
