@@ -6,6 +6,8 @@
 //! * there is no strict mode: on a dependency that names a workspace package, a `workspace:` specifier, `*`/`latest`
 //!   and a `link:`/`file:` path that resolves to the package are always valid, as is any range the package's own
 //!   version satisfies (path specifiers are the business of `local-path-dependency`);
+//! * a bare-major range such as `^2` or `~1` stands for the versions it covers (`^2` accepts `2.3.0`), where
+//!   syncpack pads it to `^2.HUGE.HUGE` so that it accepts no version, which also changes the `same-range` overlap;
 //! * a `workspace:` specifier is never rewritten to a registry range, and never the target of one: where the package
 //!   has no version to align with, such instances take no part in the alignment;
 //! * instances using the `catalog:` protocol are left to the catalog rules: they never get a state here and take no
@@ -724,6 +726,10 @@ mod tests {
             ("^1.0.0", true),
             ("~1.0.0", true),
             ("^1.2.0", false),
+            ("^1", true),
+            ("~1", true),
+            ("^1.0", true),
+            ("^2", false),
             (">=1.0.0 <2.0.0", true),
             ("2.0.0", false),
             ("*", true),
