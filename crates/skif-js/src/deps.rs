@@ -909,7 +909,7 @@ impl DependencyUsage {
         false
     }
 
-    /// The packages that the tool configs of every package name themselves (a `tsconfig` `extends`, an ESLint plugin,
+    /// The packages that the tool configs of every package name themselves (a `tsconfig` `extends`, an eslint plugin,
     /// a Prisma generator), judged against the package that owns the config file: a listed one is used, one nothing
     /// lists or provides is unlisted at the config. A config in `node_modules`, outside the root, in a fixture
     /// directory or matched by an `ignore` pattern is not judged, and production mode judges none: configs serve

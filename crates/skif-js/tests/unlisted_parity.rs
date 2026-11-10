@@ -280,7 +280,7 @@ fn a_declared_subpath_declares_only_that_module() {
         ),
         (
             "packages/atoms/src/index.ts",
-            "import hashes from '@acme/web/public/hashes.json';\nimport { w } from 'whole-lib/deep';\nimport { p } from 'pattern-lib/x';\nexport const all = [hashes, w, p];\n",
+            "import hashes from '@acme/web/public/hashes.json';\nimport { w } from 'whole-lib/deep';\nimport { p } from 'pattern-lib/x';\nimport { s } from './shell';\nexport const all = [hashes, w, p, s];\n",
         ),
         (
             "packages/atoms/src/shell.ts",
