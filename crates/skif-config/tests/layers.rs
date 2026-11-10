@@ -997,7 +997,8 @@ fn a_blank_reason_is_reported_in_the_file_and_extend_key_that_wrote_it() {
         ],
         "/r/p",
     )
-    .to_string();
+    .to_string()
+    .replace('\\', "/");
     assert!(message.contains("/r/p/skif.toml"), "{message}");
     assert!(
         message.contains("js.extend-ignore-dependencies[0]: `reason` is empty"),

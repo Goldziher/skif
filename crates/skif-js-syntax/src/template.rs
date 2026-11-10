@@ -8,11 +8,11 @@
 //! The expressions are JavaScript, so oxc parses them: a name the expression binds itself (`items.map((x) => x)`) is
 //! no use. The template locals of the constructs around an expression are kept on a scope stack: Vue `v-for`,
 //! `v-slot` (`#name`) and `slot-scope`, and Svelte `{#each}`, `{#await}`, `{:then}`, `{:catch}`, `{#snippet}`,
-//! `{@const}` and `let:`. A name bound either way is not a use of an import of the same name (ADR 0082). An
+//! `{@const}` and `let:`. A name bound either way is not a use of an import of the same name (ADR 0084). An
 //! expression oxc cannot parse is read token by token, which can only make an import look more used.
 //!
 //! The tag names are returned as written, with the static values of Vue `is` attributes, for linking the components
-//! `unplugin-vue-components` registers (ADR 0082).
+//! `unplugin-vue-components` registers (ADR 0084).
 
 use std::collections::BTreeSet;
 

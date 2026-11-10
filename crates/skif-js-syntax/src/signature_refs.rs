@@ -2,7 +2,10 @@
 //!
 //! An exported type that only appears in the signature of another exported value (`export function f(p: Props)`)
 //! is part of that value's public surface: it is used exactly when the value is. Type-level containers
-//! (`interface`, `type`) are not followed, matching how knip treats `ignoreExportsUsedInFile` by default.
+//! (`interface`, `type`) are not followed, matching how knip treats `ignoreExportsUsedInFile` by default, unless a value
+//! export shares the name (`export const Service = …; export type Service = …`, `export const IStore =
+//! createDecorator<IStore>(…); export interface IStore { … }`): knip keeps one export per name, a value, so what the type
+//! mentions is used whenever the name is, as a type or as a value.
 
 use std::collections::{HashMap, HashSet};
 
@@ -18,6 +21,15 @@ use crate::model::{Export, ExportKind, ImportedKind, ModuleInfo};
 struct TypeNames {
     names: HashSet<String>,
     signature_only: bool,
+}
+
+impl TypeNames {
+    fn new(signature_only: bool) -> Self {
+        Self {
+            names: HashSet::new(),
+            signature_only,
+        }
+    }
 }
 
 impl<'a> Visit<'a> for TypeNames {
@@ -42,10 +54,7 @@ impl<'a> Visit<'a> for TypeNames {
 }
 
 fn function_names(function: &Function<'_>, signature_only: bool) -> HashSet<String> {
-    let mut visitor = TypeNames {
-        names: HashSet::new(),
-        signature_only,
-    };
+    let mut visitor = TypeNames::new(signature_only);
     if let Some(parameters) = &function.type_parameters {
         visitor.visit_ts_type_parameter_declaration(parameters);
     }
@@ -60,10 +69,7 @@ fn function_names(function: &Function<'_>, signature_only: bool) -> HashSet<Stri
 }
 
 fn class_names(class: &Class<'_>) -> HashSet<String> {
-    let mut visitor = TypeNames {
-        names: HashSet::new(),
-        signature_only: true,
-    };
+    let mut visitor = TypeNames::new(true);
     visitor.visit_class(class);
     visitor.names
 }
@@ -74,10 +80,7 @@ fn expression_names(expression: &Expression<'_>) -> HashSet<String> {
         Expression::FunctionExpression(function) => function.return_type.is_some(),
         _ => false,
     };
-    let mut visitor = TypeNames {
-        names: HashSet::new(),
-        signature_only: explicit_return,
-    };
+    let mut visitor = TypeNames::new(explicit_return);
     visitor.visit_expression(expression);
     visitor.names
 }
@@ -105,10 +108,7 @@ fn containers(declaration: &Declaration<'_>, out: &mut Vec<(String, HashSet<Stri
                     continue;
                 }
                 let names = if let Some(annotation) = &declarator.type_annotation {
-                    let mut visitor = TypeNames {
-                        names: HashSet::new(),
-                        signature_only: true,
-                    };
+                    let mut visitor = TypeNames::new(true);
                     visitor.visit_ts_type_annotation(annotation);
                     visitor.names
                 } else if let Some(init) = &declarator.init {
@@ -121,6 +121,25 @@ fn containers(declaration: &Declaration<'_>, out: &mut Vec<(String, HashSet<Stri
         }
         _ => {}
     }
+}
+
+/// The type-level declaration `declaration` (an `interface` or a `type` alias) with the type names it mentions,
+/// including the interfaces it extends. It contains them only for a value export of its name, which can be a separate
+/// clause (`type X = …; const X = …; export { X }`).
+fn type_container(declaration: &Declaration<'_>, out: &mut Vec<(String, HashSet<String>)>) {
+    let mut visitor = TypeNames::new(true);
+    let name = match declaration {
+        Declaration::TSTypeAliasDeclaration(alias) => {
+            visitor.visit_ts_type_alias_declaration(alias);
+            &alias.id.name
+        }
+        Declaration::TSInterfaceDeclaration(interface) => {
+            visitor.visit_ts_interface_declaration(interface);
+            &interface.id.name
+        }
+        _ => return,
+    };
+    out.push((name.as_str().to_owned(), visitor.names));
 }
 
 /// The local binding of an import that brings in what `export { a } from "x"` re-exports: `a` of `import { a } from
@@ -148,7 +167,10 @@ pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
     let mut found: Vec<(String, HashSet<String>)> = Vec::new();
     for statement in &program.body {
         match statement {
-            Statement::ExportDeclaration(export) => containers(&export.declaration, &mut found),
+            Statement::ExportDeclaration(export) => {
+                containers(&export.declaration, &mut found);
+                type_container(&export.declaration, &mut found);
+            }
             Statement::ExportDefaultDeclaration(export) => match &export.declaration {
                 ExportDefaultDeclarationKind::FunctionDeclaration(function) => {
                     if let Some(id) = &function.id {
@@ -168,13 +190,18 @@ pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
             other => {
                 if let Some(declaration) = other.as_declaration() {
                     containers(declaration, &mut found);
+                    type_container(declaration, &mut found);
                 }
             }
         }
     }
-    let mut mentions: HashMap<&str, &HashSet<String>> = HashMap::new();
+    // One name can have several declarations (a value and a type, overloads): it mentions what any of them does.
+    let mut mentions: HashMap<&str, HashSet<&str>> = HashMap::new();
     for (local, names) in &found {
-        mentions.insert(local.as_str(), names);
+        mentions
+            .entry(local.as_str())
+            .or_default()
+            .extend(names.iter().map(String::as_str));
     }
     let exported_as: HashMap<&str, Vec<String>> = info
         .exports
