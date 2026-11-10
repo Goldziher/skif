@@ -355,6 +355,10 @@ pub enum IncompleteScope {
 
 /// A package the plugin's configuration needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent property of the reference"
+)]
 pub struct DepRef {
     /// The package name, without version or subpath.
     pub name: String,
