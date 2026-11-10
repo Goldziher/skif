@@ -378,7 +378,9 @@ fn playwright_reporters_not_known_statically_leave_the_package_unjudged() {
         let results = run(&[("playwright.config.ts", source)], &["@playwright/test"], &[]);
         let reasons = &output(&results, "playwright").incomplete_reasons;
         assert!(
-            reasons.iter().any(|reason| reason.cause == IncompleteCause::ComputedEntries)
+            reasons
+                .iter()
+                .any(|reason| reason.cause == IncompleteCause::ComputedEntries)
                 && reasons.iter().all(|reason| reason.scope == IncompleteScope::Package),
             "{source}: {reasons:?}"
         );

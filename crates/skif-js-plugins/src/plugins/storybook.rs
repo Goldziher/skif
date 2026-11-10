@@ -69,7 +69,10 @@ impl Plugin for Storybook {
                 }
             }
         }
-        if let Some(framework) = value.get("framework").and_then(|framework| package_named(framework, &mut out)) {
+        if let Some(framework) = value
+            .get("framework")
+            .and_then(|framework| package_named(framework, &mut out))
+        {
             out.extend(module_input(config.base, framework, false));
         }
         if addons.contains(&"@storybook/addon-vitest") {
