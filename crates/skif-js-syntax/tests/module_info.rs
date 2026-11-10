@@ -837,6 +837,19 @@ fn an_import_and_a_dynamic_import_bound_to_the_same_name_each_get_their_own_read
 }
 
 #[test]
+fn a_parameter_decorator_reads_the_import_its_parameter_shadows() {
+    let source = "import * as tok from './tokens';\n\
+                  class S {\n  constructor(@Inject(tok.KEY) tok: string, @Inject(tok.OTHER) other: string) {\n\
+                  use(tok, other);\n  }\n}\n";
+    let info = parse("s.ts", source);
+    assert_eq!(
+        accessed(&info, "tok"),
+        (vec!["KEY".to_owned(), "OTHER".to_owned()], false),
+        "TypeScript evaluates parameter decorators outside the function, where `tok` is the import"
+    );
+}
+
+#[test]
 fn namespace_that_escapes_is_flagged() {
     for source in [
         "import * as ns from 'x'; use(ns);",
