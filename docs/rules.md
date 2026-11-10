@@ -45,10 +45,12 @@
 | [`unsynced-dependency-family`](#unsynced-dependency-family) | policy | error | none |
 | [`version-mismatch`](#version-mismatch) | policy | error | sometimes |
 | [`workspace-protocol`](#workspace-protocol) | policy | error | none |
+| [`foreign-package-manager-command`](#foreign-package-manager-command) | workspace | warning | none |
 | [`missing-package-manifest`](#missing-package-manifest) | workspace | warning | unsafe |
-| [`stale-patched-dependencies`](#stale-patched-dependencies) | workspace | warning | none |
 | [`nested-workspace-root`](#nested-workspace-root) | workspace | warning | none |
+| [`stale-patched-dependencies`](#stale-patched-dependencies) | workspace | warning | none |
 | [`stray-lockfile`](#stray-lockfile) | workspace | warning | unsafe |
+| [`toolchain-pin-drift`](#toolchain-pin-drift) | workspace | warning | none |
 | [`unmatched-workspace-patterns`](#unmatched-workspace-patterns) | workspace | warning | unsafe |
 
 ## catalog-mismatch
@@ -383,6 +385,14 @@ A dependency on a workspace package does not use the `workspace:` protocol.
 - Default severity: error
 - Fixable: none
 
+## foreign-package-manager-command
+
+Dockerfiles, CI workflows and shell scripts must not run a package manager other than the workspace's.
+
+- Category: workspace
+- Default severity: warning
+- Fixable: none
+
 ## missing-package-manifest
 
 A directory matched by the workspace patterns has no `package.json`.
@@ -392,12 +402,17 @@ A directory matched by the workspace patterns has no `package.json`.
 - Fixable: unsafe
 - sherif name: `packages-without-package-json`
 
-## stale-patched-dependencies
-
-A `patchedDependencies` entry no longer applies, names a missing file or lies outside the allowed paths, or a patch file is left over.
 ## nested-workspace-root
 
 A workspace member holds a `pnpm-workspace.yaml` of its own, so installs in that directory leave the workspace.
+
+- Category: workspace
+- Default severity: warning
+- Fixable: none
+
+## stale-patched-dependencies
+
+A `patchedDependencies` entry no longer applies, names a missing file or lies outside the allowed paths, or a patch file is left over.
 
 - Category: workspace
 - Default severity: warning
@@ -410,6 +425,14 @@ A lockfile other than the root lockfile of the package manager: one in a workspa
 - Category: workspace
 - Default severity: warning
 - Fixable: unsafe
+
+## toolchain-pin-drift
+
+Node and package-manager versions pinned in version files, Dockerfiles and CI workflows must match the root's.
+
+- Category: workspace
+- Default severity: warning
+- Fixable: none
 
 ## unmatched-workspace-patterns
 

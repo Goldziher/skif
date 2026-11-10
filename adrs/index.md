@@ -94,13 +94,13 @@ old one.
 | 0084 | [Template Scopes, Auto-Imported Vue Components and Marko Files](0084-template-scopes-auto-imported-vue-components-and-marko-files.md) | accepted |
 | 0085 | [Files Other Roots Reach Count as Used, Members Below Hidden Directories Are Analysed, and Jest's testRegex Adds Entries](0085-files-other-roots-reach-count-as-used.md) | accepted |
 | 0086 | [Packages Tool Configs Name Are Unlisted at the Config, Declared Subpaths and Workspace Packages Behind Aliases](0086-packages-tool-configs-name-are-unlisted-at-the-config.md) | accepted |
-| 0094 | [Script Commands Run Where They Change Directory To, and the No-Entries Cause](0094-script-directories-and-the-no-entries-cause.md) | accepted |
-| 0092 | [Machine-Tool Binaries, Unread Templates and Run-Time Entries](0092-machine-tool-binaries-unread-templates-and-run-time-entries.md) | accepted |
-| 0090 | [Lockfile Scopes for Banned Groups and Dependency Families, Read from pnpm-lock.yaml on Demand](0090-lockfile-scopes-for-banned-groups-and-dependency-families.md) | accepted |
-| 0091 | [`stale-patched-dependencies`: Patches That No Longer Apply, Missing or Misplaced Files and Leftover Patches](0091-stale-patched-dependencies.md) | accepted |
-| 0089 | [Stray Lockfiles and Nested Workspace Roots, with Allow-Lists That Carry Reasons](0089-stray-lockfiles-and-nested-workspace-roots.md) | accepted |
 | 0087 | [Toolchain Pins Outside `package.json` and the `toolchain-pin-drift` Rule](0087-toolchain-pins-outside-package-json-and-the-toolchain-pin-drift-rule.md) | accepted |
 | 0088 | [Commands of Another Package Manager and the `foreign-package-manager-command` Rule](0088-foreign-package-manager-commands.md) | accepted |
+| 0089 | [Stray Lockfiles and Nested Workspace Roots, with Allow-Lists That Carry Reasons](0089-stray-lockfiles-and-nested-workspace-roots.md) | accepted |
+| 0090 | [Lockfile Scopes for Banned Groups and Dependency Families, Read from pnpm-lock.yaml on Demand](0090-lockfile-scopes-for-banned-groups-and-dependency-families.md) | accepted |
+| 0091 | [`stale-patched-dependencies`: Patches That No Longer Apply, Missing or Misplaced Files and Leftover Patches](0091-stale-patched-dependencies.md) | accepted |
+| 0092 | [Machine-Tool Binaries, Unread Templates and Run-Time Entries](0092-machine-tool-binaries-unread-templates-and-run-time-entries.md) | accepted |
+| 0094 | [Script Commands Run Where They Change Directory To, and the No-Entries Cause](0094-script-directories-and-the-no-entries-cause.md) | accepted |
 
 ## Effective statements
 
