@@ -1,8 +1,9 @@
 //! The skif Node-API addon, loaded by the `skif` npm package.
 //!
 //! `run` is the whole CLI behind the `skif` bin; `lint` and `lintAsync` are a minimal embedding API that returns
-//! the JSON report. The addon is built with unwinding panics (the `node` profile), and every export that can panic
-//! turns a panic into a JavaScript exception instead of taking the host process down.
+//! the JSON report. The addon is built with unwinding panics (the `node` profile): `run` turns a panic into exit code 2
+//! (with the JSON `error` document under `--format json`), as the native binary does, and every other export that can
+//! panic turns it into a JavaScript exception instead of taking the host process down.
 
 use std::ffi::OsString;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -17,7 +18,8 @@ use skif_cli::CliError;
 /// Runs the skif command line with `argv` (the arguments after the program name) and returns its exit code.
 ///
 /// Output streams to the process's stdout and stderr exactly as the native binary does. It is written by Rust, not
-/// through `process.stdout`, so on a pipe it is not ordered with what Node writes in the same tick.
+/// through `process.stdout`, so on a pipe it is not ordered with what Node writes in the same tick. A panic exits 2,
+/// as it does in the binary.
 #[napi(catch_unwind)]
 pub fn run(argv: Vec<String>) -> u32 {
     let command_line = std::iter::once(OsString::from("skif")).chain(argv.into_iter().map(OsString::from));
