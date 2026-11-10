@@ -23,7 +23,7 @@ pub const CACHE_SCHEMA: u32 = 2;
 
 /// The digest of the serialized parse results of a fixed probe corpus at [`CACHE_SCHEMA`]. It is a test's guard,
 /// not part of any key: when the parse output changes, the test reports the new digest and both constants move.
-pub const CACHE_SCHEMA_DIGEST: u128 = 0xfc8b_261e_a950_4393_5cb6_9e0a_e024_6b3a;
+pub const CACHE_SCHEMA_DIGEST: u128 = 0x6db1_685b_e1ca_6068_2f17_2e0d_0fd1_efd1;
 
 /// The version a persisted cache records, `<crate version>+<CACHE_SCHEMA>`: a store written under another version
 /// is discarded as a whole.
@@ -203,7 +203,7 @@ mod tests {
     /// One source per language the parsers know and one of test-runner mocks, plus the bench corpus: the probe whose
     /// parse output the schema digest pins.
     fn probe_corpus() -> Vec<(PathBuf, String)> {
-        let inline: [(&str, &str); 14] = [
+        let inline: [(&str, &str); 15] = [
             (
                 "a.ts",
                 "import { a, type B } from './b';\nimport * as ns from 'ns';\nexport const c = a + ns.x;\n\
@@ -229,8 +229,8 @@ mod tests {
             (
                 "f.vue",
                 "<script setup lang=\"ts\">\nimport Child from './Child.vue';\nimport { ref } from 'vue';\n\
-                 const n = ref(0);\n</script>\n<template><Child :n=\"n\" /></template>\n\
-                 <style lang=\"scss\">@use './theme';</style>\n",
+                 const n = ref(0);\n</script>\n<template><Child :n=\"n\" /><app-card v-for=\"item in items\" />\
+                 <component is=\"AppBadge\" /></template>\n<style lang=\"scss\">@use './theme';</style>\n",
             ),
             (
                 "g.svelte",
@@ -257,6 +257,11 @@ mod tests {
             (
                 "l.scss",
                 "@use 'sass:math';\n@use './vars' as v;\n@forward './mixins';\n.a { b: v.$c; }\n",
+            ),
+            (
+                "n.marko",
+                "import format from './format';\nimport Card from '<card>';\n<div>${format(input.value)}</div>\n\
+                 style.less {\n  @import './theme.less';\n}\n",
             ),
             (
                 "m.test.ts",

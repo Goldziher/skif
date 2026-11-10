@@ -1,0 +1,3 @@
+<template>
+  <dialog open />
+</template>

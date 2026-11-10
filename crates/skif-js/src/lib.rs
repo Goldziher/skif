@@ -21,6 +21,7 @@
 
 mod analysis;
 mod ancestors;
+mod components;
 mod config_check;
 mod config_hints;
 mod config_modules;

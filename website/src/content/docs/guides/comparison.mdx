@@ -59,8 +59,9 @@ The remaining differences each have an issue:
 - A package whose entries skif cannot all know (a tool configuration it cannot read, or a `main`, `exports` or `bin`
   that maps to no source file) is skipped by the unused-dependency, export, type and member rules; knip still reports
   there ([#101](https://github.com/Goldziher/skif/issues/101)).
-- The templates of `.vue`, `.svelte` and `.astro` files are scanned for names, not compiled, so a template variable
-  that shadows an import hides it and auto-imported components are not credited per template
+- The templates of `.vue`, `.svelte` and `.astro` files are scanned, not compiled: their expressions are parsed and
+  their template locals scoped, and auto-imported Vue components are credited per template, but nothing in a template
+  is type-checked, auto-imported composables are all credited, and Marko tag libraries are not read
   ([#102](https://github.com/Goldziher/skif/issues/102)).
 - Some plugins read less than knip's (for example SST 2 stacks, mise file tasks, Taskfile commands with a template); the
   list is in the [plugin reference](../../reference/configuration/)

@@ -1,0 +1,14 @@
+import { titleCase } from "../../util/format.js";
+static import { sum } from "lodash-es";
+
+class {
+  onCreate() {
+    this.state = { total: sum([1, 2]) };
+  }
+}
+
+<div class="layout">${titleCase(input.title)}</div>
+
+<style>
+@import "./layout.css";
+</style>
