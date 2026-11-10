@@ -235,7 +235,7 @@ pub(crate) fn workspace_key(
 ) -> String {
     let dir = keys.key_dir(package);
     let written = keys
-        .key(&config.js.workspaces, &dir)
+        .package_key(&config.js.workspaces, package)
         .map_or(dir.as_str(), String::as_str);
     format!("js.workspaces.\"{written}\".{name}")
 }
