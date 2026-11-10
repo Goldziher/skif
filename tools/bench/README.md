@@ -132,8 +132,15 @@ that is a knip report is used.
 (create-t3-turbo's `metro.config.js` requires an unlisted package; vue-core's `vite.config.ts` files read an undefined
 `__DEV__`), runs on without the entry files that configuration names, prints its report and exits with 2. The harness
 records those files in `parity.json` (`knip_errors`, with `knip_exit`), their number in the baseline (`tool_errors`)
-and in the status cell of `parity.md`, and counts a finding only knip reports in a package that holds such a file as
-the `knip-config-error` known deviation rather than as a difference.
+and in the status cell of `parity.md`, and counts a finding only one tool reports in a package that holds such a file
+as the `knip-config-error` known deviation rather than as a difference: on knip's side because it ran without that
+configuration's entries, on skif's because knip's view of the package is incomplete.
+
+**Findings inside unused files.** A tool analyses nothing inside a file it reports as unused, so a finding in such a
+file follows from the `files` disagreement, which is counted once already. A finding only skif reports in a file knip
+lists under `files` is the `in-knip-unused-file` known deviation, and a finding only knip reports in a file skif
+reports unused is `in-skif-unused-file`; unused files themselves and the manifest categories (`dependencies`,
+`devDependencies`, `optionalPeerDependencies`, `binaries`) stay compared.
 
 **Labels.** `exports`, `types`, `nsExports` and `nsTypes` key the same `<file>|<name>`, and the tools label some
 differently: knip calls a `const enum` a type and files an export under `nsExports` when any importer uses a namespace,
