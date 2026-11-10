@@ -209,7 +209,9 @@ pub trait ModuleLoader {
 ///
 /// `a ? b : c` takes the branch a known test selects; with an unknown test it is what both branches share (for two
 /// objects, every key either has, unknown where they differ or only one has it). `a && b`, `a || b`, `a ?? b` and `!a`
-/// are followed when `a` is known, and `.length` of a known string or array is its length.
+/// are followed when `a` is known, and `.length` of a known string or array is its length. A member `a.b` of a known
+/// object is the value of its key `b`, unknown when an unknown spread may set it and `null` (standing for `undefined`)
+/// when the object does not have it, so `[...base.plugins, 'x']` and `options.setupFiles ?? []` are known.
 /// An `if (test) return a;` before a function's last `return` is followed the same way: a known test takes its branch,
 /// and an unknown one makes the value what both returns share. A spread of a conditional with an unknown test
 /// (`...(tmp && { cacheDir: tmp })`, `...(ci ? { a } : {})`) adds every key a branch sets: a list gets the elements of
@@ -1898,7 +1900,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         ConfigValue::String(out)
     }
 
-    /// `import.meta.dirname`, `import.meta.filename`, `import.meta.url` and the `pathname` of a `new URL(…)`.
+    /// `import.meta.dirname`, `import.meta.filename`, `import.meta.url`, the `pathname` of a `new URL(…)`, an export
+    /// of a namespace import, the `length` of a known string or array, and a key of a known object ([`member_of`]).
     fn member(&self, member: &'p StaticMemberExpression<'a>, depth: u32) -> ConfigValue {
         let property = member.property.name.as_str();
         match (member.object.get_inner_expression(), property) {
@@ -1914,18 +1917,13 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             {
                 self.namespace_member(object.name.as_str(), property)
             }
-            (object, "length") => {
-                let length = match self.expr(object, depth) {
-                    ConfigValue::String(text) => Some(text.encode_utf16().count()),
-                    // An unknown element may stand for a spread of any length.
-                    ConfigValue::Array(items) if !items.contains(&ConfigValue::Unknown) => Some(items.len()),
-                    _ => None,
-                };
-                length
-                    .and_then(|length| u32::try_from(length).ok())
-                    .map_or(ConfigValue::Unknown, |length| ConfigValue::Number(f64::from(length)))
+            (object, _) => {
+                let value = self.expr(object, depth);
+                match (&value, property) {
+                    (ConfigValue::String(_) | ConfigValue::Array(_), "length") => length_of(&value),
+                    _ => member_of(&value, property),
+                }
             }
-            _ => ConfigValue::Unknown,
         }
     }
 
@@ -3050,6 +3048,28 @@ fn entry_value(entries: &[(String, ConfigValue)], key: &str) -> Option<ConfigVal
                 value.clone()
             }
         })
+}
+
+/// The `length` of a string or an array; unknown for an array with an unknown element, which may stand for a spread of
+/// any length.
+fn length_of(value: &ConfigValue) -> ConfigValue {
+    let length = match value {
+        ConfigValue::String(text) => Some(text.encode_utf16().count()),
+        ConfigValue::Array(items) if !items.contains(&ConfigValue::Unknown) => Some(items.len()),
+        _ => None,
+    };
+    length
+        .and_then(|length| u32::try_from(length).ok())
+        .map_or(ConfigValue::Unknown, |length| ConfigValue::Number(f64::from(length)))
+}
+
+/// `value.key`: the value of `key` in a known object ([`entry_value`]), `null` (standing for `undefined`) when the
+/// object has neither the key nor an unknown spread, and unknown for a member of anything else.
+fn member_of(value: &ConfigValue, key: &str) -> ConfigValue {
+    match value {
+        ConfigValue::Object(entries) => entry_value(entries, key).unwrap_or(ConfigValue::Null),
+        _ => ConfigValue::Unknown,
+    }
 }
 
 /// The entries a spread of one of `branches` adds after `before`; see [`any_entries`].

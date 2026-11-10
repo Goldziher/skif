@@ -888,6 +888,11 @@ A JavaScript or TypeScript config is evaluated statically. A value it imports fr
 a workspace package (through its `exports` or `main`, mapped back to the source file), is evaluated in that module too:
 a base config merged with `mergeConfig`, spread into an object, or listed in an ESLint `defineConfig`. A value imported
 from an installed package stays unknown, and an imported value that depends on itself through imports is unknown there.
+A member of a known object is the value of its key: `{ ...base, plugins: [...base.plugins, "x"] }` keeps the plugins of
+the imported `base`, which are judged against the package that owns the module naming them, while `"x"` belongs to the
+importing config. A key the object does not have is `undefined`, and one an unknown spread may set is unknown. A config
+factory of a workspace package (`createVitestConfig({ setupFiles: ["./setup.ts"] })`, also wrapped as
+`defineConfig(createBase(options))`) is called with the arguments given, so what it builds from its options is known.
 A conditional (`cond ? a : b`, `&&`, `||`, `??`) whose test is known takes its branch, so a key spread in only when
 `pinCjs.length` is truthy is left out when `pinCjs` defaults to `[]`. A value with an unknown test is what both branches
 share: a key only one branch sets is unknown and the other keys stay known. A spread with an unknown test
