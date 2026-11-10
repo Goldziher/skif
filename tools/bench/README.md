@@ -133,8 +133,9 @@ syncpack diff never read it. It makes the Rush root a workspace for knip, which 
 findings in root files outside every project (`.prettierrc.js`, `common/scripts`) are the `rush-root-file` known
 deviation. A repository may set `build-command` (program first) in `corpus.toml`, run after a successful install:
 n8n builds the `@n8n/*-config` packages and `@n8n/constants` with their workspace dependencies, whose built `dist`
-its tool configurations import. The install marker records the build command, so a checkout installed without it is
-installed again. Without `--install` the run is quick but dominated by that noise. Whether a repository counts as installed is read
+its tool configurations import. The install marker records the install and build commands, so a checkout installed
+with other commands is installed again. Without `--install` the run is quick but dominated by knip's unresolved and unlisted imports of the
+uninstalled packages. Whether a repository counts as installed is read
 from the checkout (the `.skif-bench-installed` marker holds the pinned commit once an install succeeded), not from the
 flag: `parity.md` says `yes`, `no` or `partial (n of m)`, each baseline entry records its own `installed`, and
 `--check` rejects an entry whose checkout is installed differently from when it was recorded. A repository may set `install-command` (program first; `rules-js` installs with

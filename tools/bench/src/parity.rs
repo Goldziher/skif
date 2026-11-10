@@ -1121,7 +1121,7 @@ fn knip_unused_imports(
     keys
 }
 
-/// The `package.json` files knip reports a finding on./// The `package.json` files knip reports a finding on.
+/// The `package.json` files knip reports a finding on.
 fn knip_manifests(knip: &Keys) -> BTreeSet<String> {
     knip.values()
         .flatten()
@@ -1298,13 +1298,16 @@ fn run_step(
 }
 
 /// What the install marker of a checkout holds once the install (and the build, if any) succeeded: the pinned commit,
-/// and the build command on a second line, so a marker written before the command was added or changed is stale.
+/// then a line for the corpus `install-command` and one for the `build-command` when the repository sets them, so a
+/// marker written before a command was added or changed is stale.
 fn install_marker(repo: &Repo) -> String {
-    if repo.build_command.is_empty() {
-        repo.rev.clone()
-    } else {
-        format!("{}\nbuild: {}", repo.rev, repo.build_command.join(" "))
+    let mut marker = repo.rev.clone();
+    for (label, command) in [("install", &repo.install_command), ("build", &repo.build_command)] {
+        if !command.is_empty() {
+            let _ = write!(marker, "\n{label}: {}", command.join(" "));
+        }
     }
+    marker
 }
 
 /// Whether the dependencies of a checkout are installed at its pinned commit: its install marker holds the commit
@@ -2387,6 +2390,17 @@ mod tests {
             install_marker(&repo),
             format!("{}\nbuild: pnpm run build", "a".repeat(40))
         );
+        repo.install_command = vec!["pnpm".to_owned(), "install".to_owned()];
+        assert!(
+            !is_installed(&repo, &dir),
+            "a marker written with another install command is stale"
+        );
+        assert_eq!(
+            install_marker(&repo),
+            format!("{}\ninstall: pnpm install\nbuild: pnpm run build", "a".repeat(40))
+        );
+        fs::write(dir.join(INSTALLED_MARKER), install_marker(&repo)).unwrap();
+        assert!(is_installed(&repo, &dir));
         repo.rev = "b".repeat(40);
         assert!(!is_installed(&repo, &dir), "a marker of another commit is stale");
         fs::remove_dir_all(&dir).unwrap();
