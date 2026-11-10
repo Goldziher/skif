@@ -336,15 +336,18 @@ reason = "baseline"
 ```
 
 Version findings are recorded as `name@specifier`, so a baselined `react@^17.0.2` silences that version only; a
-package that moves to another version, or a new package, is reported again. This replaces a script that shrinks
+package that moves to another version, or a new package, is reported again. Other findings about a dependency are
+recorded by its name, so a version bump does not reopen them. This replaces a script that shrinks
 sherif's `ignoreDependency` to the variants still reported, and per-member `pinVersion` groups in syncpack. Edit a
 `reason` to say why an entry stays; later runs of `write` and `prune` keep it, and `--require-ignore-reasons` accepts
 the entries. `check` compares entries by what they suppress, so a reworded reason never fails it. A finding that has
 no package or dependency (a finding about the workspace as a whole) is not recorded, since its entry would
 turn the rule off; fix it or set the rule's level instead. Neither is a finding in a root `package.json` without a
-`name`, since no `[[ignore]]` package pattern selects the root alone; give the root a unique `name` to record it. Entries are as narrow as `[[ignore]]` allows: an
-`unused-exports` entry covers every unused export of its package until it is pruned. See the
-[CLI reference](../../reference/cli/#baseline) for the flags.
+`name`, since no `[[ignore]]` package pattern selects the root alone; give the root a unique `name` to record it. A finding about a file
+(`unused-files`, `unused-exports`) is recorded for that file, so a new unused file or export elsewhere fails the run.
+Give `write` and `prune` the lint flags your CI run uses (`--strict`, `--production`, `--config ci.toml`), so the
+baseline holds the findings that run reports; in a repository of several projects, `-r` gives each its own baseline.
+See the [CLI reference](../../reference/cli/#baseline) for the flags.
 
 ## What stays by hand
 
