@@ -329,14 +329,18 @@ fn custom_types(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValu
         let mut strategy = None;
         let mut location = None;
         let mut name_path = None;
-        let mut external = false;
+        let mut source = None;
+        let mut readable_source = true;
         for (key, item) in entries(state, src, &type_path, definition) {
             let key_path = join(&type_path, key);
             match key {
                 "strategy" => strategy = string(state, src, &key_path, item),
                 "path" => location = string(state, src, &key_path, item),
                 "namePath" => name_path = string(state, src, &key_path, item),
-                "source" => external = true,
+                "source" => {
+                    source = string(state, src, &key_path, item);
+                    readable_source = source.is_some();
+                }
                 other => state.note(
                     src,
                     NoteClass::Unsupported,
@@ -345,6 +349,11 @@ fn custom_types(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValu
                 ),
             }
         }
+        if !readable_source {
+            // Noted where it was read; syncpack rejects a source that is not a string.
+            types.custom.push((name.to_owned(), CustomKind::Unsupported));
+            continue;
+        }
         let kind = custom_type(
             state,
             src,
@@ -352,7 +361,7 @@ fn custom_types(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValu
             name,
             strategy.as_deref(),
             (location.as_deref(), name_path.as_deref()),
-            external,
+            source.as_deref(),
         );
         types.custom.push((name.to_owned(), kind));
     }
@@ -365,16 +374,32 @@ fn custom_type(
     name: &str,
     strategy: Option<&str>,
     (location, name_path): (Option<&str>, Option<&str>),
-    external: bool,
+    source: Option<&str>,
 ) -> CustomKind {
-    if external {
-        state.note(
-            src,
-            NoteClass::Unsupported,
-            path,
-            "reads a file other than package.json, which skif cannot",
-        );
-        return CustomKind::Unsupported;
+    // syncpack's sources: `PackageJson`, the default, and `PnpmWorkspace`; it rejects any other value.
+    match source {
+        None | Some("PackageJson") => {}
+        Some("PnpmWorkspace") => {
+            state.note(
+                src,
+                NoteClass::Unsupported,
+                path,
+                "reads pnpm-workspace.yaml, and skif reads custom types from package.json only",
+            );
+            return CustomKind::Unsupported;
+        }
+        Some(other) => {
+            state.note(
+                src,
+                NoteClass::Human,
+                path,
+                format!(
+                    "`{other}` is not a syncpack source (`PackageJson` or `PnpmWorkspace`), so syncpack rejected the \
+                     file"
+                ),
+            );
+            return CustomKind::Unsupported;
+        }
     }
     let (Some(strategy), Some(location)) = (strategy, location) else {
         state.note(src, NoteClass::Human, path, "needs both a `strategy` and a `path`");
