@@ -51,7 +51,7 @@ fn provider_ids_and_rule_set_are_stable() {
     let all = providers();
     assert_eq!(
         all.iter().map(|provider| provider.id()).collect::<Vec<_>>(),
-        ["manifest", "policy", "catalog"]
+        ["manifest", "policy", "catalog", "toolchain"]
     );
     let ids: Vec<&str> = all
         .iter()
@@ -76,6 +76,8 @@ fn provider_ids_and_rule_set_are_stable() {
             "unused-catalog-entries",
             "workspace-protocol",
             "unsynced-dependency-family",
+            "toolchain-pin-drift",
+            "foreign-package-manager-command",
         ]
     );
     Registry::new(all).unwrap();

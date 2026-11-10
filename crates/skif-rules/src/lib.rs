@@ -6,9 +6,9 @@
 //!
 //! [`manifest`] holds the rules over `package.json` manifests and the workspace layout. [`policy`] holds the version
 //! group and semver group policies. [`toolchain`] holds the rules over the version files, Dockerfiles, CI workflows
-//! and shell scripts beside the manifests, which read those files through a [`skif_core::FileSystem`] and so come in
-//! their own provider, [`toolchain_provider`]. [`providers`] returns every other built-in [`RuleProvider`], ready to
-//! register in a [`skif_lint::Registry`]. [`update`] plans `skif update`: newer published versions, through a
+//! and shell scripts beside the manifests. Rules that read files beyond the manifests (toolchain files, a lockfile,
+//! patch files) read them through [`LintContext::fs`](skif_lint::LintContext::fs). [`providers`] returns every
+//! built-in [`RuleProvider`], ready to register in a [`skif_lint::Registry`]. [`update`] plans `skif update`: newer published versions, through a
 //! registry the host supplies.
 
 #![warn(missing_docs)]
@@ -24,13 +24,14 @@ pub use policy::{catalog_provider, policy_provider};
 use skif_lint::RuleProvider;
 pub use toolchain::toolchain_provider;
 
-/// Every built-in rule provider that reads only the workspace; [`toolchain_provider`] is the one that reads more files.
+/// Every built-in rule provider.
 #[must_use]
 pub fn providers() -> Vec<Box<dyn RuleProvider>> {
     vec![
         Box::new(manifest_provider()),
         Box::new(policy_provider()),
         Box::new(catalog_provider()),
+        Box::new(toolchain_provider()),
     ]
 }
 

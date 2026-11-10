@@ -6,9 +6,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeSet;
-use std::sync::Arc;
 
-use skif_core::MemoryFs;
 use skif_lint::Registry;
 
 fn listed(text: &'static str) -> Vec<&'static str> {
@@ -19,9 +17,7 @@ fn listed(text: &'static str) -> Vec<&'static str> {
 }
 
 fn registered() -> BTreeSet<&'static str> {
-    let mut providers = skif_rules::providers();
-    providers.push(Box::new(skif_rules::toolchain_provider(Arc::new(MemoryFs::new()))));
-    Registry::new(providers).unwrap().rules().map(|meta| meta.id).collect()
+    Registry::new(skif_rules::providers()).unwrap().rules().map(|meta| meta.id).collect()
 }
 
 #[test]

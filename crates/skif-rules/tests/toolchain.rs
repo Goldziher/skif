@@ -4,10 +4,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::Path;
-use std::sync::Arc;
 
 use skif_config::Config;
-use skif_core::{OsFs, Report};
+use skif_core::Report;
 use skif_lint::{Registry, RunOptions, run};
 use skif_workspace::Workspace;
 
@@ -15,7 +14,7 @@ fn report() -> Report {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/toolchain");
     let config = Config::default();
     let workspace = Workspace::discover(&root, &config).unwrap();
-    let registry = Registry::new(vec![Box::new(skif_rules::toolchain_provider(Arc::new(OsFs)))]).unwrap();
+    let registry = Registry::new(vec![Box::new(skif_rules::toolchain_provider())]).unwrap();
     run(&registry, &workspace, &config, &RunOptions::default()).unwrap()
 }
 
