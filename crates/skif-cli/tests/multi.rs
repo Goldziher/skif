@@ -1121,7 +1121,11 @@ fn an_explicit_config_keys_workspaces_by_their_directory_below_the_start() {
     assert_eq!(root_paths(&report), [".", "tools/sub"], "{report}");
     // `"."` is the start root only, and `tools/sub` the nested root: each entry is used in its own root and makes
     // its file an entry there.
-    assert_eq!(messages_of(&report, "stale-js-config"), Vec::<String>::new(), "{report}");
+    assert_eq!(
+        messages_of(&report, "stale-js-config"),
+        Vec::<String>::new(),
+        "{report}"
+    );
     assert_eq!(paths_reporting(&report, "unused-files"), BTreeSet::new(), "{report}");
 }
 
@@ -1162,5 +1166,9 @@ fn an_entry_of_an_explicit_config_one_root_uses_is_not_stale() {
     let report = recursive_with_config(&repo, &file);
     // The nested root lists `left-pad` without using it, so the entry silences a finding there.
     assert_eq!(unused_dependencies(&report), Vec::<String>::new(), "{report}");
-    assert_eq!(messages_of(&report, "stale-js-config"), Vec::<String>::new(), "{report}");
+    assert_eq!(
+        messages_of(&report, "stale-js-config"),
+        Vec::<String>::new(),
+        "{report}"
+    );
 }

@@ -1117,8 +1117,14 @@ mod tests {
         let workspaces = tables(&[".", "tools/sub", "packages/*"]);
         let keys = WorkspaceKeys::new(&workspaces);
         assert_eq!(keys.key(&workspaces, ".").map(String::as_str), Some("."));
-        assert_eq!(keys.key(&workspaces, "packages/a").map(String::as_str), Some("packages/*"));
-        assert_eq!(keys.unmatched(&workspaces, &[".".to_owned()]), ["tools/sub", "packages/*"]);
+        assert_eq!(
+            keys.key(&workspaces, "packages/a").map(String::as_str),
+            Some("packages/*")
+        );
+        assert_eq!(
+            keys.unmatched(&workspaces, &[".".to_owned()]),
+            ["tools/sub", "packages/*"]
+        );
     }
 
     #[test]
