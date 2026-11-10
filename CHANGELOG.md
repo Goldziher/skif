@@ -19,7 +19,7 @@ All notable changes to this project are documented here. The format follows
 - `Report::other_project_files` lists every file with an absolute path (the files below the workspace root were
   relative to it) and also lists the files outside the root that the analysed code reaches;
   `Report::ancestor_dependency_uses` also lists the dependencies those files import, with the directory of the manifest
-  that lists them ([ADR 0084](adrs/0084-files-other-roots-reach-count-as-used.md),
+  that lists them ([ADR 0085](adrs/0085-files-other-roots-reach-count-as-used.md),
   [#100](https://github.com/Goldziher/skif/issues/100)).
 - The knip comparison sets apart findings that follow from where each tool looks, decided from paths and manifests:
   unused dependencies and script binaries skif reports on a `package.json` that is not one of knip's workspaces
@@ -30,6 +30,9 @@ All notable changes to this project are documented here. The format follows
   parity baseline needs a refresh
   ([ADR 0080](adrs/0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md),
   [#27](https://github.com/Goldziher/skif/issues/27)).
+- The knip comparison runs skif recursively on babel, whose `scripts/repo-utils` and
+  `scripts/integration-tests/fixtures/nextjs-10` are projects of their own outside the workspace patterns, whose files
+  knip reads from the root.
 
 ### Added
 
@@ -51,6 +54,30 @@ All notable changes to this project are documented here. The format follows
   - `react-email` credits only the preview server package of the installed (else declared) major version.
 - `skif-js-syntax` exports `extract_property_calls`, which calls a function property of a config statically, and
   `extract_method_calls`, which evaluates the arguments of method calls.
+- `skif-js-syntax`: `ImportedName` gains `nested_members`, the members read through a member of the binding
+  (`ns.E.A` reads `A` of `E`), for each member used only that way. A struct literal of `ImportedName` needs the new
+  field.
+
+### Fixed
+
+- An enum or TypeScript namespace read through a namespace import (`ns.E.A`, `ns.E['A']`, the type `ns.E.A`), also
+  through a named or `export * as` re-export, uses only the members read on it, so its other members are reported by
+  `unused-enum-members` and `unused-namespace-members`. `ns.E` used as a whole still uses every member
+  ([ADR 0083](adrs/0083-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
+- A parameter or local with the name of an import declaration's binding shadows it: passing it around or reading its
+  members no longer uses the imported module as a whole. A parameter decorator (`@Inject(tok.KEY) tok`) still reads
+  the import, as TypeScript evaluates it outside the function. `import x = require("x")` is still matched by name
+  ([ADR 0083](adrs/0083-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
+- An import declaration's binding and the binding of a `const ns = await import("x")` or `require("x")` in a
+  function with the same name each use the members read through them, not both every member read through the name
+  ([ADR 0083](adrs/0083-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
+- An exported `type` or `interface` that shares its name with a value export (`export const Service = X; export type
+  Service = X`, `export const IStore = createDecorator<IStore>(…); export interface IStore { … }`) credits the
+  exports it mentions whenever the name is used, as a type or a value, as knip does, also when an `export { Service }`
+  clause exports the pair
+  ([ADR 0083](adrs/0083-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
+- The types the signatures of an overloaded function mention are used when the function is, from every signature, not
+  only the last one.
 
 ### Changed
 
@@ -67,9 +94,33 @@ All notable changes to this project are documented here. The format follows
   judge only the binaries they reach through a package manager or a `node_modules/.bin` path, as knip's
   `optionalBinaries` does (`PluginSpec` gains `optional_binaries`, `BinaryUse` gains `bin_path`), and a GitHub
   Actions step whose `shell` is not a POSIX shell is not read.
+- In a package whose incomplete entries lie in a narrowed scope, `unused-exports`, `unused-types`, the namespace
+  export rules, the member rules and the tag hints of `stale-js-config` now judge every file outside the scope: every
+  file the scope matches is an entry, outside the package's `project` globs and in the workspace packages nested
+  below it too, so whatever an unknown entry imports is counted. Files in the scope, packages unjudged as a whole and
+  the dependency rules are unchanged. A spread above a Vite or Vitest entry key of a value the config computes itself
+  (`build: { ...makeLib() }` with `makeLib` declared in the config) now leaves the package unjudged as a whole, as a
+  spread inside the key does; only an imported base narrows
+  ([ADR 0081](adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md),
+  [#101](https://github.com/Goldziher/skif/issues/101)).
+- The `esbuild` plugin reads build scripts that export nothing (`run({ entryPoints: { … } })`,
+  `await esbuild.build({ entryPoints: [...] })`, also inside a function, where a local that shadows a top-level
+  binding is unknown): each `entryPoints` they write is a production entry, and the package is no longer unjudged as
+  unparsable
+  ([ADR 0081](adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md),
+  [#101](https://github.com/Goldziher/skif/issues/101)).
 
 ### Fixed
 
+- A project whose only JavaScript is a pnpm install hook (`.pnpmfile.cjs`, `.pnpmfile.mjs`) and that has no script
+  is no longer judged for unused dependencies: its manifest lists what code elsewhere installs it for, as for a
+  project with no source file. The hook is still an entry, so what it imports is used
+  ([ADR 0082](adrs/0082-install-hooks-sveltekit-route-types-and-builtin-named-packages.md),
+  [#98](https://github.com/Goldziher/skif/issues/98)).
+- `unresolved-imports` no longer reports SvelteKit's `./$types` while the `.svelte-kit/tsconfig.json` the project's
+  `tsconfig.json` or `jsconfig.json` extends is not generated and is gitignored
+  ([ADR 0082](adrs/0082-install-hooks-sveltekit-route-types-and-builtin-named-packages.md),
+  [#99](https://github.com/Goldziher/skif/issues/99)).
 - In a multi-root run (`skif -r`), a file another root uses is no longer reported by `unused-files` or deleted by
   `--allow-remove-files`: a file of a nested root that a workflow step or another tool configuration of an enclosing
   root names is an entry of the nested root, and a file a root's code reaches outside its own directory (an import of
@@ -77,17 +128,17 @@ All notable changes to this project are documented here. The format follows
   by the root that holds it, as do the dependencies such a file imports, in the manifest that lists them. The JS
   analysis follows imports of source files outside the workspace root, which it used to take for assets, as files of
   another project that it does not judge
-  ([ADR 0084](adrs/0084-files-other-roots-reach-count-as-used.md),
+  ([ADR 0085](adrs/0085-files-other-roots-reach-count-as-used.md),
   [#100](https://github.com/Goldziher/skif/issues/100)).
 - The `jest` plugin reads `testRegex` (a string, a regular expression or an array of them): the test files it selects
   are entries besides the default test globs, which stay as knip keeps them. `<rootDir>` stands for the config's
   `rootDir`, and the `i`, `m` and `s` flags of a regular expression literal apply; an expression the `regex` crate
   cannot compile leaves the package's entries incomplete. `testPathIgnorePatterns` is not applied, as knip does not
-  apply it ([ADR 0084](adrs/0084-files-other-roots-reach-count-as-used.md),
+  apply it ([ADR 0085](adrs/0085-files-other-roots-reach-count-as-used.md),
   [#100](https://github.com/Goldziher/skif/issues/100)).
 - The JS analysis walks a hidden directory that holds workspace members, such as `.vscode/extensions/*`, for those
   members, which it used to skip with the rest of the directory; the knip comparison's `skipped-directory` deviation
-  follows ([ADR 0084](adrs/0084-files-other-roots-reach-count-as-used.md),
+  follows ([ADR 0085](adrs/0085-files-other-roots-reach-count-as-used.md),
   [#100](https://github.com/Goldziher/skif/issues/100)).
 - The `jasmine` framework of a Karma config uses `jasmine-core` as well as `karma-jasmine`, as knip counts it
   ([#98](https://github.com/Goldziher/skif/issues/98)).

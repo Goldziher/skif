@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use skif_js_syntax::{ConfigValue, ModuleLoader, extract_config_object, extract_config_object_with};
+use skif_js_syntax::{ConfigValue, ModuleLoader, UNKNOWN_SPREAD, extract_config_object, extract_config_object_with};
 
 /// Modules by absolute path; relative specifiers resolve with a `.ts` extension, `@fx/base` to `/ws/base/index.ts`.
 struct Files(BTreeMap<PathBuf, &'static str>);
@@ -397,4 +397,28 @@ fn a_conditional_spread_with_a_destructured_default_is_known() {
         Some(&obj(vec![("alias", ConfigValue::Unknown)]))
     );
     assert!(configs[1].get("...").is_none());
+}
+
+/// What an imported module computes itself is, to the config importing it, a value taken from elsewhere: its spreads
+/// come back as unknown spreads of an imported value.
+#[test]
+fn the_own_spreads_of_an_imported_module_are_imported_ones() {
+    let loader = files(&[
+        (
+            "/ws/app/config.ts",
+            "import { shared } from './shared';\nexport default { build: shared };",
+        ),
+        (
+            "/ws/app/shared.ts",
+            "const make = () => JSON.parse(process.env.LIB ?? '{}');\n\
+             export const shared = { outDir: 'dist', ...make() };",
+        ),
+    ]);
+    assert_eq!(
+        eval(&loader),
+        obj(vec![(
+            "build",
+            obj(vec![("outDir", s("dist")), (UNKNOWN_SPREAD, ConfigValue::Unknown)])
+        )])
+    );
 }

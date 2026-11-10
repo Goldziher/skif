@@ -37,7 +37,7 @@ pub(crate) fn entries<'v>(
     };
     let mut out = Vec::new();
     for (key, inner) in pairs {
-        if key == "..." {
+        if ConfigValue::is_spread_key(key) {
             state.note(
                 src,
                 NoteClass::Human,

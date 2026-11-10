@@ -36,7 +36,7 @@ run = ["cargo fmt --all", "poly fmt --fix ."]
 [tasks."format:check"]
 description = "Verify formatting without writing changes"
 alias = ["fmt:check"]
-run = ["cargo fmt --all -- --check", "poly fmt --check ."]
+run = ["cargo fmt --all -- --check", "poly fmt ."]
 
 [tasks.bench]
 description = "Build skif in release mode and benchmark it with hyperfine (needs hyperfine; sherif, syncpack and knip are used when installed)"
