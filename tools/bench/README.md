@@ -165,8 +165,9 @@ file follows from the `files` disagreement, which is counted once already. A fin
 lists under `files` is the `in-knip-unused-file` known deviation, and a finding only knip reports in a file skif
 reports unused is `in-skif-unused-file`; unused files themselves and the manifest categories (`dependencies`,
 `devDependencies`, `optionalPeerDependencies`, `binaries`) stay compared. A dependency only knip reports unused is
-`used-in-knip-unused-file` when a file of the same workspace that knip lists under `files` imports the package (an
-`@types/` package when it imports the runtime package): the harness parses those files with skif's parser
+`used-in-knip-unused-file` when a file of the same workspace that only knip lists under `files` imports the package
+(an `@types/` package when it imports the runtime package); a file both tools report unused credits the package on
+neither side, so its dependencies stay compared: the harness parses those files with skif's parser
 (`skif-js-syntax`) for their bare imports, requires, re-exports and dynamic imports. knip does not analyse such a
 file, so it never sees the import skif credits; the harness does not check that this import is the one skif counts.
 
