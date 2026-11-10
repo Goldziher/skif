@@ -748,7 +748,15 @@ fn the_lint_after_fixing_judges_each_root_as_the_first_lint_did() {
     let report = result.json();
     assert_eq!(root_paths(&report), [".", "build", "packages/inner"]);
     assert_eq!(packages_of(&report, "."), [".", "packages/a"]);
-    assert_eq!(report["diagnostics"], Value::Array(Vec::new()), "{report}");
+    // Every fixable finding is gone; the outer root still warns about the member's own workspace file, which has no
+    // fix.
+    let left: Vec<&str> = report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|diagnostic| diagnostic["rule"].as_str().unwrap())
+        .collect();
+    assert_eq!(left, ["nested-workspace-root"], "{report}");
 }
 
 #[test]

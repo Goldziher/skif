@@ -53,6 +53,32 @@ it). `lerna.json` is read only when nothing before it declares members; an inval
 analysis, which skips hidden directories other than tool configuration ones, then walks such a directory for the
 members below it, and only for those.
 
+## Lockfiles and nested workspaces
+
+Every package manager installs a workspace from one lockfile at its root. `stray-lockfile` reports any other
+lockfile it finds: one in a member's directory (`package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock`,
+`pnpm-lock.yaml`, `bun.lock`, `bun.lockb`), and one at the root that another manager than the detected one writes
+(`package-lock.json` next to `pnpm-lock.yaml` in a pnpm workspace). npm's two lockfiles and Bun's two are both
+accepted at the root. Without a detected manager the root lockfiles are not judged. Its unsafe fix deletes the file.
+
+`nested-workspace-root` reports a `pnpm-workspace.yaml` in a member's directory: pnpm takes the nearest one above the
+working directory, so an install in that member leaves the root workspace. skif lints such a member as a root of its
+own in a recursive run, and the enclosing workspace still reports the file; the member's own lockfile is left to that
+root. A nested workspace that the patterns do not select is an independent project and is not reported.
+
+Both rules look at the root and the directories the workspace patterns select, not deeper, and skip files a
+`.gitignore`, an `.ignore` or `.git/info/exclude` excludes and members `[workspace] ignore-packages` excludes. A
+project that is installed on its own on purpose is better excluded from the workspace patterns; when it has to stay,
+list the file under `allow`:
+
+```toml
+[rules.stray-lockfile]
+allow = [{ name = "tools/codegen/package-lock.json", reason = "the build installs this tool on its own" }]
+```
+
+An entry is a path relative to the root, as a string or with a `reason`. An entry that names no file the rule would
+report is itself reported, at the configuration file, unless that file was inherited from a directory above the root.
+
 ## Monorepo configuration
 
 ```toml

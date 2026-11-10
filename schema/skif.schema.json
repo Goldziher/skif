@@ -331,7 +331,7 @@
         },
         "require-ignore-reasons": {
           "type": "boolean",
-          "description": "Fail the run when a suppression has no `reason`: an `[[ignore]]` entry, also one of an override, or an entry of\na `[js]` ignore list. The same check as `--require-ignore-reasons`; either one turns it on."
+          "description": "Fail the run when a suppression has no `reason`: an `[[ignore]]` entry, also one of an override, an entry of a\n`[js]` ignore list, or an entry of a rule's `allow` option. The same check as `--require-ignore-reasons`; either\none turns it on."
         }
       },
       "description": "`[lint]`"

@@ -262,8 +262,9 @@ impl Config {
     }
 
     /// The first suppression without a `reason`, named by its key: an `[[ignore]]` entry (`ignore[0]`, also one of an
-    /// override: `overrides[1].ignore[0]`) or an entry of a `[js]` ignore list, with its name
-    /// (``js.workspaces."apps/web".ignore-dependencies[2] `left-pad` ``). `None` when every one has a reason, which
+    /// override: `overrides[1].ignore[0]`), an entry of a `[js]` ignore list, with its name
+    /// (``js.workspaces."apps/web".ignore-dependencies[2] `left-pad` ``), or an entry of a rule's `allow` option
+    /// (``rules.stray-lockfile.allow[0] `tools/legacy/package-lock.json` ``). `None` when every one has a reason, which
     /// is what `--require-ignore-reasons` and `[lint] require-ignore-reasons` require.
     ///
     /// The check reads this configuration as it is, so on a merged one the key and position are those of the merged
@@ -287,6 +288,26 @@ impl Config {
                     .enumerate()
                     .find_map(|(index, scoped)| unreasoned_entry(&format!("overrides[{index}].ignore"), &scoped.ignore))
             })
+            .or_else(|| self.unreasoned_allow_entry())
+    }
+
+    /// The first entry without a `reason` of a rule's `allow` option (``rules.stray-lockfile.allow[0] `a/yarn.lock` ``):
+    /// an `allow` list keeps findings quiet as an ignore list does. An entry that is neither a string nor a table is
+    /// left to the rule's own validation.
+    fn unreasoned_allow_entry(&self) -> Option<String> {
+        self.rules.iter().find_map(|(id, rule)| {
+            let items = rule.options.get("allow")?.as_array()?;
+            items.iter().enumerate().find_map(|(index, item)| {
+                let name = match item {
+                    toml::Value::String(name) => name.as_str(),
+                    toml::Value::Table(table) if !table.contains_key("reason") => {
+                        table.get("name").and_then(toml::Value::as_str).unwrap_or_default()
+                    }
+                    _ => return None,
+                };
+                Some(format!("rules.{id}.allow[{index}] `{name}`"))
+            })
+        })
     }
 
     /// Every `[js]` ignore list under its full key: those of the top level, of each `[js.workspaces]` table and of
@@ -724,8 +745,9 @@ pub struct Lint {
     /// Caps the severity of every diagnostic: a rule configured above this level reports at it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_level: Option<Level>,
-    /// Fail the run when a suppression has no `reason`: an `[[ignore]]` entry, also one of an override, or an entry of
-    /// a `[js]` ignore list. The same check as `--require-ignore-reasons`; either one turns it on.
+    /// Fail the run when a suppression has no `reason`: an `[[ignore]]` entry, also one of an override, an entry of a
+    /// `[js]` ignore list, or an entry of a rule's `allow` option. The same check as `--require-ignore-reasons`; either
+    /// one turns it on.
     #[serde(skip_serializing_if = "is_false")]
     pub require_ignore_reasons: bool,
 }

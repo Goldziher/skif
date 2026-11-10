@@ -501,6 +501,39 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
       ]
     },
     {
+      "rule": "stray-lockfile",
+      "severity": "warning",
+      "message": "`packages/a/yarn.lock` is a lockfile inside the workspace, which installs from the root lockfile",
+      "help": "delete it; to install the directory on its own, exclude it from the workspace patterns, or keep it with an entry in `[rules.stray-lockfile] allow`",
+      "location": {
+        "path": "packages/a/yarn.lock"
+      },
+      "package": "@dirty/a",
+      "fixes": [
+        {
+          "title": "Delete `packages/a/yarn.lock`",
+          "safety": "unsafe",
+          "ops": [
+            {
+              "delete-file": {
+                "path": "packages/a/yarn.lock"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rule": "nested-workspace-root",
+      "severity": "warning",
+      "message": "`packages/b` is a workspace member but declares a workspace of its own in `packages/b/pnpm-workspace.yaml`",
+      "help": "pnpm installs from the nearest `pnpm-workspace.yaml`, so installs in this directory leave the root workspace; move its settings to the root file and delete it, or exclude the directory from the workspace patterns",
+      "location": {
+        "path": "packages/b/pnpm-workspace.yaml"
+      },
+      "package": "@dirty/b"
+    },
+    {
       "rule": "missing-package-manifest",
       "severity": "warning",
       "message": "`packages/nomanifest` matches a workspace pattern but has no package.json",
@@ -526,9 +559,9 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
   ],
   "summary": {
     "errors": 7,
-    "warnings": 6,
+    "warnings": 8,
     "infos": 0,
-    "fixable": 11,
+    "fixable": 12,
     "packages": 3
   }
 }
