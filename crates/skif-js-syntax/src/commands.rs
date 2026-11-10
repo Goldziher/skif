@@ -13,6 +13,11 @@ use crate::model::Import;
 
 const MODULES: &[&str] = &["child_process", "node:child_process"];
 
+/// The name the file evaluates under (`__filename`, `import.meta.url`). A `cwd` the file's own location computes is
+/// placed by the file's directory alone, so any name serves, but an empty one would make the file its own directory
+/// and put `path.dirname(fileURLToPath(import.meta.url))` one level above it.
+const FILE_NAME: &str = "file.js";
+
 /// The command lines of the `child_process` calls in `program`, in source order; empty unless one of `imports` reads
 /// the module, so files that do not use it are not walked again.
 pub(crate) fn child_process_commands(program: &Program<'_>, imports: &[Import]) -> Vec<String> {
@@ -23,7 +28,10 @@ pub(crate) fn child_process_commands(program: &Program<'_>, imports: &[Import]) 
         return Vec::new();
     }
     let mut commands: Vec<String> = Vec::new();
-    for command in imported_calls_in(program, "", MODULES, &[], true).iter().filter_map(command) {
+    for command in imported_calls_in(program, FILE_NAME, MODULES, &[], true)
+        .iter()
+        .filter_map(command)
+    {
         if !commands.contains(&command) {
             commands.push(command);
         }
