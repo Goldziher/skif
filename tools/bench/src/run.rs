@@ -430,8 +430,8 @@ fn markdown(summary: &Summary) -> String {
     let _ = write!(
         out,
         "Host: {}, {} ({} logical CPUs); load average {} before and {} after the run.\n\n",
-        summary.host,
-        summary.cpu,
+        one_line(&summary.host),
+        one_line(&summary.cpu),
         summary.cores,
         format_load(summary.load_before),
         format_load(summary.load_after)
@@ -450,7 +450,7 @@ fn markdown(summary: &Summary) -> String {
             "Not timed: {} on {}: {}.\n\n",
             skipped.tool,
             skipped.target.as_deref().unwrap_or("every target"),
-            skipped.reason
+            code_span(&skipped.reason)
         );
     }
     for target in &summary.targets {
@@ -497,6 +497,31 @@ fn markdown(summary: &Summary) -> String {
     out.truncate(end);
     out.push('\n');
     out
+}
+
+/// `text` with every run of whitespace (tabs, newlines, double spaces) made one space: `poly fmt` collapses them in
+/// Markdown prose, so the summary has to be written that way to pass its check.
+fn one_line(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// `text` (on [`one_line`]) as a Markdown code span, so `poly fmt` leaves it as written: command output such as an
+/// install's error line holds `_` pairs, `*` and URLs, which the formatter rewrites in prose. The fence is one backtick
+/// longer than the longest run of backticks inside.
+fn code_span(text: &str) -> String {
+    let text = one_line(text);
+    let longest = text
+        .split(|character: char| character != '`')
+        .map(str::len)
+        .max()
+        .unwrap_or(0);
+    let fence = "`".repeat(longest + 1);
+    let pad = if text.starts_with('`') || text.ends_with('`') {
+        " "
+    } else {
+        ""
+    };
+    format!("{fence}{pad}{text}{pad}{fence}")
 }
 
 /// `1.50 / 1.20 / 0.90` for the 1, 5 and 15 minute load averages, `unknown` without them.
@@ -885,7 +910,7 @@ mod tests {
         };
         let with_skip = markdown(&summary(Vec::new(), vec![skipped]));
         assert!(
-            with_skip.contains("Not timed: knip --reporter json on corpus: r (pnpm): the install failed: x."),
+            with_skip.contains("Not timed: knip --reporter json on corpus: r (pnpm): `the install failed: x`."),
             "{with_skip}"
         );
         assert!(
@@ -905,6 +930,25 @@ mod tests {
             assert!(!text.contains("\n\n\n"));
             assert!(text.lines().all(|line| line == line.trim_end()));
         }
+    }
+
+    /// An install's error line is written as `poly fmt` leaves it: in a code span, with whitespace runs collapsed.
+    #[test]
+    fn command_output_in_the_summary_is_written_as_the_formatter_leaves_it() {
+        assert_eq!(
+            code_span(
+                "pnpm install failed: ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with \"frozen-lockfile\" (see https://pnpm.io/x)"
+            ),
+            "`pnpm install failed: ERR_PNPM_OUTDATED_LOCKFILE Cannot install with \"frozen-lockfile\" (see https://pnpm.io/x)`"
+        );
+        assert_eq!(code_span("npm error\tcode  _not_ *x*\n"), "`npm error code _not_ *x*`");
+        assert_eq!(code_span("run `npm ci` here"), "``run `npm ci` here``");
+        assert_eq!(code_span("`tick`"), "`` `tick` ``");
+        assert_eq!(code_span("a ``b`` c"), "```a ``b`` c```");
+        assert_eq!(
+            one_line("AMD EPYC 7763 64-Core Processor   "),
+            "AMD EPYC 7763 64-Core Processor"
+        );
     }
 
     #[test]
