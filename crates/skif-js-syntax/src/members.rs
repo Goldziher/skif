@@ -64,7 +64,7 @@ pub(crate) type Uses = HashMap<String, Slot>;
 /// The slots of the bindings a [`Tracker`] follows, and how references find them.
 #[derive(Default)]
 struct Slots {
-    slots: Vec<Slot>,
+    all: Vec<Slot>,
     /// Slots of bindings matched by scope, by symbol.
     by_symbol: HashMap<SymbolId, usize>,
     /// Slots of bindings matched by name.
@@ -76,10 +76,10 @@ struct Slots {
 impl Slots {
     /// The slot of the binding `symbol` named `name`, matched by scope.
     fn scoped(&mut self, symbol: SymbolId, name: &str) -> usize {
-        let next = self.slots.len();
+        let next = self.all.len();
         let index = *self.by_symbol.entry(symbol).or_insert(next);
         if index == next {
-            self.slots.push(Slot::default());
+            self.all.push(Slot::default());
         }
         self.unresolved.entry(name.to_owned()).or_insert(index);
         index
@@ -91,8 +91,8 @@ impl Slots {
             return found;
         }
         let index = index.unwrap_or_else(|| {
-            self.slots.push(Slot::default());
-            self.slots.len() - 1
+            self.all.push(Slot::default());
+            self.all.len() - 1
         });
         self.by_name.insert(name.to_owned(), index);
         index
@@ -135,7 +135,7 @@ impl Tracker<'_> {
                 .or_else(|| symbol.is_none().then(|| slots.unresolved.get(name)).flatten())
                 .copied()?
         };
-        self.slots.slots.get_mut(index)
+        self.slots.all.get_mut(index)
     }
 
     fn member(&mut self, id: &IdentifierReference<'_>, member: &str) {
@@ -349,6 +349,8 @@ pub(crate) fn track(
     if !bound {
         return;
     }
+    // The semantic analysis sets the symbol ids the import bindings are matched by, so it runs first.
+    let scoping = analysis.scoping();
     let mut symbols = ImportSymbols::default();
     symbols.visit_program(program);
     let mut slots = Slots::default();
@@ -377,11 +379,11 @@ pub(crate) fn track(
         slots,
         open: false,
         excluded,
-        scoping: analysis.scoping(),
+        scoping,
     };
     tracker.visit_program(program);
     for (i, j, index) in assigned {
-        let slot = &tracker.slots.slots[index];
+        let slot = &tracker.slots.all[index];
         let name = &mut info.imports[i].names[j];
         name.accessed_members = slot.members.iter().cloned().collect();
         name.nested_members = slot
@@ -403,7 +405,11 @@ pub(crate) fn uses(program: &oxc_ast::ast::Program<'_>, analysis: &Analysis<'_>)
         scoping: analysis.scoping(),
     };
     tracker.visit_program(program);
-    let Slots { mut slots, by_name, .. } = tracker.slots;
+    let Slots {
+        all: mut slots,
+        by_name,
+        ..
+    } = tracker.slots;
     by_name
         .into_iter()
         .map(|(name, index)| (name, std::mem::take(&mut slots[index])))
