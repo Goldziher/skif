@@ -224,8 +224,10 @@ impl ParseCoalescer {
         options: &ParseOptions,
     ) -> Result<ModuleInfo, SyntaxError> {
         let key = ModuleKey::new(path, source, options);
-        self.get_or_parse(cache, key, &mut || parse_uncached(path, source, options).map(CachedModule))
-            .map(|CachedModule(info)| info)
+        self.get_or_parse(cache, key, &mut || {
+            parse_uncached(path, source, options).map(CachedModule)
+        })
+        .map(|CachedModule(info)| info)
     }
 
     /// The result stored under `key` in `cache`, or the outcome of the one parse of `key` that runs while several
@@ -698,7 +700,10 @@ mod tests {
     fn until_waiting(coalescer: &ParseCoalescer, key: ModuleKey, count: usize, gave_up: impl Fn() -> bool) {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         while waiting(coalescer, key) < count && !gave_up() {
-            assert!(std::time::Instant::now() < deadline, "{count} lookups never waited for the parse");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "{count} lookups never waited for the parse"
+            );
             std::thread::yield_now();
         }
     }
@@ -849,10 +854,17 @@ mod tests {
         let coalescer = ParseCoalescer::new();
         let options = ParseOptions::default();
         let path = Path::new("a.ts");
-        let first = coalescer.parse_cached(&store, path, "export const a = 1;", &options).unwrap();
-        let second = coalescer.parse_cached(&store, path, "export const a = 1;", &options).unwrap();
+        let first = coalescer
+            .parse_cached(&store, path, "export const a = 1;", &options)
+            .unwrap();
+        let second = coalescer
+            .parse_cached(&store, path, "export const a = 1;", &options)
+            .unwrap();
         assert_eq!(first, second);
-        assert_eq!(first, parse_cached(None, path, "export const a = 1;", &options).unwrap());
+        assert_eq!(
+            first,
+            parse_cached(None, path, "export const a = 1;", &options).unwrap()
+        );
         assert_eq!(store.puts.load(Ordering::Relaxed), 1);
         assert_eq!(store.hits.load(Ordering::Relaxed), 1);
         assert_eq!(
