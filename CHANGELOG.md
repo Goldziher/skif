@@ -15,7 +15,7 @@ All notable changes to this project are documented here. The format follows
   their block constructs (Vue `v-for`, `v-slot`, `#name`, `slot-scope`; Svelte `{#each}`, `{#await}`, `{:then}`,
   `{:catch}`, `{#snippet}`, `{@const}`, `let:`; arrow parameters such as `items.map((item) => …)`), so an import
   that only a template local of the same name mentions is reported as unused
-  ([ADR 0082](adrs/0082-template-scopes-auto-imported-vue-components-and-marko-files.md),
+  ([ADR 0084](adrs/0084-template-scopes-auto-imported-vue-components-and-marko-files.md),
   [#102](https://github.com/Goldziher/skif/issues/102)).
 - A component that `unplugin-vue-components` registers in `components.d.ts` from a file of the project is used only
   where a template names it as Vue resolves the tag (`AppButton`, `app-button`, `appButton`, `LazyAppButton`), in a
@@ -23,7 +23,7 @@ All notable changes to this project are documented here. The format follows
   reported by `unused-files`. Native elements (`<button>`) name no component, the imports added for components are
   no `circular-imports` cycle, and a package that may use its components in files without tags (a `.tsx` or `.jsx`
   file, a VitePress or VuePress site, or an `include` of the plugin beyond `.vue` files) credits all of them as before
-  ([ADR 0082](adrs/0082-template-scopes-auto-imported-vue-components-and-marko-files.md)).
+  ([ADR 0084](adrs/0084-template-scopes-auto-imported-vue-components-and-marko-files.md)).
 - The knip comparison sets apart findings that follow from where each tool looks, decided from paths and manifests:
   unused dependencies and script binaries skif reports on a `package.json` that is not one of knip's workspaces
   (`knip-unjudged-manifest`), unused files and listed unlisted dependencies knip reports below a project that is not
@@ -33,12 +33,15 @@ All notable changes to this project are documented here. The format follows
   parity baseline needs a refresh
   ([ADR 0080](adrs/0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md),
   [#27](https://github.com/Goldziher/skif/issues/27)).
+- The knip comparison runs skif recursively on babel, whose `scripts/repo-utils` and
+  `scripts/integration-tests/fixtures/nextjs-10` are projects of their own outside the workspace patterns, whose files
+  knip reads from the root.
 
 ### Added
 
 - `.marko` files are read: their `import` statements and `import()` calls, and the imports of their `<style>` and
   concise `style { … }` blocks. A reached `.marko` file uses `marko`
-  ([ADR 0082](adrs/0082-template-scopes-auto-imported-vue-components-and-marko-files.md)).
+  ([ADR 0084](adrs/0084-template-scopes-auto-imported-vue-components-and-marko-files.md)).
 - `skif-js-syntax` exports `registered_components`, which reads the components a generated `components.d.ts`
   registers, `ModuleInfo::template_tags`, the tag names of a `.vue` template with its static `is` values and the
   names of `resolveComponent` calls, and Vue's tag resolution (`camelize`, `capitalize`, `resolved_names`,
@@ -61,6 +64,30 @@ All notable changes to this project are documented here. The format follows
   - `react-email` credits only the preview server package of the installed (else declared) major version.
 - `skif-js-syntax` exports `extract_property_calls`, which calls a function property of a config statically, and
   `extract_method_calls`, which evaluates the arguments of method calls.
+- `skif-js-syntax`: `ImportedName` gains `nested_members`, the members read through a member of the binding
+  (`ns.E.A` reads `A` of `E`), for each member used only that way. A struct literal of `ImportedName` needs the new
+  field.
+
+### Fixed
+
+- An enum or TypeScript namespace read through a namespace import (`ns.E.A`, `ns.E['A']`, the type `ns.E.A`), also
+  through a named or `export * as` re-export, uses only the members read on it, so its other members are reported by
+  `unused-enum-members` and `unused-namespace-members`. `ns.E` used as a whole still uses every member
+  ([ADR 0083](adrs/0083-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
+- A parameter or local with the name of an import declaration's binding shadows it: passing it around or reading its
+  members no longer uses the imported module as a whole. A parameter decorator (`@Inject(tok.KEY) tok`) still reads
+  the import, as TypeScript evaluates it outside the function. `import x = require("x")` is still matched by name
+  ([ADR 0083](adrs/0083-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
+- An import declaration's binding and the binding of a `const ns = await import("x")` or `require("x")` in a
+  function with the same name each use the members read through them, not both every member read through the name
+  ([ADR 0083](adrs/0083-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
+- An exported `type` or `interface` that shares its name with a value export (`export const Service = X; export type
+  Service = X`, `export const IStore = createDecorator<IStore>(…); export interface IStore { … }`) credits the
+  exports it mentions whenever the name is used, as a type or a value, as knip does, also when an `export { Service }`
+  clause exports the pair
+  ([ADR 0083](adrs/0083-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
+- The types the signatures of an overloaded function mention are used when the function is, from every signature, not
+  only the last one.
 
 ### Changed
 
@@ -77,9 +104,33 @@ All notable changes to this project are documented here. The format follows
   judge only the binaries they reach through a package manager or a `node_modules/.bin` path, as knip's
   `optionalBinaries` does (`PluginSpec` gains `optional_binaries`, `BinaryUse` gains `bin_path`), and a GitHub
   Actions step whose `shell` is not a POSIX shell is not read.
+- In a package whose incomplete entries lie in a narrowed scope, `unused-exports`, `unused-types`, the namespace
+  export rules, the member rules and the tag hints of `stale-js-config` now judge every file outside the scope: every
+  file the scope matches is an entry, outside the package's `project` globs and in the workspace packages nested
+  below it too, so whatever an unknown entry imports is counted. Files in the scope, packages unjudged as a whole and
+  the dependency rules are unchanged. A spread above a Vite or Vitest entry key of a value the config computes itself
+  (`build: { ...makeLib() }` with `makeLib` declared in the config) now leaves the package unjudged as a whole, as a
+  spread inside the key does; only an imported base narrows
+  ([ADR 0081](adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md),
+  [#101](https://github.com/Goldziher/skif/issues/101)).
+- The `esbuild` plugin reads build scripts that export nothing (`run({ entryPoints: { … } })`,
+  `await esbuild.build({ entryPoints: [...] })`, also inside a function, where a local that shadows a top-level
+  binding is unknown): each `entryPoints` they write is a production entry, and the package is no longer unjudged as
+  unparsable
+  ([ADR 0081](adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md),
+  [#101](https://github.com/Goldziher/skif/issues/101)).
 
 ### Fixed
 
+- A project whose only JavaScript is a pnpm install hook (`.pnpmfile.cjs`, `.pnpmfile.mjs`) and that has no script
+  is no longer judged for unused dependencies: its manifest lists what code elsewhere installs it for, as for a
+  project with no source file. The hook is still an entry, so what it imports is used
+  ([ADR 0082](adrs/0082-install-hooks-sveltekit-route-types-and-builtin-named-packages.md),
+  [#98](https://github.com/Goldziher/skif/issues/98)).
+- `unresolved-imports` no longer reports SvelteKit's `./$types` while the `.svelte-kit/tsconfig.json` the project's
+  `tsconfig.json` or `jsconfig.json` extends is not generated and is gitignored
+  ([ADR 0082](adrs/0082-install-hooks-sveltekit-route-types-and-builtin-named-packages.md),
+  [#99](https://github.com/Goldziher/skif/issues/99)).
 - The `jasmine` framework of a Karma config uses `jasmine-core` as well as `karma-jasmine`, as knip counts it
   ([#98](https://github.com/Goldziher/skif/issues/98)).
 - `next lint` in a script uses `eslint` and `eslint-config-next`, which it runs

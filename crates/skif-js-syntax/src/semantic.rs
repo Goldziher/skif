@@ -1,15 +1,48 @@
 //! In-file references to top-level bindings and namespace members, via oxc semantic analysis.
 
+use std::cell::OnceCell;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use oxc_ast::ast::{Declaration, IdentifierReference, Program, Statement, TSNamespaceDeclarationBody};
 use oxc_ast_visit::Visit;
-use oxc_semantic::{ScopeId, Scoping, SemanticBuilder};
+use oxc_semantic::{ScopeId, Scoping, Semantic, SemanticBuilder};
 use oxc_span::{GetSpan, Span as OxcSpan};
 
-/// Names of top-level bindings in `wanted` that are referenced outside `excluded` spans.
+/// The semantic analysis of one parsed block, built on first use and shared by every pass that needs scopes.
+pub(crate) struct Analysis<'p> {
+    program: &'p Program<'p>,
+    /// Build the node store, which [`referenced_locals`] reads.
+    nodes: bool,
+    semantic: OnceCell<Semantic<'p>>,
+}
+
+impl<'p> Analysis<'p> {
+    pub(crate) const fn new(program: &'p Program<'p>, nodes: bool) -> Self {
+        Self {
+            program,
+            nodes,
+            semantic: OnceCell::new(),
+        }
+    }
+
+    pub(crate) fn semantic(&self) -> &Semantic<'p> {
+        self.semantic.get_or_init(|| {
+            SemanticBuilder::new()
+                .with_build_nodes(self.nodes)
+                .build(self.program)
+                .semantic
+        })
+    }
+
+    pub(crate) fn scoping(&self) -> &Scoping {
+        self.semantic().scoping()
+    }
+}
+
+/// Names of top-level bindings in `wanted` that are referenced outside `excluded` spans. `analysis` builds the node
+/// store.
 pub(crate) fn referenced_locals(
-    program: &Program<'_>,
+    analysis: &Analysis<'_>,
     wanted: &HashSet<String>,
     excluded: &[OxcSpan],
 ) -> HashSet<String> {
@@ -17,7 +50,7 @@ pub(crate) fn referenced_locals(
     if wanted.is_empty() {
         return referenced;
     }
-    let semantic = SemanticBuilder::new().with_build_nodes(true).build(program).semantic;
+    let semantic = analysis.semantic();
     let scoping = semantic.scoping();
     let root = scoping.root_scope_id();
     for symbol in scoping.symbol_ids() {
@@ -44,11 +77,11 @@ pub(crate) fn referenced_locals(
 /// exports). A parameter or local that shadows the name, including the exports of a nested namespace, reads nothing.
 pub(crate) fn namespace_bare_reads(
     program: &Program<'_>,
+    analysis: &Analysis<'_>,
     members: &HashMap<String, BTreeSet<String>>,
 ) -> HashMap<String, BTreeSet<String>> {
-    let semantic = SemanticBuilder::new().build(program).semantic;
     let mut bodies = BareReads {
-        scoping: semantic.scoping(),
+        scoping: analysis.scoping(),
         members,
         current: None,
         reads: HashMap::new(),

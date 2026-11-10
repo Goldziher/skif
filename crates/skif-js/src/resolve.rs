@@ -315,6 +315,8 @@ pub(crate) struct ModuleResolver {
     nearest_paths: Memo<PathBuf, Option<Arc<TsPaths>>>,
     /// The `tsconfig.json` and `jsconfig.json` files read so far.
     tsconfigs: TsConfigs,
+    /// Whether the nearest config, or one it extends, extends a missing config that git ignores, by directory.
+    ungenerated_configs: Memo<PathBuf, bool>,
     /// Whether the nearest `package.json` declares `imports`, by the directory of the importer.
     declared_imports: Memo<PathBuf, bool>,
     /// The highest directory whose `.gitignore` applies: the repository root above the workspace, else the workspace
@@ -759,6 +761,7 @@ impl ModuleResolver {
             member_files: PairMemo::new(),
             nearest_paths: Memo::new(),
             tsconfigs,
+            ungenerated_configs: Memo::new(),
             declared_imports: Memo::new(),
             ignore_ceiling: OnceLock::new(),
             dir_ignores: Memo::new(),
@@ -906,11 +909,11 @@ impl ModuleResolver {
 
     /// What a specifier that names nothing is. A relative one is unknown when it points at an ignored path (also
     /// through the source extensions its extension stands for, or, without a code extension, the files and directory
-    /// index it can name, or below an ignored `rootDirs` directory not generated yet) or, in a script, at a JSON or
-    /// foreign file. A root-relative one (`/vite.svg`, served from a bundler's public directory) is unknown when it
-    /// names a JSON or foreign file in a script. A `#` specifier is unknown when its package
-    /// declares no `imports` and no `paths` pattern maps it: a tool, not Node.js, resolves it. (A configured alias
-    /// that maps it never gets here.) Anything else is unresolved.
+    /// index it can name, or below an ignored `rootDirs` directory not generated yet, or SvelteKit's `./$types` while
+    /// the config that maps it is not generated) or, in a script, at a JSON or foreign file. A root-relative one
+    /// (`/vite.svg`, served from a bundler's public directory) is unknown when it names a JSON or foreign file in a
+    /// script. A `#` specifier is unknown when its package declares no `imports` and no `paths` pattern maps it: a
+    /// tool, not Node.js, resolves it. (A configured alias that maps it never gets here.) Anything else is unresolved.
     fn missing(&self, kind: Kind, importer: &Path, specifier: &str) -> Resolved {
         if specifier.starts_with('#') && !self.declares_imports(importer) && !self.ts_paths_map(importer, specifier) {
             return Resolved::Ignored;
@@ -965,7 +968,11 @@ impl ModuleResolver {
         match generated {
             Some(_) if kind == Kind::Style => Resolved::Ignored,
             Some(file) => self.generated_scope(importer, &candidate, &file),
-            None if kind == Kind::Script && self.generated_in_root_dir(dir, specifier) => Resolved::Ignored,
+            None if kind == Kind::Script
+                && (self.generated_in_root_dir(dir, specifier) || self.ungenerated_route_types(dir, specifier)) =>
+            {
+                Resolved::Ignored
+            }
             None => Resolved::Unresolved,
         }
     }
@@ -987,6 +994,21 @@ impl ModuleResolver {
                         .is_some_and(|root| !self.fs.is_dir(root));
                     absent_root && self.is_generated(path)
                 })
+            })
+    }
+
+    /// Whether `specifier`, written in `directory`, is SvelteKit's `./$types` (or `./$types.js`, `./$types.d.ts`)
+    /// while the config that maps it is not generated yet: the nearest `tsconfig.json` or `jsconfig.json`, directly
+    /// or through a config it extends, extends a missing config that git ignores (`./.svelte-kit/tsconfig.json`,
+    /// which `svelte-kit sync` writes with the `rootDirs` that hold the route types). Once that config exists, its
+    /// `rootDirs` decide ([`Self::generated_in_root_dir`]).
+    fn ungenerated_route_types(&self, directory: &Path, specifier: &str) -> bool {
+        matches!(specifier, "./$types" | "./$types.js" | "./$types.d.ts")
+            && self.ungenerated_configs.get_or_compute(directory, || {
+                self.tsconfigs
+                    .absent_extends(directory)
+                    .iter()
+                    .any(|config| self.is_generated(config))
             })
     }
 
@@ -1932,6 +1954,115 @@ generated/index.ts
             Resolved::File(PathBuf::from("/ws/.react-router/types/app/+types/root.ts"))
         );
         assert_eq!(r.resolve(importer, "./+types/home").target, Resolved::Unresolved);
+    }
+
+    #[test]
+    fn sveltekit_route_types_are_unknown_while_the_extended_config_is_not_generated() {
+        // `svelte-kit sync` writes `.svelte-kit/tsconfig.json`, whose `rootDirs` hold `./$types` of every route.
+        let files = [
+            ("package.json", r#"{"name":"app","private":true}"#),
+            (".gitignore", "node_modules\n/.svelte-kit\n"),
+            (
+                "jsconfig.json",
+                "{\n  \"extends\": \"./.svelte-kit/tsconfig.json\",\n  // aliases come from svelte.config.js\n  \"compilerOptions\": { \"checkJs\": true }\n}\n",
+            ),
+            ("src/routes/todos/+page.svelte", ""),
+        ];
+        let r = resolver(&files);
+        let importer = Path::new("/ws/src/routes/todos/+page.svelte");
+        for specifier in ["./$types", "./$types.js", "./$types.d.ts"] {
+            assert_eq!(r.resolve(importer, specifier).target, Resolved::Ignored, "{specifier}");
+        }
+        for specifier in ["./$type", "../$types", "./missing"] {
+            assert_eq!(
+                r.resolve(importer, specifier).target,
+                Resolved::Unresolved,
+                "{specifier}"
+            );
+        }
+
+        // A missing config git does not ignore is a broken `extends`, not generated output.
+        let r = resolver(&[files[0], files[2], files[3]]);
+        assert_eq!(r.resolve(importer, "./$types").target, Resolved::Unresolved);
+
+        // Once the config is generated, its `rootDirs` resolve the route types.
+        let r = resolver(&[
+            files[0],
+            files[1],
+            files[2],
+            files[3],
+            (
+                ".svelte-kit/tsconfig.json",
+                r#"{"compilerOptions":{"rootDirs":["..","./types"]}}"#,
+            ),
+            (".svelte-kit/types/src/routes/todos/$types.d.ts", ""),
+        ]);
+        assert_eq!(
+            r.resolve(importer, "./$types").target,
+            Resolved::File(PathBuf::from("/ws/.svelte-kit/types/src/routes/todos/$types.d.ts"))
+        );
+    }
+
+    #[test]
+    fn sveltekit_route_types_are_unknown_while_a_config_extended_through_another_is_not_generated() {
+        // A route's own config extends the root config, which extends the config `svelte-kit sync` writes.
+        let files = [
+            ("package.json", r#"{"name":"app","private":true}"#),
+            (".gitignore", "node_modules\n/.svelte-kit\n"),
+            ("tsconfig.json", r#"{"extends":"./.svelte-kit/tsconfig.json"}"#),
+            (
+                "src/routes/admin/tsconfig.json",
+                r#"{"extends":"../../../tsconfig.json","compilerOptions":{"strict":true}}"#,
+            ),
+            ("src/routes/admin/+page.svelte", ""),
+        ];
+        let importer = Path::new("/ws/src/routes/admin/+page.svelte");
+        let r = resolver(&files);
+        assert_eq!(r.resolve(importer, "./$types").target, Resolved::Ignored);
+        assert_eq!(r.resolve(importer, "./missing").target, Resolved::Unresolved);
+
+        // A missing config git does not ignore is a broken `extends`, at any depth.
+        let r = resolver(&[files[0], files[2], files[3], files[4]]);
+        assert_eq!(r.resolve(importer, "./$types").target, Resolved::Unresolved);
+    }
+
+    #[test]
+    fn sveltekit_route_types_follow_the_root_dirs_of_the_generated_config() {
+        let files = [
+            ("package.json", r#"{"name":"app","private":true}"#),
+            (".gitignore", "node_modules\n/.svelte-kit\n"),
+            ("tsconfig.json", r#"{"extends":"./.svelte-kit/tsconfig.json"}"#),
+            (
+                ".svelte-kit/tsconfig.json",
+                r#"{"compilerOptions":{"rootDirs":["..","./types"]}}"#,
+            ),
+            ("src/routes/todos/+page.svelte", ""),
+            ("src/routes/about/+page.svelte", ""),
+        ];
+        let todos = Path::new("/ws/src/routes/todos/+page.svelte");
+        let about = Path::new("/ws/src/routes/about/+page.svelte");
+
+        // The config is generated but its ignored `types` root directory is not: the route types are unknown, like
+        // any relative import that may resolve below an ignored `rootDirs` directory not generated yet.
+        let r = resolver(&files);
+        assert_eq!(r.resolve(todos, "./$types").target, Resolved::Ignored);
+        assert_eq!(r.resolve(todos, "./missing").target, Resolved::Ignored);
+
+        // Once the types directory is generated, a route type it lacks is unresolved.
+        let r = resolver(&[
+            files[0],
+            files[1],
+            files[2],
+            files[3],
+            files[4],
+            files[5],
+            (".svelte-kit/types/src/routes/todos/$types.d.ts", ""),
+        ]);
+        assert_eq!(
+            r.resolve(todos, "./$types").target,
+            Resolved::File(PathBuf::from("/ws/.svelte-kit/types/src/routes/todos/$types.d.ts"))
+        );
+        assert_eq!(r.resolve(about, "./$types").target, Resolved::Unresolved);
     }
 
     #[test]

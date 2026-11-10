@@ -1,6 +1,6 @@
 //! unplugin-vue-components: the generated `components.d.ts` names every component the templates use without an
 //! import, so it is an entry. The graph imports each local component it registers only into the `.vue` files whose
-//! template uses its tag (ADR 0082).
+//! template uses its tag (ADR 0084).
 
 use crate::plugin::{Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::plugins::vue::generated_declarations;

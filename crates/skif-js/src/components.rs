@@ -1,4 +1,4 @@
-//! Components that `unplugin-vue-components` registers globally (ADR 0082).
+//! Components that `unplugin-vue-components` registers globally (ADR 0084).
 //!
 //! The generated `components.d.ts` names every component of the project, used or not. knip compiles each `.vue` file
 //! against it and adds an import of a registered component only where the template uses its tag, so a component no

@@ -1,6 +1,6 @@
 //! Skif-owned description of one module. No oxc type appears here.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use skif_core::Span;
@@ -222,6 +222,12 @@ pub struct ImportedName {
     /// Members read through the local binding in this file (`ns.a`, `Enum.A`, `const { a } = ns`, `ns.A` in types).
     /// Sorted and deduplicated. Meaningful only when `local` is set.
     pub accessed_members: Vec<String>,
+    /// Members read one level further down, by the member of [`ImportedName::accessed_members`] they are read
+    /// through: `ns.E.A`, `ns.E['A']` and the type `ns.E.A` read `A` of `ns.E`. A member has an entry only when every
+    /// use of it reads its own members that way; a member without one is used as a whole (`ns.E` passed around,
+    /// `typeof ns.E`). Each list is sorted and deduplicated. Meaningful only when `local` is set.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub nested_members: BTreeMap<String, Vec<String>>,
     /// The binding is used in a way that cannot be reduced to members (passed around, re-exported, computed access,
     /// destructured with a rest element), or the module value is not bound at all (`import("x")`, bare `require("x")`).
     pub escapes: bool,
@@ -446,7 +452,7 @@ pub struct ModuleInfo {
     /// The tag names of the template of a `.vue` file as written (`AppButton`, `app-card`, `div`), with the static
     /// values of its `is` attributes (`is="AppButton"`, `:is="'AppButton'"`), and the names of the
     /// `resolveComponent('AppButton')` calls of any file, sorted and without duplicates: `unplugin-vue-components`
-    /// imports the components it registers into the files that use them so (ADR 0082). Empty for other files.
+    /// imports the components it registers into the files that use them so (ADR 0084). Empty for other files.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub template_tags: Vec<String>,
     /// Syntax errors the parser recovered from; the other fields describe the recovered program. For component
