@@ -74,6 +74,11 @@ pub struct Repo {
     /// root `package.json` made from `rush.json`.
     #[serde(default)]
     pub knip_root: Option<String>,
+    /// A command (program first) run in the checkout after a successful install, before the install counts as done:
+    /// it builds the workspace packages whose built output the tools' configurations load, which an install without
+    /// lifecycle scripts leaves unbuilt.
+    #[serde(default)]
+    pub build_command: Vec<String>,
 }
 
 /// The `knip-root` of a Rush repository: knip runs in the checkout with a root `package.json` made from `rush.json`,
@@ -290,6 +295,30 @@ mod tests {
                 .iter()
                 .filter(|r| r.name != "rushstack")
                 .all(|r| r.knip_root.is_none())
+        );
+    }
+
+    #[test]
+    fn n8n_builds_the_config_packages_its_tool_configurations_load() {
+        let repos = manifest().repo;
+        let n8n = repos.iter().find(|r| r.name == "n8n").unwrap();
+        assert_eq!(n8n.build_command.first().map(String::as_str), Some("pnpm"));
+        for package in [
+            "@n8n/oxlint-config",
+            "@n8n/vitest-config",
+            "@n8n/eslint-config",
+            "@n8n/stylelint-config",
+            "@n8n/constants",
+        ] {
+            let filter = format!("{package}...");
+            assert!(n8n.build_command.contains(&filter), "{filter}");
+        }
+        assert_eq!(&n8n.build_command[n8n.build_command.len() - 2..], ["run", "build"]);
+        assert!(
+            repos
+                .iter()
+                .filter(|r| r.name != "n8n")
+                .all(|r| r.build_command.is_empty())
         );
     }
 
