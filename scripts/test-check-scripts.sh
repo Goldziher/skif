@@ -150,6 +150,11 @@ printf 'skif ships 3 rules.\n' >"${rules}/README.md"
 expect "check-rule-ids rejects a wrong rule count in the docs" 1 run_in "$rules" check-rule-ids.sh
 expect_in_out "check-rule-ids count" "states 3 rules"
 printf 'skif ships 2 rules.\n' >"${rules}/README.md"
+mkdir -p "${rules}/skills/skif"
+printf 'skif ships 3 rules.\n' >"${rules}/skills/skif/SKILL.md"
+expect "check-rule-ids rejects a wrong rule count in an agent skill" 1 run_in "$rules" check-rule-ids.sh
+expect_in_out "check-rule-ids skill count" "file=skills/skif/SKILL.md,line=1::states 3 rules"
+rm -r "${rules}/skills"
 
 printf 'pub fn unrelated() {}\n' >"${rules}/crates/skif-rules/src/lib.rs"
 expect "check-rule-ids fails when the registry pattern matches nothing" 1 run_in "$rules" check-rule-ids.sh
@@ -335,6 +340,12 @@ expect "check-doc-pins rejects a stale Poly revision" 1 run_in "$docpins" check-
 expect_in_out "check-doc-pins revision" "file=website/src/content/docs/guides/poly.md,line=3::skif pin v0.3.0"
 expect "check-doc-pins only lists the pins of a pre-release" 0 run_in "$docpins" check-doc-pins.sh 0.5.0-rc.1
 expect_in_out "check-doc-pins pre-release" "website/src/content/docs/guides/poly.md:3:v0.3.0"
+doc_pins_tree v0.4 v0.4.0 v0.4.0
+mkdir -p "${docpins}/skills/skif/references"
+printf -- '- uses: Goldziher/skif@v0.3\n' >"${docpins}/skills/skif/references/ci.md"
+expect "check-doc-pins rejects a stale pin in an agent skill" 1 run_in "$docpins" check-doc-pins.sh
+expect_in_out "check-doc-pins skill" "file=skills/skif/references/ci.md,line=1::skif pin v0.3"
+rm -r "${docpins}/skills"
 
 printf '[workspace.package]\nversion = "1.2.0"\n' >"${docpins}/Cargo.toml"
 doc_pins_tree v1 v1.0.0 v1.1.3
