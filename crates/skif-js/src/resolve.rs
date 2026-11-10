@@ -2000,6 +2000,29 @@ generated/index.ts
     }
 
     #[test]
+    fn sveltekit_route_types_are_unknown_while_a_config_extended_through_another_is_not_generated() {
+        // A route's own config extends the root config, which extends the config `svelte-kit sync` writes.
+        let files = [
+            ("package.json", r#"{"name":"app","private":true}"#),
+            (".gitignore", "node_modules\n/.svelte-kit\n"),
+            ("tsconfig.json", r#"{"extends":"./.svelte-kit/tsconfig.json"}"#),
+            (
+                "src/routes/admin/tsconfig.json",
+                r#"{"extends":"../../../tsconfig.json","compilerOptions":{"strict":true}}"#,
+            ),
+            ("src/routes/admin/+page.svelte", ""),
+        ];
+        let importer = Path::new("/ws/src/routes/admin/+page.svelte");
+        let r = resolver(&files);
+        assert_eq!(r.resolve(importer, "./$types").target, Resolved::Ignored);
+        assert_eq!(r.resolve(importer, "./missing").target, Resolved::Unresolved);
+
+        // A missing config git does not ignore is a broken `extends`, at any depth.
+        let r = resolver(&[files[0], files[2], files[3], files[4]]);
+        assert_eq!(r.resolve(importer, "./$types").target, Resolved::Unresolved);
+    }
+
+    #[test]
     fn hash_specifiers_are_unresolved_only_where_the_package_declares_imports() {
         let r = resolver(&[
             ("package.json", ROOT),
