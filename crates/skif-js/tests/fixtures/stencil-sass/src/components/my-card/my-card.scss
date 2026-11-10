@@ -1,0 +1,6 @@
+@use "../../styles/tokens";
+@use "bootstrap/scss/functions";
+
+.card {
+  color: tokens.$ink;
+}

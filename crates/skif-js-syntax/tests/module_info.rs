@@ -1131,6 +1131,26 @@ fn tsrx_yields_its_imports_only() {
 }
 
 #[test]
+fn marko_yields_its_imports_and_style_imports() {
+    let source = "import format from './format';\nstatic import { sum } from 'lodash-es';\nimport Card from \"<card>\";\n\nclass {\n  onMount() { import('./lazy'); }\n}\n\n<div>${format(sum([1]))}</div>\n<Card/>\nstyle.scss {\n  @use 'tokens';\n}\n<style>\n@import './plain.css';\n</style>\n";
+    let info = parse("index.marko", source);
+    assert_eq!(
+        specifiers(&info),
+        [
+            ("./format", ImportKind::Static),
+            ("lodash-es", ImportKind::Static),
+            ("./lazy", ImportKind::Dynamic),
+            ("tokens", ImportKind::SideEffect),
+            ("./plain.css", ImportKind::SideEffect),
+        ]
+    );
+    assert!(!info.fatal, "{:?}", info.parse_diagnostics);
+    assert_eq!(info.imports[1].span.start_line, 2);
+    // The template is not read, so every binding counts as used as a whole.
+    assert_eq!(accessed(&info, "format"), (Vec::new(), true));
+}
+
+#[test]
 fn stylus_style_blocks_are_imports() {
     let vue = "<template/>\n<style lang=\"stylus\">\n@require 'nib'\n@import './theme'\n</style>\n";
     let found: Vec<_> = parse("A.vue", vue).imports.into_iter().map(|i| i.specifier).collect();
@@ -1428,6 +1448,76 @@ fn component_templates_credit_the_imports_they_use() {
     let info = parse("page.astro", astro);
     assert_eq!(accessed(&info, "util"), (vec!["title".to_owned()], false));
     assert!(accessed(&info, "Layout").1);
+}
+
+#[test]
+fn template_locals_do_not_use_the_imports_they_shadow() {
+    // Each file imports `item` and `row` and uses neither: every mention is a template local of the same name.
+    let files = [
+        (
+            "List.vue",
+            "<script setup>\nimport item from './item';\nimport row from './row';\nimport { items } from './data';\n</script>\n<template><ul><li v-for=\"item in items\" :key=\"item.id\">{{ item.label }}</li></ul><Table><template #cell=\"{ row }\">{{ row }}</template></Table></template>\n",
+        ),
+        (
+            "List.svelte",
+            "<script>\n  import item from './item';\n  import row from './row';\n  import { items } from './data';\n</script>\n{#each items as item (item.id)}<p>{item.label}</p>{/each}\n{#await items then row}{row}{/await}\n<Table let:row>{row.cells}</Table>\n",
+        ),
+        (
+            "List.astro",
+            "---\nimport item from './item';\nimport row from './row';\nimport { items } from './data';\n---\n<ul>{items.map((item) => <li>{item.label}</li>)}</ul>\n{items.map(({ row }) => row)}\n",
+        ),
+    ];
+    for (path, source) in files {
+        let info = parse(path, source);
+        assert_eq!(accessed(&info, "item"), (Vec::<String>::new(), false), "{path}");
+        assert_eq!(accessed(&info, "row"), (Vec::<String>::new(), false), "{path}");
+        let (members, escapes) = accessed(&info, "items");
+        assert!(
+            escapes || !members.is_empty(),
+            "{path}: the source of the loop is a use"
+        );
+    }
+    // The same import used outside the construct that shadows it is used.
+    let vue = "<script setup>\nimport item from './item';\nimport { items } from './data';\n</script>\n<template><li v-for=\"item in items\">{{ item }}</li><p>{{ item.label }}</p></template>\n";
+    assert_eq!(
+        accessed(&parse("Outside.vue", vue), "item"),
+        (vec!["label".to_owned()], false)
+    );
+}
+
+#[test]
+fn vue_files_record_the_tag_names_of_their_template() {
+    let vue = "<script setup>\nconst x = 1;\n</script>\n<template><AppButton/><app-card><AppButton/></app-card><p>{{ x }}</p></template>\n<style>.a{}</style>\n";
+    assert_eq!(
+        parse("A.vue", vue).template_tags,
+        ["AppButton", "app-card", "p", "script", "style", "template"]
+    );
+    let svelte = "<script>\n  import Card from './Card.svelte';\n</script>\n<Card/>\n";
+    assert_eq!(parse("A.svelte", svelte).template_tags, Vec::<String>::new());
+}
+
+#[test]
+fn is_attributes_and_resolve_component_calls_name_components() {
+    let vue = "<script setup>\nimport { h, resolveComponent } from 'vue';\nconst Icon = () => h(resolveComponent('AppIcon'));\n</script>\n<template><component is=\"AppButton\"/><component :is=\"'app-card'\"/><Icon/></template>\n";
+    assert_eq!(
+        parse("A.vue", vue).template_tags,
+        [
+            "AppButton",
+            "AppIcon",
+            "Icon",
+            "app-card",
+            "component",
+            "script",
+            "template"
+        ]
+    );
+    let render =
+        "import { h, resolveComponent } from 'vue';\nexport const render = () => h(resolveComponent('app-card'));\n";
+    assert_eq!(parse("render.ts", render).template_tags, ["app-card"]);
+    assert_eq!(
+        parse("plain.ts", "export const a = 1;\n").template_tags,
+        Vec::<String>::new()
+    );
 }
 
 #[test]
