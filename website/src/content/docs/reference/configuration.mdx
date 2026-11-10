@@ -695,7 +695,10 @@ package and one a directory flag runs is not judged, as before. The binaries tha
 command or a source file run after `cd <dir>` (`run: cd sub && pnpm exec rspack`) are credited the same way, with the
 directory relative to the package where the command starts (the workspace root for a workflow); their packages and
 files stay where the command starts. In a workflow step, `$GITHUB_WORKSPACE`, `${GITHUB_WORKSPACE}` and
-`${{ github.workspace }}` are the workspace root, so `cd $GITHUB_WORKSPACE/sub` is followed. A `cd` in a subshell
+`${{ github.workspace }}` are the workspace root, so `cd $GITHUB_WORKSPACE/sub` and a `working-directory` of
+`${{ github.workspace }}/sub` are followed. A script that a package manager runs in another directory
+(`cd web && npm run build`) is the script of the package there, so the caller's script of that name is not followed.
+A `cd` in a subshell
 (`(cd "$TMP" && tar xf a.tgz) && npm run build`) ends with it. A directory that is not a static relative path
 (`cd $DIR`, `cd /tmp`, `cd -`, `cd "$(dirname "$0")"`) is not followed: a binary run by name there is judged where the
 script starts, but a package manager run there (`npm run build`, `bun run build`, `pnpm exec rspack`) works on the
