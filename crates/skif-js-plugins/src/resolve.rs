@@ -356,6 +356,7 @@ impl Collector<'_, '_> {
                 let run = BinaryRef {
                     name: binary.name.clone(),
                     from: from.to_path_buf(),
+                    dir: binary.dir.clone(),
                 };
                 if !self.out.run_binaries.contains(&run) {
                     self.out.run_binaries.push(run);

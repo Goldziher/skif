@@ -3774,6 +3774,23 @@ fn commands_run_with_a_cwd_run_scripts_of_another_package() {
     assert!(runs("nano-spawn").is_empty(), "{:?}", runs("nano-spawn"));
 }
 
+/// A command after `cd` runs its binaries in that directory, relative to the package where the command starts.
+#[test]
+fn run_binaries_after_cd_carry_the_directory() {
+    let workflow = "name: ci\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      \
+                    - run: cd sub && pnpm exec rspack build && cd .. && pnpm exec tsx x.ts\n";
+    let results = resolve(&[(".github/workflows/ci.yml", workflow)], &[]);
+    let runs: Vec<(String, Option<String>)> = output(&results, "github-actions")
+        .run_binaries
+        .iter()
+        .map(|run| (run.name.clone(), run.dir.clone()))
+        .collect();
+    assert_eq!(
+        runs,
+        [("rspack".to_owned(), Some("sub".to_owned())), ("tsx".to_owned(), None)]
+    );
+}
+
 #[test]
 fn execa_default_import_and_zx_globals_are_read() {
     let files = [

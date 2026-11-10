@@ -568,23 +568,8 @@ fn forward_workspace_binaries(packages: &mut [Option<PackageSetup>], workspace: 
 /// command where it was written: judged as a command of the package, unless it also targets another workspace
 /// (`pnpm -C dir exec`).
 fn relocate_script_commands(packages: &mut [Option<PackageSetup>], workspace: &Workspace) {
-    let dirs: Vec<(PackageId, String)> = workspace
-        .iter()
-        .map(|(id, package)| (id, package.dir.to_string_lossy().replace('\\', "/")))
-        .collect();
-    let owner = |from: PackageId, dir: &str| -> PackageId {
-        let base = dirs
-            .iter()
-            .find(|(id, _)| *id == from)
-            .map_or("", |(_, base)| base.as_str());
-        let Some(target) = join_dir(base, dir) else {
-            return from;
-        };
-        dirs.iter()
-            .filter(|(_, candidate)| contains_dir(candidate, &target))
-            .max_by_key(|(_, candidate)| candidate.len())
-            .map_or(from, |(id, _)| *id)
-    };
+    let dirs = package_dirs(workspace);
+    let owner = |from: PackageId, dir: &str| package_in_dir(&dirs, from, dir);
     let mut credits: Vec<(PackageId, ScriptBinary)> = Vec::new();
     let mut dependencies: Vec<(PackageId, String)> = Vec::new();
     for setup in packages.iter_mut().flatten() {
@@ -623,6 +608,30 @@ fn relocate_script_commands(packages: &mut [Option<PackageSetup>], workspace: &W
             setup.referenced_dependencies.push(name);
         }
     }
+}
+
+/// Every package with its workspace-relative directory, `/`-separated, for [`package_in_dir`].
+pub(crate) fn package_dirs(workspace: &Workspace) -> Vec<(PackageId, String)> {
+    workspace
+        .iter()
+        .map(|(id, package)| (id, package.dir.to_string_lossy().replace('\\', "/")))
+        .collect()
+}
+
+/// The innermost package of `dirs` ([`package_dirs`]) that holds `dir`, a directory relative to the package `from`;
+/// `from` itself when `dir` leaves the workspace root.
+pub(crate) fn package_in_dir(dirs: &[(PackageId, String)], from: PackageId, dir: &str) -> PackageId {
+    let base = dirs
+        .iter()
+        .find(|(id, _)| *id == from)
+        .map_or("", |(_, base)| base.as_str());
+    let Some(target) = join_dir(base, dir) else {
+        return from;
+    };
+    dirs.iter()
+        .filter(|(_, candidate)| contains_dir(candidate, &target))
+        .max_by_key(|(_, candidate)| candidate.len())
+        .map_or(from, |(id, _)| *id)
 }
 
 /// `dir` joined onto the workspace-relative directory `base`, `/`-separated with `.` and `..` resolved; `None` when it

@@ -229,6 +229,7 @@ fn inputs(output: PluginOutput) -> WorkspaceInputs {
             .map(|run| RunBinary {
                 name: run.name,
                 file: run.from,
+                dir: run.dir,
             })
             .collect(),
         config_files: output.config_files,

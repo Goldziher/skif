@@ -18,7 +18,7 @@ use crate::input::ConfigDependency;
 use crate::lockfile;
 use crate::resolve::is_installed;
 use crate::scripts::{ScriptBinary, script_context};
-use crate::setup::Setup;
+use crate::setup::{Setup, package_dirs, package_in_dir};
 use crate::specifier::{RUNTIME_PACKAGES, package_name, typed_package, types_package};
 use crate::tsconfig_paths::resolve_extends;
 
@@ -575,6 +575,8 @@ pub struct DependencyUsage {
     member_bins_hoisted: bool,
     /// Whether the workspace is a Rush repository (a `rush.json` at its root), whose scripts run Rush's own commands.
     rush: bool,
+    /// Every package with its workspace-relative directory, for the commands that change directory.
+    dirs: Vec<(PackageId, String)>,
     members: HashSet<String>,
     /// Binaries that `node_modules/.bin` directories of ancestor projects put on the `PATH`, each with the dependencies
     /// of those projects that provide it.
@@ -608,6 +610,7 @@ impl DependencyUsage {
             bins: vec![HashMap::new(); count],
             members: workspace.all_packages().filter_map(|p| p.name.clone()).collect(),
             rush: fs.is_file(&workspace.root.join(RUSH_JSON)),
+            dirs: package_dirs(workspace),
             ..Self::default()
         };
         usage.member_bins_hoisted = hoists_member_bins(workspace, usage.rush);
@@ -1133,6 +1136,10 @@ impl DependencyUsage {
                 }
             }
             for run in &package_setup.run_binaries {
+                if let Some(target) = self.relocated(id, run.dir.as_deref()) {
+                    self.provide_binary(target, &run.name);
+                    continue;
+                }
                 let file = relative(&run.file, &workspace.root).map_or_else(|| run.file.clone(), PathBuf::from);
                 self.run_binary(setup, id, &run.name, &file);
             }
@@ -1168,6 +1175,10 @@ impl DependencyUsage {
                 .into_iter()
                 .filter(|binary| !is_ignored_binary(&binary.name));
             for binary in binaries.chain(global_binaries) {
+                if let Some(target) = self.relocated(id, binary.dir.as_deref()) {
+                    self.provide_binary(target, &binary.name);
+                    continue;
+                }
                 if binary.filtered {
                     continue;
                 }
@@ -1178,6 +1189,15 @@ impl DependencyUsage {
                 }
             }
         }
+    }
+
+    /// The other workspace package whose directory holds `dir`, where a command of package `id` runs a binary after
+    /// `cd` (relative to the package directory). A workflow step or a source file that runs `cd sub && rspack` runs it
+    /// in that package, as a script of `package.json` does: a listed provider there is used and nothing is unlisted.
+    /// `None` without a directory or when it is in `id` itself.
+    fn relocated(&self, id: PackageId, dir: Option<&str>) -> Option<PackageId> {
+        let target = package_in_dir(&self.dirs, id, dir?);
+        (target != id).then_some(target)
     }
 
     /// A binary that a command read from `file` (relative to the root) runs in package `id`: a use of the dependency

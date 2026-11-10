@@ -621,3 +621,35 @@ fn rush_commands_are_provided_in_a_rush_repository() {
         ]
     );
 }
+
+/// A workflow step and a source file that run a command after `cd` into a workspace package run it there: a provider
+/// that package lists is used and nothing is unlisted at the file. A directory in no other package leaves the command
+/// at the file, as before.
+#[test]
+fn workflow_and_source_commands_after_cd_into_a_workspace_package_are_judged_there() {
+    let root = manifest(&format!(r#""name":"root","private":true,{PNPM},"main":"scripts/build.mjs""#));
+    let workflow = "name: css\non: [push]\njobs:\n  scan:\n    runs-on: ubuntu-latest\n    steps:\n      \
+                    - run: cd sub && pnpm exec rspack build\n      - run: cd docs && pnpm exec vitepress build\n";
+    let files = [
+        ("package.json", root.as_str()),
+        ("pnpm-workspace.yaml", "packages:\n  - sub\n"),
+        (
+            "sub/package.json",
+            r#"{"name":"sub","private":true,"main":"index.js","devDependencies":{"@rspack/cli":"1.0.0"}}"#,
+        ),
+        ("sub/index.js", "module.exports = 1;\n"),
+        (".github/workflows/css.yml", workflow),
+        (
+            "scripts/build.mjs",
+            "import { execSync } from 'node:child_process';\n\
+             execSync('cd sub && rspack serve');\nexecSync('cd tools && tsc -b');\n",
+        ),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(
+        found(&diagnostics, "unlisted-binaries"),
+        [".github/workflows/css.yml: vitepress", "scripts/build.mjs: tsc"],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none(), "{diagnostics:#?}");
+}
