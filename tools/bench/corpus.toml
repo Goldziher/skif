@@ -14,7 +14,7 @@
 #   entry            entry files of the root workspace neither tool finds (globs); both get them besides their defaults
 #   bench-knip-args  extra knip arguments when `skif-bench run` times it here, so it reads the files skif reads
 #   knip-invalid     why knip's report here is not a valid comparison; the repository is compared and its row marked
-#   knip-root        "rush": knip runs in a scratch clone with a root package.json whose workspaces come from rush.json
+#   knip-root        "rush": while knip runs, the checkout gets a root package.json whose workspaces come from rush.json
 #   notes            why the repository is in the corpus and what to expect from it
 
 # The comparison tools, pinned in this one place: parity, syncpack-diff and deadcode run them through npx, and
@@ -124,9 +124,12 @@ url = "https://github.com/microsoft/rushstack.git"
 rev = "ca0b960ced9324f65be85800a72184edeb91cc3b"
 package-manager = "rush"
 suites = ["parity"]
-install = false
+# install-run-rush.js fetches the Rush version rush.json pins and installs every subspace from its lockfile under
+# common/config/subspaces; --bypass-policy skips the git email policy, which a CI checkout cannot meet.
+install-command = ["node", "common/scripts/install-run-rush.js", "install", "--bypass-policy"]
+install-timeout-secs = 3600
 knip-root = "rush"
-notes = "Rush workspace (rush.json) without a root package.json, for skif and the syncpack diff. The install (rush, lockfiles under common/config/subspaces) is not attempted, so parity compares it uninstalled. knip has no Rush support and needs a root package.json, so it runs in a scratch clone of the checkout that gets one, with the projectFolder of every rush.json project as its workspaces."
+notes = "Rush workspace (rush.json) without a root package.json, for skif and the syncpack diff. knip has no Rush support and needs a root package.json, so while it runs the checkout gets one with the projectFolder of every rush.json project as its workspaces, and knip reads the node_modules the Rush install linked into each project."
 
 [[repo]]
 name = "vscode"

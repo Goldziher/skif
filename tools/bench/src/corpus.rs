@@ -76,8 +76,35 @@ pub struct Repo {
     pub knip_root: Option<String>,
 }
 
-/// The `knip-root` of a Rush repository: knip runs in a scratch copy with a root `package.json` made from `rush.json`.
+/// The `knip-root` of a Rush repository: knip runs in the checkout with a root `package.json` made from `rush.json`,
+/// which is there only while knip runs.
 pub const RUSH_KNIP_ROOT: &str = "rush";
+
+/// The `//` field of the root `package.json` the knip comparison writes into a Rush checkout for the knip run: a root
+/// manifest holding it is the harness's own, left behind by an interrupted run.
+pub const SCRATCH_ROOT_MARK: &str = "written by skif-bench for the knip run and removed after it";
+
+/// Whether the `package.json` at `path` is a scratch root manifest of the knip comparison ([`SCRATCH_ROOT_MARK`]).
+#[must_use]
+pub fn is_scratch_root(path: &Path) -> bool {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .is_some_and(|manifest| manifest.get("//").and_then(serde_json::Value::as_str) == Some(SCRATCH_ROOT_MARK))
+}
+
+/// Removes the scratch root manifest an interrupted knip comparison left in a checkout, so no other run reads it.
+///
+/// # Errors
+/// Fails when the file cannot be removed.
+pub fn remove_scratch_root(dir: &Path) -> Result<()> {
+    let path = dir.join("package.json");
+    if is_scratch_root(&path) {
+        eprintln!("corpus: removing the scratch root manifest {}", path.display());
+        fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
+    }
+    Ok(())
+}
 
 const fn default_install() -> bool {
     true
@@ -160,6 +187,7 @@ pub fn fetch_repo(repo: &Repo, cache: &Path) -> Result<PathBuf> {
     let dir = cache.join(&repo.name);
     if is_checked_out(&dir, &repo.rev) {
         eprintln!("corpus: {} already at {}", repo.name, &repo.rev[..12]);
+        remove_scratch_root(&dir)?;
         return Ok(dir);
     }
     eprintln!("corpus: fetching {} at {}", repo.name, &repo.rev[..12]);
@@ -177,6 +205,7 @@ pub fn fetch_repo(repo: &Repo, cache: &Path) -> Result<PathBuf> {
     }
     git(&dir, &["fetch", "--quiet", "--depth", "1", "origin", &repo.rev])?;
     git(&dir, &["checkout", "--quiet", "--force", "--detach", &repo.rev])?;
+    remove_scratch_root(&dir)?;
     Ok(dir)
 }
 
@@ -242,9 +271,19 @@ mod tests {
     }
 
     #[test]
-    fn rushstack_runs_knip_in_a_synthesized_root() {
+    fn rushstack_installs_with_rush_and_runs_knip_in_a_synthesized_root() {
         let repos = manifest().repo;
         let rushstack = repos.iter().find(|r| r.name == "rushstack").unwrap();
+        assert!(rushstack.install);
+        assert_eq!(
+            rushstack.install_command,
+            [
+                "node",
+                "common/scripts/install-run-rush.js",
+                "install",
+                "--bypass-policy"
+            ]
+        );
         assert_eq!(rushstack.knip_root.as_deref(), Some(RUSH_KNIP_ROOT));
         assert!(
             repos
@@ -260,6 +299,27 @@ mod tests {
         let opencode = repos.iter().find(|r| r.name == "opencode").unwrap();
         assert_eq!(&opencode.install_command[..5], ["mise", "x", "bun@1.3.14", "--", "bun"]);
         assert!(opencode.install_command.iter().any(|arg| arg == "--frozen-lockfile"));
+    }
+
+    #[test]
+    fn only_the_harness_scratch_root_manifest_is_removed() {
+        let dir = std::env::temp_dir().join(format!("skif-bench-scratch-root-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let manifest = dir.join("package.json");
+        let own = serde_json::json!({ "//": SCRATCH_ROOT_MARK, "private": true, "workspaces": ["apps/a"] });
+        fs::write(&manifest, own.to_string()).unwrap();
+        assert!(is_scratch_root(&manifest));
+        remove_scratch_root(&dir).unwrap();
+        assert!(!manifest.exists());
+        remove_scratch_root(&dir).unwrap();
+        fs::write(&manifest, r#"{ "name": "real", "//": "a comment" }"#).unwrap();
+        remove_scratch_root(&dir).unwrap();
+        assert!(manifest.exists(), "a manifest of the repository stays");
+        fs::write(&manifest, "{ not json").unwrap();
+        remove_scratch_root(&dir).unwrap();
+        assert!(manifest.exists());
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
