@@ -416,50 +416,56 @@ fn stale_js_config_records_every_entry_it_judged_under_the_key_it_is_written_at(
     );
     let file = &report.config_judgements[0].file;
     assert!(report.config_judgements.iter().all(|judgement| &judgement.file == file));
-    let judged: Vec<(&str, &str, bool, &str)> = report
+    let judged: Vec<(&str, &str, Option<&Path>, bool, &str)> = report
         .config_judgements
         .iter()
         .map(|judgement| {
             (
                 judgement.key.as_str(),
                 judgement.entry.as_str(),
+                judgement.package.as_deref(),
                 judgement.stale,
                 judgement.message.as_str(),
             )
         })
         .collect();
     // `left` silences the unused `left` of both packages; the glob table's entry is judged in each package it
-    // selects, under the key as written, and named by the package in the finding.
+    // selects, under the key as written, with the package's directory, and named by the package in the finding.
     assert_eq!(
         judged,
         [
             (
                 "js.ignore-dependencies",
                 "left",
+                None,
                 false,
                 "`left` in `js.ignore-dependencies` matched nothing"
             ),
             (
                 "js.ignore-dependencies",
                 "zzz",
+                None,
                 true,
                 "`zzz` in `js.ignore-dependencies` matched nothing"
             ),
             (
                 "js.workspaces",
                 "packages/*",
+                None,
                 false,
                 "`packages/*` in `js.workspaces` matched nothing"
             ),
             (
                 "js.workspaces.\"packages/*\".ignore-binaries",
                 "tsc",
+                Some(Path::new("packages/a")),
                 true,
                 "`tsc` in `js.workspaces.\"packages/a\".ignore-binaries` matched nothing"
             ),
             (
                 "js.workspaces.\"packages/*\".ignore-binaries",
                 "tsc",
+                Some(Path::new("packages/b")),
                 true,
                 "`tsc` in `js.workspaces.\"packages/b\".ignore-binaries` matched nothing"
             ),

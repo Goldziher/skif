@@ -78,6 +78,11 @@ pub struct ConfigJudgement {
     pub key: String,
     /// The entry, as written.
     pub entry: String,
+    /// The directory of the package whose list it is, relative to the root like `file`, for a list a
+    /// `[js.workspaces]` table gives a package (`js.workspaces."tools/*".ignore-dependencies`): a glob table is
+    /// judged in each package it selects, and each package's list stands on its own. `None` for a top-level list and
+    /// for a pattern or key judged over the whole run of the root.
+    pub package: Option<PathBuf>,
     /// Whether the entry matched nothing in this run.
     pub stale: bool,
     /// The message of the finding that reports the entry stale, which the run emits only when [`stale`](Self::stale).
@@ -98,9 +103,17 @@ impl ConfigJudgement {
             file: file.into(),
             key: key.into(),
             entry: entry.into(),
+            package: None,
             stale,
             message: message.into(),
         }
+    }
+
+    /// The judgement, made of the list of the package in `dir` (see [`package`](Self::package)).
+    #[must_use]
+    pub fn with_package(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.package = Some(dir.into());
+        self
     }
 }
 
