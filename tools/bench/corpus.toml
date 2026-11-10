@@ -14,6 +14,7 @@
 #   entry            entry files of the root workspace neither tool finds (globs); both get them besides their defaults
 #   bench-knip-args  extra knip arguments when `skif-bench run` times it here, so it reads the files skif reads
 #   knip-invalid     why knip's report here is not a valid comparison; the repository is compared and its row marked
+#   knip-root        "rush": knip runs in a scratch clone with a root package.json whose workspaces come from rush.json
 #   notes            why the repository is in the corpus and what to expect from it
 
 [tools]
@@ -121,7 +122,8 @@ rev = "ca0b960ced9324f65be85800a72184edeb91cc3b"
 package-manager = "rush"
 suites = ["parity"]
 install = false
-notes = "Rush workspace (rush.json) without a root package.json, for skif and the syncpack diff. The install (rush, lockfiles under common/config/subspaces) is not attempted, so parity compares it uninstalled; knip has no Rush support and stops with 'Unable to find package.json', which the parity report records as the skip reason."
+knip-root = "rush"
+notes = "Rush workspace (rush.json) without a root package.json, for skif and the syncpack diff. The install (rush, lockfiles under common/config/subspaces) is not attempted, so parity compares it uninstalled. knip has no Rush support and needs a root package.json, so it runs in a scratch clone of the checkout that gets one, with the projectFolder of every rush.json project as its workspaces."
 
 [[repo]]
 name = "vscode"

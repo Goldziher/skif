@@ -17,7 +17,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 use skif_workspace::{OsFs, declared_member_dirs};
 
-use crate::corpus::{self, Repo, Tools};
+use crate::corpus::{self, RUSH_KNIP_ROOT, Repo, Tools};
 use crate::diff::{self, BASELINE_SCHEMA, Baseline, COMPARED, Counts, Deviation, Entry, Gate, Keys, Samples, Side};
 use crate::proc::{capture, find_on_path};
 
@@ -1043,11 +1043,15 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
         return Ok(skipped(format!("skif failed: {message}")));
     }
 
+    let knip_dir = match knip_root(repo, &root, &scratch) {
+        Ok(dir) => dir,
+        Err(reason) => return Ok(skipped(format!("knip root: {reason}"))),
+    };
     let spec = format!("knip@{}", tools.knip);
     let mut knip_command = Command::new("npx");
     knip_command
         .args(["--yes", spec.as_str(), "--reporter", "json"])
-        .current_dir(&root)
+        .current_dir(&knip_dir)
         .env("CI", "1")
         .env("DOTENV_CONFIG_QUIET", "true");
     if !options.repo_knip_config {
@@ -1070,13 +1074,13 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
     };
 
     let mut skif_found = skif_keys(&skif_doc, &root);
-    let knip_found = knip_keys(&knip_doc, &root);
+    let knip_found = knip_keys(&knip_doc, &knip_dir);
     align_export_labels(&mut skif_found, &knip_found);
     let unjudged = not_judged_dirs(&skif_doc);
     let foreign_paths = foreign_tsconfig_paths_keys(&skif_doc, &root);
-    let knip_errors = knip_config_errors(&knip_run.stderr, &root);
+    let knip_errors = knip_config_errors(&knip_run.stderr, &knip_dir);
     let manifest = manifest_reader(&root);
-    let layout = Layout::new(workspace_members(&root), &manifest);
+    let layout = Layout::new(workspace_members(&knip_dir), &manifest);
     let knip_failed: BTreeSet<String> = knip_errors
         .iter()
         .map(|file| owner_dir(file, &|dir: &str| layout.is_package(dir)))
@@ -1124,6 +1128,124 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
             .with_installed(installed),
         detail,
     })
+}
+
+/// The directory knip runs in: the checkout, or for `knip-root = "rush"` a scratch clone of it with a throw-away root
+/// `package.json` whose `workspaces` are the `projectFolder`s of `rush.json`. knip needs a root manifest and has no Rush
+/// support; the checkout itself is never written. `Err` says why the directory could not be made.
+fn knip_root(repo: &Repo, root: &Path, scratch: &Path) -> Result<PathBuf, String> {
+    match repo.knip_root.as_deref() {
+        None => Ok(root.to_path_buf()),
+        Some(RUSH_KNIP_ROOT) => {
+            let rush = fs::read_to_string(root.join("rush.json")).map_err(|error| format!("reading rush.json: {error}"))?;
+            let manifest = rush_root_manifest(&rush)?;
+            let copy = scratch.join("knip-root");
+            if copy.exists() {
+                fs::remove_dir_all(&copy).map_err(|error| format!("cleaning {}: {error}", copy.display()))?;
+            }
+            fs::create_dir_all(scratch).map_err(|error| format!("creating {}: {error}", scratch.display()))?;
+            // A shared clone borrows the checkout's objects, so the copy costs only its working tree.
+            git_step(
+                Command::new("git")
+                    .args(["clone", "--quiet", "--shared", "--no-checkout"])
+                    .arg(root)
+                    .arg(&copy),
+                "clone",
+            )?;
+            git_step(
+                Command::new("git")
+                    .arg("-C")
+                    .arg(&copy)
+                    .args(["checkout", "--quiet", "--detach", &repo.rev]),
+                "checkout",
+            )?;
+            fs::write(copy.join("package.json"), manifest)
+                .map_err(|error| format!("writing the scratch package.json: {error}"))?;
+            fs::canonicalize(&copy).map_err(|error| format!("resolving {}: {error}", copy.display()))
+        }
+        Some(other) => Err(format!("unknown knip-root {other:?}")),
+    }
+}
+
+/// Runs one git command of the scratch copy; `Err` carries its stderr.
+fn git_step(command: &mut Command, step: &str) -> Result<(), String> {
+    let output = command
+        .output()
+        .map_err(|error| format!("running git {step}: {error}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "git {step} of the scratch copy failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+}
+
+/// The root `package.json` knip gets for a Rush repository: private, with the `projectFolder` of every project of
+/// `rush.json` (JSON with comments) as its `workspaces`.
+fn rush_root_manifest(rush_json: &str) -> Result<String, String> {
+    let rush: Value =
+        serde_json::from_str(&strip_jsonc(rush_json)).map_err(|error| format!("parsing rush.json: {error}"))?;
+    let folders: Vec<&str> = rush
+        .get("projects")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|project| project.get("projectFolder").and_then(Value::as_str))
+        .collect();
+    if folders.is_empty() {
+        return Err("rush.json lists no projectFolder".to_owned());
+    }
+    Ok(json!({ "private": true, "workspaces": folders }).to_string() + "\n")
+}
+
+/// JSON with comments made plain JSON: `//` and `/* */` comments outside strings are dropped, and so is a comma
+/// before a closing `]` or `}`.
+fn strip_jsonc(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    let mut in_string = false;
+    while let Some(character) = chars.next() {
+        if in_string {
+            out.push(character);
+            match character {
+                '\\' => out.extend(chars.next()),
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match (character, chars.peek()) {
+            ('"', _) => {
+                in_string = true;
+                out.push(character);
+            }
+            ('/', Some('/')) => {
+                while chars.next_if(|next| *next != '\n').is_some() {}
+            }
+            ('/', Some('*')) => {
+                chars.next();
+                let mut previous = ' ';
+                for next in chars.by_ref() {
+                    if previous == '*' && next == '/' {
+                        break;
+                    }
+                    previous = next;
+                }
+                out.push(' ');
+            }
+            (']' | '}', _) => {
+                let kept = out.trim_end().len();
+                if out[..kept].ends_with(',') {
+                    out.remove(kept - 1);
+                }
+                out.push(character);
+            }
+            _ => out.push(character),
+        }
+    }
+    out
 }
 
 /// An empty knip configuration, so the repository's own settings (ignores, `files: off`, ignored workspaces) do not
@@ -1373,6 +1495,7 @@ mod tests {
             entry: Vec::new(),
             bench_knip_args: Vec::new(),
             knip_invalid: None,
+            knip_root: None,
         };
         let dir = Path::new("/nonexistent");
         assert_eq!(install_command(&repo("npm", true), dir).unwrap().1[0], "ci");
@@ -1833,6 +1956,63 @@ mod tests {
         assert_eq!(
             installed_summary(&BTreeMap::from([("c".to_owned(), entry(false))])),
             "no"
+        );
+    }
+
+    #[test]
+    fn a_rush_repository_gets_a_root_manifest_from_rush_json() {
+        let rush = r#"/**
+ * Rush's main config, see https://rushjs.io // not a comment end
+ */
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/rush/v5/rush.schema.json",
+  // "projects": [] in a comment is ignored
+  "rushVersion": "5.0.0",
+  "note": "a \"quoted\" /* string */ stays",
+  "projects": [
+    { "packageName": "@rushstack/heft", "projectFolder": "apps/heft" },
+    /* a block comment */
+    { "packageName": "@rushstack/node-core-library", "projectFolder": "libraries/node-core-library", },
+  ],
+}
+"#;
+        let plain: Value = serde_json::from_str(&strip_jsonc(rush)).unwrap();
+        assert_eq!(plain["note"], r#"a "quoted" /* string */ stays"#);
+        assert_eq!(plain["projects"].as_array().unwrap().len(), 2);
+        let manifest: Value = serde_json::from_str(&rush_root_manifest(rush).unwrap()).unwrap();
+        assert_eq!(
+            manifest,
+            json!({ "private": true, "workspaces": ["apps/heft", "libraries/node-core-library"] })
+        );
+        assert!(
+            rush_root_manifest(r#"{ "projects": [] }"#)
+                .unwrap_err()
+                .contains("no projectFolder")
+        );
+        assert!(rush_root_manifest("{ not json").unwrap_err().contains("parsing rush.json"));
+    }
+
+    #[test]
+    fn knip_runs_in_the_checkout_unless_the_repository_needs_a_synthesized_root() {
+        let mut repo: Repo = toml::from_str(&format!(
+            "name = \"r\"\nurl = \"u\"\nrev = \"{}\"\npackage-manager = \"rush\"\n",
+            "a".repeat(40)
+        ))
+        .unwrap();
+        let root = Path::new("/nonexistent/checkout");
+        assert_eq!(knip_root(&repo, root, Path::new("/nonexistent/scratch")).unwrap(), root);
+        repo.knip_root = Some("lerna".to_owned());
+        assert!(
+            knip_root(&repo, root, Path::new("/nonexistent/scratch"))
+                .unwrap_err()
+                .contains("unknown knip-root")
+        );
+        repo.knip_root = Some(RUSH_KNIP_ROOT.to_owned());
+        assert!(
+            knip_root(&repo, root, Path::new("/nonexistent/scratch"))
+                .unwrap_err()
+                .contains("reading rush.json"),
+            "the checkout is only read"
         );
     }
 

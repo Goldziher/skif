@@ -68,7 +68,14 @@ pub struct Repo {
     /// packages which are never built). The repository is still compared, and the report marks the row with this.
     #[serde(default)]
     pub knip_invalid: Option<String>,
+    /// How to give knip a root it can run in where the checkout has none: `rush` runs it in a scratch copy with a
+    /// root `package.json` made from `rush.json`.
+    #[serde(default)]
+    pub knip_root: Option<String>,
 }
+
+/// The `knip-root` of a Rush repository: knip runs in a scratch copy with a root `package.json` made from `rush.json`.
+pub const RUSH_KNIP_ROOT: &str = "rush";
 
 const fn default_install() -> bool {
     true
@@ -93,6 +100,9 @@ pub fn load_manifest(path: &Path) -> Result<Manifest> {
         }
         if let Some(unknown) = repo.suites.iter().find(|s| !["bench", "parity"].contains(&s.as_str())) {
             bail!("{}: unknown suite {unknown:?}", repo.name);
+        }
+        if let Some(root) = repo.knip_root.as_deref().filter(|root| *root != RUSH_KNIP_ROOT) {
+            bail!("{}: unknown knip-root {root:?} (the only one is {RUSH_KNIP_ROOT:?})", repo.name);
         }
     }
     Ok(manifest)
@@ -224,6 +234,14 @@ mod tests {
         let n8n = repos.iter().find(|r| r.name == "n8n").unwrap();
         assert!(n8n.knip_invalid.as_deref().is_some_and(|why| why.contains("dist")));
         assert_eq!(repos.iter().filter(|r| r.knip_invalid.is_some()).count(), 1);
+    }
+
+    #[test]
+    fn rushstack_runs_knip_in_a_synthesized_root() {
+        let repos = manifest().repo;
+        let rushstack = repos.iter().find(|r| r.name == "rushstack").unwrap();
+        assert_eq!(rushstack.knip_root.as_deref(), Some(RUSH_KNIP_ROOT));
+        assert!(repos.iter().filter(|r| r.name != "rushstack").all(|r| r.knip_root.is_none()));
     }
 
     #[test]
