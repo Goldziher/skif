@@ -121,6 +121,8 @@ struct MappedTypes {
     tokens: Vec<String>,
     /// Every positive token named something skif cannot read, so the group would cover nothing skif checks.
     covers_nothing: bool,
+    /// The dropped names that are neither built-in nor custom types, which syncpack rejects.
+    rejected: Vec<String>,
 }
 
 #[derive(Default)]
@@ -129,8 +131,12 @@ struct Run {
     /// One entry per run of `syncpack lint` (or similar) in a script: the scope its `--dependency-types` gave, which
     /// replaces the default one, or `None` when it gave none.
     scopes: Vec<(String, Option<Vec<String>>)>,
-    /// A format key is set or a script runs `syncpack format`.
+    /// A script runs `syncpack format`.
     formats: bool,
+    /// The format keys written to `[format]`, which only `syncpack format` applies.
+    format_keys: Vec<String>,
+    /// `sortAz` names a dependency map.
+    sorts_dependencies: bool,
 }
 
 pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), MigrateError> {
@@ -184,6 +190,18 @@ pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), 
             state.keep(Tool::Syncpack, [id]);
             state.set_level(id, Level::Error);
         }
+        if run.sorts_dependencies {
+            state.keep(Tool::Syncpack, tables::syncpack_rules("sort-az"));
+        }
+    } else if !run.format_keys.is_empty() {
+        state.note_with(
+            &src,
+            NoteClass::Approximate,
+            run.format_keys.join(", "),
+            "no script runs `syncpack format`, and `syncpack lint` does not check the layout, so these settings only \
+             serve `skif format` and the migration keeps no layout rule for them",
+            "set `package-json-format = \"error\"` in [rules] to check the layout on every run",
+        );
     }
     Ok(())
 }
@@ -268,14 +286,14 @@ fn read_config(
     }
 }
 
-/// Writes a format key to `[format]`; `package-json-format` is turned on once the run is read (ADR 0055).
+/// Writes a format key to `[format]`. `package-json-format` is turned on once the run is read (ADR 0055), and only
+/// when a script runs `syncpack format`: `syncpack lint` never checks the layout.
 fn format_key(state: &mut State<'_>, src: &Src, path: &str, key: &str, item: &ConfigValue, run: &mut Run) {
-    run.formats = true;
     let (target, value) = match key {
         "sortFirst" | "sortAz" | "sortExports" => {
             let names = string_list(state, src, path, item);
             if key == "sortAz" && names.iter().any(|name| DEPENDENCY_MAPS.contains(&name.as_str())) {
-                state.keep(Tool::Syncpack, tables::syncpack_rules("sort-az"));
+                run.sorts_dependencies = true;
             }
             let target = match key {
                 "sortFirst" => "sort-first",
@@ -303,6 +321,7 @@ fn format_key(state: &mut State<'_>, src: &Src, path: &str, key: &str, item: &Co
         }
     };
     state.doc.table(&["format"]).set(target, value);
+    run.format_keys.push(path.to_owned());
     let (class, message) = match key {
         "sortAz" | "sortPackages" => (
             NoteClass::Approximate,
@@ -314,8 +333,8 @@ fn format_key(state: &mut State<'_>, src: &Src, path: &str, key: &str, item: &Co
         ),
         "indent" => (
             NoteClass::Approximate,
-            "written to [format] indent; skif then checks the layout of every package.json, which syncpack never \
-             reports"
+            "written to [format] indent; with package-json-format on, skif checks the layout of every package.json, \
+             which syncpack never reports"
                 .to_owned(),
         ),
         _ => (NoteClass::Exact, format!("written to [format] {target}")),
@@ -329,14 +348,18 @@ fn custom_types(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValu
         let mut strategy = None;
         let mut location = None;
         let mut name_path = None;
-        let mut external = false;
+        let mut source = None;
+        let mut readable_source = true;
         for (key, item) in entries(state, src, &type_path, definition) {
             let key_path = join(&type_path, key);
             match key {
                 "strategy" => strategy = string(state, src, &key_path, item),
                 "path" => location = string(state, src, &key_path, item),
                 "namePath" => name_path = string(state, src, &key_path, item),
-                "source" => external = true,
+                "source" => {
+                    source = string(state, src, &key_path, item);
+                    readable_source = source.is_some();
+                }
                 other => state.note(
                     src,
                     NoteClass::Unsupported,
@@ -345,6 +368,11 @@ fn custom_types(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValu
                 ),
             }
         }
+        if !readable_source {
+            // Noted where it was read; syncpack rejects a source that is not a string.
+            types.custom.push((name.to_owned(), CustomKind::Unsupported));
+            continue;
+        }
         let kind = custom_type(
             state,
             src,
@@ -352,7 +380,7 @@ fn custom_types(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValu
             name,
             strategy.as_deref(),
             (location.as_deref(), name_path.as_deref()),
-            external,
+            source.as_deref(),
         );
         types.custom.push((name.to_owned(), kind));
     }
@@ -365,16 +393,32 @@ fn custom_type(
     name: &str,
     strategy: Option<&str>,
     (location, name_path): (Option<&str>, Option<&str>),
-    external: bool,
+    source: Option<&str>,
 ) -> CustomKind {
-    if external {
-        state.note(
-            src,
-            NoteClass::Unsupported,
-            path,
-            "reads a file other than package.json, which skif cannot",
-        );
-        return CustomKind::Unsupported;
+    // syncpack's sources: `PackageJson`, the default, and `PnpmWorkspace`; it rejects any other value.
+    match source {
+        None | Some("PackageJson") => {}
+        Some("PnpmWorkspace") => {
+            state.note(
+                src,
+                NoteClass::Unsupported,
+                path,
+                "reads pnpm-workspace.yaml, and skif reads custom types from package.json only",
+            );
+            return CustomKind::Unsupported;
+        }
+        Some(other) => {
+            state.note(
+                src,
+                NoteClass::Human,
+                path,
+                format!(
+                    "`{other}` is not a syncpack source (`PackageJson` or `PnpmWorkspace`), so syncpack rejected the \
+                     file"
+                ),
+            );
+            return CustomKind::Unsupported;
+        }
     }
     let (Some(strategy), Some(location)) = (strategy, location) else {
         state.note(src, NoteClass::Human, path, "needs both a `strategy` and a `path`");
@@ -467,6 +511,11 @@ fn map_types(state: &mut State<'_>, src: &Src, path: &str, tokens: &[String], ty
             None => {}
         }
     }
+    let rejected = dropped
+        .iter()
+        .filter(|name| types.kind(name).is_none())
+        .cloned()
+        .collect();
     let covers_nothing = positive && !kept_positive;
     if !dropped.is_empty() && !covers_nothing {
         state.note(
@@ -482,6 +531,7 @@ fn map_types(state: &mut State<'_>, src: &Src, path: &str, tokens: &[String], ty
     MappedTypes {
         tokens: kept,
         covers_nothing,
+        rejected,
     }
 }
 
@@ -572,6 +622,19 @@ impl Selectors {
             return Some(Vec::new());
         };
         let mapped = map_types(state, src, &join(path, "dependencyTypes"), tokens, types);
+        if mapped.covers_nothing && !mapped.rejected.is_empty() {
+            state.note(
+                src,
+                NoteClass::Human,
+                join(path, "dependencyTypes"),
+                format!(
+                    "{} is neither a built-in nor a custom dependency type, so syncpack rejected the file; the group \
+                     was not written",
+                    mapped.rejected.join(", ")
+                ),
+            );
+            return None;
+        }
         if mapped.covers_nothing {
             state.note_with(
                 src,
@@ -773,20 +836,24 @@ fn version_group(state: &mut State<'_>, src: &Src, path: &str, index: usize, gro
     state.note(src, NoteClass::Exact, path, "written to [[version-groups]]");
 }
 
-/// `policy: catalog` is the global `[catalog] mode = "prefer"` in skif. A group that selects something narrower must
-/// not widen to every dependency, so it is left to a human.
+/// `policy: catalog` is the global `[catalog] mode = "enforce"` in skif, with `min-packages = 1`: syncpack reports
+/// every instance without `catalog:` as an error, in however many packages. A group that selects something narrower
+/// must not widen to every dependency, so it is left to a human.
 fn catalog_policy(state: &mut State<'_>, src: &Src, path: &str, selectors: &Selectors) {
     if selectors.selects_everything() {
-        state.doc.table(&["catalog"]).set("mode", Val::str("prefer"));
-        state.keep(Tool::Syncpack, tables::syncpack_rules("catalog-policy"));
-        state.note_with(
+        let catalog = state.doc.table(&["catalog"]);
+        catalog.set("mode", Val::str("enforce"));
+        catalog.set("min-packages", Val::Int(1));
+        for id in tables::syncpack_rules("catalog-policy") {
+            state.keep(Tool::Syncpack, [id]);
+            state.set_level(id, Level::Error);
+        }
+        state.note(
             src,
-            NoteClass::Approximate,
+            NoteClass::Exact,
             join(path, "policy"),
-            "written to [catalog] mode = \"prefer\"; the group selected every dependency. skif reports a dependency \
-             without `catalog:` as a warning, and only one used in at least `min-packages` packages (2 by default); \
-             syncpack reported every such instance as an error",
-            "set [catalog] mode = \"enforce\" and min-packages = 1 for syncpack's strictness",
+            "written to [catalog] mode = \"enforce\" and min-packages = 1, with the catalog rules at error; the group \
+             selected every dependency, and like syncpack skif reports every instance without `catalog:`",
         );
     } else {
         state.note_with(
@@ -1236,6 +1303,10 @@ fn narrow_groups(state: &mut State<'_>, src: &Src, scope: &[String]) {
         });
     }
     for path in dropped {
+        // The group was noted as written when it was read; that note no longer holds.
+        state
+            .notes
+            .retain(|note| !(note.tool == Tool::Syncpack && note.path == path && note.message.starts_with("written to [[")));
         state.note(
             src,
             NoteClass::Exact,

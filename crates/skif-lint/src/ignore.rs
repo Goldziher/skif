@@ -27,6 +27,8 @@ struct Entry {
     /// Indexed by package id; `None` matches every package, including diagnostics without one.
     packages: Option<Vec<bool>>,
     dependencies: Selector,
+    /// Matched against the root-relative path of the diagnostic's location; empty matches every file.
+    files: Selector,
 }
 
 /// A list of entries with the entries each rule reaches.
@@ -58,6 +60,7 @@ impl Entries {
                         .collect()
                 }),
                 dependencies: entry.dependencies.clone(),
+                files: entry.files.clone(),
             });
         }
         list
@@ -136,6 +139,10 @@ impl Suppressions {
             .packages
             .as_ref()
             .is_none_or(|flags| self.package_flag(diagnostic, flags))
+            && (entry.files.is_empty()
+                || entry
+                    .files
+                    .matches(&skif_core::slash(&diagnostic.location.path), false))
             && (entry.dependencies.is_empty()
                 || diagnostic.dependency.as_deref().is_some_and(|dependency| {
                     self.dependency_matches(&entry.dependencies, dependency, versioned_name(diagnostic, versioned))
@@ -321,6 +328,16 @@ mod tests {
                 "{pattern} vs {name}@{specifier}"
             );
         }
+    }
+
+    #[test]
+    fn a_files_selector_matches_the_location_relative_to_the_root() {
+        let config = Config::from_toml_str("[[ignore]]\nrules = [\"demo\"]\nfiles = [\"p/a/src/old.ts\"]\n").unwrap();
+        let suppressions = Suppressions::new(&workspace(&config), &config);
+        let at = |path: &str| diagnostic(&META, "m", Location::new(path, None)).package("a").build();
+        assert!(suppressions.suppresses(&at("p/a/src/old.ts")));
+        assert!(!suppressions.suppresses(&at("p/a/src/new.ts")));
+        assert!(!suppressions.suppresses(&at("p/a/package.json")));
     }
 
     #[test]

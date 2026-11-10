@@ -13,6 +13,7 @@ use skif_migrate::{
     Input, MigrateError, Migration, Options, Profile, RuleInfo, Tool, ToolInput, config_file_names, migrate,
     package_json_mentions, script_config_path,
 };
+use skif_report::escape_controls;
 
 use crate::args::{Format, MigrateArgs, MigrateFrom, MigrateProfile, RulesFormat};
 use crate::error::{CliError, Kind};
@@ -250,6 +251,29 @@ fn existing_config(root: &Path, target: &Path, default_target: bool) -> Option<P
         .find(|path| path.exists())
 }
 
+/// Warns that `--force` replaces `existing`, a configuration file that extends other files (a `skif baseline` file, a
+/// shared preset), with one that does not: the next lint run loses what they set. A file that is not valid TOML warns
+/// of nothing.
+fn warn_dropped_extends(existing: &Path) -> Result<(), CliError> {
+    let text = read_text(existing)?;
+    let Ok(table) = text.parse::<toml::Table>() else {
+        return Ok(());
+    };
+    let Some(toml::Value::Array(extends)) = table.get("extends") else {
+        return Ok(());
+    };
+    let files: Vec<&str> = extends.iter().filter_map(toml::Value::as_str).collect();
+    if !files.is_empty() {
+        stderr_line(&format!(
+            "warning: --force replaces {}, which extends {}; the new file does not, so add them back to its `extends` \
+             (or migrate with --merge)",
+            existing.display(),
+            escape_controls(&files.join(", "))
+        ));
+    }
+    Ok(())
+}
+
 struct Plan {
     /// Where the configuration goes, or `None` for stdout.
     target: Option<PathBuf>,
@@ -290,6 +314,9 @@ fn plan_output(args: &MigrateArgs, root: &Path, migration: &Migration) -> Result
                     ),
                 )
             });
+        }
+        if !to_stdout {
+            warn_dropped_extends(existing)?;
         }
         destination.clone_from(existing);
     }

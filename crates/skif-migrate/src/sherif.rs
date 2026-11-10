@@ -85,6 +85,7 @@ pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), 
     }
     scripts::note_unrecognised(state, &src, &package, Tool::Sherif);
     note_differing_runs(state, &src, &invocations);
+    note_empty_root_dependencies(state, &src, &package, &settings);
     emit(state, &src, &settings);
     Ok(())
 }
@@ -113,6 +114,27 @@ fn note_differing_runs(state: &mut State<'_>, src: &Src, invocations: &[Invocati
             "check that every check should use the combined setting",
         );
     }
+}
+
+/// sherif reports a root `dependencies` key as `root-package-dependencies`, a warning, before it looks at what the
+/// section holds; skif leaves an empty section to `empty-dependencies`, an error. Only the root manifest is read here,
+/// so that is the one place the difference can be seen.
+fn note_empty_root_dependencies(state: &mut State<'_>, src: &Src, package: &ConfigValue, settings: &Settings) {
+    let empty = package
+        .get("dependencies")
+        .and_then(ConfigValue::as_object)
+        .is_some_and(|entries| entries.is_empty());
+    if !empty || settings.ignore_rule.values.iter().any(|id| id == "empty-dependencies") {
+        return;
+    }
+    state.note_with(
+        src,
+        NoteClass::Approximate,
+        "dependencies",
+        "the root `dependencies` is empty: sherif reported it as root-package-dependencies, a warning, and skif \
+         reports it as empty-dependencies, an error",
+        "remove the empty `dependencies` object; `skif --fix` does",
+    );
 }
 
 fn rule_id(state: &mut State<'_>, src: &Src, path: &str, name: &str) -> Option<String> {
@@ -198,25 +220,40 @@ fn select_value(state: &mut State<'_>, src: &Src, path: &str, select: &str, sett
     }
 }
 
+/// The values of a sherif flag. sherif takes each value whole: `-i a,b` names one dependency, `a,b`, which matches
+/// none, so such a value is noted and left out.
+fn flag_values(state: &mut State<'_>, src: &Src, invocation: &Invocation, long: &str, short: &str) -> Vec<String> {
+    let (whole, joined): (Vec<String>, Vec<String>) = invocation
+        .whole_values(long, Some(short))
+        .into_iter()
+        .partition(|value| !value.contains(','));
+    for value in joined {
+        state.note_with(
+            src,
+            NoteClass::Human,
+            format!("{}: --{long}", invocation.path()),
+            format!("sherif does not split values at commas, so `{value}` matched nothing; it was not written"),
+            format!("pass each name with its own flag (`-{short} a -{short} b`) if every one should be ignored"),
+        );
+    }
+    whole
+}
+
 fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, settings: &mut Settings) {
     let origin = |flag: &str| format!("{}: {flag}", invocation.path());
-    for name in invocation.values("ignore-rule", Some("r")) {
+    for name in invocation.whole_values("ignore-rule", Some("r")) {
         if let Some(id) = rule_id(state, src, &origin("--ignore-rule"), &name) {
             settings.ignore_rule.add(&origin("--ignore-rule"), [id]);
         }
     }
-    settings.ignore_package.add(
-        &origin("--ignore-package"),
-        invocation.values("ignore-package", Some("p")),
-    );
-    settings.ignore_dependency.add(
-        &origin("--ignore-dependency"),
-        invocation.values("ignore-dependency", Some("i")),
-    );
+    let packages = flag_values(state, src, invocation, "ignore-package", "p");
+    settings.ignore_package.add(&origin("--ignore-package"), packages);
+    let dependencies = flag_values(state, src, invocation, "ignore-dependency", "i");
+    settings.ignore_dependency.add(&origin("--ignore-dependency"), dependencies);
     if invocation.has("fail-on-warnings", None) {
         settings.fail_on_warnings.mark(&origin("--fail-on-warnings"));
     }
-    if let Some(select) = invocation.values("select", Some("s")).pop() {
+    if let Some(select) = invocation.whole_values("select", Some("s")).pop() {
         select_value(state, src, &origin("--select"), &select, settings);
     }
     if invocation.has("fix", Some("f")) {
@@ -254,8 +291,12 @@ fn emit(state: &mut State<'_>, src: &Src, settings: &Settings) {
     if !settings.ignore_package.is_empty() {
         emit_ignored_packages(state, src, &settings.ignore_package);
     }
-    if !settings.ignore_rule.values.iter().any(|id| id == VERSION_RULE) {
+    let ignores = |id: &str| settings.ignore_rule.values.iter().any(|ignored| ignored == id);
+    if !ignores(VERSION_RULE) {
         emit_scope(state, src);
+    }
+    if !ignores(FAMILY_RULE) {
+        note_families(state, src, !ignores(VERSION_RULE));
     }
     emit_dependencies(state, src, &settings.ignore_dependency);
     if !settings.fail_on_warnings.is_empty() {
@@ -299,19 +340,127 @@ fn emit(state: &mut State<'_>, src: &Src, settings: &Settings) {
 /// The skif rule sherif's `multiple-dependency-versions` maps to.
 const VERSION_RULE: &str = "version-mismatch";
 
+/// The skif rule sherif's `unsync-similar-dependencies` maps to.
+const FAMILY_RULE: &str = "unsynced-dependency-family";
+
+/// `unsynced-dependency-family` reads the sections of `[policy] dependency-types`, so with the scope written it reads
+/// dependencies and devDependencies as sherif did; what still differs is said here.
+fn note_families(state: &mut State<'_>, src: &Src, scoped: bool) {
+    let sections = if scoped {
+        ""
+    } else {
+        "; and with no [policy] dependency-types written, optionalDependencies take part, which sherif never read"
+    };
+    state.note_with(
+        src,
+        NoteClass::Approximate,
+        "unsync-similar-dependencies",
+        format!(
+            "skif compares a `catalog:` reference by the version of its catalog entry, which sherif left out{sections}"
+        ),
+        "align the family members, or set `unsynced-dependency-family` to \"off\" in [rules]",
+    );
+}
+
 /// The sections sherif compares versions in. It never compares a dependency with a package's own `version`, so the
 /// scope leaves `local` out (ADR 0072).
 const SCOPE: &[&str] = &["prod", "dev"];
 
+/// The specifier types sherif's `multiple-dependency-versions` never compares. sherif keeps a specifier only when the
+/// `semver` crate reads it as a version or as a range with at least one comparator, so `*`, `latest`, dist-tags,
+/// `||`, hyphen and space-separated ranges and every protocol (`workspace:`, `npm:`, git, file, link, url) take no
+/// part. `catalog:` references are not listed: `version-mismatch` leaves them to the catalog rules anyway.
+pub(crate) const UNPARSED_SPECIFIERS: &[&str] = &[
+    "alias",
+    "file",
+    "git",
+    "latest",
+    "link",
+    "missing",
+    "range-complex",
+    "tag",
+    "unsupported",
+    "url",
+    "workspace-protocol",
+];
+
+/// The rule that reports a version group that owns no dependency.
+pub(crate) const UNUSED_GROUP_RULE: &str = "policy-conflict";
+
+/// The note path for what sherif compared.
+const SPECIFIERS_PATH: &str = "multiple-dependency-versions: specifiers";
+
 /// `[policy] dependency-types` as sherif's `multiple-dependency-versions` saw the workspace.
 fn emit_scope(state: &mut State<'_>, src: &Src) {
     state.widen_scope(SCOPE.iter().map(|token| (*token).to_owned()).collect());
+    state.sherif_versions = Some(src.clone());
     state.note(
         src,
         NoteClass::Exact,
         "multiple-dependency-versions",
         "[policy] dependency-types covers dependencies and devDependencies, the sections sherif compares; like \
          sherif, skif then does not compare a dependency with the version of the workspace package it names",
+    );
+    state.note_with(
+        src,
+        NoteClass::Approximate,
+        "multiple-dependency-versions: dependencies and devDependencies",
+        "sherif read a dependency that one package lists in both dependencies and devDependencies at its \
+         devDependencies specifier only; skif compares both entries, so two different specifiers there are a \
+         version-mismatch",
+        "list the dependency in one of the two sections, or give both entries the same specifier",
+    );
+}
+
+/// Leaves the specifiers sherif never compared out of `version-mismatch`, once every tool is read: syncpack compared
+/// them, so a migration with syncpack keeps them. The group is written only when `silent`, that is when nothing
+/// reports it for owning no dependency in a workspace without such specifiers; otherwise the note says how.
+pub(crate) fn leave_out_unparsed(state: &mut State<'_>, src: &Src, silent: bool) {
+    let types = UNPARSED_SPECIFIERS.join(", ");
+    if state.tools.contains(&Tool::Syncpack) {
+        state.note(
+            src,
+            NoteClass::Approximate,
+            SPECIFIERS_PATH,
+            format!(
+                "sherif compared semver versions and ranges only; syncpack compared every specifier, so skif does too \
+                 ({types})"
+            ),
+        );
+        return;
+    }
+    if !silent {
+        let quoted: Vec<String> = UNPARSED_SPECIFIERS.iter().map(|name| format!("\"{name}\"")).collect();
+        state.note_with(
+            src,
+            NoteClass::Approximate,
+            SPECIFIERS_PATH,
+            format!("sherif compared semver versions and ranges only; skif also compares the specifier types {types}"),
+            format!(
+                "to leave them out as sherif did, add a last [[version-groups]] entry with specifier-types = [{}] and \
+                 policy = \"ignored\"",
+                quoted.join(", ")
+            ),
+        );
+        return;
+    }
+    let element = state.doc.element(
+        &["version-groups"],
+        vec!["migrated from sherif, which compared semver versions and ranges only".to_owned()],
+    );
+    element.set("label", Val::str("not compared by sherif"));
+    element.set("specifier-types", Val::strs(UNPARSED_SPECIFIERS.iter().copied()));
+    element.set("policy", Val::str("ignored"));
+    state.note_with(
+        src,
+        NoteClass::Approximate,
+        SPECIFIERS_PATH,
+        format!(
+            "written to [[version-groups]] as an ignored group of the specifier types sherif did not compare \
+             ({types}); a range sherif read but skif does not classify, such as `>= 1.0.0` or `1.x`, is \
+             `unsupported` and is left out as well"
+        ),
+        "write such a range without the space (`>=1.0.0`) or in full (`^1.0.0`) to keep it compared",
     );
 }
 
@@ -391,5 +540,43 @@ fn emit_dependencies(state: &mut State<'_>, src: &Src, setting: &Setting) {
              count when skif picks the version to align on, so the other instances can be reported against it \
              (with `prefer = \"lowest\"`, for example); ignore the name instead if that version must not count",
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use skif_specifier::{CONFIG_IDENTIFIERS, Specifier};
+
+    use super::*;
+
+    #[test]
+    fn the_unparsed_specifier_types_are_the_ones_sherif_leaves_out() {
+        assert!(UNPARSED_SPECIFIERS.iter().all(|name| CONFIG_IDENTIFIERS.contains(name)));
+        let left_out = [
+            "*",
+            "x",
+            "latest",
+            "next",
+            "^1.0.0 || ^2.0.0",
+            "1.0.0 - 2.0.0",
+            ">=1.0.0 <2.0.0",
+            "workspace:*",
+            "npm:other@1.0.0",
+            "git+https://example.com/a/b.git",
+            "github:a/b",
+            "file:../b",
+            "link:../b",
+            "https://example.com/b.tgz",
+            "",
+        ];
+        for specifier in left_out {
+            let kind = Specifier::create(specifier).get_config_identifier();
+            assert!(UNPARSED_SPECIFIERS.contains(&kind), "{specifier:?} is {kind}");
+        }
+        for specifier in ["1.2.3", "=1.2.3", "1.2.3-beta.1", "^1.2.3", "~1.2", ">=1", "<2.0.0", "1", "1.2"] {
+            let kind = Specifier::create(specifier).get_config_identifier();
+            assert!(!UNPARSED_SPECIFIERS.contains(&kind), "{specifier:?} is {kind}");
+        }
+        assert!(!UNPARSED_SPECIFIERS.contains(&"catalog"), "catalog references stay with the catalog rules");
     }
 }

@@ -2,7 +2,8 @@
 # Columns: skif rule id, `syncpack`, `sherif` or `none`, then the condition (syncpack), `always` (sherif: a check it
 # runs under no rule name, such as stopping on an invalid manifest) or the reason (none).
 # syncpack conditions: `always`; `catalog-policy` (a version group with `policy: catalog`);
-# `sort-az` (`sortAz` names a dependency map); `format` (a format key is set or a script runs `syncpack format`).
+# `sort-az` (a script runs `syncpack format` and `sortAz` names a dependency map); `format` (a script runs
+# `syncpack format`: `syncpack lint` never checks the layout).
 # A rule that no table covers must have a `none` row.
 version-mismatch syncpack always
 semver-range-mismatch syncpack always

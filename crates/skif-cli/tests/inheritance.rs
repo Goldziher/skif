@@ -128,3 +128,28 @@ fn an_override_that_selects_nothing_leaves_the_output_byte_identical() {
     assert_eq!(after.code, before.code);
     assert_eq!(after.stdout, before.stdout);
 }
+
+#[test]
+fn an_override_pattern_that_leaves_its_anchor_is_warned_about() {
+    let dir = fixture("mismatch");
+    fs::create_dir_all(dir.path().join("config")).unwrap();
+    fs::write(
+        dir.path().join("config").join("shared.toml"),
+        "[[overrides]]\npackages = [\"../packages/*\"]\nrules = { version-mismatch = \"off\" }\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("skif.toml"),
+        "extends = [\"config/shared.toml\"]\n\n[js]\nenabled = false\n",
+    )
+    .unwrap();
+    let result = run(skif().args(["--format", "json"]).arg(dir.path()));
+    assert_eq!(result.code, 1, "the pattern matches nothing: {}", result.stdout);
+    assert!(
+        result.stderr.contains("shared.toml: the [[overrides]] pattern `../packages/*` leaves the directory")
+            && result.stderr.contains("$ROOT/"),
+        "{}",
+        result.stderr
+    );
+    assert_eq!(result.stderr.matches("../packages/*").count(), 1, "{}", result.stderr);
+}

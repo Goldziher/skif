@@ -196,14 +196,14 @@ fn syncpack_exact_profile_keeps_the_syncpack_rules() {
     let migration = migrate(&[input], &options(Profile::Exact)).unwrap();
     let parsed = table(&migration);
     let rules = parsed["rules"].as_table().unwrap();
-    for kept in [
-        "version-mismatch",
-        "semver-range-mismatch",
-        "banned-dependency",
-        "unsorted-dependencies",
-    ] {
+    for kept in ["version-mismatch", "semver-range-mismatch", "banned-dependency"] {
         assert!(!rules.contains_key(kept), "{kept} is kept");
     }
+    assert_eq!(
+        rules["unsorted-dependencies"].as_str(),
+        Some("off"),
+        "sortAz only matters to `syncpack format`, which no script runs"
+    );
     assert_eq!(rules["unused-files"].as_str(), Some("off"));
     assert_eq!(rules["empty-dependencies"].as_str(), Some("off"));
 }
@@ -408,8 +408,24 @@ fn a_bare_sherif_run_writes_only_the_scope_sherif_compares() {
     assert_eq!(parsed.len(), 1, "{}", migration.toml);
     assert_eq!(strings(&parsed["policy"]["dependency-types"]), ["prod", "dev"]);
     assert_eq!(parsed["policy"].as_table().unwrap().len(), 1, "{}", migration.toml);
-    assert_eq!(migration.notes.len(), 1, "{:#?}", migration.notes);
+    let paths: Vec<&str> = migration.notes.iter().map(|note| note.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            "multiple-dependency-versions",
+            "multiple-dependency-versions: dependencies and devDependencies",
+            "unsync-similar-dependencies",
+            "multiple-dependency-versions: specifiers"
+        ],
+        "{:#?}",
+        migration.notes
+    );
     assert_eq!(class(&migration, "multiple-dependency-versions"), NoteClass::Exact);
+    assert_eq!(
+        class(&migration, "multiple-dependency-versions: dependencies and devDependencies"),
+        NoteClass::Approximate,
+        "sherif merged the two sections of a package, skif compares both entries"
+    );
 }
 
 #[test]
@@ -528,6 +544,35 @@ fn a_bare_knip_run_writes_no_js_setting() {
 }
 
 #[test]
+fn sherif_short_flags_with_attached_values_are_translated() {
+    let migration = migrate(
+        &[sherif_input(&package(&[("lint", "sherif -p=@x/y -ireact -i=lodash")]))],
+        &options(Profile::Exact),
+    )
+    .unwrap();
+    let parsed = table(&migration);
+    assert_eq!(strings(&parsed["workspace"]["ignore-packages"]), ["@x/y"]);
+    assert_eq!(strings(&parsed["ignore"][0]["dependencies"]), ["react", "lodash"]);
+    assert!(!migration.needs_human(), "{:#?}", migration.notes);
+}
+
+#[test]
+fn sherif_values_are_not_split_at_commas() {
+    let migration = migrate(
+        &[sherif_input(&package(&[("lint", "sherif -i react,vue -i lodash -p a,b")]))],
+        &options(Profile::Exact),
+    )
+    .unwrap();
+    let parsed = table(&migration);
+    assert_eq!(strings(&parsed["ignore"][0]["dependencies"]), ["lodash"]);
+    assert!(parsed.get("workspace").is_none(), "{}", migration.toml);
+    let joined = note(&migration, "scripts.lint: --ignore-dependency");
+    assert_eq!(joined.class, NoteClass::Human);
+    assert!(joined.message.contains("`react,vue` matched nothing"), "{joined:#?}");
+    assert_eq!(class(&migration, "scripts.lint: --ignore-package"), NoteClass::Human);
+}
+
+#[test]
 fn sherif_runs_that_differ_are_combined_with_a_note() {
     let mut input = ToolInput::new(Tool::Sherif);
     input.package_json = Some(text(
@@ -579,7 +624,7 @@ fn sherif_writes_no_scope_when_it_ignores_its_version_check() {
             !migration
                 .notes
                 .iter()
-                .any(|note| note.path == "multiple-dependency-versions"),
+                .any(|note| note.path.starts_with("multiple-dependency-versions")),
             "{:#?}",
             migration.notes
         );
@@ -590,6 +635,132 @@ fn sherif_writes_no_scope_when_it_ignores_its_version_check() {
             migration.toml
         );
     }
+}
+
+/// The specifier types sherif's semver parser rejects, so `multiple-dependency-versions` never compared them.
+const SHERIF_UNPARSED: [&str; 11] = [
+    "alias",
+    "file",
+    "git",
+    "latest",
+    "link",
+    "missing",
+    "range-complex",
+    "tag",
+    "unsupported",
+    "url",
+    "workspace-protocol",
+];
+
+#[test]
+fn sherif_exact_leaves_out_the_specifiers_sherif_does_not_compare() {
+    let bare = || sherif_input(&package(&[("lint", "sherif")]));
+    let migration = migrate(&[bare()], &options(Profile::Exact)).unwrap();
+    let parsed = table(&migration);
+    let groups = parsed["version-groups"].as_array().unwrap();
+    assert_eq!(groups.len(), 1, "{}", migration.toml);
+    assert_eq!(strings(&groups[0]["specifier-types"]), SHERIF_UNPARSED);
+    assert_eq!(groups[0]["policy"].as_str(), Some("ignored"));
+    assert!(groups[0].get("dependency-types").is_none(), "the group keeps sherif's scope");
+    assert_eq!(
+        migration.config.version_groups[0].policy,
+        skif_config::VersionPolicy::Ignored
+    );
+    assert_eq!(
+        parsed["rules"]["policy-conflict"].as_str(),
+        Some("off"),
+        "nothing reports the group when the workspace has no such specifier"
+    );
+    assert_eq!(
+        class(&migration, "multiple-dependency-versions: specifiers"),
+        NoteClass::Approximate
+    );
+    assert!(note(&migration, "multiple-dependency-versions: specifiers").message.contains("`>= 1.0.0`"));
+
+    let full = migrate(&[bare()], &options(Profile::Full)).unwrap();
+    assert!(table(&full).get("version-groups").is_none(), "{}", full.toml);
+    let hint = note(&full, "multiple-dependency-versions: specifiers");
+    assert_eq!(hint.class, NoteClass::Approximate);
+    assert!(
+        hint.suggestion
+            .as_deref()
+            .is_some_and(|suggestion| suggestion.contains("\"range-complex\"") && suggestion.contains("policy = \"ignored\"")),
+        "{hint:#?}"
+    );
+
+    let mut syncpack = ToolInput::new(Tool::Syncpack);
+    syncpack.package_json = Some(text("package.json", &package(&[("lint", "syncpack lint")])));
+    for inputs in [[bare(), syncpack.clone()], [syncpack.clone(), bare()]] {
+        let both = migrate(&inputs, &options(Profile::Exact)).unwrap();
+        assert!(both.config.version_groups.is_empty(), "syncpack compared every specifier: {}", both.toml);
+        assert!(note(&both, "multiple-dependency-versions: specifiers").message.contains("syncpack"));
+    }
+}
+
+#[test]
+fn sherif_family_differences_are_noted() {
+    let scoped = migrate(&[sherif_input(&package(&[("lint", "sherif")]))], &options(Profile::Exact)).unwrap();
+    let noted = note(&scoped, "unsync-similar-dependencies");
+    assert_eq!(noted.class, NoteClass::Approximate);
+    assert!(noted.message.contains("`catalog:`"), "{noted:#?}");
+    assert!(!noted.message.contains("optionalDependencies"), "the scope keeps them out: {noted:#?}");
+
+    let unscoped = migrate(
+        &[sherif_input(&package(&[("lint", "sherif -r multiple-dependency-versions")]))],
+        &options(Profile::Exact),
+    )
+    .unwrap();
+    assert!(note(&unscoped, "unsync-similar-dependencies").message.contains("optionalDependencies take part"));
+
+    let ignored = migrate(
+        &[sherif_input(&package(&[("lint", "sherif -r unsync-similar-dependencies")]))],
+        &options(Profile::Exact),
+    )
+    .unwrap();
+    assert!(!ignored.notes.iter().any(|note| note.path == "unsync-similar-dependencies"));
+}
+
+#[test]
+fn an_empty_root_dependencies_object_is_noted_for_sherif() {
+    let empty = migrate(
+        &[sherif_input(r#"{ "name": "demo", "private": true, "dependencies": {}, "scripts": { "lint": "sherif" } }"#)],
+        &options(Profile::Exact),
+    )
+    .unwrap();
+    let noted = note(&empty, "dependencies");
+    assert_eq!(noted.class, NoteClass::Approximate);
+    assert!(noted.message.contains("empty-dependencies, an error"), "{noted:#?}");
+
+    for package_json in [
+        r#"{ "name": "demo", "private": true, "dependencies": { "x": "1.0.0" } }"#,
+        r#"{ "name": "demo", "private": true, "devDependencies": {} }"#,
+        r#"{ "name": "demo", "private": true, "dependencies": {}, "sherif": { "ignoreRule": ["empty-dependencies"] } }"#,
+    ] {
+        let migration = migrate(&[sherif_input(package_json)], &options(Profile::Exact)).unwrap();
+        assert!(
+            !migration.notes.iter().any(|note| note.path == "dependencies"),
+            "{package_json}: {:#?}",
+            migration.notes
+        );
+    }
+}
+
+#[test]
+fn the_sherif_group_follows_the_groups_of_an_existing_file() {
+    let migration = migrate(
+        &[sherif_input(&package(&[("lint", "sherif")]))],
+        &options(Profile::Exact),
+    )
+    .unwrap();
+    let existing = "[[version-groups]]\nlabel = \"mine\"\ndependencies = [\"react\"]\npolicy = \"pinned\"\npin = \"18.3.1\"\n";
+    let merged: toml::Table = migration.merge_into(existing).unwrap().toml.parse().unwrap();
+    let labels: Vec<&str> = merged["version-groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|group| group["label"].as_str().unwrap())
+        .collect();
+    assert_eq!(labels, ["mine", "not compared by sherif"]);
 }
 
 #[test]
@@ -698,19 +869,17 @@ fn a_catalog_policy_group_does_not_widen_to_every_dependency() {
     );
     assert_eq!(
         table(&star)["catalog"]["mode"].as_str(),
-        Some("prefer"),
+        Some("enforce"),
         "{}",
         star.toml
     );
 
     let global = syncpack(r#"{ "versionGroups": [{ "policy": "catalog" }] }"#, Profile::Full);
-    assert_eq!(table(&global)["catalog"]["mode"].as_str(), Some("prefer"));
-    assert_eq!(class(&global, "versionGroups[0].policy"), NoteClass::Approximate);
-    assert!(
-        note(&global, "versionGroups[0].policy")
-            .message
-            .contains("min-packages")
-    );
+    let parsed = table(&global);
+    assert_eq!(parsed["catalog"]["mode"].as_str(), Some("enforce"));
+    assert_eq!(parsed["catalog"]["min-packages"].as_integer(), Some(1));
+    assert_eq!(global.config.catalog.min_packages, 1);
+    assert_eq!(class(&global, "versionGroups[0].policy"), NoteClass::Exact);
 }
 
 #[test]
@@ -798,6 +967,47 @@ fn a_group_that_only_covers_a_type_skif_cannot_read_is_not_written() {
         class(&migration, "versionGroups[0].dependencyTypes"),
         NoteClass::Unsupported
     );
+}
+
+#[test]
+fn a_group_on_a_type_syncpack_does_not_know_is_noted_as_invalid_for_syncpack() {
+    let migration = syncpack(
+        r#"{ "versionGroups": [{ "dependencyTypes": ["optionalDependencies"], "isBanned": true }] }"#,
+        Profile::Full,
+    );
+    assert!(table(&migration).get("version-groups").is_none(), "{}", migration.toml);
+    let noted = note(&migration, "versionGroups[0].dependencyTypes");
+    assert_eq!(noted.class, NoteClass::Human);
+    assert!(
+        noted
+            .message
+            .contains("optionalDependencies is neither a built-in nor a custom dependency type"),
+        "{noted:#?}"
+    );
+    assert!(!noted.message.contains("skif does not read"), "{noted:#?}");
+}
+
+#[test]
+fn a_group_outside_the_lint_scope_is_not_also_noted_as_written() {
+    let mut input = ToolInput::new(Tool::Syncpack);
+    input.config = Some(text(
+        ".syncpackrc.json",
+        r#"{ "versionGroups": [{ "label": "peers loose", "dependencyTypes": ["peer"], "dependencies": ["react"], "isIgnored": true }] }"#,
+    ));
+    input.package_json = Some(text(
+        "package.json",
+        &package(&[("l", "syncpack lint --dependency-types prod,dev")]),
+    ));
+    let migration = migrate(&[input], &options(Profile::Exact)).unwrap();
+    assert!(migration.config.version_groups.is_empty(), "{}", migration.toml);
+    let messages: Vec<&str> = migration
+        .notes
+        .iter()
+        .filter(|note| note.path == "versionGroups[0]")
+        .map(|note| note.message.as_str())
+        .collect();
+    assert_eq!(messages.len(), 1, "{messages:#?}");
+    assert!(messages[0].contains("it was not written"), "{messages:#?}");
 }
 
 #[test]
@@ -1184,8 +1394,9 @@ fn syncpack_catalog_policy_keeps_the_catalog_rules() {
         "unresolved-catalog-references",
     ] {
         assert!(!off.iter().any(|known| known == id), "{id} stays on: {off:?}");
+        assert_eq!(table(&migration)["rules"][id].as_str(), Some("error"), "{id} errors as in syncpack");
     }
-    assert_eq!(table(&migration)["catalog"]["mode"].as_str(), Some("prefer"));
+    assert_eq!(table(&migration)["catalog"]["mode"].as_str(), Some("enforce"));
 }
 
 #[test]
@@ -1305,6 +1516,30 @@ fn merging_adds_new_tables_after_the_existing_ones() {
 }
 
 #[test]
+fn a_custom_type_read_from_package_json_is_written() {
+    let migration = syncpack(
+        r#"{ "customTypes": {
+              "engines": { "path": "engines", "strategy": "versionsByName", "source": "PackageJson" },
+              "pnpmish": { "path": "x", "strategy": "versionsByName", "source": "PnpmWorkspace" },
+              "odd": { "path": "y", "strategy": "versionsByName", "source": "Disk" }
+            } }"#,
+        Profile::Exact,
+    );
+    assert_eq!(class(&migration, "customTypes.engines"), NoteClass::Exact);
+    let written: Vec<(&str, &str)> = migration
+        .config
+        .custom_types
+        .iter()
+        .map(|custom| (custom.name.as_str(), custom.path.as_str()))
+        .collect();
+    assert_eq!(written, [("engines", "engines")]);
+    assert_eq!(class(&migration, "customTypes.pnpmish"), NoteClass::Unsupported);
+    assert!(note(&migration, "customTypes.pnpmish").message.contains("pnpm-workspace.yaml"));
+    assert_eq!(class(&migration, "customTypes.odd"), NoteClass::Human);
+    assert!(note(&migration, "customTypes.odd").message.contains("`Disk` is not a syncpack source"));
+}
+
+#[test]
 fn syncpack_format_options_are_written_to_the_format_table() {
     let mut input = ToolInput::new(Tool::Syncpack);
     input.config = Some(Input::new(
@@ -1329,7 +1564,16 @@ fn syncpack_format_options_are_written_to_the_format_table() {
     assert_eq!(format["format-bugs"].as_bool(), Some(true));
     assert_eq!(format["format-repository"].as_bool(), Some(true));
     assert_eq!(format["indent"].as_str(), Some("    "));
-    assert_eq!(parsed["rules"]["package-json-format"].as_str(), Some("error"));
+    assert!(
+        parsed["rules"].get("package-json-format").is_none(),
+        "`syncpack lint` never checks the layout: {}",
+        migration.toml
+    );
+    assert!(has_note(
+        &migration,
+        NoteClass::Approximate,
+        "no script runs `syncpack format`"
+    ));
     assert_eq!(class(&migration, "sortFirst"), NoteClass::Exact);
     assert_eq!(class(&migration, "sortAz"), NoteClass::Approximate);
     assert_eq!(class(&migration, "indent"), NoteClass::Approximate);
@@ -1364,6 +1608,32 @@ fn a_syncpack_format_script_turns_the_format_rule_on() {
             .and_then(|rules| rules.get("package-json-format"))
             .is_none()
     );
+}
+
+#[test]
+fn syncpack_format_keys_turn_the_layout_rules_on_only_with_a_format_script() {
+    let run = |script: &str| {
+        let mut input = ToolInput::new(Tool::Syncpack);
+        input.config = Some(text(".syncpackrc.json", r#"{ "sortAz": ["dependencies"], "indent": "  " }"#));
+        input.package_json = Some(text("package.json", &package(&[("deps", script)])));
+        migrate(&[input], &options(Profile::Exact)).unwrap()
+    };
+    let lint = run("syncpack lint");
+    let parsed = table(&lint);
+    assert_eq!(strings(&parsed["format"]["sort-az"]), ["dependencies"]);
+    assert!(parsed["rules"].get("package-json-format").is_none(), "{}", lint.toml);
+    assert_eq!(parsed["rules"]["unsorted-dependencies"].as_str(), Some("off"));
+    assert_eq!(class(&lint, "sortAz, indent"), NoteClass::Approximate);
+
+    let format = run("syncpack format");
+    let parsed = table(&format);
+    assert_eq!(parsed["rules"]["package-json-format"].as_str(), Some("error"));
+    assert!(
+        parsed["rules"].get("unsorted-dependencies").is_none(),
+        "`syncpack format` sorts the dependencies: {}",
+        format.toml
+    );
+    assert!(!format.notes.iter().any(|note| note.path == "sortAz, indent"));
 }
 
 #[test]
@@ -1585,10 +1855,21 @@ fn knip_workspaces_in_the_config_alone_note_the_unmerged_tsconfig_paths() {
 
 #[test]
 fn knip_in_a_single_package_project_says_nothing_about_tsconfig_paths() {
-    let migration = knip(Some(r#"{ "entry": ["src/index.ts"] }"#), &[("knip", "knip")]);
-    assert!(
-        !migration.notes.iter().any(|note| note.path == MERGED_PATHS),
-        "{:#?}",
-        migration.notes
+    for config in [
+        r#"{ "entry": ["src/index.ts"] }"#,
+        r#"{ "workspaces": { ".": { "entry": ["src/index.ts"] } } }"#,
+        r#"{ "workspaces": { "./": { "entry": ["src/index.ts"] } } }"#,
+    ] {
+        let migration = knip(Some(config), &[("knip", "knip")]);
+        assert!(
+            !migration.notes.iter().any(|note| note.path == MERGED_PATHS),
+            "{config}: {:#?}",
+            migration.notes
+        );
+    }
+    let member = knip(
+        Some(r#"{ "workspaces": { ".": {}, "packages/*": { "entry": ["src/index.ts"] } } }"#),
+        &[("knip", "knip")],
     );
+    assert_eq!(class(&member, MERGED_PATHS), NoteClass::Approximate);
 }

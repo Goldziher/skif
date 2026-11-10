@@ -10,7 +10,8 @@ pub static META: RuleMeta = RuleMeta::new(
     Some(Severity::Warning),
     Fixability::Sometimes,
     "A dependency is declared with a version while other packages take it from a catalog.",
-);
+)
+.version_scoped();
 
 /// Reports instances that differ from the catalog entry their siblings use. It reports only with `[catalog] mode = "off"`,
 /// where the mismatch is a hint about a catalog some packages happen to use, so it is a warning; a level set for the

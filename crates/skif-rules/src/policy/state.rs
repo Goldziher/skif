@@ -15,7 +15,8 @@ pub static VERSION_MISMATCH: RuleMeta = RuleMeta::new(
     Some(Severity::Error),
     Fixability::Sometimes,
     "A dependency instance differs from the version its version group requires (highest, lowest, pinned, local or snapped).",
-);
+)
+.version_scoped();
 
 /// Metadata of `banned-dependency`.
 pub static BANNED_DEPENDENCY: RuleMeta = RuleMeta::new(
@@ -33,7 +34,8 @@ pub static SEMVER_RANGE_MISMATCH: RuleMeta = RuleMeta::new(
     Some(Severity::Error),
     Fixability::Unsafe,
     "A dependency uses a semver range other than the one its semver group requires.",
-);
+)
+.version_scoped();
 
 /// Metadata of `policy-conflict`.
 pub static POLICY_CONFLICT: RuleMeta = RuleMeta::new(
@@ -42,7 +44,8 @@ pub static POLICY_CONFLICT: RuleMeta = RuleMeta::new(
     Some(Severity::Warning),
     Fixability::Sometimes,
     "Two policies require incompatible outcomes for one dependency, or a group cannot be applied as configured.",
-);
+)
+.version_scoped();
 
 /// Metadata of `invalid-local-version`.
 pub static INVALID_LOCAL_VERSION: RuleMeta = RuleMeta::new(

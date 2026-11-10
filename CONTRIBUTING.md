@@ -70,45 +70,46 @@ or is replaced, write a new ADR that supersedes or amends it, add it to `adrs/in
 
 ## Releasing
 
-0.1.0 is the first release and contains the whole tool ([ADR 0017](adrs/0017-release-policy-a-single-complete-0-1-0.md)).
+Every release follows this checklist. The `Publish Packages` workflow (`.github/workflows/publish.yaml`) does the
+publishing; the steps around it are by hand.
 
-1. Bump every version surface at once with `scripts/release-bump.sh <version>`, then check them with
-   `scripts/check-versions.sh`. The JSON snapshots embed the version: run the tests and `cargo insta accept`.
-2. Move the `[Unreleased]` entries of `CHANGELOG.md` under the new version.
-3. Tag the commit `v<version>` and push the tag. The `Publish Packages` workflow builds the release
-   archives, publishes the crates, the npm packages, the Homebrew formula and the Scoop manifest, and moves
-   the floating tag (`v0.M` for a 0.x release, `vN` from 1.0.0; used as `Goldziher/skif@v0.2`) to the release.
-   npm trusted publishing can only be configured for a package that already exists, so before the first release
-   publish a placeholder of `skif-cli` and of each of the eight platform packages (`skif-darwin-arm64`,
-   `skif-darwin-x64`, `skif-linux-arm64-gnu`, `skif-linux-arm64-musl`, `skif-linux-x64-gnu`,
-   `skif-linux-x64-musl`, `skif-win32-arm64-msvc`, `skif-win32-x64-msvc`) once by hand, then add the trusted
-   publisher (this repository, `publish.yaml`) to each. A platform package added later needs the same before the
-   release that first ships it.
-4. Before the first release, create the one-time registry state the workflow cannot create itself:
-   - crates.io trusted publishing needs the crate to exist: reserve each of the 14 crates (`skif-core`,
-     `skif-specifier`, `skif-config`, `skif-edit`, `skif-workspace`, `skif-lint`, `skif-report`, `skif-js-syntax`,
-     `skif-js-plugins`, `skif-migrate`, `skif-rules`, `skif-js`, `skif`, `skif-cli`) with a placeholder publish
-     ([ADR 0017](adrs/0017-release-policy-a-single-complete-0-1-0.md) allows it), then add the trusted publisher
-     (this repository, `publish.yaml`) to each.
-   - `Goldziher/homebrew-tap` needs a `Formula/` directory and `Goldziher/scoop-bucket` a `bucket/` directory.
-   - The `HOMEBREW_TOKEN` secret must be able to push to both repositories, and needs the `workflows` permission on
-     this one to move the floating tag.
-5. The release must be tagged on a commit that is on `main` and has a green `ci.yml` run; the workflow stops
-   otherwise (`scripts/check-release-gate.sh`).
-6. Rehearse with the workflow's `dry-run` input: it builds every target and verifies the assets and the crate
-   packages without publishing. The same dry run starts on every pull request that touches the release inputs
+1. **Registry state.** npm and crates.io trusted publishing can only be configured on a package that exists, so a
+   package the release publishes for the first time needs a placeholder publish by hand and then the trusted
+   publisher (this repository, workflow `publish.yaml`):
+   - npm: `skif-cli` and the platform package of every `napi.targets` entry in `npm-package/package.json`
+     (`skif-darwin-arm64`, `skif-darwin-x64`, `skif-linux-arm64-gnu`, `skif-linux-arm64-musl`, `skif-linux-x64-gnu`,
+     `skif-linux-x64-musl`, `skif-win32-arm64-msvc`, `skif-win32-x64-msvc`). A real run stops before it creates the
+     release when one is missing (`scripts/check-npm-packages-exist.sh`), so check with
+     `bash scripts/check-npm-packages-exist.sh` before tagging.
+   - crates.io: every crate in `scripts/publish-crates.sh`. `skif-node` and `skif-bench` are `publish = false`.
+   - `Goldziher/homebrew-tap` needs a `Formula/` directory and `Goldziher/scoop-bucket` a `bucket/` directory; the
+     `HOMEBREW_TOKEN` secret must be able to push to both, and needs the `workflows` permission on this repository to
+     move the floating tag.
+2. **Bump.** `scripts/release-bump.sh <version>` rewrites every version surface (the workspace version and `=` pins,
+   `npm-package/package.json`, `poly-hooks.toml`, the pre-commit launcher, `action.yml` `BAKED_VERSION`, the
+   documentation pins and `Cargo.lock`); `scripts/check-versions.sh` checks them. Some JSON snapshots embed the
+   version: run the tests and `cargo insta accept`.
+3. **Changelog.** Merge the `[Unreleased]` entries into one Added / Changed / Fixed set, with any breaking change
+   listed first, and move them under `## [<version>] - <date>`. The CI `Public API (cargo-semver-checks)` job summary
+   lists the crates whose public API needs a semver bump; quote it for the breaking changes. A real run refuses a tag
+   whose `CHANGELOG.md` has no `## [<version>]` section.
+4. **Rehearse.** Run the workflow with the `dry-run` input on the release commit. It builds every target, loads the
+   npm addons on every platform, installs the packed npm tarballs on both Windows runners (npm and Bun) and packages
+   the crates, without publishing. The same dry run starts on every pull request that touches the release inputs
    (`Cargo.toml`, `Cargo.lock`, `crates/skif-node`, `crates/skif-cli`, `npm-package`, `action.yml` or a release
    script) and every Monday; do not tag while the last one is red.
-7. The GitHub release stays a draft until crates.io is published and the npm package has run under Node 22, 24 and
-   26 and Bun; only then is it made public, and `cargo binstall` is verified against the public release. A failed
-   run therefore never leaves a public release without its registry packages; re-run it to finish.
-8. `scripts/release-bump.sh` also writes the version into `action.yml` (`BAKED_VERSION`), which is what makes a
-   SHA-pinned `Goldziher/skif@<sha>` install that release instead of the latest one. The release archives carry a
-   build-provenance attestation (`gh attestation verify skif-<target>.tar.gz --repo Goldziher/skif`).
-9. In the release change, remove the pre-release notices: the "Pre-release" callout at the top of `README.md`, the
-   "has not been released yet" wording in its Installation section, the "has not been released" sentence in
-   `CHANGELOG.md`, and the `Aside` marked `pre-release-notice` in `website/src/content/docs/start/introduction.mdx`
-   and `installation.mdx` (`grep -rn "pre-release-notice" website/src` lists them).
+5. **Tag.** Tag a commit that is on `main` and has a green `ci.yml` run as `v<version>` and push the tag; the workflow
+   stops otherwise (`scripts/check-release-gate.sh`). It builds the release archives, publishes the crates and the
+   npm packages, the Homebrew formula and the Scoop manifest, and moves the floating tag (`v0.M` for a 0.x release,
+   `vN` from 1.0.0; used as `Goldziher/skif@v0.2`) to the release.
+6. **Watch the run.** crates.io is published only after every npm addon has loaded and installed, and the GitHub
+   release stays a draft until crates.io is published and the published npm package has run under Node 22, 24 and
+   26 and Bun; only then is it made public and `cargo binstall` verified against it. A failed run never leaves a
+   public release without its registry packages; fix the cause and re-run it, which skips what is already published.
+
+`action.yml` `BAKED_VERSION` is what makes a SHA-pinned `Goldziher/skif@<sha>` install that release instead of the
+latest one. The release archives carry a build-provenance attestation
+(`gh attestation verify skif-<target>.tar.gz --repo Goldziher/skif`).
 
 ## AI governance
 

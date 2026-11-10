@@ -606,6 +606,15 @@ fn an_ignore_entry_carries_its_reason() {
 }
 
 #[test]
+fn an_ignore_entry_may_be_narrowed_by_files_alone() {
+    let config = Config::from_toml_str("[[ignore]]\nfiles = [\"src/legacy/**\"]\n").unwrap();
+    assert!(config.ignore[0].files.matches("src/legacy/a.ts", false));
+    assert!(!config.ignore[0].files.matches("src/a.ts", false));
+    let error = Config::from_toml_str("[[ignore]]\nreason = \"x\"\n").unwrap_err();
+    assert!(error.to_string().contains("`dependencies` or `files`"), "{error}");
+}
+
+#[test]
 fn a_blank_ignore_reason_is_rejected_naming_its_position() {
     let error = Config::from_toml_str(
         r#"

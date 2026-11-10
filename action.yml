@@ -35,7 +35,9 @@ inputs:
     required: false
     default: "."
   fail-on-warnings:
-    description: Exit non-zero when skif reports any warning (adds `--fail-on-warnings`).
+    description: >-
+      Exit non-zero when skif reports any warning (adds `--fail-on-warnings` to a lint run; not added
+      when `args` starts with a skif subcommand such as `baseline` or `migrate`).
     required: false
     default: "false"
   from-sherif:
@@ -43,8 +45,9 @@ inputs:
       Migration aid, off by default. "true": when no skif.toml or .skif.toml is found and the root
       package.json has a `sherif` key or a script that runs sherif, translate those settings with
       `skif migrate --from sherif --profile full` into a temporary file and lint with it (`--config`), so a
-      job that replaced sherif keeps its flags until skif.toml is committed. Not done for a skif subcommand
-      or when `args` has `--config` or `--no-config`. The skif binary itself never reads sherif
+      job that replaced sherif keeps its flags until skif.toml is committed. `baseline write`, `prune` and `check`
+      read it through a temporary file that extends the translation and then the baseline file. Not done for other
+      skif subcommands or when `args` has `--config` or `--no-config`. The skif binary itself never reads sherif
       configuration (ADR 0039).
     required: false
     default: "false"
