@@ -103,8 +103,10 @@ An unknown rule id is rejected with a closest-match suggestion. See the [rules](
 
 ### `[[ignore]]`
 
-Each entry narrows by `rules`, `packages` and `dependencies`. An empty list does not narrow that dimension, but at
-least one list must be set.
+Each entry narrows by `rules`, `packages`, `dependencies` and `files`. An empty list does not narrow that dimension, but
+at least one list must be set. `files` matches the path of the file a finding is located in, relative to the workspace
+root (`src/legacy/**`), as written in every configuration file: unlike the `files` of `[[overrides]]`, it is not
+anchored at the file that declares it.
 
 ```toml
 [[ignore]]

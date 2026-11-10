@@ -200,7 +200,7 @@ Exit `0` when the file was produced (also when notes need a human, unless `--str
 | --- | --- |
 | `skif baseline write [PATH]` | Lint the root at `PATH` (resolved as for linting) without the baseline's entries, and add an entry for every error and warning that no entry of the baseline matches. Existing entries and their reasons stay. When no configuration file of the root reaches the baseline through `extends`, its path is added to the `extends` of the root's `skif.toml` (or `.skif.toml`, created when there is none), keeping the rest of that file as it was. Running it again changes nothing. |
 | `skif baseline prune [PATH]` | Lint the same way and remove the entries that match no finding. The file stays when it is left empty. |
-| `skif baseline check [PATH]` | Exit `1` when the baseline has an entry that its earlier version lacks, and print the added entries. Entries are compared by `rules`, `packages` and `dependencies`, not by `reason`. Lints nothing. |
+| `skif baseline check [PATH]` | Exit `1` when the baseline has an entry that its earlier version lacks, and print the added entries. Entries are compared by `rules`, `packages`, `dependencies` and `files`, not by `reason`. Lints nothing. |
 
 Each entry names the rule, the package (its name, or its directory relative to the root when two packages share the
 name) and the dependency. A finding of a rule about the specifier itself (`version-mismatch`, `semver-range-mismatch`,
@@ -208,7 +208,9 @@ name) and the dependency. A finding of a rule about the specifier itself (`versi
 `catalog-version-divergence`) is recorded as `name@specifier`, so the entry silences only that version: a member
 moving to a third version, or a new member on another one, fails the run again. Any other rule's finding is recorded
 by the dependency's name alone, so bumping a baselined `@types/node` in `dependencies` (`types-in-dependencies`) does
-not reopen it. Glob characters in a name or specifier are written as one-character classes (`[*]`),
+not reopen it. A finding about no dependency that is located in a file other than a `package.json` (`unused-files`,
+`unused-exports`, `circular-imports`) is recorded with that file in `files`, so a new unused file or export elsewhere in
+the package fails the run; an unnamed root package's finding of this kind is recorded by the file alone. Glob characters in a name or specifier are written as one-character classes (`[*]`),
 and a leading `!` as `{!}` so it is not read as an exclusion, so the entry matches literally. `info` findings are not recorded, and neither is a finding with neither a package nor
 a dependency, which an entry could only cover by turning its rule off, nor one in a root package without a name of its
 own, which no package pattern selects alone; `write` lists those on stderr with the cause. Entries are
@@ -221,7 +223,7 @@ comment written inside it is not kept, while an edited `reason` is.
 | `--reason <TEXT>` | `write` only: the `reason` of the entries it adds. Default `baseline`. |
 | `--base <REF>` | `check` only: compare with the baseline file at this git revision (`origin/main`), read with `git show`. A file that did not exist at the revision is an empty baseline. A revision that is not a commit is a usage error. |
 | `--base-file <FILE>` | `check` only: compare with this file instead, for runs without git. One of `--base` and `--base-file` is required. |
-| `--format <human\|json>` | `json` prints one document with `version`, `skif`, `command`, `file` (relative to the root), `entries` (how many the file holds), `added` and `removed` (each entry with `rules`, `packages`, `dependencies` and `reason`); `write` adds `extended` (the configuration file whose `extends` gained the baseline, else `null`) and `unrecorded` (`rule`, `package`, `dependency`, `message`, and `cause`: `workspace-wide` or `unnamed-root`), `write` and `prune` add `written`, `check` adds `base`. |
+| `--format <human\|json>` | `json` prints one document with `version`, `skif`, `command`, `file` (relative to the root), `entries` (how many the file holds), `added` and `removed` (each entry with `rules`, `packages`, `dependencies`, `files` when it has any, and `reason`); `write` adds `extended` (the configuration file whose `extends` gained the baseline, else `null`) and `unrecorded` (`rule`, `package`, `dependency`, `message`, and `cause`: `workspace-wide` or `unnamed-root`), `write` and `prune` add `written`, `check` adds `base`. |
 
 `write` and `prune` exit `0` when they finished and `2` when they could not run (a baseline file with other keys, a
 missing file for `prune`, an invalid configuration). `check` exits `0` when the baseline gained no entry, `1` when it

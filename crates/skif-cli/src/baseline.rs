@@ -161,9 +161,9 @@ fn lint_without(mut target: Target, baseline: &[IgnoreEntry]) -> Result<Linted, 
     })
 }
 
-/// What an entry is compared by: its rules, packages and dependencies, each sorted and without repeats, since neither
-/// changes what the entry matches; not its reason.
-type Key = [Vec<String>; 3];
+/// What an entry is compared by: its rules, packages, dependencies and files, each sorted and without repeats, since
+/// neither changes what the entry matches; not its reason.
+type Key = [Vec<String>; 4];
 
 fn key(entry: &IgnoreEntry) -> Key {
     let sorted = |values: &[String]| {
@@ -176,6 +176,7 @@ fn key(entry: &IgnoreEntry) -> Key {
         sorted(&entry.rules),
         sorted(entry.packages.patterns()),
         sorted(entry.dependencies.patterns()),
+        sorted(entry.files.patterns()),
     ]
 }
 
@@ -208,7 +209,7 @@ fn literal(text: &str) -> String {
 /// Why a finding is left out of the baseline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Unrecorded {
-    /// Neither a package nor a dependency: its entry would turn the rule off for the whole workspace.
+    /// Neither a package, a dependency nor a file: its entry would turn the rule off for the whole workspace.
     WorkspaceWide,
     /// In the root package, which has no name of its own: its directory is the root itself, so no package pattern
     /// selects it alone, and an entry without one would cover every package.
@@ -228,7 +229,8 @@ impl Unrecorded {
     const fn note(self) -> &'static str {
         match self {
             Self::WorkspaceWide => {
-                "an `[[ignore]]` entry without a package or dependency would turn the rule off for the whole workspace"
+                "an `[[ignore]]` entry without a package, dependency or file would turn the rule off for the whole \
+                 workspace"
             }
             Self::UnnamedRoot => {
                 "the root package has no name of its own, so no `[[ignore]]` package pattern selects it alone and an \
@@ -286,30 +288,46 @@ fn selector(pattern: Option<String>) -> Result<Selector, CliError> {
     })
 }
 
-/// The entry that records `diagnostic`, or why there is none: a finding with neither a package nor a dependency
-/// would need an entry of its rule alone, which turns the rule off for the whole workspace, and one in an unnamed
-/// root package an entry no package pattern narrows to it.
+/// The file pattern of a finding about no dependency that is located in a file other than a manifest (an unused file
+/// or export, an import cycle): its path relative to the root, so the entry covers that file and not every file of
+/// the package. A finding about a dependency, or one located in a `package.json`, has none: its package and dependency
+/// narrow it.
+fn file_pattern(diagnostic: &Diagnostic) -> Option<String> {
+    if diagnostic.dependency.is_some() {
+        return None;
+    }
+    let path = &diagnostic.location.path;
+    let name = path.file_name()?;
+    (name != "package.json").then(|| literal(&slash(path)))
+}
+
+/// The entry that records `diagnostic`, or why there is none: a finding with neither a package, a dependency nor a
+/// file would need an entry of its rule alone, which turns the rule off for the whole workspace, and one in an unnamed
+/// root package that names no file an entry no package pattern narrows to it.
 fn entry_for(
     linted: &Linted,
     diagnostic: &Diagnostic,
     reason: &str,
 ) -> Result<Result<IgnoreEntry, Unrecorded>, CliError> {
-    let workspace = &linted.workspace;
-    let package = match package_pattern(workspace, diagnostic) {
+    let file = file_pattern(diagnostic);
+    let package = match package_pattern(&linted.workspace, diagnostic) {
         Ok(package) => package,
+        // The file alone narrows the entry to findings of the root package's files.
+        Err(Unrecorded::UnnamedRoot) if file.is_some() => None,
         Err(unrecorded) => return Ok(Err(unrecorded)),
     };
     let dependency = dependency_pattern(
         diagnostic,
         linted.version_scoped.contains(diagnostic.rule.as_str()),
     );
-    if package.is_none() && dependency.is_none() {
+    if package.is_none() && dependency.is_none() && file.is_none() {
         return Ok(Err(Unrecorded::WorkspaceWide));
     }
     Ok(Ok(IgnoreEntry::default()
         .with_rules([diagnostic.rule.as_str().to_owned()])
         .with_packages(selector(package)?)
         .with_dependencies(selector(dependency)?)
+        .with_files(selector(file)?)
         .with_reason(reason)))
 }
 
@@ -333,6 +351,7 @@ fn render(entries: &[IgnoreEntry]) -> String {
         render_list(&mut out, "rules", &entry.rules);
         render_list(&mut out, "packages", entry.packages.patterns());
         render_list(&mut out, "dependencies", entry.dependencies.patterns());
+        render_list(&mut out, "files", entry.files.patterns());
         if let Some(reason) = &entry.reason {
             let _ = writeln!(out, "reason = {}", quoted(reason));
         }
@@ -436,6 +455,9 @@ fn describe(entry: &IgnoreEntry) -> String {
     }
     if !entry.dependencies.is_empty() {
         scope.push(format!("dependency {}", entry.dependencies.patterns().join(", ")));
+    }
+    if !entry.files.is_empty() {
+        scope.push(format!("file {}", entry.files.patterns().join(", ")));
     }
     if scope.is_empty() {
         rules
@@ -806,6 +828,20 @@ mod tests {
             "version-mismatch: package @acme/web, dependency react@^17.0.2"
         );
         assert_eq!(describe(&entry(&[], &["a"], &[], None)), "every rule: package a");
+        let file = entry(&["unused-files"], &["a"], &[], None).with_files(Selector::new(["src/old.ts"]).unwrap());
+        assert_eq!(describe(&file), "unused-files: package a, file src/old.ts");
+    }
+
+    #[test]
+    fn entries_with_files_render_them_and_compare_by_them() {
+        let file = |path: &str| entry(&["unused-files"], &["a"], &[], None).with_files(Selector::new([path]).unwrap());
+        let text = render(&[file("src/old.ts")]);
+        assert!(
+            text.ends_with("[[ignore]]\nrules = [\"unused-files\"]\npackages = [\"a\"]\nfiles = [\"src/old.ts\"]\n"),
+            "{text}"
+        );
+        assert_eq!(parse_entries(&text).unwrap(), [file("src/old.ts")]);
+        assert_ne!(key(&file("src/old.ts")), key(&file("src/new.ts")));
     }
 
     #[test]
