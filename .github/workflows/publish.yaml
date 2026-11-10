@@ -502,14 +502,15 @@ jobs:
           TAG: ${{ needs.meta.outputs.tag }}
         run: gh release upload "$TAG" checksums.txt --clobber
 
-  # crates.io is irreversible, so it also waits for the npm addons to load on every platform: an npm-side failure
-  # must stop the release before any crate is live, not after.
+  # crates.io is irreversible, so it also waits for the npm addons to load and install on every platform: an npm-side
+  # failure must stop the release before any crate is live, not after.
   publish_crates:
     name: Publish crates.io
-    needs: [meta, checksums, load_addon, load_addon_windows]
+    needs: [meta, checksums, load_addon, load_addon_windows, smoke_npm_windows]
     if: >-
       always() && needs.meta.result == 'success'
       && needs.load_addon.result == 'success' && needs.load_addon_windows.result == 'success'
+      && needs.smoke_npm_windows.result == 'success'
       && (needs.meta.outputs.dry_run == 'true'
           || needs.checksums.result == 'success'
           || needs.meta.outputs.release_complete == 'true')
@@ -842,20 +843,13 @@ jobs:
           echo "$out"
           grep -qF "$VERSION" <<<"$out" || { echo "::error::expected version ${VERSION}, got: ${out}"; exit 1; }
 
-  publish_npm:
-    name: Publish npm (skif-cli)
-    needs: [meta, build_npm, load_addon, load_addon_windows, checksums]
-    if: >-
-      always() && needs.meta.result == 'success' && needs.build_npm.result == 'success'
-      && needs.load_addon.result == 'success' && needs.load_addon_windows.result == 'success'
-      && (needs.meta.outputs.dry_run == 'true'
-          || needs.checksums.result == 'success'
-          || needs.meta.outputs.release_complete == 'true')
+  # Generates the platform packages and packs every npm tarball once, in the dry run as well. The Windows install smoke
+  # installs these tarballs and publish_npm publishes them, so what is tested is what is published.
+  pack_npm:
+    name: Pack npm packages
+    needs: [meta, build_npm]
+    if: always() && needs.meta.result == 'success' && needs.build_npm.result == 'success'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      # Mints the OIDC token npm trusted publishing exchanges for a publish credential.
-      id-token: write
     defaults:
       run:
         working-directory: npm-package
@@ -902,11 +896,11 @@ jobs:
             cat "$tmp" >"${dir}package.json"
             rm -f "$tmp"
           done
-          # Writes the umbrella's optionalDependencies. The platform packages are published below, idempotently.
+          # Writes the umbrella's optionalDependencies. The platform packages are published by publish_npm.
           pnpm exec napi prepublish -t npm --no-gh-release --skip-optional-publish
 
-      # Every tarball is packed, and its contents asserted, in the dry run as well: the umbrella must ship the
-      # generated loader and bin, and the eight platform packages must each carry their addon.
+      # The umbrella must ship the generated loader and bin, and the eight platform packages must each carry their
+      # addon.
       - name: Pack the packages and check their contents
         env:
           VERSION: ${{ needs.meta.outputs.version }}
@@ -919,6 +913,111 @@ jobs:
           done
           bash ../scripts/check-npm-tarballs.sh "$packs" "$VERSION"
 
+      - name: Save the tarballs
+        uses: actions/upload-artifact@v7
+        with:
+          name: npm-tarballs
+          path: ${{ runner.temp }}/npm-packs/*.tgz
+          if-no-files-found: error
+
+  # load_addon_windows loads the addon by path. This installs the packed tarballs into a fresh project on each Windows
+  # runner, so npm's optionalDependencies resolution, its `.cmd` bin shim, bun install and bunx on win32 run before
+  # anything is published (verify_npm repeats it against the registry afterwards).
+  smoke_npm_windows:
+    name: Install npm tarballs / ${{ matrix.platform.target }} (${{ matrix.manager }})
+    needs: [meta, pack_npm]
+    if: always() && needs.pack_npm.result == 'success'
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { target: x86_64-pc-windows-msvc, os: windows-latest, npm: win32-x64-msvc }
+          - { target: aarch64-pc-windows-msvc, os: windows-11-arm, npm: win32-arm64-msvc }
+        manager: [npm, bun]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+
+      - name: Download the tarballs
+        uses: actions/download-artifact@v8
+        with:
+          name: npm-tarballs
+          path: npm-tarballs
+
+      # mise.lock has no windows-arm64 entry, so the runtimes come from setup-node and setup-bun.
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Setup Bun
+        if: ${{ matrix.manager == 'bun' }}
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ needs.meta.outputs.bun }}
+
+      - name: Install the tarballs and run skif --version
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+          PLATFORM: ${{ matrix.platform.npm }}
+          MANAGER: ${{ matrix.manager }}
+        run: bash scripts/npm-install-smoke.sh npm-tarballs "$VERSION" "$PLATFORM" "$MANAGER" "$RUNNER_TEMP/npm-install-smoke"
+
+      # The bin shim cmd.exe runs, called directly rather than through npx.
+      - name: Run the npm .cmd shim from cmd.exe
+        if: ${{ matrix.manager == 'npm' }}
+        shell: cmd
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          cd /d "%RUNNER_TEMP%\npm-install-smoke"
+          node_modules\.bin\skif.cmd --version | findstr /C:"%VERSION%"
+
+  publish_npm:
+    name: Publish npm (skif-cli)
+    needs: [meta, pack_npm, load_addon, load_addon_windows, smoke_npm_windows, checksums]
+    if: >-
+      always() && needs.meta.result == 'success' && needs.pack_npm.result == 'success'
+      && needs.load_addon.result == 'success' && needs.load_addon_windows.result == 'success'
+      && needs.smoke_npm_windows.result == 'success'
+      && (needs.meta.outputs.dry_run == 'true'
+          || needs.checksums.result == 'success'
+          || needs.meta.outputs.release_complete == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Mints the OIDC token npm trusted publishing exchanges for a publish credential.
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+
+      - name: Setup Node.js and pnpm
+        uses: xberg-io/actions/setup-mise@v1
+        with:
+          config-ref: ${{ github.sha }}
+          tools: node pnpm
+
+      - name: Download the tarballs
+        uses: actions/download-artifact@v8
+        with:
+          name: npm-tarballs
+          path: ${{ runner.temp }}/npm-packs
+
+      - name: Check the tarballs
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: bash scripts/check-npm-tarballs.sh "$RUNNER_TEMP/npm-packs" "$VERSION"
+
+      # Each tarball is unpacked and published from its directory, so the published contents are the packed ones.
       - name: Publish to npm
         if: needs.meta.outputs.dry_run != 'true'
         env:
@@ -928,12 +1027,18 @@ jobs:
           set -euo pipefail
           npm_tag=latest
           [ "$PRERELEASE" = "true" ] && npm_tag=next
+          packs="$RUNNER_TEMP/npm-packs"
+          unpacked="$RUNNER_TEMP/npm-publish"
 
           publish_one() {
-            local dir="$1" name state
+            local tarball="$1" dir name state
+            dir="${unpacked}/$(basename "$tarball" .tgz)"
+            mkdir -p "$dir"
+            tar -xzf "$tarball" -C "$dir"
+            dir="${dir}/package"
             name="$(jq -r '.name' "$dir/package.json")"
             # The probe fails the job unless the registry gave a definite answer (a 404 is "unpublished").
-            state="$(bash ../scripts/npm-published.sh "$name" "$VERSION")"
+            state="$(bash scripts/npm-published.sh "$name" "$VERSION")"
             if [ "$state" = "published" ]; then
               echo "${name}@${VERSION} is already published; skipping"
               return 0
@@ -943,14 +1048,17 @@ jobs:
           }
 
           # Platform packages first: the umbrella must never list a package that does not exist.
-          platforms=(npm/*/)
-          expected="$(jq -er '.optionalDependencies | length | select(. > 0)' package.json)"
-          [ "${#platforms[@]}" -eq "$expected" ] || { echo "::error::npm platform inventory is incomplete"; exit 1; }
-          for dir in "${platforms[@]}"; do
-            ls "${dir}"*.node >/dev/null || { echo "::error::${dir} has no addon binary"; exit 1; }
-            publish_one "${dir%/}"
+          umbrella="${packs}/skif-cli-${VERSION}.tgz"
+          platforms=()
+          for tarball in "$packs"/*.tgz; do
+            [ "$tarball" = "$umbrella" ] || platforms+=("$tarball")
           done
-          publish_one .
+          expected="$(tar -xzOf "$umbrella" package/package.json | jq -er '.optionalDependencies | length | select(. > 0)')"
+          [ "${#platforms[@]}" -eq "$expected" ] || { echo "::error::npm platform inventory is incomplete"; exit 1; }
+          for tarball in "${platforms[@]}"; do
+            publish_one "$tarball"
+          done
+          publish_one "$umbrella"
 
   verify_npm:
     name: Verify npx skif-cli (${{ matrix.os }}, ${{ matrix.runtime }})
