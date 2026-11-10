@@ -720,6 +720,28 @@ fn source_commands_with_a_cwd_of_the_file_run_in_that_directory() {
     );
 }
 
+/// A `cwd` that a file's location computes starts in the file's directory also when its name has a space and a quote.
+#[test]
+fn a_cwd_of_the_file_is_placed_from_a_directory_with_a_space() {
+    let root = manifest(&format!(
+        r#""name":"root","private":true,{PNPM},"main":"it's my scripts/build.mjs""#
+    ));
+    let source = "import { execSync } from 'node:child_process';\nimport path from 'node:path';\n\
+                  execSync('rspack build', { cwd: path.join(import.meta.dirname, '../sub') });\n";
+    let files = [
+        ("package.json", root.as_str()),
+        ("pnpm-workspace.yaml", "packages:\n  - sub\n"),
+        (
+            "sub/package.json",
+            r#"{"name":"sub","private":true,"main":"index.js","devDependencies":{"@rspack/cli":"1.0.0"}}"#,
+        ),
+        ("sub/index.js", "module.exports = 1;\n"),
+        ("it's my scripts/build.mjs", source),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(found(&diagnostics, "unlisted-binaries"), none(), "{diagnostics:#?}");
+}
+
 /// A package manager that runs a script after `cd` into another directory, or from a source file with a `cwd` there,
 /// runs the script of the package in that directory, never the caller's: the caller's `build` credits nothing to a
 /// workspace package there, and in a directory of no other package it is not judged at the file.
