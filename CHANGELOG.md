@@ -114,6 +114,9 @@ All notable changes to this project are documented here. The format follows
   records no `bin`, so every locked package looked like one without binaries, and the devDependencies whose binaries
   scripts run were reported by `unused-dev-dependencies` (and removed by `--fix-unsafe`). Only a Berry lock, with its
   `__metadata:` block, is read.
+- Judging the packages tool configs name decides once per config file whether git ignores it, not once per package
+  reading it and package it names: hundreds of packages extending one base `tsconfig` below a long `.gitignore` no
+  longer rebuild the ignore matchers thousands of times.
 
 ### Changed
 
