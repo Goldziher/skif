@@ -155,6 +155,15 @@ fn check_applied(target: &Target, file: &Path, entries: &[IgnoreEntry]) -> Resul
     ))
 }
 
+/// Whether the assignment that decided `key` of `target`'s configuration comes from `file`.
+fn is_from(target: &Target, key: &str, file: &Path) -> bool {
+    target
+        .origins
+        .last(key)
+        .and_then(|assignment| target.sources.get(assignment.source))
+        .is_some_and(|source| source.path.as_path() == file)
+}
+
 /// `file` made absolute, with its directory spelled as the OS resolves it when it exists, so it compares equal to the
 /// paths configuration discovery records.
 fn resolve_file(file: &Path) -> Result<PathBuf, CliError> {
@@ -217,25 +226,20 @@ struct Lints {
 }
 
 /// Lints `targets` together, as `lint` lints them (its flags applied, roots of a multi-root run crediting each
-/// other's uses), each with its configuration minus the entries of its baseline file in `baselines`.
-fn lint_without(
-    mut targets: Vec<Target>,
-    baselines: &[&[IgnoreEntry]],
-    lint: &LintArgs,
-    base: &Path,
-) -> Result<Lints, CliError> {
+/// other's uses), each with its configuration minus the entries its baseline file in `files` contributes. An equal
+/// entry of another configuration file keeps applying.
+fn lint_without(mut targets: Vec<Target>, files: &[&Path], lint: &LintArgs, base: &Path) -> Result<Lints, CliError> {
     let filter = Filter::new(lint)?;
-    for (target, baseline) in targets.iter_mut().zip(baselines) {
+    for (target, file) in targets.iter_mut().zip(files) {
+        let ignore = std::mem::take(&mut target.config.ignore);
+        target.config.ignore = ignore
+            .into_iter()
+            .enumerate()
+            .filter(|(index, _)| !is_from(target, &format!("ignore[{index}]"), file))
+            .map(|(_, entry)| entry)
+            .collect();
         lint::adjust(lint, &mut target.config)?;
         filter.configure(&mut target.config)?;
-        let recorded: BTreeSet<(Key, Option<&str>)> = baseline
-            .iter()
-            .map(|entry| (key(entry), entry.reason.as_deref()))
-            .collect();
-        target
-            .config
-            .ignore
-            .retain(|entry| !recorded.contains(&(key(entry), entry.reason.as_deref())));
     }
     lint::apply_tsconfig(lint, &mut targets)?;
     let linters = Linters::build(&targets)?;
@@ -680,8 +684,8 @@ fn write_baseline(args: &BaselineWriteArgs) -> Result<u8, CliError> {
     let lint = args.lint.lint_args(&args.common.path, args.common.recursive);
     let mut roots = locate(&args.common, &lint)?;
     let (places, targets) = read_places(&mut roots)?;
-    let baselines: Vec<&[IgnoreEntry]> = places.iter().map(Place::entries).collect();
-    let lints = lint_without(targets, &baselines, &lint, &roots.base)?;
+    let files: Vec<&Path> = places.iter().map(|place| place.file.as_path()).collect();
+    let lints = lint_without(targets, &files, &lint, &roots.base)?;
     let mut outcomes = Vec::with_capacity(places.len());
     for (place, linted) in places.iter().zip(&lints.roots) {
         outcomes.push(write_root(
@@ -810,8 +814,8 @@ fn prune_baseline(args: &BaselinePruneArgs) -> Result<u8, CliError> {
         };
         check_applied(target, &place.file, &baseline.entries)?;
     }
-    let baselines: Vec<&[IgnoreEntry]> = places.iter().map(Place::entries).collect();
-    let lints = lint_without(targets, &baselines, &lint, &roots.base)?;
+    let files: Vec<&Path> = places.iter().map(|place| place.file.as_path()).collect();
+    let lints = lint_without(targets, &files, &lint, &roots.base)?;
     let mut outcomes = Vec::with_capacity(places.len());
     for (place, linted) in places.iter().zip(&lints.roots) {
         outcomes.push(prune_root(place, linted, args.common.format, &roots.base)?);

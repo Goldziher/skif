@@ -226,6 +226,9 @@ All notable changes to this project are documented here. The format follows
 - `skif baseline write` and `prune` exit `2` when the configuration does not apply the baseline: no configuration file
   of the run extends it, or a `reset = ["ignore"]` applied after it drops its entries; `write` reported success while
   the lint run still failed ([ADR 0093](adrs/0093-baseline-entries-follow-what-a-finding-is-about.md)).
+- `skif baseline write` and `prune` set aside only the entries of the baseline file while they lint; a hand-written
+  `[[ignore]]` of another configuration file equal to a baseline entry was set aside too, so `write` recorded its
+  finding into the baseline and the suppression moved there.
 - `skif baseline check --file` in a directory that does not exist names the directory instead of calling the revision
   bad.
 - The `--format human` help of `skif baseline`, `config`, `migrate`, `rules` and `update` no longer calls every output

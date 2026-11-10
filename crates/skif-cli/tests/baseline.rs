@@ -205,6 +205,24 @@ fn prune_keeps_the_entries_that_still_match() {
 }
 
 #[test]
+fn a_hand_written_ignore_equal_to_an_entry_keeps_applying_and_prunes_the_entry() {
+    let dir = fixture("mismatch");
+    assert_eq!(baseline(dir.path(), "write", &[]).code, 0);
+    let config = dir.path().join("skif.toml");
+    let mut text = fs::read_to_string(&config).unwrap();
+    text.push_str(
+        "\n[[ignore]]\nrules = [\"version-mismatch\"]\npackages = [\"@cli/b\"]\ndependencies = [\"is-number@6.0.0\"]\nreason = \"baseline\"\n",
+    );
+    fs::write(&config, text).unwrap();
+
+    let pruned = baseline(dir.path(), "prune", &[]);
+    assert_eq!(pruned.code, 0, "{}{}", pruned.stdout, pruned.stderr);
+    assert_eq!(pruned.json()["removed"], json!([entry("b", "6.0.0")]));
+    assert_eq!(pruned.json()["entries"], 0);
+    assert_eq!(lint(dir.path()).code, 0, "the hand-written entry still suppresses the finding");
+}
+
+#[test]
 fn prune_without_a_baseline_file_cannot_run() {
     let dir = fixture("mismatch");
     let pruned = baseline(dir.path(), "prune", &[]);
