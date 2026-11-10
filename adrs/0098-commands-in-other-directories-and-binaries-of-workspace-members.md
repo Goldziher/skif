@@ -54,7 +54,11 @@ the `PATH` it inherits is the caller's. A package manager run there (`npm run bu
 own (a subshell `( … )`, `sh -c`, a substitution, another script) restore the directory, so
 `(cd "$TMP" && tar xf a.tgz) && npm run build` follows `build`; a `{ … }` group runs in the same shell and keeps it.
 This replaces, for package managers only, the sentence of ADR 0094 that the commands after such a directory are judged
-where the script starts.
+where the script starts. A script that a package manager or a task runner runs in a directory the parser can place
+but that is not where the command starts (`cd web && npm run build`, `pnpm build` with a `cwd` of `../web`) is the
+script of the package there, never the caller's: it is not followed, and a workspace package there judges it among its
+own scripts. A directory flag (`pnpm -C`, `npm --prefix`, `yarn --cwd`) below a directory the parser cannot place is
+unknown too.
 
 **The `cwd` option of a call.** A source file's call of `execa`, `execaNode`, `execaCommand`, nano-spawn or
 `node:child_process` (`spawn`, `spawnSync`, `execFile`, `execFileSync`, `exec`, `execSync`) whose options object sets
@@ -119,7 +123,9 @@ are provided commands; a package that lists the package declaring them still use
 ### Confirmation
 
 * `crates/skif-js-plugins/src/scripts/tests.rs`:
-  `package_managers_after_cd_to_an_unknown_directory_work_on_the_package_there` and `a_cd_in_a_subshell_ends_with_it`.
+  `package_managers_after_cd_to_an_unknown_directory_work_on_the_package_there`, `a_cd_in_a_subshell_ends_with_it`,
+  `directory_flags_below_an_unknown_directory_are_unknown` and
+  `a_script_run_in_another_directory_is_not_the_script_of_the_package`.
 * `crates/skif-core/src/shell.rs`: `subshells_bound_the_segments_they_run`.
 * `crates/skif-js-syntax/tests/module_info.rs`: `child_process_commands_with_a_cwd_change_to_an_unknown_directory`
   and `child_process_commands_with_a_cwd_of_the_process_or_the_file`.
@@ -132,7 +138,8 @@ are provided commands; a package that lists the package declaring them still use
   `rush_commands_are_provided_in_a_rush_repository` and
   `workflow_and_source_commands_after_cd_into_a_workspace_package_are_judged_there` and
   `source_commands_with_a_cwd_of_the_file_run_in_that_directory` and
-  `filtered_binaries_are_credited_to_their_directory_only_without_named_workspaces` and
+  `filtered_binaries_are_credited_to_their_directory_only_without_named_workspaces`,
+  `scripts_run_in_another_directory_are_not_the_scripts_of_the_caller` and
   `bun_links_member_binaries_as_its_linker_says`.
 * `adrlint lint adrs`, `adrlint format --check adrs` and `adrlint lock --check` pass.
 

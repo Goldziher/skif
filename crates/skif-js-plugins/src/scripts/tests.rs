@@ -1067,6 +1067,44 @@ fn directory_flags_below_an_unknown_directory_are_unknown() {
     );
 }
 
+#[test]
+fn a_script_run_in_another_directory_is_not_the_script_of_the_package() {
+    let ctx = ScriptContext::new().with_script("build", "tsc -b");
+    for script in [
+        "cd packages/web && npm run build",
+        "cd packages/web && pnpm build",
+        "cd packages/web && pnpm run build",
+        "cd packages/web && yarn build",
+        "cd packages/web && yarn run build",
+        "cd packages/web && bun run build",
+        "cd packages/web && node --run build",
+        "cd packages/web && run-s build",
+        "pushd src && npm run build",
+        "cd test/../web && npm run build",
+    ] {
+        let info = parse_script(script, &ctx);
+        assert!(
+            info.binaries.iter().all(|binary| binary.name != "tsc"),
+            "{script}: {:?}",
+            info.binaries
+        );
+        assert!(info.run_scripts.is_empty(), "{script}: {:?}", info.run_scripts);
+    }
+    // A binary run there by name is still one of that directory.
+    let info = parse_script("cd packages/web && pnpm exec rspack", &ctx);
+    assert_eq!(
+        info.binaries
+            .iter()
+            .map(|binary| (binary.name.as_str(), binary.dir.as_deref()))
+            .collect::<Vec<_>>(),
+        [("rspack", Some("packages/web"))]
+    );
+    // A directory that leads back to the start runs the package's own script.
+    let info = parse_script("cd test/.. && npm run build", &ctx);
+    assert_eq!(judged_binaries(&info), ["tsc"], "{:?}", info.binaries);
+    assert_eq!(info.run_scripts, ["build"]);
+}
+
 /// The binaries of `info` that are judged at the script's package: those run neither filtered nor in another directory.
 fn judged_binaries(info: &ScriptInfo) -> Vec<String> {
     sorted(
