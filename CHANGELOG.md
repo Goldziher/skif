@@ -39,13 +39,22 @@ All notable changes to this project are documented here. The format follows
   (`knip-unjudged-manifest`), unused files and listed unlisted dependencies knip reports below a project that is not
   one of its workspaces (`non-member-project`), knip's findings below directories skif's file discovery skips
   (`skipped-directory`), and TypeScript sources whose built path the package publishes (`published-source`).
-  `fixture-file` covers every issue type skif does not report in a fixture directory, not only unused files. The
-  parity baseline needs a refresh
+  `fixture-file` covers every issue type skif does not report in a fixture directory, not only unused files
   ([ADR 0080](adrs/0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md),
   [#27](https://github.com/Goldziher/skif/issues/27)).
 - The knip comparison runs skif recursively on babel, whose `scripts/repo-utils` and
   `scripts/integration-tests/fixtures/nextjs-10` are projects of their own outside the workspace patterns, whose files
   knip reads from the root.
+- Every speed and knip agreement table in the README and the comparison guide is generated, and names the skif commit,
+  tool versions and machine it comes from: `mise run bench:publish` writes the speed tables, `mise run parity:publish`
+  the agreement tables, and both refuse to write when a tool was not timed or the baseline is stale. The benchmark
+  times the sherif, syncpack and knip versions pinned in `tools/bench/corpus.toml` instead of whatever is on `PATH`,
+  runs skif with `--recursive` where the corpus marks a repository recursive, and measures 15 runs. The knip
+  comparison sets apart findings inside a file the other tool reports unused (`in-knip-unused-file`,
+  `in-skif-unused-file`) and applies `knip-config-error` to both sides, reads each repository's install state from its
+  checkout, marks n8n as not a valid comparison, runs knip on rushstack in a scratch copy with a root manifest made
+  from `rush.json`, and refuses to check against a baseline recorded with another knip version or category set
+  ([#27](https://github.com/Goldziher/skif/issues/27), [#95](https://github.com/Goldziher/skif/issues/95)).
 
 ### Added
 
