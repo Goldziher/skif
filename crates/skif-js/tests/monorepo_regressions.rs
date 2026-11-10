@@ -720,26 +720,42 @@ fn source_commands_with_a_cwd_of_the_file_run_in_that_directory() {
     );
 }
 
-/// A `cwd` that a file's location computes starts in the file's directory also when its name has a space and a quote.
+/// A `cwd` that a file's location computes starts in the file's directory also when the directory's name has a space
+/// (`my scripts`, which would `cd my`) or a quote (`it's`, which would swallow the command).
 #[test]
-fn a_cwd_of_the_file_is_placed_from_a_directory_with_a_space() {
+fn a_cwd_of_the_file_is_placed_from_a_directory_with_a_space_or_a_quote() {
     let root = manifest(&format!(
-        r#""name":"root","private":true,{PNPM},"main":"it's my scripts/build.mjs""#
+        r#""name":"root","private":true,{PNPM},"main":"my scripts/build.mjs""#
     ));
-    let source = "import { execSync } from 'node:child_process';\nimport path from 'node:path';\n\
-                  execSync('rspack build', { cwd: path.join(import.meta.dirname, '../sub') });\n";
+    let rspack_in = |dir: &str| {
+        format!(
+            "import {{ execSync }} from 'node:child_process';\nimport path from 'node:path';\n\
+             execSync('rspack build', {{ cwd: path.join(import.meta.dirname, '{dir}') }});\n"
+        )
+    };
+    let (build, run) = (rspack_in("../sub"), rspack_in(".."));
     let files = [
         ("package.json", root.as_str()),
-        ("pnpm-workspace.yaml", "packages:\n  - sub\n"),
+        ("pnpm-workspace.yaml", "packages:\n  - sub\n  - web\n"),
         (
             "sub/package.json",
             r#"{"name":"sub","private":true,"main":"index.js","devDependencies":{"@rspack/cli":"1.0.0"}}"#,
         ),
         ("sub/index.js", "module.exports = 1;\n"),
-        ("it's my scripts/build.mjs", source),
+        ("my scripts/build.mjs", build.as_str()),
+        (
+            "web/package.json",
+            r#"{"name":"web","private":true,"main":"it's/run.mjs","devDependencies":{"@rspack/cli":"1.0.0"}}"#,
+        ),
+        ("web/it's/run.mjs", run.as_str()),
     ];
     let diagnostics = lint_files(&files, "");
     assert_eq!(found(&diagnostics, "unlisted-binaries"), none(), "{diagnostics:#?}");
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        none(),
+        "{diagnostics:#?}"
+    );
 }
 
 /// A package manager that runs a script after `cd` into another directory, or from a source file with a `cwd` there,
