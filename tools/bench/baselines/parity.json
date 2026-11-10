@@ -1,25 +1,58 @@
 {
   "schema": 1,
   "tool": "knip@6.44.1",
-  "installed": true,
+  "installed": false,
+  "category_set": {
+    "compared": [
+      "binaries",
+      "dependencies",
+      "devDependencies",
+      "duplicates",
+      "enumMembers",
+      "exports",
+      "files",
+      "namespaceMembers",
+      "nsExports",
+      "nsTypes",
+      "optionalPeerDependencies",
+      "types",
+      "unlisted",
+      "unresolved"
+    ],
+    "known_deviations": [
+      "non-code-file",
+      "test-file",
+      "fixture-file",
+      "knip-unread",
+      "not-judged-by-skif",
+      "knip-config-error",
+      "foreign-tsconfig-paths",
+      "knip-unjudged-manifest",
+      "non-member-project",
+      "skipped-directory",
+      "published-source",
+      "in-knip-unused-file",
+      "in-skif-unused-file"
+    ]
+  },
   "entries": {
     "angular": {
       "status": "compared",
       "categories": {
         "binaries": {
-          "skif_only": 1,
+          "skif_only": 0,
           "tool_only": 4,
           "both": 0
         },
         "dependencies": {
           "skif_only": 0,
-          "tool_only": 22,
-          "both": 166
+          "tool_only": 19,
+          "both": 159
         },
         "devDependencies": {
           "skif_only": 0,
-          "tool_only": 17,
-          "both": 47
+          "tool_only": 11,
+          "both": 45
         },
         "duplicates": {
           "skif_only": 0,
@@ -32,19 +65,19 @@
           "both": 17
         },
         "exports": {
-          "skif_only": 54,
-          "tool_only": 49,
+          "skif_only": 1,
+          "tool_only": 45,
           "both": 787
         },
         "files": {
           "skif_only": 0,
-          "tool_only": 531,
-          "both": 3915
+          "tool_only": 96,
+          "both": 3913
         },
         "nsExports": {
           "skif_only": 0,
-          "tool_only": 7,
-          "both": 27
+          "tool_only": 3,
+          "both": 31
         },
         "nsTypes": {
           "skif_only": 0,
@@ -57,12 +90,12 @@
           "both": 2
         },
         "types": {
-          "skif_only": 8,
-          "tool_only": 59,
-          "both": 212
+          "skif_only": 0,
+          "tool_only": 61,
+          "both": 209
         },
         "unlisted": {
-          "skif_only": 3,
+          "skif_only": 0,
           "tool_only": 0,
           "both": 1
         },
@@ -77,19 +110,47 @@
           "skif_only": 0,
           "tool_only": 5
         },
+        "in-knip-unused-file": {
+          "skif_only": 65,
+          "tool_only": 0
+        },
         "non-code-file": {
           "skif_only": 0,
           "tool_only": 284
         },
+        "non-member-project": {
+          "skif_only": 0,
+          "tool_only": 157
+        },
+        "not-judged-by-skif": {
+          "skif_only": 0,
+          "tool_only": 51
+        },
+        "published-source": {
+          "skif_only": 0,
+          "tool_only": 243
+        },
+        "skipped-directory": {
+          "skif_only": 0,
+          "tool_only": 7
+        },
         "test-file": {
           "skif_only": 0,
-          "tool_only": 218
+          "tool_only": 220
         }
-      }
+      },
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "32b2c44cb882"
     },
     "babel": {
       "status": "compared",
       "categories": {
+        "binaries": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
         "dependencies": {
           "skif_only": 0,
           "tool_only": 0,
@@ -112,7 +173,7 @@
         },
         "files": {
           "skif_only": 0,
-          "tool_only": 5,
+          "tool_only": 3,
           "both": 666
         },
         "nsExports": {
@@ -122,8 +183,8 @@
         },
         "nsTypes": {
           "skif_only": 0,
-          "tool_only": 4,
-          "both": 0
+          "tool_only": 0,
+          "both": 4
         },
         "types": {
           "skif_only": 0,
@@ -132,7 +193,7 @@
         },
         "unlisted": {
           "skif_only": 0,
-          "tool_only": 1,
+          "tool_only": 0,
           "both": 9
         }
       },
@@ -143,6 +204,10 @@
         },
         "knip-config-error": {
           "skif_only": 0,
+          "tool_only": 1
+        },
+        "non-member-project": {
+          "skif_only": 0,
           "tool_only": 3
         },
         "not-judged-by-skif": {
@@ -150,15 +215,18 @@
           "tool_only": 54
         }
       },
-      "tool_errors": 1
+      "tool_errors": 1,
+      "installed": true,
+      "recursive": true,
+      "skif_rev": "32b2c44cb882"
     },
     "cal-com": {
       "status": "compared",
       "categories": {
         "binaries": {
-          "skif_only": 0,
-          "tool_only": 5,
-          "both": 3
+          "skif_only": 1,
+          "tool_only": 4,
+          "both": 5
         },
         "dependencies": {
           "skif_only": 0,
@@ -167,13 +235,13 @@
         },
         "devDependencies": {
           "skif_only": 0,
-          "tool_only": 3,
-          "both": 30
+          "tool_only": 7,
+          "both": 26
         },
         "duplicates": {
-          "skif_only": 0,
-          "tool_only": 30,
-          "both": 52
+          "skif_only": 1,
+          "tool_only": 1,
+          "both": 81
         },
         "enumMembers": {
           "skif_only": 0,
@@ -181,32 +249,32 @@
           "both": 6
         },
         "exports": {
-          "skif_only": 13,
-          "tool_only": 81,
-          "both": 425
+          "skif_only": 7,
+          "tool_only": 10,
+          "both": 569
         },
         "files": {
           "skif_only": 2,
-          "tool_only": 35,
-          "both": 377
+          "tool_only": 32,
+          "both": 351
         },
         "nsExports": {
           "skif_only": 0,
-          "tool_only": 4,
-          "both": 0
+          "tool_only": 0,
+          "both": 4
         },
         "types": {
-          "skif_only": 4,
-          "tool_only": 50,
-          "both": 200
+          "skif_only": 3,
+          "tool_only": 30,
+          "both": 272
         },
         "unlisted": {
-          "skif_only": 11,
-          "tool_only": 24,
-          "both": 810
+          "skif_only": 1,
+          "tool_only": 225,
+          "both": 609
         },
         "unresolved": {
-          "skif_only": 3,
+          "skif_only": 0,
           "tool_only": 4,
           "both": 2
         }
@@ -216,24 +284,35 @@
           "skif_only": 0,
           "tool_only": 38
         },
+        "in-knip-unused-file": {
+          "skif_only": 70,
+          "tool_only": 0
+        },
         "knip-config-error": {
           "skif_only": 0,
-          "tool_only": 2
+          "tool_only": 1
         },
         "non-code-file": {
           "skif_only": 0,
           "tool_only": 4
         },
+        "non-member-project": {
+          "skif_only": 0,
+          "tool_only": 5
+        },
         "not-judged-by-skif": {
           "skif_only": 0,
-          "tool_only": 309
+          "tool_only": 180
         },
         "test-file": {
           "skif_only": 0,
-          "tool_only": 15
+          "tool_only": 43
         }
       },
-      "tool_errors": 1
+      "tool_errors": 1,
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "32b2c44cb882"
     },
     "create-t3-turbo": {
       "status": "compared",
@@ -264,15 +343,18 @@
           "tool_only": 8
         }
       },
-      "tool_errors": 2
+      "tool_errors": 2,
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "32b2c44cb882"
     },
     "jest": {
       "status": "compared",
       "categories": {
         "binaries": {
           "skif_only": 0,
-          "tool_only": 2,
-          "both": 0
+          "tool_only": 0,
+          "both": 2
         },
         "dependencies": {
           "skif_only": 0,
@@ -280,7 +362,7 @@
           "both": 5
         },
         "devDependencies": {
-          "skif_only": 5,
+          "skif_only": 1,
           "tool_only": 1,
           "both": 26
         },
@@ -295,7 +377,7 @@
           "both": 25
         },
         "files": {
-          "skif_only": 10,
+          "skif_only": 1,
           "tool_only": 0,
           "both": 0
         },
@@ -311,16 +393,20 @@
         },
         "unlisted": {
           "skif_only": 0,
-          "tool_only": 78,
-          "both": 41
+          "tool_only": 70,
+          "both": 47
         },
         "unresolved": {
           "skif_only": 0,
-          "tool_only": 4,
-          "both": 2
+          "tool_only": 5,
+          "both": 1
         }
       },
       "known_deviations": {
+        "fixture-file": {
+          "skif_only": 0,
+          "tool_only": 2
+        },
         "not-judged-by-skif": {
           "skif_only": 0,
           "tool_only": 25
@@ -330,50 +416,48 @@
           "tool_only": 1147
         }
       },
-      "tool_errors": 1
+      "tool_errors": 1,
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "32b2c44cb882"
     },
     "mastra": {
       "status": "compared",
       "categories": {
         "binaries": {
-          "skif_only": 0,
-          "tool_only": 53,
-          "both": 2
+          "skif_only": 1,
+          "tool_only": 17,
+          "both": 38
         },
         "dependencies": {
-          "skif_only": 98,
+          "skif_only": 0,
           "tool_only": 6,
           "both": 62
         },
         "devDependencies": {
-          "skif_only": 42,
-          "tool_only": 4,
-          "both": 333
+          "skif_only": 2,
+          "tool_only": 5,
+          "both": 332
         },
         "duplicates": {
           "skif_only": 6,
           "tool_only": 10,
           "both": 35
         },
-        "enumMembers": {
-          "skif_only": 1,
-          "tool_only": 0,
-          "both": 0
-        },
         "exports": {
-          "skif_only": 88,
-          "tool_only": 150,
-          "both": 2253
+          "skif_only": 21,
+          "tool_only": 166,
+          "both": 2244
         },
         "files": {
           "skif_only": 11,
-          "tool_only": 468,
-          "both": 306
+          "tool_only": 12,
+          "both": 293
         },
         "nsExports": {
           "skif_only": 0,
-          "tool_only": 12,
-          "both": 26
+          "tool_only": 2,
+          "both": 36
         },
         "nsTypes": {
           "skif_only": 0,
@@ -386,17 +470,17 @@
           "both": 0
         },
         "types": {
-          "skif_only": 38,
-          "tool_only": 64,
-          "both": 617
+          "skif_only": 14,
+          "tool_only": 67,
+          "both": 615
         },
         "unlisted": {
-          "skif_only": 6,
-          "tool_only": 277,
-          "both": 24
+          "skif_only": 5,
+          "tool_only": 3,
+          "both": 27
         },
         "unresolved": {
-          "skif_only": 14,
+          "skif_only": 0,
           "tool_only": 3,
           "both": 1
         }
@@ -404,148 +488,177 @@
       "known_deviations": {
         "fixture-file": {
           "skif_only": 0,
-          "tool_only": 177
+          "tool_only": 309
+        },
+        "in-knip-unused-file": {
+          "skif_only": 99,
+          "tool_only": 0
+        },
+        "knip-unjudged-manifest": {
+          "skif_only": 138,
+          "tool_only": 0
         },
         "non-code-file": {
           "skif_only": 0,
           "tool_only": 1018
         },
+        "non-member-project": {
+          "skif_only": 0,
+          "tool_only": 718
+        },
         "not-judged-by-skif": {
           "skif_only": 0,
-          "tool_only": 543
+          "tool_only": 407
+        },
+        "skipped-directory": {
+          "skif_only": 0,
+          "tool_only": 5
         },
         "test-file": {
           "skif_only": 0,
-          "tool_only": 66
+          "tool_only": 79
         }
-      }
+      },
+      "installed": true,
+      "recursive": true,
+      "skif_rev": "32b2c44cb882"
     },
     "n8n": {
       "status": "compared",
       "categories": {
         "binaries": {
-          "skif_only": 0,
-          "tool_only": 19,
-          "both": 4
+          "skif_only": 1,
+          "tool_only": 9,
+          "both": 11
         },
         "dependencies": {
           "skif_only": 0,
-          "tool_only": 39,
-          "both": 7
+          "tool_only": 6,
+          "both": 6
         },
         "devDependencies": {
-          "skif_only": 11,
-          "tool_only": 32,
-          "both": 9
+          "skif_only": 3,
+          "tool_only": 4,
+          "both": 10
         },
         "duplicates": {
           "skif_only": 0,
-          "tool_only": 9,
+          "tool_only": 4,
           "both": 12
         },
-        "enumMembers": {
-          "skif_only": 0,
-          "tool_only": 4,
-          "both": 1
-        },
         "exports": {
-          "skif_only": 70,
-          "tool_only": 270,
-          "both": 1551
+          "skif_only": 5,
+          "tool_only": 18,
+          "both": 698
         },
         "files": {
-          "skif_only": 2133,
-          "tool_only": 2764,
-          "both": 26
+          "skif_only": 0,
+          "tool_only": 7,
+          "both": 138
         },
         "namespaceMembers": {
-          "skif_only": 13,
-          "tool_only": 3,
-          "both": 8
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
         },
         "nsExports": {
           "skif_only": 0,
-          "tool_only": 158,
-          "both": 103
-        },
-        "nsTypes": {
-          "skif_only": 0,
-          "tool_only": 49,
-          "both": 2
+          "tool_only": 0,
+          "both": 27
         },
         "types": {
-          "skif_only": 52,
-          "tool_only": 121,
-          "both": 1147
+          "skif_only": 0,
+          "tool_only": 5,
+          "both": 634
         },
         "unlisted": {
-          "skif_only": 9,
-          "tool_only": 17,
-          "both": 5
+          "skif_only": 2,
+          "tool_only": 1,
+          "both": 7
         },
         "unresolved": {
-          "skif_only": 81,
-          "tool_only": 4,
+          "skif_only": 0,
+          "tool_only": 2,
           "both": 2
         }
       },
       "known_deviations": {
         "fixture-file": {
           "skif_only": 0,
-          "tool_only": 17
+          "tool_only": 29
+        },
+        "in-knip-unused-file": {
+          "skif_only": 166,
+          "tool_only": 0
+        },
+        "knip-config-error": {
+          "skif_only": 34,
+          "tool_only": 123
         },
         "non-code-file": {
           "skif_only": 0,
           "tool_only": 14
         },
+        "non-member-project": {
+          "skif_only": 0,
+          "tool_only": 51
+        },
+        "not-judged-by-skif": {
+          "skif_only": 0,
+          "tool_only": 4558
+        },
+        "skipped-directory": {
+          "skif_only": 0,
+          "tool_only": 18
+        },
         "test-file": {
           "skif_only": 0,
           "tool_only": 391
         }
-      }
+      },
+      "tool_errors": 160,
+      "invalid": "knip cannot load the configs that import the workspace's own config packages (@n8n/*-config), because the install runs without scripts and those packages have no built dist",
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "32b2c44cb882"
     },
     "next-js": {
       "status": "compared",
       "categories": {
         "binaries": {
-          "skif_only": 0,
-          "tool_only": 13,
-          "both": 1
+          "skif_only": 1,
+          "tool_only": 4,
+          "both": 9
         },
         "dependencies": {
           "skif_only": 0,
-          "tool_only": 6,
-          "both": 19
+          "tool_only": 5,
+          "both": 18
         },
         "devDependencies": {
-          "skif_only": 93,
-          "tool_only": 94,
-          "both": 108
+          "skif_only": 0,
+          "tool_only": 4,
+          "both": 13
         },
         "duplicates": {
           "skif_only": 0,
           "tool_only": 0,
           "both": 6
         },
-        "enumMembers": {
-          "skif_only": 26,
-          "tool_only": 0,
-          "both": 0
-        },
         "exports": {
-          "skif_only": 11,
-          "tool_only": 331,
-          "both": 396
+          "skif_only": 0,
+          "tool_only": 15,
+          "both": 37
         },
         "files": {
-          "skif_only": 8,
-          "tool_only": 3625,
-          "both": 2167
+          "skif_only": 2,
+          "tool_only": 8,
+          "both": 3391
         },
         "nsExports": {
           "skif_only": 0,
-          "tool_only": 1,
-          "both": 7
+          "tool_only": 0,
+          "both": 1
         },
         "nsTypes": {
           "skif_only": 0,
@@ -558,35 +671,67 @@
           "both": 1
         },
         "types": {
-          "skif_only": 5,
-          "tool_only": 70,
-          "both": 230
+          "skif_only": 0,
+          "tool_only": 6,
+          "both": 8
         },
         "unlisted": {
           "skif_only": 3,
-          "tool_only": 23,
-          "both": 12
+          "tool_only": 5,
+          "both": 16
         },
         "unresolved": {
           "skif_only": 0,
-          "tool_only": 13,
-          "both": 2
+          "tool_only": 11,
+          "both": 4
         }
       },
       "known_deviations": {
         "fixture-file": {
           "skif_only": 0,
-          "tool_only": 2290
+          "tool_only": 1410
+        },
+        "in-knip-unused-file": {
+          "skif_only": 235,
+          "tool_only": 0
+        },
+        "knip-config-error": {
+          "skif_only": 2,
+          "tool_only": 2
+        },
+        "knip-unjudged-manifest": {
+          "skif_only": 438,
+          "tool_only": 0
         },
         "non-code-file": {
           "skif_only": 0,
           "tool_only": 1651
         },
+        "non-member-project": {
+          "skif_only": 0,
+          "tool_only": 2829
+        },
+        "not-judged-by-skif": {
+          "skif_only": 0,
+          "tool_only": 2012
+        },
+        "published-source": {
+          "skif_only": 0,
+          "tool_only": 1
+        },
+        "skipped-directory": {
+          "skif_only": 0,
+          "tool_only": 6
+        },
         "test-file": {
           "skif_only": 0,
-          "tool_only": 13593
+          "tool_only": 13186
         }
-      }
+      },
+      "tool_errors": 1,
+      "installed": true,
+      "recursive": true,
+      "skif_rev": "32b2c44cb882"
     },
     "npm-cli": {
       "status": "compared",
@@ -607,7 +752,7 @@
           "both": 23
         },
         "exports": {
-          "skif_only": 2,
+          "skif_only": 0,
           "tool_only": 4,
           "both": 0
         },
@@ -615,11 +760,6 @@
           "skif_only": 0,
           "tool_only": 115,
           "both": 18
-        },
-        "unlisted": {
-          "skif_only": 1,
-          "tool_only": 0,
-          "both": 0
         },
         "unresolved": {
           "skif_only": 0,
@@ -632,6 +772,10 @@
           "skif_only": 0,
           "tool_only": 9
         },
+        "in-knip-unused-file": {
+          "skif_only": 3,
+          "tool_only": 0
+        },
         "knip-unread": {
           "skif_only": 17,
           "tool_only": 129
@@ -640,25 +784,28 @@
           "skif_only": 0,
           "tool_only": 164
         }
-      }
+      },
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "32b2c44cb882"
     },
     "opencode": {
       "status": "compared",
       "categories": {
         "binaries": {
-          "skif_only": 1,
+          "skif_only": 0,
           "tool_only": 9,
           "both": 0
         },
         "dependencies": {
-          "skif_only": 6,
-          "tool_only": 2,
-          "both": 25
+          "skif_only": 1,
+          "tool_only": 3,
+          "both": 24
         },
         "devDependencies": {
           "skif_only": 0,
-          "tool_only": 5,
-          "both": 44
+          "tool_only": 1,
+          "both": 48
         },
         "duplicates": {
           "skif_only": 0,
@@ -666,19 +813,14 @@
           "both": 14
         },
         "exports": {
-          "skif_only": 9,
-          "tool_only": 5,
-          "both": 408
+          "skif_only": 5,
+          "tool_only": 4,
+          "both": 409
         },
         "files": {
-          "skif_only": 22,
-          "tool_only": 22,
-          "both": 582
-        },
-        "namespaceMembers": {
           "skif_only": 2,
-          "tool_only": 0,
-          "both": 0
+          "tool_only": 4,
+          "both": 614
         },
         "nsExports": {
           "skif_only": 1,
@@ -686,14 +828,14 @@
           "both": 0
         },
         "types": {
-          "skif_only": 18,
-          "tool_only": 11,
-          "both": 108
+          "skif_only": 10,
+          "tool_only": 9,
+          "both": 110
         },
         "unlisted": {
-          "skif_only": 2,
-          "tool_only": 1,
-          "both": 5
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 6
         },
         "unresolved": {
           "skif_only": 0,
@@ -704,27 +846,163 @@
       "known_deviations": {
         "fixture-file": {
           "skif_only": 0,
-          "tool_only": 1
+          "tool_only": 4
         },
         "non-code-file": {
           "skif_only": 0,
           "tool_only": 69
         },
+        "non-member-project": {
+          "skif_only": 0,
+          "tool_only": 6
+        },
+        "skipped-directory": {
+          "skif_only": 0,
+          "tool_only": 1
+        },
         "test-file": {
           "skif_only": 0,
-          "tool_only": 25
+          "tool_only": 1
         }
-      }
+      },
+      "tool_errors": 3,
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "32b2c44cb882"
     },
     "rules-js": {
-      "status": "skipped",
-      "reason": "install: npx install failed: npm warn Unknown project config \"hoist\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.",
-      "categories": {}
+      "status": "compared",
+      "categories": {
+        "dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 12
+        },
+        "devDependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 35
+        },
+        "files": {
+          "skif_only": 2,
+          "tool_only": 1,
+          "both": 103
+        }
+      },
+      "known_deviations": {
+        "non-member-project": {
+          "skif_only": 0,
+          "tool_only": 59
+        },
+        "not-judged-by-skif": {
+          "skif_only": 0,
+          "tool_only": 3
+        },
+        "skipped-directory": {
+          "skif_only": 0,
+          "tool_only": 2
+        },
+        "test-file": {
+          "skif_only": 0,
+          "tool_only": 105
+        }
+      },
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "32b2c44cb882"
     },
     "rushstack": {
-      "status": "skipped",
-      "reason": "knip failed (exit 2): no knip report in the 54 bytes of stdout; stderr: ERROR: Unable to find package.json",
-      "categories": {}
+      "status": "compared",
+      "categories": {
+        "binaries": {
+          "skif_only": 4,
+          "tool_only": 244,
+          "both": 1
+        },
+        "dependencies": {
+          "skif_only": 1,
+          "tool_only": 122,
+          "both": 189
+        },
+        "devDependencies": {
+          "skif_only": 0,
+          "tool_only": 241,
+          "both": 397
+        },
+        "duplicates": {
+          "skif_only": 0,
+          "tool_only": 2,
+          "both": 0
+        },
+        "exports": {
+          "skif_only": 0,
+          "tool_only": 98,
+          "both": 26
+        },
+        "files": {
+          "skif_only": 0,
+          "tool_only": 488,
+          "both": 391
+        },
+        "nsExports": {
+          "skif_only": 0,
+          "tool_only": 4,
+          "both": 0
+        },
+        "optionalPeerDependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "types": {
+          "skif_only": 0,
+          "tool_only": 48,
+          "both": 3
+        },
+        "unlisted": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        }
+      },
+      "known_deviations": {
+        "fixture-file": {
+          "skif_only": 0,
+          "tool_only": 22
+        },
+        "in-knip-unused-file": {
+          "skif_only": 32,
+          "tool_only": 0
+        },
+        "knip-config-error": {
+          "skif_only": 5,
+          "tool_only": 108
+        },
+        "non-code-file": {
+          "skif_only": 0,
+          "tool_only": 23
+        },
+        "non-member-project": {
+          "skif_only": 0,
+          "tool_only": 2
+        },
+        "not-judged-by-skif": {
+          "skif_only": 0,
+          "tool_only": 213
+        },
+        "skipped-directory": {
+          "skif_only": 0,
+          "tool_only": 14
+        },
+        "test-file": {
+          "skif_only": 0,
+          "tool_only": 739
+        }
+      },
+      "tool_errors": 25,
+      "installed": false,
+      "recursive": false,
+      "skif_rev": "32b2c44cb882"
     },
     "tanstack-query": {
       "status": "compared",
@@ -760,17 +1038,16 @@
           "both": 10
         },
         "unlisted": {
-          "skif_only": 0,
+          "skif_only": 1,
           "tool_only": 1,
           "both": 0
-        },
-        "unresolved": {
-          "skif_only": 0,
-          "tool_only": 0,
-          "both": 42
         }
       },
       "known_deviations": {
+        "knip-config-error": {
+          "skif_only": 0,
+          "tool_only": 42
+        },
         "not-judged-by-skif": {
           "skif_only": 0,
           "tool_only": 28
@@ -780,7 +1057,10 @@
           "tool_only": 1
         }
       },
-      "tool_errors": 18
+      "tool_errors": 18,
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "32b2c44cb882"
     },
     "vercel-examples": {
       "status": "compared",
@@ -795,10 +1075,25 @@
           "tool_only": 0,
           "both": 1
         },
+        "exports": {
+          "skif_only": 1,
+          "tool_only": 0,
+          "both": 0
+        },
         "files": {
-          "skif_only": 0,
-          "tool_only": 1788,
-          "both": 1
+          "skif_only": 4,
+          "tool_only": 0,
+          "both": 190
+        },
+        "types": {
+          "skif_only": 2,
+          "tool_only": 0,
+          "both": 0
+        },
+        "unlisted": {
+          "skif_only": 10,
+          "tool_only": 0,
+          "both": 0
         }
       },
       "known_deviations": {
@@ -806,29 +1101,52 @@
           "skif_only": 0,
           "tool_only": 5
         },
+        "in-knip-unused-file": {
+          "skif_only": 271,
+          "tool_only": 0
+        },
+        "knip-unjudged-manifest": {
+          "skif_only": 312,
+          "tool_only": 0
+        },
+        "non-member-project": {
+          "skif_only": 0,
+          "tool_only": 1254
+        },
+        "not-judged-by-skif": {
+          "skif_only": 0,
+          "tool_only": 342
+        },
+        "skipped-directory": {
+          "skif_only": 0,
+          "tool_only": 13
+        },
         "test-file": {
           "skif_only": 0,
-          "tool_only": 46
+          "tool_only": 36
         }
-      }
+      },
+      "installed": true,
+      "recursive": true,
+      "skif_rev": "32b2c44cb882"
     },
     "vscode": {
       "status": "compared",
       "categories": {
         "binaries": {
-          "skif_only": 1,
-          "tool_only": 11,
-          "both": 3
+          "skif_only": 5,
+          "tool_only": 9,
+          "both": 5
         },
         "dependencies": {
-          "skif_only": 52,
-          "tool_only": 6,
-          "both": 9
+          "skif_only": 0,
+          "tool_only": 23,
+          "both": 24
         },
         "devDependencies": {
-          "skif_only": 48,
-          "tool_only": 5,
-          "both": 29
+          "skif_only": 4,
+          "tool_only": 15,
+          "both": 39
         },
         "duplicates": {
           "skif_only": 0,
@@ -837,64 +1155,83 @@
         },
         "enumMembers": {
           "skif_only": 0,
-          "tool_only": 364,
-          "both": 88
+          "tool_only": 360,
+          "both": 100
         },
         "exports": {
           "skif_only": 7,
-          "tool_only": 26,
-          "both": 1946
+          "tool_only": 78,
+          "both": 2064
         },
         "files": {
-          "skif_only": 13,
-          "tool_only": 132,
-          "both": 771
+          "skif_only": 4,
+          "tool_only": 195,
+          "both": 860
         },
         "namespaceMembers": {
           "skif_only": 0,
-          "tool_only": 9,
-          "both": 96
+          "tool_only": 3,
+          "both": 102
         },
         "nsExports": {
           "skif_only": 0,
-          "tool_only": 14,
-          "both": 260
+          "tool_only": 9,
+          "both": 270
         },
         "nsTypes": {
           "skif_only": 0,
-          "tool_only": 7,
-          "both": 288
+          "tool_only": 4,
+          "both": 294
         },
         "types": {
-          "skif_only": 49,
-          "tool_only": 64,
-          "both": 1386
+          "skif_only": 7,
+          "tool_only": 130,
+          "both": 1424
         },
         "unlisted": {
-          "skif_only": 4,
-          "tool_only": 1380,
+          "skif_only": 1,
+          "tool_only": 234,
           "both": 1
         },
         "unresolved": {
           "skif_only": 0,
-          "tool_only": 23,
+          "tool_only": 14,
           "both": 6
         }
       },
       "known_deviations": {
         "fixture-file": {
           "skif_only": 0,
-          "tool_only": 156
+          "tool_only": 165
+        },
+        "in-knip-unused-file": {
+          "skif_only": 30,
+          "tool_only": 0
+        },
+        "knip-unjudged-manifest": {
+          "skif_only": 19,
+          "tool_only": 0
+        },
+        "non-member-project": {
+          "skif_only": 0,
+          "tool_only": 1194
         },
         "not-judged-by-skif": {
           "skif_only": 0,
-          "tool_only": 2555
+          "tool_only": 1953
+        },
+        "skipped-directory": {
+          "skif_only": 0,
+          "tool_only": 70
         },
         "test-file": {
           "skif_only": 0,
-          "tool_only": 116
+          "tool_only": 106
         }
-      }
+      },
+      "installed": true,
+      "recursive": true,
+      "skif_rev": "32b2c44cb882"
     },
     "vue-core": {
       "status": "compared",
@@ -950,7 +1287,10 @@
           "tool_only": 20
         }
       },
-      "tool_errors": 2
+      "tool_errors": 2,
+      "installed": true,
+      "recursive": false,
+      "skif_rev": "32b2c44cb882"
     }
   }
 }

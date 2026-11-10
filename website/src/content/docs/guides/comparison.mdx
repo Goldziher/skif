@@ -30,7 +30,26 @@ skif's JS analysis covers what knip reports today:
   comparison:
 
 {/* parity:agreement:start */}
-Not yet recorded for this release: run `mise run parity -- --install --write-baseline`, then `mise run parity:publish`.
+Findings knip@6.44.1 and skif share on 15 pinned repositories (angular, babel, cal-com, create-t3-turbo, jest, mastra, next-js, npm-cli, opencode, rules-js, rushstack, tanstack-query, vercel-examples, vscode, vue-core; 14 of them installed), from `tools/bench/baselines/parity.json`, recorded at skif `32b2c44cb882`.
+
+Not counted, because knip's run there is not a valid comparison: n8n (knip cannot load the configs that import the workspace's own config packages (@n8n/*-config), because the install runs without scripts and those packages have no built dist).
+
+| Finding | Shared | Of skif's findings | Of knip's findings |
+| --- | ---: | ---: | ---: |
+| Unused files | 10,915 | 100% | 92% |
+| Unused exports | 6,203 | 99% | 93% |
+| Unused types | 2,685 | 99% | 88% |
+| Unused dev dependencies | 1,230 | 99% | 81% |
+| Unlisted dependencies | 806 | 97% | 60% |
+| Unused dependencies | 647 | 99% | 74% |
+| Unused namespace exports | 397 | 100% | 95% |
+| Unused namespace types | 312 | 100% | 90% |
+| Duplicate exports | 146 | 95% | 86% |
+| Unused enum members | 129 | 100% | 24% |
+| Unused namespace members | 102 | 100% | 97% |
+| Unlisted binaries | 80 | 87% | 22% |
+| Unresolved imports | 24 | 100% | 36% |
+| Unused optional peer dependencies | 4 | 100% | 67% |
 {/* parity:agreement:end */}
 
 A low share means the tools differ, and either one could be right. Some differences are intended and counted apart:
