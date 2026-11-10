@@ -49,6 +49,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `stray-lockfile` reports a lockfile (`package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock`, `pnpm-lock.yaml`,
+  `bun.lock`, `bun.lockb`) in a workspace member, and a lockfile at the root that another package manager than the
+  workspace's writes; its unsafe fix deletes the file. `nested-workspace-root` reports a `pnpm-workspace.yaml` in a
+  member, also one a recursive run lints as a root of its own. Both search the root and the directories the
+  workspace patterns select, leave out files git ignores, and take `allow`, a list of paths kept on purpose, each a
+  string or `{ name, reason }`; an entry that names nothing is reported, and `--require-ignore-reasons` covers the
+  entries. `DiscoveryFacts::package_manager_files` of `skif-workspace` lists the files they judge
+  ([ADR 0089](adrs/0089-stray-lockfiles-and-nested-workspace-roots.md),
+  [#140](https://github.com/Goldziher/skif/issues/140)).
 - `unlisted-dependencies` reports a package that a tool config names itself and no manifest lists, at the config
   with the detail `ConfigReference`: a `tsconfig` `extends`, `types` or plugin, an Oxlint `jsPlugins` entry, an
   ESLint plugin, parser or shareable config, a Babel preset or plugin, a PostCSS plugin, a Prisma generator and the
