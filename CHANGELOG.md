@@ -63,6 +63,11 @@ All notable changes to this project are documented here. The format follows
   nested root is configured by its directory from there (`"tools/sub"`, `"tools/sub/packages/*"`, `"tools/*"`); a key
   written for a nested root as if it were the root needs that directory in front of it
   ([ADR 0099](adrs/0099-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
+- `--fix` over several roots writes the fixes of every root before it lints any root again or runs an install
+  step, instead of writing, linting again and installing root by root. When writing a later root fails, the files of
+  the earlier roots stay written as before, but their install steps no longer run: the fix summary reports each as
+  skipped because fixing a later root failed, and the run exits 2
+  ([ADR 0099](adrs/0099-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
 - `Workspace` gains `workspace_keys_anchor` and `set_workspace_keys_anchor`, which `discover_targets` sets for the
   roots below the start of a run with an explicit configuration file; `skif_js::InputRequest` gains `workspace_key`,
   so a struct literal needs the field. `skif_core::ConfigJudgement` is new, `Report` gains `config_judgements`,
