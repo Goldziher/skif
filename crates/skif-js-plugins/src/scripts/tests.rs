@@ -368,12 +368,13 @@ fn table() {
         bins("bun check --no-script", &[]),
         bins("bun install", &[]),
         bins("bun run vite", &["vite:bun-run"]),
-        // `--filter` (`-F`) and `--workspaces` run a script of other workspace packages, not a binary here.
+        // `--filter` (`-F`) and `--workspaces` run a script of other workspace packages, not a binary here. A name
+        // `bun run --filter` runs is recorded for the packages it names.
         bins("bun run --workspaces build", &[]),
         bins("bun run --parallel --workspaces --if-present lint", &[]),
         bins("bun -F web build", &[]),
         bins("bun --filter '*' build", &[]),
-        bins("bun run -F './packages/*' --elide-lines 0 dev", &[]),
+        bins("bun run -F './packages/*' --elide-lines 0 dev", &["dev:bun-run"]),
         // `--cwd` runs in another package: its scripts and binaries are that package's, its files are below it.
         bins("bun run --cwd packages/core fix-node-pty", &[]),
         bins("bun --cwd=packages/core run fix-node-pty", &[]),
@@ -575,6 +576,33 @@ fn filtered_binaries_are_flagged() {
     let info = parse("pnpm --filter web exec vitest && pnpm exec eslint .");
     let flags: Vec<(&str, bool)> = info.binaries.iter().map(|b| (b.name.as_str(), b.filtered)).collect();
     assert_eq!(flags, [("vitest", true), ("eslint", false)]);
+}
+
+/// `bun run --filter` (`-F`), before or after `run`, names the packages a binary it runs belongs to, as `pnpm --filter`
+/// does; `--workspaces` names none, so the binary is not recorded at all.
+#[test]
+fn bun_filter_names_the_workspaces_of_a_binary() {
+    let used = |script: &str| -> Vec<(String, bool, Vec<String>)> {
+        parse(script)
+            .binaries
+            .iter()
+            .map(|binary| (binary.name.clone(), binary.filtered, binary.workspaces.clone()))
+            .collect()
+    };
+    let web = vec![("vitest".to_owned(), true, vec!["web".to_owned()])];
+    assert_eq!(used("bun run --filter web vitest"), web);
+    assert_eq!(used("bun -F web run vitest"), web);
+    assert_eq!(used("bun --filter=web run vitest"), web);
+    assert_eq!(
+        used("bun --filter web run -F api vitest"),
+        [(
+            "vitest".to_owned(),
+            true,
+            vec!["web".to_owned(), "api".to_owned()]
+        )]
+    );
+    assert_eq!(used("bun run --workspaces vitest"), []);
+    assert_eq!(used("bun run vitest"), [("vitest".to_owned(), false, Vec::new())]);
 }
 
 #[test]
