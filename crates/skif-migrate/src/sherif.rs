@@ -338,6 +338,15 @@ fn emit_scope(state: &mut State<'_>, src: &Src) {
         "[policy] dependency-types covers dependencies and devDependencies, the sections sherif compares; like \
          sherif, skif then does not compare a dependency with the version of the workspace package it names",
     );
+    state.note_with(
+        src,
+        NoteClass::Approximate,
+        "multiple-dependency-versions: dependencies and devDependencies",
+        "sherif read a dependency that one package lists in both dependencies and devDependencies at its \
+         devDependencies specifier only; skif compares both entries, so two different specifiers there are a \
+         version-mismatch",
+        "list the dependency in one of the two sections, or give both entries the same specifier",
+    );
 }
 
 /// Leaves the specifiers sherif never compared out of `version-mismatch`, once every tool is read: syncpack compared
