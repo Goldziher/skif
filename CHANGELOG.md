@@ -49,6 +49,30 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `banned-dependency` judges what `pnpm-lock.yaml` resolves for a `[[version-groups]]` entry with
+  `scope = "lockfile"` (only with `policy = "banned"`): every resolved `name@version` the group bans, transitive ones
+  included, is reported once at its lockfile entry with the shortest chain an importer pulls it in through, so
+  removing the `overrides` entry that kept a package out fails the lint. The group claims no manifest entry
+  ([ADR 0090](adrs/0090-lockfile-scopes-for-banned-groups-and-dependency-families.md),
+  [#141](https://github.com/Goldziher/skif/issues/141)).
+- `[[dependency-families]]` entries take `scope = "importer"` or `scope = "lockfile"`: `unsynced-dependency-family`
+  then requires the members to resolve to one version per importer or across `pnpm-lock.yaml`, and with
+  `anchor = "<package>"` each member to one version per major of the anchor (`@types/react` against `react`)
+  ([ADR 0090](adrs/0090-lockfile-scopes-for-banned-groups-and-dependency-families.md),
+  [#141](https://github.com/Goldziher/skif/issues/141)).
+- New rule `stale-patched-dependencies` (workspace, warning): a `patchedDependencies` key of the root
+  `pnpm-workspace.yaml` or `package.json` whose `name@version` `pnpm-lock.yaml` no longer resolves or resolves without
+  a patch hash, a patch file that does not exist or lies outside the `allowed-patch-paths` globs, and a `*.patch` file
+  no entry references in the patch directories (`patch-dirs`, by default those of the referenced patches and
+  `patches`) ([ADR 0091](adrs/0091-stale-patched-dependencies.md), [#142](https://github.com/Goldziher/skif/issues/142)).
+- The lockfile checks read `pnpm-lock.yaml` in lockfile format 9 (pnpm 9 and 10) only, on the first run that needs it.
+  Without one, with another manager's lockfile, or when it does not parse, the rule reports that nothing was checked.
+  `skif-workspace` exports the model (`PnpmLockfile`, `LockedDependency`, `Snapshot`, `LockedPatch`, `Resolutions`)
+  and `WorkspaceError::InvalidLockfile`; `YamlSource::entry_span` locates an entry of any top-level mapping.
+- `RunOptions::with_fs` of `skif-lint` passes the host's file system to rules that read files beyond the discovered
+  workspace, through `LintContext::fs`; it defaults to the real file system, and `Linter` passes the one it was built
+  with. `VersionGroup::scope` (`GroupScope`) and `DependencyFamily::scope` (`FamilyScope`) and `anchor` are new
+  configuration fields.
 - `unlisted-dependencies` reports a package that a tool config names itself and no manifest lists, at the config
   with the detail `ConfigReference`: a `tsconfig` `extends`, `types` or plugin, an Oxlint `jsPlugins` entry, an
   ESLint plugin, parser or shareable config, a Babel preset or plugin, a PostCSS plugin, a Prisma generator and the

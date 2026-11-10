@@ -94,6 +94,8 @@ Rules with options:
 | Rule | Option | Values |
 | --- | --- | --- |
 | `member-toolchain-fields` | `mode` | `forbid` (default) reports every `packageManager` or `engines` field a private member declares; `match-root` allows a field equal to the root's. |
+| `stale-patched-dependencies` | `patch-dirs` | Directories, relative to the root, searched for `*.patch` files no `patchedDependencies` entry references. Empty (default) means the directories of the referenced patches and `patches`. |
+| `stale-patched-dependencies` | `allowed-patch-paths` | Globs, relative to the root, that every patch file must match (`["patches/**"]`, the paths a build context copies); empty (default) allows any path. |
 | `unused-exports`, `unused-types` | `ignore-tags` | JSDoc tag names, without the `@` (a list of strings), that exempt an export. It is read from `unused-exports` and applies to `unused-types` as well. `public`, `beta`, `alpha` and `alias` always exempt, and `alias` also keeps an export out of `duplicate-exports`. |
 | `unused-exports`, `unused-types` | `include-tags` | JSDoc tag names; when set, only exports carrying one of them are reported, and only such enum and namespace members (knip's `--tags +name`). A tag named here is judged even when it would exempt (`public`, `beta`, `alpha`, `alias`, `internal` in production mode), so `include-tags = ["public"]` reports the unused `@public` exports; knip reports none of them. |
 
@@ -179,6 +181,7 @@ themselves workspace packages.
 | `pin` | Required by `pinned`. |
 | `snap-to` | Required by `snapped-to`: packages whose version the group follows. |
 | `prefer` | With `preferred-semver`, overrides `[policy] prefer`. |
+| `scope` | `manifests` (default) judges what the manifests declare; `lockfile` judges every package `pnpm-lock.yaml` resolves, transitive ones included. Only with `banned`. |
 
 ```toml
 [[version-groups]]
@@ -191,7 +194,21 @@ pin = "19.1.0"
 label = "No moment"
 dependencies = ["moment"]
 policy = "banned"
+
+[[version-groups]]
+label = "No copyleft, not even transitively"
+dependencies = ["left-pad"]
+policy = "banned"
+scope = "lockfile"
 ```
+
+A `scope = "lockfile"` group reports each resolved `name@version` it bans once, at its entry in `pnpm-lock.yaml`, with
+the shortest chain an importer pulls it in through (`importer packages/app pulls it in through mid@2.0.0 >
+left-pad@1.3.0`), so removing the `overrides` entry that kept a package out fails the lint. `packages` chooses the
+importers by the workspace package they belong to; `dependency-types` and `specifier-types` select manifest entries and
+are rejected. The group claims no manifest entry: those fall through to the groups after it. Only `pnpm-lock.yaml` in
+lockfile format 9 (pnpm 9 and 10) is read. Without it, or with `yarn.lock`, `package-lock.json` or `bun.lock` instead,
+or when it does not parse, `banned-dependency` reports that nothing was checked rather than passing.
 
 ### `[[semver-groups]]`
 
@@ -281,7 +298,27 @@ packages = ["@babel/*"]
 [[dependency-families]]
 name = "react"
 enabled = false              # disable a built-in family of the same name
+
+[[dependency-families]]
+name = "playwright"          # replaces the built-in family
+packages = ["playwright", "playwright-core", "@playwright/test", "@playwright/browser-*"]
+scope = "importer"           # manifests (default) | importer | lockfile
+
+[[dependency-families]]
+name = "react-types"
+packages = ["@types/react", "@types/react-dom"]
+scope = "lockfile"
+anchor = "react"             # one version of each member per major of react
 ```
+
+In the default `manifests` scope the members a package declares must share a version. `scope = "importer"` and
+`scope = "lockfile"` judge what `pnpm-lock.yaml` resolves instead, transitive packages included: per importer (what
+each workspace package reaches, not following `link:` to other workspace packages) or across the lockfile. Every
+resolved member must then be on one version; the lower ones are reported at their lockfile entry. With an `anchor`,
+each member may resolve once per major (`@types/react` 17 and 18 next to `react` 17 and 18), and a member on a major
+the anchor does not resolve to is reported. No member is exempt in these scopes (the `manifests` scope skips 0.x
+members of a released family and floating specifiers). The lockfile is read as for the version groups, and a missing,
+foreign or unparseable one is reported.
 
 ### `[update]`
 

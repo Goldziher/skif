@@ -42,6 +42,21 @@ would be wrong for some manager; an npm workspace never receives a `workspace:*`
 Yarn Classic (1.x), which has no `workspace:` protocol. Catalogs are read from the files of the active manager only: a
 stale `pnpm-workspace.yaml` in a Yarn repository declares none.
 
+## Lockfile
+
+Discovery does not read the lockfile. Three checks do, on the first run that needs one: `banned-dependency` for a
+`[[version-groups]]` entry with `scope = "lockfile"`, `unsynced-dependency-family` for a `[[dependency-families]]`
+entry with `scope = "importer"` or `"lockfile"`, and `stale-patched-dependencies` when the root `pnpm-workspace.yaml` or
+`package.json` (`pnpm.patchedDependencies`) declares patches. They read `pnpm-lock.yaml` of the root in lockfile format
+9 (pnpm 9 and 10) only. `yarn.lock`, `package-lock.json`, `bun.lock` and older pnpm formats are not read; such a check
+then reports that nothing was checked, as it does when there is no lockfile or it does not parse.
+
+`stale-patched-dependencies` reports a patch whose `name@version` the lockfile no longer resolves (the patch stopped
+applying after a bump) or resolves without a patch hash, a patch file that does not exist, a patch file outside the
+`allowed-patch-paths` globs (the paths a build context copies), and a `*.patch` file no entry references in the
+directories of the referenced patches and `patches/` (or the `patch-dirs` you configure). The entries are reported at
+their key.
+
 ## Workspace patterns
 
 The patterns come from `pnpm-workspace.yaml` for a pnpm workspace, else from the `workspaces` of the root
