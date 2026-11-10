@@ -328,6 +328,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A Docusaurus plugin, theme or preset written in full (`@scope/docusaurus-plugin-x` given as a theme) is the listed
+  package it names, as Docusaurus loads the name as written first; it was taken for its long form
+  (`@scope/docusaurus-theme-docusaurus-plugin-x`) and reported as unlisted.
 - On Windows, an explicit `--config` path given in the verbatim `\\?\C:\` spelling no longer leaves its findings with absolute
   locations or keeps the baseline it extends from applying to the run.
 - A Playwright `reporter` list whose element or reporter name skif could not evaluate (`...sharedReporters()` of a
