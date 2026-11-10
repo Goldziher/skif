@@ -693,6 +693,44 @@ fn source_commands_with_a_cwd_of_the_file_run_in_that_directory() {
     );
 }
 
+/// A package manager that runs a script after `cd` into another directory, or from a source file with a `cwd` there,
+/// runs the script of the package in that directory, never the caller's: the caller's `build` credits nothing to a
+/// workspace package there, and in a directory of no other package it is not judged at the file.
+#[test]
+fn scripts_run_in_another_directory_are_not_the_scripts_of_the_caller() {
+    let root = manifest(&format!(
+        r#""name":"root","private":true,{PNPM},"main":"scripts/release.mjs","scripts":{{"build":"tsup","ci":"cd web && npm run build"}}"#
+    ));
+    let member = r#"{"name":"NAME","private":true,"main":"index.js","scripts":{"build":"vite build"},"devDependencies":{"tsup":"8.0.0","vite":"6.0.0"}}"#;
+    let web = member.replace("NAME", "web");
+    let app = member.replace("NAME", "app");
+    let files = [
+        ("package.json", root.as_str()),
+        ("pnpm-workspace.yaml", "packages:\n  - web\n  - app\n"),
+        ("web/package.json", web.as_str()),
+        ("web/index.js", "module.exports = 1;\n"),
+        ("app/package.json", app.as_str()),
+        ("app/index.js", "module.exports = 2;\n"),
+        (
+            "scripts/release.mjs",
+            "import { execSync } from 'node:child_process';\nimport path from 'node:path';\n\
+             execSync('pnpm build', { cwd: path.join(import.meta.dirname, '../app') });\n\
+             execSync('npm run build', { cwd: path.join(import.meta.dirname, 'out') });\n",
+        ),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        ["app/package.json: tsup", "web/package.json: tsup"],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        found(&diagnostics, "unlisted-binaries"),
+        ["package.json: tsup"],
+        "{diagnostics:#?}"
+    );
+}
+
 /// A binary that a package manager runs in another workspace package's directory without naming a workspace
 /// (`pnpm -C sub exec`) is credited to that package wherever the command is read, a workflow as a script; one whose
 /// command names the workspaces it runs in (`--filter sub`) is not credited to the directory it starts in.

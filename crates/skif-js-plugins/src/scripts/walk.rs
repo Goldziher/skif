@@ -456,10 +456,10 @@ impl<'c> Walker<'c> {
         }
     }
 
-    /// The package's script `name`, run by a package manager or a task runner. In a directory the parser cannot place
-    /// it is the script of the package there, as with a filter.
+    /// The package's script `name`, run by a package manager or a task runner. In another directory, placed or not, it
+    /// is the script of the package there, as with a filter: that package judges its own scripts.
     fn run_script_name(&mut self, name: &str, map: &Map, filtered: bool) {
-        if filtered || self.unknown_dir || name.is_empty() {
+        if filtered || self.unknown_dir || self.cwd.is_some() || name.is_empty() {
             return;
         }
         if !self.info.run_scripts.iter().any(|s| s == name) {
