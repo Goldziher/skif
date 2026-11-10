@@ -1217,3 +1217,63 @@ fn a_spread_of_one_of_several_values_adds_the_keys_of_each() {
     assert_eq!(value.get(OWN_SPREAD), None, "{value:?}");
     assert_eq!(get(&value, &["reporter"]), &ConfigValue::OneOf(vec![s("github"), s("list")]));
 }
+
+/// An array spreads the elements of every branch of a condition it cannot decide, or of a value that is one of several
+/// arrays, a branch that adds nothing (`[]`, `null`, a falsy left side of `&&`) included; a branch it does not know
+/// adds an unknown element.
+#[test]
+fn an_array_spreads_the_elements_of_every_branch() {
+    let value = extract(
+        "playwright.config.ts",
+        "const extra = process.env.CI ? ['a'] : ['b'];\n\
+         export default {\n\
+           reporter: [['list'], ...(process.env.A11Y ? [['./reporters/a11y-reporter.ts']] : [])],\n\
+           both: [...(process.env.CI ? ['a'] : ['b', 'a'])],\n\
+           guarded: [...(process.env.CI && ['x'])],\n\
+           held: [...extra],\n\
+           opaque: [...(process.env.CI ? ['a'] : helper())],\n\
+           length: [...(process.env.CI ? ['a'] : [])].length,\n\
+         };",
+    );
+    assert_eq!(
+        get(&value, &["reporter"]),
+        &ConfigValue::Array(vec![strings(&["list"]), strings(&["./reporters/a11y-reporter.ts"])])
+    );
+    assert_eq!(get(&value, &["both"]), &strings(&["a", "b"]));
+    assert_eq!(get(&value, &["guarded"]), &strings(&["x"]));
+    assert_eq!(get(&value, &["held"]), &strings(&["a", "b"]));
+    assert_eq!(get(&value, &["opaque"]), &ConfigValue::Array(vec![ConfigValue::Unknown]));
+    assert_eq!(get(&value, &["length"]), &ConfigValue::Unknown);
+}
+
+/// `.filter(Boolean)` of a known array drops what is falsy and keeps an element that may be falsy as the values it
+/// has when it is not; its length is then unknown. A `Boolean` the module binds itself is not the global.
+#[test]
+fn filter_boolean_keeps_what_may_be_truthy() {
+    let value = extract(
+        "playwright.config.ts",
+        "export default {\n\
+           reporter: [process.env.CI ? ['github'] : null, ['list']].filter(Boolean),\n\
+           guarded: [process.env.CI && 'blob', 'list', false, null, '', 0, undefined].filter(Boolean),\n\
+           optional: [process.env.CI ? 'github' : undefined].filter(Boolean),\n\
+           opaque: [helper()].filter(Boolean),\n\
+           maybe: [process.env.CI && 'x'].filter(Boolean).length,\n\
+           known: ['a', null].filter(Boolean).length,\n\
+         };",
+    );
+    assert_eq!(
+        get(&value, &["reporter"]),
+        &ConfigValue::Array(vec![strings(&["github"]), strings(&["list"])])
+    );
+    assert_eq!(get(&value, &["guarded"]), &strings(&["blob", "list"]));
+    assert_eq!(get(&value, &["optional"]), &strings(&["github"]));
+    assert_eq!(get(&value, &["opaque"]), &ConfigValue::Array(vec![ConfigValue::Unknown]));
+    assert_eq!(get(&value, &["maybe"]), &ConfigValue::Unknown);
+    assert_eq!(get(&value, &["known"]), &ConfigValue::Number(1.0));
+
+    let shadowed = extract(
+        "playwright.config.ts",
+        "const Boolean = (value) => !value;\nexport default { reporter: [null, 'list'].filter(Boolean) };",
+    );
+    assert_eq!(get(&shadowed, &["reporter"]), &ConfigValue::Unknown);
+}
