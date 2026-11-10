@@ -433,6 +433,10 @@ pub struct BinaryRef {
     pub name: String,
     /// The file the command is read from, absolute: a config, a workflow or a source file.
     pub from: PathBuf,
+    /// The directory the command runs the binary in after `cd` or `pushd`, relative to the directory of the package
+    /// the plugin runs for, where the command starts, `/`-separated; `None` there and when the directory is not a
+    /// static relative path (see [`BinaryUse::dir`](crate::scripts::BinaryUse::dir)).
+    pub dir: Option<String>,
 }
 
 /// Everything one enabled plugin contributes to a workspace.

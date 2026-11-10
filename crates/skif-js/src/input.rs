@@ -29,6 +29,9 @@ pub struct RunBinary {
     pub name: String,
     /// The file the command is read from, absolute.
     pub file: PathBuf,
+    /// The directory the command runs the binary in after `cd` or `pushd`, relative to the package directory where
+    /// the command starts, `/`-separated; `None` there and when the directory is not a static relative path.
+    pub dir: Option<String>,
 }
 
 /// A package that a tool's config file names itself (a `tsconfig` `extends`, an eslint plugin, a Prisma generator):

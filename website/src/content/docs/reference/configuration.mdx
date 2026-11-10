@@ -690,7 +690,10 @@ and one that `npm --prefix <dir> exec`, `pnpm -C <dir> exec` (`--dir`) or `yarn 
 directory: the files it names are relative to it, and when the directory is in another workspace package, the binaries
 it runs and the packages it loads are credited to that package, as for `pnpm --filter <name>`, and are never unlisted.
 In a directory of the package itself or of no workspace package, a command after `cd` stays a command of the script's
-package and one a directory flag runs is not judged, as before. A directory that is not a static relative path
+package and one a directory flag runs is not judged, as before. The binaries that a workflow step, a tool config's
+command or a source file run after `cd <dir>` (`run: cd sub && pnpm exec rspack`) are credited the same way, with the
+directory relative to the package where the command starts (the workspace root for a workflow); their packages and
+files stay where the command starts. A directory that is not a static relative path
 (`cd $DIR`, `cd /tmp`, `cd -`) is not followed: a binary run by name there is judged where the script starts, but a
 package manager run there (`npm run build`, `bun run build`, `pnpm exec rspack`) works on the package of that
 directory, as with `--filter`, so its scripts are not followed and its binaries are not judged. A command that a source
