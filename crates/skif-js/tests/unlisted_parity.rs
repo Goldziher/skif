@@ -1,6 +1,7 @@
 //! Unlisted dependencies and binaries where the corpus runs showed skif and knip disagreeing and skif was wrong:
 //! test environment pragmas, `node_modules/.bin` paths, bare imports in plain stylesheets, runtime modules that an
-//! enclosing package's `engines` provides, and dependencies whose installed manifest has no such binary.
+//! enclosing package's `engines` provides, dependencies whose installed manifest has no such binary and a declared
+//! subpath that silenced the whole package.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -248,5 +249,53 @@ fn child_process_commands_follow_the_scripts_of_their_package() {
     assert_eq!(
         found(&diagnostics, "unlisted-binaries"),
         ["package.json: tsc", "src/index.ts: tsc"]
+    );
+}
+
+/// `declare module 'pkg/sub'` declares that module only: the other imports of the package still need it listed. A
+/// declared package or a pattern with a literal start still covers the imports it matches (ADR 0083).
+#[test]
+fn a_declared_subpath_declares_only_that_module() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["apps/*","packages/*"]}"#,
+        ),
+        (
+            "apps/web/package.json",
+            r#"{"name":"@acme/web","version":"0.0.0","private":true}"#,
+        ),
+        (
+            "apps/web/types.d.ts",
+            "declare module '@acme/web/public/hashes.json' {\n  const hashes: Record<string, string>;\n  export default hashes;\n}\n",
+        ),
+        ("apps/web/modules/shell.ts", "export const shell = 1;\n"),
+        (
+            "packages/atoms/package.json",
+            r#"{"name":"@acme/atoms","version":"1.0.0","main":"src/index.ts"}"#,
+        ),
+        (
+            "packages/atoms/src/ambient.d.ts",
+            "declare module 'whole-lib' {\n  export const w: number;\n}\ndeclare module 'pattern-lib/*' {\n  export const p: number;\n}\n",
+        ),
+        (
+            "packages/atoms/src/index.ts",
+            "import hashes from '@acme/web/public/hashes.json';\nimport { w } from 'whole-lib/deep';\nimport { p } from 'pattern-lib/x';\nexport const all = [hashes, w, p];\n",
+        ),
+        (
+            "packages/atoms/src/shell.ts",
+            "import { shell } from '@acme/web/modules/shell';\nexport const s = shell;\n",
+        ),
+    ]);
+    let unlisted = found(&diagnostics, "unlisted-dependencies");
+    assert!(
+        unlisted.contains(&"packages/atoms/src/shell.ts: @acme/web".to_owned()),
+        "{unlisted:?}"
+    );
+    assert!(
+        !unlisted
+            .iter()
+            .any(|finding| finding.starts_with("packages/atoms/src/index.ts")),
+        "{unlisted:?}"
     );
 }

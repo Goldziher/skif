@@ -45,7 +45,7 @@ impl JsRule for UnlistedDependencies {
             if module.ignored
                 || is_fixture(module)
                 || analysis.ignores_dependency(unlisted.package, &unlisted.name)
-                || analysis.declares_module(&unlisted.name)
+                || analysis.declares_module(&unlisted.specifier)
             {
                 continue;
             }
