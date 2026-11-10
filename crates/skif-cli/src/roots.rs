@@ -201,20 +201,29 @@ pub struct OtherRootUses {
     /// Files of the root, relative to it, that the code of a root outside whose directory they lie reaches (a nested
     /// root requiring `../tools/detect.js`, a sibling root), with everything those files import in turn.
     pub files: BTreeSet<PathBuf>,
+    /// `stale-js-config` findings about a configuration file other roots of the run are built from too, as the
+    /// location path relative to the root and the message, that this root does not report: another root reports the
+    /// same finding, or used the setting it calls stale.
+    pub settings: BTreeSet<(PathBuf, String)>,
 }
 
 impl OtherRootUses {
     fn is_empty(&self) -> bool {
-        self.dependencies.is_empty() && self.files.is_empty()
+        self.dependencies.is_empty() && self.files.is_empty() && self.settings.is_empty()
     }
 }
 
 /// The rules that a use by a nested root answers.
 const UNUSED_DEPENDENCY_RULES: [&str; 2] = ["unused-dependencies", "unused-dev-dependencies"];
 
+/// The rule whose findings about a configuration file several roots share are decided across those roots.
+const STALE_JS_CONFIG: &str = "stale-js-config";
+
 /// The report without the findings that `uses` answers: the unused-dependency findings of dependencies a nested root
 /// imports or runs without listing them (Node.js resolves them from this root's `node_modules`) or that a file of
-/// this root another root's code reaches imports, and the `unused-files` findings of those files.
+/// this root another root's code reaches imports, the `unused-files` findings of those files, and the
+/// `stale-js-config` findings about a shared configuration file that another root reports or whose setting another
+/// root used.
 pub fn credit_other_root_uses(report: Report, uses: &OtherRootUses) -> Report {
     if uses.is_empty() {
         return report;
@@ -226,8 +235,75 @@ pub fn credit_other_root_uses(report: Report, uses: &OtherRootUses) -> Report {
                     .contains(&(diagnostic.location.path.clone(), name.clone()))
             });
         let used_file = diagnostic.rule.as_str() == "unused-files" && uses.files.contains(&diagnostic.location.path);
-        !(used_dependency || used_file)
+        let decided_elsewhere = diagnostic.rule.as_str() == STALE_JS_CONFIG
+            && uses
+                .settings
+                .contains(&(diagnostic.location.path.clone(), diagnostic.message.clone()));
+        !(used_dependency || used_file || decided_elsewhere)
     })
+}
+
+/// Whether a `stale-js-config` message is about a setting that every root built from the file judges, so that the
+/// setting is stale only when each of them reports it: an entry of a top-level `[js]` list, or a `[js.workspaces]` key,
+/// which every root matches against its own packages. An entry of a `[js.workspaces]` table is judged only by the
+/// roots its key selects, and the other findings (a redundant pattern, many unused files) describe the root that
+/// reports them, so one report of those is enough.
+fn judged_by_every_root(message: &str) -> bool {
+    message.ends_with("` matched nothing") && !message.contains("` in `js.workspaces.\"")
+}
+
+/// Decides the `stale-js-config` findings about a configuration file that several roots of the run are built from (an
+/// explicit `--config` file, or a file above them), once every root is linted (ADR 0099). A finding about a setting
+/// every such root judges (see [`judged_by_every_root`]) is kept only when each of them reports it, since a root that
+/// does not report it used the setting; any other finding is kept. A kept finding stays with the first root, in path
+/// order, that reports it, and the other roots are told not to report it again.
+fn route_shared_config_findings(
+    targets: &[Target],
+    reports: &[Option<Result<Report, CliError>>],
+    uses: &mut [OtherRootUses],
+) {
+    let mut sharers: BTreeMap<PathBuf, usize> = BTreeMap::new();
+    for (target, report) in targets.iter().zip(reports) {
+        if !matches!(report, Some(Ok(_))) {
+            continue;
+        }
+        let files: BTreeSet<PathBuf> = target
+            .sources
+            .iter()
+            .map(|source| join(Path::new(""), &source.path))
+            .collect();
+        for file in files {
+            *sharers.entry(file).or_default() += 1;
+        }
+    }
+    let mut reporters: BTreeMap<(PathBuf, &str), BTreeMap<usize, &Path>> = BTreeMap::new();
+    for (index, report) in reports.iter().enumerate() {
+        let Some(Ok(report)) = report else {
+            continue;
+        };
+        for diagnostic in report
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.rule.as_str() == STALE_JS_CONFIG)
+        {
+            let file = join(&targets[index].root, &diagnostic.location.path);
+            if sharers.get(&file).is_some_and(|count| *count > 1) {
+                reporters
+                    .entry((file, diagnostic.message.as_str()))
+                    .or_default()
+                    .entry(index)
+                    .or_insert(&diagnostic.location.path);
+            }
+        }
+    }
+    for ((file, message), roots) in reporters {
+        let kept = !judged_by_every_root(message) || roots.len() == sharers[&file];
+        for (position, (index, path)) in roots.into_iter().enumerate() {
+            if !(kept && position == 0) {
+                uses[index].settings.insert((path.to_path_buf(), message.to_owned()));
+            }
+        }
+    }
 }
 
 /// Hands the dependencies that the report of root `from` uses through manifests outside it (above it, or of the files
@@ -316,7 +392,8 @@ fn route_other_project_files(
 /// the files of other projects its code imports or runs; each goes to the innermost root that holds it. A run without
 /// nested roots is a single wave, as before. Each report also lists the files outside its root that its code reaches
 /// and the dependencies its code uses that only a manifest above its root lists; once every root is linted, the root
-/// that owns such a file or manifest no longer reports them unused.
+/// that owns such a file or manifest no longer reports them unused. A `stale-js-config` finding about a configuration
+/// file several roots are built from is reported once, and a stale entry only when no root used it.
 pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Result<Vec<RootRun>, CliError> {
     let depths = nesting_depths(&targets);
     let mut extra: Vec<BTreeSet<PathBuf>> = vec![BTreeSet::new(); targets.len()];
@@ -348,6 +425,7 @@ pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Res
             route_ancestor_dependency_uses(&targets, index, report, &mut other_root_uses);
         }
     }
+    route_shared_config_findings(&targets, &reports, &mut other_root_uses);
     targets
         .into_iter()
         .zip(reports)
@@ -472,7 +550,77 @@ pub fn root_json(run: &RootRun, report: &Report) -> Value {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    use skif::{MemoryFs, RuleId, Severity};
+
     use super::*;
+
+    fn stale(path: &str, message: &str) -> Diagnostic {
+        Diagnostic::new(
+            RuleId::from_static(STALE_JS_CONFIG),
+            Severity::Warning,
+            message,
+            Location::new(path, None),
+        )
+    }
+
+    #[test]
+    fn only_entries_of_top_level_lists_and_workspace_keys_are_judged_by_every_root() {
+        for (message, expected) in [
+            ("`left-pad` in `js.ignore-dependencies` matched nothing", true),
+            ("`tools/gone` in `js.workspaces` matched nothing", true),
+            ("`src/x.js` in `js.entry` matched nothing", true),
+            ("`src/x.js` in `js.workspaces.\".\".entry` matched nothing", false),
+            (
+                "`src/x.js` in `js.entry` is already an entry of a plugin, `package.json` or a script",
+                false,
+            ),
+        ] {
+            assert_eq!(judged_by_every_root(message), expected, "{message}");
+        }
+    }
+
+    #[test]
+    fn findings_about_a_shared_configuration_are_kept_once_and_only_when_stale_in_every_root() {
+        let fs = MemoryFs::new()
+            .with_file("/r/package.json", r#"{"name": "app", "version": "1.0.0"}"#)
+            .with_file("/r/tools/sub/package.json", r#"{"name": "sub", "version": "1.0.0"}"#)
+            .with_file("/etc/skif.toml", "");
+        let overrides = ConfigOverrides::default().with_config_file(Some(PathBuf::from("/etc/skif.toml")));
+        let targets = skif::discover_targets(Path::new("/r"), &fs, &overrides).unwrap().targets;
+        assert_eq!(targets.len(), 2);
+        let everywhere = "`left-pad` in `js.ignore-dependencies` matched nothing";
+        let one_root = "`tsc` in `js.ignore-binaries` matched nothing";
+        let scoped = "`src/x.js` in `js.workspaces.\"tools/sub\".entry` matched nothing";
+        let (outer, inner) = ("../etc/skif.toml", "../../../etc/skif.toml");
+        let reports = vec![
+            Some(Ok(Report::new(vec![stale(outer, everywhere), stale(outer, one_root)], 1))),
+            Some(Ok(Report::new(vec![stale(inner, everywhere), stale(inner, scoped)], 1))),
+        ];
+        let mut uses = vec![OtherRootUses::default(); 2];
+        route_shared_config_findings(&targets, &reports, &mut uses);
+        let settings = |index: usize| -> Vec<(String, String)> {
+            uses[index]
+                .settings
+                .iter()
+                .map(|(path, message)| (slash(path), message.clone()))
+                .collect()
+        };
+        assert_eq!(settings(0), [(outer.to_owned(), one_root.to_owned())]);
+        assert_eq!(settings(1), [(inner.to_owned(), everywhere.to_owned())]);
+    }
+
+    #[test]
+    fn a_finding_another_root_decided_is_not_reported_again() {
+        let report = Report::new(vec![stale("../skif.toml", "a"), stale("../skif.toml", "b")], 1);
+        let mut uses = OtherRootUses::default();
+        uses.settings.insert((PathBuf::from("../skif.toml"), "a".to_owned()));
+        let kept: Vec<String> = credit_other_root_uses(report, &uses)
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.clone())
+            .collect();
+        assert_eq!(kept, ["b"]);
+    }
 
     #[test]
     fn join_resolves_parent_segments() {

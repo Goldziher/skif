@@ -1050,3 +1050,117 @@ fn fixing_keeps_a_file_a_sibling_root_imports_and_its_dependencies() {
     assert_eq!(js_findings(&result.json()), Vec::<String>::new());
     assert_eq!(unused_dependencies(&result.json()), Vec::<String>::new());
 }
+
+/// A project with a standalone package nested in `tools/sub`, and `config` as an explicit configuration file outside
+/// it. Returns the directory, the project and the configuration file.
+fn nested_root_with_explicit_config(config: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    // Canonical, so the configuration file and the roots share their leading directories (`/var` is a link on macOS).
+    let base = dir.path().canonicalize().unwrap();
+    let repo = base.join("repo");
+    fs::create_dir_all(repo.join(".git")).unwrap();
+    put(
+        &repo,
+        "package.json",
+        r#"{"name": "app", "version": "1.0.0", "private": true, "packageManager": "pnpm@10.0.0", "main": "src/main.js"}"#,
+    );
+    put(&repo, "src/main.js", "module.exports = 1;\n");
+    put(&repo, "src/extra.js", "module.exports = 2;\n");
+    put(
+        &repo,
+        "tools/sub/package.json",
+        r#"{"name": "sub", "version": "1.0.0", "private": true, "packageManager": "pnpm@10.0.0", "main": "src/index.js"}"#,
+    );
+    put(&repo, "tools/sub/src/index.js", "module.exports = 3;\n");
+    put(&repo, "tools/sub/src/tool.js", "module.exports = 4;\n");
+    put(&base, "config/skif.toml", config);
+    let file = base.join("config").join("skif.toml");
+    (dir, repo, file)
+}
+
+/// Lints `repo` and every root below it with the explicit configuration `file`.
+fn recursive_with_config(repo: &Path, file: &Path) -> Value {
+    let result = run(skif()
+        .args(["--format", "json", "--recursive", "--config"])
+        .arg(file)
+        .arg(repo));
+    assert!(
+        result.code == 0 || result.code == 1,
+        "{}{}",
+        result.stdout,
+        result.stderr
+    );
+    result.json()
+}
+
+/// Every finding of `rule` as `root-relative path: message`, sorted.
+fn messages_of(report: &Value, rule: &str) -> Vec<String> {
+    let mut found: Vec<String> = report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|d| d["rule"] == rule)
+        .map(|d| {
+            format!(
+                "{}: {}",
+                d["location"]["path"].as_str().unwrap(),
+                d["message"].as_str().unwrap()
+            )
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+#[test]
+fn an_explicit_config_keys_workspaces_by_their_directory_below_the_start() {
+    let (_dir, repo, file) = nested_root_with_explicit_config(
+        "[js.workspaces.\".\"]\nentry = [\"src/extra.js\"]\n\n[js.workspaces.\"tools/sub\"]\nentry = [\"src/tool.js\"]\n",
+    );
+    let report = recursive_with_config(&repo, &file);
+    assert_eq!(root_paths(&report), [".", "tools/sub"], "{report}");
+    // `"."` is the start root only, and `tools/sub` the nested root: each entry is used in its own root and makes
+    // its file an entry there.
+    assert_eq!(messages_of(&report, "stale-js-config"), Vec::<String>::new(), "{report}");
+    assert_eq!(paths_reporting(&report, "unused-files"), BTreeSet::new(), "{report}");
+}
+
+#[test]
+fn a_stale_entry_of_an_explicit_config_is_reported_once_for_the_run() {
+    let (_dir, repo, file) = nested_root_with_explicit_config(
+        "[js]\nignore-dependencies = [\"left-pad\"]\n\n[js.workspaces.\".\"]\nentry = [\"src/extra.js\", \
+         \"src/missing.js\"]\n\n[js.workspaces.\"tools/gone\"]\n",
+    );
+    let report = recursive_with_config(&repo, &file);
+    assert_eq!(
+        messages_of(&report, "stale-js-config"),
+        [
+            "../config/skif.toml: `left-pad` in `js.ignore-dependencies` matched nothing",
+            "../config/skif.toml: `src/missing.js` in `js.workspaces.\".\".entry` matched nothing",
+            "../config/skif.toml: `tools/gone` in `js.workspaces` matched nothing",
+        ],
+        "{report}"
+    );
+    let warnings: u64 = report["roots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|root| root["summary"]["warnings"].as_u64().unwrap())
+        .sum();
+    assert_eq!(warnings, report["summary"]["warnings"].as_u64().unwrap(), "{report}");
+}
+
+#[test]
+fn an_entry_of_an_explicit_config_one_root_uses_is_not_stale() {
+    let (_dir, repo, file) = nested_root_with_explicit_config("[js]\nignore-dependencies = [\"left-pad\"]\n");
+    put(
+        &repo,
+        "tools/sub/package.json",
+        r#"{"name": "sub", "version": "1.0.0", "private": true, "packageManager": "pnpm@10.0.0", "main": "src/index.js",
+            "dependencies": {"left-pad": "1.3.0"}}"#,
+    );
+    let report = recursive_with_config(&repo, &file);
+    // The nested root lists `left-pad` without using it, so the entry silences a finding there.
+    assert_eq!(unused_dependencies(&report), Vec::<String>::new(), "{report}");
+    assert_eq!(messages_of(&report, "stale-js-config"), Vec::<String>::new(), "{report}");
+}
