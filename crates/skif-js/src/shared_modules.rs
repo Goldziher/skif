@@ -249,12 +249,20 @@ mod tests {
         let modules = SharedModules::for_run(roots(&["/r", "/r/nested", "/r/sibling"]), None).unwrap();
         // For `/r`: its own file is local; a file of the root nested in it and one outside every root are shared.
         assert_eq!(
-            served(&modules, "/r", &["/r/src/own.ts", "/r/nested/src/n.ts", "/shared/lib.ts"]),
+            served(
+                &modules,
+                "/r",
+                &["/r/src/own.ts", "/r/nested/src/n.ts", "/shared/lib.ts"]
+            ),
             [Served::Uncached, Served::Parsed, Served::Parsed]
         );
         // For `/r/nested`: its own file is local, though `/r` encloses it. It finds what `/r` stored.
         assert_eq!(
-            served(&modules, "/r/nested", &["/r/nested/src/n.ts", "/shared/lib.ts", "/r/src/own.ts"]),
+            served(
+                &modules,
+                "/r/nested",
+                &["/r/nested/src/n.ts", "/shared/lib.ts", "/r/src/own.ts"]
+            ),
             [Served::Uncached, Served::Hit, Served::Parsed]
         );
         // `/r/sibling` is nested in `/r` but not in `/r/nested`, so for it a file of `/r/nested` is shared.
@@ -267,8 +275,11 @@ mod tests {
     #[test]
     fn a_host_cache_holds_every_file() {
         let host = Arc::new(Recording::default());
-        let modules =
-            SharedModules::for_run(roots(&["/r/a", "/r/b"]), Some(Arc::clone(&host) as Arc<dyn ModuleCache>)).unwrap();
+        let modules = SharedModules::for_run(
+            roots(&["/r/a", "/r/b"]),
+            Some(Arc::clone(&host) as Arc<dyn ModuleCache>),
+        )
+        .unwrap();
         assert_eq!(
             served(&modules, "/r/a", &["/r/a/own.ts", "/shared/lib.ts"]),
             [Served::Parsed, Served::Parsed]
