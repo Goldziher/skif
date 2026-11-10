@@ -227,7 +227,8 @@ All notable changes to this project are documented here. The format follows
   package that does not list the member: those link it only for the packages that depend on it, so the script's
   binary is reported unlisted. Bun is isolated with `linker = "isolated"` in `bunfig.toml`, or without a `linker` when
   `bun.lock` has `configVersion` 1. npm, Yarn Classic and hoisted Bun, which link every member's binaries into the root
-  `node_modules/.bin`, keep the old answer, and a member's own scripts may always run its binaries. In a Rush repository (`rush.json` at
+  `node_modules/.bin`, keep the old answer, and a member's own scripts may always run its binaries. Yarn counts as Berry
+  only when `packageManager`, a `.yarnrc.yml` or a Berry `yarn.lock` says so. In a Rush repository (`rush.json` at
   the root), `rush`, `rushx` and `rush-pnpm` are provided commands
   ([ADR 0098](adrs/0098-commands-in-other-directories-and-binaries-of-workspace-members.md)).
 - A binary that a workflow step, a tool config's command or a source file runs after `cd <dir>` into another workspace

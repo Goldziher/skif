@@ -118,17 +118,37 @@ const RUSH_COMMANDS: &[&str] = &["rush", "rushx", "rush-pnpm"];
 /// Whether the binaries of a workspace member are on the `PATH` of every package: npm, Yarn Classic and Bun's hoisted
 /// linker hoist the members into the root `node_modules` and link their binaries into its `.bin`, while pnpm, Yarn
 /// Berry, Rush and Bun's isolated linker ([`bun_isolated`]) link a member's binaries only into the packages that depend
-/// on it. An unknown package manager counts as hoisting, so it reports nothing new.
+/// on it. An unknown package manager counts as hoisting, so it reports nothing new, and so does a Yarn whose version
+/// the repository does not tell ([`yarn_berry`]).
 fn hoists_member_bins(workspace: &Workspace, rush: bool, fs: &dyn FileSystem) -> bool {
     if rush {
         return false;
     }
     match workspace.package_manager {
         Some(PackageManager::Pnpm) => false,
-        Some(PackageManager::Yarn) => workspace.facts.yarn_classic,
+        Some(PackageManager::Yarn) => !yarn_berry(workspace, fs),
         Some(PackageManager::Bun) => !bun_isolated(fs, &workspace.root),
         _ => true,
     }
+}
+
+/// Whether a Yarn workspace positively uses Yarn Berry (2 and later): the root's `packageManager` names a later Yarn
+/// than 1, or, without one, the root has a `.yarnrc.yml` or a Berry `yarn.lock` (one with `__metadata`).
+fn yarn_berry(workspace: &Workspace, fs: &dyn FileSystem) -> bool {
+    let declared = workspace
+        .root_package()
+        .manifest
+        .value()
+        .get("packageManager")
+        .and_then(Value::as_str)
+        .filter(|field| field.starts_with("yarn@"));
+    if let Some(field) = declared {
+        return !field.starts_with("yarn@1.");
+    }
+    fs.is_file(&workspace.root.join(".yarnrc.yml"))
+        || fs
+            .read_to_string(&workspace.root.join("yarn.lock"))
+            .is_ok_and(|text| lockfile::is_yarn_berry(&text))
 }
 
 /// Whether Bun installs the workspace at `root` with its isolated linker. `linker` in the `[install]` table of the

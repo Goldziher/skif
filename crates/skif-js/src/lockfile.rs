@@ -212,7 +212,7 @@ fn bun(text: &str) -> Entries {
 }
 
 /// Whether a `yarn.lock` is a Berry lock: only Berry writes the top-level `__metadata:` block.
-fn is_yarn_berry(text: &str) -> bool {
+pub(crate) fn is_yarn_berry(text: &str) -> bool {
     text.lines().any(|line| line.trim_end() == "__metadata:")
 }
 

@@ -95,7 +95,9 @@ package manager links every member's binaries into the root `node_modules/.bin`:
 hoisted linker, and an unknown package manager, which keeps the old answer. Under pnpm, Yarn Berry, Bun with its
 isolated linker and in a Rush repository (a `rush.json` at the workspace root, whatever its package manager) it is
 provided only to the packages that list the member, to the packages below one that does, and to the member's own
-scripts. Bun's linker is the `linker` of `[install]` in the root `bunfig.toml`; without one, Bun 1.3.2 and later
+scripts. Yarn is Berry when the root's `packageManager` names Yarn 2 or later or, without one, when the root has a
+`.yarnrc.yml` or a Berry `yarn.lock` (with `__metadata`); a Yarn whose version none of these tells counts as hoisting,
+as an unknown package manager does. Bun's linker is the `linker` of `[install]` in the root `bunfig.toml`; without one, Bun 1.3.2 and later
 default a workspace to isolated when `bun.lock` records `configVersion` 1, which it writes for a new project, and to
 hoisted for a lockfile without it, which a project from before that version keeps. With neither file the linker Bun
 will pick cannot be read from the repository, so Bun counts as hoisting, as before. In a Rush repository, `rush`, `rushx` and `rush-pnpm`
@@ -135,6 +137,7 @@ are provided commands; a package that lists the package declaring them still use
 * `crates/skif-js/tests/unlisted_parity.rs`: `commands_run_with_a_cwd_option_run_scripts_of_the_package_there` and
   `a_cwd_of_the_current_directory_follows_the_scripts_of_the_package`.
 * `crates/skif-js/tests/monorepo_regressions.rs`: `a_member_binary_is_provided_where_the_package_manager_links_it`,
+  `yarn_is_berry_only_on_evidence`,
   `rush_commands_are_provided_in_a_rush_repository` and
   `workflow_and_source_commands_after_cd_into_a_workspace_package_are_judged_there` and
   `source_commands_with_a_cwd_of_the_file_run_in_that_directory` and

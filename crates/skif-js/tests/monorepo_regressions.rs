@@ -594,6 +594,33 @@ fn a_member_binary_is_provided_where_the_package_manager_links_it() {
     }
 }
 
+/// A Yarn workspace is taken for Yarn Berry, which links a member's binary only for its dependents, on positive
+/// evidence only: a Berry `yarn.lock` (`__metadata`) or a `.yarnrc.yml`. A `yarn.lock` that tells neither version,
+/// without a `packageManager`, counts as hoisting, as an unknown package manager does.
+#[test]
+fn yarn_is_berry_only_on_evidence() {
+    let root = r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#;
+    let berry_lock = "__metadata:\n  version: 8\n  cacheKey: 10\n";
+    let unknown_lock = "# lockfile\n";
+    assert_eq!(
+        unlisted_member_binaries(&[("package.json", root), ("yarn.lock", unknown_lock)]),
+        none()
+    );
+    let berry: &[&str] = &["packages/app/package.json: mytool"];
+    assert_eq!(
+        unlisted_member_binaries(&[("package.json", root), ("yarn.lock", berry_lock)]),
+        berry
+    );
+    assert_eq!(
+        unlisted_member_binaries(&[
+            ("package.json", root),
+            ("yarn.lock", unknown_lock),
+            (".yarnrc.yml", "enableTelemetry: false\n")
+        ]),
+        berry
+    );
+}
+
 /// In a Rush repository, `rush`, `rushx` and `rush-pnpm` are Rush's own commands, and a member's binary is linked only
 /// for the packages that depend on it, as with pnpm.
 #[test]
