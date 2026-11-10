@@ -32,9 +32,9 @@ pub(crate) const CODE_EXTENSIONS: &[&str] = &[
     "js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx", "vue", "svelte", "astro",
 ];
 
-/// Files whose imports are extracted without a compiler and followed (MDX documents, TSRX components). They are not
-/// in the default project and are never probed as the source of a published file.
-const EXTRACTED_EXTENSIONS: &[&str] = &["mdx", "tsrx"];
+/// Files whose imports are extracted without a compiler and followed (MDX documents, TSRX and Marko components). They
+/// are not in the default project and are never probed as the source of a published file.
+const EXTRACTED_EXTENSIONS: &[&str] = &["marko", "mdx", "tsrx"];
 
 /// Whether a path has an extension that is parsed and followed.
 pub(crate) fn is_code_file(path: &Path) -> bool {

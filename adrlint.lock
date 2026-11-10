@@ -415,3 +415,13 @@ blake3 = "669d10312a9485808e53baeb1d5605f8d1b27958b9f126e58741f58b8f762329"
 number = 83
 status = "accepted"
 blake3 = "249417248e917634a3016910eb0ef53404a0f19f7c8843c619ed8d0497112afc"
+
+[adrs."adrs/0084-template-scopes-auto-imported-vue-components-and-marko-files.md"]
+number = 84
+status = "accepted"
+blake3 = "1f5cefafa05d89958886095fd8cfcd5c848c9210e0fd98ed8cd3aa1ff85d01d2"
+
+[adrs."adrs/0085-files-other-roots-reach-count-as-used.md"]
+number = 85
+status = "accepted"
+blake3 = "b830bad58f376637a70784dc49a09852c8e59ec3f775b0008fd64df619df0a44"

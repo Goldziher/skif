@@ -113,11 +113,89 @@ fn vue_auto_imports_snapshot() {
 
 #[test]
 fn vue_auto_import_declarations_keep_components_and_composables_used() {
-    // The generated `components.d.ts` and `auto-imports.d.ts` are ambient entries whose `typeof import()` types
-    // reach every registered component and composable.
+    // The generated `auto-imports.d.ts` is an ambient entry whose `typeof import()` types reach every registered
+    // composable; the component `components.d.ts` registers is used by the template of `App.vue`.
     let diagnostics = lint_fixture("vue-auto-imports");
     assert_eq!(found(&diagnostics, "unused-files"), Vec::<String>::new());
     assert_eq!(found(&diagnostics, "unused-exports"), Vec::<String>::new());
+}
+
+#[test]
+fn registered_vue_components_are_used_only_where_a_template_uses_them() {
+    // `components.d.ts` registers nine components. `App.vue` uses `AppButton`, `AppCard` in kebab-case (whose template
+    // uses `AppIcon`), `MyField` as `myField`, `AppBadge` through `<component is>` and `AppDialog` through
+    // `resolveComponent`; `AppNested` is used only by `AppUnused`, which no template uses, and the native `<button>`
+    // is no use of `Button`.
+    let diagnostics = lint_fixture("vue-auto-components");
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        [
+            "src/components/AppNested.vue: src/components/AppNested.vue",
+            "src/components/AppUnused.vue: src/components/AppUnused.vue",
+            "src/components/Button.vue: src/components/Button.vue",
+        ]
+    );
+    assert_eq!(found(&diagnostics, "unresolved-imports"), Vec::<String>::new());
+}
+
+#[test]
+fn mutually_recursive_registered_components_are_no_cycle() {
+    // `TreeNode` uses `TreeItem`, whose template uses `tree-node`: the imports skif adds for them are left out of
+    // `circular-imports`, which the fixture turns on.
+    let diagnostics = lint_fixture("vue-recursive-components");
+    assert_eq!(found(&diagnostics, "circular-imports"), Vec::<String>::new());
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["src/components/TreeUnused.vue: src/components/TreeUnused.vue"]
+    );
+}
+
+#[test]
+fn registered_components_are_all_used_where_files_without_tags_may_use_them() {
+    // A `.tsx` project file, a plugin `include` that names `.md` pages and a VitePress site may each use a component
+    // in a file skif records no tags for, so the declaration file credits every component it registers.
+    for case in ["vue-components-tsx", "vue-components-markdown", "vitepress-components"] {
+        let diagnostics = lint_fixture(case);
+        assert_eq!(found(&diagnostics, "unused-files"), Vec::<String>::new(), "{case}");
+    }
+}
+
+#[test]
+fn marko_imports_are_followed() {
+    // The tag file is a production entry of the `marko` plugin: its imports keep `format.js` and `lodash-es` used,
+    // and its `<style>` block imports `layout.css`.
+    let diagnostics = lint_fixture("marko-imports");
+    assert_eq!(found(&diagnostics, "unused-files"), ["src/orphan.js: src/orphan.js"]);
+    assert_eq!(
+        found(&diagnostics, "unused-dependencies"),
+        ["package.json: unused-dependency"]
+    );
+    assert_eq!(found(&diagnostics, "unresolved-imports"), Vec::<String>::new());
+    assert_eq!(found(&diagnostics, "unparseable-files"), Vec::<String>::new());
+}
+
+#[test]
+fn qwik_mdx_routes_are_read_without_a_compiler() {
+    // knip registers its MDX compiler for Qwik City; skif reads every reached `.mdx` file, so the route's import keeps
+    // the component used.
+    let diagnostics = lint_fixture("qwik-mdx");
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["src/components/orphan.tsx: src/components/orphan.tsx"]
+    );
+    assert_eq!(found(&diagnostics, "unresolved-imports"), Vec::<String>::new());
+}
+
+#[test]
+fn stencil_sass_stylesheets_are_read_without_a_compiler() {
+    // knip registers its Sass compiler for `@stencil/sass`; skif follows the `styleUrl` stylesheet and its `@use`
+    // rules itself, so the partial resolves and `bootstrap` is used.
+    let diagnostics = lint_fixture("stencil-sass");
+    assert_eq!(
+        found(&diagnostics, "unused-dependencies"),
+        ["package.json: unused-dependency"]
+    );
+    assert_eq!(found(&diagnostics, "unresolved-imports"), Vec::<String>::new());
 }
 
 #[test]
