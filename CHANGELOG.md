@@ -285,6 +285,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A Playwright `reporter` list whose element or reporter name skif cannot evaluate (`...sharedReporters()` of a helper
+  whose two returns differ, `process.env.CI ? 'github' : './reporter.ts'`) was skipped, so the reporter modules it
+  names were reported by `unused-files`. Such a list, or a spread of a value the config computes that may set it, now
+  leaves the package's entries incomplete and the whole package unjudged, as a reporter module may be any file; an
+  imported base config still narrows to the test conventions
+  ([#151](https://github.com/Goldziher/skif/issues/151)).
 - `skif -r --config <FILE>` applied the file's `[js.workspaces]` tables and `ignore-workspaces` globs to every root as
   if written relative to each, so `[js.workspaces."."]` configured every nested root and `stale-js-config` reported
   its entries once per root where they matched nothing. The keys and globs of an explicit file are now relative to

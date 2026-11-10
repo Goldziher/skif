@@ -301,6 +301,53 @@ module.exports = {
     );
 }
 
+/// A `reporter` list the config computes itself, or an element of it whose module is not known statically, may name
+/// any file of the package as a reporter, so none is judged; the known reporters are still entries.
+#[test]
+fn playwright_reporters_not_known_statically_leave_the_package_unjudged() {
+    let cases = [
+        "import { sharedReporters } from './shared-config';\n\
+         export default defineConfig({\n\
+           testDir: './tests',\n\
+           reporter: [...sharedReporters(), ['./reporters/local.ts']],\n});",
+        "export default { testDir: './tests', reporter: pick(), };",
+        "export default { testDir: './tests', reporter: [[pick(), {}], ['./reporters/local.ts']] };",
+        "export default { testDir: './tests', reporter: process.env.CI ? 'github' : './reporters/local.ts' };",
+        "const own = () => JSON.parse(process.env.PW ?? '{}');\nexport default { reporter: 'list', ...own() };",
+    ];
+    for source in cases {
+        let results = run(&[("playwright.config.ts", source)], &["@playwright/test"], &[]);
+        let reasons = &output(&results, "playwright").incomplete_reasons;
+        assert!(
+            reasons.iter().any(|reason| reason.cause == IncompleteCause::ComputedEntries)
+                && reasons.iter().all(|reason| reason.scope == IncompleteScope::Package),
+            "{source}: {reasons:?}"
+        );
+    }
+    let results = run(&[("playwright.config.ts", cases[0])], &["@playwright/test"], &[]);
+    assert_entries(&output(&results, "playwright").entries, &["reporters/local.ts"]);
+}
+
+/// Unknown options of a known reporter, and a base config the reporter list replaces, hide no reporter module.
+#[test]
+fn playwright_known_reporters_leave_the_entries_complete() {
+    let cases = [
+        "export default { reporter: [['list'], ['./reporters/local.ts', { outputFile: process.env.OUT }]] };",
+        "const own = () => JSON.parse(process.env.PW ?? '{}');\nexport default { ...own(), reporter: 'html' };",
+    ];
+    for source in cases {
+        let results = run(&[("playwright.config.ts", source)], &["@playwright/test"], &[]);
+        let out = output(&results, "playwright");
+        assert!(
+            !out.incomplete_reasons
+                .iter()
+                .any(|reason| reason.cause == IncompleteCause::ComputedEntries),
+            "{source}: {:?}",
+            out.incomplete_reasons
+        );
+    }
+}
+
 #[test]
 fn vite_css_postcss_file_is_read_as_a_postcss_config() {
     let results = run(
