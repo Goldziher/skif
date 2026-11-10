@@ -36,7 +36,8 @@ First match wins:
 4. Lockfile presence: `pnpm-lock.yaml`, `bun.lock` / `bun.lockb`, `yarn.lock`, `package-lock.json`.
 5. A `pnpm-workspace.yaml` implies pnpm.
 6. A `.yarnrc.yml` or a `.yarn/releases` directory implies Yarn (Berry), for checkouts that do not commit `yarn.lock`.
-7. A root `bunfig.toml` implies Bun, for checkouts that do not commit `bun.lock`.
+7. A root `bunfig.toml` with an `[install]` table implies Bun, for checkouts that do not commit `bun.lock`. A
+   `bunfig.toml` that only configures `bun test` or the runtime does not.
 
 If nothing indicates a manager, skif does not guess npm. Rules and fixes that depend on the manager skip what
 would be wrong for some manager; an npm workspace never receives a `workspace:*` specifier, and neither does

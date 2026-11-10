@@ -70,8 +70,8 @@ All notable changes to this project are documented here. The format follows
   [#144](https://github.com/Goldziher/skif/issues/144)).
 - `skif_core::timing::Tally::add` adds a duration the caller measured, for a step that learns which tally it belongs
   to only once it has run.
-- Bun: a root `bunfig.toml` detects Bun when no declaration, lockfile, `pnpm-workspace.yaml` or Yarn Berry file
-  decides ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
+- Bun: a root `bunfig.toml` with an `[install]` table detects Bun when no declaration, lockfile,
+  `pnpm-workspace.yaml` or Yarn Berry file decides; one that only configures `bun test` or the runtime does not ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
 - Bun: `nested-workspace-root` reports a member whose `package.json` declares `workspaces`, at that key, because Bun
   never installs the directories it lists ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
 - Bun: `stale-patched-dependencies` reads the top-level `patchedDependencies` of the root `package.json` and checks
