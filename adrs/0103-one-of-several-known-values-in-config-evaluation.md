@@ -99,8 +99,10 @@ Two further readings come with it, since the lists they produce are where the ch
 `Named::Unknown`, every alternative of the list, of an element and of a pair's name counting. Playwright and Vitest
 credit every known name. A name still unknown, or a spread of a value the config computes that may set the key
 (`support::reporters_unknown`, through the `support::last_entry` that `path_unknown` shares), leaves the entries
-incomplete with the scope `Package`: Playwright's `reporter`, and Vitest's `test.reporters` of the config or an inline
-project. Vitest used to skip an unknown reporter name.
+incomplete with the scope `Package` for Playwright's `reporter`. Vitest still skips a `test.reporters` name it cannot
+know: a shared config that every package merges computes its reporter list (n8n wraps it in a profiling helper), and
+the reporter modules it names belong to the shared package, so widening the scope there would hide every package that
+merges it.
 
 Storybook reads every alternative of `addons`, of an addon, of `framework` and of `core.builder`. A name it cannot
 know leaves the entries incomplete with the scope `Within` the Storybook config directory of the config (`<dir>/**`)
@@ -112,7 +114,7 @@ package's dependencies are not judged. A Storybook config unknown as a whole, or
 
 | Plugin | Scope, besides the plugin's own entry globs |
 | --- | --- |
-| `vitest` | as in ADR 0065; also `Package` when the config computes a name of `test.reporters` itself |
+| `vitest` | as in ADR 0065; a `test.reporters` name it cannot know is skipped |
 | `playwright` | as in ADR 0065; also `Package` when the config computes its `reporter` list itself: a reporter name is not known statically, or a spread of a value the config computes may set the list |
 | `storybook` | for an unknown addon, framework or builder, the Storybook config directory and the project globs; `Package` for a config unknown as a whole or with an unknown spread |
 
@@ -135,8 +137,7 @@ package's dependencies are not judged. A Storybook config unknown as a whole, or
 * Good, because an unknown Storybook addon no longer hides every unused file of its package.
 * Bad, because `ConfigValue` gains a variant, which breaks an embedder that matches it exhaustively.
 * Bad, because each plugin that should credit every branch has to opt in; until it does, a `OneOf` is unknown to it.
-* Bad, because a Vitest reporter name the evaluator cannot know now leaves the package unjudged, where it was
-  skipped.
+* Bad, because a Vitest reporter module that only an unknown name points to is still reported unused, as before.
 
 ### Confirmation
 
@@ -152,7 +153,7 @@ package's dependencies are not judged. A Storybook config unknown as a whole, or
   read it as `OneOf`.
 * `crates/skif-js-plugins/tests/fp_config.rs`: Playwright reporter lists picked among known names, filtered or spread
   conditionally are complete and credit their modules, an opaque one is `Package`; Vitest reporters of every branch
-  are credited; an unknown Storybook addon, framework or builder is incomplete within the config directory.
+  are credited and an unknown Vitest reporter name leaves the entries complete; an unknown Storybook addon, framework or builder is incomplete within the config directory.
 * `crates/skif-js-plugins/tests/plugins.rs`: an alias to a package, to `import.meta.resolve('bar')` and to
   `dirname(require.resolve('bar/package.json'))`, is kept without a target and credits the package.
 * `crates/skif-js/tests/fixtures.rs`: in `playwright-computed-reporters` the stale reporters of the packages whose

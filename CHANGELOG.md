@@ -337,9 +337,8 @@ All notable changes to this project are documented here. The format follows
   `.filter(Boolean)`, now credits the module of every branch. A list whose reporter name is still not known (a list
   parsed from the environment), or a spread of a value the config computes that may set it, leaves the package's
   entries incomplete and the whole package unjudged, as a reporter module may be any file; an imported base config
-  still narrows to the test conventions. Vitest's `test.reporters` is read the same way: a reporter of every branch is
-  credited, and one whose name is not known leaves the package unjudged instead of being skipped
-  ([#151](https://github.com/Goldziher/skif/issues/151)).
+  still narrows to the test conventions. Vitest's `test.reporters` credits a reporter of every branch the same way, and
+  still skips a name it cannot know ([#151](https://github.com/Goldziher/skif/issues/151)).
 - Storybook addons, frameworks and builders named through the `getAbsolutePath` helper the Storybook CLI writes in its
   ESM form (`` dirname(fileURLToPath(import.meta.resolve(`${value}/package.json`))) ``) are credited, as the CommonJS
   form already was. An `addons` element, `framework` or `core.builder` whose package is not known statically now
