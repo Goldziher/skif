@@ -109,11 +109,17 @@ impl WideChar {
 }
 
 /// Converts byte offsets of one source text into line and column numbers.
+///
+/// A byte order mark at the start of the text takes no column: editors and code hosts hide it, so a column counted
+/// past it would be one off on the first line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LineIndex {
     line_starts: Vec<u32>,
     wide_chars: Vec<WideChar>,
+    bom_len: u32,
 }
+
+const BOM: char = '\u{feff}';
 
 fn to_u32(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
@@ -128,12 +134,17 @@ impl LineIndex {
             .collect();
         // Most files are pure ASCII, which `is_ascii` answers with a vectorised scan; only the others pay for a
         // character walk.
+        let bom_len = if source.starts_with(BOM) {
+            to_u32(BOM.len_utf8())
+        } else {
+            0
+        };
         let wide_chars = if source.is_ascii() {
             Vec::new()
         } else {
             source
                 .char_indices()
-                .filter(|&(_, c)| c.len_utf8() > 1)
+                .filter(|&(i, c)| c.len_utf8() > 1 && !(i == 0 && c == BOM))
                 .map(|(i, c)| WideChar {
                     offset: to_u32(i),
                     utf8_len: to_u32(c.len_utf8()),
@@ -144,6 +155,7 @@ impl LineIndex {
         Self {
             line_starts,
             wide_chars,
+            bom_len,
         }
     }
 
@@ -151,7 +163,7 @@ impl LineIndex {
     #[must_use]
     pub fn line_col(&self, offset: u32) -> (u32, u32) {
         let (line, start) = self.line_of(offset);
-        let skipped = self.skipped_bytes(start, offset, |w| w.utf8_len - 1);
+        let skipped = self.skipped_bytes(start, offset, |w| w.utf8_len - 1) + self.bom_before(start, offset);
         (line, offset - start - skipped + 1)
     }
 
@@ -174,7 +186,7 @@ impl LineIndex {
     #[must_use]
     pub fn utf16_col(&self, offset: u32) -> u32 {
         let (_, start) = self.line_of(offset);
-        let skipped = self.skipped_bytes(start, offset, |w| w.utf8_len - w.utf16_len);
+        let skipped = self.skipped_bytes(start, offset, |w| w.utf8_len - w.utf16_len) + self.bom_before(start, offset);
         offset - start - skipped + 1
     }
 
@@ -186,6 +198,15 @@ impl LineIndex {
             .copied()
             .unwrap_or(0);
         (to_u32(line.max(1)), start)
+    }
+
+    /// Bytes of the leading byte order mark between `line_start` and `offset`: all of it on the first line.
+    fn bom_before(&self, line_start: u32, offset: u32) -> u32 {
+        if line_start == 0 {
+            offset.min(self.bom_len)
+        } else {
+            0
+        }
     }
 
     fn skipped_bytes(&self, line_start: u32, offset: u32, weight: impl Fn(WideChar) -> u32) -> u32 {
@@ -231,6 +252,17 @@ mod tests {
         let wide = LineIndex::new("é\nab");
         assert_eq!(wide.line_col(3), (2, 1));
         assert_eq!(wide.utf16_col(2), 2);
+    }
+
+    #[test]
+    fn a_byte_order_mark_takes_no_column() {
+        let index = LineIndex::new("\u{feff}{\"a\": 1}\n\u{feff}b");
+        assert_eq!(index.line_col(3), (1, 1));
+        assert_eq!(index.utf16_col(3), 1);
+        assert_eq!(index.line_col(8), (1, 6));
+        assert_eq!(index.utf16_col(8), 6);
+        assert_eq!(index.line_col(15), (2, 2));
+        assert_eq!(index.utf16_col(15), 2);
     }
 
     #[test]
