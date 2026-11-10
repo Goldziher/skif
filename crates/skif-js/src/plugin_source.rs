@@ -264,16 +264,17 @@ fn inputs(output: PluginOutput) -> WorkspaceInputs {
         incomplete_reasons: output
             .incomplete_reasons
             .into_iter()
-            .map(|reason| IncompleteEntries {
-                cause: match reason.cause {
+            .map(|reason| {
+                let cause = match reason.cause {
                     skif_js_plugins::IncompleteCause::Unparsable => IncompleteCause::UnparsableConfig,
                     skif_js_plugins::IncompleteCause::UnknownValue => IncompleteCause::UnknownConfig,
                     skif_js_plugins::IncompleteCause::UnknownSpread => IncompleteCause::UnknownSpread,
                     skif_js_plugins::IncompleteCause::ComputedEntries => IncompleteCause::ComputedEntries,
                     _ => IncompleteCause::Unspecified,
-                },
-                plugin: Some(reason.plugin.to_owned()),
-                file: Some(reason.file),
+                };
+                IncompleteEntries::new(cause)
+                    .with_plugin(reason.plugin)
+                    .with_file(reason.file)
             })
             .collect(),
         incomplete_scope,

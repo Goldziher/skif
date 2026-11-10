@@ -78,6 +78,7 @@ pub enum Op {
 
 /// One place that set a key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Assignment {
     /// Index into the `sources` of the resolved configuration.
     pub source: usize,
@@ -87,6 +88,19 @@ pub struct Assignment {
     pub column: usize,
     /// What the assignment did to the key.
     pub op: Op,
+}
+
+impl Assignment {
+    /// An assignment by source `source` at `line` and `column` (0 when unknown) that did `op`.
+    #[must_use]
+    pub const fn new(source: usize, line: usize, column: usize, op: Op) -> Self {
+        Self {
+            source,
+            line,
+            column,
+            op,
+        }
+    }
 }
 
 /// The assignments behind every resolved key, oldest first.

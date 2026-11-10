@@ -120,16 +120,10 @@ fn with_incomplete() -> Report {
             "web".to_owned(),
             "packages/web".into(),
             vec![
-                IncompleteEntries {
-                    cause: IncompleteCause::UnknownSpread,
-                    plugin: Some("vite".to_owned()),
-                    file: Some("packages/web/vite.config.ts".into()),
-                },
-                IncompleteEntries {
-                    cause: IncompleteCause::UnmappedPublished,
-                    plugin: None,
-                    file: Some("packages/web/package.json".into()),
-                },
+                IncompleteEntries::new(IncompleteCause::UnknownSpread)
+                    .with_plugin("vite")
+                    .with_file("packages/web/vite.config.ts"),
+                IncompleteEntries::new(IncompleteCause::UnmappedPublished).with_file("packages/web/package.json"),
             ],
         )
         .with_scope(IncompleteScope::Within(vec![
@@ -139,11 +133,7 @@ fn with_incomplete() -> Report {
         IncompletePackage::new(
             "root".to_owned(),
             "".into(),
-            vec![IncompleteEntries {
-                cause: IncompleteCause::Unspecified,
-                plugin: None,
-                file: None,
-            }],
+            vec![IncompleteEntries::new(IncompleteCause::Unspecified)],
         ),
     ])
 }

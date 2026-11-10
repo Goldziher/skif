@@ -861,11 +861,7 @@ impl Setup {
                 },
                 widened_by: None,
                 incomplete_reasons: if plugin.entries_incomplete && plugin.incomplete_reasons.is_empty() {
-                    vec![IncompleteEntries {
-                        cause: IncompleteCause::Unspecified,
-                        plugin: None,
-                        file: None,
-                    }]
+                    vec![IncompleteEntries::new(IncompleteCause::Unspecified)]
                 } else {
                     plugin.incomplete_reasons
                 },
@@ -964,11 +960,9 @@ impl Setup {
             if let Some(Some(package)) = self.packages.get_mut(id.index()) {
                 package.entries_incomplete = true;
                 package.incomplete_scope = None;
-                package.incomplete_reasons.push(IncompleteEntries {
-                    cause,
-                    plugin: None,
-                    file: Some(package.dir.join("package.json")),
-                });
+                package
+                    .incomplete_reasons
+                    .push(IncompleteEntries::new(cause).with_file(package.dir.join("package.json")));
             }
         }
     }

@@ -54,6 +54,9 @@ All notable changes to this project are documented here. The format follows
   ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
 - The shell tokenizer of the `package.json` script parser moved from `skif-js-plugins` to `skif_core::shell`
   (`tokenize`, `Tokens`, `Segment`, `Word`), so rules outside the JS analysis split command lines with it.
+- **Breaking** for library users: `skif_config::Assignment` and `skif_core::IncompleteEntries` (both re-exported by
+  `skif`) are `#[non_exhaustive]`, so a later field is not a breaking change. Build them with `Assignment::new` and
+  `IncompleteEntries::new(cause).with_plugin(..).with_file(..)`.
 
 ### Changed
 

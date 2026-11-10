@@ -467,12 +467,10 @@ fn package_overrides(target: &Target, base: &Path, name: &str) -> Option<Package
                 .last(&format!("overrides[{index}]"))
                 .copied()
                 .or_else(|| {
-                    scoped.scope.as_ref().map(|scope| Assignment {
-                        source: scope.source,
-                        line: 0,
-                        column: 0,
-                        op: Op::Append,
-                    })
+                    scoped
+                        .scope
+                        .as_ref()
+                        .map(|scope| Assignment::new(scope.source, 0, 0, Op::Append))
                 })?;
             Some((index, Located::of(target, base, &assignment)))
         })
