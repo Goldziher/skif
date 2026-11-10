@@ -66,11 +66,7 @@ fn owning_target<'a>(targets: &'a [Target], file: &Path) -> Option<&'a Target> {
 fn overrides(args: &ExplainUsageArgs) -> ConfigOverrides {
     ConfigOverrides::default()
         .with_production(args.production.then_some(true))
-        .with_config_file(
-            args.config
-                .as_ref()
-                .map(|file| std::path::absolute(file).unwrap_or_else(|_| file.clone())),
-        )
+        .with_config_file(args.config.as_ref().map(|file| crate::lint::absolute_file(file)))
         .with_no_config(args.no_config)
 }
 

@@ -26,11 +26,7 @@ fn overrides(args: &InstancesArgs) -> ConfigOverrides {
     ConfigOverrides::default()
         // The listing needs the policy analysis only.
         .with_no_js(true)
-        .with_config_file(
-            args.config
-                .as_ref()
-                .map(|file| std::path::absolute(file).unwrap_or_else(|_| file.clone())),
-        )
+        .with_config_file(args.config.as_ref().map(|file| crate::lint::absolute_file(file)))
         .with_no_config(args.no_config)
 }
 

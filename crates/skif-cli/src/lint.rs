@@ -116,6 +116,12 @@ pub fn canonical(path: &Path) -> Result<PathBuf, CliError> {
     Ok(simplified(resolved))
 }
 
+/// `file` made absolute, without the Windows `\\?\` prefix on a plain drive path, so a configuration file given in
+/// either spelling shares its leading directories with the canonical roots.
+pub(crate) fn absolute_file(file: &Path) -> PathBuf {
+    simplified(std::path::absolute(file).unwrap_or_else(|_| file.to_path_buf()))
+}
+
 #[cfg(windows)]
 pub(crate) fn simplified(path: PathBuf) -> PathBuf {
     let text = path.to_string_lossy();
@@ -152,11 +158,7 @@ pub fn overrides(args: &LintArgs) -> ConfigOverrides {
         .with_fail_on_warnings(args.fail_on_warnings.then_some(true))
         .with_production((args.production || args.strict).then_some(true))
         .with_no_js(args.no_js)
-        .with_config_file(
-            args.config
-                .as_ref()
-                .map(|file| std::path::absolute(file).unwrap_or_else(|_| file.clone())),
-        )
+        .with_config_file(args.config.as_ref().map(|file| absolute_file(file)))
         .with_no_config(args.no_config)
 }
 
