@@ -93,9 +93,16 @@ pub(crate) fn may_be_used_untagged(fs: &dyn FileSystem, package: &PackageSetup, 
 /// A bundler config the plugin may be passed in, by its path in the package.
 fn is_bundler_config(in_package: &str) -> bool {
     let name = in_package.rsplit('/').next().unwrap_or(in_package);
-    ["vite.config.", "vitest.config.", "vue.config.", "webpack.config.", "rollup.config.", "rspack.config."]
-        .iter()
-        .any(|prefix| name.starts_with(prefix))
+    [
+        "vite.config.",
+        "vitest.config.",
+        "vue.config.",
+        "webpack.config.",
+        "rollup.config.",
+        "rspack.config.",
+    ]
+    .iter()
+    .any(|prefix| name.starts_with(prefix))
 }
 
 /// Whether a call of the plugin in the config `source` passes an `include` that names more than `.vue` files, or
@@ -196,10 +203,7 @@ mod tests {
         ] {
             assert!(includes_more_than_vue(&config(wider), path), "{wider}");
         }
-        assert!(!includes_more_than_vue(
-            "export default { plugins: [] };\n",
-            path
-        ));
+        assert!(!includes_more_than_vue("export default { plugins: [] };\n", path));
     }
 
     #[test]
