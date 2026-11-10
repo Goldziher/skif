@@ -1,12 +1,15 @@
 //! Playwright: test files, global setup, reporters and the web server command named in the config.
 
-use skif_js_syntax::{ConfigValue, OWN_SPREAD};
+use skif_js_syntax::ConfigValue;
 
 use crate::plugin::{
     ConfigAst, Enabler, IncompleteCause, IncompleteScope, Plugin, PluginContext, PluginInput, PluginSpec,
 };
 use crate::plugins::vitest::TEST_CONVENTIONS;
-use crate::support::{config_unknown, convention_scope, entry_glob, join_rel, module_input, objects, strings};
+use crate::support::{
+    Named, Spreads, config_unknown, convention_scope, entry_glob, join_rel, module_input, objects, reporter_names,
+    reporters_unknown, strings,
+};
 
 /// The `playwright` plugin.
 pub struct Playwright;
@@ -45,13 +48,14 @@ impl Plugin for Playwright {
                 out.push(PluginInput::Entry(config.join(path)));
             }
         }
-        let reporters = config.value.get("reporter").map(reporter_names).unwrap_or_default();
-        for name in reporters.into_iter().flatten() {
-            if !BUILTIN_REPORTERS.contains(&name) {
+        for named in config.value.get("reporter").map(reporter_names).unwrap_or_default() {
+            if let Named::Known(name) = named
+                && !BUILTIN_REPORTERS.contains(&name)
+            {
                 out.extend(module_input(config.base, name, true));
             }
         }
-        if reporters_unknown(config.value) {
+        if computes_reporters(config.value) {
             out.push(PluginInput::EntriesIncomplete);
         }
         if let Some(servers) = config.value.get("webServer") {
@@ -69,51 +73,19 @@ impl Plugin for Playwright {
     /// looks by convention. A config unknown as a whole (a factory called with this package's options) and a reporter
     /// list the config computes itself may name any file.
     fn incomplete_scope(&self, _cause: IncompleteCause, config: &ConfigAst<'_>) -> IncompleteScope {
-        if config_unknown(config.value) || reporters_unknown(config.value) {
+        if config_unknown(config.value) || computes_reporters(config.value) {
             return IncompleteScope::Package;
         }
         convention_scope(&SPEC, config, TEST_CONVENTIONS)
     }
 }
 
-/// The module of each reporter a `reporter` value lists, a name or the first element of a `[name, options]` pair;
-/// `None` for one whose name is not known statically.
-fn reporter_names(reporter: &ConfigValue) -> Vec<Option<&str>> {
-    let listed: Vec<&ConfigValue> = match reporter {
-        ConfigValue::Array(items) => items.iter().collect(),
-        other => vec![other],
-    };
-    listed
-        .into_iter()
-        .filter_map(|item| match item {
-            ConfigValue::String(name) => Some(Some(name.as_str())),
-            ConfigValue::Array(pair) => match pair.first() {
-                Some(ConfigValue::String(name)) => Some(Some(name.as_str())),
-                Some(name) if name.is_unknown() => Some(None),
-                _ => None,
-            },
-            unknown if unknown.is_unknown() => Some(None),
-            _ => None,
-        })
-        .collect()
-}
-
-/// Whether the config computes its `reporter` list in a way that hides which modules it names: the list, an element
-/// or an element's name is unknown, or a value the config computes itself and spreads after the key may set it. An
-/// imported base config that may set it is an unknown spread of the whole config, which leaves the entries
-/// incomplete already.
-fn reporters_unknown(config: &ConfigValue) -> bool {
-    let last = config
-        .as_object()
-        .into_iter()
-        .flatten()
-        .rev()
-        .find(|(key, _)| key == "reporter" || key == OWN_SPREAD);
-    match last {
-        Some((key, _)) if key == OWN_SPREAD => true,
-        Some((_, reporter)) => reporter_names(reporter).contains(&None),
-        None => false,
-    }
+/// Whether the config computes its `reporter` list in a way that hides which modules it names: a reporter name is not
+/// known statically, every branch of a condition counting ([`reporter_names`]), or a value the config computes itself
+/// and spreads after the key may set it. An imported base config that may set it is an unknown spread of the whole
+/// config, which leaves the entries incomplete already.
+fn computes_reporters(config: &ConfigValue) -> bool {
+    reporters_unknown(config, "reporter", Spreads::Own)
 }
 
 /// Test globs of one project: `testMatch` under its `testDir`, or every test file under a custom `testDir`.
