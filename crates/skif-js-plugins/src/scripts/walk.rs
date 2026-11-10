@@ -612,9 +612,16 @@ impl<'c> Walker<'c> {
     /// but a package manager run there works on the package of that directory, as with a filter.
     fn change_dir(&mut self, args: &[Word]) {
         let target = args.iter().find(|word| word.text == "-" || !word.text.starts_with('-'));
-        let placed = target.filter(|word| !self.unknown_dir && is_static_relative(&word.text, word.dynamic));
-        self.cwd = placed.and_then(|word| self.relative_dir(&word.text, word.dynamic));
-        self.unknown_dir = placed.is_none();
+        let (dir, dynamic) = target.map_or(("", false), |word| (word.text.as_str(), word.dynamic));
+        self.move_to(dir, dynamic);
+    }
+
+    /// Moves the commands to `dir`: a static relative path is placed from the current directory, any other directory,
+    /// and every directory below one the parser cannot place, is unknown.
+    fn move_to(&mut self, dir: &str, dynamic: bool) {
+        let placed = !self.unknown_dir && is_static_relative(dir, dynamic);
+        self.cwd = if placed { self.relative_dir(dir, dynamic) } else { None };
+        self.unknown_dir = !placed;
     }
 
     /// `dir` as a directory relative to where the script starts, from the current directory; `None` for the start
@@ -627,12 +634,12 @@ impl<'c> Walker<'c> {
         (!joined.is_empty()).then_some(joined)
     }
 
-    /// Moves the commands to `dir`, the value of a flag such as `npm --prefix` or `pnpm -C`, and returns the
-    /// directory to restore once they are walked.
-    fn enter_dir(&mut self, dir: Option<&Val>) -> Option<String> {
-        let saved = self.cwd.clone();
+    /// Moves the commands to `dir`, the value of a flag such as `npm --prefix` or `pnpm -C`, as `cd` does, and returns
+    /// the directory state to restore once they are walked.
+    fn enter_dir(&mut self, dir: Option<&Val>) -> DirState {
+        let saved = self.dir_state();
         if let Some(dir) = dir {
-            self.cwd = self.relative_dir(&dir.text, false);
+            self.move_to(&dir.text, dir.dynamic);
         }
         saved
     }
@@ -824,7 +831,7 @@ impl<'c> Walker<'c> {
             }
             _ => {}
         }
-        self.cwd = cwd;
+        self.restore_dir(cwd);
         self.workspaces = saved;
     }
 
@@ -919,7 +926,7 @@ impl<'c> Walker<'c> {
                 }
             }
         }
-        self.cwd = cwd;
+        self.restore_dir(cwd);
         self.workspaces = saved;
     }
 
@@ -1008,7 +1015,7 @@ impl<'c> Walker<'c> {
                 }
             }
         }
-        self.cwd = cwd;
+        self.restore_dir(cwd);
     }
 
     fn bun(&mut self, args: &[Word], frame: &Frame, st: St) {
@@ -1188,7 +1195,7 @@ impl<'c> Walker<'c> {
 
     fn runner_flags(&mut self, runner: &Runner, parsed: &Parsed, frame: &Frame, st: St) {
         for flag in &parsed.flags {
-            let Some(Val { text, span }) = &flag.value else {
+            let Some(Val { text, span, .. }) = &flag.value else {
                 continue;
             };
             let name = flag.name.as_str();
