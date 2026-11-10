@@ -54,6 +54,7 @@ pub use analysis::{JsAnalysis, UnusedFile, discovery_file_system};
 pub use config_check::relative_tsconfig;
 pub use deps::{DependencyUsage, ForeignMapping, UnlistedBinary, UnlistedConfigDependency, UnlistedImport};
 pub use explain::{Absence, EntryReason, ExportReport, ExportUser, Importer, ReExport, UsageReport, Verdict};
+pub use globs::in_incomplete_scope;
 pub use graph::{Module, ModuleGraph, ModuleId, ResolvedImport, Target};
 pub use input::{
     BuildDir, ConfigDependency, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope,

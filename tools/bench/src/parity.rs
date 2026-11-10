@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
+use skif_js::in_incomplete_scope;
 use skif_workspace::{OsFs, declared_member_dirs};
 
 use crate::corpus::{self, RUSH_KNIP_ROOT, Repo, Tools};
@@ -82,14 +83,15 @@ pub const PUBLISHED_SOURCE: &str = "published-source";
 pub const IN_KNIP_UNUSED_FILE: &str = "in-knip-unused-file";
 pub const IN_SKIF_UNUSED_FILE: &str = "in-skif-unused-file";
 
-/// The categories skif does not judge in a package whose entry files are not all known: files and dependencies
-/// (ADR 0053), and exports, types and members, which skif stopped reporting there with #48 (ADR 0068). In a package
-/// whose scope is narrowed, skif judges the files, exports, types and members outside the scope (ADR 0065, ADR 0081);
-/// the JSON report does not tell such a package from one unjudged as a whole, so the whole package is set apart.
-const NOT_JUDGED_CATEGORIES: [&str; 9] = [
+/// The dependency categories skif does not judge anywhere in a package whose entry files are not all known (ADR 0053),
+/// whatever the package's `scope`.
+const NOT_JUDGED_DEPENDENCY_CATEGORIES: [&str; 2] = ["dependencies", "devDependencies"];
+
+/// The categories skif does not judge in the files of a package whose entry files are not all known: files (ADR 0053),
+/// and exports, types and members, which skif stopped reporting there with #48 (ADR 0068). Where the package's `scope`
+/// is narrowed to globs (`{"within": [...]}`), skif judges them in every file outside the globs (ADR 0065, ADR 0081).
+const NOT_JUDGED_FILE_CATEGORIES: [&str; 7] = [
     "files",
-    "dependencies",
-    "devDependencies",
     "exports",
     "types",
     "nsExports",
@@ -153,7 +155,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 13] = [
     },
     Deviation {
         id: NOT_JUDGED,
-        reason: "skif lists the package under `incomplete-packages`: a tool config it cannot read leaves its entry files unknown, so it does not judge the package's dependencies, nor its files, exports, types and members where the config could make entries. Where the config's scope is narrowed (ADR 0065, ADR 0081) skif judges the files, exports, types and members outside it, but its JSON does not say which packages are narrowed, so this count is an upper bound for those categories",
+        reason: "skif lists the package under `incomplete-packages`: a tool config it cannot read leaves its entry files unknown, so it does not judge the package's dependencies, nor its files, exports, types and members where the config could make entries: the whole package for a `scope` of `\"package\"`, only the files its globs match (relative to the package) for a `scope` of `{\"within\": [...]}` (ADR 0065, ADR 0081)",
     },
     Deviation {
         id: KNIP_CONFIG_ERROR,
@@ -419,23 +421,66 @@ fn align_export_labels(skif: &mut Keys, knip: &Keys) {
     }
 }
 
-/// The directories of the packages skif did not judge (its JSON `incomplete-packages`), relative to the checkout with
-/// `/` separators; the root package is the empty string.
-pub fn not_judged_dirs(document: &Value) -> BTreeSet<String> {
-    document
+/// What skif left unjudged in a package it lists under `incomplete-packages`, from the entry's `scope`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NotJudgedScope {
+    /// `"package"` (or no `scope`): no file of the package is judged.
+    Package,
+    /// `{"within": [globs]}`: only the files these globs match, relative to the package directory, are not judged.
+    Within(Vec<String>),
+}
+
+impl NotJudgedScope {
+    fn read(value: Option<&Value>) -> Self {
+        let globs = value.and_then(|scope| scope.get("within")).and_then(Value::as_array);
+        globs.map_or(Self::Package, |globs| {
+            Self::Within(globs.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        })
+    }
+
+    /// The scope covering both: the whole package when either is (as `skif_core::IncompleteScope::union`).
+    fn union(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Within(mut globs), Self::Within(more)) => {
+                for glob in more {
+                    if !globs.contains(&glob) {
+                        globs.push(glob);
+                    }
+                }
+                Self::Within(globs)
+            }
+            _ => Self::Package,
+        }
+    }
+}
+
+/// The packages skif did not judge (its JSON `incomplete-packages`) with what it left unjudged in each: by directory,
+/// relative to the checkout with `/` separators, the root package as the empty string. A directory listed twice (by
+/// two roots of a recursive run) gets the union of its scopes.
+pub fn not_judged_dirs(document: &Value) -> BTreeMap<String, NotJudgedScope> {
+    let mut packages: BTreeMap<String, NotJudgedScope> = BTreeMap::new();
+    for package in document
         .get("incomplete-packages")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter_map(|package| package.get("dir").and_then(Value::as_str))
-        .map(|dir| {
-            if dir == "." {
-                String::new()
-            } else {
-                dir.trim_end_matches('/').to_owned()
-            }
-        })
-        .collect()
+    {
+        let Some(dir) = package.get("dir").and_then(Value::as_str) else {
+            continue;
+        };
+        let dir = if dir == "." {
+            String::new()
+        } else {
+            dir.trim_end_matches('/').to_owned()
+        };
+        let scope = NotJudgedScope::read(package.get("scope"));
+        let merged = match packages.remove(&dir) {
+            Some(known) => known.union(scope),
+            None => scope,
+        };
+        packages.insert(dir, merged);
+    }
+    packages
 }
 
 /// The package that owns a finding key (`<path>` or `<path>|<name>`): the deepest directory above the path that
@@ -449,9 +494,40 @@ fn owner_dir(key: &str, is_package: &dyn Fn(&str) -> bool) -> String {
     dir.to_owned()
 }
 
-/// Whether a one-sided finding is in a category skif does not judge in the package that owns it.
-fn not_judged(category: &str, key: &str, dirs: &BTreeSet<String>, is_package: &dyn Fn(&str) -> bool) -> bool {
-    !dirs.is_empty() && NOT_JUDGED_CATEGORIES.contains(&category) && dirs.contains(&owner_dir(key, is_package))
+/// Whether a one-sided finding is in a category skif does not judge where it lies: a dependency of a package skif
+/// lists as incomplete, or a file, export, type or member in its files, all of them or only those its narrowed scope
+/// matches.
+fn not_judged(
+    category: &str,
+    key: &str,
+    packages: &BTreeMap<String, NotJudgedScope>,
+    is_package: &dyn Fn(&str) -> bool,
+) -> bool {
+    let in_files = NOT_JUDGED_FILE_CATEGORIES.contains(&category);
+    if packages.is_empty() || !(in_files || NOT_JUDGED_DEPENDENCY_CATEGORIES.contains(&category)) {
+        return false;
+    }
+    let dir = owner_dir(key, is_package);
+    let Some(scope) = packages.get(&dir) else {
+        return false;
+    };
+    if !in_files {
+        return true;
+    }
+    match scope {
+        NotJudgedScope::Package => true,
+        NotJudgedScope::Within(globs) => {
+            let path = key_path(key);
+            let relative = if dir.is_empty() {
+                path
+            } else {
+                path.strip_prefix(dir.as_str())
+                    .and_then(|rest| rest.strip_prefix('/'))
+                    .unwrap_or(path)
+            };
+            in_incomplete_scope(globs, relative)
+        }
+    }
 }
 
 /// The known deviation a finding only skif reports belongs to: an unlisted import that only another package's tsconfig
@@ -744,8 +820,8 @@ impl<'a> Layout<'a> {
 struct Classifier<'a> {
     knip_unread: &'a [String],
     include_test_files: bool,
-    /// The packages skif did not judge (`not_judged_dirs`).
-    not_judged: &'a BTreeSet<String>,
+    /// The packages skif did not judge and what it left unjudged in each (`not_judged_dirs`).
+    not_judged: &'a BTreeMap<String, NotJudgedScope>,
     /// The packages holding a configuration knip could not load.
     knip_failed: &'a BTreeSet<String>,
     /// The `package.json` files knip reports any finding on.
@@ -1140,7 +1216,14 @@ fn parity_repo(
         "knip_invalid": repo.knip_invalid,
         "known_deviations": split.known,
         "known_samples": split.samples,
-        "not_judged_packages": unjudged,
+        "not_judged_packages": unjudged.keys().collect::<Vec<_>>(),
+        "narrowed_packages": unjudged
+            .iter()
+            .filter_map(|(dir, scope)| match scope {
+                NotJudgedScope::Within(globs) => Some((dir.clone(), json!(globs))),
+                NotJudgedScope::Package => None,
+            })
+            .collect::<serde_json::Map<_, _>>(),
         "workspace_members": layout.members.len(),
         "skif_ms": skif_run.elapsed.as_millis(),
         "knip_ms": knip_run.elapsed.as_millis(),
@@ -1798,10 +1881,13 @@ mod tests {
             { "name": "web", "dir": "packages/web", "reasons": [{ "cause": "unknown-spread" }] },
         ]});
         let dirs = not_judged_dirs(&skif_doc);
-        assert_eq!(dirs, BTreeSet::from(["packages/web".to_owned()]));
         assert_eq!(
-            not_judged_dirs(&json!({ "incomplete-packages": [{ "dir": "." }] })),
-            BTreeSet::from([String::new()])
+            dirs,
+            BTreeMap::from([("packages/web".to_owned(), NotJudgedScope::Package)])
+        );
+        assert_eq!(
+            not_judged_dirs(&json!({ "incomplete-packages": [{ "dir": ".", "scope": "package" }] })),
+            BTreeMap::from([(String::new(), NotJudgedScope::Package)])
         );
         assert!(not_judged_dirs(&json!({ "diagnostics": [] })).is_empty());
 
@@ -1859,7 +1945,7 @@ mod tests {
 
     #[test]
     fn not_judged_covers_exports_types_and_members_but_not_unlisted_or_duplicates() {
-        let dirs = BTreeSet::from(["packages/web".to_owned()]);
+        let dirs = BTreeMap::from([("packages/web".to_owned(), NotJudgedScope::Package)]);
         let is_package = |dir: &str| dir == "packages/web";
         for category in [
             "exports",
@@ -1887,6 +1973,65 @@ mod tests {
             );
         }
         assert!(!not_judged("exports", "packages/api/src/a.ts|x", &dirs, &is_package));
+    }
+
+    #[test]
+    fn a_narrowed_scope_sets_apart_only_the_files_its_globs_match_and_every_dependency() {
+        let skif_doc = json!({ "diagnostics": [], "incomplete-packages": [
+            { "name": "web", "dir": "packages/web", "reasons": [{ "cause": "unknown-config", "plugin": "storybook" }],
+              "scope": { "within": ["src/**/*.stories.tsx"] } },
+            { "name": "web", "dir": "packages/web", "reasons": [{ "cause": "unknown-config", "plugin": "vitest" }],
+              "scope": { "within": ["test/*.ts", "src/**/*.stories.tsx"] } },
+            { "name": "root", "dir": ".", "reasons": [{ "cause": "unknown-config" }],
+              "scope": { "within": ["scripts/*.ts"] } },
+            { "name": "api", "dir": "packages/api", "reasons": [{ "cause": "unknown-spread" }], "scope": "package" },
+        ]});
+        let dirs = not_judged_dirs(&skif_doc);
+        assert_eq!(
+            dirs,
+            BTreeMap::from([
+                (String::new(), NotJudgedScope::Within(vec!["scripts/*.ts".to_owned()])),
+                ("packages/api".to_owned(), NotJudgedScope::Package),
+                (
+                    "packages/web".to_owned(),
+                    NotJudgedScope::Within(vec!["src/**/*.stories.tsx".to_owned(), "test/*.ts".to_owned()])
+                ),
+            ]),
+            "the scopes of one directory are joined"
+        );
+        let packages = ["packages/web", "packages/api"];
+        let is_package = |dir: &str| packages.contains(&dir);
+        for (category, key) in [
+            ("files", "packages/web/src/ui/Button.stories.tsx"),
+            ("exports", "packages/web/src/ui/Button.stories.tsx|Primary"),
+            ("types", "packages/web/test/setup.ts|Fixture"),
+            ("enumMembers", "packages/web/test/setup.ts|Red"),
+            ("dependencies", "packages/web/package.json|react"),
+            ("devDependencies", "packages/web/package.json|vitest"),
+            ("files", "scripts/release.ts"),
+            ("devDependencies", "package.json|tsx"),
+            ("files", "packages/api/src/orphan.ts"),
+        ] {
+            assert!(not_judged(category, key, &dirs, &is_package), "{category} {key}");
+        }
+        for (category, key) in [
+            ("files", "packages/web/src/ui/Button.tsx"),
+            ("exports", "packages/web/src/ui/Button.tsx|Button"),
+            ("files", "packages/web/test/deep/setup.ts"),
+            ("files", "scripts/deep/release.ts"),
+            ("files", "tools/a.ts"),
+            ("unlisted", "packages/web/src/ui/Button.stories.tsx|react"),
+        ] {
+            assert!(!not_judged(category, key, &dirs, &is_package), "{category} {key}");
+        }
+        assert_eq!(
+            not_judged_dirs(&json!({ "incomplete-packages": [
+                { "dir": "packages/web", "scope": { "within": ["src/*.ts"] } },
+                { "dir": "packages/web", "scope": "package" },
+            ]})),
+            BTreeMap::from([("packages/web".to_owned(), NotJudgedScope::Package)]),
+            "a whole-package entry wins over a narrowed one"
+        );
     }
 
     #[test]
@@ -2089,7 +2234,7 @@ mod tests {
         check(&Classifier {
             knip_unread: &[],
             include_test_files: false,
-            not_judged: &none,
+            not_judged: &BTreeMap::new(),
             knip_failed: &none,
             knip_manifests: &judged,
             foreign_paths: &BTreeSet::new(),
@@ -2377,7 +2522,7 @@ mod tests {
         let classifier = Classifier {
             knip_unread: &[],
             include_test_files: false,
-            not_judged: &none,
+            not_judged: &BTreeMap::new(),
             knip_failed: &failed,
             knip_manifests: &none,
             foreign_paths: &none,
@@ -2441,7 +2586,7 @@ mod tests {
         let manifest = move |dir: &str| read.get(dir).cloned();
         let layout = Layout::new(BTreeSet::new(), &manifest);
         let unread = ["examples/app/docs/".to_owned()];
-        let not_judged_dirs = strings(&["examples/app"]);
+        let not_judged_dirs = BTreeMap::from([("examples/app".to_owned(), NotJudgedScope::Package)]);
         let none = BTreeSet::new();
         let classifier = Classifier {
             knip_unread: &unread,
