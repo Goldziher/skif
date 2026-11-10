@@ -19,7 +19,7 @@ use oxc_ast::ast::{
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_parser::{ParseOptions as OxcParseOptions, Parser};
-use oxc_span::SourceType;
+use oxc_span::{SourceType, Span};
 use serde::{Deserialize, Serialize};
 
 use crate::finder::static_string;
@@ -380,27 +380,39 @@ pub trait ModuleLoader {
 /// scheme (`new URL(x, 'https://…')`, `fileURLToPath('file:///…')`) and `.href` are [`ConfigValue::Unknown`], as is
 /// everything else. Returns `None` when the file does not parse or exports nothing recognisable.
 ///
-/// Imports are not followed; [`extract_config_object_with`] follows them.
+/// Imports are not followed; [`extract_config`] with a loader follows them.
 #[must_use]
 pub fn extract_config_object(source: &str, path: &Path) -> Option<ConfigValue> {
     evaluate_config(source, path, None).map(|config| config.value)
 }
 
-/// What a config file exports, with the arguments of the call it exports when that call cannot be followed.
+/// What a config file exports, with the arguments of the calls it is made of that cannot be followed.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct ExtractedConfig {
     /// The exported value, as [`extract_config_object`] evaluates it.
     pub value: ConfigValue,
-    /// When `value` is [`ConfigValue::Unknown`] because the file exports the result of a call the evaluator cannot
-    /// follow (`createConfig({ setupFiles: ['./setup.ts'] })` of an installed package), the evaluated arguments of that
-    /// call. A `define*` call (`defineConfig(createBase(options))`) is looked through to the call it wraps, and a
-    /// top-level constant to its initialiser. Empty otherwise.
+    /// The evaluated arguments of a call the evaluator cannot follow (`createConfig({ setupFiles: ['./setup.ts'] })`
+    /// of an installed package) whose result is the exported value, which is then [`ConfigValue::Unknown`], or is an
+    /// argument of the merge the file exports (`mergeConfig(createBase({ … }), { … })`), which then has an unknown
+    /// spread. A `define*` call (`defineConfig(createBase(options))`) is looked through to the expression it wraps, a
+    /// top-level constant to its initialiser, and a config function the tool calls whose body is one expression or a
+    /// single `return` (`export default () => createConfig({ … })`) to what it returns, its parameters unknown.
+    /// The values are those the evaluation computed. Empty otherwise; an unfollowed call anywhere else, such as one a
+    /// function body computes in a local first, keeps no arguments.
     pub call_arguments: Vec<ConfigValue>,
 }
 
-/// Like [`extract_config_object`], following the imports `loader` finds as [`extract_config_object_with`] does, and
-/// keeping the arguments of an exported call that cannot be followed ([`ExtractedConfig::call_arguments`]).
+/// Statically evaluates what `source` exports, as [`extract_config_object`] does, keeping the arguments of the calls
+/// it is made of that cannot be followed ([`ExtractedConfig::call_arguments`]).
+///
+/// With a `loader`, imports are followed: a value imported from another module (a default or named export, a
+/// namespace member, a `require`d `module.exports`) is evaluated statically in that module, and a call of an imported
+/// function with the arguments given. A chain of imports reaches at most eight modules, the config file included, an
+/// export whose value depends on itself through imports is [`ConfigValue::Unknown`] there, and one config loads at
+/// most 64 distinct modules and evaluates at most 1024 imported exports and calls. Paths an imported module computes
+/// from its own location (`__dirname`, `import.meta.url`) come back relative to the directory of the config file at
+/// `path`. Without one, imports are unknown.
 #[must_use]
 pub fn extract_config(source: &str, path: &Path, loader: Option<&dyn ModuleLoader>) -> Option<ExtractedConfig> {
     let Some(loader) = loader else {
@@ -419,13 +431,7 @@ pub fn extract_config(source: &str, path: &Path, loader: Option<&dyn ModuleLoade
     evaluate_config(source, path, Some(&modules))
 }
 
-/// Like [`extract_config_object`], and follows the imports `loader` finds: a value imported from another module (a
-/// default or named export, a namespace member, a `require`d `module.exports`) is evaluated statically in that module,
-/// and a call of an imported function with the arguments given. A chain of imports reaches at most eight modules, the
-/// config file included, an export whose value depends on itself through imports is [`ConfigValue::Unknown`] there,
-/// and one config loads at most 64 distinct modules and evaluates at most 1024 imported exports and calls.
-/// Paths an imported module computes from its own location (`__dirname`, `import.meta.url`) come back relative to the
-/// directory of the config file at `path`.
+/// The exported value [`extract_config`] finds with `loader`, following the imports it finds.
 #[must_use]
 pub fn extract_config_object_with(source: &str, path: &Path, loader: &dyn ModuleLoader) -> Option<ConfigValue> {
     extract_config(source, path, Some(loader)).map(|config| config.value)
@@ -441,10 +447,7 @@ fn evaluate_config(source: &str, path: &Path, modules: Option<&Modules<'_>>) -> 
     let eval = Evaluator::new(&top, &bindings, &imports, file, ".", path, modules);
     let exported = exported(&program)?;
     let value = eval.exported_value(exported, exports_changed(&program));
-    let call_arguments = match exported {
-        Exported::Expression(expr) if value == Value::Unknown => eval.unknown_call_arguments(expr, 0),
-        _ => Vec::new(),
-    };
+    let call_arguments = eval.exported_call_arguments(exported, &value);
     Some(ExtractedConfig {
         value: ConfigValue::from(value),
         call_arguments: call_arguments.into_iter().map(ConfigValue::from).collect(),
@@ -1664,6 +1667,8 @@ struct Evaluator<'c, 'p, 'a> {
     config_setter: RefCell<Option<String>>,
     /// The argument of the last `<config_setter>.set(…)` call evaluated.
     captured: RefCell<Option<Value>>,
+    /// The argument values of every call whose arguments were evaluated, by the call's span, as first evaluated.
+    arguments_of: RefCell<HashMap<Span, Vec<Value>>>,
 }
 
 /// The imports of an evaluator that follows none.
@@ -1698,6 +1703,7 @@ impl<'c, 'p, 'a> Evaluator<'c, 'p, 'a> {
             calls: Cell::new(0),
             config_setter: RefCell::new(None),
             captured: RefCell::new(None),
+            arguments_of: RefCell::new(HashMap::new()),
         }
     }
 
@@ -1730,6 +1736,15 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         };
         let value = if changed_later { changed(value) } else { value };
         self.captured.borrow_mut().take().unwrap_or(value)
+    }
+
+    /// The arguments of the calls the evaluator cannot follow that make up what a module exports, `exported`, which
+    /// evaluated to `value`; see [`ExtractedConfig::call_arguments`].
+    fn exported_call_arguments(&self, exported: Exported<'p, 'a>, value: &Value) -> Vec<Value> {
+        match exported {
+            Exported::Expression(expr) => self.unknown_call_arguments(expr, value, 0),
+            Exported::Function(function) => self.returned_call_arguments(Callable::Function(function), value, 0),
+        }
     }
 
     fn expr(&self, expr: &'p Expression<'a>, depth: u32) -> Value {
@@ -2233,12 +2248,18 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         Some(apply_path_function(function, &self.arguments(call, depth)))
     }
 
-    /// The values of a call's arguments; a spread argument is unknown.
+    /// The values of a call's arguments, a spread argument unknown, recorded for [`Self::unknown_call_arguments`].
     fn arguments(&self, call: &'p CallExpression<'a>, depth: u32) -> Vec<Value> {
-        call.arguments
+        let values: Vec<Value> = call
+            .arguments
             .iter()
             .map(|arg| arg.as_expression().map_or(Value::Unknown, |e| self.expr(e, depth)))
-            .collect()
+            .collect();
+        self.arguments_of
+            .borrow_mut()
+            .entry(call.span)
+            .or_insert_with(|| values.clone());
+        values
     }
 
     /// `dirname(require.resolve(join(pkg, 'package.json')))`, the directory of a package, which is `pkg` itself.
@@ -2429,29 +2450,88 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         defined(call).map_or(Value::Unknown, |first| self.expr(first, depth))
     }
 
-    /// The arguments of the call `expr` evaluates to unknown, looking through `await`, a `define*` call to the
-    /// expression it wraps and a top-level constant to its initialiser; see [`ExtractedConfig::call_arguments`].
-    fn unknown_call_arguments(&self, expr: &'p Expression<'a>, depth: u32) -> Vec<Value> {
+    /// The arguments of the calls the evaluator cannot follow whose results `expr`, which evaluated to `value`, is or
+    /// merges: a call that evaluated to unknown, looking through `await`, a `define*` call to the expression it wraps,
+    /// a top-level constant to its initialiser, a function the tool calls to the expression it returns
+    /// ([`Self::returned_call_arguments`]), and a merge (`mergeConfig`, `Object.assign`) to each of its arguments.
+    /// The values are those the evaluation computed; arguments it did not evaluate are evaluated now.
+    fn unknown_call_arguments(&self, expr: &'p Expression<'a>, value: &Value, depth: u32) -> Vec<Value> {
         if depth > MAX_DEPTH {
             return Vec::new();
         }
         let depth = depth + 1;
         match expr.get_inner_expression() {
-            Expression::AwaitExpression(a) => self.unknown_call_arguments(&a.argument, depth),
-            Expression::CallExpression(call) => match defined(call) {
-                Some(first) => self.unknown_call_arguments(first, depth),
-                None => self.arguments(call, depth),
-            },
-            Expression::Identifier(id) if self.lookup(id.name.as_str()).is_none() => {
-                match self.consts.get(id.name.as_str()) {
-                    Some(&init) if !self.functions.contains_key(id.name.as_str()) => {
-                        self.unknown_call_arguments(init, depth)
-                    }
-                    _ => Vec::new(),
-                }
-            }
+            Expression::AwaitExpression(a) => self.unknown_call_arguments(&a.argument, value, depth),
+            Expression::CallExpression(call) => self.unknown_arguments_of_call(call, value, depth),
+            Expression::Identifier(id) => self.constant_call_arguments(id.name.as_str(), value, depth),
+            Expression::ArrowFunctionExpression(f) => self.returned_call_arguments(Callable::Arrow(f), value, depth),
+            Expression::FunctionExpression(f) => self.returned_call_arguments(Callable::Function(f), value, depth),
             _ => Vec::new(),
         }
+    }
+
+    /// [`Self::unknown_call_arguments`] of `call`.
+    fn unknown_arguments_of_call(&self, call: &'p CallExpression<'a>, value: &Value, depth: u32) -> Vec<Value> {
+        if let Some(first) = defined(call) {
+            return self.unknown_call_arguments(first, value, depth);
+        }
+        let recorded = self.arguments_of.borrow().get(&call.span).cloned();
+        if merge_style(&call.callee, self.bindings).is_some() {
+            let values = recorded.unwrap_or_default();
+            return call
+                .arguments
+                .iter()
+                .zip(&values)
+                .filter_map(|(argument, value)| Some((argument.as_expression()?, value)))
+                .flat_map(|(argument, value)| self.unknown_call_arguments(argument, value, depth))
+                .collect();
+        }
+        if *value.definite() != Value::Unknown {
+            return Vec::new();
+        }
+        recorded.unwrap_or_else(|| self.arguments(call, depth))
+    }
+
+    /// [`Self::unknown_call_arguments`] of the top-level constant `name`, outside any function's bindings as it is
+    /// evaluated; none for any other name.
+    fn constant_call_arguments(&self, name: &str, value: &Value, depth: u32) -> Vec<Value> {
+        if self.lookup(name).is_some() || self.functions.contains_key(name) {
+            return Vec::new();
+        }
+        let Some(&init) = self.consts.get(name) else {
+            return Vec::new();
+        };
+        let saved = std::mem::take(&mut *self.frames.borrow_mut());
+        let arguments = self.unknown_call_arguments(init, value, depth);
+        *self.frames.borrow_mut() = saved;
+        arguments
+    }
+
+    /// [`Self::unknown_call_arguments`] of what a function the tool calls returns, `value`, when its body is one
+    /// expression or a single `return`: its parameters are unknown there, as when the evaluation called it. Any other
+    /// body has none.
+    fn returned_call_arguments(&self, callable: Callable<'p, 'a>, value: &Value, depth: u32) -> Vec<Value> {
+        let (params, body, statements) = match callable {
+            Callable::Arrow(f) => (&f.params, f.get_expression(), f.get_function_body()),
+            Callable::Function(f) => (&f.params, None, f.body.as_deref()),
+        };
+        let returned = body.or_else(|| match statements?.statements.as_slice() {
+            [only] => single_return(only)?.argument.as_ref(),
+            _ => None,
+        });
+        let Some(returned) = returned else {
+            return Vec::new();
+        };
+        self.frames.borrow_mut().push(Frame::new());
+        for param in &params.items {
+            self.bind_pattern(&param.pattern, Value::Unknown, depth);
+        }
+        if let Some(param) = &params.rest {
+            self.bind_pattern(&param.rest.argument, Value::Unknown, depth);
+        }
+        let arguments = self.unknown_call_arguments(returned, value, depth);
+        self.frames.borrow_mut().pop();
+        arguments
     }
 
     /// Calls `callable` with `args`, or with arguments that cannot be known when it is `None`: a function the tool calls

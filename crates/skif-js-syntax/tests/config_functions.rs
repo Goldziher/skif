@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use skif_js_syntax::{ConfigValue, OWN_SPREAD, UNKNOWN_SPREAD, extract_config_object};
+use skif_js_syntax::{ConfigValue, OWN_SPREAD, UNKNOWN_SPREAD, extract_config, extract_config_object};
 
 fn extract(path: &str, source: &str) -> ConfigValue {
     extract_config_object(source, Path::new(path)).expect("config is understood")
@@ -998,4 +998,75 @@ fn an_absent_key_takes_a_default_and_null_does_not() {
         get(&value, &["exported"]),
         &ConfigValue::Object(vec![("f".to_owned(), ConfigValue::Null)])
     );
+}
+
+/// The arguments kept for an exported call that cannot be followed are the values the evaluation computed, not a
+/// second evaluation, which would find the call budget spent by what the function did after its arguments.
+#[test]
+fn the_arguments_of_an_unknown_call_are_the_ones_evaluated() {
+    let source = "const files = () => ['./config/boot.ts'];\n\
+                  const heavy = (n) => [heavy(n), heavy(n)];\n\
+                  function createConfig(options) { const spent = heavy(1); return build(options); }\n\
+                  export default createConfig({ setupFiles: files() });";
+    let found = extract_config(source, Path::new("vitest.config.ts"), None).expect("config is understood");
+    assert_eq!(found.value, ConfigValue::Unknown);
+    assert_eq!(
+        found.call_arguments,
+        vec![ConfigValue::Object(vec![(
+            "setupFiles".to_owned(),
+            strings(&["./config/boot.ts"])
+        )])]
+    );
+}
+
+/// The arguments of a call that cannot be followed are kept also when a config function the tool calls returns it,
+/// its parameters unknown whatever top-level binding they shadow, and when a known merge is given its result, directly
+/// or through a constant, next to the known options the merge applies.
+#[test]
+fn the_arguments_of_an_unknown_call_returned_or_merged_are_kept() {
+    let options = ConfigValue::Object(vec![("setupFiles".to_owned(), strings(&["./s.ts"]))]);
+    let extract = |source: &str| {
+        let found = extract_config(source, Path::new("vitest.config.ts"), None).expect("config is understood");
+        (found.value, found.call_arguments)
+    };
+    let preset = "import { defineConfig, mergeConfig } from 'vitest/config';\n\
+                  import { createConfig, createBase } from '@acme/vitest-preset';\n";
+    for returned in [
+        "export default () => createConfig({ setupFiles: ['./s.ts'] });",
+        "export default function () { return createConfig({ setupFiles: ['./s.ts'] }); }",
+        "export default defineConfig(() => createConfig({ setupFiles: ['./s.ts'] }));",
+    ] {
+        let source = format!("{preset}{returned}");
+        assert_eq!(
+            extract(&source),
+            (ConfigValue::Unknown, vec![options.clone()]),
+            "{source}"
+        );
+    }
+    let parameter = format!(
+        "{preset}const env = {{ mode: 'production' }};\n\
+         export default (env) => createConfig({{ setupFiles: ['./s.ts'], mode: env.mode }});"
+    );
+    assert_eq!(
+        extract(&parameter).1,
+        vec![ConfigValue::Object(vec![
+            ("setupFiles".to_owned(), strings(&["./s.ts"])),
+            ("mode".to_owned(), ConfigValue::Unknown),
+        ])]
+    );
+    for merged in [
+        "export default mergeConfig(createBase({ setupFiles: ['./s.ts'] }), { test: { environment: 'jsdom' } });",
+        "const base = createBase({ setupFiles: ['./s.ts'] });\n\
+         export default mergeConfig(base, { test: { environment: 'jsdom' } });",
+        "export default defineConfig(mergeConfig(createBase({ setupFiles: ['./s.ts'] }), \
+         { test: { environment: 'jsdom' } }));",
+    ] {
+        let source = format!("{preset}{merged}");
+        let (value, arguments) = extract(&source);
+        assert_eq!(get(&value, &["test", "environment"]), &s("jsdom"), "{source}");
+        assert_eq!(value.get(UNKNOWN_SPREAD), Some(&ConfigValue::Unknown), "{source}");
+        assert_eq!(arguments, vec![options.clone()], "{source}");
+    }
+    let known = format!("{preset}export default mergeConfig({{ test: {{ setupFiles: ['./s.ts'] }} }}, {{}});");
+    assert_eq!(extract(&known).1, Vec::new());
 }
