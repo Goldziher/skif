@@ -1,0 +1,250 @@
+---
+source: crates/skif-rules/tests/toolchain.rs
+expression: "serde_json::to_string_pretty(&report).unwrap()"
+---
+{
+  "diagnostics": [
+    {
+      "rule": "toolchain-pin-drift",
+      "severity": "warning",
+      "message": "`pnpm/action-setup version` pins pnpm 8.15.0, which does not match 9.1.0 from `packageManager`",
+      "help": "change it to 9.1.0 to match `packageManager`, or remove `version` so the action reads `packageManager`",
+      "location": {
+        "path": ".github/workflows/ci.yml",
+        "span": {
+          "start": 172,
+          "end": 178,
+          "start-line": 10,
+          "start-col": 20,
+          "end-line": 10,
+          "end-col": 26
+        }
+      },
+      "related": [
+        {
+          "message": "the root pins pnpm 9.1.0 here",
+          "location": {
+            "path": "package.json",
+            "span": {
+              "start": 51,
+              "end": 81,
+              "start-line": 4,
+              "start-col": 3,
+              "end-line": 4,
+              "end-col": 33
+            }
+          }
+        }
+      ],
+      "package": "toolchain-root",
+      "detail": "PackageManagerVersion"
+    },
+    {
+      "rule": "toolchain-pin-drift",
+      "severity": "warning",
+      "message": "`actions/setup-node node-version` pins Node 22, which does not match 20.11.1 from `.nvmrc`",
+      "help": "change it to 20.11.1 to match `.nvmrc`, or replace `node-version` with `node-version-file: .nvmrc`",
+      "location": {
+        "path": ".github/workflows/ci.yml",
+        "span": {
+          "start": 253,
+          "end": 255,
+          "start-line": 13,
+          "start-col": 25,
+          "end-line": 13,
+          "end-col": 27
+        }
+      },
+      "related": [
+        {
+          "message": "the root pins Node 20.11.1 here",
+          "location": {
+            "path": ".nvmrc",
+            "span": {
+              "start": 0,
+              "end": 7,
+              "start-line": 1,
+              "start-col": 1,
+              "end-line": 1,
+              "end-col": 8
+            }
+          }
+        }
+      ],
+      "package": "toolchain-root",
+      "detail": "NodeVersion"
+    },
+    {
+      "rule": "foreign-package-manager-command",
+      "severity": "warning",
+      "message": "`npx playwright` runs npm, but the workspace's package manager is pnpm",
+      "help": "use pnpm (`pnpm dlx`), or put `# skif-ignore-next-line foreign-package-manager-command -- <reason>` above the line when npm is deliberate here",
+      "location": {
+        "path": ".github/workflows/ci.yml",
+        "span": {
+          "start": 325,
+          "end": 339,
+          "start-line": 16,
+          "start-col": 11,
+          "end-line": 16,
+          "end-col": 25
+        }
+      },
+      "package": "toolchain-root",
+      "detail": "npm"
+    },
+    {
+      "rule": "toolchain-pin-drift",
+      "severity": "warning",
+      "message": "`FROM node` pins Node 18.19.0, which does not match 20.11.1 from `.nvmrc`",
+      "help": "change it to 20.11.1 to match `.nvmrc`",
+      "location": {
+        "path": "Dockerfile",
+        "span": {
+          "start": 10,
+          "end": 17,
+          "start-line": 1,
+          "start-col": 11,
+          "end-line": 1,
+          "end-col": 18
+        }
+      },
+      "related": [
+        {
+          "message": "the root pins Node 20.11.1 here",
+          "location": {
+            "path": ".nvmrc",
+            "span": {
+              "start": 0,
+              "end": 7,
+              "start-line": 1,
+              "start-col": 1,
+              "end-line": 1,
+              "end-col": 8
+            }
+          }
+        }
+      ],
+      "package": "toolchain-root",
+      "detail": "NodeVersion"
+    },
+    {
+      "rule": "toolchain-pin-drift",
+      "severity": "info",
+      "message": "`corepack enable` without `corepack prepare` leaves the pnpm version to corepack",
+      "help": "add `corepack prepare pnpm@9.1.0 --activate` after it, or copy package.json in before the pnpm runs so corepack reads `packageManager`",
+      "location": {
+        "path": "Dockerfile",
+        "span": {
+          "start": 38,
+          "end": 53,
+          "start-line": 2,
+          "start-col": 5,
+          "end-line": 2,
+          "end-col": 20
+        }
+      },
+      "package": "toolchain-root",
+      "detail": "CorepackUnpinned"
+    },
+    {
+      "rule": "foreign-package-manager-command",
+      "severity": "warning",
+      "message": "`npm ci` runs npm, but the workspace's package manager is pnpm",
+      "help": "use pnpm (`pnpm install --frozen-lockfile`), or put `# skif-ignore-next-line foreign-package-manager-command -- <reason>` above the line when npm is deliberate here",
+      "location": {
+        "path": "Dockerfile",
+        "span": {
+          "start": 80,
+          "end": 86,
+          "start-line": 5,
+          "start-col": 5,
+          "end-line": 5,
+          "end-col": 11
+        }
+      },
+      "package": "toolchain-root",
+      "detail": "npm"
+    },
+    {
+      "rule": "foreign-package-manager-command",
+      "severity": "warning",
+      "message": "`npm run` runs npm, but the workspace's package manager is pnpm",
+      "help": "use pnpm (`pnpm run <script>`), or put `# skif-ignore-next-line foreign-package-manager-command -- <reason>` above the line when npm is deliberate here",
+      "location": {
+        "path": "Dockerfile",
+        "span": {
+          "start": 96,
+          "end": 103,
+          "start-line": 6,
+          "start-col": 5,
+          "end-line": 6,
+          "end-col": 12
+        }
+      },
+      "package": "toolchain-root",
+      "detail": "npm"
+    },
+    {
+      "rule": "toolchain-pin-drift",
+      "severity": "warning",
+      "message": "`.node-version` pins Node 20.11.0, which does not match 20.11.1 from `.nvmrc`",
+      "help": "change it to 20.11.1 to match `.nvmrc`",
+      "location": {
+        "path": "packages/web/.node-version",
+        "span": {
+          "start": 0,
+          "end": 7,
+          "start-line": 1,
+          "start-col": 1,
+          "end-line": 1,
+          "end-col": 8
+        }
+      },
+      "related": [
+        {
+          "message": "the root pins Node 20.11.1 here",
+          "location": {
+            "path": ".nvmrc",
+            "span": {
+              "start": 0,
+              "end": 7,
+              "start-line": 1,
+              "start-col": 1,
+              "end-line": 1,
+              "end-col": 8
+            }
+          }
+        }
+      ],
+      "package": "web",
+      "detail": "NodeVersion"
+    },
+    {
+      "rule": "foreign-package-manager-command",
+      "severity": "warning",
+      "message": "`yarn build` runs yarn, but the workspace's package manager is pnpm",
+      "help": "use pnpm (`pnpm run <script>`), or put `# skif-ignore-next-line foreign-package-manager-command -- <reason>` above the line when yarn is deliberate here",
+      "location": {
+        "path": "packages/web/scripts/deploy.sh",
+        "span": {
+          "start": 18,
+          "end": 28,
+          "start-line": 3,
+          "start-col": 1,
+          "end-line": 3,
+          "end-col": 11
+        }
+      },
+      "package": "web",
+      "detail": "yarn"
+    }
+  ],
+  "summary": {
+    "errors": 0,
+    "warnings": 8,
+    "infos": 1,
+    "fixable": 0,
+    "packages": 2
+  }
+}
