@@ -353,11 +353,15 @@ fn exports_in_a_narrowed_scope_stay_unjudged_with_include_entry_exports() {
     let diagnostics = Run::new("incomplete-judged", "[js]\ninclude-entry-exports = true\n").lint_with_plugins();
     let unused = found(&diagnostics, "unused-exports");
     assert!(
-        unused.iter().any(|export| export == "packages/narrowed/src/util.ts: stale"),
+        unused
+            .iter()
+            .any(|export| export == "packages/narrowed/src/util.ts: stale"),
         "{unused:?}"
     );
     assert!(
-        !unused.iter().any(|export| export.starts_with("packages/narrowed/test/")),
+        !unused
+            .iter()
+            .any(|export| export.starts_with("packages/narrowed/test/")),
         "{unused:?}"
     );
 }

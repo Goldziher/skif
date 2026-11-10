@@ -1788,7 +1788,10 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 let name = id.name.as_str();
                 self.frames.borrow().iter().any(|frame| frame.contains_key(name))
                     || self.functions.contains_key(name)
-                    || self.consts.get(name).is_some_and(|init| !self.takes_imported(init, depth))
+                    || self
+                        .consts
+                        .get(name)
+                        .is_some_and(|init| !self.takes_imported(init, depth))
             }
             _ => false,
         }
@@ -1816,7 +1819,10 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 let name = id.name.as_str();
                 self.imports.contains_key(name)
                     || (!self.functions.contains_key(name)
-                        && self.consts.get(name).is_some_and(|init| self.takes_imported(init, depth)))
+                        && self
+                            .consts
+                            .get(name)
+                            .is_some_and(|init| self.takes_imported(init, depth)))
             }
             _ => false,
         }

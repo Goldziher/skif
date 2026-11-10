@@ -731,10 +731,17 @@ fn an_unknown_spread_the_config_computes_itself_is_its_own() {
         assert_eq!(object.get(UNKNOWN_SPREAD), None, "{key}: {object:?}");
     }
     let merged = get(&value, &["merged"]);
-    assert!(merged.get(UNKNOWN_SPREAD).is_some() && merged.get(OWN_SPREAD).is_some(), "{merged:?}");
+    assert!(
+        merged.get(UNKNOWN_SPREAD).is_some() && merged.get(OWN_SPREAD).is_some(),
+        "{merged:?}"
+    );
     for key in ["imported", "aliased", "global"] {
         let object = get(&value, &[key]);
-        assert_eq!(object.get(UNKNOWN_SPREAD), Some(&ConfigValue::Unknown), "{key}: {object:?}");
+        assert_eq!(
+            object.get(UNKNOWN_SPREAD),
+            Some(&ConfigValue::Unknown),
+            "{key}: {object:?}"
+        );
         assert_eq!(object.get(OWN_SPREAD), None, "{key}: {object:?}");
     }
 }
