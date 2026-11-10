@@ -157,6 +157,8 @@ fn a_spread_in_lib_entries_is_incomplete() {
     let out = output(&results, "vite");
     assert!(out.entries_incomplete);
     assert_entries(&out.production_entries, &["src/ds/tokens/index.ts"]);
+    // The spread is inside the entry key, so the config computes the key itself: any file may be an entry.
+    assert!(package_wide(&results, "vite"), "{:?}", out.incomplete_reasons);
 
     let conditional = format!(
         "{helper}import {{ defineConfig }} from 'vite';\nconst lib = (production: boolean) => ({{ build: {{ emptyOutDir: production, lib: {{ entry: {{ ...componentEntries('src/ds/components', 'components') }} }} }} }});\nexport default defineConfig(({{ mode }}) => (process.env.STORYBOOK === 'true' ? {{}} : lib(mode === 'production')));"
@@ -231,6 +233,50 @@ fn static_entries_are_complete() {
         };
         let results = run(&[(file, source)], &[dependency], &[]);
         assert!(!output(&results, plugin).entries_incomplete, "{plugin}: {source}");
+    }
+}
+
+/// An esbuild config is a script that runs builds and exports nothing: its `entryPoints` are read wherever it writes
+/// them, at the top level through a shared helper or inside a function (ADR 0081).
+#[test]
+fn esbuild_build_scripts_name_their_entry_points() {
+    let helper = "import * as path from 'node:path';\nimport { run } from '../build-common.mts';\n\
+                  const srcDir = path.join(import.meta.dirname, 'src');\n\
+                  run({ platform: 'node', entryPoints: { main: path.join(srcDir, 'main.ts') }, srcDir }, process.argv);\n";
+    let in_function = "const esbuild = require('esbuild');\nconst path = require('path');\n\
+                       async function build() {\n  const shared = { entryPoints: [path.join(__dirname, 'src/runtime/index.ts')] };\n\
+                       await esbuild.build({ ...shared, format: 'esm' });\n}\nbuild();\n";
+    for (file, source, entry) in [
+        ("esbuild.mts", helper, "src/main.ts"),
+        ("esbuild.config.js", in_function, "src/runtime/index.ts"),
+    ] {
+        let results = run(&[(file, source)], &["esbuild"], &[]);
+        let out = output(&results, "esbuild");
+        assert!(!out.entries_incomplete, "{file}: {:?}", out.incomplete_reasons);
+        assert_entries(&out.production_entries, &[entry]);
+    }
+
+    // Computed entry points leave the entries incomplete; a script that writes none stays unparsable.
+    let cases = [
+        (
+            "import { readdirSync } from 'node:fs';\nimport esbuild from 'esbuild';\n\
+             await esbuild.build({ entryPoints: readdirSync('src') });\n",
+            IncompleteCause::ComputedEntries,
+        ),
+        (
+            "import esbuild from 'esbuild';\nimport { options } from './options.mjs';\nawait esbuild.build(options);\n",
+            IncompleteCause::Unparsable,
+        ),
+    ];
+    for (source, cause) in cases {
+        let results = run(&[("esbuild.config.mjs", source)], &["esbuild"], &[]);
+        let out = output(&results, "esbuild");
+        assert!(out.entries_incomplete, "{source}");
+        assert!(
+            out.incomplete_reasons.iter().any(|reason| reason.cause == cause),
+            "{source}: {:?}",
+            out.incomplete_reasons
+        );
     }
 }
 
@@ -839,6 +885,23 @@ fn incomplete_configs_are_scoped_to_what_the_tool_could_make_an_entry() {
         "{,src/}{index,main}.{js,jsx,ts,tsx,mjs,cjs,mts,cts,vue,svelte,astro,mdx}"
     ));
 
+    // An imported helper or a constant holding an imported value is a shared base too, above the entry key.
+    for source in [
+        "import { makeLib } from './lib';\nexport default { build: { ...makeLib() } };",
+        "import shared from './shared';\nconst lib = shared.lib;\nexport default { build: { lib: { ...lib } } };",
+    ] {
+        let vite = run(&[("vite.config.ts", source)], &["vite"], &[]);
+        assert!(
+            scoped_to(
+                &vite,
+                "vite",
+                "{,src/}{index,main}.{js,jsx,ts,tsx,mjs,cjs,mts,cts,vue,svelte,astro,mdx}"
+            ),
+            "{source}: {:?}",
+            output(&vite, "vite").incomplete_reasons
+        );
+    }
+
     let vitest = run(&[("vitest.config.ts", spread)], &["vitest"], &[]);
     assert!(scoped_to(
         &vitest,
@@ -881,15 +944,38 @@ fn incomplete_configs_are_scoped_to_what_the_tool_could_make_an_entry() {
     ));
 }
 
-/// A key naming files the config computes itself, an unknown Vite or Vitest config, a config that does not parse and a
-/// plugin that gives no scope keep the whole package unjudged.
+/// A key naming files the config computes itself (a spread inside it or above it of a value the config computes
+/// included), an unknown Vite or Vitest config, a config that does not parse and a plugin that gives no scope keep the
+/// whole package unjudged.
 #[test]
 fn computed_unparsable_and_unscoped_configs_stay_package_wide() {
-    let cases: [(&str, &str, &str); 11] = [
+    let cases: [(&str, &str, &str); 15] = [
         (
             "vite",
             "vite.config.ts",
             "export default { build: { lib: { entry: pick() } } };",
+        ),
+        // A spread above the entry key of a value the config computes itself, not of an imported base.
+        (
+            "vite",
+            "vite.config.ts",
+            "const makeLib = () => JSON.parse(process.env.LIB ?? '{}');\nexport default { build: { ...makeLib() } };",
+        ),
+        (
+            "vite",
+            "vite.config.ts",
+            "function libEntries() {\n  return JSON.parse(process.env.ENTRIES ?? '{}');\n}\n\
+             export default { build: { lib: { ...libEntries() } } };",
+        ),
+        (
+            "vitest",
+            "vitest.config.ts",
+            "const local = JSON.parse(process.env.TEST ?? '{}');\nexport default { test: { ...local } };",
+        ),
+        (
+            "vite",
+            "vite.config.ts",
+            "export default { build: { lib: { entry: { index: 'src/index.ts', ...pick() } } } };",
         ),
         (
             "vite",

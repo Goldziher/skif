@@ -79,7 +79,11 @@ fn locate(args: &BaselineFileArgs) -> Result<(Target, PathBuf), CliError> {
 /// `file` made absolute, with its directory spelled as the OS resolves it when it exists, so it compares equal to the
 /// paths configuration discovery records.
 fn resolve_file(file: &Path) -> Result<PathBuf, CliError> {
-    let absolute = std::path::absolute(file).map_err(|error| CliError::io("cannot resolve", file, &error))?;
+    // Checked before `absolute`, which resolves `..` on Windows and would turn `--file ..` into a directory name.
+    let absolute = match file.file_name() {
+        Some(_) => std::path::absolute(file).map_err(|error| CliError::io("cannot resolve", file, &error))?,
+        None => PathBuf::new(),
+    };
     let (Some(parent), Some(name)) = (absolute.parent(), absolute.file_name()) else {
         return Err(CliError::new(
             Kind::Usage,

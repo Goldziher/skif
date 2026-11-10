@@ -1,6 +1,6 @@
 //! Top-level import and export statements.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use oxc_ast::ast::{
     ArrayExpressionElement, BindingPattern, Class, ClassElement, Declaration, ExportDefaultDeclarationKind,
@@ -650,6 +650,7 @@ pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInf
                         local: None,
                         is_type,
                         accessed_members: Vec::new(),
+                        nested_members: BTreeMap::new(),
                         escapes: false,
                     }],
                     call: None,
@@ -697,6 +698,7 @@ pub(crate) fn collect_import(ctx: &Ctx<'_>, d: &oxc_ast::ast::ImportDeclaration<
                 local: Some(local.to_string()),
                 is_type,
                 accessed_members: Vec::new(),
+                nested_members: BTreeMap::new(),
                 escapes: false,
             });
         }
@@ -791,6 +793,7 @@ fn collect_named_export(
                 local: None,
                 is_type,
                 accessed_members: Vec::new(),
+                nested_members: BTreeMap::new(),
                 escapes: false,
             });
         } else if let Some(binding) = scope.imports.get(&local) {

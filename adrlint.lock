@@ -400,3 +400,18 @@ blake3 = "22ae44d47fcc639dcfbec4b034a96ceb19c5ec5a7e2b9a46c6a8fa1495e85c96"
 number = 80
 status = "accepted"
 blake3 = "146de07beffbb5df2477c3a90b9089e0d9359608487f601e147db5728d4e9a4b"
+
+[adrs."adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md"]
+number = 81
+status = "accepted"
+blake3 = "2ddfac4b713547b2dfb3a98a2681c21f2fb1095f568651f42d080888d8fbce27"
+
+[adrs."adrs/0082-install-hooks-sveltekit-route-types-and-builtin-named-packages.md"]
+number = 82
+status = "accepted"
+blake3 = "669d10312a9485808e53baeb1d5605f8d1b27958b9f126e58741f58b8f762329"
+
+[adrs."adrs/0083-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md"]
+number = 83
+status = "accepted"
+blake3 = "249417248e917634a3016910eb0ef53404a0f19f7c8843c619ed8d0497112afc"

@@ -187,7 +187,8 @@ pub struct ExportReport {
     /// The class behind the export is registered as a custom element (ADR 0062), so the browser uses it.
     #[serde(skip_serializing_if = "is_false")]
     pub registered: bool,
-    /// The entry files of the package are not fully known, so its exports are not judged.
+    /// The entry files of the package are not fully known and the file may be one of the unknown ones (the package
+    /// is unjudged as a whole, or the file lies in its narrowed scope), so its exports are not judged.
     #[serde(skip_serializing_if = "is_false")]
     pub entries_incomplete: bool,
     /// The same export was already explained higher up (a circular `export *`); not repeated.
@@ -431,7 +432,7 @@ fn render_export(export: &ExportReport, depth: usize, out: &mut String) {
     if export.entries_incomplete {
         let _ = writeln!(
             out,
-            "{pad}  the entry files of its package are not fully known, so its exports are not judged"
+            "{pad}  the entry files of its package are not fully known and this file may be one, so its exports are not judged"
         );
     }
     let verdict = match export.verdict {
@@ -839,7 +840,7 @@ impl JsAnalysis<'_> {
         report.entry_public = module.is_entry && !self.setup.includes_entry_exports(module.owner);
         report.tagged_public = self.is_tagged_public(export);
         report.is_re_export = matches!(export.kind, ExportKind::ReExport | ExportKind::StarReExport);
-        report.entries_incomplete = self.entries_incomplete(module.owner);
+        report.entries_incomplete = !self.judges_exports_of(module);
         for importer_id in self.graph.imported_by(module.id) {
             let importer = self.graph.module(*importer_id);
             for resolved in &importer.imports {

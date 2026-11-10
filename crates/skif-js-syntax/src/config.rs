@@ -9,8 +9,9 @@ use std::sync::LazyLock;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Argument, ArrayExpressionElement, ArrowFunctionExpression, AssignmentOperator, AssignmentTarget,
-    AssignmentTargetPropertyIdentifier, BinaryOperator, BindingPattern, CallExpression, ConditionalExpression,
-    Declaration, ExportDefaultDeclarationKind, Expression, ExpressionStatement, Function, IfStatement,
+    AssignmentTargetPropertyIdentifier, BinaryOperator, BindingIdentifier, BindingPattern, BlockStatement,
+    CallExpression, CatchClause, ConditionalExpression, Declaration, ExportDefaultDeclarationKind, Expression,
+    ExpressionStatement, ForInStatement, ForOfStatement, ForStatement, Function, IfStatement,
     ImportDeclarationSpecifier, ImportOrExportKind, LogicalExpression, LogicalOperator, NewExpression, ObjectProperty,
     ObjectPropertyKind, Program, ReturnStatement, SimpleAssignmentTarget, Statement, StaticMemberExpression,
     TaggedTemplateExpression, TemplateLiteral, UnaryExpression, UnaryOperator, VariableDeclaration,
@@ -89,7 +90,8 @@ pub enum ConfigValue {
     String(String),
     /// An array literal; spreads of static arrays are flattened, anything else becomes [`ConfigValue::Unknown`].
     Array(Vec<ConfigValue>),
-    /// An object literal in source order. A spread of an unknown value is recorded as the key `...`.
+    /// An object literal in source order. A spread of an unknown value is recorded as the key [`UNKNOWN_SPREAD`], or
+    /// [`OWN_SPREAD`] when the module computes the value itself.
     Object(Vec<(String, ConfigValue)>),
     /// A regular expression literal: its pattern, without the slashes and flags.
     Regex(String),
@@ -97,7 +99,22 @@ pub enum ConfigValue {
     Unknown,
 }
 
+/// The key under which an object records an unknown spread, or an unknown argument of a merge, of a value the module
+/// takes from elsewhere: an imported base config, a merge of imported ones, a global. It may add or replace any key.
+pub const UNKNOWN_SPREAD: &str = "...";
+
+/// Like [`UNKNOWN_SPREAD`], for an unknown value the module computes itself: a spread or merge of a call of, or a
+/// reference to, a function or constant it defines, or a binding of a function being evaluated
+/// (`build: { ...makeLib() }`). A value imported from another module records these as [`UNKNOWN_SPREAD`] too.
+pub const OWN_SPREAD: &str = "...own";
+
 impl ConfigValue {
+    /// Whether `key` is a key an object records an unknown spread under, [`UNKNOWN_SPREAD`] or [`OWN_SPREAD`].
+    #[must_use]
+    pub fn is_spread_key(key: &str) -> bool {
+        key == UNKNOWN_SPREAD || key == OWN_SPREAD
+    }
+
     /// The value of `key` when this is an object.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&ConfigValue> {
@@ -484,7 +501,7 @@ impl Modules<'_> {
         self.evaluations.set(self.evaluations.get() + 1);
         let cuts = self.cuts.get();
         self.active.borrow_mut().push(key.clone());
-        let value = self.evaluate_module(&path, &source, imported, args);
+        let value = self.evaluate_module(&path, &source, imported, args).map(as_imported);
         self.active.borrow_mut().pop();
         if args.is_none() && self.cuts.get() == cuts {
             self.values.borrow_mut().insert(key, value.clone());
@@ -576,6 +593,28 @@ impl Modules<'_> {
                 }
             }
         }
+    }
+}
+
+/// A value of another module as the module importing it sees it: what that module computes itself is a value taken
+/// from elsewhere, so each [`OWN_SPREAD`] becomes an [`UNKNOWN_SPREAD`].
+fn as_imported(value: ConfigValue) -> ConfigValue {
+    match value {
+        ConfigValue::Object(entries) => ConfigValue::Object(
+            entries
+                .into_iter()
+                .map(|(key, value)| {
+                    let key = if key == OWN_SPREAD {
+                        UNKNOWN_SPREAD.to_owned()
+                    } else {
+                        key
+                    };
+                    (key, as_imported(value))
+                })
+                .collect(),
+        ),
+        ConfigValue::Array(items) => ConfigValue::Array(items.into_iter().map(as_imported).collect()),
+        other => other,
     }
 }
 
@@ -918,8 +957,9 @@ pub fn extract_constructor_options(source: &str, path: &Path, constructor: &str,
 
 /// Statically evaluates the value of every property named `key` of every object literal in `source`, however deeply
 /// nested and wherever it appears (`handler: "src/api.handler"` inside a function body), in source order. Values are
-/// evaluated as in [`extract_config_object`], with paths relative to the directory of `path`. Methods are left out.
-/// Returns nothing when the file does not parse.
+/// evaluated as in [`extract_config_object`], against the top-level bindings, with paths relative to the directory of
+/// `path`; a name a function, block, loop or `catch` around the property declares is unknown, whatever top-level
+/// binding it shadows. Methods are left out. Returns nothing when the file does not parse.
 #[must_use]
 pub fn extract_property_values(source: &str, path: &Path, key: &str) -> Vec<ConfigValue> {
     find_properties(source, path, key, None)
@@ -951,6 +991,7 @@ fn find_properties(source: &str, path: &Path, key: &str, call_with: Option<&Conf
         key,
         call_with,
         evaluated: HashMap::new(),
+        shadowed: Vec::new(),
         found: Vec::new(),
     };
     finder.visit_program(&program);
@@ -1338,10 +1379,73 @@ struct PropertyFinder<'t, 'p, 'a> {
     call_with: Option<&'t ConfigValue>,
     /// The top-level constants evaluated so far, carried from one property to the next so each is evaluated once.
     evaluated: HashMap<String, ConfigValue>,
+    /// The names the scopes around the current node declare, innermost last: they shadow top-level bindings.
+    shadowed: Vec<Vec<String>>,
     found: Vec<ConfigValue>,
 }
 
+impl PropertyFinder<'_, '_, '_> {
+    /// Visits a scope with `walk`, the names `declared` holds shadowing top-level bindings inside it.
+    fn in_scope(&mut self, declared: DeclaredNames, walk: impl FnOnce(&mut Self)) {
+        self.shadowed.push(declared.0);
+        walk(self);
+        self.shadowed.pop();
+    }
+}
+
+/// The names every binding of a syntax subtree declares.
+#[derive(Default)]
+struct DeclaredNames(Vec<String>);
+
+impl<'a> Visit<'a> for DeclaredNames {
+    fn visit_binding_identifier(&mut self, it: &BindingIdentifier<'a>) {
+        self.0.push(it.name.as_str().to_owned());
+    }
+}
+
+/// What `visit` finds a [`DeclaredNames`] visitor.
+fn declared(visit: impl FnOnce(&mut DeclaredNames)) -> DeclaredNames {
+    let mut names = DeclaredNames::default();
+    visit(&mut names);
+    names
+}
+
 impl<'a> Visit<'a> for PropertyFinder<'_, '_, 'a> {
+    fn visit_function(&mut self, it: &Function<'a>, flags: oxc_semantic::ScopeFlags) {
+        let names = declared(|names| names.visit_function(it, flags));
+        self.in_scope(names, |finder| walk::walk_function(finder, it, flags));
+    }
+
+    fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        let names = declared(|names| names.visit_arrow_function_expression(it));
+        self.in_scope(names, |finder| walk::walk_arrow_function_expression(finder, it));
+    }
+
+    fn visit_block_statement(&mut self, it: &BlockStatement<'a>) {
+        let names = declared(|names| names.visit_block_statement(it));
+        self.in_scope(names, |finder| walk::walk_block_statement(finder, it));
+    }
+
+    fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
+        let names = declared(|names| names.visit_for_statement(it));
+        self.in_scope(names, |finder| walk::walk_for_statement(finder, it));
+    }
+
+    fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
+        let names = declared(|names| names.visit_for_in_statement(it));
+        self.in_scope(names, |finder| walk::walk_for_in_statement(finder, it));
+    }
+
+    fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
+        let names = declared(|names| names.visit_for_of_statement(it));
+        self.in_scope(names, |finder| walk::walk_for_of_statement(finder, it));
+    }
+
+    fn visit_catch_clause(&mut self, it: &CatchClause<'a>) {
+        let names = declared(|names| names.visit_catch_clause(it));
+        self.in_scope(names, |finder| walk::walk_catch_clause(finder, it));
+    }
+
     fn visit_object_property(&mut self, it: &ObjectProperty<'a>) {
         let callable = self.call_with.and_then(|_| Callable::of_expression(&it.value));
         let wanted = match self.call_with {
@@ -1355,6 +1459,15 @@ impl<'a> Visit<'a> for PropertyFinder<'_, '_, 'a> {
                 .is_some_and(|name| crate::js_string(name.as_js_str()) == self.key)
         {
             let eval = Evaluator::in_file(self.top, self.bindings, self.file, std::mem::take(&mut self.evaluated));
+            let shadowed: Frame<'_, '_> = self
+                .shadowed
+                .iter()
+                .flatten()
+                .map(|name| (name.clone(), Binding::Value(ConfigValue::Unknown)))
+                .collect();
+            if !shadowed.is_empty() {
+                eval.frames.borrow_mut().push(shadowed);
+            }
             let value = match (self.call_with, callable) {
                 (Some(argument), Some(callable)) => eval.call_with(callable, argument.clone(), 0),
                 _ => eval.expr(&it.value, 0),
@@ -1640,6 +1753,81 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             .evaluate(self.path, &binding.specifier, &binding.imported, args)
     }
 
+    /// The key an object records the unknown value `expr` spreads or merges under: [`OWN_SPREAD`] when the module
+    /// computes it itself ([`Self::computes_itself`]), [`UNKNOWN_SPREAD`] otherwise.
+    fn spread_key(&self, expr: &Expression<'_>) -> &'static str {
+        if self.computes_itself(expr, 0) {
+            OWN_SPREAD
+        } else {
+            UNKNOWN_SPREAD
+        }
+    }
+
+    /// Whether `expr` calls or refers to a binding the module defines: a binding of a function being evaluated, a
+    /// top-level function, or a top-level constant that does not only hold an imported value
+    /// ([`Self::takes_imported`]). Members, calls, `await` and the branches of a conditional or logical expression are
+    /// looked through; an imported binding, a global and any other expression are not the module's own.
+    fn computes_itself(&self, expr: &Expression<'_>, depth: usize) -> bool {
+        if depth > MAX_CONST_CHAIN {
+            return false;
+        }
+        let depth = depth + 1;
+        match expr.get_inner_expression() {
+            Expression::AwaitExpression(e) => self.computes_itself(&e.argument, depth),
+            Expression::StaticMemberExpression(member) => self.computes_itself(&member.object, depth),
+            Expression::ComputedMemberExpression(member) => self.computes_itself(&member.object, depth),
+            Expression::CallExpression(call) => self.computes_itself(&call.callee, depth),
+            Expression::ConditionalExpression(conditional) => {
+                self.computes_itself(&conditional.consequent, depth)
+                    || self.computes_itself(&conditional.alternate, depth)
+            }
+            Expression::LogicalExpression(logical) => {
+                self.computes_itself(&logical.left, depth) || self.computes_itself(&logical.right, depth)
+            }
+            Expression::Identifier(id) => {
+                let name = id.name.as_str();
+                self.frames.borrow().iter().any(|frame| frame.contains_key(name))
+                    || self.functions.contains_key(name)
+                    || self
+                        .consts
+                        .get(name)
+                        .is_some_and(|init| !self.takes_imported(init, depth))
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether `expr` only takes a value from another module: an imported binding, a `require(…)`, a member or a call
+    /// of one, or a top-level constant holding one (`const base = require('./base')`).
+    fn takes_imported(&self, expr: &Expression<'_>, depth: usize) -> bool {
+        if depth > MAX_CONST_CHAIN {
+            return false;
+        }
+        let depth = depth + 1;
+        match expr.get_inner_expression() {
+            Expression::AwaitExpression(e) => self.takes_imported(&e.argument, depth),
+            Expression::StaticMemberExpression(member) => self.takes_imported(&member.object, depth),
+            Expression::ComputedMemberExpression(member) => self.takes_imported(&member.object, depth),
+            Expression::CallExpression(call) => {
+                let required = matches!(
+                    call.callee.get_inner_expression(),
+                    Expression::Identifier(id) if id.name.as_str() == "require"
+                );
+                required || self.takes_imported(&call.callee, depth)
+            }
+            Expression::Identifier(id) => {
+                let name = id.name.as_str();
+                self.imports.contains_key(name)
+                    || (!self.functions.contains_key(name)
+                        && self
+                            .consts
+                            .get(name)
+                            .is_some_and(|init| self.takes_imported(init, depth)))
+            }
+            _ => false,
+        }
+    }
+
     /// A call of an imported function whose module is followed; `None` otherwise, before evaluating any argument.
     fn imported_call(&self, name: &str, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
         let binding = self.imports.get(name)?;
@@ -1799,7 +1987,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             .map(spread_entries)
             .collect();
         match branches {
-            None => out.push(("...".to_owned(), ConfigValue::Unknown)),
+            None => out.push((self.spread_key(argument).to_owned(), ConfigValue::Unknown)),
             Some(mut branches) if branches.len() == 1 => out.extend(branches.pop().unwrap_or_default()),
             Some(branches) => {
                 let added = spread_any(out, &branches);
@@ -2026,22 +2214,26 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     fn merge_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
         let style = merge_style(&call.callee, self.bindings)?;
         let mut merged: Option<Vec<(String, ConfigValue)>> = None;
-        let mut values = self.arguments(call, depth);
+        let expressions = call.arguments.iter().map(Argument::as_expression);
+        let mut values: Vec<_> = self.arguments(call, depth).into_iter().zip(expressions).collect();
         if style == MergeStyle::FirstWins {
             values.reverse();
         }
-        for value in values {
+        for (value, expression) in values {
             match value {
                 ConfigValue::Null | ConfigValue::Bool(_) => {}
                 ConfigValue::Object(entries) => {
                     let base = merged.get_or_insert_with(Vec::new);
                     merge_objects(base, entries, style != MergeStyle::Shallow);
                 }
-                _ => merge_objects(
-                    merged.get_or_insert_with(Vec::new),
-                    vec![("...".to_owned(), ConfigValue::Unknown)],
-                    false,
-                ),
+                _ => {
+                    let key = expression.map_or(UNKNOWN_SPREAD, |expression| self.spread_key(expression));
+                    merge_objects(
+                        merged.get_or_insert_with(Vec::new),
+                        vec![(key.to_owned(), ConfigValue::Unknown)],
+                        false,
+                    );
+                }
             }
         }
         Some(merged.map_or(ConfigValue::Unknown, ConfigValue::Object))
@@ -2188,7 +2380,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                             // An unknown spread after the key may replace it.
                             (name == &key)
                                 .then(|| field.clone())
-                                .or_else(|| (name == "...").then_some(ConfigValue::Unknown))
+                                .or_else(|| ConfigValue::is_spread_key(name).then_some(ConfigValue::Unknown))
                         }),
                         _ => Some(ConfigValue::Unknown),
                     };
@@ -2485,7 +2677,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         let binding = frames.iter_mut().rev().find_map(|frame| frame.get_mut(name));
         match binding {
             Some(Binding::Value(ConfigValue::Object(entries))) => {
-                entries.push(("...".to_owned(), ConfigValue::Unknown));
+                entries.push((UNKNOWN_SPREAD.to_owned(), ConfigValue::Unknown));
             }
             Some(Binding::Value(ConfigValue::Array(items))) => items.push(ConfigValue::Unknown),
             _ => {}
@@ -2517,7 +2709,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 ObjectPropertyKind::SpreadProperty(s) => self.spread(&s.argument, &mut out, depth),
                 ObjectPropertyKind::ObjectProperty(p) => {
                     let Some(key) = p.key.static_name() else {
-                        out.push(("...".to_string(), ConfigValue::Unknown));
+                        out.push((UNKNOWN_SPREAD.to_owned(), ConfigValue::Unknown));
                         continue;
                     };
                     let value = if p.method || p.kind != oxc_ast::ast::PropertyKind::Init {
@@ -2576,16 +2768,11 @@ fn merge_style(callee: &Expression<'_>, bindings: &ModuleBindings) -> Option<Mer
 /// concatenates, otherwise the incoming value replaces the earlier one in place.
 fn merge_objects(base: &mut Vec<(String, ConfigValue)>, incoming: Vec<(String, ConfigValue)>, deep: bool) {
     for (key, value) in incoming {
-        let existing = if key == "..." {
-            base.iter().position(|(k, _)| k == "...")
-        } else {
-            base.iter().position(|(k, _)| *k == key)
-        };
-        let Some(index) = existing else {
+        let Some(index) = base.iter().position(|(k, _)| *k == key) else {
             base.push((key, value));
             continue;
         };
-        if key == "..." {
+        if ConfigValue::is_spread_key(&key) {
             continue;
         }
         let slot = &mut base[index].1;
@@ -2601,8 +2788,8 @@ fn merge_objects(base: &mut Vec<(String, ConfigValue)>, incoming: Vec<(String, C
             // A deep merge keeps what the known side has and whatever the unknown side may add to it.
             (true, ConfigValue::Object(mut known), ConfigValue::Unknown)
             | (true, ConfigValue::Unknown, ConfigValue::Object(mut known)) => {
-                if !known.iter().any(|(k, _)| k == "...") {
-                    known.push(("...".to_owned(), ConfigValue::Unknown));
+                if !known.iter().any(|(k, _)| ConfigValue::is_spread_key(k)) {
+                    known.push((UNKNOWN_SPREAD.to_owned(), ConfigValue::Unknown));
                 }
                 *slot = ConfigValue::Object(known);
             }
@@ -2774,7 +2961,7 @@ impl<'a> Visit<'a> for Vars {
 fn changed(value: ConfigValue) -> ConfigValue {
     match value {
         ConfigValue::Object(mut entries) => {
-            entries.push(("...".to_owned(), ConfigValue::Unknown));
+            entries.push((UNKNOWN_SPREAD.to_owned(), ConfigValue::Unknown));
             ConfigValue::Object(entries)
         }
         ConfigValue::Array(mut items) => {
@@ -2847,9 +3034,9 @@ fn entry_value(entries: &[(String, ConfigValue)], key: &str) -> Option<ConfigVal
     entries
         .iter()
         .rev()
-        .find(|(name, _)| name == key || name == "...")
+        .find(|(name, _)| name == key || ConfigValue::is_spread_key(name))
         .map(|(name, value)| {
-            if name == "..." {
+            if ConfigValue::is_spread_key(name) {
                 ConfigValue::Unknown
             } else {
                 value.clone()
@@ -2874,7 +3061,7 @@ fn any_entries(
     let entries = || objects.iter().flatten().copied().flatten();
     let mut keys: Vec<&str> = Vec::new();
     for (key, _) in entries() {
-        if key != "..." && !keys.contains(&key.as_str()) {
+        if !ConfigValue::is_spread_key(key) && !keys.contains(&key.as_str()) {
             keys.push(key);
         }
     }
@@ -2892,8 +3079,10 @@ fn any_entries(
             (key.to_owned(), any_of(&values))
         })
         .collect();
-    if entries().any(|(key, _)| key == "...") {
-        out.push(("...".to_owned(), ConfigValue::Unknown));
+    for marker in [UNKNOWN_SPREAD, OWN_SPREAD] {
+        if entries().any(|(key, _)| key == marker) {
+            out.push((marker.to_owned(), ConfigValue::Unknown));
+        }
     }
     out
 }
@@ -2967,7 +3156,7 @@ fn either(a: &ConfigValue, b: &ConfigValue) -> ConfigValue {
     };
     let mut keys: Vec<&str> = Vec::new();
     for (key, _) in left.iter().chain(right) {
-        if key != "..." && !keys.contains(&key.as_str()) {
+        if !ConfigValue::is_spread_key(key) && !keys.contains(&key.as_str()) {
             keys.push(key);
         }
     }
@@ -2981,8 +3170,10 @@ fn either(a: &ConfigValue, b: &ConfigValue) -> ConfigValue {
             (key.to_owned(), value)
         })
         .collect();
-    if a.get("...").is_some() || b.get("...").is_some() {
-        out.push(("...".to_owned(), ConfigValue::Unknown));
+    for marker in [UNKNOWN_SPREAD, OWN_SPREAD] {
+        if a.get(marker).is_some() || b.get(marker).is_some() {
+            out.push((marker.to_owned(), ConfigValue::Unknown));
+        }
     }
     ConfigValue::Object(out)
 }

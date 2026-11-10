@@ -217,13 +217,21 @@ impl ExportUsage {
                             queue.push_back(Task::Name(target, export.clone(), access, Via::Named));
                         }
                         // A namespace without a local binding that does not escape (a bare `typeof import("x")`)
-                        // reads no member, so it credits nothing.
+                        // reads no member, so it credits nothing. A member read only through its own members
+                        // (`ns.E.A`) uses those, otherwise all of it.
                         ImportedKind::Namespace => {
                             if name.escapes {
                                 queue.push_back(Task::All(target));
                             } else {
                                 queue.extend(name.accessed_members.iter().map(|member| {
-                                    Task::Name(target, member.clone(), MemberUse::everything(), Via::Namespace)
+                                    let access =
+                                        name.nested_members
+                                            .get(member)
+                                            .map_or_else(MemberUse::everything, |inner| MemberUse {
+                                                members: inner.iter().cloned().collect(),
+                                                all: false,
+                                            });
+                                    Task::Name(target, member.clone(), access, Via::Namespace)
                                 }));
                             }
                         }

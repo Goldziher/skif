@@ -1,4 +1,4 @@
-//! Packages that tool configs name (ADR 0083): a `tsconfig` `extends`, `types` or plugin, an oxlint or eslint plugin
+//! Packages that tool configs name (ADR 0086): a `tsconfig` `extends`, `types` or plugin, an oxlint or eslint plugin
 //! or shareable config, a Prisma generator, a Babel preset or plugin and a postcss plugin are unlisted dependencies at
 //! the config when no manifest lists them, and uses of the manifest that does.
 
