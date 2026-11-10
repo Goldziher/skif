@@ -13,6 +13,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- An agent skill, `skills/skif`, that teaches coding agents the lint, triage and fix loop, the JSON report,
+  configuration, migration and CI. It installs from GitHub with `npx skills add Goldziher/skif`, or as a plugin from
+  the repository's marketplace manifests (`.claude-plugin/`, `.codex-plugin/`, `.agents/plugins/`) in Claude Code,
+  Codex, Factory Droid and GitHub Copilot CLI. The plugin also registers the MCP server (`skif mcp`), started with
+  `npx -y skif-cli@<release> mcp`, so it needs Node.js but no install of skif. The plugin version and the server's
+  `skif-cli` pin follow the release: `scripts/release-bump.sh` rewrites them and `scripts/check-versions.sh` checks
+  them, and the skill's version pins and rule counts are covered by
+  `scripts/check-doc-pins.sh` and `scripts/check-rule-ids.sh`
+  ([ADR 0102](adrs/0102-agent-skill-distributed-from-the-repository.md)).
 - `toolchain-pin-drift` (`warn`): Node and package-manager versions pinned in `.nvmrc`, `.node-version`,
   `.tool-versions`, `mise.toml`, Dockerfiles (`FROM node:<version>`, `ARG NODE_VERSION`, `corepack prepare`,
   `npm install -g pnpm@<version>`) and GitHub workflows (`actions/setup-node`, `pnpm/action-setup`) are checked
@@ -319,6 +328,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- On Windows, an explicit `--config` path given in the verbatim `\\?\C:\` spelling no longer leaves its findings with absolute
+  locations or keeps the baseline it extends from applying to the run.
 - A Playwright `reporter` list whose element or reporter name skif could not evaluate (`...sharedReporters()` of a
   helper whose two returns differ, `process.env.CI ? 'github' : './reporter.ts'`) was skipped, so the reporter modules
   it names were reported by `unused-files`. A reporter a condition picks among known values, in the list, an element,
