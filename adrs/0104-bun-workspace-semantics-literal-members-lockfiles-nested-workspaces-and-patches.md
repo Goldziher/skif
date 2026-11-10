@@ -75,11 +75,12 @@ or with a `bun.lock` that does not parse, the rule reports that once and still c
 
 * Good, because the members, the stray lockfile, the nested workspaces and the patches of a Bun workspace match what
   `bun install` does.
-* Good, because every other manager keeps its behaviour, so no existing report changes.
+* Good, because every other manager keeps its behaviour, so no existing report changes. An npm workspace that
+  commits no lockfile and keeps a `bunfig.toml` only for `bun test` is not taken for Bun, so it gets no `workspace:`
+  fix that npm cannot install.
 * Bad, because the expansion now depends on the detected manager. A Bun repository that skif detects as another
   manager, or does not detect, keeps the negation of ADR 0005. That includes a Bun repository whose only sign is a
-  `bunfig.toml` without an `[install]` table: it is not detected, so a repository installed by npm that keeps a
-  `bunfig.toml` for `bun test` gets no Bun behaviour, such as `workspace:` fixes npm cannot install.
+  `bunfig.toml` without an `[install]` table.
 * Neutral, because a `bun.lockb`-only workspace gets no lockfile check of its patches until it moves to `bun.lock`,
   Bun's default since 1.2.
 
