@@ -283,13 +283,13 @@ fn warn_empty_tsconfig_projects(targets: &[Target], fs: &dyn FileSystem) {
 /// Lints the root of `previous` again from disk. What root discovery decided about it (a standalone package nested
 /// below another root, the directory its configuration's workspace keys are written from, members another root
 /// lints) and what the other roots of the run told it (the files they import, the files and dependencies they use) is
-/// carried over, so the re-lint judges the root as the first lint did.
+/// carried over, so the re-lint judges the root as the first lint did. The report is not filtered yet: the findings
+/// about a configuration file several roots read are decided across the re-linted roots first.
 fn lint_once(
     linter: &Linter,
     previous: &Workspace,
     (config, config_path, extra_entries, other_root_uses): RootInputs<'_>,
     fs: &dyn FileSystem,
-    filter: &Filter,
 ) -> Result<(Workspace, Report), CliError> {
     let mut workspace = Workspace::discover_with_fs(&previous.root, config, fs)?;
     workspace.set_nested(previous.is_nested());
@@ -303,7 +303,6 @@ fn lint_once(
     workspace.ignore_dirs(&ignored);
     let report = roots::lint_loaded(linter, &workspace, config_path, extra_entries)?;
     let report = roots::credit_other_root_uses(report, other_root_uses);
-    let report = filter.apply(&workspace, report);
     Ok((workspace, report))
 }
 
@@ -374,7 +373,7 @@ type Relint = Result<(Workspace, Report), CliError>;
 type RootInputs<'a> = (&'a Config, Option<&'a Path>, &'a [PathBuf], &'a roots::OtherRootUses);
 
 fn write_and_relint(
-    (args, filter): (&LintArgs, &Filter),
+    args: &LintArgs,
     linter: &Linter,
     inputs: RootInputs<'_>,
     state: (Workspace, Report),
@@ -396,7 +395,7 @@ fn write_and_relint(
     }
     // The written files are stale in the cache; the re-lint must read them from disk.
     fs.clear();
-    Ok(match lint_once(linter, &workspace, inputs, fs, filter) {
+    Ok(match lint_once(linter, &workspace, inputs, fs) {
         Ok((workspace, report)) => {
             let changed: Vec<&Path> = plan.paths().collect();
             let install = install_step(args, &changed, &workspace);
@@ -422,7 +421,9 @@ enum Fixed {
 
 /// Fixes every root. All plans are made before the first file is written, so a failure while planning (a prompt, a
 /// conflicting edit) leaves every file alone. Writing and re-linting then go root by root; a failure there reports
-/// what was already written. `only` holds the rules `--fix-type` names, if given.
+/// what was already written. Once every root is linted again, the findings about configuration files several roots
+/// read are decided across them again and the reports narrowed to what the flags select. `only` holds the rules
+/// `--fix-type` names, if given.
 fn fix_roots(
     (args, filter): (&LintArgs, &Filter),
     env: Env,
@@ -449,9 +450,12 @@ fn fix_roots(
             report,
             extra_entries,
             other_root_uses,
+            withheld,
         } = run;
+        // A root linted again reports everything afresh; one without fixes keeps what the last decision withheld.
+        let withheld = if plan.is_empty() { withheld } else { Vec::new() };
         let written = write_and_relint(
-            (args, filter),
+            args,
             linters.get(linter),
             (&config, config_path.as_deref(), &extra_entries, &other_root_uses),
             (workspace, report),
@@ -482,6 +486,7 @@ fn fix_roots(
                 report,
                 extra_entries,
                 other_root_uses,
+                withheld,
             }),
             Err(error) => {
                 let prefixes: Vec<&Path> = done
@@ -498,6 +503,8 @@ fn fix_roots(
             }
         }
     }
+    roots::settle_shared_config_findings(&mut done);
+    filter.apply_runs(&mut done)?;
     Ok(Fixed::All(done, fixes))
 }
 

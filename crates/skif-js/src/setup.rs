@@ -363,6 +363,8 @@ pub(crate) struct PackageSetup {
     pub id: PackageId,
     /// Absolute package directory.
     pub dir: PathBuf,
+    /// The `[js.workspaces]` key, as written, whose table configures the package; `None` when no table does.
+    pub table_key: Option<String>,
     pub entry: Globs,
     /// Entry globs that point outside the package directory (`../shared/setup.ts`), relative to the workspace root.
     pub external_entry: Globs,
@@ -494,8 +496,8 @@ pub(crate) struct Setup {
     pub ignore_workspaces: Listed,
     /// Packages the JavaScript analysis skips because `ignore-workspaces` names them.
     pub js_ignored: HashSet<PackageId>,
-    /// `[js.workspaces]` keys that select no package.
-    pub unmatched_workspace_keys: Vec<String>,
+    /// Every `[js.workspaces]` key, as written, and whether it selects no package.
+    pub workspace_key_verdicts: Vec<(String, bool)>,
     /// The `[js.workspaces]` keys, matched from the workspace's [`Workspace::workspace_keys_anchor`].
     pub workspace_keys: WorkspaceKeys,
     pub production: bool,
@@ -745,10 +747,11 @@ impl Setup {
                 }
             })
             .collect();
-        let unmatched_workspace_keys: Vec<String> = workspace_keys
-            .unmatched(&js.workspaces, &package_dirs)
-            .into_iter()
-            .cloned()
+        let unmatched = workspace_keys.unmatched(&js.workspaces, &package_dirs);
+        let workspace_key_verdicts: Vec<(String, bool)> = js
+            .workspaces
+            .keys()
+            .map(|key| (key.clone(), unmatched.contains(&key)))
             .collect();
         let root_tsconfig = js
             .tsconfig
@@ -782,6 +785,7 @@ impl Setup {
             );
             let mut plugin = WorkspaceInputs::default();
             let workspace_key = workspace_keys.key_dir(package);
+            let table_key = workspace_keys.key(&js.workspaces, &dir_name).cloned();
             let request = InputRequest {
                 workspace,
                 package,
@@ -885,6 +889,7 @@ impl Setup {
             Some(PackageSetup {
                 id,
                 dir: abs_dir,
+                table_key,
                 entry: Globs::new(entry).with_regexes(entry_regex.clone()),
                 external_entry,
                 shared_entry: Globs::new(shared_entry),
@@ -948,7 +953,7 @@ impl Setup {
             global_ignore_members: Listed::new(&js.ignore_members, production),
             ignore_workspaces,
             js_ignored,
-            unmatched_workspace_keys,
+            workspace_key_verdicts,
             workspace_keys,
             production,
             root_tsconfig,

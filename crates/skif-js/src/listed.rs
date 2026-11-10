@@ -260,22 +260,20 @@ impl Listed {
         found
     }
 
-    /// The entries that matched nothing so far, as written (without the production marker).
-    pub(crate) fn unmatched(&self) -> Vec<&str> {
-        self.entries
-            .iter()
-            .filter(|entry| !entry.hit.load(Ordering::Relaxed))
-            .map(|entry| entry.text.as_str())
-            .collect()
+    /// Every entry, as written (without the production marker), and whether it is stale: it matched nothing so far.
+    pub(crate) fn verdicts(&self) -> Vec<(&str, bool)> {
+        self.verdicts_except(&[])
     }
 
-    /// The entries that matched nothing so far and match none of `names` either. Testing `names` records nothing.
-    pub(crate) fn unmatched_except(&self, names: &[&str]) -> Vec<&str> {
+    /// Like [`verdicts`](Self::verdicts), an entry that matches one of `names` not being stale either. Testing
+    /// `names` records nothing.
+    pub(crate) fn verdicts_except(&self, names: &[&str]) -> Vec<(&str, bool)> {
         self.entries
             .iter()
-            .filter(|entry| !entry.hit.load(Ordering::Relaxed))
-            .filter(|entry| !names.iter().any(|name| entry.matches(name)))
-            .map(|entry| entry.text.as_str())
+            .map(|entry| {
+                let stale = !entry.hit.load(Ordering::Relaxed) && !names.iter().any(|name| entry.matches(name));
+                (entry.text.as_str(), stale)
+            })
             .collect()
     }
 }
@@ -351,11 +349,19 @@ mod tests {
     }
 
     #[test]
-    fn unmatched_lists_entries_that_never_matched() {
-        let listed = Listed::new(["a", "b", "c*"], false);
+    fn verdicts_call_the_entries_that_never_matched_stale() {
+        let listed = Listed::new(["a", "b", "c*", "d*"], false);
         assert!(listed.is_match("a"));
         assert!(listed.is_match("cx"));
-        assert_eq!(listed.unmatched(), ["b"]);
+        assert_eq!(
+            listed.verdicts(),
+            [("a", false), ("b", true), ("c*", false), ("d*", true)]
+        );
+        assert_eq!(
+            listed.verdicts_except(&["dx"]),
+            [("a", false), ("b", true), ("c*", false), ("d*", false)]
+        );
+        assert_eq!(listed.verdicts()[3], ("d*", true), "testing names records nothing");
     }
 
     #[test]
