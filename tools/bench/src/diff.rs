@@ -61,6 +61,19 @@ pub struct Entry {
     /// lines). A count, since the file names belong to the compared repository; the drift check ignores it.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub tool_errors: usize,
+    /// Why the comparison tool's report is not a valid comparison here, when it is not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invalid: Option<String>,
+    /// Whether this repository's dependencies were installed, read from the checkout rather than from a flag. `None`
+    /// in entries that do not record it, which the [`Baseline`]'s own `installed` then stands for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub installed: Option<bool>,
+    /// Whether skif ran with `--recursive` here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recursive: Option<bool>,
+    /// The skif source commit the entry was recorded at (`-dirty` with local changes); informative, never compared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skif_rev: Option<String>,
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)] // serde passes the field by reference.
@@ -77,6 +90,10 @@ impl Entry {
             cases: None,
             known_deviations: Known::new(),
             tool_errors: 0,
+            invalid: None,
+            installed: None,
+            recursive: None,
+            skif_rev: None,
         }
     }
 
@@ -88,6 +105,10 @@ impl Entry {
             cases: None,
             known_deviations: Known::new(),
             tool_errors: 0,
+            invalid: None,
+            installed: None,
+            recursive: None,
+            skif_rev: None,
         }
     }
 
@@ -102,6 +123,25 @@ impl Entry {
         self.tool_errors = count;
         self
     }
+
+    #[must_use]
+    pub fn with_invalid(mut self, reason: Option<String>) -> Self {
+        self.invalid = reason;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_installed(mut self, installed: bool) -> Self {
+        self.installed = Some(installed);
+        self
+    }
+
+    #[must_use]
+    pub fn with_run(mut self, recursive: bool, skif_rev: impl Into<String>) -> Self {
+        self.recursive = Some(recursive);
+        self.skif_rev = Some(skif_rev.into());
+        self
+    }
 }
 
 pub const COMPARED: &str = "compared";
@@ -113,9 +153,53 @@ pub struct Baseline {
     pub schema: u32,
     /// The comparison tool and its pinned version, e.g. `knip@6.44.1`.
     pub tool: String,
-    /// Whether dependencies were installed in the compared repositories; counts differ a lot between the two.
+    /// Whether dependencies were installed in the compared repositories; counts differ a lot between the two. When the
+    /// entries record their own `installed`, this is whether every one of them was installed.
     pub installed: bool,
+    /// What the harness compares and sets apart; counts recorded under another set are not comparable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category_set: Option<CategorySet>,
     pub entries: BTreeMap<String, Entry>,
+}
+
+/// The categories a comparison counts and the known deviations it sets apart from them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CategorySet {
+    pub compared: Vec<String>,
+    pub known_deviations: Vec<String>,
+}
+
+impl CategorySet {
+    /// What `self` has that `other` lacks, and the reverse, as `+name` / `-name` items.
+    fn changes_from(&self, other: &Self) -> Vec<String> {
+        let mine: BTreeSet<&String> = self.compared.iter().chain(&self.known_deviations).collect();
+        let theirs: BTreeSet<&String> = other.compared.iter().chain(&other.known_deviations).collect();
+        mine.difference(&theirs)
+            .map(|name| format!("+{name}"))
+            .chain(theirs.difference(&mine).map(|name| format!("-{name}")))
+            .collect()
+    }
+}
+
+/// Why `current` cannot be checked against or merged into `baseline` at all, if it cannot: another tool version, or
+/// another set of categories and known deviations.
+pub fn incomparable(baseline: &Baseline, current: &Baseline) -> Option<String> {
+    if baseline.tool != current.tool {
+        return Some(format!(
+            "the baseline was recorded with {} and this run uses {}; counts of another version are not comparable, so re-record the baseline with --write-baseline",
+            baseline.tool, current.tool
+        ));
+    }
+    match (&baseline.category_set, &current.category_set) {
+        (None, Some(_)) => Some(
+            "the baseline records no category set (an older harness wrote it), so its counts are not comparable; re-record it with --write-baseline".to_owned(),
+        ),
+        (Some(recorded), Some(now)) if recorded != now => Some(format!(
+            "the baseline was recorded with another set of categories and known deviations ({} in this run); re-record it with --write-baseline",
+            now.changes_from(recorded).join(", ")
+        )),
+        _ => None,
+    }
 }
 
 /// How far a count may move from its baseline: the larger of `absolute` and `percent` % of the baseline value.
@@ -304,7 +388,11 @@ pub fn write_baseline(path: &Path, baseline: &Baseline) -> Result<()> {
 /// Lists how `current` drifts from `baseline` beyond `tolerance`; empty when it does not. Only the entries of
 /// `current` are examined, so a run narrowed to a few repositories is checked against their baselines alone.
 pub fn check(baseline: &Baseline, current: &Baseline, tolerance: Tolerance) -> Vec<String> {
-    if baseline.tool != current.tool || baseline.installed != current.installed {
+    if let Some(reason) = incomparable(baseline, current) {
+        return vec![reason];
+    }
+    let per_entry = records_installed(current);
+    if !per_entry && baseline.installed != current.installed {
         return vec![format!(
             "baseline was recorded with {} (installed: {}), this run used {} (installed: {}); refresh it with --write-baseline",
             baseline.tool, baseline.installed, current.tool, current.installed
@@ -322,6 +410,23 @@ pub fn check(baseline: &Baseline, current: &Baseline, tolerance: Tolerance) -> V
                 was.status,
                 now.status,
                 now.reason.as_deref().map_or_else(String::new, |r| format!(" ({r})"))
+            ));
+            continue;
+        }
+        if let Some(installed) = now.installed {
+            let recorded = was.installed.unwrap_or(baseline.installed);
+            if recorded != installed {
+                problems.push(format!(
+                    "{name}: the baseline was recorded with installed: {recorded}, this checkout has installed: {installed}; install it (--install) or re-record it with --write-baseline"
+                ));
+                continue;
+            }
+        }
+        if now.recursive.is_some() && was.recursive != now.recursive {
+            problems.push(format!(
+                "{name}: the baseline was recorded with recursive: {}, this run used recursive: {}; re-record it with --write-baseline",
+                was.recursive.map_or_else(|| "unknown".to_owned(), |recorded| recorded.to_string()),
+                now.recursive.unwrap_or_default()
             ));
             continue;
         }
@@ -360,6 +465,11 @@ pub fn check(baseline: &Baseline, current: &Baseline, tolerance: Tolerance) -> V
     problems
 }
 
+/// Whether the entries of a run record their own install state.
+fn records_installed(baseline: &Baseline) -> bool {
+    baseline.entries.values().any(|entry| entry.installed.is_some())
+}
+
 /// Where a comparison run records or checks its baseline.
 #[derive(Debug, Clone)]
 pub struct Gate {
@@ -378,12 +488,22 @@ pub struct Gate {
 pub fn conclude(gate: &Gate, current: &Baseline) -> Result<()> {
     if gate.write {
         let mut merged = current.clone();
-        if let Ok(old) = read_baseline(&gate.baseline)
-            && old.tool == current.tool
-            && old.installed == current.installed
-        {
-            merged.entries = old.entries;
-            merged.entries.extend(current.entries.clone());
+        let per_entry = records_installed(current);
+        if let Ok(old) = read_baseline(&gate.baseline) {
+            if let Some(reason) = incomparable(&old, current) {
+                eprintln!("baseline: dropping its {} earlier entries: {reason}", old.entries.len());
+            } else if per_entry || old.installed == current.installed {
+                // An earlier entry without its own install state was recorded under the old file's flag.
+                let mut earlier = old.entries;
+                for entry in earlier.values_mut().filter(|entry| entry.status == COMPARED) {
+                    entry.installed.get_or_insert(old.installed);
+                }
+                merged.entries = earlier;
+                merged.entries.extend(current.entries.clone());
+            }
+        }
+        if per_entry {
+            merged.installed = merged.entries.values().all(|entry| entry.installed != Some(false));
         }
         write_baseline(&gate.baseline, &merged)?;
         eprintln!("baseline: wrote {}", gate.baseline.display());
@@ -418,6 +538,7 @@ mod tests {
             schema: BASELINE_SCHEMA,
             tool: "knip@1".to_owned(),
             installed: false,
+            category_set: None,
             entries: entries.iter().map(|(n, e)| ((*n).to_owned(), e.clone())).collect(),
         }
     }
@@ -490,6 +611,117 @@ mod tests {
         let mut installed = now.clone();
         installed.installed = true;
         assert!(check(&base, &installed, TOLERANCE)[0].contains("--write-baseline"));
+    }
+
+    #[test]
+    fn check_compares_the_install_state_of_each_entry_not_the_run_flag() {
+        let mut base = baseline(&[
+            ("a", Entry::compared(counts(1, 1, 1)).with_installed(true)),
+            ("b", Entry::compared(counts(1, 1, 1)).with_installed(false)),
+            ("old", Entry::compared(counts(1, 1, 1))),
+        ]);
+        base.installed = true;
+        let mut now = baseline(&[
+            ("a", Entry::compared(counts(1, 1, 1)).with_installed(true)),
+            ("b", Entry::compared(counts(1, 1, 1)).with_installed(false)),
+            ("old", Entry::compared(counts(1, 1, 1)).with_installed(true)),
+        ]);
+        now.installed = false;
+        assert_eq!(
+            check(&base, &now, TOLERANCE),
+            [] as [String; 0],
+            "the flag differs, the checkouts match"
+        );
+        let flipped = baseline(&[("a", Entry::compared(counts(1, 1, 1)).with_installed(false))]);
+        let problems = check(&base, &flipped, TOLERANCE);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].starts_with("a: the baseline was recorded with installed: true"),
+            "{problems:?}"
+        );
+    }
+
+    fn category_set(compared: &[&str], known: &[&str]) -> CategorySet {
+        CategorySet {
+            compared: compared.iter().map(|c| (*c).to_owned()).collect(),
+            known_deviations: known.iter().map(|k| (*k).to_owned()).collect(),
+        }
+    }
+
+    #[test]
+    fn check_refuses_another_tool_version_or_category_set_instead_of_reporting_drift() {
+        let mut base = baseline(&[("r", Entry::compared(counts(1, 1, 1)))]);
+        let mut now = baseline(&[("r", Entry::compared(counts(900, 1, 1)))]);
+        now.category_set = Some(category_set(&["files"], &["x", "new"]));
+        let problems = check(&base, &now, TOLERANCE);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("records no category set"), "{problems:?}");
+
+        base.category_set = Some(category_set(&["files"], &["x", "gone"]));
+        let problems = check(&base, &now, TOLERANCE);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("(+new, -gone in this run)"), "{problems:?}");
+
+        base.category_set.clone_from(&now.category_set);
+        now.tool = "knip@2".to_owned();
+        let problems = check(&base, &now, TOLERANCE);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].starts_with("the baseline was recorded with knip@1 and this run uses knip@2"),
+            "{problems:?}"
+        );
+
+        now.tool = "knip@1".to_owned();
+        assert_eq!(check(&base, &now, TOLERANCE), ["r: files skif-only moved from 1 to 900"]);
+    }
+
+    #[test]
+    fn check_refuses_an_entry_recorded_with_another_recursive_mode() {
+        let base = baseline(&[("r", Entry::compared(counts(1, 1, 1)).with_run(false, "aaa"))]);
+        let same = baseline(&[("r", Entry::compared(counts(1, 1, 1)).with_run(false, "bbb"))]);
+        assert_eq!(check(&base, &same, TOLERANCE), [] as [String; 0], "the rev is not compared");
+        let recursive = baseline(&[("r", Entry::compared(counts(1, 1, 1)).with_run(true, "bbb"))]);
+        assert_eq!(
+            check(&base, &recursive, TOLERANCE),
+            ["r: the baseline was recorded with recursive: false, this run used recursive: true; re-record it with --write-baseline"]
+        );
+    }
+
+    #[test]
+    fn write_baseline_keeps_earlier_entries_only_when_comparable() {
+        let dir = std::env::temp_dir().join(format!("skif-bench-baseline-merge-{}", std::process::id()));
+        let file = dir.join("b.json");
+        let gate = Gate {
+            baseline: file.clone(),
+            write: true,
+            check: false,
+            tolerance: TOLERANCE,
+        };
+        let set = Some(category_set(&["files"], &["x"]));
+        let mut old = baseline(&[("old", Entry::compared(counts(1, 1, 1)).with_installed(true))]);
+        old.category_set.clone_from(&set);
+        write_baseline(&file, &old).unwrap();
+        let mut now = baseline(&[("new", Entry::compared(counts(2, 2, 2)).with_installed(false))]);
+        now.category_set.clone_from(&set);
+        conclude(&gate, &now).unwrap();
+        let merged = read_baseline(&file).unwrap();
+        assert_eq!(merged.entries.keys().collect::<Vec<_>>(), ["new", "old"]);
+        assert!(!merged.installed, "not every entry is installed");
+
+        now.category_set = Some(category_set(&["files"], &["x", "y"]));
+        conclude(&gate, &now).unwrap();
+        assert_eq!(read_baseline(&file).unwrap().entries.keys().collect::<Vec<_>>(), ["new"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_status_change_is_reported_before_the_run_facts() {
+        let base = baseline(&[("r", Entry::skipped("knip failed"))]);
+        let now = baseline(&[(
+            "r",
+            Entry::compared(counts(1, 1, 1)).with_installed(false).with_run(false, "aaa"),
+        )]);
+        assert_eq!(check(&base, &now, TOLERANCE), ["r: was skipped, is now compared"]);
     }
 
     #[test]

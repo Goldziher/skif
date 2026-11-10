@@ -21,51 +21,41 @@ skif's JS analysis covers what knip reports today:
 - **Coverage.** Every issue type of knip 6 has a skif rule, 17 in all (the list is in the
   [migration guide](../migrating/#which-tool-runs-which-rule)), and `skif migrate` translates a knip configuration. skif
   reads tool configurations statically and never runs project code.
-- **Speed.** A full skif run is 8 to 61 times faster than knip on five pinned public repositories (medians of 15 runs,
-  measured on 2026-11-08 after 0.1.1; see [Performance](#performance)).
+- **Speed.** Full skif runs are timed against knip on pinned public repositories; see [Performance](#performance).
 - **Precision.** On a generated 5-package workspace with 33 seeded findings, skif has a precision of 100% and knip
-  6.44.1 of 77%; both find every seeded finding (see [Accuracy](#accuracy)).
+  6.44.1 of 77%; both find every seeded finding (skif measured on 2026-11-08, knip on 2026-11-07, not re-measured
+  for this release; see [Accuracy](#accuracy)).
 - **Agreement.** Real repositories have no answer key, so a weekly job runs both tools on pinned public repositories
-  and compares the findings per issue type. On 9 of them (create-t3-turbo, vue-core, tanstack-query, jest, babel,
-  cal-com, mastra, vscode and npm-cli), the shares of findings the tools have in common are:
+  and compares the findings per issue type. The table below is generated from the committed baseline of that
+  comparison:
 
-| Finding | Shared | Of skif's findings | Of knip's findings |
-| --- | ---: | ---: | ---: |
-| Unused exports | 4,691 | 98% | 94% |
-| Unused files | 2,263 | 98% | 75% |
-| Unused types | 2,247 | 96% | 93% |
-| Unlisted dependencies | 973 | 98% | 36% |
-| Unused dev dependencies | 687 | 87% | 97% |
-| Unused dependencies | 229 | 60% | 78% |
-| Unresolved imports | 54 | 76% | 61% |
-| Unlisted binaries | 26 | 96% | 27% |
+{/* parity:agreement:start */}
+Not yet recorded for this release: run `mise run parity -- --install --write-baseline`, then `mise run parity:publish`.
+{/* parity:agreement:end */}
 
 A low share means the tools differ, and either one could be right. Some differences are intended and counted apart:
 skif makes test files entries, does not report files in `fixtures` directories
 ([ADR 0050](https://github.com/Goldziher/skif/blob/main/adrs/0050-fixture-directories-in-the-js-analysis.md)), reads a
-namespace import differently. Findings in packages skif does not judge (see below) and in packages where knip could not
-load a config are counted apart too. It also sets apart what follows from where each tool looks, decided from paths and manifests: projects with their own `package.json` that are not knip workspaces (knip neither judges their dependencies nor uses their entry files, while skif lints them as roots of their own), directories skif's file discovery skips, and TypeScript sources whose built path a package publishes, which skif makes entries. The method is in the
+namespace import differently. Findings in packages skif does not judge (see below), in packages where knip could not
+load a config, and inside a file the other tool reports as unused (the file is the one disagreement) are counted apart
+too. It also sets apart what follows from where each tool looks, decided from paths and manifests: projects with their
+own `package.json` that are not knip workspaces (knip neither judges their dependencies nor uses their entry files,
+while skif lints them as roots of their own), directories skif's file discovery skips, and TypeScript sources whose
+built path a package publishes, which skif makes entries. A repository whose knip run is not a valid comparison (n8n,
+whose configs import workspace packages that are never built) is named and left out of the sums. The method is in the
 [benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md).
 
-The remaining differences each have an issue:
+A package whose entry files skif cannot all know (a tool configuration it cannot read) is listed under
+`incomplete-packages` in the JSON report. skif does not judge its unused dependencies; where the configuration's scope
+is narrowed it judges the files, exports, types and members outside that scope, and otherwise none of them (see
+"Incomplete entries" under [`[js]`](../../reference/configuration/#js)). knip still reports there.
 
-- `unlisted-dependencies` reports 36% of knip's findings
-  ([#96](https://github.com/Goldziher/skif/issues/96)).
-- `unlisted-binaries` reports 27% of knip's findings ([#97](https://github.com/Goldziher/skif/issues/97)).
-- 60% of skif's `unused-dependencies` findings are also knip's ([#98](https://github.com/Goldziher/skif/issues/98)).
-- `unresolved-imports` shares 76% of skif's and 61% of knip's findings
-  ([#99](https://github.com/Goldziher/skif/issues/99)).
-- `unused-files` reports 75% of knip's findings ([#100](https://github.com/Goldziher/skif/issues/100)).
-- A package whose entries skif cannot all know (a tool configuration it cannot read, or a `main`, `exports` or `bin`
-  that maps to no source file) is skipped by the unused-dependency, export, type and member rules; knip still reports
-  there ([#101](https://github.com/Goldziher/skif/issues/101)).
-- The templates of `.vue`, `.svelte` and `.astro` files are scanned, not compiled: their expressions are parsed and
-  their template locals scoped, and auto-imported Vue components are credited per template, but nothing in a template
-  is type-checked, auto-imported composables are all credited, and Marko tag libraries are not read
-  ([#102](https://github.com/Goldziher/skif/issues/102)).
-- Some plugins read less than knip's (for example SST 2 stacks, mise file tasks, Taskfile commands with a template); the
-  list is in the [plugin reference](../../reference/configuration/)
-  ([#103](https://github.com/Goldziher/skif/issues/103)).
+The remaining differences each have an open issue, and their size is in the table above:
+`unlisted-dependencies` ([#96](https://github.com/Goldziher/skif/issues/96)), `unlisted-binaries`
+([#97](https://github.com/Goldziher/skif/issues/97)), `unused-dependencies`
+([#98](https://github.com/Goldziher/skif/issues/98)), `unresolved-imports`
+([#99](https://github.com/Goldziher/skif/issues/99)) and `unused-files`
+([#100](https://github.com/Goldziher/skif/issues/100)).
 
 knip does not read the specifiers of test-runner mocks. skif does: a `vi.mock`, `jest.mock` or `jest.requireActual`
 keeps the file it names in use, and a relative or aliased mock of a file that does not exist is reported by
@@ -102,30 +92,25 @@ name on the [rules pages](../../rules/).
 
 ## Performance
 
-Medians of 15 runs on a 4-vCPU Linux VM (Intel Xeon at 2.10 GHz) with no other work running, on pinned public
-repositories with dependencies installed, measured on 2026-11-08 after 0.1.1. Absolute times depend on the machine; the
-ratios are the result. `skif` is a full run; `skif --no-js` skips the JS analysis. knip completes its analysis on all
-five: on create-t3-turbo and vue-core it then exits with an error because some tool configurations do not load, and on
-npm-cli it runs with `--no-gitignore`, since npm's `.gitignore` otherwise hides every workspace from it.
+Generated by `mise run bench:publish`, which times full skif runs against knip and `skif --no-js` against sherif and
+syncpack with hyperfine, on the pinned public repositories (dependencies installed) and on generated workspaces. The
+block names the skif commit, the tool versions and the machine. Absolute times depend on the machine; the ratios are
+the result. `skif` is a full run; `skif --no-js` skips the JS analysis. On npm-cli knip runs with `--no-gitignore`,
+since npm's `.gitignore` otherwise hides every workspace from it.
 
-| Repository | skif | knip | skif --no-js | sherif | syncpack |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| create-t3-turbo | 32 ms | 2.0 s | 4.6 ms | 36 ms | 41 ms |
-| vue-core | 62 ms | 1.7 s | 5.5 ms | 36 ms | 43 ms |
-| tanstack-query | 375 ms | 4.5 s | 11 ms | 42 ms | 106 ms |
-| babel | 884 ms | 7.2 s | 9.4 ms | 37 ms | 280 ms |
-| npm-cli | 99 ms | 968 ms | 5.3 ms | 38 ms | 77 ms |
-
-On generated workspaces `skif --no-js` takes 6.3 ms, 27 ms and 102 ms at 50, 500 and 2,000 packages, against sherif's
-39 ms, 59 ms and 130 ms: 1.3 times faster than sherif at 2,000 packages, where skif reports about 24,700 diagnostics and
-sherif 638.
+{/* bench:summary:start */}
+Not yet measured for this release: run `mise run bench:publish`.
+{/* bench:summary:end */}
 
 ## Accuracy
 
 On a generated workspace with injected defects, where the answer is known, skif, sherif and syncpack found every
-defect they check for. A generated workspace with seeded dead code and live code behind known traps has an answer key
-too: skif and knip both find every seeded finding, with a precision of 100% for skif and 77% for knip
-(6.44.1, measured on 2026-11-07; it reports exports read through `typeof import("./m")["name"]` and fixture files). The agreement with knip on real repositories is under [Parity with knip](#parity-with-knip). The full tables are in the
+defect they check for (counted by hand on 2026-11-06, skif 0.1.0). A generated workspace with seeded dead code and live
+code behind known traps has an answer key too: skif and knip both find every seeded finding, with a precision of 100%
+for skif and 77% for knip (6.44.1; skif measured on 2026-11-08, knip on 2026-11-07; knip reports exports read through
+`typeof import("./m")["name"]` and fixture files). The agreement with knip on real repositories is under
+[Parity with knip](#parity-with-knip). The full tables are in the
 [README](https://github.com/Goldziher/skif#benchmarks) and the
-[benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md), which reproduces them with
-`mise run bench:publish`.
+[benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md). `mise run bench:publish`
+reproduces the speed tables only; `mise run bench:deadcode -- --knip` reproduces the precision table, and
+`mise run parity -- --install --write-baseline` followed by `mise run parity:publish` the agreement table.

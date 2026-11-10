@@ -706,6 +706,7 @@ pub fn run(options: &Options) -> Result<()> {
         schema: BASELINE_SCHEMA,
         tool,
         installed: false,
+        category_set: None,
         entries,
     };
     diff::conclude(&options.gate, &current)

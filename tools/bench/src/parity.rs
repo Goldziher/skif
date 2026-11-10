@@ -17,8 +17,11 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 use skif_workspace::{OsFs, declared_member_dirs};
 
-use crate::corpus::{self, Repo, Tools};
-use crate::diff::{self, BASELINE_SCHEMA, Baseline, COMPARED, Counts, Deviation, Entry, Gate, Keys, Samples, Side};
+use crate::corpus::{self, RUSH_KNIP_ROOT, Repo, Tools};
+use crate::diff::{
+    self, BASELINE_SCHEMA, Baseline, COMPARED, CategorySet, Counts, Deviation, Entry, Gate, Keys, Samples, Side,
+};
+use crate::provenance;
 use crate::proc::{capture, find_on_path};
 
 /// skif rule to knip issue type.
@@ -76,9 +79,13 @@ pub const KNIP_UNJUDGED_MANIFEST: &str = "knip-unjudged-manifest";
 pub const NON_MEMBER_PROJECT: &str = "non-member-project";
 pub const SKIPPED_DIRECTORY: &str = "skipped-directory";
 pub const PUBLISHED_SOURCE: &str = "published-source";
+pub const IN_KNIP_UNUSED_FILE: &str = "in-knip-unused-file";
+pub const IN_SKIF_UNUSED_FILE: &str = "in-skif-unused-file";
 
 /// The categories skif does not judge in a package whose entry files are not all known: files and dependencies
-/// (ADR 0053), and exports, types and members, which skif stopped reporting there with #48 (ADR 0068).
+/// (ADR 0053), and exports, types and members, which skif stopped reporting there with #48 (ADR 0068). In a package
+/// whose scope is narrowed, skif judges the files, exports, types and members outside the scope (ADR 0065, ADR 0081);
+/// the JSON report does not tell such a package from one unjudged as a whole, so the whole package is set apart.
 const NOT_JUDGED_CATEGORIES: [&str; 9] = [
     "files",
     "dependencies",
@@ -127,7 +134,7 @@ const DEPENDENCY_FIELDS: [&str; 4] = [
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 11] = [
+pub const KNIP_DEVIATIONS: [Deviation; 13] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
@@ -146,11 +153,11 @@ pub const KNIP_DEVIATIONS: [Deviation; 11] = [
     },
     Deviation {
         id: NOT_JUDGED,
-        reason: "skif lists the package under `incomplete-packages`: a tool config it cannot read leaves its entry files unknown, so it does not judge the package's dependencies, exports, types and members, nor the files the config could make entries (the whole package unless the config's scope is narrowed, ADR 0065, which its JSON does not say)",
+        reason: "skif lists the package under `incomplete-packages`: a tool config it cannot read leaves its entry files unknown, so it does not judge the package's dependencies, nor its files, exports, types and members where the config could make entries. Where the config's scope is narrowed (ADR 0065, ADR 0081) skif judges the files, exports, types and members outside it, but its JSON does not say which packages are narrowed, so this count is an upper bound for those categories",
     },
     Deviation {
         id: KNIP_CONFIG_ERROR,
-        reason: "knip could not load a configuration file of the package (it prints `ERROR: Error loading <file>` and exits with 2), so it ran without the entry files that configuration names; the errors are listed in `parity.json` under `knip_errors`",
+        reason: "knip could not load a configuration file of the package (it prints `ERROR: Error loading <file>` and exits with 2), so it ran without the entry files that configuration names: one-sided findings of either tool in that package are set apart. The errors are listed in `parity.json` under `knip_errors`",
     },
     Deviation {
         id: FOREIGN_TSCONFIG_PATHS,
@@ -171,6 +178,14 @@ pub const KNIP_DEVIATIONS: [Deviation; 11] = [
     Deviation {
         id: PUBLISHED_SOURCE,
         reason: "knip reports these TypeScript files as unused, and the package that holds each one publishes its path with a built extension (`.js`, `.mjs`, `.cjs`, `.jsx` or a `.d.ts` variant) in `main`, `module`, `source`, `types`, `typings`, `browser`, `bin` or an `exports` leaf, where `*` matches any part of the path. skif makes the source beside a published path an entry; knip maps a published path to source only through a tsconfig `outDir`. The harness checks the published path, not why skif has no finding for each file",
+    },
+    Deviation {
+        id: IN_KNIP_UNUSED_FILE,
+        reason: "skif reports these findings (anything but unused files and manifest findings) in a file that knip lists as unused. knip does not analyse an unused file, so it reports nothing inside one; the disagreement is the file, which `files` already counts once",
+    },
+    Deviation {
+        id: IN_SKIF_UNUSED_FILE,
+        reason: "knip reports these findings (anything but unused files and manifest findings) in a file that skif reports as unused, so skif reports nothing inside it; the disagreement is the file, which `files` already counts once",
     },
 ];
 
@@ -737,6 +752,10 @@ struct Classifier<'a> {
     knip_manifests: &'a BTreeSet<String>,
     /// The `unlisted` keys whose import only another package's tsconfig `paths` map (ADR 0075).
     foreign_paths: &'a BTreeSet<String>,
+    /// The files knip reports as unused, before any are set apart.
+    knip_unused_files: &'a BTreeSet<String>,
+    /// The files skif reports as unused.
+    skif_unused_files: &'a BTreeSet<String>,
     layout: &'a Layout<'a>,
 }
 
@@ -746,11 +765,19 @@ impl Classifier<'_> {
             return Some(KNIP_UNREAD);
         }
         let path = key_path(key);
+        let is_package = |dir: &str| self.layout.is_package(dir);
+        // A configuration knip could not load changes what it reads in the whole package, so both sides are affected.
+        let config_error = || {
+            self.knip_failed
+                .contains(&owner_dir(key, &is_package))
+                .then_some(KNIP_CONFIG_ERROR)
+        };
         if side == Side::Skif {
             return skif_only_deviation(category, key, self.foreign_paths)
-                .or_else(|| self.unjudged_manifest(category, path).then_some(KNIP_UNJUDGED_MANIFEST));
+                .or_else(|| self.unjudged_manifest(category, path).then_some(KNIP_UNJUDGED_MANIFEST))
+                .or_else(|| in_unused_file(category, path, self.knip_unused_files).then_some(IN_KNIP_UNUSED_FILE))
+                .or_else(config_error);
         }
-        let is_package = |dir: &str| self.layout.is_package(dir);
         (category == "files")
             .then(|| classify_file(key, self.include_test_files))
             .flatten()
@@ -762,11 +789,8 @@ impl Classifier<'_> {
             .or_else(|| self.layout.in_skipped_directory(path).then_some(SKIPPED_DIRECTORY))
             .or_else(|| self.non_member_project(category, key).then_some(NON_MEMBER_PROJECT))
             .or_else(|| (category == "files" && self.layout.publishes_source_of(path)).then_some(PUBLISHED_SOURCE))
-            .or_else(|| {
-                self.knip_failed
-                    .contains(&owner_dir(key, &is_package))
-                    .then_some(KNIP_CONFIG_ERROR)
-            })
+            .or_else(|| in_unused_file(category, path, self.skif_unused_files).then_some(IN_SKIF_UNUSED_FILE))
+            .or_else(config_error)
     }
 
     /// Whether a finding only skif reports sits on a `package.json` that is not one of knip's workspaces.
@@ -792,6 +816,13 @@ impl Classifier<'_> {
                 .split_once('|')
                 .is_some_and(|(_, name)| self.layout.lists(&dir, package_name(name)))
     }
+}
+
+/// Whether a finding inside a file (any category but `files` and the manifest ones) sits in a file the other tool
+/// reports as unused: a tool analyses nothing inside a file it calls unused, so such a finding follows from the `files`
+/// disagreement, which is counted once already.
+fn in_unused_file(category: &str, path: &str, unused: &BTreeSet<String>) -> bool {
+    category != "files" && !MANIFEST_CATEGORIES.contains(&category) && unused.contains(path)
 }
 
 /// The `package.json` files knip reports a finding on.
@@ -915,7 +946,7 @@ fn install_command(repo: &Repo, dir: &Path) -> Result<(String, Vec<String>), Str
 pub fn install(repo: &Repo, dir: &Path, scratch: &Path, default_timeout: Duration) -> Result<Option<String>> {
     let timeout = repo.install_timeout_secs.map_or(default_timeout, Duration::from_secs);
     let marker = dir.join(INSTALLED_MARKER);
-    if fs::read_to_string(&marker).is_ok_and(|rev| rev.trim() == repo.rev) {
+    if is_installed(repo, dir) {
         return Ok(None);
     }
     let (program, args) = match install_command(repo, dir) {
@@ -949,6 +980,22 @@ pub fn install(repo: &Repo, dir: &Path, scratch: &Path, default_timeout: Duratio
     Ok(None)
 }
 
+/// Whether the dependencies of a checkout are installed at its pinned commit: its install marker holds the commit.
+pub fn is_installed(repo: &Repo, dir: &Path) -> bool {
+    fs::read_to_string(dir.join(INSTALLED_MARKER)).is_ok_and(|rev| rev.trim() == repo.rev)
+}
+
+/// How many of the compared repositories were installed: `yes`, `no` or `partial (n of m)`.
+fn installed_summary(entries: &BTreeMap<String, Entry>) -> String {
+    let compared: Vec<&Entry> = entries.values().filter(|entry| entry.status == COMPARED).collect();
+    let installed = compared.iter().filter(|entry| entry.installed == Some(true)).count();
+    match installed {
+        0 => "no".to_owned(),
+        n if n == compared.len() => "yes".to_owned(),
+        n => format!("partial ({n} of {})", compared.len()),
+    }
+}
+
 struct Outcome {
     entry: Entry,
     detail: Value,
@@ -962,7 +1009,23 @@ fn skipped(reason: impl Into<String>) -> Outcome {
     }
 }
 
-fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: &Path) -> Result<Outcome> {
+/// The categories the comparison counts and the known deviations it sets apart, as the baseline records them.
+fn category_set() -> CategorySet {
+    let compared: BTreeSet<String> = KNIP_CATEGORIES.iter().map(|(_, category)| (*category).to_owned()).collect();
+    CategorySet {
+        compared: compared.into_iter().collect(),
+        known_deviations: KNIP_DEVIATIONS.iter().map(|deviation| deviation.id.to_owned()).collect(),
+    }
+}
+
+fn parity_repo(
+    options: &Options,
+    skif: &Path,
+    tools: &Tools,
+    repo: &Repo,
+    dir: &Path,
+    skif_rev: &str,
+) -> Result<Outcome> {
     let root = fs::canonicalize(dir).with_context(|| format!("resolving {}", dir.display()))?;
     let scratch = options.out.join("scratch").join(&repo.name);
     // A repository with `install = false` is compared uninstalled, so a tool that cannot run there says why itself.
@@ -1001,11 +1064,15 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
         return Ok(skipped(format!("skif failed: {message}")));
     }
 
+    let knip_dir = match knip_root(repo, &root, &scratch) {
+        Ok(dir) => dir,
+        Err(reason) => return Ok(skipped(format!("knip root: {reason}"))),
+    };
     let spec = format!("knip@{}", tools.knip);
     let mut knip_command = Command::new("npx");
     knip_command
         .args(["--yes", spec.as_str(), "--reporter", "json"])
-        .current_dir(&root)
+        .current_dir(&knip_dir)
         .env("CI", "1")
         .env("DOTENV_CONFIG_QUIET", "true");
     if !options.repo_knip_config {
@@ -1028,18 +1095,19 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
     };
 
     let mut skif_found = skif_keys(&skif_doc, &root);
-    let knip_found = knip_keys(&knip_doc, &root);
+    let knip_found = knip_keys(&knip_doc, &knip_dir);
     align_export_labels(&mut skif_found, &knip_found);
     let unjudged = not_judged_dirs(&skif_doc);
     let foreign_paths = foreign_tsconfig_paths_keys(&skif_doc, &root);
-    let knip_errors = knip_config_errors(&knip_run.stderr, &root);
+    let knip_errors = knip_config_errors(&knip_run.stderr, &knip_dir);
     let manifest = manifest_reader(&root);
-    let layout = Layout::new(workspace_members(&root), &manifest);
+    let layout = Layout::new(workspace_members(&knip_dir), &manifest);
     let knip_failed: BTreeSet<String> = knip_errors
         .iter()
         .map(|file| owner_dir(file, &|dir: &str| layout.is_package(dir)))
         .collect();
     let judged_manifests = knip_manifests(&knip_found);
+    let empty = BTreeSet::new();
     let classifier = Classifier {
         knip_unread: &repo.knip_unread,
         include_test_files: options.include_test_files,
@@ -1047,18 +1115,23 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
         knip_failed: &knip_failed,
         knip_manifests: &judged_manifests,
         foreign_paths: &foreign_paths,
+        knip_unused_files: knip_found.get("files").unwrap_or(&empty),
+        skif_unused_files: skif_found.get("files").unwrap_or(&empty),
         layout: &layout,
     };
     let split = diff::split_known(&skif_found, &knip_found, &|side, category, key| {
         classifier.classify(side, category, key)
     });
     let (counts, samples) = diff::compare(&split.skif, &split.tool);
+    let installed = is_installed(repo, &root);
     let detail = json!({
         "status": COMPARED,
-        "installed": installs,
+        "installed": installed,
         "recursive": recursive,
+        "skif_rev": skif_rev,
         "knip_exit": knip_run.code,
         "knip_errors": knip_errors,
+        "knip_invalid": repo.knip_invalid,
         "known_deviations": split.known,
         "known_samples": split.samples,
         "not_judged_packages": unjudged,
@@ -1072,9 +1145,130 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
     Ok(Outcome {
         entry: Entry::compared(counts)
             .with_known(split.known)
-            .with_tool_errors(knip_errors.len()),
+            .with_tool_errors(knip_errors.len())
+            .with_invalid(repo.knip_invalid.clone())
+            .with_installed(installed)
+            .with_run(recursive, skif_rev),
         detail,
     })
+}
+
+/// The directory knip runs in: the checkout, or for `knip-root = "rush"` a scratch clone of it with a throw-away root
+/// `package.json` whose `workspaces` are the `projectFolder`s of `rush.json`. knip needs a root manifest and has no Rush
+/// support; the checkout itself is never written. `Err` says why the directory could not be made.
+fn knip_root(repo: &Repo, root: &Path, scratch: &Path) -> Result<PathBuf, String> {
+    match repo.knip_root.as_deref() {
+        None => Ok(root.to_path_buf()),
+        Some(RUSH_KNIP_ROOT) => {
+            let rush = fs::read_to_string(root.join("rush.json")).map_err(|error| format!("reading rush.json: {error}"))?;
+            let manifest = rush_root_manifest(&rush)?;
+            let copy = scratch.join("knip-root");
+            if copy.exists() {
+                fs::remove_dir_all(&copy).map_err(|error| format!("cleaning {}: {error}", copy.display()))?;
+            }
+            fs::create_dir_all(scratch).map_err(|error| format!("creating {}: {error}", scratch.display()))?;
+            // The checkout is only read: the clone, its objects and the root manifest all live in the scratch directory.
+            git_step(
+                Command::new("git")
+                    .args(["clone", "--quiet", "--no-checkout"])
+                    .arg(root)
+                    .arg(&copy),
+                "clone",
+            )?;
+            git_step(
+                Command::new("git")
+                    .arg("-C")
+                    .arg(&copy)
+                    .args(["checkout", "--quiet", "--detach", repo.rev.as_str()]),
+                "checkout",
+            )?;
+            fs::write(copy.join("package.json"), manifest)
+                .map_err(|error| format!("writing the scratch package.json: {error}"))?;
+            fs::canonicalize(&copy).map_err(|error| format!("resolving {}: {error}", copy.display()))
+        }
+        Some(other) => Err(format!("unknown knip-root {other:?}")),
+    }
+}
+
+/// Runs one git command of the scratch copy; `Err` carries its stderr.
+fn git_step(command: &mut Command, step: &str) -> Result<(), String> {
+    let output = command
+        .output()
+        .map_err(|error| format!("running git {step}: {error}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "git {step} of the scratch copy failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+}
+
+/// The root `package.json` knip gets for a Rush repository: private, with the `projectFolder` of every project of
+/// `rush.json` (JSON with comments) as its `workspaces`.
+fn rush_root_manifest(rush_json: &str) -> Result<String, String> {
+    let rush: Value =
+        serde_json::from_str(&strip_jsonc(rush_json)).map_err(|error| format!("parsing rush.json: {error}"))?;
+    let folders: Vec<&str> = rush
+        .get("projects")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|project| project.get("projectFolder").and_then(Value::as_str))
+        .collect();
+    if folders.is_empty() {
+        return Err("rush.json lists no projectFolder".to_owned());
+    }
+    Ok(json!({ "private": true, "workspaces": folders }).to_string() + "\n")
+}
+
+/// JSON with comments made plain JSON: `//` and `/* */` comments outside strings are dropped, and so is a comma
+/// before a closing `]` or `}`.
+fn strip_jsonc(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    let mut in_string = false;
+    while let Some(character) = chars.next() {
+        if in_string {
+            out.push(character);
+            match character {
+                '\\' => out.extend(chars.next()),
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match (character, chars.peek().copied()) {
+            ('"', _) => {
+                in_string = true;
+                out.push(character);
+            }
+            ('/', Some('/')) => {
+                while chars.next_if(|next| *next != '\n').is_some() {}
+            }
+            ('/', Some('*')) => {
+                chars.next();
+                let mut previous = ' ';
+                for next in chars.by_ref() {
+                    if previous == '*' && next == '/' {
+                        break;
+                    }
+                    previous = next;
+                }
+                out.push(' ');
+            }
+            (']' | '}', _) => {
+                let kept = out.trim_end().len();
+                if out[..kept].ends_with(',') {
+                    out.remove(kept - 1);
+                }
+                out.push(character);
+            }
+            _ => out.push(character),
+        }
+    }
+    out
 }
 
 /// An empty knip configuration, so the repository's own settings (ignores, `files: off`, ignored workspaces) do not
@@ -1136,10 +1330,10 @@ fn category_detail(counts: &BTreeMap<String, Counts>, samples: &BTreeMap<String,
     )
 }
 
-fn markdown(tool: &str, installed: bool, entries: &BTreeMap<String, Entry>) -> String {
+fn markdown(tool: &str, entries: &BTreeMap<String, Entry>) -> String {
     let mut out = format!(
         "# skif findings parity with {tool}\n\nDependencies installed: {}.\n\n| Repository | Status | skif only | {tool} only | Both | Not judged by skif | Known deviations |\n| --- | --- | ---: | ---: | ---: | ---: | ---: |\n",
-        if installed { "yes" } else { "no" }
+        installed_summary(entries)
     );
     for (name, entry) in entries {
         if entry.status == COMPARED {
@@ -1148,11 +1342,14 @@ fn markdown(tool: &str, installed: bool, entries: &BTreeMap<String, Entry>) -> S
                 .known_deviations
                 .get(NOT_JUDGED)
                 .map_or(0, |c| c.skif_only + c.tool_only);
-            let status = if entry.tool_errors == 0 {
+            let mut status = if entry.tool_errors == 0 {
                 "compared".to_owned()
             } else {
                 format!("compared; {tool} could not load {} config files", entry.tool_errors)
             };
+            if let Some(reason) = &entry.invalid {
+                let _ = write!(status, "; not a valid comparison: {reason}");
+            }
             let _ = writeln!(
                 out,
                 "| {name} | {status} | {} | {} | {} | {unjudged} | {} |",
@@ -1194,22 +1391,25 @@ pub fn run(options: &Options) -> Result<()> {
     })?;
     let (tools, repos) = corpus::fetch_suite(&options.corpus_file, "parity", &options.only, &options.corpus_dir)?;
     let tool = format!("knip@{}", tools.knip);
+    let skif_rev = provenance::source_rev();
     let mut entries = BTreeMap::new();
     let mut details = serde_json::Map::new();
     for (repo, dir) in &repos {
         eprintln!("parity: {}", repo.name);
-        let outcome = parity_repo(options, &skif, &tools, repo, dir)?;
+        let outcome = parity_repo(options, &skif, &tools, repo, dir, &skif_rev)?;
         if let Some(reason) = &outcome.entry.reason {
             eprintln!("parity: {} skipped: {reason}", repo.name);
         }
         details.insert(repo.name.clone(), outcome.detail);
         entries.insert(repo.name.clone(), outcome.entry);
     }
-    let table = markdown(&tool, options.install, &entries);
+    let table = markdown(&tool, &entries);
     fs::create_dir_all(&options.out).with_context(|| format!("creating {}", options.out.display()))?;
     let full = json!({
         "tool": tool,
-        "installed": options.install,
+        "installed": installed_summary(&entries),
+        "install_requested": options.install,
+        "skif_rev": skif_rev,
         "recursive": options.recursive,
         "repo_knip_config": options.repo_knip_config,
         "include_test_files": options.include_test_files,
@@ -1224,7 +1424,8 @@ pub fn run(options: &Options) -> Result<()> {
     let current = Baseline {
         schema: BASELINE_SCHEMA,
         tool,
-        installed: options.install,
+        installed: entries.values().all(|entry| entry.installed != Some(false)),
+        category_set: Some(category_set()),
         entries,
     };
     diff::conclude(&options.gate, &current)
@@ -1319,6 +1520,8 @@ mod tests {
             install_command: Vec::new(),
             entry: Vec::new(),
             bench_knip_args: Vec::new(),
+            knip_invalid: None,
+            knip_root: None,
         };
         let dir = Path::new("/nonexistent");
         assert_eq!(install_command(&repo("npm", true), dir).unwrap().1[0], "ci");
@@ -1726,15 +1929,128 @@ mod tests {
         ]);
         let entries = BTreeMap::from([
             ("r".to_owned(), Entry::compared(counts.clone()).with_known(known)),
-            ("s".to_owned(), Entry::compared(counts).with_tool_errors(2)),
+            ("s".to_owned(), Entry::compared(counts.clone()).with_tool_errors(2)),
+            (
+                "t".to_owned(),
+                Entry::compared(counts)
+                    .with_tool_errors(1)
+                    .with_invalid(Some("configs import unbuilt packages".to_owned())),
+            ),
         ]);
-        let table = markdown("knip", false, &entries);
+        let table = markdown("knip", &entries);
+        assert!(table.contains("Dependencies installed: no."), "{table}");
+        assert!(
+            table.contains(
+                "| t | compared; knip could not load 1 config files; not a valid comparison: configs import unbuilt packages | 1 | 2 | 3 | 0 | 0 |"
+            ),
+            "{table}"
+        );
         assert!(table.contains("| r | compared | 1 | 2 | 3 | 4 | 5 |"), "{table}");
         assert!(
             table.contains("| s | compared; knip could not load 2 config files | 1 | 2 | 3 | 0 | 0 |"),
             "{table}"
         );
         assert!(table.contains("`not-judged-by-skif`"), "{table}");
+    }
+
+    #[test]
+    fn the_install_state_comes_from_the_checkout_markers() {
+        let dir = std::env::temp_dir().join(format!("skif-bench-parity-installed-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let mut repo: Repo = toml::from_str(&format!(
+            "name = \"r\"\nurl = \"u\"\nrev = \"{}\"\npackage-manager = \"pnpm\"\n",
+            "a".repeat(40)
+        ))
+        .unwrap();
+        assert!(!is_installed(&repo, &dir));
+        fs::write(dir.join(INSTALLED_MARKER), format!("{}\n", "a".repeat(40))).unwrap();
+        assert!(is_installed(&repo, &dir));
+        repo.rev = "b".repeat(40);
+        assert!(!is_installed(&repo, &dir), "a marker of another commit is stale");
+        fs::remove_dir_all(&dir).unwrap();
+
+        let entry = |installed: bool| Entry::compared(BTreeMap::new()).with_installed(installed);
+        let mut entries = BTreeMap::from([
+            ("a".to_owned(), entry(true)),
+            ("b".to_owned(), entry(true)),
+            ("skipped".to_owned(), Entry::skipped("knip failed")),
+        ]);
+        assert_eq!(installed_summary(&entries), "yes");
+        entries.insert("c".to_owned(), entry(false));
+        assert_eq!(installed_summary(&entries), "partial (2 of 3)");
+        assert_eq!(
+            installed_summary(&BTreeMap::from([("c".to_owned(), entry(false))])),
+            "no"
+        );
+    }
+
+    #[test]
+    fn the_recorded_category_set_holds_every_compared_category_and_deviation() {
+        let set = category_set();
+        assert_eq!(set.compared.len(), KNIP_CATEGORIES.len());
+        assert!(set.compared.windows(2).all(|pair| pair[0] < pair[1]), "sorted: {:?}", set.compared);
+        for id in [IN_KNIP_UNUSED_FILE, IN_SKIF_UNUSED_FILE, KNIP_CONFIG_ERROR, NOT_JUDGED] {
+            assert!(set.known_deviations.iter().any(|known| known == id), "{id}");
+        }
+        assert_eq!(set.known_deviations.len(), KNIP_DEVIATIONS.len());
+    }
+
+    #[test]
+    fn a_rush_repository_gets_a_root_manifest_from_rush_json() {
+        let rush = r#"/**
+ * Rush's main config, see https://rushjs.io // not a comment end
+ */
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/rush/v5/rush.schema.json",
+  // "projects": [] in a comment is ignored
+  "rushVersion": "5.0.0",
+  "note": "a \"quoted\" /* string */ stays",
+  "projects": [
+    { "packageName": "@rushstack/heft", "projectFolder": "apps/heft" },
+    /* a block comment */
+    { "packageName": "@rushstack/node-core-library", "projectFolder": "libraries/node-core-library", },
+  ],
+}
+"#;
+        let plain: Value = serde_json::from_str(&strip_jsonc(rush)).unwrap();
+        assert_eq!(plain["note"], r#"a "quoted" /* string */ stays"#);
+        assert_eq!(plain["projects"].as_array().unwrap().len(), 2);
+        let manifest: Value = serde_json::from_str(&rush_root_manifest(rush).unwrap()).unwrap();
+        assert_eq!(
+            manifest,
+            json!({ "private": true, "workspaces": ["apps/heft", "libraries/node-core-library"] })
+        );
+        assert!(
+            rush_root_manifest(r#"{ "projects": [] }"#)
+                .unwrap_err()
+                .contains("no projectFolder")
+        );
+        assert!(rush_root_manifest("{ not json").unwrap_err().contains("parsing rush.json"));
+    }
+
+    #[test]
+    fn knip_runs_in_the_checkout_unless_the_repository_needs_a_synthesized_root() {
+        let mut repo: Repo = toml::from_str(&format!(
+            "name = \"r\"\nurl = \"u\"\nrev = \"{}\"\npackage-manager = \"rush\"\n",
+            "a".repeat(40)
+        ))
+        .unwrap();
+        let root = Path::new("/nonexistent/checkout");
+        assert_eq!(knip_root(&repo, root, Path::new("/nonexistent/scratch")).unwrap(), root);
+        repo.knip_root = Some("lerna".to_owned());
+        assert!(
+            knip_root(&repo, root, Path::new("/nonexistent/scratch"))
+                .unwrap_err()
+                .contains("unknown knip-root")
+        );
+        repo.knip_root = Some(RUSH_KNIP_ROOT.to_owned());
+        assert!(
+            knip_root(&repo, root, Path::new("/nonexistent/scratch"))
+                .unwrap_err()
+                .contains("reading rush.json"),
+            "the checkout is only read"
+        );
     }
 
     fn strings(items: &[&str]) -> BTreeSet<String> {
@@ -1764,6 +2080,8 @@ mod tests {
             knip_failed: &none,
             knip_manifests: &judged,
             foreign_paths: &BTreeSet::new(),
+            knip_unused_files: &none,
+            skif_unused_files: &none,
             layout: &layout,
         });
     }
@@ -2029,6 +2347,68 @@ mod tests {
     }
 
     #[test]
+    fn findings_inside_a_file_the_other_tool_calls_unused_and_config_errors_split_off_on_both_sides() {
+        let read: BTreeMap<String, Rc<Value>> = [
+            ("", json!({ "name": "root" })),
+            ("packages/cfg", json!({ "name": "cfg" })),
+        ]
+        .into_iter()
+        .map(|(dir, manifest)| (dir.to_owned(), Rc::new(manifest)))
+        .collect();
+        let manifest = move |dir: &str| read.get(dir).cloned();
+        let layout = Layout::new(BTreeSet::new(), &manifest);
+        let knip_unused = strings(&["examples/a/src/dead.ts"]);
+        let skif_unused = strings(&["packages/b/src/gone.ts"]);
+        let failed = strings(&["packages/cfg"]);
+        let none = BTreeSet::new();
+        let classifier = Classifier {
+            knip_unread: &[],
+            include_test_files: false,
+            not_judged: &none,
+            knip_failed: &failed,
+            knip_manifests: &none,
+            foreign_paths: &none,
+            knip_unused_files: &knip_unused,
+            skif_unused_files: &skif_unused,
+            layout: &layout,
+        };
+        for (category, key) in [
+            ("exports", "examples/a/src/dead.ts|x"),
+            ("types", "examples/a/src/dead.ts|T"),
+            ("unlisted", "examples/a/src/dead.ts|react"),
+            ("duplicates", "examples/a/src/dead.ts|a|b"),
+            ("unresolved", "examples/a/src/dead.ts|./gone"),
+        ] {
+            assert_eq!(
+                classifier.classify(Side::Skif, category, key),
+                Some(IN_KNIP_UNUSED_FILE),
+                "{category} {key}"
+            );
+        }
+        assert_eq!(
+            classifier.classify(Side::Tool, "exports", "packages/b/src/gone.ts|x"),
+            Some(IN_SKIF_UNUSED_FILE)
+        );
+        for (side, category, key) in [
+            (Side::Skif, "files", "examples/a/src/dead.ts"),
+            (Side::Skif, "binaries", "examples/a/src/dead.ts|tsc"),
+            (Side::Skif, "exports", "examples/a/src/live.ts|x"),
+            (Side::Skif, "exports", "packages/b/src/gone.ts|x"),
+            (Side::Tool, "exports", "examples/a/src/dead.ts|x"),
+        ] {
+            assert_eq!(classifier.classify(side, category, key), None, "{side:?} {category} {key}");
+        }
+        for side in [Side::Skif, Side::Tool] {
+            assert_eq!(
+                classifier.classify(side, "exports", "packages/cfg/src/a.ts|x"),
+                Some(KNIP_CONFIG_ERROR),
+                "{side:?}"
+            );
+        }
+        assert_eq!(classifier.classify(Side::Skif, "exports", "packages/other/a.ts|x"), None);
+    }
+
+    #[test]
     fn earlier_deviations_take_precedence_over_the_layout_ones() {
         let manifests = [
             ("", json!({ "name": "root" })),
@@ -2050,6 +2430,8 @@ mod tests {
             knip_failed: &none,
             knip_manifests: &none,
             foreign_paths: &BTreeSet::new(),
+            knip_unused_files: &none,
+            skif_unused_files: &none,
             layout: &layout,
         };
         assert_eq!(

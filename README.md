@@ -27,7 +27,7 @@ npm · pnpm · yarn · bun · **46 rules** · **205 plugins** · format-preservi
 | | |
 | --- | --- |
 | **One tool** | Manifest hygiene, version policy and dead-code analysis in one run, one `skif.toml` and one report. |
-| **Fast** | 8 to 61 times faster than knip on real repositories. Manifest checks beat sherif and syncpack on every target, by 1.3 times or more at 2,000 generated packages. [See the numbers.](#benchmarks) |
+| **Fast** | Timed against knip, sherif and syncpack on pinned public repositories and generated workspaces. [See the numbers.](#benchmarks) |
 | **Safe** | Analysis is static: skif reads your code and configs without running them. Fixes keep key order, indentation and comments. |
 | **Easy to adopt** | `skif migrate` translates your sherif, syncpack and knip configuration in one step, and `skif baseline` records the findings you cannot fix yet so CI only accepts fewer. |
 | **Built for CI** | Human, JSON, SARIF, GitHub annotation, GitLab Code Quality, compact, Markdown and CODEOWNERS output, stable rule ids and a GitHub Action. |
@@ -64,45 +64,24 @@ skif is younger than all three. The JS analysis is close to knip but not identic
 
 ## Benchmarks
 
-Medians of 15 runs on a 4-vCPU Linux VM (Intel Xeon at 2.10 GHz) with no other work running, on
-[pinned public repositories](tools/bench/corpus.toml) with dependencies installed, measured on 2026-11-08 at commit
-`bbb0971` (0.1.1 with the manifest-check work of [#29](https://github.com/Goldziher/skif/issues/29)). Absolute times depend on the machine; the ratios are the result. Reproduce with
-`mise run bench:publish`.
+Every number in this section is generated: the speed tables by `mise run bench:publish` and the agreement table by
+`mise run parity:publish` from the committed parity baseline. Each block says which skif commit, tool versions and
+machine it comes from. Absolute times depend on the machine; read the ratios.
 
-**Dead-code analysis against knip** (full skif run)
+### Speed
 
-| Repository | skif | knip | Faster by |
-| --- | ---: | ---: | ---: |
-| create-t3-turbo | 32 ms | 2.0 s | 61x |
-| vue-core | 62 ms | 1.7 s | 27x |
-| tanstack-query | 375 ms | 4.5 s | 12x |
-| babel | 884 ms | 7.2 s | 8x |
-| npm-cli | 99 ms | 968 ms | 10x |
+Full skif runs against knip, and `skif --no-js` against sherif and syncpack, on the
+[pinned public repositories](tools/bench/corpus.toml) with dependencies installed and on generated workspaces.
 
-knip completes its analysis on all five. On create-t3-turbo and vue-core it then exits with an error because some of
-the repositories' tool configurations do not load; on npm-cli it runs with `--no-gitignore`, since npm's `.gitignore`
-otherwise hides every workspace from it.
-
-**Manifest and policy checks** (`skif --no-js`)
-
-| Target | skif | sherif | syncpack |
-| --- | ---: | ---: | ---: |
-| create-t3-turbo | 4.6 ms | 36 ms | 41 ms |
-| vue-core | 5.5 ms | 36 ms | 43 ms |
-| tanstack-query | 11 ms | 42 ms | 106 ms |
-| babel | 9.4 ms | 37 ms | 280 ms |
-| npm-cli | 5.3 ms | 38 ms | 77 ms |
-| Generated, 50 packages | 6.3 ms | 39 ms | 46 ms |
-| Generated, 500 packages | 27 ms | 59 ms | 156 ms |
-| Generated, 2000 packages | 102 ms | 130 ms | 655 ms |
-
-At 2,000 generated packages skif is 1.3 times faster than sherif (101 ms against 125 to 128 ms in two separate 30-run
-comparisons), while skif reports about 24,700 diagnostics there and sherif 638.
+<!-- bench:summary:start -->
+Not yet measured for this release: run `mise run bench:publish`.
+<!-- bench:summary:end -->
 
 ### Accuracy on seeded defects
 
 A generated 500-package workspace with defects injected on purpose. `Actual` is counted from the files, so the right
-answer is known:
+answer is known. Counted by hand on 2026-11-06 (skif 0.1.0), not re-counted for this release; the method is in
+[`tools/bench`](tools/bench/README.md#seeded-defects):
 
 | Defect | Actual | skif | sherif | syncpack |
 | --- | ---: | ---: | ---: | ---: |
@@ -119,7 +98,8 @@ nothing unique to either. `n/a` means the tool does not check for that defect.
 A generated 5-package workspace with seeded unused files, exports, types and dependencies, next to live code that is
 reached only through patterns that caused false findings on real repositories (namespace reads, `typeof import()`,
 `import.meta.glob`, tsconfig `paths`, `#` subpath imports, manual mocks, fixtures and more). The answer key lists all
-33 seeded findings:
+33 seeded findings. skif measured on 2026-11-08 and knip 6.44.1 on 2026-11-07, not re-measured for this release;
+reproduce with `mise run bench:deadcode -- --knip`:
 
 | Tool | Precision | Recall |
 | --- | ---: | ---: |
@@ -127,29 +107,21 @@ reached only through patterns that caused false findings on real repositories (n
 | knip | 77% | 100% |
 
 skif reports no false finding; knip reports exports read only through `typeof import("./m")["name"]` and files in
-`fixtures` directories. skif was measured at the current source on 2026-11-08, knip 6.44.1 on 2026-11-07. Per issue
-type and pattern: [`tools/bench`](tools/bench/README.md#dead-code-precision-and-recall).
+`fixtures` directories. Per issue type and pattern:
+[`tools/bench`](tools/bench/README.md#dead-code-precision-and-recall).
 
 ### Agreement with knip
 
-Real repositories have no answer key for dead code, so this measures agreement, not correctness: findings skif and
-knip share on 9 pinned repositories (create-t3-turbo, vue-core, tanstack-query, jest, babel, cal-com, mastra, vscode
-and npm-cli; the other compared repositories await a baseline refresh). A low score means the tools differ, and either
-one could be right. Findings in files skif deliberately leaves out (fixtures, tests, non-code files), in packages it
-does not judge and in packages where knip could not load a config are counted apart. Reading the disagreements found
-false findings on both sides, and skif's are fixed in the current source
+Real repositories have no answer key for dead code, so this measures agreement, not correctness. A low share means the
+tools differ, and either one could be right. Findings in files skif deliberately leaves out (fixtures, tests, non-code
+files), inside files the other tool reports unused, in packages skif does not judge and in packages where knip could
+not load a config are counted apart, and a repository whose knip run is not a valid comparison is left out of the sums.
+Reading the disagreements found false findings on both sides
 ([ADR 0049](adrs/0049-js-corrections-from-adjudicating-knip-disagreements.md)).
 
-| Finding | Shared | Of skif's findings | Of knip's findings |
-| --- | ---: | ---: | ---: |
-| Unused exports | 4,691 | 98% | 94% |
-| Unused files | 2,263 | 98% | 75% |
-| Unused types | 2,247 | 96% | 93% |
-| Unlisted dependencies | 973 | 98% | 36% |
-| Unused dev dependencies | 687 | 87% | 97% |
-| Unused dependencies | 229 | 60% | 78% |
-| Unresolved imports | 54 | 76% | 61% |
-| Unlisted binaries | 26 | 96% | 27% |
+<!-- parity:agreement:start -->
+Not yet recorded for this release: run `mise run parity -- --install --write-baseline`, then `mise run parity:publish`.
+<!-- parity:agreement:end -->
 
 Method, caveats and every run: [`tools/bench`](tools/bench/README.md).
 
