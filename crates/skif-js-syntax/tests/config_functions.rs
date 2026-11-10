@@ -772,3 +772,22 @@ fn the_parameters_of_a_function_the_tool_calls_are_unknown() {
     assert_eq!(get(&called, &["entry"]), &s("./src/index.ts"));
     assert_eq!(get(&called, &["inputs"]).get("analyze"), None);
 }
+
+/// A key a known object does not have reads as `undefined` alike through a member and through a destructuring, which
+/// then takes its default; a key an unknown spread may set is unknown both ways.
+#[test]
+fn a_missing_key_is_undefined_to_a_member_and_a_destructuring_alike() {
+    let value = extract(
+        "vite.config.ts",
+        "const pick = ({ mode }) => mode ?? 'fallback';\n\
+         const defaulted = ({ mode = 'default' }) => mode;\n\
+         const options = { base: '/' };\n\
+         export default { member: options.mode ?? 'fallback', destructured: pick(options), \
+         defaulted: defaulted(options), open: pick({ ...unknown() }), openMember: { ...unknown() }.mode ?? 'fallback' };",
+    );
+    assert_eq!(get(&value, &["member"]), &s("fallback"));
+    assert_eq!(get(&value, &["destructured"]), &s("fallback"));
+    assert_eq!(get(&value, &["defaulted"]), &s("default"));
+    assert_eq!(value.get("open"), Some(&ConfigValue::Unknown));
+    assert_eq!(value.get("openMember"), Some(&ConfigValue::Unknown));
+}

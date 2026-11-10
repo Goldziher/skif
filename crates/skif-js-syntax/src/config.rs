@@ -1952,7 +1952,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 let value = self.expr(object, depth);
                 match (&value, property) {
                     (ConfigValue::String(_) | ConfigValue::Array(_), "length") => length_of(&value),
-                    _ => member_of(&value, property),
+                    _ => member_of(&value, property).unwrap_or(ConfigValue::Null),
                 }
             }
         }
@@ -2427,31 +2427,26 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     }
 
     /// Binds the names `pattern` declares to the parts of `value` they take, in the innermost frame. A property of an
-    /// object pattern takes its key's value or, when the object has no such key, its default; a name that cannot be
-    /// known (an array pattern, a rest element, a key an unknown spread may provide) is bound to
-    /// [`ConfigValue::Unknown`], so it does not resolve to a binding of an outer scope.
+    /// object pattern takes its key's value as a member read does ([`member_of`]) or, when the object has no such key,
+    /// its default, and `undefined` ([`ConfigValue::Null`]) without one; a name that cannot be known (an array
+    /// pattern, a rest element, a key an unknown spread may provide) is bound to [`ConfigValue::Unknown`], so it does
+    /// not resolve to a binding of an outer scope.
     fn bind_pattern(&self, pattern: &'p BindingPattern<'a>, value: ConfigValue, depth: u32) {
         match pattern {
             BindingPattern::BindingIdentifier(id) => self.bind(id.name.as_str(), value),
             BindingPattern::AssignmentPattern(p) => self.bind_pattern(&p.left, value, depth),
             BindingPattern::ObjectPattern(object) => {
                 for property in &object.properties {
-                    let key = property.key.static_name().map(|key| crate::js_string(key.as_js_str()));
-                    let field = match (&value, key) {
-                        (ConfigValue::Object(entries), Some(key)) => entries.iter().rev().find_map(|(name, field)| {
-                            // An unknown spread after the key may replace it.
-                            (name == &key)
-                                .then(|| field.clone())
-                                .or_else(|| ConfigValue::is_spread_key(name).then_some(ConfigValue::Unknown))
-                        }),
-                        _ => Some(ConfigValue::Unknown),
+                    let field = match property.key.static_name() {
+                        Some(key) => member_of(&value, &crate::js_string(key.as_js_str())),
+                        None => Some(ConfigValue::Unknown),
                     };
                     match (&property.value, field) {
                         (BindingPattern::AssignmentPattern(p), None) => {
                             let default = self.expr(&p.right, depth);
                             self.bind_pattern(&p.left, default, depth);
                         }
-                        (element, field) => self.bind_pattern(element, field.unwrap_or(ConfigValue::Unknown), depth),
+                        (element, field) => self.bind_pattern(element, field.unwrap_or(ConfigValue::Null), depth),
                     }
                 }
                 if let Some(rest) = &object.rest {
@@ -3134,12 +3129,13 @@ fn length_of(value: &ConfigValue) -> ConfigValue {
         .map_or(ConfigValue::Unknown, |length| ConfigValue::Number(f64::from(length)))
 }
 
-/// `value.key`: the value of `key` in a known object ([`entry_value`]), `null` (standing for `undefined`) when the
-/// object has neither the key nor an unknown spread, and unknown for a member of anything else.
-fn member_of(value: &ConfigValue, key: &str) -> ConfigValue {
+/// `value.key`, as a member read or a destructuring takes it: the value of `key` in a known object ([`entry_value`]),
+/// unknown for a member of anything else, and `None` when the object has neither the key nor an unknown spread, which
+/// is `undefined` there.
+fn member_of(value: &ConfigValue, key: &str) -> Option<ConfigValue> {
     match value {
-        ConfigValue::Object(entries) => entry_value(entries, key).unwrap_or(ConfigValue::Null),
-        _ => ConfigValue::Unknown,
+        ConfigValue::Object(entries) => entry_value(entries, key),
+        _ => Some(ConfigValue::Unknown),
     }
 }
 
