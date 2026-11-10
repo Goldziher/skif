@@ -765,7 +765,11 @@ impl Setup {
                     .iter()
                     .filter_map(|pattern| workspace_relative(&dir_name, pattern)),
             );
-            let negations: Vec<String> = entry.iter().filter(|pattern| pattern.starts_with('!')).cloned().collect();
+            let negations: Vec<String> = entry
+                .iter()
+                .filter(|pattern| pattern.starts_with('!'))
+                .cloned()
+                .collect();
             Some(PackageSetup {
                 id,
                 dir: abs_dir,

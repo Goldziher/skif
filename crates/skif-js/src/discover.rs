@@ -526,7 +526,10 @@ mod tests {
         assert_eq!(
             listed,
             [
-                (".vscode/extensions/helper/src/extension.ts".to_owned(), index_of("helper")),
+                (
+                    ".vscode/extensions/helper/src/extension.ts".to_owned(),
+                    index_of("helper")
+                ),
                 ("packages/a/src/a.ts".to_owned(), index_of("a")),
             ]
         );
