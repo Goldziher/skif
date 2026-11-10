@@ -370,7 +370,7 @@ fn run_pair(
     if let Some(config) = skif_config {
         skif_command.arg("--config").arg(config);
     }
-    let skif_run = capture(&mut skif_command, scratch, "skif", options.timeout)?;
+    let skif_run = capture(&mut skif_command, scratch, "skif-syncpack", options.timeout)?;
     if skif_run.timed_out {
         return Ok(Err("skif timed out".to_owned()));
     }

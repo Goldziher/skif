@@ -1055,7 +1055,7 @@ fn parity_repo(
             &skif_entry_config(&repo.entry),
         )?);
     }
-    let skif_run = capture(&mut skif_command, &scratch, "skif", options.timeout)?;
+    let skif_run = capture(&mut skif_command, &scratch, "skif-parity", options.timeout)?;
     if skif_run.timed_out {
         return Ok(skipped("skif timed out"));
     }
