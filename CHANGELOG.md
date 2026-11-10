@@ -110,6 +110,9 @@ All notable changes to this project are documented here. The format follows
   ([ADR 0083](adrs/0083-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
 - The types the signatures of an overloaded function mention are used when the function is, from every signature, not
   only the last one.
+- The Next.js plugin reads `turbopack.resolveAlias` and `turbopack.rules`, as knip does: a package an alias points to
+  (`"react-native": "react-native-web"`, also in a list or a `browser` condition) and the loaders of a rule are used
+  dependencies, and an alias to a path (`"@ui": "./src/ui"`) is a module alias.
 
 ### Changed
 
