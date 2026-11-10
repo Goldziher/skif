@@ -15,7 +15,7 @@ use crate::deps::{DependencyUsage, ForeignMapping};
 use crate::discover::{Candidate, discover_with, relative, take_file_links};
 use crate::entries::{Disk, entry_files};
 use crate::fixture::in_fixture_directory;
-use crate::git_index::{IndexCache, Listing, indexed_fs};
+use crate::git_index::{IndexCache, indexed_fs};
 use crate::globs::Globs;
 use crate::graph::{self, Inputs, Module, ModuleGraph, Target};
 use crate::input::InputSource;
@@ -82,6 +82,9 @@ pub struct JsAnalysis<'a> {
     pub(crate) config_hints: Vec<ConfigHint>,
     /// Files plugins name as entries that are no file of this analysis, absolute; see [`Self::other_project_files`].
     other_root_entries: Vec<PathBuf>,
+    /// Whether tracked directories were listed from the git index (`[js] discovery = "git"`), which can miss an
+    /// untracked file that uses a file reported as unused; `unused-files` then offers no fix that deletes it.
+    pub(crate) listed_from_index: bool,
 }
 
 /// What one run of the analysis shares with the other runs of its host.
@@ -396,9 +399,10 @@ fn unused_ignore_files(
     found.empty()
 }
 
-/// `fs` with the files tracked by git listed from the git index, as `[js] discovery` says: `auto` checks the
-/// modification time of each directory against the index, `git` trusts the index alone and `walk` does not use it.
-/// `None` for `walk` and when the workspace is not in a git work tree with a usable index.
+/// `fs` with the files tracked by git listed from the git index when `[js] discovery = "git"`, every directory
+/// modified since the index was written listed from disk. `None` for `auto` and `walk`, which walk the directories:
+/// the index cannot tell whether an unchanged directory holds an untracked file created before it was last written
+/// (ADR 0095), and when the workspace is not in a git work tree with a usable index.
 fn overlay(
     fs: &Arc<dyn FileSystem>,
     workspace: &Workspace,
@@ -409,12 +413,10 @@ fn overlay(
     if config.js.no_gitignore {
         return None;
     }
-    let listing = match config.js.discovery {
-        JsDiscovery::Walk => return None,
-        JsDiscovery::Git => Listing::IndexOnly,
-        _ => Listing::VerifyDirectories,
-    };
-    indexed_fs(fs, &workspace.root, cache, listing)
+    if config.js.discovery != JsDiscovery::Git {
+        return None;
+    }
+    indexed_fs(fs, &workspace.root, cache)
 }
 
 /// The file system of `workspace` for the discovery `config` selects: the git index overlay when it applies, `fs`
@@ -590,6 +592,7 @@ impl<'a> JsAnalysis<'a> {
             unused_ignore_files,
             config_hints,
             other_root_entries,
+            listed_from_index,
         }
     }
 

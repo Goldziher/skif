@@ -16,7 +16,14 @@ pub static META: RuleMeta = RuleMeta::new(
     "A project file is not reachable from any entry file.",
 );
 
+/// The help of a finding when the files were listed from the git index (`[js] discovery = "git"`): no fix deletes
+/// the file then.
+const INDEX_HELP: &str = "delete it, or add it to `entry` when a tool loads it; no fix deletes it because the files \
+    were listed from the git index (`[js] discovery = \"git\"`), which does not see every untracked file";
+
 /// Reports project files that no entry file imports, directly or through other files.
+///
+/// Its fix deletes the file, except when the files were listed from the git index (ADR 0095).
 pub struct UnusedFiles;
 
 /// The message of a file no entry reaches, with `/` separators on every platform so reports and SARIF fingerprints
@@ -32,20 +39,25 @@ impl JsRule for UnusedFiles {
 
     fn check(&self, analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>) {
         for file in &analysis.unused_files {
-            let mut builder = diagnostic(&META, unreachable_message(&file.path), file_location(file.path.clone()))
-                .help("delete it, or add it to `entry` when a tool loads it");
+            let help = if analysis.listed_from_index {
+                INDEX_HELP
+            } else {
+                "delete it, or add it to `entry` when a tool loads it"
+            };
+            let mut builder =
+                diagnostic(&META, unreachable_message(&file.path), file_location(file.path.clone())).help(help);
             if let Some(package) = analysis.workspace.package(file.owner) {
                 builder = builder.package(package.display_name());
             }
-            out.emit(
-                builder
-                    .fix(Fix::new(
-                        format!("Delete `{}`", slash(&file.path)),
-                        FixSafety::Unsafe,
-                        vec![FixOp::delete_file(file.path.clone())],
-                    ))
-                    .build(),
-            );
+            // The git index does not list an untracked file older than its last write, which may use this one.
+            if !analysis.listed_from_index {
+                builder = builder.fix(Fix::new(
+                    format!("Delete `{}`", slash(&file.path)),
+                    FixSafety::Unsafe,
+                    vec![FixOp::delete_file(file.path.clone())],
+                ));
+            }
+            out.emit(builder.build());
         }
     }
 }

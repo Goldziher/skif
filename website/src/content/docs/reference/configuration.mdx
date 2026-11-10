@@ -691,14 +691,16 @@ platform tools scripts run (`rm`, `curl`, `git`, `docker`), which are installed 
 lists it. Shell builtins (`cd`, `echo`, `export`), shells, pass-through commands (`env`, `sudo`, `xargs`), the package
 managers and `node` are never reported.
 
-`discovery` chooses how source files are found. `auto` (the default) lists the files from the git index when the
-analysed root is in a git work tree and checks each directory with one `stat` instead of walking it: a directory
-modified at or after the time the index was written (equal counts as modified) is listed from disk, so new untracked
-files and directories, plugin config files that were never `git add`ed and deleted files are found and dropped as the
-walk finds and drops them, and an untouched directory is listed from the index without an `opendir`. One case is invisible to `auto`: an untracked file created before the last rewrite
-of the index (a `git add` of another file, or a `git status` that refreshes it) in a directory nothing has touched
-since; use `walk` when the result must be exact. `git` trusts the index alone, without any per-directory check, so it is blind
-to files created or deleted since the last `git add`. `walk` always walks the directories. Both index modes fall back to
+`discovery` chooses how source files are found. `auto` (the default) and `walk` walk the directories, which finds
+every untracked file. `git` lists the files from the git index when the analysed root is in a git work tree and checks
+each directory with one `stat` instead of walking it: a directory modified at or after the time the index was written
+(equal counts as modified) is listed from disk, so new untracked files and directories, plugin config files that were
+never `git add`ed and deleted files are found and dropped as the walk finds and drops them, and an untouched directory
+is listed from the index without an `opendir`. One case is invisible to `git`: an untracked file created before the
+last rewrite of the index (a `git add` or `git commit` of another file, or a `git status` that refreshes it) in a
+directory nothing has touched since. That is why `auto` does not use the index: such a file is the entry or the only
+importer of a file that would then be reported as unused. `git` suits a fresh checkout, as in CI, and its
+`unused-files` findings offer no fix that deletes the file ([ADR 0095](https://github.com/Goldziher/skif/blob/main/adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)). `git` falls back to
 the walk when there is no usable index: a repository outside git, a split or sparse index, a SHA-256 repository
 (`extensions.objectformat`), or an index whose SHA-1 checksum does not match (an index written with `index.skipHash`,
 which `feature.manyFiles` sets, is read without the check, so a torn read of an index that is being rewritten is then only
