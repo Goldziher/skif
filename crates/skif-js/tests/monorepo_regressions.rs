@@ -662,3 +662,33 @@ fn workflow_and_source_commands_after_cd_into_a_workspace_package_are_judged_the
         "{diagnostics:#?}"
     );
 }
+
+/// A source file that runs a command with a `cwd` its own location computes runs it there: in another workspace
+/// package, a provider that package lists is used and nothing is unlisted at the file.
+#[test]
+fn source_commands_with_a_cwd_of_the_file_run_in_that_directory() {
+    let root = manifest(&format!(
+        r#""name":"root","private":true,{PNPM},"main":"scripts/build.mjs""#
+    ));
+    let files = [
+        ("package.json", root.as_str()),
+        ("pnpm-workspace.yaml", "packages:\n  - sub\n"),
+        (
+            "sub/package.json",
+            r#"{"name":"sub","private":true,"main":"index.js","devDependencies":{"@rspack/cli":"1.0.0"}}"#,
+        ),
+        ("sub/index.js", "module.exports = 1;\n"),
+        (
+            "scripts/build.mjs",
+            "import { execSync } from 'node:child_process';\nimport path from 'node:path';\n\
+             execSync('rspack build', { cwd: path.join(import.meta.dirname, '../sub') });\n",
+        ),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(found(&diagnostics, "unlisted-binaries"), none(), "{diagnostics:#?}");
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        none(),
+        "{diagnostics:#?}"
+    );
+}

@@ -3778,6 +3778,33 @@ fn commands_run_with_a_cwd_run_scripts_of_another_package() {
     assert!(runs("nano-spawn").is_empty(), "{:?}", runs("nano-spawn"));
 }
 
+/// A `cwd` the file's own location computes is the file's directory, relative to the package the plugin runs for.
+#[test]
+fn commands_run_with_a_cwd_of_the_file_run_in_its_directory() {
+    let files = [(
+        "test/e2e/a.test.ts",
+        r#"import { execa } from "execa";
+        await execa("pnpm", ["exec", "rspack"], { cwd: __dirname });
+        await execa("pnpm", ["exec", "vite"], { cwd: new URL("../fixtures", import.meta.url).pathname });
+        await execa("pnpm", ["exec", "tsx"], { cwd: process.cwd() });"#,
+    )];
+    let results = resolve(&files, &["execa"]);
+    let mut runs: Vec<(String, Option<String>)> = output(&results, "execa")
+        .run_binaries
+        .iter()
+        .map(|run| (run.name.clone(), run.dir.clone()))
+        .collect();
+    runs.sort();
+    assert_eq!(
+        runs,
+        [
+            ("rspack".to_owned(), Some("test/e2e".to_owned())),
+            ("tsx".to_owned(), None),
+            ("vite".to_owned(), Some("test/fixtures".to_owned())),
+        ]
+    );
+}
+
 /// A command after `cd` runs its binaries in that directory, relative to the package where the command starts.
 #[test]
 fn run_binaries_after_cd_carry_the_directory() {

@@ -60,9 +60,10 @@ pub use components::{
     RegisteredComponent, camelize, capitalize, is_native_tag, registered_components, registered_name, resolved_names,
 };
 pub use config::{
-    ConfigValue, ImportedCall, ModuleLoader, OWN_SPREAD, TEMPLATE_SUBSTITUTION, UNKNOWN_SPREAD, command_in_call_dir,
-    extract_config_object, extract_config_object_with, extract_constructor_options, extract_imported_calls,
-    extract_method_calls, extract_property_calls, extract_property_values, file_call_options, literal_command,
+    ConfigValue, FILE_DIR, ImportedCall, ModuleLoader, OWN_SPREAD, TEMPLATE_SUBSTITUTION, UNKNOWN_SPREAD,
+    command_in_call_dir, extract_config_object, extract_config_object_with, extract_constructor_options,
+    extract_imported_calls, extract_method_calls, extract_property_calls, extract_property_values, file_call_options,
+    literal_command, place_file_dir,
 };
 pub use error::SyntaxError;
 pub use model::{

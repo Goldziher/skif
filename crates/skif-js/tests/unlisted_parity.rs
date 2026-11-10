@@ -250,6 +250,35 @@ fn commands_run_with_a_cwd_option_run_scripts_of_the_package_there() {
     assert_eq!(found(&diagnostics, "unlisted-binaries"), ["test/a.test.ts: sqlite3"]);
 }
 
+/// A `cwd` that names the directory the call runs in anyway (`process.cwd()`, `undefined`), or that an unknown spread
+/// may set, leaves the command in its package: the package's script is followed and its binaries judged at the file.
+#[test]
+fn a_cwd_of_the_current_directory_follows_the_scripts_of_the_package() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","version":"1.0.0","main":"src/index.ts","scripts":{"typecheck":"tsc --noEmit","lint":"eslint .","fmt":"prettier -w ."}}"#,
+        ),
+        (
+            "src/index.ts",
+            "import { execSync } from 'node:child_process';\ndeclare const options: object;\n\
+             execSync('npm run typecheck', { cwd: process.cwd() });\nexecSync('npm run lint', { cwd: undefined });\n\
+             execSync('npm run fmt', { ...options });\nexport const done = true;\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unlisted-binaries"),
+        [
+            "package.json: eslint",
+            "package.json: prettier",
+            "package.json: tsc",
+            "src/index.ts: eslint",
+            "src/index.ts: prettier",
+            "src/index.ts: tsc"
+        ]
+    );
+}
+
 /// A source file that runs `pnpm <name>` or `npm run <name>` runs its package's script of that name: the script's
 /// binaries are judged, the script's name is no binary.
 #[test]
