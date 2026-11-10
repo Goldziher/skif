@@ -11,6 +11,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Template expressions of `.vue`, `.svelte`, `.astro` and `.mdx` files are parsed as JavaScript under the scopes of
+  their block constructs (Vue `v-for`, `v-slot`, `#name`, `slot-scope`; Svelte `{#each}`, `{#await}`, `{:then}`,
+  `{:catch}`, `{#snippet}`, `{@const}`, `let:`; arrow parameters such as `items.map((item) => …)`), so an import
+  that only a template local of the same name mentions is reported as unused
+  ([ADR 0082](adrs/0082-template-scopes-auto-imported-vue-components-and-marko-files.md),
+  [#102](https://github.com/Goldziher/skif/issues/102)).
+- A component that `unplugin-vue-components` registers in `components.d.ts` from a file of the project is used only
+  where a template uses its tag (`AppButton`, `app-button`, `LazyAppButton`), as knip compiles it: one no template
+  uses is reported by `unused-files`
+  ([ADR 0082](adrs/0082-template-scopes-auto-imported-vue-components-and-marko-files.md)).
 - The knip comparison sets apart findings that follow from where each tool looks, decided from paths and manifests:
   unused dependencies and script binaries skif reports on a `package.json` that is not one of knip's workspaces
   (`knip-unjudged-manifest`), unused files and listed unlisted dependencies knip reports below a project that is not
@@ -23,6 +33,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `.marko` files are read: their `import` statements and `import()` calls, and the imports of their `<style>` and
+  concise `style { … }` blocks. A reached `.marko` file uses `marko`
+  ([ADR 0082](adrs/0082-template-scopes-auto-imported-vue-components-and-marko-files.md)).
+- `skif-js-syntax` exports `registered_components`, which reads the components a generated `components.d.ts`
+  registers, and `ModuleInfo::template_tags`, the tag names of a `.vue` template.
 - Eight plugins read more of their configs, still without running them
   ([ADR 0078](adrs/0078-plugin-gaps-config-functions-file-tasks-and-templates.md),
   [#103](https://github.com/Goldziher/skif/issues/103)):
