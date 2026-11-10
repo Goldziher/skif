@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use skif_js_syntax::{ConfigValue, extract_config_object};
+use skif_js_syntax::{ConfigValue, OWN_SPREAD, UNKNOWN_SPREAD, extract_config_object};
 
 fn extract(path: &str, source: &str) -> ConfigValue {
     extract_config_object(source, Path::new(path)).expect("config is understood")
@@ -699,4 +699,42 @@ fn a_function_in_a_config_does_not_share_what_its_parameters_take() {
     );
     assert!(!open(&value));
     assert_eq!(get(&value, &["transpilePackages"]), &strings(&["ui"]));
+}
+
+/// An unknown spread or merge of a value the config computes itself (a call of a function it declares, a constant it
+/// computes, a parameter) is recorded apart from one of an imported value, a constant holding one, or a global.
+#[test]
+fn an_unknown_spread_the_config_computes_itself_is_its_own() {
+    let value = extract(
+        "vite.config.ts",
+        "import shared from './shared';\n\
+         import { mergeConfig } from 'vite';\n\
+         function libEntries() { return JSON.parse(process.env.ENTRIES ?? '{}'); }\n\
+         const makeLib = () => JSON.parse(process.env.LIB ?? '{}');\n\
+         const computed = JSON.parse(process.env.BUILD ?? '{}');\n\
+         const alias = shared.build;\n\
+         const wrap = (options) => ({ ...options });\n\
+         export default {\n\
+           declared: { ...libEntries() },\n\
+           arrow: { ...makeLib() },\n\
+           constant: { ...computed },\n\
+           parameter: wrap(unknown()),\n\
+           merged: mergeConfig(shared, makeLib()),\n\
+           imported: { ...shared },\n\
+           aliased: { ...alias },\n\
+           global: { ...JSON.parse(process.env.X ?? '{}') },\n\
+         };",
+    );
+    for key in ["declared", "arrow", "constant", "parameter"] {
+        let object = get(&value, &[key]);
+        assert_eq!(object.get(OWN_SPREAD), Some(&ConfigValue::Unknown), "{key}: {object:?}");
+        assert_eq!(object.get(UNKNOWN_SPREAD), None, "{key}: {object:?}");
+    }
+    let merged = get(&value, &["merged"]);
+    assert!(merged.get(UNKNOWN_SPREAD).is_some() && merged.get(OWN_SPREAD).is_some(), "{merged:?}");
+    for key in ["imported", "aliased", "global"] {
+        let object = get(&value, &[key]);
+        assert_eq!(object.get(UNKNOWN_SPREAD), Some(&ConfigValue::Unknown), "{key}: {object:?}");
+        assert_eq!(object.get(OWN_SPREAD), None, "{key}: {object:?}");
+    }
 }
