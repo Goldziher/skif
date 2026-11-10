@@ -3,10 +3,8 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use skif_config::{Config, ConfigError};
-use skif_core::{Diagnostic, IncompletePackage, Report};
+use skif_core::{Diagnostic, FileSystem, IncompletePackage, Report};
 use skif_workspace::{Workspace, map_ordered};
-
-use skif_core::FileSystem;
 
 use crate::context::{FsRef, LintContext, SharedCache};
 use crate::emitter::Emitter;

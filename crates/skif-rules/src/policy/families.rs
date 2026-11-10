@@ -212,10 +212,10 @@ impl Rule for UnsyncedDependencyFamily {
             return;
         }
         // A family with a lockfile scope is judged on what `pnpm-lock.yaml` resolves, not on the manifests.
-        let (families, resolved): (Vec<Family>, Vec<Family>) = effective_families(cx.config)
+        let (families, lockfile_scoped): (Vec<Family>, Vec<Family>) = effective_families(cx.config)
             .into_iter()
             .partition(|family| family.scope.is_manifests());
-        super::lockfile_families::emit(cx, &resolved, out);
+        super::lockfile_families::emit(cx, &lockfile_scoped, out);
         let catalogs = &cx.workspace.catalogs;
         // A `catalog:` reference counts as the version of its catalog entry.
         let resolved = |entry: &DependencyEntry| -> Option<Arc<Specifier>> {

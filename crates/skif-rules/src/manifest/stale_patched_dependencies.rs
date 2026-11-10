@@ -151,7 +151,8 @@ impl Rule for StalePatchedDependencies {
             options.patch_dirs.iter().map(|dir| normalize(dir)).collect()
         };
         for dir in dirs {
-            let Ok(listing) = cx.fs().read_dir(&root.join(&dir)) else {
+            let path = if dir.is_empty() { root.clone() } else { root.join(&dir) };
+            let Ok(listing) = cx.fs().read_dir(&path) else {
                 continue;
             };
             let mut orphans: Vec<String> = listing
