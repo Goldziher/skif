@@ -91,7 +91,7 @@ pub fn resolved_names(tag: &str) -> Vec<String> {
     names
 }
 
-/// Whether `tag` is an element of HTML, SVG or MathML, or the `component` and `slot` of Vue's compiler, as written:
+/// Whether `tag` is an element of HTML, SVG or `MathML`, or the `component` and `slot` of Vue's compiler, as written:
 /// Vue never resolves such a tag to a registered component. The match is case-sensitive, as Vue's: `<Button>` is a
 /// component.
 #[must_use]
@@ -154,7 +154,7 @@ impl<'a> Visit<'a> for ResolveCalls {
     }
 }
 
-/// HTML, SVG and MathML elements as Vue's `isHTMLTag`, `isSVGTag` and `isMathMLTag` list them, and the `component`
+/// HTML, SVG and `MathML` elements as Vue's `isHTMLTag`, `isSVGTag` and `isMathMLTag` list them, and the `component`
 /// and `slot` its compiler handles itself.
 const NATIVE_TAGS: &[&str] = &[
     // HTML

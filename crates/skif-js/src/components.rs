@@ -58,7 +58,7 @@ pub(crate) fn is_generated(path: &Path, source: &str) -> bool {
 
 /// Whether the components `package` registers may be used in files skif records no tags for, so its declaration
 /// files credit every component they register: the package has `.tsx` or `.jsx` project files or a VitePress or
-/// VuePress site (whose `.md` pages Vue compiles), or a config passes the plugin an `include` that names more than
+/// `VuePress` site (whose `.md` pages Vue compiles), or a config passes the plugin an `include` that names more than
 /// `.vue` files, or options skif cannot read.
 pub(crate) fn may_be_used_untagged(fs: &dyn FileSystem, package: &PackageSetup, candidates: &[Candidate]) -> bool {
     let mut configs: Vec<&Path> = package.config_files.iter().map(PathBuf::as_path).collect();
