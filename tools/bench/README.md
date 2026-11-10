@@ -238,14 +238,19 @@ manifest, not by listing findings:
   `esm` and the others of `skif_js::is_out_dir`, also with a flavour suffix such as `lib-commonjs`) also names the
   same path below `src`, as skif maps it: `./lib-commonjs/*.js` publishes every `src/**/*.ts`. A published path
   without `*` names one source only, the first of skif's candidates that exists (`src/x.ts` before `lib/x.ts` for
-  `./lib/x.js`, `.ts` before `.tsx`). skif makes the source of
-  a published path an entry; knip maps a published path to source only through a tsconfig `outDir`. The files only
-  such an entry reaches stay compared.
+  `./lib/x.js`, `.ts` before `.tsx`). In an n8n node package the files of `n8n.nodes` and `n8n.credentials` are
+  published too, a path below a build directory naming the path without it (`dist/nodes/A/A.node.js` names
+  `nodes/A/A.node.ts`), as skif reads them (`skif_js::n8n_load_paths`). A file such a source imports by relative path
+  (resolved with its extension, a TypeScript twin of a `.js` one, or the `index` file of a directory), directly or
+  through other files only knip reports unused, is `published-source` too. skif makes the source of a published path
+  an entry and uses what it imports; knip maps a published path to source only through a tsconfig `outDir` and does
+  not read the n8n fields. The exports, types and members of these files stay compared.
 
 `non-member-project` and `published-source` check where a finding is, not why skif has no finding there. Unlisted
 dependencies a `declare module` satisfies, and npm's `lib/commands` files that skif reaches through a computed
 `require` in `lib/npm.js`, stay compared: the harness cannot check them from its data. See
-[ADR 0080](../../adrs/0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md).
+[ADR 0080](../../adrs/0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md)
+and [ADR 0100](../../adrs/0100-knip-comparison-n8n-node-files-and-what-published-sources-import.md).
 
 **Not judged by skif.** skif lists under `incomplete-packages` in its JSON report the packages whose entry files it
 cannot all know (a tool config it cannot read), and does not report their unused dependencies, exports, types and
