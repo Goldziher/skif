@@ -586,14 +586,19 @@ mod tests {
             .with_file("/r/tools/sub/package.json", r#"{"name": "sub", "version": "1.0.0"}"#)
             .with_file("/etc/skif.toml", "");
         let overrides = ConfigOverrides::default().with_config_file(Some(PathBuf::from("/etc/skif.toml")));
-        let targets = skif::discover_targets(Path::new("/r"), &fs, &overrides).unwrap().targets;
+        let targets = skif::discover_targets(Path::new("/r"), &fs, &overrides)
+            .unwrap()
+            .targets;
         assert_eq!(targets.len(), 2);
         let everywhere = "`left-pad` in `js.ignore-dependencies` matched nothing";
         let one_root = "`tsc` in `js.ignore-binaries` matched nothing";
         let scoped = "`src/x.js` in `js.workspaces.\"tools/sub\".entry` matched nothing";
         let (outer, inner) = ("../etc/skif.toml", "../../../etc/skif.toml");
         let reports = vec![
-            Some(Ok(Report::new(vec![stale(outer, everywhere), stale(outer, one_root)], 1))),
+            Some(Ok(Report::new(
+                vec![stale(outer, everywhere), stale(outer, one_root)],
+                1,
+            ))),
             Some(Ok(Report::new(vec![stale(inner, everywhere), stale(inner, scoped)], 1))),
         ];
         let mut uses = vec![OtherRootUses::default(); 2];

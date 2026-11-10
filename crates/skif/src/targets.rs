@@ -464,7 +464,10 @@ mod tests {
         MemoryFs::new()
             .with_file("/r/package.json", r#"{"name": "app", "version": "1.0.0"}"#)
             .with_file("/r/tools/sub/package.json", r#"{"name": "sub", "version": "1.0.0"}"#)
-            .with_file("/r/tools/other/package.json", r#"{"name": "other", "version": "1.0.0"}"#)
+            .with_file(
+                "/r/tools/other/package.json",
+                r#"{"name": "other", "version": "1.0.0"}"#,
+            )
             .with_file("/etc/skif.toml", explicit)
     }
 
@@ -507,8 +510,7 @@ mod tests {
         ];
         let plain = nested_fs("[js]\nentry = [\"src/extra.js\"]\n");
         assert_eq!(anchors("/r", &plain, &explicit()), unanchored);
-        let discovered =
-            nested_fs("").with_file("/r/skif.toml", "[js.workspaces.\".\"]\nentry = [\"src/extra.js\"]\n");
+        let discovered = nested_fs("").with_file("/r/skif.toml", "[js.workspaces.\".\"]\nentry = [\"src/extra.js\"]\n");
         assert_eq!(anchors("/r", &discovered, &ConfigOverrides::default()), unanchored);
     }
 
