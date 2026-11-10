@@ -1282,6 +1282,10 @@ fn narrow_groups(state: &mut State<'_>, src: &Src, scope: &[String]) {
         });
     }
     for path in dropped {
+        // The group was noted as written when it was read; that note no longer holds.
+        state
+            .notes
+            .retain(|note| !(note.tool == Tool::Syncpack && note.path == path && note.message.starts_with("written to [[")));
         state.note(
             src,
             NoteClass::Exact,

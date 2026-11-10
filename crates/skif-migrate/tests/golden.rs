@@ -966,6 +966,29 @@ fn a_group_that_only_covers_a_type_skif_cannot_read_is_not_written() {
 }
 
 #[test]
+fn a_group_outside_the_lint_scope_is_not_also_noted_as_written() {
+    let mut input = ToolInput::new(Tool::Syncpack);
+    input.config = Some(text(
+        ".syncpackrc.json",
+        r#"{ "versionGroups": [{ "label": "peers loose", "dependencyTypes": ["peer"], "dependencies": ["react"], "isIgnored": true }] }"#,
+    ));
+    input.package_json = Some(text(
+        "package.json",
+        &package(&[("l", "syncpack lint --dependency-types prod,dev")]),
+    ));
+    let migration = migrate(&[input], &options(Profile::Exact)).unwrap();
+    assert!(migration.config.version_groups.is_empty(), "{}", migration.toml);
+    let messages: Vec<&str> = migration
+        .notes
+        .iter()
+        .filter(|note| note.path == "versionGroups[0]")
+        .map(|note| note.message.as_str())
+        .collect();
+    assert_eq!(messages.len(), 1, "{messages:#?}");
+    assert!(messages[0].contains("it was not written"), "{messages:#?}");
+}
+
+#[test]
 fn syncpack_runs_that_lint_different_types_are_combined_with_a_note() {
     let mut input = ToolInput::new(Tool::Syncpack);
     input.package_json = Some(text(
