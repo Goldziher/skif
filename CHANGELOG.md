@@ -303,6 +303,10 @@ All notable changes to this project are documented here. The format follows
   config names: they are judged against the package owning it instead of being lost, which reported them unused there,
   and only what the importing config adds is its own. A key the object does not have reads as `undefined`, one an
   unknown spread may set as unknown.
+- A config function the tool calls (an exported function, the callback given to `defineConfig`) has every parameter
+  unknown, a default included, because the tool passes what the config does not say: `(env = {}) => ({ entry:
+  env.analyze ? './src/analyze.ts' : './src/index.ts' })` keeps both files instead of reading `env.analyze` as
+  `undefined`. A call in the config itself still gives a parameter it leaves out its default.
 - A tool config built by a factory of a workspace package from the options it is given
   (`export default createVitestConfig({ setupFiles: ['./setup.ts'] })`, `defineConfig(createBase(options))`) is known:
   a factory reading `options.setupFiles ?? []` no longer leaves the package's entries incomplete.
