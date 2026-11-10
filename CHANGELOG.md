@@ -70,8 +70,9 @@ All notable changes to this project are documented here. The format follows
   `take_config_judgements`: `stale-js-config` records every entry it judged, with the package of a list a
   `[js.workspaces]` table gives a package. `skif::settle_shared_config` is new: given the reports of the targets of
   `discover_targets` in order, it decides the `stale-js-config` findings about a configuration file several roots
-  read, as `skif -r` does; a host that lints the targets itself calls it last, on the reports it shows
-  ([ADR 0099](adrs/0099-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
+  read, as `skif -r` does; a host that lints the targets itself calls it last, on the reports it shows.
+  `skif::join_lexical` joins a root and a path relative to it with `..` resolved, the form in which those files are
+  compared ([ADR 0099](adrs/0099-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
 - `RuleMeta` gains `version_scoped`, set with `RuleMeta::version_scoped()`; `IgnoreEntry` gains `files` and
   `with_files`; `OverrideScope` gains `unanchored()`.
 - syncpack format keys (`sortAz`, `sortFirst`, `indent`, ...) turn `package-json-format` and `unsorted-dependencies`
