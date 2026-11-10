@@ -27,6 +27,9 @@ All notable changes to this project are documented here. The format follows
 - `ConfigValue::Regex` of `skif-js-syntax` holds the `flags` of the literal besides its `pattern`. `PluginInput` of
   `skif-js-plugins` gains `EntryRegex`, `PluginOutput` gains `entry_regexes` and `WorkspaceInputs` of `skif-js` gains
   `entry_regex`, for Jest's `testRegex` ([#100](https://github.com/Goldziher/skif/issues/100)).
+- `BinaryUse` and `DepRef` of `skif_js_plugins::scripts` gain `dir`, the directory a command runs in after `cd`,
+  `pushd` or a package manager's directory flag; `skif_js_plugins::scripts` also gains `is_powershell_command` and
+  `without_commands`. `IncompleteCause` of `skif-core` gains `NoEntries`.
 - `PluginOutput` of `skif-js-plugins` and `WorkspaceInputs` of `skif-js` are `#[non_exhaustive]`: an input source
   starts from `WorkspaceInputs::default()` and sets the fields it knows.
 - `Report::other_project_files` lists every file with an absolute path (the files below the workspace root were
@@ -119,6 +122,11 @@ All notable changes to this project are documented here. The format follows
 - A package with no source file, entry or script of its own (a manifest that only lists what code elsewhere installs
   it for, ADR 0082) is listed in `incomplete-packages` with the new cause `no-entries` instead of `unmapped-published`,
   which it does not publish ([ADR 0094](adrs/0094-script-directories-and-the-no-entries-cause.md)).
+- A `package.json` script command after `cd <dir>` or `pushd <dir>`, or run by `npm --prefix <dir> exec`,
+  `pnpm -C <dir> exec` or `yarn --cwd <dir> exec`, runs in that directory: the files it names are relative to it, and in a workspace package
+  there the binaries it runs and the packages it loads are credited to that package and never unlisted. knip judges
+  them at the script's package, so `cd sub && pnpm exec rspack` no longer reports `rspack` unlisted while `sub` lists
+  `@rspack/cli` ([ADR 0094](adrs/0094-script-directories-and-the-no-entries-cause.md)).
 
 ### Changed
 
