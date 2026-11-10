@@ -43,6 +43,7 @@ mod resolve;
 mod rules;
 mod scripts;
 mod setup;
+mod shared_modules;
 mod source_scan;
 mod specifier;
 mod trace;
@@ -64,6 +65,8 @@ pub use input::{
 #[doc(hidden)]
 pub use manifest_paths::is_out_dir;
 #[doc(hidden)]
+pub use manifest_paths::n8n_load_paths;
+#[doc(hidden)]
 pub use manifest_paths::source_candidates;
 pub use plugin_source::PluginSource;
 pub use provider::{JsProvider, PROVIDER_ID};
@@ -73,6 +76,7 @@ pub use rules::{
     UnusedFiles, UnusedNamespaceExports, UnusedNamespaceMembers, UnusedNamespaceTypes, UnusedOptionalPeerDependencies,
     UnusedTypes, rules,
 };
+pub use shared_modules::SharedModules;
 /// The module cache of ADR 0066, re-exported for hosts that keep one.
 pub use skif_js_syntax::{CachedModule, MemoryModuleCache, ModuleCache, ModuleKey, cache_version};
 pub use trace::{DependencyImport, DependencyListing, DependencyTrace};
@@ -85,4 +89,5 @@ const _: () = {
     let _ = assert_send_sync::<ModuleGraph>;
     let _ = assert_send_sync::<ExportUsage>;
     let _ = assert_send_sync::<DependencyUsage>;
+    let _ = assert_send_sync::<SharedModules>;
 };

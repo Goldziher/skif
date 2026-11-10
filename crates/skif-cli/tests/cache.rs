@@ -125,3 +125,85 @@ fn cache_location_requires_cache() {
     assert!(result.stderr.contains("--cache"), "{}", result.stderr);
     assert!(!dir.path().join("x").exists());
 }
+
+/// Three standalone packages whose entry files import `shared/lib.ts`, which lies outside all of them.
+fn shared_closure() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    for (name, offset) in [("a", 1), ("b", 2), ("c", 3)] {
+        let root = dir.path().join(name);
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("package.json"),
+            format!(r#"{{"name": "{name}", "version": "1.0.0", "main": "index.ts"}}"#),
+        )
+        .unwrap();
+        fs::write(
+            root.join("index.ts"),
+            format!("import {{ shared }} from '../shared/lib';\nexport const {name} = shared + {offset};\n"),
+        )
+        .unwrap();
+    }
+    fs::create_dir_all(dir.path().join("shared")).unwrap();
+    fs::write(dir.path().join("shared").join("lib.ts"), "export const shared = 1;\n").unwrap();
+    dir
+}
+
+/// The module cache counts summed over the `js module cache <root>: H hits, M misses, W waits` lines of
+/// `--performance`: the lookups served without parsing (hits, and waits for another root's parse) and the parses. The
+/// counters are shared by the roots linted in parallel, so only the sums are exact, and whether a lookup of a file
+/// another root is parsing hits or waits depends on timing.
+fn module_cache_counts(stderr: &str) -> (usize, usize) {
+    stderr
+        .lines()
+        .filter(|line| line.contains("js module cache "))
+        .map(|line| {
+            let counts: Vec<usize> = line
+                .rsplit(": ")
+                .next()
+                .unwrap()
+                .split(", ")
+                .map(|count| count.split_once(' ').unwrap().0.parse().unwrap())
+                .collect();
+            let [hits, misses, waits] = counts.as_slice() else {
+                panic!("not three counts: {line}");
+            };
+            (hits + waits, *misses)
+        })
+        .fold((0, 0), |(served, parsed), (s, p)| (served + s, parsed + p))
+}
+
+/// The JSON report, exit code and module cache counts of `skif -r --performance` on `dir` with `flags`.
+fn recursive_run(dir: &Path, flags: &[&str]) -> ((String, i32), (usize, usize)) {
+    let result = run(skif()
+        .current_dir(dir)
+        .args(["--recursive", "--performance", "--format", "json"])
+        .args(flags));
+    assert!(matches!(result.code, 0 | 1), "{}", result.stderr);
+    let counts = module_cache_counts(&result.stderr);
+    ((result.stdout, result.code), counts)
+}
+
+#[test]
+fn a_recursive_run_parses_a_file_several_roots_import_once() {
+    let dir = shared_closure();
+    let (report, counts) = recursive_run(dir.path(), &[]);
+    assert_eq!(root_count(&report.0), 3, "{}", report.0);
+    // Only the shared file goes through the cache of the run, parsed once and served to the two other roots; each
+    // entry file is its root's own and is parsed outside it.
+    assert_eq!(counts, (2, 1));
+
+    // `--cache` holds every file and is shared the same way; a warm run parses nothing.
+    let store = tempfile::tempdir().unwrap();
+    let flags = ["--cache", "--cache-location", store.path().to_str().unwrap()];
+    let (cold, cold_counts) = recursive_run(dir.path(), &flags);
+    assert_eq!(cold_counts, (2, 4));
+    let (warm, warm_counts) = recursive_run(dir.path(), &flags);
+    assert_eq!(warm_counts, (6, 0));
+    assert_eq!(cold, report);
+    assert_eq!(warm, report);
+}
+
+fn root_count(report: &str) -> usize {
+    let report: serde_json::Value = serde_json::from_str(report).unwrap();
+    report["roots"].as_array().unwrap().len()
+}

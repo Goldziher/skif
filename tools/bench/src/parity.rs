@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
-use skif_js::{IncompleteScopeGlobs, is_out_dir, source_candidates};
+use skif_js::{IncompleteScopeGlobs, is_out_dir, n8n_load_paths, source_candidates};
 use skif_js_syntax::{ImportKind, ParseOptions, parse_module};
 use skif_workspace::{OsFs, declared_member_dirs};
 
@@ -201,7 +201,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 16] = [
     },
     Deviation {
         id: PUBLISHED_SOURCE,
-        reason: "knip reports these TypeScript files as unused, and the package that holds each one publishes its path with a built extension (`.js`, `.mjs`, `.cjs`, `.jsx` or a `.d.ts` variant) or without one in `main`, `module`, `source`, `types`, `typings`, `browser`, `bin` or an `exports` leaf, where `*` matches any part of the path; a path below a build directory (`dist`, `lib`, `out`, `esm` and the like, also `lib-commonjs`) is also the path below `src`. skif makes the source of a published path an entry; knip maps a published path to source only through a tsconfig `outDir`. The harness checks the published path, not why skif has no finding for each file, nor the files only such an entry reaches",
+        reason: "knip reports these files as unused, and each is either a TypeScript file whose package publishes its path with a built extension (`.js`, `.mjs`, `.cjs`, `.jsx` or a `.d.ts` variant) or without one in `main`, `module`, `source`, `types`, `typings`, `browser`, `bin`, an `exports` leaf or, in an n8n node package, `n8n.nodes` and `n8n.credentials`, where `*` matches any part of the path and a path below a build directory (`dist`, `lib`, `out`, `esm` and the like, also `lib-commonjs`) is also the path below `src` (for the n8n fields, the path without the build directory), or a file such a source imports by relative path, directly or through other files only knip reports unused. skif makes the source of a published path an entry and uses what it imports; knip maps a published path to source only through a tsconfig `outDir` and does not read the n8n fields. The harness checks the published path and the relative imports, not why skif has no finding for each file; exports, types and members of these files stay compared",
     },
     Deviation {
         id: IN_KNIP_UNUSED_FILE,
@@ -777,8 +777,8 @@ fn collect_strings(value: &Value, out: &mut Vec<String>) {
     }
 }
 
-/// The file paths a manifest publishes: [`PUBLISHED_FIELDS`], every `bin` and every `exports` leaf but the catch-all
-/// `./*`.
+/// The file paths a manifest publishes: [`PUBLISHED_FIELDS`], every `bin`, every `exports` leaf but the catch-all `./*`
+/// and the node and credential files of an n8n node package as skif reads them (`skif_js::n8n_load_paths`).
 fn published_paths(manifest: &Value) -> Vec<String> {
     let mut paths: Vec<String> = PUBLISHED_FIELDS
         .iter()
@@ -797,7 +797,117 @@ fn published_paths(manifest: &Value) -> Vec<String> {
                 .filter(|leaf| leaf.starts_with("./") && leaf != "./*"),
         );
     }
+    paths.extend(n8n_load_paths(manifest));
     paths
+}
+
+/// The extensions a relative specifier without one resolves with, in the order skif's resolver tries them.
+const RESOLVED_EXTENSIONS: [&str; 8] = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"];
+
+/// The JavaScript extensions a relative specifier may name for its TypeScript twin (`./a.js` for `a.ts`).
+const BUILT_EXTENSIONS: [&str; 4] = [".js", ".jsx", ".mjs", ".cjs"];
+
+/// `specifier` (`./a`, `../b/c.js`) joined to the directory `dir`, both relative to the checkout; `None` when it leaves
+/// the checkout.
+fn join_relative(dir: &str, specifier: &str) -> Option<String> {
+    let mut parts: Vec<&str> = dir.split('/').filter(|part| !part.is_empty()).collect();
+    for part in specifier.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            name => parts.push(name),
+        }
+    }
+    Some(parts.join("/"))
+}
+
+/// The file a relative specifier in a file of `dir` names: the path itself, the path with one of
+/// [`RESOLVED_EXTENSIONS`] (a [`BUILT_EXTENSIONS`] one also replaced by them), or the `index` file of the directory it
+/// names.
+fn resolve_relative(dir: &str, specifier: &str, is_file: &FileProbe<'_>) -> Option<String> {
+    let path = join_relative(dir, specifier)?;
+    let stem = BUILT_EXTENSIONS
+        .iter()
+        .find_map(|extension| path.strip_suffix(extension))
+        .unwrap_or(&path);
+    let index = if path.is_empty() {
+        "index".to_owned()
+    } else {
+        format!("{path}/index")
+    };
+    std::iter::once(path.clone())
+        .chain(RESOLVED_EXTENSIONS.iter().map(|extension| format!("{stem}{extension}")))
+        .chain(
+            RESOLVED_EXTENSIONS
+                .iter()
+                .map(|extension| format!("{index}{extension}")),
+        )
+        .find(|candidate| is_file(candidate))
+}
+
+/// The files a source file imports by relative specifier, as skif's parser reads its imports, requires, re-exports and
+/// dynamic imports; globs, test-runner mocks and specifiers with a query (`?raw`) are left out. Empty for a file it
+/// cannot parse.
+fn relative_imports(path: &str, source: &str, is_file: &FileProbe<'_>) -> Vec<String> {
+    let options = ParseOptions {
+        in_file_references: false,
+        member_accesses: false,
+    };
+    let Ok(module) = parse_module(Path::new(path), source, &options) else {
+        return Vec::new();
+    };
+    let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
+    module
+        .imports
+        .iter()
+        .filter(|import| {
+            !matches!(
+                import.kind,
+                ImportKind::ImportMetaGlob | ImportKind::SourceGlob | ImportKind::Mock
+            )
+        })
+        .map(|import| import.specifier.as_str())
+        .filter(|specifier| {
+            !specifier.contains('?')
+                && (matches!(*specifier, "." | "..") || specifier.starts_with("./") || specifier.starts_with("../"))
+        })
+        .filter_map(|specifier| resolve_relative(dir, specifier, is_file))
+        .collect()
+}
+
+/// The files only knip reports as unused (`unused` but not `other_unused`) that one of them whose path its package
+/// publishes ([`Layout::publishes_source_of`]) reaches by relative imports ([`relative_imports`]), directly or through
+/// other such files; the published sources themselves are left out. skif makes a published source an entry, so it
+/// uses every file the entry imports; knip, which reads no entry there, reports the whole chain. `read` gives a file's
+/// source; a file it cannot read imports nothing.
+fn published_reach(
+    unused: &BTreeSet<String>,
+    other_unused: &BTreeSet<String>,
+    layout: &Layout<'_>,
+    read: &dyn Fn(&str) -> Option<String>,
+) -> BTreeSet<String> {
+    let only: BTreeSet<&str> = unused.difference(other_unused).map(String::as_str).collect();
+    let mut pending: Vec<&str> = only
+        .iter()
+        .copied()
+        .filter(|file| layout.publishes_source_of(file))
+        .collect();
+    let mut seen: BTreeSet<&str> = pending.iter().copied().collect();
+    let mut reached = BTreeSet::new();
+    while let Some(file) = pending.pop() {
+        let Some(source) = read(file) else { continue };
+        for target in relative_imports(file, &source, layout.is_file) {
+            if let Some(&found) = only.get(target.as_str())
+                && seen.insert(found)
+            {
+                reached.insert(found.to_owned());
+                pending.push(found);
+            }
+        }
+    }
+    reached
 }
 
 /// The parsed `package.json` of a directory of the checkout (`""` is the root): `None` when there is none, `Null` when
@@ -961,6 +1071,8 @@ struct Classifier<'a> {
     skif_unused_imports: &'a BTreeSet<String>,
     /// The package directories of the roots of a recursive skif run (`skif_root_packages`).
     skif_root_packages: &'a BTreeSet<String>,
+    /// The files only knip reports as unused that a published source reaches (`published_reach`).
+    published_reach: &'a BTreeSet<String>,
     /// knip ran with the scratch root manifest of a Rush repository (`knip-root = "rush"`).
     rush_root: bool,
     layout: &'a Layout<'a>,
@@ -999,12 +1111,17 @@ impl Classifier<'_> {
             .or_else(|| not_judged(category, key, self.not_judged, &is_package).then_some(NOT_JUDGED))
             .or_else(|| self.layout.in_skipped_directory(path).then_some(SKIPPED_DIRECTORY))
             .or_else(|| self.non_member_project(category, key).then_some(NON_MEMBER_PROJECT))
-            .or_else(|| (category == "files" && self.layout.publishes_source_of(path)).then_some(PUBLISHED_SOURCE))
+            .or_else(|| (category == "files" && self.is_published_source(path)).then_some(PUBLISHED_SOURCE))
             .or_else(|| in_unused_file(category, path, self.skif_unused_files).then_some(IN_SKIF_UNUSED_FILE))
             .or_else(|| {
                 used_in_unused_file(self.knip_unused_imports, category, key).then_some(USED_IN_KNIP_UNUSED_FILE)
             })
             .or_else(config_error)
+    }
+
+    /// Whether a file only knip reports as unused is a published source or one that a published source reaches.
+    fn is_published_source(&self, path: &str) -> bool {
+        self.layout.publishes_source_of(path) || self.published_reach.contains(path)
     }
 
     /// Whether a finding only skif reports sits on a `package.json` that is not one of knip's workspaces.
@@ -1503,6 +1620,7 @@ struct Facts {
     knip_manifests: BTreeSet<String>,
     knip_unused_imports: BTreeSet<String>,
     skif_unused_imports: BTreeSet<String>,
+    published_reach: BTreeSet<String>,
 }
 
 impl Facts {
@@ -1524,6 +1642,7 @@ impl Facts {
             knip_manifests: knip_manifests(knip),
             knip_unused_imports: unused_file_imports(knip_unused, skif_unused, &read_source, &workspace_of),
             skif_unused_imports: unused_file_imports(skif_unused, knip_unused, &read_source, &workspace_of),
+            published_reach: published_reach(knip_unused, skif_unused, layout, &read_source),
         }
     }
 
@@ -1548,6 +1667,7 @@ impl Facts {
             knip_unused_imports: &self.knip_unused_imports,
             skif_unused_imports: &self.skif_unused_imports,
             skif_root_packages: &self.skif_root_packages,
+            published_reach: &self.published_reach,
             rush_root,
             layout,
         }
@@ -2727,6 +2847,7 @@ mod tests {
             knip_unused_imports: &none,
             skif_unused_imports: &none,
             skif_root_packages: &none,
+            published_reach: &none,
             rush_root: false,
             layout: &layout,
         });
@@ -2922,6 +3043,7 @@ mod tests {
             knip_unused_imports: &none,
             skif_unused_imports: &none,
             skif_root_packages: &roots,
+            published_reach: &none,
             rush_root: false,
             layout: &layout,
         };
@@ -3145,6 +3267,124 @@ mod tests {
         );
     }
 
+    /// The manifests of a checkout with an n8n node package in `packages/nodes`, by directory.
+    fn n8n_manifests() -> impl Fn(&str) -> Option<Rc<Value>> {
+        let read: BTreeMap<String, Rc<Value>> = [
+            ("", json!({ "name": "root" })),
+            (
+                "packages/nodes",
+                json!({ "name": "nodes", "main": "index.js", "n8n": {
+                    "nodes": ["dist/nodes/A/A.node.js"],
+                    "credentials": ["dist/credentials/AApi.credentials.js"],
+                } }),
+            ),
+        ]
+        .into_iter()
+        .map(|(dir, manifest)| (dir.to_owned(), Rc::new(manifest)))
+        .collect();
+        move |dir: &str| read.get(dir).cloned()
+    }
+
+    #[test]
+    fn the_node_and_credential_files_of_an_n8n_node_package_are_published_sources() {
+        let manifest = n8n_manifests();
+        let files = strings(&[
+            "packages/nodes/nodes/A/A.node.ts",
+            "packages/nodes/credentials/AApi.credentials.ts",
+            "packages/nodes/nodes/A/GenericFunctions.ts",
+            "packages/nodes/src/nodes/B/B.node.ts",
+        ]);
+        let is_file = |file: &str| files.contains(file);
+        let layout = Layout::new(strings(&["packages/nodes"]), &manifest, &is_file);
+        assert!(
+            layout.publishes_source_of("packages/nodes/nodes/A/A.node.ts"),
+            "`dist/nodes/A/A.node.js` is built from `nodes/A/A.node.ts`"
+        );
+        assert!(layout.publishes_source_of("packages/nodes/credentials/AApi.credentials.ts"));
+        assert!(
+            !layout.publishes_source_of("packages/nodes/nodes/A/GenericFunctions.ts"),
+            "a file the package does not list"
+        );
+        assert!(
+            !layout.publishes_source_of("packages/nodes/src/nodes/B/B.node.ts"),
+            "a node the package does not list"
+        );
+    }
+
+    #[test]
+    fn files_a_published_source_reaches_through_files_only_knip_reports_unused_are_published_sources() {
+        let manifest = n8n_manifests();
+        let sources: BTreeMap<&str, &str> = [
+            (
+                "packages/nodes/nodes/A/A.node.ts",
+                "import { request } from './GenericFunctions';\n\
+                 import * as fields from './descriptions';\n\
+                 import { both } from '../Both';\n\
+                 import text from './Raw.ts?raw';\n\
+                 import { outside } from '../../../../../outside';\n",
+            ),
+            (
+                "packages/nodes/nodes/A/GenericFunctions.ts",
+                "export const request = 1;\n",
+            ),
+            (
+                "packages/nodes/nodes/A/descriptions/index.ts",
+                "export * from './Fields.js';\n",
+            ),
+            ("packages/nodes/nodes/A/descriptions/Fields.ts", "export const a = 1;\n"),
+            ("packages/nodes/nodes/A/Raw.ts", "export const raw = 1;\n"),
+            ("packages/nodes/nodes/Both.ts", "import { other } from './Other';\n"),
+            ("packages/nodes/nodes/Other.ts", "export const other = 1;\n"),
+        ]
+        .into_iter()
+        .collect();
+        let is_file = |file: &str| sources.contains_key(file);
+        let layout = Layout::new(strings(&["packages/nodes"]), &manifest, &is_file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let knip_unused: BTreeSet<String> = sources.keys().map(|file| (*file).to_owned()).collect();
+        let skif_unused = strings(&["packages/nodes/nodes/Both.ts"]);
+        assert_eq!(
+            published_reach(&knip_unused, &skif_unused, &layout, &read),
+            strings(&[
+                "packages/nodes/nodes/A/GenericFunctions.ts",
+                "packages/nodes/nodes/A/descriptions/Fields.ts",
+                "packages/nodes/nodes/A/descriptions/index.ts",
+            ]),
+            "a file skif reports unused too ends the chain, and a `?raw` import reads no module"
+        );
+        assert_eq!(
+            published_reach(&knip_unused, &knip_unused, &layout, &read),
+            BTreeSet::new(),
+            "only files knip alone reports unused"
+        );
+    }
+
+    #[test]
+    fn relative_specifiers_resolve_with_extensions_twins_and_index_files() {
+        let files = strings(&["src/a.ts", "src/b/index.tsx", "src/c.mts", "index.ts"]);
+        let is_file = |file: &str| files.contains(file);
+        assert_eq!(resolve_relative("src", "./a", &is_file).as_deref(), Some("src/a.ts"));
+        assert_eq!(
+            resolve_relative("src/b", "../a.js", &is_file).as_deref(),
+            Some("src/a.ts")
+        );
+        assert_eq!(
+            resolve_relative("src", "./b", &is_file).as_deref(),
+            Some("src/b/index.tsx")
+        );
+        assert_eq!(
+            resolve_relative("src", "./c.mjs", &is_file).as_deref(),
+            Some("src/c.mts")
+        );
+        assert_eq!(resolve_relative("src", "..", &is_file).as_deref(), Some("index.ts"));
+        assert_eq!(resolve_relative("src", "./missing", &is_file), None);
+        assert_eq!(
+            resolve_relative("src", "../../a", &is_file),
+            None,
+            "outside the checkout"
+        );
+    }
+
     #[test]
     fn a_star_matches_one_or_more_characters_across_directories() {
         assert!(wildcard_match("schematics/*", "schematics/a/b/index"));
@@ -3215,6 +3455,7 @@ mod tests {
             knip_unused_imports: &none,
             skif_unused_imports: &none,
             skif_root_packages: &none,
+            published_reach: &none,
             rush_root: false,
             layout: &layout,
         };
@@ -3356,6 +3597,7 @@ vi.mock("mocked-package");
             knip_unused_imports: &imports,
             skif_unused_imports: &none,
             skif_root_packages: &none,
+            published_reach: &none,
             rush_root: false,
             layout: &layout,
         };
@@ -3449,6 +3691,7 @@ vi.mock("mocked-package");
             knip_unused_imports: &none,
             skif_unused_imports: &imports,
             skif_root_packages: &none,
+            published_reach: &none,
             rush_root: false,
             layout: &layout,
         };
@@ -3506,6 +3749,7 @@ vi.mock("mocked-package");
             knip_unused_imports: &none,
             skif_unused_imports: &none,
             skif_root_packages: &none,
+            published_reach: &none,
             rush_root,
             layout: &layout,
         };
@@ -3584,6 +3828,7 @@ vi.mock("mocked-package");
             knip_unused_imports: &none,
             skif_unused_imports: &none,
             skif_root_packages: &none,
+            published_reach: &none,
             rush_root: false,
             layout: &layout,
         };
@@ -3641,6 +3886,7 @@ vi.mock("mocked-package");
             knip_unused_imports: &none,
             skif_unused_imports: &none,
             skif_root_packages: &none,
+            published_reach: &none,
             rush_root: false,
             layout: &layout,
         };
