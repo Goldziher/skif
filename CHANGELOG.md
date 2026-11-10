@@ -118,14 +118,18 @@ All notable changes to this project are documented here. The format follows
   ([#27](https://github.com/Goldziher/skif/issues/27), [#95](https://github.com/Goldziher/skif/issues/95)).
 - The knip comparison reads the `scope` of each `incomplete-packages` entry and sets apart a file, export, type or
   member of a narrowed package only when the scope's globs match its file (dependencies stay unjudged in the whole
-  package); applies `non-member-project` to every in-file issue type; sets apart knip-only dependencies that only
-  files knip reports unused import (`used-in-knip-unused-file`, from an import scan of those files) and knip's findings
-  in the root files of a Rush repository (`rush-root-file`); and maps published paths below a build directory and
-  without an extension to their sources in `published-source`. rushstack is installed with `install-run-rush.js`, and
+  package); applies `non-member-project` to every in-file issue type, but keeps exports, types, members and
+  duplicates compared in a project a recursive run lints as a package of one of its roots; sets apart knip-only
+  dependencies that only files knip alone reports unused import (`used-in-knip-unused-file`, from an import scan of
+  those files) and knip's findings in the root files of a Rush repository (`rush-root-file`); and maps published paths
+  below a build directory and without an extension to their sources in `published-source`, a path without `*` to the
+  first existing source only, as skif does. rushstack is installed with `install-run-rush.js`, and
   knip runs in its checkout with the scratch root manifest there only while knip runs, so it reads the installed
   `node_modules`. A corpus `build-command` runs after the install (n8n builds its `@n8n/*-config` packages and
-  `@n8n/constants`), the parity and syncpack runs capture skif's output under their own names in the scratch
-  directory, and `bench:publish` writes skip reasons as code spans with whitespace collapsed, so `summary.md` passes
+  `@n8n/constants`) and the install marker records the install and build commands; `corpus fetch`, `run`, `parity`
+  and `syncpack-diff` lock each checkout for their whole pass over it and fail at once when another run holds it; the
+  parity and syncpack runs capture skif's output under their own names in the scratch directory, and `bench:publish`
+  writes skip reasons as code spans with whitespace collapsed (an empty one as `(empty)`), so `summary.md` passes
   `format:check`
   ([ADR 0100](adrs/0100-knip-comparison-narrowed-scopes-rush-installs-and-dependencies-of-unused-files.md),
   [#27](https://github.com/Goldziher/skif/issues/27)).
