@@ -158,6 +158,8 @@ All notable changes to this project are documented here. The format follows
   uses it as a registered component" in text) rather than as line 1 of the template's file, follows an export that an
   `export * from` forwards through the re-exporting module's users rather than calling it no export of that module,
   and describes an `export *` importer as re-exporting every export.
+- A Prisma `generator` whose `provider` is the Python or Go client (`prisma-client-py`, `prisma-client-go`) names no
+  npm package, so it is no longer an `unlisted-dependencies` finding at the schema.
 
 ### Changed
 
