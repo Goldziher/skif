@@ -1,8 +1,9 @@
 //! Serverless Framework: the handler file of every function, local plugins and plugin packages, and the esbuild
 //! `inject` files of `serverless.yml`. A `${file(./x.yml)}` or `${file(./x.yml):key}` variable is read from that file.
 //! In a handler, a `${self:a.b}` variable is replaced by the string the config holds there, else by its quoted fallback
-//! (`${opt:stage, 'dev'}`), and any other variable (`${opt:stage}`, `${env:DIR}`), known only when the CLI runs, by a
-//! wildcard: `**` for a whole path segment, `*` within one. A handler may be a glob; one that names any file (`*.main`)
+//! (`${self:custom.dir, 'src'}`), and any other variable (`${opt:stage}`, `${env:DIR}`, also `${opt:stage, 'dev'}`,
+//! whose fallback is only one of its values), known only when the CLI runs, by a wildcard: `**` for a whole path
+//! segment, `*` within one. A handler may be a glob; one that names any file (`*.main`)
 //! is skipped.
 
 use std::borrow::Cow;
@@ -91,7 +92,8 @@ type Bounds = (bool, bool);
 const WHOLE: Bounds = (true, true);
 
 /// `text` with every `${…}` variable replaced: a `${self:a.b}` by the string at `a.b` of the config `root`, itself
-/// expanded, else by the variable's quoted fallback, and anything else (another source, a missing or non-string value,
+/// expanded, else by the variable's quoted fallback, and anything else (a source read when the CLI runs, such as
+/// `opt:`, `env:`, `sls:`, `param:` or `ssm:`, whose fallback is only one of its values; a missing or non-string value,
 /// a nested variable) by a wildcard: `**` when the variable fills a path segment, as it may stand for several, and `*`
 /// within one. `bounds` says whether `text` itself starts and ends a segment.
 fn expand_variables(text: &str, root: &ConfigValue, depth: u8, bounds: Bounds) -> String {
@@ -137,9 +139,10 @@ fn closing_brace(text: &str) -> Option<usize> {
 /// not known. See [`expand_variables`].
 fn variable_value(inner: &str, root: &ConfigValue, depth: u8, bounds: Bounds) -> Option<String> {
     let (reference, fallback) = inner.split_once(',').unwrap_or((inner, ""));
-    let resolved = reference
-        .trim()
-        .strip_prefix("self:")
+    // Only a reference into the config itself is static; the fallback of a CLI option or an environment variable
+    // (`${opt:stage, 'dev'}`) is one of the values it takes, and the others are as likely.
+    let path = reference.trim().strip_prefix("self:")?;
+    let resolved = Some(path)
         .filter(|path| depth < MAX_VARIABLE_DEPTH && !path.is_empty() && !path.contains(['$', '{']))
         .and_then(|path| get_in(root, &path.split('.').collect::<Vec<_>>()))
         .and_then(ConfigValue::as_str)

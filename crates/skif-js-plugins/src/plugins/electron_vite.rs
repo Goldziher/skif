@@ -2,6 +2,7 @@
 //! `src/<name>/index` stays one, as in knip.
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
+use crate::plugins::vite;
 use crate::support::{get_in, html_entries, leaf_strings, production_entries};
 
 /// The `electron-vite` plugin.
@@ -35,9 +36,11 @@ impl Plugin for ElectronVite {
         let mut out = Vec::new();
         for (name, default) in SECTIONS {
             let mut declared = Vec::new();
-            for path in [&["build", "rollupOptions", "input"][..], &["build", "lib", "entry"]] {
-                if let Some(value) = config.value.get(name).and_then(|section| get_in(section, path)) {
-                    declared.extend(leaf_strings(value));
+            if let Some(section) = config.value.get(name) {
+                for path in [vite::build_input_key(section), &["build", "lib", "entry"]] {
+                    if let Some(value) = get_in(section, path) {
+                        declared.extend(leaf_strings(value));
+                    }
                 }
             }
             let patterns = if declared.is_empty() { vec![default] } else { declared };

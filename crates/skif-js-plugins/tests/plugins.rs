@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 use skif_config::{PluginConfig, PluginOptions};
 use skif_core::MemoryFs;
 use skif_js_plugins::registry;
-use skif_js_plugins::{DepRef, PluginContext, PluginId, PluginOutput, resolve_plugins};
+use skif_js_plugins::{DepRef, IncompleteCause, PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
@@ -416,6 +416,29 @@ fn typescript() {
     assert!(out.provided_binaries.contains(&"tsc".to_string()));
 }
 
+/// A `types` entry that a local `typeRoots` directory holds (`types/custom/index.d.ts`, or a folder with a
+/// `package.json`), relative to the config declaring both, is no package; `node_modules/@types` roots and entries no
+/// local root holds still are.
+#[test]
+fn typescript_types_found_in_local_type_roots_name_no_package() {
+    let results = resolve(
+        &[
+            ("tsconfig.json", r#"{"extends":"./config/tsconfig.base.json"}"#),
+            (
+                "config/tsconfig.base.json",
+                r#"{"compilerOptions":{"typeRoots":["../types","./@types","../node_modules/@types"],"types":["custom","env","node","vitest/globals"]}}"#,
+            ),
+            ("types/custom/index.d.ts", "declare const custom: string;\n"),
+            ("config/@types/env/package.json", r#"{"name":"env","types":"env.d.ts"}"#),
+            ("config/@types/env/env.d.ts", "declare const env: string;\n"),
+            ("node_modules/@types/node/index.d.ts", ""),
+        ],
+        &["typescript"],
+    );
+    let out = output(&results, "typescript");
+    assert_eq!(deps(out), BTreeSet::from(["node", "vitest"]));
+}
+
 #[test]
 fn eslint_legacy() {
     let results = resolve(
@@ -540,6 +563,60 @@ fn vite() {
     assert_deps(out, &["react", "lodash"]);
 }
 
+/// Vite 8 takes the build input from `build.rolldownOptions`, before the `build.rollupOptions` it still accepts; an
+/// input it computes leaves the entries incomplete, as for Rollup. electron-vite sections read it the same way.
+#[test]
+fn vite_reads_the_rolldown_build_input() {
+    let results = resolve(
+        &[
+            (
+                "vite.config.js",
+                r#"export default { build: { rolldownOptions: { input: { admin: "admin.html", worker: "src/worker.js" } }, rollupOptions: { input: "src/stale.js" } } };"#,
+            ),
+            (
+                "admin.html",
+                r#"<html><script type="module" src="/src/admin/index.js"></script></html>"#,
+            ),
+        ],
+        &["vite"],
+    );
+    let out = output(&results, "vite");
+    let production: BTreeSet<&str> = out.production_entries.iter().map(String::as_str).collect();
+    assert_eq!(production, BTreeSet::from(["src/admin/index.js", "src/worker.js"]));
+    assert!(!out.entries_incomplete, "{:?}", out.incomplete_reasons);
+
+    let computed = resolve(
+        &[(
+            "vite.config.js",
+            "import path from 'node:path';\nconst PAGES = ['a', 'b'];\nexport default { build: { rolldownOptions: { input: Object.fromEntries(PAGES.map((p) => [p, path.resolve(__dirname, `${p}.html`)]).concat(process.env.X)) } } };\n",
+        )],
+        &["vite"],
+    );
+    let out = output(&computed, "vite");
+    assert!(out.entries_incomplete);
+    assert!(
+        out.incomplete_reasons
+            .iter()
+            .any(|reason| reason.cause == IncompleteCause::ComputedEntries),
+        "{:?}",
+        out.incomplete_reasons
+    );
+
+    let electron = resolve(
+        &[(
+            "electron.vite.config.ts",
+            r#"export default { main: { build: { rolldownOptions: { input: "src/main/app.ts" } } } };"#,
+        )],
+        &["electron-vite"],
+    );
+    let out = output(&electron, "electron-vite");
+    assert!(
+        out.production_entries.iter().any(|entry| entry == "src/main/app.ts"),
+        "{:?}",
+        out.production_entries
+    );
+}
+
 #[test]
 fn vite_root_moves_index_html_and_rooted_paths() {
     // mastra's factory-ui: `root: 'src'` serves `src/index.html`, whose `/main.tsx` is `src/main.tsx`.
@@ -623,6 +700,54 @@ fn vitest() {
     assert_entries(&out.entries, &["test/setup.ts", "tests/**/*.test.ts"]);
     assert!(out.entries.iter().any(|e| e.starts_with("**/*.{bench,test")));
     assert_absent(out, &["default"]);
+}
+
+/// Vitest's built-in reporters, as its reporter registry and knip list them, name no package; the `html` reporter
+/// needs `@vitest/ui`, and the `nuxt` environment comes with `@nuxt/test-utils`, so both are optional.
+#[test]
+fn vitest_builtin_reporters_and_the_nuxt_environment_are_not_required_packages() {
+    let reporters = [
+        "agent",
+        "basic",
+        "blob",
+        "default",
+        "dot",
+        "github-actions",
+        "hanging-process",
+        "html",
+        "json",
+        "junit",
+        "minimal",
+        "tap",
+        "tap-flat",
+        "tree",
+        "verbose",
+    ];
+    let list = reporters.map(|name| format!("\"{name}\"")).join(", ");
+    let source = format!(
+        "export default defineConfig({{ test: {{ environment: \"nuxt\", reporters: [{list}, [\"vitest-sonar-reporter\", {{}}]], \
+         projects: [{{ test: {{ name: \"n\", environment: \"nuxt\" }} }}] }} }});"
+    );
+    let results = resolve(&[("vitest.config.ts", source.as_str())], &["vitest"]);
+    let out = output(&results, "vitest");
+    let mut required: Vec<&str> = out
+        .referenced_dependencies
+        .iter()
+        .filter(|dep| !dep.optional)
+        .map(|dep| dep.name.as_str())
+        .collect();
+    required.sort_unstable();
+    required.dedup();
+    assert_eq!(required, ["vitest-sonar-reporter"]);
+    let mut optional: Vec<&str> = out
+        .referenced_dependencies
+        .iter()
+        .filter(|dep| dep.optional)
+        .map(|dep| dep.name.as_str())
+        .collect();
+    optional.sort_unstable();
+    optional.dedup();
+    assert_eq!(optional, ["@vitest/ui", "vitest-environment-nuxt"]);
 }
 
 #[test]
@@ -1846,6 +1971,14 @@ generator zod {
   provider = "zod-prisma-types"
 }
 
+generator py {
+  provider = "prisma-client-py"
+}
+
+generator go {
+  provider = "prisma-client-go"
+}
+
 generator erd {
   provider = "npx prisma-erd-generator"
 }
@@ -1857,7 +1990,10 @@ datasource db {
     let results = resolve(&[("prisma/schema.prisma", schema)], &["prisma"]);
     let out = output(&results, "prisma");
     assert_deps(out, &["prisma-kysely", "zod-prisma-types"]);
-    assert_absent(out, &["prisma-client-js", "postgresql", "commented-out", "npx"]);
+    assert_absent(
+        out,
+        &["prisma-client-js", "prisma-client-py", "prisma-client-go", "postgresql", "commented-out", "npx"],
+    );
     let manifest = r#"{"name":"app","prisma":{"schema":"db/main.prisma"}}"#;
     let results = resolve(
         &[
@@ -3311,7 +3447,7 @@ fn serverless_framework_handlers_plugins_and_file_variables() {
         &[
             (
                 "serverless.yml",
-                "service: api\nplugins:\n  - serverless-offline\n  - ./plugins/local.js\ncustom:\n  esbuild:\n    inject: [./shims.js]\n  dir: ${self:custom.base}/handlers\n  base: src\nfunctions:\n  hello:\n    handler: src/hello.main\n  typed:\n    handler: src/typed.ts.handler\n  more: ${file(./functions.yml):extra}\n  dynamic:\n    handler: ${self:custom.dir}/dynamic.main\n  staged:\n    handler: src/${opt:stage, 'dev'}/staged.main\n  missing:\n    handler: ${self:custom.none}/missing.main\n  fallback:\n    handler: ${self:custom.none, 'lib'}/fallback.main\n  within:\n    handler: src/fn-${opt:stage}.main\n  glob:\n    handler: src/jobs/*.main\n  any:\n    handler: ${opt:file}.main\n  anywhere:\n    handler: ${opt:dir}/${opt:file}.main\n",
+                "service: api\nplugins:\n  - serverless-offline\n  - ./plugins/local.js\ncustom:\n  esbuild:\n    inject: [./shims.js]\n  dir: ${self:custom.base}/handlers\n  base: src\nfunctions:\n  hello:\n    handler: src/hello.main\n  typed:\n    handler: src/typed.ts.handler\n  more: ${file(./functions.yml):extra}\n  dynamic:\n    handler: ${self:custom.dir}/dynamic.main\n  staged:\n    handler: src/${opt:stage, 'dev'}/staged.main\n  missing:\n    handler: ${self:custom.none}/missing.main\n  fallback:\n    handler: ${self:custom.none, 'lib'}/fallback.main\n  within:\n    handler: src/fn-${opt:stage}.main\n  envfallback:\n    handler: src/env-${env:FN, 'a'}.main\n  glob:\n    handler: src/jobs/*.main\n  any:\n    handler: ${opt:file}.main\n  anywhere:\n    handler: ${opt:dir}/${opt:file}.main\n",
             ),
             ("functions.yml", "extra:\n  handler: src/extra.run\n"),
         ],
@@ -3328,13 +3464,22 @@ fn serverless_framework_handlers_plugins_and_file_variables() {
             "shims.js",
             "src/extra.{js,ts}",
             "src/handlers/dynamic.{js,ts}",
-            "src/dev/staged.{js,ts}",
+            "src/**/staged.{js,ts}",
             "**/missing.{js,ts}",
             "lib/fallback.{js,ts}",
             "src/fn-*.{js,ts}",
+            "src/env-*.{js,ts}",
             "src/jobs/*.{js,ts}",
         ],
     );
+    // The fallback of a CLI option or an environment variable is one of its values, not the only one.
+    for one_stage in ["src/dev/staged.{js,ts}", "src/env-a.{js,ts}"] {
+        assert!(
+            !out.production_entries.iter().any(|entry| entry == one_stage),
+            "{one_stage}: {:?}",
+            out.production_entries
+        );
+    }
     for any_file in ["*.{js,ts}", "**/*.{js,ts}", "**.{js,ts}"] {
         assert!(
             !out.production_entries.iter().any(|entry| entry == any_file),
@@ -4465,6 +4610,46 @@ fn mise_file_tasks_are_entries_and_scripts() {
     );
 }
 
+/// An extensionless file task run by `node`, `bun`, `deno`, `tsx` or `ts-node` (also through `npx`) is JavaScript:
+/// the relative modules it loads are entries. One for another interpreter is not read.
+#[test]
+fn mise_extensionless_javascript_file_tasks_make_what_they_load_entries() {
+    let results = resolve(
+        &[
+            ("mise.toml", "[tools]\nnode = \"22\"\n"),
+            (
+                "mise-tasks/gen",
+                "#!/usr/bin/env node\nconst t = require(\"../src/t.js\");\nimport(\"./lib/util\");\nrequire(\"luxon\");\n",
+            ),
+            (
+                "mise-tasks/check",
+                "#!/usr/bin/env -S npx -y tsx\nimport { a } from \"../src/a\";\nconst n: number = a;\n",
+            ),
+            ("mise-tasks/py", "#!/usr/bin/env python3\nimport x from \"../src/never.js\"\n"),
+        ],
+        &[],
+    );
+    let out = output(&results, "mise");
+    assert_entries(
+        &out.entries,
+        &[
+            "src/t.js",
+            "mise-tasks/lib/util{,/index}.{js,mjs,cjs,jsx,ts,mts,cts,tsx}",
+            "src/a{,/index}.{js,mjs,cjs,jsx,ts,mts,cts,tsx}",
+        ],
+    );
+    assert!(
+        !out.entries.iter().any(|entry| entry.contains("never") || entry.contains("luxon")),
+        "{:?}",
+        out.entries
+    );
+    assert!(
+        out.referenced_binaries.contains(&"tsx".to_owned()),
+        "{:?}",
+        out.referenced_binaries
+    );
+}
+
 #[test]
 fn mise_task_includes_replace_the_default_file_task_dirs() {
     let results = resolve(
@@ -5402,6 +5587,74 @@ fn ci_and_hook_commands_judge_only_binaries_reached_through_a_package_manager_or
     // Every binary is still a credit.
     let referenced = &output(&results, "github-actions").referenced_binaries;
     assert!(referenced.iter().any(|name| name == "shellcheck"), "{referenced:?}");
+}
+
+/// The commands of MCP servers, Tauri, Travis, Railway and mise run machine tools: as knip's `optionalBinaries` has
+/// it, a binary they run by name is only a credit, and one reached through a package manager is judged. A mise file
+/// task's binaries are recorded with the task file.
+#[test]
+fn machine_tool_commands_judge_only_binaries_reached_through_a_package_manager() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"app","repository":"github:acme/app"}"#,
+        ),
+        (
+            ".mcp.json",
+            r#"{"mcpServers":{"py":{"command":"uvx","args":["some-server"]},"index":{"command":"code-index"},"own":{"command":"pnpm","args":["exec","mcptool"]}}}"#,
+        ),
+        (
+            "src-tauri/tauri.conf.json",
+            r#"{"build":{"beforeDevCommand":"trunk serve && pnpm exec tauritool"}}"#,
+        ),
+        (
+            ".travis.yml",
+            "language: node_js\nbefore_install:\n  - codecov\n  - shellcheck x.sh && pnpm exec travistool\n",
+        ),
+        (
+            ".railway/railway.ts",
+            r#"import { service } from "railway/iac";
+service("api", { build: "cargo build && pnpm exec railtool" });"#,
+        ),
+        (
+            "mise.toml",
+            "[tasks.lint]\nrun = \"shellcheck x.sh && actionlint && pnpm exec misetool\"\n",
+        ),
+        (
+            "mise-tasks/deploy",
+            "#!/usr/bin/env bash\nuv run deploy.py\npre-commit run\npnpm exec filetool\n",
+        ),
+    ];
+    let results = resolve(&files, &["@tauri-apps/cli", "railway"]);
+    let runs = |id: &str| -> Vec<(String, String)> {
+        output(&results, id)
+            .run_binaries
+            .iter()
+            .map(|run| {
+                let from = run.from.strip_prefix(DIR).unwrap_or(run.from.as_path());
+                (run.name.clone(), from.to_string_lossy().replace('\\', "/"))
+            })
+            .collect()
+    };
+    let one = |name: &str, from: &str| vec![(name.to_owned(), from.to_owned())];
+    assert_eq!(runs("mcp"), one("mcptool", ".mcp.json"));
+    assert_eq!(runs("tauri"), one("tauritool", "src-tauri/tauri.conf.json"));
+    assert_eq!(runs("travis"), one("travistool", ".travis.yml"));
+    assert_eq!(runs("railway"), one("railtool", ".railway/railway.ts"));
+    let mut mise = runs("mise");
+    mise.sort();
+    assert_eq!(
+        mise,
+        [
+            ("filetool".to_owned(), "mise-tasks/deploy".to_owned()),
+            ("misetool".to_owned(), "mise.toml".to_owned()),
+        ]
+    );
+    // A binary run by name is still a credit.
+    for (id, name) in [("mcp", "code-index"), ("tauri", "trunk"), ("travis", "codecov"), ("railway", "cargo"), ("mise", "actionlint")] {
+        let referenced = &output(&results, id).referenced_binaries;
+        assert!(referenced.iter().any(|binary| binary == name), "{id}: {referenced:?}");
+    }
 }
 
 #[test]

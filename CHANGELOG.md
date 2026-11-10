@@ -168,6 +168,56 @@ All notable changes to this project are documented here. The format follows
   ([ADR 0083](adrs/0083-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
 - The types the signatures of an overloaded function mention are used when the function is, from every signature, not
   only the last one.
+- A classic (v1) `yarn.lock` is no longer read for the binaries and peers of packages that are not installed: it
+  records no `bin`, so every locked package looked like one without binaries, and the devDependencies whose binaries
+  scripts run were reported by `unused-dev-dependencies` (and removed by `--fix-unsafe`). Only a Berry lock, with its
+  `__metadata:` block, is read.
+- Judging the packages tool configs name decides once per config file whether git ignores it, not once per package
+  reading it and package it names: hundreds of packages extending one base `tsconfig` below a long `.gitignore` no
+  longer rebuild the ignore matchers thousands of times.
+- The commands of MCP servers (`.mcp.json` and the other MCP configs), Tauri's before commands, Travis CI, Railway
+  services and mise tasks judge only the binaries they reach through a package manager or a `node_modules/.bin`
+  path, as knip's `optionalBinaries` has it for the same plugins: `uvx`, `trunk`, `codecov` or `shellcheck` run by
+  name are no longer `unlisted-binaries` findings. The binaries a mise file task runs are reported at the task file,
+  not at `package.json`
+  ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
+- Vitest's built-in `agent`, `html` and `minimal` reporters name no package, so a config using them is no longer an
+  `unlisted-dependencies` finding; `html` credits `@vitest/ui`. The `nuxt` environment credits
+  `vitest-environment-nuxt` without requiring it, as `@nuxt/test-utils` brings it.
+- A `tsconfig` `types` entry that a local `typeRoots` directory of the same config holds (`types/custom/index.d.ts`)
+  is no longer an `unlisted-dependencies` finding: TypeScript loads it from there, not from a package.
+- An extensionless mise file task whose shebang runs it with `node`, `bun`, `deno`, `tsx` or `ts-node`
+  (`mise-tasks/gen` with `#!/usr/bin/env node`) is read as JavaScript: the relative modules it imports or requires are
+  entries, so they are no longer `unused-files`. The packages it imports are not credited yet.
+- A package that only a module of another workspace package names, which a config imports values from (an Oxlint
+  `extends: [base]` of a shared config package, a Stylelint spread of an imported base config), is judged against the
+  package owning that module: it is no longer reported unlisted at the importing config, nor unused in the shared
+  config package that lists it. `DepRef::from` of `skif-js-plugins` names that module
+  ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
+- The `vite`, `vitest` and `electron-vite` plugins read the build input of Vite 8 from `build.rolldownOptions.input`,
+  before `build.rollupOptions.input`, as knip does: its pages and modules are entries, so their files and the
+  packages they import are no longer reported unused, and a computed Rolldown input leaves the package's entries
+  incomplete, as a computed Rollup input does.
+- A component that `unplugin-vue-components` registers is no longer reported by `unused-files` when the package has a
+  `.vue` file whose template skif reads no tags in (`<template lang="pug">`) or whose script is TSX or JSX: such a
+  package credits every component it registers, as a package with `.tsx` files does, since a use skif cannot read
+  is assumed rather than a used file reported (and deleted by `--allow-remove-files`)
+  ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
+- A `bin` path that a script of the package may build is no longer reported by `stale-js-config` as naming no file:
+  besides build scripts and the compilers and bundlers ADR 0069 lists, a script running `bun build`, `vite build`,
+  `deno compile`, `parcel build`, `bunchee`, `microbundle`, `pkg` or `nexe`, or naming a path at or in `bin` as its
+  output (`--outfile bin/cli.js`, `-o bin/cli`), is a build step. knip reports no such path either; ADR 0069 said it
+  did ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
+- A Serverless handler with a variable read when the CLI runs and a fallback (`src/${opt:stage, 'dev'}/b.main`) is
+  an entry for every value of the variable (`src/**/b.{js,ts}`), not only its fallback, so the handlers of the other
+  stages are no longer `unused-files`. A `${self:…}` variable still takes its fallback
+  ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
+- `explain-usage` lists a template's use of a registered Vue component without a line (`line` 0 in JSON, "a template
+  uses it as a registered component" in text) rather than as line 1 of the template's file, follows an export that an
+  `export * from` forwards through the re-exporting module's users rather than calling it no export of that module,
+  and describes an `export *` importer as re-exporting every export.
+- A Prisma `generator` whose `provider` is the Python or Go client (`prisma-client-py`, `prisma-client-go`) names no
+  npm package, so it is no longer an `unlisted-dependencies` finding at the schema.
 
 ### Changed
 

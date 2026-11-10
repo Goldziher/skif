@@ -152,9 +152,16 @@ fn mutually_recursive_registered_components_are_no_cycle() {
 
 #[test]
 fn registered_components_are_all_used_where_files_without_tags_may_use_them() {
-    // A `.tsx` project file, a plugin `include` that names `.md` pages and a VitePress site may each use a component
-    // in a file skif records no tags for, so the declaration file credits every component it registers.
-    for case in ["vue-components-tsx", "vue-components-markdown", "vitepress-components"] {
+    // A `.tsx` project file, a plugin `include` that names `.md` pages, a VitePress site, a Pug template and a TSX
+    // script block may each use a component where skif records no tags, so the declaration file credits every
+    // component it registers.
+    for case in [
+        "vue-components-tsx",
+        "vue-components-markdown",
+        "vitepress-components",
+        "vue-components-pug",
+        "vue-components-jsx-script",
+    ] {
         let diagnostics = lint_fixture(case);
         assert_eq!(found(&diagnostics, "unused-files"), Vec::<String>::new(), "{case}");
     }

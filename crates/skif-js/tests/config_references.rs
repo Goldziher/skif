@@ -4,11 +4,13 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::io;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use skif_config::Config;
-use skif_core::{Diagnostic, FileSystem, MemoryFs};
+use skif_core::{Diagnostic, DirEntry, FileSystem, MemoryFs};
 use skif_js::{JsProvider, PluginSource};
 use skif_lint::{Registry, RunOptions, run_unsorted};
 use skif_workspace::Workspace;
@@ -366,4 +368,131 @@ fn a_config_that_imports_the_package_it_names_is_reported_once() {
         found(&diagnostics, "unlisted-dependencies"),
         ["prettier.config.mjs: prettier-plugin-tailwindcss"]
     );
+}
+
+/// A [`MemoryFs`] that counts the reads of the root `.gitignore`.
+struct GitignoreReads {
+    inner: MemoryFs,
+    reads: AtomicUsize,
+}
+
+impl FileSystem for GitignoreReads {
+    fn read_to_string(&self, path: &Path) -> io::Result<Arc<str>> {
+        if path == Path::new("/ws/.gitignore") {
+            self.reads.fetch_add(1, Ordering::Relaxed);
+        }
+        self.inner.read_to_string(path)
+    }
+
+    fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
+        self.inner.read_dir(path)
+    }
+
+    fn is_file(&self, path: &Path) -> bool {
+        self.inner.is_file(path)
+    }
+
+    fn is_dir(&self, path: &Path) -> bool {
+        self.inner.is_dir(path)
+    }
+}
+
+/// How often the root `.gitignore` is read when four packages extend one base config that names `types` packages.
+fn gitignore_reads(types: &[&str]) -> usize {
+    let types = types.iter().map(|name| format!("\"{name}\"")).collect::<Vec<_>>().join(",");
+    let base = format!(r#"{{"compilerOptions":{{"types":[{types}]}}}}"#);
+    let mut memory = MemoryFs::new()
+        .with_file(
+            "/ws/package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*"],"devDependencies":{"typescript":"5.0.0"}}"#,
+        )
+        .with_file("/ws/.gitignore", "dist\n")
+        .with_file("/ws/tsconfig.base.json", base);
+    for name in ["a", "b", "c", "d"] {
+        let dir = format!("/ws/packages/{name}");
+        memory.insert(
+            format!("{dir}/package.json"),
+            format!(r#"{{"name":"{name}","version":"1.0.0","main":"src/index.ts"}}"#),
+        );
+        memory.insert(format!("{dir}/tsconfig.json"), r#"{"extends":"../../tsconfig.base.json"}"#);
+        memory.insert(format!("{dir}/src/index.ts"), "export const a = 1;\n");
+    }
+    let config = Config::from_toml_str("").unwrap();
+    let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
+    let counting = Arc::new(GitignoreReads {
+        inner: memory,
+        reads: AtomicUsize::new(0),
+    });
+    let fs: Arc<dyn FileSystem> = counting.clone();
+    let provider = JsProvider::new(fs).with_input_source(Arc::new(PluginSource::new(config.js.plugins.clone())));
+    let registry = Registry::new(vec![Box::new(provider)]).unwrap();
+    let diagnostics = run_unsorted(&registry, &workspace, &config, &RunOptions::default()).unwrap();
+    assert!(
+        found(&diagnostics, "unlisted-dependencies").contains(&"tsconfig.base.json: @acme/t0".to_owned()),
+        "{diagnostics:#?}"
+    );
+    counting.reads.load(Ordering::Relaxed)
+}
+
+/// Whether git ignores a config is decided once per config file, not once per package a reader's config names: the
+/// ignore files are read as often for a base config naming eight packages as for one naming one.
+#[test]
+fn the_ignore_files_are_read_once_per_judged_config_not_per_named_package() {
+    let one = gitignore_reads(&["@acme/t0"]);
+    let eight = gitignore_reads(&[
+        "@acme/t0", "@acme/t1", "@acme/t2", "@acme/t3", "@acme/t4", "@acme/t5", "@acme/t6", "@acme/t7",
+    ]);
+    assert!(one > 0, "the root .gitignore is never read");
+    assert_eq!(one, eight);
+}
+
+/// A package that only a module of another workspace package names, which a config imports values from (an oxlint
+/// `extends` of a shared config package, a stylelint spread of an imported base), is judged against the package owning
+/// that module: listed there, it is used there and not unlisted at the importing config.
+#[test]
+fn packages_an_imported_shared_config_names_are_charged_to_its_package() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*"],"devDependencies":{"oxlint":"1.0.0"}}"#,
+        ),
+        (
+            "packages/app/package.json",
+            r#"{"name":"@x/app","private":true,"type":"module","main":"src/index.ts","devDependencies":{"@x/cfg":"workspace:*","@x/style":"workspace:*","oxlint":"1.0.0","stylelint":"16.0.0"}}"#,
+        ),
+        (
+            "packages/app/oxlint.config.mts",
+            "import { base } from '@x/cfg/base';\nimport { defineConfig } from 'oxlint';\nexport default defineConfig({ extends: [base], jsPlugins: ['eslint-plugin-own'] });\n",
+        ),
+        (
+            "packages/app/stylelint.config.mjs",
+            "import baseConfig from '@x/style';\nexport default { ...baseConfig, plugins: ['stylelint-own'] };\n",
+        ),
+        ("packages/app/src/index.ts", "export const a = 1;\n"),
+        (
+            "packages/cfg/package.json",
+            r#"{"name":"@x/cfg","private":true,"type":"module","exports":{"./base":{"types":"./dist/base.d.ts","default":"./dist/base.js"}},"dependencies":{"eslint-plugin-foo":"1.0.0"}}"#,
+        ),
+        ("packages/cfg/tsconfig.json", r#"{"compilerOptions":{"rootDir":"src","outDir":"dist"}}"#),
+        (
+            "packages/cfg/src/base.ts",
+            "export const base = { jsPlugins: ['eslint-plugin-foo'] };\n",
+        ),
+        (
+            "packages/style/package.json",
+            r#"{"name":"@x/style","private":true,"type":"module","main":"index.js","dependencies":{"postcss-scss":"4.0.0","stylelint-scss":"6.0.0"}}"#,
+        ),
+        (
+            "packages/style/index.js",
+            "export default { customSyntax: 'postcss-scss', plugins: ['stylelint-scss'] };\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unlisted-dependencies"),
+        [
+            "packages/app/oxlint.config.mts: eslint-plugin-own",
+            "packages/app/stylelint.config.mjs: stylelint-own",
+        ]
+    );
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none());
 }

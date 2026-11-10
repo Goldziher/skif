@@ -11,6 +11,7 @@ static SPEC: PluginSpec = PluginSpec {
     enablers: &[Enabler::File(".travis.yml")],
     root_only: true,
     config: &[".travis.yml"],
+    optional_binaries: true,
     ..PluginSpec::DEFAULT
 };
 

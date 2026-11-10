@@ -441,8 +441,12 @@ const BUILD_SCRIPTS: &[&str] = &["build", "prepack", "prepublishOnly"];
 /// Binaries that compile or bundle code into files a package publishes.
 const BUILDERS: &[&str] = &[
     "babel",
+    "bunchee",
     "esbuild",
+    "microbundle",
     "ncc",
+    "nexe",
+    "pkg",
     "rolldown",
     "rollup",
     "rslib",
@@ -457,6 +461,38 @@ const BUILDERS: &[&str] = &[
     "webpack",
     "webpack-cli",
 ];
+
+/// Commands whose subcommand compiles or bundles code: the binary and the subcommand (`bun build`, `vite build`).
+const BUILDER_SUBCOMMANDS: &[(&str, &str)] = &[
+    ("bun", "build"),
+    ("deno", "compile"),
+    ("parcel", "build"),
+    ("vite", "build"),
+];
+
+/// Flags that name the file or directory a command writes.
+const OUTPUT_FLAGS: &[&str] = &["--outfile", "--out-file", "--outdir", "--out-dir", "--output", "-o"];
+
+/// Whether the script `text` builds into `bin`: it runs a compiling subcommand ([`BUILDER_SUBCOMMANDS`]), or one of
+/// its commands names a path at or inside `bin` as its output (`--outfile bin/cli.js`, `-o bin/cli`).
+fn script_builds_bin(text: &str) -> bool {
+    let words: Vec<&str> = text
+        .split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '(' | ')'))
+        .filter(|word| !word.is_empty())
+        .map(|word| word.trim_matches(['"', '\'']))
+        .collect();
+    let in_bin = |path: &str| {
+        let path = path.trim_start_matches("./");
+        path == "bin" || path.starts_with("bin/")
+    };
+    words.windows(2).any(|pair| {
+        let program = pair[0].rsplit('/').next().unwrap_or(pair[0]);
+        BUILDER_SUBCOMMANDS.contains(&(program, pair[1])) || (OUTPUT_FLAGS.contains(&pair[0]) && in_bin(pair[1]))
+    }) || words.iter().any(|word| {
+        word.split_once('=')
+            .is_some_and(|(flag, value)| OUTPUT_FLAGS.contains(&flag) && in_bin(value))
+    })
+}
 
 /// The file name prefixes of the bundler configurations the plugins read, which can write a package's bin files.
 const BUNDLER_CONFIGS: &[&str] = &[
@@ -473,16 +509,18 @@ const BUNDLER_CONFIGS: &[&str] = &[
 
 /// Whether a build step of the package may write its `bin` directory, so that a missing file there is build output
 /// not built yet rather than a path into nothing: a build script ([`BUILD_SCRIPTS`]), a script that runs a compiler
-/// or bundler ([`BUILDERS`]), a bundler configuration a plugin reads ([`BUNDLER_CONFIGS`]), or a build directory
-/// (`tsconfig` `outDir`) at or inside `bin`.
+/// or bundler ([`BUILDERS`]) or a compiling subcommand, or writes into `bin` ([`script_builds_bin`]), a bundler
+/// configuration a plugin reads ([`BUNDLER_CONFIGS`]), or a build directory (`tsconfig` `outDir`) at or inside `bin`.
 fn may_build_bin(fs: &dyn FileSystem, package_setup: &PackageSetup, manifest: &Value) -> bool {
     let build_script = manifest
         .get("scripts")
         .and_then(Value::as_object)
         .is_some_and(|scripts| {
-            scripts
-                .keys()
-                .any(|name| BUILD_SCRIPTS.contains(&name.as_str()) || name.starts_with("build:"))
+            scripts.iter().any(|(name, script)| {
+                BUILD_SCRIPTS.contains(&name.as_str())
+                    || name.starts_with("build:")
+                    || script.as_str().is_some_and(script_builds_bin)
+            })
         });
     let builder = package_setup
         .scripts
