@@ -1836,10 +1836,16 @@ fn packages_a_config_names_are_recorded_at_the_file_that_names_them() {
 fn references_to_a_package_from_one_file_merge() {
     let from = Path::new("/ws/vite.config.ts");
     let mut reference = DepRef::new("esbuild-register".to_owned(), from, true, true);
-    assert!(!reference.named_by_config, "an optional reference is no config reference");
+    assert!(
+        !reference.named_by_config,
+        "an optional reference is no config reference"
+    );
     reference.merge(&DepRef::new("esbuild-register".to_owned(), from, false, false));
     assert!(!reference.optional);
-    assert!(!reference.named_by_config, "a command does not make the optional config reference required");
+    assert!(
+        !reference.named_by_config,
+        "a command does not make the optional config reference required"
+    );
     let compiler = DepRef {
         type_only: true,
         reader_may_list: true,
