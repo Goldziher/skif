@@ -315,6 +315,7 @@ mod tests {
             (lock("\n  \"configVersion\": 1,"), Some(1)),
             (lock("\n  \"configVersion\": 0,"), Some(0)),
             (lock(""), None),
+            (format!("\u{feff}{}", lock("\n  \"configVersion\": 1,")), Some(1)),
             ("not json".to_owned(), None),
         ];
         for (text, expected) in cases {
