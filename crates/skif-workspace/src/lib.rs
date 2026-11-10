@@ -32,7 +32,8 @@ pub use catalogs::Catalogs;
 pub use detect::package_manager_from_manifest;
 pub use error::WorkspaceError;
 pub use lockfile::{
-    LockedDependency, LockedPatch, OTHER_LOCKFILES, PNPM_LOCKFILE, PnpmLockfile, Resolutions, Snapshot, snapshot_key, split_key,
+    LockedDependency, LockedPatch, OTHER_LOCKFILES, PNPM_LOCKFILE, PnpmLockfile, Resolutions, Snapshot, snapshot_key,
+    split_key,
 };
 pub use manifest::{DependencyEntry, FieldSpans, Manifest};
 pub use package::{Package, PackageId};

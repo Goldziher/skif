@@ -144,7 +144,10 @@ impl Rule for StalePatchedDependencies {
         let dirs: BTreeSet<String> = if options.patch_dirs.is_empty() {
             referenced
                 .iter()
-                .map(|file| file.rsplit_once('/').map_or_else(String::new, |(dir, _)| dir.to_owned()))
+                .map(|file| {
+                    file.rsplit_once('/')
+                        .map_or_else(String::new, |(dir, _)| dir.to_owned())
+                })
                 .chain([DEFAULT_PATCH_DIR.to_owned()])
                 .collect()
         } else {
@@ -364,12 +367,19 @@ snapshots:
     }
 
     fn messages(found: &[(Diagnostic, String)]) -> Vec<&str> {
-        found.iter().map(|(diagnostic, _)| diagnostic.message.as_str()).collect()
+        found
+            .iter()
+            .map(|(diagnostic, _)| diagnostic.message.as_str())
+            .collect()
     }
 
     #[test]
     fn an_applied_patch_reports_nothing() {
-        let found = stale("  left@1.0.0: patches/left@1.0.0.patch\n", &[("pnpm-lock.yaml", LOCK), LEFT], "");
+        let found = stale(
+            "  left@1.0.0: patches/left@1.0.0.patch\n",
+            &[("pnpm-lock.yaml", LOCK), LEFT],
+            "",
+        );
         assert!(found.is_empty(), "{found:#?}");
     }
 
@@ -463,7 +473,11 @@ snapshots:
             messages(&found),
             ["the patch file `vendor/left.patch` of `left@1.0.0` lies outside `allowed-patch-paths` (patches/**)"]
         );
-        let inside = stale("  left@1.0.0: patches/left@1.0.0.patch\n", &[("pnpm-lock.yaml", LOCK), LEFT], toml);
+        let inside = stale(
+            "  left@1.0.0: patches/left@1.0.0.patch\n",
+            &[("pnpm-lock.yaml", LOCK), LEFT],
+            toml,
+        );
         assert!(inside.is_empty(), "{inside:#?}");
     }
 
@@ -497,7 +511,10 @@ snapshots:
         );
         assert_eq!(found.len(), 1, "{found:#?}");
         assert!(
-            found[0].0.message.starts_with("`pnpm-lock.yaml` cannot be read (`snapshots` must be a mapping)"),
+            found[0]
+                .0
+                .message
+                .starts_with("`pnpm-lock.yaml` cannot be read (`snapshots` must be a mapping)"),
             "{}",
             found[0].0.message
         );

@@ -313,7 +313,10 @@ snapshots:
     fn with_an_anchor_each_member_resolves_once_per_major_of_the_anchor() {
         let toml = "[[dependency-families]]\nname = \"react-types\"\npackages = [\"@types/react\"]\nscope = \"lockfile\"\nanchor = \"react\"\n";
         let found = unsynced(Some(REACT_TYPES), toml);
-        let messages: Vec<&str> = found.iter().map(|(diagnostic, _)| diagnostic.message.as_str()).collect();
+        let messages: Vec<&str> = found
+            .iter()
+            .map(|(diagnostic, _)| diagnostic.message.as_str())
+            .collect();
         assert_eq!(
             messages,
             [
@@ -335,6 +338,10 @@ snapshots:
         );
         let broken = unsynced(Some("lockfileVersion: '9.0'\nsnapshots: {a\n"), &family("lockfile"));
         assert_eq!(broken.len(), 1, "{broken:#?}");
-        assert!(broken[0].0.message.starts_with("`pnpm-lock.yaml` cannot be read ("), "{}", broken[0].0.message);
+        assert!(
+            broken[0].0.message.starts_with("`pnpm-lock.yaml` cannot be read ("),
+            "{}",
+            broken[0].0.message
+        );
     }
 }
