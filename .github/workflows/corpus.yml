@@ -43,22 +43,49 @@ jobs:
           corepack enable
       - name: Build skif and the harness
         run: cargo build --release --locked -p skif-cli -p skif-bench
+      # ~keep Each run's output goes to a log, so the summary step can show the drift lines next to the table.
       - name: Parity with knip
         env:
           ONLY: ${{ inputs.only }}
         run: |
           set -euo pipefail
+          mkdir -p target/bench-results
           args=(--skif target/release/skif --install --check)
           if [ -n "$ONLY" ]; then args+=(--only "$ONLY"); fi
-          target/release/skif-bench parity "${args[@]}"
+          target/release/skif-bench parity "${args[@]}" 2>&1 | tee target/bench-results/parity.log
+      # ~keep Runs after a parity drift too: the two checks are independent.
       - name: Policy diff against syncpack
+        if: ${{ !cancelled() }}
         env:
           ONLY: ${{ inputs.only }}
         run: |
           set -euo pipefail
+          mkdir -p target/bench-results
           args=(--skif target/release/skif --check)
           if [ -n "$ONLY" ]; then args+=(--only "$ONLY"); fi
-          target/release/skif-bench syncpack-diff "${args[@]}"
+          target/release/skif-bench syncpack-diff "${args[@]}" 2>&1 | tee target/bench-results/syncpack.log
+      - name: Write the tables and the drift to the job summary
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          for report in parity syncpack; do
+            {
+              if [ -f "target/bench-results/$report.md" ]; then
+                cat "target/bench-results/$report.md"
+              else
+                echo "# $report: no report (the run stopped before it)"
+              fi
+              echo
+              if [ -f "target/bench-results/$report.log" ]; then
+                drift=$(grep -E '^(drift: |Error: )' "target/bench-results/$report.log" || true)
+                if [ -n "$drift" ]; then
+                  printf '## Drift and errors\n\n```text\n%s\n```\n\n' "$drift"
+                else
+                  printf 'No drift from the baseline and no error.\n\n'
+                fi
+              fi
+            } >> "$GITHUB_STEP_SUMMARY"
+          done
       - name: Upload the full reports
         if: always()
         uses: actions/upload-artifact@v7
