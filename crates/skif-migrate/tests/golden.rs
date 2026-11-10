@@ -192,14 +192,14 @@ fn syncpack_exact_profile_keeps_the_syncpack_rules() {
     let migration = migrate(&[input], &options(Profile::Exact)).unwrap();
     let parsed = table(&migration);
     let rules = parsed["rules"].as_table().unwrap();
-    for kept in [
-        "version-mismatch",
-        "semver-range-mismatch",
-        "banned-dependency",
-        "unsorted-dependencies",
-    ] {
+    for kept in ["version-mismatch", "semver-range-mismatch", "banned-dependency"] {
         assert!(!rules.contains_key(kept), "{kept} is kept");
     }
+    assert_eq!(
+        rules["unsorted-dependencies"].as_str(),
+        Some("off"),
+        "sortAz only matters to `syncpack format`, which no script runs"
+    );
     assert_eq!(rules["unused-files"].as_str(), Some("off"));
     assert_eq!(rules["empty-dependencies"].as_str(), Some("off"));
 }
@@ -1491,7 +1491,16 @@ fn syncpack_format_options_are_written_to_the_format_table() {
     assert_eq!(format["format-bugs"].as_bool(), Some(true));
     assert_eq!(format["format-repository"].as_bool(), Some(true));
     assert_eq!(format["indent"].as_str(), Some("    "));
-    assert_eq!(parsed["rules"]["package-json-format"].as_str(), Some("error"));
+    assert!(
+        parsed["rules"].get("package-json-format").is_none(),
+        "`syncpack lint` never checks the layout: {}",
+        migration.toml
+    );
+    assert!(has_note(
+        &migration,
+        NoteClass::Approximate,
+        "no script runs `syncpack format`"
+    ));
     assert_eq!(class(&migration, "sortFirst"), NoteClass::Exact);
     assert_eq!(class(&migration, "sortAz"), NoteClass::Approximate);
     assert_eq!(class(&migration, "indent"), NoteClass::Approximate);
@@ -1526,6 +1535,32 @@ fn a_syncpack_format_script_turns_the_format_rule_on() {
             .and_then(|rules| rules.get("package-json-format"))
             .is_none()
     );
+}
+
+#[test]
+fn syncpack_format_keys_turn_the_layout_rules_on_only_with_a_format_script() {
+    let run = |script: &str| {
+        let mut input = ToolInput::new(Tool::Syncpack);
+        input.config = Some(text(".syncpackrc.json", r#"{ "sortAz": ["dependencies"], "indent": "  " }"#));
+        input.package_json = Some(text("package.json", &package(&[("deps", script)])));
+        migrate(&[input], &options(Profile::Exact)).unwrap()
+    };
+    let lint = run("syncpack lint");
+    let parsed = table(&lint);
+    assert_eq!(strings(&parsed["format"]["sort-az"]), ["dependencies"]);
+    assert!(parsed["rules"].get("package-json-format").is_none(), "{}", lint.toml);
+    assert_eq!(parsed["rules"]["unsorted-dependencies"].as_str(), Some("off"));
+    assert_eq!(class(&lint, "sortAz, indent"), NoteClass::Approximate);
+
+    let format = run("syncpack format");
+    let parsed = table(&format);
+    assert_eq!(parsed["rules"]["package-json-format"].as_str(), Some("error"));
+    assert!(
+        parsed["rules"].get("unsorted-dependencies").is_none(),
+        "`syncpack format` sorts the dependencies: {}",
+        format.toml
+    );
+    assert!(!format.notes.iter().any(|note| note.path == "sortAz, indent"));
 }
 
 #[test]
