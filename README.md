@@ -50,17 +50,52 @@ skif builds on [sherif](https://github.com/QuiiBz/sherif), [syncpack](https://gi
 [knip](https://github.com/webpro-nl/knip), which remain excellent, focused tools. It started as a fork of sherif and
 follows knip's issue types. The difference is that one tool covers all three jobs.
 
-| | skif | sherif | syncpack | knip |
-| --- | --- | --- | --- | --- |
-| Manifest and workspace rules | Yes | Yes | No | No |
-| Version and semver-range policy | Yes | Version mismatches | Yes | No |
-| Catalog policy | Yes | No | Yes | Catalog entries |
-| Registry updates (`update --check`) | Yes, opt-in | No | Yes | No |
-| Unused dependencies, files and exports | Yes | No | No | Yes |
-| Runs project code to read configs | No | No | No | Yes |
+The tables compare skif with sherif 1.13.0, syncpack 15.3.3 and knip 6.45.1, read from their documentation. The
+[comparison guide](https://goldziher.github.io/skif/guides/comparison/#capabilities) has the full matrix, explains each
+"Partial" and lists the sources.
 
-skif is younger than all three. The JS analysis is close to knip but not identical, and
-[the differences are published](#agreement-with-knip).
+| Capability | skif | sherif | syncpack | knip |
+| --- | --- | --- | --- | --- |
+| Manifest and workspace rules | Yes | Yes | Partial: `format` | No |
+| Version mismatches | Yes | Yes | Yes | No |
+| Version and semver-range groups, banned dependencies | Yes | No | Yes | No |
+| Catalog policy | Yes: pnpm, Bun, Yarn 4.10+ | No | Partial: pnpm, Bun | No |
+| Unused catalog entries, unresolved `catalog:` references | Yes | No | No | Yes |
+| `workspace:` protocol | Yes | No | Partial: a pinned group | No |
+| Toolchain pins (`packageManager`, `engines`, `.nvmrc`, Dockerfiles, workflows) | Yes | Partial: `packageManager` | No | No |
+| Lockfile checks (stray lockfiles, bans over the lockfile, stale patches) | Partial: `pnpm-lock.yaml`, `bun.lock` | No | No | No |
+| Unused and unlisted dependencies, unlisted binaries, unresolved imports | Yes | No | No | Yes |
+| Unused files, exports, types, enum and namespace members; duplicate exports | Yes | No | No | Yes |
+| Circular imports | Yes, off by default | No | No | Yes, off by default |
+| Unused `package.json` subpath exports | No | No | No | Yes |
+| Vue, Svelte, Astro, MDX, Marko | Yes | No | No | Yes |
+| Custom compilers for other file types | No | No | No | Yes |
+| Built-in plugins | 205 | No | No | 207 |
+| Never runs project code | Yes | Yes | Yes | No |
+| Autofix | Yes | Yes | Yes | Yes |
+| Safe and unsafe fix levels | Yes | No | No | Partial: file deletion opt-in |
+| Baseline that can only shrink | Yes | No | No | No |
+| Translates the other tools' configuration | Yes: `skif migrate` | No | No | No |
+| Configuration | `skif.toml`, layered | `package.json` key | `.syncpackrc` (JSON, YAML, JS, TS) | `knip.json`, `knip.ts` |
+| JSON, SARIF, GitHub, Code Climate output | Yes | No | Partial: JSON | Yes |
+| Watch mode, language server | Yes | No | No | Yes |
+| Editor extension | No | No | No | Yes |
+| MCP server | Yes | No | No | Yes: configures knip |
+| GitHub Action | Yes | Yes | No | No |
+| Git hooks (pre-commit, prek, Poly) | Yes | No | No | No |
+| Library API | Yes: Rust crate, npm package | No | No | Partial: `knip/session` |
+
+| Support | skif | sherif | syncpack | knip |
+| --- | --- | --- | --- | --- |
+| Package managers | npm, pnpm, Yarn 2+, Yarn Classic, Bun | npm, pnpm, Yarn, Bun | npm, pnpm, Yarn, Lerna | npm, pnpm, Yarn, Bun, Lerna |
+| Linkers tested in CI | pnpm isolated and hoisted, Yarn Plug'n'Play, `node-modules` and `pnpm`, Bun isolated and hoisted, npm and Yarn Classic hoisted | Not stated | Not stated | Not stated |
+| Runtime | Native binary, or Node.js 22, 24, 26 or Bun 1.x through npm | Native binary | Native binary | Node.js 20.19+ or 22.12+, or Bun |
+| Platforms | macOS, Linux (glibc, musl), Windows; x64, arm64 | Same as skif | Same as skif | Where Node.js or Bun runs |
+| Distribution | npm, crates.io, cargo-binstall, release archives, Homebrew, Scoop | npm, release archives | npm; crates.io up to 14.0.0 | npm |
+
+Versions per package manager and operating system are under
+[supported versions](https://goldziher.github.io/skif/start/installation/#supported-versions). skif is younger than
+all three. The JS analysis is close to knip but not identical, and [the differences are published](#agreement-with-knip).
 
 ## Benchmarks
 
