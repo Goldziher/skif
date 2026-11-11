@@ -581,21 +581,25 @@ impl Workspace {
                 file: declared.file.clone(),
             });
         }
-        let mut selected = candidates.clone();
+        // Each negation counts what it matches among all positive matches, also those an earlier negation removed.
+        let mut removed: BTreeSet<&str> = BTreeSet::new();
         for (index, matcher) in negations {
-            let hits: Vec<&String> = candidates
+            let hits: Vec<&str> = candidates
                 .iter()
-                .filter(|dir| matcher.is_match(dir.as_str()) && !literal_dirs.contains(dir.as_str()))
+                .map(String::as_str)
+                .filter(|dir| matcher.is_match(dir) && !literal_dirs.contains(*dir))
                 .collect();
             if let Some(fact) = facts.get_mut(index) {
                 fact.matched = hits.len();
             }
-            for dir in hits {
-                selected.remove(dir);
-            }
+            removed.extend(hits);
         }
 
-        let dirs: Vec<&str> = selected.iter().map(String::as_str).collect();
+        let dirs: Vec<&str> = candidates
+            .iter()
+            .map(String::as_str)
+            .filter(|dir| !removed.contains(dir))
+            .collect();
         let manager_files = ManagerFiles {
             fs,
             root: &root,
