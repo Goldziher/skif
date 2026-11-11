@@ -8,10 +8,10 @@ task.run_auto_install = false
 
 [tools]
 "github:Goldziher/poly" = "0.34.2"
-"github:Goldziher/adrlint" = "0.4.1"
+"github:Goldziher/adrlint" = "0.5.0"
 node = "26.13.0"
 bun = "1.3"
-pnpm = "12.16.1"
+pnpm = "12.18.0"
 actionlint = "1.7.12"
 "github:Goldziher/gh-actions-updater" = "0.4.0"
 hyperfine = "1.20.0"
