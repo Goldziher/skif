@@ -246,6 +246,31 @@ proptest! {
         }
     }
 
+    /// Issue #156: an edit to a minified document keeps it on one line, except a value set for the whole document.
+    #[test]
+    fn minified_documents_stay_on_one_line(
+        doc in document().prop_filter("a document with members", |doc| doc != &Value::Object(Map::new())),
+        selector in any::<usize>(),
+        kind in any::<u8>(),
+        new_key in key(),
+        new_value in value(),
+        position in any::<u8>(),
+    ) {
+        let source = serde_json::to_string(&doc).unwrap();
+        let (path, action) = choose(&doc, selector, kind, new_key, new_value, position);
+        let whole = path.is_empty() && matches!(action, JsonAction::Set(_));
+        let expected = reference(&doc, &path, &action);
+        let op = FixOp::json("package.json", path, action);
+
+        let edited = apply(&source, FileKind::Json, &[&op]).expect("edit applies");
+
+        let parsed: Value = serde_json::from_str(&edited).expect("output is valid JSON");
+        prop_assert_eq!(serde_json::to_string(&parsed).unwrap(), serde_json::to_string(&expected).unwrap());
+        if !whole {
+            prop_assert!(!edited.contains('\n'), "a line break in {source:?} -> {edited:?}");
+        }
+    }
+
     #[test]
     fn removing_every_member_leaves_an_empty_container(doc in document(), layout in layout()) {
         let source = format_document(&doc, &layout);

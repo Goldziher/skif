@@ -39,6 +39,13 @@ impl Style {
     }
 }
 
+/// How an object or array that keeps its members on the line of its opening bracket spaces them: the whitespace
+/// after each comma and after each colon. Generated text inside it stays on that line.
+struct Inline {
+    comma: String,
+    colon: String,
+}
+
 struct Member<'a, 'b> {
     start: usize,
     end: usize,
@@ -327,7 +334,10 @@ impl<'a> Doc<'_, 'a> {
     fn edits(&self, op: &str, pointer: &[PathSeg], action: &JsonAction) -> Result<Vec<Edit>, EditPlanError> {
         let target = locate(&self.root, pointer).ok_or_else(|| EditPlanError::PathNotFound { op: op.to_owned() })?;
         match action {
-            JsonAction::Set(value) => Ok(vec![self.set(target.value, value)]),
+            JsonAction::Set(value) => {
+                let parent = target.parent.as_ref().map(|(holder, _)| holder);
+                Ok(vec![self.set(target.value, parent, value)])
+            }
             JsonAction::RenameKey(new_key) => Self::rename(op, target, new_key),
             // `Remove`, `Insert` and `SortKeys` are planned per container; any action added later has no in-place JSON
             // edit.
@@ -338,9 +348,49 @@ impl<'a> Doc<'_, 'a> {
         }
     }
 
-    fn set(&self, target: &Value<'_>, value: &serde_json::Value) -> Edit {
-        let indent = line_indent(self.source, target.start());
-        Edit::new(target.start(), target.end(), self.render(value, indent))
+    /// Replaces `target`, a member of `parent` (`None` for the root), with `value`, laid out as `parent` lays out its
+    /// members.
+    fn set(&self, target: &Value<'_>, parent: Option<&Container<'_, '_>>, value: &serde_json::Value) -> Edit {
+        let replacement = match parent.and_then(|holder| self.inline(holder)) {
+            Some(inline) => render_inline(value, &inline),
+            None => self.render(value, line_indent(self.source, target.start())),
+        };
+        Edit::new(target.start(), target.end(), replacement)
+    }
+
+    /// The spacing of `holder` when it keeps its members on the line of its opening bracket; `None` when they are
+    /// laid out one per line. An empty object or array is on one line in a document that is, except the root itself.
+    fn inline(&self, holder: &Container<'_, '_>) -> Option<Inline> {
+        let one_line = match holder.members.first() {
+            Some(first) => !self.source[holder.open + 1..first.start].contains('\n'),
+            None => holder.open != self.root.start() && !self.source.trim_end().contains('\n'),
+        };
+        one_line.then(|| self.spacing(holder))
+    }
+
+    /// The whitespace after the commas and colons of `holder`, else of the root object when it is on one line, else
+    /// the colon's for the comma and one space for the colon.
+    fn spacing(&self, holder: &Container<'_, '_>) -> Inline {
+        let root = container(&self.root);
+        let holders = || std::iter::once(holder).chain(root.as_ref());
+        let colon = holders()
+            .find_map(|holder| {
+                holder
+                    .members
+                    .iter()
+                    .filter(|member| member.key.is_some())
+                    .find_map(|member| space_after(&self.source[member.name.1..member.value.start()], ':'))
+            })
+            .unwrap_or_else(|| " ".to_owned());
+        let comma = holders()
+            .find_map(|holder| {
+                holder
+                    .members
+                    .windows(2)
+                    .find_map(|pair| space_after(&self.source[pair[0].end..pair[1].start], ','))
+            })
+            .unwrap_or_else(|| colon.clone());
+        Inline { comma, colon }
     }
 
     fn rename(op: &str, target: Located<'_, '_>, new_key: &str) -> Result<Vec<Edit>, EditPlanError> {
@@ -444,7 +494,7 @@ impl<'a> Doc<'_, 'a> {
             if let Some(existing) =
                 (0..count).rfind(|&index| !gone(index) && holder.members[index].key == Some(pending.key.as_str()))
             {
-                let edit = self.set(holder.members[existing].value, &pending.value);
+                let edit = self.set(holder.members[existing].value, Some(holder), &pending.value);
                 edits.push(Planned {
                     op: pending.op,
                     start: edit.start,
@@ -484,10 +534,8 @@ impl<'a> Doc<'_, 'a> {
             return edits;
         }
 
-        let multiline = holder
-            .members
-            .first()
-            .is_none_or(|first| self.source[holder.open + 1..first.start].contains('\n'));
+        let inline = self.inline(holder);
+        let multiline = inline.is_none();
         let outer = line_indent(self.source, holder.open);
         let inner = match holder.members.first() {
             Some(first) if multiline => line_indent(self.source, first.start).to_owned(),
@@ -496,8 +544,19 @@ impl<'a> Doc<'_, 'a> {
         let newline = self.style.newline;
         let entry = |index: usize| {
             let item = &fresh[index];
-            format!("{}: {}", json_string(&item.key), self.render(&item.value, &inner))
+            match &inline {
+                Some(inline) => format!(
+                    "{}:{}{}",
+                    json_string(&item.key),
+                    inline.colon,
+                    render_inline(&item.value, inline)
+                ),
+                None => format!("{}: {}", json_string(&item.key), self.render(&item.value, &inner)),
+            }
         };
+        let comma = inline
+            .as_ref()
+            .map_or_else(|| format!(",{newline}{inner}"), |inline| format!(",{}", inline.comma));
         let owner = |indexes: &[usize]| indexes.iter().map(|&index| fresh[index].op).min().unwrap_or_default();
 
         // Groups of new keys, each with the surviving member it goes before; `None` stands for the end.
@@ -520,37 +579,27 @@ impl<'a> Doc<'_, 'a> {
             let (start, end, replacement) = match before {
                 Some(member) => {
                     let start = holder.members[member].start;
-                    let text: String = if multiline {
-                        entries.iter().fold(String::new(), |mut out, text| {
-                            let _ = write!(out, "{text},{newline}{inner}");
-                            out
-                        })
-                    } else {
-                        entries.iter().fold(String::new(), |mut out, text| {
-                            let _ = write!(out, "{text}, ");
-                            out
-                        })
-                    };
+                    let text: String = entries.iter().fold(String::new(), |mut out, text| {
+                        let _ = write!(out, "{text}{comma}");
+                        out
+                    });
                     (start, start, text)
                 }
                 None => {
                     if let Some(last) = (0..count).rfind(|&index| !gone(index)) {
                         let end = holder.members[last].end;
-                        let text: String = if multiline {
-                            entries.iter().fold(String::new(), |mut out, text| {
-                                let _ = write!(out, ",{newline}{inner}{text}");
-                                out
-                            })
-                        } else {
-                            entries.iter().fold(String::new(), |mut out, text| {
-                                let _ = write!(out, ", {text}");
-                                out
-                            })
-                        };
+                        let text: String = entries.iter().fold(String::new(), |mut out, text| {
+                            let _ = write!(out, "{comma}{text}");
+                            out
+                        });
                         (end, end, text)
                     } else {
-                        let joined = entries.join(&format!(",{newline}{inner}"));
-                        let text = format!("{newline}{inner}{joined}{newline}{outer}");
+                        let joined = entries.join(&comma);
+                        let text = if multiline {
+                            format!("{newline}{inner}{joined}{newline}{outer}")
+                        } else {
+                            joined
+                        };
                         if count == 0 {
                             // Comments between the brackets stay: the new members go after them.
                             let between = &self.source[holder.open + 1..holder.close];
@@ -736,6 +785,33 @@ impl<'a> Doc<'_, 'a> {
             other => other.to_string(),
         }
     }
+}
+
+/// Serializes `value` on one line, spaced as `inline` says.
+fn render_inline(value: &serde_json::Value, inline: &Inline) -> String {
+    let comma = format!(",{}", inline.comma);
+    match value {
+        serde_json::Value::Object(map) if !map.is_empty() => {
+            let members: Vec<String> = map
+                .iter()
+                .map(|(key, child)| format!("{}:{}{}", json_string(key), inline.colon, render_inline(child, inline)))
+                .collect();
+            format!("{{{}}}", members.join(&comma))
+        }
+        serde_json::Value::Array(items) if !items.is_empty() => {
+            let members: Vec<String> = items.iter().map(|child| render_inline(child, inline)).collect();
+            format!("[{}]", members.join(&comma))
+        }
+        other => other.to_string(),
+    }
+}
+
+/// The spaces and tabs after the first `separator` in `gap`, the text between two tokens; `None` without one, or
+/// when a line break follows it.
+fn space_after(gap: &str, separator: char) -> Option<String> {
+    let after = &gap[gap.find(separator)? + 1..];
+    let space = &after[..after.len() - after.trim_start_matches([' ', '\t']).len()];
+    (!after[space.len()..].starts_with(['\r', '\n'])).then(|| space.to_owned())
 }
 
 /// Whether `edit` changes something inside the member spanning `from_start..from_end` and not the member as a whole.
