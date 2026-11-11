@@ -600,7 +600,6 @@ fn is_floating(specifier: &Specifier) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::policy::analysis::Analysis;
     use crate::testing::{config, workspace};
 
