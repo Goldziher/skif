@@ -34,6 +34,7 @@ fn run(files: &[(&str, &str)], dependencies: &[&str], scripts: &[(&str, &str)]) 
         fs: &fs,
         plugins: &plugins,
         modules: None,
+        nx: None,
     };
     resolve_plugins(&ctx)
 }

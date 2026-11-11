@@ -8,8 +8,11 @@ use crate::support::{is_relative, join_rel, objects, package_name, strings, stri
 /// The `typescript` plugin.
 pub struct Typescript;
 
+/// The plugin's identifier.
+pub const ID: crate::plugin::PluginId = "typescript";
+
 static SPEC: PluginSpec = PluginSpec {
-    id: "typescript",
+    id: ID,
     enablers: &[
         Enabler::Dependency("typescript"),
         Enabler::Dependency("@typescript/native"),
@@ -59,13 +62,13 @@ impl Plugin for Typescript {
             return out;
         };
         // `types: ["node"]` loads the types of `node`, which `@types/node` provides as well; `vitest/globals` those of
-        // `vitest`.
+        // `vitest`. TypeScript 6 reads `*` as every package of the type roots, which names none.
         if let Some(types) = options.get("types") {
             let roots = local_type_roots(options, config);
             out.extend(
                 strings(types)
                     .into_iter()
-                    .filter(|name| !in_type_root(cx, &roots, name))
+                    .filter(|name| name.trim() != "*" && !in_type_root(cx, &roots, name))
                     .filter_map(package_name)
                     .map(|name| compiler_dependency(name, true)),
             );

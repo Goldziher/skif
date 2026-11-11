@@ -209,6 +209,8 @@ struct Walk<'a> {
     sequential: bool,
     /// Honour `.gitignore` files; `.ignore` files are honoured either way.
     gitignore: bool,
+    /// Whether a file is one the walk collects.
+    wanted: fn(&Path) -> bool,
 }
 
 impl Walk<'_> {
@@ -261,7 +263,7 @@ impl Walk<'_> {
             } else if entry.is_file
                 && !frame.members_only
                 && !GENERATED_FILES.contains(&name)
-                && is_code_file(&entry.path)
+                && (self.wanted)(&entry.path)
                 && !is_ignored(&matchers, &entry.path, false)
                 && let Some(rel) = relative(&entry.path, self.root)
             {
@@ -309,6 +311,42 @@ pub(crate) fn discover_with(
     sequential: bool,
     gitignore: bool,
 ) -> Vec<Candidate> {
+    walk_files(fs, workspace, (sequential, gitignore), is_code_file)
+}
+
+/// The directories, relative to the workspace root and sorted, of the `project.json` files that the walk of
+/// [`discover_with`] reaches, each with the directory of the package that owns it (`""` for the root): the Nx projects
+/// of ADR 0109, below neither build output, a hidden or gitignored directory nor a directory of its own `package.json`
+/// that is no member.
+pub(crate) fn nx_project_dirs(
+    fs: &dyn FileSystem,
+    workspace: &Workspace,
+    sequential: bool,
+    gitignore: bool,
+) -> Vec<(String, String)> {
+    let mut found: Vec<(String, String)> = walk_files(fs, workspace, (sequential, gitignore), is_project_json)
+        .into_iter()
+        .filter_map(|candidate| {
+            let dir = candidate.rel.rsplit_once('/').map_or("", |(dir, _)| dir).to_owned();
+            let owner = workspace.package(candidate.owner)?;
+            Some((dir, owner.dir.to_string_lossy().replace('\\', "/")))
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+fn is_project_json(path: &Path) -> bool {
+    path.file_name().is_some_and(|name| name == "project.json")
+}
+
+/// The files `wanted` accepts below the workspace root, as [`discover_with`] describes, sorted by relative path.
+fn walk_files(
+    fs: &dyn FileSystem,
+    workspace: &Workspace,
+    (sequential, gitignore): (bool, bool),
+    wanted: fn(&Path) -> bool,
+) -> Vec<Candidate> {
     let mut owners: HashMap<PathBuf, PackageId> = HashMap::new();
     let mut skipped: HashSet<PathBuf> = HashSet::new();
     for (id, package) in workspace.iter().filter(|(_, package)| !package.is_root) {
@@ -336,6 +374,7 @@ pub(crate) fn discover_with(
         skipped,
         sequential,
         gitignore,
+        wanted,
     };
     let mut found = walk.directory(&Frame {
         dir: workspace.root.clone(),
@@ -408,6 +447,59 @@ mod tests {
         let files = discover(&fs, &workspace, false);
         let listed: Vec<(&str, usize)> = files.iter().map(|c| (c.rel.as_str(), c.owner.index())).collect();
         assert_eq!(listed, [("packages/a/src/z.ts", 1), ("tools/run.js", 0)]);
+    }
+
+    /// The `project.json` files are found by the source walk's rules, each with the package that owns it: a member
+    /// owns the projects below it, and build output, hidden, gitignored and `node_modules` directories and a directory
+    /// with a manifest of its own that is no member are left out, the gitignored ones only with `.gitignore` files on.
+    #[test]
+    fn nx_projects_are_found_where_the_walk_goes() {
+        let fs = MemoryFs::new()
+            .with_file("/ws/package.json", r#"{"name":"r","workspaces":["packages/*"]}"#)
+            .with_file("/ws/.gitignore", "generated/\n")
+            .with_file("/ws/project.json", "{}")
+            .with_file("/ws/apps/web/project.json", "{}")
+            .with_file("/ws/libs/out/project.json", "{}")
+            .with_file("/ws/packages/b/package.json", r#"{"name":"b"}"#)
+            .with_file("/ws/packages/b/project.json", "{}")
+            .with_file("/ws/packages/b/e2e/project.json", "{}")
+            .with_file("/ws/dist/apps/web/project.json", "{}")
+            .with_file("/ws/out/web/project.json", "{}")
+            .with_file("/ws/.nx/cache/web/project.json", "{}")
+            .with_file("/ws/generated/app/project.json", "{}")
+            .with_file("/ws/node_modules/pkg/project.json", "{}")
+            .with_file("/ws/vendored/package.json", r#"{"name":"other"}"#)
+            .with_file("/ws/vendored/project.json", "{}");
+        let config = Config::from_toml_str("").unwrap();
+        let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &fs).unwrap();
+        let found = |gitignore: bool| -> Vec<(String, String)> { nx_project_dirs(&fs, &workspace, true, gitignore) };
+        let owned = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(dir, owner)| ((*dir).to_owned(), (*owner).to_owned()))
+                .collect()
+        };
+        assert_eq!(
+            found(true),
+            owned(&[
+                ("", ""),
+                ("apps/web", ""),
+                ("libs/out", ""),
+                ("packages/b", "packages/b"),
+                ("packages/b/e2e", "packages/b"),
+            ])
+        );
+        assert_eq!(
+            found(false),
+            owned(&[
+                ("", ""),
+                ("apps/web", ""),
+                ("generated/app", ""),
+                ("libs/out", ""),
+                ("packages/b", "packages/b"),
+                ("packages/b/e2e", "packages/b"),
+            ])
+        );
     }
 
     #[test]

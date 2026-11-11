@@ -209,3 +209,29 @@ skif -r --format json    # one document with a "roots" array
   directory, and the exit code is the worst over the roots. `--max-warnings` bounds the warnings of the whole run.
 - `--fix` plans, writes and runs the package manager's install per root.
 - If no root is found, skif exits with code `2` and says no workspace or package was found.
+
+## Nx workspaces
+
+skif reads Nx's `nx.json`, the `nx` key of `package.json` and the `project.json` files of a package when the `nx`
+plugin is enabled (`nx`, `@nx/*` or `@nrwl/*` is a dependency, or `[js.plugins] nx = true`). The projects are found
+where skif looks for source files: a `project.json` below a gitignored or hidden directory, `node_modules` or build
+output at the top of a package is not read. A package reads its own `project.json` and those of its projects without
+a `package.json`; a workspace member's are the member's.
+
+- The executors, generators and `nx.json` plugins name packages. A target's `command` and `run-commands` commands are
+  scripts that run in the workspace root, or in its `cwd`; `{workspaceRoot}` and `{projectRoot}` stand for the root and
+  the project's directory. The `main` and `additionalEntryPoints` options of a build are entries. `tsConfig`,
+  `jestConfig`, `webpackConfig`, `cypressConfig` and `eslintConfig` are read as the configs of those tools, and
+  `configFile`, `config` and `configDir` of the `@nx/vite`, `@nx/playwright` and `@nx/storybook` executors as Vite,
+  Playwright and Storybook configs. These paths are relative to the workspace root, also in a member's `project.json`.
+- A project in a package-based workspace has its own `package.json` and is a workspace member, linted as any other.
+- A project of an integrated workspace has no `package.json`: the root lists its dependencies. Its directory is a scope
+  of the root. Every plugin reads the project's configs there (`vite.config.ts`, `index.html`, `eslint.config.mjs`,
+  `jest.config.ts`, `.babelrc`, `tsconfig.json`), as for a package, and what they name and make entries counts for the
+  root. A plugin with no config file in the project and no default entries is not run there. A config of the project
+  that cannot be read leaves only the project's files unjudged.
+- The root `jest.config.ts` that Nx generates (`projects: await getJestProjectsAsync()`, or
+  `[...getJestProjects(), ...]`) reads the Jest config of each project: a project's `jestConfig` option and the
+  `jest.config.*` in its directory.
+- A buildable library with a `package.json` that is not a workspace member is a separate project, like any directory
+  with its own manifest: its files are not analysed.

@@ -60,7 +60,7 @@ pub use globs::IncompleteScopeGlobs;
 pub use graph::{Module, ModuleGraph, ModuleId, ResolvedImport, Target};
 pub use input::{
     BuildDir, ConfigDependency, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope,
-    InputRequest, InputSource, PathAlias, RunBinary, WorkspaceInputs,
+    InputRequest, InputSource, PathAlias, RunBinary, ScopedEntryRegex, WorkspaceInputs, WorkspaceListing,
 };
 #[doc(hidden)]
 pub use manifest_paths::is_out_dir;

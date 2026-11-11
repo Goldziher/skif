@@ -14,8 +14,11 @@ use crate::support::{
 /// The `webpack` plugin.
 pub struct Webpack;
 
+/// The plugin's identifier.
+pub const ID: crate::plugin::PluginId = "webpack";
+
 static SPEC: PluginSpec = PluginSpec {
-    id: "webpack",
+    id: ID,
     enablers: &[Enabler::Dependency("webpack"), Enabler::Dependency("webpack-cli")],
     config: &["webpack.config.{js,ts,mjs,cjs,mts,cts}"],
     binaries: &["webpack", "webpack-cli"],

@@ -540,14 +540,16 @@ impl<'a> TsconfigMemo<'a> {
 }
 
 /// Whether the `tsconfig.json` at `path` makes TypeScript include every installed `@types/*` package: it exists, no
-/// `compilerOptions.types` is set along its `extends` chain, and `typeRoots`, when set, keeps `node_modules/@types`.
+/// `compilerOptions.types` narrows them along its `extends` chain (`types: ["*"]` lists them all), and `typeRoots`,
+/// when set, keeps `node_modules/@types`. An absent `types` counts as every package, TypeScript's default before
+/// version 6; TypeScript 6 defaults it to `[]`, which this does not tell apart.
 fn includes_all_types(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], path: &Path, depth: usize) -> bool {
     const MAX_DEPTH: usize = 8;
     let Some(config) = memo.get(path) else {
         return false;
     };
     if let Some(options) = config.get("compilerOptions") {
-        if options.get("types").is_some() {
+        if options.get("types").is_some_and(|types| !lists_every_type(types)) {
             return false;
         }
         if let Some(ConfigValue::Array(roots)) = options.get("typeRoots") {
@@ -565,6 +567,16 @@ fn includes_all_types(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], pa
         .iter()
         .filter_map(|parent| resolve_extends(memo.fs, members, dir, parent))
         .all(|target| depth >= MAX_DEPTH || includes_all_types(memo, members, &target, depth + 1))
+}
+
+/// Whether a `compilerOptions.types` value holds `*`, which TypeScript 6 reads as every package of the type roots.
+fn lists_every_type(types: &ConfigValue) -> bool {
+    match types {
+        ConfigValue::Array(items) => items
+            .iter()
+            .any(|item| item.as_str().is_some_and(|name| name.trim() == "*")),
+        _ => false,
+    }
 }
 
 /// The `extends` entries of a parsed `tsconfig.json`, in order.

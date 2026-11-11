@@ -4,18 +4,23 @@
 use skif_js_syntax::ConfigValue;
 
 use crate::config_load::from_json;
+use crate::files::find_files;
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::plugins::babel;
+use crate::plugins::{babel, nx};
+use crate::scopes::project_dirs;
 use crate::support::{
-    conventional, entry_glob, entry_strings, is_relative, join_rel, key_unknown, module_input, name_of, objects,
-    package_name, pattern_alias, project_files, shallow_key_unknown, strings,
+    conventional, entry_glob, entry_strings, is_relative, join_lexically, join_rel, key_unknown, module_input, name_of,
+    objects, package_name, pattern_alias, project_files, shallow_key_unknown, strings,
 };
 
 /// The `jest` plugin.
 pub struct Jest;
 
+/// The plugin's identifier.
+pub const ID: crate::plugin::PluginId = "jest";
+
 static SPEC: PluginSpec = PluginSpec {
-    id: "jest",
+    id: ID,
     enablers: &[Enabler::Dependency("jest"), Enabler::ManifestNamePrefix("jest-presets")],
     config: &["jest.config.{js,ts,mjs,mts,cjs,cts,json}"],
     entry: &[
@@ -74,13 +79,85 @@ fn collect(
         collect_object(object, config, out);
         test_regexes(object, root.as_deref(), out);
         if shallow_key_unknown(object, "projects") {
-            out.push(PluginInput::EntriesIncomplete);
+            if depth == 0 && takes_nx_projects(object, config) {
+                out.extend(nx_project_configs(cx, config));
+            } else {
+                out.push(PluginInput::EntriesIncomplete);
+            }
         }
         if let Some(projects) = object.get("projects") {
             collect(projects, config, cx, out, (depth + 1, root.as_deref()));
             string_projects(projects, config, cx, out, depth);
         }
     }
+}
+
+/// The modules Nx's `getJestProjects()` and `getJestProjectsAsync()` come from.
+const NX_JEST: &[&str] = &["@nx/jest", "@nrwl/jest"];
+
+/// Whether the config's `projects` holds what Nx's `getJestProjects()` or `getJestProjectsAsync()`, imported from
+/// [`NX_JEST`], returns, rather than an unknown spread or another computed value: `projects` is the call
+/// (`await getJestProjectsAsync()`), or an array whose unknown elements are no more than the calls in the source
+/// (`[...getJestProjects(), '<rootDir>/tools']`), and no later spread overrides it. The call is recognised in the
+/// source, as the evaluator keeps no trace of an unknown value's origin.
+fn takes_nx_projects(object: &ConfigValue, config: &ConfigAst<'_>) -> bool {
+    let ConfigValue::Object(entries) = object else {
+        return false;
+    };
+    let Some((name, projects)) = entries
+        .iter()
+        .rev()
+        .find(|(name, _)| name == "projects" || ConfigValue::is_spread_key(name))
+    else {
+        return false;
+    };
+    let unknown = match projects {
+        ConfigValue::Array(items) => items.iter().filter(|item| item.is_unknown()).count(),
+        _ => 1,
+    };
+    let imported = NX_JEST.iter().any(|module| {
+        ['\'', '"', '`']
+            .iter()
+            .any(|quote| config.source.contains(&format!("{quote}{module}{quote}")))
+    });
+    name == "projects" && imported && unknown <= nx_project_calls(config.source)
+}
+
+/// How many times `source` calls `getJestProjects()` or `getJestProjectsAsync()`.
+fn nx_project_calls(source: &str) -> usize {
+    source
+        .match_indices("getJestProjects")
+        .filter(|(at, name)| {
+            let rest = &source[at + name.len()..];
+            let rest = rest.strip_prefix("Async").unwrap_or(rest);
+            rest.trim_start().starts_with('(')
+        })
+        .count()
+}
+
+/// What `getJestProjects()` returns: the Jest config of each Nx project below the package, the `jestConfig` option of
+/// its targets and a `jest.config.*` in its directory. The projects are those [`PluginContext::nx`] holds, or those a
+/// walk of the package finds without it.
+fn nx_project_configs(cx: &PluginContext<'_>, config: &ConfigAst<'_>) -> Vec<PluginInput> {
+    let walked;
+    let dirs: &[String] = if let Some(projects) = cx.nx {
+        &projects.all
+    } else {
+        walked = project_dirs(cx);
+        &walked
+    };
+    let mut files: Vec<String> = Vec::new();
+    for dir in dirs {
+        files.extend(nx::target_option_paths(cx, dir, "jestConfig"));
+        files.extend(find_files(cx.fs, cx.dir, &[join_rel(dir, PROJECT_CONFIGS)]));
+    }
+    files.sort();
+    files.dedup();
+    files
+        .into_iter()
+        .filter(|file| join_lexically(cx.dir, file) != config.path)
+        .map(PluginInput::ConfigFile)
+        .collect()
 }
 
 /// `projects: ["<rootDir>/packages/*"]`: each string is a directory (or glob) with its own `jest.config.*` or a

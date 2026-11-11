@@ -105,6 +105,17 @@ All notable changes to this project are documented here. The format follows
   `npx skills add Goldziher/skif`, or as a plugin for Claude Code, Codex, Factory Droid and GitHub Copilot CLI, which
   also registers the MCP server (`npx -y skif-cli@<release> mcp`) pinned to the release
   ([ADR 0102](adrs/0102-agent-skill-distributed-from-the-repository.md)).
+- **Nx workspaces**: a project directory with a `project.json` and no `package.json` (an integrated workspace) is a
+  scope of the package that owns it. Every plugin reads the project's configs there (`vite.config.ts`, `index.html`,
+  `eslint.config.mjs`, `jest.config.ts`, `tsconfig.json`), and what they name counts for the root, so an integrated
+  workspace no longer reports its configs, `src/main.tsx` and the packages they use as unused. A project's computed
+  config leaves only that project unjudged. The `nx` plugin reads the `project.json` of the package and of its
+  scopes wherever they lie (outside gitignored, hidden and build-output directories), not only under `apps/` and
+  `libs/`; a workspace member reads its own. It reads the paths of the `main`, `additionalEntryPoints`, `tsConfig`,
+  `jestConfig`, `webpackConfig`, `cypressConfig` and `eslintConfig` target options, and `configFile`, `config` and
+  `configDir` of `@nx/vite`, `@nx/playwright` and `@nx/storybook`, relative to the workspace root also in a member,
+  the `{projectRoot}` and `{workspaceRoot}` tokens, and the `cwd` of `run-commands`. One walk finds the projects of
+  every package of a run ([ADR 0109](adrs/0109-nx-projects-as-scopes-of-the-package-that-owns-them.md)).
 - **Library API**:
   - `skif`: `Linter::for_targets`, `for_targets_with_cache`, `shared_modules` and `with_shared_modules`
     (`SharedModules`) share one module cache across roots
@@ -127,9 +138,13 @@ All notable changes to this project are documented here. The format follows
     `commands`, Vue tag resolution (`camelize`, `resolved_names`, `registered_name`, `is_native_tag`, ...) and
     `ParseCoalescer`.
   - `skif-js-plugins`: `PluginInput::FileDependency`, `CompilerDependency`, `SourceScript` and `EntryRegex`,
-    `PluginOutput::run_binaries` and `entry_regexes`, `BinaryRef`, `DepRef::merge`, and
-    `scripts::is_powershell_command` and `without_commands`. `skif-js`: `RunBinary`, and `WorkspaceInputs::run_binaries`
-    and `entry_regex`.
+    `PluginOutput::run_binaries` and `entry_regexes`, `BinaryRef`, `DepRef::merge`,
+    `scripts::is_powershell_command` and `without_commands`, `NxProjects` (`find`, `from_dirs`) with
+    `resolve_plugins_with` and `PluginContext::nx`, `ScopedEntryRegex` with `PluginOutput::scoped_entry_regexes`, and
+    the plugin identifiers `plugins::nx::ID`, `cypress::ID`, `eslint::ID`, `jest::ID`, `playwright::ID`,
+    `storybook::ID`, `typescript::ID`, `vite::ID` and `webpack::ID`. `skif-js`: `RunBinary`,
+    `WorkspaceInputs::run_binaries`, `entry_regex` and `scoped_entry_regex` (`ScopedEntryRegex`), and
+    `WorkspaceListing` with `InputRequest::listing`.
 - **Docs**: the migration guide lists the sherif bugs skif fixes and which change results
   ([#105](https://github.com/Goldziher/skif/issues/105)); the comparison guide states what skif replaces in knip and
   links the open gaps ([#104](https://github.com/Goldziher/skif/issues/104)); the speed and knip agreement tables in
@@ -171,10 +186,11 @@ All notable changes to this project are documented here. The format follows
   (now with `target` and `foreign_paths`) and `skif_workspace::YamlSource` (now with `node_linker`; discovery builds
   it, so read its fields).
 - **Breaking** for library users that build these structs with literals: new public fields must be set.
-  `skif_js_syntax::Import::call` (`MockCall`), `ImportedName::nested_members`, `skif_js::InputRequest::workspace_key`,
-  `UnlistedBinary::file`, and in `skif_js_plugins`: `DepRef` (`named_by_config`, `type_only`, `reader_may_list`,
-  `from`; or build one with `DepRef::new`), `PluginSpec::optional_binaries`, `scripts::DepRef::dir` and
-  `scripts::BinaryUse` (`dir`, `relocation_dir`, `bin_path`).
+  `skif_js_syntax::Import::call` (`MockCall`), `ImportedName::nested_members`, `skif_js::InputRequest::workspace_key`
+  and `listing` (`WorkspaceListing::new`), `UnlistedBinary::file`, and in `skif_js_plugins`: `DepRef`
+  (`named_by_config`, `type_only`, `reader_may_list`, `from`; or build one with `DepRef::new`),
+  `PluginContext::nx` (`None`), `PluginSpec::optional_binaries`, `scripts::DepRef::dir` and `scripts::BinaryUse`
+  (`dir`, `relocation_dir`, `bin_path`).
 - `[js] discovery = "auto"`, the default, walks the directories instead of trusting the git index, which could miss an
   untracked file and so report false `unused-files` and `unused-exports` (and delete a used file with
   `--allow-remove-files`). `discovery = "git"` checks modified directories on disk, and its `unused-files` findings
@@ -372,6 +388,12 @@ All notable changes to this project are documented here. The format follows
   `--format json`; the native binary aborted and the npm package threw with exit code 1. A JSON report is written in
   one piece.
 - An unknown rule ID in the configuration names the file and line that set it, also in an extended preset.
+- **Nx and Jest**: the root `jest.config.ts` Nx generates (`projects: await getJestProjectsAsync()`, or
+  `getJestProjects()`, from `@nx/jest` or `@nrwl/jest`, also spread into an array beside other projects) no longer
+  leaves the root package unjudged; its projects are the Jest configs of the Nx projects ([ADR 0109](adrs/0109-nx-projects-as-scopes-of-the-package-that-owns-them.md)).
+- **TypeScript 6** `types: ["*"]` (every Nx 24 `tsconfig.base.json`) is no longer an unlisted package `*`; it keeps
+  every `@types` package visible. A config without `types` is still read as keeping them all, TypeScript's default
+  before version 6 (TypeScript 6 defaults `types` to `[]`).
 - `[js.workspaces."<dir>"]` tables accept the `extend-ignore*` keys instead of rejecting them.
 - A leading UTF-8 byte order mark no longer shifts first-line columns.
 - On Windows, a `--config` path in the `\\?\C:\` form no longer gives absolute finding locations.
