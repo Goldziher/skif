@@ -233,7 +233,8 @@ impl Rule for StrayLockfile {
                         writer(name),
                         manager_name(manager)
                     ),
-                    "delete it; a second lockfile at the root makes tools disagree about the package manager".to_owned(),
+                    "delete it; a second lockfile at the root makes tools disagree about the package manager"
+                        .to_owned(),
                 ),
                 _ => (
                     format!("`{file}` is a lockfile inside the workspace, which installs from the root lockfile"),
@@ -364,7 +365,11 @@ mod tests {
         let pnpm_root = root("");
         let files = with_root(
             &pnpm_root,
-            &[("pnpm-lock.yaml", ""), ("package-lock.json", "{}"), ("npm-shrinkwrap.json", "{}")],
+            &[
+                ("pnpm-lock.yaml", ""),
+                ("package-lock.json", "{}"),
+                ("npm-shrinkwrap.json", "{}"),
+            ],
         );
         let diagnostics = lint(META.id, &files, &config(""));
         assert_eq!(paths(&diagnostics), ["npm-shrinkwrap.json", "package-lock.json"]);
@@ -641,7 +646,7 @@ mod tests {
         }
     }
 
-    /// The repro of a rules_js monorepo: one member installed by Bazel, one by its own Dockerfile.
+    /// The repro of a `rules_js` monorepo: one member installed by Bazel, one by its own Dockerfile.
     fn bazel_and_docker_files<'a>(extra: &[(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
         let mut files = vec![
             (
@@ -660,7 +665,10 @@ mod tests {
                 "node_packages.bzl",
                 "def deps():\n    npm_translate_lock(name = \"npm_a\", pnpm_lock = \"//libs/a:pnpm-lock.yaml\")\n",
             ),
-            ("apps/web/Dockerfile", "FROM node:22\nCOPY package.json pnpm-lock.yaml ./\nRUN pnpm install\n"),
+            (
+                "apps/web/Dockerfile",
+                "FROM node:22\nCOPY package.json pnpm-lock.yaml ./\nRUN pnpm install\n",
+            ),
         ];
         files.extend_from_slice(extra);
         files
@@ -680,9 +688,16 @@ mod tests {
     #[test]
     fn a_build_file_of_the_lockfiles_directory_names_it() {
         for build in ["libs/b/BUILD.bazel", "libs/b/BUILD"] {
-            for listing in ["exports_files([\"pnpm-lock.yaml\"])\n", "filegroup(name = \"lock\", srcs = [\":pnpm-lock.yaml\"])\n"] {
+            for listing in [
+                "exports_files([\"pnpm-lock.yaml\"])\n",
+                "filegroup(name = \"lock\", srcs = [\":pnpm-lock.yaml\"])\n",
+            ] {
                 let files = bazel_and_docker_files(&[(build, listing)]);
-                assert_eq!(paths(&lint(META.id, &files, &config(""))), [] as [&str; 0], "{build}: {listing}");
+                assert_eq!(
+                    paths(&lint(META.id, &files, &config(""))),
+                    [] as [&str; 0],
+                    "{build}: {listing}"
+                );
             }
         }
         // A plain name in another directory's BUILD file, or a commented-out label, names nothing.
@@ -697,7 +712,10 @@ mod tests {
     fn a_dockerfile_elsewhere_or_from_another_stage_names_nothing() {
         let files = bazel_and_docker_files(&[
             ("Dockerfile", "FROM node:22\nCOPY libs/b/pnpm-lock.yaml ./\n"),
-            ("libs/b/Dockerfile", "FROM node:22\nCOPY --from=build /app/pnpm-lock.yaml ./\nCOPY . .\n"),
+            (
+                "libs/b/Dockerfile",
+                "FROM node:22\nCOPY --from=build /app/pnpm-lock.yaml ./\nCOPY . .\n",
+            ),
         ]);
         assert_eq!(paths(&lint(META.id, &files, &config(""))), ["libs/b/pnpm-lock.yaml"]);
     }
@@ -705,7 +723,8 @@ mod tests {
     #[test]
     fn an_allow_entry_for_a_lockfile_a_build_names_is_stale() {
         let files = bazel_and_docker_files(&[]);
-        let allowing = config("[rules.stray-lockfile]\nallow = [\"libs/a/pnpm-lock.yaml\", \"libs/b/pnpm-lock.yaml\"]\n");
+        let allowing =
+            config("[rules.stray-lockfile]\nallow = [\"libs/a/pnpm-lock.yaml\", \"libs/b/pnpm-lock.yaml\"]\n");
         let messages: Vec<String> = lint(META.id, &files, &allowing)
             .into_iter()
             .map(|diagnostic| diagnostic.message)

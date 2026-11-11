@@ -761,7 +761,10 @@ COPY ./only-destination
                 "yarn.lock*"
             ]
         );
-        assert!(parse(ToolchainKind::ShellScripts, "x.sh", "COPY a b\n").copied.is_empty());
+        assert_eq!(
+            parse(ToolchainKind::ShellScripts, "x.sh", "COPY a b\n").copied,
+            Vec::<String>::new()
+        );
     }
 
     #[test]

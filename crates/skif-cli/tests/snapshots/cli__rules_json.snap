@@ -81,7 +81,7 @@ expression: redact_version(&json.stdout)
       "category": "workspace",
       "default": "warning",
       "fixable": "unsafe",
-      "summary": "A lockfile other than the root lockfile of the package manager: one in a workspace member, another manager's at the root, or Bun's `bun.lockb` next to the `bun.lock` Bun reads."
+      "summary": "A lockfile other than the root lockfile of the package manager: one in a workspace member, another manager's at the root, or one its manager ignores next to the one it reads (Bun's `bun.lockb` beside `bun.lock`, npm's `package-lock.json` beside `npm-shrinkwrap.json`)."
     },
     {
       "id": "nested-workspace-root",
