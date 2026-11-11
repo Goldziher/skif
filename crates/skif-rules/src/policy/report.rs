@@ -25,11 +25,14 @@ pub(super) fn emit(analysis: &Analysis<'_>, config_file: &Path, out: &mut Emitte
         .iter()
         .filter_map(|(id, instance)| Some((id, instance, analysis.verdicts[id.index()].as_ref()?)))
         .collect();
-    let holders = Holders::index(analysis, sequential);
-    let diagnostics: Vec<Diagnostic> = map_ordered(&findings, sequential, |&(id, instance, verdict)| {
-        instance_diagnostic(analysis, &holders, id, instance, verdict)
-    });
-    out.emit_all(diagnostics);
+    // The holders are only looked up for a finding: a workspace without one skips indexing every instance.
+    if !findings.is_empty() {
+        let holders = Holders::index(analysis, sequential);
+        let diagnostics: Vec<Diagnostic> = map_ordered(&findings, sequential, |&(id, instance, verdict)| {
+            instance_diagnostic(analysis, &holders, id, instance, verdict)
+        });
+        out.emit_all(diagnostics);
+    }
     for unused in &analysis.unused_groups {
         out.emit(group_diagnostic(
             State::UnusedGroup,
