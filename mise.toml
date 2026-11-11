@@ -7,7 +7,7 @@ lockfile_platforms = ["linux-x64", "linux-arm64", "macos-arm64", "macos-x64", "w
 task.run_auto_install = false
 
 [tools]
-"github:Goldziher/poly" = "0.32.2"
+"github:Goldziher/poly" = "0.34.2"
 "github:Goldziher/adrlint" = "0.4.1"
 node = "26.13.0"
 bun = "1.3"
