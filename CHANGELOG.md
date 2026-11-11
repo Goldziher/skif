@@ -157,8 +157,9 @@ All notable changes to this project are documented here. The format follows
 - **Breaking** for library users that build these types with struct literals or match them exhaustively: they are
   now `#[non_exhaustive]`. Use the constructors and `Default`:
   `skif_config::Assignment` (`Assignment::new`), `skif_core::IncompleteEntries` (`IncompleteEntries::new`),
-  `skif_js_plugins::PluginOutput`, `skif_js::WorkspaceInputs` (`WorkspaceInputs::default()`) and `UnlistedImport`
-  (now with `target` and `foreign_paths`).
+  `skif_js_plugins::PluginOutput`, `skif_js::WorkspaceInputs` (`WorkspaceInputs::default()`), `UnlistedImport`
+  (now with `target` and `foreign_paths`) and `skif_workspace::YamlSource` (now with `node_linker`; discovery builds
+  it, so read its fields).
 - **Breaking** for library users that build these structs with literals: new public fields must be set.
   `skif_js_syntax::Import::call` (`MockCall`), `ImportedName::nested_members`, `skif_js::InputRequest::workspace_key`,
   `UnlistedBinary::file`, and in `skif_js_plugins`: `DepRef` (`named_by_config`, `type_only`, `reader_may_list`,

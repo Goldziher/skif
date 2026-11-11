@@ -12,6 +12,7 @@ use crate::manifest::to_u32;
 
 /// The raw text of `pnpm-workspace.yaml`, kept so rules and fixes can address it.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct YamlSource {
     /// Workspace-relative path.
     pub path: PathBuf,
