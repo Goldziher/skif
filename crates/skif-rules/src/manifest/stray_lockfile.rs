@@ -13,7 +13,7 @@ pub static META: RuleMeta = RuleMeta::new(
     Category::Workspace,
     Some(Severity::Warning),
     Fixability::Unsafe,
-    "A lockfile other than the root lockfile of the package manager: one in a workspace member, another manager's at the root, or Bun's `bun.lockb` next to the `bun.lock` Bun reads.",
+    "A lockfile other than the root lockfile of the package manager: one in a workspace member, another manager's at the root, or one its manager ignores next to the one it reads (Bun's `bun.lockb` beside `bun.lock`, npm's `package-lock.json` beside `npm-shrinkwrap.json`).",
 );
 
 const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
@@ -21,10 +21,42 @@ const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
 /// Bun's legacy binary lockfile, which Bun does not read while its text `bun.lock` is next to it.
 const BUN_BINARY_LOCKFILE: &str = "bun.lockb";
 
+/// npm's lockfile, which npm does not read while `npm-shrinkwrap.json` is next to it.
+const NPM_LOCKFILE: &str = "package-lock.json";
+
+/// npm's publishable lockfile, which npm installs from in preference to `package-lock.json`.
+const NPM_SHRINKWRAP: &str = "npm-shrinkwrap.json";
+
+/// A root lockfile its package manager ignores while another of its own lockfiles is next to it.
+struct Shadow {
+    manager: PackageManager,
+    /// The lockfile the manager ignores.
+    ignored: &'static str,
+    /// The lockfile the manager installs from instead.
+    read: &'static str,
+    /// What the ignored lockfile is, in the message.
+    description: &'static str,
+}
+
+static SHADOWS: [Shadow; 2] = [
+    Shadow {
+        manager: PackageManager::Bun,
+        ignored: BUN_BINARY_LOCKFILE,
+        read: BUN_LOCKFILE,
+        description: "Bun's legacy binary lockfile, which Bun ignores",
+    },
+    Shadow {
+        manager: PackageManager::Npm,
+        ignored: NPM_LOCKFILE,
+        read: NPM_SHRINKWRAP,
+        description: "npm's lockfile, which npm ignores",
+    },
+];
+
 /// The package manager that writes the lockfile called `name`.
 fn writer(name: &str) -> &'static str {
     match name {
-        "package-lock.json" | "npm-shrinkwrap.json" => "npm",
+        NPM_LOCKFILE | NPM_SHRINKWRAP => "npm",
         "yarn.lock" => "Yarn",
         "pnpm-lock.yaml" => "pnpm",
         _ => "Bun",
@@ -35,7 +67,7 @@ fn writer(name: &str) -> &'static str {
 /// nothing.
 fn is_root_lockfile(manager: PackageManager, name: &str) -> bool {
     match manager {
-        PackageManager::Npm => matches!(name, "package-lock.json" | "npm-shrinkwrap.json"),
+        PackageManager::Npm => matches!(name, NPM_LOCKFILE | NPM_SHRINKWRAP),
         PackageManager::Pnpm => name == "pnpm-lock.yaml",
         PackageManager::Yarn => name == "yarn.lock",
         PackageManager::Bun => matches!(name, BUN_LOCKFILE | BUN_BINARY_LOCKFILE),
@@ -54,15 +86,18 @@ fn manager_name(manager: PackageManager) -> &'static str {
     }
 }
 
-/// Whether the root lockfile `name` is Bun's binary one next to a `bun.lock` at the root, which Bun installs from.
-fn is_shadowed_bun_lockfile(workspace: &Workspace, name: &str) -> bool {
-    name == BUN_BINARY_LOCKFILE
-        && workspace.package_manager == Some(PackageManager::Bun)
-        && workspace
-            .facts
-            .package_manager_files
-            .iter()
-            .any(|path| path == Path::new(BUN_LOCKFILE))
+/// The shadow of the root lockfile `name`: Bun's `bun.lockb` next to a `bun.lock`, or npm's `package-lock.json`
+/// next to an `npm-shrinkwrap.json`, each in a workspace of that manager, which installs from the other file.
+fn shadow(workspace: &Workspace, name: &str) -> Option<&'static Shadow> {
+    SHADOWS.iter().find(|shadow| {
+        shadow.ignored == name
+            && workspace.package_manager == Some(shadow.manager)
+            && workspace
+                .facts
+                .package_manager_files
+                .iter()
+                .any(|path| path == Path::new(shadow.read))
+    })
 }
 
 /// A lockfile the rule reports unless the allow-list names it.
@@ -100,7 +135,7 @@ fn strays(workspace: &Workspace) -> Vec<Stray<'_>> {
             let dir = path.parent().unwrap_or_else(|| Path::new(""));
             if dir.as_os_str().is_empty() {
                 let manager = workspace.package_manager?;
-                let stray = !is_root_lockfile(manager, name) || is_shadowed_bun_lockfile(workspace, name);
+                let stray = !is_root_lockfile(manager, name) || shadow(workspace, name).is_some();
                 return stray.then_some(Stray { path, package: None });
             }
             if nested.contains(dir) {
@@ -116,8 +151,8 @@ fn strays(workspace: &Workspace) -> Vec<Stray<'_>> {
 }
 
 /// Reports lockfiles a workspace install does not read: every lockfile in a member directory, a lockfile at the
-/// root that another package manager than the workspace's writes, and Bun's binary `bun.lockb` next to a `bun.lock`,
-/// which Bun installs from instead.
+/// root that another package manager than the workspace's writes, Bun's binary `bun.lockb` next to a `bun.lock`, and
+/// npm's `package-lock.json` next to an `npm-shrinkwrap.json`; the manager installs from the other file.
 ///
 /// Every supported manager keeps one lockfile for the whole workspace at its root, so a member's lockfile is a
 /// leftover that only misleads the tools run in that directory. Without a known package manager the root lockfiles
@@ -156,23 +191,29 @@ impl Rule for StrayLockfile {
                 .and_then(|name| name.to_str())
                 .unwrap_or_default();
             let at_root = stray.path.parent().is_none_or(|dir| dir.as_os_str().is_empty());
-            let (message, help) = match (stray.package, workspace.package_manager) {
-                (None, Some(_)) if at_root && is_shadowed_bun_lockfile(workspace, name) => (
-                    format!("`{file}` is Bun's legacy binary lockfile, which Bun ignores next to `bun.lock`"),
-                    "delete it; Bun installs from `bun.lock`, so the binary lockfile only goes stale",
+            let shadowed = if at_root { shadow(workspace, name) } else { None };
+            let (message, help) = match (stray.package, workspace.package_manager, shadowed) {
+                (None, Some(_), Some(shadow)) => (
+                    format!("`{file}` is {} next to `{}`", shadow.description, shadow.read),
+                    format!(
+                        "delete it; {} installs from `{}`, so `{file}` only goes stale",
+                        manager_name(shadow.manager),
+                        shadow.read
+                    ),
                 ),
-                (None, Some(manager)) if at_root => (
+                (None, Some(manager), None) if at_root => (
                     format!(
                         "`{file}` is a lockfile of {}, but the workspace uses {}",
                         writer(name),
                         manager_name(manager)
                     ),
-                    "delete it; a second lockfile at the root makes tools disagree about the package manager",
+                    "delete it; a second lockfile at the root makes tools disagree about the package manager".to_owned(),
                 ),
                 _ => (
                     format!("`{file}` is a lockfile inside the workspace, which installs from the root lockfile"),
                     "delete it; to install the directory on its own, exclude it from the workspace patterns, or keep \
-                     it with an entry in `[rules.stray-lockfile] allow`",
+                     it with an entry in `[rules.stray-lockfile] allow`"
+                        .to_owned(),
                 ),
             };
             let mut builder = diagnostic(&META, message, Location::new(stray.path.to_path_buf(), None))
@@ -219,7 +260,8 @@ mod tests {
     fn the_root_lockfile_of_the_package_manager_is_not_reported() {
         let cases = [
             ("pnpm", vec!["pnpm-lock.yaml"]),
-            ("npm", vec!["package-lock.json", "npm-shrinkwrap.json"]),
+            ("npm", vec!["package-lock.json"]),
+            ("npm", vec!["npm-shrinkwrap.json"]),
             ("yarn", vec!["yarn.lock"]),
             ("bun", vec!["bun.lock"]),
             ("bun", vec!["bun.lockb"]),
@@ -266,6 +308,43 @@ mod tests {
         assert_eq!(
             diagnostics[1].message,
             "`bun.lockb` is a lockfile of Bun, but the workspace uses pnpm"
+        );
+    }
+
+    #[test]
+    fn an_npm_lockfile_next_to_the_shrinkwrap_is_reported() {
+        let root_json = r#"{"name":"root","private":true,"packageManager":"npm@11.6.0","workspaces":["packages/*"]}"#;
+        let files = with_root(
+            root_json,
+            &[
+                ("package-lock.json", "{}"),
+                ("npm-shrinkwrap.json", "{}"),
+                ("packages/a/package.json", MEMBER_A),
+            ],
+        );
+        let diagnostics = lint(META.id, &files, &config(""));
+        assert_eq!(paths(&diagnostics), ["package-lock.json"]);
+        assert_eq!(
+            diagnostics[0].message,
+            "`package-lock.json` is npm's lockfile, which npm ignores next to `npm-shrinkwrap.json`"
+        );
+        assert_eq!(
+            diagnostics[0].help.as_deref(),
+            Some("delete it; npm installs from `npm-shrinkwrap.json`, so `package-lock.json` only goes stale")
+        );
+        assert_eq!(diagnostics[0].fixes[0].safety, FixSafety::Unsafe);
+        assert!(diagnostics[0].package.is_none());
+        // Another manager reads neither, so both are reported as its foreign lockfiles.
+        let pnpm_root = root("");
+        let files = with_root(
+            &pnpm_root,
+            &[("pnpm-lock.yaml", ""), ("package-lock.json", "{}"), ("npm-shrinkwrap.json", "{}")],
+        );
+        let diagnostics = lint(META.id, &files, &config(""));
+        assert_eq!(paths(&diagnostics), ["npm-shrinkwrap.json", "package-lock.json"]);
+        assert_eq!(
+            diagnostics[1].message,
+            "`package-lock.json` is a lockfile of npm, but the workspace uses pnpm"
         );
     }
 

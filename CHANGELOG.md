@@ -23,9 +23,11 @@ All notable changes to this project are documented here. The format follows
   projects outside the workspace are not reported ([ADR 0088](adrs/0088-foreign-package-manager-commands.md),
   [#139](https://github.com/Goldziher/skif/issues/139)).
 - `stray-lockfile`: a lockfile in a workspace member, or one at the root written by another package manager (also a
-  `bun.lockb` beside a `bun.lock`, which Bun ignores); the unsafe fix deletes it. `nested-workspace-root`: a
-  `pnpm-workspace.yaml` in a member, or a Bun member whose `package.json` declares `workspaces`. Both skip gitignored
-  files and take `allow`, globs of files kept on purpose, each a string or `{ name, reason }`
+  `bun.lockb` beside a `bun.lock`, which Bun ignores, and a `package-lock.json` beside an `npm-shrinkwrap.json`, which
+  npm ignores, [#157](https://github.com/Goldziher/skif/issues/157)); the unsafe fix deletes it.
+  `nested-workspace-root`: a `pnpm-workspace.yaml` in a member, or a Bun member whose `package.json` declares
+  `workspaces`. Both skip gitignored files and take `allow`, globs of files kept on purpose, each a string or
+  `{ name, reason }`
   ([ADR 0089](adrs/0089-stray-lockfiles-and-nested-workspace-roots.md),
   [ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md),
   [#140](https://github.com/Goldziher/skif/issues/140)).
