@@ -533,7 +533,14 @@ impl<'a> JsAnalysis<'a> {
                 fs: disk.as_ref(),
                 gitignore: !config.js.no_gitignore,
             };
-            entry_files(fs.as_ref(), workspace, &setup, &candidates, extra_entries, published)
+            entry_files(
+                fs.as_ref(),
+                workspace,
+                &setup,
+                &candidates,
+                (extra_entries, sequential),
+                published,
+            )
         });
         setup.mark_entries_incomplete(&found.unknown);
         let entries = found.files;
