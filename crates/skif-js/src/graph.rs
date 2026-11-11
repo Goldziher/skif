@@ -83,9 +83,9 @@ pub struct Module {
     pub abs: PathBuf,
     /// Path relative to the workspace root, as shown in diagnostics.
     pub path: PathBuf,
-    /// The package whose directory is the closest ancestor, or the package that adopted the file: one reached through
-    /// the `rootDirs` of an importer's `tsconfig.json` belongs to the importer's package, as do the files it reaches by
-    /// relative imports within the package of its location.
+    /// The package whose directory is the closest ancestor, or the package that adopted the file: a file of the root
+    /// that is no candidate and is reached through the `rootDirs` of an importer's `tsconfig.json` belongs to the
+    /// importer's package, as do such files it reaches by relative imports below the same root directory.
     pub owner: PackageId,
     /// Matches the project globs of its package.
     pub in_project: bool,
@@ -194,10 +194,10 @@ struct RawImport {
 }
 
 /// How an import reaches its target, which decides the package of a file it reaches first ([`Builder::adopter`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Reach {
-    /// Through the `rootDirs` of the importer's `tsconfig.json`.
-    RootDirs,
+    /// Through the `rootDirs` of the importer's `tsconfig.json`, below the root directory given.
+    RootDirs(PathBuf),
     /// Through a relative specifier.
     Relative,
     /// Any other way.
@@ -442,12 +442,10 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
                 .specifier
                 .split_once('?')
                 .is_some_and(|(_, query)| is_source_query(query));
-            let reach = if outcome.root_dirs {
-                Reach::RootDirs
-            } else if import.specifier.starts_with('.') {
-                Reach::Relative
-            } else {
-                Reach::Other
+            let reach = match outcome.root_dirs {
+                Some(root_dir) => Reach::RootDirs(root_dir),
+                None if import.specifier.starts_with('.') => Reach::Relative,
+                None => Reach::Other,
             };
             let target = match outcome.target {
                 Resolved::File(_) if reads_source => RawTarget::Asset,
@@ -541,8 +539,16 @@ struct Builder<'a> {
     relink: bool,
     /// Whether the components a package registers may be used where skif records no tags, by package.
     untagged: HashMap<PackageId, bool>,
-    /// The modules a package adopted ([`Builder::adopter`]), with the package of their location.
-    adopted: HashMap<ModuleId, PackageId>,
+    /// The modules a package adopted ([`Builder::adopter`]), with the root directory they lie below.
+    adopted: HashMap<ModuleId, PathBuf>,
+}
+
+/// A package taking a file it reaches first through `rootDirs` from the package of its location ([`Builder::adopter`]).
+struct Adoption {
+    /// The package of the importing module.
+    owner: PackageId,
+    /// The root directory the file lies below (`bazel-bin/packages/app`).
+    root_dir: PathBuf,
 }
 
 impl<'a> Builder<'a> {
@@ -606,32 +612,41 @@ impl<'a> Builder<'a> {
         })
     }
 
-    /// The package of `abs` by location: that of its candidate, else that of the closest package directory above it.
+    /// The package of `abs`, a path the links already resolve, by location: that of its candidate, else that of the
+    /// closest package directory above it.
     fn located_owner(&self, abs: &Path) -> PackageId {
-        let abs = self.inputs.links.get(abs).map_or(abs, PathBuf::as_path);
         self.candidate_index.get(abs).map_or_else(
             || self.owner_of(abs),
             |position| self.inputs.candidates[*position].owner,
         )
     }
 
+    /// Whether another package may adopt `abs`: it is no candidate and lies in no package directory but the root's,
+    /// as code generated into a build output tree does. A file of a workspace package always stays that package's.
+    fn adoptable(&self, abs: &Path) -> bool {
+        let abs = self.inputs.links.get(abs).map_or(abs, PathBuf::as_path);
+        !self.candidate_index.contains_key(abs) && self.owner_of(abs) == PackageId::ROOT
+    }
+
     /// The package that owns the file `raw` reaches when the module `importer` reaches it first, where that is not the
-    /// package of its location. A file found through `rootDirs` (generated code in a build output tree) belongs to
-    /// the importer's package, whose dependencies Node.js resolves its imports from; so does a file that an adopted
-    /// module reaches by a relative import within the package of its own location (generated code beside it).
-    fn adopter(&self, importer: ModuleId, raw: &RawImport) -> Option<PackageId> {
+    /// root, in whose directory alone the file lies ([`Self::adoptable`]). A file found through `rootDirs` (generated
+    /// code in a build output tree) belongs to the importer's package, whose dependencies Node.js resolves its imports
+    /// from; so does a file that an adopted module reaches by a relative import below the root directory it was found
+    /// below (generated code beside it), but not one in the output tree of another package.
+    fn adopter(&self, importer: ModuleId, raw: &RawImport) -> Option<Adoption> {
         let RawTarget::File(file) = &raw.target else {
             return None;
         };
+        let root_dir = match &raw.reach {
+            Reach::RootDirs(root_dir) => root_dir,
+            Reach::Relative => self.adopted.get(&importer)?,
+            Reach::Other => return None,
+        };
         let owner = self.modules[importer.index()].owner;
-        match raw.reach {
-            Reach::RootDirs => Some(owner),
-            Reach::Relative => {
-                let located = self.adopted.get(&importer)?;
-                (self.located_owner(file) == *located).then_some(owner)
-            }
-            Reach::Other => None,
-        }
+        (owner != PackageId::ROOT && file.starts_with(root_dir) && self.adoptable(file)).then(|| Adoption {
+            owner,
+            root_dir: root_dir.clone(),
+        })
     }
 
     /// The id of `abs`, creating an unparsed module on first sight. The flag is true for a new module.
@@ -639,9 +654,10 @@ impl<'a> Builder<'a> {
         self.intern_owned(abs, None)
     }
 
-    /// [`Self::intern`] for a file that package `adopter` owns, when given, instead of the package of its location. A
-    /// module seen before keeps its owner.
-    fn intern_owned(&mut self, abs: &Path, adopter: Option<PackageId>) -> (ModuleId, bool) {
+    /// [`Self::intern`] for a file that the package of `adoption` owns, when given, instead of the package of its
+    /// location. A module seen before keeps its owner. An adopted file keeps the `ignore` globs of the package of its
+    /// location too.
+    fn intern_owned(&mut self, abs: &Path, adoption: Option<Adoption>) -> (ModuleId, bool) {
         let inputs = self.inputs;
         let abs = inputs.links.get(abs).map_or(abs, PathBuf::as_path);
         if let Some(id) = self.index.get(abs) {
@@ -652,20 +668,24 @@ impl<'a> Builder<'a> {
             .candidate_index
             .get(abs)
             .map(|position| &inputs.candidates[*position]);
-        let located = candidate.map_or_else(|| self.owner_of(abs), |candidate| candidate.owner);
-        let owner = adopter.unwrap_or(located);
-        if owner != located {
-            self.adopted.insert(id, located);
+        let located = self.located_owner(abs);
+        let owner = adoption.as_ref().map_or(located, |adoption| adoption.owner);
+        if let Some(adoption) = adoption {
+            self.adopted.insert(id, adoption.root_dir);
         }
         let rel = relative(abs, inputs.root).unwrap_or_else(|| abs.to_string_lossy().into_owned());
         let setup = inputs.setup.package(owner);
         let package_rel = setup.and_then(|setup| relative(abs, &setup.dir));
         let foreign = candidate.is_none() && (!abs.starts_with(inputs.root) || self.in_other_project(abs, owner));
+        let ignored_by = |package: PackageId| {
+            inputs.setup.package(package).is_some_and(|setup| {
+                relative(abs, &setup.dir).is_some_and(|rel| setup.ignore.matches_any(&rel))
+            })
+        };
         let ignored = foreign
             || inputs.setup.global_ignore.matches_any(&rel)
-            || setup
-                .zip(package_rel.as_deref())
-                .is_some_and(|(setup, rel)| setup.ignore.matches_any(rel));
+            || ignored_by(owner)
+            || (owner != located && ignored_by(located));
         let in_project = candidate.is_some()
             && setup
                 .zip(package_rel.as_deref())
@@ -687,12 +707,12 @@ impl<'a> Builder<'a> {
         (id, true)
     }
 
-    /// The target of an import, interning the files it reaches; `adopter` owns a file reached for the first time
-    /// ([`Self::adopter`]).
-    fn lower(&mut self, target: RawTarget, adopter: Option<PackageId>, next: &mut Vec<ModuleId>) -> Target {
+    /// The target of an import, interning the files it reaches; the package of `adoption` owns a file reached for the
+    /// first time ([`Self::adopter`]).
+    fn lower(&mut self, target: RawTarget, adoption: Option<Adoption>, next: &mut Vec<ModuleId>) -> Target {
         match target {
             RawTarget::File(path) => {
-                let (id, fresh) = self.intern_owned(&path, adopter);
+                let (id, fresh) = self.intern_owned(&path, adoption);
                 if fresh {
                     next.push(id);
                 }
@@ -828,10 +848,10 @@ pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf]) -> ModuleGraph {
                 .imports
                 .into_iter()
                 .map(|raw| {
-                    let adopter = builder.adopter(*id, &raw);
+                    let adoption = builder.adopter(*id, &raw);
                     ResolvedImport {
                         import: raw.import,
-                        target: builder.lower(raw.target, adopter, &mut next),
+                        target: builder.lower(raw.target, adoption, &mut next),
                         package: raw.package,
                         type_only: raw.type_only,
                         component: false,
