@@ -525,3 +525,8 @@ blake3 = "b45b9db02fea6173ec332a286e03ac0672c461b877168e02be7fea6f5086be24"
 number = 105
 status = "accepted"
 blake3 = "19bc801054a55ab0f6b60102e9521e364cac48245ad28d3d0bffe24a2360ac69"
+
+[adrs."adrs/0106-path-specifiers-belong-to-local-path-dependency.md"]
+number = 106
+status = "accepted"
+blake3 = "58262325b5f5d55d94fcbaa37821a57047b0e1ffa3298840f1dd68b4a548adee"

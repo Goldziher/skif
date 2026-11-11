@@ -317,7 +317,7 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
       "rule": "local-path-dependency",
       "severity": "error",
       "message": "`@dirty/b` points at the local path `link:../b`",
-      "help": "depend on the workspace package with `*` instead of a path",
+      "help": "depend on the workspace member `@dirty/b` with `*` instead of a path",
       "location": {
         "path": "packages/a/package.json",
         "span": {

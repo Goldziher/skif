@@ -18,6 +18,7 @@ use super::analysis::{Analysis, GroupSummary};
 use super::catalog;
 use super::groups::Policy;
 use super::instances::{Instance, InstanceId};
+use crate::manifest::local_path_dependency;
 
 /// syncpack's classes of instance states, as `statusType` names them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -178,7 +179,8 @@ pub fn inspect(
     } else {
         BTreeSet::new()
     };
-    let analysis = Analysis::run_with(workspace, config, &catalog_deps, false);
+    let paths_reported_elsewhere = enabled(local_path_dependency::META.id);
+    let analysis = Analysis::run_with(workspace, config, &catalog_deps, paths_reported_elsewhere, false);
     let rules = policy_rules();
     let reported: Vec<&Diagnostic> = diagnostics
         .iter()

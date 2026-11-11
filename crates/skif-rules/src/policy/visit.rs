@@ -3,9 +3,14 @@
 //! The behaviour follows syncpack's version-group visitors (`src/version_group/*.rs`, commit 958d306, MIT,
 //! Copyright (c) 2017-2023 Jamie Mason; see `ATTRIBUTIONS.md`). Differences from syncpack:
 //!
-//! * there is no strict mode: on a dependency that names a workspace package, a `workspace:` specifier, `*`/`latest`
-//!   and a `link:`/`file:` path that resolves to the package are always valid, as is any range the package's own
-//!   version satisfies (path specifiers are the business of `local-path-dependency`);
+//! * there is no strict mode: on a dependency that names a workspace package, a `workspace:` specifier and
+//!   `*`/`latest` are always valid, as is any range the package's own version satisfies;
+//! * a path specifier (`link:`, `file:`, `portal:`, `./`, `../`, `/` or `~/`) is never rewritten and never the
+//!   target of an alignment. In a dependency section, while `local-path-dependency` is on, it takes no part in any
+//!   policy and gets no state, because that rule reports it and its fix is the only one a path gets. Otherwise (that
+//!   rule off, or a path in an override section or a custom type, which that rule does not read) it keeps its state
+//!   without a fix, and a path that resolves to the workspace package of the dependency is valid next to the
+//!   package's own version;
 //! * a bare-major range such as `^2` or `~1` stands for the versions it covers (`^2` accepts `2.3.0`), where
 //!   syncpack pads it to `^2.HUGE.HUGE` so that it accepts no version, which also changes the `same-range` overlap;
 //! * a `workspace:` specifier is never rewritten to a registry range, and never the target of one: where the package
@@ -20,7 +25,6 @@
 //!   `latest`.
 
 use std::collections::HashMap;
-use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use skif_config::{DependencyType, Prefer};
@@ -32,6 +36,7 @@ use super::groups::{Assignment, Policy};
 use super::instances::{Instance, InstanceId, Instances};
 use super::specifiers::floor_version;
 use super::state::{State, Verdict};
+use crate::manifest::local_path_dependency::{is_local_path, path_target, relative_dir};
 
 /// A state together with the specifier the instance should have.
 type Outcome = Option<(State, Option<Arc<Specifier>>)>;
@@ -41,14 +46,21 @@ pub(super) struct Visitor<'a, 'w> {
     assignment: &'a Assignment<'a>,
     /// The verdicts given so far, in the order they were given; a later one for the same instance replaces it.
     marks: Vec<(InstanceId, Verdict)>,
+    /// Whether `local-path-dependency` is on, so that it reports the paths of the dependency sections.
+    paths_reported_elsewhere: bool,
 }
 
 impl<'a, 'w> Visitor<'a, 'w> {
-    pub(super) const fn new(instances: &'a Instances<'w>, assignment: &'a Assignment<'a>) -> Self {
+    pub(super) const fn new(
+        instances: &'a Instances<'w>,
+        assignment: &'a Assignment<'a>,
+        paths_reported_elsewhere: bool,
+    ) -> Self {
         Self {
             instances,
             assignment,
             marks: Vec::new(),
+            paths_reported_elsewhere,
         }
     }
 
@@ -92,7 +104,9 @@ impl<'a, 'w> Visitor<'a, 'w> {
         self.instances.get(id).is_own_version()
     }
 
+    /// Gives `id` a state. A path is never rewritten: its state carries no target, so it has no fix.
     fn mark(&mut self, id: InstanceId, state: State, target: Option<Arc<Specifier>>) {
+        let target = target.filter(|_| !self.is_path(id));
         self.marks.push((id, Verdict { state, target }));
     }
 
@@ -102,13 +116,24 @@ impl<'a, 'w> Visitor<'a, 'w> {
         }
     }
 
-    /// The instances the policies align: those not using the `catalog:` protocol, and not a peer range written as a
-    /// compatibility window (`>=17 <19`, `^17 || ^18`), which states what is accepted rather than what is installed.
+    /// The instances the policies align: those not using the `catalog:` protocol, not a path that
+    /// `local-path-dependency` reports, and not a peer range written as a compatibility window (`>=17 <19`,
+    /// `^17 || ^18`), which states what is accepted rather than what is installed.
     fn members(&self, ids: &[InstanceId]) -> Vec<InstanceId> {
         ids.iter()
             .copied()
-            .filter(|&id| !self.spec(id).is_catalog() && !self.is_peer_window(id))
+            .filter(|&id| !self.spec(id).is_catalog() && !self.is_reported_path(id) && !self.is_peer_window(id))
             .collect()
+    }
+
+    fn is_path(&self, id: InstanceId) -> bool {
+        is_local_path(self.spec(id).get_raw())
+    }
+
+    /// Whether `local-path-dependency` reports the instance: a path in a dependency section while that rule is on.
+    /// It reads no override section and no custom type, so the paths there stay with the version groups.
+    fn is_reported_path(&self, id: InstanceId) -> bool {
+        self.paths_reported_elsewhere && self.instances.get(id).kind().is_some() && self.is_path(id)
     }
 
     fn is_peer_window(&self, id: InstanceId) -> bool {
@@ -320,8 +345,8 @@ impl<'a, 'w> Visitor<'a, 'w> {
         let Some(&first) = ids.first() else { return };
         let first = self.instances.get(first);
         // The first package of `snap-to` that declares the dependency is the target. Where it declares it in several
-        // sections, a production dependency beats a development one beats any other, and a peer range stated as a
-        // compatibility window is never the target.
+        // sections, a production dependency beats a development one beats any other, and neither a peer range
+        // stated as a compatibility window nor a path is ever the target.
         let target = packages
             .iter()
             .find_map(|package| {
@@ -334,6 +359,7 @@ impl<'a, 'w> Visitor<'a, 'w> {
                         instance.alias_target() == first.alias_target()
                             && instance.package.name.as_deref() == Some(package.as_str())
                             && !self.is_peer_window(id)
+                            && !self.is_path(id)
                     })
                     .min_by_key(|&id| rank(self.instances.get(id)))
             })
@@ -426,12 +452,11 @@ impl<'a, 'w> Visitor<'a, 'w> {
     fn local_state(&self, id: InstanceId, local: InstanceId, local_specifier: &Arc<Specifier>) -> Outcome {
         let differs = || Some((State::DiffersToLocal, Some(Arc::clone(local_specifier))));
         let specifier = self.spec(id);
-        if specifier.is_link() || matches!(**specifier, Specifier::File(_)) {
-            return if self.path_resolves_to(id, local) {
-                None
-            } else {
-                differs()
-            };
+        if self.is_path(id) {
+            let local_dir = relative_dir(self.instances.get(local).package);
+            let resolves =
+                path_target(self.instances.get(id).package, specifier.get_raw()).is_some_and(|dir| dir == local_dir);
+            return (!resolves).then_some((State::DiffersToLocal, None));
         }
         if specifier.is_workspace_protocol() || matches!(**specifier, Specifier::Latest(_)) {
             return None;
@@ -457,18 +482,6 @@ impl<'a, 'w> Visitor<'a, 'w> {
             .get_node_version()
             .zip(self.spec(id).get_node_range())
             .is_some_and(|(version, range)| range.satisfies(&version))
-    }
-
-    /// Whether the `link:` or `file:` path of `id`, resolved from its package's directory, is the directory of
-    /// `local`'s package.
-    fn path_resolves_to(&self, id: InstanceId, local: InstanceId) -> bool {
-        let raw = self.spec(id).get_raw();
-        let target = ["link:", "file:"]
-            .iter()
-            .find_map(|prefix| raw.strip_prefix(prefix))
-            .unwrap_or(raw);
-        let from = self.instances.get(id).package.dir.join(target);
-        normalized(&from).is_some_and(|from| Some(from) == normalized(&self.instances.get(local).package.dir))
     }
 
     /// Aligns every instance on the highest (or lowest) version in use, each carrying its own semver group's range.
@@ -611,36 +624,23 @@ fn is_floating(specifier: &Specifier) -> bool {
     matches!(specifier, Specifier::Latest(_) | Specifier::Tag(_))
 }
 
-/// `path` with `.` and `..` components resolved lexically; `None` when a `..` climbs out of the path.
-fn normalized(path: &Path) -> Option<PathBuf> {
-    let mut resolved = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !resolved.pop() {
-                    return None;
-                }
-            }
-            other => resolved.push(other),
-        }
-    }
-    Some(resolved)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::policy::analysis::Analysis;
+    use crate::policy::instances::Instances;
     use crate::testing::{config, workspace};
 
     const ROOT: &str =
         r#"{"name":"root","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"]}"#;
 
-    /// `(package, dependency, state)` of every verdict, for a workspace of `members` and a configuration.
-    fn states(toml: &str, members: &[(&str, &str)]) -> Vec<(String, String, &'static str)> {
+    /// A verdict as `(package, dependency, state, target)`.
+    type Marked = (String, String, &'static str, Option<String>);
+
+    /// Every verdict for a workspace of `root` and `members` and a configuration, with `local-path-dependency` on
+    /// when `paths_reported_elsewhere`.
+    fn verdicts_in(root: &str, toml: &str, members: &[(&str, &str)], paths_reported_elsewhere: bool) -> Vec<Marked> {
         let config = config(toml);
-        let mut files = vec![("package.json".to_owned(), ROOT.to_owned())];
+        let mut files = vec![("package.json".to_owned(), root.to_owned())];
         files.extend(
             members
                 .iter()
@@ -648,7 +648,8 @@ mod tests {
         );
         let borrowed: Vec<(&str, &str)> = files.iter().map(|(p, c)| (p.as_str(), c.as_str())).collect();
         let workspace = workspace(&borrowed, &config);
-        let analysis = Analysis::run(&workspace, &config, true);
+        let instances = Instances::collect(&workspace, &config, true);
+        let analysis = Analysis::from_instances(&workspace, &config, instances, paths_reported_elsewhere, true);
         analysis
             .instances
             .iter()
@@ -658,9 +659,27 @@ mod tests {
                     instance.package.display_name().to_owned(),
                     instance.name.to_string(),
                     verdict.state.name(),
+                    verdict.target.as_ref().map(|target| target.get_raw().to_owned()),
                 ))
             })
             .collect()
+    }
+
+    /// `(package, dependency, state)` of every verdict, for a workspace of `members` and a configuration.
+    fn states(toml: &str, members: &[(&str, &str)]) -> Vec<(String, String, &'static str)> {
+        verdicts_in(ROOT, toml, members, true)
+            .into_iter()
+            .map(|(package, dependency, state, _)| (package, dependency, state))
+            .collect()
+    }
+
+    fn marked(package: &str, dependency: &str, state: &'static str, target: Option<&str>) -> Marked {
+        (
+            package.to_owned(),
+            dependency.to_owned(),
+            state,
+            target.map(str::to_owned),
+        )
     }
 
     fn one(package: &str, dependency: &str, state: &'static str) -> (String, String, &'static str) {
@@ -760,21 +779,6 @@ mod tests {
     }
 
     #[test]
-    fn file_paths_to_the_local_package_are_valid_and_other_paths_are_not() {
-        let good = manifest("good", "1.0.0", r#""lib":"file:../lib""#);
-        let bad = manifest("bad", "1.0.0", r#""lib":"file:../other""#);
-        let lib = manifest("lib", "1.0.0", "");
-        let other = manifest("other", "1.0.0", "");
-        let members = [
-            ("bad", bad.as_str()),
-            ("good", good.as_str()),
-            ("lib", lib.as_str()),
-            ("other", other.as_str()),
-        ];
-        assert_eq!(states("", &members), [one("bad", "lib", "DiffersToLocal")]);
-    }
-
-    #[test]
     fn latest_and_tags_are_never_the_alignment_target() {
         let cases: [(&str, &str, &[&str]); 5] = [
             ("latest", "^5.4.5", &["NonSemverMismatch"]),
@@ -808,38 +812,196 @@ mod tests {
     }
 
     #[test]
+    fn path_specifiers_on_a_local_package_get_no_state() {
+        let specifiers = [
+            "../lib",
+            "./../lib",
+            "/abs/lib",
+            "file:../lib",
+            "link:../lib",
+            "portal:../lib",
+            "~/lib",
+            "file:../other",
+            "link:../other",
+        ];
+        for specifier in specifiers {
+            let app = manifest("app", "1.0.0", &format!(r#""lib":"{specifier}""#));
+            let tool = manifest("tool", "1.0.0", r#""lib":"^1.0.0""#);
+            let lib = manifest("lib", "1.0.0", "");
+            let other = manifest("other", "1.0.0", "");
+            let members = [
+                ("app", app.as_str()),
+                ("lib", lib.as_str()),
+                ("other", other.as_str()),
+                ("tool", tool.as_str()),
+            ];
+            assert_eq!(states("", &members), [] as [(String, String, &str); 0], "{specifier}");
+        }
+    }
+
+    #[test]
+    fn path_specifiers_are_never_rewritten_by_any_policy() {
+        const PINNED: &str = "[[version-groups]]\ndependencies = [\"mix\"]\npolicy = \"pinned\"\npin = \"2.0.0\"\n";
+        const SAME_RANGE: &str = "[[version-groups]]\ndependencies = [\"mix\"]\npolicy = \"same-range\"\n";
+        const SAME_MINOR: &str = "[[version-groups]]\ndependencies = [\"mix\"]\npolicy = \"same-minor\"\n";
+        const SNAP_APP: &str =
+            "[[version-groups]]\ndependencies = [\"mix\"]\npolicy = \"snapped-to\"\nsnap-to = [\"app\"]\n";
+        const SNAP_TOOL: &str =
+            "[[version-groups]]\ndependencies = [\"mix\"]\npolicy = \"snapped-to\"\nsnap-to = [\"tool\"]\n";
+        let pin = Some("2.0.0");
+        // With `local-path-dependency` on, the path gets no state and does not block the others; with it off, the
+        // path keeps its state, never with a fix. A path is never the snap target.
+        let cases: [(&str, Vec<Marked>, Vec<Marked>); 6] = [
+            (
+                "",
+                vec![],
+                vec![marked("tool", "mix", "DiffersToHighestOrLowestSemver", None)],
+            ),
+            (
+                PINNED,
+                vec![marked("app", "mix", "DiffersToPin", pin)],
+                vec![
+                    marked("app", "mix", "DiffersToPin", pin),
+                    marked("tool", "mix", "DiffersToPin", None),
+                ],
+            ),
+            (
+                SAME_RANGE,
+                vec![],
+                vec![marked("tool", "mix", "SameRangeMismatch", None)],
+            ),
+            (
+                SAME_MINOR,
+                vec![],
+                vec![
+                    marked("app", "mix", "SameMinorHasMajorMismatch", None),
+                    marked("tool", "mix", "SameMinorHasMajorMismatch", None),
+                ],
+            ),
+            (
+                SNAP_APP,
+                vec![],
+                vec![marked("tool", "mix", "DiffersToSnapTarget", None)],
+            ),
+            (
+                SNAP_TOOL,
+                vec![marked("app", "mix", "DependsOnMissingSnapTarget", None)],
+                vec![
+                    marked("app", "mix", "DependsOnMissingSnapTarget", None),
+                    marked("tool", "mix", "DependsOnMissingSnapTarget", None),
+                ],
+            ),
+        ];
+        for specifier in ["file:../../vendor/mix", "link:../../vendor/mix", "../../vendor/mix"] {
+            let app = manifest("app", "1.0.0", r#""mix":"1.2.3""#);
+            let tool = manifest("tool", "1.0.0", &format!(r#""mix":"{specifier}""#));
+            let members = [("app", app.as_str()), ("tool", tool.as_str())];
+            for (toml, reported_elsewhere, kept) in &cases {
+                assert_eq!(
+                    &verdicts_in(ROOT, toml, &members, true),
+                    reported_elsewhere,
+                    "{specifier} {toml}"
+                );
+                assert_eq!(
+                    &verdicts_in(ROOT, toml, &members, false),
+                    kept,
+                    "{specifier} {toml} off"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn with_local_path_dependency_off_a_path_to_another_directory_differs_from_the_local_package_without_a_fix() {
+        let cases = [
+            ("link:../other", vec![marked("app", "lib", "DiffersToLocal", None)]),
+            ("file:../other", vec![marked("app", "lib", "DiffersToLocal", None)]),
+            ("../../lib", vec![marked("app", "lib", "DiffersToLocal", None)]),
+            ("/abs/lib", vec![marked("app", "lib", "DiffersToLocal", None)]),
+            ("~/lib", vec![marked("app", "lib", "DiffersToLocal", None)]),
+            ("link:../lib", vec![]),
+            ("file:./../lib", vec![]),
+            ("portal:../lib", vec![]),
+            ("../lib", vec![]),
+        ];
+        for (specifier, expected) in cases {
+            let app = manifest("app", "1.0.0", &format!(r#""lib":"{specifier}""#));
+            let lib = manifest("lib", "1.0.0", "");
+            let other = manifest("other", "1.0.0", "");
+            let tool = manifest("tool", "1.0.0", r#""lib":"^1.0.0""#);
+            let members = [
+                ("app", app.as_str()),
+                ("lib", lib.as_str()),
+                ("other", other.as_str()),
+                ("tool", tool.as_str()),
+            ];
+            assert_eq!(verdicts_in(ROOT, "", &members, false), expected, "{specifier}");
+            assert_eq!(
+                verdicts_in(ROOT, "", &members, true),
+                [] as [Marked; 0],
+                "{specifier} on"
+            );
+        }
+    }
+
+    #[test]
     fn a_link_that_climbs_out_of_the_workspace_never_names_a_local_package() {
-        let root = r#"{"name":"top","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["x"],"dependencies":{"x":"link:../x"}}"#;
+        let root = r#"{"name":"top","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"],"dependencies":{"x":"link:../x"}}"#;
         let x = manifest("x", "1.0.0", "");
-        let files = [("package.json", root), ("x/package.json", x.as_str())];
-        let config = config("");
-        let workspace = workspace(&files, &config);
-        let analysis = Analysis::run(&workspace, &config, true);
-        let flagged: Vec<&str> = analysis
-            .instances
-            .iter()
-            .filter_map(|(id, instance)| analysis.verdicts[id.index()].as_ref().map(|_| &*instance.name))
-            .collect();
         assert_eq!(
-            flagged,
-            ["x"],
-            "`link:../x` from the root package does not point at the member `x`"
+            verdicts_in(root, "", &[("x", x.as_str())], false),
+            [marked("top", "x", "DiffersToLocal", None)]
         );
     }
 
     #[test]
-    fn links_are_compared_by_resolved_directory() {
-        let good = manifest("good", "1.0.0", r#""lib":"link:../lib""#);
-        let bad = manifest("bad", "1.0.0", r#""lib":"link:../other""#);
+    fn banned_groups_still_report_a_path() {
+        let toml = "[[version-groups]]\ndependencies = [\"mix\"]\npolicy = \"banned\"\n";
+        let app = manifest("app", "1.0.0", r#""mix":"1.2.3""#);
+        let linked = manifest("tool", "1.0.0", r#""mix":"link:../../vendor/mix""#);
+        let members = [("app", app.as_str()), ("tool", linked.as_str())];
+        for paths_reported_elsewhere in [true, false] {
+            assert_eq!(
+                verdicts_in(ROOT, toml, &members, paths_reported_elsewhere),
+                [
+                    marked("app", "mix", "IsBanned", None),
+                    marked("tool", "mix", "IsBanned", None),
+                ],
+                "{paths_reported_elsewhere}"
+            );
+        }
+    }
+
+    /// `local-path-dependency` reads only the dependency sections, so a path in an override section stays with the
+    /// version groups whether that rule is on or off.
+    #[test]
+    fn a_path_in_an_override_section_keeps_its_state_without_a_fix() {
+        const OVERRIDES: &str = "[policy]\ndependency-types = [\"prod\", \"dev\", \"local\", \"overrides\"]\n";
+        let root_with = |specifier: &str| {
+            format!(
+                r#"{{"name":"root","version":"0.0.0","private":true,"packageManager":"npm@10.0.0","workspaces":["packages/*"],"overrides":{{"lib":"{specifier}"}}}}"#
+            )
+        };
         let lib = manifest("lib", "1.0.0", "");
         let other = manifest("other", "1.0.0", "");
-        let members = [
-            ("bad", bad.as_str()),
-            ("good", good.as_str()),
-            ("lib", lib.as_str()),
-            ("other", other.as_str()),
+        let members = [("lib", lib.as_str()), ("other", other.as_str())];
+        let cases = [
+            (
+                "file:./packages/other",
+                vec![marked("root", "lib", "DiffersToLocal", None)],
+            ),
+            ("file:./packages/lib", vec![]),
         ];
-        assert_eq!(states("", &members), [one("bad", "lib", "DiffersToLocal")]);
+        for (specifier, expected) in cases {
+            let root = root_with(specifier);
+            for paths_reported_elsewhere in [true, false] {
+                assert_eq!(
+                    verdicts_in(&root, OVERRIDES, &members, paths_reported_elsewhere),
+                    expected,
+                    "{specifier} {paths_reported_elsewhere}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -1207,16 +1369,5 @@ mod tests {
         let lib = manifest("lib", "1.0.0", r#""react":"^18.3.1""#);
         let members = [("app", app), ("lib", lib.as_str())];
         assert_eq!(states(toml, &members), [] as [(String, String, &str); 0]);
-    }
-
-    #[test]
-    fn lexical_normalization_resolves_dots() {
-        assert_eq!(
-            normalized(Path::new("packages/app/../lib/./x")).as_deref(),
-            Some(Path::new("packages/lib/x"))
-        );
-        assert_eq!(normalized(Path::new("")).as_deref(), Some(Path::new("")));
-        assert_eq!(normalized(Path::new("a/../..")), None);
-        assert_eq!(normalized(Path::new("../x")), None);
     }
 }

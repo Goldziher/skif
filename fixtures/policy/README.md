@@ -199,8 +199,14 @@ syncpack.
   `optional` are opt-in (`banned/banned-across-sections`, `version-mismatch/peer-dependency-compared` and
   `semver-groups/per-dependency-type-ranges` configure them).
 * On a dependency that names a workspace package, a range the package's own version satisfies is valid, as are
-  `workspace:` specifiers, `*`/`latest` and a `link:`/`file:` path to the package
-  (`version-mismatch/local-package-wins-range-differs`).
+  `workspace:` specifiers and `*`/`latest` (`version-mismatch/local-package-wins-range-differs`).
+* A path specifier (`link:`, `file:`, `portal:`, `./`, `../`, `/` or `~/`) is never rewritten and never the target of
+  an alignment. In a dependency section, while `local-path-dependency` is on (as in every case here but
+  `workspace-protocol/link-path-rejected-by-default`), it gets no state, because that rule reports it and its fix is
+  the only one the value gets. With that rule off, and in an override section or a custom type, it keeps its state
+  without a fix, and a path that resolves to the workspace package is valid next to its own version. syncpack
+  rewrites a path to another directory, or next to a semver version, to that version
+  (`version-mismatch/link-specifier-wrong-directory`, `version-mismatch/semver-and-file-specifier-mix`).
 * A `catalog:` instance leaves the preferred-semver group; the remaining instances still align.
 * Ranges rank by the lowest version they admit, so `^14.1.2` outranks `^14` and the shorthand is the one reported;
   syncpack lets the shorthand win (`version-mismatch/range-ranks-by-lowest-admitted-version`).
@@ -296,7 +302,7 @@ States in the ADR 0009 table. Valid states produce no diagnostic and are listed 
 | Fixable | `IsBanned` | `banned-dependency` | `banned/banned-across-sections`, `banned/banned-glob-scope`, `banned/banned-scoped-to-package`, `banned/removes-banned-dependency` (+10 more) |
 | Fixable | `DiffersToHighestOrLowestSemver` | `version-mismatch` | `catalog/off-catalog-definition-joins-alignment`, `ignored/ignore-table-suppresses-rule`, `ignored/ignored-dependency-skips-mismatch`, `ignored/ignored-dependency-type` (+23 more) |
 | Fixable | `DiffersToHighestOrLowestSemverMinor` | `version-mismatch` | unreachable: no `prefer` for same-minor groups in `skif.toml` (see ADR gaps) |
-| Fixable | `DiffersToLocal` | `version-mismatch` | `selectors/not-local-selector`, `version-mismatch/link-specifier-wrong-directory`, `version-mismatch/local-package-wins-over-higher`, `version-mismatch/local-package-wins-range-differs` (+1 more) |
+| Fixable | `DiffersToLocal` | `version-mismatch` | `selectors/not-local-selector`, `version-mismatch/local-package-wins-over-higher`, `version-mismatch/local-package-wins-range-differs`, `workspace-protocol/version-mismatch-and-protocol-both-reported` |
 | Fixable | `DiffersToSnapTarget` | `version-mismatch` | `policy-conflict/refuse-to-snap-local`, `snapped-to/fix-applies-semver-group-range`, `snapped-to/snaps-to-target-package`, `snapped-to/target-is-lower-than-others` |
 | Fixable | `DiffersToPin` | `version-mismatch` | `pinned/pin-leaves-other-dependencies-to-catch-all`, `pinned/pin-scoped-to-package`, `pinned/range-pin`, `pinned/replaces-anything-different` (+3 more) |
 | Fixable | `SemverRangeMismatch` | `semver-range-mismatch` | `catalog/catalog-definition-semver-group`, `same-range/overlap-but-semver-group-mismatch`, `semver-groups/caret-for-all-dependencies`, `semver-groups/dependency-type-selector` (+12 more) |
