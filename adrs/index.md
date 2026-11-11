@@ -113,10 +113,10 @@ old one.
 | 0103 | [One of Several Known Values in Config Evaluation, and the Scopes of Computed Reporters and Storybook Addons](0103-one-of-several-known-values-in-config-evaluation.md) | accepted |
 | 0104 | [Bun Workspace Semantics: Literal Members, Its Two Lockfiles, Nested Workspaces and Patches](0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md) | accepted |
 | 0105 | [Yarn Classic Support and the End-to-End Matrix of Linkers and Operating Systems](0105-yarn-classic-support-and-the-end-to-end-matrix-of-linkers-and-operating-systems.md) | accepted |
-| 0109 | [Nx Projects as Scopes of the Package That Owns Them](0109-nx-projects-as-scopes-of-the-package-that-owns-them.md) | accepted |
-| 0108 | [Member Binaries Under pnpm's Hoisted Node Linker](0108-member-binaries-under-pnpm-s-hoisted-node-linker.md) | accepted |
-| 0107 | [Stray Lockfiles a Build Installs From, npm's Shrinkwrap, and a Dependency in None of Several Catalogs](0107-stray-lockfiles-a-build-installs-from-and-a-dependency-in-none-of-several-catalogs.md) | accepted |
 | 0106 | [Path Specifiers Belong to local-path-dependency, and Yarn Classic Links Members by Range](0106-path-specifiers-belong-to-local-path-dependency.md) | accepted |
+| 0107 | [Stray Lockfiles a Build Installs From, npm's Shrinkwrap, and a Dependency in None of Several Catalogs](0107-stray-lockfiles-a-build-installs-from-and-a-dependency-in-none-of-several-catalogs.md) | accepted |
+| 0108 | [Member Binaries Under pnpm's Hoisted Node Linker](0108-member-binaries-under-pnpm-s-hoisted-node-linker.md) | accepted |
+| 0109 | [Nx Projects as Scopes of the Package That Owns Them](0109-nx-projects-as-scopes-of-the-package-that-owns-them.md) | accepted |
 
 ## Effective statements
 

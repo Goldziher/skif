@@ -35,18 +35,6 @@
         ]
       }
     },
-    "pnpm/hoisted": {
-      "reason": "node-linker=hoisted puts e2e-tool on b's PATH, but skif does not read the linker, so it is reported as under the isolated linker.",
-      "known_issue": "#146 member binaries ignore pnpm and Yarn Berry hoisted linker settings",
-      "add": [
-        "unlisted-binaries:@e2e/b:e2e-tool"
-      ],
-      "after_fix": {
-        "add": [
-          "unlisted-binaries:@e2e/b:e2e-tool"
-        ]
-      }
-    },
     "yarn": {
       "reason": "Yarn Berry runs only the binaries of a package's own dependencies, under every linker.",
       "add": [
