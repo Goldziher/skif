@@ -89,7 +89,10 @@ pub struct GithubRunner {
     pub runner_environment: Option<String>,
     /// `RUNNER_NAME`.
     pub runner_name: Option<String>,
-    /// `GITHUB_SERVER_URL/GITHUB_REPOSITORY/actions/runs/GITHUB_RUN_ID`.
+    /// `GITHUB_RUN_ATTEMPT`: 1 for the first run, one more for each re-run.
+    pub run_attempt: Option<u32>,
+    /// `GITHUB_SERVER_URL/GITHUB_REPOSITORY/actions/runs/GITHUB_RUN_ID/attempts/GITHUB_RUN_ATTEMPT`, the attempt that
+    /// measured (without `/attempts/...` when the attempt is unknown).
     pub run_url: Option<String>,
 }
 
@@ -352,11 +355,15 @@ fn github_runner(lookup: impl Fn(&str) -> Option<String>) -> Option<GithubRunner
     if var("GITHUB_ACTIONS").as_deref() != Some("true") {
         return None;
     }
+    let run_attempt: Option<u32> = var("GITHUB_RUN_ATTEMPT").and_then(|attempt| attempt.parse().ok());
     let run_url = match (var("GITHUB_SERVER_URL"), var("GITHUB_REPOSITORY"), var("GITHUB_RUN_ID")) {
-        (Some(server), Some(repository), Some(run)) => Some(format!(
-            "{}/{repository}/actions/runs/{run}",
-            server.trim_end_matches('/')
-        )),
+        (Some(server), Some(repository), Some(run)) => {
+            let attempt = run_attempt.map_or_else(String::new, |attempt| format!("/attempts/{attempt}"));
+            Some(format!(
+                "{}/{repository}/actions/runs/{run}{attempt}",
+                server.trim_end_matches('/')
+            ))
+        }
         _ => None,
     };
     Some(GithubRunner {
@@ -366,6 +373,7 @@ fn github_runner(lookup: impl Fn(&str) -> Option<String>) -> Option<GithubRunner
         runner_arch: var("RUNNER_ARCH"),
         runner_environment: var("RUNNER_ENVIRONMENT"),
         runner_name: var("RUNNER_NAME"),
+        run_attempt,
         run_url,
     })
 }
@@ -523,6 +531,7 @@ mod tests {
             ("GITHUB_SERVER_URL", "https://github.com/"),
             ("GITHUB_REPOSITORY", "Goldziher/skif"),
             ("GITHUB_RUN_ID", "19283746"),
+            ("GITHUB_RUN_ATTEMPT", "2"),
         ]);
         let lookup = |env: &BTreeMap<&str, &str>, name: &str| env.get(name).map(|value| (*value).to_owned());
         assert_eq!(
@@ -534,8 +543,17 @@ mod tests {
                 runner_arch: Some("X64".into()),
                 runner_environment: Some("github-hosted".into()),
                 runner_name: Some("GitHub Actions 1000012345".into()),
-                run_url: Some("https://github.com/Goldziher/skif/actions/runs/19283746".into()),
+                run_attempt: Some(2),
+                run_url: Some("https://github.com/Goldziher/skif/actions/runs/19283746/attempts/2".into()),
             })
+        );
+        let mut no_attempt = env.clone();
+        no_attempt.insert("GITHUB_RUN_ATTEMPT", "first");
+        let runner = github_runner(|name| lookup(&no_attempt, name)).unwrap();
+        assert_eq!(runner.run_attempt, None);
+        assert_eq!(
+            runner.run_url.as_deref(),
+            Some("https://github.com/Goldziher/skif/actions/runs/19283746")
         );
         let mut partial = env.clone();
         partial.remove("GITHUB_RUN_ID");
