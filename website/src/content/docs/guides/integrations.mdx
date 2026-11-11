@@ -161,6 +161,26 @@ pre-commit:
       run: skif --no-js
 ```
 
+## Bazel
+
+Wrap the `skif` binary in a target, for example with bazel_skylib's `native_binary`:
+
+```starlark
+load("@bazel_skylib//rules:native_binary.bzl", "native_binary")
+
+native_binary(
+    name = "skif",
+    src = ":skif_binary",  # the skif binary for the host platform, e.g. extracted from a release archive
+    out = "skif",
+)
+```
+
+`bazel run //:skif` lints the source tree, and `bazel run //:skif -- --fix` fixes it. Under `bazel run`
+(`BUILD_WORKSPACE_DIRECTORY` is set) skif first changes to the directory you ran Bazel from
+(`BUILD_WORKING_DIRECTORY`, else the workspace root), as buildifier does, so the default `.` and every
+relative path on the command line, including `--config` and report files, resolve against it instead of the runfiles
+tree. Absolute paths are unaffected.
+
 ## npm and Bun
 
 The `skif-cli` package is a native addon built with napi-rs for the Node.js lines that are not end-of-life (22, 24 and 26 today; see the [Node.js release schedule](https://nodejs.org/en/about/previous-releases)) and Bun 1.x; older versions may work but are not supported. It is ESM only (from CommonJS use `import()`, or `require()` on Node 22.12+), has no install script,
@@ -191,6 +211,7 @@ const exitCode = run(["--format", "json", "./my-monorepo"]);
 - `lintAsync(path, options?)` does the same on a worker thread and resolves with `{ report }` or, when the lint
   cannot run, `{ error: { kind, message, path? } }`. `kind` is `config`, `workspace`, `io`, `usage`, `ci-refusal` or `internal`.
 - `run(argv)` runs the full command line (`argv` excludes the program name) and returns its exit code. Output
-  streams to the process's stdout and stderr.
+  streams to the process's stdout and stderr. Under `bazel run` it changes the process's current directory first, as
+  the binary does ([Bazel](#bazel)).
 
 Types ship in `index.d.ts`. Both `lint` and `lintAsync` read the configuration file the way the command line does.

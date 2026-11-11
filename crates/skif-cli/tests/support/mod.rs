@@ -23,12 +23,14 @@ impl Run {
     }
 }
 
-/// The binary under test with a clean environment: no `CI`, no colour.
+/// The binary under test with a clean environment: no `CI`, no colour, not under `bazel run`.
 pub fn skif() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_skif"));
     command
         .env_remove("CI")
         .env_remove("GITHUB_ACTIONS")
+        .env_remove("BUILD_WORKSPACE_DIRECTORY")
+        .env_remove("BUILD_WORKING_DIRECTORY")
         .env("NO_COLOR", "1");
     command
 }
