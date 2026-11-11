@@ -120,28 +120,39 @@ struct Located<'a, 'b> {
     parent: Option<(Container<'a, 'b>, usize)>,
 }
 
+/// The member of `value` that `seg` names, with its index, read straight from the syntax tree: the last member of
+/// that key in an object, the element at that index in an array.
+fn child<'a, 'b>(value: &'b Value<'a>, seg: &PathSeg) -> Option<(usize, &'b Value<'a>)> {
+    match (value, seg) {
+        (Value::Object(object), PathSeg::Key(key)) => {
+            let index = object
+                .properties
+                .iter()
+                .rposition(|prop| prop_key(prop) == key.as_str())?;
+            Some((index, &object.properties[index].value))
+        }
+        (Value::Array(array), PathSeg::Index(index)) => array.elements.get(*index).map(|element| (*index, element)),
+        _ => None,
+    }
+}
+
+/// The node at `path` below `root`. Only the container holding it is collected; the ones above are walked without
+/// copying their members.
 fn locate<'a, 'b>(root: &'b Value<'a>, path: &[PathSeg]) -> Option<Located<'a, 'b>> {
-    path.iter().try_fold(
-        Located {
+    let Some((last, above)) = path.split_last() else {
+        return Some(Located {
             value: root,
             parent: None,
-        },
-        |current, seg| {
-            let holder = container(current.value)?;
-            let index = match seg {
-                PathSeg::Key(key) => holder
-                    .members
-                    .iter()
-                    .rposition(|member| member.key == Some(key.as_str()))?,
-                PathSeg::Index(index) => (!holder.is_object && *index < holder.members.len()).then_some(*index)?,
-                _ => return None,
-            };
-            Some(Located {
-                value: holder.members[index].value,
-                parent: Some((holder, index)),
-            })
-        },
-    )
+        });
+    };
+    let holder = above
+        .iter()
+        .try_fold(root, |current, seg| child(current, seg).map(|(_, value)| value))?;
+    let (index, value) = child(holder, last)?;
+    Some(Located {
+        value,
+        parent: Some((container(holder)?, index)),
+    })
 }
 
 const BOM: char = '\u{feff}';
