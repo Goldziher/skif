@@ -402,7 +402,107 @@ with `--no-gitignore` (the repository's `bench-knip-args` in `corpus.toml`): npm
 the workspaces from knip, which then analyses only the root package.
 
 <!-- bench:numbers:start -->
-Not yet measured for this release: run the `bench` workflow and `mise run bench:import -- <run-id>`.
+Medians of 15 runs after 3 warmup runs (hyperfine 1.20.0), skif 0.3.0 at `329644e11010` built with rustc 1.99.1 (58cf8f9c3 2026-10-13) against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3, measured on 2026-11-11 on a GitHub-hosted runner, image ubuntu24 20261101.360.1, Ubuntu 24.04.5 LTS, Linux 7.0.0-1017-azure, x86_64, INTEL(R) XEON(R) PLATINUM 8573C, 4 logical CPUs (2 physical cores), 15.6 GiB memory, hypervisor Microsoft, load average 3.87 / 2.90 / 1.32 before and 1.56 / 2.05 / 1.40 after the run ([workflow run, attempt 1](https://github.com/Goldziher/skif/actions/runs/43070718530/attempts/1)).
+
+**generated: 50 packages (pnpm)**
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif --no-js | 5.1 | 5.1 | - |
+| sherif | 31.7 | 31.9 | 6.2x |
+| syncpack lint | 41.6 | 40.8 | 8.1x |
+
+**generated: 500 packages (pnpm)**
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif --no-js | 28.9 | 28.8 | - |
+| sherif | 51.6 | 51.6 | 1.8x |
+| syncpack lint | 153 | 152 | 5.3x |
+
+**generated: 2000 packages (pnpm)**
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif --no-js | 124 | 126 | - |
+| sherif | 123 | 123 | 1.0x |
+| syncpack lint | 679 | 677 | 5.5x |
+
+**graph: 10000 files in 100 packages**
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif | 259 | 256 | - |
+
+**corpus: create-t3-turbo (pnpm)**
+
+Installed with `pnpm 10.19.0`.
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif | 36.3 | 36.1 | - |
+| skif --no-js | 3.9 | 3.9 | - |
+| sherif | 30.2 | 30.1 | 7.8x |
+| syncpack lint | 36.9 | 36.5 | 9.5x |
+| knip --reporter json | fails: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide | - | - |
+
+**corpus: vue-core (pnpm)**
+
+Installed with `pnpm 12.11.2`.
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif | 79.9 | 79.8 | - |
+| skif --no-js | 3.9 | 3.9 | - |
+| sherif | 28.9 | 28.8 | 7.4x |
+| syncpack lint | 36.5 | 36.1 | 9.4x |
+| knip --reporter json | fails: its SFC playground Vite config reads a build-time global that only the repository's own build defines | - | - |
+
+**corpus: tanstack-query (pnpm)**
+
+Installed with `pnpm 12.4.2`.
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif | 483 | 483 | - |
+| skif --no-js | 13.0 | 13.0 | - |
+| sherif | 36.6 | 36.0 | 2.8x |
+| syncpack lint | 101 | 101 | 7.7x |
+| knip --reporter json | 3709 | 3707 | 7.7x |
+
+**corpus: babel (yarn)**
+
+Installed with `yarn 4.17.0`.
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif | 899 | 895 | - |
+| skif --no-js | 18.9 | 18.8 | - |
+| sherif | 33.2 | 32.8 | 1.8x |
+| syncpack lint | 235 | 234 | 12.4x |
+| knip --reporter json | 5869 | 5860 | 6.5x |
+
+**corpus: npm-cli (npm)**
+
+Installed with `npx --yes npm@11.6.2 ci --ignore-scripts`.
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif | 106 | 105 | - |
+| skif --no-js | 6.3 | 6.3 | - |
+| sherif | 29.8 | 30.0 | 4.7x |
+| syncpack lint | 60.5 | 60.4 | 9.6x |
+| knip --reporter json | 735 | 735 | 7.0x |
+
+| ADR 0001 target | Check | Result |
+| --- | --- | --- |
+| generated: 500 packages (pnpm) | manifest and policy rules < 50 ms (measured 28.9 ms) | pass |
+| graph: 10000 files in 100 packages | parse and module graph of 10000 files < 2000 ms, whole run including every JS rule (measured 259.3 ms) | pass |
+| corpus: create-t3-turbo (pnpm) | JS analysis >= 5x faster than knip (not measured: knip fails here: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide) | not measured |
+| corpus: vue-core (pnpm) | JS analysis >= 5x faster than knip (not measured: knip fails here: its SFC playground Vite config reads a build-time global that only the repository's own build defines) | not measured |
+| corpus: tanstack-query (pnpm) | JS analysis >= 5x faster than knip (measured 7.7x) | pass |
+| corpus: babel (yarn) | JS analysis >= 5x faster than knip (measured 6.5x) | pass |
+| corpus: npm-cli (npm) | JS analysis >= 5x faster than knip (measured 7.0x) | pass |
 <!-- bench:numbers:end -->
 
 ## Seeded defects

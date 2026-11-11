@@ -75,7 +75,30 @@ Full skif runs against knip, and `skif --no-js` against sherif and syncpack, on 
 [pinned public repositories](tools/bench/corpus.toml) with dependencies installed and on generated workspaces.
 
 <!-- bench:summary:start -->
-Not yet measured for this release: run the `bench` workflow and `mise run bench:import -- <run-id>`.
+Medians of 15 runs after 3 warmup runs (hyperfine 1.20.0), skif 0.3.0 at `329644e11010` built with rustc 1.99.1 (58cf8f9c3 2026-10-13) against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3, measured on 2026-11-11 on a GitHub-hosted runner, image ubuntu24 20261101.360.1, Ubuntu 24.04.5 LTS, Linux 7.0.0-1017-azure, x86_64, INTEL(R) XEON(R) PLATINUM 8573C, 4 logical CPUs (2 physical cores), 15.6 GiB memory, hypervisor Microsoft, load average 3.87 / 2.90 / 1.32 before and 1.56 / 2.05 / 1.40 after the run ([workflow run, attempt 1](https://github.com/Goldziher/skif/actions/runs/43070718530/attempts/1)).
+
+**Dead-code analysis against knip** (full skif run)
+
+| Repository | skif | knip | knip / skif |
+| --- | ---: | ---: | ---: |
+| create-t3-turbo | 36 ms | fails: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide | - |
+| vue-core | 80 ms | fails: its SFC playground Vite config reads a build-time global that only the repository's own build defines | - |
+| tanstack-query | 483 ms | 3.7 s | 8x |
+| babel | 895 ms | 5.9 s | 7x |
+| npm-cli | 105 ms | 735 ms | 7x |
+
+**Manifest and policy checks** (`skif --no-js`)
+
+| Target | skif --no-js | sherif | syncpack |
+| --- | ---: | ---: | ---: |
+| create-t3-turbo | 3.9 ms | 30 ms | 37 ms |
+| vue-core | 3.9 ms | 29 ms | 36 ms |
+| tanstack-query | 13 ms | 36 ms | 101 ms |
+| babel | 19 ms | 33 ms | 234 ms |
+| npm-cli | 6.3 ms | 30 ms | 60 ms |
+| Generated, 50 packages | 5.1 ms | 32 ms | 41 ms |
+| Generated, 500 packages | 29 ms | 52 ms | 152 ms |
+| Generated, 2000 packages | 126 ms | 123 ms | 677 ms |
 <!-- bench:summary:end -->
 
 ### Accuracy on seeded defects
