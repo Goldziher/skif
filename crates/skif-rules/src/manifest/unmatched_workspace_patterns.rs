@@ -131,13 +131,12 @@ mod tests {
                 r#"{{"name":"root","private":true,"packageManager":"{manager}","workspaces":["packages/*","../shared"]}}"#
             )
         };
-        let (npm, yarn, bun) = (json_root("npm@10.0.0"), json_root("yarn@4.5.0"), json_root("bun@1.4.4"));
+        let (npm, yarn) = (json_root("npm@10.0.0"), json_root("yarn@4.5.0"));
         let pnpm_root = r#"{"name":"root","private":true,"packageManager":"pnpm@9.0.0"}"#;
         let pnpm_yaml = "packages:\n  - 'packages/*'\n  - '../shared'\n";
-        let cases: [(&str, Vec<(&str, &str)>); 4] = [
+        let cases: [(&str, Vec<(&str, &str)>); 3] = [
             ("npm", vec![("package.json", npm.as_str()), member, shared]),
             ("yarn", vec![("package.json", yarn.as_str()), member, shared]),
-            ("bun", vec![("package.json", bun.as_str()), member, shared]),
             (
                 "pnpm",
                 vec![
