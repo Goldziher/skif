@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Imports the results of a run of the bench workflow (.github/workflows/bench.yml, ADR 0113): downloads its artifact,
 # refreshes the speed tables of tools/bench/README.md, README.md and the comparison guide from its summary, and puts
-# summary.json, summary.md and the raw hyperfine exports into tools/bench/results, ready to be committed. Nothing is
-# written when the download fails, the artifact is incomplete, or refresh-numbers.mjs refuses the summary (a partial
+# summary.json, summary.md and the raw hyperfine exports (raw/) into tools/bench/results, ready to be committed. Nothing
+# is written when the download fails, the artifact is incomplete, or refresh-numbers.mjs refuses the summary (a partial
 # run, an older schema, a tool that was not timed).
 #
 # Usage: scripts/bench-import.sh <run-id>
@@ -44,12 +44,14 @@ for file in summary.json summary.md; do
     exit 1
   fi
 done
+if [[ ! -d "${artifact}/raw" ]]; then
+  echo "the artifact $(basename "$artifact") of run ${run_id} has no raw/" >&2
+  exit 1
+fi
 
 node tools/bench/refresh-numbers.mjs --bench --summary "${artifact}/summary.json"
 
 rm -rf "${results}/raw"
 cp "${artifact}/summary.json" "${artifact}/summary.md" "${results}/"
-if [[ -d "${artifact}/raw" ]]; then
-  cp -R "${artifact}/raw" "${results}/raw"
-fi
+cp -R "${artifact}/raw" "${results}/raw"
 echo "imported $(basename "$artifact") of run ${run_id} into ${results}"

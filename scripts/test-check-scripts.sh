@@ -412,7 +412,7 @@ printf '{}\n' >"${results}/raw/stale.json"
 export STUB_GH_LOG="${work}/gh.log" STUB_NODE_LOG="${work}/node.log"
 # `gh run download <id> --repo R --pattern P --dir D`: writes STUB_GH_ARTIFACTS (default 1) artifacts into D, each in
 # a directory of its own as gh does for --pattern (STUB_GH_FLAT: one, in D itself); STUB_GH_NO_MD leaves out
-# summary.md; STUB_GH_FAIL fails.
+# summary.md, STUB_GH_NO_RAW the raw/ exports; STUB_GH_FAIL fails.
 cat >"${stubs}/gh" <<'STUB'
 #!/usr/bin/env bash
 echo "$*" >"$STUB_GH_LOG"
@@ -425,10 +425,13 @@ dir="$2"
 for n in $(seq "${STUB_GH_ARTIFACTS:-1}"); do
   artifact="${dir}/bench-0123456789ab-ubuntu-24.04-${n}"
   if [[ -n "${STUB_GH_FLAT:-}" ]]; then artifact="$dir"; fi
-  mkdir -p "${artifact}/raw"
+  mkdir -p "$artifact"
   printf '{"schema":3}\n' >"${artifact}/summary.json"
   [[ -n "${STUB_GH_NO_MD:-}" ]] || printf '# new\n' >"${artifact}/summary.md"
-  printf '{"results":[]}\n' >"${artifact}/raw/00.json"
+  if [[ -z "${STUB_GH_NO_RAW:-}" ]]; then
+    mkdir -p "${artifact}/raw"
+    printf '{"results":[]}\n' >"${artifact}/raw/00.json"
+  fi
 done
 STUB
 # refresh-numbers.mjs: records its arguments and that the summary it was given exists; exits STUB_NODE_STATUS.
@@ -442,6 +445,7 @@ chmod +x "${stubs}/gh" "${stubs}/node"
 bench_untouched() {
   grep -qF '"schema":2' "${results}/summary.json" || fail "$1: summary.json was replaced"
   grep -qF '# old' "${results}/summary.md" || fail "$1: summary.md was replaced"
+  [[ -f "${results}/raw/stale.json" && ! -e "${results}/raw/00.json" ]] || fail "$1: raw/ was replaced"
 }
 
 expect "bench-import needs a run id" 2 run_in "$bench" bench-import.sh
@@ -455,6 +459,9 @@ bench_untouched "bench-import two artifacts"
 expect "bench-import fails on an artifact without summary.md" 1 env STUB_GH_NO_MD=1 bash "${bench}/scripts/bench-import.sh" 42
 expect_in_out "bench-import incomplete" "of run 42 has no summary.md"
 bench_untouched "bench-import incomplete"
+expect "bench-import fails on an artifact without raw/" 1 env STUB_GH_NO_RAW=1 bash "${bench}/scripts/bench-import.sh" 42
+expect_in_out "bench-import no raw" "of run 42 has no raw/"
+bench_untouched "bench-import no raw"
 expect "bench-import writes nothing when refresh-numbers refuses the summary" 1 env STUB_NODE_STATUS=1 bash "${bench}/scripts/bench-import.sh" 42
 bench_untouched "bench-import refused"
 
