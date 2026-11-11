@@ -1,7 +1,6 @@
 //! Runs hyperfine for skif and the optional comparison tools, then writes the summary.
 
 use std::collections::BTreeMap;
-use std::env;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::corpus::{self, Tools};
 use crate::parity;
 use crate::proc::{capture, find_on_path};
-use crate::provenance;
+use crate::provenance::{self, GithubRunner, Machine, Toolchain};
 use crate::sources;
 use skif_bench::generate::{self, Options, PackageManager};
 
@@ -27,7 +26,7 @@ const KNIP_SPEEDUP_TARGET: f64 = 5.0;
 const GRAPH_TARGET_FILES: usize = 10_000;
 const GRAPH_TARGET_MS: f64 = 2000.0;
 /// Version of the `summary.json` layout.
-const SUMMARY_SCHEMA: u32 = 2;
+const SUMMARY_SCHEMA: u32 = 3;
 const GENERATED_SEED: u64 = 1;
 const GENERATED_MISMATCH_RATE: f64 = 0.05;
 /// How long an install of a corpus repository may take, unless the corpus manifest sets its own.
@@ -234,9 +233,10 @@ struct Summary {
     source_rev: String,
     /// When the measurement ended, in seconds since the Unix epoch.
     measured_at: u64,
-    host: String,
-    cpu: String,
-    cores: usize,
+    /// The machine the measurement ran on, with the GitHub Actions runner when it ran in a workflow.
+    machine: Machine,
+    /// The compiler, runtime and package managers around the measurement.
+    toolchain: Toolchain,
     /// The 1, 5 and 15 minute load averages before the first and after the last measurement.
     load_before: Option<[f64; 3]>,
     load_after: Option<[f64; 3]>,
@@ -429,13 +429,18 @@ fn markdown(summary: &Summary) -> String {
     );
     let _ = write!(
         out,
-        "Host: {}, {} ({} logical CPUs); load average {} before and {} after the run.\n\n",
-        one_line(&summary.host),
-        one_line(&summary.cpu),
-        summary.cores,
+        "Machine: {}; load average {} before and {} after the run.\n\n",
+        machine_text(&summary.machine),
         format_load(summary.load_before),
         format_load(summary.load_after)
     );
+    if let Some(github) = &summary.machine.github {
+        let _ = write!(out, "{}\n\n", runner_text(github));
+    }
+    let toolchain = toolchain_text(&summary.toolchain);
+    if !toolchain.is_empty() {
+        let _ = write!(out, "Toolchain: {toolchain}.\n\n");
+    }
     if !summary.tool_versions.is_empty() {
         let versions: Vec<String> = summary
             .tool_versions
@@ -533,6 +538,81 @@ fn code_span(text: &str) -> String {
         ""
     };
     format!("{fence}{pad}{text}{pad}{fence}")
+}
+
+/// The machine in one line: operating system, kernel, architecture, CPU model, CPUs, memory, cgroup limit and
+/// hypervisor; an unknown OS or CPU is named as such, any other unknown fact is left out.
+fn machine_text(machine: &Machine) -> String {
+    let or_unknown = |value: Option<&str>, what: &str| value.map_or_else(|| format!("unknown {what}"), one_line);
+    let mut cpus = format!(
+        "{} logical CPUs",
+        machine.logical_cpus.unwrap_or(machine.available_cpus)
+    );
+    if let Some(cores) = machine.physical_cores {
+        let _ = write!(cpus, " ({cores} physical cores)");
+    }
+    if machine.logical_cpus.is_some_and(|logical| machine.available_cpus < logical) {
+        let _ = write!(cpus, ", {} available to the run", machine.available_cpus);
+    }
+    let mut parts = vec![or_unknown(machine.os.as_deref(), "OS")];
+    parts.extend(machine.kernel.as_deref().map(one_line));
+    parts.push(machine.arch.clone());
+    parts.push(or_unknown(machine.cpu.as_deref(), "CPU"));
+    parts.push(cpus);
+    parts.extend(machine.memory_bytes.map(|bytes| format!("{} GiB memory", gib(bytes))));
+    parts.extend(machine.cgroup_cpu_limit.map(|limit| format!("cgroup limit of {limit} CPUs")));
+    parts.extend(
+        machine
+            .virtualization
+            .as_deref()
+            .map(|hypervisor| format!("hypervisor {}", one_line(hypervisor))),
+    );
+    parts.join(", ")
+}
+
+/// `bytes` in gibibytes, rounded to one decimal.
+fn gib(bytes: u64) -> String {
+    const GIB: u64 = 1 << 30;
+    let tenths = bytes.saturating_mul(10).saturating_add(GIB / 2) / GIB;
+    format!("{}.{}", tenths / 10, tenths % 10)
+}
+
+/// The GitHub Actions runner in one line: its environment and name, image and platform, and a link to the run.
+fn runner_text(github: &GithubRunner) -> String {
+    let field = |value: Option<&str>| value.map_or_else(|| "unknown".to_owned(), code_span);
+    let mut text = format!(
+        "Runner: {} {}, image {} {}, {} {}",
+        github.runner_environment.as_deref().map_or_else(|| "unknown".to_owned(), one_line),
+        field(github.runner_name.as_deref()),
+        field(github.image_os.as_deref()),
+        field(github.image_version.as_deref()),
+        github.runner_os.as_deref().map_or_else(|| "unknown".to_owned(), one_line),
+        github.runner_arch.as_deref().map_or_else(String::new, one_line),
+    );
+    let end = text.trim_end().len();
+    text.truncate(end);
+    if let Some(url) = &github.run_url {
+        let _ = write!(text, "; [workflow run]({url})");
+    }
+    text.push('.');
+    text
+}
+
+/// The toolchain versions that were found, each as its name and the version in a code span, comma separated; empty
+/// when none was.
+fn toolchain_text(toolchain: &Toolchain) -> String {
+    [
+        ("rustc", &toolchain.rustc),
+        ("node", &toolchain.node),
+        ("npm", &toolchain.npm),
+        ("pnpm", &toolchain.pnpm),
+        ("yarn", &toolchain.yarn),
+        ("bun", &toolchain.bun),
+    ]
+    .iter()
+    .filter_map(|(name, version)| Some(format!("{name} {}", code_span(version.as_deref()?))))
+    .collect::<Vec<_>>()
+    .join(", ")
 }
 
 /// `1.50 / 1.20 / 0.90` for the 1, 5 and 15 minute load averages, `unknown` without them.
@@ -801,6 +881,10 @@ pub fn run(options: &RunOptions) -> Result<()> {
         }
     }
 
+    let machine = provenance::machine();
+    let toolchain = provenance::toolchain(
+        &std::path::absolute(options.generated_dir.join("versions")).context("resolving the versions directory")?,
+    );
     let load_before = provenance::load_average();
     let mut measured = Vec::new();
     for (index, target) in targets.iter().enumerate() {
@@ -833,9 +917,8 @@ pub fn run(options: &RunOptions) -> Result<()> {
         measured_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |since| since.as_secs()),
-        host: format!("{} {}", env::consts::OS, env::consts::ARCH),
-        cpu: provenance::cpu(),
-        cores: provenance::cores(),
+        machine,
+        toolchain,
         load_before,
         load_after: provenance::load_average(),
         hyperfine: version,
@@ -900,9 +983,15 @@ mod tests {
             skif: "skif 0.0.0".into(),
             source_rev: "0123456789ab".into(),
             measured_at: 1_794_268_800,
-            host: "linux x86_64".into(),
-            cpu: "Intel(R) Xeon(R) CPU @ 2.10GHz".into(),
-            cores: 4,
+            machine: machine(),
+            toolchain: Toolchain {
+                rustc: Some("rustc 1.99.0 (0123abcd 2026-10-01)".into()),
+                node: Some("v26.13.0".into()),
+                npm: Some("11.6.2".into()),
+                pnpm: None,
+                yarn: None,
+                bun: None,
+            },
             load_before: Some([1.5, 1.25, 1.0]),
             load_after: None,
             hyperfine: "hyperfine 1.20.0".into(),
@@ -940,8 +1029,18 @@ mod tests {
         );
         assert!(
             with_skip.contains(
-                "Host: linux x86_64, Intel(R) Xeon(R) CPU @ 2.10GHz (4 logical CPUs); load average 1.50 / 1.25 / 1.00 before and unknown after the run."
+                "Machine: Ubuntu 24.04.3 LTS, Linux 6.11.0-1018-azure, x86_64, AMD EPYC 7763 64-Core Processor, 4 logical CPUs (2 physical cores), 15.6 GiB memory, hypervisor Microsoft; load average 1.50 / 1.25 / 1.00 before and unknown after the run."
             ),
+            "{with_skip}"
+        );
+        assert!(
+            with_skip.contains(
+                "Runner: github-hosted `GitHub Actions 1000012345`, image `ubuntu24` `20261102.1.0`, Linux X64; [workflow run](https://github.com/Goldziher/skif/actions/runs/19283746)."
+            ),
+            "{with_skip}"
+        );
+        assert!(
+            with_skip.contains("Toolchain: rustc `rustc 1.99.0 (0123abcd 2026-10-01)`, node `v26.13.0`, npm `11.6.2`."),
             "{with_skip}"
         );
         assert!(with_skip.contains("Comparison tools: knip `6.44.1`."), "{with_skip}");
@@ -951,6 +1050,80 @@ mod tests {
             assert!(!text.contains("\n\n\n"));
             assert!(text.lines().all(|line| line == line.trim_end()));
         }
+    }
+
+    /// The machine of a GitHub-hosted x86 runner, as `provenance::machine` reads it there.
+    fn machine() -> Machine {
+        Machine {
+            os: Some("Ubuntu 24.04.3 LTS".into()),
+            kernel: Some("Linux 6.11.0-1018-azure".into()),
+            arch: "x86_64".into(),
+            cpu: Some("AMD EPYC 7763 64-Core Processor".into()),
+            logical_cpus: Some(4),
+            available_cpus: 4,
+            physical_cores: Some(2),
+            memory_bytes: Some(16_374_836 * 1024),
+            cgroup_cpu_limit: None,
+            virtualization: Some("Microsoft".into()),
+            github: Some(GithubRunner {
+                image_os: Some("ubuntu24".into()),
+                image_version: Some("20261102.1.0".into()),
+                runner_os: Some("Linux".into()),
+                runner_arch: Some("X64".into()),
+                runner_environment: Some("github-hosted".into()),
+                runner_name: Some("GitHub Actions 1000012345".into()),
+                run_url: Some("https://github.com/Goldziher/skif/actions/runs/19283746".into()),
+            }),
+        }
+    }
+
+    #[test]
+    fn the_machine_line_names_unknown_facts_and_leaves_out_missing_ones() {
+        let bare = Machine {
+            os: None,
+            kernel: None,
+            arch: "aarch64".into(),
+            cpu: None,
+            logical_cpus: None,
+            available_cpus: 2,
+            physical_cores: None,
+            memory_bytes: None,
+            cgroup_cpu_limit: None,
+            virtualization: None,
+            github: None,
+        };
+        assert_eq!(machine_text(&bare), "unknown OS, aarch64, unknown CPU, 2 logical CPUs");
+        let limited = Machine {
+            logical_cpus: Some(8),
+            cgroup_cpu_limit: Some(1.5),
+            ..bare
+        };
+        assert_eq!(
+            machine_text(&limited),
+            "unknown OS, aarch64, unknown CPU, 8 logical CPUs, 2 available to the run, cgroup limit of 1.5 CPUs"
+        );
+        assert_eq!(gib(16_374_836 * 1024), "15.6");
+        assert_eq!(gib(1 << 30), "1.0");
+        assert_eq!(gib(0), "0.0");
+        let runner = GithubRunner {
+            image_os: None,
+            image_version: None,
+            runner_os: None,
+            runner_arch: None,
+            runner_environment: None,
+            runner_name: None,
+            run_url: None,
+        };
+        assert_eq!(runner_text(&runner), "Runner: unknown unknown, image unknown unknown, unknown.");
+        let none = Toolchain {
+            rustc: None,
+            node: None,
+            npm: None,
+            pnpm: None,
+            yarn: None,
+            bun: None,
+        };
+        assert_eq!(toolchain_text(&none), "");
     }
 
     /// An install's error line is written as `poly fmt` leaves it: in a code span, with whitespace runs collapsed.
