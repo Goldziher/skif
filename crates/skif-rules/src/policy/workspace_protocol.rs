@@ -2,10 +2,9 @@
 
 use skif_core::{Category, DependencyKind, Fixability, RuleMeta, Severity, diagnostic};
 use skif_lint::{Emitter, LintContext, Rule};
-use skif_workspace::Package;
 
 use super::catalog::support::{active_packages, value_location};
-use crate::manifest::local_path_dependency::{self, is_local_path};
+use crate::manifest::local_path_dependency::{self, is_local_path, path_target, relative_dir};
 
 /// Metadata of `workspace-protocol`.
 pub static META: RuleMeta = RuleMeta::new(
@@ -24,28 +23,6 @@ pub static META: RuleMeta = RuleMeta::new(
 /// the path specifiers that rule already reports.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct WorkspaceProtocol;
-
-/// The workspace-relative directory a `link:` or `file:` specifier of a dependency in `package` points at.
-fn path_target(package: &Package, specifier: &str) -> Option<String> {
-    let path = ["link:", "file:"]
-        .iter()
-        .find_map(|prefix| specifier.strip_prefix(prefix))?;
-    if path.starts_with('/') {
-        return None;
-    }
-    let base = package.dir.to_string_lossy().replace('\\', "/");
-    let mut parts: Vec<&str> = base.split('/').filter(|part| !part.is_empty()).collect();
-    for part in path.split('/') {
-        match part {
-            "" | "." => {}
-            ".." => {
-                parts.pop()?;
-            }
-            other => parts.push(other),
-        }
-    }
-    Some(parts.join("/"))
-}
 
 /// The rules of this module.
 pub(crate) fn rules() -> Vec<Box<dyn Rule>> {
@@ -80,8 +57,11 @@ impl Rule for WorkspaceProtocol {
                 {
                     continue;
                 }
-                let target_dir = target.dir.to_string_lossy().replace('\\', "/");
-                let same_directory = path_target(package, &entry.specifier).is_some_and(|dir| dir == target_dir);
+                // `allow-local-paths` accepts the `link:` and `file:` forms only.
+                let same_directory = ["link:", "file:"]
+                    .iter()
+                    .any(|protocol| entry.specifier.starts_with(protocol))
+                    && path_target(package, &entry.specifier).is_some_and(|dir| dir == relative_dir(target));
                 if settings.allow_local_paths && same_directory {
                     continue;
                 }
