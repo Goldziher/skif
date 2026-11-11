@@ -1,7 +1,7 @@
 // Vendored from syncpack crates/syncpack-specifier/src/major.rs @958d306 (MIT, Copyright (c) 2017-2023 Jamie Mason). Modified for skif; see ATTRIBUTIONS.md.
 use {
     crate::{HUGE, Specifier},
-    std::sync::Arc,
+    std::sync::{Arc, OnceLock},
 };
 
 /// A bare major version such as `1`.
@@ -11,6 +11,8 @@ pub struct Major {
     pub raw: String,
     /// Padded version, parsed eagerly: "1" -> "1.999999.999999"
     node_version: Arc<nodejs_semver::Version>,
+    /// Range, parsed on first use: `1` -> `>=1.0.0 <2.0.0`
+    node_range: OnceLock<Option<Arc<nodejs_semver::Range>>>,
 }
 
 impl PartialEq for Major {
@@ -36,6 +38,7 @@ impl Major {
         Some(Self {
             raw: raw.to_string(),
             node_version,
+            node_range: OnceLock::new(),
         })
     }
 
@@ -56,5 +59,18 @@ impl Major {
     #[must_use]
     pub fn get_node_version(&self) -> Arc<nodejs_semver::Version> {
         self.node_version.clone()
+    }
+
+    pub(crate) fn node_version_ref(&self) -> &Arc<nodejs_semver::Version> {
+        &self.node_version
+    }
+
+    pub(crate) fn node_range_ref(&self) -> Option<&Arc<nodejs_semver::Range>> {
+        self.node_range
+            .get_or_init(|| {
+                let next = self.raw.parse::<u64>().ok()?.checked_add(1)?;
+                Specifier::new_node_range(&format!(">={}.0.0 <{next}.0.0", self.raw))
+            })
+            .as_ref()
     }
 }

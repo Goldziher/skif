@@ -121,10 +121,7 @@ impl ConfigCache {
 
     fn file(&self, path: &Path, fs: &dyn FileSystem) -> Result<Arc<ParsedFile>, ConfigError> {
         let path = normalize(path);
-        let cell = {
-            let mut files = self.files.lock().unwrap_or_else(PoisonError::into_inner);
-            Arc::clone(files.entry(path.clone()).or_default())
-        };
+        let cell = cell_for(&self.files, &path);
         cell.get_or_init(|| ParsedFile::read(&path, fs).map(Arc::new))
             .as_ref()
             .map(Arc::clone)
@@ -134,10 +131,7 @@ impl ConfigCache {
     /// The normalised `dir` and what is known about it.
     fn dir(&self, dir: &Path) -> (PathBuf, DirCell) {
         let dir = normalize(dir);
-        let cell = {
-            let mut dirs = self.dirs.lock().unwrap_or_else(PoisonError::into_inner);
-            Arc::clone(dirs.entry(dir.clone()).or_default())
-        };
+        let cell = cell_for(&self.dirs, &dir);
         (dir, cell)
     }
 
@@ -152,6 +146,15 @@ impl ConfigCache {
         let (dir, info) = self.dir(dir);
         info.has_git(&dir, fs)
     }
+}
+
+/// The cell of `key` in `cells`, created when missing; the key is copied only to store a new cell.
+fn cell_for<T: Default>(cells: &Mutex<HashMap<PathBuf, Arc<T>>>, key: &Path) -> Arc<T> {
+    let mut cells = cells.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(cell) = cells.get(key) {
+        return Arc::clone(cell);
+    }
+    Arc::clone(cells.entry(key.to_path_buf()).or_default())
 }
 
 /// Resolves the configuration of a root: the chain of files that govern it, merged.
@@ -248,7 +251,7 @@ impl<'a> ConfigLoader<'a> {
     ) -> Result<(), ConfigError> {
         let root = &checked_root(root)?;
         let mut members: Vec<&PathBuf> = members.iter().collect();
-        members.sort_by_key(|dir| (dir.components().count(), (*dir).clone()));
+        members.sort_by_cached_key(|dir| (dir.components().count(), *dir));
         // A workspace has a member directory per package and few of them hold a file, so the probing (two lookups
         // per directory) runs in parallel unless the loader is sequential, and only the files found are read and
         // applied, in order.

@@ -28,8 +28,7 @@ impl SpecifierCache {
     }
 
     fn shard(&self, raw: &str) -> &Shard {
-        let index = usize::try_from(HashState.hash_one(raw) % SHARDS as u64).unwrap_or(0);
-        &self.shards[index]
+        &self.shards[shard_index(raw)]
     }
 
     /// Return the cached Specifier for `raw`, parsing and storing it on first use.
@@ -65,6 +64,16 @@ impl SpecifierCache {
     }
 }
 
+/// The shard `raw` belongs to, taken from hash bits the shard's own map does not look at: it buckets by the low
+/// bits and tags by the top seven, so picking shards by either would leave every key in one shard sharing them.
+fn shard_index(raw: &str) -> usize {
+    let bits = (HashState.hash_one(raw) >> SHARD_BITS_SHIFT) % SHARDS as u64;
+    usize::try_from(bits).unwrap_or(0)
+}
+
+/// Where [`shard_index`] reads its bits: the middle of the 64-bit hash.
+const SHARD_BITS_SHIFT: u32 = 32;
+
 const _: () = {
     fn assert_send_sync<T: Send + Sync>() {}
     let _ = assert_send_sync::<Specifier>;
@@ -73,7 +82,7 @@ const _: () = {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, skif_core::HashSet};
 
     #[test]
     fn returns_the_same_arc_for_the_same_input() {
@@ -92,6 +101,16 @@ mod tests {
         assert!(!Arc::ptr_eq(&a, &b));
         assert_eq!(cache.len(), 2);
         assert!(!cache.is_empty());
+    }
+
+    #[test]
+    fn keys_of_one_shard_still_spread_over_its_map() {
+        let low_bits: HashSet<u64> = (0..1000)
+            .map(|n| format!("^{n}.0.0"))
+            .filter(|raw| shard_index(raw) == 0)
+            .map(|raw| HashState.hash_one(&raw) % SHARDS as u64)
+            .collect();
+        assert!(low_bits.len() > 1, "every key of shard 0 shares its low hash bits");
     }
 
     #[test]

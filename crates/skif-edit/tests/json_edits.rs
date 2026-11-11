@@ -277,6 +277,21 @@ fn insert_places_keys() {
             ops: vec![insert(&[], "b", json!(2), InsertPosition::End)],
             expected: "{\n  \"a\": 1,\n  \"b\": 2,\n}\n",
         },
+        Case {
+            name: "a new key inserted twice keeps the later value",
+            input: "{\n  \"a\": 1\n}\n",
+            ops: vec![
+                insert(&[], "b", json!(2), InsertPosition::End),
+                insert(&[], "b", json!(3), InsertPosition::End),
+            ],
+            expected: "{\n  \"a\": 1,\n  \"b\": 3\n}\n",
+        },
+        Case {
+            name: "a duplicated key is replaced at its last member",
+            input: "{\n  \"a\": 1,\n  \"a\": 2\n}\n",
+            ops: vec![insert(&[], "a", json!(9), InsertPosition::End)],
+            expected: "{\n  \"a\": 1,\n  \"a\": 9\n}\n",
+        },
     ]);
 }
 
@@ -833,4 +848,32 @@ fn edits_that_would_break_the_document_are_rejected() {
     assert!(matches!(error, EditPlanError::InvalidOutput { .. }), "{error}");
     let error = plan_edits(source, FileKind::Json, &[&op]).unwrap_err();
     assert!(matches!(error, EditPlanError::InvalidOutput { .. }), "{error}");
+}
+
+#[test]
+fn paths_resolve_through_objects_and_arrays() {
+    let source = "{\"a\": {\"b\": [1, {\"c\": 2}], \"b\": [3, {\"c\": 4}]}, \"l\": [[5]]}";
+    let resolved = |pointer: &[&str]| apply(source, FileKind::Json, &[&set(pointer, json!(0))]);
+    assert_eq!(
+        resolved(&["a", "b", "#1", "c"]).unwrap(),
+        "{\"a\": {\"b\": [1, {\"c\": 2}], \"b\": [3, {\"c\": 0}]}, \"l\": [[5]]}",
+        "a duplicated key resolves to its last member"
+    );
+    assert_eq!(
+        resolved(&["l", "#0", "#0"]).unwrap(),
+        "{\"a\": {\"b\": [1, {\"c\": 2}], \"b\": [3, {\"c\": 4}]}, \"l\": [[0]]}"
+    );
+    for missing in [
+        &["a", "x"][..],
+        &["a", "#0"],
+        &["l", "x"],
+        &["l", "#1"],
+        &["l", "#0", "#0", "#0"],
+        &["a", "b", "#1", "c", "d"],
+    ] {
+        assert!(
+            matches!(resolved(missing), Err(EditPlanError::PathNotFound { .. })),
+            "{missing:?}"
+        );
+    }
 }
