@@ -9,7 +9,8 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
 /// Tool versions the comparison commands are pinned to: `parity`, `syncpack-diff` and `deadcode` run them through
-/// `npx`, and `run` installs them into a scratch prefix and times their executables.
+/// `npx`, and `run` installs them, with the dependencies the lock of [`tool_lock_dir`] pins, into a scratch prefix and
+/// times their executables.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Tools {
     pub knip: String,
@@ -139,21 +140,82 @@ fn is_exact_version(version: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b"-+.".contains(&b))
 }
 
+/// The directory beside a corpus manifest whose `package.json` and `package-lock.json` pin the comparison tools and
+/// every package they depend on; `run` installs them from it with `npm ci`.
+pub fn tool_lock_dir(manifest: &Path) -> PathBuf {
+    manifest
+        .parent()
+        .map_or_else(|| PathBuf::from("tools"), |dir| dir.join("tools"))
+}
+
+/// The comparison tools with their `[tools]` versions, in the order the lock is checked.
+fn tool_pins(tools: &Tools) -> [(&'static str, &str); 3] {
+    [
+        ("knip", tools.knip.as_str()),
+        ("syncpack", tools.syncpack.as_str()),
+        ("sherif", tools.sherif.as_str()),
+    ]
+}
+
+/// The first difference between a comparison tool `package-lock.json` and the `[tools]` pins: the lock's root has to
+/// depend on exactly the three tools at their pinned versions, and each tool's `node_modules/<tool>` entry has to be
+/// that version; `None` when they agree.
+fn tool_lock_mismatch(tools: &Tools, lock: &serde_json::Value) -> Option<String> {
+    let packages = lock.get("packages");
+    let root = packages
+        .and_then(|packages| packages.get(""))
+        .and_then(|root| root.get("dependencies"))
+        .and_then(serde_json::Value::as_object);
+    let Some(root) = root else {
+        return Some("the lock has no root dependencies (packages[\"\"].dependencies)".to_owned());
+    };
+    let pins = tool_pins(tools);
+    if let Some(extra) = root.keys().find(|name| !pins.iter().any(|(tool, _)| *tool == name.as_str())) {
+        return Some(format!("the lock's root depends on {extra:?}, which is not a [tools] entry"));
+    }
+    pins.iter().find_map(|(tool, version)| {
+        let declared = root.get(*tool).and_then(serde_json::Value::as_str);
+        let installed = packages
+            .and_then(|packages| packages.get(format!("node_modules/{tool}")))
+            .and_then(|entry| entry.get("version"))
+            .and_then(serde_json::Value::as_str);
+        (declared != Some(*version) || installed != Some(*version)).then(|| {
+            format!(
+                "{tool} is {version:?} in [tools] but {} in the lock's root and {} installed by it",
+                declared.map_or_else(|| "missing".to_owned(), |v| format!("{v:?}")),
+                installed.map_or_else(|| "none".to_owned(), |v| format!("{v:?}"))
+            )
+        })
+    })
+}
+
 /// Reads the corpus manifest.
 ///
+/// `[tools]` is where the comparison tool versions are declared; the `package.json` and `package-lock.json` of
+/// [`tool_lock_dir`] repeat them so `npm ci` can install them with pinned dependencies, and have to agree.
+///
 /// # Errors
-/// Fails when the file cannot be read or parsed, a repository pin is not a full 40-character commit SHA, or a
-/// comparison tool version is not exact.
+/// Fails when the file cannot be read or parsed, a repository pin is not a full 40-character commit SHA, a comparison
+/// tool version is not exact, or the comparison tool lock is missing or names other versions than `[tools]`.
 pub fn load_manifest(path: &Path) -> Result<Manifest> {
     let text = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let manifest: Manifest = toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-    let tools = [
-        ("knip", &manifest.tools.knip),
-        ("syncpack", &manifest.tools.syncpack),
-        ("sherif", &manifest.tools.sherif),
-    ];
-    if let Some((tool, version)) = tools.iter().find(|(_, version)| !is_exact_version(version)) {
+    let pins = tool_pins(&manifest.tools);
+    if let Some((tool, version)) = pins.iter().find(|(_, version)| !is_exact_version(version)) {
         bail!("[tools] {tool}: the version must be exact (major.minor.patch), got {version:?}");
+    }
+    let lock_dir = tool_lock_dir(path);
+    let lock_path = lock_dir.join("package-lock.json");
+    let lock_text = fs::read_to_string(&lock_path).with_context(|| format!("reading {}", lock_path.display()))?;
+    let lock: serde_json::Value =
+        serde_json::from_str(&lock_text).with_context(|| format!("parsing {}", lock_path.display()))?;
+    if let Some(mismatch) = tool_lock_mismatch(&manifest.tools, &lock) {
+        bail!(
+            "{}: {mismatch}; set the [tools] versions of {} in {}/package.json and run `npm install --package-lock-only --ignore-scripts` there",
+            lock_path.display(),
+            path.display(),
+            lock_dir.display()
+        );
     }
     for repo in &manifest.repo {
         if repo.rev.len() != 40 || !repo.rev.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -530,10 +592,24 @@ mod tests {
         assert!(error.contains("jest.lock"), "{error}");
     }
 
-    /// Writes a corpus manifest with these tool versions and one repository pinned to `rev`, and loads it.
-    fn load_with(name: &str, (knip, syncpack, sherif): (&str, &str, &str), rev: &str) -> Result<Manifest> {
+    /// A comparison tool `package-lock.json` (lockfile version 3) whose root depends on these versions and installs
+    /// them.
+    fn lock_text((knip, syncpack, sherif): (&str, &str, &str)) -> String {
+        format!(
+            r#"{{"name": "t", "lockfileVersion": 3, "packages": {{
+                "": {{"name": "t", "dependencies": {{"knip": {knip:?}, "sherif": {sherif:?}, "syncpack": {syncpack:?}}}}},
+                "node_modules/knip": {{"version": {knip:?}}},
+                "node_modules/sherif": {{"version": {sherif:?}}},
+                "node_modules/syncpack": {{"version": {syncpack:?}}}}}}}"#
+        )
+    }
+
+    /// Writes a corpus manifest with these tool versions and one repository pinned to `rev`, with a comparison tool
+    /// lock (`lock`, or one of the same versions when `None`) beside it, and loads it.
+    fn load_locked(name: &str, tools: (&str, &str, &str), rev: &str, lock: Option<&str>) -> Result<Manifest> {
+        let (knip, syncpack, sherif) = tools;
         let dir = std::env::temp_dir().join(format!("skif-bench-corpus-{name}-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        fs::create_dir_all(dir.join("tools")).unwrap();
         let file = dir.join("corpus.toml");
         fs::write(
             &file,
@@ -542,9 +618,18 @@ mod tests {
             ),
         )
         .unwrap();
+        fs::write(
+            dir.join("tools").join("package-lock.json"),
+            lock.map_or_else(|| lock_text(tools), str::to_owned),
+        )
+        .unwrap();
         let loaded = load_manifest(&file);
         fs::remove_dir_all(&dir).unwrap();
         loaded
+    }
+
+    fn load_with(name: &str, tools: (&str, &str, &str), rev: &str) -> Result<Manifest> {
+        load_locked(name, tools, rev, None)
     }
 
     const PINNED: (&str, &str, &str) = ("6.44.1", "15.3.3", "1.13.0");
@@ -574,5 +659,56 @@ mod tests {
             );
         }
         assert!(load_with("prerelease", ("6.0.0-beta.2", "15.3.3", "1.13.0+build.1"), &sha).is_ok());
+    }
+
+    #[test]
+    fn the_shipped_tool_lock_installs_the_pinned_tools() {
+        let file = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/corpus.toml"));
+        assert_eq!(tool_lock_dir(file), Path::new(env!("CARGO_MANIFEST_DIR")).join("tools"));
+        assert!(load_manifest(file).is_ok());
+        assert!(tool_lock_dir(file).join("package.json").is_file());
+        assert_eq!(tool_lock_dir(Path::new("corpus.toml")), Path::new("tools"));
+    }
+
+    #[test]
+    fn rejects_a_tool_lock_that_names_other_versions_than_the_manifest() {
+        let sha = "a".repeat(40);
+        assert!(load_locked("lock-match", PINNED, &sha, Some(&lock_text(PINNED))).is_ok());
+        let root_only = lock_text(PINNED).replace(r#""knip": "6.44.1""#, r#""knip": "6.45.0""#);
+        let installed_only = lock_text(PINNED).replace(
+            r#""node_modules/sherif": {"version": "1.13.0"}"#,
+            r#""node_modules/sherif": {"version": "1.14.0"}"#,
+        );
+        let extra = lock_text(PINNED).replace(r#""knip": "6.44.1","#, r#""knip": "6.44.1", "eslint": "9.0.0","#);
+        for (name, lock, problem) in [
+            (
+                "lock-root",
+                root_only,
+                r#"knip is "6.44.1" in [tools] but "6.45.0" in the lock's root and "6.44.1" installed by it"#,
+            ),
+            (
+                "lock-installed",
+                installed_only,
+                r#"sherif is "1.13.0" in [tools] but "1.13.0" in the lock's root and "1.14.0" installed by it"#,
+            ),
+            (
+                "lock-newer",
+                lock_text(("6.44.1", "15.4.0", "1.13.0")),
+                r#"syncpack is "15.3.3" in [tools] but "15.4.0" in the lock's root and "15.4.0" installed by it"#,
+            ),
+            (
+                "lock-extra",
+                extra,
+                r#"the lock's root depends on "eslint", which is not a [tools] entry"#,
+            ),
+            (
+                "lock-empty",
+                r#"{"lockfileVersion": 3, "packages": {}}"#.to_owned(),
+                r#"the lock has no root dependencies (packages[""].dependencies)"#,
+            ),
+        ] {
+            let error = load_locked(name, PINNED, &sha, Some(&lock)).unwrap_err().to_string();
+            assert!(error.contains(&format!("package-lock.json: {problem}; set the [tools] versions")), "{error}");
+        }
     }
 }
