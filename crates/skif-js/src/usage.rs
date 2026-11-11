@@ -17,15 +17,6 @@ pub struct MemberUse {
     pub all: bool,
 }
 
-impl MemberUse {
-    fn everything() -> Self {
-        Self {
-            members: BTreeSet::new(),
-            all: true,
-        }
-    }
-}
-
 /// How a name reached a module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Via {
@@ -35,8 +26,25 @@ enum Via {
     Namespace,
 }
 
-enum Task {
-    Name(ModuleId, String, MemberUse, Via),
+/// How a use reads the members of an export while it propagates: [`MemberUse`] with the names borrowed from the graph
+/// and the re-export index, so passing a use on along a re-export chain allocates nothing.
+#[derive(Debug, Clone, Default)]
+struct Access<'a> {
+    members: BTreeSet<&'a str>,
+    all: bool,
+}
+
+impl Access<'_> {
+    fn everything() -> Self {
+        Self {
+            members: BTreeSet::new(),
+            all: true,
+        }
+    }
+}
+
+enum Task<'a> {
+    Name(ModuleId, &'a str, Access<'a>, Via),
     All(ModuleId),
 }
 
@@ -69,8 +77,9 @@ struct Reexports {
 /// Re-export lookups for every module, computed once so that propagating a name touches only what can answer it.
 struct ReexportIndex {
     modules: Vec<Reexports>,
-    /// Per module, every name it exposes: its own and those forwarded by `export *`, transitively.
-    exposed: Vec<HashSet<String>>,
+    /// Per module, the names `export *` forwards to it, transitively, that it does not define itself. With the names
+    /// it defines, they are every name it exposes ([`Self::exposes`]).
+    forwarded: Vec<HashSet<String>>,
 }
 
 impl ReexportIndex {
@@ -139,28 +148,58 @@ impl ReexportIndex {
                 reexports
             })
             .collect();
-        let mut exposed: Vec<HashSet<String>> = modules.iter().map(|m| m.defined.clone()).collect();
-        loop {
-            let mut changed = false;
-            for (index, reexports) in modules.iter().enumerate() {
-                for target in &reexports.stars {
-                    let additions: Vec<String> = exposed[target.index()]
-                        .iter()
-                        .filter(|name| name.as_str() != "default" && !exposed[index].contains(*name))
-                        .cloned()
-                        .collect();
-                    if !additions.is_empty() {
-                        changed = true;
-                        exposed[index].extend(additions);
-                    }
+        let defined: Vec<&HashSet<String>> = modules.iter().map(|reexports| &reexports.defined).collect();
+        let stars: Vec<Vec<usize>> = modules
+            .iter()
+            .map(|reexports| reexports.stars.iter().map(|target| target.index()).collect())
+            .collect();
+        let forwarded = forwarded_names(&defined, &stars);
+        Self { modules, forwarded }
+    }
+
+    /// Whether module `id` exposes `name`: defines or re-exports it itself, or forwards it with `export *`.
+    fn exposes(&self, id: ModuleId, name: &str) -> bool {
+        self.modules[id.index()].defined.contains(name) || self.forwarded[id.index()].contains(name)
+    }
+}
+
+/// For every module, the names its `export *` re-exports forward to it, transitively, other than `default` and the
+/// names it defines. `defined` holds the names each module defines, `stars` the modules each one re-exports with
+/// `export *`, by index. Only the modules with an `export *` gain names, so only those are revisited until nothing
+/// changes.
+fn forwarded_names(defined: &[&HashSet<String>], stars: &[Vec<usize>]) -> Vec<HashSet<String>> {
+    let starred: Vec<usize> = stars
+        .iter()
+        .enumerate()
+        .filter(|(_, targets)| !targets.is_empty())
+        .map(|(index, _)| index)
+        .collect();
+    let mut forwarded: Vec<HashSet<String>> = vec![HashSet::default(); defined.len()];
+    loop {
+        let mut changed = false;
+        for &index in &starred {
+            for &target in &stars[index] {
+                let additions: Vec<String> = defined[target]
+                    .iter()
+                    .chain(&forwarded[target])
+                    .filter(|name| {
+                        name.as_str() != "default"
+                            && !defined[index].contains(*name)
+                            && !forwarded[index].contains(*name)
+                    })
+                    .cloned()
+                    .collect();
+                if !additions.is_empty() {
+                    changed = true;
+                    forwarded[index].extend(additions);
                 }
             }
-            if !changed {
-                break;
-            }
         }
-        Self { modules, exposed }
+        if !changed {
+            break;
+        }
     }
+    forwarded
 }
 
 impl ExportUsage {
@@ -206,16 +245,16 @@ impl ExportUsage {
                     continue;
                 }
                 for name in &import.names {
-                    let access = MemberUse {
-                        members: name.accessed_members.iter().cloned().collect(),
+                    let access = Access {
+                        members: name.accessed_members.iter().map(String::as_str).collect(),
                         all: name.escapes,
                     };
                     match &name.kind {
                         ImportedKind::Default => {
-                            queue.push_back(Task::Name(target, "default".to_owned(), access, Via::Named));
+                            queue.push_back(Task::Name(target, "default", access, Via::Named));
                         }
                         ImportedKind::Named(export) => {
-                            queue.push_back(Task::Name(target, export.clone(), access, Via::Named));
+                            queue.push_back(Task::Name(target, export, access, Via::Named));
                         }
                         // A namespace without a local binding that does not escape (a bare `typeof import("x")`)
                         // reads no member, so it credits nothing. A member read only through its own members
@@ -228,11 +267,11 @@ impl ExportUsage {
                                     let access =
                                         name.nested_members
                                             .get(member)
-                                            .map_or_else(MemberUse::everything, |inner| MemberUse {
-                                                members: inner.iter().cloned().collect(),
+                                            .map_or_else(Access::everything, |inner| Access {
+                                                members: inner.iter().map(String::as_str).collect(),
                                                 all: false,
                                             });
-                                    Task::Name(target, member.clone(), access, Via::Namespace)
+                                    Task::Name(target, member, access, Via::Namespace)
                                 }));
                             }
                         }
@@ -243,34 +282,34 @@ impl ExportUsage {
         while let Some(task) = queue.pop_front() {
             match task {
                 Task::All(id) => usage.mark_all(&index, id, &mut queue),
-                Task::Name(id, name, access, via) => usage.mark_name(&index, id, &name, &access, via, &mut queue),
+                Task::Name(id, name, access, via) => usage.mark_name(&index, id, name, &access, via, &mut queue),
             }
         }
         usage
     }
 
-    fn mark_all(&mut self, index: &ReexportIndex, id: ModuleId, queue: &mut VecDeque<Task>) {
+    fn mark_all<'a>(&mut self, index: &'a ReexportIndex, id: ModuleId, queue: &mut VecDeque<Task<'a>>) {
         if !self.all.insert(id) {
             return;
         }
         for (target, named) in &index.modules[id.index()].all {
             match named {
                 Some((_, source)) => {
-                    queue.push_back(Task::Name(*target, source.clone(), MemberUse::everything(), Via::Named));
+                    queue.push_back(Task::Name(*target, source, Access::everything(), Via::Named));
                 }
                 None => queue.push_back(Task::All(*target)),
             }
         }
     }
 
-    fn mark_name(
+    fn mark_name<'a>(
         &mut self,
-        index: &ReexportIndex,
+        index: &'a ReexportIndex,
         id: ModuleId,
-        name: &str,
-        access: &MemberUse,
+        name: &'a str,
+        access: &Access<'a>,
         via: Via,
-        queue: &mut VecDeque<Task>,
+        queue: &mut VecDeque<Task<'a>>,
     ) {
         match via {
             Via::Named => self.reached_by_name.insert(id),
@@ -281,16 +320,25 @@ impl ExportUsage {
         }
         let slot = self.used.entry(id).or_default();
         let fresh = !slot.contains_key(name);
-        let entry = slot.entry(name.to_owned()).or_default();
+        if fresh {
+            slot.insert(name.to_owned(), MemberUse::default());
+        }
+        let Some(entry) = slot.get_mut(name) else {
+            return;
+        };
         let before = (entry.members.len(), entry.all);
-        entry.members.extend(access.members.iter().cloned());
+        for member in &access.members {
+            if !entry.members.contains(*member) {
+                entry.members.insert((*member).to_owned());
+            }
+        }
         entry.all |= access.all;
         if !fresh && (entry.members.len(), entry.all) == before {
             return;
         }
         let reexports = &index.modules[id.index()];
         for (target, source) in reexports.named.get(name).into_iter().flatten() {
-            queue.push_back(Task::Name(*target, source.clone(), access.clone(), via));
+            queue.push_back(Task::Name(*target, source, access.clone(), via));
         }
         // `export * as name from` (or `import * as name; export { name }`): only the members read through `name`
         // are used, unless the namespace is used as a whole.
@@ -302,14 +350,14 @@ impl ExportUsage {
                     access
                         .members
                         .iter()
-                        .map(|member| Task::Name(*target, member.clone(), MemberUse::everything(), Via::Namespace)),
+                        .map(|&member| Task::Name(*target, member, Access::everything(), Via::Namespace)),
                 );
             }
         }
         if !reexports.defined.contains(name) && name != "default" {
             for target in &reexports.stars {
-                if index.exposed[target.index()].contains(name) {
-                    queue.push_back(Task::Name(*target, name.to_owned(), access.clone(), via));
+                if index.exposes(*target, name) {
+                    queue.push_back(Task::Name(*target, name, access.clone(), via));
                 }
             }
         }
@@ -343,5 +391,33 @@ impl ExportUsage {
             .get(&module)
             .and_then(|names| names.get(name))
             .is_some_and(|usage| usage.all || usage.members.contains(member))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use skif_core::HashSet;
+
+    use super::forwarded_names;
+
+    fn names(items: &[&str]) -> HashSet<String> {
+        items.iter().map(|&item| item.to_owned()).collect()
+    }
+
+    #[test]
+    fn export_star_forwards_names_transitively_without_default_or_own_names() {
+        // 0: `export * from 1`, defines `a`; 1: `export * from 2`, defines `b` and `default`; 2: defines `a` and `c`.
+        let defined = [names(&["a"]), names(&["b", "default"]), names(&["a", "c"])];
+        let defined: Vec<&HashSet<String>> = defined.iter().collect();
+        let forwarded = forwarded_names(&defined, &[vec![1], vec![2], Vec::new()]);
+        assert_eq!(forwarded, [names(&["b", "c"]), names(&["a", "c"]), names(&[])]);
+    }
+
+    #[test]
+    fn a_cycle_of_export_star_settles() {
+        let defined = [names(&["a"]), names(&["b"])];
+        let defined: Vec<&HashSet<String>> = defined.iter().collect();
+        let forwarded = forwarded_names(&defined, &[vec![1], vec![0]]);
+        assert_eq!(forwarded, [names(&["b"]), names(&["a"])]);
     }
 }
