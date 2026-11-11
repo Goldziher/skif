@@ -117,9 +117,9 @@ old one.
 | 0107 | [Stray Lockfiles a Build Installs From, npm's Shrinkwrap, and a Dependency in None of Several Catalogs](0107-stray-lockfiles-a-build-installs-from-and-a-dependency-in-none-of-several-catalogs.md) | accepted |
 | 0108 | [Member Binaries Under pnpm's Hoisted Node Linker](0108-member-binaries-under-pnpm-s-hoisted-node-linker.md) | accepted |
 | 0109 | [Nx Projects as Scopes of the Package That Owns Them](0109-nx-projects-as-scopes-of-the-package-that-owns-them.md) | accepted |
-| 0112 | [Paths Under bazel run](0112-paths-under-bazel-run.md) | accepted |
 | 0110 | [Files Reached Through `rootDirs` Belong to the Importing Package](0110-files-reached-through-rootdirs-belong-to-the-importing-package.md) | accepted |
 | 0111 | [Ambient `@types` Packages Under TypeScript 6](0111-ambient-types-packages-under-typescript-6.md) | accepted |
+| 0112 | [Paths Under bazel run](0112-paths-under-bazel-run.md) | accepted |
 
 ## Effective statements
 
