@@ -193,7 +193,7 @@ The `skif` crate is the library; `skif-cli` is the command-line tool.
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: Goldziher/skif@v0.2
+- uses: Goldziher/skif@v0.3
   with:
     fail-on-warnings: true
 ```
@@ -208,7 +208,7 @@ See the [Action guide](https://goldziher.github.io/skif/guides/integrations/) fo
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/skif
-    rev: v0.2.0 # use the latest release tag
+    rev: v0.3.0 # use the latest release tag
     hooks:
       - id: skif       # lints manifests, skipping JS analysis
       - id: skif-fix   # optional: also applies safe fixes
