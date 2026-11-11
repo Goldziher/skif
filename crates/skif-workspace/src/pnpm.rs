@@ -1,10 +1,11 @@
 //! `pnpm-workspace.yaml`: workspace patterns and catalogs.
 
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde_json::Value;
-use skif_core::{LineIndex, Span};
+use skif_core::{HashMap, LineIndex, Span};
 
 use crate::catalogs::{self, Catalogs};
 use crate::error::WorkspaceError;
@@ -48,7 +49,39 @@ impl YamlSource {
 
 /// The span of the `key: value` entry directly under the top-level `section:` block mapping of the YAML `source`: the
 /// first entry of the section sets the indentation its entries share, so a deeper line naming `key` is not taken.
-pub(crate) fn entry_span(source: &str, line_index: &LineIndex, section: &str, key: &str) -> Option<Span> {
+fn entry_span(source: &str, line_index: &LineIndex, section: &str, key: &str) -> Option<Span> {
+    let mut span = None;
+    section_entries(source, section, |name, start, end| {
+        if name == key {
+            span = Some(line_index.span(to_u32(start), to_u32(end)));
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    });
+    span
+}
+
+/// The span of every entry [`entry_span`] finds under `section`, by key; a key written twice keeps its first entry,
+/// the one [`entry_span`] returns. One pass over the text answers any number of lookups.
+pub(crate) fn section_index(source: &str, line_index: &LineIndex, section: &str) -> HashMap<Box<str>, Span> {
+    let mut index = HashMap::default();
+    section_entries(source, section, |name, start, end| {
+        index
+            .entry(Box::from(name))
+            .or_insert_with(|| line_index.span(to_u32(start), to_u32(end)));
+        ControlFlow::Continue(())
+    });
+    index
+}
+
+/// Hands the key and the byte range of each entry directly under a top-level `section:` block mapping to `visit`, in
+/// file order, until it breaks.
+fn section_entries<'s>(
+    source: &'s str,
+    section: &str,
+    mut visit: impl FnMut(&'s str, usize, usize) -> ControlFlow<()>,
+) {
     let bom = if source.starts_with('\u{feff}') {
         '\u{feff}'.len_utf8()
     } else {
@@ -61,24 +94,24 @@ pub(crate) fn entry_span(source: &str, line_index: &LineIndex, section: &str, ke
         let content = line.trim_end_matches(['\r', '\n']);
         let trimmed = content.trim_start();
         let indent = content.len() - trimmed.len();
-        if !trimmed.is_empty() && !trimmed.starts_with('#') {
+        // Lines inside other sections are skipped without being read as entries.
+        if !trimmed.is_empty() && !trimmed.starts_with('#') && (indent == 0 || in_section) {
             let entry = mapping_entry(trimmed);
             if indent == 0 {
                 in_section = entry.is_some_and(|(name, ..)| name == section);
                 entry_indent = None;
-            } else if in_section
-                && *entry_indent.get_or_insert(indent) == indent
+            } else if *entry_indent.get_or_insert(indent) == indent
                 && let Some((name, value_at, value_len)) = entry
-                && name == key
             {
                 let start = offset + indent;
                 let end = offset + indent + value_at + value_len;
-                return Some(line_index.span(to_u32(start), to_u32(end)));
+                if visit(name, start, end).is_break() {
+                    return;
+                }
             }
         }
         offset += line.len();
     }
-    None
 }
 
 /// The key of a `key: value` line (without indentation) and the offset and length of the value's token in it; the
@@ -324,6 +357,47 @@ mod tests {
         assert_eq!(slice(text, source.override_span("lodash")), Some("lodash: 4.17.20"));
         let catalog_only = yaml("catalog:\n  lodash: 4.17.21\n");
         assert_eq!(catalog_only.override_span("lodash"), None);
+    }
+
+    #[test]
+    fn the_section_index_finds_what_each_lookup_finds() {
+        let text = "\u{feff}# lock\nsnapshots:\n  a@1.0.0: {}\n  'b@2.0.0':\n    dependencies:\n      a@1.0.0: x\n  # c@3.0.0: {}\n  a@1.0.0: again\n  \"d:e\": 1\npackages:\n  a@1.0.0:\n    resolution: {}\n  nested:\n      deeper: 1\nsnapshots:\n    f@1.0.0: {}\n  g@1.0.0: {}\r\n";
+        let line_index = LineIndex::new(text);
+        let keys = [
+            "a@1.0.0",
+            "b@2.0.0",
+            "c@3.0.0",
+            "d:e",
+            "f@1.0.0",
+            "g@1.0.0",
+            "dependencies",
+            "resolution",
+            "nested",
+            "deeper",
+            "missing",
+        ];
+        for section in ["snapshots", "packages", "importers"] {
+            let index = section_index(text, &line_index, section);
+            for key in keys {
+                assert_eq!(
+                    index.get(key).copied(),
+                    entry_span(text, &line_index, section, key),
+                    "{section} {key}"
+                );
+            }
+        }
+        // Not vacuous: the first of a duplicate wins, the second section sets its own indentation, deeper lines and
+        // comments are not entries.
+        let snapshots = section_index(text, &line_index, "snapshots");
+        let found = |key: &str| snapshots.get(key).map(|span| &text[span.start as usize..span.end as usize]);
+        assert_eq!(found("a@1.0.0"), Some("a@1.0.0: {}"));
+        assert_eq!(found("b@2.0.0"), Some("'b@2.0.0'"));
+        assert_eq!(found("d:e"), Some("\"d:e\": 1"));
+        assert_eq!(found("f@1.0.0"), Some("f@1.0.0: {}"));
+        assert_eq!(found("g@1.0.0"), None);
+        assert_eq!(found("c@3.0.0"), None);
+        assert_eq!(found("dependencies"), None);
+        assert_eq!(snapshots.len(), 4);
     }
 
     #[test]

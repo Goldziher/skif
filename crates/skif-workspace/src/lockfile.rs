@@ -6,13 +6,13 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use serde_json::{Map, Value};
-use skif_core::{DependencyKind, FileSystem, LineIndex, Span};
+use skif_core::{DependencyKind, FileSystem, HashMap, LineIndex, Span};
 
 use crate::error::WorkspaceError;
-use crate::pnpm::entry_span;
+use crate::pnpm::section_index;
 
 /// The file name of pnpm's lockfile.
 pub const PNPM_LOCKFILE: &str = "pnpm-lock.yaml";
@@ -44,6 +44,21 @@ pub struct PnpmLockfile {
     pub patched_dependencies: BTreeMap<String, LockedPatch>,
     /// `overrides:` as pnpm applied them: selector and replacement.
     pub overrides: BTreeMap<String, String>,
+    /// The entry spans of the sections located by key, each built on its first lookup.
+    spans: SectionSpans,
+}
+
+/// The spans of the entries of one top-level section, by key.
+type SpanIndex = HashMap<Box<str>, Span>;
+
+/// The span indexes of the sections whose entries diagnostics point at: a lookup scans the whole text, so a run that
+/// locates many entries scans each section once instead of once per lookup.
+#[derive(Debug, Clone, Default)]
+struct SectionSpans {
+    snapshots: OnceLock<SpanIndex>,
+    packages: OnceLock<SpanIndex>,
+    importers: OnceLock<SpanIndex>,
+    patched_dependencies: OnceLock<SpanIndex>,
 }
 
 /// One direct dependency of an importer.
@@ -250,7 +265,15 @@ impl PnpmLockfile {
             snapshots,
             patched_dependencies,
             overrides,
+            spans: SectionSpans::default(),
         })
+    }
+
+    fn entry_span(&self, index: &OnceLock<SpanIndex>, section: &str, key: &str) -> Option<Span> {
+        index
+            .get_or_init(|| section_index(&self.source, &self.line_index, section))
+            .get(key)
+            .copied()
     }
 
     /// The snapshots `importer` reaches through its direct dependencies and theirs. A `link:` to a workspace package
@@ -290,22 +313,22 @@ impl PnpmLockfile {
     /// The span of the `snapshots:` entry `key`, or of its `packages:` entry when the snapshot is not found.
     #[must_use]
     pub fn snapshot_span(&self, key: &str) -> Option<Span> {
-        entry_span(&self.source, &self.line_index, "snapshots", key).or_else(|| {
+        self.entry_span(&self.spans.snapshots, "snapshots", key).or_else(|| {
             let (name, version, _) = split_key(key)?;
-            entry_span(&self.source, &self.line_index, "packages", &format!("{name}@{version}"))
+            self.entry_span(&self.spans.packages, "packages", &format!("{name}@{version}"))
         })
     }
 
     /// The span of the `importers:` entry `importer`.
     #[must_use]
     pub fn importer_span(&self, importer: &str) -> Option<Span> {
-        entry_span(&self.source, &self.line_index, "importers", importer)
+        self.entry_span(&self.spans.importers, "importers", importer)
     }
 
     /// The span of the `patchedDependencies:` entry `key`.
     #[must_use]
     pub fn patched_dependency_span(&self, key: &str) -> Option<Span> {
-        entry_span(&self.source, &self.line_index, "patchedDependencies", key)
+        self.entry_span(&self.spans.patched_dependencies, "patchedDependencies", key)
     }
 }
 
