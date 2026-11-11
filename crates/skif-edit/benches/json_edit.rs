@@ -53,6 +53,16 @@ fn bench_json_edit(c: &mut Criterion) {
             )
         })
         .collect();
+    let many_inserts: Vec<FixOp> = (0..DEPENDENCIES)
+        .step_by(5)
+        .map(|i| {
+            op(
+                vec![key("dependencies")],
+                JsonAction::insert(format!("dep-{i:04}-new"), json!("^1.0.0"), InsertPosition::Sorted),
+            )
+        })
+        .collect();
+    let sort_and_sets: Vec<&FixOp> = std::iter::once(&sort).chain(&many_sets).collect();
 
     let cases: Vec<(&str, Vec<&FixOp>)> = vec![
         ("set_one", vec![&set]),
@@ -61,6 +71,8 @@ fn bench_json_edit(c: &mut Criterion) {
         ("sort_keys_500", vec![&sort]),
         ("rename_key", vec![&rename]),
         ("set_100_versions", many_sets.iter().collect()),
+        ("insert_100_sorted", many_inserts.iter().collect()),
+        ("sort_keys_and_set_100", sort_and_sets),
     ];
 
     let mut group = c.benchmark_group("skif-edit/json_500_deps");

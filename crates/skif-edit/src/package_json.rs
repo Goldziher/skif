@@ -8,7 +8,7 @@
 use jsonc_parser::ast::{self, ObjectPropName};
 use jsonc_parser::common::Ranged;
 use jsonc_parser::{CollectOptions, ParseOptions, parse_to_ast};
-use skif_core::TextEdit;
+use skif_core::{HashMap, TextEdit};
 
 use crate::{EditPlanError, FileKind};
 
@@ -520,17 +520,19 @@ fn kept(node: &Node, out: &mut String) {
 
 /// Renders `node` as `JSON.stringify(value, null, indent)` would, keeping the text of scalars.
 fn canonical(node: &Node, indent: &str, newline: &str, depth: usize, out: &mut String) {
+    let indented = |out: &mut String, levels: usize| {
+        out.push_str(newline);
+        for _ in 0..levels {
+            out.push_str(indent);
+        }
+    };
     let open = |out: &mut String, index: usize| {
         if index > 0 {
             out.push(',');
         }
-        out.push_str(newline);
-        out.push_str(&indent.repeat(depth + 1));
+        indented(out, depth + 1);
     };
-    let close = |out: &mut String| {
-        out.push_str(newline);
-        out.push_str(&indent.repeat(depth));
-    };
+    let close = |out: &mut String| indented(out, depth);
     match node {
         Node::Object(object) if object.members.is_empty() => out.push_str("{}"),
         Node::Array(array) if array.items.is_empty() => out.push_str("[]"),
@@ -568,15 +570,22 @@ fn quote(text: &str) -> String {
 
 /// `sort_first` keys first, then the rest in byte order when `sort_packages` is on.
 fn sort_top_level(root: &mut Object, options: &FormatOptions) -> bool {
-    let mut order: Vec<usize> = Vec::with_capacity(root.members.len());
+    let count = root.members.len();
+    let mut by_key: HashMap<&str, Vec<usize>> = HashMap::default();
+    for (index, member) in root.members.iter().enumerate() {
+        by_key.entry(member.key.as_str()).or_default().push(index);
+    }
+    let mut order: Vec<usize> = Vec::with_capacity(count);
+    let mut placed = vec![false; count];
     for key in &options.sort_first {
-        for (index, member) in root.members.iter().enumerate() {
-            if &member.key == key && !order.contains(&index) {
+        for &index in by_key.get(key.as_str()).into_iter().flatten() {
+            if !placed[index] {
+                placed[index] = true;
                 order.push(index);
             }
         }
     }
-    let mut rest: Vec<usize> = (0..root.members.len()).filter(|index| !order.contains(index)).collect();
+    let mut rest: Vec<usize> = (0..count).filter(|&index| !placed[index]).collect();
     if options.sort_packages {
         rest.sort_by(|a, b| root.members[*a].key.cmp(&root.members[*b].key));
     }
@@ -672,19 +681,21 @@ fn sort_exports(node: &mut Node, order: &[String], change: &mut ExportsChange) {
     let Node::Object(object) = node else {
         return;
     };
-    let mut positions: Vec<usize> = Vec::with_capacity(object.members.len());
+    let count = object.members.len();
+    let is_default = |index: usize| object.members[index].key == "default";
+    let mut positions: Vec<usize> = Vec::with_capacity(count);
+    let mut placed = vec![false; count];
     for key in order {
         for (index, member) in object.members.iter().enumerate() {
-            if &member.key == key && member.key != "default" && !positions.contains(&index) {
+            if &member.key == key && !is_default(index) && !placed[index] {
+                placed[index] = true;
                 positions.push(index);
             }
         }
     }
-    let defaults: Vec<usize> = (0..object.members.len())
-        .filter(|index| object.members[*index].key == "default")
-        .collect();
-    let rest: Vec<usize> = (0..object.members.len())
-        .filter(|index| !positions.contains(index) && !defaults.contains(index))
+    let defaults: Vec<usize> = (0..count).filter(|&index| is_default(index)).collect();
+    let rest: Vec<usize> = (0..count)
+        .filter(|&index| !placed[index] && !is_default(index))
         .collect();
     positions.extend(rest);
     positions.extend(defaults);

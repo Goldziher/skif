@@ -49,4 +49,8 @@ impl Latest {
     pub fn get_node_version(&self) -> Arc<nodejs_semver::Version> {
         self.node_version.clone()
     }
+
+    pub(crate) fn node_version_ref(&self) -> &Arc<nodejs_semver::Version> {
+        &self.node_version
+    }
 }
