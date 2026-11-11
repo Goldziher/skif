@@ -64,9 +64,10 @@ skif is younger than all three. The JS analysis is close to knip but not identic
 
 ## Benchmarks
 
-Every number in this section is generated: the speed tables by `mise run bench:publish` and the agreement table by
-`mise run parity:publish` from the committed parity baseline. Each block says which skif commit, tool versions and
-machine it comes from. Absolute times depend on the machine; read the ratios.
+Every number in this section is generated: the speed tables from a run of the `bench` workflow on a pinned
+GitHub-hosted runner, imported with `mise run bench:import`, and the agreement table by `mise run parity:publish` from
+the committed parity baseline. Each block says which skif commit, tool versions, runner image and machine it comes
+from, and links the workflow run. Absolute times depend on the machine; read the ratios.
 
 ### Speed
 
@@ -74,7 +75,7 @@ Full skif runs against knip, and `skif --no-js` against sherif and syncpack, on 
 [pinned public repositories](tools/bench/corpus.toml) with dependencies installed and on generated workspaces.
 
 <!-- bench:summary:start -->
-Not yet measured for this release: run `mise run bench:publish`.
+Not yet measured for this release: run the `bench` workflow and `mise run bench:import -- <run-id>`.
 <!-- bench:summary:end -->
 
 ### Accuracy on seeded defects
