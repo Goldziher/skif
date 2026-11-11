@@ -775,8 +775,9 @@ A `tsconfig` compiler option (`types`, `jsxImportSource`, `plugins`, `importHelp
 reads the config, so a shared base config is satisfied when its owner or the package extending it lists the package;
 an `ignore-dependencies` entry of the extending package silences it too. A `types` entry is satisfied by the package it
 names or its `@types` package: `types: ["cypress"]` with `cypress` listed at the root needs nothing more, and
-`@cloudflare/workers-types` or `@types/node` name themselves. TypeScript 6's `types: ["*"]` names no package: it keeps
-every `@types` package visible, as a config without `types` does.
+`@cloudflare/workers-types` or `@types/node` name themselves. `types: ["*"]` names no package: it keeps every `@types`
+package visible. A config without `types` is read as keeping them all too, TypeScript's default before version 6;
+TypeScript 6 defaults `types` to `[]`.
 
 `ignore-dependencies` silences a package; a config below `node_modules`, that git ignores (generated, such as
 `.nuxt/tsconfig.json`), in a fixture directory (unless `include-fixtures`) or matched by `ignore` is not judged.
