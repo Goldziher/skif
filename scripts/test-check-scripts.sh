@@ -2,7 +2,7 @@
 # Tests the repository guards that decide what ships, each on a synthetic tree, so a pattern that drifts cannot make a
 # guard pass on nothing: every script gets a passing tree and the negative cases that must fail.
 #   check-pins, check-headers, check-rule-ids, check-plugin-list, check-dependency-tree, check-package-contents,
-#   check-schema, check-oxc-git-patch, check-doc-pins, npm-smoke.sh, bench-import.sh
+#   check-schema, check-oxc-git-patch, check-doc-pins, npm-smoke.sh, msrv.sh, bench-import.sh
 #
 # Usage: scripts/test-check-scripts.sh
 # The literals checked below contain `$` on purpose; nothing is meant to expand.
@@ -401,6 +401,22 @@ expect "npm-smoke fails when the clean scenario is missing" 1 run_in "$smoke" np
 mv "${smoke}/clean" "${smoke}/fixtures/e2e/clean"
 printf '#!/usr/bin/env bash\nexit 1\n' >"${stubs}/node"
 expect "npm-smoke fails when the addon script fails" 1 run_in "$smoke" npm-smoke.sh node
+
+# ---------------------------------------------------------------- msrv
+msrv="$(new_tree msrv)"
+printf '[workspace]\nmembers = ["a"]\n\n[workspace.package]\nversion = "0.1.0"\nrust-version = "1.99"\n\n[workspace.dependencies]\nx = { version = "1" }\n' >"${msrv}/Cargo.toml"
+printf '[package]\nname = "a"\nrust-version = "1.88"\n' >"${msrv}/package.toml"
+printf '[package]\nname = "a"\n\n[metadata]\nrust-version = "1.0"\n' >"${msrv}/none.toml"
+expect "msrv reads [workspace.package]" 0 bash "${msrv}/scripts/msrv.sh" "${msrv}/Cargo.toml"
+[[ "$(cat "${work}/out")" == "1.99" ]] || fail "msrv workspace: printed '$(cat "${work}/out")'"
+expect "msrv reads [package]" 0 bash "${msrv}/scripts/msrv.sh" "${msrv}/package.toml"
+[[ "$(cat "${work}/out")" == "1.88" ]] || fail "msrv package: printed '$(cat "${work}/out")'"
+expect "msrv reads the Cargo.toml of the current directory" 0 bash -c 'cd "$1" && bash scripts/msrv.sh' _ "$msrv"
+[[ "$(cat "${work}/out")" == "1.99" ]] || fail "msrv default: printed '$(cat "${work}/out")'"
+expect "msrv ignores a rust-version outside the package tables" 1 bash "${msrv}/scripts/msrv.sh" "${msrv}/none.toml"
+expect_in_out "msrv none" "msrv: ${msrv}/none.toml declares no rust-version"
+expect "msrv fails on a missing manifest" 1 bash "${msrv}/scripts/msrv.sh" "${msrv}/missing.toml"
+expect_in_out "msrv missing" "msrv: ${msrv}/missing.toml does not exist"
 
 # ---------------------------------------------------------------- bench-import
 bench="$(new_tree bench)"
