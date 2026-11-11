@@ -2,9 +2,9 @@
 # Refresh it with `ai-rulez lock`; `ai-rulez generate --locked` fails when it is stale.
 
 version = 1
-ai_rulez_version = '5.12.0'
+ai_rulez_version = '5.7.0'
 scope = 'all'
-tree = 'sha256:9096790266909475428e6b1a8b57a4e583a394b0f259ce5dff04317d23c50597'
+tree = 'sha256:088689c40388d4a868360d265d2315144c9a6b090f2926ad452d84b76d4cb9b9'
 
 [[served]]
 name = 'adr-workflow'
@@ -105,4 +105,4 @@ digest = 'sha256:20526e673fad3816eac6b0c6f900a188f039faadba56015fab770b8d539a812
 [[item]]
 kind = 'settings'
 id = 'mcp-servers'
-digest = 'sha256:7f0ae2de7537fddab45c76b6a26be0b16aad2f949d7b73a7d876a5a428dee99b'
+digest = 'sha256:9f8d20e0bb26cea8c432969a4e9dcab69c8e9097398164a18191f48128a6df5a'
