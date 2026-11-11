@@ -41,9 +41,10 @@ pub struct StalePatchedDependenciesOptions {
 ///
 /// An entry is stale when `pnpm-lock.yaml` resolves no snapshot of its `name@version` (the patch stopped applying after
 /// a bump) or resolves it without a patch hash, when its patch file does not exist, or when the file lies outside
-/// `allowed-patch-paths`. In a Bun workspace `bun.lock` decides: it must resolve the release and record the patch in its
-/// own `patchedDependencies`, which Bun writes when it applies one. A `*.patch` file in the patch directories that no entry references is reported too. The rule
-/// reads nothing in a workspace that declares no patches and configures no `patch-dirs`.
+/// `allowed-patch-paths`. In a Bun workspace `bun.lock` decides: it must resolve the release and record the patch in
+/// its own `patchedDependencies`, which Bun writes when it applies one. A `*.patch` file in the patch directories that
+/// no entry references is reported too. The rule reads nothing in a workspace that declares no patches and configures
+/// no `patch-dirs`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct StalePatchedDependencies;
 
@@ -229,6 +230,9 @@ fn declared(cx: &LintContext<'_>) -> Vec<Entry> {
 /// The entries of the top-level `patchedDependencies` of the root `package.json`, which Bun reads, in file order.
 fn declared_for_bun(cx: &LintContext<'_>) -> Vec<Entry> {
     let root = cx.workspace.root_package();
+    if !cx.workspace.has_root_manifest() {
+        return Vec::new();
+    }
     let Some(Value::Object(patches)) = root.manifest.value().get("patchedDependencies") else {
         return Vec::new();
     };
@@ -456,13 +460,18 @@ snapshots:
             ("packages/app/package.json", r#"{"name":"app","version":"1.0.0"}"#),
         ];
         files.extend_from_slice(extra);
-        lint(META.id, &files, &config(toml))
+        with_located(&files, lint(META.id, &files, &config(toml)))
+    }
+
+    /// Each diagnostic with the text of `files` its span covers, empty without a span.
+    fn with_located(files: &[(&str, &str)], diagnostics: Vec<Diagnostic>) -> Vec<(Diagnostic, String)> {
+        diagnostics
             .into_iter()
             .map(|diagnostic| {
                 let text = diagnostic
                     .location
                     .span
-                    .map(|_| located(&files, &diagnostic).to_owned())
+                    .map(|_| located(files, &diagnostic).to_owned())
                     .unwrap_or_default();
                 (diagnostic, text)
             })
@@ -658,7 +667,7 @@ snapshots:
 
     /// Lints a Bun workspace whose root `package.json` declares the top-level `patchedDependencies` `patches` (the
     /// members of the object), with `extra` files besides the manifests and the patch of `ms@2.1.2`.
-    fn bun_stale(patches: &str, extra: &[(&'static str, &'static str)]) -> Vec<Diagnostic> {
+    fn bun_stale(patches: &str, extra: &[(&'static str, &'static str)]) -> Vec<(Diagnostic, String)> {
         let root_json = format!(
             r#"{{"name":"root","private":true,"packageManager":"bun@1.4.4","workspaces":["packages/*"],"patchedDependencies":{{{patches}}},"pnpm":{{"patchedDependencies":{{"left@1.0.0":"patches/left@1.0.0.patch"}}}}}}"#
         );
@@ -669,21 +678,19 @@ snapshots:
             LEFT,
         ];
         files.extend_from_slice(extra);
-        lint(META.id, &files, &config(""))
+        with_located(&files, lint(META.id, &files, &config("")))
     }
 
-    fn bun_messages(found: &[Diagnostic]) -> Vec<&str> {
-        found.iter().map(|diagnostic| diagnostic.message.as_str()).collect()
-    }
+    /// What Bun leaves over in every [`bun_stale`] workspace: the patch of the `pnpm.patchedDependencies` it ignores.
+    const PNPM_PATCH_LEFT_OVER: &str =
+        "`patches/left@1.0.0.patch` is not referenced by any `patchedDependencies` entry";
 
     #[test]
     fn a_bun_patch_that_bun_lock_records_reports_nothing_and_pnpm_entries_are_not_read() {
         let found = bun_stale(r#""ms@2.1.2":"patches/ms@2.1.2.patch""#, &[("bun.lock", BUN_LOCK)]);
         // `patches/left@1.0.0.patch` belongs to the `pnpm.patchedDependencies` Bun ignores, so it is left over.
-        assert_eq!(
-            bun_messages(&found),
-            ["`patches/left@1.0.0.patch` is not referenced by any `patchedDependencies` entry"]
-        );
+        assert_eq!(messages(&found), [PNPM_PATCH_LEFT_OVER]);
+        assert_eq!(found[0].0.location.path, Path::new("patches/left@1.0.0.patch"));
     }
 
     #[test]
@@ -696,49 +703,56 @@ snapshots:
                 ("patches/picocolors@1.1.1.patch", PATCH),
             ],
         );
-        let found: Vec<&Diagnostic> = found.iter().filter(|d| !d.message.contains("left@1.0.0")).collect();
-        let messages: Vec<&str> = found.iter().map(|d| d.message.as_str()).collect();
         assert_eq!(
-            messages,
+            messages(&found),
             [
                 "`picocolors@9.9.9` is patched but `bun.lock` resolves no `picocolors@9.9.9`; it resolves `picocolors` at `1.1.1`",
                 "`picocolors@1.1.1` is patched but `bun.lock` records no patch for it, so the patch is not applied",
+                PNPM_PATCH_LEFT_OVER,
             ]
         );
-        assert_eq!(found[0].location.path, Path::new("package.json"));
-        assert_eq!(found[0].dependency.as_deref(), Some("picocolors"));
-        let span = found[0].location.span.unwrap();
-        assert!(span.start < span.end);
+        assert_eq!(found[0].0.location.path, Path::new("package.json"));
+        assert_eq!(found[0].1, r#""picocolors@9.9.9""#);
+        assert_eq!(found[0].0.dependency.as_deref(), Some("picocolors"));
+        assert_eq!(found[1].0.location.path, Path::new("package.json"));
+        assert_eq!(found[1].1, r#""picocolors@1.1.1""#);
+        assert_eq!(found[1].0.dependency.as_deref(), Some("picocolors"));
     }
 
     #[test]
     fn a_bun_workspace_without_a_text_lockfile_says_nothing_is_checked() {
         let without = bun_stale(r#""ms@2.1.2":"patches/ms@2.1.2.patch""#, &[]);
-        assert!(
-            bun_messages(&without)
-                .contains(&"there is no `bun.lock`, so nothing is checked for the `patchedDependencies` entries"),
-            "{without:#?}"
-        );
-        let binary = bun_stale(r#""ms@2.1.2":"patches/ms@2.1.2.patch""#, &[("bun.lockb", "")]);
-        let reported = binary
-            .iter()
-            .find(|d| d.message.starts_with("skif reads `bun.lock` only"))
-            .unwrap();
         assert_eq!(
-            reported.message,
-            "skif reads `bun.lock` only; the binary `bun.lockb` is not checked for the `patchedDependencies` entries"
+            messages(&without),
+            [
+                "there is no `bun.lock`, so nothing is checked for the `patchedDependencies` entries",
+                PNPM_PATCH_LEFT_OVER,
+            ]
         );
-        assert_eq!(reported.location.path, Path::new("bun.lockb"));
+        // Without a lockfile the report points at the first entry.
+        assert_eq!(without[0].0.location.path, Path::new("package.json"));
+        assert_eq!(without[0].1, r#""ms@2.1.2""#);
+        let binary = bun_stale(r#""ms@2.1.2":"patches/ms@2.1.2.patch""#, &[("bun.lockb", "")]);
+        assert_eq!(
+            messages(&binary),
+            [
+                "skif reads `bun.lock` only; the binary `bun.lockb` is not checked for the `patchedDependencies` entries",
+                PNPM_PATCH_LEFT_OVER,
+            ]
+        );
+        assert_eq!(binary[0].0.location.path, Path::new("bun.lockb"));
         let broken = bun_stale(
             r#""ms@2.1.2":"patches/ms@2.1.2.patch""#,
             &[("bun.lock", "{ \"packages\": ")],
         );
+        assert_eq!(broken.len(), 2, "{broken:#?}");
         assert!(
-            broken
-                .iter()
-                .any(|d| d.message.starts_with("`bun.lock` cannot be read (")),
-            "{broken:#?}"
+            broken[0].0.message.starts_with("`bun.lock` cannot be read ("),
+            "{}",
+            broken[0].0.message
         );
+        assert_eq!(broken[0].0.location.path, Path::new("bun.lock"));
+        assert_eq!(broken[1].0.message, PNPM_PATCH_LEFT_OVER);
     }
 
     #[test]

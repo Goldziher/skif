@@ -134,3 +134,45 @@ fn the_cwd_option_is_read_as_a_directory_only_for_command_calls() {
         "{marked:?}"
     );
 }
+
+/// Bun Shell's `` $`…`.cwd(dir) `` runs the template in `dir`: a command template carries it as its `cwd` option,
+/// marked as the `cwd` option of a command call is, wherever the chain sets it.
+#[test]
+fn a_chained_cwd_is_the_cwd_option_of_a_command_template() {
+    let source = r#"
+        import { $ } from "bun";
+        await $`bun run build`.cwd(directory);
+        await $`bun run lint`.quiet().cwd("packages/web");
+        await $`bun run test`.cwd(".");
+        await $`bun run dev`.cwd(import.meta.dir).nothrow();
+        await $`bun run check`;
+    "#;
+    let cwd = |call: &ImportedCall| call.arguments.first().and_then(|options| options.get("cwd")).cloned();
+    let found = extract_command_calls(source, Path::new("src/run.ts"), &["bun"], &[]);
+    let templates: Vec<Option<&str>> = found.iter().map(|call| call.template.as_deref()).collect();
+    assert_eq!(
+        templates,
+        [
+            Some("bun run build"),
+            Some("bun run lint"),
+            Some("bun run test"),
+            Some("bun run dev"),
+            Some("bun run check"),
+        ]
+    );
+    let cwds: Vec<Option<ConfigValue>> = found.iter().map(cwd).collect();
+    assert_eq!(
+        cwds,
+        [
+            Some(ConfigValue::Unknown),
+            Some(s("packages/web")),
+            None,
+            Some(s(&format!("{FILE_DIR}/."))),
+            None,
+        ]
+    );
+    // Only the calls that run a command read a chained `.cwd`.
+    let plain = calls(source, &["bun"], &[]);
+    assert_eq!(plain.len(), 5);
+    assert!(plain.iter().all(|call| call.arguments.is_empty()), "{plain:?}");
+}

@@ -2,12 +2,15 @@
 //! APIs: the commands of Bun Shell (`` $`…` `` imported from `bun`, or `` Bun.$`…` ``) and of `Bun.spawn`, which are
 //! scripts parsed like the scripts of `package.json`, and the `entrypoints` of `Bun.build`, which are production
 //! entries relative to the package (Bun resolves them from the working directory a script starts in). A package whose
-//! sources use the `Bun` global uses the type package it lists for it, `@types/bun` or `bun-types`.
+//! sources use the `Bun` global uses the type package it lists for it, `@types/bun` or `bun-types`. Only the package's
+//! own sources are read for commands and entries: a file below a directory with its own `package.json`, such as a
+//! member below a workspace root, belongs to that package. A type package serves the packages below the one listing it
+//! too (a workspace root lists Bun's types for its members), so their use of the global counts for it.
 
 use skif_js_syntax::{ConfigValue, ImportedCall, command_in_call_dir, extract_command_calls, literal_command};
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::support::{get_in, module_input, production_entries, sources_containing, strings};
+use crate::support::{get_in, module_input, own_sources_where, production_entries, sources_containing, strings};
 
 /// The `bun` plugin.
 pub struct Bun;
@@ -29,6 +32,8 @@ static SPEC: PluginSpec = PluginSpec {
         Enabler::Dependency("bun-types"),
     ],
     config: &["bunfig.toml"],
+    // bun.com/docs/test lists only `js`, `jsx`, `ts` and `tsx` and the `.test`/`.spec` suffixes, but Bun 1.4 runs the
+    // module extensions and the `_test`/`_spec` suffixes too.
     entry: &[
         "**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
         "**/*_{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
@@ -64,24 +69,20 @@ impl Plugin for Bun {
     fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut out = Vec::new();
         let mut uses_global = false;
-        for (source, text) in sources_containing(cx, "") {
-            let global = text.contains("Bun.");
-            if !global && !text.contains("\"bun\"") && !text.contains("'bun'") {
-                continue;
-            }
-            uses_global |= global;
+        let names_bun = |text: &str| text.contains("Bun.") || text.contains("\"bun\"") || text.contains("'bun'");
+        for (source, text) in own_sources_where(cx, names_bun) {
+            uses_global |= text.contains("Bun.");
             let path = cx.dir.join(&source);
             for call in extract_command_calls(&text, &path, &["bun"], &[("Bun.*", "bun")]) {
                 api_inputs(&call, &source, &mut out);
             }
         }
-        if uses_global {
-            out.extend(
-                TYPE_PACKAGES
-                    .iter()
-                    .filter(|name| cx.has_dependency(name))
-                    .map(|name| PluginInput::Dependency((*name).to_owned())),
-            );
+        let listed: Vec<&str> = TYPE_PACKAGES
+            .into_iter()
+            .filter(|name| cx.has_dependency(name))
+            .collect();
+        if !listed.is_empty() && (uses_global || !sources_containing(cx, "Bun.").is_empty()) {
+            out.extend(listed.into_iter().map(|name| PluginInput::Dependency(name.to_owned())));
         }
         out
     }
@@ -90,7 +91,7 @@ impl Plugin for Bun {
 /// What one call of Bun's API in the file `source` names.
 fn api_inputs(call: &ImportedCall, source: &str, out: &mut Vec<PluginInput>) {
     let script = match (call.export.as_str(), &call.template) {
-        ("$", Some(template)) => Some(template.clone()),
+        ("$", Some(template)) => Some(command_in_call_dir(template.clone(), call.arguments.first())),
         ("spawn" | "spawnSync", None) => spawn_command(&call.arguments),
         ("build", None) => {
             let entrypoints = call.arguments.first().and_then(|options| options.get("entrypoints"));
@@ -106,7 +107,7 @@ fn api_inputs(call: &ImportedCall, source: &str, out: &mut Vec<PluginInput>) {
 }
 
 /// The command line of `Bun.spawn(["cmd", ...args], options)` or `Bun.spawn({ cmd: [...], cwd })`, in the directory
-/// its `cwd` option names; `None` unless every word is a literal plain word.
+/// its `cwd` option names (see [`command_in_call_dir`]); see [`words_command`] for the words.
 fn spawn_command(arguments: &[ConfigValue]) -> Option<String> {
     match arguments.first()? {
         ConfigValue::Array(words) => words_command(words, arguments.get(1)),
@@ -118,13 +119,11 @@ fn spawn_command(arguments: &[ConfigValue]) -> Option<String> {
     }
 }
 
-/// The command of a list of words run with `options`; `None` when a word is computed, which would change what the
-/// command means, or is not a plain word ([`literal_command`]).
+/// The command of a list of words run with `options`: the program and its literal arguments, a computed argument left
+/// out as for `spawn` of `node:child_process`. `None` when the program is computed or a literal word is not a plain
+/// word ([`literal_command`]).
 fn words_command(words: &[ConfigValue], options: Option<&ConfigValue>) -> Option<String> {
     let (program, rest) = words.split_first()?;
-    if rest.iter().any(|word| word.as_str().is_none()) {
-        return None;
-    }
     let command = literal_command(&[program.clone(), ConfigValue::Array(rest.to_vec())])?;
     Some(command_in_call_dir(command, options))
 }

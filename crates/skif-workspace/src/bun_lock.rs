@@ -6,6 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use jsonc_parser::{ParseOptions, parse_to_serde_value};
 use serde_json::Value;
 use skif_core::FileSystem;
 
@@ -50,10 +51,9 @@ impl BunLockfile {
     /// # Errors
     /// [`WorkspaceError::InvalidLockfile`] as for [`read`](Self::read).
     pub fn parse(path: PathBuf, source: &str) -> Result<Self, WorkspaceError> {
-        let text = source.strip_prefix('\u{feff}').unwrap_or(source);
-        let document = parse_bun_lock(text).map_err(|error| WorkspaceError::InvalidLockfile {
+        let document = parse_bun_lock(source).map_err(|message| WorkspaceError::InvalidLockfile {
             path: path.clone(),
-            message: error.to_string(),
+            message,
         })?;
         let Value::Object(document) = document else {
             return Err(WorkspaceError::InvalidLockfile {
@@ -96,42 +96,14 @@ impl BunLockfile {
     }
 }
 
-/// Parses the text of a `bun.lock` as JSON: Bun writes a trailing comma before `}` and `]`, which is dropped.
+/// Parses the text of a `bun.lock`: JSON with the trailing commas Bun writes before `}` and `]`, after a byte order
+/// mark if there is one. Empty text is `null`.
 ///
 /// # Errors
-/// The JSON error when the text is not such a document.
-pub fn parse_bun_lock(text: &str) -> Result<Value, serde_json::Error> {
-    serde_json::from_str(&strip_trailing_commas(text))
-}
-
-/// `text` without the commas, outside of strings, that only whitespace separates from a closing `}` or `]`.
-fn strip_trailing_commas(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let mut out = String::with_capacity(text.len());
-    let mut in_string = false;
-    let mut escaped = false;
-    for (index, &c) in chars.iter().enumerate() {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if c == '"' {
-                in_string = false;
-            }
-        } else if c == '"' {
-            in_string = true;
-        } else if c == ','
-            && chars[index + 1..]
-                .iter()
-                .find(|next| !next.is_whitespace())
-                .is_some_and(|next| matches!(next, '}' | ']'))
-        {
-            continue;
-        }
-        out.push(c);
-    }
-    out
+/// The parser's message when the text is not such a document.
+pub fn parse_bun_lock(text: &str) -> Result<Value, String> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    parse_to_serde_value(text, &ParseOptions::default()).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
@@ -181,6 +153,16 @@ mod tests {
     }
 
     #[test]
+    fn a_byte_order_mark_is_skipped() {
+        assert_eq!(
+            parse_bun_lock("\u{feff}{\"lockfileVersion\": 1,}").unwrap(),
+            serde_json::json!({"lockfileVersion": 1})
+        );
+        let lock = BunLockfile::parse(PathBuf::from(BUN_LOCKFILE), &format!("\u{feff}{LOCK}")).unwrap();
+        assert_eq!(lock, BunLockfile::parse(PathBuf::from(BUN_LOCKFILE), LOCK).unwrap());
+    }
+
+    #[test]
     fn trailing_commas_inside_strings_are_kept() {
         assert_eq!(
             parse_bun_lock(r#"{"a": ["x,]", "y,}",], }"#).unwrap(),
@@ -205,9 +187,8 @@ mod tests {
             BunLockfile::read(&fs, Path::new("/r"))
                 .unwrap()
                 .unwrap()
-                .patched_dependencies
-                .len(),
-            1
+                .patched_dependencies,
+            BTreeMap::from([("ms@2.1.2".to_owned(), "patches/ms@2.1.2.patch".to_owned())])
         );
     }
 }

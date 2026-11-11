@@ -1215,10 +1215,11 @@ pub struct ImportedCall {
     /// The export called: `"default"` for the default export or the module object itself (`pino(…)`), the export's
     /// name for a named import (`execa(…)`), or the member called on the module object (`pino.transport(…)`).
     pub export: String,
-    /// The statically evaluated arguments, in order; empty for a tagged template. For a call that runs a command
-    /// ([`extract_command_calls`]), the `cwd` option of an options object is left out when it names the directory the
-    /// call runs in anyway (`process.cwd()`, `'.'`, `undefined`), and starts with [`FILE_DIR`] when the file's own
-    /// location computes it.
+    /// The statically evaluated arguments, in order. For a call that runs a command ([`extract_command_calls`]), the
+    /// `cwd` option of an options object is left out when it names the directory the call runs in anyway
+    /// (`process.cwd()`, `'.'`, `undefined`), and starts with [`FILE_DIR`] when the file's own location computes it.
+    /// A tagged template has none, except that one run in another directory by a chained `.cwd(dir)` (Bun Shell's
+    /// `` $`…`.cwd(dir) ``) has an options object with that `cwd`, marked the same way.
     pub arguments: Vec<ConfigValue>,
     /// For a tagged template (`` $`cmd ${x}` ``), its raw text with every substitution replaced by
     /// [`TEMPLATE_SUBSTITUTION`]; `None` for a call.
@@ -1312,6 +1313,7 @@ pub(crate) fn imported_calls_in(
         file,
         imported: &imported,
         commands,
+        chained_cwd: HashMap::new(),
         found: Vec::new(),
     };
     finder.visit_program(program);
@@ -1399,20 +1401,42 @@ fn mark_cwd<'p, 'a>(options: &mut ConfigValue, expression: &'p Expression<'a>, p
     let Some(index) = entries.iter().rposition(|(key, _)| key == "cwd") else {
         return;
     };
-    let file_relative = matches!(entries[index].1, ConfigValue::String(_))
-        && ConfigValue::from(probe.expr(expression, 0)).get("cwd") != Some(&entries[index].1);
-    let unchanged = !file_relative && matches!(entries[index].1.as_str(), Some("." | "./"));
-    if unchanged || sets_undefined(expression, "cwd") {
-        entries.retain(|(key, _)| key != "cwd");
-        return;
+    let probed = ConfigValue::from(probe.expr(expression, 0));
+    let cwd = std::mem::replace(&mut entries[index].1, ConfigValue::Unknown);
+    match marked_cwd(cwd, probed.get("cwd"), sets_undefined(expression, "cwd")) {
+        Some(cwd) => entries[index].1 = cwd,
+        None => entries.retain(|(key, _)| key != "cwd"),
     }
-    if let ConfigValue::String(path) = &mut entries[index].1
-        && file_relative
-        && path
-            .chars()
-            .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '.' | '/' | '+' | '-'))
-    {
-        *path = format!("{FILE_DIR}/{path}");
+}
+
+/// A `cwd` evaluated from the file's directory, marked as [`mark_cwd`] does: `None` when it names the directory the
+/// call runs in anyway (`'.'`, or `undefined` set explicitly), [`FILE_DIR`] joined with the path when `probed`, the
+/// same `cwd` evaluated from [`PROBE_DIR`], differs from it, so that the file's own location computes it.
+fn marked_cwd(cwd: ConfigValue, probed: Option<&ConfigValue>, undefined: bool) -> Option<ConfigValue> {
+    let file_relative = matches!(cwd, ConfigValue::String(_)) && probed != Some(&cwd);
+    let unchanged = !file_relative && matches!(cwd.as_str(), Some("." | "./"));
+    if unchanged || undefined {
+        return None;
+    }
+    match cwd {
+        ConfigValue::String(path)
+            if file_relative
+                && path
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '.' | '/' | '+' | '-')) =>
+        {
+            Some(ConfigValue::String(format!("{FILE_DIR}/{path}")))
+        }
+        other => Some(other),
+    }
+}
+
+/// Whether `expression` is `undefined` (or `void 0`).
+fn is_undefined(expression: &Expression<'_>) -> bool {
+    match expression.get_inner_expression() {
+        Expression::Identifier(id) => id.name.as_str() == "undefined",
+        Expression::UnaryExpression(u) => u.operator == UnaryOperator::Void,
+        _ => false,
     }
 }
 
@@ -1431,11 +1455,7 @@ fn sets_undefined(expression: &Expression<'_>, key: &str) -> bool {
         }
         _ => None,
     });
-    last.is_some_and(|value| match value.get_inner_expression() {
-        Expression::Identifier(id) => id.name.as_str() == "undefined",
-        Expression::UnaryExpression(u) => u.operator == UnaryOperator::Void,
-        _ => false,
-    })
+    last.is_some_and(is_undefined)
 }
 
 /// Local name to module and named export (`None` for the default export or the module object) of everything a
@@ -1512,7 +1532,18 @@ struct CallFinder<'t, 'p, 'a> {
     imported: &'t ImportedFunctions,
     /// The calls run commands, so their `cwd` option is marked (see [`mark_cwd`]).
     commands: bool,
+    /// The `cwd` a chained `.cwd(dir)` sets for the tagged template at a span, marked (see [`marked_cwd`]); `None`
+    /// when it names the directory the command runs in anyway.
+    chained_cwd: HashMap<Span, Option<ConfigValue>>,
     found: Vec<ImportedCall>,
+}
+
+/// The function a tagged template calls: its tag, or the callee of a tag that is itself a call (`` $(opts)`…` ``).
+fn template_tag<'e, 'a>(template: &'e TaggedTemplateExpression<'a>) -> &'e Expression<'a> {
+    match template.tag.get_inner_expression() {
+        Expression::CallExpression(call) => &call.callee,
+        other => other,
+    }
 }
 
 impl<'a> CallFinder<'_, '_, 'a> {
@@ -1534,10 +1565,59 @@ impl<'a> CallFinder<'_, '_, 'a> {
             _ => None,
         }
     }
+
+    /// The tagged template of an imported function that a chain of method calls starts from: `object` in
+    /// `` object.cwd(dir) `` for `` $`…`.cwd(dir) `` or `` $`…`.quiet().cwd(dir) ``.
+    fn chained_template<'e>(&self, mut object: &'e Expression<'a>) -> Option<&'e TaggedTemplateExpression<'a>> {
+        loop {
+            match object.get_inner_expression() {
+                Expression::TaggedTemplateExpression(template) => {
+                    return self.target(template_tag(template)).is_some().then_some(&**template);
+                }
+                Expression::CallExpression(call) => match call.callee.get_inner_expression() {
+                    Expression::StaticMemberExpression(member) => object = &member.object,
+                    _ => return None,
+                },
+                _ => return None,
+            }
+        }
+    }
+
+    /// Records the directory `` $`…`.cwd(dir) `` (Bun Shell) runs a command template in, for the template to carry
+    /// as its `cwd` option. The outermost `.cwd` of a chain is the one that applies, and it is visited first.
+    fn record_chained_cwd(&mut self, it: &CallExpression<'a>) {
+        let Expression::StaticMemberExpression(member) = it.callee.get_inner_expression() else {
+            return;
+        };
+        if member.property.name.as_str() != "cwd" {
+            return;
+        }
+        let Some(template) = self.chained_template(&member.object) else {
+            return;
+        };
+        let Some(directory) = it.arguments.first().and_then(Argument::as_expression) else {
+            return;
+        };
+        let eval = Evaluator::in_file(self.top, self.bindings, self.file, HashMap::new());
+        let probe = Evaluator {
+            dir: PROBE_DIR,
+            ..Evaluator::in_file(self.top, self.bindings, self.file, HashMap::new())
+        };
+        let probed = ConfigValue::from(probe.expr(directory, 0));
+        let cwd = marked_cwd(
+            ConfigValue::from(eval.expr(directory, 0)),
+            Some(&probed),
+            is_undefined(directory),
+        );
+        self.chained_cwd.entry(template.span).or_insert(cwd);
+    }
 }
 
 impl<'a> Visit<'a> for CallFinder<'_, '_, 'a> {
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        if self.commands {
+            self.record_chained_cwd(it);
+        }
         if let Some((module, export)) = self.target(&it.callee) {
             let eval = Evaluator::in_file(self.top, self.bindings, self.file, HashMap::new());
             let mut arguments: Vec<ConfigValue> = it
@@ -1571,16 +1651,18 @@ impl<'a> Visit<'a> for CallFinder<'_, '_, 'a> {
     }
 
     fn visit_tagged_template_expression(&mut self, it: &TaggedTemplateExpression<'a>) {
-        let tag = match it.tag.get_inner_expression() {
-            Expression::CallExpression(call) => &call.callee,
-            other => other,
-        };
-        if let Some((module, export)) = self.target(tag) {
+        if let Some((module, export)) = self.target(template_tag(it)) {
             let quasis: Vec<&str> = it.quasi.quasis.iter().map(|q| q.value.raw.as_str()).collect();
+            let arguments = self
+                .chained_cwd
+                .remove(&it.span)
+                .flatten()
+                .map(|cwd| vec![ConfigValue::Object(vec![("cwd".to_owned(), cwd)])])
+                .unwrap_or_default();
             self.found.push(ImportedCall {
                 module,
                 export,
-                arguments: Vec::new(),
+                arguments,
                 template: Some(quasis.join(TEMPLATE_SUBSTITUTION)),
             });
         }

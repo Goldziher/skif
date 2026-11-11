@@ -999,10 +999,13 @@ counterpart. These differences are deliberate:
   `cts` extensions. `bunfig.toml` names the modules of `preload` and `[test] preload`, the package of
   `jsxImportSource` and the security scanner of `[install.security] scanner`. In the source files, the commands of
   Bun Shell (`` $`…` `` imported from `bun`, or `` Bun.$`…` ``) and of `Bun.spawn` and `Bun.spawnSync` (a list of
-  literal words, or `{ cmd }`) are read like those of `execa`, and the `entrypoints` of `Bun.build` (or `build`
-  imported from `bun`) are production entries relative to the package, the directory a script runs Bun in. A package
-  whose sources use the `Bun` global uses the `@types/bun` or `bun-types` it lists. `bunfig.toml`'s `[test] root`
-  and `pathIgnorePatterns` are not read.
+  words, a computed one left out, or `{ cmd }`) are read like those of `execa`, and the `entrypoints` of `Bun.build`
+  (or `build` imported from `bun`) are production entries relative to the package, the directory a script runs Bun
+  in. A command run in another directory, by `` $`…`.cwd(dir) `` or the `cwd` option of `Bun.spawn`, is judged as
+  one run in another package, as `bun --cwd` is. Only the package's own sources are read: a workspace root does not
+  read the files below a member's `package.json`. A package whose sources, or the sources of the packages below it,
+  use the `Bun` global uses the `@types/bun` or `bun-types` it lists. `bunfig.toml`'s `[test] root` and
+  `pathIgnorePatterns` are not read.
 - `next-mdx` and `starlight` read the options of the `@next/mdx` and `@astrojs/starlight` calls in the config source;
   a plugin or component passed as an imported binding is not a string and is already an import.
 - `unplugin-auto-import` and `unplugin-vue-components` make the declaration files they generate (`auto-imports.d.ts`,

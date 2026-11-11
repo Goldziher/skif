@@ -58,15 +58,24 @@ fn from_yarn_berry_files(fs: &dyn FileSystem, root: &Path) -> Option<PackageMana
         .then_some(PackageManager::Yarn)
 }
 
-/// A `bunfig.toml` configures Bun's installer and runtime; a checkout that commits no lockfile still has it.
+/// A `bunfig.toml` with an `[install]` table configures Bun's installer, so a checkout that commits no lockfile
+/// installs with Bun. One without it configures only Bun's runtime or test runner (`[test]`, `preload`), which a
+/// repository installed by npm or Yarn may use too, so it does not decide.
 fn from_bunfig(fs: &dyn FileSystem, root: &Path) -> Option<PackageManager> {
-    fs.is_file(&root.join("bunfig.toml")).then_some(PackageManager::Bun)
+    fs.read_to_string(&root.join("bunfig.toml"))
+        .ok()?
+        .parse::<toml::Table>()
+        .ok()?
+        .get("install")
+        .is_some_and(toml::Value::is_table)
+        .then_some(PackageManager::Bun)
 }
 
 /// Detects the package manager, first match wins: `[workspace] package-manager` in the config, the manifest
-/// declaration, the one `rush.json` names, a lockfile (`pnpm-lock.yaml`, `bun.lock`/`bun.lockb`, `yarn.lock`, `package-lock.json`), then the
-/// presence of `pnpm-workspace.yaml`, then the files Yarn Berry leaves (`.yarnrc.yml`, `.yarn/releases`), then a
-/// `bunfig.toml`. `None` when nothing indicates a manager.
+/// declaration, the one `rush.json` names, a lockfile (`pnpm-lock.yaml`, `bun.lock`/`bun.lockb`, `yarn.lock`,
+/// `package-lock.json`), then the presence of `pnpm-workspace.yaml`, then the files Yarn Berry leaves
+/// (`.yarnrc.yml`, `.yarn/releases`), then a `bunfig.toml` with an `[install]` table. `None` when nothing indicates
+/// a manager.
 pub(crate) fn detect(
     fs: &dyn FileSystem,
     root: &Path,

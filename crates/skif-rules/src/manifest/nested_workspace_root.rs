@@ -13,7 +13,7 @@ pub static META: RuleMeta = RuleMeta::new(
     Category::Workspace,
     Some(Severity::Warning),
     Fixability::None,
-    "A workspace member holds a `pnpm-workspace.yaml` of its own, so installs in that directory leave the workspace.",
+    "A workspace member holds a `pnpm-workspace.yaml` of its own, so installs in that directory leave the workspace, or in a Bun workspace a `package.json` that declares `workspaces`, which Bun never installs.",
 );
 
 const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";

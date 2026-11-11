@@ -3193,18 +3193,78 @@ fn bun_reads_the_commands_and_entry_points_source_files_hand_to_its_api() {
     let mut production = out.production_entries.clone();
     production.sort();
     assert_eq!(production, ["src/cli.ts", "src/server.ts", "src/worker.ts"]);
-    assert_entries(&out.entries, &["scripts/copy-icons.ts"]);
+    // A command's file stays as written; the analysis resolves it from the package directory.
+    assert_entries(&out.entries, &["./scripts/copy-icons.ts"]);
     let mut binaries = out.referenced_binaries.clone();
     binaries.sort();
-    assert!(binaries.contains(&"changeset".to_owned()), "{binaries:?}");
-    // `oxlint` with a computed argument is dropped; `not-bun` is no Bun Shell command.
-    assert!(binaries.contains(&"tsc".to_owned()), "{binaries:?}");
-    assert!(!binaries.contains(&"oxlint".to_owned()), "{binaries:?}");
-    assert!(!binaries.contains(&"not-bun".to_owned()), "{binaries:?}");
+    // `oxlint` runs without its computed argument; `not-bun` is no Bun Shell command.
+    assert_eq!(binaries, ["changeset", "oxlint", "tsc"]);
     assert_deps(out, &["@types/bun"]);
     // A package that does not list a type package is not told to.
-    let results = resolve(&files, &["typescript"]);
+    let mut locked = files.to_vec();
+    locked.push(("bun.lock", ""));
+    let results = resolve(&locked, &["typescript"]);
     assert_absent(output(&results, "bun"), &["@types/bun", "bun-types"]);
+}
+
+/// The sources of a member below a workspace root are the member's: the root reads none of its commands or entry
+/// points, and the member resolves a `bun run` of its own script against its own scripts.
+#[test]
+fn bun_reads_the_commands_of_its_own_sources_only() {
+    let member_script = r#"import { $ } from "bun";
+        await $`bun run build`;
+        await Bun.build({ entrypoints: ["./src/member.ts"] });"#;
+    let files = [
+        ("package.json", r#"{"name":"root","workspaces":["packages/*"]}"#),
+        ("bun.lock", ""),
+        (
+            "scripts/release.ts",
+            "import { $ } from \"bun\";\nawait $`changeset publish`;",
+        ),
+        (
+            "packages/cli/package.json",
+            r#"{"name":"cli","scripts":{"build":"vite build"}}"#,
+        ),
+        ("packages/cli/script/app-assets.ts", member_script),
+        ("packages/desktop/package.json", r#"{"name":"desktop"}"#),
+        (
+            "packages/desktop/script/dev.ts",
+            "import { $ } from \"bun\";\nawait $`bun run install-electron`;",
+        ),
+    ];
+    let results = resolve(&files, &["@types/bun"]);
+    let root = output(&results, "bun");
+    assert_eq!(root.referenced_binaries, ["changeset"]);
+    assert!(root.production_entries.is_empty(), "{:?}", root.production_entries);
+    // The member's use of the `Bun` global counts for the type package the root lists for its members.
+    assert_deps(root, &["@types/bun"]);
+
+    let results = resolve_with_scripts(
+        &[("bun.lock", ""), ("script/app-assets.ts", member_script)],
+        &[],
+        &[("build", "vite build")],
+    );
+    let member = output(&results, "bun");
+    assert_eq!(member.referenced_binaries, ["vite"]);
+    assert_eq!(member.production_entries, ["src/member.ts"]);
+}
+
+/// `` $`…`.cwd(dir) `` and the `cwd` option of `Bun.spawn` run the command in another directory: its scripts and
+/// binaries are another package's, so none is judged against this one.
+#[test]
+fn bun_runs_a_command_with_a_cwd_in_that_directory() {
+    let source = r#"import { $ } from "bun";
+        await $`bun run build`.cwd(directory);
+        await $`bun run check`.quiet().cwd("packages/web");
+        Bun.spawn(["bun", "run", "lint"], { cwd: directory });
+        Bun.spawn({ cmd: ["bun", "run", "test"], cwd: "packages/web" });
+        await $`oxlint`.cwd(".");
+        await $`bun run format`;"#;
+    let results = resolve(&[("bun.lock", ""), ("scripts/all.ts", source)], &[]);
+    // `format` is no script of this package, so it runs a binary; `oxlint` runs here, `.cwd(".")` changing nothing.
+    let mut binaries = output(&results, "bun").referenced_binaries.clone();
+    binaries.sort();
+    assert_eq!(binaries, ["format", "oxlint"]);
 }
 
 #[test]

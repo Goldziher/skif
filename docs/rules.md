@@ -413,7 +413,7 @@ A directory matched by the workspace patterns has no `package.json`.
 
 ## nested-workspace-root
 
-A workspace member holds a `pnpm-workspace.yaml` of its own, so installs in that directory leave the workspace.
+A workspace member holds a `pnpm-workspace.yaml` of its own, so installs in that directory leave the workspace, or in a Bun workspace a `package.json` that declares `workspaces`, which Bun never installs.
 
 - Category: workspace
 - Default severity: warning
@@ -429,7 +429,7 @@ A `patchedDependencies` entry no longer applies, names a missing file or lies ou
 
 ## stray-lockfile
 
-A lockfile other than the root lockfile of the package manager: one in a workspace member, or another manager's at the root.
+A lockfile other than the root lockfile of the package manager: one in a workspace member, another manager's at the root, or Bun's `bun.lockb` next to the `bun.lock` Bun reads.
 
 - Category: workspace
 - Default severity: warning
