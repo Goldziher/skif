@@ -1,0 +1,7 @@
+{
+  "description": "A tidy workspace: two members that import the dependency they list, at one version.",
+  "expect": {
+    "exit_code": 0,
+    "diagnostics": []
+  }
+}

@@ -1,8 +1,0 @@
-{
-  "name": "@e2e/a",
-  "version": "0.0.0",
-  "dependencies": {
-    "is-number": "7.0.0"
-  },
-  "devDependencies": {}
-}

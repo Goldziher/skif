@@ -125,8 +125,8 @@ description = "Run all tests with output shown"
 run = "cargo test --workspace --locked --no-fail-fast -- --nocapture"
 
 [tasks.e2e]
-description = "Build skif and run the end-to-end tests against one real package manager (npm, pnpm, yarn or bun)"
-usage = 'arg "<package-manager>" help="Package manager to test against" { choices "npm" "pnpm" "yarn" "bun" }'
+description = "Build skif and run the end-to-end tests against one real package manager"
+usage = 'arg "<package-manager>" help="Package manager to test against" { choices "npm" "pnpm" "yarn" "yarn-classic" "bun" }'
 run = 'cargo build --locked && scripts/e2e/run.sh "$usage_package_manager" target/debug/skif'
 
 [tasks.deny]

@@ -1,0 +1,13 @@
+{
+  "name": "@e2e/b",
+  "version": "0.0.0",
+  "scripts": {
+    "tool": "e2e-tool",
+    "version-check": "semver 1.2.3",
+    "which-node": "node-which node"
+  },
+  "dependencies": {
+    "is-number": "7.0.0",
+    "which": "5.0.0"
+  }
+}

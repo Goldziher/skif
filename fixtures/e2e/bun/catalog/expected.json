@@ -1,9 +1,0 @@
-{
-  "exit_code": 1,
-  "rules": [
-    "catalog-mismatch",
-    "local-path-dependency",
-    "root-package-private-field"
-  ],
-  "rules_after_fix": []
-}
