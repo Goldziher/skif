@@ -4,10 +4,11 @@ use std::path::Path;
 
 use indexmap::IndexMap;
 use skif_config::{JsWorkspace, Override, PluginConfig, PluginOptions};
-use skif_js_plugins::{PluginContext, PluginOutput, resolve_plugins};
+use skif_js_plugins::{NxProjects, PluginContext, PluginOutput, resolve_plugins_with};
 
 use crate::config_check::relative_tsconfig;
 use crate::config_modules::ConfigModules;
+use crate::discover::skips_package_file;
 use crate::input::{
     BuildDir, ConfigDependency, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope,
     InputRequest, InputSource, PathAlias, RunBinary, WorkspaceInputs,
@@ -26,6 +27,8 @@ pub struct PluginSource {
     scoped: Vec<Override>,
     /// `[js] tsconfig`, which the `typescript` plugin of the root package also reads.
     root_tsconfig: Option<String>,
+    /// Whether `.gitignore` files hide Nx projects, as they hide source files.
+    gitignore: bool,
 }
 
 impl PluginSource {
@@ -38,7 +41,16 @@ impl PluginSource {
             workspace_keys: WorkspaceKeys::default(),
             scoped: Vec::new(),
             root_tsconfig: None,
+            gitignore: true,
         }
+    }
+
+    /// Whether `.gitignore` files hide the Nx projects below a package (ADR 0109) as they hide its source files; off
+    /// for `--no-gitignore`. On by default.
+    #[must_use]
+    pub fn with_gitignore(mut self, gitignore: bool) -> Self {
+        self.gitignore = gitignore;
+        self
     }
 
     /// Also has the `typescript` plugin of the root package read `path` (`[js] tsconfig`, relative to the workspace
@@ -319,7 +331,16 @@ impl InputSource for PluginSource {
             plugins: &plugins,
             modules: Some(&modules),
         };
-        resolve_plugins(&context)
+        // The Nx projects in directories the file walk leaves out (build output, gitignored copies) are not read.
+        let projects = NxProjects::find(&context).filter(|project| {
+            let file = if project.is_empty() {
+                "project.json".to_owned()
+            } else {
+                format!("{project}/project.json")
+            };
+            !skips_package_file(request.fs, &request.workspace.root, &dir, &file, self.gitignore)
+        });
+        resolve_plugins_with(&context, &projects)
             .into_iter()
             .fold(WorkspaceInputs::default(), |mut all, (_, output)| {
                 all.extend(inputs(output));
