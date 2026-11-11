@@ -16,47 +16,62 @@ skif offers all three kinds of checks in one tool with one configuration file an
 
 ## Capabilities
 
-The tables compare skif with sherif 1.13.0, syncpack 15.3.3 and knip 6.45.1, read from their documentation and, for
-sherif, its source ([sources](#sources)). A cell is Yes, Partial (explained in the numbered note below the table) or
-No, which means the tool's documentation at that version does not describe it. The skif column describes the `main`
-branch and names the rule or command that does the work; every rule is on the [rules pages](../../rules/). How often
-skif and knip report the same findings on real repositories is under [Parity with knip](#parity-with-knip).
+The tables compare skif with sherif 1.13.0, syncpack 15.3.3 and knip 6.45.1. Every cell of the other tools was
+checked against their source code at those release tags, and where it depends on behaviour, by running the released
+version on a test workspace ([sources](#sources)). A cell is Yes, No, or Partial, which the numbered note below the
+table explains. The skif column describes the `main` branch and names the rule or command that does the work; every
+rule is on the [rules pages](../../rules/). How often skif and knip report the same findings on real repositories is
+under [Parity with knip](#parity-with-knip).
 
 ### Manifests, versions and workspaces
 
 | Capability | skif | sherif | syncpack | knip |
 | --- | --- | --- | --- | --- |
 | Manifest and workspace rules: root `private` and `packageManager`, empty and unsorted dependency maps, `@types` in `dependencies`, unmatched workspace patterns, members without `package.json` | Yes | Yes | Partial (1) | No |
-| Version mismatches across packages | Yes: `version-mismatch` | Yes | Yes | No |
+| Version mismatches across packages | Yes: `version-mismatch` | Yes: `multiple-dependency-versions` (2) | Yes | No |
 | Version groups and semver-range groups | Yes: `[[version-groups]]`, `[[semver-groups]]` | No | Yes | No |
-| Banned dependencies | Yes: `banned-dependency` | No | Yes | No |
-| Related dependencies on one version (`react`, `react-dom`) | Yes: `unsynced-dependency-family`, families configurable | Partial (2) | No | No |
-| Catalog policy: `catalog:` used, entries missing or different | Yes: pnpm, Bun, Yarn 4.10+ | No | Partial (3) | No |
-| Unused catalog entries, unresolved `catalog:` references | Yes (4) | No | No | Yes: pnpm, Yarn, Bun |
-| `workspace:` protocol for workspace packages | Yes: `workspace-protocol` | No | Partial (5) | No |
-| Path dependencies (`file:`, `link:`, `portal:`) | Yes: `local-path-dependency` | No | No | No |
-| Peer ranges the installed dev version does not satisfy | Yes: `incompatible-peer-dependencies` | No | No | No |
-| Toolchain pins: `packageManager`, `engines`, `.nvmrc`, `.tool-versions`, `mise.toml`, Dockerfiles, workflows | Yes: `toolchain-pin-drift`, `member-toolchain-fields`, `root-package-manager-field` | Partial (6) | No | No |
+| Banned dependencies | Yes: `banned-dependency` | No | Yes: `isBanned` | No |
+| Related dependencies on one version (`react`, `react-dom`) | Yes: `unsynced-dependency-family`, families configurable | Partial (3) | Yes: `dependencyGroups` with an `aliasName` | No |
+| Catalog policy: `catalog:` used where an entry exists, dependencies missing from the catalog, entries that differ | Yes: pnpm, Bun, Yarn 4.10+ | No | Partial (4) | No |
+| Unused catalog entries, unresolved `catalog:` references | Yes (5) | No | Partial (6) | Yes: `catalog`, `catalogReferences`; pnpm, Yarn, Bun |
+| `workspace:` protocol for workspace packages | Yes: `workspace-protocol` | No | Partial (7) | No |
+| Path dependencies (`file:`, `link:`, `portal:`) | Yes: `local-path-dependency` | No | Partial (8) | No |
+| Peer ranges the installed dev version does not satisfy | Yes: `incompatible-peer-dependencies` | No | Partial (9) | No |
+| Toolchain pins: `packageManager`, `engines`, `.nvmrc`, `.tool-versions`, `mise.toml`, Dockerfiles, workflows | Yes: `toolchain-pin-drift`, `member-toolchain-fields`, `root-package-manager-field` | Partial (10) | Partial (11) | No |
 | Another package manager's commands in Dockerfiles, workflows and shell scripts | Yes: `foreign-package-manager-command` | No | No | No |
-| Lockfile checks: stray lockfiles, bans and families over the lockfile, stale patches | Partial (7) | No | No | No |
-| `package.json` formatting: key order, `exports` conditions, shorthands | Yes: `skif format`, `package-json-format` | Partial (8) | Yes: `syncpack format` | No |
-| Newer published versions from the registry | Yes: `skif update` | No | Yes: `syncpack update` | No |
+| Lockfile checks: stray lockfiles, bans and families over the lockfile, stale patches | Partial (12) | No | No | No |
+| `package.json` formatting: key order, `exports` conditions, shorthands | Yes: `skif format`, `package-json-format` | Partial (13) | Yes: `syncpack format` | No |
+| Newer published versions from the registry | Yes: `skif update`; `skif update --check` only reports | No | Yes: `syncpack update`; `syncpack update --check` only reports | No |
 | Dependency inventory by group | Yes: `skif list`, `skif json` | No | Yes: `syncpack list`, `syncpack json` | No |
 
-1. syncpack checks versions and formatting, not the manifest and workspace rules. Its `format` command sorts
-   dependency maps.
-2. `unsync-similar-dependencies` checks a fixed list of families; the list cannot be changed.
-3. A `policy: "catalog"` version group, for pnpm and Bun catalogs only; for npm and Yarn there is no catalog to write
-   to.
-4. `unused-catalog-entries` and `unresolved-catalog-references`. `unused-catalog-entries` reports nothing unless
+1. Sorting dependency maps only: `syncpack format` sorts the keys listed in `sortAz`, by default `dependencies`,
+   `devDependencies`, `peerDependencies` and `resolutions`. syncpack has none of the other checks.
+2. `dependencies` and `devDependencies` only, and only specifiers that parse as semver; `catalog:`, `workspace:` and
+   `file:` specifiers are skipped.
+3. `unsync-similar-dependencies` checks a fixed list of ten families (tRPC, React, Next.js, Storybook, Turborepo,
+   Prisma, typescript-eslint, ESLint Stylistic, Playwright, Lexical) within each `package.json`, not across packages.
+   The list cannot be changed and the rule has no fix.
+4. A `policy: "catalog"` version group (`NotUsingCatalog`, `MissingFromCatalog`) over pnpm catalogs
+   (`pnpm-workspace.yaml`) and Bun catalogs (the root `package.json`); Yarn catalogs in `.yarnrc.yml` are not read.
+   Outside such a group, a catalog entry that differs from the other instances is a version mismatch.
+5. `unused-catalog-entries` and `unresolved-catalog-references`. `unused-catalog-entries` reports nothing unless
    `[catalog] report-unused-entries = true` is set.
-5. A version group with `pinVersion: "workspace:*"` over `$LOCAL` pins the specifier; there is no check of its own.
-6. `root-package-manager-field` only: the root `packageManager` or `devEngines.packageManager` field.
-7. `stray-lockfile` reads no lockfile and works for every package manager. The lockfile scope of `banned-dependency`
-   and of dependency families reads only `pnpm-lock.yaml` format 9 (pnpm 9 and 10); `stale-patched-dependencies`
-   reads `pnpm-lock.yaml` and `bun.lock`. `yarn.lock`, `package-lock.json` and `bun.lockb` are not read (see
-   [Lockfile](../workspaces/#lockfile)).
-8. `unordered-dependencies` sorts dependency maps; no other formatting.
+6. Unresolved `catalog:` references only, inside a `policy: "catalog"` version group, as a warning (an error with
+   `strict: true`); unused entries are not reported.
+7. A version group with `dependencies: ["$LOCAL"]`, `dependencyTypes: ["!local"]` and `pinVersion: "workspace:*"` pins
+   the specifier; there is no check of its own.
+8. An `isBanned` version group with `specifierTypes: ["file", "link"]`; `portal:` specifiers are not recognised.
+9. A `policy: "sameRange"` version group over `peer` and `dev` reports ranges that do not overlap; it compares the
+   declared ranges, not an installed version.
+10. `root-package-manager-field` only: the root `packageManager` or `devEngines.packageManager` field must be present;
+    its value is not checked.
+11. `customTypes` bring `package.json` fields such as `packageManager` and `engines.node` into version groups; no other
+    file is read.
+12. `stray-lockfile` reads no lockfile and works for every package manager. The lockfile scope of `banned-dependency`
+    and of dependency families reads only `pnpm-lock.yaml` format 9 (pnpm 9 and 10); `stale-patched-dependencies`
+    reads `pnpm-lock.yaml` and `bun.lock`. `yarn.lock`, `package-lock.json` and `bun.lockb` are not read (see
+    [Lockfile](../workspaces/#lockfile)).
+13. `unordered-dependencies` sorts dependency maps; no other formatting.
 
 ### JavaScript and TypeScript analysis
 
@@ -66,13 +81,13 @@ skif and knip report the same findings on real repositories is under [Parity wit
 | Unlisted dependencies | Yes | No | No | Yes |
 | Unlisted binaries | Yes | No | No | Yes |
 | Unresolved imports | Yes | No | No | Yes |
-| Optional peer dependencies imported but not installed | Yes | No | No | Yes |
+| Optional peer dependencies imported but not in `dependencies` or `devDependencies` | Yes: `unused-optional-peer-dependencies` | No | No | Yes: `optionalPeerDependencies` |
 | Unused files | Yes | No | No | Yes |
 | Unused exports and exported types | Yes | No | No | Yes |
 | Unused enum members, namespace members, exports and types in a used namespace | Yes | No | No | Yes |
 | Duplicate exports | Yes | No | No | Yes |
 | Circular imports | Yes: `circular-imports`, off by default | No | No | Yes: `cycles`, not reported by default |
-| Unused `package.json` subpath exports | No | No | No | Yes: `subpaths` (1) |
+| Unused `package.json` subpath imports and exports | No | No | No | Yes: `subpaths` (1) |
 | Test-runner mocks of modules that do not exist | Yes: `stale-mocks` | No | No | No |
 | Hints about stale analysis configuration | Yes: `stale-js-config` | No | No | Yes: configuration hints |
 | Why a file, export or dependency counts as used | Yes: `skif explain-usage`, `--trace-dependency` | No | No | Yes: `--trace-file`, `--trace-export`, `--trace-dependency` |
@@ -80,20 +95,27 @@ skif and knip report the same findings on real repositories is under [Parity wit
 | Component and template files | Yes (2) | No | No | Yes (3) |
 | Custom compilers for other file types | No | No | No | Yes |
 | Built-in plugins for tools and frameworks | 205 | No | No | 207 |
-| Never runs project code | Yes (4) | Yes | Yes (5) | No (6) |
+| Runs no project code while linting | Yes (4) | Yes (5) | Partial (6) | No (7) |
 
-1. Added in knip 6.45.0; skif has no rule for it.
+1. Added in knip 6.45.0: unused `imports` entries by default, and unused `exports` subpaths with
+   `includeSubpathExports`; not reported in production mode. skif has no rule for it.
 2. `.vue`, `.svelte` and `.astro` (scripts and templates), `.mdx`, `.marko` and `.tsrx`, and the imports of
    stylesheets (`.css`, `.scss`, `.sass`, `.less`, `.pcss`, `.styl`, `.stylus`), read without a compiler (see
    [`[js]`](../../reference/configuration/#js)).
 3. Built-in import extraction for `.astro`, `.vue`, `.svelte`, `.mdx`, `.marko`, `.tsrx`, `.css` (Tailwind), `.less`,
    `.sass`, `.scss`, `.styl`, `.stylus`, `.prisma` and `.md` (unplugin-vue-markdown); a custom compiler can replace any
    of them.
-4. Configurations are read statically ([ADR 0001](https://github.com/Goldziher/skif/blob/main/adrs/0001-mission-and-scope.md)).
-   A package whose configuration skif cannot read is listed under `incomplete-packages` in the JSON report.
-5. syncpack reads no tool configuration; it loads its own `.syncpackrc` when that is a JavaScript or TypeScript file.
-6. knip's plugins load JavaScript and TypeScript configuration files such as `vite.config.ts`, and knip exits `2`
-   when one fails to load.
+4. Tool configurations are read statically ([ADR 0001](https://github.com/Goldziher/skif/blob/main/adrs/0001-mission-and-scope.md));
+   a package whose configuration skif cannot read is listed under `incomplete-packages` in the JSON report. After
+   writing, `--fix` and `skif update` run the package manager's install, which runs the project's install scripts;
+   `--no-install` skips it.
+5. sherif reads only `package.json` and `pnpm-workspace.yaml`. When `--fix` changes a file it runs `npm install`,
+   `yarn install`, `pnpm install` or `bun install`; `--no-install` skips it.
+6. syncpack reads no tool configuration and never runs the package manager, but its own configuration file, when it
+   is JavaScript or TypeScript (`.syncpackrc.{js,ts,mjs,cjs}`, `syncpack.config.{js,ts,mjs,cjs}`), is imported by a
+   `node` process.
+7. knip's plugins load configuration files such as `vite.config.ts` with jiti, and knip exits `2` when one fails to
+   load.
 
 ### Fixing, adoption and configuration
 
@@ -101,23 +123,26 @@ skif and knip report the same findings on real repositories is under [Parity wit
 | --- | --- | --- | --- | --- |
 | Autofix | Yes: `--fix` | Yes: `--fix` | Yes: `fix`, `format`, `update` | Yes: `--fix` |
 | Safe and unsafe fix levels, file deletion opt-in | Yes: `--fix-unsafe`, `--allow-remove-files` | No | No | Partial (1) |
-| Fix only some issue types | Yes: `--fix-type` | No | No | Yes: `--fix-type` |
-| Preview fixes as a diff | Yes: `--fix --dry-run` | No | Partial (2) | No |
-| Baseline that can only shrink | Yes: `skif baseline write`, `prune`, `check` | No | No | No (3) |
-| Ignores with a recorded reason | Yes: `reason`, `--require-ignore-reasons` | No | Partial (4) | No |
+| Fix only some issue types | Yes: `--fix-type` | No | No (2) | Yes: `--fix-type` |
+| Preview fixes as a diff | Yes: `--fix --dry-run` | No | Partial (3) | No |
+| Baseline that can only shrink | Yes: `skif baseline write`, `prune`, `check` | No | No | No (4) |
+| Ignores with a recorded reason | Yes: `reason`, `--require-ignore-reasons` | No | Partial (5) | No |
 | Configuration translated from the other tools | Yes: `skif migrate` from sherif, syncpack and knip | No | No | No |
-| Configuration format | TOML: `skif.toml`, `.skif.toml` | `sherif` key in the root `package.json`, CLI flags | `.syncpackrc` (JSON, YAML, JavaScript, TypeScript), `syncpack.config.*`, a `package.json` key | `knip.json`, `knip.jsonc`, `knip.ts`, `knip.js`, `package.json#knip` |
-| Configuration layered across directories | Yes (5) | No | No | Partial (6) |
-| JSON Schema for the configuration | Yes: `skif schema` | No | Yes | Yes |
+| Configuration format | TOML: `skif.toml`, `.skif.toml` | `sherif` key in the root `package.json`, CLI flags | `.syncpackrc`, `.syncpackrc.{json,yaml,yml,js,ts,mjs,cjs}`, `syncpack.config.{js,ts,mjs,cjs}`, `package.json#syncpack` or `#config.syncpack` | `knip.json`, `knip.jsonc`, `.knip.json`, `.knip.jsonc`, `knip.ts`, `knip.js`, `knip.config.ts`, `knip.config.js`, `package.json#knip` |
+| Configuration layered across directories | Yes (6) | No | No | Partial (7) |
+| JSON Schema for the configuration | Yes: `skif schema` | No | Yes: `schema.json` in the npm package | Yes |
 
 1. `--allow-remove-files` is needed to delete files; there are no other levels.
-2. `syncpack fix --dry-run` lists the changes without writing them.
-3. knip's guide to gradual adoption builds an "actionable baseline" by fixing configuration gaps; no file records
-   accepted findings.
-4. A version group with `isIgnored` takes a `label`.
-5. `skif.toml` files merge from the root up to the git root, `extends` names more, and `[[overrides]]` select packages
+2. `fix` selects dependencies (`--dependencies`, `--dependency-types`, `--specifier-types`), not issue types.
+3. `--dry-run` of `fix`, `format` and `update` lists the changes without writing them; it prints no diff.
+4. knip's guide to gradual adoption builds an "actionable baseline" by fixing configuration gaps and caps CI with
+   `--max-issues`; no file records accepted findings.
+5. Version, semver and update groups with `isIgnored` take an optional `label`, free text shown as the group's
+   heading.
+6. `skif.toml` files merge from the root up to the git root, `extends` names more, and `[[overrides]]` select packages
    and files ([Sharing configuration](../sharing-configuration/)).
-6. One file per repository; its `workspaces` table sets most options per workspace.
+7. One file, with no `extends`; its `workspaces` map sets entry, project, ignore and plugin options per workspace
+   directory or glob, while `rules`, `include`, `exclude`, `compilers`, `tags` and `cycles` are set for the whole run.
 
 ### Output and integrations
 
@@ -130,60 +155,80 @@ skif and knip report the same findings on real repositories is under [Parity wit
 | GitLab Code Quality (Code Climate) | Yes: `codeclimate` | No | No | Yes: `codeclimate` |
 | Markdown, compact, CODEOWNERS | Yes | No | No | Yes |
 | Custom reporters and preprocessors | No | No | No | Yes |
-| Several reports in one run | Yes: `--format FORMAT=FILE`, repeatable | No | No | Yes: `--output-file` |
+| Several reports in one run | Yes: `--format FORMAT=FILE`, repeatable | No | No | Yes: `--output-file REPORTER=FILE`, repeatable |
 | Watch mode | Yes: `--watch` | No | No | Yes: `--watch` |
 | Language server | Yes: `skif lsp` | No | No | Yes |
-| Editor extension | No | No | No | Yes: VS Code, Open VSX, JetBrains (community) |
+| Editor extension | No | No | No | Yes: `webpro.vscode-knip` on the VS Code Marketplace and Open VSX |
 | MCP server | Yes: `skif mcp` | No | No | Yes: `@knip/mcp` (2) |
 | Agent skill | Yes: `skills/skif` | No | No | No |
-| GitHub Action | Yes: `Goldziher/skif` | Yes: `QuiiBz/sherif` | No | No |
+| GitHub Action | Yes: `Goldziher/skif` | Yes: `QuiiBz/sherif` | No (3) | No |
 | Git hooks shipped | Yes: pre-commit, prek, Poly | No | No | No |
-| Library API | Yes: the `skif` crate; `lint`, `lintAsync`, `run` in the npm package | No | No | Partial (3) |
+| Library API | Yes: the `skif` crate; `lint`, `lintAsync`, `run` in the npm package | No | No | Partial (4) |
 
-1. `syncpack json`, and `--reporter json` of `fix` and `format`; `lint` prints human output only.
-2. Its tools write and tune the knip configuration.
-3. The package exports a `knip/session` module that the language server uses; the FAQ lists a programmatic API among
-   the features knip does not offer.
+1. `syncpack json`, and `--reporter json` of `fix` and `format` (one object per line); `lint`, `list` and `update`
+   print human output only.
+2. The tools `knip-run` (runs knip and returns its configuration hints and issues) and `knip-docs` (knip's
+   documentation), and a `knip-configure` prompt; the agent using them edits `knip.json`.
+3. `JamieMason/syncpack-github-action` (last released as 0.2.3) defaults to syncpack 7.2.1 and calls
+   `fix-mismatches` and `list-mismatches`, which syncpack 15 rejects.
+4. Undocumented: `knip` exports `main` and `knip/session` exports `createSession`, which the language server and the
+   MCP server use; the FAQ lists a programmatic API among the requested features knip does not have.
 
 ## Support
 
 | | skif | sherif | syncpack | knip |
 | --- | --- | --- | --- | --- |
-| Package managers | npm, pnpm, Yarn 2+, Yarn Classic, Bun | npm, pnpm, Yarn, Bun | npm, pnpm, Yarn, Lerna workspaces; pnpm and Bun catalogs | npm, pnpm, Yarn, Bun, Lerna workspaces |
-| Linkers tested end to end in CI | npm (hoisted); pnpm (isolated, `nodeLinker: hoisted`); Yarn 2+ (Plug'n'Play, `nodeLinker: node-modules`, `nodeLinker: pnpm`); Yarn Classic (hoisted); Bun (default, `linker = "hoisted"`, `linker = "isolated"`) | Not stated | Not stated | Not stated |
-| Package manager versions tested | Latest two majors of npm, pnpm and Yarn 2+; newest Yarn Classic 1.x and Bun 1.x | Not stated | Not stated | Not stated |
-| Layouts | Single packages, workspaces, nested workspaces, standalone packages below a root, `-r` over several roots, Rush (`rush.json`), Lerna, Nx integrated workspaces, Bazel (`bazel run`) | Workspaces in `package.json` or `pnpm-workspace.yaml` | npm, pnpm, Yarn and Lerna workspaces | Workspaces; integrated monorepos with hand-written entries |
-| Runtime | Native binary; the npm package is a Node addon for Node.js 22, 24, 26 and Bun 1.x | Native binary; npm launcher | Native binary; npm launcher (`engines`: Node.js 14.17+) | Node.js 20.19+ or 22.12+, or Bun |
-| Operating systems and architectures | macOS, Linux (glibc, musl), Windows; x64 and arm64 | macOS, Linux (glibc, musl), Windows; x64 and arm64 | macOS, Linux (glibc, musl), Windows; x64 and arm64 | Wherever Node.js or Bun runs |
-| Distribution | npm, crates.io, cargo-binstall, GitHub release archives, Homebrew, Scoop, GitHub Action, pre-commit and prek, Poly | npm, GitHub release archives, GitHub Action | npm; crates.io up to 14.0.0 | npm |
+| Package managers | npm, pnpm, Yarn 2+, Yarn Classic, Bun | npm, pnpm, Yarn, Bun; Yarn Classic and Yarn 2+ are not told apart | npm, pnpm, Yarn, Bun and Lerna workspaces; pnpm and Bun catalogs | npm, pnpm, Yarn, Bun; pnpm, Yarn and Bun catalogs |
+| Linkers tested end to end in CI | npm (hoisted); pnpm (isolated, `nodeLinker: hoisted`); Yarn 2+ (Plug'n'Play, `nodeLinker: node-modules`, `nodeLinker: pnpm`); Yarn Classic (hoisted); Bun (default, `linker = "hoisted"`, `linker = "isolated"`) | None: CI runs `cargo test` on Ubuntu; sherif reads no `node_modules` | None: CI runs `cargo test`; syncpack reads no `node_modules` | No linker matrix: committed fixtures (one with Yarn Plug'n'Play) and 16 ecosystem projects installed with pnpm, npm or Yarn |
+| Package manager versions tested | Latest two majors of npm, pnpm and Yarn 2+; newest Yarn Classic 1.x and Bun 1.x | None pinned; one unit test runs the CI image's `npm install` | None: CI installs no package manager | None pinned: pnpm 10 for knip's own repository; the ecosystem projects use their own |
+| Layouts | Single packages, workspaces, nested workspaces, standalone packages below a root, `-r` over several roots, Rush (`rush.json`), Lerna, Nx integrated workspaces, Bazel (`bazel run`) | One workspace root, from `workspaces` in `package.json` or `pnpm-workspace.yaml`; no single packages, no nested workspaces, and `**` matches one directory level | Workspaces from `package.json`, `pnpm-workspace.yaml` or `lerna.json`, else `packages/*`; `--source` globs replace them | Workspaces and the directories knip's `workspaces` map lists; integrated monorepos (Nx) as one workspace with hand-written `entry` and `project` |
+| Runtime | Native binary; the npm package is a Node addon for Node.js 22, 24, 26 and Bun 1.x | Native binary; the npm launcher is a Node.js script with no `engines` | Native binary; npm launcher (`engines`: Node.js 14.17+) | Node.js 20.19+ or 22.12+; Bun through `knip-bun` (CI tests Bun 1.4.4) |
+| Operating systems and architectures | macOS, Linux (glibc, musl), Windows; x64 and arm64 (1) | macOS, Linux (glibc, musl), Windows; x64 and arm64 | macOS, Linux (glibc, musl), Windows; x64 and arm64 | Where `oxc-parser` has a native binding (macOS, Linux glibc and musl, Windows, FreeBSD and more); CI runs macOS, Linux and Windows |
+| Distribution | npm, crates.io, cargo-binstall, GitHub release archives, Homebrew, Scoop, GitHub Action, pre-commit and prek, Poly | npm, GitHub release archives, GitHub Action; Homebrew (homebrew-core) | npm; crates.io up to 14.0.0 | npm |
+
+1. On Windows, use the release archives, cargo-binstall, Scoop or the GitHub Action. The npm package on `main` lists
+   Windows x64 and arm64 addons
+   ([ADR 0070](https://github.com/Goldziher/skif/blob/main/adrs/0070-windows-npm-packages.md)), but none is published
+   yet: `skif-cli` 0.2.0 ships no Windows addon.
 
 The skif versions and operating systems per package manager are under
 [Supported versions](../../start/installation/#supported-versions)
 ([ADR 0027](https://github.com/Goldziher/skif/blob/main/adrs/0027-supported-versions-follow-upstream-end-of-life-policies.md)),
 and the end-to-end matrix is the `e2e` job of `.github/workflows/ci.yml`
 ([ADR 0105](https://github.com/Goldziher/skif/blob/main/adrs/0105-yarn-classic-support-and-the-end-to-end-matrix-of-linkers-and-operating-systems.md)).
-Lefthook needs no hook from skif: it is configured in the consuming repository ([Lefthook](../integrations/#lefthook)).
+`scripts/check-support-matrix.sh` fails when the skif rows above, the README or the supported versions table differ
+from the `e2e` and `npm-addon` matrices and the linkers of `scripts/e2e/lib.sh`. Lefthook needs no hook from skif: it
+is configured in the consuming repository ([Lefthook](../integrations/#lefthook)).
 
 ## Sources
 
 - sherif 1.13.0: [README](https://github.com/QuiiBz/sherif/blob/v1.13.0/README.md),
   [CLI flags](https://github.com/QuiiBz/sherif/blob/v1.13.0/src/args.rs),
   [rules](https://github.com/QuiiBz/sherif/tree/v1.13.0/src/rules),
+  [workspace discovery](https://github.com/QuiiBz/sherif/blob/v1.13.0/src/packages/mod.rs),
+  [install after a fix](https://github.com/QuiiBz/sherif/blob/v1.13.0/src/install.rs),
+  [CI](https://github.com/QuiiBz/sherif/blob/v1.13.0/.github/workflows/ci.yml),
+  [GitHub Action](https://github.com/QuiiBz/sherif/blob/v1.13.0/action.yml),
   [release archives](https://github.com/QuiiBz/sherif/releases/tag/v1.13.0).
 - syncpack 15.3.3: [README](https://github.com/JamieMason/syncpack/blob/15.3.3/README.md),
+  [commands and flags](https://github.com/JamieMason/syncpack/blob/15.3.3/src/cli.rs),
   [configuration types](https://github.com/JamieMason/syncpack/blob/15.3.3/npm/syncpack.ts),
-  [configuration file](https://syncpack.dev/config/syncpackrc/),
-  [catalog groups](https://syncpack.dev/version-groups/catalog/), [`fix`](https://syncpack.dev/command/fix/).
-- knip 6.45.1: [issue types](https://knip.dev/reference/issue-types), [CLI](https://knip.dev/reference/cli),
-  [reporters](https://knip.dev/features/reporters), [compilers](https://knip.dev/features/compilers),
-  [catalogs](https://knip.dev/features/catalogs), [auto-fix](https://knip.dev/features/auto-fix),
-  [integrations](https://knip.dev/reference/integrations), [plugins](https://knip.dev/reference/plugins),
-  [configuration](https://knip.dev/reference/configuration),
-  [integrated monorepos](https://knip.dev/features/integrated-monorepos),
-  [known issues](https://knip.dev/reference/known-issues), [FAQ](https://knip.dev/reference/faq),
-  [gradual adoption](https://knip.dev/guides/adopt-gradually).
-- Runtimes and platform packages: the `engines`, `bin` and `optionalDependencies` of the compared version of each
-  package on the npm registry.
+  [configuration files](https://github.com/JamieMason/syncpack/blob/15.3.3/src/rcfile/from_disk.rs),
+  [catalog groups](https://github.com/JamieMason/syncpack/blob/15.3.3/src/version_group/catalog.rs),
+  [workspace discovery](https://github.com/JamieMason/syncpack/blob/15.3.3/src/source_patterns.rs),
+  [CI](https://github.com/JamieMason/syncpack/blob/15.3.3/.github/workflows/ci.yaml),
+  [configuration file docs](https://syncpack.dev/config/syncpackrc/).
+- knip 6.45.1: [issue types](https://github.com/webpro-nl/knip/blob/knip%406.45.1/packages/knip/src/constants.ts),
+  [CLI flags](https://github.com/webpro-nl/knip/blob/knip%406.45.1/packages/knip/src/util/cli-arguments.ts),
+  [configuration](https://github.com/webpro-nl/knip/blob/knip%406.45.1/packages/knip/src/types/configuration.ts),
+  [reporters](https://github.com/webpro-nl/knip/blob/knip%406.45.1/packages/knip/src/reporters/index.ts),
+  [plugins](https://github.com/webpro-nl/knip/blob/knip%406.45.1/packages/knip/src/plugins/index.ts),
+  [MCP server](https://github.com/webpro-nl/knip/tree/knip%406.45.1/packages/mcp-server),
+  [CI](https://github.com/webpro-nl/knip/tree/knip%406.45.1/.github/workflows),
+  [FAQ](https://knip.dev/reference/faq), [gradual adoption](https://knip.dev/guides/adopt-gradually),
+  [integrated monorepos](https://knip.dev/features/integrated-monorepos).
+- Runtimes and platform packages: the `engines`, `bin`, `dependencies` and `optionalDependencies` of the compared
+  version of each package on the npm registry.
 
 ## Parity with knip
 
