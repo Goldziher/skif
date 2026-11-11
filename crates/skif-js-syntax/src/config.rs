@@ -2148,11 +2148,16 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             .find_map(|frame| frame.get(name).cloned())
     }
 
+    /// Whether a function being evaluated binds `name`.
+    fn is_local(&self, name: &str) -> bool {
+        self.frames.borrow().iter().any(|frame| frame.contains_key(name))
+    }
+
     /// Binds `name` in the innermost frame, or replaces the binding where it is already made.
     fn assign(&self, name: &str, binding: Binding<'p, 'a>) {
         let mut frames = self.frames.borrow_mut();
-        if let Some(frame) = frames.iter_mut().rev().find(|frame| frame.contains_key(name)) {
-            frame.insert(name.to_owned(), binding);
+        if let Some(held) = frames.iter_mut().rev().find_map(|frame| frame.get_mut(name)) {
+            *held = binding;
         } else if let Some(frame) = frames.last_mut() {
             frame.insert(name.to_owned(), binding);
         }
@@ -2214,7 +2219,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             }
             Expression::Identifier(id) => {
                 let name = id.name.as_str();
-                self.frames.borrow().iter().any(|frame| frame.contains_key(name))
+                self.is_local(name)
                     || self.functions.contains_key(name)
                     || self
                         .consts
@@ -2354,7 +2359,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         self.imports
             .get(name)
             .is_some_and(|binding| binding.imported == Imported::Namespace)
-            && self.lookup(name).is_none()
+            && !self.is_local(name)
     }
 
     /// `a && b`, `a || b` and `a ?? b`, when `a` decides which side is the value: over an `a` that is not definite,
@@ -2690,9 +2695,16 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             return None;
         };
         let name = id.name.as_str();
-        let (callable, isolate) = match self.lookup(name) {
-            Some(Binding::Callable(callable)) => (callable, false),
-            Some(Binding::Value(_)) => return None,
+        // The binding's kind decides, so a value bound to the name is not cloned to find out.
+        let local = self.frames.borrow().iter().rev().find_map(|frame| {
+            frame.get(name).map(|binding| match binding {
+                Binding::Callable(callable) => Some(*callable),
+                Binding::Value(_) => None,
+            })
+        });
+        let (callable, isolate) = match local {
+            Some(Some(callable)) => (callable, false),
+            Some(None) => return None,
             None => match self.functions.get(name) {
                 Some(callable) => (*callable, true),
                 None => return self.imported_call(name, call, depth),
@@ -2771,7 +2783,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// Whether the module or a function being evaluated binds `name` itself, shadowing the global.
     fn binds(&self, name: &str) -> bool {
-        self.lookup(name).is_some()
+        self.is_local(name)
             || self.consts.contains_key(name)
             || self.functions.contains_key(name)
             || self.imports.contains_key(name)
@@ -2887,7 +2899,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// [`Self::unknown_call_arguments`] of the top-level constant `name`, outside any function's bindings as it is
     /// evaluated; none for any other name.
     fn constant_call_arguments(&self, name: &str, value: &Value, depth: u32) -> Vec<Value> {
-        if self.lookup(name).is_some() || self.functions.contains_key(name) {
+        if self.is_local(name) || self.functions.contains_key(name) {
             return Vec::new();
         }
         let Some(&init) = self.consts.get(name) else {
