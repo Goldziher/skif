@@ -650,7 +650,8 @@ pub(crate) fn lint_to_json_with(
             extra.insert("truncated".to_owned(), truncated_json(&truncated));
         }
     }
-    let mut buffer = Vec::new();
+    // The document becomes the host's string as a whole, so it is rendered into a buffer reserved for it at once.
+    let mut buffer = Vec::with_capacity(aggregate.diagnostics.len() * output::JSON_BYTES_PER_DIAGNOSTIC);
     render_json_with(&aggregate, &options, extra, &mut buffer)
         .map_err(|error| CliError::new(Kind::Io, format!("cannot render the report: {error}")))?;
     String::from_utf8(buffer).map_err(|error| CliError::new(Kind::Io, format!("the report is not UTF-8: {error}")))
