@@ -2,7 +2,9 @@ use skif_config::{Config, IgnoreEntry, Selector};
 use skif_core::Diagnostic;
 use skif_core::{HashMap, HashSet};
 use skif_workspace::{PackageId, Workspace};
+use std::borrow::Cow;
 use std::cell::OnceCell;
+use std::path::Path;
 
 /// `[[ignore]]` entries (those of `[[overrides]]` too, limited to the override's scope) and
 /// `workspace.ignore-packages`, resolved against a workspace.
@@ -93,29 +95,32 @@ impl Suppressions {
         }
     }
 
-    /// Whether an `[[ignore]]` entry of one of the overrides in `applicable` (indices into the configuration's
-    /// overrides) matches `diagnostic`.
-    pub fn suppressed_in_scope(&self, diagnostic: &Diagnostic, applicable: &[usize]) -> bool {
-        let versioned = OnceCell::new();
-        applicable.iter().any(|index| {
-            self.scoped
-                .get(*index)
-                .is_some_and(|entries| self.any_matches(entries, diagnostic, &versioned))
-        })
-    }
-
-    pub fn suppresses(&self, diagnostic: &Diagnostic) -> bool {
+    /// Whether `diagnostic` is suppressed: its package is in `workspace.ignore-packages`, a top-level `[[ignore]]`
+    /// entry matches it, or an entry of one of the overrides in `applicable` (indices into the configuration's
+    /// overrides) does. The keys entries match against are worked out once for all of them.
+    pub fn suppressed(&self, diagnostic: &Diagnostic, applicable: &[usize]) -> bool {
         if self.package_flag(diagnostic, &self.ignored) {
             return true;
         }
-        let versioned = OnceCell::new();
-        self.any_matches(&self.entries, diagnostic, &versioned)
+        let keys = Keys::default();
+        self.any_matches(&self.entries, diagnostic, &keys)
+            || applicable.iter().any(|index| {
+                self.scoped
+                    .get(*index)
+                    .is_some_and(|entries| self.any_matches(entries, diagnostic, &keys))
+            })
     }
 
-    fn any_matches(&self, entries: &Entries, diagnostic: &Diagnostic, versioned: &OnceCell<Option<String>>) -> bool {
+    /// Whether `workspace.ignore-packages` or a top-level `[[ignore]]` entry suppresses `diagnostic`.
+    #[cfg(test)]
+    fn suppresses(&self, diagnostic: &Diagnostic) -> bool {
+        self.suppressed(diagnostic, &[])
+    }
+
+    fn any_matches<'d>(&self, entries: &Entries, diagnostic: &'d Diagnostic, keys: &Keys<'d>) -> bool {
         entries
             .candidates(diagnostic.rule.as_str())
-            .any(|(_, entry)| self.entry_matches(entry, diagnostic, versioned))
+            .any(|(_, entry)| self.entry_matches(entry, diagnostic, keys))
     }
 
     /// Whether the diagnostic's package is flagged in `flags`. A diagnostic with a [`PackageId`] is looked up by it;
@@ -133,15 +138,15 @@ impl Suppressions {
 
     /// Whether `entry`, one of the candidates of the diagnostic's rule, matches it: the package is checked before
     /// the dependency, whose glob match costs the most.
-    fn entry_matches(&self, entry: &Entry, diagnostic: &Diagnostic, versioned: &OnceCell<Option<String>>) -> bool {
+    fn entry_matches<'d>(&self, entry: &Entry, diagnostic: &'d Diagnostic, keys: &Keys<'d>) -> bool {
         entry
             .packages
             .as_ref()
             .is_none_or(|flags| self.package_flag(diagnostic, flags))
-            && (entry.files.is_empty() || entry.files.matches(&skif_core::slash(&diagnostic.location.path), false))
+            && (entry.files.is_empty() || entry.files.matches(keys.file(diagnostic), false))
             && (entry.dependencies.is_empty()
                 || diagnostic.dependency.as_deref().is_some_and(|dependency| {
-                    self.dependency_matches(&entry.dependencies, dependency, versioned_name(diagnostic, versioned))
+                    self.dependency_matches(&entry.dependencies, dependency, keys.versioned(diagnostic))
                 }))
     }
 
@@ -171,9 +176,9 @@ pub fn ignore_matches(workspace: &Workspace, entries: &[IgnoreEntry], diagnostic
     };
     let mut matches: Vec<Vec<usize>> = vec![Vec::new(); entries.len()];
     for (index, diagnostic) in diagnostics.iter().enumerate() {
-        let versioned = OnceCell::new();
+        let keys = Keys::default();
         for (entry_index, entry) in suppressions.entries.candidates(diagnostic.rule.as_str()) {
-            if suppressions.entry_matches(entry, diagnostic, &versioned)
+            if suppressions.entry_matches(entry, diagnostic, &keys)
                 && let Some(found) = matches.get_mut(entry_index)
             {
                 found.push(index);
@@ -192,14 +197,40 @@ fn names(workspace: &Workspace) -> HashMap<String, Vec<PackageId>> {
     by_name
 }
 
-/// `name@specifier` of the diagnostic's dependency, built the first time an entry needs it and reused for the rest.
-fn versioned_name<'c>(diagnostic: &Diagnostic, cell: &'c OnceCell<Option<String>>) -> Option<&'c str> {
-    cell.get_or_init(|| {
-        let dependency = diagnostic.dependency.as_deref()?;
-        let specifier = diagnostic.specifier.as_deref()?;
-        Some(format!("{}@{specifier}", dependency_name(dependency)))
-    })
-    .as_deref()
+/// What the entries match one diagnostic against, each built the first time an entry needs it and reused for the
+/// rest of the entries, top-level and scoped alike.
+#[derive(Default)]
+struct Keys<'d> {
+    /// `name@specifier` of the diagnostic's dependency.
+    versioned: OnceCell<Option<String>>,
+    /// The root-relative path of the diagnostic's location with `/` separators.
+    file: OnceCell<Cow<'d, str>>,
+}
+
+impl<'d> Keys<'d> {
+    fn versioned(&self, diagnostic: &Diagnostic) -> Option<&str> {
+        self.versioned
+            .get_or_init(|| {
+                let dependency = diagnostic.dependency.as_deref()?;
+                let specifier = diagnostic.specifier.as_deref()?;
+                Some(format!("{}@{specifier}", dependency_name(dependency)))
+            })
+            .as_deref()
+    }
+
+    fn file(&self, diagnostic: &'d Diagnostic) -> &str {
+        self.file.get_or_init(|| slashed(&diagnostic.location.path))
+    }
+}
+
+/// `path` with `/` separators, as [`skif_core::slash`] writes it, borrowing the path's text when it needs no change.
+fn slashed(path: &Path) -> Cow<'_, str> {
+    let text = path.to_string_lossy();
+    if cfg!(windows) && text.contains('\\') {
+        Cow::Owned(text.replace('\\', "/"))
+    } else {
+        text
+    }
 }
 
 /// The name of `dependency` without the `@specifier` it may be written with: `react@18` is `react`, and the `@` of a
@@ -334,6 +365,40 @@ mod tests {
         assert!(suppressions.suppresses(&at("p/a/src/old.ts")));
         assert!(!suppressions.suppresses(&at("p/a/src/new.ts")));
         assert!(!suppressions.suppresses(&at("p/a/package.json")));
+    }
+
+    #[test]
+    fn top_level_and_scoped_entries_match_the_same_file_and_dependency_keys() {
+        let config = Config::from_toml_str(
+            "[[ignore]]\nfiles = [\"p/a/src/old.ts\"]\ndependencies = [\"react@^17*\"]\n\
+             [[overrides]]\npackages = [\"a\"]\n\
+             [[overrides.ignore]]\nfiles = [\"p/a/src/*.ts\"]\ndependencies = [\"react@^18*\"]\n",
+        )
+        .unwrap();
+        let suppressions = Suppressions::new(&workspace(&config), &config);
+        let at = |path: &str, specifier: &str| {
+            let mut diagnostic = diagnostic(&META, "m", Location::new(path, None))
+                .package("a")
+                .dependency("react")
+                .build();
+            diagnostic.specifier = Some(specifier.to_owned());
+            diagnostic
+        };
+        let cases = [
+            ("p/a/src/old.ts", "^17.0.0", &[][..], true),
+            ("p/a/src/old.ts", "^18.0.0", &[][..], false),
+            ("p/a/src/old.ts", "^18.0.0", &[0][..], true),
+            ("p/a/src/new.ts", "^18.0.0", &[0][..], true),
+            ("p/a/src/new.ts", "^17.0.0", &[0][..], false),
+            ("p/a/package.json", "^18.0.0", &[0][..], false),
+        ];
+        for (path, specifier, applicable, expected) in cases {
+            assert_eq!(
+                suppressions.suppressed(&at(path, specifier), applicable),
+                expected,
+                "{path} {specifier} {applicable:?}"
+            );
+        }
     }
 
     #[test]
@@ -526,7 +591,7 @@ mod tests {
                     .enumerate()
                     .filter(|(_, diagnostic)| {
                         (written.rules.is_empty() || written.rules.iter().any(|rule| rule == diagnostic.rule.as_str()))
-                            && suppressions.entry_matches(entry, diagnostic, &OnceCell::new())
+                            && suppressions.entry_matches(entry, diagnostic, &Keys::default())
                     })
                     .map(|(index, _)| index)
                     .collect()
