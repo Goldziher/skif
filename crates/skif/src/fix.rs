@@ -354,9 +354,12 @@ fn contains(accepted: &[TextEdit], edit: &TextEdit) -> bool {
         .any(|other| other == edit)
 }
 
-fn insert_sorted(accepted: &mut Vec<TextEdit>, edit: TextEdit) {
-    let at = accepted.partition_point(|other| (other.start, other.end) <= (edit.start, edit.end));
-    accepted.insert(at, edit);
+/// Adds `edits` to `accepted`, which is sorted by position, and keeps it sorted; edits at one position stay in the
+/// order they were added. A stable sort of the appended run costs about one pass, where inserting each edit in place
+/// moves the tail of `accepted` every time.
+fn extend_sorted(accepted: &mut Vec<TextEdit>, edits: Vec<TextEdit>) {
+    accepted.extend(edits);
+    accepted.sort_by_key(|edit| (edit.start, edit.end));
 }
 
 impl<'a> Planner<'a> {
@@ -488,9 +491,7 @@ impl<'a> Planner<'a> {
                 {
                     accepted_ops.extend(ops);
                     accepted_edits.clear();
-                    for edit in edits {
-                        insert_sorted(accepted_edits, edit);
-                    }
+                    extend_sorted(accepted_edits, edits);
                 }
             }
             Staged::Edit { ops, edits } => match self.entries.entry(path) {
@@ -501,16 +502,12 @@ impl<'a> Planner<'a> {
                     } = occupied.get_mut()
                     {
                         accepted_ops.extend(ops);
-                        for edit in edits {
-                            insert_sorted(accepted_edits, edit);
-                        }
+                        extend_sorted(accepted_edits, edits);
                     }
                 }
                 std::collections::btree_map::Entry::Vacant(vacant) => {
                     let mut sorted = Vec::with_capacity(edits.len());
-                    for edit in edits {
-                        insert_sorted(&mut sorted, edit);
-                    }
+                    extend_sorted(&mut sorted, edits);
                     vacant.insert(Entry::Edit { ops, edits: sorted });
                 }
             },
@@ -746,4 +743,43 @@ fn plan_once(
         skipped,
         bases,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `edits` added to `accepted` one at a time, each after every edit at or before its position.
+    fn inserted_one_by_one(mut accepted: Vec<TextEdit>, edits: Vec<TextEdit>) -> Vec<TextEdit> {
+        for edit in edits {
+            let at = accepted.partition_point(|other| (other.start, other.end) <= (edit.start, edit.end));
+            accepted.insert(at, edit);
+        }
+        accepted
+    }
+
+    #[test]
+    fn extending_keeps_positions_sorted_and_ties_in_the_order_added() {
+        let accepted = vec![
+            TextEdit::new(0, 0, "a"),
+            TextEdit::new(4, 6, "b"),
+            TextEdit::new(4, 6, "c"),
+            TextEdit::new(9, 9, "d"),
+        ];
+        let edits = vec![
+            TextEdit::new(9, 9, "e"),
+            TextEdit::new(0, 0, "f"),
+            TextEdit::new(4, 6, "g"),
+            TextEdit::new(2, 3, "h"),
+            TextEdit::new(0, 0, "i"),
+        ];
+        let mut extended = accepted.clone();
+        extend_sorted(&mut extended, edits.clone());
+        let order: Vec<&str> = extended.iter().map(|edit| edit.replacement.as_str()).collect();
+        assert_eq!(order, ["a", "f", "i", "h", "b", "c", "g", "d", "e"]);
+        assert_eq!(extended, inserted_one_by_one(accepted, edits.clone()));
+        let mut fresh = Vec::new();
+        extend_sorted(&mut fresh, edits.clone());
+        assert_eq!(fresh, inserted_one_by_one(Vec::new(), edits));
+    }
 }
