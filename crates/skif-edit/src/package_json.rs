@@ -8,7 +8,7 @@
 use jsonc_parser::ast::{self, ObjectPropName};
 use jsonc_parser::common::Ranged;
 use jsonc_parser::{CollectOptions, ParseOptions, parse_to_ast};
-use skif_core::TextEdit;
+use skif_core::{HashMap, TextEdit};
 
 use crate::{EditPlanError, FileKind};
 
@@ -570,15 +570,22 @@ fn quote(text: &str) -> String {
 
 /// `sort_first` keys first, then the rest in byte order when `sort_packages` is on.
 fn sort_top_level(root: &mut Object, options: &FormatOptions) -> bool {
-    let mut order: Vec<usize> = Vec::with_capacity(root.members.len());
+    let count = root.members.len();
+    let mut by_key: HashMap<&str, Vec<usize>> = HashMap::default();
+    for (index, member) in root.members.iter().enumerate() {
+        by_key.entry(member.key.as_str()).or_default().push(index);
+    }
+    let mut order: Vec<usize> = Vec::with_capacity(count);
+    let mut placed = vec![false; count];
     for key in &options.sort_first {
-        for (index, member) in root.members.iter().enumerate() {
-            if &member.key == key && !order.contains(&index) {
+        for &index in by_key.get(key.as_str()).into_iter().flatten() {
+            if !placed[index] {
+                placed[index] = true;
                 order.push(index);
             }
         }
     }
-    let mut rest: Vec<usize> = (0..root.members.len()).filter(|index| !order.contains(index)).collect();
+    let mut rest: Vec<usize> = (0..count).filter(|&index| !placed[index]).collect();
     if options.sort_packages {
         rest.sort_by(|a, b| root.members[*a].key.cmp(&root.members[*b].key));
     }
