@@ -140,7 +140,10 @@ fn bin_paths_use_the_installed_package_that_provides_the_binary() {
             "exports.lint = require.resolve('node_modules/.bin/lintx');\nexports.esm = import('./esm.mjs');\n",
         ),
         ("esm.mjs", "export const shift = import.meta.resolve('.bin/shift');\n"),
-        ("node_modules/.bin/shift", "#!/bin/sh\nexec node \"$basedir/../shift-kit/cli.js\" \"$@\"\n"),
+        (
+            "node_modules/.bin/shift",
+            "#!/bin/sh\nexec node \"$basedir/../shift-kit/cli.js\" \"$@\"\n",
+        ),
         (
             "node_modules/shift-kit/package.json",
             r#"{"name":"shift-kit","version":"1.0.0","bin":{"shift":"cli.js"}}"#,

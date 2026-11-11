@@ -609,9 +609,10 @@ impl<'a> Builder<'a> {
     /// The package of `abs` by location: that of its candidate, else that of the closest package directory above it.
     fn located_owner(&self, abs: &Path) -> PackageId {
         let abs = self.inputs.links.get(abs).map_or(abs, PathBuf::as_path);
-        self.candidate_index
-            .get(abs)
-            .map_or_else(|| self.owner_of(abs), |position| self.inputs.candidates[*position].owner)
+        self.candidate_index.get(abs).map_or_else(
+            || self.owner_of(abs),
+            |position| self.inputs.candidates[*position].owner,
+        )
     }
 
     /// The package that owns the file `raw` reaches when the module `importer` reaches it first, where that is not the
