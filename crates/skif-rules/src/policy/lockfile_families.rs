@@ -362,12 +362,21 @@ snapshots:
                 "[[dependency-families]]\nname = \"{name}\"\npackages = [\"playwright\", \"playwright-core\", \"@playwright/test\"]\nscope = \"{scope}\"\n"
             )
         };
-        let toml = [named("first", "importer"), named("second", "lockfile"), named("third", "importer")].concat();
+        let toml = [
+            named("first", "importer"),
+            named("second", "lockfile"),
+            named("third", "importer"),
+        ]
+        .concat();
         let found = unsynced(Some(PLAYWRIGHT), &toml);
         let messages: Vec<&str> = found
             .iter()
             .map(|(diagnostic, _)| diagnostic.message.as_str())
-            .filter(|message| ["`first`", "`second`", "`third`"].iter().any(|name| message.contains(name)))
+            .filter(|message| {
+                ["`first`", "`second`", "`third`"]
+                    .iter()
+                    .any(|name| message.contains(name))
+            })
             .collect();
         assert_eq!(
             messages,

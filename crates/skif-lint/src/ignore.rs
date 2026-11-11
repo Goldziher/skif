@@ -88,9 +88,7 @@ impl Selected {
 /// no exclusion and holds no character a glob gives a meaning (escapes included), so globset compares the whole
 /// name with it.
 fn is_literal(pattern: &str) -> bool {
-    pattern != LOCAL
-        && !pattern.starts_with('!')
-        && !pattern.contains(&['*', '?', '[', ']', '{', '}', '\\'][..])
+    pattern != LOCAL && !pattern.starts_with('!') && !pattern.contains(&['*', '?', '[', ']', '{', '}', '\\'][..])
 }
 
 /// The name and the directory of every package (each the way [`Selector`] reads it: non-empty, with `/` separators)
@@ -105,7 +103,9 @@ impl PackageKeys {
             let dir = package.dir.to_string_lossy();
             for key in package.name.as_deref().into_iter().chain(Some(&*dir)) {
                 if !key.is_empty() {
-                    keys.entry(slashed(Path::new(key)).into_owned()).or_default().push(id.index());
+                    keys.entry(slashed(Path::new(key)).into_owned())
+                        .or_default()
+                        .push(id.index());
                 }
             }
         }

@@ -402,7 +402,12 @@ impl<'a> Siblings<'a> {
 
     /// The group of `id`, which holds `id` itself: being written alike says that every other instance is written as
     /// `instance` is.
-    fn of(&self, analysis: &Analysis<'_>, id: InstanceId, instance: &Instance<'_>) -> Option<&SiblingGroup<'a>> {
+    fn of<'s>(
+        &'s self,
+        analysis: &Analysis<'_>,
+        id: InstanceId,
+        instance: &'s Instance<'_>,
+    ) -> Option<&'s SiblingGroup<'s>> {
         self.by_group.get(&(&*instance.name, analysis.owners[id.index()]))
     }
 }

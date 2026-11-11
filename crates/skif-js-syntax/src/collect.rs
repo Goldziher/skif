@@ -580,9 +580,10 @@ impl Export {
 /// Collects imports and exports from the top-level statements of `program`.
 pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInfo) -> Collected {
     // Only a local `export { x }` clause reads the top-level names, so a file without one does not gather them.
-    let has_clause = program.body.iter().any(
-        |stmt| matches!(stmt, Statement::ExportNamedDeclaration(e) if !e.specifiers.is_empty()),
-    );
+    let has_clause = program
+        .body
+        .iter()
+        .any(|stmt| matches!(stmt, Statement::ExportNamedDeclaration(e) if !e.specifiers.is_empty()));
     let mut local_decls: HashMap<String, Declared> = HashMap::default();
     if has_clause {
         for stmt in &program.body {

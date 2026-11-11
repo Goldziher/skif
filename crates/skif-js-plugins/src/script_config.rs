@@ -239,15 +239,24 @@ mod tests {
         assert!(may_run("vite build", &["vite"]));
         assert!(may_run("'vi'test", &["jest"]));
         assert!(!may_run("vitest", &[]));
-        assert_eq!(flag_values("vite build -c x.ts", &["vitest"], &["-c"]), [] as [String; 0]);
+        assert_eq!(
+            flag_values("vite build -c x.ts", &["vitest"], &["-c"]),
+            [] as [String; 0]
+        );
         assert_eq!(flag_values(r#""vi"test -c a.ts"#, &["vitest"], &["-c"]), ["a.ts"]);
-        assert_eq!(flag_values("vi'test' --config=b.ts", &["vitest"], &["--config"]), ["b.ts"]);
+        assert_eq!(
+            flag_values("vi'test' --config=b.ts", &["vitest"], &["--config"]),
+            ["b.ts"]
+        );
         assert_eq!(
             commands_after_separator(r#"var"lock" run -- node a.js"#, &["varlock"], "run"),
             ["node a.js"]
         );
         assert_eq!(positionals("tsc -p x", &["jasmine"], &[]), [] as [Vec<String>; 0]);
-        assert_eq!(positionals("ja'smine' a.js", &["jasmine"], &[]), [vec!["a.js".to_owned()]]);
+        assert_eq!(
+            positionals("ja'smine' a.js", &["jasmine"], &[]),
+            [vec!["a.js".to_owned()]]
+        );
     }
 
     #[test]

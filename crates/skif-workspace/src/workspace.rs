@@ -249,7 +249,9 @@ impl ManagerFiles<'_> {
                     .is_some_and(|name| name == PNPM_WORKSPACE || LOCKFILES.contains(&name))
             })
             .filter(|entry| {
-                let inherited = self.inherited.get_or_init(|| roots::inherited_ignores(self.fs, self.root));
+                let inherited = self
+                    .inherited
+                    .get_or_init(|| roots::inherited_ignores(self.fs, self.root));
                 !roots::is_ignored_file(self.fs, self.root, inherited, &entry.path)
             })
             .filter_map(|entry| entry.path.strip_prefix(self.root).ok().map(Path::to_path_buf))

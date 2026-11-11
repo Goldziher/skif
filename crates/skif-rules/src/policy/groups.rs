@@ -61,7 +61,9 @@ impl<'c> Selectors<'c> {
     }
 
     pub(crate) fn matches(&self, instance: &Instance<'_>) -> bool {
-        self.matches_with(instance, || self.dependencies.matches(&instance.name, instance.is_local))
+        self.matches_with(instance, || {
+            self.dependencies.matches(&instance.name, instance.is_local)
+        })
     }
 
     /// [`matches`](Self::matches), with `dependency` deciding the `dependencies` selector when it has patterns.
@@ -746,9 +748,8 @@ mod tests {
 
     #[test]
     fn a_glob_selector_decides_every_instance_of_a_name_alike() {
-        let config = config(
-            "[[semver-groups]]\ndependencies = [\"re*\"]\nrange = \"~\"\n\n[[semver-groups]]\nrange = \"^\"\n",
-        );
+        let config =
+            config("[[semver-groups]]\ndependencies = [\"re*\"]\nrange = \"~\"\n\n[[semver-groups]]\nrange = \"^\"\n");
         let workspace = workspace(&files(), &config);
         let instances = Instances::collect(&workspace, &config, true);
         let assignment = Groups::compile(&workspace, &config).assign(&instances);
@@ -763,7 +764,8 @@ mod tests {
                 )
             })
             .collect();
-        let row = |package: &str, name: &str, range: &str| (package.to_owned(), name.to_owned(), Some(range.to_owned()));
+        let row =
+            |package: &str, name: &str, range: &str| (package.to_owned(), name.to_owned(), Some(range.to_owned()));
         assert_eq!(
             ranges,
             [

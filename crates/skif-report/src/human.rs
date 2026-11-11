@@ -136,15 +136,13 @@ fn write_diagnostic(
     writeln!(
         out,
         "  {}: {}",
-        paint.severity(diagnostic.severity, Label(diagnostic.severity, diagnostic.rule.as_str())),
+        paint.severity(
+            diagnostic.severity,
+            Label(diagnostic.severity, diagnostic.rule.as_str())
+        ),
         paint.bold(escape_controls(&diagnostic.message))
     )?;
-    writeln!(
-        out,
-        "  {pad}{} {shown}{}",
-        paint.accent("-->"),
-        Position(span.as_ref())
-    )?;
+    writeln!(out, "  {pad}{} {shown}{}", paint.accent("-->"), Position(span.as_ref()))?;
     if let Some((span, framed)) = framed {
         let number = paint.accent(Number(span.start_line, width));
         writeln!(out, "  {pad} {bar}")?;
@@ -251,7 +249,9 @@ fn summary_line(paint: Painter, summary: &Summary) -> String {
     } else {
         String::new()
     };
-    paint.bold(format!("Found {}{scope}{fixable}", counts.join(", "))).to_string()
+    paint
+        .bold(format!("Found {}{scope}{fixable}", counts.join(", ")))
+        .to_string()
 }
 
 #[cfg(test)]

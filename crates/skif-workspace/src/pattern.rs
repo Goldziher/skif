@@ -360,7 +360,11 @@ mod tests {
 
     #[test]
     fn directories_taken_from_a_listing_are_not_probed_again() {
-        let fs = probes(&["packages/a/package.json", "packages/b/package.json", "packages/b-c/x.txt"]);
+        let fs = probes(&[
+            "packages/a/package.json",
+            "packages/b/package.json",
+            "packages/b-c/x.txt",
+        ]);
         assert_eq!(expand(&fs, "packages/*"), ["packages/a", "packages/b", "packages/b-c"]);
         assert_eq!(expand(&fs, "packages/b*"), ["packages/b", "packages/b-c"]);
         assert_eq!(fs.is_dir.load(Ordering::SeqCst), 0);
@@ -370,7 +374,7 @@ mod tests {
     fn a_literal_directory_is_still_probed() {
         let fs = probes(&["tools/x/package.json"]);
         assert_eq!(expand(&fs, "tools/x"), ["tools/x"]);
-        assert!(expand(&fs, "tools/missing").is_empty());
+        assert_eq!(expand(&fs, "tools/missing"), Vec::<String>::new());
         assert_eq!(fs.is_dir.load(Ordering::SeqCst), 2);
     }
 }
