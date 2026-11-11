@@ -529,6 +529,15 @@ impl Resolvers {
     }
 }
 
+/// The path whose scope chain is that of `path`: `path` itself when it is a scope directory, else its parent, whose
+/// ancestors hold the same scopes.
+fn chain_key<'p>(path: &'p Path, scope_index: &HashMap<PathBuf, usize>) -> &'p Path {
+    match path.parent() {
+        Some(parent) if !scope_index.contains_key(path) => parent,
+        _ => path,
+    }
+}
+
 /// For each scope, the lookup directories of the scopes whose directories hold it (itself included), in the order of
 /// `scopes`.
 fn module_dir_chains(scopes: &[AliasScope]) -> Vec<Vec<PathBuf>> {
@@ -1330,9 +1339,11 @@ impl ModuleResolver {
 
     /// The scopes whose directory holds `importer`, innermost first, with their position in `scopes`.
     ///
-    /// Found by walking up the importer's ancestors instead of testing every scope, once per importer.
+    /// Found by walking up the importer's ancestors instead of testing every scope, once per directory: a path that
+    /// is no scope directory itself (any source file) has the scopes of its parent, so the files of one directory
+    /// share one chain.
     fn scopes_of(&self, importer: &Path) -> impl Iterator<Item = (usize, &AliasScope)> + '_ {
-        let chain = self.scope_chains.get_or_compute(importer, || {
+        let chain = self.scope_chains.get_or_compute(chain_key(importer, &self.scope_index), || {
             importer
                 .ancestors()
                 .filter_map(|dir| self.scope_index.get(dir).copied())
@@ -2636,6 +2647,37 @@ generated/index.ts
         assert_eq!(memo.get_or_compute("b", "./x", || 3), 3);
         assert_eq!(memo.get_or_compute("a", "./x", || 4), 1);
         assert_eq!(memo.get_or_compute("b", "./x", || 5), 3);
+    }
+
+    #[test]
+    fn the_files_of_a_directory_share_its_scope_chain() {
+        let r = resolver(&[
+            ("package.json", ROOT),
+            ("packages/a/package.json", r#"{"name":"@x/a"}"#),
+            ("packages/a/src/x.ts", ""),
+            ("packages/a/src/y.ts", ""),
+        ]);
+        let dirs = |path: &str| -> Vec<PathBuf> {
+            r.scopes_of(Path::new(path))
+                .map(|(_, scope)| scope.dir.clone())
+                .collect()
+        };
+        let both = vec![PathBuf::from("/ws/packages/a"), PathBuf::from("/ws")];
+        assert_eq!(dirs("/ws/packages/a/src/x.ts"), both);
+        assert_eq!(dirs("/ws/packages/a/src/y.ts"), both);
+        assert_eq!(dirs("/ws/packages/a/src"), both);
+        assert_eq!(dirs("/ws/packages/a"), both);
+        assert_eq!(dirs("/ws/packages"), vec![PathBuf::from("/ws")]);
+        assert_eq!(dirs("/ws/packages/b.ts"), vec![PathBuf::from("/ws")]);
+        let held: usize = r
+            .scope_chains
+            .0
+            .iter()
+            .map(|shard| shard.read().unwrap().len())
+            .sum();
+        // Keyed by `src` (both files), `packages/a` (`src` and the package itself), `/ws` (`packages`) and `packages`
+        // (`packages/b.ts`).
+        assert_eq!(held, 4);
     }
 
     #[test]
