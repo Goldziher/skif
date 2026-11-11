@@ -18,6 +18,7 @@ use skif_lint::LintContext;
 
 use super::options::{Resolved, ToolchainKind, ToolchainOptions};
 use super::parse::{self, Parsed};
+use crate::paths::{file_name, join, parent};
 
 const VERSION_FILES: [&str; 6] = [
     ".nvmrc",
@@ -86,6 +87,21 @@ impl Scan {
             .filter(|file| options.reads(&file.path, file.kind, file.at_default_place))
     }
 
+    /// The Dockerfiles directly in the workspace-relative `dir` that the scan did not read, read and parsed, by path.
+    pub fn unscanned_dockerfiles(&self, fs: &dyn FileSystem, root: &Path, dir: &str) -> Vec<(String, Parsed)> {
+        file_names(fs, root, dir)
+            .into_iter()
+            .filter(|name| is_dockerfile(name))
+            .map(|name| join(dir, &name))
+            .filter(|path| self.files.iter().all(|file| file.path != *path))
+            .filter_map(|path| {
+                let source = fs.read_to_string(&root.join(&path)).ok()?;
+                let parsed = parse::parse(ToolchainKind::Dockerfiles, file_name(&path), &source);
+                Some((path, parsed))
+            })
+            .collect()
+    }
+
     fn build(cx: &LintContext<'_>, fs: &dyn FileSystem, globs: &[String]) -> Self {
         let workspace = cx.workspace;
         let owners = Owners {
@@ -142,7 +158,7 @@ impl Scan {
             .into_iter()
             .filter_map(|(path, (kind, package, at_default_place))| {
                 let source = fs.read_to_string(&workspace.root.join(&path)).ok()?;
-                let name = path.rsplit('/').next().unwrap_or(&path);
+                let name = file_name(&path);
                 Some(ToolchainFile {
                     kind,
                     package,
@@ -160,14 +176,6 @@ impl Scan {
 /// A path with `/` separators.
 fn slashed(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
-}
-
-fn join(dir: &str, name: &str) -> String {
-    if dir.is_empty() {
-        name.to_owned()
-    } else {
-        format!("{dir}/{name}")
-    }
 }
 
 /// Whether `name` ends in `.<extension>` for one of `extensions`, in any case.
@@ -198,7 +206,7 @@ fn default_kind(name: &str, package_dir: bool) -> Option<ToolchainKind> {
 
 /// The kind of a file a glob found: by its name, YAML read as a workflow, anything else as a shell script.
 fn glob_kind(path: &str) -> ToolchainKind {
-    let name = path.rsplit('/').next().unwrap_or(path);
+    let name = file_name(path);
     if VERSION_FILES.contains(&name) {
         ToolchainKind::VersionFiles
     } else if is_dockerfile(name) {
@@ -208,6 +216,16 @@ fn glob_kind(path: &str) -> ToolchainKind {
     } else {
         ToolchainKind::ShellScripts
     }
+}
+
+/// The names of the files directly in the workspace-relative `dir`.
+fn file_names(fs: &dyn FileSystem, root: &Path, dir: &str) -> Vec<String> {
+    fs.read_dir_shared(&root.join(dir))
+        .unwrap_or_default()
+        .iter()
+        .filter(|entry| entry.is_file)
+        .filter_map(|entry| entry.path.file_name().map(|name| name.to_string_lossy().into_owned()))
+        .collect()
 }
 
 /// The workspace packages by directory (`/` separators, `""` for the root), with whether each is ignored.
@@ -220,13 +238,7 @@ struct Owners<'a> {
 impl Owners<'_> {
     /// The names of the files directly in `dir`.
     fn file_names(&self, dir: &str) -> Vec<String> {
-        self.fs
-            .read_dir_shared(&self.root.join(dir))
-            .unwrap_or_default()
-            .iter()
-            .filter(|entry| entry.is_file)
-            .filter_map(|entry| entry.path.file_name().map(|name| name.to_string_lossy().into_owned()))
-            .collect()
+        file_names(self.fs, self.root, dir)
     }
 
     /// Whether `dir` holds a `package.json` of its own.
@@ -237,7 +249,7 @@ impl Owners<'_> {
     /// The package owning the file at `path`: the innermost package directory above it, unless that is ignored or a
     /// directory with a `package.json` that is no workspace package comes first.
     fn owner(&self, path: &str) -> Option<PackageId> {
-        let mut dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
+        let mut dir = parent(path);
         loop {
             if let Some(&(id, ignored)) = self.dirs.get(dir) {
                 return (!ignored).then_some(id);
@@ -245,7 +257,7 @@ impl Owners<'_> {
             if dir.is_empty() || self.is_project(dir) {
                 return None;
             }
-            dir = dir.rsplit_once('/').map_or("", |(parent, _)| parent);
+            dir = parent(dir);
         }
     }
 }
@@ -266,14 +278,22 @@ fn globbed(fs: &dyn FileSystem, root: &Path, globs: &[String], selector: &Select
             }
             continue;
         }
-        walk(fs, root, &segments[..literal].join("/"), 0, selector, &mut found);
+        let matches = |path: &str| selector.matches(path, false);
+        walk(fs, root, &segments[..literal].join("/"), 0, &matches, &mut found);
     }
     found.sort_unstable();
     found.dedup();
     found
 }
 
-fn walk(fs: &dyn FileSystem, root: &Path, dir: &str, depth: usize, selector: &Selector, found: &mut Vec<String>) {
+fn walk(
+    fs: &dyn FileSystem,
+    root: &Path,
+    dir: &str,
+    depth: usize,
+    matches: &dyn Fn(&str) -> bool,
+    found: &mut Vec<String>,
+) {
     if depth > MAX_DEPTH {
         return;
     }
@@ -285,9 +305,9 @@ fn walk(fs: &dyn FileSystem, root: &Path, dir: &str, depth: usize, selector: &Se
         let path = join(dir, &name);
         if entry.is_dir {
             if !entry.is_symlink && name != "node_modules" && name != ".git" {
-                walk(fs, root, &path, depth + 1, selector, found);
+                walk(fs, root, &path, depth + 1, matches, found);
             }
-        } else if entry.is_file && selector.matches(&path, false) {
+        } else if entry.is_file && matches(&path) {
             found.push(path);
         }
     }

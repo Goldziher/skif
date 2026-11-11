@@ -18,7 +18,9 @@ pub static META: RuleMeta = RuleMeta::new(
 
 /// Reports positive workspace patterns that select no directory.
 ///
-/// Negations (`!pattern`) that remove nothing are harmless and not reported. Removing a pattern changes which
+/// Negations (`!pattern`) that remove nothing are harmless and not reported, and neither is a pattern that cannot be
+/// used (a `..` segment, too many brace alternatives): `invalid-workspace-file` reports it, and whether the directory
+/// it names exists was never checked. Removing a pattern changes which
 /// packages are part of the workspace, so the fix is unsafe, and none is offered when every positive pattern is
 /// unmatched: removing them all would leave a workspace without members.
 #[derive(Debug, Clone, Copy, Default)]
@@ -55,7 +57,7 @@ impl Rule for UnmatchedWorkspacePatterns {
             .iter()
             .any(|fact| !fact.negated && fact.matched > 0);
         for fact in &workspace.facts.patterns {
-            if fact.negated || fact.matched > 0 {
+            if fact.negated || fact.invalid || fact.matched > 0 {
                 continue;
             }
             let mut builder = diagnostic(
@@ -117,6 +119,50 @@ mod tests {
                 .map(|d| located(&files, d).trim_matches('"').to_owned())
                 .collect();
             assert_eq!(found, expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_pattern_that_cannot_be_used_is_reported_once_by_invalid_workspace_file() {
+        let shared = ("../shared/package.json", r#"{"name":"shared"}"#);
+        let member = ("packages/a/package.json", MEMBER);
+        let json_root = |manager: &str| {
+            format!(
+                r#"{{"name":"root","private":true,"packageManager":"{manager}","workspaces":["packages/*","../shared"]}}"#
+            )
+        };
+        let (npm, yarn) = (json_root("npm@10.0.0"), json_root("yarn@4.5.0"));
+        let pnpm_root = r#"{"name":"root","private":true,"packageManager":"pnpm@9.0.0"}"#;
+        let pnpm_yaml = "packages:\n  - 'packages/*'\n  - '../shared'\n";
+        let cases: [(&str, Vec<(&str, &str)>); 3] = [
+            ("npm", vec![("package.json", npm.as_str()), member, shared]),
+            ("yarn", vec![("package.json", yarn.as_str()), member, shared]),
+            (
+                "pnpm",
+                vec![
+                    ("package.json", pnpm_root),
+                    ("pnpm-workspace.yaml", pnpm_yaml),
+                    member,
+                    shared,
+                ],
+            ),
+        ];
+        for (manager, files) in cases {
+            assert_eq!(
+                lint(META.id, &files, &config("")),
+                [] as [skif_core::Diagnostic; 0],
+                "{manager}"
+            );
+            let invalid = lint(crate::manifest::invalid_workspace_file::META.id, &files, &config(""));
+            let messages: Vec<&str> = invalid.iter().map(|d| d.message.as_str()).collect();
+            assert_eq!(
+                messages,
+                [
+                    "workspace pattern `../shared` cannot be used: `..` would select directories outside the workspace root"
+                ],
+                "{manager}"
+            );
+            assert!(!invalid[0].is_fixable(), "{manager}");
         }
     }
 

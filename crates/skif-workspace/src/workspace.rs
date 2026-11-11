@@ -55,6 +55,9 @@ pub struct PatternFact {
     pub negated: bool,
     /// Directories the pattern selected. For a negation, the positively matched directories it removed.
     pub matched: usize,
+    /// Whether the pattern cannot be used (a `..` segment, too many brace alternatives), so it selects nothing;
+    /// [`Workspace::manifest_errors`] holds why.
+    pub invalid: bool,
     /// Where the pattern is written, when known.
     pub span: Option<Span>,
     /// Workspace-relative file declaring the pattern.
@@ -505,6 +508,7 @@ impl Workspace {
         let mut literal_dirs = BTreeSet::new();
         for (index, raw, span) in &declared.patterns {
             let negated = raw.trim_start().starts_with('!');
+            let errors_before = manifest_errors.len();
             let mut invalid = |message: String| {
                 manifest_errors.push(WorkspaceError::InvalidPattern {
                     pattern: raw.clone(),
@@ -539,6 +543,7 @@ impl Workspace {
                 pattern: raw.clone(),
                 negated,
                 matched,
+                invalid: manifest_errors.len() > errors_before,
                 span: *span,
                 file: declared.file.clone(),
             });

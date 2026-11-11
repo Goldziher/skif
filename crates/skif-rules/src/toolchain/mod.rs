@@ -16,8 +16,10 @@ mod pin_drift;
 mod scan;
 mod suppress;
 
+use std::collections::BTreeSet;
 use std::ops::Range;
 
+use skif_config::PackageManager;
 use skif_core::{Related, RuleMeta, Severity, diagnostic};
 use skif_lint::{Emitter, LintContext, Rule, RulesProvider};
 
@@ -25,7 +27,8 @@ pub use foreign_command::ForeignPackageManagerCommand;
 pub use options::{ToolchainKind, ToolchainOptions};
 pub use pin_drift::ToolchainPinDrift;
 
-use scan::ToolchainFile;
+use parse::Parsed;
+use scan::{Scan, ToolchainFile};
 
 /// Identifies the toolchain provider in errors.
 pub const PROVIDER_ID: &str = "toolchain";
@@ -45,6 +48,54 @@ pub fn rules() -> Vec<Box<dyn Rule>> {
 #[must_use]
 pub fn toolchain_provider() -> RulesProvider {
     RulesProvider::new(PROVIDER_ID, rules())
+}
+
+/// What a Dockerfile copies from its build context.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DockerfileCopies {
+    /// Workspace-relative path with `/` separators.
+    pub path: String,
+    /// The sources of its `COPY` and `ADD` instructions that copy from the build context, as written.
+    pub sources: Vec<String>,
+    /// The package managers a `RUN` installs the project with after a `COPY . .` of the whole build context.
+    pub installs_after_context_copy: Vec<PackageManager>,
+}
+
+impl DockerfileCopies {
+    fn of(path: String, parsed: &Parsed) -> Self {
+        let installs_after_context_copy = parsed.context_copies.iter().min().map_or_else(Vec::new, |&copy| {
+            parsed
+                .commands
+                .iter()
+                .filter(|command| command.span().start > copy)
+                .filter_map(|command| commands::installs(&command.words))
+                .collect()
+        });
+        Self {
+            path,
+            sources: parsed.copied.clone(),
+            installs_after_context_copy,
+        }
+    }
+}
+
+/// The Dockerfiles that copy from their build context: those of the scan the toolchain rules share, and those
+/// directly in the workspace-relative `dirs` that the scan does not read.
+pub(crate) fn dockerfile_copies(cx: &LintContext<'_>, dirs: &BTreeSet<&str>) -> Vec<DockerfileCopies> {
+    let scan = Scan::of(cx, &rule_ids());
+    let scanned = scan
+        .files
+        .iter()
+        .filter(|file| file.kind == ToolchainKind::Dockerfiles)
+        .map(|file| DockerfileCopies::of(file.path.clone(), &file.parsed));
+    let beside = dirs
+        .iter()
+        .flat_map(|dir| scan.unscanned_dockerfiles(cx.fs(), &cx.workspace.root, dir))
+        .map(|(path, parsed)| DockerfileCopies::of(path, &parsed));
+    scanned
+        .chain(beside)
+        .filter(|copies| !copies.sources.is_empty())
+        .collect()
 }
 
 /// One finding in a toolchain file, before suppression comments are applied.

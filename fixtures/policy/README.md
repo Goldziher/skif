@@ -134,7 +134,8 @@ Tags with meaning: `assumption` and `ambiguous`
    and expect no diagnostic that is fixable, every fix being idempotent. If `expected-fixed/` is
    absent, no diagnostic may be fixable.
 6. Cross-checks worth running once over the whole tree: every `skif.toml` loads and validates, every
-   `rule` is registered, and every non-null `detail` appears in the ADR 0009 state table.
+   `rule` is registered, and every non-null `detail` appears in the ADR 0009 state table or in ADR 0048 or ADR 0107,
+   which add states.
 
 ## Conventions the fixtures assume
 
@@ -191,6 +192,9 @@ syncpack.
 * Severity is per rule: syncpack's Conflict class (error) and Suspect class (warning) share
   `policy-conflict` and therefore one severity (see "ADR gaps").
 * `UnusedGroup` is skif-only (`policy-conflict/unused-group-*`).
+* A dependency in none of several catalogs is `MissingFromCatalogAndCatalogUnknown` (`catalog-missing-entry`), not
+  syncpack's `NotUsingCatalogAndCatalogUnknown`, which skif keeps for a dependency several catalogs define
+  (`catalog/ambiguous-dependency-in-no-catalog`).
 * A Bun root with catalogs under both the top level and `workspaces` aborts syncpack; skif reports a
   workspace error (exit 2), which is not a diagnostic, so there is no fixture for it.
 * `latest` and dist-tags never rank: they are not an alignment target, and next to a version they are an
@@ -269,8 +273,8 @@ syncpack.
 | `workspace-protocol` | 4 | `workspace-protocol/dev-dependency-checked`, `workspace-protocol/internal-dependency-without-protocol`, `workspace-protocol/link-path-rejected-by-default`, `workspace-protocol/version-mismatch-and-protocol-both-reported` |
 | `catalog-mismatch` | 2 | `catalog/catalogs-resolve-to-different-versions`, `catalog/off-catalog-mismatch` |
 | `catalog-version-divergence` | 1 | `catalog/catalogs-resolve-to-different-versions` |
-| `catalog-not-used` | 9 | `catalog/ambiguous-dependency-in-no-catalog`, `catalog/ambiguous-dependency-in-two-catalogs`, `catalog/bun-top-level-catalog`, `catalog/bun-workspaces-catalog` (+5 more) |
-| `catalog-missing-entry` | 6 | `catalog/bun-missing-entry-creates-catalog`, `catalog/missing-entry-identical-non-semver`, `catalog/missing-entry-mixed-specifiers-unfixable`, `catalog/missing-entry-no-catalog-pnpm` (+2 more) |
+| `catalog-not-used` | 8 | `catalog/ambiguous-dependency-in-two-catalogs`, `catalog/bun-top-level-catalog`, `catalog/bun-workspaces-catalog`, `catalog/enforce-not-using-catalog` (+4 more) |
+| `catalog-missing-entry` | 7 | `catalog/ambiguous-dependency-in-no-catalog`, `catalog/bun-missing-entry-creates-catalog`, `catalog/missing-entry-identical-non-semver`, `catalog/missing-entry-mixed-specifiers-unfixable` (+3 more) |
 | `unused-catalog-entries` | 1 | `catalog/unused-entries-reported` |
 | `unresolved-catalog-references` | 4 | `catalog/unresolved-catalog-name`, `catalog/unresolved-dependency-in-other-catalog`, `catalog/unresolved-dependency-not-in-catalog`, `catalog/unresolved-reported-with-mode-off` |
 | `policy-conflict` | 20 | `policy-conflict/match-conflicts-with-highest`, `policy-conflict/match-conflicts-with-local`, `policy-conflict/match-conflicts-with-snap-target`, `policy-conflict/mismatch-conflicts-with-highest` (+16 more) |
@@ -321,7 +325,8 @@ States in the ADR 0009 table. Valid states produce no diagnostic and are listed 
 | Unfixable | `DependsOnInvalidLocalPackage` | `invalid-local-version` | `invalid-local-version/range-as-package-version`, `invalid-local-version/two-invalid-locals-and-a-dependent` |
 | Unfixable | `MissingFromCatalogAndNonSemverMismatch` | `catalog-missing-entry` | `catalog/missing-entry-mixed-specifiers-unfixable` |
 | Unfixable | `CannotInferCatalogFile` | `catalog-missing-entry` | `catalog/missing-entry-npm-cannot-infer-file` |
-| Unfixable | `NotUsingCatalogAndCatalogUnknown` | `catalog-not-used` | `catalog/ambiguous-dependency-in-no-catalog`, `catalog/ambiguous-dependency-in-two-catalogs` |
+| Unfixable | `MissingFromCatalogAndCatalogUnknown` | `catalog-missing-entry` | `catalog/ambiguous-dependency-in-no-catalog` |
+| Unfixable | `NotUsingCatalogAndCatalogUnknown` | `catalog-not-used` | `catalog/ambiguous-dependency-in-two-catalogs` |
 | Conflict | `MatchConflictsWithHighestOrLowestSemver` | `policy-conflict` | `policy-conflict/match-conflicts-with-highest` |
 | Conflict | `MismatchConflictsWithHighestOrLowestSemver` | `policy-conflict` | `policy-conflict/mismatch-conflicts-with-highest` |
 | Conflict | `MatchConflictsWithSnapTarget` | `policy-conflict` | `policy-conflict/match-conflicts-with-snap-target` |

@@ -6,6 +6,8 @@ use skif_lint::{Emitter, LintContext, OptionsError, Rule};
 use skif_workspace::{BUN_LOCKFILE, LOCKFILES, Package, PackageManager, Workspace};
 
 use super::allow_list::{self, AllowList};
+use super::lockfile_consumers;
+use crate::paths::parent;
 
 /// Metadata of `stray-lockfile`.
 pub static META: RuleMeta = RuleMeta::new(
@@ -13,7 +15,7 @@ pub static META: RuleMeta = RuleMeta::new(
     Category::Workspace,
     Some(Severity::Warning),
     Fixability::Unsafe,
-    "A lockfile other than the root lockfile of the package manager: one in a workspace member, another manager's at the root, or Bun's `bun.lockb` next to the `bun.lock` Bun reads.",
+    "A lockfile other than the root lockfile of the package manager: one in a workspace member, another manager's at the root, or one its manager ignores next to the one it reads (Bun's `bun.lockb` beside `bun.lock`, npm's `package-lock.json` beside `npm-shrinkwrap.json`).",
 );
 
 const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
@@ -21,10 +23,42 @@ const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
 /// Bun's legacy binary lockfile, which Bun does not read while its text `bun.lock` is next to it.
 const BUN_BINARY_LOCKFILE: &str = "bun.lockb";
 
+/// npm's lockfile, which npm does not read while `npm-shrinkwrap.json` is next to it.
+const NPM_LOCKFILE: &str = "package-lock.json";
+
+/// npm's publishable lockfile, which npm installs from in preference to `package-lock.json`.
+const NPM_SHRINKWRAP: &str = "npm-shrinkwrap.json";
+
+/// A root lockfile its package manager ignores while another of its own lockfiles is next to it.
+struct Shadow {
+    manager: PackageManager,
+    /// The lockfile the manager ignores.
+    ignored: &'static str,
+    /// The lockfile the manager installs from instead.
+    read: &'static str,
+    /// What the ignored lockfile is, in the message.
+    description: &'static str,
+}
+
+static SHADOWS: [Shadow; 2] = [
+    Shadow {
+        manager: PackageManager::Bun,
+        ignored: BUN_BINARY_LOCKFILE,
+        read: BUN_LOCKFILE,
+        description: "Bun's legacy binary lockfile, which Bun ignores",
+    },
+    Shadow {
+        manager: PackageManager::Npm,
+        ignored: NPM_LOCKFILE,
+        read: NPM_SHRINKWRAP,
+        description: "npm's lockfile, which npm ignores",
+    },
+];
+
 /// The package manager that writes the lockfile called `name`.
 fn writer(name: &str) -> &'static str {
     match name {
-        "package-lock.json" | "npm-shrinkwrap.json" => "npm",
+        NPM_LOCKFILE | NPM_SHRINKWRAP => "npm",
         "yarn.lock" => "Yarn",
         "pnpm-lock.yaml" => "pnpm",
         _ => "Bun",
@@ -35,7 +69,7 @@ fn writer(name: &str) -> &'static str {
 /// nothing.
 fn is_root_lockfile(manager: PackageManager, name: &str) -> bool {
     match manager {
-        PackageManager::Npm => matches!(name, "package-lock.json" | "npm-shrinkwrap.json"),
+        PackageManager::Npm => matches!(name, NPM_LOCKFILE | NPM_SHRINKWRAP),
         PackageManager::Pnpm => name == "pnpm-lock.yaml",
         PackageManager::Yarn => name == "yarn.lock",
         PackageManager::Bun => matches!(name, BUN_LOCKFILE | BUN_BINARY_LOCKFILE),
@@ -54,15 +88,18 @@ fn manager_name(manager: PackageManager) -> &'static str {
     }
 }
 
-/// Whether the root lockfile `name` is Bun's binary one next to a `bun.lock` at the root, which Bun installs from.
-fn is_shadowed_bun_lockfile(workspace: &Workspace, name: &str) -> bool {
-    name == BUN_BINARY_LOCKFILE
-        && workspace.package_manager == Some(PackageManager::Bun)
-        && workspace
-            .facts
-            .package_manager_files
-            .iter()
-            .any(|path| path == Path::new(BUN_LOCKFILE))
+/// The shadow of the root lockfile `name`: Bun's `bun.lockb` next to a `bun.lock`, or npm's `package-lock.json`
+/// next to an `npm-shrinkwrap.json`, each in a workspace of that manager, which installs from the other file.
+fn shadow(workspace: &Workspace, name: &str) -> Option<&'static Shadow> {
+    SHADOWS.iter().find(|shadow| {
+        shadow.ignored == name
+            && workspace.package_manager == Some(shadow.manager)
+            && workspace
+                .facts
+                .package_manager_files
+                .iter()
+                .any(|path| path == Path::new(shadow.read))
+    })
 }
 
 /// A lockfile the rule reports unless the allow-list names it.
@@ -84,8 +121,24 @@ fn nested_roots(workspace: &Workspace) -> BTreeSet<&Path> {
         .collect()
 }
 
+/// The lockfiles of the workspace that are not the root lockfile of its package manager, without those below the
+/// root that a Bazel file or a Dockerfile names (see `lockfile_consumers`).
+fn strays<'w>(cx: &LintContext<'w>) -> Vec<Stray<'w>> {
+    let candidates = candidates(cx.workspace);
+    let below_root: Vec<String> = candidates
+        .iter()
+        .map(|stray| slash(stray.path))
+        .filter(|path| !parent(path).is_empty())
+        .collect();
+    let consumed = lockfile_consumers::consumed(cx, &below_root);
+    candidates
+        .into_iter()
+        .filter(|stray| !consumed.contains(&slash(stray.path)))
+        .collect()
+}
+
 /// The lockfiles of the workspace that are not the root lockfile of its package manager.
-fn strays(workspace: &Workspace) -> Vec<Stray<'_>> {
+fn candidates(workspace: &Workspace) -> Vec<Stray<'_>> {
     let nested = nested_roots(workspace);
     workspace
         .facts
@@ -100,7 +153,7 @@ fn strays(workspace: &Workspace) -> Vec<Stray<'_>> {
             let dir = path.parent().unwrap_or_else(|| Path::new(""));
             if dir.as_os_str().is_empty() {
                 let manager = workspace.package_manager?;
-                let stray = !is_root_lockfile(manager, name) || is_shadowed_bun_lockfile(workspace, name);
+                let stray = !is_root_lockfile(manager, name) || shadow(workspace, name).is_some();
                 return stray.then_some(Stray { path, package: None });
             }
             if nested.contains(dir) {
@@ -116,14 +169,20 @@ fn strays(workspace: &Workspace) -> Vec<Stray<'_>> {
 }
 
 /// Reports lockfiles a workspace install does not read: every lockfile in a member directory, a lockfile at the
-/// root that another package manager than the workspace's writes, and Bun's binary `bun.lockb` next to a `bun.lock`,
-/// which Bun installs from instead.
+/// root that another package manager than the workspace's writes, Bun's binary `bun.lockb` next to a `bun.lock`, and
+/// npm's `package-lock.json` next to an `npm-shrinkwrap.json`; the manager installs from the other file.
 ///
 /// Every supported manager keeps one lockfile for the whole workspace at its root, so a member's lockfile is a
 /// leftover that only misleads the tools run in that directory. Without a known package manager the root lockfiles
 /// are not judged. A member that holds its own `pnpm-workspace.yaml` is a root of its own (`nested-workspace-root`
 /// reports that), and a member skif ignores or another root of the run lints is left to that root. Files git ignores
 /// are not reported.
+///
+/// Nor is a lockfile below the root that a build installs from, found by reading the build files: in a Bazel
+/// repository, a label of it (`"//libs/a:pnpm-lock.yaml"`) in the `MODULE.bazel` or `WORKSPACE`, a `.bzl` file they
+/// load, or a `BUILD` file of its directory or one above, or its relative path in such a `BUILD` file; a `COPY` or `ADD` of it in a Dockerfile of its
+/// own directory or one that builds from the workspace root; or a `COPY . .` followed by an install with its package
+/// manager in a Dockerfile of its own directory.
 ///
 /// Options (`[rules.stray-lockfile] allow`): paths, matched literally first, or globs (`packages/*/package-lock.json`),
 /// relative to the workspace root, of lockfiles kept on purpose, each a string or `{ name, reason }`. An entry that
@@ -147,7 +206,7 @@ impl Rule for StrayLockfile {
     fn check(&self, cx: &LintContext<'_>, out: &mut Emitter<'_>) {
         let workspace = cx.workspace;
         let allow = AllowList::of(cx, &META);
-        let strays = strays(workspace);
+        let strays = strays(cx);
         for stray in strays.iter().filter(|stray| !allow.allows(stray.path)) {
             let file = slash(stray.path);
             let name = stray
@@ -155,24 +214,31 @@ impl Rule for StrayLockfile {
                 .file_name()
                 .and_then(|name| name.to_str())
                 .unwrap_or_default();
-            let at_root = stray.path.parent().is_none_or(|dir| dir.as_os_str().is_empty());
-            let (message, help) = match (stray.package, workspace.package_manager) {
-                (None, Some(_)) if at_root && is_shadowed_bun_lockfile(workspace, name) => (
-                    format!("`{file}` is Bun's legacy binary lockfile, which Bun ignores next to `bun.lock`"),
-                    "delete it; Bun installs from `bun.lock`, so the binary lockfile only goes stale",
+            let in_root = parent(&file).is_empty();
+            let shadowed = if in_root { shadow(workspace, name) } else { None };
+            let (message, help) = match (stray.package, workspace.package_manager, shadowed) {
+                (None, Some(_), Some(shadow)) => (
+                    format!("`{file}` is {} next to `{}`", shadow.description, shadow.read),
+                    format!(
+                        "delete it; {} installs from `{}`, so `{file}` only goes stale",
+                        manager_name(shadow.manager),
+                        shadow.read
+                    ),
                 ),
-                (None, Some(manager)) if at_root => (
+                (None, Some(manager), None) if in_root => (
                     format!(
                         "`{file}` is a lockfile of {}, but the workspace uses {}",
                         writer(name),
                         manager_name(manager)
                     ),
-                    "delete it; a second lockfile at the root makes tools disagree about the package manager",
+                    "delete it; a second lockfile at the root makes tools disagree about the package manager"
+                        .to_owned(),
                 ),
                 _ => (
                     format!("`{file}` is a lockfile inside the workspace, which installs from the root lockfile"),
                     "delete it; to install the directory on its own, exclude it from the workspace patterns, or keep \
-                     it with an entry in `[rules.stray-lockfile] allow`",
+                     it with an entry in `[rules.stray-lockfile] allow`"
+                        .to_owned(),
                 ),
             };
             let mut builder = diagnostic(&META, message, Location::new(stray.path.to_path_buf(), None))
@@ -219,7 +285,8 @@ mod tests {
     fn the_root_lockfile_of_the_package_manager_is_not_reported() {
         let cases = [
             ("pnpm", vec!["pnpm-lock.yaml"]),
-            ("npm", vec!["package-lock.json", "npm-shrinkwrap.json"]),
+            ("npm", vec!["package-lock.json"]),
+            ("npm", vec!["npm-shrinkwrap.json"]),
             ("yarn", vec!["yarn.lock"]),
             ("bun", vec!["bun.lock"]),
             ("bun", vec!["bun.lockb"]),
@@ -266,6 +333,47 @@ mod tests {
         assert_eq!(
             diagnostics[1].message,
             "`bun.lockb` is a lockfile of Bun, but the workspace uses pnpm"
+        );
+    }
+
+    #[test]
+    fn an_npm_lockfile_next_to_the_shrinkwrap_is_reported() {
+        let root_json = r#"{"name":"root","private":true,"packageManager":"npm@11.6.0","workspaces":["packages/*"]}"#;
+        let files = with_root(
+            root_json,
+            &[
+                ("package-lock.json", "{}"),
+                ("npm-shrinkwrap.json", "{}"),
+                ("packages/a/package.json", MEMBER_A),
+            ],
+        );
+        let diagnostics = lint(META.id, &files, &config(""));
+        assert_eq!(paths(&diagnostics), ["package-lock.json"]);
+        assert_eq!(
+            diagnostics[0].message,
+            "`package-lock.json` is npm's lockfile, which npm ignores next to `npm-shrinkwrap.json`"
+        );
+        assert_eq!(
+            diagnostics[0].help.as_deref(),
+            Some("delete it; npm installs from `npm-shrinkwrap.json`, so `package-lock.json` only goes stale")
+        );
+        assert_eq!(diagnostics[0].fixes[0].safety, FixSafety::Unsafe);
+        assert!(diagnostics[0].package.is_none());
+        // Another manager reads neither, so both are reported as its foreign lockfiles.
+        let pnpm_root = root("");
+        let files = with_root(
+            &pnpm_root,
+            &[
+                ("pnpm-lock.yaml", ""),
+                ("package-lock.json", "{}"),
+                ("npm-shrinkwrap.json", "{}"),
+            ],
+        );
+        let diagnostics = lint(META.id, &files, &config(""));
+        assert_eq!(paths(&diagnostics), ["npm-shrinkwrap.json", "package-lock.json"]);
+        assert_eq!(
+            diagnostics[1].message,
+            "`package-lock.json` is a lockfile of npm, but the workspace uses pnpm"
         );
     }
 
@@ -534,6 +642,177 @@ mod tests {
             let error = StrayLockfile.validate_options(&table).unwrap_err();
             assert!(error.to_string().contains(expected), "{entry}: {error}");
         }
+    }
+
+    /// The repro of a `rules_js` monorepo: one member installed by Bazel, one by its own Dockerfile.
+    fn bazel_and_docker_files<'a>(extra: &[(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
+        let mut files = vec![
+            (
+                "package.json",
+                r#"{"name":"root","private":true,"packageManager":"pnpm@10.34.6"}"#,
+            ),
+            ("pnpm-workspace.yaml", "packages: [libs/a, libs/b, apps/web]\n"),
+            ("pnpm-lock.yaml", ""),
+            ("libs/a/package.json", MEMBER_A),
+            ("libs/a/pnpm-lock.yaml", ""),
+            ("libs/b/package.json", MEMBER_B),
+            ("libs/b/pnpm-lock.yaml", ""),
+            ("apps/web/package.json", r#"{"name":"web"}"#),
+            ("apps/web/pnpm-lock.yaml", ""),
+            ("MODULE.bazel", MODULE),
+            (
+                "node_packages.bzl",
+                "def deps():\n    npm_translate_lock(name = \"npm_a\", pnpm_lock = \"//libs/a:pnpm-lock.yaml\")\n",
+            ),
+            (
+                "apps/web/Dockerfile",
+                "FROM node:22\nCOPY package.json pnpm-lock.yaml ./\nRUN pnpm install\n",
+            ),
+        ];
+        files.extend_from_slice(extra);
+        files
+    }
+
+    /// A `MODULE.bazel` naming the extension file that declares the lockfile of `libs/a`.
+    const MODULE: &str = "module(name = \"repro\")\nnpm = use_extension(\"//:node_packages.bzl\", \"npm\")\n";
+
+    #[test]
+    fn a_member_lockfile_a_bazel_label_or_a_dockerfile_names_is_not_reported() {
+        let files = bazel_and_docker_files(&[]);
+        let diagnostics = lint(META.id, &files, &config(""));
+        assert_eq!(paths(&diagnostics), ["libs/b/pnpm-lock.yaml"]);
+        let fixed = testing::apply_fixes(&files, &diagnostics);
+        let names: Vec<&str> = fixed.iter().map(|(path, _)| path.as_str()).collect();
+        assert!(names.contains(&"libs/a/pnpm-lock.yaml") && names.contains(&"apps/web/pnpm-lock.yaml"));
+        assert!(!names.contains(&"libs/b/pnpm-lock.yaml"));
+    }
+
+    #[test]
+    fn a_build_file_of_the_lockfiles_directory_names_it() {
+        for build in ["libs/b/BUILD.bazel", "libs/b/BUILD"] {
+            for listing in [
+                "exports_files([\"pnpm-lock.yaml\"])\n",
+                "filegroup(name = \"lock\", srcs = [\":pnpm-lock.yaml\"])\n",
+            ] {
+                let files = bazel_and_docker_files(&[(build, listing)]);
+                assert_eq!(
+                    paths(&lint(META.id, &files, &config(""))),
+                    [] as [&str; 0],
+                    "{build}: {listing}"
+                );
+            }
+        }
+        // A plain name in another directory's BUILD file, a commented-out label or an excluded name names nothing.
+        let files = bazel_and_docker_files(&[
+            ("libs/BUILD.bazel", "exports_files([\"pnpm-lock.yaml\"])\n"),
+            ("tools/deps.bzl", "# pnpm_lock = \"//libs/b:pnpm-lock.yaml\"\n"),
+            (
+                "libs/b/BUILD.bazel",
+                "filegroup(name = \"src\", srcs = glob([\"**\"], exclude = [\"pnpm-lock.yaml\"]))\n",
+            ),
+        ]);
+        assert_eq!(paths(&lint(META.id, &files, &config(""))), ["libs/b/pnpm-lock.yaml"]);
+    }
+
+    #[test]
+    fn bazel_files_outside_a_bazel_repository_name_nothing() {
+        let files: Vec<(&str, &str)> = bazel_and_docker_files(&[])
+            .into_iter()
+            .filter(|(path, _)| *path != "MODULE.bazel")
+            .collect();
+        assert_eq!(
+            paths(&lint(META.id, &files, &config(""))),
+            ["libs/a/pnpm-lock.yaml", "libs/b/pnpm-lock.yaml"]
+        );
+    }
+
+    #[test]
+    fn a_label_with_the_directory_in_its_target_or_the_module_name_names_the_lockfile() {
+        for label in [
+            "//:libs/b/pnpm-lock.yaml",
+            "//libs:b/pnpm-lock.yaml",
+            "@repro//libs/b:pnpm-lock.yaml",
+        ] {
+            let module = format!("{MODULE}npm.npm_translate_lock(pnpm_lock = \"{label}\")\n");
+            let files = bazel_and_docker_files(&[]);
+            let files: Vec<(&str, &str)> = files
+                .into_iter()
+                .map(|(path, text)| {
+                    if path == "MODULE.bazel" {
+                        (path, module.as_str())
+                    } else {
+                        (path, text)
+                    }
+                })
+                .collect();
+            assert_eq!(paths(&lint(META.id, &files, &config(""))), [] as [&str; 0], "{label}");
+        }
+    }
+
+    #[test]
+    fn a_dockerfile_building_from_the_workspace_root_names_the_lockfile_it_copies() {
+        for (path, dockerfile) in [
+            ("Dockerfile", "FROM node:22\nCOPY libs/b/pnpm-lock.yaml ./\n"),
+            ("libs/b/Dockerfile", "FROM node:22\nCOPY libs/b/pnpm-lock.yaml ./\n"),
+        ] {
+            let files = bazel_and_docker_files(&[(path, dockerfile)]);
+            assert_eq!(paths(&lint(META.id, &files, &config(""))), [] as [&str; 0], "{path}");
+        }
+    }
+
+    #[test]
+    fn a_dockerfile_beside_a_lockfile_in_a_directory_without_a_manifest_is_read() {
+        let files = [
+            (
+                "package.json",
+                r#"{"name":"root","private":true,"packageManager":"pnpm@10.34.6"}"#,
+            ),
+            ("pnpm-workspace.yaml", "packages: [tools/*]\n"),
+            ("pnpm-lock.yaml", ""),
+            ("tools/image/pnpm-lock.yaml", ""),
+            ("tools/image/Dockerfile", "FROM node:22\nCOPY pnpm-lock.yaml ./\n"),
+            ("tools/other/pnpm-lock.yaml", ""),
+        ];
+        assert_eq!(
+            paths(&lint(META.id, &files, &config(""))),
+            ["tools/other/pnpm-lock.yaml"]
+        );
+    }
+
+    #[test]
+    fn a_dockerfile_that_copies_its_context_then_installs_names_the_lockfile() {
+        let installing = "FROM node:22\nCOPY . .\nRUN corepack enable && pnpm install --frozen-lockfile\n";
+        let files = bazel_and_docker_files(&[("libs/b/Dockerfile", installing)]);
+        assert_eq!(paths(&lint(META.id, &files, &config(""))), [] as [&str; 0]);
+        // Installing first, with another manager, or from another stage does not install from it.
+        for dockerfile in [
+            "FROM node:22\nRUN pnpm install\nCOPY . .\n",
+            "FROM node:22\nCOPY . .\nRUN npm ci\n",
+            "FROM node:22\nCOPY --from=build /app/pnpm-lock.yaml ./\nCOPY --from=build . .\nRUN pnpm install\n",
+            "FROM node:22\nCOPY . .\nRUN pnpm build\n",
+        ] {
+            let files = bazel_and_docker_files(&[("libs/b/Dockerfile", dockerfile)]);
+            assert_eq!(
+                paths(&lint(META.id, &files, &config(""))),
+                ["libs/b/pnpm-lock.yaml"],
+                "{dockerfile}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_allow_entry_for_a_lockfile_a_build_names_is_stale() {
+        let files = bazel_and_docker_files(&[]);
+        let allowing =
+            config("[rules.stray-lockfile]\nallow = [\"libs/a/pnpm-lock.yaml\", \"libs/b/pnpm-lock.yaml\"]\n");
+        let messages: Vec<String> = lint(META.id, &files, &allowing)
+            .into_iter()
+            .map(|diagnostic| diagnostic.message)
+            .collect();
+        assert_eq!(
+            messages,
+            ["`libs/a/pnpm-lock.yaml` in `rules.stray-lockfile.allow` names no stray lockfile"]
+        );
     }
 
     #[test]
