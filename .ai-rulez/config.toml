@@ -40,3 +40,10 @@ codex-agents-chain = 65536
 rules = ["AR021"]
 paths = ["skills/**"]
 reason = "documents the unpinned run commands of the skif-cli npm package"
+
+# ADR 0102: the Claude plugin manifest names its icon for Anthropic's plugin directory, which reads `icon`; Claude Code
+# ignores the field when it loads the plugin.
+[[lint.ignore_rules]]
+rules = ["AR963"]
+paths = [".claude-plugin/plugin.json"]
+reason = "the plugin directory reads the icon field that Claude Code ignores (ADR 0102)"
