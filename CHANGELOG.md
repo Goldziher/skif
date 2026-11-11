@@ -395,8 +395,11 @@ All notable changes to this project are documented here. The format follows
   every `@types` package visible.
 - **TypeScript 6** defaults `compilerOptions.types` to `[]`: under it, a `tsconfig.json` chain without `types` no
   longer makes a globals-only `@types` package (`@types/chrome`, `@types/mocha`) count as used, so one nothing names
-  is reported as unused. The version is that of the installed `typescript`, else the lowest the package's `typescript`
-  range admits, else the root's; below version 6, or when none is known, every `@types` package stays visible
+  is reported as unused. The version is that of the nearest installed `typescript`, else the lowest version the
+  package's own `typescript` ranges admit (a `catalog:` reference read from the catalogs, a peer range only without
+  another entry; `<6` is below 6), else the root's; below version 6, or when none is known, every `@types` package
+  stays visible. A config's own `types` and `typeRoots` replace the inherited ones, a later `extends` entry overriding
+  an earlier one, and a solution config is judged by the configs its `references` name
   ([ADR 0111](adrs/0111-ambient-types-packages-under-typescript-6.md),
   [#201](https://github.com/Goldziher/skif/issues/201)).
 - `[js.workspaces."<dir>"]` tables accept the `extend-ignore*` keys instead of rejecting them.
