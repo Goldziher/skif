@@ -1,0 +1,26 @@
+{
+  "description": "`skif migrate --from sherif,syncpack,knip --profile full` keeps what each tool ignored: the translated configuration silences exactly the findings the old configurations ignore.",
+  "migrate": {
+    "from": "sherif,syncpack,knip"
+  },
+  "expect": {
+    "exit_code": 1,
+    "diagnostics": [
+      "root-package-private-field:e2e-migrate",
+      "unused-dependencies:@e2e/a:semver",
+      "version-mismatch:@e2e/b:is-number"
+    ],
+    "migrate": {
+      "exit_code": 0,
+      "diagnostics": []
+    }
+  },
+  "overrides": {
+    "yarn-classic": {
+      "reason": "Yarn Classic refuses to install the workspaces of a root that is not private, so the overlay makes it private.",
+      "remove": [
+        "root-package-private-field:e2e-migrate"
+      ]
+    }
+  }
+}

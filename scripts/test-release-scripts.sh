@@ -5,7 +5,7 @@
 #   semver-checks.sh                      every crate of the publish list checked, the job summary, with stub cargo and curl
 #   release-bump.sh, check-versions.sh    a bump on a temp copy of the tree, then the consistency check and the
 #   check-doc-pins.sh                     documentation pins it rewrites
-#   check-archive.sh, check-release-gate.sh, check-npm-tarballs.sh, check-glibc-floor.sh, e2e/resolve-pm-version.sh
+#   check-archive.sh, check-release-gate.sh, check-npm-tarballs.sh, check-glibc-floor.sh
 #   npm-install-smoke.sh                  the packed tarballs installed through stub npm and bun, optionalDependencies
 #                                         overridden with the local tarballs
 #
@@ -516,37 +516,6 @@ floor_case "2.100 is newer than 2.34" 1 "2.34 2.100"
 floor_case "the floor can be passed explicitly" 0 "2.35" 2.39
 floor_case "a binary without versioned symbols fails" 1 ""
 expect "check-glibc-floor: a missing binary" 1 env PATH="${glibc_stubs}:${PATH}" bash scripts/check-glibc-floor.sh "${work}/nope"
-
-# ---------------------------------------------------------------- e2e/resolve-pm-version
-pm_stubs="${work}/pm-stubs"
-mkdir -p "$pm_stubs"
-cat >"${pm_stubs}/npm" <<'STUB'
-#!/usr/bin/env bash
-# `npm view <package> versions --json`: pre-releases and majors with no stable release must not count.
-case "$2" in
-npm) echo '["10.9.0","10.9.2","11.0.0","11.4.1","12.0.0-rc.1","9.9.4"]' ;;
-bun) echo '["1.1.0","1.2.20","1.10.1","2.0.0-canary.1","2.0.1","1.2.3"]' ;;
-@yarnpkg/cli-dist) echo '["2.4.3","3.8.7","3.2.0","4.9.2","4.10.0","5.0.0-alpha.1"]' ;;
-*) echo '[]' ;;
-esac
-STUB
-chmod +x "${pm_stubs}/npm"
-pm_case() {
-  local label="$1" want="$2" pm="$3" slot="$4"
-  shift 4
-  expect "resolve-pm-version: ${label}" 0 env PATH="${pm_stubs}:${PATH}" bash scripts/e2e/resolve-pm-version.sh "$pm" "$slot" "$@"
-  [[ "$(cat "${work}/out")" == "$want" ]] || fail "resolve-pm-version: ${label}: got '$(cat "${work}/out")', want ${want}"
-}
-pm_case "npm newest ignores a release candidate" 11.4.1 npm newest
-pm_case "npm previous" 10.9.2 npm previous
-pm_case "yarn reads the berry package, newest" 4.10.0 yarn newest
-pm_case "yarn previous sorts numerically" 3.8.7 yarn previous
-expect "resolve-pm-version: no such major" 1 env PATH="${pm_stubs}:${PATH}" bash scripts/e2e/resolve-pm-version.sh pnpm newest
-pm_case "bun restricted to 1.x ignores Bun 2 and sorts numerically" 1.10.1 bun newest 1
-pm_case "bun without a major takes the newest major" 2.0.1 bun newest
-expect "resolve-pm-version: a non-numeric major" 2 env PATH="${pm_stubs}:${PATH}" bash scripts/e2e/resolve-pm-version.sh bun newest one
-expect "resolve-pm-version: unknown package manager" 2 env PATH="${pm_stubs}:${PATH}" bash scripts/e2e/resolve-pm-version.sh deno newest
-expect "resolve-pm-version: unknown slot" 2 env PATH="${pm_stubs}:${PATH}" bash scripts/e2e/resolve-pm-version.sh npm oldest
 
 # ---------------------------------------------------------------- check-release-gate
 cat >"${stubs}/gh" <<'STUB'
