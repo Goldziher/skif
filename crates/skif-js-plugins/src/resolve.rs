@@ -9,7 +9,7 @@ use skif_config::{PluginConfig, PluginOptions};
 use skif_js_syntax::{ConfigValue, ModuleLoader, place_file_dir};
 
 use crate::config_load::{from_json, load_config_and_call_arguments};
-use crate::files::{find_files, list_files, matching};
+use crate::files::{Listing, find_files, list_files};
 use crate::plugin::{
     BinaryRef, BuildDir, ConfigAst, DepRef, Enabler, IncompleteCause, IncompleteEntries, IncompleteScope, PathAlias,
     Plugin, PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec,
@@ -134,18 +134,19 @@ fn run_in_scopes(
         let dir = scope_dir(ctx, scope);
         let scope_ctx = shared.context(ctx, &dir);
         let files = list_files(ctx.fs, &dir);
+        let listing = Listing::new(&files);
         for &(index, enablement) in &candidates {
             let plugin = plugins[index];
             let spec = plugin.spec();
-            if enablement == ScopeEnablement::ByFile && !has_enabling_file(spec, &files) {
+            if enablement == ScopeEnablement::ByFile && !has_enabling_file(spec, &listing) {
                 continue;
             }
-            if !gives_defaults(spec) && matching(&files, &globs(&[], spec.config)).is_empty() {
+            if !gives_defaults(spec) && !listing.any_matching(spec.config) {
                 continue;
             }
             let setting = scope_ctx.plugins.get(spec.id);
             let found = rebase(
-                run_plugin(plugin, setting, &scope_ctx, None, &[], Some(files.as_slice())),
+                run_plugin(plugin, setting, &scope_ctx, None, &[], Some(&listing)),
                 scope,
             );
             merge(outputs[index].get_or_insert_with(PluginOutput::default), found);
@@ -187,9 +188,9 @@ fn gives_defaults(spec: &PluginSpec) -> bool {
 }
 
 /// Whether `files`, a scope's listing, holds a file an [`Enabler::File`] of `spec` matches.
-fn has_enabling_file(spec: &PluginSpec, files: &[String]) -> bool {
+fn has_enabling_file(spec: &PluginSpec, files: &Listing<'_>) -> bool {
     spec.enablers.iter().any(|enabler| match *enabler {
-        Enabler::File(glob) => !matching(files, &[glob.to_owned()]).is_empty(),
+        Enabler::File(glob) => files.any_matching(&[glob]),
         _ => false,
     })
 }
@@ -562,7 +563,7 @@ fn run_plugin(
     ctx: &PluginContext<'_>,
     manifest: Option<&ConfigValue>,
     extra_configs: &[String],
-    listing: Option<&[String]>,
+    listing: Option<&Listing<'_>>,
 ) -> PluginOutput {
     let spec = plugin.spec();
     let options = match setting {
@@ -601,7 +602,7 @@ fn run_plugin(
     }
     let found = listing.map_or_else(
         || find_files(ctx.fs, ctx.dir, &patterns),
-        |files| matching(files, &patterns),
+        |files| files.matching(&patterns),
     );
     collector.queue.extend(found.into_iter().map(|path| Queued {
         path,
