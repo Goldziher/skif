@@ -188,12 +188,18 @@ fn rule_entry(meta: &RuleMeta) -> SarifRule<'_> {
     }
 }
 
-/// Rules from the options, followed by any rule that only appears in results, in order of first appearance.
-fn rules<'a>(report: &'a Report, options: &'a RenderOptions) -> Vec<SarifRule<'a>> {
+/// Rules from the options, followed by any rule that only appears in results, in order of first appearance, with
+/// the index of each rule ID's first entry: every result looks its rule up there instead of scanning the list.
+fn rules<'a>(report: &'a Report, options: &'a RenderOptions) -> (Vec<SarifRule<'a>>, HashMap<&'a str, usize>) {
     let mut rules: Vec<SarifRule<'a>> = options.rules().iter().copied().map(rule_entry).collect();
+    let mut index: HashMap<&'a str, usize> = HashMap::default();
+    for (position, rule) in rules.iter().enumerate() {
+        index.entry(rule.id).or_insert(position);
+    }
     for diagnostic in &report.diagnostics {
         let id = diagnostic.rule.as_str();
-        if !rules.iter().any(|rule| rule.id == id) {
+        if !index.contains_key(id) {
+            index.insert(id, rules.len());
             rules.push(SarifRule {
                 id,
                 short_description: None,
@@ -203,7 +209,7 @@ fn rules<'a>(report: &'a Report, options: &'a RenderOptions) -> Vec<SarifRule<'a
             });
         }
     }
-    rules
+    (rules, index)
 }
 
 /// Percent-encodes a `/`-separated path as a URI reference: everything but unreserved characters and `/`.
@@ -325,35 +331,40 @@ fn fnv1a(parts: &[&str]) -> u64 {
     hash
 }
 
-/// Fingerprint of a diagnostic; `occurrence` (1-based) separates diagnostics that are otherwise identical, such as
-/// the same message reported twice in one file.
-fn fingerprint(diagnostic: &Diagnostic, path: &str, occurrence: usize) -> String {
-    let hash = fnv1a(&[
+/// The hash of a diagnostic's identity, which its fingerprint is made of.
+fn identity(diagnostic: &Diagnostic, path: &str) -> u64 {
+    fnv1a(&[
         diagnostic.rule.as_str(),
         path,
         diagnostic.package.as_deref().unwrap_or_default(),
         diagnostic.dependency.as_deref().unwrap_or_default(),
         diagnostic.specifier.as_deref().unwrap_or_default(),
         &diagnostic.message,
-    ]);
+    ])
+}
+
+/// Fingerprint of a diagnostic whose identity hashes to `hash`; `occurrence` (1-based) separates diagnostics that are
+/// otherwise identical, such as the same message reported twice in one file.
+fn fingerprint(hash: u64, occurrence: usize) -> String {
     format!("{hash:016x}:{occurrence}")
 }
 
 fn result<'a>(
     diagnostic: &'a Diagnostic,
-    rules: &[SarifRule<'_>],
+    rules: &HashMap<&str, usize>,
     options: &RenderOptions,
     utf16: bool,
-    seen: &mut HashMap<String, usize>,
+    seen: &mut HashMap<u64, usize>,
 ) -> SarifResult<'a> {
     let id = diagnostic.rule.as_str();
     let primary = physical(&diagnostic.location, options, utf16);
-    let key = fingerprint(diagnostic, &primary.artifact_location.uri, 0);
-    let occurrence = seen.entry(key).and_modify(|count| *count += 1).or_insert(1);
-    let fingerprint = fingerprint(diagnostic, &primary.artifact_location.uri, *occurrence);
+    let hash = identity(diagnostic, &primary.artifact_location.uri);
+    // Counted by hash, as the formatted fingerprint with occurrence 0 was: the hash is the only part that varies.
+    let occurrence = seen.entry(hash).and_modify(|count| *count += 1).or_insert(1);
+    let fingerprint = fingerprint(hash, *occurrence);
     SarifResult {
         rule_id: id,
-        rule_index: rules.iter().position(|rule| rule.id == id),
+        rule_index: rules.get(id).copied(),
         level: level(diagnostic.severity),
         message: Text {
             text: &diagnostic.message,
@@ -389,13 +400,13 @@ fn result<'a>(
 ///
 /// Returns any error produced by writing to `out`.
 pub fn render_sarif(report: &Report, options: &RenderOptions, out: &mut dyn Write) -> io::Result<()> {
-    let rules = rules(report, options);
+    let (rules, rule_index) = rules(report, options);
     let utf16 = all_convertible(report, options);
     let mut seen = HashMap::default();
     let results = report
         .diagnostics
         .iter()
-        .map(|d| result(d, &rules, options, utf16, &mut seen))
+        .map(|d| result(d, &rule_index, options, utf16, &mut seen))
         .collect();
     let document = Document {
         schema: SCHEMA_URI,
