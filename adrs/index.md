@@ -117,6 +117,7 @@ old one.
 | 0107 | [Stray Lockfiles a Build Installs From, npm's Shrinkwrap, and a Dependency in None of Several Catalogs](0107-stray-lockfiles-a-build-installs-from-and-a-dependency-in-none-of-several-catalogs.md) | accepted |
 | 0108 | [Member Binaries Under pnpm's Hoisted Node Linker](0108-member-binaries-under-pnpm-s-hoisted-node-linker.md) | accepted |
 | 0109 | [Nx Projects as Scopes of the Package That Owns Them](0109-nx-projects-as-scopes-of-the-package-that-owns-them.md) | accepted |
+| 0112 | [Paths Under bazel run](0112-paths-under-bazel-run.md) | accepted |
 | 0110 | [Files Reached Through `rootDirs` Belong to the Importing Package](0110-files-reached-through-rootdirs-belong-to-the-importing-package.md) | accepted |
 | 0111 | [Ambient `@types` Packages Under TypeScript 6](0111-ambient-types-packages-under-typescript-6.md) | accepted |
 
@@ -313,3 +314,4 @@ the lines below stay as written; this table says which record governs.
 | [0097](0097-commands-in-other-directories-and-binaries-of-workspace-members.md), "Member binaries" paragraph | under pnpm a member's binary is provided only to the packages that list the member, and a pnpm workspace with `node-linker=hoisted` reports one the install provides | [0108](0108-member-binaries-under-pnpm-s-hoisted-node-linker.md): with pnpm's hoisted linker (`nodeLinker` in `pnpm-workspace.yaml`, else `node-linker` in the root `.npmrc` before pnpm 11) it is provided to every package |
 | [0009](0009-version-and-catalog-policies.md), version-group states | every instance of a dependency takes part in its version group, as in syncpack | [0106](0106-path-specifiers-belong-to-local-path-dependency.md): a path specifier (`link:`, `file:`, `portal:`, `./`, `../`, `/`) takes part in no policy but `banned`; `local-path-dependency` owns it |
 | [0031](0031-core-rule-scoping-peer-overlap-catalog-sources-and-root-discovery-entry-point.md), `local-path-dependency` suggestion | the suggestion shares `Workspace::supports_workspace_protocol`, so Yarn Classic gets none | [0106](0106-path-specifiers-belong-to-local-path-dependency.md): under Yarn Classic, as under npm, a path to a member is replaced with `*` |
+| [0016](0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md), "Invocation" | `PATH` (default `.`) and the other relative paths resolve against the current directory | [0112](0112-paths-under-bazel-run.md): under `bazel run` the binary and the npm bin first change to `BUILD_WORKING_DIRECTORY`, else `BUILD_WORKSPACE_DIRECTORY` |
