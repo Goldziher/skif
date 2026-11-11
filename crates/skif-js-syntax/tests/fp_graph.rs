@@ -423,3 +423,39 @@ fn declare_module_in_a_module_file_is_an_augmentation() {
         assert_eq!(info.augmented_modules, ["dayjs"], "{source}");
     }
 }
+
+#[test]
+fn only_the_declarations_of_value_exports_contain_types() {
+    let cases: &[(&str, &str, &[(&str, &[&str])])] = &[
+        (
+            "a local function and a type-only module",
+            "export type P = { a: string };\nfunction local(p: P): P { return p; }\nexport type Q = { p: P };\n",
+            &[("P", &[]), ("Q", &[])],
+        ),
+        (
+            "a local function next to a value export",
+            "export type P = { a: string };\nfunction local(p: P): P { return p; }\nexport const v = 1;\n",
+            &[("P", &[]), ("v", &[])],
+        ),
+        (
+            "a local declaration exported by a clause",
+            "export type P = { a: string };\nfunction local(p: P): P { return p; }\nexport { local as run };\n",
+            &[("P", &["run"]), ("run", &[])],
+        ),
+    ];
+    for (label, source, expected) in cases {
+        let info = parse("a.ts", source);
+        let containing: Vec<(&str, Vec<&str>)> = info
+            .exports
+            .iter()
+            .map(|export| {
+                (
+                    export.name.as_str(),
+                    export.referenced_in.iter().map(String::as_str).collect(),
+                )
+            })
+            .collect();
+        let expected: Vec<(&str, Vec<&str>)> = expected.iter().map(|(name, list)| (*name, list.to_vec())).collect();
+        assert_eq!(containing, expected, "{label}");
+    }
+}

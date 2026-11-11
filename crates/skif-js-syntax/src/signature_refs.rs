@@ -89,11 +89,16 @@ fn expression_names(expression: &Expression<'_>) -> HashSet<String> {
     visitor.names
 }
 
-/// The value-level declarations of `declaration` with the type names their signatures mention.
-fn containers(declaration: &Declaration<'_>, out: &mut Vec<Container>) {
+/// Which declarations to collect, by local name.
+type Wanted<'w> = &'w dyn Fn(&str) -> bool;
+
+/// The value-level declarations of `declaration` named in `wanted` with the type names their signatures mention.
+fn containers(declaration: &Declaration<'_>, wanted: Wanted<'_>, out: &mut Vec<Container>) {
     match declaration {
         Declaration::FunctionDeclaration(function) => {
-            if let Some(id) = &function.id {
+            if let Some(id) = &function.id
+                && wanted(id.name.as_str())
+            {
                 out.push((
                     id.name.as_str().to_owned(),
                     Rc::new(function_names(function, function.return_type.is_some())),
@@ -101,14 +106,16 @@ fn containers(declaration: &Declaration<'_>, out: &mut Vec<Container>) {
             }
         }
         Declaration::ClassDeclaration(class) => {
-            if let Some(id) = &class.id {
+            if let Some(id) = &class.id
+                && wanted(id.name.as_str())
+            {
                 out.push((id.name.as_str().to_owned(), Rc::new(class_names(class))));
             }
         }
         Declaration::VariableDeclaration(variables) => {
             for declarator in &variables.declarations {
                 let ids = declarator.id.get_binding_identifiers();
-                if ids.is_empty() {
+                if !ids.iter().any(|id| wanted(id.name.as_str())) {
                     continue;
                 }
                 let names = Rc::new(if let Some(annotation) = &declarator.type_annotation {
@@ -127,17 +134,17 @@ fn containers(declaration: &Declaration<'_>, out: &mut Vec<Container>) {
     }
 }
 
-/// The type-level declaration `declaration` (an `interface` or a `type` alias) with the type names it mentions,
-/// including the interfaces it extends. It contains them only for a value export of its name, which can be a separate
-/// clause (`type X = …; const X = …; export { X }`).
-fn type_container(declaration: &Declaration<'_>, out: &mut Vec<Container>) {
+/// The type-level declaration `declaration` (an `interface` or a `type` alias), when `wanted` names it, with the type
+/// names it mentions, including the interfaces it extends. It contains them only for a value export of its name, which
+/// can be a separate clause (`type X = …; const X = …; export { X }`).
+fn type_container(declaration: &Declaration<'_>, wanted: Wanted<'_>, out: &mut Vec<Container>) {
     let mut visitor = TypeNames::new(true);
     let name = match declaration {
-        Declaration::TSTypeAliasDeclaration(alias) => {
+        Declaration::TSTypeAliasDeclaration(alias) if wanted(alias.id.name.as_str()) => {
             visitor.visit_ts_type_alias_declaration(alias);
             &alias.id.name
         }
-        Declaration::TSInterfaceDeclaration(interface) => {
+        Declaration::TSInterfaceDeclaration(interface) if wanted(interface.id.name.as_str()) => {
             visitor.visit_ts_interface_declaration(interface);
             &interface.id.name
         }
@@ -174,18 +181,21 @@ fn reexported_binding<'a>(bindings: &HashMap<(&str, &ImportedKind), &'a str>, ex
     bindings.get(&(from, &wanted)).copied()
 }
 
-/// The declarations of `program` that can contain type names, exported or not, with the names they mention.
-fn collect_containers(program: &Program<'_>) -> Vec<Container> {
+/// The declarations of `program` named in `wanted` that can contain type names, exported or not, with the names they
+/// mention.
+fn collect_containers(program: &Program<'_>, wanted: Wanted<'_>) -> Vec<Container> {
     let mut found = Vec::new();
     for statement in &program.body {
         match statement {
             Statement::ExportDeclaration(export) => {
-                containers(&export.declaration, &mut found);
-                type_container(&export.declaration, &mut found);
+                containers(&export.declaration, wanted, &mut found);
+                type_container(&export.declaration, wanted, &mut found);
             }
             Statement::ExportDefaultDeclaration(export) => match &export.declaration {
                 ExportDefaultDeclarationKind::FunctionDeclaration(function) => {
-                    if let Some(id) = &function.id {
+                    if let Some(id) = &function.id
+                        && wanted(id.name.as_str())
+                    {
                         found.push((
                             id.name.as_str().to_owned(),
                             Rc::new(function_names(function, function.return_type.is_some())),
@@ -193,7 +203,9 @@ fn collect_containers(program: &Program<'_>) -> Vec<Container> {
                     }
                 }
                 ExportDefaultDeclarationKind::ClassDeclaration(class) => {
-                    if let Some(id) = &class.id {
+                    if let Some(id) = &class.id
+                        && wanted(id.name.as_str())
+                    {
                         found.push((id.name.as_str().to_owned(), Rc::new(class_names(class))));
                     }
                 }
@@ -201,8 +213,8 @@ fn collect_containers(program: &Program<'_>) -> Vec<Container> {
             },
             other => {
                 if let Some(declaration) = other.as_declaration() {
-                    containers(declaration, &mut found);
-                    type_container(declaration, &mut found);
+                    containers(declaration, wanted, &mut found);
+                    type_container(declaration, wanted, &mut found);
                 }
             }
         }
@@ -229,15 +241,6 @@ fn mentioned_by<'a>(
 
 /// Fills [`crate::model::Export::referenced_in`] for every export mentioned in the signature of another value export.
 pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
-    let found = collect_containers(program);
-    // One name can have several declarations (a value and a type, overloads): it mentions what any of them does.
-    let mut mentions: HashMap<&str, HashSet<&str>> = HashMap::default();
-    for (local, names) in &found {
-        mentions
-            .entry(local.as_str())
-            .or_default()
-            .extend(names.iter().map(String::as_str));
-    }
     let exported_as: HashMap<&str, Vec<String>> = info
         .exports
         .iter()
@@ -253,6 +256,20 @@ pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
             map.entry(local).or_default().push(name);
             map
         });
+    // Only a value export contains: without one, no export is referenced in a signature, and the declarations of other
+    // names are not read at all.
+    if exported_as.is_empty() {
+        return;
+    }
+    let found = collect_containers(program, &|name| exported_as.contains_key(name));
+    // One name can have several declarations (a value and a type, overloads): it mentions what any of them does.
+    let mut mentions: HashMap<&str, HashSet<&str>> = HashMap::default();
+    for (local, names) in &found {
+        mentions
+            .entry(local.as_str())
+            .or_default()
+            .extend(names.iter().map(String::as_str));
+    }
     let mentioned_by = mentioned_by(&mentions, &exported_as);
     let bindings = import_bindings(info);
     let mut referenced_in: Vec<Vec<String>> = Vec::with_capacity(info.exports.len());
