@@ -2104,8 +2104,16 @@ generated/index.ts
         let importer = Path::new("/ws/packages/a/src/ui/view.ts");
         let output = Some(PathBuf::from("/ws/packages/a/bazel-out/bin/src"));
         let cases = [
-            ("./generated.js", "/ws/packages/a/bazel-out/bin/src/ui/generated.d.ts", output.clone()),
-            ("../shared/util", "/ws/packages/a/bazel-out/bin/src/shared/util.js", output),
+            (
+                "./generated.js",
+                "/ws/packages/a/bazel-out/bin/src/ui/generated.d.ts",
+                output.clone(),
+            ),
+            (
+                "../shared/util",
+                "/ws/packages/a/bazel-out/bin/src/shared/util.js",
+                output,
+            ),
             ("./local", "/ws/packages/a/src/ui/local.ts", None),
             ("../../other/stray", "/ws/packages/a/other/stray.ts", None),
             ("./stray", "/ws/packages/a/other/stray.ts", None),
