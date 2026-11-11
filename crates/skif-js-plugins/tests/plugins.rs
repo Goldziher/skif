@@ -2047,7 +2047,7 @@ fn nx_target_options_tokens_and_cwd() {
     assert_eq!(out.config_files, read);
     assert_eq!(
         deps(out),
-        BTreeSet::from(["@nx/js", "@nx/jest", "jest-environment-jsdom", "node"])
+        BTreeSet::from(["@nx/js", "@nx/jest", "jest-environment-jsdom", "node", "nx"])
     );
 }
 

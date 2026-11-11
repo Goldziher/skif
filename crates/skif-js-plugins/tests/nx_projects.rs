@@ -210,7 +210,7 @@ fn a_project_with_its_own_manifest_is_no_scope() {
     assert_eq!(projects.dirs, ["", "apps/web"]);
     assert_eq!(projects.scopes, ["apps/web"]);
     let results = resolve(&files, ROOT_DEPENDENCIES);
-    assert!(output(&results, "vite").config_files.is_empty());
+    assert_eq!(output(&results, "vite").config_files, Vec::<PathBuf>::new());
     assert_eq!(
         output(&results, "nx").config_files,
         paths(&["apps/web/project.json", "nx.json", "project.json"])
@@ -265,14 +265,12 @@ fn a_member_reads_its_project_json_relative_to_the_workspace_root() {
         ("packages/b/src/main.ts", ""),
         ("packages/b/tsconfig.lib.json", "{}"),
         ("packages/b/jest.config.ts", "export default {};\n"),
-        ("packages/b/e2e/project.json", r#"{ "targets": { "e2e": { "options": { "main": "packages/b/e2e/run.ts" } } } }"#),
+        (
+            "packages/b/e2e/project.json",
+            r#"{ "targets": { "e2e": { "options": { "main": "packages/b/e2e/run.ts" } } } }"#,
+        ),
     ];
-    let results = resolve_package(
-        &files,
-        "/ws/packages/b",
-        "packages/b",
-        &[("", true), ("e2e", true)],
-    );
+    let results = resolve_package(&files, "/ws/packages/b", "packages/b", &[("", true), ("e2e", true)]);
     let nx = output(&results, "nx");
     assert_eq!(nx.production_entries, ["e2e/run.ts", "src/main.ts"]);
     assert_eq!(
@@ -304,7 +302,10 @@ fn the_root_does_not_read_a_members_project_json() {
     let files = [
         ("nx.json", "{}"),
         ("package.json", r#"{ "name": "root", "workspaces": ["packages/*"] }"#),
-        ("project.json", r#"{ "targets": { "lint": { "executor": "@nx/eslint:lint" } } }"#),
+        (
+            "project.json",
+            r#"{ "targets": { "lint": { "executor": "@nx/eslint:lint" } } }"#,
+        ),
         ("packages/b/package.json", r#"{ "name": "b" }"#),
         (
             "packages/b/project.json",

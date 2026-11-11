@@ -292,7 +292,7 @@ mod tests {
             ..PluginOutput::default()
         };
         let rebased = rebase(output, "apps/web");
-        assert!(rebased.entry_regexes.is_empty());
+        assert_eq!(rebased.entry_regexes, Vec::<String>::new());
         assert_eq!(
             rebased.scoped_entry_regexes,
             [

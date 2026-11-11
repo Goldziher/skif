@@ -174,7 +174,9 @@ impl EntryRegexes {
 
     /// Whether an expression selects `path`, relative to the package directory.
     fn is_match(&self, path: &str) -> bool {
-        self.package.as_ref().is_some_and(|set| set.is_match(&format!("/{path}")))
+        self.package
+            .as_ref()
+            .is_some_and(|set| set.is_match(&format!("/{path}")))
             || self.scoped.iter().any(|(scope, set)| {
                 path.strip_prefix(scope.as_str())
                     .is_some_and(|rest| set.is_match(&format!("/{rest}")))

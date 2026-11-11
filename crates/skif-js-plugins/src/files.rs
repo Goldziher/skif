@@ -228,8 +228,11 @@ mod tests {
             assert_eq!(matching(&listing, &globs), find_files(&fs, dir, &globs), "{globs:?}");
         }
         let projects = ["**/project.json".to_owned()];
-        assert!(find_files(&fs, dir, &projects).is_empty());
-        assert_eq!(find_files_within(&fs, dir, &projects, 9), ["a/b/c/d/e/f/g/h/project.json"]);
+        assert_eq!(find_files(&fs, dir, &projects), Vec::<String>::new());
+        assert_eq!(
+            find_files_within(&fs, dir, &projects, 9),
+            ["a/b/c/d/e/f/g/h/project.json"]
+        );
     }
 
     #[test]
