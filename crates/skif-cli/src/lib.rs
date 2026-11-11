@@ -51,6 +51,9 @@ use output::{emit_error, emit_error_with};
 /// code. The npm addon calls this; the `skif` binary calls [`run_to_exit`], which differs only in what happens to
 /// memory, so their behaviour cannot drift.
 ///
+/// Under `bazel run` (`BUILD_WORKSPACE_DIRECTORY` is set) it first changes the process's current directory to
+/// `BUILD_WORKING_DIRECTORY`, else to the workspace root, so paths on the command line resolve as the user typed them.
+///
 /// A panic in skif is caught and exits 2, as the binary's [`install_panic_hook`] makes it do; the panic hook prints
 /// the message and its location to stderr, and with `--format json` stdout also receives the `error` document (kind
 /// `internal`) naming both.
@@ -128,6 +131,10 @@ fn run_with(args: impl IntoIterator<Item = OsString>, teardown: Teardown) -> u8 
         Ok(cli) => cli,
         Err(error) => return usage(&raw, &error),
     };
+    if let Err(error) = env::enter_bazel_run_directory() {
+        emit_error(&error, if wants_json(&raw) { Format::Json } else { Format::Human });
+        return 2;
+    }
     match cli.command {
         None if cli.lint.watch => watch::run(&cli.lint, Env::detect()),
         None => lint::run(&cli.lint, Env::detect(), teardown),

@@ -411,6 +411,106 @@ fn rule_levels_and_ignores_change_the_outcome() {
     assert_eq!(unknown.code, 2);
 }
 
+/// Issue #171: under `bazel run` the binary starts in the runfiles tree, and `BUILD_WORKING_DIRECTORY` names the
+/// directory the user ran Bazel from; with no path, skif lints and fixes the workspace containing it.
+#[test]
+fn bazel_run_fixes_the_workspace_of_the_working_directory() {
+    let dir = fixture("dirty");
+    let runfiles = tempfile::tempdir().unwrap();
+    let before = tree(dir.path());
+
+    let result = run(skif()
+        .current_dir(runfiles.path())
+        .env("BUILD_WORKSPACE_DIRECTORY", dir.path())
+        .env("BUILD_WORKING_DIRECTORY", dir.path().join("packages").join("a"))
+        .args(["--fix", "--no-install", "--format", "json"]));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    assert_eq!(paths(&result.json()["fix"]["changed"]), expected_fixed());
+    assert_eq!(
+        changed(&before, &tree(dir.path())).into_iter().collect::<BTreeSet<_>>(),
+        expected_fixed()
+    );
+    assert!(tree(runfiles.path()).is_empty(), "files leaked into the runfiles tree");
+}
+
+/// Without `BUILD_WORKING_DIRECTORY`, a `bazel run` starts at `BUILD_WORKSPACE_DIRECTORY`.
+#[test]
+fn bazel_run_without_a_working_directory_starts_at_the_workspace() {
+    let dir = fixture("dirty");
+    let runfiles = tempfile::tempdir().unwrap();
+    let direct = run(skif().args(["--format", "json"]).arg(dir.path()));
+
+    let result = run(skif()
+        .current_dir(runfiles.path())
+        .env("BUILD_WORKSPACE_DIRECTORY", dir.path())
+        .args(["--format", "json"]));
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+    assert_eq!(result.json(), direct.json());
+}
+
+/// Relative paths on the command line, the linted path and a report file alike, resolve against
+/// `BUILD_WORKING_DIRECTORY`, not the directory Bazel started the binary in.
+#[test]
+fn bazel_run_resolves_relative_paths_against_the_working_directory() {
+    let dir = fixture("dirty");
+    let runfiles = tempfile::tempdir().unwrap();
+    let direct = run(skif().args(["--format", "json"]).arg(dir.path()));
+
+    let outside = run(skif()
+        .current_dir(runfiles.path())
+        .args(["--format", "json"])
+        .arg(Path::new("packages").join("a")));
+    assert_eq!(
+        outside.code, 2,
+        "without bazel run the relative path is not found: {}",
+        outside.stdout
+    );
+
+    let result = run(skif()
+        .current_dir(runfiles.path())
+        .env("BUILD_WORKSPACE_DIRECTORY", dir.path())
+        .env("BUILD_WORKING_DIRECTORY", dir.path())
+        .args(["--format", "json=report.json"])
+        .arg(Path::new("packages").join("a")));
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+    let report: Value = serde_json::from_str(&fs::read_to_string(dir.path().join("report.json")).unwrap()).unwrap();
+    assert_eq!(report, direct.json());
+    assert!(tree(runfiles.path()).is_empty(), "files leaked into the runfiles tree");
+}
+
+/// `BUILD_WORKING_DIRECTORY` alone is not `bazel run`: the current directory stays.
+#[test]
+fn a_working_directory_without_a_workspace_directory_is_ignored() {
+    let dir = fixture("dirty");
+    let empty = tempfile::tempdir().unwrap();
+    let result = run(skif()
+        .current_dir(empty.path())
+        .env("BUILD_WORKING_DIRECTORY", dir.path())
+        .args(["--format", "json"]));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    assert_eq!(result.json()["error"]["kind"], "workspace", "{}", result.stdout);
+}
+
+/// A `bazel run` directory that does not exist exits 2 with an `io` error naming it.
+#[test]
+fn a_missing_bazel_run_directory_exits_two() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("missing");
+    let result = run(skif()
+        .env("BUILD_WORKSPACE_DIRECTORY", dir.path())
+        .env("BUILD_WORKING_DIRECTORY", &missing)
+        .args(["--format", "json"]));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    let error = &result.json()["error"];
+    assert_eq!(error["kind"], "io", "{error}");
+    let message = error["message"].as_str().unwrap();
+    assert!(
+        message.starts_with("cannot enter the `bazel run` directory "),
+        "{message}"
+    );
+    assert!(message.contains("missing"), "{message}");
+}
+
 #[test]
 fn fix_from_another_directory_writes_root_relative_files_only() {
     let dir = fixture("dirty");
