@@ -1,10 +1,9 @@
 //! The Code Climate renderer, in the subset GitLab Code Quality reads.
 
-use std::collections::BTreeMap;
 use std::io::{self, Write};
 
 use serde::Serialize;
-use skif_core::{Report, Severity};
+use skif_core::{HashMap, Report, Severity};
 
 use crate::options::RenderOptions;
 
@@ -14,12 +13,12 @@ struct Issue<'a> {
     check_name: &'a str,
     fingerprint: String,
     severity: &'static str,
-    location: IssueLocation,
+    location: IssueLocation<'a>,
 }
 
 #[derive(Serialize)]
-struct IssueLocation {
-    path: String,
+struct IssueLocation<'a> {
+    path: &'a str,
     lines: Lines,
 }
 
@@ -66,28 +65,34 @@ fn fnv1a_128(parts: &[&str]) -> String {
 ///
 /// Returns any error produced by writing to `out`.
 pub fn render_codeclimate(report: &Report, options: &RenderOptions, out: &mut dyn Write) -> io::Result<()> {
-    let mut seen: BTreeMap<[String; 6], usize> = BTreeMap::new();
+    let paths: Vec<String> = report
+        .diagnostics
+        .iter()
+        .map(|diagnostic| options.repo_path(&diagnostic.location.path))
+        .collect();
+    let mut seen: HashMap<[&str; 6], usize> = HashMap::default();
     let issues: Vec<Issue<'_>> = report
         .diagnostics
         .iter()
-        .map(|diagnostic| {
-            let path = options.repo_path(&diagnostic.location.path);
+        .zip(&paths)
+        .map(|(diagnostic, path)| {
             let rule = diagnostic.rule.as_str();
             // The occurrence counter is keyed on exactly the parts that are hashed, so it only tells apart
-            // diagnostics that would otherwise share a fingerprint.
+            // diagnostics that would otherwise share a fingerprint. The parts are borrowed: the report and `paths`
+            // outlive the counter.
             let identity = [
                 rule,
-                &path,
+                path.as_str(),
                 diagnostic.package.as_deref().unwrap_or_default(),
                 diagnostic.dependency.as_deref().unwrap_or_default(),
                 diagnostic.specifier.as_deref().unwrap_or_default(),
                 &diagnostic.message,
-            ]
-            .map(str::to_owned);
-            let occurrence = seen.entry(identity.clone()).or_insert(0);
-            let mut parts: Vec<&str> = identity.iter().map(String::as_str).collect();
+            ];
+            let occurrence = seen.entry(identity).or_insert(0);
             let index = occurrence.to_string();
-            parts.push(&index);
+            let mut parts = [""; 7];
+            parts[..6].copy_from_slice(&identity);
+            parts[6] = index.as_str();
             let fingerprint = fnv1a_128(&parts);
             *occurrence += 1;
             Issue {
@@ -96,7 +101,7 @@ pub fn render_codeclimate(report: &Report, options: &RenderOptions, out: &mut dy
                 fingerprint,
                 severity: severity(diagnostic.severity),
                 location: IssueLocation {
-                    path,
+                    path: path.as_str(),
                     lines: Lines {
                         begin: diagnostic.location.span.map_or(1, |span| span.start_line),
                     },
