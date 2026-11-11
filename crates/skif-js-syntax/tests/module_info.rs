@@ -1707,6 +1707,12 @@ fn custom_element_registrations_are_recorded_on_the_export() {
             vec![Registration::Define],
         ),
         (
+            "define spelled with an escape",
+            "export class A extends HTMLElement {}\ncustomElements.\\u0064efine('x-a', A);",
+            "A",
+            vec![Registration::Define],
+        ),
+        (
             "registry variable",
             "const r = new CustomElementRegistry();\nexport class A extends HTMLElement {}\nr.define('x-a', A);",
             "A",
