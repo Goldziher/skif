@@ -351,6 +351,31 @@ impl<'a> Visit<'a> for ImportSymbols<'a> {
     }
 }
 
+/// The symbols of the bindings of the imports of `info` in `program`. Most files bind names by top-level `import`
+/// declarations only, whose symbols the top-level statements give; any other binding needs the whole program walked.
+fn import_symbols<'a>(program: &oxc_ast::ast::Program<'a>, info: &ModuleInfo, base: u32) -> ImportSymbols<'a> {
+    let mut symbols = ImportSymbols::default();
+    for statement in &program.body {
+        if let oxc_ast::ast::Statement::ImportDeclaration(declaration) = statement {
+            symbols.visit_import_declaration(declaration);
+        }
+    }
+    let complete = info.imports.iter().all(|import| {
+        let start = import.span.start.saturating_sub(base);
+        import.names.iter().all(|name| {
+            name.local.as_deref().is_none_or(|local| {
+                matches!(import.kind, ImportKind::Static | ImportKind::TypeOnly)
+                    && symbols.found.contains_key(&(start, local))
+            })
+        })
+    });
+    if !complete {
+        symbols = ImportSymbols::default();
+        symbols.visit_program(program);
+    }
+    symbols
+}
+
 /// Fills `accessed_members` and `escapes` of every bound import name from uses in `program`.
 ///
 /// `excluded` holds the `(start, end)` spans of identifiers that mention a binding without using it; `base` is the
@@ -372,8 +397,7 @@ pub(crate) fn track(
     }
     // The semantic analysis sets the symbol ids the import bindings are matched by, so it runs first.
     let scoping = analysis.scoping();
-    let mut symbols = ImportSymbols::default();
-    symbols.visit_program(program);
+    let symbols = import_symbols(program, info, base);
     let mut slots = Slots::default();
     // The slot of each bound name, by the positions of its import and of the name in it.
     let mut assigned: Vec<(usize, usize, usize)> = Vec::new();
