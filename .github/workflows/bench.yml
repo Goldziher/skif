@@ -88,7 +88,8 @@ jobs:
           # ~keep that release's latest patch; the summary records the exact rustc.
           measured="$(bash scripts/msrv.sh measured/Cargo.toml)" ||
             { echo "::error::measured/Cargo.toml declares no rust-version"; exit 1; }
-          harness="$(bash scripts/msrv.sh Cargo.toml)" || { echo "::error::Cargo.toml declares no rust-version"; exit 1; }
+          harness="$(bash scripts/msrv.sh Cargo.toml)" ||
+            { echo "::error::Cargo.toml declares no rust-version"; exit 1; }
           sha="$(git -C measured rev-parse HEAD)"
           echo "Measuring ${sha} with Rust ${measured}; harness $(git rev-parse HEAD) with Rust ${harness}"
           {
