@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use serde_json::Value;
 use skif_config::{Config, PackageManager};
@@ -185,36 +185,59 @@ fn has_content(entry: &DirEntry) -> bool {
     })
 }
 
-fn load_member(fs: &dyn FileSystem, root: &Path, dir: &str, cache: &SpecifierCache) -> Member {
-    let manifest = root.join(dir).join(MANIFEST);
-    if !fs.is_file(&manifest) {
-        return if fs
-            .read_dir_shared(&root.join(dir))
-            .is_ok_and(|entries| entries.iter().any(has_content))
-        {
-            Member::NoManifest(PathBuf::from(dir))
-        } else {
-            Member::Empty
-        };
-    }
-    match fs.read_to_string(&manifest) {
-        Ok(text) => match Package::parse_with(PathBuf::from(dir), text, false, cache) {
-            Ok(package) => Member::Loaded(Box::new(package)),
-            Err(error) => Member::Failed(PathBuf::from(dir), error),
-        },
-        Err(error) => Member::Failed(PathBuf::from(dir), io_error(&manifest, error)),
+/// What loading one selected directory found: the member, and its lockfiles and `pnpm-workspace.yaml` files (see
+/// [`DiscoveryFacts::package_manager_files`]).
+struct Loaded {
+    member: Member,
+    package_manager_files: Vec<PathBuf>,
+}
+
+/// Loads the selected directory `dir`. The directory is listed first, once: the listing names its package-manager
+/// files, and a caching file system answers the manifest probe from it instead of with a `stat`.
+fn load_member(
+    fs: &dyn FileSystem,
+    root: &Path,
+    files: &ManagerFiles<'_>,
+    dir: &str,
+    cache: &SpecifierCache,
+) -> Loaded {
+    let absolute = root.join(dir);
+    let entries = fs.read_dir_shared(&absolute).ok();
+    let package_manager_files = entries
+        .as_deref()
+        .map(|entries| files.in_listing(entries))
+        .unwrap_or_default();
+    let manifest = absolute.join(MANIFEST);
+    let member = if fs.is_file(&manifest) {
+        match fs.read_to_string(&manifest) {
+            Ok(text) => match Package::parse_with(PathBuf::from(dir), text, false, cache) {
+                Ok(package) => Member::Loaded(Box::new(package)),
+                Err(error) => Member::Failed(PathBuf::from(dir), error),
+            },
+            Err(error) => Member::Failed(PathBuf::from(dir), io_error(&manifest, error)),
+        }
+    } else if entries.is_some_and(|entries| entries.iter().any(has_content)) {
+        Member::NoManifest(PathBuf::from(dir))
+    } else {
+        Member::Empty
+    };
+    Loaded {
+        member,
+        package_manager_files,
     }
 }
 
-/// The lockfiles and `pnpm-workspace.yaml` files of the root and of `dirs`, relative to the root and sorted, without
-/// those an ignore file excludes. A directory is listed once rather than probed per name.
-fn package_manager_files(fs: &dyn FileSystem, root: &Path, dirs: &[&String], sequential: bool) -> Vec<PathBuf> {
-    let mut scanned: Vec<PathBuf> = vec![root.to_path_buf()];
-    scanned.extend(dirs.iter().map(|dir| root.join(dir.as_str())));
-    let found: Vec<Vec<PathBuf>> = map_ordered(&scanned, sequential, |dir| {
-        let Ok(entries) = fs.read_dir_shared(dir) else {
-            return Vec::new();
-        };
+/// Finds the lockfiles and `pnpm-workspace.yaml` files in directory listings, without those an ignore file excludes.
+/// The ignore files above the root are read once, on the first file found, and shared by every directory.
+struct ManagerFiles<'a> {
+    fs: &'a dyn FileSystem,
+    root: &'a Path,
+    inherited: OnceLock<roots::Ignores>,
+}
+
+impl ManagerFiles<'_> {
+    /// The package-manager files of one listing, relative to the root.
+    fn in_listing(&self, entries: &[DirEntry]) -> Vec<PathBuf> {
         entries
             .iter()
             .filter(|entry| entry.is_file)
@@ -225,13 +248,21 @@ fn package_manager_files(fs: &dyn FileSystem, root: &Path, dirs: &[&String], seq
                     .and_then(|name| name.to_str())
                     .is_some_and(|name| name == PNPM_WORKSPACE || LOCKFILES.contains(&name))
             })
-            .filter(|entry| !roots::is_ignored_file(fs, root, &entry.path))
-            .filter_map(|entry| entry.path.strip_prefix(root).ok().map(Path::to_path_buf))
+            .filter(|entry| {
+                let inherited = self.inherited.get_or_init(|| roots::inherited_ignores(self.fs, self.root));
+                !roots::is_ignored_file(self.fs, self.root, inherited, &entry.path)
+            })
+            .filter_map(|entry| entry.path.strip_prefix(self.root).ok().map(Path::to_path_buf))
             .collect()
-    });
-    let mut files: Vec<PathBuf> = found.into_iter().flatten().collect();
-    files.sort();
-    files
+    }
+
+    /// The package-manager files of the root directory.
+    fn in_root(&self) -> Vec<PathBuf> {
+        self.fs
+            .read_dir_shared(self.root)
+            .map(|entries| self.in_listing(&entries))
+            .unwrap_or_default()
+    }
 }
 
 fn json_patterns(root_package: &Package) -> Option<Declared> {
@@ -550,27 +581,43 @@ impl Workspace {
                 file: declared.file.clone(),
             });
         }
-        let mut selected = candidates.clone();
+        // Each negation counts what it matches among all positive matches, also those an earlier negation removed.
+        let mut removed: BTreeSet<&str> = BTreeSet::new();
         for (index, matcher) in negations {
-            let hits: Vec<&String> = candidates
+            let hits: Vec<&str> = candidates
                 .iter()
-                .filter(|dir| matcher.is_match(dir.as_str()) && !literal_dirs.contains(dir.as_str()))
+                .map(String::as_str)
+                .filter(|dir| matcher.is_match(dir) && !literal_dirs.contains(*dir))
                 .collect();
             if let Some(fact) = facts.get_mut(index) {
                 fact.matched = hits.len();
             }
-            for dir in hits {
-                selected.remove(dir);
-            }
+            removed.extend(hits);
         }
 
-        let dirs: Vec<&String> = selected.iter().collect();
-        let members: Vec<Member> = map_ordered(&dirs, sequential, |dir| load_member(fs, &root, dir, &specifiers));
-        let package_manager_files = package_manager_files(fs, &root, &dirs, sequential);
+        let dirs: Vec<&str> = candidates
+            .iter()
+            .map(String::as_str)
+            .filter(|dir| !removed.contains(dir))
+            .collect();
+        let manager_files = ManagerFiles {
+            fs,
+            root: &root,
+            inherited: OnceLock::new(),
+        };
+        let loaded: Vec<Loaded> = map_ordered(&dirs, sequential, |dir| {
+            load_member(fs, &root, &manager_files, dir, &specifiers)
+        });
+        let mut package_manager_files = manager_files.in_root();
         let mut packages = Vec::new();
         let mut dirs_without_manifest = Vec::new();
         let mut failed_dirs = Vec::new();
-        for member in members {
+        for Loaded {
+            member,
+            package_manager_files: files,
+        } in loaded
+        {
+            package_manager_files.extend(files);
             match member {
                 Member::Loaded(package) => {
                     let id = PackageId::from_index(packages.len() + 1);
@@ -584,6 +631,7 @@ impl Workspace {
                 }
             }
         }
+        package_manager_files.sort();
         let ignore = &config.workspace.ignore_packages;
         let mut ignored: Vec<bool> = std::iter::once(&root_package)
             .chain(&packages)
