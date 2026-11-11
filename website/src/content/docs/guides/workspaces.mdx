@@ -41,7 +41,8 @@ First match wins:
 
 If nothing indicates a manager, skif does not guess npm. Rules and fixes that depend on the manager skip what
 would be wrong for some manager; an npm workspace never receives a `workspace:*` specifier, and neither does
-Yarn Classic (1.x), which has no `workspace:` protocol. Catalogs are read from the files of the active manager only: a
+Yarn Classic (1.x), which has no `workspace:` protocol. Both link a member through a range its version satisfies, so
+`local-path-dependency` replaces a path to a member with `*` there. Catalogs are read from the files of the active manager only: a
 stale `pnpm-workspace.yaml` in a Yarn repository declares none.
 
 ## Lockfile

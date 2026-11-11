@@ -222,6 +222,10 @@ All notable changes to this project are documented here. The format follows
   specifiers take no part in the version groups, so `local-path-dependency` gives the one fix a path gets
   ([ADR 0106](adrs/0106-path-specifiers-belong-to-local-path-dependency.md),
   [#153](https://github.com/Goldziher/skif/issues/153)).
+- `local-path-dependency` under Yarn Classic replaces a path to a workspace member with `*`, as under npm, instead of
+  offering no fix and calling the member a path outside the workspace; the help names the member
+  ([ADR 0106](adrs/0106-path-specifiers-belong-to-local-path-dependency.md),
+  [#160](https://github.com/Goldziher/skif/issues/160)).
 - **Config evaluation**: a conditional spread (`...(ci ? { … } : {})`) no longer leaves the package incomplete; every
   branch is read ([#108](https://github.com/Goldziher/skif/issues/108)). Members of known objects, destructured keys,
   `import.meta.resolve(x)`, `dirname(require.resolve('<pkg>/package.json'))` and `void 0 ?? x` are evaluated; a
