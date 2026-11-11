@@ -112,6 +112,7 @@ old one.
 | 0102 | [An Agent Skill Distributed From the Repository](0102-agent-skill-distributed-from-the-repository.md) | accepted |
 | 0103 | [One of Several Known Values in Config Evaluation, and the Scopes of Computed Reporters and Storybook Addons](0103-one-of-several-known-values-in-config-evaluation.md) | accepted |
 | 0104 | [Bun Workspace Semantics: Literal Members, Its Two Lockfiles, Nested Workspaces and Patches](0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md) | accepted |
+| 0106 | [Path Specifiers Belong to local-path-dependency, and Yarn Classic Links Members by Range](0106-path-specifiers-belong-to-local-path-dependency.md) | accepted |
 
 ## Effective statements
 
@@ -299,3 +300,5 @@ the lines below stay as written; this table says which record governs.
 | [0089](0089-stray-lockfiles-and-nested-workspace-roots.md), `stray-lockfile` | Bun reads `bun.lock` and `bun.lockb` at the root | [0104](0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md): a root `bun.lockb` next to a `bun.lock` is reported, because Bun ignores it |
 | [0089](0089-stray-lockfiles-and-nested-workspace-roots.md), `nested-workspace-root` | only a `pnpm-workspace.yaml` in a selected directory is reported | [0104](0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md): under Bun, a member that declares `workspaces` is reported too |
 | [0091](0091-stale-patched-dependencies.md), rule | the entries come from pnpm and the lockfile is `pnpm-lock.yaml` | [0104](0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md): under Bun, the top-level `patchedDependencies` are checked against `bun.lock` |
+| [0009](0009-version-and-catalog-policies.md), version-group states | every instance of a dependency takes part in its version group, as in syncpack | [0106](0106-path-specifiers-belong-to-local-path-dependency.md): a path specifier (`link:`, `file:`, `portal:`, `./`, `../`, `/`) takes part in no policy but `banned`; `local-path-dependency` owns it |
+| [0031](0031-core-rule-scoping-peer-overlap-catalog-sources-and-root-discovery-entry-point.md), `local-path-dependency` suggestion | the suggestion shares `Workspace::supports_workspace_protocol`, so Yarn Classic gets none | [0106](0106-path-specifiers-belong-to-local-path-dependency.md): under Yarn Classic, as under npm, a path to a member is replaced with `*` |
