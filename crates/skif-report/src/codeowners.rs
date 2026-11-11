@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::io::{self, Write};
+use std::path::Path;
 
 use skif_core::{Diagnostic, Report};
 
@@ -232,10 +233,21 @@ impl CodeOwners {
 pub fn render_codeowners(report: &Report, options: &RenderOptions, out: &mut dyn Write) -> io::Result<()> {
     let mut owned: BTreeMap<&str, Vec<&Diagnostic>> = BTreeMap::new();
     let mut unowned: Vec<&Diagnostic> = Vec::new();
+    // A report is sorted by path, so the diagnostics of one file follow each other and its owners are looked up
+    // once for them.
+    let mut last: Option<(&Path, &[String])> = None;
     for diagnostic in &report.diagnostics {
-        let owners = options.codeowners().map_or(&[][..], |codeowners| {
-            codeowners.owners(&options.repo_path(&diagnostic.location.path))
-        });
+        let path = diagnostic.location.path.as_path();
+        let owners = match last {
+            Some((last_path, owners)) if last_path.as_os_str() == path.as_os_str() => owners,
+            _ => {
+                let owners = options
+                    .codeowners()
+                    .map_or(&[][..], |codeowners| codeowners.owners(&options.repo_path(path)));
+                last = Some((path, owners));
+                owners
+            }
+        };
         if owners.is_empty() {
             unowned.push(diagnostic);
         }

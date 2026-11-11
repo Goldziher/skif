@@ -2,19 +2,32 @@
 
 use std::fmt::Write as _;
 use std::io::{self, Write};
+use std::path::Path;
 
 use skif_core::{Diagnostic, Report, Severity};
 
 use crate::options::RenderOptions;
 
-/// Escapes a message (the part after the final `::`).
-fn escape_data(value: &str) -> String {
-    value.replace('%', "%25").replace('\r', "%0D").replace('\n', "%0A")
-}
-
-/// Escapes a property value, which additionally may not contain `:` or `,`.
-fn escape_property(value: &str) -> String {
-    escape_data(value).replace(':', "%3A").replace(',', "%2C")
+/// Appends `value` escaped as a message (the part after the final `::`): `%`, `\r` and `\n`. A `property` value may
+/// not contain `:` or `,` either, so those are escaped too. One pass: no escape produces a character another
+/// escape rewrites.
+fn push_escaped(line: &mut String, value: &str, property: bool) {
+    let mut start = 0;
+    for (at, byte) in value.bytes().enumerate() {
+        let escape = match byte {
+            b'%' => "%25",
+            b'\r' => "%0D",
+            b'\n' => "%0A",
+            b':' if property => "%3A",
+            b',' if property => "%2C",
+            _ => continue,
+        };
+        // Every escaped character is ASCII, so `at` and `at + 1` are character boundaries.
+        line.push_str(&value[start..at]);
+        line.push_str(escape);
+        start = at + 1;
+    }
+    line.push_str(&value[start..]);
 }
 
 const fn command(severity: Severity) -> &'static str {
@@ -25,12 +38,12 @@ const fn command(severity: Severity) -> &'static str {
     }
 }
 
-fn annotation(diagnostic: &Diagnostic, options: &RenderOptions) -> String {
-    let mut line = format!(
-        "::{} file={}",
-        command(diagnostic.severity),
-        escape_property(&options.repo_path(&diagnostic.location.path))
-    );
+/// Appends the workflow command of `diagnostic`, whose `file` property is already escaped, and a newline.
+fn annotation(line: &mut String, diagnostic: &Diagnostic, file: &str) {
+    line.push_str("::");
+    line.push_str(command(diagnostic.severity));
+    line.push_str(" file=");
+    line.push_str(file);
     if let Some(span) = diagnostic.location.span {
         let _ = write!(
             line,
@@ -38,13 +51,11 @@ fn annotation(diagnostic: &Diagnostic, options: &RenderOptions) -> String {
             span.start_line, span.start_col, span.end_line, span.end_col
         );
     }
-    let _ = write!(
-        line,
-        ",title={}::{}",
-        escape_property(diagnostic.rule.as_str()),
-        escape_data(&diagnostic.message)
-    );
-    line
+    line.push_str(",title=");
+    push_escaped(line, diagnostic.rule.as_str(), true);
+    line.push_str("::");
+    push_escaped(line, &diagnostic.message, false);
+    line.push('\n');
 }
 
 fn count(n: usize, noun: &str) -> String {
@@ -63,8 +74,21 @@ const SHOWN_PER_LEVEL: usize = 10;
 ///
 /// Returns any error produced by writing to `out`.
 pub fn render_github(report: &Report, options: &RenderOptions, out: &mut dyn Write) -> io::Result<()> {
+    let mut line = String::new();
+    // A report is sorted by path, so the diagnostics of one file follow each other and its `file` property is
+    // worked out once for them.
+    let mut file: Option<(&Path, String)> = None;
     for diagnostic in &report.diagnostics {
-        writeln!(out, "{}", annotation(diagnostic, options))?;
+        let path = diagnostic.location.path.as_path();
+        if file.as_ref().is_none_or(|(last, _)| last.as_os_str() != path.as_os_str()) {
+            let mut escaped = String::new();
+            push_escaped(&mut escaped, &options.repo_path(path), true);
+            file = Some((path, escaped));
+        }
+        let escaped = file.as_ref().map_or("", |(_, escaped)| escaped.as_str());
+        line.clear();
+        annotation(&mut line, diagnostic, escaped);
+        out.write_all(line.as_bytes())?;
     }
     let summary = &report.summary;
     writeln!(
@@ -92,10 +116,26 @@ pub fn render_github(report: &Report, options: &RenderOptions, out: &mut dyn Wri
 mod tests {
     use super::*;
 
+    fn escaped(value: &str, property: bool) -> String {
+        let mut line = String::from("::");
+        push_escaped(&mut line, value, property);
+        line
+    }
+
     #[test]
     fn escaping_table() {
-        assert_eq!(escape_data("a%b\r\nc:d,e"), "a%25b%0D%0Ac:d,e");
-        assert_eq!(escape_property("a%b\r\nc:d,e"), "a%25b%0D%0Ac%3Ad%2Ce");
+        let cases = [
+            ("a%b\r\nc:d,e", false, "::a%25b%0D%0Ac:d,e"),
+            ("a%b\r\nc:d,e", true, "::a%25b%0D%0Ac%3Ad%2Ce"),
+            ("", true, "::"),
+            ("plain", true, "::plain"),
+            ("%%", false, "::%25%25"),
+            ("r\u{e9}act:\u{65e5}\n", true, "::r\u{e9}act%3A\u{65e5}%0A"),
+            (",:", false, "::,:"),
+        ];
+        for (value, property, expected) in cases {
+            assert_eq!(escaped(value, property), expected, "{value:?} {property}");
+        }
     }
 
     fn rendered(errors: usize) -> String {
