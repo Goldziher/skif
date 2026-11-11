@@ -29,6 +29,8 @@ use skif_lint::{
     Emitter, EnabledRules, LintContext, OptionsError, ProviderError, RuleProvider, RulesProvider, reject_options,
 };
 
+use crate::manifest::local_path_dependency;
+
 pub use inspect::{GroupRef, InstanceStatus, StatusType, inspect};
 pub use state::{BANNED_DEPENDENCY, INVALID_LOCAL_VERSION, POLICY_CONFLICT, SEMVER_RANGE_MISMATCH, VERSION_MISMATCH};
 
@@ -90,7 +92,15 @@ impl RuleProvider for PolicyProvider {
                 catalog::owned_dependencies(usages, cx.workspace, &cx.config.catalog)
             });
             instances.mark_catalog_owned(&owned);
-            let analysis = analysis::Analysis::from_instances(cx.workspace, cx.config, instances, cx.sequential);
+            // While `local-path-dependency` is on, it reports the paths of the dependency sections (ADR 0106).
+            let paths_reported_elsewhere = cx.enabled.contains(local_path_dependency::META.id);
+            let analysis = analysis::Analysis::from_instances(
+                cx.workspace,
+                cx.config,
+                instances,
+                paths_reported_elsewhere,
+                cx.sequential,
+            );
             report::emit(&analysis, cx.config_file(), out, cx.sequential);
         }
         if enabled.contains(BANNED_DEPENDENCY.id) {
