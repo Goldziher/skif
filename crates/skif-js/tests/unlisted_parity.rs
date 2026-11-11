@@ -107,6 +107,78 @@ fn a_node_modules_bin_path_names_no_package() {
     assert_eq!(found(&diagnostics, "unresolved-imports"), none());
 }
 
+/// `require.resolve('.bin/<name>')` before anything is installed finds a binary, not a module: it is never unresolved,
+/// and it uses the listed package that provides the binary.
+#[test]
+fn a_bin_path_before_the_install_uses_the_package_of_the_binary() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"codemod","version":"1.0.0","bin":{"codemod":"bin/transform.js"},"dependencies":{"execa":"9.0.0","jscodeshift":"17.0.0"}}"#,
+        ),
+        (
+            "bin/transform.js",
+            "const { execa } = require('execa');\nconst exe = require.resolve('.bin/jscodeshift');\nexeca(exe, ['-t', 'x']);\n",
+        ),
+    ]);
+    assert_eq!(found(&diagnostics, "unresolved-imports"), none());
+    assert_eq!(found(&diagnostics, "unlisted-dependencies"), none());
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none());
+}
+
+/// A `.bin/<name>` lookup that no listed dependency provides is an unlisted binary at the file, as a command that runs
+/// it is, and still not an unresolved import.
+#[test]
+fn a_bin_path_no_dependency_provides_is_an_unlisted_binary() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"codemod","version":"1.0.0","bin":{"codemod":"bin/transform.js"},"dependencies":{"jscodeshift":"17.0.0"}}"#,
+        ),
+        (
+            "bin/transform.js",
+            "exports.shift = require.resolve('.bin/jscodeshift');\nexports.nope = require.resolve('.bin/nope');\n",
+        ),
+    ]);
+    assert_eq!(found(&diagnostics, "unlisted-binaries"), ["bin/transform.js: nope"]);
+    assert_eq!(found(&diagnostics, "unresolved-imports"), none());
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none());
+}
+
+/// `import.meta.resolve('.bin/<name>')` and `require.resolve('node_modules/.bin/<name>')` name the binary too: each
+/// uses the installed package whose manifest provides it, whatever that package is called.
+#[test]
+fn bin_paths_use_the_installed_package_that_provides_the_binary() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"codemod","version":"1.0.0","main":"index.js","dependencies":{"lint-kit":"1.0.0","shift-kit":"1.0.0"}}"#,
+        ),
+        (
+            "index.js",
+            "exports.lint = require.resolve('node_modules/.bin/lintx');\nexports.esm = import('./esm.mjs');\n",
+        ),
+        ("esm.mjs", "export const shift = import.meta.resolve('.bin/shift');\n"),
+        (
+            "node_modules/.bin/shift",
+            "#!/bin/sh\nexec node \"$basedir/../shift-kit/cli.js\" \"$@\"\n",
+        ),
+        (
+            "node_modules/shift-kit/package.json",
+            r#"{"name":"shift-kit","version":"1.0.0","bin":{"shift":"cli.js"}}"#,
+        ),
+        ("node_modules/shift-kit/cli.js", "#!/usr/bin/env node\n"),
+        (
+            "node_modules/lint-kit/package.json",
+            r#"{"name":"lint-kit","version":"1.0.0","bin":{"lintx":"cli.js"}}"#,
+        ),
+        ("node_modules/lint-kit/cli.js", "#!/usr/bin/env node\n"),
+    ]);
+    assert_eq!(found(&diagnostics, "unresolved-imports"), none());
+    assert_eq!(found(&diagnostics, "unlisted-dependencies"), none());
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none());
+}
+
 /// A bare `@import` in a plain stylesheet names the file beside it when one matches (`postcss-import` and the CSS URL
 /// rules look there first), and a package otherwise.
 #[test]

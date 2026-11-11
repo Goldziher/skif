@@ -263,6 +263,40 @@ fn the_root_workspace_key_configures_the_root_package() {
     assert_eq!(found(&configured, "unused-dependencies"), none());
 }
 
+/// A file of the root that a package adopts through `rootDirs` keeps the `ignore` globs of the root: a command it runs
+/// is not read once the root ignores the output tree.
+#[test]
+fn files_adopted_through_root_dirs_keep_the_ignore_globs_of_the_root() {
+    let files = [
+        MANIFEST,
+        (".gitignore", "bazel-bin\n"),
+        (
+            "packages/app/package.json",
+            r#"{"name":"@x/app","version":"1.0.0","main":"src/index.ts"}"#,
+        ),
+        (
+            "packages/app/tsconfig.json",
+            r#"{"compilerOptions":{"rootDirs":[".","../../bazel-bin/packages/app"]}}"#,
+        ),
+        (
+            "packages/app/src/index.ts",
+            "import { run } from './gen/run.js';\nexport const r = run;\n",
+        ),
+        (
+            "bazel-bin/packages/app/src/gen/run.js",
+            "import { execSync } from 'node:child_process';\nexport const run = () => execSync('gen-tool --all');\n",
+        ),
+    ];
+    let plain = lint(&files, "");
+    assert_eq!(
+        paths(&plain, "unlisted-binaries"),
+        ["bazel-bin/packages/app/src/gen/run.js"],
+        "{plain:#?}"
+    );
+    let ignored = lint(&files, "[js.workspaces.\".\"]\nignore = [\"bazel-bin/**\"]\n");
+    assert_eq!(found(&ignored, "unlisted-binaries"), none(), "{ignored:#?}");
+}
+
 #[test]
 fn paths_resolve_aliases_for_one_workspace() {
     let files = two_packages("import { x } from \"@lib/util\";\nexport const y = x;\n");
