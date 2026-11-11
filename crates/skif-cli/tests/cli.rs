@@ -540,7 +540,10 @@ fn bazel_run_leaves_absolute_paths_alone() {
     assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
     let written: Value = serde_json::from_str(&fs::read_to_string(&report).unwrap()).unwrap();
     assert_eq!(written, direct.json());
-    assert!(tree(working.path()).is_empty(), "files leaked into the working directory");
+    assert!(
+        tree(working.path()).is_empty(),
+        "files leaked into the working directory"
+    );
     assert!(tree(runfiles.path()).is_empty(), "files leaked into the runfiles tree");
 }
 

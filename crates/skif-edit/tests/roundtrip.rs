@@ -145,7 +145,11 @@ impl MixedWriter<'_> {
         }
         let inner = self.layout.unit.repeat(depth + 1);
         let body: Vec<String> = members.iter().map(|member| format!("{inner}{member}")).collect();
-        format!("{open}\n{}\n{}{close}", body.join(",\n"), self.layout.unit.repeat(depth))
+        format!(
+            "{open}\n{}\n{}{close}",
+            body.join(",\n"),
+            self.layout.unit.repeat(depth)
+        )
     }
 }
 
@@ -376,7 +380,7 @@ proptest! {
             _ => path.split_last().map(|(_, parent)| parent),
         };
         let replaced = matches!(action, JsonAction::Set(_)) && !path.is_empty() && on_one_line(&path);
-        let stays = replaced || holder.is_some_and(&on_one_line);
+        let stays = replaced || holder.is_some_and(on_one_line);
         let expected = reference(&doc, &path, &action);
         let op = FixOp::json("package.json", path, action);
 
