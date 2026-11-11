@@ -170,9 +170,9 @@ export function provenance(summary) {
 export function benchDetail(summary) {
   const lines = [provenance(summary), ""];
   for (const target of summary.targets) {
+    lines.push(`**${target.target}**`, "");
+    if (target.installed_with != null) lines.push(`Installed with \`${target.installed_with}\`.`, "");
     lines.push(
-      `**${target.target}**`,
-      "",
       "| Tool | Mean (ms) | Median (ms) | vs skif |",
       "| --- | ---: | ---: | ---: |",
     );

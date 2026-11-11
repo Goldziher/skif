@@ -28,12 +28,15 @@ ADR checks), `summary.json` (schema 3: skif version, the commit of the skif sour
 flag (`--skif-source`, else the harness's own checkout) and the harness's commit, the machine record, the toolchain, the
 load average before and after the run, hyperfine version, each comparison tool's `--version`, the corpus repositories
 of an `--only` run, every target with mean, stddev, median, min and max in ms and the number of runs that exited with
-an error, the skipped tools and the checks), and one raw hyperfine export per target under `raw/`. The machine record
+an error, and for an installed corpus repository `installed_with`, the package manager and the `--version` it reports
+in the checkout (where corepack resolves the repository's `packageManager`) or the repository's `install-command`, the
+skipped tools and the checks), and one raw hyperfine export per target under `raw/`. The machine record
 holds the operating system (`PRETTY_NAME` of `/etc/os-release`, `sw_vers` on macOS), the kernel (`uname -sr`), the
 architecture, the CPU model (`/proc/cpuinfo`, `lscpu` for Arm, `sysctl` on macOS), the logical CPUs, those the process
 may use and the physical cores, the total memory, the cgroup CPU limit, the hypervisor, and in a GitHub Actions job the
 runner image (`ImageOS`, `ImageVersion`), `RUNNER_OS`, `RUNNER_ARCH`, `RUNNER_ENVIRONMENT`, `RUNNER_NAME` and the URL
-of the run; the toolchain holds the `--version` of `rustc`, `node`, `npm`, `pnpm`, `yarn` and `bun` on `PATH`. A fact
+of the run; the toolchain holds the `--version` of `rustc`, `node`, `npm`, `pnpm`, `yarn` and `bun` on `PATH`, probed
+in a directory without a `package.json` (so a corepack shim reports its default, not a corpus repository's version). A fact
 that cannot be read is `null`. `--only NAME,...` times only those repositories of the bench corpus. `run` exits non-zero when an ADR 0001 check fails, after
 writing the summary; `--no-enforce` turns that off. A tool that exits with a status above 1 (knip's exit code when it
 fails or cannot load a configuration file) is noted under its table and in the knip check, since its time may be that of

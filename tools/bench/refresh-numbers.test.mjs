@@ -90,6 +90,7 @@ function summary() {
         kind: "corpus",
         packages: null,
         files: null,
+        installed_with: "yarn 4.10.3",
         results: [
           row("skif", 884),
           row("skif --no-js", 9.4),
@@ -209,8 +210,10 @@ test("the compact tables use medians and the knip to skif ratio", () => {
   assert.match(text, /knip exited with an error status on babel:/);
 });
 
-test("the detail tables print no ratio for the skif rows", () => {
+test("the detail tables print no ratio for the skif rows and name what installed a corpus repository", () => {
   const text = benchDetail(summary());
+  assert.match(text, /\*\*corpus: babel \(yarn\)\*\*\n\nInstalled with `yarn 4\.10\.3`\.\n\n\| Tool \|/);
+  assert.match(text, /\*\*generated: 500 packages \(pnpm\)\*\*\n\n\| Tool \|/);
   assert.match(text, /\| skif --no-js \| 9\.4 \| 9\.4 \| - \|/);
   assert.match(text, /\| knip --reporter json \| 7200 \| 7200 \| 8\.1x \|/);
   assert.match(text, /knip --reporter json exited with an error in 15 of 15 runs/);

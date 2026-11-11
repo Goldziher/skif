@@ -146,7 +146,7 @@ pub fn machine() -> Machine {
 /// Reads the toolchain versions, running each probe in `scratch` (a directory without a `package.json`, so a corepack
 /// shim reports its default version rather than a project's).
 pub fn toolchain(scratch: &Path) -> Toolchain {
-    let version = |program: &str| version_of(program, scratch);
+    let version = |program: &str| version_in(program, scratch, scratch);
     Toolchain {
         rustc: version("rustc"),
         node: version("node"),
@@ -157,13 +157,14 @@ pub fn toolchain(scratch: &Path) -> Toolchain {
     }
 }
 
-/// The first line of `program --version`, or `None` when the program is not on `PATH` or fails.
-fn version_of(program: &str, scratch: &Path) -> Option<String> {
+/// The first line of `program --version` run in `dir` (where a corepack shim resolves the project's `packageManager`),
+/// with its output captured in `scratch`; `None` when the program is not on `PATH` or fails.
+pub fn version_in(program: &str, dir: &Path, scratch: &Path) -> Option<String> {
     find_on_path(program)?;
     let run = capture(
         Command::new(program)
             .arg("--version")
-            .current_dir(scratch)
+            .current_dir(dir)
             .env("COREPACK_ENABLE_DOWNLOAD_PROMPT", "0"),
         scratch,
         &format!("version-{program}"),
