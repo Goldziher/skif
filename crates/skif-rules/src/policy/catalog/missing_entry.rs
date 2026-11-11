@@ -89,7 +89,8 @@ mod tests {
         let app = format!(r#"{{"name":"app","version":"1.0.0","private":true,{LODASH}}}"#);
         let lib = format!(r#"{{"name":"lib","version":"1.0.0","private":true,{LODASH}}}"#);
         let pnpm_root = r#"{"name":"root","version":"0.0.0","private":true,"packageManager":"pnpm@10.0.0"}"#;
-        let pnpm_yaml = "packages: [\"packages/*\"]\ncatalog: { react: ^19.0.0 }\ncatalogs: { legacy: { react: ^18.0.0 } }\n";
+        let pnpm_yaml =
+            "packages: [\"packages/*\"]\ncatalog: { react: ^19.0.0 }\ncatalogs: { legacy: { react: ^18.0.0 } }\n";
         let bun_root = r#"{"name":"root","version":"0.0.0","private":true,"packageManager":"bun@1.2.0","workspaces":{"packages":["packages/*"],"catalog":{"react":"^19.0.0"},"catalogs":{"legacy":{"react":"^18.0.0"}}}}"#;
         let members = [
             ("packages/app/package.json", app.as_str()),
@@ -105,7 +106,14 @@ mod tests {
             let diagnostics = lint(META.id, &files, &enforce);
             let found: Vec<(Option<&str>, &str, Option<&str>, bool)> = diagnostics
                 .iter()
-                .map(|d| (d.package.as_deref(), d.message.as_str(), d.detail.as_deref(), d.is_fixable()))
+                .map(|d| {
+                    (
+                        d.package.as_deref(),
+                        d.message.as_str(),
+                        d.detail.as_deref(),
+                        d.is_fixable(),
+                    )
+                })
                 .collect();
             let expected = (
                 "no catalog holds `lodash`; more than one could",

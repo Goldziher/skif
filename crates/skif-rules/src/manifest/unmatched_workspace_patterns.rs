@@ -140,16 +140,27 @@ mod tests {
             ("bun", vec![("package.json", bun.as_str()), member, shared]),
             (
                 "pnpm",
-                vec![("package.json", pnpm_root), ("pnpm-workspace.yaml", pnpm_yaml), member, shared],
+                vec![
+                    ("package.json", pnpm_root),
+                    ("pnpm-workspace.yaml", pnpm_yaml),
+                    member,
+                    shared,
+                ],
             ),
         ];
         for (manager, files) in cases {
-            assert_eq!(lint(META.id, &files, &config("")), [] as [skif_core::Diagnostic; 0], "{manager}");
+            assert_eq!(
+                lint(META.id, &files, &config("")),
+                [] as [skif_core::Diagnostic; 0],
+                "{manager}"
+            );
             let invalid = lint(crate::manifest::invalid_workspace_file::META.id, &files, &config(""));
             let messages: Vec<&str> = invalid.iter().map(|d| d.message.as_str()).collect();
             assert_eq!(
                 messages,
-                ["workspace pattern `../shared` cannot be used: `..` would select directories outside the workspace root"],
+                [
+                    "workspace pattern `../shared` cannot be used: `..` would select directories outside the workspace root"
+                ],
                 "{manager}"
             );
             assert!(!invalid[0].is_fixable(), "{manager}");

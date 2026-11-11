@@ -429,7 +429,7 @@ A `patchedDependencies` entry no longer applies, names a missing file or lies ou
 
 ## stray-lockfile
 
-A lockfile other than the root lockfile of the package manager: one in a workspace member, another manager's at the root, or Bun's `bun.lockb` next to the `bun.lock` Bun reads.
+A lockfile other than the root lockfile of the package manager: one in a workspace member, another manager's at the root, or one its manager ignores next to the one it reads (Bun's `bun.lockb` beside `bun.lock`, npm's `package-lock.json` beside `npm-shrinkwrap.json`).
 
 - Category: workspace
 - Default severity: warning

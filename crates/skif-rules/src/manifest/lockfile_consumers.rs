@@ -28,7 +28,9 @@ const BUILD_FILES: [&str; 2] = ["BUILD", "BUILD.bazel"];
 fn is_bazel_file(name: &str) -> bool {
     BAZEL_ROOT_FILES.contains(&name)
         || BUILD_FILES.contains(&name)
-        || name.rsplit_once('.').is_some_and(|(stem, extension)| !stem.is_empty() && extension == "bzl")
+        || name
+            .rsplit_once('.')
+            .is_some_and(|(stem, extension)| !stem.is_empty() && extension == "bzl")
 }
 
 /// The directory of a root-relative `/`-separated path, `""` at the root.
@@ -210,14 +212,28 @@ mod tests {
 
     #[test]
     fn a_build_file_lists_lockfiles_of_its_own_directory() {
-        assert_eq!(listed_lockfile("libs/a", "pnpm-lock.yaml").as_deref(), Some("libs/a/pnpm-lock.yaml"));
-        assert_eq!(listed_lockfile("libs/a", ":yarn.lock").as_deref(), Some("libs/a/yarn.lock"));
+        assert_eq!(
+            listed_lockfile("libs/a", "pnpm-lock.yaml").as_deref(),
+            Some("libs/a/pnpm-lock.yaml")
+        );
+        assert_eq!(
+            listed_lockfile("libs/a", ":yarn.lock").as_deref(),
+            Some("libs/a/yarn.lock")
+        );
         assert_eq!(listed_lockfile("libs/a", "src/index.ts"), None);
     }
 
     #[test]
     fn bazel_files_are_recognised_by_name() {
-        for name in ["MODULE.bazel", "REPO.bazel", "WORKSPACE", "WORKSPACE.bazel", "BUILD", "BUILD.bazel", "deps.bzl"] {
+        for name in [
+            "MODULE.bazel",
+            "REPO.bazel",
+            "WORKSPACE",
+            "WORKSPACE.bazel",
+            "BUILD",
+            "BUILD.bazel",
+            "deps.bzl",
+        ] {
             assert!(is_bazel_file(name), "{name}");
         }
         for name in [".bzl", "BUILD.md", "module.bazel", "package.json"] {
@@ -244,7 +260,11 @@ mod tests {
     fn a_dockerfile_copies_a_lockfile_of_its_own_directory() {
         let sources = |list: &[&str]| list.iter().map(|source| (*source).to_owned()).collect::<Vec<_>>();
         let lockfile = "apps/web/pnpm-lock.yaml";
-        assert!(copies("apps/web/Dockerfile", &sources(&["package.json", "pnpm-lock.yaml"]), lockfile));
+        assert!(copies(
+            "apps/web/Dockerfile",
+            &sources(&["package.json", "pnpm-lock.yaml"]),
+            lockfile
+        ));
         assert!(copies("apps/web/Dockerfile", &sources(&["./pnpm-lock.yaml"]), lockfile));
         assert!(copies("apps/web/Dockerfile", &sources(&["pnpm-lock.yaml*"]), lockfile));
         assert!(!copies("apps/web/Dockerfile", &sources(&["."]), lockfile));
