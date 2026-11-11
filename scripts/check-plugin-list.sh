@@ -8,8 +8,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-defined="$(grep -hoE '^[[:space:]]+id: "[a-z0-9-]+"' crates/skif-js-plugins/src/plugins/*.rs |
-  sed -E 's/^[[:space:]]+id: "(.*)"$/\1/' | sort || true)"
+# A plugin names its id inline (`id: "vite",`) or through its `ID` constant (`pub const ID: ... = "vite";`).
+defined="$(grep -hoE '^([[:space:]]+id: |pub const ID: [A-Za-z:]+ = )"[a-z0-9-]+"' crates/skif-js-plugins/src/plugins/*.rs |
+  sed -E 's/^.*"([a-z0-9-]+)"$/\1/' | sort -u || true)"
 if [[ -z "$defined" ]]; then
   echo "::error::no plugin ids found under crates/skif-js-plugins/src/plugins" >&2
   exit 1
