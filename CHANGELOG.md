@@ -215,6 +215,19 @@ All notable changes to this project are documented here. The format follows
 - `skif migrate`: sherif migrations write `[policy] dependency-types = ["prod", "dev"]`; syncpack format keys turn on
   `package-json-format` and `unsorted-dependencies` only when a script runs `syncpack format`; and syncpack's
   `policy: catalog` becomes `[catalog] mode = "enforce"` with `min-packages = 1`.
+- **Supported versions and CI**: the newest Yarn Classic 1.x is supported and tested, no longer untested legacy input
+  ([ADR 0105](adrs/0105-yarn-classic-support-and-the-end-to-end-matrix-of-linkers-and-operating-systems.md)). The
+  end-to-end job runs every scenario under every linker of its manager (pnpm isolated and hoisted, Yarn 2+ Plug'n'Play,
+  `node-modules` and `pnpm`, Bun default, hoisted and isolated), checks that the install produced that layout, and
+  runs the newest slot of npm, pnpm, Yarn 2+, Yarn Classic and Bun on Linux, macOS and Windows; the previous majors
+  run on Linux. The scenarios are shared across managers in `fixtures/e2e` and cover catalogs, `-r` over nested and
+  standalone roots, JS analysis against the installed layout, `skif baseline`, `skif migrate` and toolchain pins. Each
+  root pins `packageManager` to the version under test, which the previous-major jobs of pnpm and Yarn did not: they
+  ran the release the fixtures pinned. The analysis scenario runs a member's binary with the manager under each
+  linker, so which layouts provide it is proven, and an expectation that records a skif bug names its issue and is
+  printed as a known issue (pnpm's hoisted linker, [#146](https://github.com/Goldziher/skif/issues/146)).
+  `scripts/test-e2e-scripts.sh` tests the scenario generator, the version resolution and the shape of every
+  scenario's expectation.
 
 ### Fixed
 
