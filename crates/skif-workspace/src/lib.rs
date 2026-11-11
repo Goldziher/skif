@@ -46,7 +46,7 @@ pub use parallel::{join, map_ordered};
 pub use pnpm::YamlSource;
 pub use roots::{
     Candidates, DiscoverOptions, RootKind, claim_roots, declared_member_dirs, declares_workspace, repository_root,
-    scan_candidates,
+    scan_candidates, scan_files,
 };
 pub use skif_config::PackageManager;
 pub use skif_core::{DependencyKind, DirEntry, FileSystem, MemoryFs, OsFs};
