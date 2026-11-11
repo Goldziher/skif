@@ -34,7 +34,8 @@ while IFS= read -r line; do
 done < <(gh run view "$run_id" --repo "$repo" --json workflowName,event,conclusion,headSha,headBranch \
   --jq '.workflowName, .event, (.conclusion // ""), .headSha, .headBranch')
 [[ ${#fields[@]} -eq 5 ]] || refuse "gh run view did not describe the run"
-workflow="${fields[0]}" event="${fields[1]}" conclusion="${fields[2]}" head_sha="${fields[3]}" head_branch="${fields[4]}"
+workflow="${fields[0]}" event="${fields[1]}" conclusion="${fields[2]}"
+head_sha="${fields[3]}" head_branch="${fields[4]}"
 [[ "$workflow" == bench ]] || refuse "it is a run of the ${workflow} workflow, not of bench"
 [[ "$event" == workflow_dispatch ]] || refuse "it was triggered by ${event}, not workflow_dispatch"
 [[ "$conclusion" == success ]] || refuse "it concluded ${conclusion:-nothing yet}, not success"

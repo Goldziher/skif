@@ -64,8 +64,8 @@ pub struct Machine {
     pub physical_cores: Option<usize>,
     /// `MemTotal` of `/proc/meminfo`, `hw.memsize` on macOS.
     pub memory_bytes: Option<u64>,
-    /// The CPUs the process's cgroup may use: the smallest `cpu.max` quota over period of its cgroup and every ancestor;
-    /// `None` without a limit.
+    /// The CPUs the process's cgroup may use: the smallest `cpu.max` quota over period of its cgroup and every
+    /// ancestor; `None` without a limit.
     pub cgroup_cpu_limit: Option<f64>,
     /// The hypervisor: `lscpu`'s `Hypervisor vendor`, else `systemd-detect-virt`; `virtual machine` on macOS when
     /// `kern.hv_vmm_present` is set.
