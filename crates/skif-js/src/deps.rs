@@ -636,10 +636,12 @@ fn declared_typescript_major(workspace: &Workspace, package: &Package) -> Option
     };
     let peer = typescript(false).next().is_none();
     typescript(peer)
-        .filter_map(|entry| match workspace.catalogs.resolve(&entry.name, &entry.specifier) {
-            Some(version) => lowest_major(&Specifier::new(version)),
-            None => lowest_major(&entry.parsed),
-        })
+        .filter_map(
+            |entry| match workspace.catalogs.resolve(&entry.name, &entry.specifier) {
+                Some(version) => lowest_major(&Specifier::new(version)),
+                None => lowest_major(&entry.parsed),
+            },
+        )
         .min()
 }
 

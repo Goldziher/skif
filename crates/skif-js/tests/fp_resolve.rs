@@ -513,16 +513,25 @@ fn a_member_without_typescript_follows_the_typescript_of_the_workspace_root() {
 fn a_typescript_range_is_read_by_the_lowest_version_it_admits() {
     // An upper bound alone admits versions below 6; a compound range is read by its lowest version.
     for range in ["<6", "<6.0.0", "<=5.9.3", ">=5 <7", "^5 || ^6", ">5.9.3 <6"] {
-        assert_eq!(unused_types(range, None, PLAIN_TSCONFIG), Vec::<String>::new(), "{range}");
+        assert_eq!(
+            unused_types(range, None, PLAIN_TSCONFIG),
+            Vec::<String>::new(),
+            "{range}"
+        );
     }
     for range in [">=6 <8", "^6 || ^7", ">6.0.0 <7", "6.1.0-dev.20261101"] {
-        assert_eq!(unused_types(range, None, PLAIN_TSCONFIG), strings(&["@types/chrome"]), "{range}");
+        assert_eq!(
+            unused_types(range, None, PLAIN_TSCONFIG),
+            strings(&["@types/chrome"]),
+            "{range}"
+        );
     }
 }
 
 #[test]
 fn a_catalog_typescript_range_is_read_from_the_workspace_catalogs() {
-    let catalogs = "packages:\n  - packages/*\ncatalog:\n  typescript: ^6.0.0\ncatalogs:\n  legacy:\n    typescript: ~5.9.0\n";
+    let catalogs =
+        "packages:\n  - packages/*\ncatalog:\n  typescript: ^6.0.0\ncatalogs:\n  legacy:\n    typescript: ~5.9.0\n";
     for (specifier, expected) in [
         ("catalog:", strings(&["@types/chrome"])),
         ("catalog:default", strings(&["@types/chrome"])),
@@ -576,14 +585,23 @@ fn a_solution_tsconfig_is_judged_by_the_configs_it_references() {
         ("^6.0.0", solution, node_only, strings(&["@types/chrome"])),
         // A referenced config without `types` follows the version.
         ("^5.4.0", narrowing_solution, PLAIN_TSCONFIG, Vec::new()),
-        ("^6.0.0", narrowing_solution, PLAIN_TSCONFIG, strings(&["@types/chrome"])),
+        (
+            "^6.0.0",
+            narrowing_solution,
+            PLAIN_TSCONFIG,
+            strings(&["@types/chrome"]),
+        ),
     ] {
         let configs = [
             ("tsconfig.json", tsconfig),
             ("tsconfig.app.json", app),
             ("tools/tsconfig.json", node_only),
         ];
-        assert_eq!(unused_types_among(range, &configs), expected, "{range} {tsconfig} {app}");
+        assert_eq!(
+            unused_types_among(range, &configs),
+            expected,
+            "{range} {tsconfig} {app}"
+        );
     }
     // A config referenced by its directory counts too.
     let configs = [
@@ -660,9 +678,21 @@ const TYPES_NONE: &str = r#"{"compilerOptions":{"types":[]}}"#;
 fn the_types_option_of_a_config_replaces_the_one_it_extends() {
     let chrome = strings(&["@types/chrome"]);
     for (tsconfig, base, expected) in [
-        (r#"{"extends":"./base.json","compilerOptions":{"types":["*"]}}"#, TYPES_NONE, vec![]),
-        (r#"{"extends":"./base.json","compilerOptions":{"types":[]}}"#, TYPES_EVERY, chrome.clone()),
-        (r#"{"extends":"./base.json","compilerOptions":{"types":["node"]}}"#, TYPES_EVERY, chrome.clone()),
+        (
+            r#"{"extends":"./base.json","compilerOptions":{"types":["*"]}}"#,
+            TYPES_NONE,
+            vec![],
+        ),
+        (
+            r#"{"extends":"./base.json","compilerOptions":{"types":[]}}"#,
+            TYPES_EVERY,
+            chrome.clone(),
+        ),
+        (
+            r#"{"extends":"./base.json","compilerOptions":{"types":["node"]}}"#,
+            TYPES_EVERY,
+            chrome.clone(),
+        ),
         (r#"{"extends":"./base.json"}"#, TYPES_NONE, chrome.clone()),
     ] {
         assert_eq!(
