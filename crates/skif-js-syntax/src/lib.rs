@@ -210,7 +210,7 @@ fn parse_block_in(
     finder::Finder::new(&ctx, &mut info, &ret.program).visit_program(&ret.program);
     info.imports.sort_by_key(|i| i.span.start);
     // One semantic analysis serves every pass below that needs scopes; it is built only if one does.
-    let analysis = semantic::Analysis::new(&ret.program, options.in_file_references);
+    let analysis = semantic::Analysis::new(&ret.program);
     if options.member_accesses {
         let excluded: HashSet<(u32, u32)> = collected.reexport_spans.iter().copied().collect();
         members::track(&ret.program, &analysis, &mut info, &excluded, base);
@@ -219,7 +219,7 @@ fn parse_block_in(
         }
     }
     if options.in_file_references {
-        mark_in_file_references(&analysis, &collected.export_clause_spans, &mut info);
+        mark_in_file_references(&ret.program, &analysis, &collected.export_clause_spans, &mut info);
         signature_refs::mark(&ret.program, &mut info);
         members::mark_local_reads(&ret.program, &analysis, &mut info);
     }
@@ -390,25 +390,27 @@ fn add_style_and_source_imports(info: &mut ModuleInfo, blocks: &sfc::Blocks, sou
     info.imports.sort_by_key(|import| import.span.start);
 }
 
-fn mark_in_file_references(analysis: &semantic::Analysis<'_>, excluded: &[oxc_span::Span], info: &mut ModuleInfo) {
-    let wanted: HashSet<String> = info
+fn mark_in_file_references(
+    program: &oxc_ast::ast::Program<'_>,
+    analysis: &semantic::Analysis<'_>,
+    excluded: &[oxc_span::Span],
+    info: &mut ModuleInfo,
+) {
+    let local = |export: &Export| {
+        !matches!(
+            export.kind,
+            ExportKind::ReExport | ExportKind::StarReExport | ExportKind::Default
+        )
+    };
+    let wanted: HashSet<&str> = info
         .exports
         .iter()
-        .filter(|e| {
-            !matches!(
-                e.kind,
-                ExportKind::ReExport | ExportKind::StarReExport | ExportKind::Default
-            )
-        })
-        .filter_map(|e| e.local_name.clone())
+        .filter(|e| local(e))
+        .filter_map(|e| e.local_name.as_deref())
         .collect();
-    let referenced = semantic::referenced_locals(analysis, &wanted, excluded);
+    let referenced = semantic::referenced_locals(program, analysis, &wanted, excluded);
     for export in &mut info.exports {
-        let used = export.local_name.as_ref().is_some_and(|l| referenced.contains(l))
-            && !matches!(
-                export.kind,
-                ExportKind::ReExport | ExportKind::StarReExport | ExportKind::Default
-            );
+        let used = local(export) && export.local_name.as_deref().is_some_and(|l| referenced.contains(l));
         export.referenced_in_file = used;
         if used {
             info.in_file_references.push(export.name.clone());

@@ -549,6 +549,41 @@ fn in_file_references() {
 }
 
 #[test]
+fn export_clauses_are_no_in_file_references_but_other_mentions_are() {
+    let cases: &[(&str, &str, &[(&str, bool)])] = &[
+        (
+            "clause only",
+            "export const a = 1;\nexport { a as b };\n",
+            &[("a", false), ("b", false)],
+        ),
+        (
+            "clause and a read",
+            "export const a = 1;\nexport { a as b };\nconsole.log(a);\n",
+            &[("a", true), ("b", true)],
+        ),
+        (
+            "default export of a binding",
+            "export const a = 1;\nexport default a;\n",
+            &[("a", false), ("default", false)],
+        ),
+        (
+            "default export and a read in another export",
+            "export function f() { return 1; }\nexport default f;\nexport const g = () => f();\n",
+            &[("f", true), ("default", false), ("g", false)],
+        ),
+    ];
+    for (label, source, expected) in cases {
+        let info = parse("a.ts", source);
+        let flags: Vec<(&str, bool)> = info
+            .exports
+            .iter()
+            .map(|e| (e.name.as_str(), e.referenced_in_file))
+            .collect();
+        assert_eq!(flags, *expected, "{label}");
+    }
+}
+
+#[test]
 fn in_file_references_can_be_disabled() {
     let options = ParseOptions {
         in_file_references: false,
