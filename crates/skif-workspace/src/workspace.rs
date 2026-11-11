@@ -374,6 +374,7 @@ impl Workspace {
                     line_index,
                     overrides: parsed.overrides.clone(),
                     minimum_release_age: parsed.minimum_release_age,
+                    node_linker: parsed.node_linker.clone(),
                 }),
                 Some(parsed),
             )
@@ -485,6 +486,7 @@ impl Workspace {
                 source: text,
                 overrides: Vec::new(),
                 minimum_release_age: None,
+                node_linker: None,
             });
             (source, catalogs)
         } else {
