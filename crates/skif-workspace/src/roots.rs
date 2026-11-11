@@ -158,12 +158,12 @@ fn matcher_from(fs: &dyn FileSystem, base: &Path, files: impl IntoIterator<Item 
 }
 
 /// The ignore files of the directories above a walk, innermost last: each parent is the next outer one.
-struct Chain {
+pub(crate) struct Chain {
     matcher: Gitignore,
     parent: Ignores,
 }
 
-type Ignores = Option<Arc<Chain>>;
+pub(crate) type Ignores = Option<Arc<Chain>>;
 
 fn pushed(parent: Ignores, matcher: Option<Gitignore>) -> Ignores {
     match matcher {
@@ -187,7 +187,7 @@ fn is_ignored(ignores: &Ignores, path: &Path) -> bool {
 
 /// The ignore rules that apply to `start` from above: `.git/info/exclude` of the repository and the `.gitignore` and
 /// `.ignore` files of the directories between the repository root and `start`. Nothing outside a repository.
-fn inherited_ignores(fs: &dyn FileSystem, start: &Path) -> Ignores {
+pub(crate) fn inherited_ignores(fs: &dyn FileSystem, start: &Path) -> Ignores {
     let git_root = repository_root(fs, start)?;
     let exclude = git_root.join(".git").join("info").join("exclude");
     let mut ignores = pushed(None, matcher_from(fs, &git_root, [exclude]));
@@ -206,9 +206,10 @@ fn inherited_ignores(fs: &dyn FileSystem, start: &Path) -> Ignores {
 
 /// Whether the file at `path`, at or below `root`, is ignored: the `.gitignore` and `.ignore` files of the directories
 /// from `root` down to the file's directory decide, under those [`inherited_ignores`] finds above `root`. A pattern
-/// that excludes a parent directory excludes the file too.
-pub(crate) fn is_ignored_file(fs: &dyn FileSystem, root: &Path, path: &Path) -> bool {
-    let mut ignores = inherited_ignores(fs, root);
+/// that excludes a parent directory excludes the file too. `inherited` is [`inherited_ignores`] of `root`, which the
+/// caller computes once for all the files it asks about.
+pub(crate) fn is_ignored_file(fs: &dyn FileSystem, root: &Path, inherited: &Ignores, path: &Path) -> bool {
+    let mut ignores = inherited.clone();
     let mut dirs: Vec<&Path> = path
         .ancestors()
         .skip(1)
