@@ -204,6 +204,8 @@ struct TargetResult {
     kind: &'static str,
     packages: Option<usize>,
     files: Option<usize>,
+    /// What installed a corpus repository before it was timed ([`install_label`]); `None` when it was not installed.
+    installed_with: Option<String>,
     results: Vec<ToolResult>,
 }
 
@@ -302,6 +304,8 @@ struct Target {
     knip_args: Vec<String>,
     /// skif arguments of this target: `--recursive` where the corpus repository sets `recursive`, as in `parity`.
     skif_args: Vec<String>,
+    /// What installed the corpus repository ([`install_label`]); `None` when it was not installed.
+    installed_with: Option<String>,
 }
 
 fn hyperfine(options: &RunOptions, target: &Target, commands: &[(Tool, String)], export: &Path) -> Result<()> {
@@ -473,6 +477,9 @@ fn markdown(summary: &Summary) -> String {
     }
     for target in &summary.targets {
         let _ = write!(out, "## {}\n\n", target.target);
+        if let Some(installed_with) = &target.installed_with {
+            let _ = write!(out, "Installed with {}.\n\n", code_span(installed_with));
+        }
         out.push_str("| Tool | Mean (ms) | Std dev (ms) | Median (ms) | Min (ms) | Max (ms) | vs skif |\n");
         out.push_str("| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n");
         for r in &target.results {
@@ -750,6 +757,17 @@ fn tool_version(program: &Path) -> String {
     )
 }
 
+/// What installed a corpus repository: its `install-command` where it sets one (which names the package manager's
+/// version), else its package manager with the `--version` that package manager reports in the checkout, where
+/// corepack's shim resolves the repository's own `packageManager`.
+fn install_label(repo: &corpus::Repo, version: Option<&str>) -> String {
+    if repo.install_command.is_empty() {
+        format!("{} {}", repo.package_manager, version.unwrap_or("(unknown version)"))
+    } else {
+        repo.install_command.join(" ")
+    }
+}
+
 fn corpus_target_name(repo: &corpus::Repo) -> String {
     format!("corpus: {} ({})", repo.name, repo.package_manager)
 }
@@ -790,6 +808,7 @@ fn graph_target(options: &RunOptions) -> Result<Target> {
         tools: vec![Tool::Skif],
         knip_args: Vec::new(),
         skif_args: Vec::new(),
+        installed_with: None,
     })
 }
 
@@ -860,6 +879,7 @@ pub fn run(options: &RunOptions) -> Result<()> {
             tools,
             knip_args: Vec::new(),
             skif_args: Vec::new(),
+            installed_with: None,
         });
     }
     if options.graph_files > 0 {
@@ -880,11 +900,13 @@ pub fn run(options: &RunOptions) -> Result<()> {
         for (repo, dir) in &suite.repos {
             let mut tools = vec![Tool::Skif, Tool::SkifManifest];
             tools.extend(comparison.iter().copied());
+            let checkout = fs::canonicalize(dir)?;
+            let mut installed_with = None;
             // knip loads the configurations of the repository's tools, which import its own packages: without an
             // install it fails on them and the time is that of a partial run.
             if options.install && tools.contains(&Tool::Knip) {
                 let scratch = options.generated_dir.join("install").join(&repo.name);
-                if let Some(reason) = parity::install(repo, &fs::canonicalize(dir)?, &scratch, INSTALL_TIMEOUT)? {
+                if let Some(reason) = parity::install(repo, &checkout, &scratch, INSTALL_TIMEOUT)? {
                     eprintln!("bench: {} not installed ({reason}), knip is not timed there", repo.name);
                     tools.retain(|tool| *tool != Tool::Knip);
                     skipped.push(Skipped {
@@ -892,6 +914,9 @@ pub fn run(options: &RunOptions) -> Result<()> {
                         target: Some(corpus_target_name(repo)),
                         reason: format!("the install failed: {reason}"),
                     });
+                } else {
+                    let version = provenance::version_in(&repo.package_manager, &checkout, &scratch);
+                    installed_with = Some(install_label(repo, version.as_deref()));
                 }
             }
             targets.push(Target {
@@ -899,10 +924,11 @@ pub fn run(options: &RunOptions) -> Result<()> {
                 kind: "corpus",
                 packages: None,
                 files: None,
-                dir: fs::canonicalize(dir)?,
+                dir: checkout,
                 tools,
                 knip_args: repo.bench_knip_args.clone(),
                 skif_args: corpus_skif_args(repo),
+                installed_with,
             });
         }
     }
@@ -932,6 +958,7 @@ pub fn run(options: &RunOptions) -> Result<()> {
             kind: target.kind,
             packages: target.packages,
             files: target.files,
+            installed_with: target.installed_with.clone(),
             results: tool_results(&read_results(&export)?),
         });
     }
@@ -1034,6 +1061,7 @@ mod tests {
                 kind: "generated",
                 packages: Some(1),
                 files: None,
+                installed_with: Some("pnpm 9.15.0".into()),
                 results: vec![row("skif --no-js"), row("sherif")],
             }],
             adr_0001_checks: checks,
@@ -1075,6 +1103,10 @@ mod tests {
             "{with_skip}"
         );
         assert!(with_skip.contains("Comparison tools: knip `6.44.1`."), "{with_skip}");
+        assert!(
+            with_skip.contains("## t\n\nInstalled with `pnpm 9.15.0`.\n\n| Tool |"),
+            "{with_skip}"
+        );
         assert!(
             with_skip.contains("\n\nCorpus: only babel, vue-core, a partial run.\n\n"),
             "{with_skip}"
@@ -1239,6 +1271,7 @@ mod tests {
             kind: "corpus",
             packages: None,
             files: None,
+            installed_with: None,
             results: tool_results(&[result("skif", 0.1), knip]),
         };
         let found = checks(std::slice::from_ref(&target));
@@ -1288,6 +1321,19 @@ mod tests {
     }
 
     #[test]
+    fn a_corpus_install_names_its_package_manager_version_or_its_command() {
+        let file = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/corpus.toml"));
+        let (_, bench) = corpus::select(file, "bench", &[]).unwrap();
+        let repo = |name: &str| bench.iter().find(|repo| repo.name == name).unwrap();
+        assert_eq!(install_label(repo("babel"), Some("4.10.3")), "yarn 4.10.3");
+        assert_eq!(install_label(repo("vue-core"), None), "pnpm (unknown version)");
+        assert_eq!(
+            install_label(repo("npm-cli"), Some("10.9.0")),
+            "npx --yes npm@11.6.2 ci --ignore-scripts"
+        );
+    }
+
+    #[test]
     fn quotes_only_when_needed() {
         assert_eq!(quote("/usr/bin/skif"), "/usr/bin/skif");
         assert_eq!(quote("/my dir/skif"), "\"/my dir/skif\"");
@@ -1313,6 +1359,7 @@ mod tests {
             kind: "generated",
             packages: Some(MANIFEST_TARGET_PACKAGES),
             files: None,
+            installed_with: None,
             results: vec![ToolResult {
                 tool: "skif --no-js".into(),
                 mean_ms,
@@ -1335,6 +1382,7 @@ mod tests {
             kind: "graph",
             packages: Some(100),
             files: Some(files),
+            installed_with: None,
             results: vec![ToolResult {
                 tool: "skif".into(),
                 mean_ms,
