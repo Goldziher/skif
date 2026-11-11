@@ -6,6 +6,8 @@
 //! that covers the catalog rules, whose states are not part of the version-group analysis.
 
 use std::collections::BTreeSet;
+
+use skif_core::HashMap;
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -183,10 +185,17 @@ pub fn inspect(
     let paths_reported_elsewhere = enabled(local_path_dependency::META.id);
     let analysis = Analysis::run_with(workspace, config, &catalog_deps, paths_reported_elsewhere, false);
     let rules = policy_rules();
-    let reported: Vec<&Diagnostic> = diagnostics
+    // By dependency, in the order of the run: each instance looks only at the findings of its own dependency.
+    let mut reported: HashMap<&str, Vec<&Diagnostic>> = HashMap::default();
+    for diagnostic in diagnostics
         .iter()
         .filter(|diagnostic| diagnostic.detail.is_some() && rules.contains(diagnostic.rule.as_str()))
-        .collect();
+    {
+        if let Some(dependency) = diagnostic.dependency.as_deref() {
+            reported.entry(dependency).or_default().push(diagnostic);
+        }
+    }
+    let siblings = Siblings::index(&analysis);
     let catalog_index = analysis.groups.len();
     let mut rows: Vec<(usize, InstanceId, InstanceStatus)> = Vec::new();
     for (id, instance) in analysis.instances.iter() {
@@ -198,8 +207,9 @@ pub fn inspect(
             None => continue,
         };
         let group = analysis.groups.get(owner);
-        let mut status = base_status(&analysis, id, instance, group);
-        if let Some(diagnostic) = finding_on(&reported, instance) {
+        let mut status = base_status(&analysis, &siblings, id, instance, group);
+        let reported_here = reported.get(&*instance.name).map_or(&[][..], Vec::as_slice);
+        if let Some(diagnostic) = finding_on(reported_here, instance) {
             let code = diagnostic.detail.clone().unwrap_or_default();
             if code != status.status_code {
                 // The analysis's expectation belongs to its own state, not to the catalog rule's.
@@ -248,6 +258,7 @@ fn within(inner: &Location, outer: &Location) -> bool {
 
 fn base_status(
     analysis: &Analysis<'_>,
+    siblings: &Siblings<'_>,
     id: InstanceId,
     instance: &Instance<'_>,
     group: Option<&GroupSummary>,
@@ -258,7 +269,7 @@ fn base_status(
             verdict.target.as_ref().map(|target| target.get_raw().to_owned()),
         ),
         None => (
-            valid_code(analysis, id, instance, group).to_owned(),
+            valid_code(analysis, siblings, id, instance, group).to_owned(),
             Some(instance.raw().to_owned()),
         ),
     };
@@ -313,6 +324,7 @@ const fn variant(policy: &Policy) -> &'static str {
 /// The valid state syncpack would name for an instance its group left alone.
 fn valid_code(
     analysis: &Analysis<'_>,
+    siblings: &Siblings<'_>,
     id: InstanceId,
     instance: &Instance<'_>,
     group: Option<&GroupSummary>,
@@ -329,15 +341,10 @@ fn valid_code(
     if instance.is_own_version() {
         return "IsLocalAndValid";
     }
-    let siblings: Vec<&Instance<'_>> = analysis
-        .instances
-        .named(&instance.name)
-        .iter()
-        .copied()
-        .filter(|&other| other != id && analysis.owners[other.index()] == analysis.owners[id.index()])
-        .map(|other| analysis.instances.get(other))
-        .collect();
-    let identical = siblings.iter().all(|other| other.raw() == instance.raw());
+    // An instance with no group of its own has no other instance to differ from.
+    let (identical, local) = siblings
+        .of(analysis, id, instance)
+        .map_or((true, None), |alike| (alike.written_alike, alike.local));
     let ranged = analysis.preferred[id.index()].is_some();
     match &group.policy {
         Policy::Pinned(_) => "IsIdenticalToPin",
@@ -346,7 +353,7 @@ fn valid_code(
         Policy::SemverRangeOnly => "MatchesSemverGroup",
         Policy::SnappedTo(_) if ranged && !identical => "SatisfiesSnapTarget",
         Policy::SnappedTo(_) => "IsIdenticalToSnapTarget",
-        _ => match siblings.iter().find(|other| other.is_own_version()) {
+        _ => match local.map(|local| analysis.instances.get(local)) {
             Some(local) if local.raw() == instance.raw() => "IsIdenticalToLocal",
             Some(_) => "SatisfiesLocal",
             None if !has_version(&instance.specifier) => "IsNonSemverButIdentical",
@@ -355,6 +362,48 @@ fn valid_code(
             None if ranged && !identical => "SatisfiesHighestOrLowestSemver",
             None => "IsHighestOrLowestSemver",
         },
+    }
+}
+
+/// What the instances of one dependency in one version group share, so that each instance's valid state is decided
+/// without walking every other instance of its dependency.
+struct Siblings<'a> {
+    by_group: HashMap<(&'a str, Option<usize>), SiblingGroup<'a>>,
+}
+
+/// The instances of one dependency owned by one version group.
+struct SiblingGroup<'a> {
+    /// The specifier of the first of them.
+    first_raw: &'a str,
+    /// Whether they are all written as `first_raw`.
+    written_alike: bool,
+    /// The first of them that is a package's own version.
+    local: Option<InstanceId>,
+}
+
+impl<'a> Siblings<'a> {
+    fn index(analysis: &'a Analysis<'_>) -> Self {
+        let mut by_group: HashMap<(&'a str, Option<usize>), SiblingGroup<'a>> = HashMap::default();
+        for (id, instance) in analysis.instances.iter() {
+            let group = by_group
+                .entry((&*instance.name, analysis.owners[id.index()]))
+                .or_insert_with(|| SiblingGroup {
+                    first_raw: instance.raw(),
+                    written_alike: true,
+                    local: None,
+                });
+            group.written_alike &= group.first_raw == instance.raw();
+            if group.local.is_none() && instance.is_own_version() {
+                group.local = Some(id);
+            }
+        }
+        Self { by_group }
+    }
+
+    /// The group of `id`, which holds `id` itself: being written alike says that every other instance is written as
+    /// `instance` is.
+    fn of(&self, analysis: &Analysis<'_>, id: InstanceId, instance: &Instance<'_>) -> Option<&SiblingGroup<'a>> {
+        self.by_group.get(&(&*instance.name, analysis.owners[id.index()]))
     }
 }
 
@@ -451,6 +500,35 @@ mod tests {
                 row("HighestSemver", "root", "root", "IsLocalAndValid", None),
             ],
             "the peer range is outside the default scope and is not listed"
+        );
+    }
+
+    #[test]
+    fn valid_states_compare_each_instance_with_the_others_of_its_dependency_and_group() {
+        let files = [
+            ("package.json", ROOT),
+            ("pnpm-workspace.yaml", "packages: [packages/*]\n"),
+            (
+                "packages/a/package.json",
+                r#"{"name":"a","version":"1.0.0","dependencies":{"react":"^18.3.1"}}"#,
+            ),
+            (
+                "packages/b/package.json",
+                r#"{"name":"b","version":"1.0.0","dependencies":{"react":"~18.3.1","a":"1.0.0"}}"#,
+            ),
+        ];
+        let toml = "[[semver-groups]]\ndependencies = [\"react\"]\npackages = [\"a\"]\nrange = \"^\"\n\n\
+                    [[semver-groups]]\ndependencies = [\"react\"]\npackages = [\"b\"]\nrange = \"~\"\n";
+        assert_eq!(
+            listed(toml, &files),
+            [
+                row("HighestSemver", "a", "a", "IsLocalAndValid", None),
+                row("HighestSemver", "a", "b", "IsIdenticalToLocal", None),
+                row("HighestSemver", "b", "b", "IsLocalAndValid", None),
+                row("HighestSemver", "react", "a", "SatisfiesHighestOrLowestSemver", None),
+                row("HighestSemver", "react", "b", "SatisfiesHighestOrLowestSemver", None),
+                row("HighestSemver", "root", "root", "IsLocalAndValid", None),
+            ]
         );
     }
 
