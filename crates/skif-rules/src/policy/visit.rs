@@ -3,9 +3,11 @@
 //! The behaviour follows syncpack's version-group visitors (`src/version_group/*.rs`, commit 958d306, MIT,
 //! Copyright (c) 2017-2023 Jamie Mason; see `ATTRIBUTIONS.md`). Differences from syncpack:
 //!
-//! * there is no strict mode: on a dependency that names a workspace package, a `workspace:` specifier, `*`/`latest`
-//!   and a `link:`/`file:` path that resolves to the package are always valid, as is any range the package's own
-//!   version satisfies (path specifiers are the business of `local-path-dependency`);
+//! * there is no strict mode: on a dependency that names a workspace package, a `workspace:` specifier and
+//!   `*`/`latest` are always valid, as is any range the package's own version satisfies;
+//! * a path specifier (`link:`, `file:`, `portal:`, `./`, `../` or `/`) takes no part in any policy: it is never
+//!   rewritten, never the target of an alignment and gets no state, because `local-path-dependency` owns it and its
+//!   fix is the only one a path gets;
 //! * a bare-major range such as `^2` or `~1` stands for the versions it covers (`^2` accepts `2.3.0`), where
 //!   syncpack pads it to `^2.HUGE.HUGE` so that it accepts no version, which also changes the `same-range` overlap;
 //! * a `workspace:` specifier is never rewritten to a registry range, and never the target of one: where the package
@@ -20,7 +22,6 @@
 //!   `latest`.
 
 use std::collections::HashMap;
-use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use skif_config::{DependencyType, Prefer};
@@ -32,6 +33,7 @@ use super::groups::{Assignment, Policy};
 use super::instances::{Instance, InstanceId, Instances};
 use super::specifiers::floor_version;
 use super::state::{State, Verdict};
+use crate::manifest::local_path_dependency::is_local_path;
 
 /// A state together with the specifier the instance should have.
 type Outcome = Option<(State, Option<Arc<Specifier>>)>;
@@ -102,12 +104,16 @@ impl<'a, 'w> Visitor<'a, 'w> {
         }
     }
 
-    /// The instances the policies align: those not using the `catalog:` protocol, and not a peer range written as a
-    /// compatibility window (`>=17 <19`, `^17 || ^18`), which states what is accepted rather than what is installed.
+    /// The instances the policies align: those not using the `catalog:` protocol, not a path (left to
+    /// `local-path-dependency`), and not a peer range written as a compatibility window (`>=17 <19`, `^17 || ^18`),
+    /// which states what is accepted rather than what is installed.
     fn members(&self, ids: &[InstanceId]) -> Vec<InstanceId> {
         ids.iter()
             .copied()
-            .filter(|&id| !self.spec(id).is_catalog() && !self.is_peer_window(id))
+            .filter(|&id| {
+                let specifier = self.spec(id);
+                !specifier.is_catalog() && !is_local_path(specifier.get_raw()) && !self.is_peer_window(id)
+            })
             .collect()
     }
 
@@ -417,22 +423,15 @@ impl<'a, 'w> Visitor<'a, 'w> {
         let local_specifier = Arc::clone(self.spec(local));
         for id in self.members(ids) {
             if !self.is_own_version(id) {
-                let outcome = self.local_state(id, local, &local_specifier);
+                let outcome = self.local_state(id, &local_specifier);
                 self.mark_outcome(id, outcome);
             }
         }
     }
 
-    fn local_state(&self, id: InstanceId, local: InstanceId, local_specifier: &Arc<Specifier>) -> Outcome {
+    fn local_state(&self, id: InstanceId, local_specifier: &Arc<Specifier>) -> Outcome {
         let differs = || Some((State::DiffersToLocal, Some(Arc::clone(local_specifier))));
         let specifier = self.spec(id);
-        if specifier.is_link() || matches!(**specifier, Specifier::File(_)) {
-            return if self.path_resolves_to(id, local) {
-                None
-            } else {
-                differs()
-            };
-        }
         if specifier.is_workspace_protocol() || matches!(**specifier, Specifier::Latest(_)) {
             return None;
         }
@@ -457,18 +456,6 @@ impl<'a, 'w> Visitor<'a, 'w> {
             .get_node_version()
             .zip(self.spec(id).get_node_range())
             .is_some_and(|(version, range)| range.satisfies(&version))
-    }
-
-    /// Whether the `link:` or `file:` path of `id`, resolved from its package's directory, is the directory of
-    /// `local`'s package.
-    fn path_resolves_to(&self, id: InstanceId, local: InstanceId) -> bool {
-        let raw = self.spec(id).get_raw();
-        let target = ["link:", "file:"]
-            .iter()
-            .find_map(|prefix| raw.strip_prefix(prefix))
-            .unwrap_or(raw);
-        let from = self.instances.get(id).package.dir.join(target);
-        normalized(&from).is_some_and(|from| Some(from) == normalized(&self.instances.get(local).package.dir))
     }
 
     /// Aligns every instance on the highest (or lowest) version in use, each carrying its own semver group's range.
@@ -611,23 +598,6 @@ fn is_floating(specifier: &Specifier) -> bool {
     matches!(specifier, Specifier::Latest(_) | Specifier::Tag(_))
 }
 
-/// `path` with `.` and `..` components resolved lexically; `None` when a `..` climbs out of the path.
-fn normalized(path: &Path) -> Option<PathBuf> {
-    let mut resolved = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !resolved.pop() {
-                    return None;
-                }
-            }
-            other => resolved.push(other),
-        }
-    }
-    Some(resolved)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -760,21 +730,6 @@ mod tests {
     }
 
     #[test]
-    fn file_paths_to_the_local_package_are_valid_and_other_paths_are_not() {
-        let good = manifest("good", "1.0.0", r#""lib":"file:../lib""#);
-        let bad = manifest("bad", "1.0.0", r#""lib":"file:../other""#);
-        let lib = manifest("lib", "1.0.0", "");
-        let other = manifest("other", "1.0.0", "");
-        let members = [
-            ("bad", bad.as_str()),
-            ("good", good.as_str()),
-            ("lib", lib.as_str()),
-            ("other", other.as_str()),
-        ];
-        assert_eq!(states("", &members), [one("bad", "lib", "DiffersToLocal")]);
-    }
-
-    #[test]
     fn latest_and_tags_are_never_the_alignment_target() {
         let cases: [(&str, &str, &[&str]); 5] = [
             ("latest", "^5.4.5", &["NonSemverMismatch"]),
@@ -808,38 +763,53 @@ mod tests {
     }
 
     #[test]
-    fn a_link_that_climbs_out_of_the_workspace_never_names_a_local_package() {
-        let root = r#"{"name":"top","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["x"],"dependencies":{"x":"link:../x"}}"#;
-        let x = manifest("x", "1.0.0", "");
-        let files = [("package.json", root), ("x/package.json", x.as_str())];
-        let config = config("");
-        let workspace = workspace(&files, &config);
-        let analysis = Analysis::run(&workspace, &config, true);
-        let flagged: Vec<&str> = analysis
-            .instances
-            .iter()
-            .filter_map(|(id, instance)| analysis.verdicts[id.index()].as_ref().map(|_| &*instance.name))
-            .collect();
-        assert_eq!(
-            flagged,
-            ["x"],
-            "`link:../x` from the root package does not point at the member `x`"
-        );
+    fn path_specifiers_on_a_local_package_get_no_state() {
+        let specifiers = [
+            "../lib",
+            "./../lib",
+            "/abs/lib",
+            "file:../lib",
+            "link:../lib",
+            "portal:../lib",
+            "file:../other",
+            "link:../other",
+        ];
+        for specifier in specifiers {
+            let app = manifest("app", "1.0.0", &format!(r#""lib":"{specifier}""#));
+            let tool = manifest("tool", "1.0.0", r#""lib":"^1.0.0""#);
+            let lib = manifest("lib", "1.0.0", "");
+            let other = manifest("other", "1.0.0", "");
+            let members = [
+                ("app", app.as_str()),
+                ("lib", lib.as_str()),
+                ("other", other.as_str()),
+                ("tool", tool.as_str()),
+            ];
+            assert_eq!(states("", &members), [] as [(String, String, &str); 0], "{specifier}");
+        }
     }
 
     #[test]
-    fn links_are_compared_by_resolved_directory() {
-        let good = manifest("good", "1.0.0", r#""lib":"link:../lib""#);
-        let bad = manifest("bad", "1.0.0", r#""lib":"link:../other""#);
-        let lib = manifest("lib", "1.0.0", "");
-        let other = manifest("other", "1.0.0", "");
-        let members = [
-            ("bad", bad.as_str()),
-            ("good", good.as_str()),
-            ("lib", lib.as_str()),
-            ("other", other.as_str()),
+    fn path_specifiers_are_never_rewritten_by_any_policy() {
+        let groups = [
+            "",
+            "[[version-groups]]\ndependencies = [\"mix\"]\npolicy = \"pinned\"\npin = \"2.0.0\"\n",
+            "[[version-groups]]\ndependencies = [\"mix\"]\npolicy = \"same-range\"\n",
+            "[[version-groups]]\ndependencies = [\"mix\"]\npolicy = \"same-minor\"\n",
+            "[[version-groups]]\ndependencies = [\"mix\"]\npolicy = \"snapped-to\"\nsnap-to = [\"app\"]\n",
         ];
-        assert_eq!(states("", &members), [one("bad", "lib", "DiffersToLocal")]);
+        for specifier in ["file:../../vendor/mix", "link:../../vendor/mix", "../../vendor/mix"] {
+            let app = manifest("app", "1.0.0", r#""mix":"1.2.3""#);
+            let tool = manifest("tool", "1.0.0", &format!(r#""mix":"{specifier}""#));
+            let members = [("app", app.as_str()), ("tool", tool.as_str())];
+            for toml in groups {
+                let on_the_path: Vec<_> = states(toml, &members)
+                    .into_iter()
+                    .filter(|(package, _, _)| package == "tool")
+                    .collect();
+                assert_eq!(on_the_path, [] as [(String, String, &str); 0], "{specifier} {toml}");
+            }
+        }
     }
 
     #[test]
@@ -1207,16 +1177,5 @@ mod tests {
         let lib = manifest("lib", "1.0.0", r#""react":"^18.3.1""#);
         let members = [("app", app), ("lib", lib.as_str())];
         assert_eq!(states(toml, &members), [] as [(String, String, &str); 0]);
-    }
-
-    #[test]
-    fn lexical_normalization_resolves_dots() {
-        assert_eq!(
-            normalized(Path::new("packages/app/../lib/./x")).as_deref(),
-            Some(Path::new("packages/lib/x"))
-        );
-        assert_eq!(normalized(Path::new("")).as_deref(), Some(Path::new("")));
-        assert_eq!(normalized(Path::new("a/../..")), None);
-        assert_eq!(normalized(Path::new("../x")), None);
     }
 }

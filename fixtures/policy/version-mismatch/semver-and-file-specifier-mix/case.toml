@@ -1,5 +1,4 @@
-description = "A non-semver specifier next to a semver one is reported as differing to the semver version and fixed to it."
+description = "A file: specifier next to a semver one takes no part in the version groups and is never rewritten to the semver version."
 source = "syncpack:src/version_group/preferred_semver_test.rs::non_semver::non_semver_and_semver_mismatch"
-tags = ["unsupported", "file", "fix"]
+tags = ["unsupported", "file", "deviation"]
 valid-states = ["IsHighestOrLowestSemver"]
-compare = "bytes"
