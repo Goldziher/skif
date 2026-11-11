@@ -1,9 +1,0 @@
-{
-  "exit_code": 1,
-  "rules": [
-    "empty-dependencies",
-    "root-package-private-field",
-    "version-mismatch"
-  ],
-  "rules_after_fix": []
-}
