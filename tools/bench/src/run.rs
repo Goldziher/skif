@@ -351,11 +351,11 @@ fn explain_errors(
         let Some((tool, argv)) = argvs.iter().find(|(tool, _)| tool.label() == row.tool) else {
             continue;
         };
-        let Some((program, args)) = argv.split_first() else {
+        let Some((program, arguments)) = argv.split_first() else {
             continue;
         };
         let run = capture(
-            Command::new(program).args(args).current_dir(&target.dir),
+            Command::new(program).args(arguments).current_dir(&target.dir),
             scratch,
             &format!("error-{}", tool.label().replace(' ', "_")),
             ERROR_RERUN_TIMEOUT,
@@ -487,7 +487,8 @@ fn checks(targets: &[TargetResult]) -> Vec<TargetCheck> {
                 .iter()
                 .filter(|row| row.error_runs > 0)
                 .map(|row| format!("; {} exited with an error in {} runs", row.tool, row.error_runs))
-                .collect();
+                .collect::<Vec<_>>()
+                .concat();
             out.push(TargetCheck {
                 target: target.target.clone(),
                 description: format!(
