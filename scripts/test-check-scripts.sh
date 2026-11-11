@@ -411,7 +411,8 @@ printf '# old\n' >"${results}/summary.md"
 printf '{}\n' >"${results}/raw/stale.json"
 export STUB_GH_LOG="${work}/gh.log" STUB_NODE_LOG="${work}/node.log"
 # `gh run download <id> --repo R --pattern P --dir D`: writes STUB_GH_ARTIFACTS (default 1) artifacts into D, each in
-# a directory of its own as gh does for --pattern; STUB_GH_NO_MD leaves out summary.md; STUB_GH_FAIL fails.
+# a directory of its own as gh does for --pattern (STUB_GH_FLAT: one, in D itself); STUB_GH_NO_MD leaves out
+# summary.md; STUB_GH_FAIL fails.
 cat >"${stubs}/gh" <<'STUB'
 #!/usr/bin/env bash
 echo "$*" >"$STUB_GH_LOG"
@@ -423,6 +424,7 @@ while [[ $# -gt 0 && "$1" != --dir ]]; do shift; done
 dir="$2"
 for n in $(seq "${STUB_GH_ARTIFACTS:-1}"); do
   artifact="${dir}/bench-0123456789ab-ubuntu-24.04-${n}"
+  if [[ -n "${STUB_GH_FLAT:-}" ]]; then artifact="$dir"; fi
   mkdir -p "${artifact}/raw"
   printf '{"schema":3}\n' >"${artifact}/summary.json"
   [[ -n "${STUB_GH_NO_MD:-}" ]] || printf '# new\n' >"${artifact}/summary.md"
@@ -466,6 +468,8 @@ if grep -q '^missing summary' "$STUB_NODE_LOG"; then fail "bench-import: refresh
 grep -qF '"schema":3' "${results}/summary.json" || fail "bench-import: summary.json is not the artifact's"
 grep -qF '# new' "${results}/summary.md" || fail "bench-import: summary.md is not the artifact's"
 [[ -f "${results}/raw/00.json" && ! -e "${results}/raw/stale.json" ]] || fail "bench-import: raw/ is not the artifact's"
+expect "bench-import takes an artifact extracted in place" 0 env STUB_GH_FLAT=1 bash "${bench}/scripts/bench-import.sh" 42
+expect_in_out "bench-import in place" "imported download of run 42 into tools/bench/results"
 expect "bench-import takes the repository from SKIF_BENCH_REPO" 0 env SKIF_BENCH_REPO=me/skif bash "${bench}/scripts/bench-import.sh" 7
 grep -qF 'run download 7 --repo me/skif ' "$STUB_GH_LOG" || fail "bench-import repository: $(cat "$STUB_GH_LOG")"
 
