@@ -8,8 +8,11 @@ use crate::support::{is_relative, join_rel, objects, package_name, strings, stri
 /// The `typescript` plugin.
 pub struct Typescript;
 
+/// The plugin's identifier.
+pub const ID: crate::plugin::PluginId = "typescript";
+
 static SPEC: PluginSpec = PluginSpec {
-    id: "typescript",
+    id: ID,
     enablers: &[
         Enabler::Dependency("typescript"),
         Enabler::Dependency("@typescript/native"),

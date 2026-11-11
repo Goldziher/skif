@@ -37,8 +37,11 @@ pub(crate) fn build_input_key(value: &ConfigValue) -> &'static [&'static str] {
 /// The `vite` plugin.
 pub struct Vite;
 
+/// The plugin's identifier.
+pub const ID: crate::plugin::PluginId = "vite";
+
 static SPEC: PluginSpec = PluginSpec {
-    id: "vite",
+    id: ID,
     enablers: &[
         Enabler::Dependency("vite"),
         Enabler::Dependency("vitest"),

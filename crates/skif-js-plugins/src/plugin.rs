@@ -9,6 +9,8 @@ use skif_config::PluginConfig;
 use skif_core::FileSystem;
 use skif_js_syntax::{ConfigValue, ModuleLoader};
 
+use crate::scopes::NxProjects;
+
 /// The knip commit every plugin row was last checked against.
 pub const KNIP_COMMIT: &str = "da07b6e9887f9a1eb08545da29755b7f9d309bca";
 
@@ -277,6 +279,11 @@ pub struct PluginContext<'a> {
     /// Finds the modules a config file imports values from (a base config of the project or of a workspace package),
     /// so they are evaluated too; `None` leaves imported values unknown.
     pub modules: Option<&'a dyn ModuleLoader>,
+    /// The Nx projects below the workspace and its directory in the Nx workspace (ADR 0109).
+    /// [`resolve_plugins_with`](crate::resolve_plugins_with) sets it when the `nx` plugin is enabled; `None` reads the
+    /// paths of a `project.json` as relative to the workspace directory, and has the `jest` plugin look for the
+    /// projects of `getJestProjects()` itself.
+    pub nx: Option<&'a NxProjects>,
 }
 
 impl PluginContext<'_> {
@@ -473,6 +480,9 @@ pub struct PluginOutput {
     /// Entry files given as regular expressions, besides `entries`; see [`PluginInput::EntryRegex`]. Not used in
     /// production mode.
     pub entry_regexes: Vec<String>,
+    /// The entry expressions that configs of the package's Nx project scopes give (ADR 0109), each with its scope; see
+    /// [`ScopedEntryRegex`]. Not used in production mode.
+    pub scoped_entry_regexes: Vec<ScopedEntryRegex>,
     /// Config files that were found and read.
     pub config_files: Vec<PathBuf>,
     /// Packages the configs reference by name.
@@ -508,6 +518,28 @@ pub struct PluginOutput {
     pub entries_incomplete: bool,
     /// Each config that made the entries incomplete, and why; not empty whenever `entries_incomplete` is set.
     pub incomplete_reasons: Vec<IncompleteEntries>,
+}
+
+/// An entry expression of an Nx project scope (ADR 0109): it selects the files below `scope`, matched as
+/// [`PluginInput::EntryRegex`] is, against `/` followed by the path relative to the scope directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ScopedEntryRegex {
+    /// The scope directory, relative to the package directory, `/`-separated.
+    pub scope: String,
+    /// The expression, in the syntax of the `regex` crate.
+    pub regex: String,
+}
+
+impl ScopedEntryRegex {
+    /// The expression `regex` of the scope `scope`.
+    #[must_use]
+    pub fn new(scope: impl Into<String>, regex: impl Into<String>) -> Self {
+        Self {
+            scope: scope.into(),
+            regex: regex.into(),
+        }
+    }
 }
 
 /// A config that made a plugin's entries incomplete; see [`PluginOutput::incomplete_reasons`].

@@ -72,6 +72,29 @@ pub(crate) fn join_rel(base: &str, relative: &str) -> String {
     parts.join("/")
 }
 
+/// The path of `to` relative to `from`, both `/`-separated and relative to the same directory without `.` or `..`:
+/// `relative_path("packages/b", "")` is `../..`, `relative_path("packages/b", "packages/b/src")` is `src`.
+pub(crate) fn relative_path(from: &str, to: &str) -> String {
+    let from: Vec<&str> = from.split('/').filter(|part| !part.is_empty()).collect();
+    let to: Vec<&str> = to.split('/').filter(|part| !part.is_empty()).collect();
+    let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
+    let mut parts = vec![".."; from.len() - common];
+    parts.extend(&to[common..]);
+    parts.join("/")
+}
+
+/// `path`, relative to the same directory as `dir`, relative to `dir` instead when it lies in it (`""` for `dir`
+/// itself); `None` when it lies outside.
+pub(crate) fn path_within(path: &str, dir: &str) -> Option<String> {
+    if path == dir {
+        return Some(String::new());
+    }
+    if dir.is_empty() {
+        return Some(path.to_owned());
+    }
+    path.strip_prefix(dir)?.strip_prefix('/').map(str::to_owned)
+}
+
 /// The absolute path of `relative`, a `/`-separated path relative to the directory `dir`, with `.` and `..` collapsed
 /// lexically: a config that extends `../base.json` is the file in the parent directory, not a path through `dir`.
 pub(crate) fn join_lexically(dir: &Path, relative: &str) -> PathBuf {

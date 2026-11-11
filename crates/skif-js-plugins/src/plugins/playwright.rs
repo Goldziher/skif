@@ -16,8 +16,11 @@ pub struct Playwright;
 
 pub(crate) const TEST_FILES: &str = "**/*.{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}";
 
+/// The plugin's identifier.
+pub const ID: crate::plugin::PluginId = "playwright";
+
 static SPEC: PluginSpec = PluginSpec {
-    id: "playwright",
+    id: ID,
     enablers: &[Enabler::Dependency("@playwright/test")],
     config: &["playwright.config.{js,cjs,mjs,ts,cts,mts}"],
     entry: &[TEST_FILES],

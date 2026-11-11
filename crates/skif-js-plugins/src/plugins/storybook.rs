@@ -10,8 +10,11 @@ use crate::support::{Entry, Spreads, entry_glob, join_rel, last_entry, module_in
 /// The `storybook` plugin.
 pub struct Storybook;
 
+/// The plugin's identifier.
+pub const ID: crate::plugin::PluginId = "storybook";
+
 static SPEC: PluginSpec = PluginSpec {
-    id: "storybook",
+    id: ID,
     enablers: &[
         Enabler::DependencyPrefix("@storybook/"),
         Enabler::Dependency("@nrwl/storybook"),
