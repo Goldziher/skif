@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use clap::ColorChoice;
+use rayon::prelude::*;
 use serde_json::{Map, Value};
 use skif::render::RenderOptions;
 use skif::{
@@ -390,14 +391,11 @@ fn fix_roots(
     fs: &CachedFs<OsFs>,
     only: Option<&BTreeSet<String>>,
 ) -> Result<Fixed, CliError> {
-    let planned = runs
-        .into_iter()
-        .map(|run| {
-            let selection = fix::selection(args, env, &run.report, run.config.policy.prefer, only)?;
-            let plan = skif::apply_fixes(&run.workspace, &run.report, &selection, fs)?;
-            Ok((run, plan))
-        })
-        .collect::<Result<Vec<(RootRun, FixPlan)>, CliError>>()?;
+    let plans = per_root(fix::prompts(args, env), &runs, |run| {
+        let selection = fix::selection(args, env, &run.report, run.config.policy.prefer, only)?;
+        Ok(skif::apply_fixes(&run.workspace, &run.report, &selection, fs)?)
+    })?;
+    let planned: Vec<(RootRun, FixPlan)> = runs.into_iter().zip(plans).collect();
     if let Some(code) = write_plans(args, &planned)? {
         return Ok(Fixed::Stopped(code));
     }
@@ -457,8 +455,44 @@ fn relinted(written: &[BTreeSet<PathBuf>], sources: &[&[PathBuf]]) -> Vec<bool> 
         .collect()
 }
 
+/// `work` for every run, in order, stopping at the first failure. With `in_order` each run waits for the one before
+/// (the work may prompt); otherwise the runs are worked on in parallel and the first failure in their order wins, so
+/// the outcome does not depend on scheduling.
+fn per_root<T: Send>(
+    in_order: bool,
+    runs: &[RootRun],
+    work: impl Fn(&RootRun) -> Result<T, CliError> + Sync + Send,
+) -> Result<Vec<T>, CliError> {
+    if in_order {
+        return runs.iter().map(work).collect();
+    }
+    let done: Vec<Result<T, CliError>> = runs.par_iter().map(work).collect();
+    done.into_iter().collect()
+}
+
+/// A root linted again from disk: its workspace and report, or why it could not be linted.
+type Relinted = Result<(Workspace, Report), CliError>;
+
+/// Whether fixing may run an install step, which only a plan that changes a manifest or a catalog does: the roots are
+/// then linted again in order, each after the install of the one before.
+fn may_install(args: &LintArgs, planned: &[(RootRun, FixPlan)]) -> bool {
+    !args.no_install && planned.iter().any(|(_, plan)| plan.paths().any(is_manifest_or_catalog))
+}
+
+/// Lints the root of `run` again from disk, with what the first lint decided about it.
+fn relint(linter: &Linter, run: &RootRun, fs: &CachedFs<OsFs>) -> Relinted {
+    let inputs = (
+        &run.config,
+        run.config_path.as_deref(),
+        run.extra_entries.as_slice(),
+        &run.other_root_uses,
+    );
+    lint_once(linter, &run.workspace, inputs, fs)
+}
+
 /// Lints the roots `again` names once more and runs the install step of each root; a failure to lint again reports
-/// the fixes, all of them written by then.
+/// the fixes, all of them written by then. When no install step can run, the roots are linted again in parallel
+/// first; the outcome is the same as linting them in order, since a re-lint only reads.
 fn relint_roots(
     args: &LintArgs,
     linters: &Linters,
@@ -466,18 +500,28 @@ fn relint_roots(
     again: &[bool],
     fs: &CachedFs<OsFs>,
 ) -> Fixed {
+    let mut early: Vec<Option<Relinted>> = if may_install(args, &planned) {
+        Vec::new()
+    } else {
+        planned
+            .par_iter()
+            .zip(again.par_iter())
+            .map(|((run, _), &again)| again.then(|| relint(linters.get(run.linter), run, fs)))
+            .collect()
+    };
     let mut done: Vec<RootRun> = Vec::with_capacity(planned.len());
     let mut fixes: Vec<FixRun> = Vec::with_capacity(planned.len());
-    let mut planned = planned.into_iter().zip(again.iter().copied());
-    while let Some(((run, plan), again)) = planned.next() {
+    let mut planned = planned.into_iter().zip(again.iter().copied()).enumerate();
+    while let Some((index, ((run, plan), again))) = planned.next() {
         let prefix = run.prefix.clone();
-        let (fix_run, outcome) = relint_root(args, linters.get(run.linter), (run, plan), again, fs);
+        let linted = early.get_mut(index).and_then(Option::take);
+        let (fix_run, outcome) = relint_root(args, linters.get(run.linter), (run, plan), (again, linted), fs);
         fixes.push(fix_run);
         match outcome {
             Ok(run) => done.push(run),
             Err(error) => {
                 let (rest, plans): (Vec<PathBuf>, Vec<FixPlan>) =
-                    planned.map(|((run, plan), _)| (run.prefix, plan)).unzip();
+                    planned.map(|(_, ((run, plan), _))| (run.prefix, plan)).unzip();
                 fixes.extend(plans.into_iter().map(FixRun::relint_failed));
                 let prefixes: Vec<&Path> = done
                     .iter()
@@ -497,13 +541,13 @@ fn relint_roots(
     Fixed::All(done, fixes)
 }
 
-/// Lints the root of `run` again from disk when `again`, and runs its install step after its plan. Returns the fix
-/// run and the root as linted again, or why it could not be linted again.
+/// Lints the root of `run` again from disk when `again`, unless `linted` already holds that lint, and runs its install
+/// step after its plan. Returns the fix run and the root as linted again, or why it could not be linted again.
 fn relint_root(
     args: &LintArgs,
     linter: &Linter,
     (run, plan): (RootRun, FixPlan),
-    again: bool,
+    (again, linted): (bool, Option<Relinted>),
     fs: &CachedFs<OsFs>,
 ) -> (FixRun, Result<RootRun, CliError>) {
     if !again {
@@ -515,13 +559,7 @@ fn relint_root(
         };
         return (fix_run, Ok(run));
     }
-    let inputs = (
-        &run.config,
-        run.config_path.as_deref(),
-        run.extra_entries.as_slice(),
-        &run.other_root_uses,
-    );
-    match lint_once(linter, &run.workspace, inputs, fs) {
+    match linted.unwrap_or_else(|| relint(linter, &run, fs)) {
         Ok((workspace, report)) => {
             let changed: Vec<&Path> = plan.paths().collect();
             let install = install_step(args, &changed, &workspace);
@@ -551,14 +589,12 @@ fn plan_roots(
     fs: &CachedFs<OsFs>,
     only: Option<&BTreeSet<String>>,
 ) -> Result<Vec<FixRun>, CliError> {
-    runs.iter()
-        .map(|run| {
-            let selection = fix::selection(args, env, &run.report, run.config.policy.prefer, only)?;
-            let plan = skif::apply_fixes(&run.workspace, &run.report, &selection, fs)?;
-            let preview = fix::preview(&plan, &run.workspace.root, fs)?;
-            Ok(FixRun::dry_run(plan, preview))
-        })
-        .collect()
+    per_root(fix::prompts(args, env), runs, |run| {
+        let selection = fix::selection(args, env, &run.report, run.config.policy.prefer, only)?;
+        let plan = skif::apply_fixes(&run.workspace, &run.report, &selection, fs)?;
+        let preview = fix::preview(&plan, &run.workspace.root, fs)?;
+        Ok(FixRun::dry_run(plan, preview))
+    })
 }
 
 /// Lints the workspace containing `path`, or with `recursive` every root at or below it, and returns the report as
