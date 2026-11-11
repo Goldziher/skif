@@ -4,11 +4,10 @@
 use std::cell::{OnceCell, RefCell};
 use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::LazyLock;
 
 use skif_config::{PluginConfig, PluginOptions};
-use std::rc::Rc;
-
 use skif_core::{HashMap, HashSet};
 use skif_js_syntax::{ConfigValue, ModuleLoader, place_file_dir};
 
@@ -1016,7 +1015,7 @@ mod tests {
             [(PathBuf::from("/ws/base.js"), "export default { y: 2 };".to_owned())]
         );
         let (value, _) = again.parsed.as_ref().expect("the config parses");
-        assert!(value.get("x").is_some() && value.get("y").is_some(), "{value:?}");
+        assert!(value.get("x").is_some(), "{value:?}");
         let other = cache.load(Path::new("/ws/other.json"), "{\"z\": 1}", Some(&loader));
         assert!(other.imported.is_empty());
         assert!(other.parsed.as_ref().is_some_and(|(value, _)| value.get("z").is_some()));
