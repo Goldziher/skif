@@ -152,6 +152,18 @@ pub(crate) fn node_modules_specifier_package(specifier: &str) -> Option<String> 
     package_name(&joined)
 }
 
+/// The binary a specifier names in a package manager's `node_modules/.bin` directory: `.bin/tsc` and
+/// `node_modules/.bin/tsc` are `tsc`. Node.js reads neither as a relative path but as a lookup below the
+/// `node_modules` directories, so `require.resolve('.bin/tsc')` finds the link the binary's package installs, not a
+/// module. `None` for any other specifier.
+pub(crate) fn bin_link(specifier: &str) -> Option<&str> {
+    let name = specifier
+        .strip_prefix("node_modules/")
+        .unwrap_or(specifier)
+        .strip_prefix(".bin/")?;
+    (!name.is_empty() && !name.contains(['/', '\\', '?', '#'])).then_some(name)
+}
+
 /// The part of a bare specifier after the package name, without a leading slash.
 pub(crate) fn subpath<'a>(specifier: &'a str, package: &str) -> Option<&'a str> {
     let rest = specifier.strip_prefix(package)?.strip_prefix('/')?;
@@ -256,6 +268,25 @@ mod tests {
                 expected,
                 "{specifier}"
             );
+        }
+    }
+
+    #[test]
+    fn bin_link_specifiers() {
+        let cases = [
+            (".bin/jscodeshift", Some("jscodeshift")),
+            ("node_modules/.bin/tsc", Some("tsc")),
+            (".bin/n8n-node", Some("n8n-node")),
+            (".bin/", None),
+            (".bin/a/b", None),
+            (".bin/tool?x", None),
+            ("./.bin/tool", None),
+            ("../node_modules/.bin/tool", None),
+            (".binary/tool", None),
+            ("tool", None),
+        ];
+        for (specifier, expected) in cases {
+            assert_eq!(bin_link(specifier), expected, "{specifier}");
         }
     }
 

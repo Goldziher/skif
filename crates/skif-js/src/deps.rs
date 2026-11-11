@@ -20,7 +20,7 @@ use crate::lockfile;
 use crate::resolve::is_installed;
 use crate::scripts::{ScriptBinary, script_context};
 use crate::setup::{Setup, package_dirs, package_in_dir};
-use crate::specifier::{RUNTIME_PACKAGES, package_name, typed_package, types_package};
+use crate::specifier::{RUNTIME_PACKAGES, bin_link, package_name, typed_package, types_package};
 use crate::tsconfig_paths::resolve_extends;
 
 /// Where a dependency an import names is listed.
@@ -1019,6 +1019,15 @@ impl DependencyUsage {
                         declaration,
                     };
                     self.handle_import(workspace, name, &site);
+                } else if let Some(bin) = module
+                    .info
+                    .imports
+                    .get(resolved.import)
+                    .and_then(|import| bin_link(&import.specifier))
+                {
+                    // `require.resolve('.bin/tsc')` finds the binary's link to spawn it: a use of the dependency that
+                    // provides the binary, as a script that runs it is.
+                    self.provide_binary_or_ancestor(module.owner, bin);
                 } else if let Some(import) = module.info.imports.get(resolved.import) {
                     // A path alias can stand in for a package the manifest lists: the alias serves development,
                     // the listed dependency is what consumers install. A bare builtin name (`events`, `buffer`) uses
