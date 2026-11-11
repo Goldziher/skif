@@ -33,7 +33,7 @@ pub(crate) struct Analysis<'w> {
     /// Indexed like `verdicts`: the position in `groups` of the group that owns the instance, if any.
     pub(crate) owners: Vec<Option<usize>>,
     /// Indexed like `verdicts`: the range the instance's semver group asks for, if any.
-    pub(crate) preferred: Vec<Option<String>>,
+    pub(crate) preferred: Vec<Option<SemverRange>>,
 }
 
 /// A version group as the instance listing shows it.
@@ -86,9 +86,9 @@ impl<'w> Analysis<'w> {
             let groups = Groups::compile(workspace, config);
             let assignment = groups.assign(&instances);
             let owners: Vec<Option<usize>> = instances.iter().map(|(id, _)| assignment.owner(id)).collect();
-            let preferred: Vec<Option<String>> = instances
+            let preferred: Vec<Option<SemverRange>> = instances
                 .iter()
-                .map(|(id, _)| assignment.preferred(id).map(SemverRange::unwrap))
+                .map(|(id, _)| assignment.preferred(id).cloned())
                 .collect();
             let summaries = groups
                 .groups()
