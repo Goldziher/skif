@@ -594,6 +594,37 @@ fn a_member_binary_is_provided_where_the_package_manager_links_it() {
     }
 }
 
+/// pnpm links a member's binary into every package's `PATH` only with its hoisted linker: `nodeLinker: hoisted` in
+/// `pnpm-workspace.yaml`, or `node-linker=hoisted` in the root `.npmrc` when `pnpm-workspace.yaml` sets no
+/// `nodeLinker`. The isolated default, `isolated`, `pnp` and a commented-out setting keep the binary to its dependents.
+#[test]
+fn pnpm_links_member_binaries_as_its_node_linker_says() {
+    let root = r#"{"name":"root","private":true,"packageManager":"pnpm@10.0.0"}"#;
+    let packages = "packages:\n  - packages/*\n";
+    let hoisted_yaml = "packages:\n  - packages/*\nnodeLinker: hoisted\n";
+    let isolated_yaml = "packages:\n  - packages/*\nnodeLinker: isolated\n";
+    let isolated: &[&str] = &["packages/app/package.json: mytool"];
+    let hoisted: &[&str] = &[];
+    let cases: [PnpmCase; 9] = [
+        ((packages, None), isolated),
+        ((hoisted_yaml, None), hoisted),
+        ((packages, Some("node-linker=hoisted\n")), hoisted),
+        ((packages, Some("registry=https://registry.npmjs.org/\nnode-linker = \"hoisted\"\n")), hoisted),
+        ((packages, Some("node-linker=hoisted\nnode-linker=isolated\n")), isolated),
+        ((packages, Some("# node-linker=hoisted\n")), isolated),
+        ((packages, Some("node-linker=pnp\n")), isolated),
+        ((isolated_yaml, Some("node-linker=hoisted\n")), isolated),
+        ((hoisted_yaml, Some("node-linker=pnp\n")), hoisted),
+    ];
+    for ((yaml, npmrc), expected) in cases {
+        let mut all = vec![("package.json", root), ("pnpm-workspace.yaml", yaml)];
+        all.extend(npmrc.map(|text| (".npmrc", text)));
+        assert_eq!(unlisted_member_binaries(&all), expected, "{all:?}");
+    }
+}
+
+type PnpmCase<'a> = ((&'a str, Option<&'a str>), &'a [&'a str]);
+
 /// A Yarn workspace is taken for Yarn Berry, which links a member's binary only for its dependents, on positive
 /// evidence only: a Berry `yarn.lock` (`__metadata`) or a `.yarnrc.yml`. A `yarn.lock` that tells neither version,
 /// without a `packageManager`, counts as hoisting, as an unknown package manager does.
