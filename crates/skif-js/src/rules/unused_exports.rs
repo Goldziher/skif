@@ -101,9 +101,18 @@ pub(super) fn report(
         }
         let fixes = fixes(module, &unused);
         let package = analysis.workspace.package(module.owner);
+        // `export const X` with `export type X` is one name: only the value is reported.
+        let unused_values: HashSet<&str> = if want_type {
+            unused
+                .iter()
+                .filter(|export| !export.is_type)
+                .map(|export| export.name.as_str())
+                .collect()
+        } else {
+            HashSet::default()
+        };
         for export in unused.iter().copied().filter(|export| export.is_type == want_type) {
-            // `export const X` with `export type X` is one name: only the value is reported.
-            if want_type && unused.iter().any(|other| !other.is_type && other.name == export.name) {
+            if unused_values.contains(export.name.as_str()) {
                 continue;
             }
             let noun = if want_type { "type" } else { "export" };

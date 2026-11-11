@@ -1,9 +1,11 @@
 //! Glob sets with exclusions, and name matchers for the ignore lists.
 
 use std::collections::BTreeMap;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 use regex::RegexSet;
+use skif_core::HashMap;
 
 use crate::input::ScopedEntryRegex;
 
@@ -218,9 +220,49 @@ impl Names {
     }
 }
 
+/// Compiled [`Globs`] by their patterns, shared by the packages of a run: most packages have the same default and
+/// plugin globs, written relative to the package, which are then compiled once instead of once per package.
+#[derive(Debug, Default)]
+pub(crate) struct GlobCache {
+    compiled: Mutex<HashMap<Vec<String>, Globs>>,
+}
+
+impl GlobCache {
+    /// The globs of `patterns`, as [`Globs::new`] compiles them.
+    pub(crate) fn globs(&self, patterns: &[String]) -> Globs {
+        if let Some(found) = self.lock().get(patterns) {
+            return found.clone();
+        }
+        // Compiled outside the lock: two packages may compile the same patterns at once, to the same globs.
+        let compiled = Globs::new(patterns);
+        self.lock().entry(patterns.to_vec()).or_insert(compiled).clone()
+    }
+
+    fn lock(&self) -> MutexGuard<'_, HashMap<Vec<String>, Globs>> {
+        self.compiled.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_cache_compiles_each_pattern_list_once_and_matches_as_compiled() {
+        let cache = GlobCache::default();
+        let patterns = vec!["src/**/*.ts".to_owned(), "!**/*.test.ts".to_owned()];
+        let first = cache.globs(&patterns);
+        let second = cache.globs(&patterns);
+        let other = cache.globs(&["lib/**".to_owned()]);
+        assert_eq!(cache.lock().len(), 2);
+        for globs in [&first, &second] {
+            assert!(globs.is_match("src/a.ts"));
+            assert!(!globs.is_match("src/a.test.ts"));
+            assert!(!globs.is_match("lib/a.ts"));
+        }
+        assert!(other.is_match("lib/a.ts"));
+        assert!(cache.globs(&[]).is_empty());
+    }
 
     #[test]
     fn include_and_exclude() {

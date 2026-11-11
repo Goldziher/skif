@@ -426,17 +426,27 @@ fn read_installed(
     name: &str,
     cache: &mut HashMap<PathBuf, Option<Arc<Installed>>>,
 ) -> Option<Arc<Installed>> {
-    let mut dir = start;
-    loop {
+    find_installed(start, root, |dir| {
         let package = dir.join("node_modules").join(name);
         let manifest = package.join("package.json");
-        let entry = cache.entry(manifest.clone()).or_insert_with(|| {
-            fs.read_to_string(&manifest)
-                .ok()
-                .and_then(|text| parse_installed(fs, &package, &text, name))
-        });
-        if entry.is_some() {
-            return entry.clone();
+        cache
+            .entry(manifest.clone())
+            .or_insert_with(|| read_installed_at(fs, &package, &manifest, name))
+            .clone()
+    })
+}
+
+/// The first installed package `lookup` finds in a directory from `start` up to `root`, as Node.js looks up
+/// `node_modules`.
+fn find_installed(
+    start: &Path,
+    root: &Path,
+    mut lookup: impl FnMut(&Path) -> Option<Arc<Installed>>,
+) -> Option<Arc<Installed>> {
+    let mut dir = start;
+    loop {
+        if let Some(found) = lookup(dir) {
+            return Some(found);
         }
         if dir == root {
             return None;
@@ -445,6 +455,59 @@ fn read_installed(
         if !dir.starts_with(root) {
             return None;
         }
+    }
+}
+
+/// The installed package `name` in `package`, whose manifest is `manifest`.
+fn read_installed_at(fs: &dyn FileSystem, package: &Path, manifest: &Path, name: &str) -> Option<Arc<Installed>> {
+    fs.read_to_string(manifest)
+        .ok()
+        .and_then(|text| parse_installed(fs, package, &text, name))
+}
+
+/// The installed manifests the packages of a run look up side by side, each read once for all of them, and which
+/// directories hold no `node_modules`, so that the packages listed nowhere in them are not probed one by one.
+#[derive(Default)]
+struct SharedInstalled {
+    manifests: Mutex<HashMap<PathBuf, Option<Arc<Installed>>>>,
+    module_dirs: Mutex<HashMap<PathBuf, bool>>,
+}
+
+impl SharedInstalled {
+    /// As [`read_installed`], through the shared cache.
+    fn read(&self, fs: &dyn FileSystem, start: &Path, root: &Path, name: &str) -> Option<Arc<Installed>> {
+        find_installed(start, root, |dir| {
+            if !self.has_node_modules(fs, dir) {
+                return None;
+            }
+            let package = dir.join("node_modules").join(name);
+            let manifest = package.join("package.json");
+            if let Some(known) = self.manifests.lock().unwrap_or_else(PoisonError::into_inner).get(&manifest) {
+                return known.clone();
+            }
+            // Read outside the lock: two packages may read the same manifest at once, to the same result.
+            let read = read_installed_at(fs, &package, &manifest, name);
+            self.manifests
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .entry(manifest)
+                .or_insert(read)
+                .clone()
+        })
+    }
+
+    /// Whether `dir` holds a `node_modules` directory: without one, no package is installed there.
+    fn has_node_modules(&self, fs: &dyn FileSystem, dir: &Path) -> bool {
+        if let Some(&known) = self.module_dirs.lock().unwrap_or_else(PoisonError::into_inner).get(dir) {
+            return known;
+        }
+        let found = fs.is_dir(&dir.join("node_modules"));
+        *self
+            .module_dirs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(dir.to_path_buf())
+            .or_insert(found)
     }
 }
 
@@ -769,19 +832,19 @@ fn package_ancestors(workspace: &Workspace, isolate: bool) -> Vec<Vec<PackageId>
         return vec![Vec::new(); workspace.package_ids().count()];
     }
     let root = workspace.iter().find(|(_, package)| package.is_root).map(|(id, _)| id);
+    // The packages other than the root by directory, so each package looks up its ancestor directories, innermost
+    // first, instead of testing every other package.
+    let mut by_dir: HashMap<&Path, Vec<PackageId>> = HashMap::default();
+    for (id, package) in workspace.iter().filter(|(_, package)| !package.is_root) {
+        by_dir.entry(package.dir.as_path()).or_default().push(id);
+    }
     let mut all = vec![Vec::new(); workspace.package_ids().count()];
     for (id, package) in workspace.iter() {
-        let mut containing: Vec<(PackageId, usize)> = workspace
-            .iter()
-            .filter(|(other_id, other)| {
-                *other_id != id && !other.is_root && package.dir != other.dir && package.dir.starts_with(&other.dir)
-            })
-            .map(|(other_id, other)| (other_id, other.dir.components().count()))
-            .collect();
-        containing.sort_by_key(|(_, depth)| std::cmp::Reverse(*depth));
-        all[id.index()] = containing
-            .into_iter()
-            .map(|(other, _)| other)
+        all[id.index()] = package
+            .dir
+            .ancestors()
+            .skip(1)
+            .flat_map(|dir| by_dir.get(dir).into_iter().flatten().copied())
             .chain(root.filter(|root| *root != id))
             .collect();
     }
@@ -914,13 +977,14 @@ impl DependencyUsage {
         // The installed manifests are looked up for every package on its own thread: each lookup walks up the
         // `node_modules` directories and is bound by file system latency.
         let listed = &self.listed;
+        let shared = SharedInstalled::default();
         let installed: Vec<Vec<(String, Arc<Installed>)>> = map_ordered(&members, sequential, |&(id, package)| {
             let dir = workspace.root.join(&package.dir);
-            let mut cache = HashMap::default();
             listed[id.index()]
                 .iter()
                 .filter_map(|name| {
-                    let found = read_installed(fs, &dir, &workspace.root, name, &mut cache)
+                    let found = shared
+                        .read(fs, &dir, &workspace.root, name)
                         .or_else(|| linked.get(name).cloned())
                         .or_else(|| locked.get(name).cloned())?;
                     Some((name.clone(), found))
@@ -1081,7 +1145,9 @@ impl DependencyUsage {
         match listed {
             Listed::Package(id) => self.reference_in(id, name),
             Listed::External => {
-                self.external_used.insert(name.to_owned());
+                if !self.external_used.contains(name) {
+                    self.external_used.insert(name.to_owned());
+                }
             }
         }
     }
@@ -1096,7 +1162,11 @@ impl DependencyUsage {
     }
 
     fn reference_in(&mut self, id: PackageId, name: &str) {
-        self.referenced[id.index()].insert(name.to_owned());
+        // Most uses repeat a name already recorded, which then costs no allocation.
+        let referenced = &mut self.referenced[id.index()];
+        if !referenced.contains(name) {
+            referenced.insert(name.to_owned());
+        }
     }
 
     fn collect_imports(&mut self, workspace: &Workspace, setup: &Setup, graph: &ModuleGraph) {
@@ -1105,6 +1175,7 @@ impl DependencyUsage {
             if module.foreign || setup.package(module.owner).is_none() {
                 continue;
             }
+            let declaration = is_declaration_file(&module.abs);
             for resolved in &module.imports {
                 if let Some(name) = &resolved.package {
                     let kind = module.info.imports.get(resolved.import).map(|import| import.kind);
@@ -1121,7 +1192,6 @@ impl DependencyUsage {
                         // nor need one listed.
                         continue;
                     }
-                    let declaration = is_declaration_file(&module.abs);
                     // knip's strict mode counts every import of a declaration file as type-only, so a listed `@types`
                     // package stands in for the package.
                     let type_only =
@@ -1195,7 +1265,7 @@ impl DependencyUsage {
                     module: module.id,
                     span: module.info.jsx_import_source_span,
                     type_only: false,
-                    declaration: is_declaration_file(&module.abs),
+                    declaration,
                 };
                 self.handle_import(workspace, &source, &site);
             } else if module.info.has_jsx
@@ -1651,5 +1721,76 @@ impl DependencyUsage {
             .filter_map(|name| Some((self.external_listed.get(name)?.clone(), name.clone())))
             .chain(self.outside_used.iter().cloned())
             .collect()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use skif_config::Config;
+    use skif_core::MemoryFs;
+    use skif_workspace::{PackageId, Workspace};
+
+    use super::{SharedInstalled, package_ancestors};
+
+    #[test]
+    fn shared_installed_manifests_are_read_once_and_only_where_node_modules_is() {
+        let fs = MemoryFs::new()
+            .with_file("/ws/node_modules/a/package.json", r#"{"name":"a","bin":"cli.js","version":"1.0.0"}"#)
+            .with_file("/ws/packages/q/node_modules/a/package.json", r#"{"name":"a","version":"2.0.0"}"#);
+        let shared = SharedInstalled::default();
+        let root = Path::new("/ws");
+        let from_p = shared.read(&fs, Path::new("/ws/packages/p"), root, "a").unwrap();
+        let again = shared.read(&fs, Path::new("/ws/packages/p"), root, "a").unwrap();
+        let from_q = shared.read(&fs, Path::new("/ws/packages/q"), root, "a").unwrap();
+        assert_eq!(from_p.bins, ["a"]);
+        assert_eq!(from_p.version.as_deref(), Some("1.0.0"));
+        assert!(std::sync::Arc::ptr_eq(&from_p, &again));
+        assert_eq!(from_q.version.as_deref(), Some("2.0.0"));
+        assert!(shared.read(&fs, Path::new("/ws/packages/p"), root, "missing").is_none());
+        let manifests = shared.manifests.lock().unwrap();
+        let mut read: Vec<&Path> = manifests.keys().map(PathBuf::as_path).collect();
+        read.sort_unstable();
+        assert_eq!(
+            read,
+            [
+                Path::new("/ws/node_modules/a/package.json"),
+                Path::new("/ws/node_modules/missing/package.json"),
+                Path::new("/ws/packages/q/node_modules/a/package.json"),
+            ]
+        );
+    }
+
+    #[test]
+    fn ancestors_are_the_containing_packages_innermost_first_then_the_root() {
+        let fs = MemoryFs::new()
+            .with_file(
+                "/ws/package.json",
+                r#"{"name":"r","workspaces":["packages/a","packages/a/sub","packages/a/sub/deep","packages/ab"]}"#,
+            )
+            .with_file("/ws/packages/a/package.json", r#"{"name":"a"}"#)
+            .with_file("/ws/packages/a/sub/package.json", r#"{"name":"sub"}"#)
+            .with_file("/ws/packages/a/sub/deep/package.json", r#"{"name":"deep"}"#)
+            .with_file("/ws/packages/ab/package.json", r#"{"name":"ab"}"#);
+        let config = Config::from_toml_str("").unwrap();
+        let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &fs).unwrap();
+        let ancestors = package_ancestors(&workspace, false);
+        let name = |id: PackageId| workspace.package(id).and_then(|package| package.name.clone()).unwrap();
+        let of = |wanted: &str| {
+            let (id, _) = workspace
+                .iter()
+                .find(|(_, package)| package.name.as_deref() == Some(wanted))
+                .unwrap();
+            ancestors[id.index()].iter().map(|&other| name(other)).collect::<Vec<_>>()
+        };
+        assert_eq!(of("deep"), ["sub", "a", "r"]);
+        assert_eq!(of("sub"), ["a", "r"]);
+        assert_eq!(of("a"), ["r"]);
+        // `packages/ab` starts with the text of `packages/a` but is not below it.
+        assert_eq!(of("ab"), ["r"]);
+        assert!(of("r").is_empty());
+        assert!(package_ancestors(&workspace, true).iter().all(Vec::is_empty));
     }
 }
