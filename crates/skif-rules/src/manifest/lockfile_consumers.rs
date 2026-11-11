@@ -3,14 +3,13 @@
 //! Bazel is looked for only in a Bazel repository: the nearest directory at or above the workspace root, and not above
 //! the git repository's root, that holds `MODULE.bazel`, `REPO.bazel`, `WORKSPACE.bazel` or `WORKSPACE`. A Bazel file
 //! names a lockfile by a label of the main repository: `"//libs/a:pnpm-lock.yaml"`, also `@//`, `@@//` and
-//! `@<module name>//`, and with the directory in the target (`"//:libs/a/pnpm-lock.yaml"`). The files read are the
-//! `MODULE.bazel`, `REPO.bazel`, `WORKSPACE`, `WORKSPACE.bazel`, `*.bzl`, `BUILD` and `BUILD.bazel` files a walk below
-//! the root finds, and those at the top of the Bazel repository when it starts above the root. The walk enters what
-//! discovery enters (no `node_modules`, hidden, gitignored or linked directories), nor build output (`dist`, `target`,
-//! `build`, `out`, `coverage`) or a directory `.bazelignore` lists. A `BUILD` file also names a lockfile of its own
-//! directory or below by a relative path (`"pnpm-lock.yaml"`, `":a/pnpm-lock.yaml"`); those of the lockfile's
-//! directory and the directories above it are read even when the walk skips them. A literal in an `exclude = [...]`
-//! list names nothing.
+//! `@<module name>//`, and with the directory in the target (`"//:libs/a/pnpm-lock.yaml"`). The files read are those
+//! Bazel reads: the `MODULE.bazel`, `REPO.bazel`, `WORKSPACE.bazel` and `WORKSPACE` at the top of the Bazel repository,
+//! the `BUILD` and `BUILD.bazel` files of each lockfile's directory and the directories above it, and every `.bzl`
+//! (or `*.MODULE.bazel`) file of the main repository those files load or name by a label, transitively. Nothing else
+//! is listed or read, so a lockfile only another package's `BUILD` file names, through an implicitly exported file, is
+//! not found. A `BUILD` file also names a lockfile of its own directory or below by a relative path
+//! (`"pnpm-lock.yaml"`, `":a/pnpm-lock.yaml"`). A literal in an `exclude = [...]` list names nothing.
 //!
 //! A Dockerfile names a lockfile when a `COPY` or `ADD` from the build context copies it, by name or by a glob
 //! (`pnpm-lock.yaml*`), with the build context taken as the Dockerfile's directory or the workspace root; and when a
@@ -23,7 +22,7 @@ use std::path::{Path, PathBuf};
 use skif_config::Selector;
 use skif_core::{FileSystem, slash};
 use skif_lint::LintContext;
-use skif_workspace::{DiscoverOptions, LOCKFILES, PackageManager, bazel_workspace_name, repository_root, scan_files};
+use skif_workspace::{LOCKFILES, PackageManager, bazel_workspace_name, repository_root};
 
 use crate::paths::{file_name, join, parent};
 use crate::toolchain::{self, DockerfileCopies};
@@ -34,23 +33,14 @@ const BAZEL_ROOT_FILES: [&str; 4] = ["MODULE.bazel", "REPO.bazel", "WORKSPACE.ba
 /// The files that declare a Bazel package, whose relative paths refer to that package's directory.
 const BUILD_FILES: [&str; 2] = ["BUILD", "BUILD.bazel"];
 
-/// Directories of build output the walk for Bazel files does not enter; hidden ones (`.cache`, `.turbo`, `.nx`) it
-/// never enters.
-const OUTPUT_DIRECTORIES: [&str; 5] = ["dist", "target", "build", "out", "coverage"];
-
-/// How deep the walk for Bazel files descends below the workspace root.
-const MAX_DEPTH: usize = 16;
-
-/// Bazel's list of directories it does not look into, at the top of the Bazel repository.
-const BAZEL_IGNORE: &str = ".bazelignore";
-
-/// Whether a file called `name` is read for Bazel labels.
-fn is_bazel_file(name: &str) -> bool {
-    BAZEL_ROOT_FILES.contains(&name)
-        || BUILD_FILES.contains(&name)
+/// Whether a label's target is a file Bazel loads Starlark from.
+fn is_starlark_target(target: &str) -> bool {
+    let name = file_name(target);
+    name.rsplit_once('.')
+        .is_some_and(|(stem, extension)| !stem.is_empty() && extension == "bzl")
         || name
-            .rsplit_once('.')
-            .is_some_and(|(stem, extension)| !stem.is_empty() && extension == "bzl")
+            .strip_suffix(".bazel")
+            .is_some_and(|stem| stem.rsplit_once('.').is_some_and(|(_, last)| last == "MODULE"))
 }
 
 /// The package manager that installs from the lockfile at `path`.
@@ -163,10 +153,10 @@ impl BazelRepository {
         })
     }
 
-    /// The lockfile a label of the main repository names, as a path relative to the Bazel root:
-    /// `//libs/a:pnpm-lock.yaml`, `//libs:a/pnpm-lock.yaml` and `//:libs/a/pnpm-lock.yaml` are
-    /// `libs/a/pnpm-lock.yaml`. A label of another repository (`@npm//...`) names none.
-    fn labelled_lockfile(&self, literal: &str) -> Option<String> {
+    /// The package and target of a label of the main repository: `//libs/a:x` is `("libs/a", "x")`, also with `@//`,
+    /// `@@//` and `@<module name>//`. A label of another repository (`@npm//...`) is none, and so is a target that
+    /// climbs out of its package.
+    fn main_label<'l>(&self, literal: &'l str) -> Option<(&'l str, &'l str)> {
         let label = match literal.strip_prefix('@') {
             Some(canonical) if canonical.starts_with('@') => &canonical[1..],
             Some(apparent) => self
@@ -178,7 +168,25 @@ impl BazelRepository {
             None => literal,
         };
         let (package, target) = label.strip_prefix("//")?.split_once(':')?;
+        (!target.split('/').any(|segment| segment == "..")).then_some((package, target))
+    }
+
+    /// The lockfile a label of the main repository names, as a path relative to the Bazel root:
+    /// `//libs/a:pnpm-lock.yaml`, `//libs:a/pnpm-lock.yaml` and `//:libs/a/pnpm-lock.yaml` are
+    /// `libs/a/pnpm-lock.yaml`.
+    fn labelled_lockfile(&self, literal: &str) -> Option<String> {
+        let (package, target) = self.main_label(literal)?;
         is_lockfile_target(target).then(|| join(package, target))
+    }
+
+    /// The Starlark file, relative to the Bazel root, that a file in `dir` loads or names by `literal`: a label of the
+    /// main repository (`//tools:deps.bzl`) or one relative to `dir` (`:deps.bzl`).
+    fn loaded_file(&self, dir: &str, literal: &str) -> Option<String> {
+        let (package, target) = match literal.strip_prefix(':') {
+            Some(target) => (dir, target),
+            None => self.main_label(literal)?,
+        };
+        (is_starlark_target(target) && !target.split('/').any(|segment| segment == "..")).then(|| join(package, target))
     }
 
     /// The workspace-relative lockfiles the labels among `literals` name.
@@ -194,24 +202,16 @@ impl BazelRepository {
     fn in_workspace(&self, path: String) -> Option<String> {
         if self.below.is_empty() {
             Some(path)
+        } else if path == self.below {
+            Some(String::new())
         } else {
             path.strip_prefix(&format!("{}/", self.below)).map(str::to_owned)
         }
     }
 
-    /// Gitignore-style patterns, anchored at the workspace root, of the directories `.bazelignore` lists that lie in
-    /// the workspace.
-    fn ignored_directories(&self, fs: &dyn FileSystem) -> Vec<String> {
-        let Ok(text) = fs.read_to_string(&self.dir.join(BAZEL_IGNORE)) else {
-            return Vec::new();
-        };
-        text.lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty() && !line.starts_with('#'))
-            .filter_map(|line| self.in_workspace(line.trim_matches('/').to_owned()))
-            .filter(|dir| !dir.is_empty())
-            .map(|dir| format!("/{dir}"))
-            .collect()
+    /// The path relative to the Bazel root of the workspace-relative `path`.
+    fn bazel_path(&self, path: &str) -> String {
+        join(&self.below, path)
     }
 }
 
@@ -231,59 +231,45 @@ fn listed_lockfile(dir: &str, literal: &str) -> Option<String> {
 }
 
 /// The workspace-relative lockfiles the Bazel files name; `lockfile_dirs` are the directories of the lockfiles to
-/// judge. Nothing is listed or read outside a Bazel repository.
-fn bazel_consumers(
-    fs: &dyn FileSystem,
-    root: &Path,
-    lockfile_dirs: &BTreeSet<&str>,
-    sequential: bool,
-) -> BTreeSet<String> {
+/// judge. Nothing is read outside a Bazel repository, and no directory is listed.
+fn bazel_consumers(fs: &dyn FileSystem, root: &Path, lockfile_dirs: &BTreeSet<&str>) -> BTreeSet<String> {
     let Some(repository) = BazelRepository::find(fs, root) else {
         return BTreeSet::new();
     };
-    let skipped = OUTPUT_DIRECTORIES
+    let repo = &repository;
+    let build_files = lockfile_dirs
+        .iter()
+        .flat_map(|dir| ancestors(dir))
+        .flat_map(move |dir| BUILD_FILES.iter().map(move |name| repo.bazel_path(&join(dir, name))));
+    let mut queue: Vec<String> = BAZEL_ROOT_FILES
         .iter()
         .map(|name| (*name).to_owned())
-        .chain(repository.ignored_directories(fs));
-    let options = DiscoverOptions::default()
-        .with_max_depth(MAX_DEPTH)
-        .with_ignore(skipped);
-    let mut files: BTreeSet<String> = scan_files(root, fs, &options, sequential, &is_bazel_file)
-        .iter()
-        .filter_map(|path| path.strip_prefix(root).ok().map(slash))
+        .chain(build_files)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter(|path| fs.is_file(&repository.dir.join(path)))
         .collect();
-    for dir in lockfile_dirs.iter().flat_map(|dir| ancestors(dir)) {
-        files.extend(
-            BUILD_FILES
-                .iter()
-                .map(|name| join(dir, name))
-                .filter(|path| fs.is_file(&root.join(path))),
-        );
-    }
+    let mut seen: BTreeSet<String> = queue.iter().cloned().collect();
     let mut consumed = BTreeSet::new();
-    for path in files {
-        let Ok(source) = fs.read_to_string(&root.join(&path)) else {
+    while let Some(path) = queue.pop() {
+        let Ok(source) = fs.read_to_string(&repository.dir.join(&path)) else {
             continue;
         };
         let literals = string_literals(&source);
         consumed.extend(repository.labelled_in_workspace(&literals));
-        if BUILD_FILES.contains(&file_name(&path)) {
-            let dir = parent(&path);
-            consumed.extend(literals.iter().filter_map(|literal| listed_lockfile(dir, literal)));
+        let dir = parent(&path);
+        if BUILD_FILES.contains(&file_name(&path))
+            && let Some(dir) = repository.in_workspace(dir.to_owned())
+        {
+            consumed.extend(literals.iter().filter_map(|literal| listed_lockfile(&dir, literal)));
         }
-    }
-    if repository.dir != root {
-        let names: Vec<String> = fs
-            .read_dir_shared(&repository.dir)
-            .unwrap_or_default()
+        for loaded in literals
             .iter()
-            .filter(|entry| entry.is_file)
-            .filter_map(|entry| entry.path.file_name().map(|name| name.to_string_lossy().into_owned()))
-            .filter(|name| is_bazel_file(name))
-            .collect();
-        for name in names {
-            if let Ok(source) = fs.read_to_string(&repository.dir.join(name)) {
-                consumed.extend(repository.labelled_in_workspace(&string_literals(&source)));
+            .filter_map(|literal| repository.loaded_file(dir, literal))
+        {
+            if !seen.contains(&loaded) && fs.is_file(&repository.dir.join(&loaded)) {
+                seen.insert(loaded.clone());
+                queue.push(loaded);
             }
         }
     }
@@ -327,7 +313,7 @@ pub(super) fn consumed(cx: &LintContext<'_>, lockfiles: &[String]) -> BTreeSet<S
         return BTreeSet::new();
     }
     let dirs: BTreeSet<&str> = lockfiles.iter().map(|lockfile| parent(lockfile)).collect();
-    let bazel = bazel_consumers(cx.fs(), &cx.workspace.root, &dirs, cx.sequential);
+    let bazel = bazel_consumers(cx.fs(), &cx.workspace.root, &dirs);
     let dockerfiles = toolchain::dockerfile_copies(cx, &dirs);
     lockfiles
         .iter()
@@ -395,7 +381,7 @@ mod tests {
 
     fn consumers(fs: &dyn FileSystem, root: &str, lockfiles: &[&str]) -> Vec<String> {
         let dirs: BTreeSet<&str> = lockfiles.iter().map(|lockfile| parent(lockfile)).collect();
-        bazel_consumers(fs, Path::new(root), &dirs, true).into_iter().collect()
+        bazel_consumers(fs, Path::new(root), &dirs).into_iter().collect()
     }
 
     #[test]
@@ -456,20 +442,21 @@ mod tests {
     }
 
     #[test]
-    fn bazel_files_are_recognised_by_name() {
-        for name in [
-            "MODULE.bazel",
-            "REPO.bazel",
-            "WORKSPACE",
-            "WORKSPACE.bazel",
-            "BUILD",
-            "BUILD.bazel",
-            "deps.bzl",
-        ] {
-            assert!(is_bazel_file(name), "{name}");
-        }
-        for name in [".bzl", "BUILD.md", "module.bazel", "package.json"] {
-            assert!(!is_bazel_file(name), "{name}");
+    fn starlark_files_are_followed_through_labels() {
+        let named = repository("", Some("mono"));
+        let cases = [
+            ("//tools:deps.bzl", Some("tools/deps.bzl")),
+            ("@mono//tools:sub/deps.bzl", Some("tools/sub/deps.bzl")),
+            (":local.bzl", Some("libs/a/local.bzl")),
+            ("//:extra.MODULE.bazel", Some("extra.MODULE.bazel")),
+            ("@rules_js//npm:repositories.bzl", None),
+            ("//tools:BUILD", None),
+            ("//tools:.bzl", None),
+            ("//tools:../x.bzl", None),
+            ("deps.bzl", None),
+        ];
+        for (literal, expected) in cases {
+            assert_eq!(named.loaded_file("libs/a", literal).as_deref(), expected, "{literal}");
         }
     }
 
@@ -487,7 +474,7 @@ mod tests {
             .with_file("/repo/js/libs/a/pnpm-lock.yaml", "");
         assert_eq!(
             consumers(&fs, "/repo/js", &["libs/a/pnpm-lock.yaml"]),
-            ["apps/web/yarn.lock", "libs/a/pnpm-lock.yaml"]
+            ["libs/a/pnpm-lock.yaml"]
         );
     }
 
@@ -526,23 +513,37 @@ mod tests {
             consumers(&with, "/ws", &["libs/a/pnpm-lock.yaml"]),
             ["libs/a/pnpm-lock.yaml"]
         );
-        assert!(with.listings.load(Ordering::SeqCst) > 0);
+        assert_eq!(with.listings.load(Ordering::SeqCst), 0);
     }
 
     #[test]
-    fn the_walk_skips_build_output_and_bazelignored_directories() {
+    fn only_the_files_bazel_loads_are_read() {
         let fs = MemoryFs::new()
-            .with_file("/ws/MODULE.bazel", "")
-            .with_file("/ws/.bazelignore", "# generated\nvendor/\n")
-            .with_file("/ws/dist/BUILD", "LOCK = \"//libs/a:pnpm-lock.yaml\"\n")
-            .with_file("/ws/vendor/x.bzl", "LOCK = \"//libs/b:pnpm-lock.yaml\"\n")
-            .with_file("/ws/tools/deps.bzl", "LOCK = \"//libs/c:pnpm-lock.yaml\"\n")
-            .with_file("/ws/build/d/BUILD", "exports_files([\"pnpm-lock.yaml\"])\n")
-            .with_file("/ws/build/d/pnpm-lock.yaml", "");
+            .with_file(
+                "/ws/WORKSPACE",
+                "load(\"//tools:deps.bzl\", \"deps\")\nload(\"@rules_js//npm:repositories.bzl\", \"x\")\n",
+            )
+            .with_file(
+                "/ws/tools/deps.bzl",
+                "load(\":more.bzl\", \"m\")\nLOCK = \"//libs/a:pnpm-lock.yaml\"\n",
+            )
+            .with_file("/ws/tools/more.bzl", "LOCK = \"//libs/b:pnpm-lock.yaml\"\n")
+            .with_file("/ws/tools/unloaded.bzl", "LOCK = \"//libs/c:pnpm-lock.yaml\"\n")
+            .with_file("/ws/apps/x/BUILD", "LOCK = \"//libs/d:pnpm-lock.yaml\"\n")
+            .with_file("/ws/libs/e/BUILD.bazel", "load(\"//libs:macros.bzl\", \"m\")\n")
+            .with_file("/ws/libs/macros.bzl", "LOCK = \"//libs/e:pnpm-lock.yaml\"\n");
+        let counting = Counting::new(fs);
+        let lockfiles = ["a", "b", "c", "d", "e"].map(|name| format!("libs/{name}/pnpm-lock.yaml"));
+        let lockfiles: Vec<&str> = lockfiles.iter().map(String::as_str).collect();
         assert_eq!(
-            consumers(&fs, "/ws", &["libs/a/pnpm-lock.yaml", "build/d/pnpm-lock.yaml"]),
-            ["build/d/pnpm-lock.yaml", "libs/c/pnpm-lock.yaml"]
+            consumers(&counting, "/ws", &lockfiles),
+            [
+                "libs/a/pnpm-lock.yaml",
+                "libs/b/pnpm-lock.yaml",
+                "libs/e/pnpm-lock.yaml"
+            ]
         );
+        assert_eq!(counting.listings.load(Ordering::SeqCst), 0);
     }
 
     #[test]

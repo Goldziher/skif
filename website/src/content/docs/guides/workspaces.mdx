@@ -97,12 +97,13 @@ A member's lockfile that a build installs from is not reported, so the fix never
 files and runs nothing:
 
 - in a Bazel repository, a label of the lockfile, `"//libs/a:pnpm-lock.yaml"` (also `@//`, `@@//`, `@<name>//` with
-  the name of the `module(...)` call, and `"//:libs/a/pnpm-lock.yaml"`), in a `MODULE.bazel`, `REPO.bazel`,
-  `WORKSPACE`, `WORKSPACE.bazel`, `*.bzl`, `BUILD` or `BUILD.bazel` file below the root, as rules_js's
+  the name of the `module(...)` call, and `"//:libs/a/pnpm-lock.yaml"`), in the `MODULE.bazel`, `REPO.bazel`,
+  `WORKSPACE` or `WORKSPACE.bazel` of the Bazel repository, a `BUILD` or `BUILD.bazel` file of the lockfile's directory
+  or one above, or a `.bzl` file those load (`load("//tools:deps.bzl", ...)`, transitively), as rules_js's
   `npm_translate_lock(pnpm_lock = ...)` takes it. The Bazel repository is the nearest directory at or above the root,
   inside the git repository, with a `MODULE.bazel`, `REPO.bazel`, `WORKSPACE` or `WORKSPACE.bazel`; without one, no
   Bazel file is read. Labels are relative to it, so in a workspace at `js/` of a Bazel repository the label is
-  `//js/libs/a:pnpm-lock.yaml`, and the Bazel files at the top of that repository are read too;
+  `//js/libs/a:pnpm-lock.yaml`;
 - its path relative to a `BUILD` or `BUILD.bazel` file of its own directory or one above (`"pnpm-lock.yaml"`,
   `":pnpm-lock.yaml"`, `"a/pnpm-lock.yaml"`), as in `exports_files` or `srcs`;
 - a `COPY` or `ADD` of it, by name or by a glob such as `pnpm-lock.yaml*`, in a Dockerfile (`Dockerfile`,
@@ -112,8 +113,8 @@ files and runs nothing:
   `npm ci`, `yarn`, `bun install`).
 
 A copy from another stage (`--from`) does not count. Comments and the names in an `exclude = [...]` list are skipped.
-The search for Bazel files skips what discovery skips (`node_modules`, hidden and gitignored directories, links) and
-also build output (`dist`, `target`, `build`, `out`, `coverage`) and the directories `.bazelignore` lists. An `allow`
+No directory is listed for Bazel files: a lockfile that only another package's `BUILD` file names is not found, so
+list it in its own package (`exports_files`) or give it an `allow` entry. An `allow`
 entry for such a lockfile is reported as stale, since the rule would not report the file without it.
 
 `nested-workspace-root` reports a `pnpm-workspace.yaml` in a member's directory: pnpm takes the nearest one above the

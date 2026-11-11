@@ -53,14 +53,17 @@ entry would make every rules_js monorepo restate its build configuration in `ski
 **Consumers.** A lockfile below the root (the root's own lockfiles are judged as before) is not reported when one of
 these names it:
 
-* in a Bazel repository, a label of the main repository in a string literal of a `MODULE.bazel`, `REPO.bazel`,
-  `WORKSPACE`, `WORKSPACE.bazel`, `*.bzl`, `BUILD` or `BUILD.bazel` file below the workspace root: `//<dir>:<lockfile>`,
+* in a Bazel repository, a label of the main repository in a string literal of a file Bazel reads for it: the
+  `MODULE.bazel`, `REPO.bazel`, `WORKSPACE` or `WORKSPACE.bazel` at the top of the repository, the `BUILD` and
+  `BUILD.bazel` files of the lockfile's directory and the directories above it, and every `.bzl` or `*.MODULE.bazel`
+  file of the main repository those files name by a label (`load("//tools:deps.bzl", ...)`,
+  `use_extension("//:npm.bzl", ...)`, `":local.bzl"`), transitively: `//<dir>:<lockfile>`,
   also written `@//`, `@@//` or `@<name>//` with the name the `module(...)` or `workspace(...)` call gives the
   repository, and with part of the directory in the target (`//:libs/a/pnpm-lock.yaml`, `//libs:a/pnpm-lock.yaml`).
   The Bazel repository is the nearest directory at or above the workspace root that holds `MODULE.bazel`,
   `REPO.bazel`, `WORKSPACE.bazel` or `WORKSPACE`, searched no higher than the root of the git repository; without one
-  no Bazel file is looked for. A label is relative to that directory; when it is above the workspace root, the Bazel
-  files directly in it are read too, and a label outside the workspace names none of its files. A label of another
+  no Bazel file is looked for. A label is relative to that directory, and a label outside the workspace names none of
+  its files. A label of another
   repository (`@npm//...`) names nothing;
 * a string literal that is a path relative to a `BUILD` or `BUILD.bazel` file in the lockfile's directory or a
   directory above it, plain or as a relative label (`"pnpm-lock.yaml"`, `":pnpm-lock.yaml"`, `"a/pnpm-lock.yaml"`), as
@@ -78,12 +81,8 @@ no install of the lockfile's manager follows. Starlark `#` comments are skipped,
 `exclude = [...]` list. A label counts only as a whole string literal.
 
 **Cost.** Nothing is listed or read outside a Bazel repository, nor when the workspace has no lockfile below the root.
-In a Bazel repository the Bazel files are found by one walk below the root that lists names only and enters the
-directories discovery enters: no `node_modules`, hidden, gitignored or linked directories (Bazel's `bazel-*` output
-links among them). It also skips build output (`dist`, `target`, `build`, `out`, `coverage`) and the directories
-`.bazelignore` lists, stops 16 directories down and lists sibling directories in parallel unless the run is
-sequential. The `BUILD` files of each lockfile's directory and the directories above it are read even where the walk
-does not go. Only the files whose names match are read. Dockerfiles come from the scan the toolchain rules share
+In a Bazel repository no directory is listed: the files read are the repository's top files, the `BUILD` files of the
+lockfiles' directories and above, and the Starlark files those load, each once, following labels as Bazel does. Dockerfiles come from the scan the toolchain rules share
 ([ADR 0087](0087-toolchain-pins-outside-package-json-and-the-toolchain-pin-drift-rule.md)), which records the
 context sources of each `COPY` and `ADD`, and from the lockfiles' own directories when the scan does not read them;
 no directory is walked for them. An `allow` entry that names a lockfile a build names is reported as stale, as any
@@ -102,26 +101,27 @@ dependency that several catalogs define. This departs from syncpack, which assig
 
 * Good, because `--fix-unsafe` no longer deletes the lockfile of a member that Bazel or a Dockerfile installs, and an
   upgrade does not fail CI on every such member.
-* Good, because the detection reads only files whose names say they are build files, and only when a member lockfile
-  exists.
+* Good, because the detection reads only the files Bazel itself reads to find the lockfile, never lists a directory,
+  and runs only when a member lockfile exists: in a repository with thousands of `BUILD` files it reads a few dozen
+  files.
 * Good, because a `package-lock.json` that npm ignores is reported like Bun's ignored `bun.lockb`.
 * Good, because a dependency without a catalog entry is always a `catalog-missing-entry` finding.
 * Bad, because a consumer written another way is not seen: a label built from variables or inside a longer string (a
   genrule's `cmd`), a `glob()`, a Dockerfile in another directory whose context is the member, or a build script that
   copies the file. Such a lockfile keeps an `allow` entry.
 * Bad, because a docstring or other string literal that is exactly a label counts like a label in code.
-* Bad, because a `BUILD` file or `*.bzl` file below a build output directory (`dist`, `build`, ...) that the walk skips
-  is not read, unless it is the `BUILD` file of a lockfile's directory or one above it.
-* Neutral, because in a Bazel repository with a member lockfile the walk lists every directory discovery would enter
-  once per run; a workspace outside a Bazel repository pays a few file probes at the root and above it.
+* Bad, because a lockfile that only another package's `BUILD` file names (through an implicitly exported file), or
+  only a macro loaded from such a `BUILD` file, is not found: that file is not read. Such a lockfile keeps an `allow`
+  entry, or its own package lists it with `exports_files`.
+* Neutral, because a workspace outside a Bazel repository pays a few file probes at the root and above it.
 
 ### Confirmation
 
 * `crates/skif-rules/src/manifest/lockfile_consumers.rs` tests: string literals, comments and `exclude` lists,
   main-repository labels (with the directory in the target and under the module's name) and other repositories'
-  labels, `BUILD` listings, the recognised file names, labels relative to a Bazel root above the workspace, the git
-  repository as the ceiling of that search, no listing or read without a Bazel root, the skipped output and
-  `.bazelignore` directories, and Dockerfile copies by name, by glob, from the root context and of the whole context.
+  labels, `BUILD` listings, Starlark files followed through labels, labels relative to a Bazel root above the
+  workspace, the git repository as the ceiling of that search, no read without a Bazel root, no listing in a Bazel
+  repository and only the loaded files read, and Dockerfile copies by name, by glob, from the root context and of the whole context.
 * `crates/skif-rules/src/manifest/stray_lockfile.rs` tests: the rules_js repro with one member installed by Bazel and
   one by its Dockerfile, `BUILD` files of the lockfile's directory, Bazel files outside a Bazel repository, labels
   with the directory in the target or the module's name, Dockerfiles building from the root, a `COPY . .` followed by
