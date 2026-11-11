@@ -1,0 +1,182 @@
+name: bench
+
+# The published speed benchmarks (ADR 0113): skif against the sherif, syncpack and knip pinned in
+# tools/bench/corpus.toml, on a pinned GitHub-hosted runner image, run by hand only. The harness comes from the
+# dispatched ref and the measured skif from the `ref` input; the summary records the machine, the runner and the
+# toolchain. `mise run bench:import -- <run-id>` brings the results into the repository.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit, tag or branch of skif to measure (default: the dispatched ref)"
+        required: false
+        default: ""
+      runner:
+        description: "Runner image; only pinned labels, so a run names the image it ran on"
+        required: true
+        type: choice
+        default: ubuntu-24.04
+        options:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+      runs:
+        description: "hyperfine measured runs per command"
+        required: true
+        default: "15"
+      warmup:
+        description: "hyperfine warmup runs per command"
+        required: true
+        default: "3"
+      only:
+        description: "Comma-separated bench corpus repositories (default: all); a partial run cannot be imported"
+        required: false
+        default: ""
+
+# ~keep One benchmark at a time across the repository, so two runs never share a queue slot or a measurement window;
+# ~keep a second dispatch waits instead of cancelling the first.
+concurrency:
+  group: bench
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # ~keep The corepack that provides yarn's shim for the corpus installs; the package managers themselves come from
+  # ~keep mise.lock and each repository's `packageManager`.
+  COREPACK_VERSION: "0.36.0"
+
+jobs:
+  bench:
+    name: Benchmark on ${{ inputs.runner }}
+    timeout-minutes: 300
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - name: Check the inputs
+        env:
+          RUNS: ${{ inputs.runs }}
+          WARMUP: ${{ inputs.warmup }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -euo pipefail
+          [[ "$RUNS" =~ ^[1-9][0-9]*$ ]] || { echo "::error::runs must be a positive integer, got '$RUNS'"; exit 1; }
+          [[ "$WARMUP" =~ ^[0-9]+$ ]] || { echo "::error::warmup must be a non-negative integer, got '$WARMUP'"; exit 1; }
+          [[ "$ONLY" =~ ^[A-Za-z0-9._,-]*$ ]] || { echo "::error::only must be comma-separated repository names, got '$ONLY'"; exit 1; }
+      - name: Check out the harness
+        uses: actions/checkout@v7
+        with:
+          path: harness
+          persist-credentials: false
+      - name: Check out the skif to measure
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          path: skif
+          persist-credentials: false
+      - name: Resolve the measured commit and the Rust toolchains
+        id: resolve
+        run: |
+          set -euo pipefail
+          # ~keep Each checkout builds with the rust-version its Cargo.toml declares (the MSRV the CI job checks), a
+          # ~keep released toolchain fixed by the source rather than whatever `stable` is on the day of the run.
+          msrv() {
+            awk '/^\[(workspace\.)?package\]/{p=1;next} /^\[/{p=0} p && /^rust-version *= *"/{gsub(/"/,"",$3);print $3;exit}' "$1/Cargo.toml"
+          }
+          measured="$(msrv skif)"
+          harness="$(msrv harness)"
+          [[ -n "$measured" ]] || { echo "::error::skif/Cargo.toml declares no rust-version"; exit 1; }
+          [[ -n "$harness" ]] || { echo "::error::harness/Cargo.toml declares no rust-version"; exit 1; }
+          sha="$(git -C skif rev-parse HEAD)"
+          echo "Measuring ${sha} with Rust ${measured}; harness $(git -C harness rev-parse HEAD) with Rust ${harness}"
+          {
+            echo "sha=${sha}"
+            echo "short=${sha:0:12}"
+            echo "rust=${measured}"
+            echo "harness_rust=${harness}"
+          } >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ steps.resolve.outputs.rust }}
+      - name: Install the harness toolchain
+        if: steps.resolve.outputs.harness_rust != steps.resolve.outputs.rust
+        env:
+          TOOLCHAIN: ${{ steps.resolve.outputs.harness_rust }}
+        run: rustup toolchain install "$TOOLCHAIN" --profile minimal --no-self-update
+      # ~keep Caches compiled dependencies only; the corpus, its installs and the generated workspaces live outside
+      # ~keep both target directories, so nothing that is timed comes from a cache.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            harness -> target
+            skif -> target
+      - uses: xberg-io/actions/setup-mise@v1
+        with:
+          working-directory: harness
+          tools: node pnpm hyperfine
+      # ~keep Node 25+ no longer bundles corepack, so yarn's corepack shim is installed explicitly, at a pinned version.
+      - name: Enable corepack
+        run: |
+          npm install --global "corepack@${COREPACK_VERSION}"
+          corepack enable
+      - name: Build the skif to measure
+        working-directory: skif
+        env:
+          TOOLCHAIN: ${{ steps.resolve.outputs.rust }}
+        run: cargo "+${TOOLCHAIN}" build --release --locked -p skif-cli
+      - name: Build the harness
+        working-directory: harness
+        env:
+          TOOLCHAIN: ${{ steps.resolve.outputs.harness_rust }}
+        run: cargo "+${TOOLCHAIN}" build --release --locked -p skif-bench
+      # ~keep The harness rejects a corpus repository not pinned to a full commit SHA and a comparison tool not pinned
+      # ~keep to an exact version, so an unpinned input fails the run before anything is timed. RUSTUP_TOOLCHAIN makes
+      # ~keep the recorded rustc the one that built skif.
+      - name: Benchmark
+        working-directory: harness
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.resolve.outputs.rust }}
+          RUNS: ${{ inputs.runs }}
+          WARMUP: ${{ inputs.warmup }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -euo pipefail
+          args=(
+            run
+            --skif ../skif/target/release/skif
+            --skif-source ../skif
+            --out ../bench-results
+            --corpus-dir ../bench-work/corpus
+            --generated-dir ../bench-work/generated
+            --runs "$RUNS"
+            --warmup "$WARMUP"
+            --install
+            --no-enforce
+          )
+          if [ -n "$ONLY" ]; then args+=(--only "$ONLY"); fi
+          target/release/skif-bench "${args[@]}"
+      - name: Write the results to the job summary
+        if: ${{ !cancelled() }}
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          {
+            if [ -f bench-results/summary.md ]; then
+              cat bench-results/summary.md
+              # shellcheck disable=SC2016 # the backticks are Markdown, not a command substitution
+              printf '\nImport with `mise run bench:import -- %s`.\n' "$RUN_ID"
+            else
+              echo "# skif benchmark: no summary (the run stopped before it)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: bench-${{ steps.resolve.outputs.short }}-${{ inputs.runner }}
+          path: |
+            bench-results/summary.json
+            bench-results/summary.md
+            bench-results/raw/
+          if-no-files-found: error
