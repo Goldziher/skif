@@ -241,7 +241,11 @@ fn sysfs_cores() -> Option<usize> {
         })
         .filter_map(|entry| {
             let topology = entry.path().join("topology");
-            let field = |name: &str| fs::read_to_string(topology.join(name)).ok().map(|v| v.trim().to_owned());
+            let field = |name: &str| {
+                fs::read_to_string(topology.join(name))
+                    .ok()
+                    .map(|v| v.trim().to_owned())
+            };
             Some((field("physical_package_id")?, field("core_id")?))
         })
         .collect();
@@ -326,7 +330,11 @@ fn distinct_cores(pairs: Vec<(String, String)>) -> Option<usize> {
 
 /// The runner facts of a GitHub Actions job from its environment (`lookup` reads one variable); `None` outside one.
 fn github_runner(lookup: impl Fn(&str) -> Option<String>) -> Option<GithubRunner> {
-    let var = |name: &str| lookup(name).map(|value| value.trim().to_owned()).filter(|value| !value.is_empty());
+    let var = |name: &str| {
+        lookup(name)
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+    };
     if var("GITHUB_ACTIONS").as_deref() != Some("true") {
         return None;
     }
@@ -394,8 +402,14 @@ mod tests {
     fn reads_the_operating_system_name_from_os_release() {
         let ubuntu = "PRETTY_NAME=\"Ubuntu 24.04.3 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nID=ubuntu\n";
         assert_eq!(os_release_name(ubuntu).as_deref(), Some("Ubuntu 24.04.3 LTS"));
-        assert_eq!(os_release_name("NAME='Alpine Linux'\nID=alpine\n").as_deref(), Some("Alpine Linux"));
-        assert_eq!(os_release_name("PRETTY_NAME=\"\"\nNAME=Arch\n").as_deref(), Some("Arch"));
+        assert_eq!(
+            os_release_name("NAME='Alpine Linux'\nID=alpine\n").as_deref(),
+            Some("Alpine Linux")
+        );
+        assert_eq!(
+            os_release_name("PRETTY_NAME=\"\"\nNAME=Arch\n").as_deref(),
+            Some("Arch")
+        );
         assert_eq!(os_release_name("ID=x\n"), None);
         assert_eq!(os_release_name("PRETTY_NAMES=x\n"), None);
     }
