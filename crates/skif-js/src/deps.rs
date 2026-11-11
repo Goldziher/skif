@@ -590,7 +590,11 @@ fn ambient_types(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], path: &
             }
         }
     }
-    if every { AmbientTypes::Every } else { AmbientTypes::Default }
+    if every {
+        AmbientTypes::Every
+    } else {
+        AmbientTypes::Default
+    }
 }
 
 /// The major version of TypeScript that `package` compiles with: that of the `typescript` installed in the nearest
@@ -599,11 +603,7 @@ fn ambient_types(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], path: &
 fn typescript_major(fs: &dyn FileSystem, workspace: &Workspace, package: &Package) -> Option<u64> {
     installed_typescript_major(fs, &workspace.root.join(&package.dir), &workspace.root)
         .or_else(|| declared_typescript_major(package))
-        .or_else(|| {
-            workspace
-                .package(PackageId::ROOT)
-                .and_then(declared_typescript_major)
-        })
+        .or_else(|| workspace.package(PackageId::ROOT).and_then(declared_typescript_major))
 }
 
 /// The major version of the `typescript` installed in the nearest `node_modules` from `start` up to `root`.
