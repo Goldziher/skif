@@ -2115,6 +2115,7 @@ mod tests {
             install_command: Vec::new(),
             entry: Vec::new(),
             bench_knip_args: Vec::new(),
+            bench_knip_failure: None,
             knip_invalid: None,
             knip_root: None,
             build_command: Vec::new(),
