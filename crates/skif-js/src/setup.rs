@@ -1235,7 +1235,7 @@ mod tests {
         assert_eq!(selected("@app/*"), ["@app/web"]);
         assert_eq!(selected("./packages/web/"), ["@app/web"]);
         assert_eq!(selected("packages/api"), ["api"]);
-        assert!(selected("!api").is_empty());
-        assert!(selected("@app/web/").is_empty());
+        assert_eq!(selected("!api"), [] as [&str; 0]);
+        assert_eq!(selected("@app/web/"), [] as [&str; 0]);
     }
 }

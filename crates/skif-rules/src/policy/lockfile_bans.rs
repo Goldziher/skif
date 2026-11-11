@@ -302,8 +302,10 @@ snapshots:
         let messages: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
         assert_eq!(
             messages,
-            ["`bad@1.0.0` is resolved although a banned version group forbids it; importer `packages/web` pulls it in \
-              through `bad@1.0.0`"]
+            [
+                "`bad@1.0.0` is resolved although a banned version group forbids it; importer `packages/web` pulls it in \
+              through `bad@1.0.0`"
+            ]
         );
     }
 

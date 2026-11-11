@@ -227,7 +227,11 @@ mod tests {
             ("<scripty>no</scripty>", false, &[]),
             ("---\nimport a from 'a'\n---\n<div/>", true, &["\nimport a from 'a'\n"]),
             ("<script attr=\"a>b\">x</script>", false, &["x"]),
-            ("<span/><style>a</style><select/><script>let s</script>", false, &["let s"]),
+            (
+                "<span/><style>a</style><select/><script>let s</script>",
+                false,
+                &["let s"],
+            ),
             ("<script data-x='>' data-y=\"'\">let q</script>", false, &["let q"]),
             ("<script data-x=\"unclosed>let u</script>", false, &[]),
         ];

@@ -426,7 +426,8 @@ fn declare_module_in_a_module_file_is_an_augmentation() {
 
 #[test]
 fn only_the_declarations_of_value_exports_contain_types() {
-    let cases: &[(&str, &str, &[(&str, &[&str])])] = &[
+    type Case<'a> = (&'a str, &'a str, &'a [(&'a str, &'a [&'a str])]);
+    let cases: &[Case<'_>] = &[
         (
             "a local function and a type-only module",
             "export type P = { a: string };\nfunction local(p: P): P { return p; }\nexport type Q = { p: P };\n",

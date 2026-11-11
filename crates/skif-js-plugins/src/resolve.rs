@@ -208,8 +208,7 @@ fn has_enabling_file(spec: &PluginSpec, files: &Listing<'_>) -> bool {
 
 /// Whether the plugin `id` is enabled for the workspace in `ctx`.
 pub(crate) fn is_plugin_enabled(ctx: &PluginContext<'_>, id: PluginId) -> bool {
-    registry::plugin(id)
-        .is_some_and(|plugin| is_enabled(plugin.spec(), ctx.plugins.get(id), ctx, &Detection::new(ctx)))
+    registry::plugin(id).is_some_and(|plugin| is_enabled(plugin.spec(), ctx.plugins.get(id), ctx, &Detection::new(ctx)))
 }
 
 fn read_manifest(ctx: &PluginContext<'_>) -> Option<ConfigValue> {
@@ -1017,7 +1016,7 @@ mod tests {
         let (value, _) = again.parsed.as_ref().expect("the config parses");
         assert!(value.get("x").is_some(), "{value:?}");
         let other = cache.load(Path::new("/ws/other.json"), "{\"z\": 1}", Some(&loader));
-        assert!(other.imported.is_empty());
+        assert_eq!(other.imported, []);
         assert!(other.parsed.as_ref().is_some_and(|(value, _)| value.get("z").is_some()));
     }
 
@@ -1031,7 +1030,18 @@ mod tests {
         for (dependencies, inherited) in [(&own[..], &inherited[..]), (&[][..], &[][..]), (&own[..], &[][..])] {
             let ctx = context(&fs, dependencies, inherited);
             let detection = Detection::new(&ctx);
-            for text in ["react", "vite", "a", "@vue/compiler-sfc", "@storybook/", "@vue/", "@angular/", "", "z", "re"] {
+            for text in [
+                "react",
+                "vite",
+                "a",
+                "@vue/compiler-sfc",
+                "@storybook/",
+                "@vue/",
+                "@angular/",
+                "",
+                "z",
+                "re",
+            ] {
                 let scan = |matches: &dyn Fn(&String) -> bool| dependencies.iter().chain(inherited).any(matches);
                 assert_eq!(
                     enabler_matches(&Enabler::Dependency(text), &ctx, &detection),

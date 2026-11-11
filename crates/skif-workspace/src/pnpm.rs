@@ -389,7 +389,11 @@ mod tests {
         // Not vacuous: the first of a duplicate wins, the second section sets its own indentation, deeper lines and
         // comments are not entries.
         let snapshots = section_index(text, &line_index, "snapshots");
-        let found = |key: &str| snapshots.get(key).map(|span| &text[span.start as usize..span.end as usize]);
+        let found = |key: &str| {
+            snapshots
+                .get(key)
+                .map(|span| &text[span.start as usize..span.end as usize])
+        };
         assert_eq!(found("a@1.0.0"), Some("a@1.0.0: {}"));
         assert_eq!(found("b@2.0.0"), Some("'b@2.0.0'"));
         assert_eq!(found("d:e"), Some("\"d:e\": 1"));

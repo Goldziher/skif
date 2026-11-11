@@ -12,16 +12,25 @@ use skif_workspace::{PNPM_LOCKFILE, PnpmLockfile};
 fn lockfile(snapshots: usize) -> Arc<str> {
     let mut text = String::from("lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    dependencies:\n");
     for index in 0..snapshots {
-        let _ = write!(text, "      p{index}:\n        specifier: ^1.0.0\n        version: 1.0.{index}\n");
+        let _ = write!(
+            text,
+            "      p{index}:\n        specifier: ^1.0.0\n        version: 1.0.{index}\n"
+        );
     }
     text.push_str("\npackages:\n\n");
     for index in 0..snapshots {
-        let _ = write!(text, "  p{index}@1.0.{index}:\n    resolution: {{integrity: sha512-p{index}}}\n\n");
+        let _ = write!(
+            text,
+            "  p{index}@1.0.{index}:\n    resolution: {{integrity: sha512-p{index}}}\n\n"
+        );
     }
     text.push_str("snapshots:\n\n");
     for index in 0..snapshots {
         let next = (index + 1) % snapshots;
-        let _ = write!(text, "  p{index}@1.0.{index}:\n    dependencies:\n      p{next}: 1.0.{next}\n\n");
+        let _ = write!(
+            text,
+            "  p{index}@1.0.{index}:\n    dependencies:\n      p{next}: 1.0.{next}\n\n"
+        );
     }
     Arc::from(text)
 }

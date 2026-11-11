@@ -174,13 +174,12 @@ fn insert_name(names: &mut BTreeSet<String>, name: &str) {
 
 /// Applies `update` to the slot of `member` in `nested`, an empty one when it is new.
 fn update_nested(nested: &mut BTreeMap<String, Slot>, member: &str, update: impl FnOnce(&mut Slot)) {
-    match nested.get_mut(member) {
-        Some(slot) => update(slot),
-        None => {
-            let mut slot = Slot::default();
-            update(&mut slot);
-            nested.insert(member.to_owned(), slot);
-        }
+    if let Some(slot) = nested.get_mut(member) {
+        update(slot);
+    } else {
+        let mut slot = Slot::default();
+        update(&mut slot);
+        nested.insert(member.to_owned(), slot);
     }
 }
 

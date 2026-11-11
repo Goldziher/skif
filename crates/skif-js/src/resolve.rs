@@ -304,7 +304,10 @@ impl<K: Eq + Hash, V: Clone> Memo<K, V> {
 
 /// Values memoised by a pair of keys (a scope index or a package name, and a specifier), misses included. A hit
 /// allocates nothing. The pairs are split over shards by both keys, as a [`Memo`] is by its key.
-struct PairMemo<K, V>(Box<[RwLock<HashMap<K, HashMap<String, V>>>]>);
+struct PairMemo<K, V>(Box<[PairShard<K, V>]>);
+
+/// One shard of a [`PairMemo`]: the values by the first key, then by the specifier.
+type PairShard<K, V> = RwLock<HashMap<K, HashMap<String, V>>>;
 
 impl<K: Eq + Hash + Clone, V: Clone> PairMemo<K, V> {
     fn new() -> Self {
@@ -1345,12 +1348,14 @@ impl ModuleResolver {
     /// is no scope directory itself (any source file) has the scopes of its parent, so the files of one directory
     /// share one chain.
     fn scopes_of(&self, importer: &Path) -> impl Iterator<Item = (usize, &AliasScope)> + '_ {
-        let chain = self.scope_chains.get_or_compute(chain_key(importer, &self.scope_index), || {
-            importer
-                .ancestors()
-                .filter_map(|dir| self.scope_index.get(dir).copied())
-                .collect()
-        });
+        let chain = self
+            .scope_chains
+            .get_or_compute(chain_key(importer, &self.scope_index), || {
+                importer
+                    .ancestors()
+                    .filter_map(|dir| self.scope_index.get(dir).copied())
+                    .collect()
+            });
         (0..chain.len()).map(move |at| {
             let position = chain[at];
             (position, &self.scopes[position])
@@ -2671,12 +2676,7 @@ generated/index.ts
         assert_eq!(dirs("/ws/packages/a"), both);
         assert_eq!(dirs("/ws/packages"), vec![PathBuf::from("/ws")]);
         assert_eq!(dirs("/ws/packages/b.ts"), vec![PathBuf::from("/ws")]);
-        let held: usize = r
-            .scope_chains
-            .0
-            .iter()
-            .map(|shard| shard.read().unwrap().len())
-            .sum();
+        let held: usize = r.scope_chains.0.iter().map(|shard| shard.read().unwrap().len()).sum();
         // Keyed by `src` (both files), `packages/a` (`src` and the package itself), `/ws` (`packages`) and `packages`
         // (`packages/b.ts`).
         assert_eq!(held, 4);

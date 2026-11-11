@@ -80,7 +80,10 @@ pub fn render_github(report: &Report, options: &RenderOptions, out: &mut dyn Wri
     let mut file: Option<(&Path, String)> = None;
     for diagnostic in &report.diagnostics {
         let path = diagnostic.location.path.as_path();
-        if file.as_ref().is_none_or(|(last, _)| last.as_os_str() != path.as_os_str()) {
+        if file
+            .as_ref()
+            .is_none_or(|(last, _)| last.as_os_str() != path.as_os_str())
+        {
             let mut escaped = String::new();
             push_escaped(&mut escaped, &options.repo_path(path), true);
             file = Some((path, escaped));

@@ -434,7 +434,8 @@ mod tests {
 
     #[test]
     fn parses_in_a_reused_or_nested_arena_give_the_same_facts() {
-        let source = "import { a } from 'a';\nimport * as ns from 'ns';\nexport const b = a.c + ns.d;\nexport { b as e };\n";
+        let source =
+            "import { a } from 'a';\nimport * as ns from 'ns';\nexport const b = a.c + ns.d;\nexport { b as e };\n";
         let parse = || parse_module(Path::new("x.ts"), source, &ParseOptions::default()).ok();
         let first = parse();
         let nested = with_arena(|outer| {

@@ -301,7 +301,12 @@ fn judged_patterns(
                 candidates
                     .iter()
                     .map(|candidate| (candidate.owner, candidate.abs.as_path()))
-                    .chain(graph.modules().iter().map(|module| (module.owner, module.abs.as_path()))),
+                    .chain(
+                        graph
+                            .modules()
+                            .iter()
+                            .map(|module| (module.owner, module.abs.as_path())),
+                    ),
             )
         })
     };
@@ -1016,6 +1021,6 @@ mod tests {
             Path::new("/w/a/src/z.ts"),
         ];
         assert_eq!(relative_to(Some(&group[..]), Path::new("/w/a")), ["x.ts", "src/z.ts"]);
-        assert!(relative_to(None, Path::new("/w/a")).is_empty());
+        assert_eq!(relative_to(None, Path::new("/w/a")), [] as [std::string::String; 0]);
     }
 }

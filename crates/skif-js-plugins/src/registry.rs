@@ -267,7 +267,10 @@ mod tests {
     fn every_plugin_is_found_by_its_id() {
         for &row in plugins() {
             let id = row.spec().id;
-            let first = PLUGINS.iter().find(|p| p.spec().id == id).map(|p| std::ptr::from_ref(p.spec()));
+            let first = PLUGINS
+                .iter()
+                .find(|p| p.spec().id == id)
+                .map(|p| std::ptr::from_ref(p.spec()));
             assert_eq!(plugin(id).map(|p| std::ptr::from_ref(p.spec())), first, "{id}");
         }
         assert!(plugin("no-such-plugin").is_none());

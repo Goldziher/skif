@@ -550,7 +550,8 @@ fn in_file_references() {
 
 #[test]
 fn export_clauses_are_no_in_file_references_but_other_mentions_are() {
-    let cases: &[(&str, &str, &[(&str, bool)])] = &[
+    type Case<'a> = (&'a str, &'a str, &'a [(&'a str, bool)]);
+    let cases: &[Case<'_>] = &[
         (
             "clause only",
             "export const a = 1;\nexport { a as b };\n",

@@ -56,7 +56,8 @@ fn compile(pattern: &str) -> Option<Pattern> {
 /// The compiled alternatives of a glob, by its text: the same config globs are looked for in every package, and
 /// expanding and compiling a glob costs more than matching a few hundred names with it.
 fn compiled(glob: &str) -> Arc<[Arc<Pattern>]> {
-    static CACHE: LazyLock<RwLock<HashMap<String, Arc<[Arc<Pattern>]>>>> = LazyLock::new(Default::default);
+    type Compiled = HashMap<String, Arc<[Arc<Pattern>]>>;
+    static CACHE: LazyLock<RwLock<Compiled>> = LazyLock::new(Default::default);
     if let Some(hit) = CACHE.read().unwrap_or_else(PoisonError::into_inner).get(glob) {
         return Arc::clone(hit);
     }
@@ -300,7 +301,11 @@ mod tests {
     /// below a directory, no match and no glob.
     #[test]
     fn a_listing_finds_any_match_as_it_finds_the_matches() {
-        let files = ["a.ts".to_owned(), "src/deep/b.spec.ts".to_owned(), "vite.config.ts".to_owned()];
+        let files = [
+            "a.ts".to_owned(),
+            "src/deep/b.spec.ts".to_owned(),
+            "vite.config.ts".to_owned(),
+        ];
         let listing = Listing::new(&files);
         for (globs, expected) in [
             (vec!["vite.config.{js,ts}"], vec!["vite.config.ts"]),

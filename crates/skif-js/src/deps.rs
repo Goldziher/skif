@@ -482,7 +482,12 @@ impl SharedInstalled {
             }
             let package = dir.join("node_modules").join(name);
             let manifest = package.join("package.json");
-            if let Some(known) = self.manifests.lock().unwrap_or_else(PoisonError::into_inner).get(&manifest) {
+            if let Some(known) = self
+                .manifests
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(&manifest)
+            {
                 return known.clone();
             }
             // Read outside the lock: two packages may read the same manifest at once, to the same result.
@@ -1738,8 +1743,14 @@ mod tests {
     #[test]
     fn shared_installed_manifests_are_read_once_and_only_where_node_modules_is() {
         let fs = MemoryFs::new()
-            .with_file("/ws/node_modules/a/package.json", r#"{"name":"a","bin":"cli.js","version":"1.0.0"}"#)
-            .with_file("/ws/packages/q/node_modules/a/package.json", r#"{"name":"a","version":"2.0.0"}"#);
+            .with_file(
+                "/ws/node_modules/a/package.json",
+                r#"{"name":"a","bin":"cli.js","version":"1.0.0"}"#,
+            )
+            .with_file(
+                "/ws/packages/q/node_modules/a/package.json",
+                r#"{"name":"a","version":"2.0.0"}"#,
+            );
         let shared = SharedInstalled::default();
         let root = Path::new("/ws");
         let from_p = shared.read(&fs, Path::new("/ws/packages/p"), root, "a").unwrap();
@@ -1783,14 +1794,17 @@ mod tests {
                 .iter()
                 .find(|(_, package)| package.name.as_deref() == Some(wanted))
                 .unwrap();
-            ancestors[id.index()].iter().map(|&other| name(other)).collect::<Vec<_>>()
+            ancestors[id.index()]
+                .iter()
+                .map(|&other| name(other))
+                .collect::<Vec<_>>()
         };
         assert_eq!(of("deep"), ["sub", "a", "r"]);
         assert_eq!(of("sub"), ["a", "r"]);
         assert_eq!(of("a"), ["r"]);
         // `packages/ab` starts with the text of `packages/a` but is not below it.
         assert_eq!(of("ab"), ["r"]);
-        assert!(of("r").is_empty());
+        assert_eq!(of("r"), [] as [std::string::String; 0]);
         assert!(package_ancestors(&workspace, true).iter().all(Vec::is_empty));
     }
 }

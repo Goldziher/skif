@@ -42,6 +42,9 @@ use crate::manifest::local_path_dependency::{is_local_path, path_target, relativ
 /// A state together with the specifier the instance should have.
 type Outcome = Option<(State, Option<Arc<Specifier>>)>;
 
+/// Rewritten specifiers by (specifier text, range), `None` when the rewrite does not parse.
+type Rewrites<'a> = HashMap<(&'a str, SemverRange), Option<Arc<Specifier>>>;
+
 pub(super) struct Visitor<'a, 'w> {
     instances: &'a Instances<'w>,
     assignment: &'a Assignment<'a>,
@@ -51,7 +54,7 @@ pub(super) struct Visitor<'a, 'w> {
     paths_reported_elsewhere: bool,
     /// Each specifier rewritten to a semver group's range, by its text and the range: the instances of a dependency
     /// repeat a few specifiers, and a specifier's text decides the rewrite, which parses a new specifier.
-    rewritten: RefCell<HashMap<(&'a str, SemverRange), Option<Arc<Specifier>>>>,
+    rewritten: RefCell<Rewrites<'a>>,
 }
 
 impl<'a, 'w> Visitor<'a, 'w> {
@@ -1406,7 +1409,12 @@ mod tests {
             .iter()
             .map(|(name, _)| format!("packages/{name}/package.json"))
             .collect();
-        files.extend(paths.iter().map(String::as_str).zip(members.iter().map(|(_, manifest)| *manifest)));
+        files.extend(
+            paths
+                .iter()
+                .map(String::as_str)
+                .zip(members.iter().map(|(_, manifest)| *manifest)),
+        );
         let workspace = workspace(&files, &config);
         let instances = Instances::collect(&workspace, &config, true);
         let (distinct, slots) = super::distinct_specifiers(&instances, instances.named("react"));
