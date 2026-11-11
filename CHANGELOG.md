@@ -416,6 +416,9 @@ All notable changes to this project are documented here. The format follows
   read.
 - The GitHub Action, pre-commit and Poly examples pin the current release line instead of 0.1
   ([#94](https://github.com/Goldziher/skif/issues/94)).
+- Fixes to a JSON object written on one line, such as a minified `package.json`, keep it on one line: a new catalog
+  object or entry, and a replaced value, take the object's own spacing after commas and colons (`"a":"1","b":"2"`
+  stays compact) instead of being pretty-printed into it ([#156](https://github.com/Goldziher/skif/issues/156)).
 
 ## [0.2.0] - 2026-11-08
 
