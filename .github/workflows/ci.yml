@@ -490,6 +490,9 @@ jobs:
               ;;
             bun) ;;
           esac
+          # bash remembered where the `npm` that ran the install lives (Node's bundled one, as the prefix was empty);
+          # forget it so the assertion resolves every command through PATH again.
+          hash -r
           cmd="$PM"
           [[ "$PM" != yarn-classic ]] || cmd=yarn
           actual="$(cd "$RUNNER_TEMP" && "$cmd" --version | tr -d '\r')"
