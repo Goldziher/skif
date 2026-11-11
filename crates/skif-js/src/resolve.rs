@@ -248,7 +248,7 @@ fn alias_rest<'a>(specifier: &'a str, find: &str) -> Option<&'a str> {
 const MEMO_SHARDS: usize = 32;
 
 /// The shard of a key. The high bits of an ahash hash are the well mixed ones.
-fn memo_shard(key: impl Hash) -> usize {
+fn memo_shard<T: Hash + ?Sized>(key: &T) -> usize {
     usize::try_from(HashState.hash_one(key) >> 32).unwrap_or(0) % MEMO_SHARDS
 }
 
@@ -316,7 +316,7 @@ impl<K: Eq + Hash + Clone, V: Clone> PairMemo<K, V> {
         K: Borrow<Q>,
         Q: Eq + Hash + ToOwned<Owned = K> + ?Sized,
     {
-        let shard = &self.0[memo_shard((first, specifier))];
+        let shard = &self.0[memo_shard(&(first, specifier))];
         if let Some(known) = shard
             .read()
             .unwrap_or_else(PoisonError::into_inner)
