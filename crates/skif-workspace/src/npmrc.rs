@@ -71,7 +71,7 @@ mod tests {
     #[test]
     fn a_section_header_ends_the_top_level() {
         assert_eq!(entries("a=1\n[section]\nb=2\n[other]\nc=3\n"), [("a", "1")]);
-        assert!(entries("[section]\nb=2\n").is_empty());
+        assert_eq!(entries("[section]\nb=2\n"), Vec::<(&str, &str)>::new());
     }
 
     #[test]
