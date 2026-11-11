@@ -38,9 +38,11 @@ runner image (`ImageOS`, `ImageVersion`), `RUNNER_OS`, `RUNNER_ARCH`, `RUNNER_EN
 of the run; the toolchain holds the `--version` of `rustc`, `node`, `npm`, `pnpm`, `yarn` and `bun` on `PATH`, probed
 in a directory without a `package.json` (so a corepack shim reports its default, not a corpus repository's version). A fact
 that cannot be read is `null`. `--only NAME,...` times only those repositories of the bench corpus. `run` exits non-zero when an ADR 0001 check fails, after
-writing the summary; `--no-enforce` turns that off. A tool that exits with a status above 1 (knip's exit code when it
-fails or cannot load a configuration file) is noted under its table and in the knip check, since its time may be that of
-a partial run. A corpus repository's `bench-knip-args` in `corpus.toml` are passed to knip, so it reads the files skif
+writing the summary; `--no-enforce` turns that off. A status of 1 is a complete run that reported findings; a run that
+exits with a status above 1 (knip's exit code when it fails or cannot load a configuration file) or by a signal is an
+error, since its time may be that of a partial run. Such a tool is run once more outside hyperfine, the end of its
+stderr goes to the log and its error line to `error_output` in the summary and under its table, and an ADR 0001 check
+that compares it is `invalid` (not measured) instead of `pass` or `FAIL`; only `FAIL` makes `run` exit non-zero. A corpus repository's `bench-knip-args` in `corpus.toml` are passed to knip, so it reads the files skif
 reads (npm-cli sets `--no-gitignore`), and skif runs with `--recursive` where the repository sets `recursive` (babel),
 as `parity` runs it. hyperfine 1.x and 2.x exports are both read.
 
@@ -371,11 +373,11 @@ medians, which one slow run does not move, over 15 runs after 3 warmup runs; com
 CPU model, and read the ratios against knip, sherif and syncpack, which share the machine and its noise, rather than
 the absolute times. `mise run bench` stays for local measurement while developing; its numbers are not published.
 
-knip's error lines below are not failed runs: on some repositories knip finishes its analysis and prints its whole
-report, then exits with 2 because some of the repository's tool configurations do not load (create-t3-turbo:
-`apps/expo/metro.config.js` requires the unlisted `metro-cache`, and `packages/db/drizzle.config.ts` throws without
-`POSTGRES_URL`). On npm-cli knip runs with `--no-gitignore` (the repository's `bench-knip-args` in `corpus.toml`):
-npm's deny-all `.gitignore` otherwise hides the workspaces from knip, which then analyses only the root package.
+A summary in which any tool exited with an error is not published: knip exits with 2 when some of the repository's tool
+configurations do not load, and its time is then that of a partial analysis. The run's log and `error_output` name the
+cause, which is fixed in `corpus.toml` before measuring again. On npm-cli knip runs with `--no-gitignore` (the
+repository's `bench-knip-args` in `corpus.toml`): npm's deny-all `.gitignore` otherwise hides the workspaces from knip,
+which then analyses only the root package.
 
 <!-- bench:numbers:start -->
 Not yet measured for this release: run the `bench` workflow and `mise run bench:import -- <run-id>`.
@@ -499,9 +501,9 @@ in-process part.
   run. `run --install` installs each corpus repository first, as `parity --install` does (the `bench` workflow
   passes it); a repository whose install fails is timed without knip. Installing changes the timings of every tool,
   not only knip's (skif, sherif and syncpack then run on a tree with `node_modules`), so compare only runs made the
-  same way. Installed, knip still reports two errors on create-t3-turbo that are the repository's own:
+  same way. Installed, knip has reported errors on create-t3-turbo that are the repository's own:
   `apps/expo/metro.config.js` requires `metro-cache`, which it does not list, and `packages/db/drizzle.config.ts`
-  throws without a `POSTGRES_URL`.
+  throws without a `POSTGRES_URL`; such a run is an error and is not published.
 - Non-zero exits are ignored (`--ignore-failure`): linters exit 1 when they find something.
 - The skif command line is `skif . --format json --no-install [--no-js] [--recursive]`; the working directory is the
   target.

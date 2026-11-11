@@ -97,11 +97,11 @@ function summary() {
           row("skif --no-js", 9.4),
           row("sherif", 37),
           row("syncpack lint", 280),
-          row("knip --reporter json", 7200, { error_runs: 15, relative_to_skif: 8.1 }),
+          row("knip --reporter json", 7200, { relative_to_skif: 8.1 }),
         ],
       },
     ],
-    adr_0001_checks: [{ target: "corpus: babel (yarn)", description: "d", passed: true }],
+    adr_0001_checks: [{ target: "corpus: babel (yarn)", description: "d", status: "pass" }],
   };
 }
 
@@ -116,6 +116,20 @@ test("a complete summary has no problems and names what was measured, on which r
       "15.6 GiB memory, hypervisor Microsoft, load average 1.50 / 1.25 / 1.00 before and 2.00 / 1.50 / 1.25 after " +
       "the run ([workflow run, attempt 2](https://github.com/Goldziher/skif/actions/runs/19283746/attempts/2)).",
   );
+});
+
+test("a summary in which a tool exited with an error is refused, with the cause the harness recorded", () => {
+  const errored = summary();
+  const knip = errored.targets[1].results.find((r) => r.tool === "knip --reporter json");
+  knip.error_runs = 15;
+  knip.error_output = "ERROR: Error loading apps/expo/metro.config.js";
+  errored.targets[0].results[1].error_runs = 1;
+  errored.adr_0001_checks[0].status = "invalid";
+  assert.deepEqual(summaryProblems(errored), [
+    "generated: 500 packages (pnpm): sherif exited with an error in 1 of 15 runs, so its time may be that of a partial run",
+    "corpus: babel (yarn): knip --reporter json exited with an error in 15 of 15 runs " +
+      "(ERROR: Error loading apps/expo/metro.config.js), so its time may be that of a partial run",
+  ]);
 });
 
 test("a summary measured outside a GitHub Actions job is refused", () => {
@@ -208,7 +222,6 @@ test("the compact tables use medians and the knip to skif ratio", () => {
   assert.match(text, /\| babel \| 884 ms \| 7\.2 s \| 8x \|/);
   assert.match(text, /\| babel \| 9\.4 ms \| 37 ms \| 280 ms \|/);
   assert.match(text, /\| Generated, 500 packages \| 27 ms \| 59 ms \| 156 ms \|/);
-  assert.match(text, /knip exited with an error status on babel:/);
 });
 
 test("the detail tables print no ratio for the skif rows and name what installed a corpus repository", () => {
@@ -217,7 +230,7 @@ test("the detail tables print no ratio for the skif rows and name what installed
   assert.match(text, /\*\*generated: 500 packages \(pnpm\)\*\*\n\n\| Tool \|/);
   assert.match(text, /\| skif --no-js \| 9\.4 \| 9\.4 \| - \|/);
   assert.match(text, /\| knip --reporter json \| 7200 \| 7200 \| 8\.1x \|/);
-  assert.match(text, /knip --reporter json exited with an error in 15 of 15 runs/);
+  assert.match(text, /\| corpus: babel \(yarn\) \| d \| pass \|/);
 });
 
 test("durations switch unit at 10 ms and 1 s", () => {
