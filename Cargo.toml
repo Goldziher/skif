@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*", "tools/*"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.99"
 license = "MIT"
@@ -28,14 +28,14 @@ napi-build = "2"
 napi-derive = "3"
 nodejs-semver = "7.0.0"
 # oxc releases break weekly; every oxc crate is pinned exactly and moves in lockstep (ADR 0010).
-oxc_allocator = "0.157.0"
-oxc_ast = "0.157.0"
-oxc_ast_visit = "0.157.0"
-oxc_parser = "0.157.0"
+oxc_allocator = "0.158.0"
+oxc_ast = "0.158.0"
+oxc_ast_visit = "0.158.0"
+oxc_parser = "0.158.0"
 oxc_resolver = "11.24.3"
-oxc_semantic = "0.157.0"
-oxc_span = "0.157.0"
-oxc_str = "0.157.0"
+oxc_semantic = "0.158.0"
+oxc_span = "0.158.0"
+oxc_str = "0.158.0"
 proptest = "1.12.0"
 rayon = "1.12.0"
 regex = "1.13.1"
@@ -50,21 +50,21 @@ serde_json = { version = "1.0.154", features = ["preserve_order"] }
 # The module cache key (ADR 0066); already in the tree through phf_shared.
 siphasher = "1.0.4"
 
-skif = { path = "crates/skif", version = "=0.2.0" }
+skif = { path = "crates/skif", version = "=0.3.0" }
 skif-bench = { path = "tools/bench" }
-skif-cli = { path = "crates/skif-cli", version = "=0.2.0" }
-skif-config = { path = "crates/skif-config", version = "=0.2.0" }
-skif-core = { path = "crates/skif-core", version = "=0.2.0" }
-skif-edit = { path = "crates/skif-edit", version = "=0.2.0" }
-skif-js = { path = "crates/skif-js", version = "=0.2.0" }
-skif-js-plugins = { path = "crates/skif-js-plugins", version = "=0.2.0" }
-skif-js-syntax = { path = "crates/skif-js-syntax", version = "=0.2.0" }
-skif-lint = { path = "crates/skif-lint", version = "=0.2.0" }
-skif-migrate = { path = "crates/skif-migrate", version = "=0.2.0" }
-skif-report = { path = "crates/skif-report", version = "=0.2.0" }
-skif-rules = { path = "crates/skif-rules", version = "=0.2.0" }
-skif-specifier = { path = "crates/skif-specifier", version = "=0.2.0" }
-skif-workspace = { path = "crates/skif-workspace", version = "=0.2.0" }
+skif-cli = { path = "crates/skif-cli", version = "=0.3.0" }
+skif-config = { path = "crates/skif-config", version = "=0.3.0" }
+skif-core = { path = "crates/skif-core", version = "=0.3.0" }
+skif-edit = { path = "crates/skif-edit", version = "=0.3.0" }
+skif-js = { path = "crates/skif-js", version = "=0.3.0" }
+skif-js-plugins = { path = "crates/skif-js-plugins", version = "=0.3.0" }
+skif-js-syntax = { path = "crates/skif-js-syntax", version = "=0.3.0" }
+skif-lint = { path = "crates/skif-lint", version = "=0.3.0" }
+skif-migrate = { path = "crates/skif-migrate", version = "=0.3.0" }
+skif-report = { path = "crates/skif-report", version = "=0.3.0" }
+skif-rules = { path = "crates/skif-rules", version = "=0.3.0" }
+skif-specifier = { path = "crates/skif-specifier", version = "=0.3.0" }
+skif-workspace = { path = "crates/skif-workspace", version = "=0.3.0" }
 similar = "3.2.1"
 strsim = "0.11.1"
 tempfile = "3.27.0"

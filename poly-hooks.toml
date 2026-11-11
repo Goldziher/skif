@@ -16,7 +16,7 @@ run = "skif"
 [[hooks.paths]]
 channel = "npm"
 check = "command -v pnpm"
-run = "pnpm dlx skif-cli@0.2.0"
+run = "pnpm dlx skif-cli@0.3.0"
 
 [[hooks]]
 id = "skif-fix"
@@ -34,4 +34,4 @@ run = "skif"
 [[hooks.paths]]
 channel = "npm"
 check = "command -v pnpm"
-run = "pnpm dlx skif-cli@0.2.0"
+run = "pnpm dlx skif-cli@0.3.0"
