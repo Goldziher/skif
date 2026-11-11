@@ -254,20 +254,13 @@ impl<'a, 'w> Visitor<'a, 'w> {
         }
         // Equal specifiers agree on every comparison, so each distinct one is judged once against the distinct set:
         // a dependency shared by thousands of packages costs a handful of range comparisons, not millions.
-        let mut distinct: Vec<Arc<Specifier>> = Vec::new();
-        for &id in &ranged {
-            let specifier = self.spec(id);
-            if !distinct.iter().any(|seen| seen.get_raw() == specifier.get_raw()) {
-                distinct.push(Arc::clone(specifier));
-            }
-        }
-        let mut verdicts: HashMap<String, bool> = HashMap::default();
-        for id in ranged {
-            let specifier = self.spec(id);
-            let satisfies = *verdicts
-                .entry(specifier.get_raw().to_owned())
-                .or_insert_with(|| specifier.satisfies_all(&distinct));
-            if !satisfies {
+        let (distinct, slots) = distinct_specifiers(self.instances, &ranged);
+        let satisfies: Vec<bool> = distinct
+            .iter()
+            .map(|specifier| specifier.satisfies_all(&distinct))
+            .collect();
+        for (id, slot) in ranged.into_iter().zip(slots) {
+            if !satisfies[slot] {
                 self.mark(id, State::SameRangeMismatch, None);
             } else if self.preferred(id).is_some() && !self.matches_preferred(id) {
                 let target = self.with_preferred(id);
@@ -584,6 +577,23 @@ impl<'a, 'w> Visitor<'a, 'w> {
             self.mark(id, state, None);
         }
     }
+}
+
+/// The distinct specifiers of `ids` in first-seen order, and for each id the position of its specifier among them.
+fn distinct_specifiers(instances: &Instances<'_>, ids: &[InstanceId]) -> (Vec<Arc<Specifier>>, Vec<usize>) {
+    let mut positions: HashMap<&str, usize> = HashMap::default();
+    let mut distinct: Vec<Arc<Specifier>> = Vec::new();
+    let slots = ids
+        .iter()
+        .map(|&id| {
+            let specifier = &instances.get(id).specifier;
+            *positions.entry(specifier.get_raw()).or_insert_with(|| {
+                distinct.push(Arc::clone(specifier));
+                distinct.len() - 1
+            })
+        })
+        .collect();
+    (distinct, slots)
 }
 
 /// How early the place of an instance is preferred as the source of a snap target.
@@ -1369,5 +1379,26 @@ mod tests {
         let lib = manifest("lib", "1.0.0", r#""react":"^18.3.1""#);
         let members = [("app", app), ("lib", lib.as_str())];
         assert_eq!(states(toml, &members), [] as [(String, String, &str); 0]);
+    }
+
+    #[test]
+    fn distinct_specifiers_are_kept_in_first_seen_order_with_each_instance_pointing_at_its_own() {
+        let app = manifest("app", "1.0.0", r#""react":"^18.2.0""#);
+        let lib = manifest("lib", "1.0.0", r#""react":"~18.2.0""#);
+        let tool = manifest("tool", "1.0.0", r#""react":"^18.2.0""#);
+        let members = [("app", app.as_str()), ("lib", lib.as_str()), ("tool", tool.as_str())];
+        let config = config("");
+        let mut files = vec![("package.json", ROOT)];
+        let paths: Vec<String> = members
+            .iter()
+            .map(|(name, _)| format!("packages/{name}/package.json"))
+            .collect();
+        files.extend(paths.iter().map(String::as_str).zip(members.iter().map(|(_, manifest)| *manifest)));
+        let workspace = workspace(&files, &config);
+        let instances = Instances::collect(&workspace, &config, true);
+        let (distinct, slots) = super::distinct_specifiers(&instances, instances.named("react"));
+        let raws: Vec<&str> = distinct.iter().map(|specifier| specifier.get_raw()).collect();
+        assert_eq!(raws, ["^18.2.0", "~18.2.0"]);
+        assert_eq!(slots, [0, 1, 0]);
     }
 }
