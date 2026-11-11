@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Tests the repository guards that decide what ships, each on a synthetic tree, so a pattern that drifts cannot make a
 # guard pass on nothing: every script gets a passing tree and the negative cases that must fail.
-#   check-pins, check-headers, check-rule-ids, check-plugin-list, check-dependency-tree, check-package-contents,
-#   check-schema, check-oxc-git-patch, check-doc-pins, npm-smoke.sh, msrv.sh, bench-import.sh
+#   check-pins, check-headers, check-rule-ids, check-plugin-list, check-support-matrix, check-dependency-tree,
+#   check-package-contents, check-schema, check-oxc-git-patch, check-doc-pins, npm-smoke.sh, msrv.sh, bench-import.sh
 #
 # Usage: scripts/test-check-scripts.sh
 # The literals checked below contain `$` on purpose; nothing is meant to expand.
@@ -194,6 +194,86 @@ rm "${plugins}"/crates/skif-js-plugins/src/plugins/*.rs
 printf 'pub fn nothing() {}\n' >"${plugins}/crates/skif-js-plugins/src/plugins/empty.rs"
 expect "check-plugin-list fails when no plugin id is found" 1 run_in "$plugins" check-plugin-list.sh
 expect_in_out "check-plugin-list no ids" "no plugin ids found"
+
+# ---------------------------------------------------------------- check-support-matrix
+support="$(new_tree support)"
+mkdir -p "${support}/.github/workflows" "${support}/scripts/e2e" "${support}/website/src/content/docs/guides" \
+  "${support}/website/src/content/docs/start"
+cp "${repo}/scripts/e2e/lib.sh" "${support}/scripts/e2e/"
+support_ci() {
+  cat >"${support}/.github/workflows/ci.yml" <<YAML
+jobs:
+  npm-addon:
+    strategy:
+      matrix:
+        runtime: [${1}]
+  e2e:
+    strategy:
+      matrix:
+        package-manager: [npm, bun]
+        slot: [newest, previous]
+        os: [ubuntu, windows]
+        exclude:
+          - { package-manager: bun, slot: previous }
+          - { slot: previous, os: windows }
+    steps:
+      - run: |
+          case "\$PM" in bun | yarn-classic) major=1 ;; esac
+  after:
+    runtime: [node-99]
+YAML
+}
+support_ci "node-22, bun"
+support_rows='| Package managers | npm, Bun | npm, pnpm |
+| Linkers tested end to end in CI | npm (hoisted); Bun (default, `linker = "hoisted"`, `linker = "isolated"`) | Not tested |
+| Runtime | Native binary; Node.js 22 and Bun 1.x | Native binary |'
+printf '%s\n' "$support_rows" >"${support}/README.md"
+printf '%s\n| Package manager versions tested | Latest two majors of npm; newest Bun 1.x | None |\n' "$support_rows" \
+  >"${support}/website/src/content/docs/guides/comparison.mdx"
+cat >"${support}/website/src/content/docs/start/installation.mdx" <<'MDX'
+| Package manager | Versions | Layouts | Operating systems |
+| --- | --- | --- | --- |
+| npm | latest two majors | hoisted | Linux, Windows (previous major: Linux) |
+| Bun | newest 1.x | default, `linker = "hoisted"`, `linker = "isolated"` | Linux, Windows |
+
+Older versions may work.
+MDX
+expect "check-support-matrix accepts docs that match CI" 0 run_in "$support" check-support-matrix.sh
+
+support_ci "node-22, node-24, bun"
+expect "check-support-matrix rejects a runtime CI tests and the docs omit" 1 run_in "$support" check-support-matrix.sh
+expect_in_out "check-support-matrix runtime" "file=README.md::'Runtime' says 'Native binary; Node.js 22 and Bun 1.x' for skif, which does not contain 'Node.js 22, 24 and Bun 1.x'"
+support_ci "node-22, bun"
+
+sed -i.bak 's/npm (hoisted); //' "${support}/README.md"
+expect "check-support-matrix rejects a linker row that drops a manager" 1 run_in "$support" check-support-matrix.sh
+expect_in_out "check-support-matrix linkers" "file=README.md::'Linkers tested end to end in CI' says 'Bun (default"
+printf '%s\n' "$support_rows" >"${support}/README.md"
+
+sed -i.bak '/slot: previous, os: windows/d' "${support}/.github/workflows/ci.yml"
+expect "check-support-matrix rejects an operating system the previous majors gained" 1 run_in "$support" check-support-matrix.sh
+expect_in_out "check-support-matrix previous os" "has no row '| npm | latest two majors | hoisted | Linux, Windows (previous major: Linux, Windows) |'"
+support_ci "node-22, bun"
+
+sed -i.bak '/- { package-manager: bun, slot: previous }/d' "${support}/.github/workflows/ci.yml"
+expect "check-support-matrix rejects a manager whose previous major CI started testing" 1 run_in "$support" check-support-matrix.sh
+expect_in_out "check-support-matrix versions" "CI tests 'Latest two majors of npm and Bun'"
+support_ci "node-22, bun"
+
+printf '| npm | latest two majors | hoisted | Linux, Windows (previous major: Linux) |\n' \
+  >"${support}/website/src/content/docs/start/installation.mdx.row"
+sed -i.bak '/^| Bun |/r '"${support}/website/src/content/docs/start/installation.mdx.row" \
+  "${support}/website/src/content/docs/start/installation.mdx"
+expect "check-support-matrix rejects a manager CI does not test" 1 run_in "$support" check-support-matrix.sh
+expect_in_out "check-support-matrix extra row" "the Supported versions table has 3 rows, the e2e job tests 2 package managers"
+
+sed -i.bak 's/package-manager: \[npm, bun\]/package-manager: [npm, deno]/' "${support}/.github/workflows/ci.yml"
+expect "check-support-matrix rejects a package manager it cannot name" 1 run_in "$support" check-support-matrix.sh
+expect_in_out "check-support-matrix unknown manager" "unknown e2e package manager 'deno'"
+
+sed -i.bak '/package-manager: \[/d' "${support}/.github/workflows/ci.yml"
+expect "check-support-matrix fails when the e2e matrix is not found" 1 run_in "$support" check-support-matrix.sh
+expect_in_out "check-support-matrix no axis" "no package-manager or os axis in the e2e job"
 
 # ---------------------------------------------------------------- check-dependency-tree
 deps="$(new_tree deps)"

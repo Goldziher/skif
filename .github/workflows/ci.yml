@@ -212,7 +212,7 @@ jobs:
         run: bash scripts/test-npm-published.sh
       - name: Test the release scripts (Homebrew, Scoop, crates.io, semver checks, version bump, archive and release gates, npm install smoke)
         run: bash scripts/test-release-scripts.sh
-      - name: Test the repository guards (pins, headers, rule ids, plugin lists, doc pins, layering, package contents, oxc patch, npm smoke, MSRV, bench import)
+      - name: Test the repository guards (pins, headers, rule ids, plugin lists, support matrix, doc pins, layering, package contents, oxc patch, npm smoke, MSRV, bench import)
         run: bash scripts/test-check-scripts.sh
       - name: Test the install scripts (pre-commit launcher and the Action's resolve, install and run steps)
         run: bash scripts/test-install-scripts.sh
@@ -308,6 +308,8 @@ jobs:
         run: scripts/check-rule-ids.sh
       - name: Check that the plugin lists in the docs match the plugin table
         run: scripts/check-plugin-list.sh
+      - name: Check that the documented support matrix matches the end-to-end and npm addon matrices
+        run: scripts/check-support-matrix.sh
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
