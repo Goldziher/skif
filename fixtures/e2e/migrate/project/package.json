@@ -1,0 +1,12 @@
+{
+  "name": "e2e-migrate",
+  "version": "0.0.0",
+  "workspaces": [
+    "packages/*"
+  ],
+  "sherif": {
+    "ignoreRule": [
+      "root-package-private-field"
+    ]
+  }
+}

@@ -520,3 +520,8 @@ blake3 = "3477d095995f0e6f2ff0f50975831886bbee50b97c4a2e3bc4ec9792385dbd46"
 number = 104
 status = "accepted"
 blake3 = "b45b9db02fea6173ec332a286e03ac0672c461b877168e02be7fea6f5086be24"
+
+[adrs."adrs/0105-yarn-classic-support-and-the-end-to-end-matrix-of-linkers-and-operating-systems.md"]
+number = 105
+status = "accepted"
+blake3 = "19bc801054a55ab0f6b60102e9521e364cac48245ad28d3d0bffe24a2360ac69"

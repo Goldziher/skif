@@ -1,0 +1,39 @@
+{
+  "description": "Every safely or unsafely fixable manifest and workspace issue: a public root, a version mismatch, an unsorted section, a local path to a workspace package, an empty section and a stray lockfile.",
+  "expect": {
+    "exit_code": 1,
+    "diagnostics": [
+      "empty-dependencies:@e2e/a",
+      "local-path-dependency:@e2e/b:@e2e/a",
+      "root-package-private-field:e2e-dirty",
+      "stray-lockfile:@e2e/b in packages/b/package-lock.json",
+      "unsorted-dependencies:@e2e/b:is-number",
+      "version-mismatch:@e2e/b:is-number"
+    ],
+    "after_fix": {
+      "exit_code": 0,
+      "diagnostics": []
+    }
+  },
+  "overrides": {
+    "yarn": {
+      "reason": "Yarn Berry rewrites the manifests on install: it drops empty sections and sorts the dependency sections.",
+      "remove": [
+        "empty-dependencies:@e2e/a",
+        "unsorted-dependencies:@e2e/b:is-number"
+      ]
+    },
+    "yarn-classic": {
+      "reason": "Yarn Classic refuses to install the workspaces of a root that is not private, so the overlay makes it private. skif offers no fix for a local path to a workspace package under Yarn Classic, which has no workspace: protocol, so the finding stays.",
+      "remove": [
+        "root-package-private-field:e2e-dirty"
+      ],
+      "after_fix": {
+        "exit_code": 1,
+        "add": [
+          "local-path-dependency:@e2e/b:@e2e/a"
+        ]
+      }
+    }
+  }
+}
