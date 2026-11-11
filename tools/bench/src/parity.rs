@@ -2642,6 +2642,8 @@ mod tests {
             "a timed-out build leaves the checkout not installed"
         );
 
+        // The builds below finish at once; a generous limit keeps a loaded machine from timing them out.
+        repo.build_timeout_secs = Some(120);
         repo.build_command = vec!["sh".to_owned(), "-c".to_owned(), "exit 4".to_owned()];
         let reason = install(&repo, &dir, &scratch, Duration::from_secs(600))
             .unwrap()
