@@ -439,6 +439,18 @@ fn typescript_types_found_in_local_type_roots_name_no_package() {
     assert_eq!(deps(out), BTreeSet::from(["node", "vitest"]));
 }
 
+/// TypeScript 6 reads `types: ["*"]` as every `@types` package (every Nx 24 `tsconfig.base.json` sets it): `*` names
+/// no package, while the names beside it still do.
+#[test]
+fn typescript_types_wildcard_names_no_package() {
+    let results = resolve(
+        &[("tsconfig.json", r#"{"compilerOptions":{"types":["*","node"]}}"#)],
+        &["typescript"],
+    );
+    let out = output(&results, "typescript");
+    assert_eq!(deps(out), BTreeSet::from(["node"]));
+}
+
 #[test]
 fn eslint_legacy() {
     let results = resolve(
