@@ -543,7 +543,7 @@ impl<'a> TsconfigMemo<'a> {
 /// packages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AmbientTypes {
-    /// None: the config is missing, a `types` list narrows them, or `typeRoots` drops `node_modules/@types`.
+    /// None: the config is missing, its `types` lists no `*`, or its `typeRoots` drop `node_modules/@types`.
     Narrowed,
     /// Every package, on every TypeScript version: `types: ["*"]`.
     Every,
@@ -551,49 +551,28 @@ enum AmbientTypes {
     Default,
 }
 
-/// What the `tsconfig.json` at `path` makes TypeScript include of the installed `@types/*` packages: [`AmbientTypes`]
-/// along its `extends` chain, where a narrowing anywhere wins and `typeRoots`, when set, must keep
-/// `node_modules/@types`.
-fn ambient_types(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], path: &Path, depth: usize) -> AmbientTypes {
-    const MAX_DEPTH: usize = 8;
-    let Some(config) = memo.get(path) else {
+/// What the `tsconfig.json` at `path` makes TypeScript include of the installed `@types/*` packages, from its
+/// effective `types` and `typeRoots`: each the value the config sets itself, else the one it inherits
+/// ([`inherited_option`]), as TypeScript replaces an inherited compiler option rather than merging it.
+fn ambient_types(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], path: &Path) -> AmbientTypes {
+    if memo.get(path).is_none() {
         return AmbientTypes::Narrowed;
+    }
+    let keeps_default_root = |options: &ConfigValue| match options.get("typeRoots") {
+        Some(ConfigValue::Array(roots)) => Some(roots.iter().filter_map(ConfigValue::as_str).any(|root| {
+            let root = root.trim_end_matches('/');
+            root.ends_with("node_modules/@types") || root == "@types"
+        })),
+        _ => None,
     };
-    let mut every = false;
-    if let Some(options) = config.get("compilerOptions") {
-        if let Some(types) = options.get("types") {
-            if !lists_every_type(types) {
-                return AmbientTypes::Narrowed;
-            }
-            every = true;
-        }
-        if let Some(ConfigValue::Array(roots)) = options.get("typeRoots") {
-            let keeps_default = roots.iter().filter_map(ConfigValue::as_str).any(|root| {
-                let root = root.trim_end_matches('/');
-                root.ends_with("node_modules/@types") || root == "@types"
-            });
-            if !keeps_default {
-                return AmbientTypes::Narrowed;
-            }
-        }
+    if inherited_option(memo, members, path, 0, &keeps_default_root) == Some(false) {
+        return AmbientTypes::Narrowed;
     }
-    if depth < MAX_DEPTH {
-        let dir = path.parent().unwrap_or(path);
-        for target in extends_of(&config)
-            .iter()
-            .filter_map(|parent| resolve_extends(memo.fs, members, dir, parent))
-        {
-            match ambient_types(memo, members, &target, depth + 1) {
-                AmbientTypes::Narrowed => return AmbientTypes::Narrowed,
-                AmbientTypes::Every => every = true,
-                AmbientTypes::Default => {}
-            }
-        }
-    }
-    if every {
-        AmbientTypes::Every
-    } else {
-        AmbientTypes::Default
+    let lists_every = |options: &ConfigValue| options.get("types").map(lists_every_type);
+    match inherited_option(memo, members, path, 0, &lists_every) {
+        Some(true) => AmbientTypes::Every,
+        Some(false) => AmbientTypes::Narrowed,
+        None => AmbientTypes::Default,
     }
 }
 
@@ -666,22 +645,30 @@ fn extends_of(config: &ConfigValue) -> Vec<&str> {
     }
 }
 
-/// The `compilerOptions.jsxImportSource` the `tsconfig.json` at `path` sets itself or inherits; a later `extends`
-/// entry overrides an earlier one.
-fn jsx_import_source(
+/// The `compilerOptions.jsxImportSource` the `tsconfig.json` at `path` sets itself or inherits.
+fn jsx_import_source(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], path: &Path) -> Option<String> {
+    inherited_option(memo, members, path, 0, &|options: &ConfigValue| {
+        options
+            .get("jsxImportSource")
+            .and_then(ConfigValue::as_str)
+            .map(str::to_owned)
+    })
+}
+
+/// What `read` makes of the `compilerOptions` of the nearest config that sets the option it reads: the
+/// `tsconfig.json` at `path` itself, else the configs it extends, a later `extends` entry before an earlier one, each
+/// with its own chain. `None` when no config of the chain sets it, or the config at `path` is missing.
+fn inherited_option<T>(
     memo: &TsconfigMemo<'_>,
     members: &[(String, PathBuf)],
     path: &Path,
     depth: usize,
-) -> Option<String> {
+    read: &impl Fn(&ConfigValue) -> Option<T>,
+) -> Option<T> {
     const MAX_DEPTH: usize = 8;
     let config = memo.get(path)?;
-    if let Some(source) = config
-        .get("compilerOptions")
-        .and_then(|options| options.get("jsxImportSource"))
-        .and_then(ConfigValue::as_str)
-    {
-        return Some(source.to_owned());
+    if let Some(value) = config.get("compilerOptions").and_then(read) {
+        return Some(value);
     }
     if depth >= MAX_DEPTH {
         return None;
@@ -691,7 +678,7 @@ fn jsx_import_source(
         .iter()
         .rev()
         .filter_map(|parent| resolve_extends(memo.fs, members, dir, parent))
-        .find_map(|target| jsx_import_source(memo, members, &target, depth + 1))
+        .find_map(|target| inherited_option(memo, members, &target, depth + 1, read))
 }
 
 /// The workspace members that have a name, with their absolute directory.
@@ -926,7 +913,7 @@ impl DependencyUsage {
         const TYPES_DEFAULT_EMPTY_SINCE: u64 = 6;
         let members = member_dirs(workspace);
         for (id, package) in workspace.iter() {
-            let includes_all = match ambient_types(tsconfigs, &members, &setup.tsconfig_of(workspace, package), 0) {
+            let includes_all = match ambient_types(tsconfigs, &members, &setup.tsconfig_of(workspace, package)) {
                 AmbientTypes::Narrowed => false,
                 AmbientTypes::Every => true,
                 AmbientTypes::Default => typescript_major(tsconfigs.fs, workspace, package)
@@ -952,7 +939,7 @@ impl DependencyUsage {
         let members = member_dirs(workspace);
         for (id, package) in workspace.iter() {
             let config = setup.tsconfig_of(workspace, package);
-            self.other_jsx_runtime[id.index()] = jsx_import_source(tsconfigs, &members, &config, 0)
+            self.other_jsx_runtime[id.index()] = jsx_import_source(tsconfigs, &members, &config)
                 .is_some_and(|source| package_name(&source).is_some_and(|name| name != "react"));
         }
     }

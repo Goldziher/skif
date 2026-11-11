@@ -505,12 +505,91 @@ fn a_member_without_typescript_follows_the_typescript_of_the_workspace_root() {
         if let Some(installed) = &installed {
             files.push(("node_modules/typescript/package.json", installed.as_str()));
         }
-        let diagnostics = lint(&files);
-        let types: Vec<String> = names(&diagnostics, "unused-dev-dependencies")
-            .into_iter()
-            .filter(|name| name.starts_with("@types/"))
-            .collect();
-        assert_eq!(types, strings(&["@types/chrome"]), "{root_range}: {diagnostics:#?}");
+        assert_eq!(unused_types_of(&files), strings(&["@types/chrome"]), "{root_range}");
+    }
+}
+
+/// The `@types` packages of the workspace of `files` that `unused-dev-dependencies` reports.
+fn unused_types_of(files: &[(&str, &str)]) -> Vec<String> {
+    names(&lint(files), "unused-dev-dependencies")
+        .into_iter()
+        .filter(|name| name.starts_with("@types/"))
+        .collect()
+}
+
+/// The `unused-dev-dependencies` of a package listing `@types/chrome` and `typescript` at `range`, with the config
+/// files `configs` (its `tsconfig.json` among them).
+fn unused_types_among(range: &str, configs: &[(&str, &str)]) -> Vec<String> {
+    let manifest = types_manifest_with(range);
+    let mut files = vec![
+        ("package.json", manifest.as_str()),
+        ("src/index.ts", "export const a = 1;\n"),
+    ];
+    files.extend_from_slice(configs);
+    unused_types_of(&files)
+}
+
+const TYPES_EVERY: &str = r#"{"compilerOptions":{"types":["*"]}}"#;
+const TYPES_NONE: &str = r#"{"compilerOptions":{"types":[]}}"#;
+
+#[test]
+fn the_types_option_of_a_config_replaces_the_one_it_extends() {
+    let chrome = strings(&["@types/chrome"]);
+    for (tsconfig, base, expected) in [
+        (r#"{"extends":"./base.json","compilerOptions":{"types":["*"]}}"#, TYPES_NONE, vec![]),
+        (r#"{"extends":"./base.json","compilerOptions":{"types":[]}}"#, TYPES_EVERY, chrome.clone()),
+        (r#"{"extends":"./base.json","compilerOptions":{"types":["node"]}}"#, TYPES_EVERY, chrome.clone()),
+        (r#"{"extends":"./base.json"}"#, TYPES_NONE, chrome.clone()),
+    ] {
+        assert_eq!(
+            unused_types_among("^6.0.0", &[("tsconfig.json", tsconfig), ("base.json", base)]),
+            expected,
+            "{tsconfig} over {base}"
+        );
+    }
+}
+
+#[test]
+fn a_later_extends_entry_overrides_an_earlier_one() {
+    for (extends, expected) in [
+        (r#"["./none.json","./every.json"]"#, Vec::<String>::new()),
+        (r#"["./every.json","./none.json"]"#, strings(&["@types/chrome"])),
+        // An entry that sets no `types` leaves the earlier one in force.
+        (r#"["./every.json","./plain.json"]"#, Vec::new()),
+    ] {
+        let tsconfig = format!(r#"{{"extends":{extends}}}"#);
+        let configs = [
+            ("tsconfig.json", tsconfig.as_str()),
+            ("every.json", TYPES_EVERY),
+            ("none.json", TYPES_NONE),
+            ("plain.json", PLAIN_TSCONFIG),
+        ];
+        assert_eq!(unused_types_among("^6.0.0", &configs), expected, "{extends}");
+    }
+}
+
+#[test]
+fn the_type_roots_of_a_config_replace_the_ones_it_extends() {
+    let typings = r#"{"compilerOptions":{"typeRoots":["./typings"]}}"#;
+    let default_roots = r#"{"compilerOptions":{"typeRoots":["./node_modules/@types"]}}"#;
+    for (tsconfig, base, expected) in [
+        (
+            r#"{"extends":"./base.json","compilerOptions":{"typeRoots":["node_modules/@types","./typings"]}}"#,
+            typings,
+            Vec::<String>::new(),
+        ),
+        (
+            r#"{"extends":"./base.json","compilerOptions":{"typeRoots":["./typings"]}}"#,
+            default_roots,
+            strings(&["@types/chrome"]),
+        ),
+        (r#"{"extends":"./base.json"}"#, typings, strings(&["@types/chrome"])),
+    ] {
+        assert_eq!(
+            unused_types_among("^5.4.0", &[("tsconfig.json", tsconfig), ("base.json", base)]),
+            expected,
+            "{tsconfig} over {base}"
+        );
     }
 }
 
