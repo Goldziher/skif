@@ -594,45 +594,51 @@ fn a_member_binary_is_provided_where_the_package_manager_links_it() {
     }
 }
 
+/// A root `package.json`, a `pnpm-workspace.yaml`, the other files, and the binaries reported.
+type PnpmCase<'a> = (&'a str, &'a str, &'a [(&'a str, &'a str)], &'a [&'a str]);
+
 /// pnpm links a member's binary into every package's `PATH` only with its hoisted linker: `nodeLinker: hoisted` in
-/// `pnpm-workspace.yaml`, or `node-linker=hoisted` in the root `.npmrc` when `pnpm-workspace.yaml` sets no
-/// `nodeLinker`. The isolated default, `isolated`, `pnp` and a commented-out setting keep the binary to its dependents.
+/// `pnpm-workspace.yaml`, or `node-linker=hoisted` at the top level of the root `.npmrc` when `pnpm-workspace.yaml`
+/// sets no `nodeLinker` and pnpm is older than 11 or its version is not declared; pnpm 11 reads no `node-linker` from
+/// `.npmrc`. The isolated default, `isolated`, `pnp`, a commented-out setting, one under a section and a member's
+/// `.npmrc` keep the binary to its dependents.
 #[test]
 fn pnpm_links_member_binaries_as_its_node_linker_says() {
-    let root = r#"{"name":"root","private":true,"packageManager":"pnpm@10.0.0"}"#;
+    let pnpm10 = r#"{"name":"root","private":true,"packageManager":"pnpm@10.0.0"}"#;
+    let pnpm11 = r#"{"name":"root","private":true,"packageManager":"pnpm@11.0.0"}"#;
+    let undeclared = r#"{"name":"root","private":true}"#;
     let packages = "packages:\n  - packages/*\n";
     let hoisted_yaml = "packages:\n  - packages/*\nnodeLinker: hoisted\n";
     let isolated_yaml = "packages:\n  - packages/*\nnodeLinker: isolated\n";
+    let npmrc = |text| [(".npmrc", text)];
     let isolated: &[&str] = &["packages/app/package.json: mytool"];
     let hoisted: &[&str] = &[];
-    let cases: [PnpmCase; 9] = [
-        ((packages, None), isolated),
-        ((hoisted_yaml, None), hoisted),
-        ((packages, Some("node-linker=hoisted\n")), hoisted),
-        (
-            (
-                packages,
-                Some("registry=https://registry.npmjs.org/\nnode-linker = \"hoisted\"\n"),
-            ),
-            hoisted,
-        ),
-        (
-            (packages, Some("node-linker=hoisted\nnode-linker=isolated\n")),
-            isolated,
-        ),
-        ((packages, Some("# node-linker=hoisted\n")), isolated),
-        ((packages, Some("node-linker=pnp\n")), isolated),
-        ((isolated_yaml, Some("node-linker=hoisted\n")), isolated),
-        ((hoisted_yaml, Some("node-linker=pnp\n")), hoisted),
+    let cases: [PnpmCase; 18] = [
+        (pnpm10, packages, &[], isolated),
+        (pnpm10, hoisted_yaml, &[], hoisted),
+        (pnpm10, packages, &npmrc("node-linker=hoisted\n"), hoisted),
+        (pnpm10, packages, &npmrc("registry=https://registry.npmjs.org/\nnode-linker = \"hoisted\"\n"), hoisted),
+        (pnpm10, packages, &npmrc("\u{feff}node-linker=hoisted\n"), hoisted),
+        (pnpm10, packages, &npmrc("node-linker=hoisted # flat\n"), hoisted),
+        (pnpm10, packages, &npmrc("node-linker=hoisted\nnode-linker=isolated\n"), isolated),
+        (pnpm10, packages, &npmrc("# node-linker=hoisted\n"), isolated),
+        (pnpm10, packages, &npmrc("[section]\nnode-linker=hoisted\n"), isolated),
+        (pnpm10, packages, &npmrc("node-linker=pnp\n"), isolated),
+        (pnpm10, isolated_yaml, &npmrc("node-linker=hoisted\n"), isolated),
+        (pnpm10, hoisted_yaml, &npmrc("node-linker=pnp\n"), hoisted),
+        (pnpm10, packages, &[("packages/app/.npmrc", "node-linker=hoisted\n")], isolated),
+        (pnpm11, packages, &npmrc("node-linker=hoisted\n"), isolated),
+        (pnpm11, hoisted_yaml, &[], hoisted),
+        (pnpm11, hoisted_yaml, &npmrc("node-linker=isolated\n"), hoisted),
+        (undeclared, packages, &[], isolated),
+        (undeclared, packages, &npmrc("node-linker=hoisted\n"), hoisted),
     ];
-    for ((yaml, npmrc), expected) in cases {
+    for (root, yaml, files, expected) in cases {
         let mut all = vec![("package.json", root), ("pnpm-workspace.yaml", yaml)];
-        all.extend(npmrc.map(|text| (".npmrc", text)));
+        all.extend_from_slice(files);
         assert_eq!(unlisted_member_binaries(&all), expected, "{all:?}");
     }
 }
-
-type PnpmCase<'a> = ((&'a str, Option<&'a str>), &'a [&'a str]);
 
 /// A Yarn workspace is taken for Yarn Berry, which links a member's binary only for its dependents, on positive
 /// evidence only: a Berry `yarn.lock` (`__metadata`) or a `.yarnrc.yml`. A `yarn.lock` that tells neither version,
