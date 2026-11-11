@@ -326,6 +326,10 @@ All notable changes to this project are documented here. The format follows
   run ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
 - A bare-major range (`^2`, `~1`) covers its versions instead of being padded to `^2.HUGE.HUGE`.
 - `unsynced-dependency-family` no longer compares a dependency listed in two sections of one package with itself.
+- A dependency in none of several catalogs is `catalog-missing-entry` ("no catalog holds `lodash`; more than one
+  could", detail `MissingFromCatalogAndCatalogUnknown`) instead of `catalog-not-used`
+  ([ADR 0107](adrs/0107-stray-lockfiles-a-build-installs-from-and-a-dependency-in-none-of-several-catalogs.md),
+  [#155](https://github.com/Goldziher/skif/issues/155)).
 - The `version-mismatch` message for non-semver specifiers no longer says none of them is semver.
 - **Panics** exit `2` in every format, with the message and location on stderr and the `internal` error document under
   `--format json`; the native binary aborted and the npm package threw with exit code 1. A JSON report is written in
