@@ -344,3 +344,26 @@ fn self_comparison() {
         );
     }
 }
+
+#[test]
+fn identifiers_compare_by_their_rendered_text() {
+    use nodejs_semver::Identifier::{AlphaNumeric, Numeric};
+    let cases = [
+        (Numeric(1), Numeric(1), true),
+        (Numeric(1), Numeric(2), false),
+        (AlphaNumeric("alpha".into()), AlphaNumeric("alpha".into()), true),
+        (AlphaNumeric("alpha".into()), AlphaNumeric("beta".into()), false),
+        (Numeric(1), AlphaNumeric("1".into()), true),
+        (AlphaNumeric("1".into()), Numeric(1), true),
+        (Numeric(1), AlphaNumeric("01".into()), false),
+        (AlphaNumeric("rc".into()), Numeric(1), false),
+    ];
+    for (left, right, expected) in cases {
+        assert_eq!(
+            crate::same_identifier_text(&left, &right),
+            left.to_string() == right.to_string(),
+            "{left} vs {right} should match the text comparison"
+        );
+        assert_eq!(crate::same_identifier_text(&left, &right), expected, "{left} vs {right}");
+    }
+}
