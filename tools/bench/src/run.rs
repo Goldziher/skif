@@ -31,6 +31,10 @@ const GENERATED_SEED: u64 = 1;
 const GENERATED_MISMATCH_RATE: f64 = 0.05;
 /// How long an install of a corpus repository may take, unless the corpus manifest sets its own.
 const INSTALL_TIMEOUT: Duration = Duration::from_mins(30);
+/// How long the run outside hyperfine of a command that exited with an error may take.
+const ERROR_RERUN_TIMEOUT: Duration = Duration::from_mins(10);
+/// How many of the last lines of that run's stderr go to the log.
+const ERROR_LOG_LINES: usize = 40;
 
 pub struct RunOptions {
     pub skif: PathBuf,
@@ -151,6 +155,15 @@ struct HyperfineResult {
     error_runs: usize,
 }
 
+/// Whether a measured run's exit makes its time that of a partial run: a status above 1, or none (a signal). A status
+/// of 1 is a complete run that reported findings, as sherif, syncpack, knip and skif exit when they find something.
+const fn is_error_exit(code: Option<i32>) -> bool {
+    match code {
+        Some(code) => code > 1,
+        None => true,
+    }
+}
+
 impl TryFrom<RawResult> for HyperfineResult {
     type Error = anyhow::Error;
 
@@ -160,7 +173,7 @@ impl TryFrom<RawResult> for HyperfineResult {
         } else {
             raw.measurements.iter().map(|m| m.exit_code).collect()
         };
-        let error_runs = codes.iter().filter(|code| code.is_none_or(|code| code > 1)).count();
+        let error_runs = codes.iter().filter(|code| is_error_exit(**code)).count();
         let stats = match (raw.summary, raw.mean, raw.median, raw.min, raw.max) {
             (Some(summary), ..) => summary.time_wall_clock,
             (None, Some(mean), Some(median), Some(min), Some(max)) => RawStats {
@@ -196,6 +209,8 @@ struct ToolResult {
     relative_to_skif: Option<f64>,
     /// Measured runs that exited with an error (a status above 1, or a signal).
     error_runs: usize,
+    /// The error line of one more run outside hyperfine when `error_runs` is not 0, so the summary names the cause.
+    error_output: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -209,11 +224,43 @@ struct TargetResult {
     results: Vec<ToolResult>,
 }
 
+/// The outcome of an ADR 0001 target check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum CheckStatus {
+    Pass,
+    Fail,
+    /// A row the check compares exited with an error in a measured run, so its time may be that of a partial run and
+    /// the check is not measured.
+    Invalid,
+}
+
+impl CheckStatus {
+    /// `Invalid` when one of the compared rows errored, else `Pass` or `Fail` by `met`.
+    fn of(met: bool, rows: &[&ToolResult]) -> Self {
+        if rows.iter().any(|row| row.error_runs > 0) {
+            Self::Invalid
+        } else if met {
+            Self::Pass
+        } else {
+            Self::Fail
+        }
+    }
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Pass => "pass",
+            Self::Fail => "FAIL",
+            Self::Invalid => "invalid",
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct TargetCheck {
     target: String,
     description: String,
-    passed: bool,
+    status: CheckStatus,
 }
 
 /// A comparison tool left out of a target, or of the whole run (`target` is `None`), and why.
@@ -262,35 +309,67 @@ fn quote(argument: &str) -> String {
     }
 }
 
-fn skif_command(skif: &Path, extra: &[String], no_js: bool) -> String {
-    // `extra` holds the target's own arguments (such as `--recursive`) after the run's `--skif-arg`s.
-    let mut parts = vec![
-        quote(&skif.to_string_lossy()),
-        ".".to_owned(),
-        "--format".into(),
-        "json".into(),
-        "--no-install".into(),
-    ];
-    if no_js {
-        parts.push("--no-js".into());
+/// The program and arguments of `tool`, whose executable is `program` (the skif binary for the skif rows); `extra` holds
+/// skif's arguments for the target (the run's `--skif-arg`s, then the target's own, such as `--recursive`).
+fn tool_argv(tool: Tool, program: &Path, extra: &[String], knip_args: &[String]) -> Vec<String> {
+    let mut argv = vec![program.to_string_lossy().into_owned()];
+    let fixed: &[&str] = match tool {
+        Tool::Skif | Tool::SkifManifest => &[".", "--format", "json", "--no-install"],
+        Tool::Sherif => &["."],
+        Tool::Syncpack => &["lint"],
+        Tool::Knip => &["--reporter", "json"],
+    };
+    argv.extend(fixed.iter().map(|arg| (*arg).to_owned()));
+    match tool {
+        Tool::Skif => argv.extend_from_slice(extra),
+        Tool::SkifManifest => {
+            argv.push("--no-js".to_owned());
+            argv.extend_from_slice(extra);
+        }
+        Tool::Knip => argv.extend_from_slice(knip_args),
+        Tool::Sherif | Tool::Syncpack => {}
     }
-    parts.extend(extra.iter().map(|arg| quote(arg)));
-    parts.join(" ")
+    argv
 }
 
-/// The command line of `tool`, whose executable is `program` (the skif binary for the skif rows).
-fn tool_command(tool: Tool, program: &Path, extra: &[String], knip_args: &[String]) -> String {
-    let quoted = || quote(&program.to_string_lossy());
-    match tool {
-        Tool::Skif => skif_command(program, extra, false),
-        Tool::SkifManifest => skif_command(program, extra, true),
-        Tool::Sherif => format!("{} .", quoted()),
-        Tool::Syncpack => format!("{} lint", quoted()),
-        Tool::Knip => std::iter::once(format!("{} --reporter json", quoted()))
-            .chain(knip_args.iter().map(|arg| quote(arg)))
-            .collect::<Vec<_>>()
-            .join(" "),
+/// A program and its arguments as one hyperfine command line, each argument quoted where needed.
+fn command_line(argv: &[String]) -> String {
+    argv.iter().map(|arg| quote(arg)).collect::<Vec<_>>().join(" ")
+}
+
+/// Runs each command of `target` whose row exited with an error in a measured run once more, outside hyperfine, prints
+/// the end of its stderr to the log and records its error line in the row, so the cause is visible.
+fn explain_errors(
+    target: &Target,
+    argvs: &[(Tool, Vec<String>)],
+    rows: &mut [ToolResult],
+    scratch: &Path,
+) -> Result<()> {
+    for row in rows.iter_mut().filter(|row| row.error_runs > 0) {
+        let Some((tool, argv)) = argvs.iter().find(|(tool, _)| tool.label() == row.tool) else {
+            continue;
+        };
+        let Some((program, args)) = argv.split_first() else {
+            continue;
+        };
+        let run = capture(
+            Command::new(program).args(args).current_dir(&target.dir),
+            scratch,
+            &format!("error-{}", tool.label().replace(' ', "_")),
+            ERROR_RERUN_TIMEOUT,
+        )?;
+        let exit = run
+            .code
+            .map_or_else(|| "no status (a signal or the time limit)".to_owned(), |code| format!("status {code}"));
+        let stderr: Vec<&str> = run.stderr.lines().collect();
+        let tail = stderr[stderr.len().saturating_sub(ERROR_LOG_LINES)..].join("\n");
+        eprintln!(
+            "bench: {} on {} exited with an error in {} measured runs; run once more, it exited with {exit}. The end of its stderr:\n{tail}",
+            row.tool, target.name, row.error_runs
+        );
+        row.error_output = Some(run.failure_summary());
     }
+    Ok(())
 }
 
 struct Target {
@@ -361,6 +440,7 @@ fn tool_results(results: &[HyperfineResult]) -> Vec<ToolResult> {
                 max_ms: r.max * 1000.0,
                 relative_to_skif: reference.map(|skif| r.mean / skif),
                 error_runs: r.error_runs,
+                error_output: None,
             }
         })
         .collect()
@@ -380,7 +460,7 @@ fn checks(targets: &[TargetResult]) -> Vec<TargetCheck> {
                     "manifest and policy rules < {MANIFEST_TARGET_MS} ms (measured {:.1} ms)",
                     skif.mean_ms
                 ),
-                passed: skif.mean_ms < MANIFEST_TARGET_MS,
+                status: CheckStatus::of(skif.mean_ms < MANIFEST_TARGET_MS, &[skif]),
             });
         }
         if target.kind == "graph"
@@ -393,24 +473,24 @@ fn checks(targets: &[TargetResult]) -> Vec<TargetCheck> {
                     "parse and module graph of {files} files < {GRAPH_TARGET_MS} ms, whole run including every JS rule (measured {:.1} ms)",
                     skif.mean_ms
                 ),
-                passed: skif.mean_ms < GRAPH_TARGET_MS,
+                status: CheckStatus::of(skif.mean_ms < GRAPH_TARGET_MS, &[skif]),
             });
         }
         if target.kind == "corpus"
             && let (Some(skif), Some(knip)) = (find(Tool::Skif.label()), find(Tool::Knip.label()))
         {
             let speedup = knip.mean_ms / skif.mean_ms;
-            let errors = if knip.error_runs > 0 {
-                format!("; knip exited with an error in {} runs", knip.error_runs)
-            } else {
-                String::new()
-            };
+            let errors: String = [skif, knip]
+                .iter()
+                .filter(|row| row.error_runs > 0)
+                .map(|row| format!("; {} exited with an error in {} runs", row.tool, row.error_runs))
+                .collect();
             out.push(TargetCheck {
                 target: target.target.clone(),
                 description: format!(
                     "JS analysis >= {KNIP_SPEEDUP_TARGET}x faster than knip (measured {speedup:.1}x{errors})"
                 ),
-                passed: speedup >= KNIP_SPEEDUP_TARGET,
+                status: CheckStatus::of(speedup >= KNIP_SPEEDUP_TARGET, &[skif, knip]),
             });
         }
     }
@@ -498,9 +578,13 @@ fn markdown(summary: &Summary) -> String {
         }
         out.push('\n');
         for r in target.results.iter().filter(|r| r.error_runs > 0) {
+            let cause = r
+                .error_output
+                .as_deref()
+                .map_or_else(String::new, |output| format!(": {}", code_span(output)));
             let _ = write!(
                 out,
-                "{} exited with an error in {} of {} runs, so its time may be that of a partial run.\n\n",
+                "{} exited with an error in {} of {} runs, so its time may be that of a partial run{cause}.\n\n",
                 r.tool, r.error_runs, summary.runs
             );
         }
@@ -513,7 +597,7 @@ fn markdown(summary: &Summary) -> String {
                 "| {} | {} | {} |",
                 check.target,
                 check.description,
-                if check.passed { "pass" } else { "FAIL" }
+                check.status.label()
             );
         }
     }
@@ -944,25 +1028,30 @@ pub fn run(options: &RunOptions) -> Result<()> {
     let mut measured = Vec::new();
     for (index, target) in targets.iter().enumerate() {
         let skif_args: Vec<String> = options.skif_args.iter().chain(&target.skif_args).cloned().collect();
-        let commands: Vec<(Tool, String)> = target
+        let argvs: Vec<(Tool, Vec<String>)> = target
             .tools
             .iter()
             .map(|&tool| {
                 (
                     tool,
-                    tool_command(tool, &program_of(tool), &skif_args, &target.knip_args),
+                    tool_argv(tool, &program_of(tool), &skif_args, &target.knip_args),
                 )
             })
             .collect();
+        let commands: Vec<(Tool, String)> = argvs.iter().map(|(tool, argv)| (*tool, command_line(argv))).collect();
         let export = raw.join(format!("{index:02}.json"));
         hyperfine(options, target, &commands, &export)?;
+        let mut results = tool_results(&read_results(&export)?);
+        let scratch = std::path::absolute(options.generated_dir.join("errors").join(format!("{index:02}")))
+            .context("resolving the error output directory")?;
+        explain_errors(target, &argvs, &mut results, &scratch)?;
         measured.push(TargetResult {
             target: target.name.clone(),
             kind: target.kind,
             packages: target.packages,
             files: target.files,
             installed_with: target.installed_with.clone(),
-            results: tool_results(&read_results(&export)?),
+            results,
         });
     }
 
@@ -995,7 +1084,18 @@ pub fn run(options: &RunOptions) -> Result<()> {
     fs::write(options.out.join("summary.md"), &table)?;
     println!("{table}");
     eprintln!("bench: wrote {}/summary.{{md,json}}", options.out.display());
-    let failed: Vec<&TargetCheck> = summary.adr_0001_checks.iter().filter(|check| !check.passed).collect();
+    for check in summary
+        .adr_0001_checks
+        .iter()
+        .filter(|check| check.status == CheckStatus::Invalid)
+    {
+        eprintln!("bench: not measured {}: {}", check.target, check.description);
+    }
+    let failed: Vec<&TargetCheck> = summary
+        .adr_0001_checks
+        .iter()
+        .filter(|check| check.status == CheckStatus::Fail)
+        .collect();
     if options.enforce && !failed.is_empty() {
         for check in &failed {
             eprintln!("bench: FAILED {}: {}", check.target, check.description);
@@ -1009,6 +1109,11 @@ pub fn run(options: &RunOptions) -> Result<()> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    /// The hyperfine command line of `tool`.
+    fn tool_command(tool: Tool, program: &Path, extra: &[String], knip_args: &[String]) -> String {
+        command_line(&tool_argv(tool, program, extra, knip_args))
+    }
 
     fn result(command: &str, mean: f64) -> HyperfineResult {
         HyperfineResult {
@@ -1035,6 +1140,7 @@ mod tests {
             max_ms: 2.0,
             relative_to_skif: Some(1.0),
             error_runs: 0,
+            error_output: None,
         };
         let summary = |checks: Vec<TargetCheck>, skipped: Vec<Skipped>| Summary {
             schema: SUMMARY_SCHEMA,
@@ -1065,14 +1171,22 @@ mod tests {
                 packages: Some(1),
                 files: None,
                 installed_with: Some("pnpm 9.15.0".into()),
-                results: vec![row("skif --no-js"), row("sherif")],
+                results: vec![
+                    row("skif --no-js"),
+                    row("sherif"),
+                    ToolResult {
+                        error_runs: 2,
+                        error_output: Some("ERROR: Error loading metro.config.js".into()),
+                        ..row("syncpack lint")
+                    },
+                ],
             }],
             adr_0001_checks: checks,
         };
         let check = TargetCheck {
             target: "t".into(),
             description: "d".into(),
-            passed: true,
+            status: CheckStatus::Pass,
         };
         let skipped = Skipped {
             tool: "knip --reporter json".into(),
@@ -1111,11 +1225,19 @@ mod tests {
             "{with_skip}"
         );
         assert!(
+            with_skip.contains(
+                "\n\nsyncpack lint exited with an error in 2 of 2 runs, so its time may be that of a partial run: `ERROR: Error loading metro.config.js`.\n\n"
+            ),
+            "{with_skip}"
+        );
+        assert!(
             with_skip.contains("\n\nCorpus: only babel, vue-core, a partial run.\n\n"),
             "{with_skip}"
         );
-        for text in [markdown(&summary(vec![check], Vec::new())), with_skip] {
-            assert!(text.ends_with(" |\n"), "{text:?}");
+        let with_check = markdown(&summary(vec![check], Vec::new()));
+        assert!(with_check.ends_with(" |\n"), "{with_check:?}");
+        for text in [with_check, with_skip] {
+            assert!(text.ends_with('\n'), "{text:?}");
             assert!(!text.ends_with("\n\n"));
             assert!(!text.contains("\n\n\n"));
             assert!(text.lines().all(|line| line == line.trim_end()));
@@ -1269,23 +1391,74 @@ mod tests {
             line,
             "/bench/tools/node_modules/.bin/knip --reporter json --no-gitignore"
         );
-        let mut knip = result("knip --reporter json", 1.0);
-        knip.error_runs = 3;
-        let target = TargetResult {
-            target: "corpus: r (pnpm)".into(),
-            kind: "corpus",
-            packages: None,
-            files: None,
-            installed_with: None,
-            results: tool_results(&[result("skif", 0.1), knip]),
+        let target = |knip_errors: usize| {
+            let mut knip = result("knip --reporter json", 1.0);
+            knip.error_runs = knip_errors;
+            TargetResult {
+                target: "corpus: r (pnpm)".into(),
+                kind: "corpus",
+                packages: None,
+                files: None,
+                installed_with: None,
+                results: tool_results(&[result("skif", 0.1), knip]),
+            }
         };
-        let found = checks(std::slice::from_ref(&target));
-        assert!(found[0].passed);
-        assert!(
-            found[0].description.contains("knip exited with an error in 3 runs"),
-            "{}",
-            found[0].description
+        let clean = checks(&[target(0)]);
+        assert_eq!(clean[0].status, CheckStatus::Pass);
+        assert_eq!(
+            clean[0].description,
+            "JS analysis >= 5x faster than knip (measured 10.0x)"
         );
+        let errored = checks(&[target(3)]);
+        assert_eq!(
+            errored[0].status,
+            CheckStatus::Invalid,
+            "a comparison whose knip errored is not measured, however fast skif was"
+        );
+        assert_eq!(
+            errored[0].description,
+            "JS analysis >= 5x faster than knip (measured 10.0x; knip --reporter json exited with an error in 3 runs)"
+        );
+        assert_eq!(CheckStatus::Invalid.label(), "invalid");
+    }
+
+    #[test]
+    fn only_a_status_above_1_or_a_signal_is_an_error() {
+        for (code, error) in [
+            (Some(0), false),
+            (Some(1), false),
+            (Some(2), true),
+            (Some(127), true),
+            (None, true),
+        ] {
+            assert_eq!(is_error_exit(code), error, "{code:?}");
+        }
+    }
+
+    #[test]
+    fn a_tool_runs_outside_hyperfine_with_the_arguments_it_is_timed_with() {
+        let extra = ["--recursive".to_owned()];
+        let knip_args = ["--no-gitignore".to_owned()];
+        let program = Path::new("/my tools/bin/x");
+        for (tool, argv) in [
+            (Tool::Skif, vec!["/my tools/bin/x", ".", "--format", "json", "--no-install", "--recursive"]),
+            (
+                Tool::SkifManifest,
+                vec!["/my tools/bin/x", ".", "--format", "json", "--no-install", "--no-js", "--recursive"],
+            ),
+            (Tool::Sherif, vec!["/my tools/bin/x", "."]),
+            (Tool::Syncpack, vec!["/my tools/bin/x", "lint"]),
+            (Tool::Knip, vec!["/my tools/bin/x", "--reporter", "json", "--no-gitignore"]),
+        ] {
+            assert_eq!(tool_argv(tool, program, &extra, &knip_args), argv, "{tool:?}");
+            assert_eq!(
+                tool_command(tool, program, &extra, &knip_args),
+                std::iter::once("\"/my tools/bin/x\"")
+                    .chain(argv[1..].iter().copied())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
+        }
     }
 
     #[test]
@@ -1374,10 +1547,11 @@ mod tests {
                 max_ms: mean_ms,
                 relative_to_skif: None,
                 error_runs: 0,
+                error_output: None,
             }],
         };
-        assert!(checks(&[target(10.0)])[0].passed);
-        assert!(!checks(&[target(80.0)])[0].passed);
+        assert_eq!(checks(&[target(10.0)])[0].status, CheckStatus::Pass);
+        assert_eq!(checks(&[target(80.0)])[0].status, CheckStatus::Fail);
     }
 
     #[test]
@@ -1397,10 +1571,11 @@ mod tests {
                 max_ms: mean_ms,
                 relative_to_skif: None,
                 error_runs: 0,
+                error_output: None,
             }],
         };
-        assert!(checks(&[target(10_000, 900.0)])[0].passed);
-        assert!(!checks(&[target(10_000, 2500.0)])[0].passed);
+        assert_eq!(checks(&[target(10_000, 900.0)])[0].status, CheckStatus::Pass);
+        assert_eq!(checks(&[target(10_000, 2500.0)])[0].status, CheckStatus::Fail);
         assert!(checks(&[target(500, 2500.0)]).is_empty());
     }
 }

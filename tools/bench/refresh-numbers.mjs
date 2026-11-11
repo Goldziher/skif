@@ -52,6 +52,7 @@ export function duration(milliseconds) {
 const oneLine = (text) => text.split(/\s+/).filter(Boolean).join(" ");
 const gib = (bytes) => (bytes / 2 ** 30).toFixed(1);
 const RUNNER_ENVIRONMENTS = { "github-hosted": "GitHub-hosted", "self-hosted": "self-hosted" };
+const CHECK_LABELS = { pass: "pass", fail: "FAIL", invalid: "invalid" };
 
 /**
  * The machine in one line, as the `Machine:` line of `summary.md` writes it: operating system, kernel, architecture,
@@ -143,6 +144,13 @@ export function summaryProblems(summary) {
     for (const tool of requiredTools(target).filter((name) => !timed.has(name))) {
       problems.push(`${target.target} has no ${tool} row`);
     }
+    for (const row of target.results.filter((r) => r.error_runs > 0)) {
+      const cause = row.error_output == null ? "" : ` (${row.error_output})`;
+      problems.push(
+        `${target.target}: ${row.tool} exited with an error in ${row.error_runs} of ${summary.runs} runs${cause}, ` +
+          "so its time may be that of a partial run",
+      );
+    }
   }
   if (!summary.targets.some((target) => target.kind === "corpus")) {
     problems.push("the summary has no corpus target (was it run with --no-corpus?)");
@@ -183,17 +191,11 @@ export function benchDetail(summary) {
       lines.push(`| ${row.tool} | ${ms(row.mean_ms)} | ${ms(row.median_ms)} | ${relative} |`);
     }
     lines.push("");
-    for (const row of target.results.filter((r) => (r.error_runs ?? 0) > 0)) {
-      lines.push(
-        `${row.tool} exited with an error in ${row.error_runs} of ${summary.runs} runs, so its time may be that of a partial run.`,
-        "",
-      );
-    }
   }
   if (summary.adr_0001_checks.length > 0) {
     lines.push("| ADR 0001 target | Check | Result |", "| --- | --- | --- |");
     for (const check of summary.adr_0001_checks) {
-      lines.push(`| ${check.target} | ${check.description} | ${check.passed ? "pass" : "FAIL"} |`);
+      lines.push(`| ${check.target} | ${check.description} | ${CHECK_LABELS[check.status]} |`);
     }
     lines.push("");
   }
@@ -214,15 +216,6 @@ export function benchSummary(summary) {
     const skif = median(target, SKIF);
     const knip = median(target, KNIP);
     lines.push(`| ${repoName(target)} | ${duration(skif)} | ${duration(knip)} | ${(knip / skif).toFixed(0)}x |`);
-  }
-  const errors = corpus.filter((target) =>
-    target.results.some((row) => row.tool === KNIP && (row.error_runs ?? 0) > 0),
-  );
-  if (errors.length > 0) {
-    lines.push(
-      "",
-      `knip exited with an error status on ${errors.map(repoName).join(", ")}: it prints its report, then exits with 2 because some of the repository's tool configurations do not load.`,
-    );
   }
   lines.push("", "**Manifest and policy checks** (`skif --no-js`)", "");
   lines.push("| Target | skif --no-js | sherif | syncpack |", "| --- | ---: | ---: | ---: |");
