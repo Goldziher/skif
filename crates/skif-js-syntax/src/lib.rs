@@ -425,3 +425,26 @@ pub(crate) fn js_string(value: oxc_str::JSStr<'_>) -> String {
         .as_str()
         .map_or_else(|| value.display().to_string(), str::to_owned)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ParseOptions, Path, parse_module, with_arena};
+
+    #[test]
+    fn parses_in_a_reused_or_nested_arena_give_the_same_facts() {
+        let source = "import { a } from 'a';\nimport * as ns from 'ns';\nexport const b = a.c + ns.d;\nexport { b as e };\n";
+        let parse = || parse_module(Path::new("x.ts"), source, &ParseOptions::default()).ok();
+        let first = parse();
+        let nested = with_arena(|outer| {
+            let held = outer.alloc_str("held");
+            let inner = parse();
+            // The nested parse took an arena of its own, so what the outer one holds is intact.
+            assert_eq!(held, "held");
+            inner
+        });
+        let again = parse();
+        assert!(first.as_ref().is_some_and(|info| info.exports.len() == 2));
+        assert_eq!(nested, first);
+        assert_eq!(again, first);
+    }
+}
