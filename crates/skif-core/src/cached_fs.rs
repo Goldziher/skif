@@ -48,10 +48,33 @@ impl<V: Clone> Sharded<V> {
         &self.shards[index]
     }
 
+    /// Runs `look` on the value of `key` under the shard's read lock, so a lookup that only inspects the value (a
+    /// binary search of a listing) neither clones nor touches the reference count of a value every thread shares.
+    fn with<R>(&self, key: &Path, look: impl FnOnce(Option<&V>) -> R) -> R {
+        let key = key.as_os_str();
+        let shard = self.shard(key).read().unwrap_or_else(PoisonError::into_inner);
+        look(shard.get(key))
+    }
+
     fn get(&self, key: &Path) -> Option<V> {
         let key = key.as_os_str();
         let shard = self.shard(key).read().unwrap_or_else(PoisonError::into_inner);
         shard.get(key).cloned()
+    }
+
+    /// Replaces the value of `key` with `update` of the current one under one write lock, and returns it: a counter
+    /// is read and bumped in one step, and a key already present is not copied again.
+    fn upsert(&self, key: &Path, update: impl FnOnce(Option<&V>) -> V) -> V {
+        let key = key.as_os_str();
+        let mut shard = self.shard(key).write().unwrap_or_else(PoisonError::into_inner);
+        if let Some(value) = shard.get_mut(key) {
+            let next = update(Some(&*value));
+            *value = next.clone();
+            return next;
+        }
+        let value = update(None);
+        shard.insert(key.to_os_string(), value.clone());
+        value
     }
 
     fn insert(&self, key: &Path, value: V) {
@@ -163,22 +186,23 @@ impl<F: FileSystem> CachedFs<F> {
 
     /// The kind of `path` according to the cached listing of its parent; `None` when that is not cached.
     fn kind_in_parent(&self, path: &Path) -> Option<PathKind> {
-        let listing = self.listings.get(path.parent()?)?;
-        let Ok(entries) = listing else {
-            return Some(PathKind::NONE);
-        };
-        // The entries are siblings in path order, which for siblings is the order of their names: comparing the names
-        // spares parsing every component of two long paths per step.
-        let name = path.file_name()?;
-        match entries.binary_search_by(|entry| entry.path.file_name().unwrap_or_default().cmp(name)) {
-            Ok(index) => Some(PathKind {
-                is_file: entries[index].is_file,
-                is_dir: entries[index].is_dir,
-            }),
-            // A case-insensitive disk finds `Package.json` for `package.json`, which the listing does not spell.
-            Err(_) if differs_by_case_only(&entries, path) => None,
-            Err(_) => Some(PathKind::NONE),
-        }
+        self.listings.with(path.parent()?, |listing| {
+            let Ok(entries) = listing? else {
+                return Some(PathKind::NONE);
+            };
+            // The entries are siblings in path order, which for siblings is the order of their names: comparing the
+            // names spares parsing every component of two long paths per step.
+            let name = path.file_name()?;
+            match entries.binary_search_by(|entry| entry.path.file_name().unwrap_or_default().cmp(name)) {
+                Ok(index) => Some(PathKind {
+                    is_file: entries[index].is_file,
+                    is_dir: entries[index].is_dir,
+                }),
+                // A case-insensitive disk finds `Package.json` for `package.json`, which the listing does not spell.
+                Err(_) if differs_by_case_only(entries, path) => None,
+                Err(_) => Some(PathKind::NONE),
+            }
+        })
     }
 
     /// Counts a probe of a child of `path`'s parent and lists the parent once it was probed often enough. Whether the
@@ -189,8 +213,9 @@ impl<F: FileSystem> CachedFs<F> {
         if name == "node_modules" || name.starts_with('@') {
             return;
         }
-        let probed = self.probes.get(parent).unwrap_or(0).saturating_add(1);
-        self.probes.insert(parent, probed);
+        let probed = self
+            .probes
+            .upsert(parent, |probed| probed.copied().unwrap_or(0).saturating_add(1));
         if probed >= LIST_AFTER_PROBES {
             let _ = self.read_dir_shared(parent);
         }
@@ -714,5 +739,37 @@ mod tests {
         for name in ["a", "b", "c"] {
             assert!(fs.is_file(&Path::new("/ws").join(format!("{name}.json"))), "{name}");
         }
+    }
+
+    #[test]
+    fn upsert_updates_one_key_in_place_and_leaves_the_others() {
+        let map: Sharded<u32> = Sharded::new();
+        let bump = |count: Option<&u32>| count.copied().unwrap_or(0) + 1;
+        assert_eq!(map.upsert(Path::new("/ws/a"), bump), 1);
+        assert_eq!(map.upsert(Path::new("/ws/a"), bump), 2);
+        assert_eq!(map.upsert(Path::new("/ws/b"), bump), 1);
+        assert_eq!(map.get(Path::new("/ws/a")), Some(2));
+        assert_eq!(map.with(Path::new("/ws/b"), |count| count.map_or(0, |n| *n)), 1);
+        assert_eq!(map.with(Path::new("/ws/c"), |count| count.map_or(0, |n| *n)), 0);
+    }
+
+    #[test]
+    fn probes_counted_from_many_threads_list_the_directory() {
+        let fs = cached();
+        std::thread::scope(|scope| {
+            for thread in 0..8 {
+                let fs = &fs;
+                scope.spawn(move || {
+                    for probe in 0..LIST_AFTER_PROBES {
+                        let _ = fs.is_file(&Path::new("/ws/src").join(format!("t{thread}-{probe}.ts")));
+                    }
+                });
+            }
+        });
+        let stats = count(&fs.inner().stats);
+        assert!(fs.is_file(Path::new("/ws/src/index.ts")));
+        assert!(!fs.is_file(Path::new("/ws/src/never-probed.ts")));
+        assert_eq!(count(&fs.inner().stats), stats, "answered from the listing");
+        assert!(count(&fs.inner().listings) >= 1);
     }
 }
