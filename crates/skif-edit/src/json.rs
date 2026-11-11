@@ -859,11 +859,18 @@ fn rebase_moves(planned: &mut Vec<Planned>, moves: &[(usize, (usize, usize))]) {
     let mut order: Vec<&(usize, (usize, usize))> = moves.iter().collect();
     order.sort_by_key(|(_, (start, end))| end - start);
     let mut absorbed = vec![false; planned.len()];
+    // Every edit by position, so the edits inside a member are one contiguous run found by a binary search; rebasing
+    // only rewrites replacements, never positions.
+    let mut by_position: Vec<usize> = (0..planned.len()).collect();
+    by_position.sort_by_key(|&index| (planned[index].start, planned[index].end));
     for &&(at, (from_start, from_end)) in &order {
-        let mut inside: Vec<usize> = (0..planned.len())
+        let first = by_position.partition_point(|&index| planned[index].start < from_start);
+        let inside: Vec<usize> = by_position[first..]
+            .iter()
+            .copied()
+            .take_while(|&index| planned[index].start <= from_end)
             .filter(|&index| index != at && !absorbed[index] && is_inside(&planned[index], from_start, from_end))
             .collect();
-        inside.sort_by_key(|&index| (planned[index].start, planned[index].end));
         if inside.is_empty()
             || inside
                 .windows(2)
