@@ -4,6 +4,7 @@ mod allow_list;
 mod empty_dependencies;
 mod incompatible_peer_dependencies;
 mod invalid_workspace_file;
+mod lockfile_consumers;
 pub(crate) mod local_path_dependency;
 mod member_toolchain_fields;
 mod missing_package_manifest;

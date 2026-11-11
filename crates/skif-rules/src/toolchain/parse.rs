@@ -57,6 +57,9 @@ pub(crate) struct Parsed {
     /// The first `corepack enable` of a file that runs no `corepack prepare`, `use` or `install`.
     pub unpinned_corepack: Option<Range<usize>>,
     pub directives: Vec<Directive>,
+    /// The sources of a Dockerfile's `COPY` and `ADD` instructions that copy from the build context (no `--from`),
+    /// as written, without quotes.
+    pub copied: Vec<String>,
 }
 
 /// Reads `source`, a file of `kind` named `name` (its last path segment).
@@ -316,8 +319,38 @@ fn instruction(source: &str, range: Range<usize>, parsed: &mut Parsed) {
         "FROM" => parsed.pins.extend(from_pin(body, body_start)),
         "ARG" | "ENV" => variable_pins(&keyword, body, body_start, &mut parsed.pins),
         "RUN" => run(body, body_start, &mut parsed.commands),
+        "COPY" | "ADD" => parsed.copied.extend(context_sources(body)),
         _ => {}
     }
+}
+
+/// The sources of a `COPY` or `ADD` instruction, every argument but the destination, in the exec form
+/// (`["a", "b", "./"]`) or the shell form; none when `--from` copies from a stage or an image instead of the build
+/// context. Continuation characters are dropped.
+fn context_sources(body: &str) -> Vec<String> {
+    let words = words_at(body);
+    let mut offset = body.len();
+    for &(at, word) in &words {
+        if word.starts_with("--from") {
+            return Vec::new();
+        }
+        if !word.starts_with("--") {
+            offset = at;
+            break;
+        }
+    }
+    let rest = body[offset..].trim_end();
+    let mut arguments: Vec<String> = if rest.starts_with('[') {
+        serde_json::from_str(rest).unwrap_or_default()
+    } else {
+        words_at(rest)
+            .into_iter()
+            .map(|(_, word)| unquote(word.trim_end_matches(['\\', '`'])).0.to_owned())
+            .filter(|word| !word.is_empty())
+            .collect()
+    };
+    arguments.pop();
+    arguments
 }
 
 /// The Node version of `FROM [--platform=...] node:<version>[-variant]`, or the Bun version of
@@ -702,6 +735,33 @@ RUN --network=none pnpm build $(npm bin)
             exec.words.iter().map(|word| word.text.as_str()).collect::<Vec<_>>(),
             ["yarn", "install"]
         );
+    }
+
+    #[test]
+    fn dockerfile_copies_from_the_build_context_are_recorded() {
+        let source = "\
+FROM node:20 AS build
+COPY package.json pnpm-lock.yaml ./
+COPY --chown=node:node [\"tsconfig.json\", \"src\", \"/app/\"]
+ADD \"bun.lock\" \\
+    .npmrc /app/
+COPY --from=build /app/dist ./dist
+copy yarn.lock* .
+COPY ./only-destination
+";
+        assert_eq!(
+            parse(ToolchainKind::Dockerfiles, "Dockerfile", source).copied,
+            [
+                "package.json",
+                "pnpm-lock.yaml",
+                "tsconfig.json",
+                "src",
+                "bun.lock",
+                ".npmrc",
+                "yarn.lock*"
+            ]
+        );
+        assert!(parse(ToolchainKind::ShellScripts, "x.sh", "COPY a b\n").copied.is_empty());
     }
 
     #[test]

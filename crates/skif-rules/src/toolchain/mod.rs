@@ -25,7 +25,8 @@ pub use foreign_command::ForeignPackageManagerCommand;
 pub use options::{ToolchainKind, ToolchainOptions};
 pub use pin_drift::ToolchainPinDrift;
 
-use scan::ToolchainFile;
+pub(crate) use scan::find_files;
+use scan::{Scan, ToolchainFile};
 
 /// Identifies the toolchain provider in errors.
 pub const PROVIDER_ID: &str = "toolchain";
@@ -45,6 +46,17 @@ pub fn rules() -> Vec<Box<dyn Rule>> {
 #[must_use]
 pub fn toolchain_provider() -> RulesProvider {
     RulesProvider::new(PROVIDER_ID, rules())
+}
+
+/// The Dockerfiles of the workspace's packages that copy from their build context, each by workspace-relative path
+/// with the sources of its `COPY` and `ADD` instructions; read from the scan the toolchain rules share.
+pub(crate) fn dockerfile_copies(cx: &LintContext<'_>) -> Vec<(String, Vec<String>)> {
+    Scan::of(cx, &rule_ids())
+        .files
+        .iter()
+        .filter(|file| file.kind == ToolchainKind::Dockerfiles && !file.parsed.copied.is_empty())
+        .map(|file| (file.path.clone(), file.parsed.copied.clone()))
+        .collect()
 }
 
 /// One finding in a toolchain file, before suppression comments are applied.

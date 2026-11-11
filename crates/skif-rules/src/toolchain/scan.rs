@@ -266,14 +266,32 @@ fn globbed(fs: &dyn FileSystem, root: &Path, globs: &[String], selector: &Select
             }
             continue;
         }
-        walk(fs, root, &segments[..literal].join("/"), 0, selector, &mut found);
+        let matches = |path: &str| selector.matches(path, false);
+        walk(fs, root, &segments[..literal].join("/"), 0, &matches, &mut found);
     }
     found.sort_unstable();
     found.dedup();
     found
 }
 
-fn walk(fs: &dyn FileSystem, root: &Path, dir: &str, depth: usize, selector: &Selector, found: &mut Vec<String>) {
+/// The files below `root` whose name `wanted` accepts, root-relative with `/` separators and sorted. Only names are
+/// listed; the walk skips `node_modules`, `.git` and symbolic links and stops [`MAX_DEPTH`] directories down.
+pub(crate) fn find_files(fs: &dyn FileSystem, root: &Path, wanted: &dyn Fn(&str) -> bool) -> Vec<String> {
+    let matches = |path: &str| wanted(path.rsplit('/').next().unwrap_or(path));
+    let mut found = Vec::new();
+    walk(fs, root, "", 0, &matches, &mut found);
+    found.sort_unstable();
+    found
+}
+
+fn walk(
+    fs: &dyn FileSystem,
+    root: &Path,
+    dir: &str,
+    depth: usize,
+    matches: &dyn Fn(&str) -> bool,
+    found: &mut Vec<String>,
+) {
     if depth > MAX_DEPTH {
         return;
     }
@@ -285,9 +303,9 @@ fn walk(fs: &dyn FileSystem, root: &Path, dir: &str, depth: usize, selector: &Se
         let path = join(dir, &name);
         if entry.is_dir {
             if !entry.is_symlink && name != "node_modules" && name != ".git" {
-                walk(fs, root, &path, depth + 1, selector, found);
+                walk(fs, root, &path, depth + 1, matches, found);
             }
-        } else if entry.is_file && selector.matches(&path, false) {
+        } else if entry.is_file && matches(&path) {
             found.push(path);
         }
     }
