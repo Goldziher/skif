@@ -44,7 +44,7 @@ impl<V: Clone> Sharded<V> {
 
     fn shard(&self, key: &OsStr) -> &RwLock<Shard<V>> {
         // The high bits of an ahash hash are the well mixed ones.
-        let index = usize::try_from((HashState::default().hash_one(key) >> 32) % SHARDS).unwrap_or(0);
+        let index = usize::try_from((HashState.hash_one(key) >> 32) % SHARDS).unwrap_or(0);
         &self.shards[index]
     }
 
