@@ -1,7 +1,12 @@
 // Tests of refresh-numbers.mjs. Run with `node --test tools/bench/refresh-numbers.test.mjs`.
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   baselineProblems,
@@ -311,4 +316,56 @@ test("a baseline from an older harness is a problem", () => {
   assert.deepEqual(baselineProblems(stale), [
     "jest: the baseline entry predates the current harness; re-record it with --write-baseline",
   ]);
+});
+
+const repo = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+/** The files refresh-numbers.mjs rewrites, relative to the repository root. */
+const TARGETS = ["tools/bench/README.md", "README.md", "website/src/content/docs/guides/comparison.mdx"];
+
+/** A temporary tree holding a copy of the script, the files it rewrites and the parity baseline; returns its root. */
+function scriptTree(t) {
+  const root = mkdtempSync(join(tmpdir(), "skif-refresh-numbers-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  for (const file of [...TARGETS, "tools/bench/refresh-numbers.mjs", "tools/bench/baselines/parity.json"]) {
+    mkdirSync(dirname(join(root, file)), { recursive: true });
+    cpSync(join(repo, file), join(root, file));
+  }
+  return root;
+}
+
+const runScript = (root, ...args) =>
+  spawnSync(process.execPath, [join(root, "tools", "bench", "refresh-numbers.mjs"), ...args], { encoding: "utf8" });
+const contents = (root) => TARGETS.map((file) => readFileSync(join(root, file)));
+
+test("a refused summary leaves every target file byte for byte as it was", (t) => {
+  const root = scriptTree(t);
+  const refused = summary();
+  refused.machine.github = null;
+  const file = join(root, "refused.json");
+  writeFileSync(file, JSON.stringify(refused));
+  const before = contents(root);
+  const run = runScript(root, "--summary", file);
+  assert.equal(run.status, 1, run.stderr);
+  assert.match(run.stderr, /refused\.json: the summary records no GitHub Actions runner/);
+  assert.match(run.stderr, /refresh-numbers: nothing was written/);
+  assert.deepEqual(contents(root), before);
+});
+
+test("without flags and without an imported summary only the agreement tables are refreshed", (t) => {
+  const root = scriptTree(t);
+  assert.equal(existsSync(join(root, "tools", "bench", "results", "summary.json")), false);
+  const before = readFileSync(join(root, "tools", "bench", "README.md"));
+  const run = runScript(root);
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stdout, /results\/summary\.json, so the speed tables are left as they are/);
+  assert.deepEqual(readFileSync(join(root, "tools", "bench", "README.md")), before);
+});
+
+test("--bench without an imported summary fails", (t) => {
+  const root = scriptTree(t);
+  const before = contents(root);
+  const run = runScript(root, "--bench");
+  assert.notEqual(run.status, 0);
+  assert.match(run.stderr, /ENOENT/);
+  assert.deepEqual(contents(root), before);
 });
