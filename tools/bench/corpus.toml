@@ -20,7 +20,8 @@
 #   notes            why the repository is in the corpus and what to expect from it
 
 # The comparison tools, pinned in this one place: parity, syncpack-diff and deadcode run them through npx, and
-# `skif-bench run` installs them into a scratch prefix and times their executables.
+# `skif-bench run` installs them into a scratch prefix and times their executables. Each is an exact version; a range
+# or a dist-tag is rejected.
 [tools]
 knip = "6.44.1"
 syncpack = "15.3.3"
