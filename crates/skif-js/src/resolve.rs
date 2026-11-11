@@ -490,41 +490,6 @@ fn module_dir_chains(scopes: &[AliasScope]) -> Vec<Vec<PathBuf>> {
         .collect()
 }
 
-/// The `name` argument of a Bazel `module(...)` or `workspace(...)` call.
-fn bazel_workspace_name(fs: &dyn FileSystem, root: &Path) -> Option<String> {
-    ["MODULE.bazel", "WORKSPACE", "WORKSPACE.bazel"]
-        .iter()
-        .find_map(|file| {
-            let text = fs.read_to_string(&root.join(file)).ok()?;
-            let call = if *file == "MODULE.bazel" {
-                "module("
-            } else {
-                "workspace("
-            };
-            let at = text.match_indices(call).find_map(|(at, _)| {
-                text[..at]
-                    .chars()
-                    .next_back()
-                    .is_none_or(|before| !(before.is_alphanumeric() || before == '_'))
-                    .then_some(at)
-            })?;
-            let body = &text[at + call.len()..];
-            let body = &body[..body.find(')')?];
-            let at = body.match_indices("name").find_map(|(at, _)| {
-                body[..at]
-                    .chars()
-                    .next_back()
-                    .is_none_or(|before| !(before.is_alphanumeric() || before == '_'))
-                    .then_some(at)
-            })?;
-            let value = body[at + "name".len()..].trim_start().strip_prefix('=')?.trim_start();
-            let quote = value.chars().next().filter(|quote| matches!(quote, '"' | '\''))?;
-            let value = &value[1..];
-            let name = &value[..value.find(quote)?];
-            (!name.is_empty()).then(|| name.to_owned())
-        })
-}
-
 /// The `.gitignore` of `dir`, if it has one.
 fn read_gitignore(fs: &dyn FileSystem, dir: &Path) -> Option<(PathBuf, Gitignore)> {
     let text = fs.read_to_string(&dir.join(".gitignore")).ok()?;
@@ -749,7 +714,7 @@ impl ModuleResolver {
             script_with_extensions,
             root_script,
             style,
-            workspace_name: bazel_workspace_name(fs.as_ref(), &workspace.root),
+            workspace_name: skif_workspace::bazel_workspace_name(fs.as_ref(), &workspace.root),
             ignores,
             package_dirs,
             fs,
@@ -2696,16 +2661,5 @@ generated/index.ts
                 "{marker}"
             );
         }
-    }
-
-    #[test]
-    fn bazel_name_is_read_from_the_module_call_only() {
-        let fs = MemoryFs::new().with_file(
-            "/ws/MODULE.bazel",
-            "bazel_dep(name = \"rules_x\", version = \"1\")\nmodule(repo_name = \"r\", name = \"mono\")\n",
-        );
-        assert_eq!(bazel_workspace_name(&fs, Path::new("/ws")).as_deref(), Some("mono"));
-        let none = MemoryFs::new().with_file("/ws/MODULE.bazel", "bazel_dep(name = \"rules_x\")\n");
-        assert_eq!(bazel_workspace_name(&none, Path::new("/ws")), None);
     }
 }
