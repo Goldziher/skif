@@ -1008,7 +1008,7 @@ mod tests {
             Path::new("/w/elsewhere/y.ts"),
             Path::new("/w/a/src/z.ts"),
         ];
-        assert_eq!(relative_to(Some(&group), Path::new("/w/a")), ["x.ts", "src/z.ts"]);
+        assert_eq!(relative_to(Some(&group[..]), Path::new("/w/a")), ["x.ts", "src/z.ts"]);
         assert!(relative_to(None, Path::new("/w/a")).is_empty());
     }
 }
