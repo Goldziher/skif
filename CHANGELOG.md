@@ -7,7 +7,7 @@ All notable changes to this project are documented here. The format follows
 <!-- Keep a Changelog repeats Added/Changed/Fixed headings per version. -->
 <!-- markdownlint-disable MD024 -->
 
-## [0.3.0] - Unreleased
+## [0.3.0] - 2026-11-11
 
 ### Added
 
@@ -98,9 +98,6 @@ All notable changes to this project are documented here. The format follows
 - **Warnings**: a fix run of a single root that would remove a dependency while other roots lie below it; an
   `[[overrides]]` pattern that leaves its anchor directory (`../packages/*`); and `skif migrate --force` replacing a
   file that had an `extends`.
-- **Windows npm packages**: `skif-win32-x64-msvc` and `skif-win32-arm64-msvc`, so `npx skif-cli`, `pnpm dlx skif-cli`
-  and `bunx -p skif-cli skif` run on Windows x64 and arm64 ([ADR 0070](adrs/0070-windows-npm-packages.md),
-  [#93](https://github.com/Goldziher/skif/issues/93)).
 - **Agent skill and plugin**: `skills/skif` teaches coding agents the lint, triage and fix loop; install it with
   `npx skills add Goldziher/skif`, or as a plugin for Claude Code, Codex, Factory Droid and GitHub Copilot CLI, which
   also registers the MCP server (`npx -y skif-cli@<release> mcp`) pinned to the release
@@ -236,7 +233,21 @@ All notable changes to this project are documented here. The format follows
 - **Performance**: finding the exports a signature mentions is linear instead of quadratic in a file's exports
   ([#145](https://github.com/Goldziher/skif/issues/145)); `[[ignore]]` entries are indexed by rule, so large
   baselines stay cheap; each tool config is checked against `.gitignore` once; and one semantic analysis is shared per
-  parsed block.
+  parsed block. Across the engine:
+  - maps and sets hash with ahash under fixed keys, so their iteration order is the same on every run; the crates use
+    `skif_core::{HashMap, HashSet}`
+  - the toolchain scan runs in parallel and starts no tool to read its version
+    ([#205](https://github.com/Goldziher/skif/issues/205))
+  - the JS entries of each package and the lockfile policy walks run in parallel
+  - plugins share the config files they load, and each thread reuses its parser arenas
+  - the package patterns of `[[ignore]]` entries are indexed, so baseline files stay cheap on large workspaces
+  - the resolver memos are sharded, and `SpecifierCache` spreads its keys over every shard instead of a few
+  - lockfile spans are indexed, and the renderers allocate less
+- **Windows npm packages are deferred**: 0.3.0 publishes no `skif-win32-x64-msvc` or `skif-win32-arm64-msvc` package,
+  because the npm names cannot be created yet. On Windows, `npx skif-cli` fails at import; use the release archives,
+  `cargo binstall skif-cli` or Scoop. The packages return in a later release once both names exist
+  ([ADR 0114](adrs/0114-windows-npm-packages-deferred.md), amending
+  [ADR 0070](adrs/0070-windows-npm-packages.md)).
 - A `--cache` store written by 0.2 is discarded and rebuilt on the first run.
 - **Incomplete packages**: `incomplete-packages[]` entries of the JSON report carry a `scope`, `"package"` or
   `{"within": [globs]}` naming the only files left unjudged, and the human note names the globs
@@ -291,6 +302,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A run could deadlock when a shared analysis used parallelism: `LintContext::shared` no longer waits for another
+  caller's value, so a rayon worker that needs the value while another computes it computes its own.
 - `version-mismatch` no longer rewrites a path dependency (`../a`, `file:`, `link:`, `portal:`, `~/a`) to a version.
   While `local-path-dependency` is on, the paths of the dependency sections take no part in the version groups, so
   that rule gives the one fix a path gets; with it off, and in override sections and custom types, a path keeps its
