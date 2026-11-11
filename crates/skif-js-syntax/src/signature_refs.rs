@@ -261,7 +261,7 @@ pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
     if exported_as.is_empty() {
         return;
     }
-    let found = collect_containers(program, &|name| exported_as.contains_key(name));
+    let found = collect_containers(program, &|name: &str| exported_as.contains_key(name));
     // One name can have several declarations (a value and a type, overloads): it mentions what any of them does.
     let mut mentions: HashMap<&str, HashSet<&str>> = HashMap::default();
     for (local, names) in &found {
