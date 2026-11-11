@@ -9,7 +9,7 @@
 // a stale baseline.
 // Usage: node tools/bench/refresh-numbers.mjs [--bench] [--parity] [--summary FILE] [--baseline FILE]
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -157,10 +157,7 @@ export function benchDetail(summary) {
   for (const target of summary.targets) {
     lines.push(`**${target.target}**`, "");
     if (target.installed_with != null) lines.push(`Installed with \`${target.installed_with}\`.`, "");
-    lines.push(
-      "| Tool | Mean (ms) | Median (ms) | vs skif |",
-      "| --- | ---: | ---: | ---: |",
-    );
+    lines.push("| Tool | Mean (ms) | Median (ms) | vs skif |", "| --- | ---: | ---: | ---: |");
     for (const row of target.results) {
       const skifRow = row.tool === SKIF || row.tool === SKIF_MANIFEST;
       const relative = skifRow || row.relative_to_skif == null ? "-" : `${row.relative_to_skif.toFixed(1)}x`;
@@ -348,6 +345,6 @@ function main() {
   console.log(`refreshed ${[...files.keys()].join(", ")}`);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   main();
 }

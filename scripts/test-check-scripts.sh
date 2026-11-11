@@ -426,6 +426,8 @@ printf '{"schema":2}\n' >"${results}/summary.json"
 printf '# old\n' >"${results}/summary.md"
 printf '{}\n' >"${results}/raw/stale.json"
 # The tree is a git checkout whose origin holds main and a branch that is not on main.
+# The check-oxc-git-patch stub must not shadow git here: bench-import fetches and compares real commits.
+rm -f "${stubs}/git"
 bench_git() {
   git -C "$bench" -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false -c core.hooksPath=/dev/null "$@"
 }
