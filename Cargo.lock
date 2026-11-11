@@ -2419,6 +2419,7 @@ dependencies = [
  "skif-js-plugins",
  "skif-js-syntax",
  "skif-lint",
+ "skif-specifier",
  "skif-workspace",
  "tempfile",
  "toml",
