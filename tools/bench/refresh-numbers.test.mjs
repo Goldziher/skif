@@ -60,7 +60,7 @@ function machine() {
 
 function summary() {
   return {
-    schema: 4,
+    schema: 5,
     skif: "skif 0.3.0",
     source_rev: "0123456789ab",
     harness_rev: "0123456789ab",
@@ -136,6 +136,92 @@ test("a summary in which a tool exited with an error is refused, with the cause 
     "generated: 500 packages (pnpm): sherif exited with an error in 1 of 15 runs, so its time may be that of a partial run",
     "corpus: babel (yarn): knip --reporter json exited with an error in 15 of 15 runs " +
       "(ERROR: Error loading apps/expo/metro.config.js), so its time may be that of a partial run",
+    "corpus: babel (yarn): the ADR 0001 check is invalid: d",
+  ]);
+});
+
+const METRO_ERROR = "ERROR: Error loading apps/expo/metro.config.js (Cannot find module 'metro-cache')";
+const METRO_REASON = "its Expo Metro config needs metro-cache, which pnpm's strict install does not provide";
+const GOAL = "JS analysis >= 5x faster than knip";
+const DECLARATION = "corpus.toml declares that knip fails here with `Cannot find module 'metro-cache'`";
+
+/**
+ * The summary with a create-t3-turbo target on which knip exited with an error in `errorRuns` runs, `failure` the
+ * failure the harness matched to corpus.toml's declaration (or null), and its ADR 0001 check `check`.
+ */
+function withT3({ errorRuns, failure, check }) {
+  const result = summary();
+  result.targets.push({
+    target: "corpus: create-t3-turbo (pnpm)",
+    kind: "corpus",
+    packages: null,
+    files: null,
+    installed_with: "pnpm 10.19.0",
+    declared_knip_failure: { matches: "Cannot find module 'metro-cache'", reason: METRO_REASON },
+    results: [
+      row("skif", 33),
+      row("skif --no-js", 4),
+      row("sherif", 30),
+      row("syncpack lint", 36),
+      row("knip --reporter json", 1590, {
+        relative_to_skif: failure == null ? 48.2 : null,
+        error_runs: errorRuns,
+        error_output: errorRuns > 0 ? METRO_ERROR : null,
+        failure,
+      }),
+    ],
+  });
+  result.adr_0001_checks.push({ target: "corpus: create-t3-turbo (pnpm)", ...check });
+  return result;
+}
+
+test("a knip failure corpus.toml declares and the run matched is published as failing, without a ratio", () => {
+  const matched = withT3({
+    errorRuns: 15,
+    failure: { reason: METRO_REASON, error: METRO_ERROR },
+    check: { description: `${GOAL} (not measured: knip fails here: ${METRO_REASON})`, status: "not-measured" },
+  });
+  assert.deepEqual(summaryProblems(matched), []);
+  const compact = benchSummary(matched);
+  assert.ok(compact.includes(`| create-t3-turbo | 33 ms | fails: ${METRO_REASON} | - |\n`), compact);
+  assert.match(compact, /\| create-t3-turbo \| 4\.0 ms \| 30 ms \| 36 ms \|/);
+  assert.match(compact, /\| babel \| 884 ms \| 7\.2 s \| 8x \|/);
+  const detail = benchDetail(matched);
+  assert.ok(detail.includes(`| knip --reporter json | fails: ${METRO_REASON} | - | - |\n`), detail);
+  assert.ok(detail.includes("| sherif | 30.0 | 30.0 | 1.0x |\n"), detail);
+  assert.ok(
+    detail.includes(
+      `| corpus: create-t3-turbo (pnpm) | ${GOAL} (not measured: knip fails here: ${METRO_REASON}) | not measured |\n`,
+    ),
+    detail,
+  );
+});
+
+test("a knip error that does not match the declaration, or that is not declared, is refused", () => {
+  const stale =
+    `${GOAL} (measured 48.2x; knip --reporter json exited with an error in 15 runs; ${DECLARATION}, ` +
+    "but knip's error is another one: the declaration is stale)";
+  const unmatched = withT3({ errorRuns: 15, failure: null, check: { description: stale, status: "invalid" } });
+  assert.deepEqual(summaryProblems(unmatched), [
+    "corpus: create-t3-turbo (pnpm): knip --reporter json exited with an error in 15 of 15 runs " +
+      `(${METRO_ERROR}), so its time may be that of a partial run`,
+    `corpus: create-t3-turbo (pnpm): the ADR 0001 check is invalid: ${stale}`,
+  ]);
+  const plain = `${GOAL} (measured 48.2x; knip --reporter json exited with an error in 15 runs)`;
+  const undeclared = withT3({ errorRuns: 15, failure: null, check: { description: plain, status: "invalid" } });
+  delete undeclared.targets[2].declared_knip_failure;
+  assert.deepEqual(summaryProblems(undeclared), [
+    "corpus: create-t3-turbo (pnpm): knip --reporter json exited with an error in 15 of 15 runs " +
+      `(${METRO_ERROR}), so its time may be that of a partial run`,
+    `corpus: create-t3-turbo (pnpm): the ADR 0001 check is invalid: ${plain}`,
+  ]);
+});
+
+test("a declared knip failure that did not happen is refused through its invalid check", () => {
+  const clean = `${GOAL} (measured 48.2x; ${DECLARATION}, but knip ran without an error: the declaration is stale)`;
+  const declaredButClean = withT3({ errorRuns: 0, failure: null, check: { description: clean, status: "invalid" } });
+  assert.deepEqual(summaryProblems(declaredButClean), [
+    `corpus: create-t3-turbo (pnpm): the ADR 0001 check is invalid: ${clean}`,
   ]);
 });
 
@@ -213,10 +299,9 @@ test("a skipped tool, a missing row or an old schema is a problem", () => {
     "sherif was not timed on any target: npm is not installed",
     "corpus: babel (yarn) has no knip --reporter json row",
   ]);
-  assert.match(
-    summaryProblems({ ...summary(), schema: 3 })[0],
-    /schema 3 is not 4; measure again with the bench workflow/,
-  );
+  assert.deepEqual(summaryProblems({ ...summary(), schema: 4 }), [
+    "summary schema 4 is not 5; measure again with the bench workflow and `mise run bench:import -- <run-id>`",
+  ]);
   assert.deepEqual(summaryProblems({ ...summary(), corpus_only: ["babel", "vue-core"] }), [
     "the run timed only some corpus repositories (babel, vue-core); a partial run is not published",
   ]);
@@ -368,4 +453,22 @@ test("--bench without an imported summary fails", (t) => {
   assert.notEqual(run.status, 0);
   assert.match(run.stderr, /ENOENT/);
   assert.deepEqual(contents(root), before);
+});
+
+test("a summary with a matched knip failure is written into every speed table", (t) => {
+  const root = scriptTree(t);
+  const matched = withT3({
+    errorRuns: 15,
+    failure: { reason: METRO_REASON, error: METRO_ERROR },
+    check: { description: `${GOAL} (not measured: knip fails here: ${METRO_REASON})`, status: "not-measured" },
+  });
+  const file = join(root, "matched.json");
+  writeFileSync(file, JSON.stringify(matched));
+  const run = runScript(root, "--bench", "--summary", file);
+  assert.equal(run.status, 0, run.stderr);
+  const [bench, readme, guide] = contents(root).map((bytes) => bytes.toString("utf8"));
+  assert.ok(bench.includes(`| knip --reporter json | fails: ${METRO_REASON} | - | - |\n`), bench);
+  for (const text of [readme, guide]) {
+    assert.ok(text.includes(`| create-t3-turbo | 33 ms | fails: ${METRO_REASON} | - |\n`), text);
+  }
 });

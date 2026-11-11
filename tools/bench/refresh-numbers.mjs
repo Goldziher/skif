@@ -6,7 +6,8 @@
 // Without either flag both are refreshed, and the speed tables are left as they are while no run has been imported
 // (tools/bench/results/summary.json does not exist and no --summary is given). It fails, and writes nothing, when the
 // input does not hold every number the blocks show: a tool that was not timed, a corpus repository without a knip row,
-// a stale baseline.
+// a tool error that corpus.toml does not declare, an invalid ADR 0001 check, a stale baseline. A knip failure that
+// corpus.toml declares and the run matched is published as `fails: <reason>`, without a ratio.
 // Usage: node tools/bench/refresh-numbers.mjs [--bench] [--parity] [--summary FILE] [--baseline FILE]
 
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -16,7 +17,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..", "..");
 
-export const SUMMARY_SCHEMA = 4;
+export const SUMMARY_SCHEMA = 5;
 const SKIF = "skif";
 const SKIF_MANIFEST = "skif --no-js";
 const SHERIF = "sherif";
@@ -52,7 +53,13 @@ export function duration(milliseconds) {
 }
 
 const RUNNER_ENVIRONMENTS = { "github-hosted": "GitHub-hosted", "self-hosted": "self-hosted" };
-const CHECK_LABELS = { pass: "pass", fail: "FAIL", invalid: "invalid" };
+const CHECK_LABELS = { pass: "pass", fail: "FAIL", invalid: "invalid", "not-measured": "not measured" };
+
+/** `text` as a Markdown table cell: on one line, with `|` escaped. */
+const cell = (text) => text.split(/\s+/).filter(Boolean).join(" ").replaceAll("|", "\\|");
+
+/** The cell of a row whose tool failed as corpus.toml declares, in place of its times. */
+const fails = (row) => `fails: ${cell(row.failure.reason)}`;
 
 /** The runner of a workflow run with its image, before the machine; empty outside GitHub Actions. */
 function runnerText(github) {
@@ -118,13 +125,16 @@ export function summaryProblems(summary) {
     for (const tool of requiredTools(target).filter((name) => !timed.has(name))) {
       problems.push(`${target.target} has no ${tool} row`);
     }
-    for (const row of target.results.filter((r) => r.error_runs > 0)) {
+    for (const row of target.results.filter((r) => r.error_runs > 0 && r.failure == null)) {
       const cause = row.error_output == null ? "" : ` (${row.error_output})`;
       problems.push(
         `${target.target}: ${row.tool} exited with an error in ${row.error_runs} of ${summary.runs} runs${cause}, ` +
           "so its time may be that of a partial run",
       );
     }
+  }
+  for (const check of summary.adr_0001_checks.filter((c) => c.status === "invalid")) {
+    problems.push(`${check.target}: the ADR 0001 check is invalid: ${check.description}`);
   }
   if (!summary.targets.some((target) => target.kind === "corpus")) {
     problems.push("the summary has no corpus target (was it run with --no-corpus?)");
@@ -159,6 +169,10 @@ export function benchDetail(summary) {
     if (target.installed_with != null) lines.push(`Installed with \`${target.installed_with}\`.`, "");
     lines.push("| Tool | Mean (ms) | Median (ms) | vs skif |", "| --- | ---: | ---: | ---: |");
     for (const row of target.results) {
+      if (row.failure != null) {
+        lines.push(`| ${row.tool} | ${fails(row)} | - | - |`);
+        continue;
+      }
       const skifRow = row.tool === SKIF || row.tool === SKIF_MANIFEST;
       const relative = skifRow || row.relative_to_skif == null ? "-" : `${row.relative_to_skif.toFixed(1)}x`;
       lines.push(`| ${row.tool} | ${ms(row.mean_ms)} | ${ms(row.median_ms)} | ${relative} |`);
@@ -168,18 +182,19 @@ export function benchDetail(summary) {
   if (summary.adr_0001_checks.length > 0) {
     lines.push("| ADR 0001 target | Check | Result |", "| --- | --- | --- |");
     for (const check of summary.adr_0001_checks) {
-      lines.push(`| ${check.target} | ${check.description} | ${CHECK_LABELS[check.status]} |`);
+      lines.push(`| ${check.target} | ${cell(check.description)} | ${CHECK_LABELS[check.status]} |`);
     }
     lines.push("");
   }
   return lines.join("\n");
 }
 
-const median = (target, tool) => target.results.find((row) => row.tool === tool)?.median_ms;
+const find = (target, tool) => target.results.find((row) => row.tool === tool);
+const median = (target, tool) => find(target, tool)?.median_ms;
 const repoName = (target) => target.target.replace(/^corpus: (\S+).*$/, "$1");
 const generatedName = (target) => `Generated, ${target.packages} packages`;
 
-/** The compact tables of README.md and the comparison guide: medians, and knip's median over skif's. */
+/** The compact tables of README.md and the comparison guide: medians, and knip's over skif's or why knip fails. */
 export function benchSummary(summary) {
   const corpus = summary.targets.filter((target) => target.kind === "corpus");
   const generated = summary.targets.filter((target) => target.kind === "generated");
@@ -187,8 +202,10 @@ export function benchSummary(summary) {
   lines.push("| Repository | skif | knip | knip / skif |", "| --- | ---: | ---: | ---: |");
   for (const target of corpus) {
     const skif = median(target, SKIF);
-    const knip = median(target, KNIP);
-    lines.push(`| ${repoName(target)} | ${duration(skif)} | ${duration(knip)} | ${(knip / skif).toFixed(0)}x |`);
+    const knip = find(target, KNIP);
+    const [time, ratio] =
+      knip.failure == null ? [duration(knip.median_ms), `${(knip.median_ms / skif).toFixed(0)}x`] : [fails(knip), "-"];
+    lines.push(`| ${repoName(target)} | ${duration(skif)} | ${time} | ${ratio} |`);
   }
   lines.push("", "**Manifest and policy checks** (`skif --no-js`)", "");
   lines.push("| Target | skif --no-js | sherif | syncpack |", "| --- | ---: | ---: | ---: |");
