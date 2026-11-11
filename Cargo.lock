@@ -2341,6 +2341,7 @@ dependencies = [
  "skif-core",
  "skif-migrate",
  "skif-report",
+ "skif-workspace",
  "tempfile",
  "toml",
  "toml_edit",
