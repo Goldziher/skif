@@ -9,7 +9,7 @@ use serde_json::Value;
 use skif_core::{DependencyKind, FileSystem, Span};
 use skif_js_plugins::scripts::{ScriptContext, is_ignored_binary, parse_script};
 use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object, place_file_dir};
-use skif_workspace::{Package, PackageId, PackageManager, Workspace, map_ordered};
+use skif_workspace::{Package, PackageId, PackageManager, Workspace, map_ordered, npmrc_entries};
 
 use crate::ancestors::{external_manifests, is_repository_root, listed_names, read_manifest};
 use crate::discover::{is_ignored_in_repository, relative};
@@ -116,18 +116,18 @@ const RUSH_JSON: &str = "rush.json";
 /// The commands Rush itself provides to the scripts of a Rush repository.
 const RUSH_COMMANDS: &[&str] = &["rush", "rushx", "rush-pnpm"];
 
-/// Whether the binaries of a workspace member are on the `PATH` of every package: npm, Yarn Classic and Bun's hoisted
-/// linker hoist the members into the root `node_modules` and link their binaries into its `.bin`, while pnpm, Yarn
-/// Berry, Rush and Bun's isolated linker ([`bun_isolated`]) link a member's binaries only into the packages that depend
-/// on it. An unknown package manager counts as hoisting, so it reports nothing new, and so does a Yarn whose version
-/// the repository does not tell ([`yarn_berry`]).
+/// Whether the binaries of a workspace member are on the `PATH` of every package: npm, Yarn Classic and the hoisted
+/// linkers of pnpm ([`pnpm_hoisted`]) and Bun hoist the members into the root `node_modules` and link their binaries
+/// into its `.bin`, while pnpm's isolated linker, Yarn Berry, Rush and Bun's isolated linker ([`bun_isolated`]) link a
+/// member's binaries only into the packages that depend on it. An unknown package manager counts as hoisting, so it
+/// reports nothing new, and so does a Yarn whose version the repository does not tell ([`yarn_berry`]).
 /// `bun_config_version` is the `configVersion` of `bun.lock`.
 fn hoists_member_bins(workspace: &Workspace, rush: bool, bun_config_version: Option<u64>, fs: &dyn FileSystem) -> bool {
     if rush {
         return false;
     }
     match workspace.package_manager {
-        Some(PackageManager::Pnpm) => false,
+        Some(PackageManager::Pnpm) => pnpm_hoisted(workspace, fs),
         Some(PackageManager::Yarn) => !yarn_berry(workspace, fs),
         Some(PackageManager::Bun) => !bun_isolated(fs, &workspace.root, bun_config_version),
         _ => true,
@@ -137,20 +137,56 @@ fn hoists_member_bins(workspace: &Workspace, rush: bool, bun_config_version: Opt
 /// Whether a Yarn workspace positively uses Yarn Berry (2 and later): the root's `packageManager` names a later Yarn
 /// than 1, or, without one, the root has a `.yarnrc.yml` or a Berry `yarn.lock` (one with `__metadata`).
 fn yarn_berry(workspace: &Workspace, fs: &dyn FileSystem) -> bool {
-    let declared = workspace
-        .root_package()
-        .manifest
-        .value()
-        .get("packageManager")
-        .and_then(Value::as_str)
-        .filter(|field| field.starts_with("yarn@"));
-    if let Some(field) = declared {
-        return !field.starts_with("yarn@1.");
+    if let Some(version) = declared_version(workspace, "yarn") {
+        return !version.starts_with("1.");
     }
     fs.is_file(&workspace.root.join(".yarnrc.yml"))
         || fs
             .read_to_string(&workspace.root.join("yarn.lock"))
             .is_ok_and(|text| lockfile::is_yarn_berry(&text))
+}
+
+/// The version of `name` that the root's `packageManager` names (`10.12.1` of `pnpm@10.12.1`), when it names `name`.
+fn declared_version<'a>(workspace: &'a Workspace, name: &str) -> Option<&'a str> {
+    workspace
+        .root_package()
+        .manifest
+        .value()
+        .get("packageManager")
+        .and_then(Value::as_str)?
+        .strip_prefix(name)?
+        .strip_prefix('@')
+}
+
+/// The first pnpm major that reads no `node_modules` layout setting from `.npmrc`: pnpm 11 reads only auth and
+/// registry settings there, and the linker only from `pnpm-workspace.yaml`.
+const PNPM_WITHOUT_NPMRC_SETTINGS: u64 = 11;
+
+/// Whether pnpm installs the workspace with its hoisted linker. `nodeLinker` in `pnpm-workspace.yaml` decides when it
+/// is set; skif's choice is to take it over the root `.npmrc`. Without one, the last top-level `node-linker` of the
+/// root `.npmrc` decides, but only before pnpm 11, which ignores `node-linker` in `.npmrc`: when the root's
+/// `packageManager` names pnpm 11 or later, `.npmrc` is not read. Without a pnpm version in `packageManager` it is
+/// read, since skif does not tell the pnpm version from anything else. Without either setting, pnpm uses its isolated
+/// linker. A member's `.npmrc`, the user's `.npmrc`, the environment and `pnpm install --node-linker` are not read.
+fn pnpm_hoisted(workspace: &Workspace, fs: &dyn FileSystem) -> bool {
+    let reads_npmrc = declared_version(workspace, "pnpm")
+        .and_then(|version| version.split('.').next()?.parse::<u64>().ok())
+        .is_none_or(|major| major < PNPM_WITHOUT_NPMRC_SETTINGS);
+    let linker = workspace
+        .pnpm_workspace
+        .as_ref()
+        .and_then(|yaml| yaml.node_linker.clone())
+        .or_else(|| {
+            if !reads_npmrc {
+                return None;
+            }
+            let npmrc = fs.read_to_string(&workspace.root.join(".npmrc")).ok()?;
+            npmrc_entries(&npmrc)
+                .filter(|(key, _)| *key == "node-linker")
+                .last()
+                .map(|(_, value)| value.to_owned())
+        });
+    linker.as_deref() == Some("hoisted")
 }
 
 /// Whether Bun installs the workspace at `root` with its isolated linker. `linker` in the `[install]` table of the

@@ -23,6 +23,7 @@ mod error;
 mod lerna;
 mod lockfile;
 mod manifest;
+mod npmrc;
 mod package;
 mod parallel;
 mod pattern;
@@ -41,6 +42,7 @@ pub use lockfile::{
     split_key,
 };
 pub use manifest::{DependencyEntry, FieldSpans, Manifest};
+pub use npmrc::npmrc_entries;
 pub use package::{Package, PackageId};
 pub use parallel::{join, map_ordered};
 pub use pnpm::YamlSource;

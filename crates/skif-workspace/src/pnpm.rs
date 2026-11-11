@@ -12,6 +12,7 @@ use crate::manifest::to_u32;
 
 /// The raw text of `pnpm-workspace.yaml`, kept so rules and fixes can address it.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct YamlSource {
     /// Workspace-relative path.
     pub path: PathBuf,
@@ -23,6 +24,8 @@ pub struct YamlSource {
     pub overrides: Vec<(String, String)>,
     /// pnpm's `minimumReleaseAge`, in minutes, when it is a non-negative integer.
     pub minimum_release_age: Option<u64>,
+    /// pnpm's `nodeLinker` (`isolated`, `hoisted` or `pnp`) as written, when it is a string.
+    pub node_linker: Option<String>,
 }
 
 impl YamlSource {
@@ -119,6 +122,7 @@ pub(crate) struct PnpmWorkspace {
     pub catalogs: Catalogs,
     pub overrides: Vec<(String, String)>,
     pub minimum_release_age: Option<u64>,
+    pub node_linker: Option<String>,
 }
 
 pub(crate) fn parse(path: &Path, source: &str) -> Result<PnpmWorkspace, WorkspaceError> {
@@ -159,11 +163,13 @@ pub(crate) fn parse(path: &Path, source: &str) -> Result<PnpmWorkspace, Workspac
         })
         .unwrap_or_default();
     let minimum_release_age = document.get("minimumReleaseAge").and_then(Value::as_u64);
+    let node_linker = document.get("nodeLinker").and_then(Value::as_str).map(str::to_owned);
     Ok(PnpmWorkspace {
         packages,
         catalogs,
         overrides,
         minimum_release_age,
+        node_linker,
     })
 }
 
@@ -265,6 +271,7 @@ mod tests {
             line_index: Arc::new(LineIndex::new(text)),
             overrides: Vec::new(),
             minimum_release_age: None,
+            node_linker: None,
         }
     }
 
@@ -326,6 +333,15 @@ mod tests {
         assert_eq!(read("minimumReleaseAge: 0\n").ok(), Some(Some(0)));
         assert_eq!(read("minimumReleaseAge: soon\n").ok(), Some(None));
         assert_eq!(read("minimumReleaseAge: -5\n").ok(), Some(None));
+        assert_eq!(read("packages: []\n").ok(), Some(None));
+    }
+
+    #[test]
+    fn node_linker_is_read_when_it_is_a_string() {
+        let read = |text: &str| parse(Path::new("pnpm-workspace.yaml"), text).map(|parsed| parsed.node_linker);
+        assert_eq!(read("nodeLinker: hoisted\n").ok(), Some(Some("hoisted".to_owned())));
+        assert_eq!(read("nodeLinker: 'isolated'\n").ok(), Some(Some("isolated".to_owned())));
+        assert_eq!(read("nodeLinker: 1\n").ok(), Some(None));
         assert_eq!(read("packages: []\n").ok(), Some(None));
     }
 }
