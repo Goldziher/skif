@@ -25,7 +25,8 @@ Real Bun installs (Bun 1.4.4) differ from these assumptions at four points:
 * Bun applies the top-level `patchedDependencies` of the root `package.json` and records each applied patch in the
   `patchedDependencies` of `bun.lock`.
 
-A Bun repository can also hold nothing but a `bunfig.toml`, which no step of detection reads.
+A Bun repository that commits no lockfile can also hold nothing but a `bunfig.toml`, which no step of detection
+reads. Repositories installed by npm or Yarn commit a `bunfig.toml` too, only to configure `bun test` or the runtime.
 
 Which of these does skif follow, and where?
 
@@ -51,9 +52,11 @@ sub-workspaces and unapplied patches go unreported.
 that no negation removes. The negation still removes every other directory it matches, and its match count leaves the
 literal directory out. Any other manager keeps the expansion of ADR 0005.
 
-**Detection.** A root `bunfig.toml` detects Bun as the last step, after the lockfiles, `pnpm-workspace.yaml` and the
-Yarn Berry files. A repository with only a `bunfig.toml` is a Bun repository; one with another manager's lockfile or
-files keeps that manager.
+**Detection.** A root `bunfig.toml` with an `[install]` table, which configures Bun's installer, detects Bun as the
+last step, after the lockfiles, `pnpm-workspace.yaml` and the Yarn Berry files. A repository with only such a
+`bunfig.toml` is a Bun repository; one with another manager's lockfile or files keeps that manager. A `bunfig.toml`
+without an `[install]` table (only `[test]`, `preload` or other runtime keys), or one that does not parse, does not
+decide.
 
 **`stray-lockfile`.** Under Bun, a root `bun.lockb` next to a `bun.lock` is reported, because Bun ignores it. A
 `bun.lockb` alone is still the lockfile Bun reads.
@@ -72,9 +75,12 @@ or with a `bun.lock` that does not parse, the rule reports that once and still c
 
 * Good, because the members, the stray lockfile, the nested workspaces and the patches of a Bun workspace match what
   `bun install` does.
-* Good, because every other manager keeps its behaviour, so no existing report changes.
+* Good, because every other manager keeps its behaviour, so no existing report changes. An npm workspace that
+  commits no lockfile and keeps a `bunfig.toml` only for `bun test` is not taken for Bun, so it gets no `workspace:`
+  fix that npm cannot install.
 * Bad, because the expansion now depends on the detected manager. A Bun repository that skif detects as another
-  manager, or does not detect, keeps the negation of ADR 0005.
+  manager, or does not detect, keeps the negation of ADR 0005. That includes a Bun repository whose only sign is a
+  `bunfig.toml` without an `[install]` table.
 * Neutral, because a `bun.lockb`-only workspace gets no lockfile check of its patches until it moves to `bun.lock`,
   Bun's default since 1.2.
 
@@ -83,7 +89,7 @@ or with a `bun.lock` that does not parse, the rule reports that once and still c
 * `crates/skif-workspace/fixtures/bun` holds the `bun.lock` that `bun install` (1.4.4) wrote. Its `workspaces` list
   the members discovery returns (`tests/discovery.rs`).
 * `crates/skif-workspace/tests/memory.rs`: a literal member kept under Bun and removed under npm, with the negation
-  counts of each, and the `bunfig.toml` cases of the detection precedence.
+  counts of each, and the `bunfig.toml` cases of the detection precedence, with and without an `[install]` table.
 * `crates/skif-rules/src/manifest/stray_lockfile.rs`, `nested_workspace_root.rs` and
   `stale_patched_dependencies.rs` tests: the Bun cases, and the Yarn and npm cases that stay unreported.
 

@@ -70,8 +70,8 @@ All notable changes to this project are documented here. The format follows
   [#144](https://github.com/Goldziher/skif/issues/144)).
 - `skif_core::timing::Tally::add` adds a duration the caller measured, for a step that learns which tally it belongs
   to only once it has run.
-- Bun: a root `bunfig.toml` detects Bun when no declaration, lockfile, `pnpm-workspace.yaml` or Yarn Berry file
-  decides ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
+- Bun: a root `bunfig.toml` with an `[install]` table detects Bun when no declaration, lockfile,
+  `pnpm-workspace.yaml` or Yarn Berry file decides; one that only configures `bun test` or the runtime does not ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
 - Bun: `nested-workspace-root` reports a member whose `package.json` declares `workspaces`, at that key, because Bun
   never installs the directories it lists ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
 - Bun: `stale-patched-dependencies` reads the top-level `patchedDependencies` of the root `package.json` and checks
@@ -82,9 +82,13 @@ All notable changes to this project are documented here. The format follows
 - The `bun` plugin finds the files `bun test` runs with every extension it accepts (`.mjs`, `.cjs`, `.mts`, `.cts`
   too) and the `_test` / `_spec` suffixes; reads the modules of `preload`, `[test] preload` and
   `[install.security] scanner` and the package of `jsxImportSource` in `bunfig.toml`; parses the commands of Bun Shell
-  (`` $`…` `` imported from `bun`, `` Bun.$`…` ``) and of `Bun.spawn` / `Bun.spawnSync` like `package.json` scripts;
+  (`` $`…` `` imported from `bun`, `` Bun.$`…` ``) and of `Bun.spawn` / `Bun.spawnSync` like `package.json` scripts,
+  a computed argument of `Bun.spawn` left out as for `spawn` of `node:child_process`, and a command that
+  `` $`…`.cwd(dir) `` or the `cwd` option of `Bun.spawn` runs elsewhere judged as one run in another package;
   reads the `entrypoints` of `Bun.build` as production entries; and counts `@types/bun` or `bun-types` as used where
-  sources use the `Bun` global. It is enabled by `bunfig.toml`, `@types/bun` and `bun-types` too.
+  sources use the `Bun` global, also the sources of the packages below the one listing it. Commands and entries come
+  from the package's own sources only: a workspace root does not read those of its members. It is enabled by
+  `bunfig.toml`, `@types/bun` and `bun-types` too.
 - Config evaluation reads `import.meta.dir`, `import.meta.path` and `import.meta.file`, and a call-extraction global
   written `Name.*` stands for a module object whose members are its exports.
 
@@ -362,7 +366,7 @@ All notable changes to this project are documented here. The format follows
   links it; other managers still remove it ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
 - Bun: `stray-lockfile` reports a root `bun.lockb` next to a `bun.lock`, which Bun ignores ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
 - `bun --filter`, `bun -F` and `bun run --workspaces` are read as runs in other packages: their script is not checked
-  as a binary of the package that runs them.
+  as a binary of any package, since Bun runs only package scripts there.
 - On Windows, an explicit `--config` path given in the verbatim `\\?\C:\` spelling no longer leaves its findings with absolute
   locations or keeps the baseline it extends from applying to the run.
 - A Playwright `reporter` list whose element or reporter name skif could not evaluate (`...sharedReporters()` of a

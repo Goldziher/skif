@@ -81,14 +81,14 @@ expression: redact_version(&json.stdout)
       "category": "workspace",
       "default": "warning",
       "fixable": "unsafe",
-      "summary": "A lockfile other than the root lockfile of the package manager: one in a workspace member, or another manager's at the root."
+      "summary": "A lockfile other than the root lockfile of the package manager: one in a workspace member, another manager's at the root, or Bun's `bun.lockb` next to the `bun.lock` Bun reads."
     },
     {
       "id": "nested-workspace-root",
       "category": "workspace",
       "default": "warning",
       "fixable": "none",
-      "summary": "A workspace member holds a `pnpm-workspace.yaml` of its own, so installs in that directory leave the workspace."
+      "summary": "A workspace member holds a `pnpm-workspace.yaml` of its own, so installs in that directory leave the workspace, or in a Bun workspace a `package.json` that declares `workspaces`, which Bun never installs."
     },
     {
       "id": "local-path-dependency",
