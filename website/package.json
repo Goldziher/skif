@@ -3,7 +3,7 @@
   "type": "module",
   "version": "0.0.1",
   "private": true,
-  "packageManager": "pnpm@12.16.1",
+  "packageManager": "pnpm@12.18.0",
   "scripts": {
     "sync-rules": "node scripts/sync-rules.mjs",
     "dev": "node scripts/sync-rules.mjs && astro dev",

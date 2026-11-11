@@ -1,4 +1,4 @@
-baseline = "v1.13.2"
+baseline = "v1.17.0"
 task_sets = ["governance", "governance-check", "lint-format"]
 
 [task_overrides]
