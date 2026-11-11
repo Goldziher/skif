@@ -27,6 +27,7 @@ Where should the published speed numbers be measured, and what does a measuremen
 * A published number says exactly what produced it: skif commit and compiler, harness commit, tool versions, runner
   image, machine and the run
 * Nothing that is timed comes from a cache, and nothing compared is unpinned
+* A comparison that cannot be measured is said to be so, and never silently accepted
 * The repository's commits stay signed by the maintainer: a workflow does not commit
 * Shared CI machines are noisy; the published figures must stay meaningful anyway
 
@@ -73,7 +74,7 @@ no range or dist-tag), so an unpinned input fails the run before anything is tim
 dependencies only; the corpus, its installs and the generated workspaces are written to the runner's temporary
 directory, outside both target directories and every checkout, so no timed input comes from a cache.
 
-**What is recorded.** `summary.json` becomes schema 4. It replaces `host`, `cpu` and `cores` with a `machine` record:
+**What is recorded.** `summary.json` becomes schema 5. It replaces `host`, `cpu` and `cores` with a `machine` record:
 the operating system (`PRETTY_NAME` of `/etc/os-release`, `sw_vers` on macOS), the kernel (`uname -sr`), the
 architecture, the CPU model (`/proc/cpuinfo`, `lscpu` where Arm CPUs name none there, `sysctl` on macOS), the logical
 CPUs, those the process may use and the physical cores, the total memory, the cgroup CPU limit (the smallest `cpu.max`
@@ -92,6 +93,20 @@ compares it is `invalid` rather than `pass` or `fail`. A fact that cannot be rea
 fails a run. `summary.md` gets the same as its header, and the published tables a sentence naming the runner image,
 the machine, the compiler, the harness commit when it differs from the measured one and a link to the run attempt.
 
+**Expected comparison tool failures.** Some corpus repositories hold a tool configuration that knip cannot load even
+installed, for reasons that are the repository's own (create-t3-turbo's Expo Metro config needs a package pnpm's
+strict install does not provide; vue-core's SFC playground Vite config reads a build-time global only its own build
+defines). Dropping the repository would also drop the skif, sherif and syncpack times there; accepting the error
+would publish a partial knip run as a ratio. Such a failure is declared and matched, never silently accepted: the
+repository sets `bench-knip-failure = { matches, reason }` in `corpus.toml`, allowed only on a repository of the bench
+suite and with both values non-empty. The other tools are timed as everywhere. When knip errors and the stderr or the
+error line of its run outside hyperfine holds `matches`, its row gets `failure` (the reason and the error line) and no
+ratio to skif, `summary.md` and the published tables show it as `fails: <reason>`, and the ADR 0001 check is
+`not-measured` with the reason, which is neither a pass nor a failure. Its times stay in `summary.json` and `raw/`
+and are compared with nothing. A declaration that does not hold, because knip ran without an error or failed with an
+error that lacks `matches`, makes the check `invalid` and names the declaration as stale, so a changed failure is
+noticed and the declaration updated or removed; an error that no declaration covers stays `invalid`.
+
 **Publishing.** The workflow writes `summary.md` to the job summary and, once there is a summary, uploads
 `summary.json`, `summary.md` and the raw hyperfine exports as the artifact `bench-<commit>-<runner>`.
 `mise run bench:import -- <run-id>` accepts only a successful `workflow_dispatch` run of the `bench` workflow whose
@@ -99,8 +114,9 @@ commit is on `origin/main` (after `git fetch origin main`) and whose summary nam
 and refuses any other run, naming its branch. It downloads the artifact with `gh`, refreshes the tables with
 `refresh-numbers.mjs --bench` and puts the summary and `raw/` into `tools/bench/results`, for the maintainer to commit,
 signed, like any other change. `refresh-numbers.mjs` refuses a partial (`only`) run, an older schema, a summary
-without a GitHub-hosted runner or a workflow run, one measured from a `-dirty` checkout, and one in which a tool exited
-with an error, so the import then changes nothing.
+without a GitHub-hosted runner or a workflow run, one measured from a `-dirty` checkout, one in which a tool exited
+with an error that is not a declared knip failure the run matched, and one with an `invalid` check, so the import then
+changes nothing.
 
 **Local runs.** `mise run bench:publish` is removed: with two ways to publish, numbers from an unrecorded machine and
 numbers from the runner would end up in the same tables. `mise run bench` stays for measuring while developing,
@@ -124,7 +140,12 @@ writes to `target/bench-results` and is not published.
 * Bad, because a runner image label is retired by GitHub after some years, and its successor is a new pinned label
   and a new baseline.
 * Bad, because a run in which a comparison tool exits with an error on one corpus repository cannot be published
-  until the cause (named in the run's log and `error_output`) is fixed in `corpus.toml`.
+  until the cause (named in the run's log and `error_output`) is fixed in `corpus.toml`, or declared there as a known
+  knip failure.
+* Good, because a declared knip failure keeps the other tools' times on that repository published and says why knip
+  has none, and a declaration that no longer matches the run makes the run unpublishable until it is updated.
+* Bad, because a repository with a declared knip failure has no knip ratio, so the ADR 0001 knip target is measured
+  on fewer repositories.
 * Bad, because the toolchain follows the MSRV, which may be older than the compiler a release is built with; the
   record names the `rustc` used, and the MSRV moves with the releases.
 
@@ -139,16 +160,24 @@ writes to `target/bench-results` and is not published.
   `the_machine_line_names_unknown_facts_and_leaves_out_missing_ones`,
   `the_comparison_tools_are_installed_from_their_lock_and_timed_by_path`,
   `a_corpus_install_names_its_package_manager_version_or_its_command`, `only_a_status_above_1_or_a_signal_is_an_error`,
-  `knip_gets_the_repository_arguments_and_its_errors_are_reported` and
-  `a_tool_runs_outside_hyperfine_with_the_arguments_it_is_timed_with`.
+  `knip_gets_the_repository_arguments_and_its_errors_are_reported`,
+  `a_tool_runs_outside_hyperfine_with_the_arguments_it_is_timed_with`,
+  `a_declared_failure_matches_the_stderr_or_the_error_line_of_the_rerun`,
+  `a_matched_knip_failure_is_not_measured_and_a_stale_declaration_is_invalid`,
+  `a_declared_knip_failure_shows_as_failing_and_its_check_as_not_measured` and
+  `a_knip_run_that_fails_as_declared_is_marked_and_another_failure_is_not`.
 * `tools/bench/src/corpus.rs`: `rejects_a_comparison_tool_version_that_is_not_exact`, `rejects_branch_pins`,
-  `the_shipped_tool_lock_installs_the_pinned_tools` and
-  `rejects_a_tool_lock_that_names_other_versions_than_the_manifest`.
+  `the_shipped_tool_lock_installs_the_pinned_tools`,
+  `rejects_a_tool_lock_that_names_other_versions_than_the_manifest`,
+  `the_bench_repositories_whose_knip_run_fails_declare_the_error` and
+  `a_knip_failure_declaration_names_its_text_and_reason_on_a_bench_repository`.
 * `tools/bench/src/main.rs`: `run_narrows_the_corpus_and_names_the_skif_source`.
 * `tools/bench/refresh-numbers.test.mjs`: the provenance sentence (runner, run attempt, harness commit, the machine
-  line the harness wrote), the refusal of a partial run, an older schema, a tool with errors, a summary without a
-  GitHub-hosted runner or a workflow run and a `-dirty` checkout, and the script run on a temporary tree, which leaves
-  every file as it was on a refused summary and skips the speed tables when no summary is imported.
+  line the harness wrote), the refusal of a partial run, an older schema, a tool with errors, an unmatched,
+  undeclared or stale knip failure, a summary without a GitHub-hosted runner or a workflow run and a `-dirty`
+  checkout, the `fails: <reason>` cells of a matched knip failure, and the script run on a temporary tree, which leaves
+  every file as it was on a refused summary, writes a matched knip failure into every speed table and skips the speed
+  tables when no summary is imported.
 * `scripts/test-check-scripts.sh`: the `msrv` cases and the `bench-import` cases (usage, a run that cannot be read, of
   another workflow, not dispatched, failed or in progress, of a commit not on `origin/main`, a failed download, a
   summary of another harness commit, two artifacts, an artifact without `summary.md` or `raw/`, a refused summary, a
