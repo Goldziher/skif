@@ -426,17 +426,27 @@ fn read_installed(
     name: &str,
     cache: &mut HashMap<PathBuf, Option<Arc<Installed>>>,
 ) -> Option<Arc<Installed>> {
-    let mut dir = start;
-    loop {
+    find_installed(start, root, |dir| {
         let package = dir.join("node_modules").join(name);
         let manifest = package.join("package.json");
-        let entry = cache.entry(manifest.clone()).or_insert_with(|| {
-            fs.read_to_string(&manifest)
-                .ok()
-                .and_then(|text| parse_installed(fs, &package, &text, name))
-        });
-        if entry.is_some() {
-            return entry.clone();
+        cache
+            .entry(manifest.clone())
+            .or_insert_with(|| read_installed_at(fs, &package, &manifest, name))
+            .clone()
+    })
+}
+
+/// The first installed package `lookup` finds in a directory from `start` up to `root`, as Node.js looks up
+/// `node_modules`.
+fn find_installed(
+    start: &Path,
+    root: &Path,
+    mut lookup: impl FnMut(&Path) -> Option<Arc<Installed>>,
+) -> Option<Arc<Installed>> {
+    let mut dir = start;
+    loop {
+        if let Some(found) = lookup(dir) {
+            return Some(found);
         }
         if dir == root {
             return None;
@@ -445,6 +455,59 @@ fn read_installed(
         if !dir.starts_with(root) {
             return None;
         }
+    }
+}
+
+/// The installed package `name` in `package`, whose manifest is `manifest`.
+fn read_installed_at(fs: &dyn FileSystem, package: &Path, manifest: &Path, name: &str) -> Option<Arc<Installed>> {
+    fs.read_to_string(manifest)
+        .ok()
+        .and_then(|text| parse_installed(fs, package, &text, name))
+}
+
+/// The installed manifests the packages of a run look up side by side, each read once for all of them, and which
+/// directories hold no `node_modules`, so that the packages listed nowhere in them are not probed one by one.
+#[derive(Default)]
+struct SharedInstalled {
+    manifests: Mutex<HashMap<PathBuf, Option<Arc<Installed>>>>,
+    module_dirs: Mutex<HashMap<PathBuf, bool>>,
+}
+
+impl SharedInstalled {
+    /// As [`read_installed`], through the shared cache.
+    fn read(&self, fs: &dyn FileSystem, start: &Path, root: &Path, name: &str) -> Option<Arc<Installed>> {
+        find_installed(start, root, |dir| {
+            if !self.has_node_modules(fs, dir) {
+                return None;
+            }
+            let package = dir.join("node_modules").join(name);
+            let manifest = package.join("package.json");
+            if let Some(known) = self.manifests.lock().unwrap_or_else(PoisonError::into_inner).get(&manifest) {
+                return known.clone();
+            }
+            // Read outside the lock: two packages may read the same manifest at once, to the same result.
+            let read = read_installed_at(fs, &package, &manifest, name);
+            self.manifests
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .entry(manifest)
+                .or_insert(read)
+                .clone()
+        })
+    }
+
+    /// Whether `dir` holds a `node_modules` directory: without one, no package is installed there.
+    fn has_node_modules(&self, fs: &dyn FileSystem, dir: &Path) -> bool {
+        if let Some(&known) = self.module_dirs.lock().unwrap_or_else(PoisonError::into_inner).get(dir) {
+            return known;
+        }
+        let found = fs.is_dir(&dir.join("node_modules"));
+        *self
+            .module_dirs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(dir.to_path_buf())
+            .or_insert(found)
     }
 }
 
@@ -914,13 +977,14 @@ impl DependencyUsage {
         // The installed manifests are looked up for every package on its own thread: each lookup walks up the
         // `node_modules` directories and is bound by file system latency.
         let listed = &self.listed;
+        let shared = SharedInstalled::default();
         let installed: Vec<Vec<(String, Arc<Installed>)>> = map_ordered(&members, sequential, |&(id, package)| {
             let dir = workspace.root.join(&package.dir);
-            let mut cache = HashMap::default();
             listed[id.index()]
                 .iter()
                 .filter_map(|name| {
-                    let found = read_installed(fs, &dir, &workspace.root, name, &mut cache)
+                    let found = shared
+                        .read(fs, &dir, &workspace.root, name)
                         .or_else(|| linked.get(name).cloned())
                         .or_else(|| locked.get(name).cloned())?;
                     Some((name.clone(), found))
@@ -1663,13 +1727,41 @@ impl DependencyUsage {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use skif_config::Config;
     use skif_core::MemoryFs;
     use skif_workspace::{PackageId, Workspace};
 
-    use super::package_ancestors;
+    use super::{SharedInstalled, package_ancestors};
+
+    #[test]
+    fn shared_installed_manifests_are_read_once_and_only_where_node_modules_is() {
+        let fs = MemoryFs::new()
+            .with_file("/ws/node_modules/a/package.json", r#"{"name":"a","bin":"cli.js","version":"1.0.0"}"#)
+            .with_file("/ws/packages/q/node_modules/a/package.json", r#"{"name":"a","version":"2.0.0"}"#);
+        let shared = SharedInstalled::default();
+        let root = Path::new("/ws");
+        let from_p = shared.read(&fs, Path::new("/ws/packages/p"), root, "a").unwrap();
+        let again = shared.read(&fs, Path::new("/ws/packages/p"), root, "a").unwrap();
+        let from_q = shared.read(&fs, Path::new("/ws/packages/q"), root, "a").unwrap();
+        assert_eq!(from_p.bins, ["a"]);
+        assert_eq!(from_p.version.as_deref(), Some("1.0.0"));
+        assert!(std::sync::Arc::ptr_eq(&from_p, &again));
+        assert_eq!(from_q.version.as_deref(), Some("2.0.0"));
+        assert!(shared.read(&fs, Path::new("/ws/packages/p"), root, "missing").is_none());
+        let manifests = shared.manifests.lock().unwrap();
+        let mut read: Vec<&Path> = manifests.keys().map(PathBuf::as_path).collect();
+        read.sort_unstable();
+        assert_eq!(
+            read,
+            [
+                Path::new("/ws/node_modules/a/package.json"),
+                Path::new("/ws/node_modules/missing/package.json"),
+                Path::new("/ws/packages/q/node_modules/a/package.json"),
+            ]
+        );
+    }
 
     #[test]
     fn ancestors_are_the_containing_packages_innermost_first_then_the_root() {
