@@ -60,6 +60,9 @@ pub(crate) struct Parsed {
     /// The sources of a Dockerfile's `COPY` and `ADD` instructions that copy from the build context (no `--from`),
     /// as written, without quotes.
     pub copied: Vec<String>,
+    /// The byte offsets of the `COPY` and `ADD` instructions among them that copy the whole build context (`.` or
+    /// `./`).
+    pub context_copies: Vec<usize>,
 }
 
 /// Reads `source`, a file of `kind` named `name` (its last path segment).
@@ -319,14 +322,20 @@ fn instruction(source: &str, range: Range<usize>, parsed: &mut Parsed) {
         "FROM" => parsed.pins.extend(from_pin(body, body_start)),
         "ARG" | "ENV" => variable_pins(&keyword, body, body_start, &mut parsed.pins),
         "RUN" => run(body, body_start, &mut parsed.commands),
-        "COPY" | "ADD" => parsed.copied.extend(context_sources(body)),
+        "COPY" | "ADD" => {
+            let sources = context_sources(body);
+            if sources.iter().any(|source| matches!(source.as_str(), "." | "./")) {
+                parsed.context_copies.push(range.start);
+            }
+            parsed.copied.extend(sources);
+        }
         _ => {}
     }
 }
 
 /// The sources of a `COPY` or `ADD` instruction, every argument but the destination, in the exec form
 /// (`["a", "b", "./"]`) or the shell form; none when `--from` copies from a stage or an image instead of the build
-/// context. Continuation characters are dropped.
+/// context. Continuation characters and the comment lines between continued lines are dropped.
 fn context_sources(body: &str) -> Vec<String> {
     let words = words_at(body);
     let mut offset = body.len();
@@ -341,7 +350,7 @@ fn context_sources(body: &str) -> Vec<String> {
     }
     let rest = body[offset..].trim_end();
     let mut arguments: Vec<String> = if rest.starts_with('[') {
-        serde_json::from_str(rest).unwrap_or_default()
+        serde_json::from_str(&joined_lines(rest)).unwrap_or_default()
     } else {
         words_at(rest)
             .into_iter()
@@ -351,6 +360,17 @@ fn context_sources(body: &str) -> Vec<String> {
     };
     arguments.pop();
     arguments
+}
+
+/// The lines of a continued instruction joined by spaces, without the continuation character at the end of each line
+/// and without the comment lines between them.
+fn joined_lines(text: &str) -> String {
+    text.lines()
+        .enumerate()
+        .filter(|(index, line)| *index == 0 || !line.trim_start().starts_with('#'))
+        .map(|(_, line)| line.trim_end().trim_end_matches(['\\', '`']))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The Node version of `FROM [--platform=...] node:<version>[-variant]`, or the Bun version of
@@ -765,6 +785,29 @@ COPY ./only-destination
             parse(ToolchainKind::ShellScripts, "x.sh", "COPY a b\n").copied,
             Vec::<String>::new()
         );
+    }
+
+    #[test]
+    fn an_exec_form_copy_continued_over_lines_is_recorded() {
+        let source = "\
+FROM node:20
+COPY [\"package.json\", \\
+# the lockfile
+      \"pnpm-lock.yaml\", \\
+      \"./\"]
+";
+        assert_eq!(
+            parse(ToolchainKind::Dockerfiles, "Dockerfile", source).copied,
+            ["package.json", "pnpm-lock.yaml"]
+        );
+    }
+
+    #[test]
+    fn copies_of_the_whole_build_context_are_recorded_where_they_start() {
+        let source = "FROM node:20\nCOPY package.json ./\nCOPY . .\nADD ./ /app\nCOPY --from=build . .\n";
+        let parsed = parse(ToolchainKind::Dockerfiles, "Dockerfile", source);
+        let at = |text: &str| source.find(text).unwrap();
+        assert_eq!(parsed.context_copies, [at("COPY . ."), at("ADD ./")]);
     }
 
     #[test]

@@ -96,19 +96,25 @@ Without a detected manager the root lockfiles are not judged. Its unsafe fix del
 A member's lockfile that a build installs from is not reported, so the fix never deletes it. skif reads the build
 files and runs nothing:
 
-- a Bazel label of the lockfile, `"//libs/a:pnpm-lock.yaml"` (also `@//` and `@@//`), in a `MODULE.bazel`,
-  `REPO.bazel`, `WORKSPACE`, `WORKSPACE.bazel`, `*.bzl`, `BUILD` or `BUILD.bazel` file below the root, as rules_js's
-  `npm_translate_lock(pnpm_lock = ...)` takes it. Labels are read relative to the Bazel repository the root belongs to,
-  so in a workspace at `js/` of a Bazel repository the label is `//js/libs/a:pnpm-lock.yaml`, and the Bazel files at
-  the top of that repository are read too;
-- the lockfile's name (`"pnpm-lock.yaml"` or `":pnpm-lock.yaml"`) in a `BUILD` or `BUILD.bazel` file of its own
-  directory, as in `exports_files` or `srcs`;
+- in a Bazel repository, a label of the lockfile, `"//libs/a:pnpm-lock.yaml"` (also `@//`, `@@//`, `@<name>//` with
+  the name of the `module(...)` call, and `"//:libs/a/pnpm-lock.yaml"`), in a `MODULE.bazel`, `REPO.bazel`,
+  `WORKSPACE`, `WORKSPACE.bazel`, `*.bzl`, `BUILD` or `BUILD.bazel` file below the root, as rules_js's
+  `npm_translate_lock(pnpm_lock = ...)` takes it. The Bazel repository is the nearest directory at or above the root,
+  inside the git repository, with a `MODULE.bazel`, `REPO.bazel`, `WORKSPACE` or `WORKSPACE.bazel`; without one, no
+  Bazel file is read. Labels are relative to it, so in a workspace at `js/` of a Bazel repository the label is
+  `//js/libs/a:pnpm-lock.yaml`, and the Bazel files at the top of that repository are read too;
+- its path relative to a `BUILD` or `BUILD.bazel` file of its own directory or one above (`"pnpm-lock.yaml"`,
+  `":pnpm-lock.yaml"`, `"a/pnpm-lock.yaml"`), as in `exports_files` or `srcs`;
 - a `COPY` or `ADD` of it, by name or by a glob such as `pnpm-lock.yaml*`, in a Dockerfile (`Dockerfile`,
-  `Dockerfile.*`, `*.Dockerfile`, `Containerfile`) of its own directory, the build context the file is written for.
-  A copy from another stage (`--from`) and `COPY . .` do not count.
+  `Dockerfile.*`, `*.Dockerfile`, `Containerfile`) of its own directory, or in any Dockerfile with the path from the
+  workspace root (`COPY libs/a/pnpm-lock.yaml ./`), for a build whose context is the root;
+- a `COPY . .` in a Dockerfile of its own directory followed by an install with its package manager (`pnpm install`,
+  `npm ci`, `yarn`, `bun install`).
 
-Comments are skipped. An `allow` entry for such a lockfile is reported as stale, since the rule would not report the
-file without it.
+A copy from another stage (`--from`) does not count. Comments and the names in an `exclude = [...]` list are skipped.
+The search for Bazel files skips what discovery skips (`node_modules`, hidden and gitignored directories, links) and
+also build output (`dist`, `target`, `build`, `out`, `coverage`) and the directories `.bazelignore` lists. An `allow`
+entry for such a lockfile is reported as stale, since the rule would not report the file without it.
 
 `nested-workspace-root` reports a `pnpm-workspace.yaml` in a member's directory: pnpm takes the nearest one above the
 working directory, so an install in that member leaves the root workspace. skif lints such a member as a root of its

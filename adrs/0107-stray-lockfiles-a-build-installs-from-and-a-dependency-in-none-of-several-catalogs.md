@@ -33,8 +33,8 @@ several catalogs reported?
 
 * The fix of `stray-lockfile` never deletes a file a build reads
 * skif reads files and runs nothing: no Bazel query, no Docker build
-* The cost stays bounded: directory listings and the files whose names match, read only when there is a member
-  lockfile to judge
+* The cost stays bounded: nothing outside a Bazel repository, and inside one directory listings and the files whose
+  names match, read only when there is a member lockfile to judge
 * Library crates read through `FileSystem` only, and the toolchain rules' scan is reused rather than repeated
 * A finding names the state the dependency is in, under the rule whose name says it
 
@@ -53,26 +53,41 @@ entry would make every rules_js monorepo restate its build configuration in `ski
 **Consumers.** A lockfile below the root (the root's own lockfiles are judged as before) is not reported when one of
 these names it:
 
-* a Bazel label of the main repository, `//<dir>:<lockfile>` (also written `@//` or `@@//`), in a string literal of a
-  `MODULE.bazel`, `REPO.bazel`, `WORKSPACE`, `WORKSPACE.bazel`, `*.bzl`, `BUILD` or `BUILD.bazel` file anywhere below
-  the workspace root. A label is relative to the Bazel repository the root belongs to, the nearest directory at or
-  above the root holding `MODULE.bazel`, `REPO.bazel`, `WORKSPACE.bazel` or `WORKSPACE`; when that directory is above
-  the root, the Bazel files directly in it are read too, and a label outside the workspace names none of its files. A
-  label of another repository (`@npm//...`) names nothing;
-* a string literal that is the lockfile's name or a relative label (`"pnpm-lock.yaml"`, `":pnpm-lock.yaml"`) in a
-  `BUILD` or `BUILD.bazel` file of the lockfile's own directory, as `exports_files` or `srcs` list it;
-* a `COPY` or `ADD` source in a Dockerfile (`Dockerfile`, `Dockerfile.*`, `*.Dockerfile`, `Containerfile`) of the
-  lockfile's own directory that names the lockfile, or a glob that matches it (`pnpm-lock.yaml*`). The directory is
-  taken as the build context. An instruction with `--from` copies from a stage or an image and does not count, and
-  neither does a source that is a directory (`COPY . .`).
+* in a Bazel repository, a label of the main repository in a string literal of a `MODULE.bazel`, `REPO.bazel`,
+  `WORKSPACE`, `WORKSPACE.bazel`, `*.bzl`, `BUILD` or `BUILD.bazel` file below the workspace root: `//<dir>:<lockfile>`,
+  also written `@//`, `@@//` or `@<name>//` with the name the `module(...)` or `workspace(...)` call gives the
+  repository, and with part of the directory in the target (`//:libs/a/pnpm-lock.yaml`, `//libs:a/pnpm-lock.yaml`).
+  The Bazel repository is the nearest directory at or above the workspace root that holds `MODULE.bazel`,
+  `REPO.bazel`, `WORKSPACE.bazel` or `WORKSPACE`, searched no higher than the root of the git repository; without one
+  no Bazel file is looked for. A label is relative to that directory; when it is above the workspace root, the Bazel
+  files directly in it are read too, and a label outside the workspace names none of its files. A label of another
+  repository (`@npm//...`) names nothing;
+* a string literal that is a path relative to a `BUILD` or `BUILD.bazel` file in the lockfile's directory or a
+  directory above it, plain or as a relative label (`"pnpm-lock.yaml"`, `":pnpm-lock.yaml"`, `"a/pnpm-lock.yaml"`), as
+  `exports_files` or `srcs` list it;
+* a `COPY` or `ADD` source in a Dockerfile (`Dockerfile`, `Dockerfile.*`, `*.Dockerfile`, `Containerfile`) that names
+  the lockfile, or a glob that matches it (`pnpm-lock.yaml*`), resolved from the Dockerfile's directory when the
+  Dockerfile is in the lockfile's directory, and from the workspace root for any Dockerfile (a root Dockerfile's
+  `COPY libs/b/pnpm-lock.yaml ./`, or `apps/web/Dockerfile` built with the root as its context);
+* a Dockerfile of the lockfile's directory that copies its whole context (`COPY . .` or `COPY ./ <dest>`) and later
+  runs an install with the lockfile's package manager (`npm ci`, `npm install`, `pnpm install`, `yarn`,
+  `bun install`, also through `corepack`): the install reads the lockfile it copied.
 
-Starlark `#` comments are skipped. Bazel files are found by one walk below the root that lists names only, skips
-`node_modules`, `.git` and symbolic links (Bazel's `bazel-*` output links among them) and stops 16 directories down,
-as the `files` globs of the toolchain rules walk; only the files whose names match are read. Dockerfiles come from the
-scan the toolchain rules share ([ADR 0087](0087-toolchain-pins-outside-package-json-and-the-toolchain-pin-drift-rule.md)),
-which records the context sources of each `COPY` and `ADD`. Neither is read when the workspace has no lockfile below
-the root. An `allow` entry that names a lockfile a build names is reported as stale, as any entry that matches no file
-the rule would report.
+An instruction with `--from` copies from a stage or an image and does not count, and neither does a `COPY . .` that
+no install of the lockfile's manager follows. Starlark `#` comments are skipped, and so are the literals of an
+`exclude = [...]` list. A label counts only as a whole string literal.
+
+**Cost.** Nothing is listed or read outside a Bazel repository, nor when the workspace has no lockfile below the root.
+In a Bazel repository the Bazel files are found by one walk below the root that lists names only and enters the
+directories discovery enters: no `node_modules`, hidden, gitignored or linked directories (Bazel's `bazel-*` output
+links among them). It also skips build output (`dist`, `target`, `build`, `out`, `coverage`) and the directories
+`.bazelignore` lists, stops 16 directories down and lists sibling directories in parallel unless the run is
+sequential. The `BUILD` files of each lockfile's directory and the directories above it are read even where the walk
+does not go. Only the files whose names match are read. Dockerfiles come from the scan the toolchain rules share
+([ADR 0087](0087-toolchain-pins-outside-package-json-and-the-toolchain-pin-drift-rule.md)), which records the
+context sources of each `COPY` and `ADD`, and from the lockfiles' own directories when the scan does not read them;
+no directory is walked for them. An `allow` entry that names a lockfile a build names is reported as stale, as any
+entry that matches no file the rule would report.
 
 **npm's shrinkwrap.** In an npm workspace, a root `package-lock.json` next to an `npm-shrinkwrap.json` is reported,
 with the same unsafe fix: npm installs from `npm-shrinkwrap.json`. Either file alone is still the lockfile npm reads.
@@ -91,21 +106,32 @@ dependency that several catalogs define. This departs from syncpack, which assig
   exists.
 * Good, because a `package-lock.json` that npm ignores is reported like Bun's ignored `bun.lockb`.
 * Good, because a dependency without a catalog entry is always a `catalog-missing-entry` finding.
-* Bad, because a consumer written another way is not seen: a label built from variables, a `glob()`, a Dockerfile in
-  another directory whose context is the member, or a build script that copies the file. Such a lockfile keeps an
-  `allow` entry.
-* Bad, because a commented-out label inside a multi-line string still counts.
-* Neutral, because the walk lists every directory below the root once per run when a member lockfile exists.
+* Bad, because a consumer written another way is not seen: a label built from variables or inside a longer string (a
+  genrule's `cmd`), a `glob()`, a Dockerfile in another directory whose context is the member, or a build script that
+  copies the file. Such a lockfile keeps an `allow` entry.
+* Bad, because a docstring or other string literal that is exactly a label counts like a label in code.
+* Bad, because a `BUILD` file or `*.bzl` file below a build output directory (`dist`, `build`, ...) that the walk skips
+  is not read, unless it is the `BUILD` file of a lockfile's directory or one above it.
+* Neutral, because in a Bazel repository with a member lockfile the walk lists every directory discovery would enter
+  once per run; a workspace outside a Bazel repository pays a few file probes at the root and above it.
 
 ### Confirmation
 
-* `crates/skif-rules/src/manifest/lockfile_consumers.rs` tests: string literals and comments, main-repository labels
-  and other repositories' labels, `BUILD` listings, the recognised file names, labels relative to a Bazel root above
-  the workspace, and Dockerfile copies by name and glob.
+* `crates/skif-rules/src/manifest/lockfile_consumers.rs` tests: string literals, comments and `exclude` lists,
+  main-repository labels (with the directory in the target and under the module's name) and other repositories'
+  labels, `BUILD` listings, the recognised file names, labels relative to a Bazel root above the workspace, the git
+  repository as the ceiling of that search, no listing or read without a Bazel root, the skipped output and
+  `.bazelignore` directories, and Dockerfile copies by name, by glob, from the root context and of the whole context.
 * `crates/skif-rules/src/manifest/stray_lockfile.rs` tests: the rules_js repro with one member installed by Bazel and
-  one by its Dockerfile, `BUILD` files of the lockfile's directory, a Dockerfile elsewhere or copying from a stage,
-  the stale `allow` entry, and `package-lock.json` next to `npm-shrinkwrap.json`.
-* `crates/skif-rules/src/toolchain/parse.rs`: `dockerfile_copies_from_the_build_context_are_recorded`.
+  one by its Dockerfile, `BUILD` files of the lockfile's directory, Bazel files outside a Bazel repository, labels
+  with the directory in the target or the module's name, Dockerfiles building from the root, a `COPY . .` followed by
+  an install, a Dockerfile in a selected directory without a manifest, the stale `allow` entry, and
+  `package-lock.json` next to `npm-shrinkwrap.json`.
+* `crates/skif-rules/src/toolchain/parse.rs`: `dockerfile_copies_from_the_build_context_are_recorded`,
+  `an_exec_form_copy_continued_over_lines_is_recorded` and
+  `copies_of_the_whole_build_context_are_recorded_where_they_start`; `commands.rs`:
+  `installs_of_the_project_are_found`.
+* `crates/skif-workspace/src/roots.rs`: `a_file_scan_skips_what_discovery_skips_and_the_ignored_directories`.
 * `crates/skif-rules/src/policy/catalog/missing_entry.rs` tests and the fixture
   `fixtures/policy/catalog/ambiguous-dependency-in-no-catalog`: the new state under pnpm and Bun.
 * `adrlint lint adrs`, `adrlint format --check adrs` and `adrlint lock --check` pass.

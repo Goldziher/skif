@@ -326,6 +326,32 @@ pub(crate) fn invocation(words: &[Word], chosen: PackageManager) -> Option<Invoc
     if reported { found(start + 1 + sub) } else { None }
 }
 
+/// The subcommands that install a project's dependencies from its lockfile.
+const INSTALLS: &[&str] = &["install", "i", "in", "ci", "clean-install", "ic", "install-clean"];
+
+/// The package manager `words` installs the dependencies of the current project with: `npm ci`, `pnpm install`,
+/// `yarn` or `yarn install`, `bun i`, also through `corepack`. A global install (`npm i -g pnpm`) is none.
+pub(crate) fn installs(words: &[Word]) -> Option<PackageManager> {
+    let mut start = program(words)?;
+    if basename(&words[start].text) == "corepack" {
+        start += 1;
+    }
+    let manager = match basename(&words.get(start)?.text) {
+        "yarnpkg" => PackageManager::Yarn,
+        name => manager_named(name)?,
+    };
+    let args = &words[start + 1..];
+    if args.iter().any(|word| is_global_flag(&word.text)) {
+        return None;
+    }
+    let Some(sub) = subcommand(manager, args) else {
+        let bare = manager == PackageManager::Yarn && !args.iter().any(|word| INFO_FLAGS.contains(&word.text.as_str()));
+        return bare.then_some(manager);
+    };
+    let word = &args[sub];
+    (!word.dynamic && INSTALLS.contains(&word.text.as_str())).then_some(manager)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -404,6 +430,28 @@ mod tests {
         assert_eq!(corepack(&words("corepack enable pnpm")), Some(Corepack::Enable));
         assert_eq!(corepack(&words("corepack prepare --activate")), Some(Corepack::Prepare));
         assert_eq!(corepack(&words("npm ci")), None);
+    }
+
+    #[test]
+    fn installs_of_the_project_are_found() {
+        let cases = [
+            ("npm ci", Some(PackageManager::Npm)),
+            ("npm install --omit=dev", Some(PackageManager::Npm)),
+            ("pnpm install --frozen-lockfile", Some(PackageManager::Pnpm)),
+            ("pnpm --filter web i", Some(PackageManager::Pnpm)),
+            ("yarn", Some(PackageManager::Yarn)),
+            ("yarn install --immutable", Some(PackageManager::Yarn)),
+            ("corepack pnpm install", Some(PackageManager::Pnpm)),
+            ("bun install", Some(PackageManager::Bun)),
+            ("npm i -g pnpm@9", None),
+            ("pnpm build", None),
+            ("yarn --version", None),
+            ("npx pnpm install", None),
+            ("apt-get install curl", None),
+        ];
+        for (line, expected) in cases {
+            assert_eq!(installs(&words(line)), expected, "{line}");
+        }
     }
 
     fn foreign(line: &str, chosen: PackageManager) -> Option<(String, String)> {

@@ -25,8 +25,11 @@ All notable changes to this project are documented here. The format follows
 - `stray-lockfile`: a lockfile in a workspace member, or one at the root written by another package manager (also a
   `bun.lockb` beside a `bun.lock`, which Bun ignores, and a `package-lock.json` beside an `npm-shrinkwrap.json`, which
   npm ignores, [#157](https://github.com/Goldziher/skif/issues/157)); the unsafe fix deletes it. A member lockfile a
-  build installs from, named by a Bazel label (`//libs/a:pnpm-lock.yaml`), a `BUILD` file of its directory or a
-  Dockerfile there that copies it, is not reported ([#180](https://github.com/Goldziher/skif/issues/180)).
+  build installs from is not reported: in a Bazel repository one a label names (`//libs/a:pnpm-lock.yaml`,
+  `//:libs/a/pnpm-lock.yaml`, `@<module>//...`) or a `BUILD` file of its directory or above lists, and one a Dockerfile
+  copies, from its own directory or from the workspace root, or with `COPY . .` before an install with its manager.
+  Outside a Bazel repository no Bazel file is looked for, and the walk for them skips gitignored, hidden and build
+  output directories and those `.bazelignore` lists ([#180](https://github.com/Goldziher/skif/issues/180)).
   `nested-workspace-root`: a `pnpm-workspace.yaml` in a member, or a Bun member whose `package.json` declares
   `workspaces`. Both skip gitignored files and take `allow`, globs of files kept on purpose, each a string or
   `{ name, reason }`

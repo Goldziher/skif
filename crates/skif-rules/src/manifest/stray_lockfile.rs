@@ -7,6 +7,7 @@ use skif_workspace::{BUN_LOCKFILE, LOCKFILES, Package, PackageManager, Workspace
 
 use super::allow_list::{self, AllowList};
 use super::lockfile_consumers;
+use crate::paths::parent;
 
 /// Metadata of `stray-lockfile`.
 pub static META: RuleMeta = RuleMeta::new(
@@ -120,19 +121,14 @@ fn nested_roots(workspace: &Workspace) -> BTreeSet<&Path> {
         .collect()
 }
 
-/// Whether the workspace-relative `path` is directly in the root.
-fn at_root(path: &Path) -> bool {
-    path.parent().is_none_or(|dir| dir.as_os_str().is_empty())
-}
-
 /// The lockfiles of the workspace that are not the root lockfile of its package manager, without those below the
 /// root that a Bazel file or a Dockerfile names (see `lockfile_consumers`).
 fn strays<'w>(cx: &LintContext<'w>) -> Vec<Stray<'w>> {
     let candidates = candidates(cx.workspace);
     let below_root: Vec<String> = candidates
         .iter()
-        .filter(|stray| !at_root(stray.path))
         .map(|stray| slash(stray.path))
+        .filter(|path| !parent(path).is_empty())
         .collect();
     let consumed = lockfile_consumers::consumed(cx, &below_root);
     candidates
@@ -182,9 +178,11 @@ fn candidates(workspace: &Workspace) -> Vec<Stray<'_>> {
 /// reports that), and a member skif ignores or another root of the run lints is left to that root. Files git ignores
 /// are not reported.
 ///
-/// Nor is a lockfile below the root that a build installs from, found by reading the build files: a Bazel label of it
-/// (`"//libs/a:pnpm-lock.yaml"`) in a `MODULE.bazel`, `WORKSPACE`, `*.bzl` or `BUILD` file, its name in a `BUILD`
-/// file of its own directory, or a `COPY` or `ADD` of it in a Dockerfile of its own directory.
+/// Nor is a lockfile below the root that a build installs from, found by reading the build files: in a Bazel
+/// repository, a label of it (`"//libs/a:pnpm-lock.yaml"`) in a `MODULE.bazel`, `WORKSPACE`, `*.bzl` or `BUILD` file,
+/// or its relative path in a `BUILD` file of its directory or one above; a `COPY` or `ADD` of it in a Dockerfile of its
+/// own directory or one that builds from the workspace root; or a `COPY . .` followed by an install with its package
+/// manager in a Dockerfile of its own directory.
 ///
 /// Options (`[rules.stray-lockfile] allow`): paths, matched literally first, or globs (`packages/*/package-lock.json`),
 /// relative to the workspace root, of lockfiles kept on purpose, each a string or `{ name, reason }`. An entry that
@@ -216,7 +214,7 @@ impl Rule for StrayLockfile {
                 .file_name()
                 .and_then(|name| name.to_str())
                 .unwrap_or_default();
-            let in_root = at_root(stray.path);
+            let in_root = parent(&file).is_empty();
             let shadowed = if in_root { shadow(workspace, name) } else { None };
             let (message, help) = match (stray.package, workspace.package_manager, shadowed) {
                 (None, Some(_), Some(shadow)) => (
@@ -661,6 +659,7 @@ mod tests {
             ("libs/b/pnpm-lock.yaml", ""),
             ("apps/web/package.json", r#"{"name":"web"}"#),
             ("apps/web/pnpm-lock.yaml", ""),
+            ("MODULE.bazel", "module(name = \"repro\")\n"),
             (
                 "node_packages.bzl",
                 "def deps():\n    npm_translate_lock(name = \"npm_a\", pnpm_lock = \"//libs/a:pnpm-lock.yaml\")\n",
@@ -700,24 +699,93 @@ mod tests {
                 );
             }
         }
-        // A plain name in another directory's BUILD file, or a commented-out label, names nothing.
+        // A plain name in another directory's BUILD file, a commented-out label or an excluded name names nothing.
         let files = bazel_and_docker_files(&[
             ("libs/BUILD.bazel", "exports_files([\"pnpm-lock.yaml\"])\n"),
-            ("MODULE.bazel", "# pnpm_lock = \"//libs/b:pnpm-lock.yaml\"\n"),
+            ("tools/deps.bzl", "# pnpm_lock = \"//libs/b:pnpm-lock.yaml\"\n"),
+            (
+                "libs/b/BUILD.bazel",
+                "filegroup(name = \"src\", srcs = glob([\"**\"], exclude = [\"pnpm-lock.yaml\"]))\n",
+            ),
         ]);
         assert_eq!(paths(&lint(META.id, &files, &config(""))), ["libs/b/pnpm-lock.yaml"]);
     }
 
     #[test]
-    fn a_dockerfile_elsewhere_or_from_another_stage_names_nothing() {
-        let files = bazel_and_docker_files(&[
+    fn bazel_files_outside_a_bazel_repository_name_nothing() {
+        let files: Vec<(&str, &str)> = bazel_and_docker_files(&[])
+            .into_iter()
+            .filter(|(path, _)| *path != "MODULE.bazel")
+            .collect();
+        assert_eq!(
+            paths(&lint(META.id, &files, &config(""))),
+            ["libs/a/pnpm-lock.yaml", "libs/b/pnpm-lock.yaml"]
+        );
+    }
+
+    #[test]
+    fn a_label_with_the_directory_in_its_target_or_the_module_name_names_the_lockfile() {
+        for label in [
+            "//:libs/b/pnpm-lock.yaml",
+            "//libs:b/pnpm-lock.yaml",
+            "@repro//libs/b:pnpm-lock.yaml",
+        ] {
+            let module = format!("module(name = \"repro\")\nnpm.npm_translate_lock(pnpm_lock = \"{label}\")\n");
+            let files = bazel_and_docker_files(&[]);
+            let files: Vec<(&str, &str)> = files
+                .into_iter()
+                .map(|(path, text)| if path == "MODULE.bazel" { (path, module.as_str()) } else { (path, text) })
+                .collect();
+            assert_eq!(paths(&lint(META.id, &files, &config(""))), [] as [&str; 0], "{label}");
+        }
+    }
+
+    #[test]
+    fn a_dockerfile_building_from_the_workspace_root_names_the_lockfile_it_copies() {
+        for (path, dockerfile) in [
             ("Dockerfile", "FROM node:22\nCOPY libs/b/pnpm-lock.yaml ./\n"),
+            ("libs/b/Dockerfile", "FROM node:22\nCOPY libs/b/pnpm-lock.yaml ./\n"),
+        ] {
+            let files = bazel_and_docker_files(&[(path, dockerfile)]);
+            assert_eq!(paths(&lint(META.id, &files, &config(""))), [] as [&str; 0], "{path}");
+        }
+    }
+
+    #[test]
+    fn a_dockerfile_beside_a_lockfile_in_a_directory_without_a_manifest_is_read() {
+        let files = [
             (
-                "libs/b/Dockerfile",
-                "FROM node:22\nCOPY --from=build /app/pnpm-lock.yaml ./\nCOPY . .\n",
+                "package.json",
+                r#"{"name":"root","private":true,"packageManager":"pnpm@10.34.6"}"#,
             ),
-        ]);
-        assert_eq!(paths(&lint(META.id, &files, &config(""))), ["libs/b/pnpm-lock.yaml"]);
+            ("pnpm-workspace.yaml", "packages: [tools/*]\n"),
+            ("pnpm-lock.yaml", ""),
+            ("tools/image/pnpm-lock.yaml", ""),
+            ("tools/image/Dockerfile", "FROM node:22\nCOPY pnpm-lock.yaml ./\n"),
+            ("tools/other/pnpm-lock.yaml", ""),
+        ];
+        assert_eq!(paths(&lint(META.id, &files, &config(""))), ["tools/other/pnpm-lock.yaml"]);
+    }
+
+    #[test]
+    fn a_dockerfile_that_copies_its_context_then_installs_names_the_lockfile() {
+        let installing = "FROM node:22\nCOPY . .\nRUN corepack enable && pnpm install --frozen-lockfile\n";
+        let files = bazel_and_docker_files(&[("libs/b/Dockerfile", installing)]);
+        assert_eq!(paths(&lint(META.id, &files, &config(""))), [] as [&str; 0]);
+        // Installing first, with another manager, or from another stage does not install from it.
+        for dockerfile in [
+            "FROM node:22\nRUN pnpm install\nCOPY . .\n",
+            "FROM node:22\nCOPY . .\nRUN npm ci\n",
+            "FROM node:22\nCOPY --from=build /app/pnpm-lock.yaml ./\nCOPY --from=build . .\nRUN pnpm install\n",
+            "FROM node:22\nCOPY . .\nRUN pnpm build\n",
+        ] {
+            let files = bazel_and_docker_files(&[("libs/b/Dockerfile", dockerfile)]);
+            assert_eq!(
+                paths(&lint(META.id, &files, &config(""))),
+                ["libs/b/pnpm-lock.yaml"],
+                "{dockerfile}"
+            );
+        }
     }
 
     #[test]
