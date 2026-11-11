@@ -146,10 +146,10 @@ pub const CONFIG_IDENTIFIERS: [&str; 18] = [
 pub const HUGE: u64 = 999_999;
 
 /// The range `*`, `latest`, `x` and `workspace:*` stand for, `>=0.0.0 <=999999.999999.999999`, parsed once.
-fn any_range() -> Option<Arc<nodejs_semver::Range>> {
+fn any_range() -> Option<&'static Arc<nodejs_semver::Range>> {
     static ANY: std::sync::LazyLock<Option<Arc<nodejs_semver::Range>>> =
         std::sync::LazyLock::new(|| Specifier::new_node_range(&format!(">=0.0.0 <={HUGE}.{HUGE}.{HUGE}")));
-    ANY.clone()
+    ANY.as_ref()
 }
 
 /// Remove semver range characters from the start of a semver version number
@@ -160,6 +160,7 @@ pub fn strip_semver_range(value: &str) -> &str {
         .find_map(|prefix| value.strip_prefix(prefix))
         .unwrap_or(value)
 }
+
 
 /// A parsed `package.json` dependency specifier.
 #[derive(Debug)]
@@ -447,19 +448,24 @@ impl Specifier {
     /// - "^1.2.3" → Arc(Version("1.2.3"))
     #[must_use]
     pub fn get_node_version(&self) -> Option<Arc<nodejs_semver::Version>> {
+        self.node_version_ref().cloned()
+    }
+
+    /// The parsed version behind [`Self::get_node_version`], borrowed so comparisons skip the reference count.
+    fn node_version_ref(&self) -> Option<&Arc<nodejs_semver::Version>> {
         match self {
-            Self::Alias(s) => s.inner_specifier.get_node_version(),
-            Self::Git(s) => s.node_version.clone(),
-            Self::Exact(s) => Some(s.node_version.clone()),
-            Self::Latest(s) => Some(s.get_node_version()),
-            Self::Major(s) => Some(s.get_node_version()),
-            Self::Minor(s) => Some(s.get_node_version()),
-            Self::Range(s) => Some(s.node_version.clone()),
-            Self::RangeMajor(s) => Some(s.get_node_version()),
-            Self::RangeMinor(s) => Some(s.get_node_version()),
+            Self::Alias(s) => s.inner_specifier.node_version_ref(),
+            Self::Git(s) => s.node_version.as_ref(),
+            Self::Exact(s) => Some(&s.node_version),
+            Self::Latest(s) => Some(s.node_version_ref()),
+            Self::Major(s) => Some(s.node_version_ref()),
+            Self::Minor(s) => Some(s.node_version_ref()),
+            Self::Range(s) => Some(&s.node_version),
+            Self::RangeMajor(s) => Some(s.node_version_ref()),
+            Self::RangeMinor(s) => Some(s.node_version_ref()),
             Self::WorkspaceProtocol(s) => s
                 .as_resolved()
-                .and_then(|spec: &Arc<Specifier>| spec.get_node_version()),
+                .and_then(|spec| spec.node_version_ref()),
             Self::Catalog(_)
             | Self::ComplexSemver(_)
             | Self::File(_)
@@ -480,17 +486,22 @@ impl Specifier {
     /// - "^1.2.3" → Arc(Range("^1.2.3"))
     #[must_use]
     pub fn get_node_range(&self) -> Option<Arc<nodejs_semver::Range>> {
+        self.node_range_ref().cloned()
+    }
+
+    /// The parsed range behind [`Self::get_node_range`], borrowed so comparisons skip the reference count.
+    fn node_range_ref(&self) -> Option<&Arc<nodejs_semver::Range>> {
         match self {
-            Self::Alias(s) => s.inner_specifier.get_node_range(),
-            Self::ComplexSemver(s) => Some(s.node_range.clone()),
-            Self::Git(s) => s.node_range.clone(),
-            Self::Range(s) => Some(s.node_range.clone()),
-            Self::RangeMajor(s) => Some(s.get_node_range()),
-            Self::RangeMinor(s) => Some(s.get_node_range()),
+            Self::Alias(s) => s.inner_specifier.node_range_ref(),
+            Self::ComplexSemver(s) => Some(&s.node_range),
+            Self::Git(s) => s.node_range.as_ref(),
+            Self::Range(s) => Some(&s.node_range),
+            Self::RangeMajor(s) => Some(s.node_range_ref()),
+            Self::RangeMinor(s) => Some(s.node_range_ref()),
             Self::WorkspaceProtocol(s) => {
                 // Try resolved specifier first, otherwise check for "*" (RangeOnly(Any))
                 s.as_resolved()
-                    .and_then(|spec: &Arc<Specifier>| spec.get_node_range())
+                    .and_then(|spec| spec.node_range_ref())
                     .or_else(|| {
                         use crate::{semver_range::SemverRange, workspace_specifier::WorkspaceSpecifier};
                         match &s.inner_specifier {
@@ -499,24 +510,12 @@ impl Specifier {
                         }
                     })
             }
-            Self::Exact(s) => Some(s.node_range.clone()),
+            Self::Exact(s) => Some(&s.node_range),
             Self::Latest(_) => any_range(),
-            Self::Major(m) => {
-                // "1" → ">=1.0.0 <2.0.0"
-                let range_str = format!(">={}.0.0 <{}.0.0", m.raw, m.raw.parse::<u64>().ok()?.checked_add(1)?);
-                Self::new_node_range(&range_str)
-            }
-            Self::Minor(m) => {
-                // "1.2" → ">=1.2.0 <1.3.0"
-                let parts: Vec<&str> = m.raw.split('.').collect();
-                if parts.len() != 2 {
-                    return None;
-                }
-                let major = parts[0];
-                let minor = parts[1].parse::<u64>().ok()?.checked_add(1)?;
-                let range_str = format!(">={}.0 <{}.{}.0", m.raw, major, minor);
-                Self::new_node_range(&range_str)
-            }
+            // "1" → ">=1.0.0 <2.0.0", parsed once per specifier
+            Self::Major(m) => m.node_range_ref(),
+            // "1.2" → ">=1.2.0 <1.3.0", parsed once per specifier
+            Self::Minor(m) => m.node_range_ref(),
             Self::Catalog(_)
             | Self::File(_)
             | Self::Link(_)
@@ -820,9 +819,9 @@ impl Specifier {
         match self {
             Self::Latest(_) => false,
             Self::Alias(a) => {
-                !matches!(&*a.inner_specifier, Self::Latest(_)) && a.inner_specifier.get_node_version().is_some()
+                !matches!(&*a.inner_specifier, Self::Latest(_)) && a.inner_specifier.node_version_ref().is_some()
             }
-            _ => self.get_node_version().is_some(),
+            _ => self.node_version_ref().is_some(),
         }
     }
 
@@ -837,7 +836,7 @@ impl Specifier {
         if !self.has_comparable_version() || !other.has_comparable_version() {
             return false;
         }
-        let (Some(self_version), Some(other_version)) = (self.get_node_version(), other.get_node_version()) else {
+        let (Some(self_version), Some(other_version)) = (self.node_version_ref(), other.node_version_ref()) else {
             return false;
         };
 
@@ -888,7 +887,7 @@ impl Specifier {
         if !self.has_comparable_version() || !other.has_comparable_version() {
             return false;
         }
-        match (self.get_node_version(), other.get_node_version()) {
+        match (self.node_version_ref(), other.node_version_ref()) {
             (Some(left), Some(right)) => left == right,
             _ => false,
         }
@@ -908,7 +907,7 @@ impl Specifier {
         if !self.has_comparable_version() || !other.has_comparable_version() {
             return false;
         }
-        let (Some(self_version), Some(other_version)) = (self.get_node_version(), other.get_node_version()) else {
+        let (Some(self_version), Some(other_version)) = (self.node_version_ref(), other.node_version_ref()) else {
             return false;
         };
 
@@ -975,11 +974,11 @@ impl Specifier {
             // Check range intersection FIRST (even if self also has a version)
             // This is critical: ">1.4.2" has both a range AND a version (1.4.2),
             // but we need to check range intersection, not version satisfaction
-            if let Some(self_range) = self.get_node_range() {
+            if let Some(self_range) = self.node_range_ref() {
                 return others.iter().all(|other| {
                     // Deref Arc to access Specifier
-                    match other.get_node_range() {
-                        Some(other_range) => self_range.allows_any(&other_range),
+                    match other.node_range_ref() {
+                        Some(other_range) => self_range.allows_any(other_range),
                         None => false,
                     }
                 });
@@ -987,9 +986,9 @@ impl Specifier {
 
             // Fallback: If self has version but no range, check version satisfies all ranges
             // (This case may not actually occur in practice)
-            if let Some(self_version) = self.get_node_version() {
-                return others.iter().all(|other| match other.get_node_range() {
-                    Some(range) => range.satisfies(&self_version),
+            if let Some(self_version) = self.node_version_ref() {
+                return others.iter().all(|other| match other.node_range_ref() {
+                    Some(range) => range.satisfies(self_version),
                     None => false,
                 });
             }
@@ -1015,13 +1014,10 @@ impl Specifier {
     fn cmp_semantic(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering;
 
-        let self_version = self.get_node_version();
-        let other_version = other.get_node_version();
-
-        match (self_version, other_version) {
+        match (self.node_version_ref(), other.node_version_ref()) {
             // Both have versions: compare by version first, then by range greediness
             (Some(self_ver), Some(other_ver)) => {
-                match self_ver.cmp(&other_ver) {
+                match Ord::cmp(&**self_ver, &**other_ver) {
                     Ordering::Equal => {
                         // Same version, use range greediness as tiebreaker
                         let self_range = self.get_semver_range();

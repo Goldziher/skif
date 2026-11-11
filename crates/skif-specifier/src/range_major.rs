@@ -72,9 +72,17 @@ impl RangeMajor {
         self.node_version.clone()
     }
 
+    pub(crate) fn node_version_ref(&self) -> &Arc<nodejs_semver::Version> {
+        &self.node_version
+    }
+
     /// The range the specifier stands for.
     #[must_use]
     pub fn get_node_range(&self) -> Arc<nodejs_semver::Range> {
         self.node_range.clone()
+    }
+
+    pub(crate) fn node_range_ref(&self) -> &Arc<nodejs_semver::Range> {
+        &self.node_range
     }
 }
