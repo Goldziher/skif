@@ -568,6 +568,12 @@ tool looks for them:
 | `vitest`, `playwright` | test files, test and fixture directories (`test`, `tests`, `__tests__`, `__mocks__`, `__fixtures__`, `e2e`, `spec`, `specs`, `fixtures`, `mocks`, `testing`, `test-utils`), files whose name contains `setup` or `teardown`, and files named `*.{test,spec,bench,e2e,integration}*` |
 | `storybook` | for an addon, `framework` or `core.builder` whose package is not known statically, the Storybook config directory (`.storybook/**`, `.rnstorybook/**`), where a local addon lives; the package's dependencies are not judged |
 
+A config in an Nx project directory without a `package.json` (see [Nx workspaces](../../guides/workspaces/#nx-workspaces))
+hides entries only in that project: the scope above is taken relative to the project, and a config that gives no scope
+leaves the project's files unjudged (`<project>/**`) rather than the whole package's. Nx's root `jest.config.ts`
+(`projects: await getJestProjectsAsync()`, or `getJestProjects()`, from `@nx/jest` or `@nrwl/jest`) is not incomplete:
+its projects are the Jest configs of the Nx projects.
+
 The files in the scope are treated as entries, so what they import is not reported either: those outside the package's
 `project` globs too, and, for a scope of a package with workspace packages below it (a root test config), the matching
 files of those packages. Every other file of the package is judged as usual, its unused exports, types and members
@@ -769,7 +775,8 @@ A `tsconfig` compiler option (`types`, `jsxImportSource`, `plugins`, `importHelp
 reads the config, so a shared base config is satisfied when its owner or the package extending it lists the package;
 an `ignore-dependencies` entry of the extending package silences it too. A `types` entry is satisfied by the package it
 names or its `@types` package: `types: ["cypress"]` with `cypress` listed at the root needs nothing more, and
-`@cloudflare/workers-types` or `@types/node` name themselves.
+`@cloudflare/workers-types` or `@types/node` name themselves. TypeScript 6's `types: ["*"]` names no package: it keeps
+every `@types` package visible, as a config without `types` does.
 
 `ignore-dependencies` silences a package; a config below `node_modules`, that git ignores (generated, such as
 `.nuxt/tsconfig.json`), in a fixture directory (unless `include-fixtures`) or matched by `ignore` is not judged.
