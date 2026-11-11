@@ -44,6 +44,7 @@ pub mod fix;
 pub mod fs;
 pub mod hash;
 pub mod incomplete;
+pub mod once;
 pub mod package_id;
 pub mod report;
 pub mod rule;
@@ -64,6 +65,7 @@ pub use fix::{
 pub use fs::{DirEntry, FileSystem, MemoryFs, OsFs, PathKind};
 pub use hash::{HashMap, HashSet, HashState};
 pub use incomplete::{IncompleteCause, IncompleteEntries, IncompletePackage, IncompleteScope};
+pub use once::get_or_compute;
 pub use package_id::PackageId;
 pub use report::{ConfigJudgement, Report, Summary};
 pub use rule::{Category, Fixability, InvalidRuleId, RuleId, RuleMeta, Severity};

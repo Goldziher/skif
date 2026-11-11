@@ -236,8 +236,10 @@ impl WorkspaceListing {
     /// and sorted, each with the directory of the package that owns it (`""` for the root): the Nx projects of ADR
     /// 0109, below no build output, hidden or gitignored directory. One walk serves the whole run.
     pub fn nx_projects(&self, fs: &dyn FileSystem, workspace: &Workspace) -> &[(String, String)] {
-        self.nx_projects
-            .get_or_init(|| crate::discover::nx_project_dirs(fs, workspace, self.sequential, self.gitignore))
+        // The walk runs on rayon while other packages' setups ask for the same listing.
+        skif_core::get_or_compute(&self.nx_projects, || {
+            crate::discover::nx_project_dirs(fs, workspace, self.sequential, self.gitignore)
+        })
     }
 }
 

@@ -302,8 +302,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
-- A run could deadlock when a shared analysis used parallelism: `LintContext::shared` no longer waits for another
-  caller's value, so a rayon worker that needs the value while another computes it computes its own.
+- A run could deadlock when a value computed once per run used parallelism: the toolchain scan shared by the
+  toolchain rules, and the Nx project listing of the JS analysis. `LintContext::shared` and the listing now use
+  `skif_core::get_or_compute`, which never waits for another caller's value: a rayon worker that needs it while
+  another computes it computes its own.
 - `version-mismatch` no longer rewrites a path dependency (`../a`, `file:`, `link:`, `portal:`, `~/a`) to a version.
   While `local-path-dependency` is on, the paths of the dependency sections take no part in the version groups, so
   that rule gives the one fix a path gets; with it off, and in override sections and custom types, a path keeps its
