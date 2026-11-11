@@ -55,6 +55,7 @@ skif = { workspace = true, features = ["manifest", "js-analysis", "fix", "yaml-f
 skif-core.workspace = true
 skif-migrate.workspace = true
 skif-report.workspace = true
+skif-workspace.workspace = true
 toml.workspace = true
 toml_edit.workspace = true
 ureq.workspace = true

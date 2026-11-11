@@ -18,6 +18,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use skif::update::is_valid_package_name;
+use skif_workspace::npmrc_entries;
 
 /// The public npm registry.
 pub const DEFAULT_REGISTRY: &str = "https://registry.npmjs.org/";
@@ -73,16 +74,6 @@ fn expand(value: &str, var: &dyn Fn(&str) -> Option<String>) -> Option<String> {
     Some(out)
 }
 
-fn unquoted(value: &str) -> &str {
-    let value = value.trim();
-    for quote in ['"', '\''] {
-        if let Some(inner) = value.strip_prefix(quote).and_then(|inner| inner.strip_suffix(quote)) {
-            return inner;
-        }
-    }
-    value
-}
-
 /// The `host[:port]` of a registry URL or of a `//host[:port]/path/` nerf dart, lowercased.
 fn host_of(url: &str) -> Option<String> {
     let rest = url.split_once("//").map_or(url, |(_, rest)| rest);
@@ -108,16 +99,7 @@ impl Npmrc {
     ) -> Self {
         let mut npmrc = Self::default();
         let mut tokens = Vec::new();
-        for line in text.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with(['#', ';']) {
-                continue;
-            }
-            let Some((key, raw)) = line.split_once('=') else {
-                continue;
-            };
-            let key = key.trim();
-            let raw = unquoted(raw);
+        for (key, raw) in npmrc_entries(text) {
             if let Some(dart) = key.strip_suffix(":_authToken").filter(|dart| dart.starts_with("//")) {
                 // Tokens wait for the registries, which may come later in the file.
                 tokens.push((dart, raw));
