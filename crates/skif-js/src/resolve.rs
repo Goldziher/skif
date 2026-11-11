@@ -76,7 +76,9 @@ impl oxc_resolver::FileSystem for ResolverFs {
         } else if kind.is_dir {
             Ok(FileMetadata::new(false, true, false))
         } else {
-            Err(io::Error::new(io::ErrorKind::NotFound, "not found"))
+            // The resolver only asks whether there is metadata, so a missing path, which most probes are, costs no
+            // allocated message.
+            Err(io::ErrorKind::NotFound.into())
         }
     }
 
