@@ -126,13 +126,15 @@ jq '.napi.targets += ["riscv64gc-unknown-linux-gnu"]' "${work}/package.json" >"$
 exist_case "a target napi does not name" 2 "${work}/unknown.json"
 exist_expect "unknown target" "napi target riscv64gc-unknown-linux-gnu has no known npm platform name"
 
-# The real manifest: the umbrella plus its eight platform packages, the two Windows ones included.
+# The real manifest: the umbrella plus its six platform packages. The Windows names do not exist yet, so the
+# manifest must not list them (ADR 0114).
+rm -f "${work}/registry/skif-win32-x64-msvc" "${work}/registry/skif-win32-arm64-msvc"
 for name in skif-cli skif-darwin-arm64 skif-darwin-x64 skif-linux-x64-gnu skif-linux-arm64-gnu skif-linux-x64-musl \
-  skif-linux-arm64-musl skif-win32-x64-msvc skif-win32-arm64-msvc; do
+  skif-linux-arm64-musl; do
   echo "0|${name}" >"${work}/registry/${name}"
 done
 exist_case "npm-package/package.json" 0 npm-package/package.json
-exist_expect "npm-package/package.json" "npm packages: all 9 exist"
+exist_expect "npm-package/package.json" "npm packages: all 7 exist"
 rm "${work}/registry/skif-linux-arm64-musl"
 exist_case "npm-package/package.json without a platform package" 1 npm-package/package.json
 exist_expect "npm-package/package.json missing" "npm package skif-linux-arm64-musl does not exist"

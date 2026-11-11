@@ -6,7 +6,7 @@
 # npm trusted publishing can only be configured on a package that exists, so a package that was never published by
 # hand fails its first OIDC publish half way through a release, after crates.io and the earlier npm packages are live.
 # The names are the umbrella's `name` plus the platform package napi derives from each `napi.targets` triple
-# (`<napi.packageName>-<platform>-<arch>[-<abi>]`, e.g. `skif-win32-x64-msvc`).
+# (`<napi.packageName>-<platform>-<arch>[-<abi>]`, e.g. `skif-linux-x64-gnu`).
 #
 # Exit 0 when all exist, 1 when any is missing (all are listed), 2 when the registry gave no definite answer or a
 # target is not one napi names. NPM_PROBE_ATTEMPTS (default 5) and NPM_PROBE_DELAY seconds (default 10) tune the

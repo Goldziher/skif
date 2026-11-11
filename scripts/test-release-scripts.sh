@@ -6,8 +6,6 @@
 #   release-bump.sh, check-versions.sh    a bump on a temp copy of the tree, then the consistency check and the
 #   check-doc-pins.sh                     documentation pins it rewrites
 #   check-archive.sh, check-release-gate.sh, check-npm-tarballs.sh, check-glibc-floor.sh
-#   npm-install-smoke.sh                  the packed tarballs installed through stub npm and bun, optionalDependencies
-#                                         overridden with the local tarballs
 #
 # Usage: scripts/test-release-scripts.sh
 # The literals checked below contain `$` on purpose; nothing is meant to expand.
@@ -343,7 +341,7 @@ fi
 expect "check-archive needs an archive" 2 bash scripts/check-archive.sh
 
 # ---------------------------------------------------------------- check-npm-tarballs
-platforms=(darwin-arm64 darwin-x64 linux-arm64-gnu linux-arm64-musl linux-x64-gnu linux-x64-musl win32-arm64-msvc win32-x64-msvc)
+platforms=(darwin-arm64 darwin-x64 linux-arm64-gnu linux-arm64-musl linux-x64-gnu linux-x64-musl)
 
 # pack_tarball <directory> <tarball name> <package.json content> <member...>: a tarball whose members all sit under package/.
 pack_tarball() {
@@ -359,7 +357,7 @@ pack_tarball() {
   tar czf "${out}/${name}" -C "$stage" package
 }
 
-# npm_fixture <directory> <version>: the complete umbrella plus the eight platform packages.
+# npm_fixture <directory> <version>: the complete umbrella plus the six platform packages.
 npm_fixture() {
   local out="$1" version="$2" optional platform
   mkdir -p "$out"
@@ -377,12 +375,13 @@ expect "check-npm-tarballs accepts the complete set" 0 bash scripts/check-npm-ta
 npm_fixture "${work}/npm-missing" 1.2.3
 rm "${work}/npm-missing/skif-linux-x64-musl-1.2.3.tgz"
 expect "check-npm-tarballs rejects a missing platform package" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-missing" 1.2.3
-expect_in_out "check-npm-tarballs missing platform" "not the umbrella plus the eight platform packages"
+expect_in_out "check-npm-tarballs missing platform" "not the umbrella plus the six platform packages"
 
-npm_fixture "${work}/npm-no-windows" 1.2.3
-rm "${work}/npm-no-windows/skif-win32-arm64-msvc-1.2.3.tgz"
-expect "check-npm-tarballs rejects a set without a Windows package" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-no-windows" 1.2.3
-expect_in_out "check-npm-tarballs missing Windows platform" "skif-win32-arm64-msvc-1.2.3.tgz"
+# No Windows package is published until its npm name exists (ADR 0114).
+npm_fixture "${work}/npm-windows" 1.2.3
+pack_tarball "${work}/npm-windows" skif-win32-x64-msvc-1.2.3.tgz '{}' skif.win32-x64-msvc.node LICENSE ATTRIBUTIONS.md
+expect "check-npm-tarballs rejects a Windows package" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-windows" 1.2.3
+expect_in_out "check-npm-tarballs Windows package" "skif-win32-x64-msvc-1.2.3.tgz"
 
 # GNU tar fails on a closed pipe (bsdtar exits 0), so a reader that stops at its first match reports a present member as
 # missing under pipefail. The stub keeps listing past the pipe buffer and dies the same way on every platform.
@@ -416,79 +415,12 @@ pack_tarball "${work}/npm-no-addon" skif-linux-x64-gnu-1.2.3.tgz '{}' LICENSE AT
 expect "check-npm-tarballs rejects a platform package without its addon" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-no-addon" 1.2.3
 expect_in_out "check-npm-tarballs missing addon" "skif.linux-x64-gnu.node"
 
-npm_fixture "${work}/npm-no-windows-addon" 1.2.3
-pack_tarball "${work}/npm-no-windows-addon" skif-win32-x64-msvc-1.2.3.tgz '{}' LICENSE ATTRIBUTIONS.md
-expect "check-npm-tarballs rejects a Windows package without its addon" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-no-windows-addon" 1.2.3
-expect_in_out "check-npm-tarballs missing Windows addon" "skif.win32-x64-msvc.node"
-
 npm_fixture "${work}/npm-bad-optional" 1.2.3
 pack_tarball "${work}/npm-bad-optional" skif-cli-1.2.3.tgz '{"optionalDependencies": {"skif-darwin-arm64": "1.2.3"}}' \
   index.js index.d.ts bin/skif.js LICENSE ATTRIBUTIONS.md README.md
 expect "check-npm-tarballs rejects incomplete optionalDependencies" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-bad-optional" 1.2.3
 expect_in_out "check-npm-tarballs optionalDependencies" "optionalDependencies"
 expect "check-npm-tarballs usage" 1 bash scripts/check-npm-tarballs.sh
-
-# ---------------------------------------------------------------- npm-install-smoke
-# Stub package managers: `npm install` / `bun install` extract every overridden tarball whose package is for
-# STUB_HOST (or every one with STUB_INSTALL=all, none with STUB_INSTALL=none) into node_modules, as os and cpu
-# filtering would; `npx` / `bunx` print STUB_PRINTS. The manifest each install saw is copied to ${work}/smoke-seen.json.
-smoke_stubs="${work}/smoke-stubs"
-mkdir -p "$smoke_stubs"
-cat >"${smoke_stubs}/npm" <<'STUB'
-#!/usr/bin/env bash
-[[ "$1" == install ]] || { echo "unexpected npm $*" >&2; exit 99; }
-cp package.json "${STUB_SEEN:?}"
-for name in $(jq -r '.overrides | keys[]' package.json); do
-  case "${STUB_INSTALL:-host}" in
-  none) continue ;;
-  host) [[ "$name" == "skif-${STUB_HOST:?}" ]] || continue ;;
-  esac
-  spec="$(jq -r --arg name "$name" '.overrides[$name]' package.json)"
-  mkdir -p "node_modules/${name}"
-  tar -xzf "${spec#file:./}" -C "node_modules/${name}" --strip-components 1
-done
-STUB
-cp "${smoke_stubs}/npm" "${smoke_stubs}/bun"
-cat >"${smoke_stubs}/npx" <<'STUB'
-#!/usr/bin/env bash
-[[ "$*" == "--no-install skif --version" ]] || { echo "unexpected npx $*" >&2; exit 99; }
-echo "$STUB_PRINTS"
-STUB
-sed 's/npx \$\*/bunx $*/; s/--no-install skif/--bun --no-install skif/' "${smoke_stubs}/npx" >"${smoke_stubs}/bunx"
-chmod +x "${smoke_stubs}"/*
-
-# smoke_case <label> <expected exit> <manager> <env...>: installs ${work}/npm-ok on a win32-x64-msvc host.
-smoke_case() {
-  local label="$1" want="$2" manager="$3"
-  shift 3
-  rm -rf "${work}/smoke-project"
-  expect "npm-install-smoke: ${label}" "$want" env PATH="${smoke_stubs}:${PATH}" STUB_HOST=win32-x64-msvc \
-    STUB_SEEN="${work}/smoke-seen.json" STUB_PRINTS="skif 1.2.3" "$@" \
-    bash scripts/npm-install-smoke.sh "${work}/npm-ok" 1.2.3 win32-x64-msvc "$manager" "${work}/smoke-project"
-}
-smoke_case "npm resolves the host package" 0 npm
-expect_in_out "npm-install-smoke npm" "npm install smoke (npm, win32-x64-msvc): skif 1.2.3 runs"
-[[ "$(jq -r '.dependencies["skif-cli"]' "${work}/smoke-seen.json")" == "file:./tarballs/skif-cli-1.2.3.tgz" ]] ||
-  fail "npm-install-smoke: the project does not depend on the umbrella tarball"
-[[ "$(jq -r '.overrides | length' "${work}/smoke-seen.json")" -eq 8 ]] ||
-  fail "npm-install-smoke: not every optional dependency is overridden: $(jq -c .overrides "${work}/smoke-seen.json")"
-[[ "$(jq -r '.overrides["skif-win32-arm64-msvc"]' "${work}/smoke-seen.json")" == "file:./tarballs/skif-win32-arm64-msvc-1.2.3.tgz" ]] ||
-  fail "npm-install-smoke: the Windows arm64 override does not point at its tarball"
-smoke_case "bun resolves the host package" 0 bun
-expect_in_out "npm-install-smoke bun" "bunx --bun --no-install skif --version: skif 1.2.3"
-smoke_case "a wrong version fails" 1 npm STUB_PRINTS="skif 1.2.2"
-expect_in_out "npm-install-smoke wrong version" "did not print 1.2.3"
-smoke_case "an unresolved platform package fails" 1 bun STUB_INSTALL=none
-expect_in_out "npm-install-smoke unresolved" "did not install node_modules/skif-win32-x64-msvc/skif.win32-x64-msvc.node"
-smoke_case "a package for another platform fails" 1 npm STUB_INSTALL=all
-expect_in_out "npm-install-smoke other platform" "installed skif-linux-x64-gnu, which is not for win32-x64-msvc"
-smoke_case "an unknown package manager" 2 yarn
-npm_fixture "${work}/npm-smoke-missing" 1.2.3
-rm "${work}/npm-smoke-missing/skif-darwin-x64-1.2.3.tgz"
-rm -rf "${work}/smoke-project"
-expect "npm-install-smoke: a listed package without its tarball" 1 env PATH="${smoke_stubs}:${PATH}" \
-  bash scripts/npm-install-smoke.sh "${work}/npm-smoke-missing" 1.2.3 win32-x64-msvc npm "${work}/smoke-project"
-expect_in_out "npm-install-smoke missing tarball" "has no skif-darwin-x64-1.2.3.tgz"
 
 # ---------------------------------------------------------------- check-glibc-floor
 glibc_stubs="${work}/glibc-stubs"
