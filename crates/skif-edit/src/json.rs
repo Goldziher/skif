@@ -511,11 +511,18 @@ impl<'a> Doc<'_, 'a> {
         let gone = |index: usize| removed.is_some_and(|removals| removals.members.contains_key(&index));
         let mut order: Vec<Slot> = (0..count).map(Slot::Existing).collect();
         let mut fresh: Vec<PendingInsert> = Vec::new();
+        // The last surviving member of each key, and the index in `fresh` of each new key.
+        let surviving: HashMap<&str, usize> = holder
+            .members
+            .iter()
+            .enumerate()
+            .filter(|&(index, _)| !gone(index))
+            .filter_map(|(index, member)| member.key.map(|key| (key, index)))
+            .collect();
+        let mut fresh_index: HashMap<&str, usize> = HashMap::default();
         let mut edits = Vec::new();
         for pending in &insertions.pending {
-            if let Some(existing) =
-                (0..count).rfind(|&index| !gone(index) && holder.members[index].key == Some(pending.key.as_str()))
-            {
+            if let Some(&existing) = surviving.get(pending.key.as_str()) {
                 let edit = self.set(holder.members[existing].value, Some(holder), &pending.value);
                 edits.push(Planned {
                     op: pending.op,
@@ -525,8 +532,8 @@ impl<'a> Doc<'_, 'a> {
                 });
                 continue;
             }
-            if let Some(entry) = fresh.iter_mut().find(|entry| entry.key == pending.key) {
-                entry.value = pending.value.clone();
+            if let Some(&index) = fresh_index.get(pending.key.as_str()) {
+                fresh[index].value = pending.value.clone();
                 continue;
             }
             let at = match pending.position {
@@ -544,6 +551,7 @@ impl<'a> Doc<'_, 'a> {
                     })
                     .unwrap_or(order.len()),
             };
+            fresh_index.insert(pending.key.as_str(), fresh.len());
             fresh.push(PendingInsert {
                 op: pending.op,
                 key: pending.key.clone(),
