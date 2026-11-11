@@ -1,4 +1,4 @@
-use skif_config::{Config, IgnoreEntry, Selector};
+use skif_config::{Config, IgnoreEntry, LOCAL, Selector};
 use skif_core::Diagnostic;
 use skif_core::{HashMap, HashSet};
 use skif_workspace::{PackageId, Workspace};
@@ -9,8 +9,9 @@ use std::path::Path;
 /// `[[ignore]]` entries (those of `[[overrides]]` too, limited to the override's scope) and
 /// `workspace.ignore-packages`, resolved against a workspace.
 ///
-/// Packages are resolved to [`PackageId`]s once; every per-diagnostic check afterwards is an index into a vector
-/// by the diagnostic's [`PackageId`], or, for diagnostics that only carry a display name, a lookup of that name.
+/// Packages are resolved to [`PackageId`]s once; every per-diagnostic check afterwards is a lookup of the
+/// diagnostic's [`PackageId`] (an index into a vector, or a search of a short sorted list), or, for diagnostics that
+/// only carry a display name, a lookup of that name.
 /// Entries are indexed by rule, so a diagnostic is checked only against the entries its rule reaches.
 #[derive(Debug)]
 pub struct Suppressions {
@@ -25,8 +26,8 @@ pub struct Suppressions {
 
 #[derive(Debug)]
 struct Entry {
-    /// Indexed by package id; `None` matches every package, including diagnostics without one.
-    packages: Option<Vec<bool>>,
+    /// The packages the entry selects; `None` matches every package, including diagnostics without one.
+    packages: Option<Selected>,
     dependencies: Selector,
     /// Matched against the root-relative path of the diagnostic's location; empty matches every file.
     files: Selector,
@@ -42,8 +43,78 @@ struct Entries {
     any_rule: Vec<usize>,
 }
 
+/// The packages an entry's `packages` selector selects.
+#[derive(Debug, PartialEq, Eq)]
+enum Selected {
+    /// One flag per package, indexed by package id: what a selector with a glob selects, judged package by package.
+    Flags(Vec<bool>),
+    /// The package indices, sorted and without duplicates: what a selector of literal names and directories selects,
+    /// looked up instead of matched against every package. A baseline holds thousands of entries that each name one
+    /// package, and matching each of them against every package of a large workspace was quadratic.
+    Indices(Vec<usize>),
+}
+
+impl Selected {
+    fn contains(&self, index: usize) -> bool {
+        match self {
+            Self::Flags(flags) => flags.get(index).copied().unwrap_or(false),
+            Self::Indices(indices) => indices.binary_search(&index).is_ok(),
+        }
+    }
+
+    fn resolve(workspace: &Workspace, selector: &Selector, keys: &PackageKeys) -> Self {
+        if selector.patterns().iter().all(|pattern| is_literal(pattern)) {
+            let mut indices: Vec<usize> = selector
+                .patterns()
+                .iter()
+                .filter_map(|pattern| keys.0.get(pattern.as_str()))
+                .flatten()
+                .copied()
+                .collect();
+            indices.sort_unstable();
+            indices.dedup();
+            return Self::Indices(indices);
+        }
+        Self::Flags(
+            workspace
+                .iter()
+                .map(|(_, package)| package.is_selected_by(selector))
+                .collect(),
+        )
+    }
+}
+
+/// Whether `pattern` selects exactly the names equal to it, as a name or directory of a package: it is no `$LOCAL`,
+/// no exclusion and holds no character a glob gives a meaning (escapes included), so globset compares the whole
+/// name with it.
+fn is_literal(pattern: &str) -> bool {
+    pattern != LOCAL
+        && !pattern.starts_with('!')
+        && !pattern.contains(&['*', '?', '[', ']', '{', '}', '\\'][..])
+}
+
+/// The name and the directory of every package (each the way [`Selector`] reads it: non-empty, with `/` separators)
+/// to the indices of the packages that have it.
+#[derive(Debug, Default)]
+struct PackageKeys(HashMap<String, Vec<usize>>);
+
+impl PackageKeys {
+    fn new(workspace: &Workspace) -> Self {
+        let mut keys: HashMap<String, Vec<usize>> = HashMap::default();
+        for (id, package) in workspace.iter() {
+            let dir = package.dir.to_string_lossy();
+            for key in package.name.as_deref().into_iter().chain(Some(&*dir)) {
+                if !key.is_empty() {
+                    keys.entry(slashed(Path::new(key)).into_owned()).or_default().push(id.index());
+                }
+            }
+        }
+        Self(keys)
+    }
+}
+
 impl Entries {
-    fn new(workspace: &Workspace, ignore: &[IgnoreEntry]) -> Self {
+    fn new(workspace: &Workspace, keys: &PackageKeys, ignore: &[IgnoreEntry]) -> Self {
         let mut list = Self::default();
         for (index, entry) in ignore.iter().enumerate() {
             let rules: HashSet<&str> = entry.rules.iter().map(String::as_str).collect();
@@ -54,12 +125,7 @@ impl Entries {
                 list.by_rule.entry(rule.to_owned()).or_default().push(index);
             }
             list.list.push(Entry {
-                packages: (!entry.packages.is_empty()).then(|| {
-                    workspace
-                        .iter()
-                        .map(|(_, package)| package.is_selected_by(&entry.packages))
-                        .collect()
-                }),
+                packages: (!entry.packages.is_empty()).then(|| Selected::resolve(workspace, &entry.packages, keys)),
                 dependencies: entry.dependencies.clone(),
                 files: entry.files.clone(),
             });
@@ -81,11 +147,12 @@ impl Entries {
 impl Suppressions {
     pub fn new(workspace: &Workspace, config: &Config) -> Self {
         let ignored = workspace.package_ids().map(|id| workspace.is_ignored(id)).collect();
-        let entries = Entries::new(workspace, &config.ignore);
+        let keys = PackageKeys::new(workspace);
+        let entries = Entries::new(workspace, &keys, &config.ignore);
         let scoped = config
             .overrides
             .iter()
-            .map(|scoped| Entries::new(workspace, &scoped.ignore))
+            .map(|scoped| Entries::new(workspace, &keys, &scoped.ignore))
             .collect();
         Self {
             by_name: names(workspace),
@@ -99,7 +166,7 @@ impl Suppressions {
     /// entry matches it, or an entry of one of the overrides in `applicable` (indices into the configuration's
     /// overrides) does. The keys entries match against are worked out once for all of them.
     pub fn suppressed(&self, diagnostic: &Diagnostic, applicable: &[usize]) -> bool {
-        if self.package_flag(diagnostic, &self.ignored) {
+        if self.package_flag(diagnostic, |index| self.ignored.get(index).copied().unwrap_or(false)) {
             return true;
         }
         let keys = Keys::default();
@@ -123,17 +190,18 @@ impl Suppressions {
             .any(|(_, entry)| self.entry_matches(entry, diagnostic, keys))
     }
 
-    /// Whether the diagnostic's package is flagged in `flags`. A diagnostic with a [`PackageId`] is looked up by it;
-    /// one with only a display name needs every package of that name flagged, since it cannot tell them apart.
-    fn package_flag(&self, diagnostic: &Diagnostic, flags: &[bool]) -> bool {
+    /// Whether the diagnostic's package is flagged, `flagged` telling by package index. A diagnostic with a
+    /// [`PackageId`] is looked up by it; one with only a display name needs every package of that name flagged, since
+    /// it cannot tell them apart.
+    fn package_flag(&self, diagnostic: &Diagnostic, flagged: impl Fn(usize) -> bool) -> bool {
         if let Some(id) = diagnostic.package_id {
-            return flags.get(id.index()).copied().unwrap_or(false);
+            return flagged(id.index());
         }
         diagnostic
             .package
             .as_deref()
             .and_then(|name| self.by_name.get(name))
-            .is_some_and(|ids| !ids.is_empty() && ids.iter().all(|id| flags.get(id.index()).copied().unwrap_or(false)))
+            .is_some_and(|ids| !ids.is_empty() && ids.iter().all(|id| flagged(id.index())))
     }
 
     /// Whether `entry`, one of the candidates of the diagnostic's rule, matches it: the package is checked before
@@ -142,7 +210,7 @@ impl Suppressions {
         entry
             .packages
             .as_ref()
-            .is_none_or(|flags| self.package_flag(diagnostic, flags))
+            .is_none_or(|selected| self.package_flag(diagnostic, |index| selected.contains(index)))
             && (entry.files.is_empty() || entry.files.matches(keys.file(diagnostic), false))
             && (entry.dependencies.is_empty()
                 || diagnostic.dependency.as_deref().is_some_and(|dependency| {
@@ -171,7 +239,7 @@ pub fn ignore_matches(workspace: &Workspace, entries: &[IgnoreEntry], diagnostic
     let suppressions = Suppressions {
         by_name: names(workspace),
         ignored: Vec::new(),
-        entries: Entries::new(workspace, entries),
+        entries: Entries::new(workspace, &PackageKeys::new(workspace), entries),
         scoped: Vec::new(),
     };
     let mut matches: Vec<Vec<usize>> = vec![Vec::new(); entries.len()];
@@ -402,6 +470,48 @@ mod tests {
     }
 
     #[test]
+    fn literal_package_selectors_select_what_matching_every_package_selects() {
+        let config = Config::default();
+        let workspace = workspace(&config);
+        let keys = PackageKeys::new(&workspace);
+        let cases: [(&[&str], bool); 14] = [
+            (&["a"], true),
+            (&["p/b"], true),
+            (&["dup"], true),
+            (&["p/dup1", "b"], true),
+            (&["root"], true),
+            (&["nope"], true),
+            (&["p"], true),
+            (&["A"], true),
+            (&["p/a/"], true),
+            (&["a", "a", "p/a"], true),
+            (&["p/*"], false),
+            (&["!a"], false),
+            (&["$LOCAL"], false),
+            (&["a", "{b,dup}"], false),
+        ];
+        for (patterns, literal) in cases {
+            let selector = Selector::new(patterns.iter().copied()).unwrap();
+            let resolved = Selected::resolve(&workspace, &selector, &keys);
+            assert_eq!(matches!(resolved, Selected::Indices(_)), literal, "{patterns:?}");
+            for (id, package) in workspace.iter() {
+                assert_eq!(
+                    resolved.contains(id.index()),
+                    package.is_selected_by(&selector),
+                    "{patterns:?} {:?}",
+                    package.dir
+                );
+            }
+        }
+        let selector = Selector::new(["p/dup1", "dup", "b"]).unwrap();
+        let Selected::Indices(indices) = Selected::resolve(&workspace, &selector, &keys) else {
+            panic!("literal names resolve to indices");
+        };
+        assert_eq!(indices.len(), 3, "each package once, sorted: {indices:?}");
+        assert!(indices.is_sorted());
+    }
+
+    #[test]
     fn dependency_name_table() {
         let cases = [
             ("react", "react"),
@@ -579,7 +689,7 @@ mod tests {
         let suppressions = Suppressions {
             by_name: names(&workspace),
             ignored: Vec::new(),
-            entries: Entries::new(&workspace, &entries),
+            entries: Entries::new(&workspace, &PackageKeys::new(&workspace), &entries),
             scoped: Vec::new(),
         };
         let each_alone: Vec<Vec<usize>> = entries
