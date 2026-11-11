@@ -22,6 +22,7 @@ use crate::resolve::is_installed;
 use crate::scripts::{ScriptBinary, script_context};
 use crate::setup::{Setup, package_dirs, package_in_dir};
 use crate::specifier::{RUNTIME_PACKAGES, package_name, typed_package, types_package};
+use crate::tsconfig_files::{reference, references_of};
 use crate::tsconfig_paths::resolve_extends;
 
 /// Where a dependency an import names is listed.
@@ -541,15 +542,15 @@ impl<'a> TsconfigMemo<'a> {
 }
 
 /// What the `compilerOptions.types` of a `tsconfig.json` and its `extends` chain leave of the installed `@types/*`
-/// packages.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// packages, ordered from fewest to most.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum AmbientTypes {
     /// None: the config is missing, its `types` lists no `*`, or its `typeRoots` drop `node_modules/@types`.
     Narrowed,
-    /// Every package, on every TypeScript version: `types: ["*"]`.
-    Every,
     /// TypeScript's default, no `types` along the chain: every package before version 6, none from version 6.
     Default,
+    /// Every package, on every TypeScript version: `types: ["*"]`.
+    Every,
 }
 
 /// What the `tsconfig.json` at `path` makes TypeScript include of the installed `@types/*` packages, from its
@@ -575,6 +576,24 @@ fn ambient_types(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], path: &
         Some(false) => AmbientTypes::Narrowed,
         None => AmbientTypes::Default,
     }
+}
+
+/// What the `tsconfig.json` at `path` and the configs its `references` name inside its directory (a solution config,
+/// such as Vite's `files: []` beside `tsconfig.app.json` and `tsconfig.node.json`) make TypeScript include of the
+/// installed `@types/*` packages: every package when one of them includes every package, else the default when one
+/// of them leaves it.
+fn project_ambient_types(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], path: &Path) -> AmbientTypes {
+    let own = ambient_types(memo, members, path);
+    let Some(config) = memo.get(path) else {
+        return own;
+    };
+    let dir = path.parent().unwrap_or(path);
+    let referenced = references_of(&config)
+        .into_iter()
+        .filter_map(|target| reference(memo.fs, dir, target))
+        .filter(|target| target.starts_with(dir) && target != path)
+        .map(|target| ambient_types(memo, members, &target));
+    referenced.fold(own, Ord::max)
 }
 
 /// The major version of TypeScript that `package` compiles with: that of the `typescript` installed in the nearest
@@ -937,7 +956,8 @@ impl DependencyUsage {
         const TYPES_DEFAULT_EMPTY_SINCE: u64 = 6;
         let members = member_dirs(workspace);
         for (id, package) in workspace.iter() {
-            let includes_all = match ambient_types(tsconfigs, &members, &setup.tsconfig_of(workspace, package)) {
+            let tsconfig = setup.tsconfig_of(workspace, package);
+            let includes_all = match project_ambient_types(tsconfigs, &members, &tsconfig) {
                 AmbientTypes::Narrowed => false,
                 AmbientTypes::Every => true,
                 AmbientTypes::Default => typescript_major(tsconfigs.fs, workspace, package)
