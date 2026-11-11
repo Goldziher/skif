@@ -106,6 +106,13 @@ impl fmt::Display for Choice {
     }
 }
 
+/// Whether [`selection`] may put alternatives to the user: stdin and stdout are terminals, the format is `human`, and
+/// neither `--no-prompt` nor `--select` was given. Without a prompt the selections of a run's roots are independent
+/// of one another, so they can be made in any order.
+pub fn prompts(args: &LintArgs, env: Env) -> bool {
+    env.stdin_tty && env.stdout_tty && !args.no_prompt && args.format() == Format::Human && args.select.is_none()
+}
+
 /// Builds the selection for this run. Alternatives are put to the user only when both stdin and stdout are terminals,
 /// the format is `human`, neither `--no-prompt` nor `--select` was given, and configuration does not already
 /// determine the answer. With `--select` the first alternative (which the rules order by the selected version) is
@@ -127,9 +134,7 @@ pub fn selection(
     if let Some(rules) = rules {
         selection = selection.with_rules(rules.iter().cloned());
     }
-    let interactive =
-        env.stdin_tty && env.stdout_tty && !args.no_prompt && args.format() == Format::Human && args.select.is_none();
-    if !interactive {
+    if !prompts(args, env) {
         return Ok(selection.with_alternatives(if args.select.is_some() {
             Alternatives::First
         } else {
