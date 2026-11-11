@@ -872,6 +872,14 @@ fn a_parameter_or_local_with_the_name_of_an_import_reads_nothing_of_it() {
 }
 
 #[test]
+fn an_import_inside_a_module_declaration_is_tracked_next_to_top_level_imports() {
+    let source = "import * as a from 'a';\na.e;\ndeclare module 'x' {\n  import * as b from 'b';\n  export const c: typeof b.d;\n}\n";
+    let info = parse("a.ts", source);
+    assert_eq!(accessed(&info, "a"), (vec!["e".to_owned()], false));
+    assert_eq!(accessed(&info, "b"), (vec!["d".to_owned()], false));
+}
+
+#[test]
 fn an_import_and_a_dynamic_import_bound_to_the_same_name_each_get_their_own_reads() {
     let source = "import * as config from './config';\nconsole.log(config.top);\n\
                   test('x', async () => { const config = await import('./config'); expect(config.foo); });\n\
