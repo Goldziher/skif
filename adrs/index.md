@@ -112,6 +112,7 @@ old one.
 | 0102 | [An Agent Skill Distributed From the Repository](0102-agent-skill-distributed-from-the-repository.md) | accepted |
 | 0103 | [One of Several Known Values in Config Evaluation, and the Scopes of Computed Reporters and Storybook Addons](0103-one-of-several-known-values-in-config-evaluation.md) | accepted |
 | 0104 | [Bun Workspace Semantics: Literal Members, Its Two Lockfiles, Nested Workspaces and Patches](0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md) | accepted |
+| 0109 | [Nx Projects as Scopes of the Package That Owns Them](0109-nx-projects-as-scopes-of-the-package-that-owns-them.md) | accepted |
 
 ## Effective statements
 
