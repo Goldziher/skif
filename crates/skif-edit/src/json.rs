@@ -174,10 +174,12 @@ fn parse_error(error: &(impl ToString + ?Sized)) -> EditPlanError {
 
 /// Checks that `after` is a document as well formed as `before`.
 pub(crate) fn validate(before: &str, after: &str) -> Result<(), EditPlanError> {
-    let body = |text: &str| text.strip_prefix(BOM).unwrap_or(text).to_owned();
+    fn body(text: &str) -> &str {
+        text.strip_prefix(BOM).unwrap_or(text)
+    }
     let (before, after) = (body(before), body(after));
-    let strict = parse_to_ast(&before, &CollectOptions::default(), &parse_options(true)).is_ok();
-    let parsed = parse_to_ast(&after, &CollectOptions::default(), &parse_options(strict)).map_err(|error| {
+    let strict = parse_to_ast(before, &CollectOptions::default(), &parse_options(true)).is_ok();
+    let parsed = parse_to_ast(after, &CollectOptions::default(), &parse_options(strict)).map_err(|error| {
         EditPlanError::InvalidOutput {
             kind: FileKind::Json,
             message: error.to_string(),
