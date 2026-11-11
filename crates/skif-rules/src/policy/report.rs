@@ -53,7 +53,16 @@ pub(super) fn emit(analysis: &Analysis<'_>, config_file: &Path, out: &mut Emitte
 /// The instances of each dependency (and alias target) that hold each specifier: the first two in collection order,
 /// so the one an aligned finding points at is found without scanning every instance of the dependency.
 struct Holders<'a> {
-    by_name: HashMap<&'a str, HashMap<HolderKey<'a>, [Option<InstanceId>; 2]>>,
+    by_name: HashMap<&'a str, NameHolders<'a>>,
+}
+
+/// The holders of one dependency.
+#[derive(Default)]
+struct NameHolders<'a> {
+    /// The first two instances holding each specifier.
+    by_specifier: HashMap<HolderKey<'a>, [Option<InstanceId>; 2]>,
+    /// Per alias target, the first instance and the first one written differently from it.
+    first_two_written: HashMap<Option<&'a str>, (InstanceId, Option<InstanceId>)>,
 }
 
 /// The package an alias installs (if another one) and a specifier.
@@ -65,31 +74,52 @@ impl<'a> Holders<'a> {
     fn index(analysis: &'a Analysis<'_>, sequential: bool) -> Self {
         let names: Vec<(&'a str, &'a [InstanceId])> = analysis.instances.names().collect();
         let maps = map_ordered(&names, sequential, |&(_, ids)| {
-            let mut first: HashMap<HolderKey<'a>, [Option<InstanceId>; 2]> = HashMap::default();
+            let mut holders = NameHolders::default();
             for &id in ids {
                 let instance = analysis.instances.get(id);
-                let slots = first.entry((instance.alias_target(), instance.raw())).or_default();
+                let target = instance.alias_target();
+                let slots = holders.by_specifier.entry((target, instance.raw())).or_default();
                 if let Some(slot) = slots.iter_mut().find(|slot| slot.is_none()) {
                     *slot = Some(id);
                 }
+                let (first, differing) = holders.first_two_written.entry(target).or_insert((id, None));
+                if differing.is_none() && analysis.instances.get(*first).raw() != instance.raw() {
+                    *differing = Some(id);
+                }
             }
-            first
+            holders
         });
         Self {
             by_name: names.iter().map(|&(name, _)| name).zip(maps).collect(),
         }
     }
 
-    /// The first instance other than `id` of the dependency of `instance` that holds `raw`, as
-    /// `counterparts(analysis, id).find(|other| other.raw() == raw)` finds it.
+    /// The first instance other than `id` of the dependency of `instance` (and its alias target) that holds `raw`, in
+    /// collection order.
     fn other(&self, id: InstanceId, instance: &Instance<'_>, raw: &str) -> Option<InstanceId> {
         self.by_name
             .get(&*instance.name)?
+            .by_specifier
             .get(&(instance.alias_target(), raw))?
             .iter()
             .flatten()
             .copied()
             .find(|&other| other != id)
+    }
+
+    /// The first instance of the dependency of `instance` (and its alias target) written differently from it, in
+    /// collection order: the first instance when that differs, otherwise the first one that differs from the first.
+    fn differing(&self, analysis: &Analysis<'_>, instance: &Instance<'_>) -> Option<InstanceId> {
+        let &(first, differing) = self
+            .by_name
+            .get(&*instance.name)?
+            .first_two_written
+            .get(&instance.alias_target())?;
+        if analysis.instances.get(first).raw() == instance.raw() {
+            differing
+        } else {
+            Some(first)
+        }
     }
 }
 
@@ -151,19 +181,6 @@ fn concat(parts: &[&str]) -> String {
     text
 }
 
-/// The other instances of the dependency of `id`, in collection order.
-fn counterparts<'a, 'w>(analysis: &'a Analysis<'w>, id: InstanceId) -> impl Iterator<Item = &'a Instance<'w>> {
-    let instance = analysis.instances.get(id);
-    analysis
-        .instances
-        .named(&instance.name)
-        .iter()
-        .copied()
-        .filter(move |&other| other != id)
-        .map(move |other| analysis.instances.get(other))
-        .filter(move |other| other.alias_target() == instance.alias_target())
-}
-
 /// The instance the finding is about: the one that holds the version `id` should take, or, when the instances
 /// cannot be ranked, the first one that differs from it.
 fn related_of(analysis: &Analysis<'_>, holders: &Holders<'_>, id: InstanceId, verdict: &Verdict) -> Option<Related> {
@@ -180,7 +197,7 @@ fn related_of(analysis: &Analysis<'_>, holders: &Holders<'_>, id: InstanceId, ve
             | State::SameMinorMismatch
             | State::SameMinorHasMajorMismatch,
         ) => (
-            counterparts(analysis, id).find(|other| other.raw() != instance.raw())?,
+            analysis.instances.get(holders.differing(analysis, instance)?),
             "differs from it",
         ),
         _ => return None,
@@ -370,6 +387,41 @@ mod tests {
             [
                 row("app", "DiffersToLocal", FixSafety::Safe),
                 row("tool", "DiffersToLocal", FixSafety::Unsafe),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_finding_without_a_target_points_at_the_first_instance_written_differently() {
+        let files = [
+            ("package.json".to_owned(), root("")),
+            ("packages/a/package.json".to_owned(), manifest("a", "^17.0.0")),
+            ("packages/b/package.json".to_owned(), manifest("b", "^17.0.0")),
+            ("packages/c/package.json".to_owned(), manifest("c", "^18.0.0")),
+            ("packages/d/package.json".to_owned(), manifest("d", "^17.0.0")),
+        ];
+        let borrowed: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str()))
+            .collect();
+        let toml = "[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"same-range\"\n";
+        let related: Vec<(String, String)> = lint("version-mismatch", &borrowed, &config(toml))
+            .into_iter()
+            .map(|diagnostic| {
+                (
+                    diagnostic.package.clone().unwrap_or_default(),
+                    diagnostic.related[0].message.clone(),
+                )
+            })
+            .collect();
+        let row = |package: &str, message: &str| (package.to_owned(), message.to_owned());
+        assert_eq!(
+            related,
+            [
+                row("a", "`react@^18.0.0` in c differs from it"),
+                row("b", "`react@^18.0.0` in c differs from it"),
+                row("c", "`react@^17.0.0` in a differs from it"),
+                row("d", "`react@^18.0.0` in c differs from it"),
             ]
         );
     }
