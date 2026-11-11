@@ -12,6 +12,7 @@ use serde::Serialize;
 use skif_config::{Config, Prefer};
 use skif_core::{Diagnostic, Location, Severity};
 use skif_specifier::Specifier;
+use skif_specifier::semver_range::SemverRange;
 use skif_workspace::Workspace;
 
 use super::analysis::{Analysis, GroupSummary};
@@ -281,7 +282,7 @@ fn base_status(
                 variant: variant(&group.policy),
             },
         ),
-        preferred_range: analysis.preferred[id.index()].clone(),
+        preferred_range: analysis.preferred[id.index()].as_ref().map(SemverRange::unwrap),
         status_type: StatusType::of(&code),
         status_code: code,
         rule: None,
