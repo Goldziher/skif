@@ -120,6 +120,7 @@ old one.
 | 0110 | [Files Reached Through `rootDirs` Belong to the Importing Package](0110-files-reached-through-rootdirs-belong-to-the-importing-package.md) | accepted |
 | 0111 | [Ambient `@types` Packages Under TypeScript 6](0111-ambient-types-packages-under-typescript-6.md) | accepted |
 | 0112 | [Paths Under bazel run](0112-paths-under-bazel-run.md) | accepted |
+| 0113 | [Speed Benchmarks on a Pinned GitHub-Hosted Runner](0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md) | accepted |
 
 ## Effective statements
 
@@ -315,3 +316,5 @@ the lines below stay as written; this table says which record governs.
 | [0009](0009-version-and-catalog-policies.md), version-group states | every instance of a dependency takes part in its version group, as in syncpack | [0106](0106-path-specifiers-belong-to-local-path-dependency.md): a path specifier (`link:`, `file:`, `portal:`, `./`, `../`, `/`) takes part in no policy but `banned`; `local-path-dependency` owns it |
 | [0031](0031-core-rule-scoping-peer-overlap-catalog-sources-and-root-discovery-entry-point.md), `local-path-dependency` suggestion | the suggestion shares `Workspace::supports_workspace_protocol`, so Yarn Classic gets none | [0106](0106-path-specifiers-belong-to-local-path-dependency.md): under Yarn Classic, as under npm, a path to a member is replaced with `*` |
 | [0016](0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md), "Invocation" | `PATH` (default `.`) and the other relative paths resolve against the current directory | [0112](0112-paths-under-bazel-run.md): under `bazel run` the binary and the npm bin first change to `BUILD_WORKING_DIRECTORY`, else `BUILD_WORKSPACE_DIRECTORY` |
+| [0001](0001-mission-and-scope.md), line 81 | the performance targets are measured by `mise run bench` on Apple silicon | [0113](0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md): the published numbers come from the manually dispatched `bench` workflow on a pinned GitHub-hosted runner image, with the machine, runner and toolchain recorded; `mise run bench` measures locally while developing |
+| [0026](0026-parity-and-diff-tasks-on-a-pinned-corpus.md), "Speed" | `mise run bench:publish` writes the summary to `tools/bench/results` and refreshes the published table | [0113](0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md): `bench:publish` is removed; the `bench` workflow uploads the summary and `mise run bench:import -- <run-id>` refreshes the tables from it |
