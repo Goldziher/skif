@@ -128,8 +128,22 @@ fn package_relative(base: &Path, pattern: &str, package_dir: &Path) -> Option<St
     relative(&absolute, package_dir).filter(|rel| !rel.is_empty())
 }
 
+/// The `path` of each `references` entry of a parsed `tsconfig.json`, in order.
+pub(crate) fn references_of(config: &ConfigValue) -> Vec<&str> {
+    config
+        .get("references")
+        .and_then(ConfigValue::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.get("path").and_then(ConfigValue::as_str))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// The config a `references` entry names: the file itself, or the `tsconfig.json` of the directory.
-fn reference(fs: &dyn FileSystem, dir: &Path, path: &str) -> Option<PathBuf> {
+pub(crate) fn reference(fs: &dyn FileSystem, dir: &Path, path: &str) -> Option<PathBuf> {
     let target = join_normalized(dir, path);
     if fs.is_file(&target) {
         return Some(target);
@@ -193,14 +207,7 @@ fn collect(
     let parsed = parse_tsconfig(fs, config);
     let references: Vec<String> = parsed
         .as_ref()
-        .and_then(|value| value.get("references"))
-        .and_then(ConfigValue::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| item.get("path").and_then(ConfigValue::as_str).map(str::to_owned))
-                .collect()
-        })
+        .map(|value| references_of(value).into_iter().map(str::to_owned).collect())
         .unwrap_or_default();
     for path in references {
         if let Some(target) = reference(fs, dir, &path)

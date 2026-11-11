@@ -564,6 +564,36 @@ fn a_peer_typescript_range_counts_only_without_another_typescript_entry() {
     }
 }
 
+#[test]
+fn a_solution_tsconfig_is_judged_by_the_configs_it_references() {
+    let solution = r#"{"files":[],"references":[{"path":"./tsconfig.app.json"},{"path":"./tools"}]}"#;
+    let narrowing_solution =
+        r#"{"files":[],"compilerOptions":{"types":[]},"references":[{"path":"./tsconfig.app.json"}]}"#;
+    let node_only = r#"{"compilerOptions":{"types":["node"]}}"#;
+    for (range, tsconfig, app, expected) in [
+        // Vite's layout: a referenced config that includes every package keeps them on TypeScript 6.
+        ("^6.0.0", solution, TYPES_EVERY, Vec::new()),
+        ("^6.0.0", solution, node_only, strings(&["@types/chrome"])),
+        // A referenced config without `types` follows the version.
+        ("^5.4.0", narrowing_solution, PLAIN_TSCONFIG, Vec::new()),
+        ("^6.0.0", narrowing_solution, PLAIN_TSCONFIG, strings(&["@types/chrome"])),
+    ] {
+        let configs = [
+            ("tsconfig.json", tsconfig),
+            ("tsconfig.app.json", app),
+            ("tools/tsconfig.json", node_only),
+        ];
+        assert_eq!(unused_types_among(range, &configs), expected, "{range} {tsconfig} {app}");
+    }
+    // A config referenced by its directory counts too.
+    let configs = [
+        ("tsconfig.json", solution),
+        ("tsconfig.app.json", node_only),
+        ("tools/tsconfig.json", TYPES_EVERY),
+    ];
+    assert_eq!(unused_types_among("^6.0.0", &configs), Vec::<String>::new());
+}
+
 /// The `@types` packages of the workspace of `files` that `unused-dev-dependencies` reports.
 fn unused_types_of(files: &[(&str, &str)]) -> Vec<String> {
     names(&lint(files), "unused-dev-dependencies")
