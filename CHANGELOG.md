@@ -150,8 +150,9 @@ All notable changes to this project are documented here. The format follows
   links the open gaps ([#104](https://github.com/Goldziher/skif/issues/104)); the speed and knip agreement tables in
   the README and the guide are generated from recorded runs and name the commit, tool versions and machine
   ([#27](https://github.com/Goldziher/skif/issues/27), [#95](https://github.com/Goldziher/skif/issues/95)); the README
-  and the comparison guide compare skif with sherif, syncpack and knip in a capability and support matrix that names
-  the versions compared and its sources ([#161](https://github.com/Goldziher/skif/issues/161)).
+  and the comparison guide compare skif with sherif, syncpack and knip in a capability and support matrix checked
+  against each tool's source at the compared version, and `scripts/check-support-matrix.sh` keeps skif's support rows
+  in step with the CI matrices ([#161](https://github.com/Goldziher/skif/issues/161)).
 - **Benchmarks**: the `bench` workflow (`.github/workflows/bench.yml`, dispatched by hand) measures the speed tables on
   a pinned GitHub-hosted runner image (`ubuntu-24.04` or `ubuntu-24.04-arm`) with the inputs `ref`, `runner`, `runs`,
   `warmup` and `only`, builds with each checkout's `rust-version` (`scripts/msrv.sh`) and `--locked`, installs its mise
