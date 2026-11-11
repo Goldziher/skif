@@ -116,17 +116,44 @@ test("a complete summary has no problems and names what was measured, on which r
   );
 });
 
-test("a local summary names the machine without a runner or a run", () => {
+test("a summary measured outside a GitHub Actions job is refused", () => {
   const local = summary();
   local.machine.github = null;
-  local.toolchain.rustc = null;
-  assert.equal(
-    provenance(local),
-    "Medians of 15 runs after 3 warmup runs (hyperfine 1.20.0), skif 0.3.0 at `0123456789ab` against knip 6.44.1, " +
-      "sherif 1.13.0, syncpack 15.3.3, measured on 2026-11-10 on Ubuntu 24.04.3 LTS, Linux 6.11.0-1018-azure, " +
-      "x86_64, AMD EPYC 7763 64-Core Processor, 4 logical CPUs (2 physical cores), 15.6 GiB memory, " +
-      "hypervisor Microsoft, load average 1.50 / 1.25 / 1.00 before and 2.00 / 1.50 / 1.25 after the run.",
-  );
+  assert.deepEqual(summaryProblems(local), [
+    "the summary records no GitHub Actions runner; only a run of the bench workflow is published",
+  ]);
+});
+
+test("a summary from a self-hosted or unnamed runner environment is refused", () => {
+  const selfHosted = summary();
+  selfHosted.machine.github.runner_environment = "self-hosted";
+  assert.deepEqual(summaryProblems(selfHosted), [
+    "the run's runner environment is self-hosted, not github-hosted; only a GitHub-hosted runner is published",
+  ]);
+  const unnamed = summary();
+  unnamed.machine.github.runner_environment = null;
+  assert.deepEqual(summaryProblems(unnamed), [
+    "the run's runner environment is unknown, not github-hosted; only a GitHub-hosted runner is published",
+  ]);
+});
+
+test("a summary that names no workflow run is refused", () => {
+  const noRun = summary();
+  noRun.machine.github.run_url = null;
+  assert.deepEqual(summaryProblems(noRun), ["the summary names no workflow run (machine.github.run_url)"]);
+});
+
+test("a summary measured from a checkout with local changes is refused", () => {
+  const dirtySource = summary();
+  dirtySource.source_rev = "0123456789ab-dirty";
+  assert.deepEqual(summaryProblems(dirtySource), [
+    "source_rev 0123456789ab-dirty has local changes; only clean checkouts are published",
+  ]);
+  const dirtyHarness = summary();
+  dirtyHarness.harness_rev = "ba9876543210-dirty";
+  assert.deepEqual(summaryProblems(dirtyHarness), [
+    "harness_rev ba9876543210-dirty has local changes; only clean checkouts are published",
+  ]);
 });
 
 test("the machine line names unknown facts and leaves out missing ones, as summary.md does", () => {

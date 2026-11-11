@@ -353,7 +353,8 @@ the block below, and the speed tables of the root `README.md` and of the compari
 line of each block names the skif version, source commit and the `rustc` that built it, the comparison tool versions,
 the runner image and the machine, its load, the date and the workflow run. `refresh-numbers.mjs` writes nothing and
 exits non-zero when a comparison tool was not timed, a corpus repository has no row for one of the tools, the run was
-narrowed with `only`, or the summary is of an older schema; the import then changes nothing either.
+narrowed with `only`, the summary is of an older schema, it records no GitHub-hosted runner or no workflow run, or the
+measured or the harness checkout had local changes (`-dirty`); the import then changes nothing either.
 `mise run parity:publish` (`refresh-numbers.mjs --parity`) writes the agreement tables from `baselines/parity.json`
 the same way, and refuses a baseline recorded by an older harness. `node --test tools/bench/refresh-numbers.test.mjs`
 tests both. Measure the release commit after `release-bump`, or the skif version names the previous release.
