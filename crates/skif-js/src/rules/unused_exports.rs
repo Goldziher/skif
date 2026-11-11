@@ -1,6 +1,5 @@
-use std::collections::{HashMap, HashSet};
-
 use skif_core::{Category, Fix, FixSafety, Fixability, RuleMeta, Severity, diagnostic};
+use skif_core::{HashMap, HashSet};
 use skif_js_syntax::Export;
 use skif_lint::Emitter;
 
@@ -47,7 +46,7 @@ fn fixes(module: &Module, unused: &[&Export]) -> HashMap<*const Export, (u32, u3
         .info
         .removal_edits(|export| wanted.contains(&std::ptr::from_ref::<Export>(export)));
     let mut claimed = vec![false; edits.len()];
-    let mut fixes = HashMap::new();
+    let mut fixes = HashMap::default();
     for export in unused {
         let Some(removal) = export.removal else { continue };
         let overlapping = edits

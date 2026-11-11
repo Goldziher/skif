@@ -5,3 +5,12 @@ allow-panic-in-tests = true
 
 # Product names that rustdoc prose spells as written.
 doc-valid-idents = ["CSpell", "SvelteKit", "VitePress", ".."]
+
+# Maps and sets use skif_core::{HashMap, HashSet} (ahash under fixed keys); these constructors exist only for std's
+# randomly seeded hasher.
+disallowed-methods = [
+  { path = "std::collections::HashMap::new", reason = "use skif_core::HashMap::default()" },
+  { path = "std::collections::HashMap::with_capacity", reason = "use skif_core::HashMap::with_capacity_and_hasher" },
+  { path = "std::collections::HashSet::new", reason = "use skif_core::HashSet::default()" },
+  { path = "std::collections::HashSet::with_capacity", reason = "use skif_core::HashSet::with_capacity_and_hasher" },
+]

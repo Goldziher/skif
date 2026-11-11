@@ -1,6 +1,6 @@
 //! Where a dependency is listed and where the code uses it: `skif --trace-dependency`.
 
-use std::collections::HashSet;
+use skif_core::HashSet;
 use std::fmt::Write as _;
 
 use serde::Serialize;

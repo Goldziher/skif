@@ -1,7 +1,7 @@
 //! Module resolution on `oxc_resolver`, reading through the host's [`FileSystem`].
 
 use std::borrow::Borrow;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::hash::Hash;
 use std::io;
@@ -13,9 +13,8 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use oxc_resolver::{
     FileMetadata, ResolveError, ResolveOptions, ResolverGeneric, TsconfigDiscovery, TsconfigOptions, TsconfigReferences,
 };
-use rustc_hash::{FxBuildHasher, FxHashMap};
 use serde_json::Value;
-use skif_core::{FileSystem, OsFs};
+use skif_core::{FileSystem, HashMap, OsFs};
 use skif_js_syntax::is_stylesheet;
 use skif_workspace::Workspace;
 
@@ -243,12 +242,12 @@ fn alias_rest<'a>(specifier: &'a str, find: &str) -> Option<&'a str> {
 }
 
 /// A map filled on first use; concurrent first uses may both compute, the results are equal. A hit allocates
-/// nothing; keys are hashed with `FxHash`, as they are paths and names of the run's own tree.
-struct Memo<K, V>(RwLock<FxHashMap<K, V>>);
+/// nothing; keys are hashed with ahash, as they are paths and names of the run's own tree.
+struct Memo<K, V>(RwLock<HashMap<K, V>>);
 
 impl<K: Eq + Hash, V: Clone> Memo<K, V> {
     fn new() -> Self {
-        Self(RwLock::new(HashMap::with_hasher(FxBuildHasher)))
+        Self(RwLock::new(HashMap::default()))
     }
 
     fn get<Q>(&self, key: &Q) -> Option<V>
@@ -278,11 +277,11 @@ impl<K: Eq + Hash, V: Clone> Memo<K, V> {
 
 /// Values memoised by a pair of keys (a scope index or a package name, and a specifier), misses included. A hit
 /// allocates nothing.
-struct PairMemo<K, V>(RwLock<FxHashMap<K, FxHashMap<String, V>>>);
+struct PairMemo<K, V>(RwLock<HashMap<K, HashMap<String, V>>>);
 
 impl<K: Eq + Hash + Clone, V: Clone> PairMemo<K, V> {
     fn new() -> Self {
-        Self(RwLock::new(HashMap::with_hasher(FxBuildHasher)))
+        Self(RwLock::new(HashMap::default()))
     }
 
     fn get_or_compute<Q>(&self, first: &Q, specifier: &str, compute: impl FnOnce() -> V) -> V
@@ -329,7 +328,7 @@ pub(crate) struct ModuleResolver {
     members: BTreeMap<String, Member>,
     scopes: Vec<AliasScope>,
     /// The position in `scopes` of the scope of each package directory.
-    scope_index: FxHashMap<PathBuf, usize>,
+    scope_index: HashMap<PathBuf, usize>,
     /// For each scope, the lookup directories of the scopes whose directories hold it (itself included), in the
     /// order of `scopes`.
     module_dir_chains: Vec<Vec<PathBuf>>,

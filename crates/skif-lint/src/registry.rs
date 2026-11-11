@@ -1,6 +1,5 @@
-use std::collections::HashMap;
-
 use skif_config::{Config, ConfigError};
+use skif_core::HashMap;
 use skif_core::RuleMeta;
 
 use crate::context::EnabledRules;
@@ -33,7 +32,7 @@ impl Registry {
     /// [`RegistryError::DuplicateRule`] when a rule ID appears twice, within or across providers.
     pub fn new(providers: Vec<Box<dyn RuleProvider>>) -> Result<Self, RegistryError> {
         let mut metas: Vec<&'static RuleMeta> = Vec::new();
-        let mut index: HashMap<&'static str, (usize, usize)> = HashMap::new();
+        let mut index: HashMap<&'static str, (usize, usize)> = HashMap::default();
         for (owner, provider) in providers.iter().enumerate() {
             for meta in provider.rules() {
                 if index.insert(meta.id, (metas.len(), owner)).is_some() {

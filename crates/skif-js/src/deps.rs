@@ -1,6 +1,8 @@
 //! Which packages and binaries the code and scripts use, against what each manifest lists.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
+
+use skif_core::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -531,7 +533,7 @@ impl<'a> TsconfigMemo<'a> {
     fn new(fs: &'a dyn FileSystem) -> Self {
         Self {
             fs,
-            parsed: Mutex::new(HashMap::new()),
+            parsed: Mutex::new(HashMap::default()),
         }
     }
 
@@ -844,15 +846,15 @@ impl DependencyUsage {
     ) -> Self {
         let count = workspace.package_ids().count();
         let mut usage = Self {
-            referenced: vec![HashSet::new(); count],
-            listed: vec![HashSet::new(); count],
-            production_listed: vec![HashSet::new(); count],
+            referenced: vec![HashSet::default(); count],
+            listed: vec![HashSet::default(); count],
+            production_listed: vec![HashSet::default(); count],
             strict: setup.isolate_workspaces,
-            known_bins: vec![HashSet::new(); count],
+            known_bins: vec![HashSet::default(); count],
             other_jsx_runtime: vec![false; count],
             ancestors: package_ancestors(workspace, setup.isolate_workspaces),
-            hosts: vec![HashMap::new(); count],
-            bins: vec![HashMap::new(); count],
+            hosts: vec![HashMap::default(); count],
+            bins: vec![HashMap::default(); count],
             members: workspace.all_packages().filter_map(|p| p.name.clone()).collect(),
             rush: fs.is_file(&workspace.root.join(RUSH_JSON)),
             dirs: package_dirs(workspace),
@@ -914,7 +916,7 @@ impl DependencyUsage {
         let listed = &self.listed;
         let installed: Vec<Vec<(String, Arc<Installed>)>> = map_ordered(&members, sequential, |&(id, package)| {
             let dir = workspace.root.join(&package.dir);
-            let mut cache = HashMap::new();
+            let mut cache = HashMap::default();
             listed[id.index()]
                 .iter()
                 .filter_map(|name| {
@@ -948,7 +950,7 @@ impl DependencyUsage {
     fn collect_ambient_types(&mut self, workspace: &Workspace, setup: &Setup, tsconfigs: &TsconfigMemo<'_>) {
         const TYPES_DEFAULT_EMPTY_SINCE: u64 = 6;
         let members = member_dirs(workspace);
-        let mut installed = HashMap::new();
+        let mut installed = HashMap::default();
         let root_declared = workspace
             .package(PackageId::ROOT)
             .and_then(|root| declared_typescript_major(workspace, root));
@@ -990,7 +992,7 @@ impl DependencyUsage {
     /// The dependencies of the directories above the workspace, up to the repository root: their binaries are on the
     /// `PATH`, and the packages below may import what they list.
     fn collect_ancestor_bins(&mut self, workspace: &Workspace, fs: &dyn FileSystem) {
-        let mut cache = HashMap::new();
+        let mut cache = HashMap::default();
         for (dir, manifest) in external_manifests(fs, &workspace.root) {
             for name in listed_names(&manifest) {
                 self.external_listed
@@ -1021,7 +1023,7 @@ impl DependencyUsage {
     /// up to the repository root, that lists it: Node.js resolves it from there, so it is a used dependency of the
     /// project that owns that manifest, which does not see this code. Installed code is left out.
     fn collect_outside_imports(&mut self, workspace: &Workspace, graph: &ModuleGraph, fs: &dyn FileSystem) {
-        let mut listed_in: HashMap<PathBuf, HashSet<String>> = HashMap::new();
+        let mut listed_in: HashMap<PathBuf, HashSet<String>> = HashMap::default();
         let outside = graph
             .modules()
             .iter()
@@ -1600,7 +1602,7 @@ impl DependencyUsage {
         if ALWAYS_USED.contains(&name) {
             return true;
         }
-        self.is_referenced_inner(id, name, &mut HashSet::new())
+        self.is_referenced_inner(id, name, &mut HashSet::default())
     }
 
     fn is_referenced_inner(&self, id: PackageId, name: &str, visited: &mut HashSet<String>) -> bool {

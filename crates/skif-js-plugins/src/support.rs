@@ -1,7 +1,7 @@
 //! Small helpers shared by the plugins: package and path classification, naming conventions and
 //! typed access to [`ConfigValue`]s.
 
-use std::collections::HashMap;
+use skif_core::HashMap;
 use std::path::{Path, PathBuf};
 
 use skif_js_syntax::{ConfigValue, OWN_SPREAD};
@@ -821,7 +821,7 @@ pub(crate) fn own_sources_where(
     cx: &PluginContext<'_>,
     keep: impl Fn(&str) -> bool,
 ) -> Vec<(String, std::sync::Arc<str>)> {
-    let mut nested = HashMap::new();
+    let mut nested = HashMap::default();
     source_files(cx)
         .filter(|source| !in_nested_package(cx, source, &mut nested))
         .filter_map(|source| {

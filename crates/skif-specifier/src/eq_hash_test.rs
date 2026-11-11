@@ -31,7 +31,7 @@ fn specifier_neq_when_raw_differs() {
 fn specifier_hash_consistent_with_eq() {
     let a = Specifier::new("^1.2.3");
     let b = Specifier::new("^1.2.3");
-    let mut map: HashMap<Arc<Specifier>, &str> = HashMap::new();
+    let mut map: HashMap<Arc<Specifier>, &str> = HashMap::default();
     map.insert(a, "first");
     assert_eq!(map.get(&b), Some(&"first"));
 }
@@ -39,7 +39,7 @@ fn specifier_hash_consistent_with_eq() {
 #[test]
 #[allow(clippy::mutable_key_type)]
 fn specifier_in_hashset() {
-    let mut set: HashSet<Arc<Specifier>> = HashSet::new();
+    let mut set: HashSet<Arc<Specifier>> = HashSet::default();
     set.insert(Specifier::new("1.0.0"));
     set.insert(Specifier::new("1.0.0"));
     set.insert(Specifier::new("2.0.0"));
@@ -51,7 +51,7 @@ fn specifier_in_hashset() {
 fn specifier_none_hashes() {
     let a = Specifier::new("");
     let b = Specifier::new("");
-    let mut set: HashSet<Arc<Specifier>> = HashSet::new();
+    let mut set: HashSet<Arc<Specifier>> = HashSet::default();
     set.insert(a);
     assert!(set.contains(&b));
     assert!(matches!(*b, Specifier::None));

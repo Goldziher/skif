@@ -9,7 +9,9 @@
 //! catalog rules.
 //! Semver groups are independent of version groups: the first matching one decides the range an instance should use.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
+
+use skif_core::HashMap;
 use std::sync::Arc;
 
 use skif_config::{
@@ -220,7 +222,7 @@ impl<'c> Groups<'c> {
         let mut owners = Vec::with_capacity(instances.len());
         // Hash maps while every instance is looked up, ordered by dependency once at the end.
         let mut dependencies: Vec<HashMap<Dependency<'i>, Vec<InstanceId>>> =
-            self.groups.iter().map(|_| HashMap::new()).collect();
+            self.groups.iter().map(|_| HashMap::default()).collect();
         for (id, instance) in instances.iter() {
             let owner = match self.claim(instance) {
                 Some(owner) => owner,

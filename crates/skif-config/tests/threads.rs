@@ -6,7 +6,7 @@
 #![cfg(target_os = "linux")]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::collections::HashSet;
+use skif_core::HashSet;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};

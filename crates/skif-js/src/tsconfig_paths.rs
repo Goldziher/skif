@@ -4,8 +4,8 @@
 //! and bundlers apply the nearest config to everything below it, including directories that are not packages
 //! (`packages/tsconfig.json`, `src/legacy/jsconfig.json`), test files a config excludes and JavaScript files.
 
+use skif_core::HashMap;
 use std::cmp::Reverse;
-use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, PoisonError, RwLock};
 
@@ -164,7 +164,7 @@ impl TsConfigs {
             root,
             members,
             root_config: None,
-            loaded: RwLock::new(HashMap::new()),
+            loaded: RwLock::new(HashMap::default()),
         }
     }
 
@@ -444,8 +444,8 @@ impl ForeignPaths {
             .collect();
         by_file.sort_by(|a, b| a.0.cmp(&b.0));
         by_file.dedup_by(|a, b| a.0 == b.0);
-        let mut exact: HashMap<String, Vec<usize>> = HashMap::new();
-        let mut wildcards: HashMap<String, Vec<(String, String, usize)>> = HashMap::new();
+        let mut exact: HashMap<String, Vec<usize>> = HashMap::default();
+        let mut wildcards: HashMap<String, Vec<(String, String, usize)>> = HashMap::default();
         for (position, (_, config)) in by_file.iter().enumerate() {
             for (pattern, _) in &config.paths {
                 match pattern.split_once('*') {

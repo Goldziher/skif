@@ -1,7 +1,8 @@
 //! Which exports of which modules are used, following re-export chains.
 
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, VecDeque};
 
+use skif_core::{HashMap, HashSet};
 use skif_js_syntax::{ExportKind, ImportKind, ImportedKind};
 use skif_workspace::PackageId;
 
@@ -78,7 +79,7 @@ impl ReexportIndex {
             .modules()
             .iter()
             .map(|module| {
-                let mut sources: HashMap<&str, ModuleId> = HashMap::new();
+                let mut sources: HashMap<&str, ModuleId> = HashMap::default();
                 for resolved in &module.imports {
                     let Some(import) = module.info.imports.get(resolved.import) else {
                         continue;

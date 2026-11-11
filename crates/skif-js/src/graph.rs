@@ -1,6 +1,8 @@
 //! The module graph: a worklist from the entry files over resolved imports.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
+
+use skif_core::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
@@ -572,14 +574,14 @@ impl<'a> Builder<'a> {
             candidate_index,
             package_dirs,
             modules: Vec::new(),
-            index: HashMap::new(),
-            project_dirs: HashMap::new(),
+            index: HashMap::default(),
+            project_dirs: HashMap::default(),
             components: BTreeMap::new(),
             linked: BTreeSet::new(),
             linked_upto: 0,
             relink: false,
-            untagged: HashMap::new(),
-            adopted: HashMap::new(),
+            untagged: HashMap::default(),
+            adopted: HashMap::default(),
         }
     }
 

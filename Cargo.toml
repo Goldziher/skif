@@ -12,6 +12,7 @@ homepage = "https://github.com/Goldziher/skif"
 repository = "https://github.com/Goldziher/skif"
 
 [workspace.dependencies]
+ahash = "0.8.12"
 anyhow = "1.0.104"
 assert_cmd = "2.2.2"
 clap = { version = "4.6.7", features = ["derive"] }
@@ -39,7 +40,6 @@ oxc_str = "0.158.0"
 proptest = "1.12.0"
 rayon = "1.12.0"
 regex = "1.13.1"
-rustc-hash = "2.1.3"
 rustls-native-certs = "0.8.5"
 # The crypto provider ureq's rustls uses in `skif update` (ADR 0058); ring, not aws-lc, so no C toolchain is needed.
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
@@ -65,6 +65,7 @@ skif-report = { path = "crates/skif-report", version = "=0.3.0" }
 skif-rules = { path = "crates/skif-rules", version = "=0.3.0" }
 skif-specifier = { path = "crates/skif-specifier", version = "=0.3.0" }
 skif-workspace = { path = "crates/skif-workspace", version = "=0.3.0" }
+simdutf8 = "0.1.5"
 similar = "3.2.1"
 strsim = "0.11.1"
 tempfile = "3.27.0"

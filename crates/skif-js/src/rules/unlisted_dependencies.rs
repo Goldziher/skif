@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use skif_core::HashSet;
 use std::path::PathBuf;
 
 use skif_core::{Category, Fixability, Location, Related, RuleMeta, Severity, diagnostic};
@@ -39,9 +39,9 @@ impl JsRule for UnlistedDependencies {
     }
 
     fn check(&self, analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>) {
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::default();
         // The files whose import of a package is reported, which a config reference of it in the same file repeats.
-        let mut imported = HashSet::new();
+        let mut imported = HashSet::default();
         for unlisted in &analysis.dependencies.unlisted {
             let module = analysis.graph.module(unlisted.module);
             if module.ignored

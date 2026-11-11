@@ -1,7 +1,7 @@
 //! Package facts read from a lockfile, for projects whose dependencies are not installed.
 
+use skif_core::HashMap;
 use std::collections::BTreeSet;
-use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -49,7 +49,7 @@ pub(crate) fn read(fs: &dyn FileSystem, root: &Path) -> Locked {
     } else if let Ok(text) = fs.read_to_string(&root.join("yarn.lock")) {
         yarn(&text)
     } else {
-        Entries::new()
+        Entries::default()
     };
     let packages = entries
         .into_iter()
@@ -101,7 +101,7 @@ fn pnpm(text: &str) -> Entries {
         Peers,
         Other,
     }
-    let mut entries = Entries::new();
+    let mut entries = Entries::default();
     let mut in_packages = false;
     let mut current: Option<String> = None;
     let mut section = Section::Other;
@@ -151,7 +151,7 @@ fn pnpm(text: &str) -> Entries {
 }
 
 fn npm(text: &str) -> Entries {
-    let mut entries = Entries::new();
+    let mut entries = Entries::default();
     let Ok(value) = serde_json::from_str::<Value>(text) else {
         return entries;
     };
@@ -175,7 +175,7 @@ fn parse_bun(text: &str) -> Value {
 }
 
 fn bun(value: &Value) -> Entries {
-    let mut entries = Entries::new();
+    let mut entries = Entries::default();
     let Some(packages) = value.get("packages").and_then(Value::as_object) else {
         return entries;
     };
@@ -207,7 +207,7 @@ fn yarn(text: &str) -> Entries {
         Bins,
         Other,
     }
-    let mut entries = Entries::new();
+    let mut entries = Entries::default();
     if !is_yarn_berry(text) {
         return entries;
     }

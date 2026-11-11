@@ -1,7 +1,7 @@
 //! Static evaluation of the value a tool configuration file exports. Nothing is executed.
 
+use skif_core::{HashMap, HashSet};
 use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 use std::sync::LazyLock;
@@ -466,11 +466,11 @@ pub fn extract_config(source: &str, path: &Path, loader: Option<&dyn ModuleLoade
         loader,
         root: path.parent().map(Path::to_path_buf).unwrap_or_default(),
         active: RefCell::new(vec![(path.to_path_buf(), Imported::Default)]),
-        loads: RefCell::new(HashSet::new()),
+        loads: RefCell::new(HashSet::default()),
         evaluations: Cell::new(0),
         cuts: Cell::new(0),
-        values: RefCell::new(HashMap::new()),
-        loaded: RefCell::new(HashMap::new()),
+        values: RefCell::new(HashMap::default()),
+        loaded: RefCell::new(HashMap::default()),
     };
     evaluate_config(source, path, Some(&modules))
 }
@@ -524,7 +524,7 @@ struct ImportBinding {
 
 /// The value imports of a module by local name; type-only imports bind no value.
 fn import_bindings(program: &Program<'_>) -> HashMap<String, ImportBinding> {
-    let mut imports = HashMap::new();
+    let mut imports = HashMap::default();
     for stmt in &program.body {
         let Statement::ImportDeclaration(d) = stmt else {
             continue;
@@ -565,7 +565,7 @@ enum ExportSource {
 
 /// The named exports of a module, and the modules it re-exports everything of (`export * from './x'`).
 fn export_table(program: &Program<'_>) -> (HashMap<String, ExportSource>, Vec<String>) {
-    let mut table = HashMap::new();
+    let mut table = HashMap::default();
     let mut stars = Vec::new();
     for stmt in &program.body {
         match stmt {
@@ -859,9 +859,9 @@ type Frame<'p, 'a> = HashMap<String, Binding<'p, 'a>>;
 
 fn top_level<'p, 'a>(program: &'p Program<'a>) -> TopLevel<'p, 'a> {
     let mut top = TopLevel {
-        consts: HashMap::new(),
-        functions: HashMap::new(),
-        changed: HashSet::new(),
+        consts: HashMap::default(),
+        functions: HashMap::default(),
+        changed: HashSet::default(),
         unstable: Unstable::of(program),
     };
     for stmt in &program.body {
@@ -1156,7 +1156,7 @@ fn find_properties(source: &str, path: &Path, key: &str, call_with: Option<&Conf
         file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
         key,
         call_with,
-        evaluated: HashMap::new(),
+        evaluated: HashMap::default(),
         shadowed: Vec::new(),
         found: Vec::new(),
     };
@@ -1313,7 +1313,7 @@ pub(crate) fn imported_calls_in(
         file,
         imported: &imported,
         commands,
-        chained_cwd: HashMap::new(),
+        chained_cwd: HashMap::default(),
         found: Vec::new(),
     };
     finder.visit_program(program);
@@ -1598,10 +1598,10 @@ impl<'a> CallFinder<'_, '_, 'a> {
         let Some(directory) = it.arguments.first().and_then(Argument::as_expression) else {
             return;
         };
-        let eval = Evaluator::in_file(self.top, self.bindings, self.file, HashMap::new());
+        let eval = Evaluator::in_file(self.top, self.bindings, self.file, HashMap::default());
         let probe = Evaluator {
             dir: PROBE_DIR,
-            ..Evaluator::in_file(self.top, self.bindings, self.file, HashMap::new())
+            ..Evaluator::in_file(self.top, self.bindings, self.file, HashMap::default())
         };
         let probed = ConfigValue::from(probe.expr(directory, 0));
         let cwd = marked_cwd(
@@ -1619,7 +1619,7 @@ impl<'a> Visit<'a> for CallFinder<'_, '_, 'a> {
             self.record_chained_cwd(it);
         }
         if let Some((module, export)) = self.target(&it.callee) {
-            let eval = Evaluator::in_file(self.top, self.bindings, self.file, HashMap::new());
+            let eval = Evaluator::in_file(self.top, self.bindings, self.file, HashMap::default());
             let mut arguments: Vec<ConfigValue> = it
                 .arguments
                 .iter()
@@ -1632,7 +1632,7 @@ impl<'a> Visit<'a> for CallFinder<'_, '_, 'a> {
             if self.commands && arguments.iter().any(|argument| argument.get("cwd").is_some()) {
                 let probe = Evaluator {
                     dir: PROBE_DIR,
-                    ..Evaluator::in_file(self.top, self.bindings, self.file, HashMap::new())
+                    ..Evaluator::in_file(self.top, self.bindings, self.file, HashMap::default())
                 };
                 for (argument, expression) in arguments.iter_mut().zip(&it.arguments) {
                     if let Some(expression) = expression.as_expression() {
@@ -1687,7 +1687,7 @@ impl<'a> Visit<'a> for OptionFinder<'_, '_, 'a> {
             _ => None,
         };
         if name == Some(self.constructor) {
-            let eval = Evaluator::in_file(self.top, self.bindings, self.file, HashMap::new());
+            let eval = Evaluator::in_file(self.top, self.bindings, self.file, HashMap::default());
             for argument in &it.arguments {
                 let Some(Expression::ObjectExpression(options)) =
                     argument.as_expression().map(Expression::get_inner_expression)
@@ -1723,7 +1723,7 @@ impl<'a> Visit<'a> for MethodCallFinder<'_, '_, 'a> {
         if let Expression::StaticMemberExpression(member) = it.callee.get_inner_expression()
             && member.property.name.as_str() == self.method
         {
-            let eval = Evaluator::in_file(self.top, self.bindings, self.file, HashMap::new());
+            let eval = Evaluator::in_file(self.top, self.bindings, self.file, HashMap::default());
             let arguments = it
                 .arguments
                 .iter()
@@ -1951,7 +1951,7 @@ struct Evaluator<'c, 'p, 'a> {
 }
 
 /// The imports of an evaluator that follows none.
-static NO_IMPORTS: LazyLock<HashMap<String, ImportBinding>> = LazyLock::new(HashMap::new);
+static NO_IMPORTS: LazyLock<HashMap<String, ImportBinding>> = LazyLock::new(HashMap::default);
 
 impl<'c, 'p, 'a> Evaluator<'c, 'p, 'a> {
     /// An evaluator of the module at `path`, named `file` and in the directory `dir` relative to the config file's,
@@ -1976,13 +1976,13 @@ impl<'c, 'p, 'a> Evaluator<'c, 'p, 'a> {
             path,
             imports,
             modules,
-            evaluated: RefCell::new(HashMap::new()),
+            evaluated: RefCell::new(HashMap::default()),
             chain: RefCell::new(Vec::new()),
             frames: RefCell::new(Vec::new()),
             calls: Cell::new(0),
             config_setter: RefCell::new(None),
             captured: RefCell::new(None),
-            arguments_of: RefCell::new(HashMap::new()),
+            arguments_of: RefCell::new(HashMap::default()),
         }
     }
 
@@ -2909,7 +2909,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         let Some(returned) = returned else {
             return Vec::new();
         };
-        self.frames.borrow_mut().push(Frame::new());
+        self.frames.borrow_mut().push(Frame::default());
         for param in &params.items {
             self.bind_pattern(&param.pattern, Value::Unknown, depth);
         }
@@ -2940,7 +2940,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             Vec::new()
         };
         // Parameters are bound in order inside the function, so a default sees the parameters before it.
-        self.frames.borrow_mut().push(Frame::new());
+        self.frames.borrow_mut().push(Frame::default());
         for (index, param) in params.items.iter().enumerate() {
             let value = match (args.map(|args| args.get(index)), &param.initializer) {
                 (Some(Some(value)), Some(default)) => self.defaulted(value.clone(), default, depth),
@@ -2986,7 +2986,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             Callable::Function(f) => &f.params,
             Callable::Arrow(f) => &f.params,
         };
-        self.frames.borrow_mut().push(Frame::new());
+        self.frames.borrow_mut().push(Frame::default());
         self.bind(&name, argument);
         for param in params.items.iter().skip(1) {
             self.bind_pattern(&param.pattern, Value::Unknown, depth);
@@ -3129,7 +3129,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// Runs the statements of a block in a frame of their own, so a `const` or `let` declared in it does not replace a
     /// binding outside it. A `var` it declares is function-scoped, and is left unknown outside the block.
     fn block(&self, statements: &'p [Statement<'a>], depth: u32) -> Option<Value> {
-        self.frames.borrow_mut().push(Frame::new());
+        self.frames.borrow_mut().push(Frame::default());
         let value = self.run(statements, depth);
         self.frames.borrow_mut().pop();
         let mut vars = Vars::default();

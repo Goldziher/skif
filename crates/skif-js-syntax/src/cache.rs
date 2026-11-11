@@ -5,7 +5,9 @@
 //! through [`ModuleCache`]; this crate only owns the key, the stored value, an in-memory implementation and the
 //! [`ParseCoalescer`] that makes the threads of one run parse each key once (ADR 0101).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
+
+use skif_core::HashMap;
 use std::hash::Hasher as _;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};

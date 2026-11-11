@@ -10,7 +10,7 @@
 //! matched by name. A reference that resolves to nothing (one in another script block of a component) counts for the
 //! binding of its name.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 use oxc_ast::ast::{
     Argument, BindingPattern, CallExpression, ComputedMemberExpression, Expression, IdentifierReference,
@@ -18,6 +18,7 @@ use oxc_ast::ast::{
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::{Scoping, SymbolId};
+use skif_core::{HashMap, HashSet};
 
 use crate::model::{ImportKind, ModuleInfo};
 use crate::semantic::Analysis;
@@ -397,7 +398,7 @@ pub(crate) fn track(
 /// The uses of every name in `program`, imported or not. Component files use it to credit imports of one script
 /// block that another block reads.
 pub(crate) fn uses(program: &oxc_ast::ast::Program<'_>, analysis: &Analysis<'_>) -> Uses {
-    let excluded = HashSet::new();
+    let excluded = HashSet::default();
     let mut tracker = Tracker {
         slots: Slots::default(),
         open: true,
@@ -550,10 +551,10 @@ pub(crate) fn mark_local_reads(program: &oxc_ast::ast::Program<'_>, analysis: &A
     }
     let mut tracker = LocalReads {
         wanted: &wanted,
-        reads: HashMap::new(),
+        reads: HashMap::default(),
     };
     tracker.visit_program(program);
-    let mut namespaces: HashMap<String, BTreeSet<String>> = HashMap::new();
+    let mut namespaces: HashMap<String, BTreeSet<String>> = HashMap::default();
     for export in info
         .exports
         .iter()

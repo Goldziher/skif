@@ -3,7 +3,9 @@
 //! [`JsAnalysis::explain_usage`] builds a [`UsageReport`]; the verdict of an export and the evidence listed with it are
 //! computed together, and [`UsageReport::render`] is the only place that turns the report into text.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
+
+use skif_core::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -568,7 +570,7 @@ impl JsAnalysis<'_> {
         };
         let mut walk = Walk {
             reachable: self.reachable_from_entries(),
-            seen: HashSet::new(),
+            seen: HashSet::default(),
         };
         let chain = self
             .chain_to_entry(module.id)
@@ -821,7 +823,7 @@ impl JsAnalysis<'_> {
     /// The shortest chain of imports from an entry file to `id`, entry first.
     fn chain_to_entry(&self, id: ModuleId) -> Option<Vec<ModuleId>> {
         let modules = self.graph.modules();
-        let mut previous: HashMap<ModuleId, ModuleId> = HashMap::new();
+        let mut previous: HashMap<ModuleId, ModuleId> = HashMap::default();
         let mut queue: VecDeque<ModuleId> = modules
             .iter()
             .filter(|module| module.is_entry)
@@ -921,7 +923,7 @@ impl JsAnalysis<'_> {
                     .any(|re_export| matches!(re_export.export.verdict, Verdict::Used | Verdict::Public)));
         let used = report.registered || forwarded_use || self.exports.is_used(module.id, name);
         report.in_used_signature =
-            !used && export.is_some_and(|export| self.in_used_signature(module, export, &mut HashSet::new()));
+            !used && export.is_some_and(|export| self.in_used_signature(module, export, &mut HashSet::default()));
         report.verdict = if report.entry_public || report.tagged_public {
             Verdict::Public
         } else if used || report.in_used_signature {

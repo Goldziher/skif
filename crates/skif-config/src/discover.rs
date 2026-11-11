@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use skif_core::{HashMap, HashSet};
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
@@ -347,7 +347,7 @@ impl<'a> ConfigLoader<'a> {
     fn resolve_files(&self, root: &Path, files: Vec<(PathBuf, SourceKind)>) -> Result<ResolvedConfig, ConfigError> {
         let mut walk = Walk {
             loader: self,
-            seen: HashSet::new(),
+            seen: HashSet::default(),
             sources: Vec::new(),
             files: Vec::new(),
         };

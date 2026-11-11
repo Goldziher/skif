@@ -8,7 +8,7 @@
 #![cfg(target_os = "linux")]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::collections::HashSet;
+use skif_core::HashSet;
 use std::io;
 use std::num::NonZeroUsize;
 use std::path::Path;

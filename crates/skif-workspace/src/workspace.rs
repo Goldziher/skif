@@ -5,9 +5,9 @@ use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use rustc_hash::FxHashMap;
 use serde_json::Value;
 use skif_config::{Config, PackageManager};
+use skif_core::HashMap;
 use skif_core::{DirEntry, FileSystem, LineIndex, OsFs, PathSeg, Span};
 use skif_specifier::SpecifierCache;
 
@@ -125,7 +125,7 @@ pub struct Workspace {
     /// Member directories (relative to the root) whose `package.json` could not be read or parsed.
     failed_dirs: Vec<PathBuf>,
     /// Package name to id, the root first: with a name declared twice the first package wins.
-    by_name: FxHashMap<Box<str>, PackageId>,
+    by_name: HashMap<Box<str>, PackageId>,
     /// Indexed by [`PackageId`]: whether `[workspace] ignore-packages` excludes the package.
     ignored: Vec<bool>,
     /// Whether this is a standalone package found below another root of a recursive run.
@@ -601,7 +601,7 @@ impl Workspace {
             declared.source
         };
 
-        let mut by_name = FxHashMap::default();
+        let mut by_name = HashMap::default();
         for package in std::iter::once(&root_package).chain(&packages) {
             if let Some(name) = package.name.as_deref() {
                 by_name.entry(Box::<str>::from(name)).or_insert(package.id);

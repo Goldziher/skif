@@ -1,6 +1,8 @@
 //! The analysis the rules read: module graph, export usage and dependency usage.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
+
+use skif_core::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -374,7 +376,7 @@ fn judged_ignore_files(
         });
     }
     let keys = &setup.workspace_keys;
-    let mut incomplete = HashSet::new();
+    let mut incomplete = HashSet::default();
     for (id, package) in workspace.iter() {
         let Some(package_setup) = setup.package(id) else {
             continue;
@@ -809,7 +811,7 @@ impl<'a> JsAnalysis<'a> {
             .filter(|export| !(export.referenced_in_file && self.setup.ignores_in_file_use(module.owner, export)))
             .filter(|export| !self.exports.is_used(module.id, &export.name))
             .filter(|export| !self.setup.is_registered(module.owner, export))
-            .filter(|export| !self.in_used_signature(module, export, &mut HashSet::new()))
+            .filter(|export| !self.in_used_signature(module, export, &mut HashSet::default()))
             .collect()
     }
 
@@ -892,7 +894,7 @@ impl<'a> JsAnalysis<'a> {
     fn export_in_use(&self, module: &Module, export: &Export) -> bool {
         (export.referenced_in_file && self.setup.ignores_in_file_use(module.owner, export))
             || self.exports.is_used(module.id, &export.name)
-            || self.in_used_signature(module, export, &mut HashSet::new())
+            || self.in_used_signature(module, export, &mut HashSet::default())
     }
 
     /// Tags of the exports and members of `module` that exempt something used anyway, in source order.

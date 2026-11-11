@@ -1,5 +1,5 @@
+use skif_core::HashMap;
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use skif_config::{Config, Level, Override};
@@ -45,8 +45,8 @@ struct PackageFacts {
 
 impl Scopes {
     pub fn new(workspace: &Workspace, config: &Config) -> Self {
-        let mut by_name: HashMap<String, Vec<usize>> = HashMap::new();
-        let mut by_dir: HashMap<PathBuf, usize> = HashMap::new();
+        let mut by_name: HashMap<String, Vec<usize>> = HashMap::default();
+        let mut by_dir: HashMap<PathBuf, usize> = HashMap::default();
         let packages: Vec<PackageFacts> = workspace
             .iter()
             .enumerate()

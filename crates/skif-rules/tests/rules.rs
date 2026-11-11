@@ -2,7 +2,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::collections::HashSet;
+use skif_core::HashSet;
 use std::path::Path;
 
 use skif_config::Config;

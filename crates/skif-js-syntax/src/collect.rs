@@ -1,6 +1,6 @@
 //! Top-level import and export statements.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use oxc_ast::ast::{
     ArrayExpressionElement, BindingPattern, Class, ClassElement, Declaration, ExportDefaultDeclarationKind,
@@ -8,6 +8,7 @@ use oxc_ast::ast::{
     Program, Statement, StringLiteral, TSEnumMemberName, TSNamespaceDeclarationBody,
 };
 use oxc_span::Span as OxcSpan;
+use skif_core::HashMap;
 use skif_core::{LineIndex, Span};
 
 use crate::jsdoc::leading_tags;
@@ -93,7 +94,7 @@ struct ImportBinding {
 
 /// Every binding the top-level import declarations introduce, by local name.
 fn import_bindings(program: &Program<'_>) -> HashMap<String, ImportBinding> {
-    let mut bindings = HashMap::new();
+    let mut bindings = HashMap::default();
     for stmt in &program.body {
         let Statement::ImportDeclaration(d) = stmt else {
             continue;
@@ -576,7 +577,7 @@ impl Export {
 
 /// Collects imports and exports from the top-level statements of `program`.
 pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInfo) -> Collected {
-    let mut local_decls: HashMap<String, Declared> = HashMap::new();
+    let mut local_decls: HashMap<String, Declared> = HashMap::default();
     for stmt in &program.body {
         let decl = match stmt {
             Statement::ExportDeclaration(e) => Some(&e.declaration),
