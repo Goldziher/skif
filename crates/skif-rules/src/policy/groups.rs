@@ -61,14 +61,35 @@ impl<'c> Selectors<'c> {
     }
 
     pub(crate) fn matches(&self, instance: &Instance<'_>) -> bool {
+        self.matches_with(instance, || self.dependencies.matches(&instance.name, instance.is_local))
+    }
+
+    /// [`matches`](Self::matches), with `dependency` deciding the `dependencies` selector when it has patterns.
+    fn matches_with(&self, instance: &Instance<'_>, dependency: impl FnOnce() -> bool) -> bool {
         self.packages.get(instance.package.id.index()).copied().unwrap_or(false)
-            && (self.dependencies.is_empty() || self.dependencies.matches(&instance.name, instance.is_local))
+            && (self.dependencies.is_empty() || dependency())
             && (if self.dependency_types.is_empty() {
                 in_default_scope(self.scope, instance.ty())
             } else {
                 self.dependency_types.matches(instance.ty())
             })
             && identifier_matches(self.specifier_types, instance.specifier.get_config_identifier())
+    }
+}
+
+/// The verdicts of one `dependencies` selector, by dependency name and whether it is a workspace package: a glob
+/// match is worked out once per dependency rather than once per instance.
+#[derive(Default)]
+struct NameMatches<'i> {
+    known: HashMap<(&'i str, bool), bool>,
+}
+
+impl<'i> NameMatches<'i> {
+    fn matches(&mut self, selector: &Selector, instance: &'i Instance<'_>) -> bool {
+        *self
+            .known
+            .entry((&*instance.name, instance.is_local))
+            .or_insert_with(|| selector.matches(&instance.name, instance.is_local))
     }
 }
 
@@ -223,8 +244,10 @@ impl<'c> Groups<'c> {
         // Hash maps while every instance is looked up, ordered by dependency once at the end.
         let mut dependencies: Vec<HashMap<Dependency<'i>, Vec<InstanceId>>> =
             self.groups.iter().map(|_| HashMap::default()).collect();
+        let mut claims: Vec<NameMatches<'i>> = self.groups.iter().map(|_| NameMatches::default()).collect();
+        let mut ranges: Vec<NameMatches<'i>> = self.semver.iter().map(|_| NameMatches::default()).collect();
         for (id, instance) in instances.iter() {
-            let owner = match self.claim(instance) {
+            let owner = match self.claim_with(instance, &mut claims) {
                 Some(owner) => owner,
                 None if self.governs_by_default(instance) => self.groups.len() - 1,
                 None => {
@@ -238,7 +261,7 @@ impl<'c> Groups<'c> {
                 .entry((&*instance.name, instance.alias_target()))
                 .or_default()
                 .push(id);
-            preferred.push(self.preferred_range(instance));
+            preferred.push(self.preferred_range(instance, &mut ranges));
         }
         Assignment {
             preferred,
@@ -250,21 +273,37 @@ impl<'c> Groups<'c> {
         }
     }
 
+    /// [`claim`](Self::claim), with each group's `dependencies` selector looked up in `names` (one per group).
+    fn claim_with<'i>(&self, instance: &'i Instance<'_>, names: &mut [NameMatches<'i>]) -> Option<usize> {
+        self.groups.iter().zip(names).position(|(group, names)| {
+            group.selectors.as_ref().is_some_and(|selectors| {
+                selectors.matches_with(instance, || names.matches(selectors.dependencies, instance))
+            })
+        })
+    }
+
     /// Whether the catch-all group takes an instance no configured group claims: it is in a section the policy covers
     /// by default and the catalog rules do not report it.
     fn governs_by_default(&self, instance: &Instance<'_>) -> bool {
         !instance.catalog_owned && in_default_scope(self.scope, instance.ty())
     }
 
-    /// The range of the first matching semver group, if the specifier can carry one.
-    fn preferred_range(&self, instance: &Instance<'_>) -> Option<SemverRange> {
+    /// The range of the first matching semver group, if the specifier can carry one; each group's `dependencies`
+    /// selector is looked up in `names` (one per semver group).
+    fn preferred_range<'i>(&self, instance: &'i Instance<'_>, names: &mut [NameMatches<'i>]) -> Option<SemverRange> {
         if instance.is_own_version() {
             return None;
         }
         let range = self
             .semver
             .iter()
-            .find(|group| group.selectors.matches(instance))?
+            .zip(names)
+            .find_map(|(group, names)| {
+                group
+                    .selectors
+                    .matches_with(instance, || names.matches(group.selectors.dependencies, instance))
+                    .then_some(group)
+            })?
             .range
             .clone()?;
         instance.specifier.with_range(&range).map(|_| range)
@@ -703,5 +742,36 @@ mod tests {
         };
         assert_eq!(range_of("react"), None);
         assert_eq!(range_of("typescript").as_deref(), Some("^"));
+    }
+
+    #[test]
+    fn a_glob_selector_decides_every_instance_of_a_name_alike() {
+        let config = config(
+            "[[semver-groups]]\ndependencies = [\"re*\"]\nrange = \"~\"\n\n[[semver-groups]]\nrange = \"^\"\n",
+        );
+        let workspace = workspace(&files(), &config);
+        let instances = Instances::collect(&workspace, &config, true);
+        let assignment = Groups::compile(&workspace, &config).assign(&instances);
+        let ranges: Vec<(String, String, Option<String>)> = instances
+            .iter()
+            .filter(|(_, instance)| !instance.is_own_version() && instance.name != "left-pad")
+            .map(|(id, instance)| {
+                (
+                    instance.package.display_name().to_owned(),
+                    instance.name.to_string(),
+                    assignment.preferred(id).map(SemverRange::unwrap),
+                )
+            })
+            .collect();
+        let row = |package: &str, name: &str, range: &str| (package.to_owned(), name.to_owned(), Some(range.to_owned()));
+        assert_eq!(
+            ranges,
+            [
+                row("app", "react", "~"),
+                row("app", "lib", "^"),
+                row("app", "typescript", "^"),
+                row("lib", "react", "~"),
+            ]
+        );
     }
 }
