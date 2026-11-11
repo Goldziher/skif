@@ -44,5 +44,9 @@ criterion.workspace = true
 name = "discover"
 harness = false
 
+[[bench]]
+name = "lockfile"
+harness = false
+
 [lints]
 workspace = true
