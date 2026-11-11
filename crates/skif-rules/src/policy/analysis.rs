@@ -46,20 +46,14 @@ pub(crate) struct GroupSummary {
 }
 
 impl<'w> Analysis<'w> {
-    /// Runs the version groups with the catalog rules owning the dependencies `catalog_owns` selects, as the
-    /// provider does.
-    #[cfg(test)]
-    pub(crate) fn run(workspace: &'w Workspace, config: &Config, catalog_owns: bool) -> Self {
-        let instances = Instances::collect(workspace, config, catalog_owns);
-        Self::from_instances(workspace, config, instances, true)
-    }
-
     /// Runs the version groups; the dependencies in `owned` are left to the catalog rules (see
-    /// [`Instances::collect_with`]). With `sequential` everything runs on the calling thread.
+    /// [`Instances::collect_with`]), and with `paths_reported_elsewhere` the paths of the dependency sections to
+    /// `local-path-dependency`. With `sequential` everything runs on the calling thread.
     pub(crate) fn run_with(
         workspace: &'w Workspace,
         config: &Config,
         owned: &BTreeSet<&str>,
+        paths_reported_elsewhere: bool,
         sequential: bool,
     ) -> Self {
         Self::from_instances(
@@ -73,15 +67,19 @@ impl<'w> Analysis<'w> {
                 &config.filter,
                 sequential,
             ),
+            paths_reported_elsewhere,
             sequential,
         )
     }
 
-    /// Runs the version groups over `instances`. With `sequential` everything runs on the calling thread.
+    /// Runs the version groups over `instances`, leaving the paths of the dependency sections to
+    /// `local-path-dependency` when `paths_reported_elsewhere`. With `sequential` everything runs on the calling
+    /// thread.
     pub(crate) fn from_instances(
         workspace: &'w Workspace,
         config: &Config,
         instances: Instances<'w>,
+        paths_reported_elsewhere: bool,
         sequential: bool,
     ) -> Self {
         let (verdicts, unused_groups, invalid_pins, summaries, owners, preferred) = {
@@ -110,7 +108,7 @@ impl<'w> Analysis<'w> {
                 .flat_map(|(index, group)| assignment.dependencies(index).map(move |(_, ids)| (&group.policy, ids)))
                 .collect();
             let marks: Vec<Vec<(InstanceId, Verdict)>> = map_ordered(&visits, sequential, |&(policy, ids)| {
-                let mut visitor = Visitor::new(&instances, &assignment);
+                let mut visitor = Visitor::new(&instances, &assignment, paths_reported_elsewhere);
                 visitor.visit(policy, ids);
                 visitor.into_marks()
             });
