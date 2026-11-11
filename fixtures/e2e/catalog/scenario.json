@@ -1,0 +1,26 @@
+{
+  "description": "The default catalog in the manager's own form (pnpm-workspace.yaml, Bun's workspaces.catalog, Yarn's .yarnrc.yml): one member takes the dependency from it, the other pins it, and a local path.",
+  "managers": [
+    "pnpm",
+    "yarn",
+    "bun"
+  ],
+  "requires": {
+    "yarn": "4.10.0"
+  },
+  "catalog": {
+    "is-number": "7.0.0"
+  },
+  "expect": {
+    "exit_code": 1,
+    "diagnostics": [
+      "catalog-mismatch:@e2e/a:is-number",
+      "local-path-dependency:@e2e/b:@e2e/a",
+      "root-package-private-field:e2e-catalog"
+    ],
+    "after_fix": {
+      "exit_code": 0,
+      "diagnostics": []
+    }
+  }
+}
