@@ -186,10 +186,9 @@ under [Parity with knip](#parity-with-knip).
 | Operating systems and architectures | macOS, Linux (glibc, musl), Windows; x64 and arm64 (1) | macOS, Linux (glibc, musl), Windows; x64 and arm64 | macOS, Linux (glibc, musl), Windows; x64 and arm64 | Where `oxc-parser` has a native binding (macOS, Linux glibc and musl, Windows, FreeBSD and more); CI runs macOS, Linux and Windows |
 | Distribution | npm, crates.io, cargo-binstall, GitHub release archives, Homebrew, Scoop, GitHub Action, pre-commit and prek, Poly | npm, GitHub release archives, GitHub Action; Homebrew (homebrew-core) | npm; crates.io up to 14.0.0 | npm |
 
-1. On Windows, use the release archives, cargo-binstall, Scoop or the GitHub Action. The npm package on `main` lists
-   Windows x64 and arm64 addons
-   ([ADR 0070](https://github.com/Goldziher/skif/blob/main/adrs/0070-windows-npm-packages.md)), but none is published
-   yet: `skif-cli` 0.2.0 ships no Windows addon.
+1. On Windows, use the release archives, cargo-binstall, Scoop or the GitHub Action. Windows is not on npm in 0.3.0:
+   `skif-cli` ships no Windows addon until the Windows platform package names exist on npm
+   ([ADR 0114](https://github.com/Goldziher/skif/blob/main/adrs/0114-windows-npm-packages-deferred.md)).
 
 The skif versions and operating systems per package manager are under
 [Supported versions](../../start/installation/#supported-versions)

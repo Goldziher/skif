@@ -108,9 +108,11 @@ publishing; the steps around it are by hand.
    publisher (this repository, workflow `publish.yaml`):
    - npm: `skif-cli` and the platform package of every `napi.targets` entry in `npm-package/package.json`
      (`skif-darwin-arm64`, `skif-darwin-x64`, `skif-linux-arm64-gnu`, `skif-linux-arm64-musl`, `skif-linux-x64-gnu`,
-     `skif-linux-x64-musl`, `skif-win32-arm64-msvc`, `skif-win32-x64-msvc`). A real run stops before it creates the
-     release when one is missing (`scripts/check-npm-packages-exist.sh`), so check with
-     `bash scripts/check-npm-packages-exist.sh` before tagging.
+     `skif-linux-x64-musl`). A real run stops before it creates the release when one is missing
+     (`scripts/check-npm-packages-exist.sh`), so check with `bash scripts/check-npm-packages-exist.sh` before tagging.
+     Windows is not on npm in 0.3.0: `skif-win32-x64-msvc` and `skif-win32-arm64-msvc` do not exist yet, and their
+     targets return to `napi.targets` once both names exist and have the trusted publisher
+     ([ADR 0114](adrs/0114-windows-npm-packages-deferred.md)).
    - crates.io: every crate in `scripts/publish-crates.sh`. `skif-node` and `skif-bench` are `publish = false`.
    - `Goldziher/homebrew-tap` needs a `Formula/` directory and `Goldziher/scoop-bucket` a `bucket/` directory; the
      `HOMEBREW_TOKEN` secret must be able to push to both, and needs the `workflows` permission on this repository to
@@ -125,8 +127,7 @@ publishing; the steps around it are by hand.
    lists the crates whose public API needs a semver bump; quote it for the breaking changes. A real run refuses a tag
    whose `CHANGELOG.md` has no `## [<version>]` section.
 4. **Rehearse.** Run the workflow with the `dry-run` input on the release commit. It builds every target, loads the
-   npm addons on every platform, installs the packed npm tarballs on both Windows runners (npm and Bun) and packages
-   the crates, without publishing. The same dry run starts on every pull request that touches the release inputs
+   npm addons on every platform and packages the crates, without publishing. The same dry run starts on every pull request that touches the release inputs
    (`Cargo.toml`, `Cargo.lock`, `crates/skif-node`, `crates/skif-cli`, `npm-package`, `action.yml` or a release
    script) and every Monday; do not tag while the last one is red.
 5. **Tag.** Tag a commit that is on `main` and has a green `ci.yml` run as `v<version>` and push the tag; the workflow

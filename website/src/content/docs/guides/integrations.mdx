@@ -186,8 +186,10 @@ script that calls it under `bazel run` resolves paths against its own current di
 
 The `skif-cli` package is a native addon built with napi-rs for the Node.js lines that are not end-of-life (22, 24 and 26 today; see the [Node.js release schedule](https://nodejs.org/en/about/previous-releases)) and Bun 1.x; older versions may work but are not supported. It is ESM only (from CommonJS use `import()`, or `require()` on Node 22.12+), has no install script,
 and downloads nothing at install time: one platform package per target is an optional dependency, so your package
-manager installs only the one that matches the machine: macOS, Linux (glibc and musl) and Windows, each on x64
-and arm64.
+manager installs only the one that matches the machine: macOS and Linux (glibc and musl), each on x64 and arm64.
+Windows is not on npm in 0.3.0
+([ADR 0114](https://github.com/Goldziher/skif/blob/main/adrs/0114-windows-npm-packages-deferred.md)); on Windows,
+use the release archives, cargo-binstall or Scoop.
 
 ```js
 import { lint, lintAsync, run } from "skif-cli";
