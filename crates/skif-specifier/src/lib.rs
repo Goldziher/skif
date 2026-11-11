@@ -161,6 +161,16 @@ pub fn strip_semver_range(value: &str) -> &str {
         .unwrap_or(value)
 }
 
+/// Whether two pre-release identifiers render as the same text, comparing without formatting either when they are
+/// of the same kind.
+fn same_identifier_text(left: &nodejs_semver::Identifier, right: &nodejs_semver::Identifier) -> bool {
+    use nodejs_semver::Identifier::{AlphaNumeric, Numeric};
+    match (left, right) {
+        (Numeric(left), Numeric(right)) => left == right,
+        (AlphaNumeric(left), AlphaNumeric(right)) => left == right,
+        (Numeric(number), AlphaNumeric(text)) | (AlphaNumeric(text), Numeric(number)) => *text == number.to_string(),
+    }
+}
 
 /// A parsed `package.json` dependency specifier.
 #[derive(Debug)]
@@ -858,10 +868,7 @@ impl Specifier {
         // Prerelease identifiers are stored as a Vec of Identifiers
         // We need to compare the first element as a string
         match (self_prerelease.first(), other_prerelease.first()) {
-            (Some(self_first), Some(other_first)) => {
-                // Convert to string and compare
-                self_first.to_string() == other_first.to_string()
-            }
+            (Some(self_first), Some(other_first)) => same_identifier_text(self_first, other_first),
             _ => false,
         }
     }
