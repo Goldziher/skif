@@ -141,32 +141,52 @@ impl Tracker<'_> {
 
     fn member(&mut self, id: &IdentifierReference<'_>, member: &str) {
         if let Some(slot) = self.slot(id) {
-            slot.members.insert(member.to_string());
+            insert_name(&mut slot.members, member);
             slot.member_uses += 1;
-            slot.nested.entry(member.to_owned()).or_default().uses += 1;
+            update_nested(&mut slot.nested, member, |nested| nested.uses += 1);
         }
     }
 
     /// Records `id.member.inner`. The walk records `id.member` on its own.
     fn nested_member(&mut self, id: &IdentifierReference<'_>, member: &str, inner: &str) {
         if let Some(slot) = self.slot(id) {
-            let nested = slot.nested.entry(member.to_owned()).or_default();
-            nested.members.insert(inner.to_owned());
-            nested.member_uses += 1;
+            update_nested(&mut slot.nested, member, |nested| {
+                insert_name(&mut nested.members, inner);
+                nested.member_uses += 1;
+            });
         }
     }
 
     /// Records `inner` read on `object` when `object` is a member read through an identifier (`ns.E`, `ns['E']`).
     fn read_on_member(&mut self, object: &Expression<'_>, inner: &str) {
         if let Some((id, member)) = identifier_member(object) {
-            self.nested_member(id, &member, inner);
+            self.nested_member(id, member, inner);
+        }
+    }
+}
+
+/// Adds `name` to `names`, allocating only when it is new: most members are read more than once.
+fn insert_name(names: &mut BTreeSet<String>, name: &str) {
+    if !names.contains(name) {
+        names.insert(name.to_owned());
+    }
+}
+
+/// Applies `update` to the slot of `member` in `nested`, an empty one when it is new.
+fn update_nested(nested: &mut BTreeMap<String, Slot>, member: &str, update: impl FnOnce(&mut Slot)) {
+    match nested.get_mut(member) {
+        Some(slot) => update(slot),
+        None => {
+            let mut slot = Slot::default();
+            update(&mut slot);
+            nested.insert(member.to_owned(), slot);
         }
     }
 }
 
 impl<'a> Visit<'a> for Tracker<'_> {
     fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
-        if self.excluded.contains(&(it.span.start, it.span.end)) {
+        if !self.excluded.is_empty() && self.excluded.contains(&(it.span.start, it.span.end)) {
             return;
         }
         if let Some(slot) = self.slot(it) {
@@ -241,14 +261,14 @@ impl<'a> Visit<'a> for Tracker<'_> {
 }
 
 /// The identifier and the member of `id.member` or `id['member']`.
-fn identifier_member<'c, 'a>(expression: &'c Expression<'a>) -> Option<(&'c IdentifierReference<'a>, String)> {
+fn identifier_member<'c, 'a>(expression: &'c Expression<'a>) -> Option<(&'c IdentifierReference<'a>, &'c str)> {
     match expression {
         Expression::StaticMemberExpression(member) => match &member.object {
-            Expression::Identifier(id) => Some((&**id, member.property.name.as_str().to_owned())),
+            Expression::Identifier(id) => Some((&**id, member.property.name.as_str())),
             _ => None,
         },
         Expression::ComputedMemberExpression(member) => match (&member.object, &member.expression) {
-            (Expression::Identifier(id), Expression::StringLiteral(s)) => Some((&**id, s.value.as_str()?.to_owned())),
+            (Expression::Identifier(id), Expression::StringLiteral(s)) => Some((&**id, s.value.as_str()?)),
             _ => None,
         },
         _ => None,
@@ -472,10 +492,12 @@ impl LocalReads<'_> {
         if !self.wanted.contains(local) {
             return false;
         }
-        self.reads
-            .entry(local.to_owned())
-            .or_default()
-            .insert(member.to_owned());
+        match self.reads.get_mut(local) {
+            Some(reads) => insert_name(reads, member),
+            None => {
+                self.reads.insert(local.to_owned(), BTreeSet::from([member.to_owned()]));
+            }
+        }
         true
     }
 }
