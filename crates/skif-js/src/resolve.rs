@@ -22,7 +22,7 @@ use crate::ancestors::is_repository_root;
 use crate::manifest_paths::{ENTRY_FIELDS, map_to_source, resolve_exports, resolve_imports};
 use crate::setup::Setup;
 use crate::specifier::{
-    assumed_package, has_foreign_scheme, is_builtin, node_modules_package, node_modules_specifier_package,
+    assumed_package, bin_link, has_foreign_scheme, is_builtin, node_modules_package, node_modules_specifier_package,
     package_name, subpath,
 };
 use crate::tsconfig_paths::{ForeignPaths, TsConfigs, TsPaths};
@@ -1063,6 +1063,9 @@ impl ModuleResolver {
     }
 
     /// Resolves `specifier` as written in the file `importer`.
+    ///
+    /// A `node_modules/.bin` link ([`bin_link`]) is installed code whether or not it is installed yet: the binary it
+    /// names is credited by the dependency rules, never resolved as a module.
     pub(crate) fn resolve(&self, importer: &Path, specifier: &str) -> Outcome {
         let outcome = |target, package| Outcome { target, package };
         if is_builtin(specifier) {
@@ -1070,6 +1073,9 @@ impl ModuleResolver {
         }
         if has_foreign_scheme(specifier) {
             return outcome(Resolved::Ignored, None);
+        }
+        if bin_link(specifier).is_some() {
+            return outcome(Resolved::Asset, None);
         }
         self.resolve_module(Kind::Script, importer, specifier)
     }
@@ -1568,6 +1574,21 @@ mod tests {
         let lodash = r.resolve(importer, "lodash/fp");
         assert_eq!(lodash.target, Resolved::External("lodash".to_owned()));
         assert_eq!(lodash.package.as_deref(), Some("lodash"));
+    }
+
+    #[test]
+    fn bin_links_are_installed_code_whether_or_not_installed() {
+        let r = resolver(&[
+            ("package.json", ROOT),
+            ("packages/a/package.json", r#"{"name":"@x/a"}"#),
+            ("packages/a/node_modules/.bin/installed", "#!/bin/sh\n"),
+        ]);
+        let importer = Path::new("/ws/packages/a/src/a.ts");
+        for specifier in [".bin/installed", ".bin/jscodeshift", "node_modules/.bin/tsc"] {
+            let outcome = r.resolve(importer, specifier);
+            assert_eq!(outcome.target, Resolved::Asset, "{specifier}");
+            assert_eq!(outcome.package, None, "{specifier}");
+        }
     }
 
     #[test]

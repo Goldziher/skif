@@ -412,6 +412,9 @@ All notable changes to this project are documented here. The format follows
   read.
 - The GitHub Action, pre-commit and Poly examples pin the current release line instead of 0.1
   ([#94](https://github.com/Goldziher/skif/issues/94)).
+- `require.resolve('.bin/x')` and `import.meta.resolve('.bin/x')` (also `node_modules/.bin/x`) are no longer an
+  `unresolved-imports` finding before the install: they name binary `x`, which uses the listed dependency that
+  provides it, so that dependency is not unused ([#164](https://github.com/Goldziher/skif/issues/164)).
 
 ## [0.2.0] - 2026-11-08
 
