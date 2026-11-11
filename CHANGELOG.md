@@ -152,15 +152,22 @@ All notable changes to this project are documented here. The format follows
   ([#27](https://github.com/Goldziher/skif/issues/27), [#95](https://github.com/Goldziher/skif/issues/95)).
 - **Benchmarks**: the `bench` workflow (`.github/workflows/bench.yml`, dispatched by hand) measures the speed tables on
   a pinned GitHub-hosted runner image (`ubuntu-24.04` or `ubuntu-24.04-arm`) with the inputs `ref`, `runner`, `runs`,
-  `warmup` and `only`, builds with each checkout's `rust-version` and `--locked`, and uploads the summary and the raw
-  hyperfine exports as an artifact; `mise run bench:import -- <run-id>` downloads it, refreshes the tables and puts
-  the summary into `tools/bench/results` for a local commit. `skif-bench run` records the machine (operating system,
-  kernel, architecture, CPU model, logical, available and physical CPUs, memory, cgroup CPU limit, hypervisor, the
-  GitHub runner image and run URL) and the toolchain (`rustc`, `node`, `npm`, `pnpm`, `yarn`, `bun`) in
-  `summary.json` schema 3 and the `summary.md` header, takes `--only` to time some corpus repositories and
-  `--skif-source` to name the checkout the measured binary was built from, and refuses a comparison tool in
-  `corpus.toml` that is not pinned to an exact version
-  ([ADR 0113](adrs/0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md)).
+  `warmup` and `only`, builds with each checkout's `rust-version` (`scripts/msrv.sh`) and `--locked`, installs its mise
+  tools with `MISE_LOCKED=1` and the corpus through corepack's pnpm and yarn shims, and uploads the summary and the raw
+  hyperfine exports as an artifact; `mise run bench:import -- <run-id>` imports only a successful dispatched run of
+  `bench` whose commit is on `origin/main` and is the summary's harness commit, refreshes the tables and puts the
+  summary and `raw/` into `tools/bench/results` for a local commit. The comparison tools are installed with `npm ci`
+  from `tools/bench/tools/package-lock.json`, which pins their dependencies and has to agree with `[tools]` of
+  `corpus.toml`. `skif-bench run` records the machine (operating system, kernel, architecture, CPU model, logical,
+  available and physical CPUs, memory, the tightest cgroup CPU limit of the cgroup and its ancestors, hypervisor, the
+  GitHub runner image, run attempt and its URL, and the one-line `machine_text`), the toolchain (`rustc`, `node`,
+  `npm`, `pnpm`, `yarn`, `bun`) and what installed each corpus repository in `summary.json` schema 4 and the
+  `summary.md` header; it runs a tool that exited with an error once more to log its stderr and record the cause, and
+  marks an ADR 0001 check against it `invalid`. It takes `--only` to time some corpus repositories and `--skif-source`
+  to name the checkout the measured binary was built from, and refuses a comparison tool in `corpus.toml` that is not
+  pinned to an exact version. `refresh-numbers.mjs` publishes only a summary from a GitHub-hosted workflow run of
+  clean checkouts in which no tool exited with an error, and names the harness commit when it differs from the
+  measured one ([ADR 0113](adrs/0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md)).
 
 ### Changed
 
