@@ -15,7 +15,7 @@ use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 use crate::ancestors;
 use crate::config_check::relative_tsconfig;
 use crate::deps::member_dirs;
-use crate::globs::{EntryRegexes, Globs, IncompleteScopeGlobs, Names};
+use crate::globs::{EntryRegexes, GlobCache, Globs, IncompleteScopeGlobs, Names};
 use crate::graph::ModuleGraph;
 use crate::input::{
     BuildDir, ConfigDependency, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope,
@@ -809,6 +809,7 @@ impl Setup {
         };
         let listing = WorkspaceListing::new(!js.no_gitignore, sequential);
         let members: Vec<(PackageId, &Package)> = workspace.iter().collect();
+        let globs = GlobCache::default();
         let mut packages: Vec<Option<PackageSetup>> = map_ordered(&members, sequential, |&(id, package)| {
             if workspace.is_ignored(id) || js_ignored.contains(&id) {
                 return None;
@@ -936,10 +937,10 @@ impl Setup {
                 id,
                 dir: abs_dir,
                 table_key,
-                entry: Globs::new(entry).with_regexes(entry_regex.clone()),
+                entry: globs.globs(&entry).with_regexes(entry_regex.clone()),
                 external_entry,
-                shared_entry: Globs::new(shared_entry),
-                plugin_entry: Globs::new(plugin_entry).with_regexes(entry_regex),
+                shared_entry: globs.globs(&shared_entry),
+                plugin_entry: globs.globs(&plugin_entry).with_regexes(entry_regex),
                 plugin_entry_files,
                 entries_incomplete: plugin.entries_incomplete,
                 incomplete_scope: match &plugin.incomplete_scope {
@@ -954,9 +955,9 @@ impl Setup {
                 } else {
                     plugin.incomplete_reasons
                 },
-                project: Globs::new(project).or(Globs::new(named_files)),
-                ignore: Globs::new(ignore),
-                ignore_files: Globs::new(&user.ignore_files),
+                project: globs.globs(&project).or(Globs::new(named_files)),
+                ignore: globs.globs(&ignore),
+                ignore_files: globs.globs(&user.ignore_files),
                 ignore_dependencies: Names::new(ignore_dependencies),
                 ignore_binaries: Names::new(ignore_binaries),
                 user_ignore_dependencies: Listed::new(&user.ignore_dependencies, production),
