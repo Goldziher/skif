@@ -295,9 +295,13 @@ All notable changes to this project are documented here. The format follows
   root; a `cd` inside a subshell ends with it
   ([ADR 0094](adrs/0094-script-directories-and-the-no-entries-cause.md),
   [ADR 0097](adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md)).
-- **Member binaries**: under pnpm, Yarn Berry, Rush and Bun's isolated linker, a member's binary satisfies only the
-  packages that depend on it, as those link it; `rush`, `rushx` and `rush-pnpm` are provided in a Rush repository
-  ([ADR 0097](adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md)).
+- **Member binaries**: under pnpm's and Bun's isolated linkers, Yarn Berry and Rush, a member's binary satisfies only
+  the packages that depend on it, as those link it; under pnpm's hoisted linker (`nodeLinker: hoisted` in
+  `pnpm-workspace.yaml`, or `node-linker=hoisted` in the root `.npmrc`) it satisfies every package, as under npm;
+  `rush`, `rushx` and `rush-pnpm` are provided in a Rush repository
+  ([ADR 0097](adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md),
+  [ADR 0108](adrs/0108-member-binaries-under-pnpm-s-hoisted-node-linker.md),
+  [#146](https://github.com/Goldziher/skif/issues/146)).
 - **Bun**: `bun --filter`, `bun -F` and `bun run --workspaces` are runs in other packages, and a member listed by its
   literal path stays a member despite a matching negation
   ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
