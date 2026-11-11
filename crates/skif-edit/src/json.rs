@@ -469,12 +469,13 @@ impl<'a> Doc<'_, 'a> {
     ) -> Result<(), EditPlanError> {
         let Located { value: target, parent } =
             locate(&self.root, pointer).ok_or_else(|| EditPlanError::PathNotFound { op: op.to_owned() })?;
-        let holder = container(target)
-            .filter(|holder| holder.is_object)
-            .ok_or_else(|| EditPlanError::WrongNodeKind {
-                op: op.to_owned(),
-                expected: "an object",
-            })?;
+        let holder =
+            container(target)
+                .filter(|holder| holder.is_object)
+                .ok_or_else(|| EditPlanError::WrongNodeKind {
+                    op: op.to_owned(),
+                    expected: "an object",
+                })?;
         insertions
             .entry(holder.open)
             .or_insert_with(|| Insertions {
