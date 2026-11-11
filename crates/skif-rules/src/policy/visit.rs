@@ -25,6 +25,7 @@
 //!   `latest`.
 
 use skif_core::HashMap;
+use std::cell::RefCell;
 use std::sync::Arc;
 
 use skif_config::{DependencyType, Prefer};
@@ -48,10 +49,13 @@ pub(super) struct Visitor<'a, 'w> {
     marks: Vec<(InstanceId, Verdict)>,
     /// Whether `local-path-dependency` is on, so that it reports the paths of the dependency sections.
     paths_reported_elsewhere: bool,
+    /// Each specifier rewritten to a semver group's range, by its text and the range: the instances of a dependency
+    /// repeat a few specifiers, and a specifier's text decides the rewrite, which parses a new specifier.
+    rewritten: RefCell<HashMap<(&'a str, SemverRange), Option<Arc<Specifier>>>>,
 }
 
 impl<'a, 'w> Visitor<'a, 'w> {
-    pub(super) const fn new(
+    pub(super) fn new(
         instances: &'a Instances<'w>,
         assignment: &'a Assignment<'a>,
         paths_reported_elsewhere: bool,
@@ -61,6 +65,7 @@ impl<'a, 'w> Visitor<'a, 'w> {
             assignment,
             marks: Vec::new(),
             paths_reported_elsewhere,
+            rewritten: RefCell::default(),
         }
     }
 
@@ -183,7 +188,15 @@ impl<'a, 'w> Visitor<'a, 'w> {
 
     /// The instance's specifier rewritten to its semver group's range.
     fn with_preferred(&self, id: InstanceId) -> Option<Arc<Specifier>> {
-        self.spec(id).with_range(self.preferred(id)?)
+        let range = self.preferred(id)?;
+        let specifier = &self.instances.get(id).specifier;
+        let key = (specifier.get_raw(), range.clone());
+        if let Some(known) = self.rewritten.borrow().get(&key) {
+            return known.clone();
+        }
+        let rewritten = specifier.with_range(range);
+        self.rewritten.borrow_mut().insert(key, rewritten.clone());
+        rewritten
     }
 
     /// Whether the semver group's range would accept `other`.
@@ -1400,5 +1413,22 @@ mod tests {
         let raws: Vec<&str> = distinct.iter().map(|specifier| specifier.get_raw()).collect();
         assert_eq!(raws, ["^18.2.0", "~18.2.0"]);
         assert_eq!(slots, [0, 1, 0]);
+    }
+
+    #[test]
+    fn one_specifier_takes_the_range_of_each_instance_s_own_semver_group() {
+        let app = manifest("app", "1.0.0", r#""react":"18.2.0""#);
+        let lib = manifest("lib", "1.0.0", r#""react":"18.2.0""#);
+        let members = [("app", app.as_str()), ("lib", lib.as_str())];
+        let toml = "[[version-groups]]\npolicy = \"semver-range-only\"\n\n\
+                    [[semver-groups]]\npackages = [\"app\"]\nrange = \"^\"\n\n\
+                    [[semver-groups]]\npackages = [\"lib\"]\nrange = \"~\"\n";
+        assert_eq!(
+            verdicts_in(ROOT, toml, &members, true),
+            [
+                marked("app", "react", "SemverRangeMismatch", Some("^18.2.0")),
+                marked("lib", "react", "SemverRangeMismatch", Some("~18.2.0")),
+            ]
+        );
     }
 }
