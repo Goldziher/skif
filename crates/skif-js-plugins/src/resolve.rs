@@ -428,7 +428,9 @@ fn run_plugin(
             ..PluginOutput::default()
         },
         queue: VecDeque::new(),
-        confine_to_package: matches!(spec.id, "typescript" | "tsrs"),
+        // The configs an Nx target links (`tsConfig`, `jestConfig`) may be another package's, as a `tsconfig`
+        // reference may.
+        confine_to_package: matches!(spec.id, "typescript" | "tsrs" | "nx"),
         imported: Vec::new(),
     };
     for production in spec.production {

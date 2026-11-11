@@ -1990,6 +1990,59 @@ fn nx() {
     );
 }
 
+/// Target options name files relative to the workspace root: `main` and `additionalEntryPoints` of a build are
+/// production entries, `tsConfig` and `jestConfig` are configs of the `typescript` and `jest` plugins. `{projectRoot}`
+/// and `{workspaceRoot}` stand for the project's directory and the root, and a `run-commands` `cwd` is where the
+/// commands run.
+#[test]
+fn nx_target_options_tokens_and_cwd() {
+    let project = r#"{ "targets": {
+      "build": { "executor": "@nx/js:tsc", "options": {
+        "main": "{projectRoot}/src/entry.ts", "tsConfig": "libs/a/tsconfig.lib.json",
+        "additionalEntryPoints": ["libs/a/src/extra.ts"], "outputPath": "{options.outputPath}" } },
+      "test": { "executor": "@nx/jest:jest", "options": { "jestConfig": "{workspaceRoot}/libs/a/jest.config.ts" } },
+      "x": { "command": "node {projectRoot}/scripts/x.mjs" },
+      "pack": { "executor": "nx:run-commands", "options": { "commands": ["node scripts/pack.mjs"], "cwd": "packages/b" } },
+      "root": { "executor": "nx:run-commands", "options": { "command": "node {workspaceRoot}/tools/r.mjs" } }
+    } }"#;
+    let results = resolve(
+        &[
+            ("nx.json", "{}"),
+            ("libs/a/project.json", project),
+            ("libs/a/src/entry.ts", ""),
+            ("libs/a/src/extra.ts", ""),
+            ("libs/a/scripts/x.mjs", ""),
+            ("libs/a/tsconfig.lib.json", r#"{"compilerOptions":{"types":["node"]}}"#),
+            ("libs/a/jest.config.ts", "export default { testEnvironment: 'jsdom' };"),
+            ("packages/b/scripts/pack.mjs", ""),
+            ("tools/r.mjs", ""),
+        ],
+        &["nx", "jest", "typescript"],
+    );
+    let out = output(&results, "nx");
+    assert_entries(
+        &out.production_entries,
+        &["libs/a/src/entry.ts", "libs/a/src/extra.ts"],
+    );
+    assert_entries(
+        &out.entries,
+        &["libs/a/scripts/x.mjs", "packages/b/scripts/pack.mjs", "tools/r.mjs"],
+    );
+    assert!(
+        !out.entries.iter().any(|entry| entry.contains('{') || entry == "scripts/pack.mjs"),
+        "{:?}",
+        out.entries
+    );
+    for config in ["libs/a/jest.config.ts", "libs/a/tsconfig.lib.json"] {
+        assert!(
+            out.config_files.iter().any(|file| file.ends_with(config)),
+            "missing {config}: {:?}",
+            out.config_files
+        );
+    }
+    assert_deps(out, &["@nx/js", "@nx/jest", "jest-environment-jsdom", "node"]);
+}
+
 #[test]
 fn cypress() {
     let config = r#"export default defineConfig({
