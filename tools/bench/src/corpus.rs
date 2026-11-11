@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Tool versions the comparison commands are pinned to: `parity`, `syncpack-diff` and `deadcode` run them through
 /// `npx`, and `run` installs them, with the dependencies the lock of [`tool_lock_dir`] pins, into a scratch prefix and
@@ -68,6 +68,10 @@ pub struct Repo {
     /// `--no-gitignore` where a deny-all `.gitignore` hides the workspaces from knip). `parity` does not use them.
     #[serde(default)]
     pub bench_knip_args: Vec<String>,
+    /// The error knip is known to exit with when `skif-bench run` times it here; only on a repository of the `bench`
+    /// suite. The other tools are still timed, and knip's row is recorded as failing when the run matches it.
+    #[serde(default)]
+    pub bench_knip_failure: Option<KnipFailure>,
     /// Why knip's report on this repository is not a valid comparison (such as configurations that import workspace
     /// packages which are never built). The repository is still compared, and the report marks the row with this.
     #[serde(default)]
@@ -84,6 +88,30 @@ pub struct Repo {
     /// Seconds the `build-command` may take; the install's time limit when unset.
     #[serde(default)]
     pub build_timeout_secs: Option<u64>,
+}
+
+/// A knip failure a bench repository declares (`bench-knip-failure`): a knip run whose error output holds `matches`
+/// fails this known way, and its row is published as failing with `reason` instead of with a time.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct KnipFailure {
+    /// Text of knip's error output when it fails this way, matched as a substring.
+    pub matches: String,
+    /// Why knip fails here, as the summary and the published tables say it.
+    pub reason: String,
+}
+
+/// What is wrong with a repository's `bench-knip-failure`, or `None` when it has none or a valid one: it has to name a
+/// non-empty `matches` and `reason`, and the repository has to be one `skif-bench run` times.
+fn knip_failure_problem(repo: &Repo) -> Option<String> {
+    let failure = repo.bench_knip_failure.as_ref()?;
+    if !repo.in_suite("bench") {
+        return Some("bench-knip-failure is set, but the repository is not in the bench suite".to_owned());
+    }
+    [("matches", &failure.matches), ("reason", &failure.reason)]
+        .into_iter()
+        .find(|(_, value)| value.trim().is_empty())
+        .map(|(key, _)| format!("bench-knip-failure.{key} is empty"))
 }
 
 /// The `knip-root` of a Rush repository: knip runs in the checkout with a root `package.json` made from `rush.json`,
@@ -201,7 +229,8 @@ fn tool_lock_mismatch(tools: &Tools, lock: &serde_json::Value) -> Option<String>
 ///
 /// # Errors
 /// Fails when the file cannot be read or parsed, a repository pin is not a full 40-character commit SHA, a comparison
-/// tool version is not exact, or the comparison tool lock is missing or names other versions than `[tools]`.
+/// tool version is not exact, the comparison tool lock is missing or names other versions than `[tools]`, or a
+/// `bench-knip-failure` is empty or set on a repository outside the bench suite.
 pub fn load_manifest(path: &Path) -> Result<Manifest> {
     let text = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let manifest: Manifest = toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
@@ -228,6 +257,9 @@ pub fn load_manifest(path: &Path) -> Result<Manifest> {
         }
         if let Some(unknown) = repo.suites.iter().find(|s| !["bench", "parity"].contains(&s.as_str())) {
             bail!("{}: unknown suite {unknown:?}", repo.name);
+        }
+        if let Some(problem) = knip_failure_problem(repo) {
+            bail!("{}: {problem}", repo.name);
         }
         if let Some(root) = repo.knip_root.as_deref().filter(|root| *root != RUSH_KNIP_ROOT) {
             bail!(
@@ -466,6 +498,70 @@ mod tests {
     }
 
     #[test]
+    fn the_bench_repositories_whose_knip_run_fails_declare_the_error() {
+        let repos = manifest().repo;
+        let declared: Vec<(&str, &str)> = repos
+            .iter()
+            .filter_map(|r| Some((r.name.as_str(), r.bench_knip_failure.as_ref()?.matches.as_str())))
+            .collect();
+        assert_eq!(
+            declared,
+            [
+                ("create-t3-turbo", "Cannot find module 'metro-cache'"),
+                ("vue-core", "sfc-playground/vite.config.ts (__DEV__ is not defined)"),
+            ]
+        );
+        let t3 = repos.iter().find(|r| r.name == "create-t3-turbo").unwrap();
+        assert_eq!(
+            t3.bench_knip_failure.as_ref().unwrap().reason,
+            "its Expo Metro config needs metro-cache, which pnpm's strict install does not provide"
+        );
+    }
+
+    #[test]
+    fn a_knip_failure_declaration_names_its_text_and_reason_on_a_bench_repository() {
+        let sha = "a".repeat(40);
+        let load = |name: &str, keys: &str| load_repo(name, PINNED, &format!("rev = {sha:?}\n{keys}"), None);
+        let loaded = load(
+            "failure-ok",
+            "suites = [\"bench\"]\nbench-knip-failure = { matches = \"Cannot find module\", reason = \"why\" }\n",
+        )
+        .unwrap();
+        assert_eq!(
+            loaded.repo[0].bench_knip_failure,
+            Some(KnipFailure {
+                matches: "Cannot find module".into(),
+                reason: "why".into()
+            })
+        );
+        for (name, keys, problem) in [
+            (
+                "failure-parity",
+                "suites = [\"parity\"]\nbench-knip-failure = { matches = \"m\", reason = \"r\" }\n",
+                "x: bench-knip-failure is set, but the repository is not in the bench suite",
+            ),
+            (
+                "failure-matches",
+                "suites = [\"bench\"]\nbench-knip-failure = { matches = \"\", reason = \"r\" }\n",
+                "x: bench-knip-failure.matches is empty",
+            ),
+            (
+                "failure-reason",
+                "suites = [\"bench\"]\nbench-knip-failure = { matches = \"m\", reason = \" \" }\n",
+                "x: bench-knip-failure.reason is empty",
+            ),
+        ] {
+            assert_eq!(load(name, keys).unwrap_err().to_string(), problem);
+        }
+        let unknown = load(
+            "failure-unknown",
+            "suites = [\"bench\"]\nbench-knip-failure = { match = \"m\", reason = \"r\" }\n",
+        )
+        .unwrap_err();
+        assert!(format!("{unknown:#}").contains("unknown field `match`"), "{unknown:#}");
+    }
+
+    #[test]
     fn rushstack_installs_with_rush_and_runs_knip_in_a_synthesized_root() {
         let repos = manifest().repo;
         let rushstack = repos.iter().find(|r| r.name == "rushstack").unwrap();
@@ -612,6 +708,13 @@ mod tests {
     /// Writes a corpus manifest with these tool versions and one repository pinned to `rev`, with a comparison tool
     /// lock (`lock`, or one of the same versions when `None`) beside it, and loads it.
     fn load_locked(name: &str, tools: (&str, &str, &str), rev: &str, lock: Option<&str>) -> Result<Manifest> {
+        load_repo(name, tools, &format!("rev = {rev:?}\n"), lock)
+    }
+
+    /// Writes a corpus manifest with these tool versions and one repository `x` whose remaining keys are `repo_keys`
+    /// (TOML lines, the `rev` among them), with a comparison tool lock (`lock`, or one of the same versions when
+    /// `None`) beside it, and loads it.
+    fn load_repo(name: &str, tools: (&str, &str, &str), repo_keys: &str, lock: Option<&str>) -> Result<Manifest> {
         let (knip, syncpack, sherif) = tools;
         let dir = std::env::temp_dir().join(format!("skif-bench-corpus-{name}-{}", std::process::id()));
         fs::create_dir_all(dir.join("tools")).unwrap();
@@ -619,7 +722,7 @@ mod tests {
         fs::write(
             &file,
             format!(
-                "[tools]\nknip = {knip:?}\nsyncpack = {syncpack:?}\nsherif = {sherif:?}\n[[repo]]\nname = \"x\"\nurl = \"u\"\nrev = {rev:?}\npackage-manager = \"npm\"\n"
+                "[tools]\nknip = {knip:?}\nsyncpack = {syncpack:?}\nsherif = {sherif:?}\n[[repo]]\nname = \"x\"\nurl = \"u\"\npackage-manager = \"npm\"\n{repo_keys}"
             ),
         )
         .unwrap();
