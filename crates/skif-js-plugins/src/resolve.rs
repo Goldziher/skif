@@ -1,11 +1,13 @@
 //! The driver: decides which plugins are enabled for a workspace, finds and reads their config files and
 //! collects their output.
 
-use std::cell::RefCell;
+use std::cell::{OnceCell, RefCell};
 use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 use skif_config::{PluginConfig, PluginOptions};
+use skif_core::HashSet;
 use skif_js_syntax::{ConfigValue, ModuleLoader, place_file_dir};
 
 use crate::config_load::{from_json, load_config_and_call_arguments};
@@ -62,9 +64,9 @@ pub fn resolve_plugins(ctx: &PluginContext<'_>) -> Vec<(PluginId, PluginOutput)>
 /// with the dependencies of `ctx`, and what it finds there is part of its output for `ctx`.
 #[must_use]
 pub fn resolve_plugins_with(ctx: &PluginContext<'_>, projects: &NxProjects) -> Vec<(PluginId, PluginOutput)> {
-    let manifest = read_manifest(ctx);
+    let detection = Detection::new(ctx);
     let nx_enabled = registry::plugin(nx::ID)
-        .is_some_and(|plugin| is_enabled(plugin.spec(), ctx.plugins.get(nx::ID), ctx, manifest.as_ref()));
+        .is_some_and(|plugin| is_enabled(plugin.spec(), ctx.plugins.get(nx::ID), ctx, &detection));
     let ctx = &PluginContext {
         nx: if nx_enabled { Some(projects) } else { ctx.nx },
         ..*ctx
@@ -77,8 +79,11 @@ pub fn resolve_plugins_with(ctx: &PluginContext<'_>, projects: &NxProjects) -> V
             let spec = plugin.spec();
             let setting = ctx.plugins.get(spec.id);
             let extra: &[String] = if spec.id == nx::ID { &project_files } else { &[] };
-            is_enabled(spec, setting, ctx, manifest.as_ref())
-                .then(|| run_plugin(plugin, setting, ctx, manifest.as_ref(), extra, None))
+            is_enabled(spec, setting, ctx, &detection).then(|| {
+                // Only a plugin with a `package.json` key reads the manifest.
+                let manifest = spec.package_json_key.and_then(|_| detection.manifest(ctx));
+                run_plugin(plugin, setting, ctx, manifest, extra, None)
+            })
         })
         .collect();
     run_in_scopes(ctx, &projects.scopes, plugins, &mut outputs);
@@ -118,13 +123,15 @@ fn run_in_scopes(
     // A scope's context differs from another's only in its directory, which only file enablers look at.
     let first_dir = scope_dir(ctx, first);
     let template = shared.context(ctx, &first_dir);
+    let detection = Detection::without_manifest(&template);
     let candidates: Vec<(usize, ScopeEnablement)> = plugins
         .iter()
         .enumerate()
         .filter(|(_, plugin)| plugin.spec().id != nx::ID)
         .filter_map(|(index, plugin)| {
             let spec = plugin.spec();
-            scope_enablement(spec, template.plugins.get(spec.id), &template).map(|enablement| (index, enablement))
+            scope_enablement(spec, template.plugins.get(spec.id), &template, &detection)
+                .map(|enablement| (index, enablement))
         })
         .collect();
     if candidates.is_empty() {
@@ -160,6 +167,7 @@ fn scope_enablement(
     spec: &PluginSpec,
     setting: Option<&PluginConfig>,
     scope_ctx: &PluginContext<'_>,
+    detection: &Detection<'_>,
 ) -> Option<ScopeEnablement> {
     match forced(setting) {
         Some(true) => return Some(ScopeEnablement::Always),
@@ -173,7 +181,7 @@ fn scope_enablement(
     for enabler in spec.enablers {
         if matches!(enabler, Enabler::File(_)) {
             by_file = true;
-        } else if enabler_matches(enabler, scope_ctx, None) {
+        } else if enabler_matches(enabler, scope_ctx, detection) {
             return Some(ScopeEnablement::Always);
         }
     }
@@ -198,7 +206,7 @@ fn has_enabling_file(spec: &PluginSpec, files: &Listing<'_>) -> bool {
 /// Whether the plugin `id` is enabled for the workspace in `ctx`.
 pub(crate) fn is_plugin_enabled(ctx: &PluginContext<'_>, id: PluginId) -> bool {
     registry::plugin(id)
-        .is_some_and(|plugin| is_enabled(plugin.spec(), ctx.plugins.get(id), ctx, read_manifest(ctx).as_ref()))
+        .is_some_and(|plugin| is_enabled(plugin.spec(), ctx.plugins.get(id), ctx, &Detection::new(ctx)))
 }
 
 fn read_manifest(ctx: &PluginContext<'_>) -> Option<ConfigValue> {
@@ -221,33 +229,101 @@ fn is_enabled(
     spec: &PluginSpec,
     setting: Option<&PluginConfig>,
     ctx: &PluginContext<'_>,
-    manifest: Option<&ConfigValue>,
+    detection: &Detection<'_>,
 ) -> bool {
-    forced(setting).unwrap_or_else(|| detected(spec, ctx, manifest))
+    forced(setting).unwrap_or_else(|| detected(spec, ctx, detection))
 }
 
-fn detected(spec: &PluginSpec, ctx: &PluginContext<'_>, manifest: Option<&ConfigValue>) -> bool {
+fn detected(spec: &PluginSpec, ctx: &PluginContext<'_>, detection: &Detection<'_>) -> bool {
     (ctx.is_root || !spec.root_only)
         && spec
             .enablers
             .iter()
-            .any(|enabler| enabler_matches(enabler, ctx, manifest))
+            .any(|enabler| enabler_matches(enabler, ctx, detection))
 }
 
-fn enabler_matches(enabler: &Enabler, ctx: &PluginContext<'_>, manifest: Option<&ConfigValue>) -> bool {
-    match *enabler {
-        Enabler::Always => true,
-        Enabler::Dependency(name) => ctx.has_dependency_in_ancestors(name),
-        Enabler::DependencyPrefix(prefix) => ctx
+/// Every [`Enabler::File`] glob of the table, once each, in table order.
+static FILE_ENABLERS: LazyLock<Vec<String>> = LazyLock::new(|| {
+    let mut globs: Vec<String> = Vec::new();
+    for plugin in registry::plugins() {
+        for enabler in plugin.spec().enablers {
+            if let Enabler::File(glob) = *enabler {
+                push_unique(&mut globs, glob.to_owned());
+            }
+        }
+    }
+    globs
+});
+
+/// What the enablers of every plugin are matched against in one context, worked out once for all of them: the
+/// dependency names as a set and in sorted order, the manifest, read when an enabler or a plugin first needs it, and
+/// the files that any [`Enabler::File`] glob matches, found by one walk when the first such enabler is matched.
+struct Detection<'a> {
+    dependencies: HashSet<&'a str>,
+    sorted: Vec<&'a str>,
+    manifest: OnceCell<Option<ConfigValue>>,
+    enabling_files: OnceCell<Vec<String>>,
+}
+
+impl<'a> Detection<'a> {
+    fn new(ctx: &PluginContext<'a>) -> Self {
+        Self::with_manifest(ctx, OnceCell::new())
+    }
+
+    /// Like [`Detection::new`], for a context whose manifest no enabler reads.
+    fn without_manifest(ctx: &PluginContext<'a>) -> Self {
+        Self::with_manifest(ctx, OnceCell::from(None))
+    }
+
+    fn with_manifest(ctx: &PluginContext<'a>, manifest: OnceCell<Option<ConfigValue>>) -> Self {
+        let mut sorted: Vec<&'a str> = ctx
             .dependencies
             .iter()
             .chain(ctx.inherited_dependencies)
-            .any(|d| d.starts_with(prefix)),
+            .map(String::as_str)
+            .collect();
+        let dependencies = sorted.iter().copied().collect();
+        sorted.sort_unstable();
+        Self {
+            dependencies,
+            sorted,
+            manifest,
+            enabling_files: OnceCell::new(),
+        }
+    }
+
+    fn manifest(&self, ctx: &PluginContext<'_>) -> Option<&ConfigValue> {
+        self.manifest.get_or_init(|| read_manifest(ctx)).as_ref()
+    }
+
+    /// Whether the context or an ancestor depends on a package whose name starts with `prefix`: the names that do
+    /// follow one another in sorted order, from the first name not below `prefix`.
+    fn has_dependency_prefix(&self, prefix: &str) -> bool {
+        let first = self.sorted.partition_point(|name| *name < prefix);
+        self.sorted.get(first).is_some_and(|name| name.starts_with(prefix))
+    }
+
+    /// Whether a file below the context's directory matches `glob`, one of [`FILE_ENABLERS`]: a walk for all of them
+    /// visits every directory a walk for `glob` visits, so the files it finds that `glob` matches are those a walk for
+    /// `glob` finds.
+    fn has_file(&self, ctx: &PluginContext<'_>, glob: &str) -> bool {
+        let files = self
+            .enabling_files
+            .get_or_init(|| find_files(ctx.fs, ctx.dir, &FILE_ENABLERS));
+        !files.is_empty() && Listing::new(files).any_matching(&[glob])
+    }
+}
+
+fn enabler_matches(enabler: &Enabler, ctx: &PluginContext<'_>, detection: &Detection<'_>) -> bool {
+    match *enabler {
+        Enabler::Always => true,
+        Enabler::Dependency(name) => detection.dependencies.contains(name),
+        Enabler::DependencyPrefix(prefix) => detection.has_dependency_prefix(prefix),
         Enabler::ManifestNamePrefix(prefix) => ctx.package_name.is_some_and(|n| n.starts_with(prefix)),
         Enabler::ManifestNameContains(text) => ctx.package_name.is_some_and(|n| n.contains(text)),
-        Enabler::File(glob) => !find_files(ctx.fs, ctx.dir, &[glob.to_string()]).is_empty(),
+        Enabler::File(glob) => detection.has_file(ctx, glob),
         Enabler::Script(text) => ctx.scripts.values().any(|script| script.contains(text)),
-        Enabler::ManifestKey(key) => manifest.is_some_and(|manifest| {
+        Enabler::ManifestKey(key) => detection.manifest(ctx).is_some_and(|manifest| {
             key.split('.')
                 .try_fold(manifest, |value, part| value.get(part))
                 .is_some()
@@ -843,6 +919,71 @@ mod tests {
     use skif_core::MemoryFs;
 
     use super::*;
+
+    fn context<'a>(fs: &'a MemoryFs, dependencies: &'a [String], inherited: &'a [String]) -> PluginContext<'a> {
+        static SCRIPTS: LazyLock<IndexMap<String, String>> = LazyLock::new(IndexMap::new);
+        static PLUGINS: LazyLock<IndexMap<String, PluginConfig>> = LazyLock::new(IndexMap::new);
+        PluginContext {
+            dir: Path::new("/ws"),
+            is_root: true,
+            package_name: None,
+            dependencies,
+            inherited_dependencies: inherited,
+            scripts: &SCRIPTS,
+            fs,
+            plugins: &PLUGINS,
+            modules: None,
+            nx: None,
+        }
+    }
+
+    /// The dependency set and its sorted order answer exact names and prefixes as a scan of the context's own and
+    /// inherited dependencies does.
+    #[test]
+    fn dependencies_are_matched_by_name_and_prefix_as_a_scan_matches_them() {
+        let fs = MemoryFs::new();
+        let own = ["react".to_owned(), "@storybook/react".to_owned(), "vite".to_owned()];
+        let inherited = ["@vue/compiler-sfc".to_owned(), "a".to_owned()];
+        for (dependencies, inherited) in [(&own[..], &inherited[..]), (&[][..], &[][..]), (&own[..], &[][..])] {
+            let ctx = context(&fs, dependencies, inherited);
+            let detection = Detection::new(&ctx);
+            for text in ["react", "vite", "a", "@vue/compiler-sfc", "@storybook/", "@vue/", "@angular/", "", "z", "re"] {
+                let scan = |matches: &dyn Fn(&String) -> bool| dependencies.iter().chain(inherited).any(matches);
+                assert_eq!(
+                    enabler_matches(&Enabler::Dependency(text), &ctx, &detection),
+                    scan(&|d: &String| d == text),
+                    "{text:?} in {dependencies:?} + {inherited:?}"
+                );
+                assert_eq!(
+                    enabler_matches(&Enabler::DependencyPrefix(text), &ctx, &detection),
+                    scan(&|d: &String| d.starts_with(text)),
+                    "{text:?}* in {dependencies:?} + {inherited:?}"
+                );
+            }
+        }
+    }
+
+    /// One walk for every file enabler answers each of them as a walk for that enabler alone does.
+    #[test]
+    fn file_enablers_are_matched_as_a_walk_for_each_matches_them() {
+        let fs = MemoryFs::new()
+            .with_file("/ws/.github/workflows/ci.yml", "")
+            .with_file("/ws/.azure-pipelines/deep/x/build.yaml", "")
+            .with_file("/ws/Taskfile.dist.yml", "")
+            .with_file("/ws/.vscode/mcp.json", "")
+            .with_file("/ws/pnpm-lock.yaml", "")
+            .with_file("/ws/node_modules/x/.travis.yml", "")
+            .with_file("/ws/src/vercel.json", "");
+        let ctx = context(&fs, &[], &[]);
+        let detection = Detection::new(&ctx);
+        let mut found = 0;
+        for glob in FILE_ENABLERS.iter() {
+            let walked = !find_files(&fs, ctx.dir, std::slice::from_ref(glob)).is_empty();
+            found += usize::from(walked);
+            assert_eq!(detection.has_file(&ctx, glob), walked, "{glob}");
+        }
+        assert_eq!(found, 5, "the fixture matches five enablers");
+    }
 
     /// Computed entries in a linked config are charged to the plugin that reads that config, as an unreadable
     /// linked config is.
