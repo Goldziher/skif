@@ -5,14 +5,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use skif_config::FamilyScope;
-use skif_core::{Location, diagnostic};
+use skif_core::{Diagnostic, Location, diagnostic};
 use skif_lint::{Emitter, LintContext};
 use skif_specifier::Specifier;
-use skif_workspace::PnpmLockfile;
+use skif_workspace::{Package, PnpmLockfile, map_ordered};
 
 use super::families::{Family, META};
 use super::specifiers::{floor_version, major};
-use crate::lockfile::{self, importer_package, snapshot_location};
+use crate::lockfile::{self, ImporterPackages, snapshot_location};
 
 /// Reports the members of the lockfile-scoped `families` that resolve to more versions than the family allows.
 pub(super) fn emit(cx: &LintContext<'_>, families: &[Family], out: &mut Emitter<'_>) {
@@ -32,29 +32,49 @@ pub(super) fn emit(cx: &LintContext<'_>, families: &[Family], out: &mut Emitter<
             return;
         }
     };
+    let packages = ImporterPackages::index(cx.workspace);
+    // What an importer reaches is walked once for all the importer-scoped families, each importer on its own and in
+    // parallel unless the run is `sequential`; the findings are then reported family by family, importer by importer.
+    let by_importer: Vec<&Family> = families
+        .iter()
+        .filter(|family| matches!(family.scope, FamilyScope::Importer))
+        .collect();
+    let importers: Vec<&str> = if by_importer.is_empty() {
+        Vec::new()
+    } else {
+        lock.importers.keys().map(String::as_str).collect()
+    };
+    let mut per_importer: Vec<Vec<Vec<Diagnostic>>> = map_ordered(&importers, cx.sequential, |&importer| {
+        let resolutions = lock.resolutions(importer);
+        let package = packages.get(importer);
+        by_importer
+            .iter()
+            .map(|family| check(lock, family, Some((importer, package)), resolutions.keys()))
+            .collect()
+    });
+    let mut importer_scoped = 0;
     for family in families {
         match family.scope {
             FamilyScope::Importer => {
-                for importer in lock.importers.keys() {
-                    let resolutions = lock.resolutions(importer);
-                    check(cx, lock, family, Some(importer.as_str()), resolutions.keys(), out);
+                for found in &mut per_importer {
+                    out.emit_all(std::mem::take(&mut found[importer_scoped]));
                 }
+                importer_scoped += 1;
             }
-            FamilyScope::Lockfile => check(cx, lock, family, None, lock.snapshots.keys().map(String::as_str), out),
+            FamilyScope::Lockfile => out.emit_all(check(lock, family, None, lock.snapshots.keys().map(String::as_str))),
             _ => {}
         }
     }
 }
 
-/// Checks `family` over the snapshots `keys`, the resolutions of `importer` or, without one, of the whole lockfile.
+/// The findings of `family` over the snapshots `keys`: the resolutions of `importer` (with its workspace package, if
+/// known) or, without one, of the whole lockfile.
 fn check<'l>(
-    cx: &LintContext<'_>,
     lock: &'l PnpmLockfile,
     family: &Family,
-    importer: Option<&str>,
+    importer: Option<(&str, Option<&Package>)>,
     keys: impl Iterator<Item = &'l str>,
-    out: &mut Emitter<'_>,
-) {
+) -> Vec<Diagnostic> {
     // Each release once, by name and version: peer variants of one release resolve the same code.
     let mut releases: BTreeMap<(&str, &str), &str> = BTreeMap::new();
     let mut anchor_majors = BTreeSet::new();
@@ -85,9 +105,13 @@ fn check<'l>(
         };
         buckets.entry(bucket).or_default().push((name, version, key, rank));
     }
-    let scope = importer.map_or_else(String::new, |importer| format!(" in importer `{importer}`"));
-    let package = importer.and_then(|importer| importer_package(cx.workspace, importer));
-    let report = |out: &mut Emitter<'_>, name: &str, version: &str, key: &str, message: String| {
+    let mut found = Vec::new();
+    if buckets.is_empty() {
+        return found;
+    }
+    let scope = importer.map_or_else(String::new, |(importer, _)| format!(" in importer `{importer}`"));
+    let package = importer.and_then(|(_, package)| package);
+    let report = |found: &mut Vec<Diagnostic>, name: &str, version: &str, key: &str, message: String| {
         let mut builder = diagnostic(&META, message, snapshot_location(lock, key))
             .dependency(name)
             .specifier(version)
@@ -98,7 +122,7 @@ fn check<'l>(
         if let Some(package) = package {
             builder = builder.package(package.display_name()).package_id(package.id);
         }
-        out.emit(builder.build());
+        found.push(builder.build());
     };
     for ((_, bucket_major), members) in &buckets {
         let anchor = family.anchor.as_deref();
@@ -109,7 +133,7 @@ fn check<'l>(
             let majors = anchor_majors.iter().map(u64::to_string).collect::<Vec<_>>().join(", ");
             for &(name, version, key, _) in members {
                 report(
-                    out,
+                    &mut found,
                     name,
                     version,
                     key,
@@ -140,9 +164,10 @@ fn check<'l>(
                     family.name
                 ),
             };
-            report(out, name, version, key, message);
+            report(&mut found, name, version, key, message);
         }
     }
+    found
 }
 
 #[cfg(test)]
@@ -328,6 +353,32 @@ snapshots:
             ]
         );
         assert_eq!(found[1].1, "'@types/react@18.3.1': {}");
+    }
+
+    #[test]
+    fn findings_follow_the_order_of_the_families_whatever_their_scope() {
+        let named = |name: &str, scope: &str| {
+            format!(
+                "[[dependency-families]]\nname = \"{name}\"\npackages = [\"playwright\", \"playwright-core\", \"@playwright/test\"]\nscope = \"{scope}\"\n"
+            )
+        };
+        let toml = [named("first", "importer"), named("second", "lockfile"), named("third", "importer")].concat();
+        let found = unsynced(Some(PLAYWRIGHT), &toml);
+        let messages: Vec<&str> = found
+            .iter()
+            .map(|(diagnostic, _)| diagnostic.message.as_str())
+            .filter(|message| ["`first`", "`second`", "`third`"].iter().any(|name| message.contains(name)))
+            .collect();
+        assert_eq!(
+            messages,
+            [
+                "`playwright-core@1.44.0` resolves next to `@playwright/test@1.45.0` of the `first` family in \
+                 importer `packages/app`",
+                "`playwright-core@1.44.0` resolves next to `@playwright/test@1.45.0` of the `second` family",
+                "`playwright-core@1.44.0` resolves next to `@playwright/test@1.45.0` of the `third` family in \
+                 importer `packages/app`",
+            ]
+        );
     }
 
     #[test]
