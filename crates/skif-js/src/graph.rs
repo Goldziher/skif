@@ -874,8 +874,18 @@ pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf]) -> ModuleGraph {
         }
     }
 
-    let mut imported_by: Vec<BTreeSet<ModuleId>> = vec![BTreeSet::new(); builder.modules.len()];
-    for module in &builder.modules {
+    ModuleGraph {
+        imported_by: importers(&builder.modules),
+        modules: builder.modules,
+        index: builder.index,
+    }
+}
+
+/// The modules that import each module, sorted and without duplicates, by position. The modules are visited in id
+/// order, so each list grows in order and a repeat can only be its last entry.
+fn importers(modules: &[Module]) -> Vec<Vec<ModuleId>> {
+    let mut imported_by: Vec<Vec<ModuleId>> = vec![Vec::new(); modules.len()];
+    for module in modules {
         for import in &module.imports {
             let targets: &[ModuleId] = match &import.target {
                 Target::Module(id) => std::slice::from_ref(id),
@@ -883,15 +893,14 @@ pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf]) -> ModuleGraph {
                 _ => &[],
             };
             for target in targets {
-                imported_by[target.index()].insert(module.id);
+                let importers = &mut imported_by[target.index()];
+                if importers.last() != Some(&module.id) {
+                    importers.push(module.id);
+                }
             }
         }
     }
-    ModuleGraph {
-        modules: builder.modules,
-        index: builder.index,
-        imported_by: imported_by.into_iter().map(|set| set.into_iter().collect()).collect(),
-    }
+    imported_by
 }
 
 #[cfg(test)]
@@ -915,5 +924,54 @@ mod tests {
             None
         );
         assert_eq!(project_dir_candidates(Path::new("/other/x.ts"), base), None);
+    }
+
+    fn module(index: usize, targets: Vec<Target>) -> Module {
+        Module {
+            id: ModuleId::from_index(index),
+            abs: PathBuf::from(format!("/ws/{index}.ts")),
+            path: PathBuf::from(format!("{index}.ts")),
+            owner: PackageId::ROOT,
+            in_project: true,
+            ignored: false,
+            foreign: false,
+            is_entry: false,
+            info: ModuleInfo::default(),
+            parse_error: None,
+            imports: targets
+                .into_iter()
+                .enumerate()
+                .map(|(import, target)| ResolvedImport {
+                    import,
+                    target,
+                    package: None,
+                    type_only: false,
+                    component: false,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn importers_are_sorted_and_listed_once_however_often_a_module_imports() {
+        let id = ModuleId::from_index;
+        let modules = vec![
+            module(0, vec![Target::Module(id(3))]),
+            module(1, vec![Target::Module(id(0)), Target::External("react".to_owned())]),
+            module(
+                2,
+                vec![
+                    Target::Module(id(0)),
+                    Target::Modules(vec![id(0), id(1)]),
+                    Target::Module(id(2)),
+                    Target::Unresolved,
+                ],
+            ),
+            module(3, vec![Target::Module(id(0)), Target::Module(id(0))]),
+        ];
+        assert_eq!(
+            importers(&modules),
+            vec![vec![id(1), id(2), id(3)], vec![id(2)], vec![id(2)], vec![id(0)]]
+        );
     }
 }
