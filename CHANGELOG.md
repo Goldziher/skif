@@ -11,825 +11,340 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- An agent skill, `skills/skif`, that teaches coding agents the lint, triage and fix loop, the JSON report,
-  configuration, migration and CI. It installs from GitHub with `npx skills add Goldziher/skif`, or as a plugin from
-  the repository's marketplace manifests (`.claude-plugin/`, `.codex-plugin/`, `.agents/plugins/`) in Claude Code,
-  Codex, Factory Droid and GitHub Copilot CLI. The plugin also registers the MCP server (`skif mcp`), started with
-  `npx -y skif-cli@<release> mcp`, so it needs Node.js but no install of skif. The plugin version and the server's
-  `skif-cli` pin follow the release: `scripts/release-bump.sh` rewrites them and `scripts/check-versions.sh` checks
-  them, and the skill's version pins and rule counts are covered by
-  `scripts/check-doc-pins.sh` and `scripts/check-rule-ids.sh`
-  ([ADR 0102](adrs/0102-agent-skill-distributed-from-the-repository.md)).
-- `toolchain-pin-drift` (`warn`): Node and package-manager versions pinned in `.nvmrc`, `.node-version`,
-  `.tool-versions`, `mise.toml`, Dockerfiles (`FROM node:<version>`, `ARG NODE_VERSION`, `corepack prepare`,
-  `npm install -g pnpm@<version>`) and GitHub workflows (`actions/setup-node`, `pnpm/action-setup`) are checked
-  against the root: the first root version file, else `engines.node`, and `packageManager`. A finding names the file,
-  the line and both versions; a range that admits the root's version is no drift. A Dockerfile that runs
-  `corepack enable` without `corepack prepare` is reported at `info`. Options `kinds`, `files` and `ignore-files`, and
-  `# skif-ignore-next-line` / `# skif-ignore-file` comments with a required reason
+- `toolchain-pin-drift` (`warn`): checks Node, package-manager and Bun pins in `.nvmrc`, `.node-version`,
+  `.tool-versions`, `mise.toml`, `.bun-version`, Dockerfiles (`FROM node:`, `FROM oven/bun:`, `corepack prepare`,
+  `npm install -g pnpm@`) and GitHub workflows against the root's version file, `engines.node` and `packageManager`;
+  a range that admits the root's version is no drift. Options `kinds`, `files`, `ignore-files`, and
+  `# skif-ignore-next-line` / `# skif-ignore-file` comments with a reason
   ([ADR 0087](adrs/0087-toolchain-pins-outside-package-json-and-the-toolchain-pin-drift-rule.md),
   [#138](https://github.com/Goldziher/skif/issues/138)).
-- `foreign-package-manager-command` (`warn`): Dockerfile `RUN` instructions, workflow `run:` steps and `*.sh` scripts
-  (plus the `files` globs) that run a package manager other than the workspace's are reported: `npm ci`, `npm install`,
-  `npm run`, `npx` and the like in a pnpm or yarn workspace, a bare `yarn` or `yarn <script>` in another. Read-only
-  commands (`npm view`, `npm whoami`), a global install of the workspace's own manager and files of projects outside
-  the workspace are not; the same options and suppression comments as `toolchain-pin-drift` apply
-  ([ADR 0088](adrs/0088-foreign-package-manager-commands.md), [#139](https://github.com/Goldziher/skif/issues/139)).
-- `invalid-workspace-file` (`error`): a member `package.json` that is not valid JSON or cannot be read, a workspace
-  pattern that cannot be used and a `.yarnrc.yml` that is not valid YAML are reported, at the syntax error or the
-  pattern. Discovery left them out of the run without a word, so a workspace with a broken member passed
-  ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
-- `incomplete-packages[]` entries of the JSON report carry a `scope`: `"package"` when no file of the package was
-  judged unused, or `{"within": [globs]}` with the globs, relative to its `dir`, of the only files left unjudged
-  ([ADR 0065](adrs/0065-narrowed-scope-for-incomplete-entries.md)); the human note names the globs after the package.
-  `skif_core::IncompletePackage` gains the `scope` field and `with_scope`, and `IncompleteScope` moved from
-  `skif-js` to `skif-core` (`skif_js::IncompleteScope` re-exports it).
-- Three helpers for the benchmark harness, all hidden from the documentation: `skif_js::IncompleteScopeGlobs`
-  compiles the globs of a narrowed incomplete scope once and tells whether a path relative to the package lies in it,
-  as the analysis matches them; `skif_js::is_out_dir` tells whether a published path's first directory is build output
-  whose source twin is `src`; and `skif_js::source_candidates` lists the sources a published path may map to, most
-  likely first.
-- `skif_rules::toolchain_provider()` provides the rules over toolchain files, and `skif_rules::providers()` includes
-  it. The rules read those files through `LintContext::fs`, the file system the run is given
-  (`skif_lint::RunOptions::with_fs`), as the rules over a lockfile and patch files do
-  ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
-- `skif_js_syntax::extract_config` returns an `ExtractedConfig`: the exported value and the evaluated arguments
-  (`call_arguments`) of a call the evaluator cannot follow whose result the config exports, returns from the config
-  function the tool calls (`() => createConfig({ … })`) or merges (`mergeConfig(createBase({ … }), { … })`).
-- `skif::Target::retain_ignore` filters the `[[ignore]]` entries of a target with its `origins` kept aligned, through
-  `skif_config::Origins::retain_list`, which renumbers the entries of one list.
-- `skif::Linter::for_targets` builds the linters of a multi-root run over the module cache of the run (feature
-  `js-analysis`), and `Linter::for_targets_with_cache` over a cache the host keeps. A host that builds its linters
-  itself takes the same policy from `Linter::shared_modules`, which returns a `skif::SharedModules`, and passes it to
-  each linter with `Linter::with_shared_modules` (`skif_js::JsProvider::with_shared_modules`). With several targets, a
-  lookup of a file another root is parsing waits for that parse through `skif_js_syntax::ParseCoalescer`, which takes
-  the cache as an argument: the `ModuleCache` trait is unchanged, and a cache that wraps another has nothing to
-  forward ([ADR 0101](adrs/0101-a-module-cache-shared-by-the-roots-of-a-run.md),
-  [#144](https://github.com/Goldziher/skif/issues/144)).
-- `skif_core::timing::Tally::add` adds a duration the caller measured, for a step that learns which tally it belongs
-  to only once it has run.
-- Bun: a root `bunfig.toml` with an `[install]` table detects Bun when no declaration, lockfile,
-  `pnpm-workspace.yaml` or Yarn Berry file decides; one that only configures `bun test` or the runtime does not ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
-- Bun: `nested-workspace-root` reports a member whose `package.json` declares `workspaces`, at that key, because Bun
-  never installs the directories it lists ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
-- Bun: `stale-patched-dependencies` reads the top-level `patchedDependencies` of the root `package.json` and checks
-  each against `bun.lock`: the release must be one `bun.lock` resolves, and `bun.lock` must record the patch. Without a
-  `bun.lock`, with only a `bun.lockb` or with a `bun.lock` that does not parse, the rule says so once and still checks
-  the files. `skif_workspace::BunLockfile` reads the resolved packages and the patches of `bun.lock` ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
-- `toolchain-pin-drift` reads Bun pins from `.bun-version` and `FROM oven/bun:<version>`.
-- The `bun` plugin finds the files `bun test` runs with every extension it accepts (`.mjs`, `.cjs`, `.mts`, `.cts`
-  too) and the `_test` / `_spec` suffixes; reads the modules of `preload`, `[test] preload` and
-  `[install.security] scanner` and the package of `jsxImportSource` in `bunfig.toml`; parses the commands of Bun Shell
-  (`` $`…` `` imported from `bun`, `` Bun.$`…` ``) and of `Bun.spawn` / `Bun.spawnSync` like `package.json` scripts,
-  a computed argument of `Bun.spawn` left out as for `spawn` of `node:child_process`, and a command that
-  `` $`…`.cwd(dir) `` or the `cwd` option of `Bun.spawn` runs elsewhere judged as one run in another package;
-  reads the `entrypoints` of `Bun.build` as production entries; and counts `@types/bun` or `bun-types` as used where
-  sources use the `Bun` global, also the sources of the packages below the one listing it. Commands and entries come
-  from the package's own sources only: a workspace root does not read those of its members. It is enabled by
-  `bunfig.toml`, `@types/bun` and `bun-types` too.
-- Config evaluation reads `import.meta.dir`, `import.meta.path` and `import.meta.file`, and a call-extraction global
-  written `Name.*` stands for a module object whose members are its exports.
-- `[[ignore]] files`: globs of the files a finding is located in, relative to the workspace root. `skif baseline`
-  records a finding about a file (`unused-files`, `unused-exports`, `circular-imports`) with its file, so a new unused
-  file or export elsewhere in the package fails the run
-  ([ADR 0093](adrs/0093-baseline-entries-follow-what-a-finding-is-about.md)).
-- `skif baseline write` and `prune` take the lint flags that change the findings (`--config`, `--rule`, the ignore
-  flags, `--no-js`, `--production`, `--strict`, `-W`, `--include`, `--exclude`, ...), and every `skif baseline` command
-  covers several roots as a lint run does (`-r`, or a `PATH` without a `package.json` above it), each root with its own
-  baseline file ([ADR 0093](adrs/0093-baseline-entries-follow-what-a-finding-is-about.md)).
-- A fix run of a single root warns when it would remove a dependency and other roots lie below it, whose uses only
-  `skif -r` credits.
-- A lint run warns about an `[[overrides]]` pattern that leaves the directory it is anchored at (`../packages/*`), which
-  matches nothing.
-- `skif migrate --force` warns when the file it replaces had an `extends` (a baseline file, a shared preset).
-- `banned-dependency` judges what `pnpm-lock.yaml` resolves for a `[[version-groups]]` entry with
-  `scope = "lockfile"` (only with `policy = "banned"`): every resolved `name@version` the group bans, transitive ones
-  included, is reported once at its lockfile entry with the shortest chain an importer pulls it in through, so
-  removing the `overrides` entry that kept a package out fails the lint. The group claims no manifest entry
-  ([ADR 0090](adrs/0090-lockfile-scopes-for-banned-groups-and-dependency-families.md),
-  [#141](https://github.com/Goldziher/skif/issues/141)).
-- `[[dependency-families]]` entries take `scope = "importer"` or `scope = "lockfile"`: `unsynced-dependency-family`
-  then requires the members to resolve to one version per importer or across `pnpm-lock.yaml`, and with
-  `anchor = "<package>"` each member to one version per major of the anchor (`@types/react` against `react`)
-  ([ADR 0090](adrs/0090-lockfile-scopes-for-banned-groups-and-dependency-families.md),
-  [#141](https://github.com/Goldziher/skif/issues/141)).
-- New rule `stale-patched-dependencies` (workspace, warning): a `patchedDependencies` key of the root
-  `pnpm-workspace.yaml` or `package.json` whose `name@version` `pnpm-lock.yaml` no longer resolves or resolves without
-  a patch hash, a patch file that does not exist or lies outside the `allowed-patch-paths` globs, and a `*.patch` file
-  no entry references in the patch directories (`patch-dirs`, by default those of the referenced patches and
-  `patches`) ([ADR 0091](adrs/0091-stale-patched-dependencies.md), [#142](https://github.com/Goldziher/skif/issues/142)).
-- The lockfile checks read `pnpm-lock.yaml` in lockfile format 9 (pnpm 9 and 10) only, on the first run that needs it.
-  Without one, with another manager's lockfile, or when it does not parse, the rule reports that nothing was checked.
-  `skif-workspace` exports the model (`PnpmLockfile`, `LockedDependency`, `Snapshot`, `LockedPatch`, `Resolutions`)
-  and `WorkspaceError::InvalidLockfile`; `YamlSource::entry_span` locates an entry of any top-level mapping.
-- `RunOptions::with_fs` of `skif-lint` passes the host's file system to rules that read files beyond the discovered
-  workspace, through `LintContext::fs`; it defaults to the real file system, and `Linter` passes the one it was built
-  with. `VersionGroup::scope` (`GroupScope`) and `DependencyFamily::scope` (`FamilyScope`) and `anchor` are new
-  configuration fields.
-- `stray-lockfile` reports a lockfile (`package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock`, `pnpm-lock.yaml`,
-  `bun.lock`, `bun.lockb`) in a workspace member, and a lockfile at the root that another package manager than the
-  workspace's writes; its unsafe fix deletes the file. `nested-workspace-root` reports a `pnpm-workspace.yaml` in a
-  member, also one a recursive run lints as a root of its own. Both search the root and the directories the
-  workspace patterns select, leave out files git ignores, and take `allow`, a list of paths kept on purpose, each a
-  string or `{ name, reason }`; an entry that names nothing is reported, and `--require-ignore-reasons` covers the
-  entries. `DiscoveryFacts::package_manager_files` of `skif-workspace` lists the files they judge
+- `foreign-package-manager-command` (`warn`): Dockerfile `RUN` steps, workflow `run:` steps and `*.sh` scripts that
+  run another package manager than the workspace's (`npm ci` or `npx` in a pnpm workspace); read-only commands and
+  projects outside the workspace are not reported ([ADR 0088](adrs/0088-foreign-package-manager-commands.md),
+  [#139](https://github.com/Goldziher/skif/issues/139)).
+- `stray-lockfile`: a lockfile in a workspace member, or one at the root written by another package manager (also a
+  `bun.lockb` beside a `bun.lock`, which Bun ignores); the unsafe fix deletes it. `nested-workspace-root`: a
+  `pnpm-workspace.yaml` in a member, or a Bun member whose `package.json` declares `workspaces`. Both skip gitignored
+  files and take `allow`, globs of files kept on purpose, each a string or `{ name, reason }`
   ([ADR 0089](adrs/0089-stray-lockfiles-and-nested-workspace-roots.md),
+  [ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md),
   [#140](https://github.com/Goldziher/skif/issues/140)).
-- `unlisted-dependencies` reports a package that a tool config names itself and no manifest lists, at the config
-  with the detail `ConfigReference`: a `tsconfig` `extends`, `types` or plugin, an Oxlint `jsPlugins` entry, an
-  ESLint plugin, parser or shareable config, a Babel preset or plugin, a PostCSS plugin, a Prisma generator and the
-  other packages plugins read from configs. The config belongs to the innermost package whose directory holds it.
-  Packages that a command in a config names, that a plugin assumes without a config, and optional references are not
-  reported; `ignore-dependencies` and `ignore` apply, a gitignored config or one in a fixture directory (unless
-  `include-fixtures`) is not judged, and production mode judges no config. A `tsconfig` compiler option of a shared
-  base config is satisfied by the package extending it as well as the base's owner, and a `types` entry by the
-  package or its `@types` package. Plugins record the dependencies a non-config file names with
-  `PluginInput::FileDependency` and compiler options with `PluginInput::CompilerDependency`; `DepRef` has
-  `named_by_config`, `type_only` and `reader_may_list`, with `DepRef::new` and `DepRef::merge`
-  ([ADR 0086](adrs/0086-packages-tool-configs-name-are-unlisted-at-the-config.md), [#96](https://github.com/Goldziher/skif/issues/96)).
-- `.marko` files are read: their `import` statements and `import()` calls, and the imports of their `<style>` and
-  concise `style { … }` blocks. A reached `.marko` file uses `marko`
-  ([ADR 0084](adrs/0084-template-scopes-auto-imported-vue-components-and-marko-files.md)).
-- `skif-js-syntax` exports `registered_components`, which reads the components a generated `components.d.ts`
-  registers, `ModuleInfo::template_tags`, the tag names of a `.vue` template with its static `is` values and the
-  names of `resolveComponent` calls, and Vue's tag resolution (`camelize`, `capitalize`, `resolved_names`,
-  `registered_name`, `is_native_tag`).
-- Eight plugins read more of their configs, still without running them
-  ([ADR 0078](adrs/0078-plugin-gaps-config-functions-file-tasks-and-templates.md),
-  [#103](https://github.com/Goldziher/skif/issues/103)):
-  - `sst` reads the handler shorthand of SST 2 constructs in the stacks `sst.config.ts` imports (`routes`,
-    `subscribers`, `notifications`, `targets`, and `function`, `job` and `consumer` strings).
-  - `serverless-framework` expands `${self:…}` variables and quoted fallbacks in a `handler`, reads any other
-    variable as a `**` or `*` wildcard and takes a glob handler as an entry glob.
-  - `vue` calls a function `configureWebpack` statically with a base config and reads its result.
-  - `eleventy` reads `addPassthroughCopy` calls.
-  - `rstest` applies `exclude` and negated `include` patterns as `!` entries, which the default test globs do not
-    override. `rs.mock()` and the other `rs` and `rstest` module calls are mock imports.
-  - `mise` reads file tasks (`mise-tasks/`, `.mise/tasks/`, `.config/mise/tasks/`, ..., or `task_config.includes`,
-    which replaces them).
-  - `taskfile` expands `{{.NAME}}` templates from `vars`, `ROOT_DIR` and `TASKFILE_DIR`, and reads the rest of a
-    command around any other template.
-  - `react-email` credits only the preview server package of the installed (else declared) major version.
-- `skif-js-syntax` exports `extract_property_calls`, which calls a function property of a config statically, and
-  `extract_method_calls`, which evaluates the arguments of method calls.
-- `skif-js-syntax`: `ImportedName` gains `nested_members`, the members read through a member of the binding
-  (`ns.E.A` reads `A` of `E`), for each member used only that way. A struct literal of `ImportedName` needs the new
-  field.
-- The `[js]` ignore lists (`ignore-dependencies`, `ignore-binaries`, `ignore-unresolved`, `ignore-files`,
-  `ignore-members`, `ignore-workspaces` and the `extend-` keys, at the top level, per workspace and in overrides) takes
-  an inline table `{ name = "...", reason = "..." }` alongside plain strings, so an entry records why it exists
-  ([ADR 0074](adrs/0074-reasons-on-js-ignore-entries.md), [#113](https://github.com/Goldziher/skif/issues/113)).
-- `[lint] require-ignore-reasons = true` turns on the `--require-ignore-reasons` check from the file
-  ([#113](https://github.com/Goldziher/skif/issues/113)).
-- `skif migrate` turns the comment above a knip ignore entry, or after it on its line, into the entry's `reason` (also
-  in a list written as a top-level constant), and writes the comment above a syncpack group that no spread precedes
-  above its `[[version-groups]]`, `[[semver-groups]]` or `[[update-groups]]` entry
-  ([#113](https://github.com/Goldziher/skif/issues/113)).
-- **`stale-mocks` rule** (js, error): reports a `vi.mock`, `vi.doMock`, `vi.unmock`, `vi.importActual`, `jest.mock`,
-  `jest.doMock`, `jest.requireActual` or other test-runner call whose relative or aliased specifier names a module that
-  does not exist ("`` `vi.mock('./gone')` names a module that does not exist ``"), including Vitest's typed
-  `vi.mock(import('./gone'))`. The specifier resolves as an import does, so a query such as `?react` is dropped
-  first; a package name that resolves to nothing is not reported, nor is a `{ virtual: true }` mock.
-  `ignore-unresolved` and `ignore-dependencies` silence it. knip does not read mock specifiers, so
-  `skif migrate --profile exact` turns it off. There are 43 rules, 18 of them `js` rules
+- `stale-patched-dependencies` (`warn`): a `patchedDependencies` entry (pnpm, or Bun's root `package.json`) whose
+  `name@version` the lockfile no longer resolves or records without the patch, a missing patch file or one outside
+  `allowed-patch-paths`, and a `*.patch` file no entry references ([ADR 0091](adrs/0091-stale-patched-dependencies.md),
+  [#142](https://github.com/Goldziher/skif/issues/142)).
+- `invalid-workspace-file` (`error`): a member `package.json` that is not valid JSON, an unusable workspace pattern
+  and an invalid `.yarnrc.yml` are reported at the error; such a member used to drop out of the run silently
+  ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
+- `stale-mocks` (`error`): a `vi.mock`, `jest.mock`, `rs.mock` or other test-runner call (also
+  `vi.mock(import('./x'))`) whose relative or aliased specifier names a module that does not exist. Virtual mocks and
+  unresolved package names are not reported; `skif migrate --profile exact` turns it off
   ([ADR 0073](adrs/0073-stale-mocks-test-runner-mocks-of-missing-modules-under-their-own-rule.md),
   [#111](https://github.com/Goldziher/skif/issues/111)).
-- `skif baseline write|prune|check` maintains a suppression baseline for a repository that adopts skif with findings it
-  cannot fix at once. `write` records every error and warning as an `[[ignore]]` entry (rule, package and dependency,
-  with `name@specifier` for version findings so only that version is silenced) in `skif.baseline.toml` (`--file`),
-  each with `reason = "baseline"` (`--reason`), and adds the file to the `extends` of the root's `skif.toml` without
-  changing the rest of it. `prune` removes the entries that match no finding, and `check --base <REF>` (or
-  `--base-file <FILE>`) exits `1` when the baseline gained entries. A finding in a root package without a name of
-  its own is not recorded, since no package pattern selects the root alone. All three take `--format json`
+- **Lockfile scopes**: `[[version-groups]]` with `policy = "banned"` and `scope = "lockfile"` make `banned-dependency`
+  check every version `pnpm-lock.yaml` resolves, transitive ones included, with the chain that pulls it in;
+  `[[dependency-families]]` take `scope = "importer"` or `"lockfile"` and an `anchor` (`@types/react` per major of
+  `react`). The lockfile checks read `pnpm-lock.yaml` format 9 (pnpm 9 and 10) and say when nothing was checked
+  ([ADR 0090](adrs/0090-lockfile-scopes-for-banned-groups-and-dependency-families.md),
+  [#141](https://github.com/Goldziher/skif/issues/141)).
+- `unlisted-dependencies` reports a package a tool config names (a `tsconfig` `extends` or `types`, an ESLint plugin
+  or shareable config, a Babel preset, a PostCSS plugin, a Prisma generator, ...) that no manifest lists, at the
+  config, with the detail `ConfigReference`
+  ([ADR 0086](adrs/0086-packages-tool-configs-name-are-unlisted-at-the-config.md),
+  [#96](https://github.com/Goldziher/skif/issues/96)).
+- **Marko**: `.marko` files are read (imports, `import()` and the imports of `<style>` and `style { }` blocks), and a
+  reached `.marko` file uses `marko`
+  ([ADR 0084](adrs/0084-template-scopes-auto-imported-vue-components-and-marko-files.md)).
+- **Plugins** read more of their configs
+  ([ADR 0078](adrs/0078-plugin-gaps-config-functions-file-tasks-and-templates.md),
+  [#103](https://github.com/Goldziher/skif/issues/103)): `sst` (SST 2 stack handlers), `serverless-framework`
+  (`${self:…}` and `${opt:…}` variables in handlers), `vue` (a `configureWebpack` function), `eleventy`
+  (`addPassthroughCopy`), `rstest` (`exclude`, negated `include`, `rs.mock()`), `mise` (file tasks, also
+  extensionless JavaScript ones), `taskfile` (`{{.VAR}}` templates) and `react-email` (the preview package of the
+  installed major).
+- **Bun plugin**: finds every test file `bun test` runs; reads the `preload`, `[test] preload`, security scanner and
+  `jsxImportSource` of `bunfig.toml`; reads the commands of Bun Shell (`` $`…` ``, `` Bun.$`…` ``) and
+  `Bun.spawn`, the `entrypoints` of `Bun.build` and `import.meta.dir` / `path` / `file`; and credits `@types/bun` or
+  `bun-types` where sources use the `Bun` global.
+- **Bun**: a root `bunfig.toml` with an `[install]` table detects Bun when nothing else decides
+  ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
+- `skif baseline write|prune|check`: a suppression baseline that can only shrink. `write` records every error and
+  warning as an `[[ignore]]` entry in `skif.baseline.toml` and adds it to the root's `extends`; `prune` drops entries
+  that match nothing; `check --base <REF>` fails when the baseline grew. Findings about a file are recorded with it,
+  version findings with `name@specifier`; the commands take the lint flags, cover several roots (`-r`) and exit `2`
+  when the configuration does not apply the baseline. The GitHub Action runs them, also with `from-sherif: true`
   ([ADR 0071](adrs/0071-skif-baseline-a-suppression-baseline-that-can-only-shrink.md),
+  [ADR 0093](adrs/0093-baseline-entries-follow-what-a-finding-is-about.md),
   [#114](https://github.com/Goldziher/skif/issues/114)).
-- `ignore_matches` in the library returns the findings each `[[ignore]]` entry matches, judged by the code a lint run
-  suppresses with.
-- A published path that names nothing (a `bin` such as `bin/cli.js` with no file, no source behind it, outside a build
-  output directory, not ignored by git and with no build step of the package that may write it) no longer marks its
-  package `unmapped-published` and leaves it unjudged: it is no entry, the package is judged from its other entries,
-  and `stale-js-config` reports the path (`package-entry`). Ignore files above the analysed root and
-  `.git/info/exclude` now count when telling build output from such a path
-  ([ADR 0069](adrs/0069-a-published-path-into-nothing-is-reported-not-an-incomplete-entry.md),
-  [#109](https://github.com/Goldziher/skif/issues/109)).
-- A spread of a conditional object literal in a config (`...(tmp && { cacheDir: tmp })`, `...(ci ? { … } : {})`) no
-  longer marks the package incomplete with `unknown-spread`, which kept `unused-dependencies` and the other package
-  rules from judging it. Every branch is read: the lists each branch sets (`include`, `setupFiles`, …) are credited,
-  and only a branch that is not known statically leaves the spread unknown
-  ([#108](https://github.com/Goldziher/skif/issues/108)).
-- The GitHub Action, pre-commit and Poly examples in the README and the docs pin the 0.2 line (`Goldziher/skif@v0.2`,
-  `v0.2.0`) instead of 0.1. `scripts/release-bump.sh` now rewrites these pins on every final release, and
-  `scripts/check-doc-pins.sh` fails CI when one is not on the workspace version's release line
-  ([#94](https://github.com/Goldziher/skif/issues/94)).
-- Windows npm packages: `skif-win32-x64-msvc` and `skif-win32-arm64-msvc`, so `npx skif-cli`, `pnpm dlx skif-cli`
-  and `bunx -p skif-cli skif` run on Windows x64 and arm64. The release loads both addons on their own architecture
-  under Node.js 22, 24 and 26 and Bun before publishing ([ADR 0070](adrs/0070-windows-npm-packages.md),
+- `[[ignore]] files`: globs of the files a finding is located in, relative to the workspace root
+  ([ADR 0093](adrs/0093-baseline-entries-follow-what-a-finding-is-about.md)).
+- **Ignore reasons**: the `[js]` ignore lists (`ignore-dependencies`, `ignore-files`, ..., and their `extend-` keys,
+  at every level) take `{ name = "...", reason = "..." }` beside plain strings, a blank reason is rejected, and
+  `[lint] require-ignore-reasons = true` turns on `--require-ignore-reasons` from the file
+  ([ADR 0074](adrs/0074-reasons-on-js-ignore-entries.md), [#113](https://github.com/Goldziher/skif/issues/113)).
+- `skif migrate` carries the comment beside a knip ignore entry over as its `reason`, and the comment above a syncpack
+  group to its `[[version-groups]]`, `[[semver-groups]]` or `[[update-groups]]` entry
+  ([#113](https://github.com/Goldziher/skif/issues/113)).
+- **Warnings**: a fix run of a single root that would remove a dependency while other roots lie below it; an
+  `[[overrides]]` pattern that leaves its anchor directory (`../packages/*`); and `skif migrate --force` replacing a
+  file that had an `extends`.
+- **Windows npm packages**: `skif-win32-x64-msvc` and `skif-win32-arm64-msvc`, so `npx skif-cli`, `pnpm dlx skif-cli`
+  and `bunx -p skif-cli skif` run on Windows x64 and arm64 ([ADR 0070](adrs/0070-windows-npm-packages.md),
   [#93](https://github.com/Goldziher/skif/issues/93)).
+- **Agent skill and plugin**: `skills/skif` teaches coding agents the lint, triage and fix loop; install it with
+  `npx skills add Goldziher/skif`, or as a plugin for Claude Code, Codex, Factory Droid and GitHub Copilot CLI, which
+  also registers the MCP server (`npx -y skif-cli@<release> mcp`) pinned to the release
+  ([ADR 0102](adrs/0102-agent-skill-distributed-from-the-repository.md)).
+- **Library API**:
+  - `skif`: `Linter::for_targets`, `for_targets_with_cache`, `shared_modules` and `with_shared_modules`
+    (`SharedModules`) share one module cache across roots
+    ([ADR 0101](adrs/0101-a-module-cache-shared-by-the-roots-of-a-run.md));
+    `settle_shared_config` decides shared `stale-js-config` findings as `skif -r` does; `join_lexical`,
+    `Target::retain_ignore` and `Target::locate`; `ignore_matches` lists the findings each `[[ignore]]` entry matches.
+  - `skif-lint`: `RunOptions::with_fs` and `LintContext::fs` give rules the host's file system. `skif-rules`:
+    `toolchain_provider()`, included in `providers()`.
+  - `skif-core`: `IncompleteScope` (moved from `skif-js`, which re-exports it), `IncompletePackage::scope` and
+    `with_scope`, `IncompleteCause::NoEntries`, `ConfigJudgement` with `Report::config_judgements`, `retain_mut` and
+    the `Emitter` methods, `RuleMeta::version_scoped`, `IgnoreEntry::files`, `OverrideScope::unanchored`,
+    `timing::Tally::add`, and the shell tokenizer as `skif_core::shell` (`tokenize`, `Tokens`, `Segment`, `Word`).
+  - `skif-config`: `GroupScope`, `FamilyScope`, `DependencyFamily::anchor`, `Origins::retain_list` and the four
+    `extend-` fields of `JsWorkspace`.
+  - `skif-workspace`: `PnpmLockfile` (with `LockedDependency`, `Snapshot`, `LockedPatch`, `Resolutions`),
+    `BunLockfile`, `WorkspaceError::InvalidLockfile`, `YamlSource::entry_span`, `DiscoveryFacts::package_manager_files`
+    and `Workspace::workspace_keys_anchor`.
+  - `skif-js-syntax`: `extract_config` (`ExtractedConfig`), `extract_property_calls`, `extract_method_calls`,
+    `extract_command_calls`, `file_call_options`, `registered_components`, `ModuleInfo::template_tags` and
+    `commands`, Vue tag resolution (`camelize`, `resolved_names`, `registered_name`, `is_native_tag`, ...) and
+    `ParseCoalescer`.
+  - `skif-js-plugins`: `PluginInput::FileDependency`, `CompilerDependency`, `SourceScript` and `EntryRegex`,
+    `PluginOutput::run_binaries` and `entry_regexes`, `BinaryRef`, `DepRef::merge`, and
+    `scripts::is_powershell_command` and `without_commands`. `skif-js`: `RunBinary`, and `WorkspaceInputs::run_binaries`
+    and `entry_regex`.
+- **Docs**: the migration guide lists the sherif bugs skif fixes and which change results
+  ([#105](https://github.com/Goldziher/skif/issues/105)); the comparison guide states what skif replaces in knip and
+  links the open gaps ([#104](https://github.com/Goldziher/skif/issues/104)); the speed and knip agreement tables in
+  the README and the guide are generated from recorded runs and name the commit, tool versions and machine
+  ([#27](https://github.com/Goldziher/skif/issues/27), [#95](https://github.com/Goldziher/skif/issues/95)).
 
 ### Changed
 
-- **Breaking** for library users that match `skif_js_syntax::ConfigValue` exhaustively: it gains `OneOf`, a value that
-  is one of several known values without knowing which. The evaluator gives it for a condition it cannot decide
-  between values it knows (`process.env.CI ? 'github' : 'list'`, `[ci ? 'blob' : 'list']`, a binding one branch
-  reassigns, a fallback over a key a conditional spread may set), with up to eight alternatives, where it gave
-  `Unknown`. `ConfigValue::is_unknown` and `has_unknown` count it as unknown, so code that does not ask for
-  `ConfigValue::alternatives` reads it as it read `Unknown`; `as_str`, `as_array` and `get` return `None` for it. A
-  spread of a value that is one of several objects adds the keys of each, as a spread of the condition itself does,
-  and `undefined` evaluates to `undefined` (handed out as `null`) instead of an unknown value
-  ([ADR 0103](adrs/0103-one-of-several-known-values-in-config-evaluation.md)).
-- **Breaking** for `allow` entries that hold glob metacharacters (`*`, `?`, `[`, `{`): the `allow` option of
-  `stray-lockfile` and `nested-workspace-root` takes globs (`packages/*/package-lock.json`), each compiled once per
-  run. An entry still matches its own path literally first, so `app/[id]/package-lock.json` allows that file, but it
-  now also allows every other file it matches as a glob. An invalid glob, a `!` pattern and the package selector
-  `$LOCAL` are configuration errors naming the entry (`allow[0]: ...`). Entries were compared as exact paths only.
-- **Breaking** for library users: `skif_config::Assignment` and `skif_core::IncompleteEntries` (both re-exported by
-  `skif`) are `#[non_exhaustive]`, so a later field is not a breaking change. Build them with `Assignment::new` and
-  `IncompleteEntries::new(cause).with_plugin(..).with_file(..)`.
-- **Breaking** for library hosts of `skif_cli::run`: a panic in the command no longer unwinds out of `run`; it returns
-  exit code `2`, after the `internal` error document on stdout under `--format json`. The first call also chains a
-  hook in front of the process's panic hook, once per process, which records the panic's location and then calls the
-  hook it replaced. A host that sets its own panic hook later drops it, and the document then names only the payload.
+- **Breaking** for configurations that ignore mocks under `unresolved-imports`: a mock of a missing module is now a
+  `stale-mocks` error, not an `unresolved-imports` finding. Move the `[[ignore]]` entries or `severity` settings to
+  `stale-mocks` ([#111](https://github.com/Goldziher/skif/issues/111)).
+- **Breaking** for runs with `--require-ignore-reasons` (or `[lint] require-ignore-reasons`): entries of `[[ignore]]`
+  in overrides, of the `[js]` ignore lists and of `allow` options without a `reason` now fail the run with exit code
+  `2`. Add a `reason` to each entry the message names ([#113](https://github.com/Goldziher/skif/issues/113)).
 - **Breaking** for multi-root runs with `--config <FILE>` (`-r`, or a start directory without a workspace): the
-  `[js.workspaces]` keys and `ignore-workspaces` globs of the explicit file and what it extends are relative to the
-  directory the run starts at, not to each root. `"."` is the root at the start directory only, and a
-  nested root is configured by its directory from there (`"tools/sub"`, `"tools/sub/packages/*"`, `"tools/*"`); a key
-  written for a nested root as if it were the root needs that directory in front of it
+  `[js.workspaces]` keys and `ignore-workspaces` globs of that file are relative to the start directory, not to each
+  root, so `"."` no longer configures every nested root. Prefix a key meant for a nested root with its directory
+  (`"tools/sub"`, `"tools/sub/packages/*"`)
   ([ADR 0098](adrs/0098-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
-- **Breaking** for library users: `PluginOutput` of `skif-js-plugins` and `WorkspaceInputs` of `skif-js` are
-  `#[non_exhaustive]`: an input source starts from `WorkspaceInputs::default()` and sets the fields it knows.
-- **Breaking** for library hosts: `Report::other_project_files` lists every file with an absolute path (the files
-  below the workspace root were relative to it) and also lists the files outside the root that the analysed code
-  reaches;
-  `Report::ancestor_dependency_uses` also lists the dependencies those files import, with the directory of the manifest
-  that lists them ([ADR 0085](adrs/0085-files-other-roots-reach-count-as-used.md),
+- **Breaking** for library hosts of `skif_cli::run`: a panic no longer unwinds out of `run`; it returns exit code `2`
+  (with the `internal` error document under `--format json`), and the first call chains a panic hook in front of the
+  process's. A host that installs its own panic hook later should chain the previous one.
+- **Breaking** for library hosts: `Report::other_project_files` lists absolute paths and includes the files outside
+  the root the analysed code reaches; `Report::ancestor_dependency_uses` also lists what those files import. Compare
+  against absolute paths ([ADR 0085](adrs/0085-files-other-roots-reach-count-as-used.md),
   [#100](https://github.com/Goldziher/skif/issues/100)).
-- **Breaking** for library consumers: the `[js]` ignore-list fields of `skif_config::Js`, `JsWorkspace` and
-  `PackageJs` change from `Vec<String>` to `Vec<IgnoreItem>` (a `name` and an optional `reason`); an `IgnoreItem`
-  compares with a string by its name and converts from one, and code that reads an entry as a string reads `name`
-  ([#113](https://github.com/Goldziher/skif/issues/113)).
-- **Breaking** for runs with `--require-ignore-reasons`: the flag now also fails on an `[[ignore]]` entry of an
-  override and on an entry of a `[js]` ignore list without a `reason`, so a configuration that passed before can fail
-  with exit code 2. The message names the list and the entry, by its place in the merged list
-  ([#113](https://github.com/Goldziher/skif/issues/113)).
-- **Breaking** for configurations that ignore mocks under `unresolved-imports`: `unresolved-imports` no longer reports
-  test-runner mocks; a mock of a missing module is a `stale-mocks` error instead, with the same default severity, so
-  it can be triaged, baselined or turned off apart from broken imports
-  ([#111](https://github.com/Goldziher/skif/issues/111)).
-- **Breaking** for library users of `skif-js-syntax`: `Import` has a new public field `call` (an `Option<MockCall>`,
-  the test-runner call of a mock import), so code that builds an `Import` with a struct literal must set it. The
-  module cache schema is raised with it, so a cache written by an earlier build is discarded.
-- GitHub Action: with `from-sherif: true`, `baseline write`, `prune` and `check` read the translated sherif settings through a temporary configuration that extends the translation and then the baseline file.
-- A multi-root run (`skif -r`, and the CLI's other multi-root commands) without `--cache` parses the files more than
-  one root can reach through one in-memory module cache shared by its roots: files outside the root parsing them (a
-  directory of shared code outside every root) and files of a root nested in it. Such a file is parsed once for the
-  run instead of once per root, and roots linted in parallel wait for a parse already under way instead of repeating
-  it. Each root parses its own files outside that cache, so a run whose roots share no code keeps nothing in it. With
-  `--cache`, and in `--watch`, `skif lsp` and `skif mcp`, the host's cache holds every file as before and is shared by
-  the roots the same way. The reports are unchanged. `--performance` reports `js module cache <root>: H hits, M
-  misses, W waits`, where a wait is a lookup handed another root's parse, and the time of the waits as `js parse wait
-  <root>` instead of in `js parse` ([ADR 0101](adrs/0101-a-module-cache-shared-by-the-roots-of-a-run.md),
-  [#144](https://github.com/Goldziher/skif/issues/144)).
-- `[js] discovery = "auto"`, the default, walks the directories instead of listing tracked directories from the git
-  index. The index cannot tell whether an unchanged directory holds an untracked file created before the index was
-  last written (a `git add` or `git commit` of another file does that), and such a file, an entry or the only importer
-  of another file, then went missing: false `unused-exports` and `unused-files`, and a `--fix --allow-remove-files`
-  that deleted a tracked file only it used. `discovery = "git"` now does what `auto` did (the index, with every
-  directory modified since it was written listed from disk) instead of trusting the index alone, and its
-  `unused-files` findings offer no fix that deletes the file
+- **Breaking** for library users matching `skif_js_syntax::ConfigValue` exhaustively: the new variant `OneOf` holds a
+  value that is one of several known values (`process.env.CI ? 'github' : 'list'`), where `Unknown` was given;
+  `ConfigValue::Regex` gains `flags`. Add arms for them; `is_unknown` treats `OneOf` as unknown, and
+  `ConfigValue::alternatives` lists its values
+  ([ADR 0103](adrs/0103-one-of-several-known-values-in-config-evaluation.md)).
+- **Breaking** for library users of the `[js]` configuration: the ignore-list fields of `skif_config::Js`,
+  `JsWorkspace` and `PackageJs` are `Vec<IgnoreItem>` instead of `Vec<String>`. Read `item.name`; an `IgnoreItem`
+  converts from and compares with a string ([#113](https://github.com/Goldziher/skif/issues/113)).
+- **Breaking** for library users that build these types with struct literals or match them exhaustively: they are
+  now `#[non_exhaustive]`. Use the constructors and `Default`:
+  `skif_config::Assignment` (`Assignment::new`), `skif_core::IncompleteEntries` (`IncompleteEntries::new`),
+  `skif_js_plugins::PluginOutput`, `skif_js::WorkspaceInputs` (`WorkspaceInputs::default()`) and `UnlistedImport`
+  (now with `target` and `foreign_paths`).
+- **Breaking** for library users that build these structs with literals: new public fields must be set.
+  `skif_js_syntax::Import::call` (`MockCall`), `ImportedName::nested_members`, `skif_js::InputRequest::workspace_key`,
+  `UnlistedBinary::file`, and in `skif_js_plugins`: `DepRef` (`named_by_config`, `type_only`, `reader_may_list`,
+  `from`; or build one with `DepRef::new`), `PluginSpec::optional_binaries`, `scripts::DepRef::dir` and
+  `scripts::BinaryUse` (`dir`, `relocation_dir`, `bin_path`).
+- `[js] discovery = "auto"`, the default, walks the directories instead of trusting the git index, which could miss an
+  untracked file and so report false `unused-files` and `unused-exports` (and delete a used file with
+  `--allow-remove-files`). `discovery = "git"` checks modified directories on disk, and its `unused-files` findings
+  offer no fix, so the rule is listed as fixable `sometimes`
   ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
-- The shell tokenizer of the `package.json` script parser moved from `skif-js-plugins` to `skif_core::shell`
-  (`tokenize`, `Tokens`, `Segment`, `Word`), so rules outside the JS analysis split command lines with it.
-- Finding which exports mention an export in their signature takes time linear in the exports of a file instead of
-  quadratic: the names each value export's signature mentions are indexed once per file, and the imports once by module
-  and name for re-exports. A file of 40,000 exported functions spent seconds there, and generated barrels and type
-  files of every root paid it. The results are unchanged ([#145](https://github.com/Goldziher/skif/issues/145)).
-- `--fix` over several roots writes the fixes of every root before it lints any root again or runs an install
-  step, instead of writing, linting again and installing root by root. When writing a later root fails, the files of
-  the earlier roots stay written as before, but their install steps no longer run: the fix summary reports each as
-  skipped because fixing a later root failed, and the run exits 2
+- **Multi-root runs** (`skif -r`) parse a file several roots reach once per run instead of once per root, also without
+  `--cache`; `--performance` adds the cache's hits, misses and waits per root
+  ([ADR 0101](adrs/0101-a-module-cache-shared-by-the-roots-of-a-run.md),
+  [#144](https://github.com/Goldziher/skif/issues/144)).
+- `--fix` over several roots writes the fixes of every root before it lints again or runs an install step; when a
+  later root fails, the earlier roots' install steps are reported as skipped and the run exits `2`
   ([ADR 0098](adrs/0098-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
-- `Workspace` gains `workspace_keys_anchor` and `set_workspace_keys_anchor`, which `discover_targets` sets for the
-  roots below the start of a run with an explicit configuration file; `skif_js::InputRequest` gains `workspace_key`,
-  so a struct literal needs the field. `skif_core::ConfigJudgement` is new, `Report` gains `config_judgements`,
-  `with_config_judgements` and `retain_mut`, and `Emitter` gains `report_config_judgement` and
-  `take_config_judgements`: `stale-js-config` records every entry it judged, with the package of a list a
-  `[js.workspaces]` table gives a package. `skif::settle_shared_config` is new: given the reports of the targets of
-  `discover_targets` in order, it decides the `stale-js-config` findings about a configuration file several roots
-  read, as `skif -r` does; a host that lints the targets itself calls it last, on the reports it shows.
-  `skif::join_lexical` joins a root and a path relative to it with `..` resolved, the form in which those files are
-  compared ([ADR 0098](adrs/0098-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
-- `RuleMeta` gains `version_scoped`, set with `RuleMeta::version_scoped()`; `IgnoreEntry` gains `files` and
-  `with_files`; `OverrideScope` gains `unanchored()`.
-- syncpack format keys (`sortAz`, `sortFirst`, `indent`, ...) turn `package-json-format` and `unsorted-dependencies`
-  on only when a script runs `syncpack format`; otherwise the settings are written with the rules off and a note.
-- syncpack's `policy: catalog` migrates to `[catalog] mode = "enforce"` with `min-packages = 1`.
-- `unsynced-dependency-family` honours `[policy] dependency-types`, so the sherif migration (`prod`, `dev`) leaves
-  optional dependencies out as sherif does.
-- Template expressions of `.vue`, `.svelte`, `.astro` and `.mdx` files are parsed as JavaScript under the scopes of
-  their block constructs (Vue `v-for`, `v-slot`, `#name`, `slot-scope`; Svelte `{#each}`, `{#await}`, `{:then}`,
-  `{:catch}`, `{#snippet}`, `{@const}`, `let:`; arrow parameters such as `items.map((item) => …)`), so a member that
-  a template local of the same name as a namespace import reads is no use of that namespace's export (a named import
-  keeps its export used, as in knip)
+- **Performance**: finding the exports a signature mentions is linear instead of quadratic in a file's exports
+  ([#145](https://github.com/Goldziher/skif/issues/145)); `[[ignore]]` entries are indexed by rule, so large
+  baselines stay cheap; each tool config is checked against `.gitignore` once; and one semantic analysis is shared per
+  parsed block.
+- A `--cache` store written by 0.2 is discarded and rebuilt on the first run.
+- **Incomplete packages**: `incomplete-packages[]` entries of the JSON report carry a `scope`, `"package"` or
+  `{"within": [globs]}` naming the only files left unjudged, and the human note names the globs
+  ([ADR 0065](adrs/0065-narrowed-scope-for-incomplete-entries.md)). In a narrowed package the export, type, member and
+  namespace rules judge every file outside the scope
+  ([ADR 0081](adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md),
+  [#101](https://github.com/Goldziher/skif/issues/101)).
+- **Templates**: expressions in `.vue`, `.svelte`, `.astro` and `.mdx` templates are parsed as JavaScript under the
+  scopes of `v-for`, `v-slot`, `{#each}`, `{#snippet}`, `let:` and arrow parameters, so a template local no longer
+  counts as a use of a namespace export of the same name
   ([ADR 0084](adrs/0084-template-scopes-auto-imported-vue-components-and-marko-files.md),
   [#102](https://github.com/Goldziher/skif/issues/102)).
-- A component that `unplugin-vue-components` registers in `components.d.ts` from a file of the project is used only
-  where a template names it as Vue resolves the tag (`AppButton`, `app-button`, `appButton`, `LazyAppButton`), in a
-  static `is` attribute or in a `resolveComponent('AppButton')` call, as knip compiles it: one no template uses is
-  reported by `unused-files`. Native elements (`<button>`) name no component, the imports added for components are
-  no `circular-imports` cycle, and a package that may use its components in files without tags (a `.tsx` or `.jsx`
-  file, a VitePress or VuePress site, or an `include` of the plugin beyond `.vue` files) credits all of them as before
-  ([ADR 0084](adrs/0084-template-scopes-auto-imported-vue-components-and-marko-files.md)).
-- `ConfigValue::Regex` of `skif-js-syntax` holds the `flags` of the literal besides its `pattern`. `PluginInput` of
-  `skif-js-plugins` gains `EntryRegex`, `PluginOutput` gains `entry_regexes` and `WorkspaceInputs` of `skif-js` gains
-  `entry_regex`, for Jest's `testRegex` ([#100](https://github.com/Goldziher/skif/issues/100)).
-- `BinaryUse` and `DepRef` of `skif_js_plugins::scripts` gain `dir`, the directory a command runs in after `cd`,
-  `pushd` or a package manager's directory flag; `skif_js_plugins::scripts` also gains `is_powershell_command` and
-  `without_commands`. `IncompleteCause` of `skif-core` gains `NoEntries`.
-- `skif-js-syntax` exports `file_call_options`, `command_in_call_dir`, `place_file_dir` and `FILE_DIR`, and the
-  commands `ModuleInfo::commands` holds for a `node:child_process` call with a `cwd` option have the form
-  `cd $__skif_file_dir__/<path> && <command>` when the file's own location computes it, else `cd $__skif__ && <command>`; a `cwd`
-  of `process.cwd()`, `'.'` or `undefined` is left out of the `ImportedCall::arguments` of the new
-  `extract_command_calls`, while `extract_imported_calls` keeps every option as written. `CACHE_SCHEMA` is `3`.
-- `BinaryRef` of `skif-js-plugins` and `RunBinary` of `skif-js` gain `dir`, the directory the command runs the binary
-  in after `cd`, and `filtered`, set when a package manager runs it there without naming a workspace; both are
-  `#[non_exhaustive]`: build them with `BinaryRef::new` and `RunBinary::new`. `BinaryUse` of
-  `skif_js_plugins::scripts` gains `relocation_dir`.
-- `Tokens` of `skif_core::shell` gains `subshells`, the segments each subshell `( … )` runs.
-- `PluginOutput` of `skif-js-plugins` and `WorkspaceInputs` of `skif-js` are `#[non_exhaustive]`: an input source
-  starts from `WorkspaceInputs::default()` and sets the fields it knows.
-- `Report::other_project_files` lists every file with an absolute path (the files below the workspace root were
-  relative to it) and also lists the files outside the root that the analysed code reaches;
-- The knip comparison sets apart findings that follow from where each tool looks, decided from paths and manifests:
-  unused dependencies and script binaries skif reports on a `package.json` that is not one of knip's workspaces
-  (`knip-unjudged-manifest`), unused files and listed unlisted dependencies knip reports below a project that is not
-  one of its workspaces (`non-member-project`), knip's findings below directories skif's file discovery skips
-  (`skipped-directory`), and TypeScript sources whose built path the package publishes (`published-source`).
-  `fixture-file` covers every issue type skif does not report in a fixture directory, not only unused files
-  ([ADR 0080](adrs/0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md),
-  [#27](https://github.com/Goldziher/skif/issues/27)).
-- The knip comparison runs skif recursively on babel, whose `scripts/repo-utils` and
-  `scripts/integration-tests/fixtures/nextjs-10` are projects of their own outside the workspace patterns, whose files
-  knip reads from the root.
-- Every speed and knip agreement table in the README and the comparison guide is generated, and names the skif commit,
-  tool versions and machine it comes from: `mise run bench:publish` writes the speed tables, `mise run parity:publish`
-  the agreement tables, and both refuse to write when a tool was not timed or the baseline is stale. The benchmark
-  times the sherif, syncpack and knip versions pinned in `tools/bench/corpus.toml` instead of whatever is on `PATH`,
-  runs skif with `--recursive` where the corpus marks a repository recursive, and measures 15 runs. The knip
-  comparison sets apart findings inside a file the other tool reports unused (`in-knip-unused-file`,
-  `in-skif-unused-file`) and applies `knip-config-error` to both sides, reads each repository's install state from its
-  checkout, marks n8n as not a valid comparison, runs knip on rushstack in a scratch copy with a root manifest made
-  from `rush.json`, and refuses to check against a baseline recorded with another knip version or category set
-  ([#27](https://github.com/Goldziher/skif/issues/27), [#95](https://github.com/Goldziher/skif/issues/95)).
-- The knip comparison reads the `scope` of each `incomplete-packages` entry and sets apart a file, export, type or
-  member of a narrowed package only when the scope's globs match its file (dependencies stay unjudged in the whole
-  package); applies `non-member-project` to every in-file issue type, but keeps exports, types, members and
-  duplicates compared in a project a recursive run lints as a package of one of its roots; sets apart knip-only
-  dependencies that only files knip alone reports unused import (`used-in-knip-unused-file`, from an import scan of
-  those files) and, the mirror, skif-only dependencies that only files skif alone reports unused import
-  (`used-in-skif-unused-file`), and knip's findings in the root files of a Rush repository (`rush-root-file`); and maps published paths
-  below a build directory and without an extension to their sources in `published-source`, a path without `*` to the
-  first existing source only, as skif does. rushstack is installed with `install-run-rush.js`, and
-  knip runs in its checkout with the scratch root manifest there only while knip runs, so it reads the installed
-  `node_modules`. A corpus `build-command` runs after the install within its own `build-timeout-secs` (n8n builds its
-  `@n8n/*-config` packages and `@n8n/constants`), the install marker records the install and build commands, and a
-  failed install or build no longer skips the repository: it is compared uninstalled with the failure recorded; `corpus fetch`, `run`, `parity`
-  and `syncpack-diff` lock each checkout for their whole pass over it and fail at once when another run holds it; the
-  parity and syncpack runs capture skif's output under their own names in the scratch directory, and `bench:publish`
-  writes skip reasons as code spans with whitespace collapsed (an empty one as `(empty)`), so `summary.md` passes
-  `format:check`
-  ([ADR 0099](adrs/0099-knip-comparison-narrowed-scopes-rush-installs-and-dependencies-of-unused-files.md),
-  [#27](https://github.com/Goldziher/skif/issues/27)).
-- The knip comparison's `published-source` reads the node and credential files an n8n node package lists in
-  `n8n.nodes` and `n8n.credentials`, as skif reads them, and also covers the files only knip reports unused that a
-  published source reaches by relative imports through other such files; n8n is no longer marked as an invalid
-  comparison, since knip now loads its configurations
-  ([ADR 0100](adrs/0100-knip-comparison-n8n-node-files-and-what-published-sources-import.md)).
-- The parse cache schema is raised to 2, as `rs` and `rstest` mock calls are now mock imports: a `--cache` store
-  written by an earlier build is not trusted and is rebuilt on the next run.
-- `unlisted-binaries` judges the commands that plugins read from the files of their tools (workflow steps, Git
-  hooks, `lint-staged` tasks and other configs that hold commands) and the calls of `execa`, `zx` and `nano-spawn`,
-  and reports a binary no dependency provides at the file that runs it. The literal commands of `exec`, `execSync`,
-  `spawn`, `spawnSync`, `execFile` and `execFileSync` from `node:child_process` in files reachable from an entry are
-  read as well, as knip reads them ([ADR 0076](adrs/0076-binaries-run-outside-scripts-and-unlisted-corrections.md),
-  [#97](https://github.com/Goldziher/skif/issues/97)). `ModuleInfo` gains `commands`, `PluginOutput` gains
-  `run_binaries`, `PluginInput` gains `SourceScript`, `WorkspaceInputs` gains `run_binaries`, `UnlistedBinary`
-  gains `file`, and the module cache schema moves to 2. The commands of CI workflows, Git hooks and task runners
-  judge only the binaries they reach through a package manager or a `node_modules/.bin` path, as knip's
-  `optionalBinaries` does (`PluginSpec` gains `optional_binaries`, `BinaryUse` gains `bin_path`), and a GitHub
-  Actions step whose `shell` is not a POSIX shell is not read.
-- In a package whose incomplete entries lie in a narrowed scope, `unused-exports`, `unused-types`, the namespace
-  export rules, the member rules and the tag hints of `stale-js-config` now judge every file outside the scope: every
-  file the scope matches is an entry, outside the package's `project` globs and in the workspace packages nested
-  below it too, so whatever an unknown entry imports is counted. Files in the scope, packages unjudged as a whole and
-  the dependency rules are unchanged. A spread above a Vite or Vitest entry key of a value the config computes itself
-  (`build: { ...makeLib() }` with `makeLib` declared in the config) now leaves the package unjudged as a whole, as a
-  spread inside the key does; only an imported base narrows
-  ([ADR 0081](adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md),
-  [#101](https://github.com/Goldziher/skif/issues/101)).
-- The `esbuild` plugin reads build scripts that export nothing (`run({ entryPoints: { … } })`,
-  `await esbuild.build({ entryPoints: [...] })`, also inside a function, where a local that shadows a top-level
-  binding is unknown): each `entryPoints` they write is a production entry, and the package is no longer unjudged as
-  unparsable
-  ([ADR 0081](adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md),
-  [#101](https://github.com/Goldziher/skif/issues/101)).
-- An import that does not resolve for its package but matches a tsconfig `paths` pattern of another workspace package,
-  or of a root tsconfig the package does not follow, with a target that is a source file of the workspace, is still
-  reported by `unlisted-dependencies`, now with the detail `ForeignTsconfigPaths`, a message naming the config that
-  declares the pattern, a related location at it, and help that suggests the mapping or an import by package name
-  instead of a `package.json` entry. An import of a workspace package, of a package a manifest lists or of an installed
-  package keeps the `package.json` advice. knip merges the `paths` of every workspace, so these imports surface after
-  switching from it ([ADR 0075](adrs/0075-imports-only-another-packages-tsconfig-paths-map.md),
+- **Vue components**: a component `unplugin-vue-components` registers in `components.d.ts` is used only where a
+  template names it as Vue resolves tags, in a static `is` or in `resolveComponent()`; one no template uses is
+  reported by `unused-files`. A package with `.tsx`/`.jsx` files, Pug templates or a VitePress site still credits all
+  of them ([ADR 0084](adrs/0084-template-scopes-auto-imported-vue-components-and-marko-files.md),
+  [ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
+- `unlisted-binaries` also judges the commands of workflow steps, Git hooks, `lint-staged` and other tool configs,
+  `execa`, `zx`, `nano-spawn` and `node:child_process` calls, and reports a missing binary at the file that runs it.
+  CI steps, hooks, MCP servers and task runners judge only binaries run through a package manager or
+  `node_modules/.bin`, as knip's `optionalBinaries` does
+  ([ADR 0076](adrs/0076-binaries-run-outside-scripts-and-unlisted-corrections.md),
+  [ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md),
+  [#97](https://github.com/Goldziher/skif/issues/97)).
+- `unlisted-dependencies`: an import mapped only by another workspace package's tsconfig `paths` gets the detail
+  `ForeignTsconfigPaths`, names the config and suggests the mapping or an import by package name; `skif migrate
+  --from knip` notes the difference ([ADR 0075](adrs/0075-imports-only-another-packages-tsconfig-paths-map.md),
   [#112](https://github.com/Goldziher/skif/issues/112)).
-- `skif-js`: `UnlistedImport` is `#[non_exhaustive]` and has the fields `specifier`, `target` (what the import resolved
-  to) and `foreign_paths` (a new `ForeignMapping`); code outside the crate can no longer build it or match it
-  exhaustively.
-- A `[policy] dependency-types` list that does not select `local` (`["prod", "dev"]`, `["!local"]`) leaves the own
-  versions of workspace packages out, as `--dependency-types prod,dev` does in syncpack: a dependent is no longer
-  reported for differing from the `version` of the workspace package it names. Without a list nothing changes; add
-  `local` to a list to keep the comparison
+- `[policy] dependency-types` without `local` (`["prod", "dev"]`) leaves the own versions of workspace packages out,
+  as syncpack's `--dependency-types` does; add `local` to keep comparing them
   ([ADR 0072](adrs/0072-a-policy-scope-without-local-leaves-the-own-versions-out.md)).
+- `unsynced-dependency-family` honours `[policy] dependency-types`.
+- `skif migrate`: sherif migrations write `[policy] dependency-types = ["prod", "dev"]`; syncpack format keys turn on
+  `package-json-format` and `unsorted-dependencies` only when a script runs `syncpack format`; and syncpack's
+  `policy: catalog` becomes `[catalog] mode = "enforce"` with `min-packages = 1`.
 
 ### Fixed
 
-- A Docusaurus plugin, theme or preset written in full (`@scope/docusaurus-plugin-x` given as a theme) is the listed
-  package it names, as Docusaurus loads the name as written first; it was taken for its long form
-  (`@scope/docusaurus-theme-docusaurus-plugin-x`) and reported as unlisted.
-- Bun: a directory listed by its literal path stays a member despite a negation that matches it, as `bun install`
-  links it; other managers still remove it ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
-- Bun: `stray-lockfile` reports a root `bun.lockb` next to a `bun.lock`, which Bun ignores ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
-- `bun --filter`, `bun -F` and `bun run --workspaces` are read as runs in other packages: their script is not checked
-  as a binary of any package, since Bun runs only package scripts there.
-- On Windows, an explicit `--config` path given in the verbatim `\\?\C:\` spelling no longer leaves its findings with absolute
-  locations or keeps the baseline it extends from applying to the run.
-- A Playwright `reporter` list whose element or reporter name skif could not evaluate (`...sharedReporters()` of a
-  helper whose two returns differ, `process.env.CI ? 'github' : './reporter.ts'`) was skipped, so the reporter modules
-  it names were reported by `unused-files`. A reporter a condition picks among known values, in the list, an element,
-  a spread of a conditional list (`...(process.env.A11Y ? [['./a11y-reporter.ts']] : [])`) or a list filtered with
-  `.filter(Boolean)`, now credits the module of every branch. A list whose reporter name is still not known (a list
-  parsed from the environment), or a spread of a value the config computes that may set it, leaves the package's
-  entries incomplete and the whole package unjudged, as a reporter module may be any file; an imported base config
-  still narrows to the test conventions. Vitest's `test.reporters` credits a reporter of every branch the same way, and
-  still skips a name it cannot know ([#151](https://github.com/Goldziher/skif/issues/151)).
-- Storybook addons, frameworks and builders named through the `getAbsolutePath` helper the Storybook CLI writes in its
-  ESM form (`` dirname(fileURLToPath(import.meta.resolve(`${value}/package.json`))) ``) are credited, as the CommonJS
-  form already was. An `addons` element, `framework` or `core.builder` whose package is not known statically now
-  leaves the package's dependencies unjudged instead of being skipped; of its files only those of the Storybook config
-  directory (`.storybook/**`, `.rnstorybook/**`), where a local addon lives, are not judged
-  ([#152](https://github.com/Goldziher/skif/issues/152)).
-- A bundler alias to a package rather than a path (`react: 'preact/compat'`, or `foo:
-  fileURLToPath(import.meta.resolve('bar'))`, which `skif-js-syntax` now reads as `'bar'`) was dropped, so imports of
-  `foo` counted as the package `foo`. It is kept as an alias without a target, whose imports are not reported, and the
-  package it points into is a dependency of the config.
-- `skif-js-syntax` evaluates `import.meta.resolve(x)` to `x`, as `require.resolve(x)`, and the directory of a
-  resolved package manifest, `dirname(require.resolve('<pkg>/package.json'))` or with `import.meta.resolve` and
-  `fileURLToPath`, to `<pkg>`, for every plugin. A manifest path that is relative, absolute, starts with `#` or has a
-  `..` segment is not a package's, and `join('@scope', 'name', 'package.json')` names `@scope/name`, not the path
-  `./@scope/name`.
-- `skif -r --config <FILE>` applied the file's `[js.workspaces]` tables and `ignore-workspaces` globs to every root as
-  if written relative to each, so `[js.workspaces."."]` configured every nested root and `stale-js-config` reported
-  its entries once per root where they matched nothing. The keys and globs of an explicit file are now relative to
-  the start directory: `"."` is the root there and `"tools/sub"` the nested root in that directory. A
-  `stale-js-config` finding about a file several roots of the run read (the explicit file, or a file above them) is
-  reported once, at the highest severity among the roots, and an entry of a list of that file only when every root
-  that could judge it found it stale; each package a glob table selects keeps a list of its own. The decision is made
-  last, over the reports the run shows: after the lint after `--fix` (which lints again every root whose
-  configuration file a fix wrote), after `--workspace`, `--include` and `--exclude`, which no longer lose a finding
-  another root reported first. `skif baseline write -r` records the finding in each root that reports it, so a
-  second write adds nothing ([ADR 0098](adrs/0098-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
-- `mkfifo`, `truncate`, `unlink`, `stdbuf` and the other coreutils programs that were missing from the system
-  binaries are no longer reported by `unlisted-binaries`.
-- A command that a source file runs with a `cwd` option (`execa('bun', ['run', 'build'], { cwd })`, `spawn`,
-  `execFile`, `exec`, `execaCommand`, nano-spawn) runs in a directory skif cannot place, and so does a script command
-  after `cd` to a directory that is not a static relative path (`cd /tmp/app`, `cd $DIR`): a package manager run there
-  works on the package of that directory, as `bun --cwd` and `--filter` do, so `bun run build` no longer reports
-  `build` as an unlisted binary of the file. A binary run there by name is still judged where the command starts. A
-  `cwd` of `process.cwd()` or `undefined` changes nothing, and one computed from `__dirname` or `import.meta.url`
-  runs the command in that directory below the file. A script run in another directory skif can place
-  (`cd web && npm run build`) is the script of the package there, so the caller's `build` is not followed
-  ([ADR 0097](adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md)).
-- Under pnpm, Yarn Berry, Rush and Bun's isolated linker, a workspace member's binary no longer satisfies a script of a
-  package that does not list the member: those link it only for the packages that depend on it, so the script's
-  binary is reported unlisted. Bun is isolated with `linker = "isolated"` in `bunfig.toml`, or without a `linker` when
-  `bun.lock` has `configVersion` 1. npm, Yarn Classic and hoisted Bun, which link every member's binaries into the root
-  `node_modules/.bin`, keep the old answer, and a member's own scripts may always run its binaries. Yarn counts as Berry
-  only when `packageManager`, a `.yarnrc.yml` or a Berry `yarn.lock` says so. In a Rush repository (`rush.json` at
-  the root), `rush`, `rushx` and `rush-pnpm` are provided commands
-  ([ADR 0097](adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md)).
-- A binary that a workflow step, a tool config's command or a source file runs after `cd <dir>` into another workspace
-  package (`run: cd sub && pnpm exec rspack`, `execSync('cd sub && rspack serve')`) is credited to that package, as for
-  a `package.json` script: a provider it lists is used and the binary is not unlisted at the file
-  ([ADR 0097](adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md)).
-- A workflow step's `$GITHUB_WORKSPACE`, `${GITHUB_WORKSPACE}` and `${{ github.workspace }}` name the workspace root,
-  so `cd $GITHUB_WORKSPACE/sub && pnpm exec rspack` runs in `sub`, `node $GITHUB_WORKSPACE/scripts/x.js` makes the
-  file an entry and a `working-directory` of `${{ github.workspace }}/sub` is `sub` ([ADR 0097](adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md)).
-- A binary that a workflow step runs with `pnpm -C sub exec` is credited to `sub` as from a `package.json` script, but
-  not after a `cd` to a directory skif cannot place (`cd /tmp/app && pnpm -C sub exec`), and one that a source file
-  runs with `cd web && pnpm --filter sub exec` is no longer credited to `web`
-  ([ADR 0097](adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md)).
-- A `cd` inside a subshell no longer changes the directory of the commands after it:
-  `(cd "$TMP" && tar xf a.tgz) && npm run build` follows the package's `build` script again
-  ([ADR 0097](adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md)).
-- `unused-files` is listed as fixable `sometimes` (`skif rules`, SARIF rule properties, the rules reference) instead
-  of `unsafe`: under `[js] discovery = "git"` its findings offer no fix, since the index does not see every untracked
-  file ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)); a run that walks the
-  directories keeps the unsafe fix that deletes the file.
-- An installed package whose manifest declares its binaries with `directories.bin` instead of `bin` provides every
-  file below that directory as a binary, named by its file name as npm links it; its binaries were reported as
-  unlisted and the package as unused. As in npm, a `..` in the directory cannot leave the package, and files and
-  directories whose names start with `.` are skipped.
-- An ESLint config that extends a built-in config (`eslint:recommended`, `eslint:all`) credits `eslint`, so an
-  `eslint` listed only at the root and enabled by a member's config is no longer reported unused. It is an optional
-  reference, never reported as unlisted: a deviation from knip, which credits a plain dependency and reports it where
-  no manifest lists `eslint`.
-- `skif migrate` from knip: with a `workspaces["."]` table, the top-level `entry`, `project` and `paths` are not
-  written (knip reads them for the root workspace from that table alone), instead of being merged with the table's
-  lists, which widened the entries. The top-level `ignore` and `ignoreFiles` are still written: knip applies them to
-  every workspace.
-- A panic in `skif` exits `2` (could not run) in every format, with its message and location on stderr and, under
-  `--format json`, the JSON `error` document (kind `internal`) naming both on stdout. The native binary was killed by
-  `SIGABRT` outside `--format json`, and the npm package surfaced a panic as a JavaScript exception with exit code 1
-  and no document. `skif_cli::run` catches the panic. A JSON report on stdout is written in one piece, so a panic
-  while rendering it no longer leaves a partial report ahead of the `error` document.
-- An unknown rule ID in the configuration names the file and line that set it (`preset.toml:4:1: unknown rule ...`,
-  with `path`, `line` and `column` in the JSON error), also in an extended preset; for a package file the error names
-  the file. It had no location at all. `skif::Target::locate` attributes the error for library hosts.
-- `[js.workspaces."<dir>"]` tables accept `extend-ignore`, `extend-ignore-dependencies`, `extend-ignore-binaries` and
-  `extend-ignore-unresolved`, which append to the list the table inherits through `extends`, as
-  [ADR 0074](adrs/0074-reasons-on-js-ignore-entries.md) says; they were rejected as unknown fields.
-  `skif_config::JsWorkspace` gains the four fields.
-- A file that starts with a UTF-8 byte order mark no longer reports every first-line column one too far (human,
-  compact, JSON, SARIF and LSP), since editors and code hosts hide the mark; `LineIndex` counts no column for it.
-- `skif baseline` records `name@specifier` only for the rules whose finding is about the specifier (`RuleMeta::version_scoped`:
-  `version-mismatch`, `semver-range-mismatch`, `policy-conflict`, `unsynced-dependency-family`,
-  `incompatible-peer-dependencies`, `catalog-mismatch`, `catalog-version-divergence`); any other finding records the
-  dependency name, so bumping a baselined `@types/node` no longer reopens its `types-in-dependencies` finding
-  ([ADR 0093](adrs/0093-baseline-entries-follow-what-a-finding-is-about.md)).
-- `skif baseline write` and `prune` exit `2` when the configuration does not apply the baseline: no configuration file
-  of the run extends it, or a `reset = ["ignore"]` applied after it drops its entries; `write` reported success while
-  the lint run still failed ([ADR 0093](adrs/0093-baseline-entries-follow-what-a-finding-is-about.md)).
-- `skif baseline write` and `prune` set aside only the entries of the baseline file while they lint; a hand-written
-  `[[ignore]]` of another configuration file equal to a baseline entry was set aside too, so `write` recorded its
-  finding into the baseline and the suppression moved there.
-  An error about an entry of the rest (an unknown rule ID) names the file and line that set it, not a baseline entry.
-- `skif baseline check --file` in a directory that does not exist names the directory instead of calling the revision
-  bad.
-- The `--format human` help of `skif baseline`, `config`, `migrate`, `rules` and `update` no longer calls every output
-  an aligned table.
-- The exact sherif migration leaves out of `version-mismatch` the specifiers sherif never compares (`*`, `latest`, tags,
-  `||` ranges, git, url, file, link, `workspace:` and `npm:` aliases), through a last `ignored` version group.
-- The script parser of `skif migrate` reads short flags written `-x=value` and `-xvalue`, and takes sherif's values
-  whole, as sherif does, instead of splitting them at commas.
-- A syncpack custom type with `source: "PackageJson"` is migrated instead of being dropped as reading another file.
-- `unsynced-dependency-family` no longer compares a dependency listed in two sections of a package with itself.
-- The GitHub Action appends `--fail-on-warnings` and the migrated `--config` of `from-sherif` to lint runs only, and
-  knows `baseline` as a subcommand, so `args: baseline check --base origin/main` no longer fails on an unknown flag.
-- A release fails before anything is published when an npm package (the umbrella or a platform package, Windows ones
-  included) does not exist yet or `CHANGELOG.md` has no section for the version; the crates are published only after
-  the Windows addon checks and an install smoke of the packed tarballs with npm and Bun on Windows.
-- cargo-semver-checks runs over every published crate and writes its result to the job summary.
-- Libc detection no longer takes a glibc host with an installed musl loader for musl.
-- The `version-mismatch` message for specifiers that are not all semver versions no longer says none of them is
-  semver: it reads "differs from the other specifiers, and not every one of them is a semver version to align on",
-  which also fits a semver specifier among them.
-- One `--fix` or `--fix-unsafe` run applies a value fix (`version-mismatch`, `semver-range-mismatch`,
-  `catalog-not-used`) in an object that `unsorted-dependencies` also sorts. The two were planned as overlapping edits,
-  so the value fix was skipped as a conflict and only a second run applied it; such fixes are now planned together
-  ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
-- A bare-major range such as `^2` or `~1` stands for the versions it covers: `"a": "^2"` on a workspace package at
-  `2.3.0` is valid, and `^2` overlaps `~2.1.0` in a `same-range` group. Before, the range was padded to
-  `^2.HUGE.HUGE`, as in syncpack, and accepted no version.
-- An enum or TypeScript namespace read through a namespace import (`ns.E.A`, `ns.E['A']`, the type `ns.E.A`), also
-  through a named or `export * as` re-export, uses only the members read on it, so its other members are reported by
-  `unused-enum-members` and `unused-namespace-members`. `ns.E` used as a whole still uses every member
-  ([ADR 0083](adrs/0083-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
-- A parameter or local with the name of an import declaration's binding shadows it: passing it around or reading its
-  members no longer uses the imported module as a whole. A parameter decorator (`@Inject(tok.KEY) tok`) still reads
-  the import, as TypeScript evaluates it outside the function. `import x = require("x")` is still matched by name
-  ([ADR 0083](adrs/0083-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
-- An import declaration's binding and the binding of a `const ns = await import("x")` or `require("x")` in a
-  function with the same name each use the members read through them, not both every member read through the name
-  ([ADR 0083](adrs/0083-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
-- An exported `type` or `interface` that shares its name with a value export (`export const Service = X; export type
-  Service = X`, `export const IStore = createDecorator<IStore>(…); export interface IStore { … }`) credits the
-  exports it mentions whenever the name is used, as a type or a value, as knip does, also when an `export { Service }`
-  clause exports the pair
-  ([ADR 0083](adrs/0083-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
-- The types the signatures of an overloaded function mention are used when the function is, from every signature, not
-  only the last one.
-- The Next.js plugin reads `turbopack.resolveAlias` and `turbopack.rules`, as knip does: a package an alias points to
-  (`"react-native": "react-native-web"`, also in a list or a `browser` condition) and the loaders of a rule are used
-  dependencies, and an alias to a path (`"@ui": "./src/ui"`) is a module alias.
-- A zx file that switches to PowerShell (`usePwsh()`, `usePowerShell()`, `$.shell = 'pwsh'`) runs no binary for a
-  cmdlet (`New-Item`, `Remove-Item`) or a default PowerShell alias (`gci`, `ni`), so `unlisted-binaries` no longer
-  reports them.
-- A package with no source file, entry or script of its own (a manifest that only lists what code elsewhere installs
-  it for, ADR 0082) is listed in `incomplete-packages` with the new cause `no-entries` instead of `unmapped-published`,
-  which it does not publish ([ADR 0094](adrs/0094-script-directories-and-the-no-entries-cause.md)).
-- A `package.json` script command after `cd <dir>` or `pushd <dir>`, or run by `npm --prefix <dir> exec`,
-  `pnpm -C <dir> exec` or `yarn --cwd <dir> exec`, runs in that directory: the files it names are relative to it, and in a workspace package
-  there the binaries it runs and the packages it loads are credited to that package and never unlisted. knip judges
-  them at the script's package, so `cd sub && pnpm exec rspack` no longer reports `rspack` unlisted while `sub` lists
-  `@rspack/cli` ([ADR 0094](adrs/0094-script-directories-and-the-no-entries-cause.md)).
-- A classic (v1) `yarn.lock` is no longer read for the binaries and peers of packages that are not installed: it
-  records no `bin`, so every locked package looked like one without binaries, and the devDependencies whose binaries
-  scripts run were reported by `unused-dev-dependencies` (and removed by `--fix-unsafe`). Only a Berry lock, with its
-  `__metadata:` block, is read.
-- Judging the packages tool configs name decides once per config file whether git ignores it, not once per package
-  reading it and package it names: hundreds of packages extending one base `tsconfig` below a long `.gitignore` no
-  longer rebuild the ignore matchers thousands of times.
-- The commands of MCP servers (`.mcp.json` and the other MCP configs), Tauri's before commands, Travis CI, Railway
-  services and mise tasks judge only the binaries they reach through a package manager or a `node_modules/.bin`
-  path, as knip's `optionalBinaries` has it for the same plugins: `uvx`, `trunk`, `codecov` or `shellcheck` run by
-  name are no longer `unlisted-binaries` findings. The binaries a mise file task runs are reported at the task file,
-  not at `package.json`
+- **Config evaluation**: a conditional spread (`...(ci ? { … } : {})`) no longer leaves the package incomplete; every
+  branch is read ([#108](https://github.com/Goldziher/skif/issues/108)). Members of known objects, destructured keys,
+  `import.meta.resolve(x)`, `dirname(require.resolve('<pkg>/package.json'))` and `void 0 ?? x` are evaluated; a
+  key that may be absent credits every possible value; the parameters of a config function the tool calls stay
+  unknown.
+- **Config factories**: a config built by a workspace package's factory (`createVitestConfig({ … })`) is known, and
+  the existing files an unfollowed factory call is given are entries, except under exclusion keys.
+- **Playwright** and **Vitest** reporters a condition or spread picks credit every branch's module; an unknowable
+  reporter list leaves the package unjudged instead of reporting its reporter files unused
+  ([#151](https://github.com/Goldziher/skif/issues/151)).
+- **Storybook** addons, frameworks and builders behind the ESM `getAbsolutePath` helper are credited; an unknowable one
+  leaves the dependencies unjudged ([#152](https://github.com/Goldziher/skif/issues/152)).
+- **Docusaurus** plugins, themes and presets written in full are the package they name, not its long form.
+- **Bundler aliases** to a package (`react: 'preact/compat'`) are kept as aliases, and the target package is a
+  dependency of the config; an alias such as `ui/*` to `./src/ui/*` stays local beside a member named `ui`.
+- **Vite 8**: `build.rolldownOptions.input` is read before `build.rollupOptions.input` (`vite`, `vitest`,
+  `electron-vite`).
+- **Next.js**: `turbopack.resolveAlias` and `turbopack.rules` are read.
+- **Jest**: `testRegex` adds test entries, and files named just `test.js` or `spec.ts` are tests
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
+- **Playwright** `testMatch` regular expressions with `?` or a character class become globs instead of making every
+  script below `testDir` an entry ([#100](https://github.com/Goldziher/skif/issues/100)).
+- `esbuild` build scripts that export nothing (`await esbuild.build({ entryPoints })`) give production entries instead
+  of leaving the package unjudged ([ADR 0081](adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md),
+  [#101](https://github.com/Goldziher/skif/issues/101)).
+- **Serverless** handlers with a run-time variable (`${opt:stage, 'dev'}`) match every stage, not only the fallback
   ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
-- Vitest's built-in `agent`, `html` and `minimal` reporters name no package, so a config using them is no longer an
-  `unlisted-dependencies` finding; `html` credits `@vitest/ui`. The `nuxt` environment credits
-  `vitest-environment-nuxt` without requiring it, as `@nuxt/test-utils` brings it.
-- A `tsconfig` `types` entry that a local `typeRoots` directory of the same config holds (`types/custom/index.d.ts`)
-  is no longer an `unlisted-dependencies` finding: TypeScript loads it from there, not from a package.
-- An extensionless mise file task whose shebang runs it with `node`, `bun`, `deno`, `tsx` or `ts-node`
-  (`mise-tasks/gen` with `#!/usr/bin/env node`) is read as JavaScript: the relative modules it imports or requires are
-  entries, so they are no longer `unused-files`. The packages it imports are not credited yet.
-- A package that only a module of another workspace package names, which a config imports values from (an Oxlint
-  `extends: [base]` of a shared config package, a Stylelint spread of an imported base config), is judged against the
-  package owning that module: it is no longer reported unlisted at the importing config, nor unused in the shared
-  config package that lists it. `DepRef::from` of `skif-js-plugins` names that module
+- **Plugin credits**: Vitest's `agent`, `html` and `minimal` reporters and the `nuxt` environment; Karma's `jasmine`
+  (`jasmine-core`); `next lint` (`eslint`, `eslint-config-next`); `vercel.json` commands; an ESLint `eslint:recommended`
+  extends; and `@jest-environment` / `@vitest-environment` pragmas
+  ([#96](https://github.com/Goldziher/skif/issues/96), [#98](https://github.com/Goldziher/skif/issues/98)).
+- **Not unlisted**: Prisma Python and Go generators, `tsconfig` `types` found in a local `typeRoots`, a string
+  `extends` of an ESLint flat config, Vite's `optimizeDeps.include`, `eslint-plugin-import` resolvers,
+  `node_modules/.bin` paths, a bare `@import` of a stylesheet beside the file, and a runtime module (`vscode`) an
+  enclosing package's `engines` provides
+  ([ADR 0086](adrs/0086-packages-tool-configs-name-are-unlisted-at-the-config.md),
+  [#96](https://github.com/Goldziher/skif/issues/96)).
+- `declare module 'pkg/sub'` declares only that module, not the whole package; a workspace package reached through an
+  alias or `tsconfig` mapping to not-yet-generated code is still that package
+  ([ADR 0086](adrs/0086-packages-tool-configs-name-are-unlisted-at-the-config.md),
+  [#96](https://github.com/Goldziher/skif/issues/96)).
+- A package a shared config module of another workspace package names (an Oxlint `extends`, a spread Stylelint base)
+  is judged against the package that owns the module, not reported unlisted or unused
   ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
-- A member of a statically known object is read as the value of its key, so a shared config spread into a config
-  whose key extends it (`{ ...base, plugins: [...base.plugins, 'stylelint-own'] }`) keeps the packages the shared
-  config names: they are judged against the package owning it instead of being lost, which reported them unused there,
-  and only what the importing config adds is its own. Only a fully known object answers for a key it does not have:
-  the key reads as `undefined`, represented as `ConfigValue::Null`, through a member and a destructuring alike, and a
-  parameter's or a destructuring's default applies to it, as it does not to a literal `null`. A key an unknown spread may set, a member of `Object.prototype` (`constructor`,
-  `toString`, `hasOwnProperty`, ...) and any key of an object with a `__proto__` read as unknown. A key merged from a
-  spread whose test is unknown (`{ ...(ci ? { setupFiles: ['./a.ts'] } : {}) }`) may be absent, so a read of it is not
-  definite: `x.setupFiles ?? ['./default.ts']` credits both lists, a default is credited next to it, and a test on it
-  and its `.length` are unknown. So is every value that carries the read on: a constant or local holding it, a key of
-  an object it is put in, set on or merged into, the argument it is passed as, the value a function returns it as, a
-  fallback over it, an array spreading it, and a named export of an imported module holding it.
-- A config function the tool calls (an exported function, the callback given to `defineConfig`) has every parameter
-  unknown, a default included, because the tool passes what the config does not say: `(env = {}) => ({ entry:
-  env.analyze ? './src/analyze.ts' : './src/index.ts' })` keeps both files instead of reading `env.analyze` as
-  `undefined`. A call in the config itself still gives a parameter it leaves out its default.
-- A tool config built by a factory of a workspace package from the options it is given
-  (`export default createVitestConfig({ setupFiles: ['./setup.ts'] })`, `defineConfig(createBase(options))`) is known:
-  a factory reading `options.setupFiles ?? []` no longer leaves the package's entries incomplete.
-- A config exporting the result of a call that cannot be followed (a factory of an installed package) stays unknown
-  and the package's entries incomplete, but the existing files of the package the call's arguments name as a path
-  (`./setup.ts`, `test/setup.ts`) are entries, so the modules they import are reached. A bare name (`chart.js`) is a
-  package even where a file of that name exists, and a file under an exclusion key (`exclude`, `coverage.exclude`,
-  `excludeFiles`, `watchExclude`, `ignores`, `testPathIgnorePatterns`, `testIgnore`) is not an entry. The same holds
-  for such a call returned by the config function the tool calls (`export default () => createConfig({ … })`) and for
-  one given to a merge the config exports (`mergeConfig(createBase({ … }), { … })`).
-- The `vite`, `vitest` and `electron-vite` plugins read the build input of Vite 8 from `build.rolldownOptions.input`,
-  before `build.rollupOptions.input`, as knip does: its pages and modules are entries, so their files and the
-  packages they import are no longer reported unused, and a computed Rolldown input leaves the package's entries
-  incomplete, as a computed Rollup input does.
-- A component that `unplugin-vue-components` registers is no longer reported by `unused-files` when the package has a
-  `.vue` file whose template skif reads no tags in (`<template lang="pug">`) or whose script is TSX or JSX: such a
-  package credits every component it registers, as a package with `.tsx` files does, since a use skif cannot read
-  is assumed rather than a used file reported (and deleted by `--allow-remove-files`)
-  ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
-- A `bin` path that a script of the package may build is no longer reported by `stale-js-config` as naming no file:
-  besides build scripts and the compilers and bundlers ADR 0069 lists, a script running `bun build`, `vite build`,
-  `deno compile`, `parcel build`, `bunchee`, `microbundle`, `pkg` or `nexe`, or naming a path at or in `bin` as its
-  output (`--outfile bin/cli.js`, `-o bin/cli`), is a build step. knip reports no such path either; ADR 0069 said it
-  did ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
-- A Serverless handler with a variable read when the CLI runs and a fallback (`src/${opt:stage, 'dev'}/b.main`) is
-  an entry for every value of the variable (`src/**/b.{js,ts}`), not only its fallback, so the handlers of the other
-  stages are no longer `unused-files`. A `${self:…}` variable still takes its fallback
-  ([ADR 0092](adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md)).
-- `explain-usage` lists a template's use of a registered Vue component without a line (`line` 0 in JSON, "a template
-  uses it as a registered component" in text) rather than as line 1 of the template's file, follows an export that an
-  `export * from` forwards through the re-exporting module's users rather than calling it no export of that module,
-  and describes an `export *` importer as re-exporting every export.
-- A Prisma `generator` whose `provider` is the Python or Go client (`prisma-client-py`, `prisma-client-go`) names no
-  npm package, so it is no longer an `unlisted-dependencies` finding at the schema.
-- A project whose only JavaScript is a pnpm install hook (`.pnpmfile.cjs`, `.pnpmfile.mjs`) and that has no script
-  is no longer judged for unused dependencies: its manifest lists what code elsewhere installs it for, as for a
-  project with no source file. The hook is still an entry, so what it imports is used
-  ([ADR 0082](adrs/0082-install-hooks-sveltekit-route-types-and-builtin-named-packages.md),
-  [#98](https://github.com/Goldziher/skif/issues/98)).
-- `unresolved-imports` no longer reports SvelteKit's `./$types` while the `.svelte-kit/tsconfig.json` the project's
-  `tsconfig.json` or `jsconfig.json` extends is not generated and is gitignored
+- `unresolved-imports` no longer reports SvelteKit's `./$types` before `svelte-kit sync`, files a nested `.gitignore`
+  lists, ungenerated `rootDirs` paths (React Router's `./+types/root`) or root-relative assets such as `/vite.svg`
   ([ADR 0082](adrs/0082-install-hooks-sveltekit-route-types-and-builtin-named-packages.md),
   [#99](https://github.com/Goldziher/skif/issues/99)).
-- `declare module 'pkg/sub'` declares that module only, no longer the whole package: the other imports of `pkg` are
-  judged by `unlisted-dependencies` again. `declare module 'pkg'` and a pattern such as `declare module 'pkg/*'` still
-  cover the imports they match ([ADR 0086](adrs/0086-packages-tool-configs-name-are-unlisted-at-the-config.md), [#96](https://github.com/Goldziher/skif/issues/96)).
-- A specifier that names a workspace package is an import of that package also when a `tsconfig` mapping or bundler
-  alias leads it to generated code in that package that is not there yet, as it already was when the mapping leads to
-  an existing file; an alias into other code is not the package. An import an alias leads into another package is
-  covered by a `declare module` of any module of that package ([ADR 0086](adrs/0086-packages-tool-configs-name-are-unlisted-at-the-config.md), [#96](https://github.com/Goldziher/skif/issues/96)).
-- A string `extends` of an ESLint flat config names a plugin's config, no `eslint-config-*` package, and a Prisma
-  `generator` block named `client…` is not read, as knip reads them. A config that a sibling package extends through
-  `../` is read at its own path ([ADR 0086](adrs/0086-packages-tool-configs-name-are-unlisted-at-the-config.md)).
-- Vite's `optimizeDeps.include` and the resolvers of `eslint-plugin-import` settings are optional references, as knip
-  reads them: a listed one is never unused and an unlisted one is never reported
-  ([ADR 0086](adrs/0086-packages-tool-configs-name-are-unlisted-at-the-config.md)).
-- In a multi-root run (`skif -r`), a file another root uses is no longer reported by `unused-files` or deleted by
-  `--allow-remove-files`: a file of a nested root that a workflow step or another tool configuration of an enclosing
-  root names is an entry of the nested root, and a file a root's code reaches outside its own directory (an import of
-  the enclosing root's `.github/actions/detect.ts`, of a sibling root's file, and what those import) counts as used
-  by the root that holds it, as do the dependencies such a file imports, in the manifest that lists them. The JS
-  analysis follows imports of source files outside the workspace root, which it used to take for assets, as files of
-  another project that it does not judge
+- A project whose only JavaScript is a pnpm install hook (`.pnpmfile.cjs`) is not judged for unused dependencies
+  ([ADR 0082](adrs/0082-install-hooks-sveltekit-route-types-and-builtin-named-packages.md),
+  [#98](https://github.com/Goldziher/skif/issues/98)).
+- A package with no source, entry or script of its own is listed in `incomplete-packages` with the cause `no-entries`
+  instead of `unmapped-published` ([ADR 0094](adrs/0094-script-directories-and-the-no-entries-cause.md)).
+- A published path that names no file (a `bin` with nothing behind it and no build step that writes it) is reported
+  by `stale-js-config` instead of leaving the package unjudged; `bun build`, `vite build`, `bunchee`, `pkg` and
+  output flags count as build steps
+  ([ADR 0069](adrs/0069-a-published-path-into-nothing-is-reported-not-an-incomplete-entry.md),
+  [#109](https://github.com/Goldziher/skif/issues/109)).
+- `stale-js-config` no longer reports stylesheet extensions (`.css`, `.scss`, `.less`, ...) in `project`
+  ([#110](https://github.com/Goldziher/skif/issues/110)).
+- **Multi-root runs**: a file another root uses or reaches is no longer reported by `unused-files` or deleted by
+  `--allow-remove-files`, and a dependency only a nested root uses counts for the enclosing manifest that lists it
+  ([ADR 0077](adrs/0077-dependencies-nested-roots-use-count-for-the-enclosing-manifest.md),
+  [ADR 0085](adrs/0085-files-other-roots-reach-count-as-used.md), [#98](https://github.com/Goldziher/skif/issues/98),
+  [#100](https://github.com/Goldziher/skif/issues/100)).
+- **Shared `stale-js-config`**: a finding about a config file several roots read is reported once, at the highest
+  severity, and decided over the reports the run shows (after `--fix`, `--workspace`, `--include`, `--exclude`)
+  ([ADR 0098](adrs/0098-explicit-configuration-workspace-keys-and-shared-stale-settings.md)).
+- Hidden directories that hold workspace members (`.vscode/extensions/*`) are walked
   ([ADR 0085](adrs/0085-files-other-roots-reach-count-as-used.md),
   [#100](https://github.com/Goldziher/skif/issues/100)).
-- The `jest` plugin reads `testRegex` (a string, a regular expression or an array of them): the test files it selects
-  are entries besides the default test globs, which stay as knip keeps them. `<rootDir>` stands for the config's
-  `rootDir`, and the `i`, `m` and `s` flags of a regular expression literal apply; an expression the `regex` crate
-  cannot compile leaves the package's entries incomplete. `testPathIgnorePatterns` is not applied, as knip does not
-  apply it ([ADR 0085](adrs/0085-files-other-roots-reach-count-as-used.md),
-  [#100](https://github.com/Goldziher/skif/issues/100)).
-- The JS analysis walks a hidden directory that holds workspace members, such as `.vscode/extensions/*`, for those
-  members, which it used to skip with the rest of the directory; the knip comparison's `skipped-directory` deviation
-  follows ([ADR 0085](adrs/0085-files-other-roots-reach-count-as-used.md),
-  [#100](https://github.com/Goldziher/skif/issues/100)).
-- The `jasmine` framework of a Karma config uses `jasmine-core` as well as `karma-jasmine`, as knip counts it
-  ([#98](https://github.com/Goldziher/skif/issues/98)).
-- `next lint` in a script uses `eslint` and `eslint-config-next`, which it runs
-  ([#98](https://github.com/Goldziher/skif/issues/98)).
-- `unresolved-imports` no longer reports a missing file that the `.gitignore` of a directory other than the root or
-  a package lists (any directory up to the git repository root, so also one above a nested root), an import of an
-  ignored path below another `rootDirs` directory that is not generated yet (React Router's `./+types/root`), or a
-  root-relative import of a JSON or other non-code file such as `/vite.svg`
-  ([#99](https://github.com/Goldziher/skif/issues/99)).
-- The `vercel` plugin is enabled by a `vercel.json` too and parses its `buildCommand`, `devCommand`,
-  `installCommand` and `ignoreCommand` as scripts, so `"buildCommand": "pnpm turbo build"` keeps `turbo` used
-  ([#98](https://github.com/Goldziher/skif/issues/98)).
-- In a multi-root run (`skif -r`) a dependency that only a nested root imports or runs, and that the nested root
-  does not list but a `package.json` above it does, is no longer reported unused in that outer manifest: Node.js
-  resolves it from the outer `node_modules`. Reports carry these uses in `Report::ancestor_dependency_uses`, and
-  `Report::retain` drops diagnostics while keeping the summary right
-  ([#98](https://github.com/Goldziher/skif/issues/98), [ADR 0077](adrs/0077-dependencies-nested-roots-use-count-for-the-enclosing-manifest.md)).
-- The script parser skips the bodies of here-documents, does not read `case` patterns as commands and does not
-  report the functions a script defines as binaries; a command a source file runs follows the scripts of its package
-  (`execSync('pnpm build')`); and more system and platform tools (`taskkill`, `xcode-select`, `sysctl`, `osascript`,
-  `powershell.exe`, compilers) count as global binaries
-  ([ADR 0076](adrs/0076-binaries-run-outside-scripts-and-unlisted-corrections.md)).
-- A dependency named like a binary is assumed to provide it only while its manifest is unknown: when the installed
-  or locked manifest has no such binary (the `stripe` SDK beside a `stripe listen` script), `unlisted-binaries`
-  reports the binary ([#97](https://github.com/Goldziher/skif/issues/97)).
-- The `engines` of a package that encloses another one provide their runtime's module there too: the client and
-  server packages inside an editor extension that declares `engines.vscode` may import `vscode` without
-  `unlisted-dependencies` reporting it ([#96](https://github.com/Goldziher/skif/issues/96)).
-- A bare `@import` in a plain `.css` file is looked up beside the stylesheet first, as `postcss-import` and the CSS
-  URL rules do, and as a package only when no file there matches: `@import '_code'` next to `_code.css` is no longer
-  an unlisted dependency `_code` ([#96](https://github.com/Goldziher/skif/issues/96)).
-- A path below `node_modules/.bin` (`require.resolve('.bin/tool')`) or another dot directory of `node_modules`
-  names no package, so `unlisted-dependencies` no longer reports `.bin`
-  ([#96](https://github.com/Goldziher/skif/issues/96)).
-- A `@jest-environment <name>` or `@vitest-environment <name>` pragma in the comments before a file's first
-  statement is an import of the environment's package (`jsdom` is `jest-environment-jsdom` for Jest,
-  `edge-runtime` is `@edge-runtime/vm` for Vitest, `node` imports nothing, a path stays a path), as knip reads it:
-  a listed environment is no longer an unused dependency and an unlisted one is reported by
-  `unlisted-dependencies` ([#96](https://github.com/Goldziher/skif/issues/96)).
-- `skif migrate --from knip` notes, in a workspace of several packages, that knip merges the tsconfig `paths` of all
-  workspaces and skif does not, so an import that only another package's `paths` map is reported as
-  `unlisted-dependencies` with the detail `ForeignTsconfigPaths`
-  ([ADR 0075](adrs/0075-imports-only-another-packages-tsconfig-paths-map.md),
-  [#112](https://github.com/Goldziher/skif/issues/112)).
-- A Playwright `testMatch` regular expression with a `?` quantifier or a character class (`/.*\.e2e\.tsx?/`,
-  `/.*\.(spec|test)\.[jt]sx?$/`) becomes a glob of the test files it matches. It used to make every script below the
-  project's `testDir` an entry, so no file there was reported by `unused-files`
-  ([#100](https://github.com/Goldziher/skif/issues/100)).
-- The `jest` plugin makes a file named just `test.js` or `spec.ts` (any script extension) a test entry, as Jest's
-  default `testMatch` and knip do ([#100](https://github.com/Goldziher/skif/issues/100)).
-- `skif explain-usage` names the entry kind `enclosing-entry-glob` for a file that a plugin of a containing package
-  makes an entry (a root `playwright.config.ts` whose `testDir` is in a member) instead of `unknown`
-  ([#100](https://github.com/Goldziher/skif/issues/100)).
-- `stale-js-config` no longer reports stylesheet extensions (`.css`, `.scss`, `.sass`, `.less`, `.pcss`, `.styl`,
-  `.stylus`) in `project` as files skif does not analyse: skif reads their imports, so a migrated knip glob such
-  as `src/**/*.{ts,css}!` no longer warns. Other unknown extensions are still reported
-  ([#110](https://github.com/Goldziher/skif/issues/110)).
-- `const [{ a }, ns] = await Promise.all([import("./x"), import("./y")])` uses only what each element of the array
-  pattern reads: `a` of `./x` and the members read through `ns` of `./y`, instead of both modules as a whole, so
-  their other exports are reported. An import after a spread element or without an element at its position is
-  still used as a whole.
-- `vi.spyOn(ns, "a")`, `jest.spyOn(ns, "a")` and `spyOn(ns, "a")` read only member `a` of a namespace import
-  instead of using the whole module, so its other exports are reported (under `unused-namespace-exports` and
-  `unused-namespace-types` when nothing else imports the module).
-- `duplicate-exports` reports `export const b = a` when `a` is an exported constant initialised with another
-  binding (`export const a = base`); before, only an `a` exported under its own declaration counted.
-- `import { type A } from "./a"; export type { A } from "./a";` with `A` in the signature of a used export of the
-  same file no longer reports the re-export of `A` as unused: the signature mentions it through the import, as knip
-  counts it.
-- `skif migrate` writes `[policy] dependency-types = ["prod", "dev"]` for sherif, so a migrated sherif project is not
-  reported for a dependency that differs from a workspace package's own version, which sherif never compares; with
-  syncpack the list is the union of both scopes. A sherif that ignores `multiple-dependency-versions` writes no scope.
-- `skif migrate` drops the `./` prefix of sherif's `ignorePackage` paths, which never matched a package in skif.
-- `skif migrate` cuts each syncpack group's `dependencyTypes` to the `--dependency-types` of the lint script, and drops
-  a group left with none, since syncpack never gave it an instance.
-- `skif migrate` unites syncpack scripts that lint different `--dependency-types`, `!` negations included, by what they
-  select (`!dev,!peer` and `!peer,!local` give `["!peer"]`); when no list selects what they select together, it writes
-  the default scope and leaves the groups' `dependencyTypes` as they are.
-- `skif migrate` no longer counts `"ci": "pnpm run knip"` next to a `knip` script as a second run of knip without
-  flags, reads `node ./node_modules/knip/bin/knip.js`, and takes `--production=false` as off.
-- `skif migrate` lets a syncpack `policy` win over `snapTo` as syncpack does, notes a `preferVersion` it drops under
-  `policy: sameMinor`, treats `dependencies` and `packages` of `["**"]` as selecting everything, and marks the
-  `policy: catalog` translation approximate, naming how `[catalog] mode = "prefer"` is weaker.
+- **Commands in other directories**: a script, workflow step or source command after `cd <dir>`, `pushd`,
+  `npm --prefix`, `pnpm -C`, `yarn --cwd` or with a `cwd` option runs in that directory, so its binaries and
+  scripts are credited to the package there; `$GITHUB_WORKSPACE` and `${{ github.workspace }}` name the workspace
+  root; a `cd` inside a subshell ends with it
+  ([ADR 0094](adrs/0094-script-directories-and-the-no-entries-cause.md),
+  [ADR 0097](adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md)).
+- **Member binaries**: under pnpm, Yarn Berry, Rush and Bun's isolated linker, a member's binary satisfies only the
+  packages that depend on it, as those link it; `rush`, `rushx` and `rush-pnpm` are provided in a Rush repository
+  ([ADR 0097](adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md)).
+- **Bun**: `bun --filter`, `bun -F` and `bun run --workspaces` are runs in other packages, and a member listed by its
+  literal path stays a member despite a matching negation
+  ([ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md)).
+- **Script parsing**: here-documents, `case` patterns and shell functions are not binaries; a command a source file
+  runs follows the package's scripts; zx PowerShell cmdlets and more system tools (`mkfifo`, `taskkill`, `osascript`,
+  ...) are not unlisted ([ADR 0076](adrs/0076-binaries-run-outside-scripts-and-unlisted-corrections.md)).
+- **Installed binaries**: a dependency named like a binary provides it only while its manifest is unknown
+  ([#97](https://github.com/Goldziher/skif/issues/97)); `directories.bin` is read as npm reads it; a classic Yarn
+  `yarn.lock` is no longer taken for one without binaries, which reported used devDependencies unused.
+- **Namespaces and shadowing**: an enum or namespace read through a namespace import uses only the members read;
+  a parameter or local shadowing an import does not use it; a type sharing its name with a value export credits what
+  it mentions; overloads credit every signature
+  ([ADR 0083](adrs/0083-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md)).
+- `vi.spyOn(ns, "a")` and `jest.spyOn(ns, "a")` read only member `a`, and `const [{ a }, ns] = await
+  Promise.all([import("./x"), import("./y")])` binds each import to its element
+  ([ADR 0079](adrs/0079-namespace-reads-through-spies-and-imports-awaited-together.md)).
+- `duplicate-exports` reports `export const b = a` when `a` is itself an aliased export, and a type re-export named in
+  a used export's signature is no longer unused.
+- `explain-usage` describes template uses of registered Vue components, `export *` forwards and the
+  `enclosing-entry-glob` entry kind ([#100](https://github.com/Goldziher/skif/issues/100)).
+- One `--fix` run applies a value fix in an object `unsorted-dependencies` also sorts, instead of needing a second
+  run ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
+- A bare-major range (`^2`, `~1`) covers its versions instead of being padded to `^2.HUGE.HUGE`.
+- `unsynced-dependency-family` no longer compares a dependency listed in two sections of one package with itself.
+- The `version-mismatch` message for non-semver specifiers no longer says none of them is semver.
+- **Panics** exit `2` in every format, with the message and location on stderr and the `internal` error document under
+  `--format json`; the native binary aborted and the npm package threw with exit code 1. A JSON report is written in
+  one piece.
+- An unknown rule ID in the configuration names the file and line that set it, also in an extended preset.
+- `[js.workspaces."<dir>"]` tables accept the `extend-ignore*` keys instead of rejecting them.
+- A leading UTF-8 byte order mark no longer shifts first-line columns.
+- On Windows, a `--config` path in the `\\?\C:\` form no longer gives absolute finding locations.
+- `--format human` help no longer calls every output an aligned table.
+- **GitHub Action**: `--fail-on-warnings` and the `from-sherif` `--config` are passed to lint runs only.
+- **npm install**: a glibc host with a musl loader installed is no longer taken for musl.
+- `skif migrate` from sherif: the exact profile leaves out specifiers sherif never compares (`*`, tags, `||`, git,
+  `workspace:`), `-x=value` flags are read and values are not split at commas, `ignorePackage` paths lose their `./`,
+  no scope is written when sherif ignores `multiple-dependency-versions`, and notes say where skif differs (an empty
+  root `dependencies`, a dependency in two sections, `unsynced-dependency-family`).
+- `skif migrate` from syncpack: `source: "PackageJson"` custom types are migrated; groups' `dependencyTypes` are cut to
+  the lint script's scope and scripts are united by what they select; `policy` wins over `snapTo`; and a group on an
+  unknown type is noted as rejected.
+- `skif migrate` from knip: with `workspaces["."]`, the top-level `entry`, `project` and `paths` are not merged in; a
+  `pnpm run knip` alias is not a second run; and `node ./node_modules/knip/bin/knip.js` and `--production=false` are
+  read.
+- The GitHub Action, pre-commit and Poly examples pin the current release line instead of 0.1
+  ([#94](https://github.com/Goldziher/skif/issues/94)).
 
 ## [0.2.0] - 2026-11-08
 
