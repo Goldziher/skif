@@ -554,26 +554,49 @@ fn workspace_relative(dir: &str, pattern: &str) -> Option<String> {
     Some(format!("{negation}{}", parts.join("/")))
 }
 
-/// Whether a workspace named by a script (`yarn workspace web`, `pnpm --filter "@scope/*"`, `npm -w packages/web`)
-/// is `package`: by name, by name pattern or by directory. Exclusions (`!web`) select nothing.
-fn names_package(target: &str, package: &skif_workspace::Package) -> bool {
-    let target = target.trim_start_matches("...").trim_end_matches("...");
-    if target.starts_with('!') {
-        return false;
-    }
-    if package.name.as_deref() == Some(target) {
-        return true;
-    }
-    if target.starts_with('.') || (target.contains('/') && !target.starts_with('@')) {
-        let dir = package.dir.to_string_lossy().replace('\\', "/");
-        if normalize_dir(target) == dir {
-            return true;
+/// A workspace named by a script (`yarn workspace web`, `pnpm --filter "@scope/*"`, `npm -w packages/web`), read
+/// once: it selects a package by name, by name pattern or by directory. Exclusions (`!web`) select nothing.
+struct WorkspaceTarget<'a> {
+    /// The target without the `...` of a dependency or dependent selector; `None` for an exclusion.
+    name: Option<&'a str>,
+    /// The directory the target names, when it is written as a path.
+    dir: Option<&'a str>,
+    /// The compiled name pattern, when the target is one.
+    pattern: Option<GlobMatcher>,
+}
+
+impl<'a> WorkspaceTarget<'a> {
+    fn new(target: &'a str) -> Self {
+        let target = target.trim_start_matches("...").trim_end_matches("...");
+        if target.starts_with('!') {
+            return Self {
+                name: None,
+                dir: None,
+                pattern: None,
+            };
+        }
+        let is_path = target.starts_with('.') || (target.contains('/') && !target.starts_with('@'));
+        Self {
+            name: Some(target),
+            dir: is_path.then(|| normalize_dir(target)),
+            pattern: target
+                .contains(['*', '?', '[', '{'])
+                .then(|| Glob::new(target).ok())
+                .flatten()
+                .map(|glob| glob.compile_matcher()),
         }
     }
-    package.name.as_deref().is_some_and(|name| {
-        target.contains(['*', '?', '[', '{'])
-            && Glob::new(target).is_ok_and(|glob| glob.compile_matcher().is_match(name))
-    })
+
+    /// Whether the target is `package`, whose directory relative to the workspace root, `/`-separated, is `dir`.
+    fn names(&self, package: &Package, dir: &str) -> bool {
+        let Some(target) = self.name else {
+            return false;
+        };
+        let name = package.name.as_deref();
+        name == Some(target)
+            || self.dir == Some(dir)
+            || name.is_some_and(|name| self.pattern.as_ref().is_some_and(|pattern| pattern.is_match(name)))
+    }
 }
 
 /// Credits the binaries a package's scripts run in other, named workspaces to those workspaces, as binaries a listed
@@ -581,16 +604,23 @@ fn names_package(target: &str, package: &skif_workspace::Package) -> bool {
 /// not known from the caller.
 fn forward_workspace_binaries(packages: &mut [Option<PackageSetup>], workspace: &Workspace) {
     let mut credits: Vec<(PackageId, ScriptBinary)> = Vec::new();
+    // The directories and targets are read once, not once for every forwarded binary and package.
+    let dirs = package_dirs(workspace);
     for setup in packages.iter().flatten() {
         for forwarded in &setup.scripts.forwarded {
-            for (id, target) in workspace.iter() {
+            let targets: Vec<WorkspaceTarget<'_>> = forwarded
+                .targets
+                .iter()
+                .map(|target| WorkspaceTarget::new(target))
+                .collect();
+            for ((id, target), (_, dir)) in workspace.iter().zip(&dirs) {
                 let runs_script = target
                     .manifest
                     .value()
                     .get("scripts")
                     .and_then(|scripts| scripts.get(&forwarded.binary.name))
                     .is_some();
-                if !runs_script && forwarded.targets.iter().any(|name| names_package(name, target)) {
+                if !runs_script && targets.iter().any(|selector| selector.names(target, dir)) {
                     credits.push((id, forwarded.binary.clone()));
                 }
             }
@@ -1098,10 +1128,14 @@ impl Setup {
 
 #[cfg(test)]
 mod tests {
-    use indexmap::IndexMap;
-    use skif_config::JsWorkspace;
+    use std::path::Path;
 
-    use super::{WorkspaceKeys, anchored, is_shared_pattern, workspace_relative};
+    use indexmap::IndexMap;
+    use skif_config::{Config, JsWorkspace};
+    use skif_core::MemoryFs;
+    use skif_workspace::Workspace;
+
+    use super::{WorkspaceKeys, WorkspaceTarget, anchored, is_shared_pattern, package_dirs, workspace_relative};
 
     fn tables(keys: &[&str]) -> IndexMap<String, JsWorkspace> {
         keys.iter()
@@ -1172,5 +1206,35 @@ mod tests {
         );
         assert_eq!(workspace_relative("a", "!../b/**").as_deref(), Some("!b/**"));
         assert_eq!(workspace_relative("a", "../../escape.ts"), None);
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn script_targets_select_packages_by_name_pattern_and_directory() {
+        let fs = MemoryFs::new()
+            .with_file("/ws/package.json", r#"{"name":"r","workspaces":["packages/*"]}"#)
+            .with_file("/ws/packages/web/package.json", r#"{"name":"@app/web"}"#)
+            .with_file("/ws/packages/api/package.json", r#"{"name":"api"}"#);
+        let config = Config::from_toml_str("").unwrap();
+        let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &fs).unwrap();
+        let dirs = package_dirs(&workspace);
+        let selected = |target: &str| {
+            let target = WorkspaceTarget::new(target);
+            let mut names: Vec<&str> = workspace
+                .iter()
+                .zip(&dirs)
+                .filter(|((_, package), (_, dir))| target.names(package, dir))
+                .filter_map(|((_, package), _)| package.name.as_deref())
+                .collect();
+            names.sort_unstable();
+            names
+        };
+        assert_eq!(selected("api"), ["api"]);
+        assert_eq!(selected("...api..."), ["api"]);
+        assert_eq!(selected("@app/*"), ["@app/web"]);
+        assert_eq!(selected("./packages/web/"), ["@app/web"]);
+        assert_eq!(selected("packages/api"), ["api"]);
+        assert!(selected("!api").is_empty());
+        assert!(selected("@app/web/").is_empty());
     }
 }
