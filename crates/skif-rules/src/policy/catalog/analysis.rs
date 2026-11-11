@@ -32,7 +32,7 @@ pub(super) struct Instance<'w> {
 pub(super) enum FindingKind {
     /// `NotUsingCatalog`: the dependency has exactly one catalog entry and the instance does not use it.
     NotUsingCatalog { catalog: CatalogName },
-    /// `NotUsingCatalogAndCatalogUnknown`: several catalogs are candidates, skif does not choose.
+    /// `NotUsingCatalogAndCatalogUnknown`: several catalogs define the dependency, skif does not choose.
     NotUsingCatalogAndCatalogUnknown,
     /// `DiffersToCatalog`: a sibling uses the catalog (`None` when siblings use different catalogs).
     DiffersToCatalog { catalog: Option<CatalogName> },
@@ -43,6 +43,9 @@ pub(super) enum FindingKind {
     },
     /// `MissingFromCatalogAndNonSemverMismatch`: the instances disagree and cannot be merged into one entry.
     MissingFromCatalogAndNonSemverMismatch,
+    /// `MissingFromCatalogAndCatalogUnknown`: no catalog defines the dependency and several could hold it, skif does
+    /// not choose.
+    MissingFromCatalogAndCatalogUnknown,
     /// `CannotInferCatalogFile`: no file is known to hold the new entry.
     CannotInferCatalogFile,
 }
@@ -56,6 +59,7 @@ impl FindingKind {
             Self::DiffersToCatalog { .. } => "DiffersToCatalog",
             Self::MissingFromCatalog { .. } => "MissingFromCatalog",
             Self::MissingFromCatalogAndNonSemverMismatch => "MissingFromCatalogAndNonSemverMismatch",
+            Self::MissingFromCatalogAndCatalogUnknown => "MissingFromCatalogAndCatalogUnknown",
             Self::CannotInferCatalogFile => "CannotInferCatalogFile",
         }
     }
@@ -261,7 +265,10 @@ enum Placement {
 
 enum Decision {
     NotUsing(CatalogName),
+    /// Several catalogs define the dependency.
     Ambiguous,
+    /// No catalog defines the dependency and several exist.
+    AmbiguousMissing,
     Differs(Option<CatalogName>),
     Missing {
         catalog: CatalogName,
@@ -288,7 +295,7 @@ fn decide_missing(workspace: &Workspace, plain: &[Instance<'_>]) -> Decision {
             version,
             placement: Placement::Add(file),
         }),
-        _ => Decision::Ambiguous,
+        _ => Decision::AmbiguousMissing,
     }
 }
 
@@ -323,6 +330,7 @@ fn finding_kind(workspace: &Workspace, name: &str, decision: &Decision, creation
             catalog: catalog.clone(),
         },
         Decision::Ambiguous => FindingKind::NotUsingCatalogAndCatalogUnknown,
+        Decision::AmbiguousMissing => FindingKind::MissingFromCatalogAndCatalogUnknown,
         Decision::Differs(catalog) => FindingKind::DiffersToCatalog {
             catalog: catalog.clone(),
         },
