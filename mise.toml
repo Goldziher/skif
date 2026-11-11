@@ -58,7 +58,7 @@ description = "Fetch the pinned benchmark corpus (the timed repositories) into t
 run = "cargo run --release --locked -p skif-bench -- corpus fetch --suite bench"
 
 [tasks."bench:import"]
-description = "Import a run of the bench workflow into tools/bench/results and refresh the speed tables of tools/bench/README.md, README.md and the comparison guide: mise run bench:import -- <run-id> (needs gh and Node)"
+description = "Import a run of the bench workflow into tools/bench/results and refresh the speed tables of tools/bench/README.md, README.md and the comparison guide: mise run bench:import -- <run-id> (needs gh, git, jq and Node)"
 run = "bash scripts/bench-import.sh"
 
 [tasks."parity:publish"]

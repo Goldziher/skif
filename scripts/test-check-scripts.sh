@@ -409,12 +409,41 @@ mkdir -p "${results}/raw"
 printf '{"schema":2}\n' >"${results}/summary.json"
 printf '# old\n' >"${results}/summary.md"
 printf '{}\n' >"${results}/raw/stale.json"
-export STUB_GH_LOG="${work}/gh.log" STUB_NODE_LOG="${work}/node.log"
+# The tree is a git checkout whose origin holds main and a branch that is not on main.
+bench_git() {
+  git -C "$bench" -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false -c core.hooksPath=/dev/null "$@"
+}
+git init --quiet --bare "${work}/bench-origin.git"
+bench_git init --quiet --initial-branch=main
+bench_git commit --quiet --allow-empty -m main
+bench_main="$(bench_git rev-parse HEAD)"
+bench_git checkout --quiet -b feature
+bench_git commit --quiet --allow-empty -m feature
+bench_feature="$(bench_git rev-parse HEAD)"
+bench_git checkout --quiet main
+bench_git remote add origin "${work}/bench-origin.git"
+bench_git push --quiet origin main feature
+export STUB_GH_LOG="${work}/gh.log" STUB_GH_VIEW_LOG="${work}/gh-view.log" STUB_NODE_LOG="${work}/node.log"
+export STUB_GH_SHA="$bench_main"
+# `gh run view <id> --repo R --json ... --jq ...`: prints the run's workflow, event, conclusion, commit and branch, one
+# per line (STUB_GH_WORKFLOW, STUB_GH_EVENT, STUB_GH_CONCLUSION, STUB_GH_SHA, STUB_GH_BRANCH; by default a successful
+# dispatch of bench from main); STUB_GH_VIEW_FAIL fails.
 # `gh run download <id> --repo R --pattern P --dir D`: writes STUB_GH_ARTIFACTS (default 1) artifacts into D, each in
-# a directory of its own as gh does for --pattern (STUB_GH_FLAT: one, in D itself); STUB_GH_NO_MD leaves out
-# summary.md, STUB_GH_NO_RAW the raw/ exports; STUB_GH_FAIL fails.
+# a directory of its own as gh does for --pattern (STUB_GH_FLAT: one, in D itself), whose summary names the harness
+# commit STUB_GH_HARNESS (default the first 12 characters of STUB_GH_SHA); STUB_GH_NO_MD leaves out summary.md,
+# STUB_GH_NO_RAW the raw/ exports; STUB_GH_FAIL fails.
 cat >"${stubs}/gh" <<'STUB'
 #!/usr/bin/env bash
+if [[ "$1 $2" == "run view" ]]; then
+  echo "$*" >"$STUB_GH_VIEW_LOG"
+  if [[ -n "${STUB_GH_VIEW_FAIL:-}" ]]; then
+    echo "could not find any workflow run with ID $3" >&2
+    exit 1
+  fi
+  printf '%s\n' "${STUB_GH_WORKFLOW-bench}" "${STUB_GH_EVENT-workflow_dispatch}" "${STUB_GH_CONCLUSION-success}" \
+    "$STUB_GH_SHA" "${STUB_GH_BRANCH-main}"
+  exit 0
+fi
 echo "$*" >"$STUB_GH_LOG"
 if [[ -n "${STUB_GH_FAIL:-}" ]]; then
   echo "no valid artifacts found to download" >&2
@@ -426,7 +455,7 @@ for n in $(seq "${STUB_GH_ARTIFACTS:-1}"); do
   artifact="${dir}/bench-0123456789ab-ubuntu-24.04-${n}"
   if [[ -n "${STUB_GH_FLAT:-}" ]]; then artifact="$dir"; fi
   mkdir -p "$artifact"
-  printf '{"schema":3}\n' >"${artifact}/summary.json"
+  printf '{"schema":3,"harness_rev":"%s"}\n' "${STUB_GH_HARNESS-${STUB_GH_SHA:0:12}}" >"${artifact}/summary.json"
   [[ -n "${STUB_GH_NO_MD:-}" ]] || printf '# new\n' >"${artifact}/summary.md"
   if [[ -z "${STUB_GH_NO_RAW:-}" ]]; then
     mkdir -p "${artifact}/raw"
@@ -451,8 +480,46 @@ bench_untouched() {
 expect "bench-import needs a run id" 2 run_in "$bench" bench-import.sh
 expect_in_out "bench-import usage" "usage: scripts/bench-import.sh <run-id>"
 expect "bench-import rejects a run id that is not a number" 2 run_in "$bench" bench-import.sh 'latest'
+# refused_before_download <label> <expected message> <env assignments...>: the run is refused before its artifact is
+# downloaded and nothing is written.
+refused_before_download() {
+  local label="$1" message="$2"
+  shift 2
+  rm -f "$STUB_GH_LOG"
+  expect "$label" 1 env "$@" bash "${bench}/scripts/bench-import.sh" 42
+  expect_in_out "$label" "$message"
+  [[ ! -e "$STUB_GH_LOG" ]] || fail "${label}: the artifact was downloaded"
+  bench_untouched "$label"
+}
+refused_before_download "bench-import fails when the run cannot be read" \
+  "run 42 of Goldziher/skif: gh run view did not describe the run; not imported" STUB_GH_VIEW_FAIL=1
+grep -qxF 'run view 42 --repo Goldziher/skif --json workflowName,event,conclusion,headSha,headBranch --jq .workflowName, .event, (.conclusion // ""), .headSha, .headBranch' \
+  "$STUB_GH_VIEW_LOG" || fail "bench-import gh run view arguments: $(cat "$STUB_GH_VIEW_LOG")"
+refused_before_download "bench-import refuses a run of another workflow" \
+  "run 42 of Goldziher/skif: it is a run of the ci workflow, not of bench; not imported" STUB_GH_WORKFLOW=ci
+refused_before_download "bench-import refuses a run that was not dispatched" \
+  "it was triggered by push, not workflow_dispatch; not imported" STUB_GH_EVENT=push
+refused_before_download "bench-import refuses a failed run" "it concluded failure, not success" \
+  STUB_GH_CONCLUSION=failure
+refused_before_download "bench-import refuses a run in progress" "it concluded nothing yet, not success" \
+  STUB_GH_CONCLUSION=
+refused_before_download "bench-import refuses a run of a commit that is not on main" \
+  "it measured ${bench_feature:0:12} of the branch feature, which is not on origin/main; not imported" \
+  STUB_GH_SHA="$bench_feature" STUB_GH_BRANCH=feature
+refused_before_download "bench-import refuses a run of a commit origin does not have" \
+  "it measured 0123456789ab of the branch gone, which is not on origin/main" \
+  STUB_GH_SHA=0123456789abcdef0123456789abcdef01234567 STUB_GH_BRANCH=gone
 expect "bench-import fails when the download fails" 1 env STUB_GH_FAIL=1 bash "${bench}/scripts/bench-import.sh" 42
 bench_untouched "bench-import download"
+expect "bench-import refuses a summary of another harness commit" 1 env STUB_GH_HARNESS=ba9876543210 \
+  bash "${bench}/scripts/bench-import.sh" 42
+expect_in_out "bench-import harness" \
+  "its summary names the harness commit ba9876543210, not the run's ${bench_main:0:12}; not imported"
+bench_untouched "bench-import harness"
+expect "bench-import refuses a summary without a harness commit" 1 env STUB_GH_HARNESS= \
+  bash "${bench}/scripts/bench-import.sh" 42
+expect_in_out "bench-import no harness" "its summary names the harness commit none, not the run's"
+bench_untouched "bench-import no harness"
 expect "bench-import fails on more than one artifact" 1 env STUB_GH_ARTIFACTS=2 bash "${bench}/scripts/bench-import.sh" 42
 expect_in_out "bench-import two artifacts" "run 42 of Goldziher/skif has 2 bench artifacts; expected one"
 bench_untouched "bench-import two artifacts"
@@ -472,7 +539,7 @@ grep -qxE 'run download 42 --repo Goldziher/skif --pattern bench-\* --dir /.+/do
 grep -qxE 'tools/bench/refresh-numbers\.mjs --bench --summary /.+/bench-0123456789ab-ubuntu-24\.04-1/summary\.json' "$STUB_NODE_LOG" ||
   fail "bench-import refresh arguments: $(cat "$STUB_NODE_LOG")"
 if grep -q '^missing summary' "$STUB_NODE_LOG"; then fail "bench-import: refresh-numbers was not given the downloaded summary"; fi
-grep -qF '"schema":3' "${results}/summary.json" || fail "bench-import: summary.json is not the artifact's"
+grep -qF "\"schema\":3,\"harness_rev\":\"${bench_main:0:12}\"" "${results}/summary.json" || fail "bench-import: summary.json is not the artifact's"
 grep -qF '# new' "${results}/summary.md" || fail "bench-import: summary.md is not the artifact's"
 [[ -f "${results}/raw/00.json" && ! -e "${results}/raw/stale.json" ]] || fail "bench-import: raw/ is not the artifact's"
 expect "bench-import takes an artifact extracted in place" 0 env STUB_GH_FLAT=1 bash "${bench}/scripts/bench-import.sh" 42

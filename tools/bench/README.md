@@ -347,7 +347,10 @@ hyperfine from `mise.lock` and a pinned corepack, times everything with `run --i
 `bench-<commit>-<runner>`. Only one bench run runs at a time. The harness fails before timing anything when a corpus
 repository is not pinned to a full commit SHA or a comparison tool not to an exact version.
 
-`mise run bench:import -- <run-id>` (`scripts/bench-import.sh`, needs `gh` and Node) downloads that artifact, refreshes
+`mise run bench:import -- <run-id>` (`scripts/bench-import.sh`, needs `gh`, `git`, `jq` and Node) imports only a
+successful `workflow_dispatch` run of `bench` whose commit is on `origin/main` (it runs `git fetch origin main` first)
+and whose summary names that commit as the harness's; it refuses any other run, naming its branch. It downloads that
+artifact, refreshes
 the block below, and the speed tables of the root `README.md` and of the comparison guide, with
 `refresh-numbers.mjs --bench`, then puts the summary into `tools/bench/results` for a commit made locally. The first
 line of each block names the skif version, source commit and the `rustc` that built it, the comparison tool versions,
