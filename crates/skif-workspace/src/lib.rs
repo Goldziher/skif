@@ -15,6 +15,7 @@
 
 #![warn(missing_docs)]
 
+mod bazel;
 mod bun_lock;
 mod catalogs;
 mod detect;
@@ -30,6 +31,7 @@ mod roots;
 mod rush;
 mod workspace;
 
+pub use bazel::bazel_workspace_name;
 pub use bun_lock::{BUN_LOCKFILE, BunLockfile, parse_bun_lock};
 pub use catalogs::Catalogs;
 pub use detect::package_manager_from_manifest;

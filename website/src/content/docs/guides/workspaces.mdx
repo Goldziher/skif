@@ -90,9 +90,34 @@ run, so the run fails until the file is fixed, as sherif does.
 Every package manager installs a workspace from one lockfile at its root. `stray-lockfile` reports any other
 lockfile it finds: one in a member's directory (`package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock`,
 `pnpm-lock.yaml`, `bun.lock`, `bun.lockb`), and one at the root that another manager than the detected one writes
-(`package-lock.json` next to `pnpm-lock.yaml` in a pnpm workspace). npm's two lockfiles are both accepted at the root,
-and so is either of Bun's; a binary `bun.lockb` next to `bun.lock` is reported, because Bun installs from `bun.lock` and
-ignores the binary file. Without a detected manager the root lockfiles are not judged. Its unsafe fix deletes the file.
+(`package-lock.json` next to `pnpm-lock.yaml` in a pnpm workspace). Either of npm's two lockfiles is accepted at the
+root, and so is either of Bun's. Next to each other, the one the manager ignores is reported: `package-lock.json` beside
+`npm-shrinkwrap.json`, which npm installs from, and a binary `bun.lockb` beside `bun.lock`, which Bun installs from.
+Without a detected manager the root lockfiles are not judged. Its unsafe fix deletes the file.
+
+A member's lockfile that a build installs from is not reported, so the fix never deletes it. skif reads the build
+files and runs nothing:
+
+- in a Bazel repository, a label of the lockfile, `"//libs/a:pnpm-lock.yaml"` (also `@//`, `@@//`, `@<name>//` with
+  the name of the `module(...)` call, and `"//:libs/a/pnpm-lock.yaml"`), in the `MODULE.bazel`, `REPO.bazel`,
+  `WORKSPACE` or `WORKSPACE.bazel` of the Bazel repository, a `BUILD` or `BUILD.bazel` file of the lockfile's directory
+  or one above, or a `.bzl` file those load (`load("//tools:deps.bzl", ...)`, transitively), as rules_js's
+  `npm_translate_lock(pnpm_lock = ...)` takes it. The Bazel repository is the nearest directory at or above the root,
+  inside the git repository, with a `MODULE.bazel`, `REPO.bazel`, `WORKSPACE` or `WORKSPACE.bazel`; without one, no
+  Bazel file is read. Labels are relative to it, so in a workspace at `js/` of a Bazel repository the label is
+  `//js/libs/a:pnpm-lock.yaml`;
+- its path relative to a `BUILD` or `BUILD.bazel` file of its own directory or one above (`"pnpm-lock.yaml"`,
+  `":pnpm-lock.yaml"`, `"a/pnpm-lock.yaml"`), as in `exports_files` or `srcs`;
+- a `COPY` or `ADD` of it, by name or by a glob such as `pnpm-lock.yaml*`, in a Dockerfile (`Dockerfile`,
+  `Dockerfile.*`, `*.Dockerfile`, `Containerfile`) of its own directory, or in any Dockerfile with the path from the
+  workspace root (`COPY libs/a/pnpm-lock.yaml ./`), for a build whose context is the root;
+- a `COPY . .` in a Dockerfile of its own directory followed by an install with its package manager (`pnpm install`,
+  `npm ci`, `yarn`, `bun install`).
+
+A copy from another stage (`--from`) does not count. Comments and the names in an `exclude = [...]` list are skipped.
+No directory is listed for Bazel files: a lockfile that only another package's `BUILD` file names is not found, so
+list it in its own package (`exports_files`) or give it an `allow` entry. An `allow`
+entry for such a lockfile is reported as stale, since the rule would not report the file without it.
 
 `nested-workspace-root` reports a `pnpm-workspace.yaml` in a member's directory: pnpm takes the nearest one above the
 working directory, so an install in that member leaves the root workspace. skif lints such a member as a root of its

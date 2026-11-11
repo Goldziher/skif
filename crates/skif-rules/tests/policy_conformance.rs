@@ -50,12 +50,13 @@ fn every_case_is_accounted_for() {
 }
 
 /// README step 6: every configuration loads and validates, every rule is registered and every `detail` is a state
-/// of the ADR 0009 table or of ADR 0048.
+/// of the ADR 0009 table or of ADR 0048 or ADR 0107.
 #[test]
 fn every_fixture_is_well_formed() {
     let adr = [
         "0009-version-and-catalog-policies.md",
         "0048-catalog-version-divergence-and-reasons-on-ignores.md",
+        "0107-stray-lockfiles-a-build-installs-from-and-a-dependency-in-none-of-several-catalogs.md",
     ]
     .map(|file| std::fs::read_to_string(fixtures_root().join("../../adrs").join(file)).unwrap())
     .concat();

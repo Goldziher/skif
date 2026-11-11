@@ -23,19 +23,29 @@ All notable changes to this project are documented here. The format follows
   projects outside the workspace are not reported ([ADR 0088](adrs/0088-foreign-package-manager-commands.md),
   [#139](https://github.com/Goldziher/skif/issues/139)).
 - `stray-lockfile`: a lockfile in a workspace member, or one at the root written by another package manager (also a
-  `bun.lockb` beside a `bun.lock`, which Bun ignores); the unsafe fix deletes it. `nested-workspace-root`: a
-  `pnpm-workspace.yaml` in a member, or a Bun member whose `package.json` declares `workspaces`. Both skip gitignored
-  files and take `allow`, globs of files kept on purpose, each a string or `{ name, reason }`
+  `bun.lockb` beside a `bun.lock`, which Bun ignores, and a `package-lock.json` beside an `npm-shrinkwrap.json`, which
+  npm ignores, [#157](https://github.com/Goldziher/skif/issues/157)); the unsafe fix deletes it. A member lockfile a
+  build installs from is not reported: in a Bazel repository one a label names (`//libs/a:pnpm-lock.yaml`,
+  `//:libs/a/pnpm-lock.yaml`, `@<module>//...`) or a `BUILD` file of its directory or above lists, and one a Dockerfile
+  copies, from its own directory or from the workspace root, or with `COPY . .` before an install with its manager.
+  Only the files Bazel reads are read (the repository's top files, the `BUILD` files of the lockfile's directory and
+  above, and the `.bzl` files they load), no directory is listed, and outside a Bazel repository nothing is read ([#180](https://github.com/Goldziher/skif/issues/180)).
+  `nested-workspace-root`: a `pnpm-workspace.yaml` in a member, or a Bun member whose `package.json` declares
+  `workspaces`. Both skip gitignored files and take `allow`, globs of files kept on purpose, each a string or
+  `{ name, reason }`
   ([ADR 0089](adrs/0089-stray-lockfiles-and-nested-workspace-roots.md),
   [ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md),
+  [ADR 0107](adrs/0107-stray-lockfiles-a-build-installs-from-and-a-dependency-in-none-of-several-catalogs.md),
   [#140](https://github.com/Goldziher/skif/issues/140)).
 - `stale-patched-dependencies` (`warn`): a `patchedDependencies` entry (pnpm, or Bun's root `package.json`) whose
   `name@version` the lockfile no longer resolves or records without the patch, a missing patch file or one outside
   `allowed-patch-paths`, and a `*.patch` file no entry references ([ADR 0091](adrs/0091-stale-patched-dependencies.md),
   [#142](https://github.com/Goldziher/skif/issues/142)).
 - `invalid-workspace-file` (`error`): a member `package.json` that is not valid JSON, an unusable workspace pattern
-  and an invalid `.yarnrc.yml` are reported at the error; such a member used to drop out of the run silently
-  ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
+  and an invalid `.yarnrc.yml` are reported at the error; such a member used to drop out of the run silently. An
+  unusable pattern (`../shared`) is no longer also reported by `unmatched-workspace-patterns`, whose fix removed it
+  ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md),
+  [#154](https://github.com/Goldziher/skif/issues/154)).
 - `stale-mocks` (`error`): a `vi.mock`, `jest.mock`, `rs.mock` or other test-runner call (also
   `vi.mock(import('./x'))`) whose relative or aliased specifier names a module that does not exist. Virtual mocks and
   unresolved package names are not reported; `skif migrate --profile exact` turns it off
@@ -347,6 +357,10 @@ All notable changes to this project are documented here. The format follows
   run ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
 - A bare-major range (`^2`, `~1`) covers its versions instead of being padded to `^2.HUGE.HUGE`.
 - `unsynced-dependency-family` no longer compares a dependency listed in two sections of one package with itself.
+- A dependency in none of several catalogs is `catalog-missing-entry` ("no catalog holds `lodash`; more than one
+  could", detail `MissingFromCatalogAndCatalogUnknown`) instead of `catalog-not-used`
+  ([ADR 0107](adrs/0107-stray-lockfiles-a-build-installs-from-and-a-dependency-in-none-of-several-catalogs.md),
+  [#155](https://github.com/Goldziher/skif/issues/155)).
 - The `version-mismatch` message for non-semver specifiers no longer says none of them is semver.
 - **Panics** exit `2` in every format, with the message and location on stderr and the `internal` error document under
   `--format json`; the native binary aborted and the npm package threw with exit code 1. A JSON report is written in

@@ -1,19 +1,19 @@
 [
   {
-    "rule": "catalog-not-used",
+    "rule": "catalog-missing-entry",
     "severity": "warning",
     "package": "app",
     "dependency": "zod",
-    "detail": "NotUsingCatalogAndCatalogUnknown",
+    "detail": "MissingFromCatalogAndCatalogUnknown",
     "path": "packages/app/package.json",
     "fixable": false
   },
   {
-    "rule": "catalog-not-used",
+    "rule": "catalog-missing-entry",
     "severity": "warning",
     "package": "lib",
     "dependency": "zod",
-    "detail": "NotUsingCatalogAndCatalogUnknown",
+    "detail": "MissingFromCatalogAndCatalogUnknown",
     "path": "packages/lib/package.json",
     "fixable": false
   }
