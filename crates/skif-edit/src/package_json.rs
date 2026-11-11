@@ -520,17 +520,19 @@ fn kept(node: &Node, out: &mut String) {
 
 /// Renders `node` as `JSON.stringify(value, null, indent)` would, keeping the text of scalars.
 fn canonical(node: &Node, indent: &str, newline: &str, depth: usize, out: &mut String) {
+    let indented = |out: &mut String, levels: usize| {
+        out.push_str(newline);
+        for _ in 0..levels {
+            out.push_str(indent);
+        }
+    };
     let open = |out: &mut String, index: usize| {
         if index > 0 {
             out.push(',');
         }
-        out.push_str(newline);
-        out.push_str(&indent.repeat(depth + 1));
+        indented(out, depth + 1);
     };
-    let close = |out: &mut String| {
-        out.push_str(newline);
-        out.push_str(&indent.repeat(depth));
-    };
+    let close = |out: &mut String| indented(out, depth);
     match node {
         Node::Object(object) if object.members.is_empty() => out.push_str("{}"),
         Node::Array(array) if array.items.is_empty() => out.push_str("[]"),
