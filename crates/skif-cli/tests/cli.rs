@@ -5,6 +5,7 @@
 mod support;
 
 use std::collections::BTreeSet;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -478,17 +479,83 @@ fn bazel_run_resolves_relative_paths_against_the_working_directory() {
     assert!(tree(runfiles.path()).is_empty(), "files leaked into the runfiles tree");
 }
 
+/// A relative `--config` resolves against `BUILD_WORKING_DIRECTORY` too.
+#[test]
+fn bazel_run_resolves_a_relative_config_against_the_working_directory() {
+    let dir = fixture("dirty");
+    let runfiles = tempfile::tempdir().unwrap();
+    let config = Path::new("ci").join("skif.toml");
+    fs::create_dir(dir.path().join("ci")).unwrap();
+    fs::write(
+        dir.path().join(&config),
+        "[rules]\nroot-package-private-field = \"off\"\n\n[js]\nenabled = false\n",
+    )
+    .unwrap();
+    let default = run(skif().args(["--format", "json"]).arg(dir.path()));
+    assert!(
+        rule_ids(&default.json()).contains("root-package-private-field"),
+        "{}",
+        default.stdout
+    );
+    let direct = run(skif()
+        .args(["--format", "json", "--config"])
+        .arg(dir.path().join(&config))
+        .arg(dir.path()));
+
+    let result = run(skif()
+        .current_dir(runfiles.path())
+        .env("BUILD_WORKSPACE_DIRECTORY", dir.path())
+        .env("BUILD_WORKING_DIRECTORY", dir.path())
+        .args(["--format", "json", "--config"])
+        .arg(&config));
+    assert_eq!(result.code, direct.code, "{}{}", result.stdout, result.stderr);
+    assert!(
+        !rule_ids(&result.json()).contains("root-package-private-field"),
+        "{}",
+        result.stdout
+    );
+    assert_eq!(result.json(), direct.json());
+}
+
+/// Absolute paths mean the same under `bazel run`: the linted path and a report file are not moved below
+/// `BUILD_WORKING_DIRECTORY`.
+#[test]
+fn bazel_run_leaves_absolute_paths_alone() {
+    let dir = fixture("dirty");
+    let runfiles = tempfile::tempdir().unwrap();
+    let working = tempfile::tempdir().unwrap();
+    let reports = tempfile::tempdir().unwrap();
+    let report = reports.path().join("report.json");
+    let mut format = OsString::from("json=");
+    format.push(&report);
+    let direct = run(skif().args(["--format", "json"]).arg(dir.path()));
+
+    let result = run(skif()
+        .current_dir(runfiles.path())
+        .env("BUILD_WORKSPACE_DIRECTORY", working.path())
+        .env("BUILD_WORKING_DIRECTORY", working.path())
+        .arg("--format")
+        .arg(&format)
+        .arg(dir.path()));
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+    let written: Value = serde_json::from_str(&fs::read_to_string(&report).unwrap()).unwrap();
+    assert_eq!(written, direct.json());
+    assert!(tree(working.path()).is_empty(), "files leaked into the working directory");
+    assert!(tree(runfiles.path()).is_empty(), "files leaked into the runfiles tree");
+}
+
 /// `BUILD_WORKING_DIRECTORY` alone is not `bazel run`: the current directory stays.
 #[test]
 fn a_working_directory_without_a_workspace_directory_is_ignored() {
     let dir = fixture("dirty");
-    let empty = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let direct = run(skif().args(["--format", "json"]).arg(dir.path()));
     let result = run(skif()
-        .current_dir(empty.path())
-        .env("BUILD_WORKING_DIRECTORY", dir.path())
+        .current_dir(dir.path())
+        .env("BUILD_WORKING_DIRECTORY", elsewhere.path())
         .args(["--format", "json"]));
-    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
-    assert_eq!(result.json()["error"]["kind"], "workspace", "{}", result.stdout);
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+    assert_eq!(result.json(), direct.json());
 }
 
 /// A `bazel run` directory that does not exist exits 2 with an `io` error naming it.
