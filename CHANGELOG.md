@@ -185,6 +185,11 @@ All notable changes to this project are documented here. The format follows
   `skif_js_plugins::PluginOutput`, `skif_js::WorkspaceInputs` (`WorkspaceInputs::default()`), `UnlistedImport`
   (now with `target` and `foreign_paths`) and `skif_workspace::YamlSource` (now with `node_linker`; discovery builds
   it, so read its fields).
+- **Breaking** for library users that cast these enums to integers or depend on their order: a variant was inserted
+  before the end, so the implicit discriminants of the later variants changed. `skif_core::IncompleteCause` gains
+  `NoEntries` (before `Unspecified`) and `skif_js::EntryReason` gains `EnclosingEntryGlob` (before `IncompleteScope`
+  and `Unknown`). `skif_js::IncompleteScope` is now `skif_core::IncompleteScope`, re-exported at the same path, and
+  `skif_js::ResolvedImport` gains `component`, which a struct literal must set.
 - **Breaking** for library users that build these structs with literals: new public fields must be set.
   `skif_js_syntax::Import::call` (`MockCall`), `ImportedName::nested_members`, `skif_js::InputRequest::workspace_key`
   and `listing` (`WorkspaceListing::new`), `UnlistedBinary::file`, and in `skif_js_plugins`: `DepRef`
