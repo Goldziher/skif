@@ -116,18 +116,18 @@ const RUSH_JSON: &str = "rush.json";
 /// The commands Rush itself provides to the scripts of a Rush repository.
 const RUSH_COMMANDS: &[&str] = &["rush", "rushx", "rush-pnpm"];
 
-/// Whether the binaries of a workspace member are on the `PATH` of every package: npm, Yarn Classic and Bun's hoisted
-/// linker hoist the members into the root `node_modules` and link their binaries into its `.bin`, while pnpm, Yarn
-/// Berry, Rush and Bun's isolated linker ([`bun_isolated`]) link a member's binaries only into the packages that depend
-/// on it. An unknown package manager counts as hoisting, so it reports nothing new, and so does a Yarn whose version
-/// the repository does not tell ([`yarn_berry`]).
+/// Whether the binaries of a workspace member are on the `PATH` of every package: npm, Yarn Classic and the hoisted
+/// linkers of pnpm ([`pnpm_hoisted`]) and Bun hoist the members into the root `node_modules` and link their binaries
+/// into its `.bin`, while pnpm's isolated linker, Yarn Berry, Rush and Bun's isolated linker ([`bun_isolated`]) link a
+/// member's binaries only into the packages that depend on it. An unknown package manager counts as hoisting, so it
+/// reports nothing new, and so does a Yarn whose version the repository does not tell ([`yarn_berry`]).
 /// `bun_config_version` is the `configVersion` of `bun.lock`.
 fn hoists_member_bins(workspace: &Workspace, rush: bool, bun_config_version: Option<u64>, fs: &dyn FileSystem) -> bool {
     if rush {
         return false;
     }
     match workspace.package_manager {
-        Some(PackageManager::Pnpm) => false,
+        Some(PackageManager::Pnpm) => pnpm_hoisted(workspace, fs),
         Some(PackageManager::Yarn) => !yarn_berry(workspace, fs),
         Some(PackageManager::Bun) => !bun_isolated(fs, &workspace.root, bun_config_version),
         _ => true,
@@ -151,6 +151,30 @@ fn yarn_berry(workspace: &Workspace, fs: &dyn FileSystem) -> bool {
         || fs
             .read_to_string(&workspace.root.join("yarn.lock"))
             .is_ok_and(|text| lockfile::is_yarn_berry(&text))
+}
+
+/// Whether pnpm installs the workspace with its hoisted linker. `nodeLinker` in `pnpm-workspace.yaml` decides, since
+/// pnpm lets its settings override `.npmrc`; without one, the last `node-linker` of the root `.npmrc` does. Without
+/// either, pnpm uses its isolated linker. The user's `.npmrc`, the environment and `pnpm install --node-linker` are not
+/// read.
+fn pnpm_hoisted(workspace: &Workspace, fs: &dyn FileSystem) -> bool {
+    let linker = workspace
+        .pnpm_workspace
+        .as_ref()
+        .and_then(|yaml| yaml.node_linker.clone())
+        .or_else(|| npmrc_setting(&fs.read_to_string(&workspace.root.join(".npmrc")).ok()?, "node-linker"));
+    linker.as_deref() == Some("hoisted")
+}
+
+/// The value of `key` in the `.npmrc` text `npmrc`: that of the last `key=value` line naming it, trimmed and without
+/// surrounding quotes. A comment line (`#` or `;`) names no key.
+fn npmrc_setting(npmrc: &str, key: &str) -> Option<String> {
+    npmrc
+        .lines()
+        .rev()
+        .filter_map(|line| line.split_once('='))
+        .find(|(name, _)| name.trim_start_matches('\u{feff}').trim() == key)
+        .map(|(_, value)| value.trim().trim_matches(['"', '\'']).to_owned())
 }
 
 /// Whether Bun installs the workspace at `root` with its isolated linker. `linker` in the `[install]` table of the
