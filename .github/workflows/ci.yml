@@ -340,7 +340,10 @@ jobs:
       - name: Resolve the newest Bun 1.x
         id: bun
         if: matrix.runtime == 'bun'
-        run: echo "version=$(scripts/e2e/resolve-pm-version.sh bun newest 1)" >> "$GITHUB_OUTPUT"
+        shell: bash
+        run: |
+          version="$(scripts/e2e/resolve-pm-version.sh bun newest 1)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: oven-sh/setup-bun@v2
         if: matrix.runtime == 'bun'
         with:
@@ -385,7 +388,7 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
       - name: Build skif
-        run: cargo build --locked
+        run: cargo build --locked -p skif-cli
       - uses: actions/upload-artifact@v7
         with:
           name: e2e-skif-${{ matrix.os }}
@@ -396,10 +399,13 @@ jobs:
   # Runs the built binary against real workspaces installed by each package manager, so the
   # fixtures prove skif's view of a monorepo matches what npm, pnpm, Yarn and Bun actually accept.
   # One job per manager, slot and OS runs every scenario of fixtures/e2e under every linker of the manager.
+  # `needs` waits for every build leg; `!cancelled()` still starts the jobs of an OS whose build succeeded when another
+  # OS's build failed, and those of the failed OS fail at the artifact download.
   e2e:
     name: E2E (${{ matrix.package-manager }} ${{ matrix.slot }}, ${{ matrix.os }})
     needs: e2e-build
-    timeout-minutes: 30
+    if: ${{ !cancelled() }}
+    timeout-minutes: ${{ matrix.os == 'ubuntu' && 30 || 45 }}
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
@@ -453,23 +459,45 @@ jobs:
         if: matrix.package-manager == 'bun'
         with:
           bun-version: ${{ steps.version.outputs.version }}
+      # npm, pnpm, Yarn Classic and corepack's Yarn shim go into a prefix of their own that is put first on PATH, so
+      # neither the npm bundled in mise's Node directory nor a mise shim shadows them (which also needs no `mise
+      # reshim`); on Windows npm puts a prefix's executables in the prefix itself, elsewhere in its `bin`.
       - name: Install the package manager version under test
-        if: matrix.package-manager != 'bun'
         env:
           PM: ${{ matrix.package-manager }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
+          prefix="${RUNNER_TEMP}/package-manager"
+          bin="${prefix}/bin"
+          [[ "$RUNNER_OS" != Windows ]] || bin="$prefix"
+          mkdir -p "$bin"
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            cygpath -w "$bin" >> "$GITHUB_PATH"
+            PATH="$(cygpath -u "$bin"):${PATH}"
+          else
+            echo "$bin" >> "$GITHUB_PATH"
+            PATH="${bin}:${PATH}"
+          fi
           case "$PM" in
-            npm | pnpm) npm install --global "${PM}@${VERSION}" ;;
-            yarn-classic) npm install --global "yarn@${VERSION}" ;;
+            npm | pnpm) npm install --global --prefix "$prefix" "${PM}@${VERSION}" ;;
+            yarn-classic) npm install --global --prefix "$prefix" "yarn@${VERSION}" ;;
             # Node 25+ no longer bundles corepack, so Yarn Berry's corepack shim is installed explicitly.
             yarn)
-              npm install --global corepack@latest
-              corepack enable yarn
+              npm install --global --prefix "$prefix" corepack@latest
+              corepack enable --install-directory "$bin" yarn
               corepack prepare "yarn@${VERSION}" --activate
               ;;
+            bun) ;;
           esac
+          cmd="$PM"
+          [[ "$PM" != yarn-classic ]] || cmd=yarn
+          actual="$(cd "$RUNNER_TEMP" && "$cmd" --version | tr -d '\r')"
+          if [[ "$actual" != "$VERSION" ]]; then
+            echo "::error::${cmd} --version prints ${actual}, not the ${VERSION} under test"
+            type -a "$cmd"
+            exit 1
+          fi
       - name: Run end-to-end tests
         env:
           PM: ${{ matrix.package-manager }}
