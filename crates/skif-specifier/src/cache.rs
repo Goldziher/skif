@@ -28,7 +28,7 @@ impl SpecifierCache {
     }
 
     fn shard(&self, raw: &str) -> &Shard {
-        let index = usize::try_from(HashState::default().hash_one(raw) % SHARDS as u64).unwrap_or(0);
+        let index = usize::try_from(HashState.hash_one(raw) % SHARDS as u64).unwrap_or(0);
         &self.shards[index]
     }
 
