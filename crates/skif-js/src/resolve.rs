@@ -97,6 +97,16 @@ impl oxc_resolver::FileSystem for ResolverFs {
 ///
 /// Tool configuration and `tsconfig` paths use `/`, Windows tooling and hand-written configs may use `\`; both
 /// join the same way, and no separator of the host leaks into the result.
+/// Whether the resolved file `found` is what `path` names: the file itself, with an extension added or swapped
+/// (`./c.js` for `c.ts`), or a file below it as a directory (`index.ts`).
+fn is_at(found: &Path, path: &Path) -> bool {
+    found.starts_with(path)
+        || (found.parent() == path.parent()
+            && found
+                .file_stem()
+                .is_some_and(|stem| Some(stem) == path.file_name() || Some(stem) == path.file_stem()))
+}
+
 pub(crate) fn join_normalized(base: &Path, relative: &str) -> PathBuf {
     let mut path = base.to_path_buf();
     for segment in relative.split(['/', '\\']) {
@@ -1128,7 +1138,12 @@ impl ModuleResolver {
                 let package = name.unwrap_or(installed);
                 return self.package_target(&package, specifier);
             }
-            return outcome(self.classify(path), member_name);
+            let root_dirs = self.in_another_root_dir(importer, specifier, &path);
+            return Outcome {
+                target: self.classify(path),
+                package: member_name,
+                root_dirs,
+            };
         }
         if specifier.starts_with('.') {
             if let Some(found) = self.through_root_dirs(importer, specifier) {
@@ -1324,6 +1339,29 @@ impl ModuleResolver {
             self.resolve_path(kind, directory, &path)
                 .map(|found| self.classify(found))
         })
+    }
+
+    /// Whether the resolver found the relative `specifier` of `importer` at `found` through the `rootDirs` of the
+    /// nearest `tsconfig.json`, below a root directory other than the importer's: the resolver reads `rootDirs`
+    /// itself, so a hit there looks like a plain relative path.
+    fn in_another_root_dir(&self, importer: &Path, specifier: &str, found: &Path) -> bool {
+        if !specifier.starts_with('.') {
+            return false;
+        }
+        let Some(directory) = importer.parent() else {
+            return false;
+        };
+        if is_at(found, &join_normalized(directory, specifier)) {
+            return false;
+        }
+        self.nearest_paths
+            .get_or_compute(directory, || self.tsconfigs.nearest(directory).map(Arc::new))
+            .is_some_and(|config| {
+                config
+                    .root_dir_candidates(directory, specifier)
+                    .iter()
+                    .any(|candidate| is_at(found, candidate))
+            })
     }
 
     /// A relative specifier through the `rootDirs` of the nearest `tsconfig.json`: the same path below another root
