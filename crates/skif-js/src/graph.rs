@@ -678,9 +678,10 @@ impl<'a> Builder<'a> {
         let package_rel = setup.and_then(|setup| relative(abs, &setup.dir));
         let foreign = candidate.is_none() && (!abs.starts_with(inputs.root) || self.in_other_project(abs, owner));
         let ignored_by = |package: PackageId| {
-            inputs.setup.package(package).is_some_and(|setup| {
-                relative(abs, &setup.dir).is_some_and(|rel| setup.ignore.matches_any(&rel))
-            })
+            inputs
+                .setup
+                .package(package)
+                .is_some_and(|setup| relative(abs, &setup.dir).is_some_and(|rel| setup.ignore.matches_any(&rel)))
         };
         let ignored = foreign
             || inputs.setup.global_ignore.matches_any(&rel)
