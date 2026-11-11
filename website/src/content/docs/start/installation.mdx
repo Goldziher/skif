@@ -89,11 +89,11 @@ The binary is `target/release/skif`.
 ## Supported versions
 
 skif supports the versions of Node.js, Bun, Rust and the package managers its upstream still supports; where an
-upstream has no end-of-life policy, the latest two major versions. Today that is Node.js 22, 24 and 26, all of Bun
-1.x, the latest two majors of npm, pnpm and Yarn 2+, and the newest Yarn Classic 1.x.
+upstream has no end-of-life policy, the latest two major versions. Today that is Node.js 22, 24 and 26, the newest
+Bun 1.x, the latest two majors of npm, pnpm and Yarn 2+, and the newest Yarn Classic 1.x.
 
 Every change is tested end to end against workspaces that the real package manager installs: the newest release of
-each manager's latest and previous major (one release of Bun 1.x and of Yarn Classic) under every dependency layout it
+each manager's latest and previous major (for Bun and Yarn Classic, the newest 1.x) under every dependency layout it
 ships, on Linux, and the latest majors also on macOS and Windows.
 
 | Package manager | Versions | Layouts | Operating systems |
@@ -104,7 +104,7 @@ ships, on Linux, and the latest majors also on macOS and Windows.
 | Yarn Classic | newest 1.x | hoisted | Linux, macOS, Windows |
 | Bun | newest 1.x | default, `linker = "hoisted"`, `linker = "isolated"` | Linux, macOS, Windows |
 
-The scenarios cover a clean workspace, every fixable manifest and workspace issue with `--fix`, catalogs (pnpm, Bun
+The scenarios cover a clean workspace, a set of fixable manifest and workspace issues fixed with `--fix`, catalogs (pnpm, Bun
 and Yarn 4.10 and later), `-r` over nested workspaces and a standalone package, JS analysis against the installed
 layout, `skif baseline`, `skif migrate` and toolchain pins
 ([ADR 0105](https://github.com/Goldziher/skif/blob/main/adrs/0105-yarn-classic-support-and-the-end-to-end-matrix-of-linkers-and-operating-systems.md)).

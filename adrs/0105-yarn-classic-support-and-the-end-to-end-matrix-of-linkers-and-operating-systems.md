@@ -63,9 +63,11 @@ npm's `install-strategy=linked` is not in the matrix: skif makes no claim about 
 managers that need different files, and an expectation with overrides per manager and per linker. The runner writes
 the manager's own forms: `pnpm-workspace.yaml`, the catalog (pnpm, Bun, and Yarn from 4.10), the linker setting, and
 `packageManager` set to the version under test, which every root must report back. Each install is checked for the
-layout its linker produces, so a scenario cannot pass on the wrong one. A difference in the findings between linkers is
-an override that states its reason; where the install provides a member's binary that skif still reports, the override
-records that limitation of ADR 0097.
+layout its linker produces, so a scenario cannot pass on the wrong one, and a scenario may run a script with the
+manager to prove which binaries the layout provides. A difference in the findings between linkers is an override that
+states its reason; an override that records a skif bug rather than the correct answer, such as a member's binary the
+install provides and skif still reports (ADR 0097), names the GitHub issue in `known_issue`, which the runner prints
+apart from passing checks.
 
 ### Consequences
 
@@ -80,7 +82,7 @@ records that limitation of ADR 0097.
 * `.github/workflows/ci.yml`: the `e2e` matrix lists the five managers, the two slots and the three operating systems,
   with the exclusions above.
 * `scripts/test-e2e-scripts.sh` checks the Classic slot of `resolve-pm-version.sh`, the generated projects of every
-  manager and linker, and that every scenario's expectation evaluates.
+  manager and linker, and that every scenario's expectation evaluates and has the steps the runner reads.
 * `README.md` and `website/src/content/docs/start/installation.mdx` name the newest Yarn Classic 1.x as supported.
 
 ## Pros and Cons of the Options

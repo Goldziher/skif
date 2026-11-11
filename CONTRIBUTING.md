@@ -75,15 +75,19 @@ The runner writes that version into every root's `packageManager`, so corepack's
 `E2E_PM_VERSION=4.10.0 scripts/e2e/run.sh yarn target/debug/skif` runs Yarn 4.10.0, and
 `E2E_PM_VERSION=1.22.22 scripts/e2e/run.sh yarn-classic target/debug/skif` runs Yarn Classic. For npm and Bun, put
 the release first on `PATH` (`npm install --global --prefix /tmp/npm12 npm@12`).
-`scripts/e2e/resolve-pm-version.sh <package-manager> <newest|previous>` prints the release CI tests.
+`scripts/e2e/resolve-pm-version.sh <package-manager> <newest|previous> [major]` prints the release CI tests; with
+`major`, only releases of that major count, and CI passes `1` for `bun` and `yarn-classic` so a later major does not
+enter the matrix unannounced.
 `E2E_SCENARIOS` and `E2E_LINKERS` (space separated) limit a run.
 
 A scenario is `fixtures/e2e/<name>/scenario.json` with `project/`, the files every manager shares (the root
 `package.json` declares `workspaces`; the runner writes `pnpm-workspace.yaml`, the catalog and the linker setting),
 and `overlays/<pm>/` for files one manager needs, where `<name>.merge.json` is deep-merged into `<name>.json`.
 `scenario.json` names the managers and minimum versions it applies to, the roots to install, the expected exit code
-and findings (`rule:package[:dependency][ in file]`) before and after the fix, and overrides per manager and per
-`<pm>/<linker>` with a `reason`. `bash scripts/test-e2e-scripts.sh` generates every scenario for every manager and
+and findings (`rule:package[:dependency][ in file]`) before and after the fix, an optional script that `<pm> run`
+runs in one package and whether it succeeds under the layout, and overrides per manager and per `<pm>/<linker>` with
+a `reason`. An override that records a skif bug instead of the correct answer names it in `known_issue`
+(`#<issue> <title>`), which the runner prints as `KNOWN ISSUE`. `bash scripts/test-e2e-scripts.sh` generates every scenario for every manager and
 linker without installing.
 
 ## Architecture decisions
