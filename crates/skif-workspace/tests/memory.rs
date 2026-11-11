@@ -907,6 +907,7 @@ fn patterns_cannot_climb_out_of_the_root() {
             workspace.manifest_errors
         );
         assert_eq!(workspace.facts.patterns.len(), 1, "{pattern}");
+        assert!(workspace.facts.patterns[0].invalid, "{pattern}");
     }
 }
 
@@ -930,7 +931,8 @@ fn an_unusable_pattern_does_not_stop_discovery() {
             .iter()
             .all(|error| matches!(error, WorkspaceError::InvalidPattern { .. }))
     );
-    assert_eq!(workspace.facts.patterns.len(), 3);
+    let invalid: Vec<bool> = workspace.facts.patterns.iter().map(|fact| fact.invalid).collect();
+    assert_eq!(invalid, [true, true, false]);
 }
 
 #[test]

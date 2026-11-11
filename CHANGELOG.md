@@ -36,8 +36,10 @@ All notable changes to this project are documented here. The format follows
   `allowed-patch-paths`, and a `*.patch` file no entry references ([ADR 0091](adrs/0091-stale-patched-dependencies.md),
   [#142](https://github.com/Goldziher/skif/issues/142)).
 - `invalid-workspace-file` (`error`): a member `package.json` that is not valid JSON, an unusable workspace pattern
-  and an invalid `.yarnrc.yml` are reported at the error; such a member used to drop out of the run silently
-  ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)).
+  and an invalid `.yarnrc.yml` are reported at the error; such a member used to drop out of the run silently. An
+  unusable pattern (`../shared`) is no longer also reported by `unmatched-workspace-patterns`, whose fix removed it
+  ([ADR 0095](adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md),
+  [#154](https://github.com/Goldziher/skif/issues/154)).
 - `stale-mocks` (`error`): a `vi.mock`, `jest.mock`, `rs.mock` or other test-runner call (also
   `vi.mock(import('./x'))`) whose relative or aliased specifier names a module that does not exist. Virtual mocks and
   unresolved package names are not reported; `skif migrate --profile exact` turns it off
