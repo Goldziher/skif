@@ -565,3 +565,8 @@ blake3 = "45305dabdf49cd53fa68e2277a3293306d0585f9f92919c8be89941c36ec7e80"
 number = 113
 status = "accepted"
 blake3 = "f24ade40030c2b634df3f18276f8e9f48d7a8691cacf51d140ef921c21516a9e"
+
+[adrs."adrs/0114-windows-npm-packages-deferred.md"]
+number = 114
+status = "accepted"
+blake3 = "eed3685bb6b5522e513d25adc46fb361a554a07de1940028a1dcf74d23ae368d"
