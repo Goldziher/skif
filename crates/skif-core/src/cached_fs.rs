@@ -57,7 +57,9 @@ impl<V: Clone> Sharded<V> {
     }
 
     fn get(&self, key: &Path) -> Option<V> {
-        self.with(key, |value| value.cloned())
+        let key = key.as_os_str();
+        let shard = self.shard(key).read().unwrap_or_else(PoisonError::into_inner);
+        shard.get(key).cloned()
     }
 
     /// Replaces the value of `key` with `update` of the current one under one write lock, and returns it: a counter
@@ -747,8 +749,8 @@ mod tests {
         assert_eq!(map.upsert(Path::new("/ws/a"), bump), 2);
         assert_eq!(map.upsert(Path::new("/ws/b"), bump), 1);
         assert_eq!(map.get(Path::new("/ws/a")), Some(2));
-        assert_eq!(map.with(Path::new("/ws/b"), |count| count.copied()), Some(1));
-        assert_eq!(map.with(Path::new("/ws/c"), |count| count.copied()), None);
+        assert_eq!(map.with(Path::new("/ws/b"), |count| count.map_or(0, |n| *n)), 1);
+        assert_eq!(map.with(Path::new("/ws/c"), |count| count.map_or(0, |n| *n)), 0);
     }
 
     #[test]
