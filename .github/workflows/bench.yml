@@ -1,9 +1,10 @@
 name: bench
 
 # The published speed benchmarks (ADR 0113): skif against the sherif, syncpack and knip pinned in
-# tools/bench/corpus.toml, on a pinned GitHub-hosted runner image, run by hand only. The harness comes from the
-# dispatched ref and the measured skif from the `ref` input; the summary records the machine, the runner and the
-# toolchain. `mise run bench:import -- <run-id>` brings the results into the repository.
+# tools/bench/corpus.toml, on a pinned GitHub-hosted runner image, run by hand only. The harness, its mise tools and the
+# corpus come from the dispatched ref, checked out at the workspace root; the measured skif from the `ref` input,
+# checked out in measured/ (untracked there, so the harness commit stays clean). The summary records the machine, the
+# runner and the toolchain. `mise run bench:import -- <run-id>` brings the results into the repository.
 on:
   workflow_dispatch:
     inputs:
@@ -32,10 +33,10 @@ on:
         required: false
         default: ""
 
-# ~keep One benchmark at a time across the repository, so two runs never share a queue slot or a measurement window;
-# ~keep a second dispatch waits instead of cancelling the first.
+# ~keep Runs on one runner image queue instead of overlapping; a running one is never cancelled. GitHub keeps one
+# ~keep pending run per group: a dispatch made while another one waits cancels the waiting one.
 concurrency:
-  group: bench
+  group: bench-${{ inputs.runner }}
   cancel-in-progress: false
 
 permissions:
@@ -43,15 +44,20 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # ~keep The corepack that provides yarn's shim for the corpus installs; the package managers themselves come from
-  # ~keep mise.lock and each repository's `packageManager`.
+  # ~keep The corepack whose pnpm and yarn shims install the corpus: each repository's `packageManager` selects the
+  # ~keep version, and a repository without one gets the version this corepack names as its default (never the
+  # ~keep registry's latest).
   COREPACK_VERSION: "0.36.0"
+  COREPACK_DEFAULT_TO_LATEST: "0"
 
 jobs:
   bench:
     name: Benchmark on ${{ inputs.runner }}
     timeout-minutes: 300
     runs-on: ${{ inputs.runner }}
+    env:
+      # ~keep A tool that mise.lock does not pin for the runner fails the install instead of resolving a version.
+      MISE_LOCKED: "1"
     steps:
       - name: Check the inputs
         env:
@@ -66,29 +72,25 @@ jobs:
       - name: Check out the harness
         uses: actions/checkout@v7
         with:
-          path: harness
           persist-credentials: false
       - name: Check out the skif to measure
         uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.sha }}
-          path: skif
+          path: measured
           persist-credentials: false
       - name: Resolve the measured commit and the Rust toolchains
         id: resolve
         run: |
           set -euo pipefail
-          # ~keep Each checkout builds with the rust-version its Cargo.toml declares (the MSRV the CI job checks), a
-          # ~keep released toolchain fixed by the source rather than whatever `stable` is on the day of the run.
-          msrv() {
-            awk '/^\[(workspace\.)?package\]/{p=1;next} /^\[/{p=0} p && /^rust-version *= *"/{gsub(/"/,"",$3);print $3;exit}' "$1/Cargo.toml"
-          }
-          measured="$(msrv skif)"
-          harness="$(msrv harness)"
-          [[ -n "$measured" ]] || { echo "::error::skif/Cargo.toml declares no rust-version"; exit 1; }
-          [[ -n "$harness" ]] || { echo "::error::harness/Cargo.toml declares no rust-version"; exit 1; }
-          sha="$(git -C skif rev-parse HEAD)"
-          echo "Measuring ${sha} with Rust ${measured}; harness $(git -C harness rev-parse HEAD) with Rust ${harness}"
+          # ~keep Each checkout builds with the rust-version its Cargo.toml declares (the MSRV the CI job checks)
+          # ~keep rather than whatever `stable` is on the day of the run. It names a minor release, so the toolchain is
+          # ~keep that release's latest patch; the summary records the exact rustc.
+          measured="$(bash scripts/msrv.sh measured/Cargo.toml)" ||
+            { echo "::error::measured/Cargo.toml declares no rust-version"; exit 1; }
+          harness="$(bash scripts/msrv.sh Cargo.toml)" || { echo "::error::Cargo.toml declares no rust-version"; exit 1; }
+          sha="$(git -C measured rev-parse HEAD)"
+          echo "Measuring ${sha} with Rust ${measured}; harness $(git rev-parse HEAD) with Rust ${harness}"
           {
             echo "sha=${sha}"
             echo "short=${sha:0:12}"
@@ -108,32 +110,32 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            harness -> target
-            skif -> target
+            . -> target
+            measured -> target
+      # ~keep No pnpm from mise here: the corpus installs use corepack's shims, so the summary's pnpm and yarn are the
+      # ~keep shims' defaults and each corpus target records the version its install ran with.
       - uses: xberg-io/actions/setup-mise@v1
         with:
-          working-directory: harness
-          tools: node pnpm hyperfine
-      # ~keep Node 25+ no longer bundles corepack, so yarn's corepack shim is installed explicitly, at a pinned version.
+          tools: node hyperfine
+      # ~keep Node 25+ no longer bundles corepack, so it is installed explicitly, at a pinned version.
       - name: Enable corepack
         run: |
           npm install --global "corepack@${COREPACK_VERSION}"
-          corepack enable
+          corepack enable yarn pnpm
       - name: Build the skif to measure
-        working-directory: skif
+        working-directory: measured
         env:
           TOOLCHAIN: ${{ steps.resolve.outputs.rust }}
         run: cargo "+${TOOLCHAIN}" build --release --locked -p skif-cli
       - name: Build the harness
-        working-directory: harness
         env:
           TOOLCHAIN: ${{ steps.resolve.outputs.harness_rust }}
         run: cargo "+${TOOLCHAIN}" build --release --locked -p skif-bench
       # ~keep The harness rejects a corpus repository not pinned to a full commit SHA and a comparison tool not pinned
       # ~keep to an exact version, so an unpinned input fails the run before anything is timed. RUSTUP_TOOLCHAIN makes
-      # ~keep the recorded rustc the one that built skif.
+      # ~keep the recorded rustc the one that built skif. The corpus and the generated workspaces go to the runner's
+      # ~keep temporary directory, outside every git checkout.
       - name: Benchmark
-        working-directory: harness
         env:
           RUSTUP_TOOLCHAIN: ${{ steps.resolve.outputs.rust }}
           RUNS: ${{ inputs.runs }}
@@ -143,11 +145,11 @@ jobs:
           set -euo pipefail
           args=(
             run
-            --skif ../skif/target/release/skif
-            --skif-source ../skif
-            --out ../bench-results
-            --corpus-dir ../bench-work/corpus
-            --generated-dir ../bench-work/generated
+            --skif measured/target/release/skif
+            --skif-source measured
+            --out bench-results
+            --corpus-dir "${RUNNER_TEMP}/bench-work/corpus"
+            --generated-dir "${RUNNER_TEMP}/bench-work/generated"
             --runs "$RUNS"
             --warmup "$WARMUP"
             --install
@@ -170,8 +172,9 @@ jobs:
               echo "# skif benchmark: no summary (the run stopped before it)"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+      # ~keep Only once there is a summary, so a run that stops before it shows one failing step.
       - name: Upload the results
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.resolve.outputs.short != '' && hashFiles('bench-results/summary.json') != '' }}
         uses: actions/upload-artifact@v7
         with:
           name: bench-${{ steps.resolve.outputs.short }}-${{ inputs.runner }}
