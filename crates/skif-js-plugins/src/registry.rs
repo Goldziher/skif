@@ -1,5 +1,9 @@
 //! The plugin table of ADR 0011.
 
+use std::sync::LazyLock;
+
+use skif_core::HashMap;
+
 use crate::plugin::Plugin;
 use crate::plugins::{
     angular, astro, astro_db, astro_markdoc, astro_og_canvas, ava, aws_cdk, azure_pipelines, babel, biome, borp,
@@ -238,8 +242,34 @@ pub fn plugins() -> &'static [&'static dyn Plugin] {
     &PLUGINS
 }
 
+/// The plugins by identifier, the first row of the table winning: the driver looks a plugin up for every config it
+/// reads, which a scan of the table would make linear in its length.
+static BY_ID: LazyLock<HashMap<&'static str, &'static dyn Plugin>> = LazyLock::new(|| {
+    let mut by_id = HashMap::with_capacity_and_hasher(PLUGINS.len(), skif_core::HashState);
+    for &plugin in &PLUGINS {
+        by_id.entry(plugin.spec().id).or_insert(plugin);
+    }
+    by_id
+});
+
 /// The plugin with this identifier.
 #[must_use]
 pub fn plugin(id: &str) -> Option<&'static dyn Plugin> {
-    PLUGINS.iter().copied().find(|p| p.spec().id == id)
+    BY_ID.get(id).copied()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The index finds every row of the table by its identifier, and nothing for an unknown one.
+    #[test]
+    fn every_plugin_is_found_by_its_id() {
+        for &row in plugins() {
+            let id = row.spec().id;
+            let first = PLUGINS.iter().find(|p| p.spec().id == id).map(|p| std::ptr::from_ref(p.spec()));
+            assert_eq!(plugin(id).map(|p| std::ptr::from_ref(p.spec())), first, "{id}");
+        }
+        assert!(plugin("no-such-plugin").is_none());
+    }
 }
