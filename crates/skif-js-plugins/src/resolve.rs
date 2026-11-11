@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use skif_config::{PluginConfig, PluginOptions};
-use skif_core::HashSet;
+use std::rc::Rc;
+
+use skif_core::{HashMap, HashSet};
 use skif_js_syntax::{ConfigValue, ModuleLoader, place_file_dir};
 
 use crate::config_load::{from_json, load_config_and_call_arguments};
@@ -73,6 +75,7 @@ pub fn resolve_plugins_with(ctx: &PluginContext<'_>, projects: &NxProjects) -> V
     };
     let project_files: Vec<String> = projects.dirs.iter().map(|dir| join_rel(dir, "project.json")).collect();
     let plugins = registry::plugins();
+    let configs = ConfigCache::default();
     let mut outputs: Vec<Option<PluginOutput>> = plugins
         .iter()
         .map(|&plugin| {
@@ -82,11 +85,11 @@ pub fn resolve_plugins_with(ctx: &PluginContext<'_>, projects: &NxProjects) -> V
             is_enabled(spec, setting, ctx, &detection).then(|| {
                 // Only a plugin with a `package.json` key reads the manifest.
                 let manifest = spec.package_json_key.and_then(|_| detection.manifest(ctx));
-                run_plugin(plugin, setting, ctx, manifest, extra, None)
+                run_plugin(plugin, setting, ctx, manifest, extra, None, &configs)
             })
         })
         .collect();
-    run_in_scopes(ctx, &projects.scopes, plugins, &mut outputs);
+    run_in_scopes(ctx, &projects.scopes, plugins, &mut outputs, &configs);
     plugins
         .iter()
         .zip(outputs)
@@ -115,6 +118,7 @@ fn run_in_scopes(
     scopes: &[String],
     plugins: &[&'static dyn Plugin],
     outputs: &mut [Option<PluginOutput>],
+    configs: &ConfigCache,
 ) {
     let Some(first) = scopes.first() else {
         return;
@@ -153,7 +157,7 @@ fn run_in_scopes(
             }
             let setting = scope_ctx.plugins.get(spec.id);
             let found = rebase(
-                run_plugin(plugin, setting, &scope_ctx, None, &[], Some(&listing)),
+                run_plugin(plugin, setting, &scope_ctx, None, &[], Some(&listing), configs),
                 scope,
             );
             merge(outputs[index].get_or_insert_with(PluginOutput::default), found);
@@ -349,8 +353,49 @@ fn parent_of(relative: &str) -> &str {
     relative.rsplit_once('/').map_or("", |(parent, _)| parent)
 }
 
+/// A config file as the config loader read it, with the modules it imports values from.
+struct LoadedConfig {
+    parsed: Option<(ConfigValue, Vec<ConfigValue>)>,
+    imported: Vec<(PathBuf, String)>,
+}
+
+/// The config files read for one package and its scopes, by absolute path: several plugins read the same file (a
+/// `vite.config.ts` read by every Vite plugin, a `tsconfig.json` linked from many configs), and the loader's result
+/// depends only on the file.
+#[derive(Default)]
+struct ConfigCache(RefCell<HashMap<PathBuf, Rc<LoadedConfig>>>);
+
+impl ConfigCache {
+    /// The file at `path` with the text `source`, loaded with `modules` the first time it is asked for.
+    fn load(&self, path: &Path, source: &str, modules: Option<&dyn ModuleLoader>) -> Rc<LoadedConfig> {
+        if let Some(hit) = self.0.borrow().get(path) {
+            return Rc::clone(hit);
+        }
+        let recording = modules.map(|inner| Recording {
+            inner,
+            loaded: RefCell::new(Vec::new()),
+        });
+        let parsed = load_config_and_call_arguments(
+            path,
+            source,
+            recording.as_ref().map(|recording| recording as &dyn ModuleLoader),
+        );
+        let loaded = Rc::new(LoadedConfig {
+            parsed,
+            imported: recording
+                .map(|recording| recording.loaded.into_inner())
+                .unwrap_or_default(),
+        });
+        self.0.borrow_mut().insert(path.to_path_buf(), Rc::clone(&loaded));
+        loaded
+    }
+}
+
 struct Collector<'a, 'b> {
     ctx: &'a PluginContext<'b>,
+    configs: &'a ConfigCache,
+    /// The script parser's view of the workspace's scripts, made when the first command is parsed.
+    script_ctx: OnceCell<ScriptContext>,
     out: PluginOutput,
     queue: VecDeque<Queued>,
     /// Whether the module resolution options of a config inside another package stay with that package.
@@ -587,10 +632,15 @@ impl Collector<'_, '_> {
         }
     }
 
+    fn script_context(&self) -> &ScriptContext {
+        self.script_ctx.get_or_init(|| ScriptContext {
+            scripts: self.ctx.scripts.clone(),
+            ..ScriptContext::new()
+        })
+    }
+
     fn parse_script(&mut self, text: &str, from: &Path, optional: bool) {
-        let mut script_ctx = ScriptContext::new();
-        script_ctx.scripts.clone_from(self.ctx.scripts);
-        let info = parse_script(text, &script_ctx);
+        let info = parse_script(text, self.script_context());
         for binary in info.binaries {
             // As for the scripts of `package.json`: a binary fetched on demand, run in another workspace or that the
             // script parser ignores is never unlisted here.
@@ -619,12 +669,10 @@ impl Collector<'_, '_> {
 
     /// The files a script runs in `dir` are entries; what it names besides belongs to the package in `dir`.
     fn script_at(&mut self, dir: &str, text: &str) {
-        let mut script_ctx = ScriptContext::new();
-        script_ctx.scripts.clone_from(self.ctx.scripts);
         let mut texts = vec![text.to_owned()];
         texts.extend(flag_values(text, &["cdk"], &["-a", "--app"]));
         for text in texts {
-            for file in parse_script(&text, &script_ctx).files {
+            for file in parse_script(&text, self.script_context()).files {
                 push_unique(&mut self.out.entries, join_rel(dir, &file.path));
             }
         }
@@ -640,6 +688,7 @@ fn run_plugin(
     manifest: Option<&ConfigValue>,
     extra_configs: &[String],
     listing: Option<&Listing<'_>>,
+    configs: &ConfigCache,
 ) -> PluginOutput {
     let spec = plugin.spec();
     let options = match setting {
@@ -648,6 +697,8 @@ fn run_plugin(
     };
     let mut collector = Collector {
         ctx,
+        configs,
+        script_ctx: OnceCell::new(),
         out: PluginOutput {
             entries: globs(&options.entry, spec.entry),
             project: globs(&options.project, spec.project),
@@ -793,16 +844,16 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
             continue;
         };
         collector.out.config_files.push(path.clone());
+        let loaded = collector.configs.load(&path, &source, ctx.modules);
         // A plugin that reads the source rather than the exported value (`export const config` of Stencil) still
         // sees a file whose export is not understood.
-        let recording = ctx.modules.map(|inner| Recording {
-            inner,
-            loaded: RefCell::new(Vec::new()),
-        });
-        let modules = recording.as_ref().map(|recording| recording as &dyn ModuleLoader);
-        let (value, call_arguments) = match load_config_and_call_arguments(&path, &source, modules) {
-            Some(found) => found,
-            None if !reader.reads_config() => (ConfigValue::Null, Vec::new()),
+        let fallback: ConfigValue;
+        let (value, call_arguments): (&ConfigValue, &[ConfigValue]) = match &loaded.parsed {
+            Some((value, call_arguments)) => (value, call_arguments.as_slice()),
+            None if !reader.reads_config() => {
+                fallback = ConfigValue::Null;
+                (&fallback, &[][..])
+            }
             None => {
                 let Some(value) = reader.read_script(&path, &source) else {
                     if is_structured(&path) && !source.trim().is_empty() {
@@ -811,28 +862,27 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
                     }
                     continue;
                 };
-                (value, Vec::new())
+                fallback = value;
+                (&fallback, &[][..])
             }
         };
         let ast = ConfigAst {
             path: &path,
             base: parent_of(&relative),
-            value: &value,
+            value,
             source: &source,
         };
         if reader.reads_config()
-            && let Some(cause) = unreadable(&value)
+            && let Some(cause) = unreadable(value)
         {
             let scope = reader.incomplete_scope(cause, &ast);
             collector.mark_incomplete(reader.spec().id, &path, cause, scope);
         }
         let mut inputs = reader.resolve_config(&ast, ctx);
         if reader.reads_config() {
-            inputs.extend(argument_entries(ctx, ast.base, &call_arguments));
+            inputs.extend(argument_entries(ctx, ast.base, call_arguments));
         }
-        collector.imported = recording
-            .map(|recording| recording.loaded.into_inner())
-            .unwrap_or_default();
+        collector.imported.clone_from(&loaded.imported);
         collector.absorb(reader.spec().id, inputs, (&path, Some(&ast)), depth);
         collector.imported.clear();
     }
@@ -937,6 +987,41 @@ mod tests {
         }
     }
 
+    /// A loader that serves one module and counts how often it is asked.
+    struct Counting(std::cell::Cell<usize>);
+
+    impl ModuleLoader for Counting {
+        fn load(&self, _from: &Path, specifier: &str) -> Option<(PathBuf, String)> {
+            self.0.set(self.0.get() + 1);
+            (specifier == "./base.js").then(|| (PathBuf::from("/ws/base.js"), "export default { y: 2 };".to_owned()))
+        }
+    }
+
+    /// A config read again, by another plugin, is the value read the first time, with the modules it imports, and
+    /// the loader is not asked again.
+    #[test]
+    fn a_config_is_loaded_once_for_every_plugin_that_reads_it() {
+        let loader = Counting(std::cell::Cell::new(0));
+        let cache = ConfigCache::default();
+        let path = Path::new("/ws/vite.config.js");
+        let source = "import base from './base.js';\nexport default { ...base, x: 1 };";
+        let first = cache.load(path, source, Some(&loader));
+        let asked = loader.0.get();
+        assert!(asked > 0, "the config imports a value");
+        let again = cache.load(path, source, Some(&loader));
+        assert!(Rc::ptr_eq(&first, &again));
+        assert_eq!(loader.0.get(), asked);
+        assert_eq!(
+            again.imported,
+            [(PathBuf::from("/ws/base.js"), "export default { y: 2 };".to_owned())]
+        );
+        let (value, _) = again.parsed.as_ref().expect("the config parses");
+        assert!(value.get("x").is_some() && value.get("y").is_some(), "{value:?}");
+        let other = cache.load(Path::new("/ws/other.json"), "{\"z\": 1}", Some(&loader));
+        assert!(other.imported.is_empty());
+        assert!(other.parsed.as_ref().is_some_and(|(value, _)| value.get("z").is_some()));
+    }
+
     /// The dependency set and its sorted order answer exact names and prefixes as a scan of the context's own and
     /// inherited dependencies does.
     #[test]
@@ -1004,8 +1089,11 @@ mod tests {
             modules: None,
             nx: None,
         };
+        let configs = ConfigCache::default();
         let mut collector = Collector {
             ctx: &ctx,
+            configs: &configs,
+            script_ctx: OnceCell::new(),
             out: PluginOutput::default(),
             queue: VecDeque::new(),
             confine_to_package: false,
