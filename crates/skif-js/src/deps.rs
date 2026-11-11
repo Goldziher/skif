@@ -535,7 +535,9 @@ fn includes_all_types(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], pa
 /// Whether a `compilerOptions.types` value holds `*`, which TypeScript 6 reads as every package of the type roots.
 fn lists_every_type(types: &ConfigValue) -> bool {
     match types {
-        ConfigValue::Array(items) => items.iter().any(|item| item.as_str().is_some_and(|name| name.trim() == "*")),
+        ConfigValue::Array(items) => items
+            .iter()
+            .any(|item| item.as_str().is_some_and(|name| name.trim() == "*")),
         _ => false,
     }
 }

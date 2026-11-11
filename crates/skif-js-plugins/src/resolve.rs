@@ -61,11 +61,7 @@ pub fn resolve_plugins(ctx: &PluginContext<'_>) -> Vec<(PluginId, PluginOutput)>
 #[must_use]
 pub fn resolve_plugins_with(ctx: &PluginContext<'_>, projects: &NxProjects) -> Vec<(PluginId, PluginOutput)> {
     let manifest = read_manifest(ctx);
-    let project_files: Vec<String> = projects
-        .dirs
-        .iter()
-        .map(|dir| join_rel(dir, "project.json"))
-        .collect();
+    let project_files: Vec<String> = projects.dirs.iter().map(|dir| join_rel(dir, "project.json")).collect();
     let scopes: Vec<Scope> = projects.scopes.iter().map(|dir| Scope::new(ctx, dir)).collect();
     registry::plugins()
         .iter()
@@ -92,9 +88,8 @@ pub fn resolve_plugins_with(ctx: &PluginContext<'_>, projects: &NxProjects) -> V
 
 /// Whether the plugin `id` is enabled for the workspace in `ctx`.
 pub(crate) fn is_plugin_enabled(ctx: &PluginContext<'_>, id: PluginId) -> bool {
-    registry::plugin(id).is_some_and(|plugin| {
-        is_enabled(plugin.spec(), ctx.plugins.get(id), ctx, read_manifest(ctx).as_ref())
-    })
+    registry::plugin(id)
+        .is_some_and(|plugin| is_enabled(plugin.spec(), ctx.plugins.get(id), ctx, read_manifest(ctx).as_ref()))
 }
 
 fn read_manifest(ctx: &PluginContext<'_>) -> Option<ConfigValue> {

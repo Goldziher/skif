@@ -270,7 +270,10 @@ mod tests {
     fn globs_are_rebased_onto_the_scope_and_negations_stay_negations() {
         assert_eq!(rebase_glob("apps/web", "src/**/*.ts"), "apps/web/src/**/*.ts");
         assert_eq!(rebase_glob("apps/web", "./index.html"), "apps/web/index.html");
-        assert_eq!(rebase_glob("apps/web", "!**/*.stories.tsx"), "!apps/web/**/*.stories.tsx");
+        assert_eq!(
+            rebase_glob("apps/web", "!**/*.stories.tsx"),
+            "!apps/web/**/*.stories.tsx"
+        );
         assert_eq!(rebase_glob("apps/web", "../../jest.preset.js"), "jest.preset.js");
     }
 

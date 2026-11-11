@@ -2020,16 +2020,15 @@ fn nx_target_options_tokens_and_cwd() {
         &["nx", "jest", "typescript"],
     );
     let out = output(&results, "nx");
-    assert_entries(
-        &out.production_entries,
-        &["libs/a/src/entry.ts", "libs/a/src/extra.ts"],
-    );
+    assert_entries(&out.production_entries, &["libs/a/src/entry.ts", "libs/a/src/extra.ts"]);
     assert_entries(
         &out.entries,
         &["libs/a/scripts/x.mjs", "packages/b/scripts/pack.mjs", "tools/r.mjs"],
     );
     assert!(
-        !out.entries.iter().any(|entry| entry.contains('{') || entry == "scripts/pack.mjs"),
+        !out.entries
+            .iter()
+            .any(|entry| entry.contains('{') || entry == "scripts/pack.mjs"),
         "{:?}",
         out.entries
     );

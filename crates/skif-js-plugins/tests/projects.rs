@@ -79,13 +79,19 @@ fn jest_projects_strings_and_globs_read_the_config_of_each_project() {
 fn nx_jest_projects_are_the_jest_configs_of_the_nx_projects() {
     let projects = [
         ("apps/web/project.json", "{}"),
-        ("apps/web/jest.config.ts", "export default { testEnvironment: 'jsdom' };\n"),
+        (
+            "apps/web/jest.config.ts",
+            "export default { testEnvironment: 'jsdom' };\n",
+        ),
         (
             "libs/util/project.json",
             r#"{"targets":{"test":{"executor":"@nx/jest:jest","options":{"jestConfig":"{projectRoot}/jest.unit.ts"}}}}"#,
         ),
         ("libs/util/jest.unit.ts", "export default { preset: 'ts-jest' };\n"),
-        ("scratch/jest.config.ts", "export default { runner: 'jest-runner-eslint' };\n"),
+        (
+            "scratch/jest.config.ts",
+            "export default { runner: 'jest-runner-eslint' };\n",
+        ),
     ];
     for root in [
         "import { getJestProjectsAsync } from '@nx/jest';\nexport default async () => ({ projects: await getJestProjectsAsync() });\n",
