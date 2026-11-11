@@ -141,7 +141,7 @@ impl<'a> Emitter<'a> {
         };
         diagnostic.severity = severity;
         diagnostic.default_severity = None;
-        !(self.suppressions.suppresses(diagnostic) || self.suppressions.suppressed_in_scope(diagnostic, &applicable))
+        !self.suppressions.suppressed(diagnostic, &applicable)
     }
 
     /// Number of diagnostics kept so far.

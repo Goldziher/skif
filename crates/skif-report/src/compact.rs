@@ -1,5 +1,6 @@
 //! The compact renderer: one line per diagnostic.
 
+use std::fmt;
 use std::io::{self, Write};
 
 use skif_core::{Diagnostic, Report};
@@ -8,18 +9,31 @@ use crate::options::RenderOptions;
 use crate::text::escape_controls;
 
 /// One diagnostic as `path:line:col rule message`, or `path rule message` without a span; control characters in
-/// the path and message are escaped so a diagnostic never spans lines.
-pub(crate) fn compact_line(diagnostic: &Diagnostic, path: &str) -> String {
-    let location = match diagnostic.location.span {
-        Some(span) => format!("{path}:{}:{}", span.start_line, span.start_col),
-        None => path.to_owned(),
-    };
-    format!(
-        "{} {} {}",
-        escape_controls(&location),
-        diagnostic.rule.as_str(),
-        escape_controls(&diagnostic.message)
-    )
+/// the path and message are escaped so a diagnostic never spans lines. Written straight to the formatter.
+pub(crate) struct CompactLine<'a> {
+    diagnostic: &'a Diagnostic,
+    path: &'a str,
+}
+
+impl fmt::Display for CompactLine<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // The line and column are digits, so escaping the path alone escapes the whole location.
+        f.write_str(&escape_controls(self.path))?;
+        if let Some(span) = self.diagnostic.location.span {
+            write!(f, ":{}:{}", span.start_line, span.start_col)?;
+        }
+        write!(
+            f,
+            " {} {}",
+            self.diagnostic.rule.as_str(),
+            escape_controls(&self.diagnostic.message)
+        )
+    }
+}
+
+/// The compact line of `diagnostic`, whose file is displayed as `path`.
+pub(crate) const fn compact_line<'a>(diagnostic: &'a Diagnostic, path: &'a str) -> CompactLine<'a> {
+    CompactLine { diagnostic, path }
 }
 
 /// Renders one line per diagnostic, `path:line:col rule message`, in report order and with no summary, for

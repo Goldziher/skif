@@ -1,6 +1,5 @@
 use skif_core::HashMap;
 use std::any::{Any, TypeId};
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
@@ -152,8 +151,9 @@ pub const DEFAULT_CONFIG_FILE: &str = "skif.toml";
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EnabledRules {
     /// Per enabled rule: the base severity (`None` when only overrides turn the rule on), and whether the
-    /// configuration set it (as opposed to the rule's default).
-    severities: BTreeMap<&'static str, (Option<Severity>, bool)>,
+    /// configuration set it (as opposed to the rule's default). Hashed rather than ordered: every emitted diagnostic
+    /// looks its rule up here, and nothing iterates the map.
+    severities: HashMap<&'static str, (Option<Severity>, bool)>,
 }
 
 impl EnabledRules {
