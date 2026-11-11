@@ -359,9 +359,16 @@ expect_in_out "check-doc-pins no pins" "no skif version pins found"
 
 # ---------------------------------------------------------------- npm-smoke
 smoke="$(new_tree smoke)"
-mkdir -p "${smoke}/npm-package" "${smoke}/fixtures/e2e/npm/clean"
+mkdir -p "${smoke}/npm-package" "${smoke}/scripts/e2e" "${smoke}/fixtures/e2e"
+cp "${repo}/scripts/e2e/lib.sh" "${smoke}/scripts/e2e/"
+cp -R "${repo}/fixtures/e2e/clean" "${smoke}/fixtures/e2e/"
 printf '{"version":"1.2.3"}\n' >"${smoke}/npm-package/package.json"
-printf '#!/usr/bin/env bash\nexit 0\n' >"${stubs}/node"
+# The addon script: passes when it is given the clean scenario generated as an npm workspace.
+cat >"${stubs}/node" <<'STUB'
+#!/usr/bin/env bash
+jq -e '.workspaces == ["packages/*"] and (.packageManager | startswith("npm@"))' "$2/package.json" >/dev/null &&
+  [[ -f "$2/packages/a/package.json" && -f "$2/packages/b/package.json" ]]
+STUB
 cat >"${stubs}/npx" <<'STUB'
 #!/usr/bin/env bash
 # The skif bin: --version prints STUB_SMOKE_VERSION, a lint prints a report, an unknown flag exits STUB_SMOKE_USAGE_STATUS.
@@ -379,6 +386,9 @@ expect "npm-smoke fails on the wrong bin version" 1 env STUB_SMOKE_VERSION=0.0.1
 expect_in_out "npm-smoke version" "expected version 1.2.3"
 expect "npm-smoke fails when the usage error does not exit 2" 1 env STUB_SMOKE_USAGE_STATUS=1 bash "${smoke}/scripts/npm-smoke.sh" node
 expect_in_out "npm-smoke exit code" "expected exit 2"
+mv "${smoke}/fixtures/e2e/clean" "${smoke}/clean"
+expect "npm-smoke fails when the clean scenario is missing" 1 run_in "$smoke" npm-smoke.sh node
+mv "${smoke}/clean" "${smoke}/fixtures/e2e/clean"
 printf '#!/usr/bin/env bash\nexit 1\n' >"${stubs}/node"
 expect "npm-smoke fails when the addon script fails" 1 run_in "$smoke" npm-smoke.sh node
 

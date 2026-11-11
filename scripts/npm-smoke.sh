@@ -10,7 +10,8 @@ set -euo pipefail
 runtime="${1:?usage: npm-smoke.sh <node|bun>}"
 cd "$(dirname "$0")/.."
 root="$PWD"
-fixture="${root}/fixtures/e2e/npm/clean"
+# shellcheck source=e2e/lib.sh
+source "${root}/scripts/e2e/lib.sh"
 version="$(jq -r '.version' npm-package/package.json)"
 
 case "$runtime" in
@@ -22,9 +23,15 @@ bun) exec_bin=(bunx --bun --no-install skif) ;;
   ;;
 esac
 
-# A temporary project with skif symlinked in, so the bin resolves exactly as it does from node_modules/.bin.
-project="$(mktemp -d)"
-trap 'rm -rf "$project"' EXIT
+# A temporary project with skif symlinked in, so the bin resolves exactly as it does from node_modules/.bin, and beside
+# it the clean end-to-end scenario generated as an npm workspace: the fixture the addon and the bin lint. Nothing is
+# installed, so the npm version of its `packageManager` pin is only test input.
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+project="${work}/project"
+fixture="${work}/fixture"
+mkdir "$project"
+e2e_generate "${root}/fixtures/e2e/clean" npm hoisted 11.6.2 "$fixture"
 
 cat >"${project}/addon.mjs" <<'JS'
 import * as addon from "ADDON";
