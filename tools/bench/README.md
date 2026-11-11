@@ -348,27 +348,34 @@ mise run bench:import -- <run-id>
 ```
 
 `ref` is the commit, tag or branch of skif to measure (default: the dispatched ref, which is also where the harness,
-`corpus.toml` and the tool versions come from); `runner` is `ubuntu-24.04` or `ubuntu-24.04-arm`. The workflow builds
-skif and the harness with the `rust-version` of their own `Cargo.toml` and `--locked`, installs Node, pnpm and
-hyperfine from `mise.lock` and a pinned corepack, times everything with `run --install --no-enforce`, writes
-`summary.md` to the job summary and uploads `summary.{json,md}` and `raw/` as the artifact
-`bench-<commit>-<runner>`. Only one bench run runs at a time. The harness fails before timing anything when a corpus
-repository is not pinned to a full commit SHA or a comparison tool not to an exact version.
+`corpus.toml` and the tool versions come from); `runner` is `ubuntu-24.04` or `ubuntu-24.04-arm`. The workflow checks
+the harness out at the workspace root, so its `mise.toml` applies to every step, and the measured skif into `measured/`
+(untracked, so the harness commit is not `-dirty`). It builds skif and the harness with the `rust-version` of their own
+`Cargo.toml` (a minor release, so its latest patch; the summary records the exact `rustc`) and `--locked`, installs Node
+and hyperfine from `mise.lock` with `MISE_LOCKED=1`, and a pinned corepack whose pnpm and yarn shims install the corpus
+(each repository's `packageManager` selects the version; `COREPACK_DEFAULT_TO_LATEST=0` keeps a repository without one
+on corepack's default), times everything with `run --install --no-enforce`, writes the corpus and the generated
+workspaces to the runner's temporary directory, writes `summary.md` to the job summary and, once there is a summary,
+uploads `summary.{json,md}` and `raw/` as the artifact `bench-<commit>-<runner>`. Runs on one runner image queue rather
+than overlap (a concurrency group per image); GitHub keeps one pending run per group, so a dispatch made while another
+waits cancels the waiting one. The harness fails before timing anything when a corpus repository is not pinned to a full
+commit SHA or a comparison tool not to an exact version.
 
 `mise run bench:import -- <run-id>` (`scripts/bench-import.sh`, needs `gh`, `git`, `jq` and Node) imports only a
 successful `workflow_dispatch` run of `bench` whose commit is on `origin/main` (it runs `git fetch origin main` first)
 and whose summary names that commit as the harness's; it refuses any other run, naming its branch. It downloads that
-artifact, refreshes
-the block below, and the speed tables of the root `README.md` and of the comparison guide, with
+artifact, refreshes the block below, and the speed tables of the root `README.md` and of the comparison guide, with
 `refresh-numbers.mjs --bench`, then puts the summary into `tools/bench/results` for a commit made locally. The first
 line of each block names the skif version, source commit and the `rustc` that built it, the comparison tool versions,
-the runner image and the machine, its load, the date and the workflow run. `refresh-numbers.mjs` writes nothing and
-exits non-zero when a comparison tool was not timed, a corpus repository has no row for one of the tools, the run was
-narrowed with `only`, the summary is of an older schema, it records no GitHub-hosted runner or no workflow run, or the
-measured or the harness checkout had local changes (`-dirty`); the import then changes nothing either.
-`mise run parity:publish` (`refresh-numbers.mjs --parity`) writes the agreement tables from `baselines/parity.json`
-the same way, and refuses a baseline recorded by an older harness. `node --test tools/bench/refresh-numbers.test.mjs`
-tests both. Measure the release commit after `release-bump`, or the skif version names the previous release.
+the harness commit when it differs, the runner image and the machine, its load, the date and the workflow run attempt.
+`refresh-numbers.mjs` writes nothing and exits non-zero when a comparison tool was not timed, a corpus repository has no
+row for one of the tools, the run was narrowed with `only`, a tool exited with an error in a measured run, the summary
+is of an older schema, it records no GitHub-hosted runner or no workflow run, or the measured or the harness checkout
+had local changes (`-dirty`); the import then changes nothing either. `mise run parity:publish` (`refresh-numbers.mjs
+--parity`) writes the agreement tables from `baselines/parity.json` the same way, and refuses a baseline recorded by an
+older harness. `node --test tools/bench/refresh-numbers.test.mjs` tests both. Measure the release commit after
+`release-bump`, or the skif version names the previous release. Without flags, `refresh-numbers.mjs` refreshes both and
+leaves the speed tables as they are while `tools/bench/results` holds no imported summary.
 
 GitHub-hosted runners are shared virtual machines: a neighbour's load moves the times of a run by several percent, and
 two runs of the same image may land on different CPU models (the summary names the one it got). The tables show
