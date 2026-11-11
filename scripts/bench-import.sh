@@ -24,10 +24,15 @@ trap 'rm -rf "$work"' EXIT
 
 gh run download "$run_id" --repo "$repo" --pattern 'bench-*' --dir "${work}/download"
 
-# With --pattern gh writes each artifact into a directory named after it.
-shopt -s nullglob
-artifacts=("${work}"/download/*/)
-shopt -u nullglob
+# With --pattern gh writes each artifact into a directory named after it; a single artifact extracted in place is
+# taken as it is.
+if [[ -f "${work}/download/summary.json" ]]; then
+  artifacts=("${work}/download/")
+else
+  shopt -s nullglob
+  artifacts=("${work}"/download/*/)
+  shopt -u nullglob
+fi
 if [[ ${#artifacts[@]} -ne 1 ]]; then
   echo "run ${run_id} of ${repo} has ${#artifacts[@]} bench artifacts; expected one" >&2
   exit 1
