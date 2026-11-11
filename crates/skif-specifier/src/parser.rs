@@ -151,17 +151,23 @@ pub fn is_range_minor(s: &str) -> bool {
 /// classified as unsupported.
 #[must_use]
 pub fn is_x_range(s: &str) -> bool {
-    let parts: Vec<&str> = s.split('.').collect();
-    if parts.len() > 3 || parts[0].is_empty() || !parts[0].bytes().all(|b| b.is_ascii_digit()) {
+    let is_number = |p: &str| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit());
+    let mut parts = s.split('.');
+    if !parts.next().is_some_and(is_number) {
         return false;
     }
-    let is_wildcard = |p: &str| matches!(p, "x" | "X" | "*");
-    let is_number = |p: &str| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit());
-    let first_wildcard = parts.iter().position(|p| is_wildcard(p));
-    match first_wildcard {
-        None => false,
-        Some(index) => parts[..index].iter().all(|p| is_number(p)) && parts[index..].iter().all(|p| is_wildcard(p)),
+    let mut seen_wildcard = false;
+    for (index, part) in parts.enumerate() {
+        if index >= 2 {
+            return false;
+        }
+        if matches!(part, "x" | "X" | "*") {
+            seen_wildcard = true;
+        } else if seen_wildcard || !is_number(part) {
+            return false;
+        }
     }
+    seen_wildcard
 }
 
 /// Is this a semver range containing multiple parts?
@@ -211,4 +217,40 @@ pub fn is_git(s: &str) -> bool {
 #[must_use]
 pub fn is_link(s: &str) -> bool {
     s.starts_with("link:")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_x_range;
+
+    #[test]
+    fn x_ranges_need_a_number_then_only_wildcards() {
+        let cases = [
+            ("1.x", true),
+            ("1.X", true),
+            ("1.*", true),
+            ("1.2.x", true),
+            ("1.x.x", true),
+            ("1.X.*", true),
+            ("10.20.*", true),
+            ("1", false),
+            ("1.2", false),
+            ("1.2.3", false),
+            ("x", false),
+            ("x.1", false),
+            ("1.x.2", false),
+            ("1.x.x.x", false),
+            ("1.2.3.x", false),
+            ("1..x", false),
+            ("1.x.", false),
+            (".x", false),
+            ("", false),
+            ("a.x", false),
+            ("1.xx", false),
+            ("1.2a.x", false),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(is_x_range(input), expected, "{input:?}");
+        }
+    }
 }
