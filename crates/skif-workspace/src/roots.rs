@@ -13,7 +13,6 @@ use skif_core::{DirEntry, FileSystem};
 
 use crate::detect;
 use crate::manifest::parse_value;
-use crate::parallel::map_ordered;
 use crate::pattern::{self, Expander, Pattern};
 use crate::pnpm;
 #[cfg(test)]
@@ -361,82 +360,6 @@ fn visit(fs: &dyn FileSystem, walk: &Walk<'_>, dir: PathBuf, depth: usize, ignor
     found
 }
 
-/// Walks `start` and lists the files below it whose name `wanted` accepts, sorted.
-///
-/// The walk enters the directories [`scan_candidates`] enters: it skips `node_modules`, hidden directories, symbolic
-/// links, directories a `.gitignore`, an `.ignore` or `.git/info/exclude` excludes and those `options.ignore` matches,
-/// and stops `options.max_depth` directories down. It reads directory listings and those ignore files only. With
-/// `sequential` it runs on the calling thread, otherwise on the current rayon pool.
-#[must_use]
-pub fn scan_files(
-    start: &Path,
-    fs: &dyn FileSystem,
-    options: &DiscoverOptions,
-    sequential: bool,
-    wanted: &(dyn Fn(&str) -> bool + Sync),
-) -> Vec<PathBuf> {
-    let skip = skip_matcher(start, options);
-    let search = FileSearch {
-        fs,
-        walk: Walk {
-            max_depth: options.max_depth,
-            skip: skip.as_ref(),
-        },
-        sequential,
-        wanted,
-    };
-    let mut found = search.visit(start, 0, inherited_ignores(fs, start));
-    found.sort_unstable();
-    found
-}
-
-/// What stays the same during one [`scan_files`] walk.
-struct FileSearch<'a> {
-    fs: &'a dyn FileSystem,
-    walk: Walk<'a>,
-    sequential: bool,
-    wanted: &'a (dyn Fn(&str) -> bool + Sync),
-}
-
-impl FileSearch<'_> {
-    fn visit(&self, dir: &Path, depth: usize, ignores: Ignores) -> Vec<PathBuf> {
-        let Ok(entries) = self.fs.read_dir_shared(dir) else {
-            return Vec::new();
-        };
-        let file_name = |entry: &DirEntry| entry.path.file_name().and_then(|name| name.to_str()).map(str::to_owned);
-        let names: Vec<String> = entries
-            .iter()
-            .filter(|entry| entry.is_file)
-            .filter_map(file_name)
-            .collect();
-        let files = IGNORE_FILES
-            .iter()
-            .filter(|name| names.iter().any(|found| found == *name))
-            .map(|name| dir.join(name));
-        let ignores = pushed(ignores, matcher_from(self.fs, dir, files));
-        let mut found: Vec<PathBuf> = entries
-            .iter()
-            .filter(|entry| entry.is_file && file_name(entry).is_some_and(|name| (self.wanted)(name.as_str())))
-            .map(|entry| entry.path.clone())
-            .collect();
-        if depth >= self.walk.max_depth {
-            return found;
-        }
-        let children: Vec<PathBuf> = entries
-            .iter()
-            .filter(|entry| {
-                descends(entry) && !is_ignored(&ignores, &entry.path) && !is_skipped(self.walk.skip, &entry.path)
-            })
-            .map(|entry| entry.path.clone())
-            .collect();
-        let below = map_ordered(&children, self.sequential, |child| {
-            self.visit(child, depth + 1, ignores.clone())
-        });
-        found.extend(below.into_iter().flatten());
-        found
-    }
-}
-
 /// The patterns `root` declares, from the source `Workspace::discover` would choose: `pnpm-workspace.yaml` for a pnpm
 /// workspace, else the `workspaces` of `package.json`, then a leftover `pnpm-workspace.yaml`, then `rush.json`, then
 /// the `packages` of `lerna.json`. A
@@ -748,36 +671,6 @@ mod tests {
             .with_file("/r/sub/cache/package.json", r#"{"name": "cache"}"#)
             .with_file("/r/sub/kept/package.json", r#"{"name": "kept"}"#);
         assert_eq!(discover(&fs), ["pkg:/r/app", "pkg:/r/sub/kept"]);
-    }
-
-    #[test]
-    fn a_file_scan_skips_what_discovery_skips_and_the_ignored_directories() {
-        let fs = MemoryFs::new()
-            .with_file("/r/.gitignore", "generated/\n")
-            .with_file("/r/BUILD", "")
-            .with_file("/r/app/BUILD.bazel", "")
-            .with_file("/r/app/README.md", "")
-            .with_file("/r/app/node_modules/dep/BUILD", "")
-            .with_file("/r/.hidden/BUILD", "")
-            .with_file("/r/generated/BUILD", "")
-            .with_file("/r/dist/BUILD", "")
-            .with_file("/r/tools/dist/BUILD", "")
-            .with_file("/r/vendor/BUILD", "")
-            .with_file("/r/a/b/c/BUILD", "");
-        let options = DiscoverOptions::default()
-            .with_max_depth(2)
-            .with_ignore(["dist".to_owned(), "/vendor".to_owned()]);
-        let wanted = |name: &str| name.starts_with("BUILD");
-        for sequential in [true, false] {
-            let found = scan_files(Path::new("/r"), &fs, &options, sequential, &wanted);
-            assert_eq!(
-                found,
-                [PathBuf::from("/r/BUILD"), PathBuf::from("/r/app/BUILD.bazel")],
-                "sequential: {sequential}"
-            );
-        }
-        let deep = scan_files(Path::new("/r"), &fs, &DiscoverOptions::default(), true, &wanted);
-        assert!(deep.contains(&PathBuf::from("/r/a/b/c/BUILD")) && deep.contains(&PathBuf::from("/r/dist/BUILD")));
     }
 
     #[test]

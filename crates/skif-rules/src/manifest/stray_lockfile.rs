@@ -179,8 +179,8 @@ fn candidates(workspace: &Workspace) -> Vec<Stray<'_>> {
 /// are not reported.
 ///
 /// Nor is a lockfile below the root that a build installs from, found by reading the build files: in a Bazel
-/// repository, a label of it (`"//libs/a:pnpm-lock.yaml"`) in a `MODULE.bazel`, `WORKSPACE`, `*.bzl` or `BUILD` file,
-/// or its relative path in a `BUILD` file of its directory or one above; a `COPY` or `ADD` of it in a Dockerfile of its
+/// repository, a label of it (`"//libs/a:pnpm-lock.yaml"`) in the `MODULE.bazel` or `WORKSPACE`, a `.bzl` file they
+/// load, or a `BUILD` file of its directory or one above, or its relative path in such a `BUILD` file; a `COPY` or `ADD` of it in a Dockerfile of its
 /// own directory or one that builds from the workspace root; or a `COPY . .` followed by an install with its package
 /// manager in a Dockerfile of its own directory.
 ///
@@ -659,7 +659,7 @@ mod tests {
             ("libs/b/pnpm-lock.yaml", ""),
             ("apps/web/package.json", r#"{"name":"web"}"#),
             ("apps/web/pnpm-lock.yaml", ""),
-            ("MODULE.bazel", "module(name = \"repro\")\n"),
+            ("MODULE.bazel", MODULE),
             (
                 "node_packages.bzl",
                 "def deps():\n    npm_translate_lock(name = \"npm_a\", pnpm_lock = \"//libs/a:pnpm-lock.yaml\")\n",
@@ -672,6 +672,9 @@ mod tests {
         files.extend_from_slice(extra);
         files
     }
+
+    /// A `MODULE.bazel` naming the extension file that declares the lockfile of `libs/a`.
+    const MODULE: &str = "module(name = \"repro\")\nnpm = use_extension(\"//:node_packages.bzl\", \"npm\")\n";
 
     #[test]
     fn a_member_lockfile_a_bazel_label_or_a_dockerfile_names_is_not_reported() {
@@ -730,7 +733,7 @@ mod tests {
             "//libs:b/pnpm-lock.yaml",
             "@repro//libs/b:pnpm-lock.yaml",
         ] {
-            let module = format!("module(name = \"repro\")\nnpm.npm_translate_lock(pnpm_lock = \"{label}\")\n");
+            let module = format!("{MODULE}npm.npm_translate_lock(pnpm_lock = \"{label}\")\n");
             let files = bazel_and_docker_files(&[]);
             let files: Vec<(&str, &str)> = files
                 .into_iter()
