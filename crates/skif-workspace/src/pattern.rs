@@ -208,15 +208,17 @@ impl Expander<'_> {
         self.fs.is_file(&self.absolute(dir).join(MANIFEST))
     }
 
-    /// Non-hidden subdirectories of `dir`; symbolic links to directories only when `follow_symlinks`.
+    /// Non-hidden subdirectories of `dir`; symbolic links to directories only when `follow_symlinks`. A name that is
+    /// not UTF-8 is left out: the root-relative strings could not spell it, so nothing below it could match.
     fn child_dirs(&self, dir: &str, follow_symlinks: bool) -> Vec<String> {
         self.fs
             .read_dir_shared(&self.absolute(dir))
             .unwrap_or_default()
             .iter()
             .filter(|entry| entry.is_dir && (follow_symlinks || !entry.is_symlink))
-            .filter_map(|entry| entry.path.file_name().map(|name| name.to_string_lossy().into_owned()))
+            .filter_map(|entry| entry.path.file_name()?.to_str())
             .filter(|name| !is_ignored_name(name))
+            .map(str::to_owned)
             .collect()
     }
 
@@ -225,7 +227,7 @@ impl Expander<'_> {
         let mut all = BTreeSet::new();
         for segments in &pattern.alternatives {
             let mut found = BTreeSet::new();
-            self.walk("", segments, 0, &mut found);
+            self.walk("", segments, 0, false, &mut found);
             if is_root_star(segments) {
                 found.retain(|dir| self.has_manifest(dir));
             }
@@ -234,22 +236,24 @@ impl Expander<'_> {
         all
     }
 
-    fn walk(&self, dir: &str, segments: &[Segment], depth: usize, found: &mut BTreeSet<String>) {
+    /// Walks `segments` from `dir`. `listed` says that `dir` came from the listing of its parent as a non-hidden
+    /// directory ([`child_dirs`](Self::child_dirs)), so it need not be probed again when the segments end there.
+    fn walk(&self, dir: &str, segments: &[Segment], depth: usize, listed: bool, found: &mut BTreeSet<String>) {
         if depth > MAX_DEPTH {
             return;
         }
         let Some((first, rest)) = segments.split_first() else {
             let name = dir.rsplit('/').next().unwrap_or_default();
-            if !dir.is_empty() && !is_ignored_name(name) && self.fs.is_dir(&self.absolute(dir)) {
+            if !dir.is_empty() && (listed || (!is_ignored_name(name) && self.fs.is_dir(&self.absolute(dir)))) {
                 found.insert(dir.to_owned());
             }
             return;
         };
         match first {
-            Segment::Literal(name) => self.walk(&join(dir, name), rest, depth + 1, found),
+            Segment::Literal(name) => self.walk(&join(dir, name), rest, depth + 1, false, found),
             Segment::Star => {
                 for name in self.child_dirs(dir, true) {
-                    self.walk(&join(dir, &name), rest, depth + 1, found);
+                    self.walk(&join(dir, &name), rest, depth + 1, true, found);
                 }
             }
             Segment::Glob(matcher) => {
@@ -258,7 +262,7 @@ impl Expander<'_> {
                     .into_iter()
                     .filter(|name| matcher.is_match(name))
                 {
-                    self.walk(&join(dir, &name), rest, depth + 1, found);
+                    self.walk(&join(dir, &name), rest, depth + 1, true, found);
                 }
             }
             Segment::DoubleStar => self.double_star(dir, rest, depth, found),
@@ -274,7 +278,7 @@ impl Expander<'_> {
                 if depth > MAX_DEPTH {
                     return;
                 }
-                self.walk(dir, rest, depth + 1, found);
+                self.walk(dir, rest, depth + 1, false, found);
                 for name in self.child_dirs(dir, false) {
                     self.double_star(&join(dir, &name), rest, depth + 1, found);
                 }
@@ -288,11 +292,85 @@ impl Expander<'_> {
         if depth > MAX_DEPTH {
             return;
         }
+        // Listed before the manifest is probed, so a caching file system answers the probe from the listing.
+        let children = self.child_dirs(dir, false);
         if include_self && !dir.is_empty() && self.has_manifest(dir) {
             found.insert(dir.to_owned());
         }
-        for name in self.child_dirs(dir, false) {
+        for name in children {
             self.nested_packages(&join(dir, &name), true, depth + 1, found);
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use std::io;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use skif_core::{DirEntry, MemoryFs};
+
+    use super::*;
+
+    /// Counts the directory probes made outside listings.
+    struct Probes {
+        inner: MemoryFs,
+        is_dir: AtomicUsize,
+    }
+
+    impl FileSystem for Probes {
+        fn read_to_string(&self, path: &Path) -> io::Result<Arc<str>> {
+            self.inner.read_to_string(path)
+        }
+
+        fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
+            self.inner.read_dir(path)
+        }
+
+        fn is_file(&self, path: &Path) -> bool {
+            self.inner.is_file(path)
+        }
+
+        fn is_dir(&self, path: &Path) -> bool {
+            self.is_dir.fetch_add(1, Ordering::SeqCst);
+            self.inner.is_dir(path)
+        }
+    }
+
+    fn probes(files: &[&str]) -> Probes {
+        let mut inner = MemoryFs::new();
+        for file in files {
+            inner.insert(Path::new("/ws").join(file), "{}");
+        }
+        Probes {
+            inner,
+            is_dir: AtomicUsize::new(0),
+        }
+    }
+
+    fn expand(fs: &Probes, raw: &str) -> Vec<String> {
+        let expander = Expander {
+            fs,
+            root: Path::new("/ws"),
+        };
+        expander.expand(&Pattern::new(raw).unwrap()).into_iter().collect()
+    }
+
+    #[test]
+    fn directories_taken_from_a_listing_are_not_probed_again() {
+        let fs = probes(&["packages/a/package.json", "packages/b/package.json", "packages/b-c/x.txt"]);
+        assert_eq!(expand(&fs, "packages/*"), ["packages/a", "packages/b", "packages/b-c"]);
+        assert_eq!(expand(&fs, "packages/b*"), ["packages/b", "packages/b-c"]);
+        assert_eq!(fs.is_dir.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn a_literal_directory_is_still_probed() {
+        let fs = probes(&["tools/x/package.json"]);
+        assert_eq!(expand(&fs, "tools/x"), ["tools/x"]);
+        assert!(expand(&fs, "tools/missing").is_empty());
+        assert_eq!(fs.is_dir.load(Ordering::SeqCst), 2);
     }
 }
