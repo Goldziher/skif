@@ -401,6 +401,119 @@ fn types_packages_are_not_ambient_when_the_tsconfig_narrows_them() {
     }
 }
 
+/// A manifest listing `@types/chrome` and `typescript` at `range`.
+fn types_manifest_with(range: &str) -> String {
+    format!(
+        r#"{{"name":"app","private":true,"main":"src/index.ts","devDependencies":{{"@types/chrome":"0.0.1","typescript":"{range}"}}}}"#
+    )
+}
+
+/// The manifest of an installed `typescript` at `version`.
+fn installed_typescript(version: &str) -> String {
+    format!(r#"{{"name":"typescript","version":"{version}","bin":{{"tsc":"./bin/tsc","tsserver":"./bin/tsserver"}}}}"#)
+}
+
+/// The `unused-dev-dependencies` of a package listing `@types/chrome` and `typescript` at `range`, with `typescript`
+/// at `installed` in its `node_modules`, under `tsconfig`.
+fn unused_types(range: &str, installed: Option<&str>, tsconfig: &str) -> Vec<String> {
+    let manifest = types_manifest_with(range);
+    let installed = installed.map(installed_typescript);
+    let mut files = vec![
+        ("package.json", manifest.as_str()),
+        ("tsconfig.json", tsconfig),
+        ("base.json", r#"{"compilerOptions":{"types":["*"]}}"#),
+        ("src/index.ts", "export const a = 1;\n"),
+    ];
+    if let Some(installed) = &installed {
+        files.push(("node_modules/typescript/package.json", installed.as_str()));
+    }
+    names(&lint(&files), "unused-dev-dependencies")
+}
+
+const PLAIN_TSCONFIG: &str = r#"{"compilerOptions":{"strict":true}}"#;
+
+#[test]
+fn types_packages_stay_ambient_without_a_types_option_before_typescript_6() {
+    // The installed version wins over the declared range; an unknown version keeps every package ambient.
+    for (range, installed) in [
+        ("^5.4.0", None),
+        ("5.9.3", Some("5.9.3")),
+        ("^6.0.0", Some("5.9.3")),
+        ("latest", None),
+    ] {
+        assert_eq!(
+            unused_types(range, installed, PLAIN_TSCONFIG),
+            Vec::<String>::new(),
+            "{range} {installed:?}"
+        );
+    }
+}
+
+#[test]
+fn types_packages_are_not_ambient_without_a_types_option_on_an_installed_typescript_6() {
+    for (range, installed) in [("^6.0.0", "6.0.2"), ("^5.4.0", "6.0.2"), ("latest", "6.0.2")] {
+        assert_eq!(
+            unused_types(range, Some(installed), PLAIN_TSCONFIG),
+            strings(&["@types/chrome"]),
+            "{range} {installed}"
+        );
+    }
+}
+
+#[test]
+fn types_packages_are_not_ambient_without_a_types_option_on_a_declared_typescript_6() {
+    for range in ["^6.0.0", "~6.0.2", "6.0.2", ">=6.0.0", "^6"] {
+        assert_eq!(
+            unused_types(range, None, PLAIN_TSCONFIG),
+            strings(&["@types/chrome"]),
+            "{range}"
+        );
+    }
+}
+
+#[test]
+fn a_types_wildcard_keeps_every_types_package_ambient_on_typescript_6() {
+    for tsconfig in [
+        r#"{"compilerOptions":{"types":["*"]}}"#,
+        r#"{"compilerOptions":{"types":["*","node"]}}"#,
+        r#"{"extends":"./base.json"}"#,
+    ] {
+        for installed in [None, Some("6.0.2")] {
+            assert_eq!(
+                unused_types("^6.0.0", installed, tsconfig),
+                Vec::<String>::new(),
+                "{tsconfig} {installed:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_member_without_typescript_follows_the_typescript_of_the_workspace_root() {
+    let member = r#"{"name":"app","private":true,"main":"src/index.ts","devDependencies":{"@types/chrome":"0.0.1"}}"#;
+    for (root_range, installed) in [("~6.0.0", None), ("latest", Some("6.0.2"))] {
+        let root = format!(
+            r#"{{"name":"root","private":true,"workspaces":["packages/*"],"devDependencies":{{"typescript":"{root_range}"}}}}"#
+        );
+        let installed = installed.map(installed_typescript);
+        let mut files = vec![
+            ("package.json", root.as_str()),
+            ("packages/app/package.json", member),
+            ("packages/app/tsconfig.json", PLAIN_TSCONFIG),
+            ("packages/app/src/index.ts", "export const a = 1;\n"),
+        ];
+        if let Some(installed) = &installed {
+            files.push(("node_modules/typescript/package.json", installed.as_str()));
+        }
+        let diagnostics = lint(&files);
+        let types: Vec<String> = names(&diagnostics, "unused-dev-dependencies")
+            .into_iter()
+            .filter(|name| name.starts_with("@types/"))
+            .collect();
+        assert_eq!(types, strings(&["@types/chrome"]), "{root_range}: {diagnostics:#?}");
+    }
+}
+
 #[test]
 fn declaration_files_do_not_shadow_the_runtime_file() {
     let diagnostics = lint(&[
