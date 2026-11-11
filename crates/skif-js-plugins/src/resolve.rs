@@ -14,7 +14,9 @@ use crate::plugin::{
     BinaryRef, BuildDir, ConfigAst, DepRef, Enabler, IncompleteCause, IncompleteEntries, IncompleteScope, PathAlias,
     Plugin, PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec,
 };
+use crate::plugins::nx;
 use crate::registry;
+use crate::scopes::{NxProjects, Scope, merge, rebase};
 use crate::script_config::{config_flags, config_paths, flag_values};
 use crate::scripts::{BinaryVia, ScriptContext, is_ignored_binary, parse_script};
 use crate::support::{is_relative, join_lexically, join_rel, looks_like_file};
@@ -45,18 +47,54 @@ const EXCLUSION_KEYS: &[&str] = &[
 /// A plugin is enabled when an enabler matches or `[js.plugins] <id> = true` forces it; `<id> = false`
 /// disables it. A table form (`{ config = [...], entry = [...], project = [...] }`) replaces the matching
 /// default globs and enables the plugin unless `enabled = false`.
+///
+/// The Nx projects below the package are those [`NxProjects::find`] finds; [`resolve_plugins_with`] takes them
+/// from the caller.
 #[must_use]
 pub fn resolve_plugins(ctx: &PluginContext<'_>) -> Vec<(PluginId, PluginOutput)> {
+    resolve_plugins_with(ctx, &NxProjects::find(ctx))
+}
+
+/// Like [`resolve_plugins`], with the Nx projects below the package given (ADR 0109). The `nx` plugin reads the
+/// `project.json` of each of [`NxProjects::dirs`]. Every other plugin also runs in each of [`NxProjects::scopes`] as
+/// if it were a package with the dependencies of `ctx`, and what it finds there is part of its output for `ctx`.
+#[must_use]
+pub fn resolve_plugins_with(ctx: &PluginContext<'_>, projects: &NxProjects) -> Vec<(PluginId, PluginOutput)> {
     let manifest = read_manifest(ctx);
+    let project_files: Vec<String> = projects
+        .dirs
+        .iter()
+        .map(|dir| join_rel(dir, "project.json"))
+        .collect();
+    let scopes: Vec<Scope> = projects.scopes.iter().map(|dir| Scope::new(ctx, dir)).collect();
     registry::plugins()
         .iter()
         .filter_map(|&plugin| {
             let spec = plugin.spec();
             let setting = ctx.plugins.get(spec.id);
-            is_enabled(spec, setting, ctx, manifest.as_ref())
-                .then(|| (spec.id, run_plugin(plugin, setting, ctx, manifest.as_ref())))
+            let is_nx = spec.id == nx::ID;
+            let extra: &[String] = if is_nx { &project_files } else { &[] };
+            let mut output = is_enabled(spec, setting, ctx, manifest.as_ref())
+                .then(|| run_plugin(plugin, setting, ctx, manifest.as_ref(), extra));
+            // The `nx` plugin reads every `project.json` from the package, where Nx runs the commands of a target.
+            for scope in scopes.iter().filter(|_| !is_nx) {
+                let scope_ctx = scope.context(ctx);
+                let setting = scope_ctx.plugins.get(spec.id);
+                if is_enabled(spec, setting, &scope_ctx, None) {
+                    let found = rebase(run_plugin(plugin, setting, &scope_ctx, None, &[]), &scope.dir);
+                    merge(output.get_or_insert_with(PluginOutput::default), found);
+                }
+            }
+            output.map(|output| (spec.id, output))
         })
         .collect()
+}
+
+/// Whether the plugin `id` is enabled for the workspace in `ctx`.
+pub(crate) fn is_plugin_enabled(ctx: &PluginContext<'_>, id: PluginId) -> bool {
+    registry::plugin(id).is_some_and(|plugin| {
+        is_enabled(plugin.spec(), ctx.plugins.get(id), ctx, read_manifest(ctx).as_ref())
+    })
 }
 
 fn read_manifest(ctx: &PluginContext<'_>) -> Option<ConfigValue> {
@@ -405,11 +443,14 @@ impl Collector<'_, '_> {
     }
 }
 
+/// Runs `plugin` for the workspace in `ctx`, reading `extra_configs` (relative to the workspace) besides the config
+/// files its globs find.
 fn run_plugin(
     plugin: &dyn Plugin,
     setting: Option<&PluginConfig>,
     ctx: &PluginContext<'_>,
     manifest: Option<&ConfigValue>,
+    extra_configs: &[String],
 ) -> PluginOutput {
     let spec = plugin.spec();
     let options = match setting {
@@ -437,6 +478,7 @@ fn run_plugin(
         push_unique(&mut collector.out.entries, (*production).to_string());
     }
     let mut patterns = globs(&options.config, spec.config);
+    patterns.extend(extra_configs.iter().cloned());
     let scripted = scripted_configs(spec, ctx);
     patterns.extend(scripted.config);
     for entry in scripted.entry {

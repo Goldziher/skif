@@ -9,14 +9,18 @@ use crate::support::{join_rel, package_name, strings};
 /// The `nx` plugin.
 pub struct Nx;
 
+/// The plugin's identifier.
+pub const ID: PluginId = "nx";
+
 static SPEC: PluginSpec = PluginSpec {
-    id: "nx",
+    id: ID,
     enablers: &[
         Enabler::Dependency("nx"),
         Enabler::DependencyPrefix("@nrwl/"),
         Enabler::DependencyPrefix("@nx/"),
     ],
-    config: &["nx.json", "project.json", "{apps,libs}/**/project.json"],
+    // The `project.json` of every project below the package is read as well (ADR 0109).
+    config: &["nx.json", "project.json"],
     package_json_key: Some("nx"),
     binaries: &["nx"],
     ..PluginSpec::DEFAULT

@@ -15,7 +15,8 @@ pub(crate) fn provider(config: &Config, fs: Arc<dyn FileSystem>) -> JsProvider {
         PluginSource::new(config.js.plugins.clone())
             .with_workspaces(&config.js.workspaces)
             .with_root_tsconfig(config.js.tsconfig.as_deref())
-            .with_overrides(&config.overrides),
+            .with_overrides(&config.overrides)
+            .with_gitignore(!config.js.no_gitignore),
     ))
 }
 
@@ -37,7 +38,8 @@ pub fn explain_usage(
         PluginSource::new(config.js.plugins.clone())
             .with_workspaces(&config.js.workspaces)
             .with_root_tsconfig(config.js.tsconfig.as_deref())
-            .with_overrides(&config.overrides),
+            .with_overrides(&config.overrides)
+            .with_gitignore(!config.js.no_gitignore),
     );
     JsAnalysis::build(workspace, config, fs, &[source], false).explain_usage(file, export)
 }
@@ -57,7 +59,8 @@ pub fn trace_dependency(
         PluginSource::new(config.js.plugins.clone())
             .with_workspaces(&config.js.workspaces)
             .with_root_tsconfig(config.js.tsconfig.as_deref())
-            .with_overrides(&config.overrides),
+            .with_overrides(&config.overrides)
+            .with_gitignore(!config.js.no_gitignore),
     );
     JsAnalysis::build(workspace, config, fs, &[source], false).trace_dependency(name)
 }

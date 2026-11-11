@@ -131,7 +131,26 @@ fn is_ignored(matchers: &[Arc<Gitignore>], path: &Path, is_dir: bool) -> bool {
 /// Whether the ignore files (`.gitignore`, `.ignore`) from `root` down to the directory of `path` ignore `path` or
 /// one of its directories below `root`, as the walk of [`discover`] would. `path` is absolute and below `root`.
 pub(crate) fn is_ignored_path(fs: &dyn FileSystem, root: &Path, path: &Path) -> bool {
-    ignored_below(fs, root, path, Vec::new())
+    ignored_below(fs, root, path, Vec::new(), true)
+}
+
+/// Whether the walk of [`discover_with`] from `root` (with `gitignore` as given there) leaves out the file `relative`
+/// of the package in `package_dir`, by the name of a directory on the way (build output, dependencies, a hidden
+/// directory) or through an ignore file. `relative` is `/`-separated and relative to `package_dir`, which is `root` or
+/// below it; a workspace package on the way is not looked for.
+pub(crate) fn skips_package_file(
+    fs: &dyn FileSystem,
+    root: &Path,
+    package_dir: &Path,
+    relative: &str,
+    gitignore: bool,
+) -> bool {
+    let dirs = relative.rsplit_once('/').map_or("", |(dirs, _)| dirs);
+    let by_name = dirs
+        .split('/')
+        .enumerate()
+        .any(|(index, name)| skipped_by_name(name) && (index == 0 || !PACKAGE_ROOT_ONLY_DIRS.contains(&name)));
+    by_name || ignored_below(fs, root, &package_dir.join(relative), Vec::new(), gitignore)
 }
 
 /// Whether git ignores `path`, which is absolute and below `root`: the ignore files from the work tree `root` belongs
@@ -155,12 +174,18 @@ pub(crate) fn is_ignored_in_repository(fs: &dyn FileSystem, root: &Path, path: &
     } else {
         Vec::new()
     };
-    ignored_below(fs, &work_tree, path, matchers)
+    ignored_below(fs, &work_tree, path, matchers, true)
 }
 
 /// Whether `matchers` or the ignore files from `top` down to the directory of `path` ignore `path` or one of its
-/// directories below `top`.
-fn ignored_below(fs: &dyn FileSystem, top: &Path, path: &Path, mut matchers: Vec<Arc<Gitignore>>) -> bool {
+/// directories below `top`; without `gitignore` only the `.ignore` files count.
+fn ignored_below(
+    fs: &dyn FileSystem,
+    top: &Path,
+    path: &Path,
+    mut matchers: Vec<Arc<Gitignore>>,
+    gitignore: bool,
+) -> bool {
     let Ok(rest) = path.strip_prefix(top) else {
         return false;
     };
@@ -168,7 +193,7 @@ fn ignored_below(fs: &dyn FileSystem, top: &Path, path: &Path, mut matchers: Vec
     let parts: Vec<_> = rest.components().collect();
     for (index, part) in parts.iter().enumerate() {
         if let Ok(entries) = fs.read_dir_shared(&dir)
-            && let Some(matcher) = ignore_file_matcher(fs, &dir, &entries, true)
+            && let Some(matcher) = ignore_file_matcher(fs, &dir, &entries, gitignore)
         {
             matchers.push(Arc::new(matcher));
         }
@@ -440,6 +465,25 @@ mod tests {
             .with_file("/ws/other/deep/more/d.ts", "")
             .with_file("/ws/scripts/run.ts", "");
         assert_eq!(files(&fs), ["packages/a/src/a.ts", "scripts/run.ts"]);
+    }
+
+    /// A file the walk would not reach is skipped: below a gitignored directory (unless `.gitignore` files are off),
+    /// below build output at the top of the package or below a hidden directory; `out` deeper down is a source folder.
+    #[test]
+    fn package_files_are_skipped_where_the_walk_does_not_go() {
+        let fs = MemoryFs::new()
+            .with_file("/ws/package.json", r#"{"name":"r"}"#)
+            .with_file("/ws/.gitignore", "generated/\n");
+        let root = Path::new("/ws");
+        let skips = |relative: &str, gitignore: bool| skips_package_file(&fs, root, root, relative, gitignore);
+        assert!(skips("generated/app/project.json", true));
+        assert!(!skips("generated/app/project.json", false));
+        assert!(skips("dist/apps/web/project.json", true));
+        assert!(skips("out/web/project.json", true));
+        assert!(skips(".cache/web/project.json", true));
+        assert!(!skips("libs/out/project.json", true));
+        assert!(!skips("apps/web/project.json", true));
+        assert!(!skips("project.json", true));
     }
 
     #[test]
