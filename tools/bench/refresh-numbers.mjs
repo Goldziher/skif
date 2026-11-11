@@ -1,6 +1,6 @@
 // Rewrites the generated number blocks of the docs from the committed results:
-//   --bench   tools/bench/results/summary.json (written by `mise run bench:publish`) into tools/bench/README.md,
-//             README.md and the comparison guide;
+//   --bench   tools/bench/results/summary.json (a bench workflow run's, which `mise run bench:import` downloads) into
+//             tools/bench/README.md, README.md and the comparison guide;
 //   --parity  tools/bench/baselines/parity.json (written by `skif-bench parity --write-baseline`) into README.md and
 //             the comparison guide.
 // Without either flag both are refreshed. It fails, and writes nothing, when the input does not hold every number
@@ -14,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..", "..");
 
-export const SUMMARY_SCHEMA = 2;
+export const SUMMARY_SCHEMA = 3;
 const SKIF = "skif";
 const SKIF_MANIFEST = "skif --no-js";
 const SHERIF = "sherif";
@@ -49,6 +49,43 @@ export function duration(milliseconds) {
   return `${milliseconds.toFixed(1)} ms`;
 }
 
+const oneLine = (text) => text.split(/\s+/).filter(Boolean).join(" ");
+const gib = (bytes) => (bytes / 2 ** 30).toFixed(1);
+const RUNNER_ENVIRONMENTS = { "github-hosted": "GitHub-hosted", "self-hosted": "self-hosted" };
+
+/**
+ * The machine in one line, as the `Machine:` line of `summary.md` writes it: operating system, kernel, architecture,
+ * CPU model, CPUs, memory, cgroup limit and hypervisor; an unknown OS or CPU is named as such, any other unknown fact
+ * is left out.
+ */
+export function machineText(machine) {
+  const logical = machine.logical_cpus ?? machine.available_cpus;
+  let cpus = `${logical} logical CPUs`;
+  if (machine.physical_cores != null) cpus += ` (${machine.physical_cores} physical cores)`;
+  if (machine.logical_cpus != null && machine.available_cpus < machine.logical_cpus) {
+    cpus += `, ${machine.available_cpus} available to the run`;
+  }
+  return [
+    machine.os == null ? "unknown OS" : oneLine(machine.os),
+    machine.kernel == null ? null : oneLine(machine.kernel),
+    machine.arch,
+    machine.cpu == null ? "unknown CPU" : oneLine(machine.cpu),
+    cpus,
+    machine.memory_bytes == null ? null : `${gib(machine.memory_bytes)} GiB memory`,
+    machine.cgroup_cpu_limit == null ? null : `cgroup limit of ${machine.cgroup_cpu_limit} CPUs`,
+    machine.virtualization == null ? null : `hypervisor ${oneLine(machine.virtualization)}`,
+  ]
+    .filter((part) => part != null)
+    .join(", ");
+}
+
+/** The runner of a workflow run with its image, before the machine; empty outside GitHub Actions. */
+function runnerText(github) {
+  if (github == null) return "";
+  const environment = RUNNER_ENVIRONMENTS[github.runner_environment] ?? "GitHub Actions";
+  return `a ${environment} runner, image ${github.image_os ?? "unknown"} ${github.image_version ?? "unknown"}, `;
+}
+
 const load = (value) => (value ? value.map((n) => n.toFixed(2)).join(" / ") : "unknown");
 const date = (seconds) => new Date(seconds * 1000).toISOString().slice(0, 10);
 
@@ -62,11 +99,19 @@ function requiredTools(target) {
 /** Every reason the summary cannot be published; empty when it can. */
 export function summaryProblems(summary) {
   if (summary.schema !== SUMMARY_SCHEMA) {
-    return [`summary schema ${summary.schema} is not ${SUMMARY_SCHEMA}; re-run \`mise run bench:publish\``];
+    return [
+      `summary schema ${summary.schema} is not ${SUMMARY_SCHEMA}; measure again with the bench workflow and ` +
+        "`mise run bench:import -- <run-id>`",
+    ];
   }
   const problems = summary.skipped_tools.map(
     (skip) => `${skip.tool} was not timed on ${skip.target ?? "any target"}: ${skip.reason}`,
   );
+  if (summary.corpus_only.length > 0) {
+    problems.push(
+      `the run timed only some corpus repositories (${summary.corpus_only.join(", ")}); a partial run is not published`,
+    );
+  }
   for (const target of summary.targets) {
     const timed = new Set(target.results.map((row) => row.tool));
     for (const tool of requiredTools(target).filter((name) => !timed.has(name))) {
@@ -79,16 +124,19 @@ export function summaryProblems(summary) {
   return problems;
 }
 
-/** One sentence that says what was measured, on what, and when. */
+/** One sentence that says what was measured, built with what, on what machine and runner, when, and in which run. */
 export function provenance(summary) {
   const tools = Object.entries(summary.tool_versions)
     .map(([tool, version]) => (version.startsWith(`${tool} `) ? version : `${tool} ${version}`))
     .join(", ");
+  const { github } = summary.machine;
+  const rustc = summary.toolchain.rustc == null ? "" : ` built with ${summary.toolchain.rustc}`;
+  const run = github?.run_url == null ? "" : ` ([workflow run](${github.run_url}))`;
   return (
     `Medians of ${summary.runs} runs after ${summary.warmup} warmup runs (${summary.hyperfine}), ` +
-    `${summary.skif} at \`${summary.source_rev}\` against ${tools}, measured on ${date(summary.measured_at)} on ` +
-    `${summary.host}, ${summary.cpu}, ${summary.cores} logical CPUs, load average ${load(summary.load_before)} ` +
-    `before and ${load(summary.load_after)} after the run.`
+    `${summary.skif} at \`${summary.source_rev}\`${rustc} against ${tools}, measured on ` +
+    `${date(summary.measured_at)} on ${runnerText(github)}${machineText(summary.machine)}, load average ` +
+    `${load(summary.load_before)} before and ${load(summary.load_after)} after the run${run}.`
   );
 }
 
