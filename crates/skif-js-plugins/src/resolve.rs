@@ -1,15 +1,18 @@
 //! The driver: decides which plugins are enabled for a workspace, finds and reads their config files and
 //! collects their output.
 
-use std::cell::RefCell;
+use std::cell::{OnceCell, RefCell};
 use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::sync::LazyLock;
 
 use skif_config::{PluginConfig, PluginOptions};
+use skif_core::{HashMap, HashSet};
 use skif_js_syntax::{ConfigValue, ModuleLoader, place_file_dir};
 
 use crate::config_load::{from_json, load_config_and_call_arguments};
-use crate::files::{find_files, list_files, matching};
+use crate::files::{Listing, find_files, list_files};
 use crate::plugin::{
     BinaryRef, BuildDir, ConfigAst, DepRef, Enabler, IncompleteCause, IncompleteEntries, IncompleteScope, PathAlias,
     Plugin, PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec,
@@ -62,26 +65,30 @@ pub fn resolve_plugins(ctx: &PluginContext<'_>) -> Vec<(PluginId, PluginOutput)>
 /// with the dependencies of `ctx`, and what it finds there is part of its output for `ctx`.
 #[must_use]
 pub fn resolve_plugins_with(ctx: &PluginContext<'_>, projects: &NxProjects) -> Vec<(PluginId, PluginOutput)> {
-    let manifest = read_manifest(ctx);
+    let detection = Detection::new(ctx);
     let nx_enabled = registry::plugin(nx::ID)
-        .is_some_and(|plugin| is_enabled(plugin.spec(), ctx.plugins.get(nx::ID), ctx, manifest.as_ref()));
+        .is_some_and(|plugin| is_enabled(plugin.spec(), ctx.plugins.get(nx::ID), ctx, &detection));
     let ctx = &PluginContext {
         nx: if nx_enabled { Some(projects) } else { ctx.nx },
         ..*ctx
     };
     let project_files: Vec<String> = projects.dirs.iter().map(|dir| join_rel(dir, "project.json")).collect();
     let plugins = registry::plugins();
+    let configs = ConfigCache::default();
     let mut outputs: Vec<Option<PluginOutput>> = plugins
         .iter()
         .map(|&plugin| {
             let spec = plugin.spec();
             let setting = ctx.plugins.get(spec.id);
             let extra: &[String] = if spec.id == nx::ID { &project_files } else { &[] };
-            is_enabled(spec, setting, ctx, manifest.as_ref())
-                .then(|| run_plugin(plugin, setting, ctx, manifest.as_ref(), extra, None))
+            is_enabled(spec, setting, ctx, &detection).then(|| {
+                // Only a plugin with a `package.json` key reads the manifest.
+                let manifest = spec.package_json_key.and_then(|_| detection.manifest(ctx));
+                run_plugin(plugin, setting, ctx, manifest, extra, None, &configs)
+            })
         })
         .collect();
-    run_in_scopes(ctx, &projects.scopes, plugins, &mut outputs);
+    run_in_scopes(ctx, &projects.scopes, plugins, &mut outputs, &configs);
     plugins
         .iter()
         .zip(outputs)
@@ -110,6 +117,7 @@ fn run_in_scopes(
     scopes: &[String],
     plugins: &[&'static dyn Plugin],
     outputs: &mut [Option<PluginOutput>],
+    configs: &ConfigCache,
 ) {
     let Some(first) = scopes.first() else {
         return;
@@ -118,13 +126,15 @@ fn run_in_scopes(
     // A scope's context differs from another's only in its directory, which only file enablers look at.
     let first_dir = scope_dir(ctx, first);
     let template = shared.context(ctx, &first_dir);
+    let detection = Detection::without_manifest(&template);
     let candidates: Vec<(usize, ScopeEnablement)> = plugins
         .iter()
         .enumerate()
         .filter(|(_, plugin)| plugin.spec().id != nx::ID)
         .filter_map(|(index, plugin)| {
             let spec = plugin.spec();
-            scope_enablement(spec, template.plugins.get(spec.id), &template).map(|enablement| (index, enablement))
+            scope_enablement(spec, template.plugins.get(spec.id), &template, &detection)
+                .map(|enablement| (index, enablement))
         })
         .collect();
     if candidates.is_empty() {
@@ -134,18 +144,19 @@ fn run_in_scopes(
         let dir = scope_dir(ctx, scope);
         let scope_ctx = shared.context(ctx, &dir);
         let files = list_files(ctx.fs, &dir);
+        let listing = Listing::new(&files);
         for &(index, enablement) in &candidates {
             let plugin = plugins[index];
             let spec = plugin.spec();
-            if enablement == ScopeEnablement::ByFile && !has_enabling_file(spec, &files) {
+            if enablement == ScopeEnablement::ByFile && !has_enabling_file(spec, &listing) {
                 continue;
             }
-            if !gives_defaults(spec) && matching(&files, &globs(&[], spec.config)).is_empty() {
+            if !gives_defaults(spec) && !listing.any_matching(spec.config) {
                 continue;
             }
             let setting = scope_ctx.plugins.get(spec.id);
             let found = rebase(
-                run_plugin(plugin, setting, &scope_ctx, None, &[], Some(files.as_slice())),
+                run_plugin(plugin, setting, &scope_ctx, None, &[], Some(&listing), configs),
                 scope,
             );
             merge(outputs[index].get_or_insert_with(PluginOutput::default), found);
@@ -159,6 +170,7 @@ fn scope_enablement(
     spec: &PluginSpec,
     setting: Option<&PluginConfig>,
     scope_ctx: &PluginContext<'_>,
+    detection: &Detection<'_>,
 ) -> Option<ScopeEnablement> {
     match forced(setting) {
         Some(true) => return Some(ScopeEnablement::Always),
@@ -172,7 +184,7 @@ fn scope_enablement(
     for enabler in spec.enablers {
         if matches!(enabler, Enabler::File(_)) {
             by_file = true;
-        } else if enabler_matches(enabler, scope_ctx, None) {
+        } else if enabler_matches(enabler, scope_ctx, detection) {
             return Some(ScopeEnablement::Always);
         }
     }
@@ -187,9 +199,9 @@ fn gives_defaults(spec: &PluginSpec) -> bool {
 }
 
 /// Whether `files`, a scope's listing, holds a file an [`Enabler::File`] of `spec` matches.
-fn has_enabling_file(spec: &PluginSpec, files: &[String]) -> bool {
+fn has_enabling_file(spec: &PluginSpec, files: &Listing<'_>) -> bool {
     spec.enablers.iter().any(|enabler| match *enabler {
-        Enabler::File(glob) => !matching(files, &[glob.to_owned()]).is_empty(),
+        Enabler::File(glob) => files.any_matching(&[glob]),
         _ => false,
     })
 }
@@ -197,7 +209,7 @@ fn has_enabling_file(spec: &PluginSpec, files: &[String]) -> bool {
 /// Whether the plugin `id` is enabled for the workspace in `ctx`.
 pub(crate) fn is_plugin_enabled(ctx: &PluginContext<'_>, id: PluginId) -> bool {
     registry::plugin(id)
-        .is_some_and(|plugin| is_enabled(plugin.spec(), ctx.plugins.get(id), ctx, read_manifest(ctx).as_ref()))
+        .is_some_and(|plugin| is_enabled(plugin.spec(), ctx.plugins.get(id), ctx, &Detection::new(ctx)))
 }
 
 fn read_manifest(ctx: &PluginContext<'_>) -> Option<ConfigValue> {
@@ -220,33 +232,101 @@ fn is_enabled(
     spec: &PluginSpec,
     setting: Option<&PluginConfig>,
     ctx: &PluginContext<'_>,
-    manifest: Option<&ConfigValue>,
+    detection: &Detection<'_>,
 ) -> bool {
-    forced(setting).unwrap_or_else(|| detected(spec, ctx, manifest))
+    forced(setting).unwrap_or_else(|| detected(spec, ctx, detection))
 }
 
-fn detected(spec: &PluginSpec, ctx: &PluginContext<'_>, manifest: Option<&ConfigValue>) -> bool {
+fn detected(spec: &PluginSpec, ctx: &PluginContext<'_>, detection: &Detection<'_>) -> bool {
     (ctx.is_root || !spec.root_only)
         && spec
             .enablers
             .iter()
-            .any(|enabler| enabler_matches(enabler, ctx, manifest))
+            .any(|enabler| enabler_matches(enabler, ctx, detection))
 }
 
-fn enabler_matches(enabler: &Enabler, ctx: &PluginContext<'_>, manifest: Option<&ConfigValue>) -> bool {
-    match *enabler {
-        Enabler::Always => true,
-        Enabler::Dependency(name) => ctx.has_dependency_in_ancestors(name),
-        Enabler::DependencyPrefix(prefix) => ctx
+/// Every [`Enabler::File`] glob of the table, once each, in table order.
+static FILE_ENABLERS: LazyLock<Vec<String>> = LazyLock::new(|| {
+    let mut globs: Vec<String> = Vec::new();
+    for plugin in registry::plugins() {
+        for enabler in plugin.spec().enablers {
+            if let Enabler::File(glob) = *enabler {
+                push_unique(&mut globs, glob.to_owned());
+            }
+        }
+    }
+    globs
+});
+
+/// What the enablers of every plugin are matched against in one context, worked out once for all of them: the
+/// dependency names as a set and in sorted order, the manifest, read when an enabler or a plugin first needs it, and
+/// the files that any [`Enabler::File`] glob matches, found by one walk when the first such enabler is matched.
+struct Detection<'a> {
+    dependencies: HashSet<&'a str>,
+    sorted: Vec<&'a str>,
+    manifest: OnceCell<Option<ConfigValue>>,
+    enabling_files: OnceCell<Vec<String>>,
+}
+
+impl<'a> Detection<'a> {
+    fn new(ctx: &PluginContext<'a>) -> Self {
+        Self::with_manifest(ctx, OnceCell::new())
+    }
+
+    /// Like [`Detection::new`], for a context whose manifest no enabler reads.
+    fn without_manifest(ctx: &PluginContext<'a>) -> Self {
+        Self::with_manifest(ctx, OnceCell::from(None))
+    }
+
+    fn with_manifest(ctx: &PluginContext<'a>, manifest: OnceCell<Option<ConfigValue>>) -> Self {
+        let mut sorted: Vec<&'a str> = ctx
             .dependencies
             .iter()
             .chain(ctx.inherited_dependencies)
-            .any(|d| d.starts_with(prefix)),
+            .map(String::as_str)
+            .collect();
+        let dependencies = sorted.iter().copied().collect();
+        sorted.sort_unstable();
+        Self {
+            dependencies,
+            sorted,
+            manifest,
+            enabling_files: OnceCell::new(),
+        }
+    }
+
+    fn manifest(&self, ctx: &PluginContext<'_>) -> Option<&ConfigValue> {
+        self.manifest.get_or_init(|| read_manifest(ctx)).as_ref()
+    }
+
+    /// Whether the context or an ancestor depends on a package whose name starts with `prefix`: the names that do
+    /// follow one another in sorted order, from the first name not below `prefix`.
+    fn has_dependency_prefix(&self, prefix: &str) -> bool {
+        let first = self.sorted.partition_point(|name| *name < prefix);
+        self.sorted.get(first).is_some_and(|name| name.starts_with(prefix))
+    }
+
+    /// Whether a file below the context's directory matches `glob`, one of [`FILE_ENABLERS`]: a walk for all of them
+    /// visits every directory a walk for `glob` visits, so the files it finds that `glob` matches are those a walk for
+    /// `glob` finds.
+    fn has_file(&self, ctx: &PluginContext<'_>, glob: &str) -> bool {
+        let files = self
+            .enabling_files
+            .get_or_init(|| find_files(ctx.fs, ctx.dir, &FILE_ENABLERS));
+        !files.is_empty() && Listing::new(files).any_matching(&[glob])
+    }
+}
+
+fn enabler_matches(enabler: &Enabler, ctx: &PluginContext<'_>, detection: &Detection<'_>) -> bool {
+    match *enabler {
+        Enabler::Always => true,
+        Enabler::Dependency(name) => detection.dependencies.contains(name),
+        Enabler::DependencyPrefix(prefix) => detection.has_dependency_prefix(prefix),
         Enabler::ManifestNamePrefix(prefix) => ctx.package_name.is_some_and(|n| n.starts_with(prefix)),
         Enabler::ManifestNameContains(text) => ctx.package_name.is_some_and(|n| n.contains(text)),
-        Enabler::File(glob) => !find_files(ctx.fs, ctx.dir, &[glob.to_string()]).is_empty(),
+        Enabler::File(glob) => detection.has_file(ctx, glob),
         Enabler::Script(text) => ctx.scripts.values().any(|script| script.contains(text)),
-        Enabler::ManifestKey(key) => manifest.is_some_and(|manifest| {
+        Enabler::ManifestKey(key) => detection.manifest(ctx).is_some_and(|manifest| {
             key.split('.')
                 .try_fold(manifest, |value, part| value.get(part))
                 .is_some()
@@ -272,8 +352,49 @@ fn parent_of(relative: &str) -> &str {
     relative.rsplit_once('/').map_or("", |(parent, _)| parent)
 }
 
+/// A config file as the config loader read it, with the modules it imports values from.
+struct LoadedConfig {
+    parsed: Option<(ConfigValue, Vec<ConfigValue>)>,
+    imported: Vec<(PathBuf, String)>,
+}
+
+/// The config files read for one package and its scopes, by absolute path: several plugins read the same file (a
+/// `vite.config.ts` read by every Vite plugin, a `tsconfig.json` linked from many configs), and the loader's result
+/// depends only on the file.
+#[derive(Default)]
+struct ConfigCache(RefCell<HashMap<PathBuf, Rc<LoadedConfig>>>);
+
+impl ConfigCache {
+    /// The file at `path` with the text `source`, loaded with `modules` the first time it is asked for.
+    fn load(&self, path: &Path, source: &str, modules: Option<&dyn ModuleLoader>) -> Rc<LoadedConfig> {
+        if let Some(hit) = self.0.borrow().get(path) {
+            return Rc::clone(hit);
+        }
+        let recording = modules.map(|inner| Recording {
+            inner,
+            loaded: RefCell::new(Vec::new()),
+        });
+        let parsed = load_config_and_call_arguments(
+            path,
+            source,
+            recording.as_ref().map(|recording| recording as &dyn ModuleLoader),
+        );
+        let loaded = Rc::new(LoadedConfig {
+            parsed,
+            imported: recording
+                .map(|recording| recording.loaded.into_inner())
+                .unwrap_or_default(),
+        });
+        self.0.borrow_mut().insert(path.to_path_buf(), Rc::clone(&loaded));
+        loaded
+    }
+}
+
 struct Collector<'a, 'b> {
     ctx: &'a PluginContext<'b>,
+    configs: &'a ConfigCache,
+    /// The script parser's view of the workspace's scripts, made when the first command is parsed.
+    script_ctx: OnceCell<ScriptContext>,
     out: PluginOutput,
     queue: VecDeque<Queued>,
     /// Whether the module resolution options of a config inside another package stay with that package.
@@ -510,10 +631,15 @@ impl Collector<'_, '_> {
         }
     }
 
+    fn script_context(&self) -> &ScriptContext {
+        self.script_ctx.get_or_init(|| ScriptContext {
+            scripts: self.ctx.scripts.clone(),
+            ..ScriptContext::new()
+        })
+    }
+
     fn parse_script(&mut self, text: &str, from: &Path, optional: bool) {
-        let mut script_ctx = ScriptContext::new();
-        script_ctx.scripts.clone_from(self.ctx.scripts);
-        let info = parse_script(text, &script_ctx);
+        let info = parse_script(text, self.script_context());
         for binary in info.binaries {
             // As for the scripts of `package.json`: a binary fetched on demand, run in another workspace or that the
             // script parser ignores is never unlisted here.
@@ -542,12 +668,10 @@ impl Collector<'_, '_> {
 
     /// The files a script runs in `dir` are entries; what it names besides belongs to the package in `dir`.
     fn script_at(&mut self, dir: &str, text: &str) {
-        let mut script_ctx = ScriptContext::new();
-        script_ctx.scripts.clone_from(self.ctx.scripts);
         let mut texts = vec![text.to_owned()];
         texts.extend(flag_values(text, &["cdk"], &["-a", "--app"]));
         for text in texts {
-            for file in parse_script(&text, &script_ctx).files {
+            for file in parse_script(&text, self.script_context()).files {
                 push_unique(&mut self.out.entries, join_rel(dir, &file.path));
             }
         }
@@ -562,7 +686,8 @@ fn run_plugin(
     ctx: &PluginContext<'_>,
     manifest: Option<&ConfigValue>,
     extra_configs: &[String],
-    listing: Option<&[String]>,
+    listing: Option<&Listing<'_>>,
+    configs: &ConfigCache,
 ) -> PluginOutput {
     let spec = plugin.spec();
     let options = match setting {
@@ -571,6 +696,8 @@ fn run_plugin(
     };
     let mut collector = Collector {
         ctx,
+        configs,
+        script_ctx: OnceCell::new(),
         out: PluginOutput {
             entries: globs(&options.entry, spec.entry),
             project: globs(&options.project, spec.project),
@@ -601,7 +728,7 @@ fn run_plugin(
     }
     let found = listing.map_or_else(
         || find_files(ctx.fs, ctx.dir, &patterns),
-        |files| matching(files, &patterns),
+        |files| files.matching(&patterns),
     );
     collector.queue.extend(found.into_iter().map(|path| Queued {
         path,
@@ -716,16 +843,16 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
             continue;
         };
         collector.out.config_files.push(path.clone());
+        let loaded = collector.configs.load(&path, &source, ctx.modules);
         // A plugin that reads the source rather than the exported value (`export const config` of Stencil) still
         // sees a file whose export is not understood.
-        let recording = ctx.modules.map(|inner| Recording {
-            inner,
-            loaded: RefCell::new(Vec::new()),
-        });
-        let modules = recording.as_ref().map(|recording| recording as &dyn ModuleLoader);
-        let (value, call_arguments) = match load_config_and_call_arguments(&path, &source, modules) {
-            Some(found) => found,
-            None if !reader.reads_config() => (ConfigValue::Null, Vec::new()),
+        let fallback: ConfigValue;
+        let (value, call_arguments): (&ConfigValue, &[ConfigValue]) = match &loaded.parsed {
+            Some((value, call_arguments)) => (value, call_arguments.as_slice()),
+            None if !reader.reads_config() => {
+                fallback = ConfigValue::Null;
+                (&fallback, &[][..])
+            }
             None => {
                 let Some(value) = reader.read_script(&path, &source) else {
                     if is_structured(&path) && !source.trim().is_empty() {
@@ -734,28 +861,27 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
                     }
                     continue;
                 };
-                (value, Vec::new())
+                fallback = value;
+                (&fallback, &[][..])
             }
         };
         let ast = ConfigAst {
             path: &path,
             base: parent_of(&relative),
-            value: &value,
+            value,
             source: &source,
         };
         if reader.reads_config()
-            && let Some(cause) = unreadable(&value)
+            && let Some(cause) = unreadable(value)
         {
             let scope = reader.incomplete_scope(cause, &ast);
             collector.mark_incomplete(reader.spec().id, &path, cause, scope);
         }
         let mut inputs = reader.resolve_config(&ast, ctx);
         if reader.reads_config() {
-            inputs.extend(argument_entries(ctx, ast.base, &call_arguments));
+            inputs.extend(argument_entries(ctx, ast.base, call_arguments));
         }
-        collector.imported = recording
-            .map(|recording| recording.loaded.into_inner())
-            .unwrap_or_default();
+        collector.imported.clone_from(&loaded.imported);
         collector.absorb(reader.spec().id, inputs, (&path, Some(&ast)), depth);
         collector.imported.clear();
     }
@@ -843,6 +969,106 @@ mod tests {
 
     use super::*;
 
+    fn context<'a>(fs: &'a MemoryFs, dependencies: &'a [String], inherited: &'a [String]) -> PluginContext<'a> {
+        static SCRIPTS: LazyLock<IndexMap<String, String>> = LazyLock::new(IndexMap::new);
+        static PLUGINS: LazyLock<IndexMap<String, PluginConfig>> = LazyLock::new(IndexMap::new);
+        PluginContext {
+            dir: Path::new("/ws"),
+            is_root: true,
+            package_name: None,
+            dependencies,
+            inherited_dependencies: inherited,
+            scripts: &SCRIPTS,
+            fs,
+            plugins: &PLUGINS,
+            modules: None,
+            nx: None,
+        }
+    }
+
+    /// A loader that serves one module and counts how often it is asked.
+    struct Counting(std::cell::Cell<usize>);
+
+    impl ModuleLoader for Counting {
+        fn load(&self, _from: &Path, specifier: &str) -> Option<(PathBuf, String)> {
+            self.0.set(self.0.get() + 1);
+            (specifier == "./base.js").then(|| (PathBuf::from("/ws/base.js"), "export default { y: 2 };".to_owned()))
+        }
+    }
+
+    /// A config read again, by another plugin, is the value read the first time, with the modules it imports, and
+    /// the loader is not asked again.
+    #[test]
+    fn a_config_is_loaded_once_for_every_plugin_that_reads_it() {
+        let loader = Counting(std::cell::Cell::new(0));
+        let cache = ConfigCache::default();
+        let path = Path::new("/ws/vite.config.js");
+        let source = "import base from './base.js';\nexport default { ...base, x: 1 };";
+        let first = cache.load(path, source, Some(&loader));
+        let asked = loader.0.get();
+        assert!(asked > 0, "the config imports a value");
+        let again = cache.load(path, source, Some(&loader));
+        assert!(Rc::ptr_eq(&first, &again));
+        assert_eq!(loader.0.get(), asked);
+        assert_eq!(
+            again.imported,
+            [(PathBuf::from("/ws/base.js"), "export default { y: 2 };".to_owned())]
+        );
+        let (value, _) = again.parsed.as_ref().expect("the config parses");
+        assert!(value.get("x").is_some(), "{value:?}");
+        let other = cache.load(Path::new("/ws/other.json"), "{\"z\": 1}", Some(&loader));
+        assert!(other.imported.is_empty());
+        assert!(other.parsed.as_ref().is_some_and(|(value, _)| value.get("z").is_some()));
+    }
+
+    /// The dependency set and its sorted order answer exact names and prefixes as a scan of the context's own and
+    /// inherited dependencies does.
+    #[test]
+    fn dependencies_are_matched_by_name_and_prefix_as_a_scan_matches_them() {
+        let fs = MemoryFs::new();
+        let own = ["react".to_owned(), "@storybook/react".to_owned(), "vite".to_owned()];
+        let inherited = ["@vue/compiler-sfc".to_owned(), "a".to_owned()];
+        for (dependencies, inherited) in [(&own[..], &inherited[..]), (&[][..], &[][..]), (&own[..], &[][..])] {
+            let ctx = context(&fs, dependencies, inherited);
+            let detection = Detection::new(&ctx);
+            for text in ["react", "vite", "a", "@vue/compiler-sfc", "@storybook/", "@vue/", "@angular/", "", "z", "re"] {
+                let scan = |matches: &dyn Fn(&String) -> bool| dependencies.iter().chain(inherited).any(matches);
+                assert_eq!(
+                    enabler_matches(&Enabler::Dependency(text), &ctx, &detection),
+                    scan(&|d: &String| d == text),
+                    "{text:?} in {dependencies:?} + {inherited:?}"
+                );
+                assert_eq!(
+                    enabler_matches(&Enabler::DependencyPrefix(text), &ctx, &detection),
+                    scan(&|d: &String| d.starts_with(text)),
+                    "{text:?}* in {dependencies:?} + {inherited:?}"
+                );
+            }
+        }
+    }
+
+    /// One walk for every file enabler answers each of them as a walk for that enabler alone does.
+    #[test]
+    fn file_enablers_are_matched_as_a_walk_for_each_matches_them() {
+        let fs = MemoryFs::new()
+            .with_file("/ws/.github/workflows/ci.yml", "")
+            .with_file("/ws/.azure-pipelines/deep/x/build.yaml", "")
+            .with_file("/ws/Taskfile.dist.yml", "")
+            .with_file("/ws/.vscode/mcp.json", "")
+            .with_file("/ws/pnpm-lock.yaml", "")
+            .with_file("/ws/node_modules/x/.travis.yml", "")
+            .with_file("/ws/src/vercel.json", "");
+        let ctx = context(&fs, &[], &[]);
+        let detection = Detection::new(&ctx);
+        let mut found = 0;
+        for glob in FILE_ENABLERS.iter() {
+            let walked = !find_files(&fs, ctx.dir, std::slice::from_ref(glob)).is_empty();
+            found += usize::from(walked);
+            assert_eq!(detection.has_file(&ctx, glob), walked, "{glob}");
+        }
+        assert_eq!(found, 5, "the fixture matches five enablers");
+    }
+
     /// Computed entries in a linked config are charged to the plugin that reads that config, as an unreadable
     /// linked config is.
     #[test]
@@ -862,8 +1088,11 @@ mod tests {
             modules: None,
             nx: None,
         };
+        let configs = ConfigCache::default();
         let mut collector = Collector {
             ctx: &ctx,
+            configs: &configs,
+            script_ctx: OnceCell::new(),
             out: PluginOutput::default(),
             queue: VecDeque::new(),
             confine_to_package: false,
