@@ -2,71 +2,103 @@
 
 use oxc_ast::ast::{Declaration, IdentifierReference, Program, Statement, TSNamespaceDeclarationBody};
 use oxc_ast_visit::Visit;
-use oxc_semantic::{ScopeId, Scoping, Semantic, SemanticBuilder};
+use oxc_semantic::{ReferenceId, ScopeId, Scoping, SemanticBuilder};
 use oxc_span::{GetSpan, Span as OxcSpan};
 use skif_core::{HashMap, HashSet};
 use std::cell::OnceCell;
 use std::collections::BTreeSet;
 
-/// The semantic analysis of one parsed block, built on first use and shared by every pass that needs scopes.
+/// The semantic analysis of one parsed block, built on first use and shared by every pass that needs scopes. It
+/// builds no node store: every pass reads scopes, symbols and references only.
 pub(crate) struct Analysis<'p> {
     program: &'p Program<'p>,
-    /// Build the node store, which [`referenced_locals`] reads.
-    nodes: bool,
-    semantic: OnceCell<Semantic<'p>>,
+    scoping: OnceCell<Scoping>,
 }
 
 impl<'p> Analysis<'p> {
-    pub(crate) const fn new(program: &'p Program<'p>, nodes: bool) -> Self {
+    pub(crate) const fn new(program: &'p Program<'p>) -> Self {
         Self {
             program,
-            nodes,
-            semantic: OnceCell::new(),
+            scoping: OnceCell::new(),
         }
     }
 
-    pub(crate) fn semantic(&self) -> &Semantic<'p> {
-        self.semantic.get_or_init(|| {
-            SemanticBuilder::new()
-                .with_build_nodes(self.nodes)
-                .build(self.program)
-                .semantic
-        })
-    }
-
     pub(crate) fn scoping(&self) -> &Scoping {
-        self.semantic().scoping()
+        self.scoping
+            .get_or_init(|| SemanticBuilder::new().build(self.program).semantic.into_scoping())
     }
 }
 
-/// Names of top-level bindings in `wanted` that are referenced outside `excluded` spans. `analysis` builds the node
-/// store.
-pub(crate) fn referenced_locals(
-    analysis: &Analysis<'_>,
-    wanted: &HashSet<String>,
+/// Names of top-level bindings in `wanted` that are referenced outside `excluded` spans, which are the spans of
+/// identifiers in top-level statements of `program`.
+pub(crate) fn referenced_locals<'s>(
+    program: &Program<'_>,
+    analysis: &'s Analysis<'_>,
+    wanted: &HashSet<&str>,
     excluded: &[OxcSpan],
-) -> HashSet<String> {
+) -> HashSet<&'s str> {
     let mut referenced = HashSet::default();
     if wanted.is_empty() {
         return referenced;
     }
-    let semantic = analysis.semantic();
-    let scoping = semantic.scoping();
+    let scoping = analysis.scoping();
+    let excluded = excluded_references(program, excluded);
     let root = scoping.root_scope_id();
     for symbol in scoping.symbol_ids() {
         let name = scoping.symbol_name(symbol);
         if scoping.symbol_scope_id(symbol) != root || !wanted.contains(name) {
             continue;
         }
-        let used = scoping.get_resolved_references(symbol).any(|reference| {
-            let span = semantic.reference_span(reference);
-            !excluded.iter().any(|e| e.start <= span.start && span.end <= e.end)
-        });
+        let used = scoping
+            .get_resolved_reference_ids(symbol)
+            .iter()
+            .any(|reference| !excluded.contains(reference));
         if used {
-            referenced.insert(name.to_string());
+            referenced.insert(name);
         }
     }
     referenced
+}
+
+/// The references of `program` whose identifier lies inside one of the `excluded` spans. Only the top-level
+/// statements that hold such a span are walked.
+fn excluded_references(program: &Program<'_>, excluded: &[OxcSpan]) -> HashSet<ReferenceId> {
+    let mut spans = excluded.to_vec();
+    spans.sort_unstable_by_key(|span| (span.start, span.end));
+    let mut within = Within {
+        spans: &spans,
+        found: HashSet::default(),
+    };
+    if spans.is_empty() {
+        return within.found;
+    }
+    for statement in &program.body {
+        let span = statement.span();
+        let first = spans.partition_point(|e| e.start < span.start);
+        if spans.get(first).is_some_and(|e| e.end <= span.end) {
+            within.visit_statement(statement);
+        }
+    }
+    within.found
+}
+
+/// Collects the references inside sorted, disjoint spans.
+struct Within<'e> {
+    spans: &'e [OxcSpan],
+    found: HashSet<ReferenceId>,
+}
+
+impl<'a> Visit<'a> for Within<'_> {
+    fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
+        let after = self.spans.partition_point(|e| e.start <= it.span.start);
+        let inside = after
+            .checked_sub(1)
+            .and_then(|index| self.spans.get(index))
+            .is_some_and(|e| it.span.end <= e.end);
+        if inside && let Some(reference) = it.reference_id.get() {
+            self.found.insert(reference);
+        }
+    }
 }
 
 /// The members of the top-level namespaces in `members` (namespace name to the names its declarations export) that
