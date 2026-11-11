@@ -69,6 +69,17 @@ fn commands(script: &str) -> Vec<Vec<String>> {
     commands
 }
 
+/// Whether a command of `script` may run one of `binaries`. A word without quotes is a piece of the script's text, and
+/// so is its last path segment, so a script with no quotes that names none of `binaries` runs none of them and need
+/// not be split into commands.
+fn may_run(script: &str, binaries: &[&str]) -> bool {
+    let bytes = script.as_bytes();
+    memchr::memchr2(b'\'', b'"', bytes).is_some()
+        || binaries
+            .iter()
+            .any(|binary| memchr::memmem::find(bytes, binary.as_bytes()).is_some())
+}
+
 /// The last path segment of a command word: `node_modules/.bin/vitest` is `vitest`.
 fn binary_name(word: &str) -> &str {
     word.rsplit('/').next().unwrap_or(word)
@@ -77,6 +88,9 @@ fn binary_name(word: &str) -> &str {
 /// The values `flags` take in every command of `script` that runs one of `binaries`, in order.
 pub(crate) fn flag_values(script: &str, binaries: &[&str], flags: &[&str]) -> Vec<String> {
     let mut out = Vec::new();
+    if !may_run(script, binaries) {
+        return out;
+    }
     for command in commands(script) {
         let Some(position) = command.iter().position(|word| binaries.contains(&binary_name(word))) else {
             continue;
@@ -111,6 +125,9 @@ pub(crate) fn quote_word(word: &str) -> String {
 /// word (`varlock run -- node app.js`), its words joined again.
 pub(crate) fn commands_after_separator(script: &str, binaries: &[&str], subcommand: &str) -> Vec<String> {
     let mut out = Vec::new();
+    if !may_run(script, binaries) {
+        return out;
+    }
     for command in commands(script) {
         let Some(position) = command.iter().position(|word| binaries.contains(&binary_name(word))) else {
             continue;
@@ -135,6 +152,9 @@ pub(crate) fn commands_after_separator(script: &str, binaries: &[&str], subcomma
 /// is listed in `boolean_flags` or the next word is a flag itself. Parsing a command ends at `--`.
 pub(crate) fn positionals(script: &str, binaries: &[&str], boolean_flags: &[&str]) -> Vec<Vec<String>> {
     let mut found = Vec::new();
+    if !may_run(script, binaries) {
+        return found;
+    }
     for command in commands(script) {
         let Some(position) = command.iter().position(|word| binaries.contains(&binary_name(word))) else {
             continue;
@@ -209,6 +229,25 @@ mod tests {
             ["npx ts-node bin/app.ts"]
         );
         assert_eq!(flag_values(script, &["vitest"], &["-c"]), ["x y.ts"]);
+    }
+
+    /// A script that names none of the binaries runs none of them, and a binary spelled with quotes inside it is
+    /// still found.
+    #[test]
+    fn only_a_script_that_may_name_a_binary_is_split() {
+        assert!(!may_run("vite build -c x.ts && tsc", &["vitest", "jest"]));
+        assert!(may_run("vite build", &["vite"]));
+        assert!(may_run("'vi'test", &["jest"]));
+        assert!(!may_run("vitest", &[]));
+        assert_eq!(flag_values("vite build -c x.ts", &["vitest"], &["-c"]), [] as [String; 0]);
+        assert_eq!(flag_values(r#""vi"test -c a.ts"#, &["vitest"], &["-c"]), ["a.ts"]);
+        assert_eq!(flag_values("vi'test' --config=b.ts", &["vitest"], &["--config"]), ["b.ts"]);
+        assert_eq!(
+            commands_after_separator(r#"var"lock" run -- node a.js"#, &["varlock"], "run"),
+            ["node a.js"]
+        );
+        assert_eq!(positionals("tsc -p x", &["jasmine"], &[]), [] as [Vec<String>; 0]);
+        assert_eq!(positionals("ja'smine' a.js", &["jasmine"], &[]), [vec!["a.js".to_owned()]]);
     }
 
     #[test]

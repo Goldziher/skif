@@ -806,10 +806,11 @@ pub(crate) fn production_entries<'a>(base: &str, patterns: impl IntoIterator<Ite
 /// The JavaScript and TypeScript source files of the workspace whose text contains `needle`, as their path relative to
 /// the workspace and their text. Declaration files are left out.
 pub(crate) fn sources_containing(cx: &PluginContext<'_>, needle: &str) -> Vec<(String, std::sync::Arc<str>)> {
+    let finder = memchr::memmem::Finder::new(needle.as_bytes());
     source_files(cx)
         .filter_map(|source| {
             let text = cx.fs.read_to_string(&cx.dir.join(&source)).ok()?;
-            text.contains(needle).then_some((source, text))
+            finder.find(text.as_bytes()).is_some().then_some((source, text))
         })
         .collect()
 }
