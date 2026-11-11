@@ -769,19 +769,19 @@ fn package_ancestors(workspace: &Workspace, isolate: bool) -> Vec<Vec<PackageId>
         return vec![Vec::new(); workspace.package_ids().count()];
     }
     let root = workspace.iter().find(|(_, package)| package.is_root).map(|(id, _)| id);
+    // The packages other than the root by directory, so each package looks up its ancestor directories, innermost
+    // first, instead of testing every other package.
+    let mut by_dir: HashMap<&Path, Vec<PackageId>> = HashMap::default();
+    for (id, package) in workspace.iter().filter(|(_, package)| !package.is_root) {
+        by_dir.entry(package.dir.as_path()).or_default().push(id);
+    }
     let mut all = vec![Vec::new(); workspace.package_ids().count()];
     for (id, package) in workspace.iter() {
-        let mut containing: Vec<(PackageId, usize)> = workspace
-            .iter()
-            .filter(|(other_id, other)| {
-                *other_id != id && !other.is_root && package.dir != other.dir && package.dir.starts_with(&other.dir)
-            })
-            .map(|(other_id, other)| (other_id, other.dir.components().count()))
-            .collect();
-        containing.sort_by_key(|(_, depth)| std::cmp::Reverse(*depth));
-        all[id.index()] = containing
-            .into_iter()
-            .map(|(other, _)| other)
+        all[id.index()] = package
+            .dir
+            .ancestors()
+            .skip(1)
+            .flat_map(|dir| by_dir.get(dir).into_iter().flatten().copied())
             .chain(root.filter(|root| *root != id))
             .collect();
     }
@@ -1081,7 +1081,9 @@ impl DependencyUsage {
         match listed {
             Listed::Package(id) => self.reference_in(id, name),
             Listed::External => {
-                self.external_used.insert(name.to_owned());
+                if !self.external_used.contains(name) {
+                    self.external_used.insert(name.to_owned());
+                }
             }
         }
     }
@@ -1096,7 +1098,11 @@ impl DependencyUsage {
     }
 
     fn reference_in(&mut self, id: PackageId, name: &str) {
-        self.referenced[id.index()].insert(name.to_owned());
+        // Most uses repeat a name already recorded, which then costs no allocation.
+        let referenced = &mut self.referenced[id.index()];
+        if !referenced.contains(name) {
+            referenced.insert(name.to_owned());
+        }
     }
 
     fn collect_imports(&mut self, workspace: &Workspace, setup: &Setup, graph: &ModuleGraph) {
@@ -1105,6 +1111,7 @@ impl DependencyUsage {
             if module.foreign || setup.package(module.owner).is_none() {
                 continue;
             }
+            let declaration = is_declaration_file(&module.abs);
             for resolved in &module.imports {
                 if let Some(name) = &resolved.package {
                     let kind = module.info.imports.get(resolved.import).map(|import| import.kind);
@@ -1121,7 +1128,6 @@ impl DependencyUsage {
                         // nor need one listed.
                         continue;
                     }
-                    let declaration = is_declaration_file(&module.abs);
                     // knip's strict mode counts every import of a declaration file as type-only, so a listed `@types`
                     // package stands in for the package.
                     let type_only =
@@ -1195,7 +1201,7 @@ impl DependencyUsage {
                     module: module.id,
                     span: module.info.jsx_import_source_span,
                     type_only: false,
-                    declaration: is_declaration_file(&module.abs),
+                    declaration,
                 };
                 self.handle_import(workspace, &source, &site);
             } else if module.info.has_jsx
@@ -1651,5 +1657,48 @@ impl DependencyUsage {
             .filter_map(|name| Some((self.external_listed.get(name)?.clone(), name.clone())))
             .chain(self.outside_used.iter().cloned())
             .collect()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use std::path::Path;
+
+    use skif_config::Config;
+    use skif_core::MemoryFs;
+    use skif_workspace::{PackageId, Workspace};
+
+    use super::package_ancestors;
+
+    #[test]
+    fn ancestors_are_the_containing_packages_innermost_first_then_the_root() {
+        let fs = MemoryFs::new()
+            .with_file(
+                "/ws/package.json",
+                r#"{"name":"r","workspaces":["packages/a","packages/a/sub","packages/a/sub/deep","packages/ab"]}"#,
+            )
+            .with_file("/ws/packages/a/package.json", r#"{"name":"a"}"#)
+            .with_file("/ws/packages/a/sub/package.json", r#"{"name":"sub"}"#)
+            .with_file("/ws/packages/a/sub/deep/package.json", r#"{"name":"deep"}"#)
+            .with_file("/ws/packages/ab/package.json", r#"{"name":"ab"}"#);
+        let config = Config::from_toml_str("").unwrap();
+        let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &fs).unwrap();
+        let ancestors = package_ancestors(&workspace, false);
+        let name = |id: PackageId| workspace.package(id).and_then(|package| package.name.clone()).unwrap();
+        let of = |wanted: &str| {
+            let (id, _) = workspace
+                .iter()
+                .find(|(_, package)| package.name.as_deref() == Some(wanted))
+                .unwrap();
+            ancestors[id.index()].iter().map(|&other| name(other)).collect::<Vec<_>>()
+        };
+        assert_eq!(of("deep"), ["sub", "a", "r"]);
+        assert_eq!(of("sub"), ["a", "r"]);
+        assert_eq!(of("a"), ["r"]);
+        // `packages/ab` starts with the text of `packages/a` but is not below it.
+        assert_eq!(of("ab"), ["r"]);
+        assert!(of("r").is_empty());
+        assert!(package_ancestors(&workspace, true).iter().all(Vec::is_empty));
     }
 }
