@@ -234,6 +234,13 @@ policy = "banned"
 scope = "lockfile"
 ```
 
+A path specifier (`link:`, `file:`, `portal:`, `./`, `../`, `/` or `~/`) is never rewritten to a version and never
+the version others align with. In a dependency section, while `local-path-dependency` is on, it takes no part in any
+version group: that rule reports it, and its fix is the only one the entry gets. With that rule off, and in an
+override section or a custom type (which that rule does not read), a path keeps its version-group state without a fix:
+next to a workspace package's own version, a path that resolves to the package is valid and one to another directory
+is a `version-mismatch`. `banned` groups report a path in every case.
+
 A `scope = "lockfile"` group reports each resolved `name@version` it bans once, at its entry in `pnpm-lock.yaml`, with
 the shortest chain an importer pulls it in through (`importer packages/app pulls it in through mid@2.0.0 >
 left-pad@1.3.0`), so removing the `overrides` entry that kept a package out fails the lint. `packages` chooses the

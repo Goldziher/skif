@@ -1,7 +1,7 @@
 use serde_json::Value;
 use skif_core::{Category, Fix, FixSafety, Fixability, JsonAction, RuleMeta, Severity, diagnostic};
 use skif_lint::{Emitter, LintContext, Rule};
-use skif_workspace::{PackageManager, Workspace};
+use skif_workspace::{Package, PackageManager, Workspace};
 
 use super::support::{active_packages, json_op, key, value_location};
 
@@ -21,22 +21,91 @@ pub struct LocalPathDependency;
 
 const PROTOCOLS: [&str; 3] = ["link:", "file:", "portal:"];
 
+/// Whether `specifier` points at a path on disk: a `link:`, `file:` or `portal:` specifier, or a path that is
+/// relative (`./`, `../`), absolute (`/`) or under the home directory (`~/`), as npm reads a file specifier.
 pub(crate) fn is_local_path(specifier: &str) -> bool {
     PROTOCOLS.iter().any(|protocol| specifier.starts_with(protocol))
-        || specifier.starts_with("./")
-        || specifier.starts_with("../")
-        || specifier.starts_with('/')
+        || ["./", "../", "/", "~/"]
+            .iter()
+            .any(|prefix| specifier.starts_with(prefix))
 }
 
-/// The specifier that links a workspace package: `*` for npm, `workspace:*` for the others, `None` when the
-/// package manager is unknown or (Yarn Classic) has no protocol to suggest.
-fn workspace_specifier(workspace: &Workspace) -> Option<&'static str> {
-    match workspace.package_manager? {
-        PackageManager::Npm => Some("*"),
-        _ if !workspace.supports_workspace_protocol() => None,
-        PackageManager::Pnpm | PackageManager::Yarn | PackageManager::Bun => Some("workspace:*"),
-        _ => None,
+/// The workspace-relative directory the path specifier of a dependency in `package` points at, `.` and `..`
+/// resolved lexically. `None` for an absolute or home-relative path and for one that climbs out of the workspace.
+pub(crate) fn path_target(package: &Package, specifier: &str) -> Option<String> {
+    let path = PROTOCOLS
+        .iter()
+        .find_map(|protocol| specifier.strip_prefix(protocol))
+        .unwrap_or(specifier);
+    if path.starts_with('/') || path.starts_with('~') {
+        return None;
     }
+    let base = relative_dir(package);
+    let mut parts: Vec<&str> = base.split('/').filter(|part| !part.is_empty()).collect();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            other => parts.push(other),
+        }
+    }
+    Some(parts.join("/"))
+}
+
+/// The workspace-relative directory of `package` with `/` separators, empty for the root, as
+/// [`path_target`] gives it.
+pub(crate) fn relative_dir(package: &Package) -> String {
+    package.dir.to_string_lossy().replace('\\', "/")
+}
+
+/// A workspace-relative directory as a message shows it: `.` for the root.
+fn shown(dir: &str) -> &str {
+    if dir.is_empty() { "." } else { dir }
+}
+
+/// Whether a version carries a prerelease tag (`1.0.0-rc.1`; build metadata after `+` does not count).
+fn is_prerelease(version: &str) -> bool {
+    version.split('+').next().is_some_and(|core| core.contains('-'))
+}
+
+/// The specifier that links the workspace package `member`: `workspace:*` where the package manager implements the
+/// protocol, and `None` when the package manager is unknown. npm links a member through `*`, which its
+/// dependency check accepts for any version. Yarn Classic links a member through a range its version satisfies, and
+/// its `*` excludes prereleases, so a member with a prerelease version is named by that exact version.
+fn link_specifier(workspace: &Workspace, member: &Package) -> Option<String> {
+    let specifier = match workspace.package_manager? {
+        PackageManager::Yarn if !workspace.supports_workspace_protocol() => member
+            .version
+            .as_deref()
+            .filter(|version| is_prerelease(version))
+            .unwrap_or("*"),
+        PackageManager::Npm => "*",
+        PackageManager::Pnpm | PackageManager::Yarn | PackageManager::Bun => "workspace:*",
+        _ => return None,
+    };
+    Some(specifier.to_owned())
+}
+
+/// The help of a path to the workspace member `member`, linked by `replacement`: when the path resolves to another
+/// directory, it names both, because linking the member changes the code that gets installed.
+fn member_help(package: &Package, specifier: &str, member: &Package, replacement: &str) -> String {
+    let member_dir = relative_dir(member);
+    let name = member.display_name();
+    let resolved = path_target(package, specifier);
+    if resolved.as_deref() == Some(member_dir.as_str()) {
+        return format!("depend on the workspace member `{name}` with `{replacement}` instead of a path");
+    }
+    let resolved = resolved.map_or_else(
+        || "outside the workspace".to_owned(),
+        |dir| format!("to `{}`", shown(&dir)),
+    );
+    format!(
+        "the path resolves {resolved}, not to `{}` of the workspace member `{name}`; `{replacement}` links that \
+         member, which installs its code instead of the code at the path",
+        shown(&member_dir)
+    )
 }
 
 impl Rule for LocalPathDependency {
@@ -46,16 +115,15 @@ impl Rule for LocalPathDependency {
 
     fn check(&self, cx: &LintContext<'_>, out: &mut Emitter<'_>) {
         let workspace = cx.workspace;
-        let replacement = workspace_specifier(workspace);
         for package in active_packages(workspace) {
             for entry in package
                 .dependencies
                 .iter()
                 .filter(|entry| is_local_path(&entry.specifier))
             {
-                let target = workspace
+                let member = workspace
                     .package_by_name(&entry.name)
-                    .filter(|target| target.id != package.id);
+                    .filter(|member| member.id != package.id);
                 let mut builder = diagnostic(
                     &META,
                     format!("`{}` points at the local path `{}`", entry.name, entry.specifier),
@@ -65,21 +133,20 @@ impl Rule for LocalPathDependency {
                 .package_id(package.id)
                 .dependency(entry.name.clone())
                 .specifier(entry.specifier.clone());
-                builder = match (target, replacement) {
-                    (Some(_), Some(replacement)) => builder
-                        .help(format!(
-                            "depend on the workspace package with `{replacement}` instead of a path"
-                        ))
+                let link = member.and_then(|member| Some((member, link_specifier(workspace, member)?)));
+                builder = match link {
+                    Some((member, replacement)) => builder
+                        .help(member_help(package, &entry.specifier, member, &replacement))
                         .fix(Fix::new(
                             format!("Use `{replacement}` for `{}`", entry.name),
                             FixSafety::Unsafe,
                             vec![json_op(
                                 package,
                                 vec![key(entry.kind.field()), key(&entry.name)],
-                                JsonAction::Set(Value::String(replacement.to_owned())),
+                                JsonAction::Set(Value::String(replacement)),
                             )],
                         )),
-                    _ => builder.help("publish the package or vendor it; paths outside the workspace packages do not install elsewhere"),
+                    None => builder.help("publish the package or vendor it; paths outside the workspace packages do not install elsewhere"),
                 };
                 out.emit(builder.build());
             }
@@ -112,6 +179,8 @@ mod tests {
             ("dot slash", "./b", true),
             ("dot dot slash", "../b", true),
             ("absolute", "/abs/b", true),
+            ("home", "~/b", true),
+            ("tilde range", "~1.0.0", false),
             ("registry range", "^1.0.0", false),
             ("workspace", "workspace:*", false),
             ("catalog", "catalog:", false),
@@ -168,6 +237,7 @@ mod tests {
             ("pnpm@9.0.0", Some("workspace:*")),
             ("yarn@4.0.0", Some("workspace:*")),
             ("bun@1.2.0", Some("workspace:*")),
+            ("yarn@1.22.22", Some("*")),
         ];
         for (manager, expected) in cases {
             let root_json = root_for(manager);
@@ -197,18 +267,162 @@ mod tests {
     }
 
     #[test]
-    fn yarn_classic_gets_no_workspace_suggestion_but_modern_yarn_does() {
-        let a = a_with("link:../b");
-        for (manager, fixable) in [("yarn@1.22.19", false), ("yarn@4.1.0", true)] {
+    fn yarn_classic_links_a_member_by_range_and_the_help_names_it() {
+        let cases = [
+            ("file:../b", "yarn@1.22.22"),
+            ("link:../b", "yarn@1.22.19"),
+            ("../b", "yarn@1.22.22"),
+        ];
+        for (specifier, manager) in cases {
             let root_json = root_for(manager);
+            let a = a_with(specifier);
             let files = [
                 ("package.json", root_json.as_str()),
                 ("packages/a/package.json", a.as_str()),
                 ("packages/b/package.json", B),
             ];
             let diagnostics = lint(META.id, &files, &config(""));
-            assert_eq!(diagnostics.len(), 1, "{manager}");
-            assert_eq!(diagnostics[0].is_fixable(), fixable, "{manager}");
+            assert_eq!(diagnostics.len(), 1, "{specifier}");
+            assert_eq!(
+                diagnostics[0].help.as_deref(),
+                Some("depend on the workspace member `@scope/b` with `*` instead of a path"),
+                "{specifier}"
+            );
+            assert_eq!(diagnostics[0].fixes.len(), 1, "{specifier}");
+            assert_eq!(diagnostics[0].fixes[0].title, "Use `*` for `@scope/b`", "{specifier}");
+            assert_fixes_clear(META.id, &files, &config(""));
+        }
+    }
+
+    #[test]
+    fn yarn_classic_from_the_lockfile_header_gets_the_range_too() {
+        let root_json = r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#;
+        let a = a_with("file:../b");
+        let files = [
+            ("package.json", root_json),
+            (
+                "yarn.lock",
+                "# THIS IS AN AUTOGENERATED FILE. DO NOT EDIT THIS FILE DIRECTLY.\n# yarn lockfile v1\n",
+            ),
+            ("packages/a/package.json", a.as_str()),
+            ("packages/b/package.json", B),
+        ];
+        let fixed = testing::fixed_json(META.id, &files, &config(""), "packages/a/package.json");
+        assert_eq!(fixed["dependencies"]["@scope/b"], serde_json::json!("*"));
+    }
+
+    #[test]
+    fn a_prerelease_member_is_linked_by_its_exact_version_under_yarn_classic() {
+        let cases = [
+            ("yarn@1.22.22", "1.0.0-rc.1", "1.0.0-rc.1"),
+            ("yarn@1.22.22", "2.0.0-beta.3+build.7", "2.0.0-beta.3+build.7"),
+            ("yarn@1.22.22", "1.0.0+build.7", "*"),
+            ("yarn@1.22.22", "1.0.0", "*"),
+            ("npm@10.0.0", "1.0.0-rc.1", "*"),
+            ("pnpm@9.0.0", "1.0.0-rc.1", "workspace:*"),
+        ];
+        for (manager, version, expected) in cases {
+            let root_json = root_for(manager);
+            let a = a_with("link:../b");
+            let b = format!(r#"{{"name":"@scope/b","version":"{version}"}}"#);
+            let files = [
+                ("package.json", root_json.as_str()),
+                ("packages/a/package.json", a.as_str()),
+                ("packages/b/package.json", b.as_str()),
+            ];
+            let fixed = testing::fixed_json(META.id, &files, &config(""), "packages/a/package.json");
+            assert_eq!(
+                fixed["dependencies"]["@scope/b"].as_str(),
+                Some(expected),
+                "{manager} {version}"
+            );
+            assert_fixes_clear(META.id, &files, &config(""));
+        }
+    }
+
+    #[test]
+    fn a_path_to_another_directory_names_both_directories_and_keeps_an_unsafe_fix() {
+        let cases = [
+            (
+                "link:../other",
+                "the path resolves to `packages/other`, not to `packages/b` of the workspace member `@scope/b`; \
+                 `workspace:*` links that member, which installs its code instead of the code at the path",
+            ),
+            (
+                "../../vendor/b",
+                "the path resolves to `vendor/b`, not to `packages/b` of the workspace member `@scope/b`; \
+                 `workspace:*` links that member, which installs its code instead of the code at the path",
+            ),
+            (
+                "file:../..",
+                "the path resolves to `.`, not to `packages/b` of the workspace member `@scope/b`; \
+                 `workspace:*` links that member, which installs its code instead of the code at the path",
+            ),
+            (
+                "/abs/b",
+                "the path resolves outside the workspace, not to `packages/b` of the workspace member `@scope/b`; \
+                 `workspace:*` links that member, which installs its code instead of the code at the path",
+            ),
+            (
+                "~/b",
+                "the path resolves outside the workspace, not to `packages/b` of the workspace member `@scope/b`; \
+                 `workspace:*` links that member, which installs its code instead of the code at the path",
+            ),
+            (
+                "link:../../../b",
+                "the path resolves outside the workspace, not to `packages/b` of the workspace member `@scope/b`; \
+                 `workspace:*` links that member, which installs its code instead of the code at the path",
+            ),
+            (
+                "portal:./../b",
+                "depend on the workspace member `@scope/b` with `workspace:*` instead of a path",
+            ),
+        ];
+        let root_json = root_for("pnpm@9.0.0");
+        for (specifier, help) in cases {
+            let a = a_with(specifier);
+            let files = [
+                ("package.json", root_json.as_str()),
+                ("packages/a/package.json", a.as_str()),
+                ("packages/b/package.json", B),
+            ];
+            let diagnostics = lint(META.id, &files, &config(""));
+            assert_eq!(diagnostics.len(), 1, "{specifier}");
+            assert_eq!(diagnostics[0].help.as_deref(), Some(help), "{specifier}");
+            assert_eq!(diagnostics[0].fixes.len(), 1, "{specifier}");
+            assert_eq!(diagnostics[0].fixes[0].safety, FixSafety::Unsafe, "{specifier}");
+        }
+    }
+
+    #[test]
+    fn path_targets_resolve_from_the_package_directory() {
+        let workspace_files = [
+            (
+                "package.json",
+                r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
+            ),
+            ("packages/a/package.json", r#"{"name":"a"}"#),
+        ];
+        let config = config("");
+        let workspace = testing::workspace(&workspace_files, &config);
+        let root = workspace.package_by_name("root").unwrap();
+        let a = workspace.package_by_name("a").unwrap();
+        let cases = [
+            (a, "link:../b", Some("packages/b")),
+            (a, "file:./../b/./c", Some("packages/b/c")),
+            (a, "portal:../b", Some("packages/b")),
+            (a, "../../vendor", Some("vendor")),
+            (a, "./x", Some("packages/a/x")),
+            (a, "../..", Some("")),
+            (a, "../../..", None),
+            (a, "/abs/b", None),
+            (a, "file:/abs/b", None),
+            (a, "~/b", None),
+            (root, "link:./packages/b", Some("packages/b")),
+            (root, "link:../x", None),
+        ];
+        for (package, specifier, expected) in cases {
+            assert_eq!(path_target(package, specifier).as_deref(), expected, "{specifier}");
         }
     }
 
@@ -290,6 +504,54 @@ mod tests {
         assert_eq!(diagnostics[0].fixes[0].safety, FixSafety::Unsafe);
         let fixed = testing::fixed_json(META.id, &files, &config(""), "package.json");
         assert_eq!(fixed["devDependencies"]["@scope/b"], serde_json::json!("workspace:*"));
+    }
+
+    /// The repro of a path to a member next to a range the member's version satisfies: `version-mismatch` leaves the
+    /// path alone, so `local-path-dependency` gives the one fix, and the fixed workspace is clean for both rules.
+    #[test]
+    fn a_path_to_a_member_gets_one_fix_that_both_rules_accept() {
+        fn both(files: testing::Files<'_>, config: &skif_config::Config) -> Vec<skif_core::Diagnostic> {
+            [META.id, "version-mismatch"]
+                .into_iter()
+                .flat_map(|rule| lint(rule, files, config))
+                .collect()
+        }
+        let cases = [
+            ("npm@10.0.0", "*"),
+            ("pnpm@9.0.0", "workspace:*"),
+            ("yarn@4.1.0", "workspace:*"),
+            ("bun@1.2.0", "workspace:*"),
+            ("yarn@1.22.22", "*"),
+        ];
+        let a = r#"{"name":"a","version":"1.0.0"}"#;
+        let b = r#"{"name":"b","version":"1.0.0","dependencies":{"a":"../a"}}"#;
+        let c = r#"{"name":"c","version":"1.0.0","dependencies":{"a":"^1.0.0"}}"#;
+        let config = config("");
+        for (manager, expected) in cases {
+            let root_json = root_for(manager);
+            let files = [
+                ("package.json", root_json.as_str()),
+                ("packages/a/package.json", a),
+                ("packages/b/package.json", b),
+                ("packages/c/package.json", c),
+            ];
+            let before = both(&files, &config);
+            assert_eq!(subjects(&before), [("b".to_owned(), Some("a".to_owned()))], "{manager}");
+            assert_eq!(before[0].rule.as_str(), META.id, "{manager}");
+            assert_eq!(before[0].fixes.len(), 1, "{manager}");
+            let fixed = testing::apply_fixes(&files, &before);
+            assert_eq!(
+                both(&testing::borrowed(&fixed), &config),
+                [] as [skif_core::Diagnostic; 0],
+                "{manager}"
+            );
+            let (_, text) = fixed
+                .iter()
+                .find(|(path, _)| path == "packages/b/package.json")
+                .unwrap();
+            let manifest: Value = serde_json::from_str(text).unwrap();
+            assert_eq!(manifest["dependencies"]["a"].as_str(), Some(expected), "{manager}");
+        }
     }
 
     #[test]

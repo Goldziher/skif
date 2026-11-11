@@ -1,4 +1,3 @@
-description = "A link: specifier that resolves to a different directory differs to the local package."
+description = "A link: specifier that resolves to a different directory takes no part in the version groups: local-path-dependency owns it, so its fix is the only one the value gets."
 source = "syncpack:src/version_group/preferred_semver_test.rs::local::instance_is_linked_to_wrong_directory"
-tags = ["link", "local", "fix"]
-compare = "bytes"
+tags = ["link", "local", "deviation"]

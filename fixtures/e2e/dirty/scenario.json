@@ -24,16 +24,10 @@
       ]
     },
     "yarn-classic": {
-      "reason": "Yarn Classic refuses to install the workspaces of a root that is not private, so the overlay makes it private. skif offers no fix for a local path to a workspace package under Yarn Classic, which has no workspace: protocol, so the finding stays.",
+      "reason": "Yarn Classic refuses to install the workspaces of a root that is not private, so the overlay makes it private.",
       "remove": [
         "root-package-private-field:e2e-dirty"
-      ],
-      "after_fix": {
-        "exit_code": 1,
-        "add": [
-          "local-path-dependency:@e2e/b:@e2e/a"
-        ]
-      }
+      ]
     }
   }
 }
