@@ -340,12 +340,13 @@ impl InputSource for PluginSource {
             };
             !skips_package_file(request.fs, &request.workspace.root, &dir, &file, self.gitignore)
         });
-        resolve_plugins_with(&context, &projects)
-            .into_iter()
-            .fold(WorkspaceInputs::default(), |mut all, (_, output)| {
+        resolve_plugins_with(&context, &projects).into_iter().fold(
+            WorkspaceInputs::default(),
+            |mut all, (_, output)| {
                 all.extend(inputs(output));
                 all
-            })
+            },
+        )
     }
 }
 

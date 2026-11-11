@@ -92,7 +92,10 @@ fn workspace_files() -> Vec<(&'static str, &'static str)> {
             "libs/util/jest.config.ts",
             "export default { transform: { '^.+\\\\.ts$': 'ts-jest' } };\n",
         ),
-        ("libs/util/src/sum.ts", "export const sum = (a: number, b: number) => a + b;\n"),
+        (
+            "libs/util/src/sum.ts",
+            "export const sum = (a: number, b: number) => a + b;\n",
+        ),
         (
             "libs/util/src/sum.spec.ts",
             "import { sum } from './sum';\ntest('sum', () => expect(sum(1, 2)).toBe(3));\n",
@@ -110,8 +113,17 @@ fn the_tool_configs_of_integrated_projects_count_for_the_root() {
     );
     let unused = dependencies(&diagnostics, &["unused-dependencies", "unused-dev-dependencies"]);
     assert!(unused.contains(&"left-pad".to_owned()), "{unused:?}");
-    for used in ["@vitejs/plugin-react", "eslint-plugin-react", "ts-jest", "vite", "react"] {
-        assert!(!unused.iter().any(|name| name == used), "{used} reported unused: {unused:?}");
+    for used in [
+        "@vitejs/plugin-react",
+        "eslint-plugin-react",
+        "ts-jest",
+        "vite",
+        "react",
+    ] {
+        assert!(
+            !unused.iter().any(|name| name == used),
+            "{used} reported unused: {unused:?}"
+        );
     }
 }
 
@@ -122,7 +134,16 @@ fn without_nx_a_project_json_is_a_plain_file() {
     assert_ne!(manifest, MANIFEST);
     let files: Vec<(&str, &str)> = workspace_files()
         .into_iter()
-        .map(|(path, text)| (path, if path == "package.json" { manifest.as_str() } else { text }))
+        .map(|(path, text)| {
+            (
+                path,
+                if path == "package.json" {
+                    manifest.as_str()
+                } else {
+                    text
+                },
+            )
+        })
         .collect();
     let diagnostics = lint(&files);
     assert!(
@@ -146,6 +167,7 @@ fn the_nx_root_jest_config_leaves_the_root_judged() {
         [PathBuf::from("apps/web/src/unused.ts")],
         "{with_root_config:#?}"
     );
-    let unused = |diagnostics: &[Diagnostic]| dependencies(diagnostics, &["unused-dependencies", "unused-dev-dependencies"]);
+    let unused =
+        |diagnostics: &[Diagnostic]| dependencies(diagnostics, &["unused-dependencies", "unused-dev-dependencies"]);
     assert_eq!(unused(&with_root_config), unused(&lint(&workspace_files())));
 }

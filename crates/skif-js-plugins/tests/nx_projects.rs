@@ -65,8 +65,7 @@ fn output<'a>(results: &'a [(PluginId, PluginOutput)], id: &str) -> &'a PluginOu
     results
         .iter()
         .find(|(plugin, _)| *plugin == id)
-        .map(|(_, output)| output)
-        .unwrap_or_else(|| panic!("plugin {id} is not enabled"))
+        .map_or_else(|| panic!("plugin {id} is not enabled"), |(_, output)| output)
 }
 
 fn names(output: &PluginOutput) -> Vec<&str> {
@@ -127,9 +126,14 @@ fn the_tool_configs_of_an_integrated_project_are_read_for_the_root() {
     let jest = output(&results, "jest");
     assert!(reads(jest, "apps/web/jest.config.ts"), "{:?}", jest.config_files);
     assert!(names(jest).contains(&"ts-jest"), "{:?}", names(jest));
-    assert!(jest.entries.contains(&"jest.preset.js".to_owned()), "{:?}", jest.entries);
     assert!(
-        jest.entries.contains(&"apps/web/**/*.{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}".to_owned()),
+        jest.entries.contains(&"jest.preset.js".to_owned()),
+        "{:?}",
+        jest.entries
+    );
+    assert!(
+        jest.entries
+            .contains(&"apps/web/**/*.{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}".to_owned()),
         "{:?}",
         jest.entries
     );
@@ -211,10 +215,18 @@ fn every_project_json_is_read_from_the_package() {
     });
     let nx = output(&results, "nx");
     for entry in ["packages/b/scripts/build.mjs", "tools/c/run.mjs"] {
-        assert!(nx.entries.contains(&entry.to_owned()), "missing {entry}: {:?}", nx.entries);
+        assert!(
+            nx.entries.contains(&entry.to_owned()),
+            "missing {entry}: {:?}",
+            nx.entries
+        );
     }
     for entry in ["out/stale/run.mjs", "node_modules/pkg/run.mjs"] {
-        assert!(!nx.entries.contains(&entry.to_owned()), "unexpected {entry}: {:?}", nx.entries);
+        assert!(
+            !nx.entries.contains(&entry.to_owned()),
+            "unexpected {entry}: {:?}",
+            nx.entries
+        );
     }
     // The plain entry point finds every project itself.
     let fs = memory(&files);
