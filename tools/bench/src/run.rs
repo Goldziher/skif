@@ -40,6 +40,10 @@ pub struct RunOptions {
     pub corpus_file: PathBuf,
     pub corpus_dir: PathBuf,
     pub use_corpus: bool,
+    /// Only these repositories of the bench corpus; empty for all of them.
+    pub only: Vec<String>,
+    /// The checkout the skif binary was built from; the harness's own checkout when `None`.
+    pub skif_source: Option<PathBuf>,
     pub generated_dir: PathBuf,
     pub out: PathBuf,
     pub warmup: u32,
@@ -229,8 +233,10 @@ struct Skipped {
 struct Summary {
     schema: u32,
     skif: String,
-    /// The skif source commit (`-dirty` with local changes) the harness ran from.
+    /// The commit (`-dirty` with local changes) of the skif source the binary under test was built from.
     source_rev: String,
+    /// The commit of the harness that measured it, which the workflow builds from the dispatched ref.
+    harness_rev: String,
     /// When the measurement ended, in seconds since the Unix epoch.
     measured_at: u64,
     /// The machine the measurement ran on, with the GitHub Actions runner when it ran in a workflow.
@@ -245,6 +251,8 @@ struct Summary {
     tool_versions: BTreeMap<String, String>,
     warmup: u32,
     runs: u32,
+    /// The corpus repositories a run narrowed with `--only` timed; empty when it timed all of them.
+    corpus_only: Vec<String>,
     skipped_tools: Vec<Skipped>,
     targets: Vec<TargetResult>,
     adr_0001_checks: Vec<TargetCheck>,
@@ -422,11 +430,23 @@ fn format_ms(value: f64) -> String {
 
 fn markdown(summary: &Summary) -> String {
     let mut out = String::from("# skif benchmark results\n\n");
+    let harness = if summary.harness_rev == summary.source_rev {
+        String::new()
+    } else {
+        format!(" (harness at `{}`)", summary.harness_rev)
+    };
     let _ = write!(
         out,
-        "{} at `{}`; hyperfine `{}`, {} warmup runs, {} measured runs. Times are wall clock, warm file cache.\n\n",
+        "{} at `{}`{harness}; hyperfine `{}`, {} warmup runs, {} measured runs. Times are wall clock, warm file cache.\n\n",
         summary.skif, summary.source_rev, summary.hyperfine, summary.warmup, summary.runs
     );
+    if !summary.corpus_only.is_empty() {
+        let _ = write!(
+            out,
+            "Corpus: only {}, a partial run.\n\n",
+            summary.corpus_only.join(", ")
+        );
+    }
     let _ = write!(
         out,
         "Machine: {}; load average {} before and {} after the run.\n\n",
@@ -790,8 +810,13 @@ pub fn run(options: &RunOptions) -> Result<()> {
     let raw = std::path::absolute(options.out.join("raw")).context("resolving the output directory")?;
     fs::create_dir_all(&raw).with_context(|| format!("creating {}", raw.display()))?;
 
-    let source_rev = provenance::source_rev();
-    let (pins, _) = corpus::select(&options.corpus_file, "bench", &[])?;
+    let harness_rev = provenance::source_rev();
+    let source_rev = options
+        .skif_source
+        .as_deref()
+        .map_or_else(|| harness_rev.clone(), provenance::rev_of);
+    // Checks the names of `--only` before anything is installed.
+    let (pins, _) = corpus::select(&options.corpus_file, "bench", &options.only)?;
     let mut skipped = Vec::new();
     let prefix = std::path::absolute(options.generated_dir.join("tools")).context("resolving the tools directory")?;
     let installed = install_tools(&pins, &prefix, &mut skipped)?;
@@ -844,7 +869,7 @@ pub fn run(options: &RunOptions) -> Result<()> {
         Some(corpus::fetch_suite(
             &options.corpus_file,
             "bench",
-            &[],
+            &options.only,
             &options.corpus_dir,
         )?)
     } else {
@@ -914,6 +939,7 @@ pub fn run(options: &RunOptions) -> Result<()> {
         schema: SUMMARY_SCHEMA,
         skif: skif_version(&skif),
         source_rev,
+        harness_rev,
         measured_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |since| since.as_secs()),
@@ -925,6 +951,7 @@ pub fn run(options: &RunOptions) -> Result<()> {
         tool_versions,
         warmup: options.warmup,
         runs: options.runs,
+        corpus_only: options.only.clone(),
         skipped_tools: skipped,
         adr_0001_checks: checks(&measured),
         targets: measured,
@@ -982,6 +1009,7 @@ mod tests {
             schema: SUMMARY_SCHEMA,
             skif: "skif 0.0.0".into(),
             source_rev: "0123456789ab".into(),
+            harness_rev: "ba9876543210".into(),
             measured_at: 1_794_268_800,
             machine: machine(),
             toolchain: Toolchain {
@@ -998,6 +1026,7 @@ mod tests {
             tool_versions: BTreeMap::from([("knip".to_owned(), "6.44.1".to_owned())]),
             warmup: 1,
             runs: 2,
+            corpus_only: vec!["babel".into(), "vue-core".into()],
             skipped_tools: skipped,
             targets: vec![TargetResult {
                 target: "t".into(),
@@ -1024,7 +1053,9 @@ mod tests {
             "{with_skip}"
         );
         assert!(
-            with_skip.contains("skif 0.0.0 at `0123456789ab`; hyperfine `hyperfine 1.20.0`"),
+            with_skip.contains(
+                "skif 0.0.0 at `0123456789ab` (harness at `ba9876543210`); hyperfine `hyperfine 1.20.0`"
+            ),
             "{with_skip}"
         );
         assert!(
@@ -1044,6 +1075,10 @@ mod tests {
             "{with_skip}"
         );
         assert!(with_skip.contains("Comparison tools: knip `6.44.1`."), "{with_skip}");
+        assert!(
+            with_skip.contains("\n\nCorpus: only babel, vue-core, a partial run.\n\n"),
+            "{with_skip}"
+        );
         for text in [markdown(&summary(vec![check], Vec::new())), with_skip] {
             assert!(text.ends_with(" |\n"), "{text:?}");
             assert!(!text.ends_with("\n\n"));
