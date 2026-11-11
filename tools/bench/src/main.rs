@@ -262,6 +262,14 @@ struct RunArgs {
     /// Skip the corpus and benchmark only generated workspaces.
     #[arg(long)]
     no_corpus: bool,
+    /// Only these repositories of the bench corpus; the summary records them under `corpus_only`, and such a partial
+    /// run is not published.
+    #[arg(long, value_delimiter = ',', conflicts_with = "no_corpus")]
+    only: Vec<String>,
+    /// The skif checkout the binary under test was built from, whose commit the summary records as `source_rev`
+    /// (default: the checkout the harness was built from).
+    #[arg(long)]
+    skif_source: Option<PathBuf>,
     /// Corpus manifest.
     #[arg(long, default_value = DEFAULT_CORPUS_FILE)]
     corpus_file: PathBuf,
@@ -381,6 +389,8 @@ fn main() -> Result<()> {
             corpus_file: args.corpus_file,
             corpus_dir: args.corpus_dir,
             use_corpus: !args.no_corpus,
+            only: args.only,
+            skif_source: args.skif_source,
             generated_dir: args.generated_dir,
             out: args.out,
             warmup: args.warmup,
@@ -390,5 +400,37 @@ fn main() -> Result<()> {
             enforce: !args.no_enforce,
             install: args.install,
         }),
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use clap::CommandFactory;
+
+    use super::*;
+
+    #[test]
+    fn the_command_line_is_consistent() {
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn run_narrows_the_corpus_and_names_the_skif_source() {
+        let cli = Cli::try_parse_from([
+            "skif-bench",
+            "run",
+            "--only",
+            "babel,vue-core",
+            "--skif-source",
+            "../skif",
+        ])
+        .unwrap();
+        let Command::Run(args) = cli.command else {
+            panic!("not the run command");
+        };
+        assert_eq!(args.only, ["babel", "vue-core"]);
+        assert_eq!(args.skif_source, Some(PathBuf::from("../skif")));
+        assert!(Cli::try_parse_from(["skif-bench", "run", "--only", "babel", "--no-corpus"]).is_err());
     }
 }
