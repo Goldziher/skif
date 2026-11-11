@@ -26,7 +26,7 @@ const KNIP_SPEEDUP_TARGET: f64 = 5.0;
 const GRAPH_TARGET_FILES: usize = 10_000;
 const GRAPH_TARGET_MS: f64 = 2000.0;
 /// Version of the `summary.json` layout.
-const SUMMARY_SCHEMA: u32 = 3;
+const SUMMARY_SCHEMA: u32 = 4;
 const GENERATED_SEED: u64 = 1;
 const GENERATED_MISMATCH_RATE: f64 = 0.05;
 /// How long an install of a corpus repository may take, unless the corpus manifest sets its own.
@@ -283,6 +283,8 @@ struct Summary {
     measured_at: u64,
     /// The machine the measurement ran on, with the GitHub Actions runner when it ran in a workflow.
     machine: Machine,
+    /// `machine` in one line ([`machine_text`]), as `summary.md` and the published tables write it.
+    machine_text: String,
     /// The compiler, runtime and package managers around the measurement.
     toolchain: Toolchain,
     /// The 1, 5 and 15 minute load averages before the first and after the last measurement.
@@ -309,8 +311,8 @@ fn quote(argument: &str) -> String {
     }
 }
 
-/// The program and arguments of `tool`, whose executable is `program` (the skif binary for the skif rows); `extra` holds
-/// skif's arguments for the target (the run's `--skif-arg`s, then the target's own, such as `--recursive`).
+/// The program and arguments of `tool`, whose executable is `program` (the skif binary for the skif rows); `extra`
+/// holds skif's arguments for the target (the run's `--skif-arg`s, then the target's own, such as `--recursive`).
 fn tool_argv(tool: Tool, program: &Path, extra: &[String], knip_args: &[String]) -> Vec<String> {
     let mut argv = vec![program.to_string_lossy().into_owned()];
     let fixed: &[&str] = match tool {
@@ -527,7 +529,7 @@ fn markdown(summary: &Summary) -> String {
     let _ = write!(
         out,
         "Machine: {}; load average {} before and {} after the run.\n\n",
-        machine_text(&summary.machine),
+        summary.machine_text,
         format_load(summary.load_before),
         format_load(summary.load_after)
     );
@@ -1063,6 +1065,7 @@ pub fn run(options: &RunOptions) -> Result<()> {
         measured_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |since| since.as_secs()),
+        machine_text: machine_text(&machine),
         machine,
         toolchain,
         load_before,
@@ -1149,6 +1152,7 @@ mod tests {
             harness_rev: "ba9876543210".into(),
             measured_at: 1_794_268_800,
             machine: machine(),
+            machine_text: machine_text(&machine()),
             toolchain: Toolchain {
                 rustc: Some("rustc 1.99.0 (0123abcd 2026-10-01)".into()),
                 node: Some("v26.13.0".into()),
