@@ -160,14 +160,18 @@ All notable changes to this project are documented here. The format follows
   from `tools/bench/tools/package-lock.json`, which pins their dependencies and has to agree with `[tools]` of
   `corpus.toml`. `skif-bench run` records the machine (operating system, kernel, architecture, CPU model, logical,
   available and physical CPUs, memory, the tightest cgroup CPU limit of the cgroup and its ancestors, hypervisor, the
-  GitHub runner image, run attempt and its URL, and the one-line `machine_text`), the toolchain (`rustc`, `node`,
-  `npm`, `pnpm`, `yarn`, `bun`) and what installed each corpus repository in `summary.json` schema 4 and the
-  `summary.md` header; it runs a tool that exited with an error once more to log its stderr and record the cause, and
-  marks an ADR 0001 check against it `invalid`. It takes `--only` to time some corpus repositories and `--skif-source`
-  to name the checkout the measured binary was built from, and refuses a comparison tool in `corpus.toml` that is not
-  pinned to an exact version. `refresh-numbers.mjs` publishes only a summary from a GitHub-hosted workflow run of
-  clean checkouts in which no tool exited with an error, and names the harness commit when it differs from the
-  measured one ([ADR 0113](adrs/0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md)).
+  GitHub runner image, run attempt and its URL, and the one-line `machine_text`), the toolchain (`rustc`, `node`, `npm`,
+  `pnpm`, `yarn`, `bun`) and what installed each corpus repository in `summary.json` schema 5 and the `summary.md`
+  header; it runs a tool that exited with an error once more to log its stderr and record the cause, and marks an ADR
+  0001 check against it `invalid`. A bench repository on which knip is known to fail declares it in `corpus.toml`
+  (`bench-knip-failure = { matches, reason }`; create-t3-turbo and vue-core): skif, sherif and syncpack are still timed
+  there, a knip error holding `matches` is recorded as `failure` and shown as `fails: <reason>` without a ratio, and its
+  check is `not-measured`; a declared failure that did not happen, or another error, makes the check `invalid`. It takes
+  `--only` to time some corpus repositories and `--skif-source` to name the checkout the measured binary was built from,
+  and refuses a comparison tool in `corpus.toml` that is not pinned to an exact version. `refresh-numbers.mjs` publishes
+  only a summary from a GitHub-hosted workflow run of clean checkouts with no `invalid` check, in which no tool exited
+  with an error other than a declared knip failure the run matched, and names the harness commit when it differs from
+  the measured one ([ADR 0113](adrs/0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md)).
 
 ### Changed
 
