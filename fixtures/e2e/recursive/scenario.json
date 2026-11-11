@@ -1,0 +1,22 @@
+{
+  "description": "`-r` over a workspace, a second workspace nested in a directory it does not list and a standalone package: each root is installed by itself and linted with its own findings.",
+  "roots": [
+    ".",
+    "nested",
+    "tools/standalone"
+  ],
+  "lint_args": [
+    "-r"
+  ],
+  "expect": {
+    "exit_code": 1,
+    "diagnostics": [
+      "unused-dependencies:e2e-standalone:semver",
+      "version-mismatch:@e2e/d:is-number"
+    ],
+    "after_fix": {
+      "exit_code": 0,
+      "diagnostics": []
+    }
+  }
+}
