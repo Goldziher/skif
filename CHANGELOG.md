@@ -218,6 +218,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `version-mismatch` no longer rewrites a path dependency (`../a`, `file:`, `link:`, `portal:`) to a version: path
+  specifiers take no part in the version groups, so `local-path-dependency` gives the one fix a path gets
+  ([ADR 0106](adrs/0106-path-specifiers-belong-to-local-path-dependency.md),
+  [#153](https://github.com/Goldziher/skif/issues/153)).
 - **Config evaluation**: a conditional spread (`...(ci ? { … } : {})`) no longer leaves the package incomplete; every
   branch is read ([#108](https://github.com/Goldziher/skif/issues/108)). Members of known objects, destructured keys,
   `import.meta.resolve(x)`, `dirname(require.resolve('<pkg>/package.json'))` and `void 0 ?? x` are evaluated; a

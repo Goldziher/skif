@@ -234,6 +234,10 @@ policy = "banned"
 scope = "lockfile"
 ```
 
+A path specifier (`link:`, `file:`, `portal:`, `./`, `../` or `/`) takes no part in any version group: it is never
+rewritten to a version, never the version others align with, and `version-mismatch` does not report it.
+`local-path-dependency` reports every path, and its fix is the only one the entry gets.
+
 A `scope = "lockfile"` group reports each resolved `name@version` it bans once, at its entry in `pnpm-lock.yaml`, with
 the shortest chain an importer pulls it in through (`importer packages/app pulls it in through mid@2.0.0 >
 left-pad@1.3.0`), so removing the `overrides` entry that kept a package out fails the lint. `packages` chooses the

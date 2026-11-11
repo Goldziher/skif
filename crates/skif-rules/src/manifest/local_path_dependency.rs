@@ -292,6 +292,49 @@ mod tests {
         assert_eq!(fixed["devDependencies"]["@scope/b"], serde_json::json!("workspace:*"));
     }
 
+    /// The repro of a path to a member next to a range the member's version satisfies: `version-mismatch` leaves the
+    /// path alone, so `local-path-dependency` gives the one fix, and the fixed workspace is clean for both rules.
+    #[test]
+    fn a_path_to_a_member_gets_one_fix_that_both_rules_accept() {
+        fn both(files: testing::Files<'_>, config: &skif_config::Config) -> Vec<skif_core::Diagnostic> {
+            [META.id, "version-mismatch"]
+                .into_iter()
+                .flat_map(|rule| lint(rule, files, config))
+                .collect()
+        }
+        let cases = [
+            ("npm@10.0.0", "*"),
+            ("pnpm@9.0.0", "workspace:*"),
+            ("yarn@4.1.0", "workspace:*"),
+            ("bun@1.2.0", "workspace:*"),
+        ];
+        let a = r#"{"name":"a","version":"1.0.0"}"#;
+        let b = r#"{"name":"b","version":"1.0.0","dependencies":{"a":"../a"}}"#;
+        let c = r#"{"name":"c","version":"1.0.0","dependencies":{"a":"^1.0.0"}}"#;
+        let config = config("");
+        for (manager, expected) in cases {
+            let root_json = root_for(manager);
+            let files = [
+                ("package.json", root_json.as_str()),
+                ("packages/a/package.json", a),
+                ("packages/b/package.json", b),
+                ("packages/c/package.json", c),
+            ];
+            let before = both(&files, &config);
+            assert_eq!(subjects(&before), [("b".to_owned(), Some("a".to_owned()))], "{manager}");
+            assert_eq!(before[0].rule.as_str(), META.id, "{manager}");
+            assert_eq!(before[0].fixes.len(), 1, "{manager}");
+            let fixed = testing::apply_fixes(&files, &before);
+            assert_eq!(both(&testing::borrowed(&fixed), &config), [] as [skif_core::Diagnostic; 0], "{manager}");
+            let (_, text) = fixed
+                .iter()
+                .find(|(path, _)| path == "packages/b/package.json")
+                .unwrap();
+            let manifest: Value = serde_json::from_str(text).unwrap();
+            assert_eq!(manifest["dependencies"]["a"].as_str(), Some(expected), "{manager}");
+        }
+    }
+
     #[test]
     fn ignored_dependencies_are_suppressed() {
         let root_json = root_for("pnpm@9.0.0");
