@@ -1,0 +1,619 @@
+{
+  "schema": 5,
+  "skif": "skif 0.3.0",
+  "source_rev": "329644e11010",
+  "harness_rev": "329644e11010",
+  "measured_at": 1794419600,
+  "machine": {
+    "os": "Ubuntu 24.04.5 LTS",
+    "kernel": "Linux 7.0.0-1017-azure",
+    "arch": "x86_64",
+    "cpu": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "logical_cpus": 4,
+    "available_cpus": 4,
+    "physical_cores": 2,
+    "memory_bytes": 16759308288,
+    "cgroup_cpu_limit": null,
+    "virtualization": "Microsoft",
+    "github": {
+      "image_os": "ubuntu24",
+      "image_version": "20261101.360.1",
+      "runner_os": "Linux",
+      "runner_arch": "X64",
+      "runner_environment": "github-hosted",
+      "runner_name": "GitHub Actions 1000194852",
+      "run_attempt": 1,
+      "run_url": "https://github.com/Goldziher/skif/actions/runs/43070718530/attempts/1"
+    }
+  },
+  "machine_text": "Ubuntu 24.04.5 LTS, Linux 7.0.0-1017-azure, x86_64, INTEL(R) XEON(R) PLATINUM 8573C, 4 logical CPUs (2 physical cores), 15.6 GiB memory, hypervisor Microsoft",
+  "toolchain": {
+    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "node": "v26.13.0",
+    "npm": "11.20.0",
+    "pnpm": "11.24.0",
+    "yarn": "1.22.22",
+    "bun": null
+  },
+  "load_before": [
+    3.87,
+    2.9,
+    1.32
+  ],
+  "load_after": [
+    1.56,
+    2.05,
+    1.4
+  ],
+  "hyperfine": "hyperfine 1.20.0",
+  "tool_versions": {
+    "knip": "6.44.1",
+    "sherif": "sherif 1.13.0",
+    "syncpack": "syncpack 15.3.3"
+  },
+  "warmup": 3,
+  "runs": 15,
+  "corpus_only": [],
+  "skipped_tools": [],
+  "targets": [
+    {
+      "target": "generated: 50 packages (pnpm)",
+      "kind": "generated",
+      "packages": 50,
+      "files": null,
+      "installed_with": null,
+      "declared_knip_failure": null,
+      "results": [
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 5.1072007333333325,
+          "stddev_ms": 0.12676590339872645,
+          "median_ms": 5.118437,
+          "min_ms": 4.804884,
+          "max_ms": 5.270301000000001,
+          "relative_to_skif": 1.0,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 31.7494626,
+          "stddev_ms": 2.293341498753037,
+          "median_ms": 31.903192000000004,
+          "min_ms": 28.675444000000002,
+          "max_ms": 37.297136,
+          "relative_to_skif": 6.216607542519282,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 41.5855388,
+          "stddev_ms": 1.8748341436282232,
+          "median_ms": 40.766717,
+          "min_ms": 38.961369000000005,
+          "max_ms": 45.776371000000005,
+          "relative_to_skif": 8.142530707395602,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        }
+      ]
+    },
+    {
+      "target": "generated: 500 packages (pnpm)",
+      "kind": "generated",
+      "packages": 500,
+      "files": null,
+      "installed_with": null,
+      "declared_knip_failure": null,
+      "results": [
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 28.9311304,
+          "stddev_ms": 1.4239133218687356,
+          "median_ms": 28.825507,
+          "min_ms": 27.034802,
+          "max_ms": 30.869673,
+          "relative_to_skif": 1.0,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 51.615444933333336,
+          "stddev_ms": 2.0602717706153455,
+          "median_ms": 51.585694000000004,
+          "min_ms": 48.873819000000005,
+          "max_ms": 54.981199000000004,
+          "relative_to_skif": 1.7840797860194684,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 153.48764733333334,
+          "stddev_ms": 2.5839026566435637,
+          "median_ms": 152.39063800000002,
+          "min_ms": 150.727426,
+          "max_ms": 159.230548,
+          "relative_to_skif": 5.3052765381519045,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        }
+      ]
+    },
+    {
+      "target": "generated: 2000 packages (pnpm)",
+      "kind": "generated",
+      "packages": 2000,
+      "files": null,
+      "installed_with": null,
+      "declared_knip_failure": null,
+      "results": [
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 123.7700094,
+          "stddev_ms": 6.079324297329593,
+          "median_ms": 126.12136500000001,
+          "min_ms": 112.794311,
+          "max_ms": 131.166698,
+          "relative_to_skif": 1.0,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 123.10466886666666,
+          "stddev_ms": 5.645137959118334,
+          "median_ms": 123.288205,
+          "min_ms": 117.161072,
+          "max_ms": 138.011605,
+          "relative_to_skif": 0.9946243800371454,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 678.7943712666666,
+          "stddev_ms": 3.484190968734695,
+          "median_ms": 677.470278,
+          "min_ms": 673.880959,
+          "max_ms": 686.110231,
+          "relative_to_skif": 5.4843202691609925,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        }
+      ]
+    },
+    {
+      "target": "graph: 10000 files in 100 packages",
+      "kind": "graph",
+      "packages": 100,
+      "files": 10000,
+      "installed_with": null,
+      "declared_knip_failure": null,
+      "results": [
+        {
+          "tool": "skif",
+          "mean_ms": 259.26618933333333,
+          "stddev_ms": 9.380867989916464,
+          "median_ms": 256.38495,
+          "min_ms": 249.64546900000002,
+          "max_ms": 276.16464700000006,
+          "relative_to_skif": 1.0,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        }
+      ]
+    },
+    {
+      "target": "corpus: create-t3-turbo (pnpm)",
+      "kind": "corpus",
+      "packages": null,
+      "files": null,
+      "installed_with": "pnpm 10.19.0",
+      "declared_knip_failure": {
+        "matches": "Cannot find module 'metro-cache'",
+        "reason": "its Expo Metro config needs metro-cache, which pnpm's strict install does not provide"
+      },
+      "results": [
+        {
+          "tool": "skif",
+          "mean_ms": 36.297183666666676,
+          "stddev_ms": 0.5772014957217113,
+          "median_ms": 36.149719,
+          "min_ms": 35.242468,
+          "max_ms": 37.338528000000004,
+          "relative_to_skif": 1.0,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 3.8720103333333338,
+          "stddev_ms": 0.055911800835482604,
+          "median_ms": 3.868532,
+          "min_ms": 3.79157,
+          "max_ms": 3.9755020000000005,
+          "relative_to_skif": 0.10667522772267243,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 30.227785333333337,
+          "stddev_ms": 1.294404278866188,
+          "median_ms": 30.094458,
+          "min_ms": 28.595869999999998,
+          "max_ms": 32.48485,
+          "relative_to_skif": 7.806741906938781,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 36.9304514,
+          "stddev_ms": 1.397329081155126,
+          "median_ms": 36.504707999999994,
+          "min_ms": 35.283027000000004,
+          "max_ms": 39.597427999999994,
+          "relative_to_skif": 9.537797738315263,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "knip --reporter json",
+          "mean_ms": 1643.4039478666668,
+          "stddev_ms": 23.314775527680144,
+          "median_ms": 1638.699302,
+          "min_ms": 1609.8692090000002,
+          "max_ms": 1701.028466,
+          "relative_to_skif": null,
+          "error_runs": 15,
+          "error_output": "ERROR: Error loading apps/expo/metro.config.js (Cannot find module 'metro-cache')",
+          "failure": {
+            "reason": "its Expo Metro config needs metro-cache, which pnpm's strict install does not provide",
+            "error": "ERROR: Error loading apps/expo/metro.config.js (Cannot find module 'metro-cache')"
+          }
+        }
+      ]
+    },
+    {
+      "target": "corpus: vue-core (pnpm)",
+      "kind": "corpus",
+      "packages": null,
+      "files": null,
+      "installed_with": "pnpm 12.11.2",
+      "declared_knip_failure": {
+        "matches": "sfc-playground/vite.config.ts (__DEV__ is not defined)",
+        "reason": "its SFC playground Vite config reads a build-time global that only the repository's own build defines"
+      },
+      "results": [
+        {
+          "tool": "skif",
+          "mean_ms": 79.8873276,
+          "stddev_ms": 0.6616867738811602,
+          "median_ms": 79.75687300000001,
+          "min_ms": 78.769164,
+          "max_ms": 80.90338500000001,
+          "relative_to_skif": 1.0,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 3.9065114000000007,
+          "stddev_ms": 0.12612518195416575,
+          "median_ms": 3.9343690000000002,
+          "min_ms": 3.717871,
+          "max_ms": 4.167803,
+          "relative_to_skif": 0.04890026387614449,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 28.850211266666665,
+          "stddev_ms": 1.5350735841348107,
+          "median_ms": 28.784933,
+          "min_ms": 26.002548,
+          "max_ms": 32.79567,
+          "relative_to_skif": 7.385159881183672,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 36.5377062,
+          "stddev_ms": 2.2357374706460376,
+          "median_ms": 36.077362,
+          "min_ms": 33.639092000000005,
+          "max_ms": 41.425876,
+          "relative_to_skif": 9.353026897604854,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "knip --reporter json",
+          "mean_ms": 1390.7276616,
+          "stddev_ms": 10.827426265563817,
+          "median_ms": 1389.696119,
+          "min_ms": 1364.7006470000001,
+          "max_ms": 1405.04856,
+          "relative_to_skif": null,
+          "error_runs": 15,
+          "error_output": "ERROR: Error loading packages-private/sfc-playground/vite.config.ts (__DEV__ is not defined)",
+          "failure": {
+            "reason": "its SFC playground Vite config reads a build-time global that only the repository's own build defines",
+            "error": "ERROR: Error loading packages-private/sfc-playground/vite.config.ts (__DEV__ is not defined)"
+          }
+        }
+      ]
+    },
+    {
+      "target": "corpus: tanstack-query (pnpm)",
+      "kind": "corpus",
+      "packages": null,
+      "files": null,
+      "installed_with": "pnpm 12.4.2",
+      "declared_knip_failure": null,
+      "results": [
+        {
+          "tool": "skif",
+          "mean_ms": 482.6926030666667,
+          "stddev_ms": 4.243789225315328,
+          "median_ms": 482.53501700000004,
+          "min_ms": 475.476987,
+          "max_ms": 488.492961,
+          "relative_to_skif": 1.0,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 13.031983533333337,
+          "stddev_ms": 0.32288917151773544,
+          "median_ms": 13.03073,
+          "min_ms": 12.531111,
+          "max_ms": 13.685203999999999,
+          "relative_to_skif": 0.026998515101615165,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 36.5715574,
+          "stddev_ms": 1.6781529102577029,
+          "median_ms": 35.997811000000006,
+          "min_ms": 34.412735,
+          "max_ms": 39.060298,
+          "relative_to_skif": 2.806292480838156,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 100.93578033333333,
+          "stddev_ms": 1.6025833063042598,
+          "median_ms": 100.63798,
+          "min_ms": 98.851443,
+          "max_ms": 104.957137,
+          "relative_to_skif": 7.745235410646337,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "knip --reporter json",
+          "mean_ms": 3708.7116018666666,
+          "stddev_ms": 25.654467520825396,
+          "median_ms": 3706.725701,
+          "min_ms": 3672.050603,
+          "max_ms": 3771.251794,
+          "relative_to_skif": 7.683381883841382,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        }
+      ]
+    },
+    {
+      "target": "corpus: babel (yarn)",
+      "kind": "corpus",
+      "packages": null,
+      "files": null,
+      "installed_with": "yarn 4.17.0",
+      "declared_knip_failure": null,
+      "results": [
+        {
+          "tool": "skif",
+          "mean_ms": 899.2483628666666,
+          "stddev_ms": 20.045390140226317,
+          "median_ms": 894.972925,
+          "min_ms": 872.705269,
+          "max_ms": 961.315402,
+          "relative_to_skif": 1.0,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 18.946731400000004,
+          "stddev_ms": 0.5064689665768277,
+          "median_ms": 18.816432000000002,
+          "min_ms": 18.308343,
+          "max_ms": 20.044005,
+          "relative_to_skif": 0.021069520037379566,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 33.15775886666667,
+          "stddev_ms": 2.5770429163371364,
+          "median_ms": 32.816441000000005,
+          "min_ms": 30.115752999999998,
+          "max_ms": 39.815498999999996,
+          "relative_to_skif": 1.750051666783362,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 235.01844440000005,
+          "stddev_ms": 2.320038433631798,
+          "median_ms": 234.07042700000005,
+          "min_ms": 231.96319100000002,
+          "max_ms": 240.617435,
+          "relative_to_skif": 12.404168267250572,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "knip --reporter json",
+          "mean_ms": 5868.7776096,
+          "stddev_ms": 44.32158458897433,
+          "median_ms": 5860.302631,
+          "min_ms": 5801.48088,
+          "max_ms": 5949.220951,
+          "relative_to_skif": 6.526314477672477,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        }
+      ]
+    },
+    {
+      "target": "corpus: npm-cli (npm)",
+      "kind": "corpus",
+      "packages": null,
+      "files": null,
+      "installed_with": "npx --yes npm@11.6.2 ci --ignore-scripts",
+      "declared_knip_failure": null,
+      "results": [
+        {
+          "tool": "skif",
+          "mean_ms": 105.53347933333336,
+          "stddev_ms": 3.5575784582268604,
+          "median_ms": 104.96283100000001,
+          "min_ms": 100.961373,
+          "max_ms": 111.746126,
+          "relative_to_skif": 1.0,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 6.308170466666667,
+          "stddev_ms": 0.09839169503706437,
+          "median_ms": 6.317493000000001,
+          "min_ms": 6.102398,
+          "max_ms": 6.424068000000001,
+          "relative_to_skif": 0.059774116294810664,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 29.795266266666673,
+          "stddev_ms": 1.3046151175955776,
+          "median_ms": 30.018970999999997,
+          "min_ms": 27.180879,
+          "max_ms": 32.753286,
+          "relative_to_skif": 4.723281722348722,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 60.465735466666665,
+          "stddev_ms": 1.4793329628538592,
+          "median_ms": 60.433629,
+          "min_ms": 58.115478,
+          "max_ms": 64.170722,
+          "relative_to_skif": 9.58530461188023,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        },
+        {
+          "tool": "knip --reporter json",
+          "mean_ms": 735.3159898666667,
+          "stddev_ms": 7.346703712889998,
+          "median_ms": 735.1700370000001,
+          "min_ms": 725.8786120000001,
+          "max_ms": 750.510521,
+          "relative_to_skif": 6.9676087106360844,
+          "error_runs": 0,
+          "error_output": null,
+          "failure": null
+        }
+      ]
+    }
+  ],
+  "adr_0001_checks": [
+    {
+      "target": "generated: 500 packages (pnpm)",
+      "description": "manifest and policy rules < 50 ms (measured 28.9 ms)",
+      "status": "pass"
+    },
+    {
+      "target": "graph: 10000 files in 100 packages",
+      "description": "parse and module graph of 10000 files < 2000 ms, whole run including every JS rule (measured 259.3 ms)",
+      "status": "pass"
+    },
+    {
+      "target": "corpus: create-t3-turbo (pnpm)",
+      "description": "JS analysis >= 5x faster than knip (not measured: knip fails here: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide)",
+      "status": "not-measured"
+    },
+    {
+      "target": "corpus: vue-core (pnpm)",
+      "description": "JS analysis >= 5x faster than knip (not measured: knip fails here: its SFC playground Vite config reads a build-time global that only the repository's own build defines)",
+      "status": "not-measured"
+    },
+    {
+      "target": "corpus: tanstack-query (pnpm)",
+      "description": "JS analysis >= 5x faster than knip (measured 7.7x)",
+      "status": "pass"
+    },
+    {
+      "target": "corpus: babel (yarn)",
+      "description": "JS analysis >= 5x faster than knip (measured 6.5x)",
+      "status": "pass"
+    },
+    {
+      "target": "corpus: npm-cli (npm)",
+      "description": "JS analysis >= 5x faster than knip (measured 7.0x)",
+      "status": "pass"
+    }
+  ]
+}
