@@ -609,8 +609,17 @@ fn pnpm_links_member_binaries_as_its_node_linker_says() {
         ((packages, None), isolated),
         ((hoisted_yaml, None), hoisted),
         ((packages, Some("node-linker=hoisted\n")), hoisted),
-        ((packages, Some("registry=https://registry.npmjs.org/\nnode-linker = \"hoisted\"\n")), hoisted),
-        ((packages, Some("node-linker=hoisted\nnode-linker=isolated\n")), isolated),
+        (
+            (
+                packages,
+                Some("registry=https://registry.npmjs.org/\nnode-linker = \"hoisted\"\n"),
+            ),
+            hoisted,
+        ),
+        (
+            (packages, Some("node-linker=hoisted\nnode-linker=isolated\n")),
+            isolated,
+        ),
         ((packages, Some("# node-linker=hoisted\n")), isolated),
         ((packages, Some("node-linker=pnp\n")), isolated),
         ((isolated_yaml, Some("node-linker=hoisted\n")), isolated),
