@@ -9,8 +9,8 @@ amends: ["0009", "0031"]
 
 ## Context and Problem Statement
 
-A dependency can point at a directory on disk: `link:../a`, `file:../a`, `portal:../a` or a bare `../a`.
-`local-path-dependency` reports every such specifier. When it names a workspace member, its fix replaces the path with
+A dependency can point at a directory on disk: `link:../a`, `file:../a`, `portal:../a`, a bare `../a` or a
+home-relative `~/a`. `local-path-dependency` reports every such specifier in the four dependency sections. When it names a workspace member, its fix replaces the path with
 the specifier that links the member: `workspace:*`, or `*` under npm, which has no `workspace:` protocol.
 
 The version groups of [ADR 0009](0009-version-and-catalog-policies.md) follow syncpack and judge the same entry again.
@@ -34,44 +34,62 @@ How do the version groups treat a path specifier, and what does `local-path-depe
 * A fix never turns a path into a registry range the workspace may not publish
 * The fix of `local-path-dependency` installs under the detected package manager
 * No change for specifiers that are not paths
+* A path to the wrong directory is reported by some rule, whichever rules are on
 
 ## Considered Options
 
 * Path specifiers take no part in the version groups
 * Path specifiers keep their version-group state, without a fix
+* Leave out the paths `local-path-dependency` reports; the others keep their state, without a fix
 * Keep syncpack's behaviour
 
 ## Decision Outcome
 
-Chosen option: "Path specifiers take no part in the version groups", because `local-path-dependency` already reports
-every path. A second, unfixable finding for the same value adds nothing that rule does not say.
+Chosen option: "Leave out the paths `local-path-dependency` reports; the others keep their state, without a fix",
+because one rule owns each path while that rule reports it, and a path is still reported when it does not.
 
-**Version groups.** An instance whose specifier is a path (`link:`, `file:`, `portal:`, `./`, `../` or `/`, the
-predicate of `local-path-dependency`) is left out of every version-group policy, as a `catalog:` instance is. It gets
-no state. It is never rewritten, never the version other instances align with, and it does not block the alignment
-of the others. `banned` groups still report it, because removing a banned dependency rewrites no specifier. A path
-that resolves to the member and one that points elsewhere are treated alike: `local-path-dependency` reports both,
-and its fix replaces either with the link to the member.
+**Version groups.** A path specifier (`link:`, `file:`, `portal:`, `./`, `../`, `/` or `~/`, the predicate of
+`local-path-dependency`) is never rewritten and never the version other instances align with, nor a snap target.
+
+* In a dependency section, while `local-path-dependency` is on, the instance is left out of every version-group
+  policy, as a `catalog:` instance is. It gets no state and does not block the alignment of the others, as
+  `workspace-protocol` already leaves such a path to that rule.
+* With `local-path-dependency` off, and in an override section or a custom type, which that rule does not read, the
+  instance keeps its version-group state, but the state carries no fix. Next to a workspace package's own version, a
+  path that resolves to the package's directory is valid, and a path to another directory is `DiffersToLocal`.
+* `banned` groups report a path in every case, because removing a banned dependency rewrites no specifier.
+
+**local-path-dependency.** A path to a workspace member gets the fix that links the member, whether or not the path
+resolves to the member's directory. When it resolves elsewhere, or outside the workspace, the help names both
+directories: the fix stays unsafe, because linking the member installs other code than the path.
 
 **Yarn Classic.** Under Yarn Classic (1.x), `local-path-dependency` replaces a path to a member with `*`, as under npm.
-pnpm, Yarn 2+ and Bun keep `workspace:*`. `workspace-protocol` stays silent under Yarn Classic, as ADR 0031 has it.
-The help of the fix names the member it links.
+Yarn Classic matches a member's version against the range without prereleases, so a member with a prerelease version
+is linked by its exact version. npm accepts `*` for any version of a member. pnpm, Yarn 2+ and Bun keep
+`workspace:*`. `workspace-protocol` stays silent under Yarn Classic, as ADR 0031 has it. The help of the fix names
+the member it links.
 
 ### Consequences
 
-* Good, because each path gets one finding and at most one fix, and a fixed workspace has no `version-mismatch`
-  left on the entry.
+* Good, because each path gets one finding and at most one fix while `local-path-dependency` is on, and a fixed
+  workspace has no `version-mismatch` left on the entry.
+* Good, because a path to the wrong directory is still reported, without a fix, while `local-path-dependency` is off,
+  and a path in an override section is reported by the version groups.
 * Good, because a Yarn Classic workspace gets the same fix as an npm one.
-* Bad, because with `local-path-dependency` turned off, a path to the wrong directory is not reported at all.
+* Bad, because the version groups judge a path differently depending on whether another rule is on.
 * Neutral, because the syncpack comparison now differs on paths that syncpack rewrites to a version.
 
 ### Confirmation
 
-* `crates/skif-rules/src/policy/visit.rs` tests: path specifiers on a member get no state, and no policy
-  (`preferred-semver`, `pinned`, `same-range`, `same-minor`, `snapped-to`) gives a path a state.
+* `crates/skif-rules/src/policy/visit.rs` tests: with `local-path-dependency` on, a path in a dependency section gets
+  no state under any policy (`preferred-semver`, `pinned`, `same-range`, `same-minor`, `snapped-to`) and the other
+  instances keep theirs; with it off, the path keeps its state with no target, a path to the local package's
+  directory is valid and one to another directory is `DiffersToLocal`. A path is never the snap target, `banned`
+  groups report it, and a path in an override section keeps its state either way.
 * `crates/skif-rules/src/manifest/local_path_dependency.rs` tests: a bare `../a` next to a satisfied range gets one
   fix under npm, Yarn Classic, pnpm, Yarn 2+ and Bun, and the fixed workspace is clean for both rules. The
-  replacement follows the package manager, Yarn Classic included.
+  replacement follows the package manager, Yarn Classic included, and a prerelease member is linked by its exact
+  version under Yarn Classic. A path to another directory keeps an unsafe fix and its help names both directories.
 * `fixtures/policy/version-mismatch/link-specifier-wrong-directory` and `semver-and-file-specifier-mix` expect no
   diagnostic.
 
@@ -80,7 +98,14 @@ The help of the fix names the member it links.
 ### Path specifiers take no part in the version groups
 
 * Good, because one rule owns each path, as `workspace-protocol` already has it.
-* Bad, because the version groups say nothing about a path while `local-path-dependency` is off.
+* Bad, because the version groups say nothing about a path while `local-path-dependency` is off, and nothing reports
+  a path in an override section.
+
+### Leave out the paths `local-path-dependency` reports; the others keep their state, without a fix
+
+* Good, because one rule owns each path that rule reports, and every other path is still judged.
+* Bad, because the version groups need the path resolution of `local-path-dependency` to accept a path to the
+  package itself.
 
 ### Path specifiers keep their version-group state, without a fix
 
@@ -97,3 +122,5 @@ The help of the fix names the member it links.
 
 * Yarn Classic workspaces: <https://classic.yarnpkg.com/en/docs/workspaces>
 * npm workspaces: <https://docs.npmjs.com/cli/using-npm/workspaces>
+* npm accepts `*` for any version in its dependency check (`depValid`):
+  <https://github.com/npm/cli/blob/latest/workspaces/arborist/lib/dep-valid.js>
