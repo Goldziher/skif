@@ -130,3 +130,22 @@ fn without_nx_a_project_json_is_a_plain_file() {
         "{diagnostics:#?}"
     );
 }
+
+/// Nx's root `jest.config.ts` takes its projects from `getJestProjectsAsync()`: they are the Jest configs of the
+/// projects, so the root is judged as without the file.
+#[test]
+fn the_nx_root_jest_config_leaves_the_root_judged() {
+    let mut files = workspace_files();
+    files.push((
+        "jest.config.ts",
+        "import { getJestProjectsAsync } from '@nx/jest';\n\nexport default async () => ({\n  projects: await getJestProjectsAsync(),\n});\n",
+    ));
+    let with_root_config = lint(&files);
+    assert_eq!(
+        unused_files(&with_root_config),
+        [PathBuf::from("apps/web/src/unused.ts")],
+        "{with_root_config:#?}"
+    );
+    let unused = |diagnostics: &[Diagnostic]| dependencies(diagnostics, &["unused-dependencies", "unused-dev-dependencies"]);
+    assert_eq!(unused(&with_root_config), unused(&lint(&workspace_files())));
+}

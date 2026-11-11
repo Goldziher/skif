@@ -72,6 +72,54 @@ fn jest_projects_strings_and_globs_read_the_config_of_each_project() {
     }
 }
 
+/// Nx's `getJestProjects()` and `getJestProjectsAsync()` return the Jest configs of the Nx projects: the
+/// `jestConfig` option of a project's target and the `jest.config.*` in a project directory. The root config is read
+/// in full, not left incomplete; a `jest.config.*` outside every project is not one of them.
+#[test]
+fn nx_jest_projects_are_the_jest_configs_of_the_nx_projects() {
+    let projects = [
+        ("apps/web/project.json", "{}"),
+        ("apps/web/jest.config.ts", "export default { testEnvironment: 'jsdom' };\n"),
+        (
+            "libs/util/project.json",
+            r#"{"targets":{"test":{"executor":"@nx/jest:jest","options":{"jestConfig":"{projectRoot}/jest.unit.ts"}}}}"#,
+        ),
+        ("libs/util/jest.unit.ts", "export default { preset: 'ts-jest' };\n"),
+        ("scratch/jest.config.ts", "export default { runner: 'jest-runner-eslint' };\n"),
+    ];
+    for root in [
+        "import { getJestProjectsAsync } from '@nx/jest';\nexport default async () => ({ projects: await getJestProjectsAsync() });\n",
+        "const { getJestProjects } = require('@nrwl/jest');\nmodule.exports = { projects: getJestProjects() };\n",
+    ] {
+        let mut files = vec![("jest.config.ts", root)];
+        files.extend(projects);
+        let output = resolve(&files, &["jest"], "jest");
+        assert!(!output.entries_incomplete, "{root}: {:?}", output.incomplete_reasons);
+        let names: Vec<&str> = output.referenced_dependencies.iter().map(|d| d.name.as_str()).collect();
+        for name in ["jest-environment-jsdom", "ts-jest"] {
+            assert!(names.contains(&name), "{root}: missing {name} in {names:?}");
+        }
+        assert!(!names.contains(&"jest-runner-eslint"), "{root}: {names:?}");
+    }
+}
+
+/// `projects` from another function than Nx's, or Nx's function named without importing it from `@nx/jest`, is not
+/// known statically: the root config stays incomplete.
+#[test]
+fn computed_jest_projects_stay_incomplete() {
+    for root in [
+        "import { listProjects } from './tools';\nexport default { projects: listProjects() };\n",
+        "import { getJestProjects } from './tools';\nexport default { projects: getJestProjects() };\n",
+    ] {
+        let output = resolve(
+            &[("jest.config.ts", root), ("apps/web/project.json", "{}")],
+            &["jest"],
+            "jest",
+        );
+        assert!(output.entries_incomplete, "{root}");
+    }
+}
+
 #[test]
 fn vitest_projects_strings_read_the_config_of_each_project() {
     let output = resolve(

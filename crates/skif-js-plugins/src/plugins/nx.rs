@@ -3,6 +3,7 @@
 
 use skif_js_syntax::ConfigValue;
 
+use crate::config_load::load_config;
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginId, PluginInput, PluginSpec};
 use crate::support::{join_rel, package_name, strings};
 
@@ -74,6 +75,28 @@ fn executor_package(executor: &str) -> Option<PluginInput> {
         return None;
     }
     package_name(name).map(PluginInput::Dependency)
+}
+
+/// The paths the option `key` of the targets of the project in `dir` (relative to the package directory) gives, relative
+/// to the package directory.
+pub(crate) fn target_option_paths(cx: &PluginContext<'_>, dir: &str, key: &str) -> Vec<String> {
+    let path = cx.dir.join(join_rel(dir, "project.json"));
+    let Some(project) = cx
+        .fs
+        .read_to_string(&path)
+        .ok()
+        .and_then(|source| load_config(&path, &source))
+    else {
+        return Vec::new();
+    };
+    let Some(ConfigValue::Object(targets)) = project.get("targets") else {
+        return Vec::new();
+    };
+    targets
+        .iter()
+        .filter_map(|(_, target)| target.get("options")?.get(key)?.as_str().map(str::to_owned))
+        .filter_map(|value| option_path(&value, dir))
+        .collect()
 }
 
 /// Target options that name a config file of another plugin, relative to the workspace root.
