@@ -75,8 +75,10 @@ covered by the registry's integrity hashes.
 | Linux arm64 (musl, Alpine) | `skif-linux-arm64-musl` |
 | Linux x64 (glibc) | `skif-linux-x64-gnu` |
 | Linux x64 (musl, Alpine) | `skif-linux-x64-musl` |
-| Windows arm64 | `skif-win32-arm64-msvc` |
-| Windows x64 | `skif-win32-x64-msvc` |
+
+Windows has no platform package in 0.3.0, so importing `skif-cli` on Windows fails; use the
+[release archives](https://github.com/Goldziher/skif/releases), `cargo binstall skif-cli` or
+[Scoop](https://github.com/Goldziher/skif#installation) instead ([ADR 0114](https://github.com/Goldziher/skif/blob/main/adrs/0114-windows-npm-packages-deferred.md)).
 
 If no platform package is installed (for example because optional dependencies were disabled), importing
 `skif-cli` fails with an error naming the missing package.

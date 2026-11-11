@@ -97,8 +97,8 @@ Clients configured with an `mcpServers` object, such as Cursor's `.cursor/mcp.js
 ```
 
 With the npm package and no global install, use `"command": "npx", "args": ["-y", "skif-cli", "mcp"]`; the
-[plugin](#agent-skill) registers this form, pinned to its release. On Windows, a client that cannot start `npx`
-directly takes `"command": "cmd", "args": ["/c", "npx", "-y", "skif-cli", "mcp"]`. The server speaks the protocol
+[plugin](#agent-skill) registers this form, pinned to its release. Windows is not on npm in 0.3.0, so on Windows
+install the `skif` binary from the release archives, cargo-binstall or Scoop and use the `skif mcp` form above. The server speaks the protocol
 revisions `2025-11-25`, `2025-06-18`, `2025-03-26` and `2024-11-05`.
 
 ## Watch mode

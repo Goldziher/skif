@@ -215,8 +215,10 @@ pnpm add -D skif-cli     # or npm install -D, yarn add -D, bun add -D
 pnpm dlx skif-cli        # or npx skif-cli, yarn dlx skif-cli, bunx -p skif-cli skif
 ```
 
-Needs Node.js 22, 24 or 26, or Bun 1.x, on macOS, Linux or Windows (x64 or arm64). Tested end to end with the
-latest two majors of npm, pnpm and Yarn 2+, the newest Yarn Classic 1.x and the newest Bun 1.x.
+Needs Node.js 22, 24 or 26, or Bun 1.x, on macOS or Linux (x64 or arm64). Tested end to end with the latest two
+majors of npm, pnpm and Yarn 2+, the newest Yarn Classic 1.x and the newest Bun 1.x. Windows is not on npm in 0.3.0
+([ADR 0114](adrs/0114-windows-npm-packages-deferred.md)): on Windows, use the release archives, cargo-binstall or
+Scoop.
 
 </details>
 

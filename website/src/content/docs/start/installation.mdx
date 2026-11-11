@@ -21,8 +21,9 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
     pnpm dlx skif-cli           # run without installing; also: npx skif-cli / yarn dlx skif-cli / bunx -p skif-cli skif
     ```
 
-    The npm package is a napi-rs addon for non-EoL Node.js (22, 24, 26) and Bun 1.x on macOS, Linux and Windows, x64 and arm64
-    (ADR 0070). See [npm and Bun](../../guides/integrations/#npm-and-bun).
+    The npm package is a napi-rs addon for non-EoL Node.js (22, 24, 26) and Bun 1.x on macOS and Linux, x64 and arm64.
+    Windows is not on npm in 0.3.0 (ADR 0114): on Windows, use the release archives, cargo-binstall or Scoop. See
+    [npm and Bun](../../guides/integrations/#npm-and-bun).
   </TabItem>
   <TabItem label="Homebrew">
     ```bash
