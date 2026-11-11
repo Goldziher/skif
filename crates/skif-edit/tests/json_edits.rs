@@ -277,6 +277,21 @@ fn insert_places_keys() {
             ops: vec![insert(&[], "b", json!(2), InsertPosition::End)],
             expected: "{\n  \"a\": 1,\n  \"b\": 2,\n}\n",
         },
+        Case {
+            name: "a new key inserted twice keeps the later value",
+            input: "{\n  \"a\": 1\n}\n",
+            ops: vec![
+                insert(&[], "b", json!(2), InsertPosition::End),
+                insert(&[], "b", json!(3), InsertPosition::End),
+            ],
+            expected: "{\n  \"a\": 1,\n  \"b\": 3\n}\n",
+        },
+        Case {
+            name: "a duplicated key is replaced at its last member",
+            input: "{\n  \"a\": 1,\n  \"a\": 2\n}\n",
+            ops: vec![insert(&[], "a", json!(9), InsertPosition::End)],
+            expected: "{\n  \"a\": 1,\n  \"a\": 9\n}\n",
+        },
     ]);
 }
 
