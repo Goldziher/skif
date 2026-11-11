@@ -602,6 +602,11 @@ output maps to no source file
 of kind `incomplete-scope`, a file outside it reported by `unused-files` names the scope, and a file of a package left
 unjudged as a whole is `entries-incomplete`.
 
+A file that a relative import reaches through the `rootDirs` of the importer's `tsconfig.json` (code generated into a
+build output tree such as `bazel-bin/packages/app`) belongs to the importing file's package, and so do the files it
+imports by relative paths within the package its location falls in: their imports are judged against that package's
+dependencies, which Node.js resolves them from.
+
 **`paths`** is a `tsconfig`-style map for one workspace, `{ "alias/*" = ["./target/*"] }`, targets relative to the
 workspace directory. Each target is tried as a module alias ahead of the aliases tools declare.
 

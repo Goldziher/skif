@@ -572,3 +572,52 @@ fn an_alias_into_an_uninstalled_node_modules_uses_the_package() {
         "{diagnostics:#?}"
     );
 }
+
+/// A file generated into another `rootDirs` directory (`bazel-bin`, gitignored) belongs to the package whose file
+/// imports it: Node.js resolves its imports from that package's dependencies. So do the generated files beside it
+/// that it imports in turn.
+#[test]
+fn files_reached_through_root_dirs_belong_to_the_importing_package() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"mono","private":true,"workspaces":["packages/*"]}"#,
+        ),
+        (".gitignore", "bazel-bin\n"),
+        (
+            "packages/app/package.json",
+            r#"{"name":"@mono/app","version":"1.0.0","main":"src/index.ts","dependencies":{"uuid":"9.0.0","zod":"3.0.0"}}"#,
+        ),
+        (
+            "packages/app/tsconfig.json",
+            r#"{"compilerOptions":{"rootDirs":[".","../../bazel-bin/packages/app"]}}"#,
+        ),
+        (
+            "packages/app/src/index.ts",
+            "import { schema } from './gen/schema.js';\nexport const s = schema;\n",
+        ),
+        (
+            "bazel-bin/packages/app/src/gen/schema.js",
+            "import { z } from 'zod';\nimport { id } from './id.js';\nexport const schema = z.object({ id });\n",
+        ),
+        (
+            "bazel-bin/packages/app/src/gen/id.js",
+            "import { v4 } from 'uuid';\nexport const id = v4();\n",
+        ),
+    ]);
+    assert_eq!(
+        names(&diagnostics, "unlisted-dependencies"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        names(&diagnostics, "unused-dependencies"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        names(&diagnostics, "unresolved-imports"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+}

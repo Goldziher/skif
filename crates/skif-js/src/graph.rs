@@ -83,7 +83,9 @@ pub struct Module {
     pub abs: PathBuf,
     /// Path relative to the workspace root, as shown in diagnostics.
     pub path: PathBuf,
-    /// The package whose directory is the closest ancestor.
+    /// The package whose directory is the closest ancestor, or the package that adopted the file: one reached through
+    /// the `rootDirs` of an importer's `tsconfig.json` belongs to the importer's package, as do the files it reaches by
+    /// relative imports within the package of its location.
     pub owner: PackageId,
     /// Matches the project globs of its package.
     pub in_project: bool,
@@ -188,6 +190,18 @@ struct RawImport {
     target: RawTarget,
     package: Option<String>,
     type_only: bool,
+    reach: Reach,
+}
+
+/// How an import reaches its target, which decides the package of a file it reaches first ([`Builder::adopter`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reach {
+    /// Through the `rootDirs` of the importer's `tsconfig.json`.
+    RootDirs,
+    /// Through a relative specifier.
+    Relative,
+    /// Any other way.
+    Other,
 }
 
 enum RawTarget {
@@ -395,6 +409,7 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
                     target: RawTarget::Asset,
                     package: None,
                     type_only,
+                    reach: Reach::Other,
                 };
             }
             if import.kind == ImportKind::ImportMetaGlob {
@@ -403,6 +418,7 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
                     target: RawTarget::Files(expand_glob(path, &import.specifier, inputs)),
                     package: None,
                     type_only,
+                    reach: Reach::Other,
                 };
             }
             let outcome = RESOLVE_TIME.time(|| {
@@ -426,6 +442,13 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
                 .specifier
                 .split_once('?')
                 .is_some_and(|(_, query)| is_source_query(query));
+            let reach = if outcome.root_dirs {
+                Reach::RootDirs
+            } else if import.specifier.starts_with('.') {
+                Reach::Relative
+            } else {
+                Reach::Other
+            };
             let target = match outcome.target {
                 Resolved::File(_) if reads_source => RawTarget::Asset,
                 Resolved::File(file) => RawTarget::File(file),
@@ -445,6 +468,7 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
                 target,
                 package: outcome.package,
                 type_only,
+                reach,
             }
         })
         .collect();
@@ -517,6 +541,8 @@ struct Builder<'a> {
     relink: bool,
     /// Whether the components a package registers may be used where skif records no tags, by package.
     untagged: HashMap<PackageId, bool>,
+    /// The modules a package adopted ([`Builder::adopter`]), with the package of their location.
+    adopted: HashMap<ModuleId, PackageId>,
 }
 
 impl<'a> Builder<'a> {
@@ -547,6 +573,7 @@ impl<'a> Builder<'a> {
             linked_upto: 0,
             relink: false,
             untagged: HashMap::new(),
+            adopted: HashMap::new(),
         }
     }
 
@@ -579,8 +606,41 @@ impl<'a> Builder<'a> {
         })
     }
 
+    /// The package of `abs` by location: that of its candidate, else that of the closest package directory above it.
+    fn located_owner(&self, abs: &Path) -> PackageId {
+        let abs = self.inputs.links.get(abs).map_or(abs, PathBuf::as_path);
+        self.candidate_index
+            .get(abs)
+            .map_or_else(|| self.owner_of(abs), |position| self.inputs.candidates[*position].owner)
+    }
+
+    /// The package that owns the file `raw` reaches when the module `importer` reaches it first, where that is not the
+    /// package of its location. A file found through `rootDirs` (generated code in a build output tree) belongs to
+    /// the importer's package, whose dependencies Node.js resolves its imports from; so does a file that an adopted
+    /// module reaches by a relative import within the package of its own location (generated code beside it).
+    fn adopter(&self, importer: ModuleId, raw: &RawImport) -> Option<PackageId> {
+        let RawTarget::File(file) = &raw.target else {
+            return None;
+        };
+        let owner = self.modules[importer.index()].owner;
+        match raw.reach {
+            Reach::RootDirs => Some(owner),
+            Reach::Relative => {
+                let located = self.adopted.get(&importer)?;
+                (self.located_owner(file) == *located).then_some(owner)
+            }
+            Reach::Other => None,
+        }
+    }
+
     /// The id of `abs`, creating an unparsed module on first sight. The flag is true for a new module.
     fn intern(&mut self, abs: &Path) -> (ModuleId, bool) {
+        self.intern_owned(abs, None)
+    }
+
+    /// [`Self::intern`] for a file that package `adopter` owns, when given, instead of the package of its location. A
+    /// module seen before keeps its owner.
+    fn intern_owned(&mut self, abs: &Path, adopter: Option<PackageId>) -> (ModuleId, bool) {
         let inputs = self.inputs;
         let abs = inputs.links.get(abs).map_or(abs, PathBuf::as_path);
         if let Some(id) = self.index.get(abs) {
@@ -591,7 +651,11 @@ impl<'a> Builder<'a> {
             .candidate_index
             .get(abs)
             .map(|position| &inputs.candidates[*position]);
-        let owner = candidate.map_or_else(|| self.owner_of(abs), |candidate| candidate.owner);
+        let located = candidate.map_or_else(|| self.owner_of(abs), |candidate| candidate.owner);
+        let owner = adopter.unwrap_or(located);
+        if owner != located {
+            self.adopted.insert(id, located);
+        }
         let rel = relative(abs, inputs.root).unwrap_or_else(|| abs.to_string_lossy().into_owned());
         let setup = inputs.setup.package(owner);
         let package_rel = setup.and_then(|setup| relative(abs, &setup.dir));
@@ -622,10 +686,12 @@ impl<'a> Builder<'a> {
         (id, true)
     }
 
-    fn lower(&mut self, target: RawTarget, next: &mut Vec<ModuleId>) -> Target {
+    /// The target of an import, interning the files it reaches; `adopter` owns a file reached for the first time
+    /// ([`Self::adopter`]).
+    fn lower(&mut self, target: RawTarget, adopter: Option<PackageId>, next: &mut Vec<ModuleId>) -> Target {
         match target {
             RawTarget::File(path) => {
-                let (id, fresh) = self.intern(&path);
+                let (id, fresh) = self.intern_owned(&path, adopter);
                 if fresh {
                     next.push(id);
                 }
@@ -711,7 +777,7 @@ impl<'a> Builder<'a> {
                 if !self.linked.insert((id, registration.file.clone())) {
                     continue;
                 }
-                let target = self.lower(RawTarget::File(registration.file), &mut fresh);
+                let target = self.lower(RawTarget::File(registration.file), None, &mut fresh);
                 let module = &mut self.modules[index];
                 let import = module.info.imports.len();
                 module
@@ -760,12 +826,15 @@ pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf]) -> ModuleGraph {
             let imports = parsed
                 .imports
                 .into_iter()
-                .map(|raw| ResolvedImport {
-                    import: raw.import,
-                    target: builder.lower(raw.target, &mut next),
-                    package: raw.package,
-                    type_only: raw.type_only,
-                    component: false,
+                .map(|raw| {
+                    let adopter = builder.adopter(*id, &raw);
+                    ResolvedImport {
+                        import: raw.import,
+                        target: builder.lower(raw.target, adopter, &mut next),
+                        package: raw.package,
+                        type_only: raw.type_only,
+                        component: false,
+                    }
                 })
                 .collect();
             let module = &mut builder.modules[id.index()];
