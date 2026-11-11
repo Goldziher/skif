@@ -125,13 +125,36 @@ impl Repo {
     }
 }
 
+/// Whether `version` names one release, `major.minor.patch` with an optional pre-release or build suffix, and not a
+/// range or a dist-tag that resolves to another release over time.
+fn is_exact_version(version: &str) -> bool {
+    let core = version.split(['-', '+']).next().unwrap_or_default();
+    let parts: Vec<&str> = core.split('.').collect();
+    parts.len() == 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+        && version[core.len()..]
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-+.".contains(&b))
+}
+
 /// Reads the corpus manifest.
 ///
 /// # Errors
-/// Fails when the file cannot be read or parsed, or a pin is not a full 40-character commit SHA.
+/// Fails when the file cannot be read or parsed, a repository pin is not a full 40-character commit SHA, or a
+/// comparison tool version is not exact.
 pub fn load_manifest(path: &Path) -> Result<Manifest> {
     let text = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let manifest: Manifest = toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+    let tools = [
+        ("knip", &manifest.tools.knip),
+        ("syncpack", &manifest.tools.syncpack),
+        ("sherif", &manifest.tools.sherif),
+    ];
+    if let Some((tool, version)) = tools.iter().find(|(_, version)| !is_exact_version(version)) {
+        bail!("[tools] {tool}: the version must be exact (major.minor.patch), got {version:?}");
+    }
     for repo in &manifest.repo {
         if repo.rev.len() != 40 || !repo.rev.bytes().all(|b| b.is_ascii_hexdigit()) {
             bail!("{}: rev must be a full commit SHA, got {:?}", repo.name, repo.rev);
@@ -507,17 +530,49 @@ mod tests {
         assert!(error.contains("jest.lock"), "{error}");
     }
 
-    #[test]
-    fn rejects_branch_pins() {
-        let dir = std::env::temp_dir().join(format!("skif-bench-corpus-{}", std::process::id()));
+    /// Writes a corpus manifest with these tool versions and one repository pinned to `rev`, and loads it.
+    fn load_with(name: &str, (knip, syncpack, sherif): (&str, &str, &str), rev: &str) -> Result<Manifest> {
+        let dir = std::env::temp_dir().join(format!("skif-bench-corpus-{name}-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let file = dir.join("corpus.toml");
         fs::write(
             &file,
-            "[tools]\nknip = \"1\"\nsyncpack = \"1\"\nsherif = \"1\"\n[[repo]]\nname = \"x\"\nurl = \"u\"\nrev = \"main\"\npackage-manager = \"npm\"\n",
+            format!(
+                "[tools]\nknip = {knip:?}\nsyncpack = {syncpack:?}\nsherif = {sherif:?}\n[[repo]]\nname = \"x\"\nurl = \"u\"\nrev = {rev:?}\npackage-manager = \"npm\"\n"
+            ),
         )
         .unwrap();
-        assert!(load_manifest(&file).is_err());
+        let loaded = load_manifest(&file);
         fs::remove_dir_all(&dir).unwrap();
+        loaded
+    }
+
+    const PINNED: (&str, &str, &str) = ("6.44.1", "15.3.3", "1.13.0");
+
+    #[test]
+    fn rejects_branch_pins() {
+        let error = load_with("branch", PINNED, "main").unwrap_err().to_string();
+        assert!(error.contains("x: rev must be a full commit SHA"), "{error}");
+        assert!(load_with("sha", PINNED, &"a".repeat(40)).is_ok());
+    }
+
+    #[test]
+    fn rejects_a_comparison_tool_version_that_is_not_exact() {
+        let sha = "a".repeat(40);
+        for (tools, tool, version) in [
+            (("^6.44.1", "15.3.3", "1.13.0"), "knip", "^6.44.1"),
+            (("6.44.1", "latest", "1.13.0"), "syncpack", "latest"),
+            (("6.44.1", "15.3.3", "1.13"), "sherif", "1.13"),
+            (("6.44.1", "15.x.3", "1.13.0"), "syncpack", "15.x.3"),
+            (("6.44.1", "15.3.3", ">=1.13.0"), "sherif", ">=1.13.0"),
+            (("6.44.1 || 7.0.0", "15.3.3", "1.13.0"), "knip", "6.44.1 || 7.0.0"),
+        ] {
+            let error = load_with("range", tools, &sha).unwrap_err().to_string();
+            assert_eq!(
+                error,
+                format!("[tools] {tool}: the version must be exact (major.minor.patch), got {version:?}")
+            );
+        }
+        assert!(load_with("prerelease", ("6.0.0-beta.2", "15.3.3", "1.13.0+build.1"), &sha).is_ok());
     }
 }
