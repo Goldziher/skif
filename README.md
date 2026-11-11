@@ -50,17 +50,54 @@ skif builds on [sherif](https://github.com/QuiiBz/sherif), [syncpack](https://gi
 [knip](https://github.com/webpro-nl/knip), which remain excellent, focused tools. It started as a fork of sherif and
 follows knip's issue types. The difference is that one tool covers all three jobs.
 
-| | skif | sherif | syncpack | knip |
-| --- | --- | --- | --- | --- |
-| Manifest and workspace rules | Yes | Yes | No | No |
-| Version and semver-range policy | Yes | Version mismatches | Yes | No |
-| Catalog policy | Yes | No | Yes | Catalog entries |
-| Registry updates (`update --check`) | Yes, opt-in | No | Yes | No |
-| Unused dependencies, files and exports | Yes | No | No | Yes |
-| Runs project code to read configs | No | No | No | Yes |
+The tables compare skif with sherif 1.13.0, syncpack 15.3.3 and knip 6.45.1, checked against their source code at
+those tags. The [comparison guide](https://goldziher.github.io/skif/guides/comparison/#capabilities) has the full
+matrix, explains each "Partial" and lists the sources.
 
-skif is younger than all three. The JS analysis is close to knip but not identical, and
-[the differences are published](#agreement-with-knip).
+| Capability | skif | sherif | syncpack | knip |
+| --- | --- | --- | --- | --- |
+| Manifest and workspace rules | Yes | Yes | Partial: sorts dependency maps | No |
+| Version mismatches | Yes | Yes | Yes | No |
+| Version and semver-range groups, banned dependencies | Yes | No | Yes | No |
+| Related dependencies on one version (`react`, `react-dom`) | Yes | Partial: a fixed list | Yes | No |
+| Catalog policy | Yes: pnpm, Bun, Yarn 4.10+ | No | Partial: pnpm, Bun | No |
+| Unused catalog entries, unresolved `catalog:` references | Yes | No | Partial: unresolved references | Yes |
+| `workspace:` protocol | Yes | No | Partial: a pinned version group | No |
+| Toolchain pins (`packageManager`, `engines`, `.nvmrc`, Dockerfiles, workflows) | Yes | Partial: `packageManager` present | Partial: `package.json` fields | No |
+| Lockfile checks (stray lockfiles, bans over the lockfile, stale patches) | Partial: `pnpm-lock.yaml`, `bun.lock` | No | No | No |
+| Registry updates | Yes: `skif update`, `--check` | No | Yes: `syncpack update`, `--check` | No |
+| Unused and unlisted dependencies, unlisted binaries, unresolved imports | Yes | No | No | Yes |
+| Unused files, exports, types, enum and namespace members; duplicate exports | Yes | No | No | Yes |
+| Circular imports | Yes, off by default | No | No | Yes, off by default |
+| Unused `package.json` subpath imports and exports | No | No | No | Yes |
+| Vue, Svelte, Astro, MDX, Marko | Yes | No | No | Yes |
+| Custom compilers for other file types | No | No | No | Yes |
+| Built-in plugins | 205 | No | No | 207 |
+| Runs no project code while linting | Yes | Yes | Partial: imports its own JS config | No |
+| Autofix | Yes | Yes | Yes | Yes |
+| Safe and unsafe fix levels | Yes | No | No | Partial: file deletion opt-in |
+| Baseline that can only shrink | Yes | No | No | No |
+| Translates the other tools' configuration | Yes: `skif migrate` | No | No | No |
+| Configuration | `skif.toml`, layered | `package.json` key | `.syncpackrc` (JSON, YAML, JS, TS) | `knip.json`, `knip.ts` |
+| JSON, SARIF, GitHub, Code Climate output | Yes | No | Partial: JSON from some commands | Yes |
+| Watch mode, language server | Yes | No | No | Yes |
+| Editor extension | No | No | No | Yes |
+| MCP server | Yes | No | No | Yes: runs knip, serves its docs |
+| GitHub Action | Yes | Yes | No | No |
+| Git hooks (pre-commit, prek, Poly) | Yes | No | No | No |
+| Library API | Yes: Rust crate, npm package | No | No | Partial: undocumented |
+
+| Support | skif | sherif | syncpack | knip |
+| --- | --- | --- | --- | --- |
+| Package managers | npm, pnpm, Yarn 2+, Yarn Classic, Bun | npm, pnpm, Yarn, Bun | npm, pnpm, Yarn, Bun, Lerna | npm, pnpm, Yarn, Bun |
+| Linkers tested end to end in CI | npm (hoisted); pnpm (isolated, `nodeLinker: hoisted`); Yarn 2+ (Plug'n'Play, `nodeLinker: node-modules`, `nodeLinker: pnpm`); Yarn Classic (hoisted); Bun (default, `linker = "hoisted"`, `linker = "isolated"`) | None | None | No linker matrix |
+| Runtime | Native binary, or through npm on Node.js 22, 24, 26 and Bun 1.x | Native binary | Native binary | Node.js 20.19+ or 22.12+, or Bun |
+| Platforms | macOS, Linux (glibc, musl), Windows; x64, arm64 (Windows not yet on npm) | macOS, Linux (glibc, musl), Windows; x64, arm64 | macOS, Linux (glibc, musl), Windows; x64, arm64 | Where `oxc-parser` has a native binding |
+| Distribution | npm, crates.io, cargo-binstall, release archives, Homebrew, Scoop | npm, release archives, Homebrew | npm; crates.io up to 14.0.0 | npm |
+
+Versions per package manager and operating system are under
+[supported versions](https://goldziher.github.io/skif/start/installation/#supported-versions). skif is younger than
+all three. The JS analysis is close to knip but not identical, and [the differences are published](#agreement-with-knip).
 
 ## Benchmarks
 
