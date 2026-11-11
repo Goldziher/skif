@@ -157,7 +157,8 @@ export function provenance(summary) {
     .join(", ");
   const { github } = summary.machine;
   const rustc = summary.toolchain.rustc == null ? "" : ` built with ${summary.toolchain.rustc}`;
-  const run = github?.run_url == null ? "" : ` ([workflow run](${github.run_url}))`;
+  const attempt = github?.run_attempt == null ? "" : `, attempt ${github.run_attempt}`;
+  const run = github?.run_url == null ? "" : ` ([workflow run${attempt}](${github.run_url}))`;
   return (
     `Medians of ${summary.runs} runs after ${summary.warmup} warmup runs (${summary.hyperfine}), ` +
     `${summary.skif} at \`${summary.source_rev}\`${rustc} against ${tools}, measured on ` +

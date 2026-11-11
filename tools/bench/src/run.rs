@@ -625,7 +625,10 @@ fn runner_text(github: &GithubRunner) -> String {
     let end = text.trim_end().len();
     text.truncate(end);
     if let Some(url) = &github.run_url {
-        let _ = write!(text, "; [workflow run]({url})");
+        let attempt = github
+            .run_attempt
+            .map_or_else(String::new, |attempt| format!(", attempt {attempt}"));
+        let _ = write!(text, "; [workflow run{attempt}]({url})");
     }
     text.push('.');
     text
@@ -1094,7 +1097,7 @@ mod tests {
         );
         assert!(
             with_skip.contains(
-                "Runner: github-hosted `GitHub Actions 1000012345`, image `ubuntu24` `20261102.1.0`, Linux X64; [workflow run](https://github.com/Goldziher/skif/actions/runs/19283746)."
+                "Runner: github-hosted `GitHub Actions 1000012345`, image `ubuntu24` `20261102.1.0`, Linux X64; [workflow run, attempt 1](https://github.com/Goldziher/skif/actions/runs/19283746/attempts/1)."
             ),
             "{with_skip}"
         );
@@ -1139,7 +1142,8 @@ mod tests {
                 runner_arch: Some("X64".into()),
                 runner_environment: Some("github-hosted".into()),
                 runner_name: Some("GitHub Actions 1000012345".into()),
-                run_url: Some("https://github.com/Goldziher/skif/actions/runs/19283746".into()),
+                run_attempt: Some(1),
+                run_url: Some("https://github.com/Goldziher/skif/actions/runs/19283746/attempts/1".into()),
             }),
         }
     }
@@ -1179,6 +1183,7 @@ mod tests {
             runner_arch: None,
             runner_environment: None,
             runner_name: None,
+            run_attempt: None,
             run_url: None,
         };
         assert_eq!(
