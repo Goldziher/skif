@@ -1,7 +1,7 @@
 //! Finds files matching config globs without walking the whole workspace: only directories that can
 //! still lead to a match are listed.
 
-use std::collections::HashMap;
+use skif_core::HashMap;
 use std::path::Path;
 use std::sync::{Arc, LazyLock, PoisonError, RwLock};
 

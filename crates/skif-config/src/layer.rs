@@ -74,7 +74,7 @@ impl ParsedFile {
     pub(crate) fn parse(source: &str, path: &Path) -> Result<Self, ConfigError> {
         let from_toml = |error: &toml::de::Error| ConfigError::from_toml(error, source, Some(path));
         let document = DeTable::parse(source).map_err(|error| from_toml(&error))?;
-        let mut spans = Spans::new();
+        let mut spans = Spans::default();
         collect_table("", document.get_ref(), &LineIndex::new(source), &mut spans);
         check_overrides(document.get_ref(), &spans, path)?;
         Config::from_document(document.clone(), source, Some(path), false)?;

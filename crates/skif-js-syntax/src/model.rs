@@ -1,9 +1,10 @@
 //! Skif-owned description of one module. No oxc type appears here.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use skif_core::Span;
+use skif_core::{HashMap, HashSet};
 
 /// How a module is pulled in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -488,7 +489,7 @@ impl ModuleInfo {
     /// instead of leaving `export {}`; a [`RemovalKind::SharedExportKeyword`] applies only when every sibling is
     /// unused.
     pub fn removal_edits(&self, is_unused: impl Fn(&Export) -> bool) -> Vec<(u32, u32)> {
-        let mut selected: HashMap<(u32, u32), u32> = HashMap::new();
+        let mut selected: HashMap<(u32, u32), u32> = HashMap::default();
         for export in &self.exports {
             if let Some(removal) = &export.removal
                 && is_unused(export)
@@ -497,8 +498,8 @@ impl ModuleInfo {
             }
         }
         let mut ranges = Vec::new();
-        let mut whole_statements = HashSet::new();
-        let mut clauses: HashMap<(u32, u32), Vec<(Span, bool)>> = HashMap::new();
+        let mut whole_statements = HashSet::default();
+        let mut clauses: HashMap<(u32, u32), Vec<(Span, bool)>> = HashMap::default();
         // Every specifier of a clause, used or not: a run's separator depends on its neighbours.
         for export in &self.exports {
             if let Some(removal) = &export.removal

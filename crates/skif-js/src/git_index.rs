@@ -16,7 +16,7 @@
 //! Whatever is listed is confirmed when it is used: [`IndexedFs`] answers existence checks from the real file system,
 //! so a tracked file that was deleted is never reported as present.
 
-use std::collections::HashMap;
+use skif_core::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -414,7 +414,7 @@ impl TrackedTree {
         let prefix = prefix.trim_matches('/');
         let mut collector = Collector {
             root,
-            ids: HashMap::new(),
+            ids: HashMap::default(),
             lists: Vec::new(),
         };
         let mut last_dir = "";
@@ -533,7 +533,7 @@ impl IndexedFs {
             inner,
             tree,
             trust,
-            served: Mutex::new(HashMap::new()),
+            served: Mutex::new(HashMap::default()),
         }
     }
 
@@ -1087,7 +1087,7 @@ mod tests {
             &[("src", 200)],
         );
         let bare = Arc::new(Disk {
-            times: HashMap::new(),
+            times: HashMap::default(),
             files: disk.files.clone(),
             index: disk.index.clone(),
             index_reads: AtomicUsize::new(0),
@@ -1179,7 +1179,9 @@ mod tests {
         let disk = Arc::new(Disk {
             files,
             index: index(2, &[item("a.ts", REGULAR)], b""),
-            times: HashMap::from([(PathBuf::from("/main/.git/worktrees/w/index"), at(INDEX_TIME))]),
+            times: [(PathBuf::from("/main/.git/worktrees/w/index"), at(INDEX_TIME))]
+                .into_iter()
+                .collect(),
             index_reads: AtomicUsize::new(0),
         });
         assert!(overlay(&disk).is_none());
@@ -1203,7 +1205,7 @@ mod tests {
         let disk = Arc::new(Disk {
             files,
             index: index(2, &[item("app/a.ts", REGULAR)], b""),
-            times: HashMap::new(),
+            times: HashMap::default(),
             index_reads: AtomicUsize::new(0),
         });
         let fs: Arc<dyn FileSystem> = disk;

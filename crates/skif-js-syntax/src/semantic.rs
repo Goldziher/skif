@@ -1,12 +1,12 @@
 //! In-file references to top-level bindings and namespace members, via oxc semantic analysis.
 
-use std::cell::OnceCell;
-use std::collections::{BTreeSet, HashMap, HashSet};
-
 use oxc_ast::ast::{Declaration, IdentifierReference, Program, Statement, TSNamespaceDeclarationBody};
 use oxc_ast_visit::Visit;
 use oxc_semantic::{ScopeId, Scoping, Semantic, SemanticBuilder};
 use oxc_span::{GetSpan, Span as OxcSpan};
+use skif_core::{HashMap, HashSet};
+use std::cell::OnceCell;
+use std::collections::BTreeSet;
 
 /// The semantic analysis of one parsed block, built on first use and shared by every pass that needs scopes.
 pub(crate) struct Analysis<'p> {
@@ -46,7 +46,7 @@ pub(crate) fn referenced_locals(
     wanted: &HashSet<String>,
     excluded: &[OxcSpan],
 ) -> HashSet<String> {
-    let mut referenced = HashSet::new();
+    let mut referenced = HashSet::default();
     if wanted.is_empty() {
         return referenced;
     }
@@ -84,7 +84,7 @@ pub(crate) fn namespace_bare_reads(
         scoping: analysis.scoping(),
         members,
         current: None,
-        reads: HashMap::new(),
+        reads: HashMap::default(),
     };
     for stmt in &program.body {
         let decl = match stmt {

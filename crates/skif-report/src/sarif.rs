@@ -6,7 +6,7 @@
 //! operations on structured files rather than text replacements, so they are listed under `properties.fixes`
 //! instead of the SARIF `fixes` array, which requires concrete artifact changes.
 
-use std::collections::HashMap;
+use skif_core::HashMap;
 use std::fmt::Write as _;
 use std::io::{self, Write};
 use std::path::Path;
@@ -391,7 +391,7 @@ fn result<'a>(
 pub fn render_sarif(report: &Report, options: &RenderOptions, out: &mut dyn Write) -> io::Result<()> {
     let rules = rules(report, options);
     let utf16 = all_convertible(report, options);
-    let mut seen = HashMap::new();
+    let mut seen = HashMap::default();
     let results = report
         .diagnostics
         .iter()

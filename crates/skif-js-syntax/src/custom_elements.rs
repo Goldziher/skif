@@ -4,7 +4,7 @@
 //! exported class is registered, on [`Export::registrations`](crate::Export::registrations); which registrations
 //! count is the caller's decision, because a decorator registers only when it comes from a custom element library.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 
 use oxc_ast::ast::{
     Argument, BindingPattern, CallExpression, Class, Declaration, ExportDefaultDeclarationKind, Expression, Program,
@@ -12,6 +12,7 @@ use oxc_ast::ast::{
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::{Scoping, SymbolId};
+use skif_core::{HashMap, HashSet};
 
 use crate::model::{Export, ExportKind, ImportKind, ImportedKind, ModuleInfo, Registration};
 use crate::semantic::Analysis;
@@ -127,7 +128,7 @@ fn top_level_classes(
     bindings: &HashMap<String, Binding>,
     found: &mut Found,
 ) -> HashMap<String, Registration> {
-    let mut base_classes = HashMap::new();
+    let mut base_classes = HashMap::default();
     for (class, is_default) in program.body.iter().filter_map(top_level_class) {
         let name = class.id.as_ref().map(|id| id.name.as_str().to_owned());
         for decorator in &class.decorators {
@@ -168,7 +169,7 @@ fn top_level_class<'s, 'a>(statement: &'s Statement<'a>) -> Option<(&'s Class<'a
 
 /// The local bindings of the static imports, by local name.
 fn import_bindings(info: &ModuleInfo) -> HashMap<String, Binding> {
-    let mut bindings = HashMap::new();
+    let mut bindings = HashMap::default();
     for import in info.imports.iter().filter(|import| import.kind == ImportKind::Static) {
         for name in &import.names {
             let Some(local) = &name.local else { continue };

@@ -1,6 +1,6 @@
 //! Turns the verdicts of an [`Analysis`] into diagnostics.
 
-use std::collections::HashMap;
+use skif_core::HashMap;
 use std::path::Path;
 
 use skif_core::{Diagnostic, Fix, FixSafety, Location, Related, diagnostic};
@@ -65,7 +65,7 @@ impl<'a> Holders<'a> {
     fn index(analysis: &'a Analysis<'_>, sequential: bool) -> Self {
         let names: Vec<(&'a str, &'a [InstanceId])> = analysis.instances.names().collect();
         let maps = map_ordered(&names, sequential, |&(_, ids)| {
-            let mut first: HashMap<HolderKey<'a>, [Option<InstanceId>; 2]> = HashMap::new();
+            let mut first: HashMap<HolderKey<'a>, [Option<InstanceId>; 2]> = HashMap::default();
             for &id in ids {
                 let instance = analysis.instances.get(id);
                 let slots = first.entry((instance.alias_target(), instance.raw())).or_default();

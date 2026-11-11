@@ -4,8 +4,9 @@
 //! tables merge key by key, and the keys listed in `EXTEND_KEYS` append. `[rules]`, `[js.plugins]` and the arrays of
 //! tables have their own rules, see [`Merger::apply`].
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
+use skif_core::HashMap;
 use toml::{Table, Value};
 
 use crate::provenance::{Assignment, Op, Origins, join_key};

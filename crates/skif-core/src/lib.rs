@@ -42,6 +42,7 @@ pub mod diagnostic;
 pub mod display;
 pub mod fix;
 pub mod fs;
+pub mod hash;
 pub mod incomplete;
 pub mod package_id;
 pub mod report;
@@ -61,6 +62,7 @@ pub use fix::{
     YamlAction, apply_text_edits,
 };
 pub use fs::{DirEntry, FileSystem, MemoryFs, OsFs, PathKind};
+pub use hash::{HashMap, HashSet, HashState};
 pub use incomplete::{IncompleteCause, IncompleteEntries, IncompletePackage, IncompleteScope};
 pub use package_id::PackageId;
 pub use report::{ConfigJudgement, Report, Summary};

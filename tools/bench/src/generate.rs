@@ -3,7 +3,7 @@
 //! [`build`] is pure: it returns every file of the workspace as `(relative path, contents)` plus the number of
 //! injected issues, so tests never touch the disk. [`write()`](write()) materialises the result.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -241,7 +241,7 @@ fn package_json(
     let layout = layout(index);
     let options = ctx.options;
     let mut rng = Rng::for_stream(options.seed, index as u64 + 1);
-    let mut seen: HashSet<String> = HashSet::new();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
 
     let mut dependencies: Vec<(String, String)> = Vec::new();
     for _ in 0..rng.range_usize(3, 14) {
@@ -494,7 +494,7 @@ mod tests {
     #[test]
     fn pool_has_no_duplicates_and_is_large() {
         let names = pool();
-        let unique: HashSet<_> = names.iter().collect();
+        let unique: BTreeSet<_> = names.iter().collect();
         assert_eq!(unique.len(), names.len());
         assert!(names.len() >= 250, "pool has {} names", names.len());
     }
@@ -528,7 +528,7 @@ mod tests {
                 "no package under {prefix}"
             );
         }
-        let names: HashSet<_> = packages.iter().filter_map(|(_, m)| m["name"].as_str()).collect();
+        let names: BTreeSet<_> = packages.iter().filter_map(|(_, m)| m["name"].as_str()).collect();
         assert_eq!(names.len(), 200);
     }
 

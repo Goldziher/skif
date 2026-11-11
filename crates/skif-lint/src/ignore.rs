@@ -1,9 +1,8 @@
-use std::cell::OnceCell;
-use std::collections::{HashMap, HashSet};
-
 use skif_config::{Config, IgnoreEntry, Selector};
 use skif_core::Diagnostic;
+use skif_core::{HashMap, HashSet};
 use skif_workspace::{PackageId, Workspace};
+use std::cell::OnceCell;
 
 /// `[[ignore]]` entries (those of `[[overrides]]` too, limited to the override's scope) and
 /// `workspace.ignore-packages`, resolved against a workspace.
@@ -186,7 +185,7 @@ pub fn ignore_matches(workspace: &Workspace, entries: &[IgnoreEntry], diagnostic
 
 /// Display name to the packages carrying it.
 fn names(workspace: &Workspace) -> HashMap<String, Vec<PackageId>> {
-    let mut by_name: HashMap<String, Vec<PackageId>> = HashMap::new();
+    let mut by_name: HashMap<String, Vec<PackageId>> = HashMap::default();
     for (id, package) in workspace.iter() {
         by_name.entry(package.display_name().to_owned()).or_default().push(id);
     }

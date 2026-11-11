@@ -1,6 +1,8 @@
 //! Finding every workspace root and standalone package below a directory.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
+
+use skif_core::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -494,7 +496,7 @@ pub fn claim_roots(
     candidates: &Candidates,
     members: &BTreeMap<PathBuf, BTreeSet<PathBuf>>,
 ) -> Vec<RootKind> {
-    let mut links = HashMap::new();
+    let mut links = HashMap::default();
     let owned: BTreeSet<PathBuf> = members
         .iter()
         .flat_map(|(root, dirs)| dirs.iter().map(move |dir| (root, dir)))
@@ -733,7 +735,7 @@ mod tests {
     #[test]
     fn a_linked_member_is_resolved_through_the_file_system_not_the_disk() {
         let fs = Linked(MemoryFs::new().with_file("/r/real/a/package.json", r#"{"name": "a"}"#));
-        let mut links = HashMap::new();
+        let mut links = HashMap::default();
         assert_eq!(
             resolved(&fs, Path::new("/r"), Path::new("/r/pkgs/a"), &mut links),
             Path::new("/r/real/a"),

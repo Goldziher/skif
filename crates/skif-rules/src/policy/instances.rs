@@ -7,8 +7,9 @@
 //! The model is shared: the version-group analysis in this module tree and the catalog rules build on the same
 //! [`Instances`], so a manifest is walked once per run.
 
+use skif_core::{HashMap, HashSet};
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use skif_config::{CustomType, DependencyType, InstanceFilter, OverrideReading};
@@ -252,7 +253,7 @@ impl<'w> Instances<'w> {
         }
         // A hash map while every instance is looked up, ordered by name once at the end; the name is copied once per
         // dependency, not once per instance.
-        let mut ids_by_name: HashMap<&str, Vec<InstanceId>> = HashMap::new();
+        let mut ids_by_name: HashMap<&str, Vec<InstanceId>> = HashMap::default();
         for (index, item) in items.iter().enumerate() {
             ids_by_name.entry(&*item.name).or_default().push(InstanceId(index));
         }

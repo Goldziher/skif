@@ -1,7 +1,7 @@
 // Added for skif (not in syncpack): caller-owned replacement for the upstream thread-local cache; see ATTRIBUTIONS.md.
 use {
     crate::Specifier,
-    rustc_hash::{FxBuildHasher, FxHashMap},
+    skif_core::{HashMap, HashState},
     std::{
         hash::BuildHasher,
         sync::{Arc, PoisonError, RwLock},
@@ -11,7 +11,7 @@ use {
 /// Independently locked parts of the cache, so parallel member loading rarely waits on one lock.
 const SHARDS: usize = 16;
 
-type Shard = RwLock<FxHashMap<Box<str>, Arc<Specifier>>>;
+type Shard = RwLock<HashMap<Box<str>, Arc<Specifier>>>;
 
 /// A caller-owned, thread-safe cache which deduplicates parsed [`Specifier`]s
 /// by their raw string.
@@ -28,7 +28,7 @@ impl SpecifierCache {
     }
 
     fn shard(&self, raw: &str) -> &Shard {
-        let index = usize::try_from(FxBuildHasher.hash_one(raw) % SHARDS as u64).unwrap_or(0);
+        let index = usize::try_from(HashState::default().hash_one(raw) % SHARDS as u64).unwrap_or(0);
         &self.shards[index]
     }
 

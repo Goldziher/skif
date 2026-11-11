@@ -6,7 +6,7 @@
 //! changed (`const a = cfg`, `{ test: t }`, `{ ...base }`, `f(cfg)`). Reading one of them yields a value that says it
 //! may hold more than the evaluator saw.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use oxc_ast::ast::{
     Argument, ArrowFunctionExpression, AssignmentExpression, AssignmentTargetPropertyIdentifier, BindingPattern,
@@ -15,6 +15,7 @@ use oxc_ast::ast::{
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::{ReferenceId, ScopeFlags, ScopeId, Scoping, SemanticBuilder, SymbolId};
+use skif_core::HashMap;
 
 /// How code the evaluator does not follow may change a binding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -140,14 +141,14 @@ impl Sharing<'_> {
 
     /// Marks every binding that may share an object with a changed one, other than a binding changed on its own.
     fn share(&mut self) {
-        let mut parent: HashMap<SymbolId, SymbolId> = HashMap::new();
+        let mut parent: HashMap<SymbolId, SymbolId> = HashMap::default();
         for &(a, b) in &self.links {
             let (a, b) = (find(&mut parent, a), find(&mut parent, b));
             if a != b {
                 parent.insert(a, b);
             }
         }
-        let mut changed: HashMap<SymbolId, Vec<SymbolId>> = HashMap::new();
+        let mut changed: HashMap<SymbolId, Vec<SymbolId>> = HashMap::default();
         for &symbol in &self.mutated {
             let class = changed.entry(find(&mut parent, symbol)).or_default();
             if !class.contains(&symbol) {

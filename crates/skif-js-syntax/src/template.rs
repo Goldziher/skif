@@ -1040,7 +1040,7 @@ mod tests {
     use crate::members::Uses;
 
     fn used(text: &str, flavor: Flavor) -> Uses {
-        let mut uses = Uses::new();
+        let mut uses = Uses::default();
         scan(text, flavor, &mut uses);
         uses
     }
@@ -1255,7 +1255,7 @@ mod tests {
 
     #[test]
     fn scan_returns_the_tag_names_as_written() {
-        let mut uses = Uses::new();
+        let mut uses = Uses::default();
         let tags = scan(
             "<template><AppButton/><app-card :x=\"1\"></app-card><div/></template>",
             Flavor::Vue,
@@ -1341,7 +1341,7 @@ mod tests {
 
     #[test]
     fn static_is_attributes_name_components() {
-        let mut uses = Uses::new();
+        let mut uses = Uses::default();
         let tags = scan(
             "<component is=\"AppButton\"/><component :is=\"'app-card'\"/><div is=\"vue:AppMenu\"></div><component :is=\"current\"/><component v-bind:is=\"`App${x}`\"/>",
             Flavor::Vue,

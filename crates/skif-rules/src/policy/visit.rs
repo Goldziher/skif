@@ -24,7 +24,7 @@
 //! * specifiers that are byte-identical count as having the same version number, which keeps `latest` valid next to
 //!   `latest`.
 
-use std::collections::HashMap;
+use skif_core::HashMap;
 use std::sync::Arc;
 
 use skif_config::{DependencyType, Prefer};
@@ -261,7 +261,7 @@ impl<'a, 'w> Visitor<'a, 'w> {
                 distinct.push(Arc::clone(specifier));
             }
         }
-        let mut verdicts: HashMap<String, bool> = HashMap::new();
+        let mut verdicts: HashMap<String, bool> = HashMap::default();
         for id in ranged {
             let specifier = self.spec(id);
             let satisfies = *verdicts

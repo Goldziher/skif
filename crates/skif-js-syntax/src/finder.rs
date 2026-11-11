@@ -1,7 +1,7 @@
 //! Nested module references: `require`, dynamic `import()`, `import.meta.glob`, `import x = require()`, test-runner
 //! mocks, `CommonJS` exports, JSX and the template and stylesheet files of an Angular or Stencil `@Component`.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 
 use oxc_ast::ast::{
     Argument, ArrayExpressionElement, ArrayPattern, AssignmentExpression, AssignmentOperator, AssignmentTarget,
@@ -13,6 +13,7 @@ use oxc_ast::ast::{
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
+use skif_core::{HashMap, HashSet};
 
 use crate::collect::{Ctx, collect_import, imported_kind};
 use crate::model::{
@@ -75,12 +76,12 @@ impl Finder<'_, '_> {
 impl<'c, 's> Finder<'c, 's> {
     pub(crate) fn new(ctx: &'c Ctx<'s>, info: &'c mut ModuleInfo, program: &Program<'_>) -> Self {
         Self {
-            pending: HashMap::new(),
-            redundant_types: HashSet::new(),
-            indexed_types: HashMap::new(),
+            pending: HashMap::default(),
+            redundant_types: HashSet::default(),
+            indexed_types: HashMap::default(),
             module_file: is_module_file(program),
             component_decorators: component_decorator_names(info),
-            mocked_imports: HashSet::new(),
+            mocked_imports: HashSet::default(),
             ctx,
             info,
         }

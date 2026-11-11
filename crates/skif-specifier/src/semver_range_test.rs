@@ -66,7 +66,7 @@ fn sorts_ranges_according_to_their_greediness() {
 fn implements_hash() {
     let semver1 = SemverRange::new("^").unwrap();
     let semver2 = SemverRange::new("~").unwrap();
-    let mut map = HashMap::new();
+    let mut map: HashMap<_, _> = HashMap::default();
 
     map.insert(&semver1, "value1");
     map.insert(&semver2, "value2");

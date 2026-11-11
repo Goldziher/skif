@@ -3,7 +3,9 @@
 //! One pass over the workspace yields a [`Finding`] for every instance that a catalog rule reports; the rules pick
 //! the findings of their own kind.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
+
+use skif_core::HashMap;
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
@@ -152,7 +154,7 @@ impl UsageIndex {
         let exclude = Selector::new(config.catalog.exclude.iter().cloned()).unwrap_or_default();
         let claims = Claims::new(workspace, config);
         // Looked up once per dependency entry: a hash map while walking, ordered by name once at the end.
-        let mut by_name: HashMap<&str, Usage> = HashMap::new();
+        let mut by_name: HashMap<&str, Usage> = HashMap::default();
         for package in active_packages(workspace) {
             for (position, entry) in package
                 .dependencies

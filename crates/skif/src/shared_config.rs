@@ -1,7 +1,9 @@
 //! Deciding the `stale-js-config` findings about a configuration file several roots of a multi-root run read, over
 //! the final reports of those roots (ADR 0098).
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
+
+use skif_core::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use skif_core::{ConfigJudgement, Diagnostic, Report, Severity};
@@ -93,7 +95,7 @@ impl Decision {
 type Copies<'r> = HashMap<(&'r Path, &'r str), Severity>;
 
 fn copies_of(report: &Report) -> Copies<'_> {
-    let mut copies: Copies<'_> = HashMap::new();
+    let mut copies: Copies<'_> = HashMap::default();
     for diagnostic in stale_findings(report) {
         let severity = copies
             .entry((diagnostic.location.path.as_path(), diagnostic.message.as_str()))

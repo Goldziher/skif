@@ -1,6 +1,8 @@
 //! Entry files: configured and default globs, what `package.json` publishes, and what scripts run.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
+
+use skif_core::HashSet;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -60,7 +62,7 @@ pub(crate) fn entry_files(
 ) -> EntryFiles {
     let mut entries = BTreeSet::new();
     let mut unknown = Vec::new();
-    let mut provided = HashSet::new();
+    let mut provided = HashSet::default();
     let mut other_roots = BTreeSet::new();
     let mut by_owner: Vec<Vec<&Candidate>> = vec![Vec::new(); workspace.iter().count()];
     for candidate in candidates {

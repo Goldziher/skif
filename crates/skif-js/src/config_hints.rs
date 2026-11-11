@@ -2,7 +2,7 @@
 //! and `project` in a monorepo, `project` extensions skif does not analyse or leaves out, and published entry files
 //! that do not exist. The `stale-js-config` rule reports them.
 
-use std::collections::HashSet;
+use skif_core::HashSet;
 use std::path::{Path, PathBuf};
 
 use indexmap::IndexSet;

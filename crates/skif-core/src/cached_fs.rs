@@ -1,6 +1,6 @@
 //! A memoizing [`FileSystem`] so one run reads every directory and configuration file at most once.
 
-use std::collections::HashMap;
+use crate::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::hash::BuildHasher;
 use std::io;
@@ -8,8 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, PoisonError, RwLock};
 use std::time::SystemTime;
 
-use rustc_hash::FxBuildHasher;
-
+use crate::HashState;
 use crate::fs::{DirEntry, FileSystem, PathKind};
 
 const SHARDS: u64 = 64;
@@ -27,27 +26,25 @@ type Listing = Result<Arc<[DirEntry]>, io::ErrorKind>;
 /// A path-keyed map split over independently locked shards, so parallel readers rarely contend.
 ///
 /// Every probe of the resolver looks a long absolute path up here, so keys are the raw bytes of the path hashed with
-/// `FxHash` instead of [`Path`]'s component-wise hash: the keys are paths of the run's own tree, not input chosen to
+/// ahash instead of [`Path`]'s component-wise hash: the keys are paths of the run's own tree, not input chosen to
 /// collide. Two spellings of one path (`a/b` and `a/./b`) are two keys; the second costs one more question to the
 /// wrapped file system, never a different answer.
 struct Sharded<V> {
     shards: Vec<RwLock<Shard<V>>>,
 }
 
-type Shard<V> = HashMap<OsString, V, FxBuildHasher>;
+type Shard<V> = HashMap<OsString, V>;
 
 impl<V: Clone> Sharded<V> {
     fn new() -> Self {
         Self {
-            shards: (0..SHARDS)
-                .map(|_| RwLock::new(HashMap::with_hasher(FxBuildHasher)))
-                .collect(),
+            shards: (0..SHARDS).map(|_| RwLock::new(HashMap::default())).collect(),
         }
     }
 
     fn shard(&self, key: &OsStr) -> &RwLock<Shard<V>> {
-        // The high bits of an Fx hash are the well mixed ones.
-        let index = usize::try_from((FxBuildHasher.hash_one(key) >> 32) % SHARDS).unwrap_or(0);
+        // The high bits of an ahash hash are the well mixed ones.
+        let index = usize::try_from((HashState::default().hash_one(key) >> 32) % SHARDS).unwrap_or(0);
         &self.shards[index]
     }
 

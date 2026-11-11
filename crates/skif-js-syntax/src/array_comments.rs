@@ -1,7 +1,7 @@
 //! The comments written next to the elements of array literals, for a tool that carries them over into another
 //! format (`skif migrate` turns the comment on a knip ignore entry into its `reason`).
 
-use std::collections::HashMap;
+use skif_core::HashMap;
 use std::path::Path;
 
 use oxc_allocator::Allocator;

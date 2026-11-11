@@ -245,7 +245,7 @@ impl Config {
             return Ok(config);
         }
         let mut merger = crate::merge::Merger::default();
-        merger.apply(0, &table, &std::collections::HashMap::new());
+        merger.apply(0, &table, &skif_core::HashMap::default());
         let folded = merger.into_table();
         toml::Value::Table(folded)
             .try_into()

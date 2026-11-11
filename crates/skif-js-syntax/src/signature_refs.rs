@@ -7,7 +7,7 @@
 //! createDecorator<IStore>(…); export interface IStore { … }`): knip keeps one export per name, a value, so what the type
 //! mentions is used whenever the name is, as a type or as a value.
 
-use std::collections::{HashMap, HashSet};
+use skif_core::{HashMap, HashSet};
 use std::rc::Rc;
 
 use oxc_ast::ast::{
@@ -30,7 +30,7 @@ struct TypeNames {
 impl TypeNames {
     fn new(signature_only: bool) -> Self {
         Self {
-            names: HashSet::new(),
+            names: HashSet::default(),
             signature_only,
         }
     }
@@ -148,7 +148,7 @@ fn type_container(declaration: &Declaration<'_>, out: &mut Vec<Container>) {
 
 /// The local bindings of the imports by specifier and imported name. A name imported twice keeps its first binding.
 fn import_bindings(info: &ModuleInfo) -> HashMap<(&str, &ImportedKind), &str> {
-    let mut bindings = HashMap::new();
+    let mut bindings = HashMap::default();
     for import in &info.imports {
         for name in &import.names {
             if let Some(local) = name.local.as_deref() {
@@ -215,7 +215,7 @@ fn mentioned_by<'a>(
     mentions: &HashMap<&'a str, HashSet<&'a str>>,
     exported_as: &HashMap<&str, Vec<String>>,
 ) -> HashMap<&'a str, Vec<&'a str>> {
-    let mut by_name: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut by_name: HashMap<&str, Vec<&str>> = HashMap::default();
     for (container, names) in mentions {
         if !exported_as.contains_key(container) {
             continue;
@@ -231,7 +231,7 @@ fn mentioned_by<'a>(
 pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
     let found = collect_containers(program);
     // One name can have several declarations (a value and a type, overloads): it mentions what any of them does.
-    let mut mentions: HashMap<&str, HashSet<&str>> = HashMap::new();
+    let mut mentions: HashMap<&str, HashSet<&str>> = HashMap::default();
     for (local, names) in &found {
         mentions
             .entry(local.as_str())
@@ -249,7 +249,7 @@ pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
                 )
         })
         .filter_map(|export| Some((export.local_name.as_deref()?, export.name.clone())))
-        .fold(HashMap::new(), |mut map, (local, name)| {
+        .fold(HashMap::default(), |mut map, (local, name)| {
             map.entry(local).or_default().push(name);
             map
         });

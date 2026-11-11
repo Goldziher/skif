@@ -1,6 +1,6 @@
 //! Finds the source files of the workspace and assigns each to the package that owns it.
 
-use std::collections::{HashMap, HashSet};
+use skif_core::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -347,8 +347,8 @@ fn walk_files(
     (sequential, gitignore): (bool, bool),
     wanted: fn(&Path) -> bool,
 ) -> Vec<Candidate> {
-    let mut owners: HashMap<PathBuf, PackageId> = HashMap::new();
-    let mut skipped: HashSet<PathBuf> = HashSet::new();
+    let mut owners: HashMap<PathBuf, PackageId> = HashMap::default();
+    let mut skipped: HashSet<PathBuf> = HashSet::default();
     for (id, package) in workspace.iter().filter(|(_, package)| !package.is_root) {
         let dir = workspace.root.join(&package.dir);
         if workspace.is_ignored(id) {
@@ -399,7 +399,7 @@ pub(crate) fn take_file_links(
     candidates: &mut Vec<Candidate>,
 ) -> HashMap<PathBuf, PathBuf> {
     if !candidates.iter().any(|candidate| candidate.is_link) {
-        return HashMap::new();
+        return HashMap::default();
     }
     let real_root = fs.canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
     let files: HashSet<&Path> = candidates

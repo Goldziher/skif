@@ -19,7 +19,7 @@ name = "skif_specifier"
 
 [dependencies]
 nodejs-semver.workspace = true
-rustc-hash.workspace = true
+skif-core.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true

@@ -1,6 +1,6 @@
 //! Interprets tokenized commands and collects what they reference.
 
-use std::collections::HashSet;
+use skif_core::HashSet;
 use std::ops::Range;
 
 use super::args::{self, Parsed, Val};
@@ -231,7 +231,7 @@ impl<'c> Walker<'c> {
             expanded,
             depth: 0,
             workspaces: Vec::new(),
-            functions: HashSet::new(),
+            functions: HashSet::default(),
             cwd: None,
             unknown_dir: false,
             pushed: Vec::new(),

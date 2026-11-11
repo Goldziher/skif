@@ -1,6 +1,6 @@
 //! `unsynced-dependency-family`: packages released together must be declared on one version within a package.
 
-use std::collections::HashMap;
+use skif_core::HashMap;
 use std::sync::Arc;
 
 use skif_config::{Config, DependencyFamily, FamilyScope, Selector};
@@ -241,7 +241,7 @@ impl Rule for UnsyncedDependencyFamily {
             Some((major(&specifier)?, floor_version(&specifier)?))
         };
         // Each name's families, matched once per name: large workspaces repeat a few hundred names thousands of times.
-        let mut memberships: HashMap<&str, Vec<usize>> = HashMap::new();
+        let mut memberships: HashMap<&str, Vec<usize>> = HashMap::default();
         for package in active_packages(cx.workspace) {
             let mut members_of: Vec<Vec<_>> = families.iter().map(|_| Vec::new()).collect();
             for entry in package.dependencies.iter().filter(|entry| {

@@ -45,7 +45,7 @@ mod style;
 mod template;
 mod tsrx;
 
-use std::collections::HashSet;
+use skif_core::HashSet;
 use std::path::Path;
 
 use oxc_allocator::Allocator;
@@ -226,7 +226,7 @@ fn parse_component(
         };
         let source_type = source_type_for(Path::new(name)).ok_or_else(|| unsupported(extension))?;
         let base = u32::try_from(block.start).unwrap_or(u32::MAX);
-        let mut uses = members::Uses::new();
+        let mut uses = members::Uses::default();
         let part = parse_block(
             &source[block.start..block.end],
             base,
@@ -240,7 +240,7 @@ fn parse_component(
     }
     if options.member_accesses {
         for (index, part) in parts.iter_mut().enumerate() {
-            let mut others = members::Uses::new();
+            let mut others = members::Uses::default();
             for (other, uses) in all_uses.iter().enumerate() {
                 if other != index {
                     members::merge_uses(&mut others, uses);
@@ -260,7 +260,7 @@ fn parse_component(
             "svelte" => template::Flavor::Svelte,
             _ => template::Flavor::Astro,
         };
-        let mut uses = members::Uses::new();
+        let mut uses = members::Uses::default();
         let mut tags = std::collections::BTreeSet::new();
         for (start, end) in blocks.markup(source) {
             tags.extend(template::scan(&source[start..end], flavor, &mut uses));
@@ -280,7 +280,7 @@ fn parse_mdx(source: &str, lines: &LineIndex, options: ParseOptions) -> ModuleIn
     let source_type = SourceType::jsx();
     let mut info = parse_block(&extracted.esm, 0, source_type, lines, options, None);
     if options.member_accesses {
-        let mut markup = members::Uses::new();
+        let mut markup = members::Uses::default();
         for (start, end) in extracted.markup {
             // Code quoted in prose (`<Card/>`) is not a use; fenced code is already outside the markup.
             let text = mdx::blank_inline_code(&source[start..end]);

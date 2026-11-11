@@ -1,6 +1,8 @@
 //! JSON and JSONC edits, located with `jsonc-parser` byte ranges.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
+
+use skif_core::HashMap;
 use std::fmt::Write as _;
 
 use jsonc_parser::ast::{Object, ObjectProp, ObjectPropName, Value};
@@ -193,8 +195,8 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
     };
     let mut planned = Vec::new();
     let mut texts = Vec::new();
-    let mut removals: HashMap<usize, Removals<'_, '_>> = HashMap::new();
-    let mut insertions: HashMap<usize, Insertions<'_, '_>> = HashMap::new();
+    let mut removals: HashMap<usize, Removals<'_, '_>> = HashMap::default();
+    let mut insertions: HashMap<usize, Insertions<'_, '_>> = HashMap::default();
     // Index in `planned` of each edit that moves a member, with the byte range of the member it moves.
     let mut moves: Vec<(usize, (usize, usize))> = Vec::new();
     for (index, op) in ops.iter().enumerate() {

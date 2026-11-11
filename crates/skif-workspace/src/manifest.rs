@@ -7,8 +7,8 @@ use std::sync::{Arc, OnceLock};
 use jsonc_parser::ast::{self, ObjectPropName};
 use jsonc_parser::common::{Range, Ranged};
 use jsonc_parser::{CollectOptions, ParseOptions, parse_to_ast};
-use rustc_hash::FxHashMap;
 use serde_json::Value;
+use skif_core::HashMap;
 use skif_core::{DependencyKind, LineIndex, PathSeg, Span};
 use skif_specifier::{Specifier, SpecifierCache};
 
@@ -64,7 +64,7 @@ pub struct Manifest {
     pub(crate) line_index: Arc<LineIndex>,
     pub(crate) value: Arc<Value>,
     /// Built on the first span lookup: most manifests of a clean workspace never need one.
-    spans: OnceLock<FxHashMap<Box<[PathSeg]>, FieldSpans>>,
+    spans: OnceLock<HashMap<Box<[PathSeg]>, FieldSpans>>,
 }
 
 pub(crate) fn to_u32(n: usize) -> u32 {
@@ -134,19 +134,19 @@ struct Spans<'a> {
     bom: usize,
     line_index: &'a LineIndex,
     path: Vec<PathSeg>,
-    table: FxHashMap<Box<[PathSeg]>, FieldSpans>,
+    table: HashMap<Box<[PathSeg]>, FieldSpans>,
 }
 
 /// The span table of a manifest that parsed once already.
-fn span_table(source: &str, line_index: &LineIndex) -> FxHashMap<Box<[PathSeg]>, FieldSpans> {
+fn span_table(source: &str, line_index: &LineIndex) -> HashMap<Box<[PathSeg]>, FieldSpans> {
     let Ok((root, bom)) = parse_ast(source) else {
-        return FxHashMap::default();
+        return HashMap::default();
     };
     let mut spans = Spans {
         bom,
         line_index,
         path: Vec::new(),
-        table: FxHashMap::default(),
+        table: HashMap::default(),
     };
     spans.insert(root.range(), None, root.range());
     spans.record(&root);
@@ -193,7 +193,7 @@ impl Spans<'_> {
 /// Drops the entries from `from` on whose name is declared again later in the same section: with duplicate keys the
 /// last one wins, as it does for the JSON value and for the span table.
 fn keep_last_duplicates(entries: &mut Vec<DependencyEntry>, from: usize) {
-    let last: FxHashMap<&str, usize> = entries[from..]
+    let last: HashMap<&str, usize> = entries[from..]
         .iter()
         .enumerate()
         .map(|(index, entry)| (entry.name.as_str(), index))
