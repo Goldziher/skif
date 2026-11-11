@@ -529,4 +529,19 @@ blake3 = "19bc801054a55ab0f6b60102e9521e364cac48245ad28d3d0bffe24a2360ac69"
 [adrs."adrs/0106-path-specifiers-belong-to-local-path-dependency.md"]
 number = 106
 status = "accepted"
-blake3 = "58262325b5f5d55d94fcbaa37821a57047b0e1ffa3298840f1dd68b4a548adee"
+blake3 = "b92b27f8cf3a6c15f51b4c343f6cdd8e477895a67526d67ef431e462b9afecab"
+
+[adrs."adrs/0107-stray-lockfiles-a-build-installs-from-and-a-dependency-in-none-of-several-catalogs.md"]
+number = 107
+status = "accepted"
+blake3 = "8825193139891c4a911950bea458848bafdad597e37926fe59fcb1b718a0c7fe"
+
+[adrs."adrs/0108-member-binaries-under-pnpm-s-hoisted-node-linker.md"]
+number = 108
+status = "accepted"
+blake3 = "6f8ff36a136192b4078d49e8306573002f4587be9d6410fc8e103df122fe4dea"
+
+[adrs."adrs/0109-nx-projects-as-scopes-of-the-package-that-owns-them.md"]
+number = 109
+status = "accepted"
+blake3 = "0c08be1bff78e28e3ad3d4331b498caeb0f5d319efa526603aee229de1c35361"
