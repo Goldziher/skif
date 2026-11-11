@@ -28,6 +28,7 @@ pub use config_load::{load_config, load_config_with};
 pub use plugin::{
     BinaryRef, BuildDir, ConfigAst, CustomElements, DepRef, Enabler, IncompleteCause, IncompleteEntries,
     IncompleteScope, KNIP_COMMIT, PathAlias, Plugin, PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec,
+    ScopedEntryRegex,
 };
 pub use resolve::{resolve_plugins, resolve_plugins_with};
 pub use scopes::NxProjects;

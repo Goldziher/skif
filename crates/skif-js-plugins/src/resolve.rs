@@ -9,14 +9,14 @@ use skif_config::{PluginConfig, PluginOptions};
 use skif_js_syntax::{ConfigValue, ModuleLoader, place_file_dir};
 
 use crate::config_load::{from_json, load_config_and_call_arguments};
-use crate::files::find_files;
+use crate::files::{find_files, list_files, matching};
 use crate::plugin::{
     BinaryRef, BuildDir, ConfigAst, DepRef, Enabler, IncompleteCause, IncompleteEntries, IncompleteScope, PathAlias,
     Plugin, PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec,
 };
 use crate::plugins::nx;
 use crate::registry;
-use crate::scopes::{NxProjects, Scope, merge, rebase};
+use crate::scopes::{NxProjects, ScopeShared, merge, rebase, scope_dir, within_package};
 use crate::script_config::{config_flags, config_paths, flag_values};
 use crate::scripts::{BinaryVia, ScriptContext, is_ignored_binary, parse_script};
 use crate::support::{is_relative, join_lexically, join_rel, looks_like_file};
@@ -48,42 +48,147 @@ const EXCLUSION_KEYS: &[&str] = &[
 /// disables it. A table form (`{ config = [...], entry = [...], project = [...] }`) replaces the matching
 /// default globs and enables the plugin unless `enabled = false`.
 ///
-/// The Nx projects below the package are those [`NxProjects::find`] finds; [`resolve_plugins_with`] takes them
-/// from the caller.
+/// The Nx projects below the package are those [`NxProjects::find`] finds, with the package taken as the Nx workspace
+/// root. They are not filtered by `.gitignore` files or build output directories; [`resolve_plugins_with`] takes the
+/// projects from a caller that walks the files with those rules.
 #[must_use]
 pub fn resolve_plugins(ctx: &PluginContext<'_>) -> Vec<(PluginId, PluginOutput)> {
     resolve_plugins_with(ctx, &NxProjects::find(ctx))
 }
 
 /// Like [`resolve_plugins`], with the Nx projects below the package given (ADR 0109). The `nx` plugin reads the
-/// `project.json` of each of [`NxProjects::dirs`]. Every other plugin also runs in each of [`NxProjects::scopes`] as
-/// if it were a package with the dependencies of `ctx`, and what it finds there is part of its output for `ctx`.
+/// `project.json` of each of [`NxProjects::dirs`], with its paths relative to the Nx workspace root
+/// ([`NxProjects::path`]). Every other plugin also runs in each of [`NxProjects::scopes`] as if it were a package
+/// with the dependencies of `ctx`, and what it finds there is part of its output for `ctx`.
 #[must_use]
 pub fn resolve_plugins_with(ctx: &PluginContext<'_>, projects: &NxProjects) -> Vec<(PluginId, PluginOutput)> {
     let manifest = read_manifest(ctx);
+    let nx_enabled = registry::plugin(nx::ID)
+        .is_some_and(|plugin| is_enabled(plugin.spec(), ctx.plugins.get(nx::ID), ctx, manifest.as_ref()));
+    let ctx = &PluginContext {
+        nx: if nx_enabled { Some(projects) } else { ctx.nx },
+        ..*ctx
+    };
     let project_files: Vec<String> = projects.dirs.iter().map(|dir| join_rel(dir, "project.json")).collect();
-    let scopes: Vec<Scope> = projects.scopes.iter().map(|dir| Scope::new(ctx, dir)).collect();
-    registry::plugins()
+    let plugins = registry::plugins();
+    let mut outputs: Vec<Option<PluginOutput>> = plugins
         .iter()
-        .filter_map(|&plugin| {
+        .map(|&plugin| {
             let spec = plugin.spec();
             let setting = ctx.plugins.get(spec.id);
-            let is_nx = spec.id == nx::ID;
-            let extra: &[String] = if is_nx { &project_files } else { &[] };
-            let mut output = is_enabled(spec, setting, ctx, manifest.as_ref())
-                .then(|| run_plugin(plugin, setting, ctx, manifest.as_ref(), extra));
-            // The `nx` plugin reads every `project.json` from the package, where Nx runs the commands of a target.
-            for scope in scopes.iter().filter(|_| !is_nx) {
-                let scope_ctx = scope.context(ctx);
-                let setting = scope_ctx.plugins.get(spec.id);
-                if is_enabled(spec, setting, &scope_ctx, None) {
-                    let found = rebase(run_plugin(plugin, setting, &scope_ctx, None, &[]), &scope.dir);
-                    merge(output.get_or_insert_with(PluginOutput::default), found);
-                }
-            }
-            output.map(|output| (spec.id, output))
+            let extra: &[String] = if spec.id == nx::ID { &project_files } else { &[] };
+            is_enabled(spec, setting, ctx, manifest.as_ref())
+                .then(|| run_plugin(plugin, setting, ctx, manifest.as_ref(), extra, None))
         })
+        .collect();
+    run_in_scopes(ctx, &projects.scopes, plugins, &mut outputs);
+    plugins
+        .iter()
+        .zip(outputs)
+        .filter_map(|(plugin, output)| output.map(|output| (plugin.spec().id, output)))
         .collect()
+}
+
+/// How a plugin can be enabled in the scopes of a package, which share the package's dependencies and switches.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ScopeEnablement {
+    /// In every scope.
+    Always,
+    /// In a scope holding a file one of its [`Enabler::File`] globs matches.
+    ByFile,
+}
+
+/// Runs each plugin other than `nx` in every scope in `scopes` (directories of the package of `ctx`) where it is
+/// enabled, and merges what it finds there, rebased onto the package, into its entry of `outputs`, which follows the
+/// order of `plugins`.
+///
+/// Each scope's files are listed once and searched for every plugin's config files and file enablers. A plugin
+/// that gives no default entry, production, project or ignore globs and finds no config file in a scope is not run
+/// there, its config-less and workspace conventions included.
+fn run_in_scopes(
+    ctx: &PluginContext<'_>,
+    scopes: &[String],
+    plugins: &[&'static dyn Plugin],
+    outputs: &mut [Option<PluginOutput>],
+) {
+    let Some(first) = scopes.first() else {
+        return;
+    };
+    let shared = ScopeShared::new(ctx);
+    // A scope's context differs from another's only in its directory, which only file enablers look at.
+    let first_dir = scope_dir(ctx, first);
+    let template = shared.context(ctx, &first_dir);
+    let candidates: Vec<(usize, ScopeEnablement)> = plugins
+        .iter()
+        .enumerate()
+        .filter(|(_, plugin)| plugin.spec().id != nx::ID)
+        .filter_map(|(index, plugin)| {
+            let spec = plugin.spec();
+            scope_enablement(spec, template.plugins.get(spec.id), &template).map(|enablement| (index, enablement))
+        })
+        .collect();
+    if candidates.is_empty() {
+        return;
+    }
+    for scope in scopes {
+        let dir = scope_dir(ctx, scope);
+        let scope_ctx = shared.context(ctx, &dir);
+        let files = list_files(ctx.fs, &dir);
+        for &(index, enablement) in &candidates {
+            let plugin = plugins[index];
+            let spec = plugin.spec();
+            if enablement == ScopeEnablement::ByFile && !has_enabling_file(spec, &files) {
+                continue;
+            }
+            if !gives_defaults(spec) && matching(&files, &globs(&[], spec.config)).is_empty() {
+                continue;
+            }
+            let setting = scope_ctx.plugins.get(spec.id);
+            let found = rebase(run_plugin(plugin, setting, &scope_ctx, None, &[], Some(files.as_slice())), scope);
+            merge(outputs[index].get_or_insert_with(PluginOutput::default), found);
+        }
+    }
+}
+
+/// How the plugin of `spec` is enabled in a scope whose context is `scope_ctx`, as far as the scope's files do not
+/// matter; `None` when it cannot be.
+fn scope_enablement(
+    spec: &PluginSpec,
+    setting: Option<&PluginConfig>,
+    scope_ctx: &PluginContext<'_>,
+) -> Option<ScopeEnablement> {
+    match forced(setting) {
+        Some(true) => return Some(ScopeEnablement::Always),
+        Some(false) => return None,
+        None => {}
+    }
+    if spec.root_only && !scope_ctx.is_root {
+        return None;
+    }
+    let mut by_file = false;
+    for enabler in spec.enablers {
+        if matches!(enabler, Enabler::File(_)) {
+            by_file = true;
+        } else if enabler_matches(enabler, scope_ctx, None) {
+            return Some(ScopeEnablement::Always);
+        }
+    }
+    by_file.then_some(ScopeEnablement::ByFile)
+}
+
+/// Whether the plugin of `spec` gives entry, production, project or ignore globs without a config.
+fn gives_defaults(spec: &PluginSpec) -> bool {
+    [spec.entry, spec.production, spec.project, spec.ignore]
+        .iter()
+        .any(|globs| !globs.is_empty())
+}
+
+/// Whether `files`, a scope's listing, holds a file an [`Enabler::File`] of `spec` matches.
+fn has_enabling_file(spec: &PluginSpec, files: &[String]) -> bool {
+    spec.enablers.iter().any(|enabler| match *enabler {
+        Enabler::File(glob) => !matching(files, &[glob.to_owned()]).is_empty(),
+        _ => false,
+    })
 }
 
 /// Whether the plugin `id` is enabled for the workspace in `ctx`.
@@ -98,18 +203,23 @@ fn read_manifest(ctx: &PluginContext<'_>) -> Option<ConfigValue> {
     Some(from_json(&value))
 }
 
+/// What `[js.plugins]` forces for a plugin: `true`, `false`, or the `enabled` of a table; `None` leaves it to the
+/// enablers.
+fn forced(setting: Option<&PluginConfig>) -> Option<bool> {
+    match setting {
+        Some(PluginConfig::Enabled(enabled)) => Some(*enabled),
+        Some(PluginConfig::Options(options)) => options.enabled,
+        _ => None,
+    }
+}
+
 fn is_enabled(
     spec: &PluginSpec,
     setting: Option<&PluginConfig>,
     ctx: &PluginContext<'_>,
     manifest: Option<&ConfigValue>,
 ) -> bool {
-    let forced = match setting {
-        Some(PluginConfig::Enabled(enabled)) => Some(*enabled),
-        Some(PluginConfig::Options(options)) => options.enabled,
-        _ => None,
-    };
-    forced.unwrap_or_else(|| detected(spec, ctx, manifest))
+    forced(setting).unwrap_or_else(|| detected(spec, ctx, manifest))
 }
 
 fn detected(spec: &PluginSpec, ctx: &PluginContext<'_>, manifest: Option<&ConfigValue>) -> bool {
@@ -416,8 +526,11 @@ impl Collector<'_, '_> {
             }
             push_unique(&mut self.out.referenced_binaries, binary.name);
         }
+        // A command that runs in the Nx workspace root names the package's own files through it
+        // (`cd ../.. && node packages/b/run.mjs`).
+        let package_path = self.ctx.nx.map_or("", |projects| projects.path.as_str());
         for file in info.files {
-            push_unique(&mut self.out.entries, file.path);
+            push_unique(&mut self.out.entries, within_package(package_path, &file.path));
         }
         for dep in info.dependencies {
             self.dependency(DepRef::new(dep.name, from, dep.ephemeral, false));
@@ -439,13 +552,14 @@ impl Collector<'_, '_> {
 }
 
 /// Runs `plugin` for the workspace in `ctx`, reading `extra_configs` (relative to the workspace) besides the config
-/// files its globs find.
+/// files its globs find: in `listing`, the workspace's files as [`list_files`] lists them, or else by a walk.
 fn run_plugin(
     plugin: &dyn Plugin,
     setting: Option<&PluginConfig>,
     ctx: &PluginContext<'_>,
     manifest: Option<&ConfigValue>,
     extra_configs: &[String],
+    listing: Option<&[String]>,
 ) -> PluginOutput {
     let spec = plugin.spec();
     let options = match setting {
@@ -482,13 +596,12 @@ fn run_plugin(
     for project in scripted.project {
         push_unique(&mut collector.out.project, project);
     }
-    collector
-        .queue
-        .extend(find_files(ctx.fs, ctx.dir, &patterns).into_iter().map(|path| Queued {
-            path,
-            depth: 0,
-            reader: None,
-        }));
+    let found = listing.map_or_else(|| find_files(ctx.fs, ctx.dir, &patterns), |files| matching(files, &patterns));
+    collector.queue.extend(found.into_iter().map(|path| Queued {
+        path,
+        depth: 0,
+        reader: None,
+    }));
 
     let mut visited = BTreeSet::new();
     drain(&mut collector, plugin, &mut visited);
@@ -741,6 +854,7 @@ mod tests {
             fs: &fs,
             plugins: &plugins,
             modules: None,
+            nx: None,
         };
         let mut collector = Collector {
             ctx: &ctx,
@@ -789,6 +903,7 @@ mod tests {
             fs: &fs,
             plugins: &plugins,
             modules: None,
+            nx: None,
         };
         let text = |value: &str| ConfigValue::String(value.to_owned());
         let arguments = [
@@ -851,6 +966,7 @@ mod tests {
             fs: &fs,
             plugins: &plugins,
             modules: None,
+            nx: None,
         };
         let text = |value: &str| ConfigValue::String(value.to_owned());
         for key in ["testIgnore", "watchExclude", "excludeFiles"] {

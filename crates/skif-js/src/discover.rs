@@ -131,26 +131,7 @@ fn is_ignored(matchers: &[Arc<Gitignore>], path: &Path, is_dir: bool) -> bool {
 /// Whether the ignore files (`.gitignore`, `.ignore`) from `root` down to the directory of `path` ignore `path` or
 /// one of its directories below `root`, as the walk of [`discover`] would. `path` is absolute and below `root`.
 pub(crate) fn is_ignored_path(fs: &dyn FileSystem, root: &Path, path: &Path) -> bool {
-    ignored_below(fs, root, path, Vec::new(), true)
-}
-
-/// Whether the walk of [`discover_with`] from `root` (with `gitignore` as given there) leaves out the file `relative`
-/// of the package in `package_dir`, by the name of a directory on the way (build output, dependencies, a hidden
-/// directory) or through an ignore file. `relative` is `/`-separated and relative to `package_dir`, which is `root` or
-/// below it; a workspace package on the way is not looked for.
-pub(crate) fn skips_package_file(
-    fs: &dyn FileSystem,
-    root: &Path,
-    package_dir: &Path,
-    relative: &str,
-    gitignore: bool,
-) -> bool {
-    let dirs = relative.rsplit_once('/').map_or("", |(dirs, _)| dirs);
-    let by_name = dirs
-        .split('/')
-        .enumerate()
-        .any(|(index, name)| skipped_by_name(name) && (index == 0 || !PACKAGE_ROOT_ONLY_DIRS.contains(&name)));
-    by_name || ignored_below(fs, root, &package_dir.join(relative), Vec::new(), gitignore)
+    ignored_below(fs, root, path, Vec::new())
 }
 
 /// Whether git ignores `path`, which is absolute and below `root`: the ignore files from the work tree `root` belongs
@@ -174,18 +155,12 @@ pub(crate) fn is_ignored_in_repository(fs: &dyn FileSystem, root: &Path, path: &
     } else {
         Vec::new()
     };
-    ignored_below(fs, &work_tree, path, matchers, true)
+    ignored_below(fs, &work_tree, path, matchers)
 }
 
 /// Whether `matchers` or the ignore files from `top` down to the directory of `path` ignore `path` or one of its
-/// directories below `top`; without `gitignore` only the `.ignore` files count.
-fn ignored_below(
-    fs: &dyn FileSystem,
-    top: &Path,
-    path: &Path,
-    mut matchers: Vec<Arc<Gitignore>>,
-    gitignore: bool,
-) -> bool {
+/// directories below `top`.
+fn ignored_below(fs: &dyn FileSystem, top: &Path, path: &Path, mut matchers: Vec<Arc<Gitignore>>) -> bool {
     let Ok(rest) = path.strip_prefix(top) else {
         return false;
     };
@@ -193,7 +168,7 @@ fn ignored_below(
     let parts: Vec<_> = rest.components().collect();
     for (index, part) in parts.iter().enumerate() {
         if let Ok(entries) = fs.read_dir_shared(&dir)
-            && let Some(matcher) = ignore_file_matcher(fs, &dir, &entries, gitignore)
+            && let Some(matcher) = ignore_file_matcher(fs, &dir, &entries, true)
         {
             matchers.push(Arc::new(matcher));
         }
@@ -234,6 +209,8 @@ struct Walk<'a> {
     sequential: bool,
     /// Honour `.gitignore` files; `.ignore` files are honoured either way.
     gitignore: bool,
+    /// Whether a file is one the walk collects.
+    wanted: fn(&Path) -> bool,
 }
 
 impl Walk<'_> {
@@ -286,7 +263,7 @@ impl Walk<'_> {
             } else if entry.is_file
                 && !frame.members_only
                 && !GENERATED_FILES.contains(&name)
-                && is_code_file(&entry.path)
+                && (self.wanted)(&entry.path)
                 && !is_ignored(&matchers, &entry.path, false)
                 && let Some(rel) = relative(&entry.path, self.root)
             {
@@ -334,6 +311,42 @@ pub(crate) fn discover_with(
     sequential: bool,
     gitignore: bool,
 ) -> Vec<Candidate> {
+    walk_files(fs, workspace, (sequential, gitignore), is_code_file)
+}
+
+/// The directories, relative to the workspace root and sorted, of the `project.json` files that the walk of
+/// [`discover_with`] reaches, each with the directory of the package that owns it (`""` for the root): the Nx projects
+/// of ADR 0109, below neither build output, a hidden or gitignored directory nor a directory of its own `package.json`
+/// that is no member.
+pub(crate) fn nx_project_dirs(
+    fs: &dyn FileSystem,
+    workspace: &Workspace,
+    sequential: bool,
+    gitignore: bool,
+) -> Vec<(String, String)> {
+    let mut found: Vec<(String, String)> = walk_files(fs, workspace, (sequential, gitignore), is_project_json)
+        .into_iter()
+        .filter_map(|candidate| {
+            let dir = candidate.rel.rsplit_once('/').map_or("", |(dir, _)| dir).to_owned();
+            let owner = workspace.package(candidate.owner)?;
+            Some((dir, owner.dir.to_string_lossy().replace('\\', "/")))
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+fn is_project_json(path: &Path) -> bool {
+    path.file_name().is_some_and(|name| name == "project.json")
+}
+
+/// The files `wanted` accepts below the workspace root, as [`discover_with`] describes, sorted by relative path.
+fn walk_files(
+    fs: &dyn FileSystem,
+    workspace: &Workspace,
+    (sequential, gitignore): (bool, bool),
+    wanted: fn(&Path) -> bool,
+) -> Vec<Candidate> {
     let mut owners: HashMap<PathBuf, PackageId> = HashMap::new();
     let mut skipped: HashSet<PathBuf> = HashSet::new();
     for (id, package) in workspace.iter().filter(|(_, package)| !package.is_root) {
@@ -361,6 +374,7 @@ pub(crate) fn discover_with(
         skipped,
         sequential,
         gitignore,
+        wanted,
     };
     let mut found = walk.directory(&Frame {
         dir: workspace.root.clone(),
@@ -435,6 +449,59 @@ mod tests {
         assert_eq!(listed, [("packages/a/src/z.ts", 1), ("tools/run.js", 0)]);
     }
 
+    /// The `project.json` files are found by the source walk's rules, each with the package that owns it: a member
+    /// owns the projects below it, and build output, hidden, gitignored and `node_modules` directories and a directory
+    /// with a manifest of its own that is no member are left out, the gitignored ones only with `.gitignore` files on.
+    #[test]
+    fn nx_projects_are_found_where_the_walk_goes() {
+        let fs = MemoryFs::new()
+            .with_file("/ws/package.json", r#"{"name":"r","workspaces":["packages/*"]}"#)
+            .with_file("/ws/.gitignore", "generated/\n")
+            .with_file("/ws/project.json", "{}")
+            .with_file("/ws/apps/web/project.json", "{}")
+            .with_file("/ws/libs/out/project.json", "{}")
+            .with_file("/ws/packages/b/package.json", r#"{"name":"b"}"#)
+            .with_file("/ws/packages/b/project.json", "{}")
+            .with_file("/ws/packages/b/e2e/project.json", "{}")
+            .with_file("/ws/dist/apps/web/project.json", "{}")
+            .with_file("/ws/out/web/project.json", "{}")
+            .with_file("/ws/.nx/cache/web/project.json", "{}")
+            .with_file("/ws/generated/app/project.json", "{}")
+            .with_file("/ws/node_modules/pkg/project.json", "{}")
+            .with_file("/ws/vendored/package.json", r#"{"name":"other"}"#)
+            .with_file("/ws/vendored/project.json", "{}");
+        let config = Config::from_toml_str("").unwrap();
+        let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &fs).unwrap();
+        let found = |gitignore: bool| -> Vec<(String, String)> { nx_project_dirs(&fs, &workspace, true, gitignore) };
+        let owned = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(dir, owner)| ((*dir).to_owned(), (*owner).to_owned()))
+                .collect()
+        };
+        assert_eq!(
+            found(true),
+            owned(&[
+                ("", ""),
+                ("apps/web", ""),
+                ("libs/out", ""),
+                ("packages/b", "packages/b"),
+                ("packages/b/e2e", "packages/b"),
+            ])
+        );
+        assert_eq!(
+            found(false),
+            owned(&[
+                ("", ""),
+                ("apps/web", ""),
+                ("generated/app", ""),
+                ("libs/out", ""),
+                ("packages/b", "packages/b"),
+                ("packages/b/e2e", "packages/b"),
+            ])
+        );
+    }
+
     #[test]
     fn marker_manifests_do_not_hide_a_directory() {
         let fs = MemoryFs::new()
@@ -465,25 +532,6 @@ mod tests {
             .with_file("/ws/other/deep/more/d.ts", "")
             .with_file("/ws/scripts/run.ts", "");
         assert_eq!(files(&fs), ["packages/a/src/a.ts", "scripts/run.ts"]);
-    }
-
-    /// A file the walk would not reach is skipped: below a gitignored directory (unless `.gitignore` files are off),
-    /// below build output at the top of the package or below a hidden directory; `out` deeper down is a source folder.
-    #[test]
-    fn package_files_are_skipped_where_the_walk_does_not_go() {
-        let fs = MemoryFs::new()
-            .with_file("/ws/package.json", r#"{"name":"r"}"#)
-            .with_file("/ws/.gitignore", "generated/\n");
-        let root = Path::new("/ws");
-        let skips = |relative: &str, gitignore: bool| skips_package_file(&fs, root, root, relative, gitignore);
-        assert!(skips("generated/app/project.json", true));
-        assert!(!skips("generated/app/project.json", false));
-        assert!(skips("dist/apps/web/project.json", true));
-        assert!(skips("out/web/project.json", true));
-        assert!(skips(".cache/web/project.json", true));
-        assert!(!skips("libs/out/project.json", true));
-        assert!(!skips("apps/web/project.json", true));
-        assert!(!skips("project.json", true));
     }
 
     #[test]

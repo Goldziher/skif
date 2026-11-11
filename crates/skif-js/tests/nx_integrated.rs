@@ -111,20 +111,20 @@ fn the_tool_configs_of_integrated_projects_count_for_the_root() {
         [PathBuf::from("apps/web/src/unused.ts")],
         "{diagnostics:#?}"
     );
-    let unused = dependencies(&diagnostics, &["unused-dependencies", "unused-dev-dependencies"]);
-    assert!(unused.contains(&"left-pad".to_owned()), "{unused:?}");
-    for used in [
+    // The packages the project configs and sources use, besides one nothing uses.
+    let judged = [
         "@vitejs/plugin-react",
         "eslint-plugin-react",
+        "left-pad",
+        "react",
         "ts-jest",
         "vite",
-        "react",
-    ] {
-        assert!(
-            !unused.iter().any(|name| name == used),
-            "{used} reported unused: {unused:?}"
-        );
-    }
+    ];
+    let unused: Vec<String> = dependencies(&diagnostics, &["unused-dependencies", "unused-dev-dependencies"])
+        .into_iter()
+        .filter(|name| judged.contains(&name.as_str()))
+        .collect();
+    assert_eq!(unused, ["left-pad"], "{diagnostics:#?}");
 }
 
 /// The same project without `nx` among the root's dependencies is a plain directory: its configs are not read.
@@ -146,8 +146,17 @@ fn without_nx_a_project_json_is_a_plain_file() {
         })
         .collect();
     let diagnostics = lint(&files);
-    assert!(
-        unused_files(&diagnostics).contains(&PathBuf::from("apps/web/vite.config.ts")),
+    let configs: Vec<PathBuf> = unused_files(&diagnostics)
+        .into_iter()
+        .filter(|path| path.to_string_lossy().contains(".config."))
+        .collect();
+    assert_eq!(
+        configs,
+        [
+            PathBuf::from("apps/web/eslint.config.mjs"),
+            PathBuf::from("apps/web/vite.config.ts"),
+            PathBuf::from("libs/util/jest.config.ts"),
+        ],
         "{diagnostics:#?}"
     );
 }
@@ -170,4 +179,35 @@ fn the_nx_root_jest_config_leaves_the_root_judged() {
     let unused =
         |diagnostics: &[Diagnostic]| dependencies(diagnostics, &["unused-dependencies", "unused-dev-dependencies"]);
     assert_eq!(unused(&with_root_config), unused(&lint(&workspace_files())));
+}
+
+/// A package-based workspace: the member's own `project.json` names its paths relative to the workspace root, so its
+/// build entry and the script a command runs from the root are entries of the member, and the root does not read it.
+#[test]
+fn a_members_project_json_names_its_files_from_the_workspace_root() {
+    let project = r#"{ "targets": {
+      "build": { "options": { "main": "packages/b/src/entry.ts" } },
+      "gen": { "command": "node packages/b/scripts/gen.mjs" },
+      "pack": { "executor": "nx:run-commands", "options": { "command": "node tools/pack.mjs", "cwd": "packages/b" } }
+    } }"#;
+    let files = [
+        (
+            "package.json",
+            r#"{ "name": "root", "private": true, "workspaces": ["packages/*"], "devDependencies": { "nx": "20.0.0" } }"#,
+        ),
+        ("nx.json", "{}"),
+        ("packages/b/package.json", r#"{ "name": "b", "version": "1.0.0" }"#),
+        ("packages/b/project.json", project),
+        ("packages/b/src/entry.ts", "import { helper } from './helper';\nhelper();\n"),
+        ("packages/b/src/helper.ts", "export function helper() {}\n"),
+        ("packages/b/src/unused.ts", "export const unused = 1;\n"),
+        ("packages/b/scripts/gen.mjs", "console.log('gen');\n"),
+        ("packages/b/tools/pack.mjs", "console.log('pack');\n"),
+    ];
+    let diagnostics = lint(&files);
+    assert_eq!(
+        unused_files(&diagnostics),
+        [PathBuf::from("packages/b/src/unused.ts")],
+        "{diagnostics:#?}"
+    );
 }

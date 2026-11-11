@@ -8,10 +8,9 @@ use skif_js_plugins::{NxProjects, PluginContext, PluginOutput, resolve_plugins_w
 
 use crate::config_check::relative_tsconfig;
 use crate::config_modules::ConfigModules;
-use crate::discover::skips_package_file;
 use crate::input::{
     BuildDir, ConfigDependency, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope,
-    InputRequest, InputSource, PathAlias, RunBinary, WorkspaceInputs,
+    InputRequest, InputSource, PathAlias, RunBinary, ScopedEntryRegex, WorkspaceInputs,
 };
 use crate::setup::WorkspaceKeys;
 use crate::specifier::types_package;
@@ -27,8 +26,6 @@ pub struct PluginSource {
     scoped: Vec<Override>,
     /// `[js] tsconfig`, which the `typescript` plugin of the root package also reads.
     root_tsconfig: Option<String>,
-    /// Whether `.gitignore` files hide Nx projects, as they hide source files.
-    gitignore: bool,
 }
 
 impl PluginSource {
@@ -41,16 +38,7 @@ impl PluginSource {
             workspace_keys: WorkspaceKeys::default(),
             scoped: Vec::new(),
             root_tsconfig: None,
-            gitignore: true,
         }
-    }
-
-    /// Whether `.gitignore` files hide the Nx projects below a package (ADR 0109) as they hide its source files; off
-    /// for `--no-gitignore`. On by default.
-    #[must_use]
-    pub fn with_gitignore(mut self, gitignore: bool) -> Self {
-        self.gitignore = gitignore;
-        self
     }
 
     /// Also has the `typescript` plugin of the root package read `path` (`[js] tsconfig`, relative to the workspace
@@ -217,6 +205,14 @@ fn inputs(output: PluginOutput) -> WorkspaceInputs {
         entry,
         production_entry: output.production_entries,
         entry_regex: output.entry_regexes,
+        scoped_entry_regex: output
+            .scoped_entry_regexes
+            .into_iter()
+            .map(|scoped| ScopedEntryRegex {
+                scope: scoped.scope,
+                regex: scoped.regex,
+            })
+            .collect(),
         project: output.project,
         ignore: output.ignore,
         ignore_dependencies: names(&output.referenced_dependencies, true).collect(),
@@ -306,6 +302,17 @@ fn inherited_dependencies(request: &InputRequest<'_>) -> Vec<String> {
     names
 }
 
+/// `dir`, relative to the workspace root, relative to `package_dir` when it is that directory (`""`) or below it.
+fn dir_below(dir: &str, package_dir: &str) -> Option<String> {
+    if dir == package_dir {
+        return Some(String::new());
+    }
+    if package_dir.is_empty() {
+        return Some(dir.to_owned());
+    }
+    dir.strip_prefix(package_dir)?.strip_prefix('/').map(str::to_owned)
+}
+
 impl InputSource for PluginSource {
     fn inputs(&self, request: &InputRequest<'_>) -> WorkspaceInputs {
         let package = request.package;
@@ -330,15 +337,19 @@ impl InputSource for PluginSource {
             fs: request.fs,
             plugins: &plugins,
             modules: Some(&modules),
+            nx: None,
         };
-        // The Nx projects in directories the file walk leaves out (build output, gitignored copies) are not read.
-        let projects = NxProjects::find(&context).filter(|project| {
-            let file = if project.is_empty() {
-                "project.json".to_owned()
-            } else {
-                format!("{project}/project.json")
-            };
-            !skips_package_file(request.fs, &request.workspace.root, &dir, &file, self.gitignore)
+        // The Nx projects are those the source walk reaches, listed once for every package of the run.
+        let package_dir = package.dir.to_string_lossy().replace('\\', "/");
+        let projects = NxProjects::from_dirs(&context, &package_dir, || {
+            request
+                .listing
+                .nx_projects(request.fs, request.workspace)
+                .iter()
+                .filter_map(|(project, owner)| {
+                    dir_below(project, &package_dir).map(|relative| (relative, *owner == package_dir))
+                })
+                .collect()
         });
         resolve_plugins_with(&context, &projects).into_iter().fold(
             WorkspaceInputs::default(),

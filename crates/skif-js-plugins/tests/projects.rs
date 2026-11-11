@@ -3,7 +3,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
 use skif_core::MemoryFs;
@@ -29,6 +29,7 @@ fn resolve(files: &[(&str, &str)], dependencies: &[&str], id: &str) -> PluginOut
         fs: &fs,
         plugins: &plugins,
         modules: None,
+        nx: None,
     };
     resolve_plugins(&ctx)
         .into_iter()
@@ -107,6 +108,44 @@ fn nx_jest_projects_are_the_jest_configs_of_the_nx_projects() {
         }
         assert!(!names.contains(&"jest-runner-eslint"), "{root}: {names:?}");
     }
+}
+
+/// `getJestProjects()` spread into an array beside a project of the config's own (`[...getJestProjects(),
+/// '<rootDir>/tools']`), also awaited, reads the Jest configs of the Nx projects and of the other project, from the
+/// projects the `nx` plugin found or, without it, from a walk. An unknown element besides the calls leaves the root
+/// incomplete.
+#[test]
+fn nx_jest_projects_spread_into_an_array() {
+    let projects = [
+        ("apps/web/project.json", "{}"),
+        (
+            "apps/web/jest.config.ts",
+            "export default { testEnvironment: 'jsdom' };\n",
+        ),
+        ("tools/jest.config.ts", "export default { preset: 'ts-jest' };\n"),
+    ];
+    let read: Vec<PathBuf> = ["jest.config.ts", "apps/web/jest.config.ts", "tools/jest.config.ts"]
+        .iter()
+        .map(|file| Path::new(DIR).join(file))
+        .collect();
+    for dependencies in [&["jest"][..], &["jest", "nx"][..]] {
+        for root in [
+            "import { getJestProjects } from '@nx/jest';\nexport default { projects: [...getJestProjects(), '<rootDir>/tools'] };\n",
+            "import { getJestProjectsAsync } from '@nx/jest';\nexport default async () => ({ projects: [...(await getJestProjectsAsync()), '<rootDir>/tools'] });\n",
+        ] {
+            let mut files = vec![("jest.config.ts", root)];
+            files.extend(projects);
+            let output = resolve(&files, dependencies, "jest");
+            assert!(!output.entries_incomplete, "{root}: {:?}", output.incomplete_reasons);
+            assert_eq!(output.config_files, read, "{root} with {dependencies:?}");
+        }
+    }
+    let mut files = vec![(
+        "jest.config.ts",
+        "import { getJestProjects } from '@nx/jest';\nimport { more } from './more';\nexport default { projects: [...getJestProjects(), ...more()] };\n",
+    )];
+    files.extend(projects);
+    assert!(resolve(&files, &["jest"], "jest").entries_incomplete);
 }
 
 /// `projects` from another function than Nx's, or Nx's function named without importing it from `@nx/jest`, is not

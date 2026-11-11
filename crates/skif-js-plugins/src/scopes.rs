@@ -10,16 +10,26 @@ use std::path::PathBuf;
 use indexmap::IndexMap;
 use skif_config::PluginConfig;
 
-use crate::files::find_files;
-use crate::plugin::{IncompleteScope, PluginContext, PluginOutput};
-use crate::support::join_rel;
+use crate::files::find_files_within;
+use crate::plugin::{IncompleteScope, PluginContext, PluginOutput, ScopedEntryRegex};
+use crate::support::{join_rel, path_within};
 
-/// The Nx projects below a package (ADR 0109).
+/// How deep below a package [`NxProjects::find`] looks for a `project.json`: as deep as skif-js walks for sources, as
+/// a project may lie deeper than the configs the plugins look for.
+const PROJECT_DEPTH: usize = 48;
+
+/// The Nx projects below a package, and where the package lies in the Nx workspace (ADR 0109).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct NxProjects {
-    /// The directory of each `project.json` the `nx` plugin reads, relative to the package directory and sorted; `""`
-    /// for the package's own.
+    /// The package directory relative to the Nx workspace root, `/`-separated; `""` for the root package. The paths of
+    /// a `project.json` are relative to the workspace root.
+    pub path: String,
+    /// The directory of every `project.json` below the package, those of packages below it included, relative to the
+    /// package directory and sorted; `""` for the package's own. Nx's `getJestProjects()` returns their Jest configs.
+    pub all: Vec<String>,
+    /// The directories of `all` whose `project.json` the `nx` plugin reads for the package: its own (`""`) and its
+    /// `scopes`. A project of a package below it is that package's to read.
     pub dirs: Vec<String>,
     /// The project directories with no `package.json` in them or between them and the package directory: the
     /// package lists their dependencies, and every enabled plugin also runs in them.
@@ -28,37 +38,65 @@ pub struct NxProjects {
 
 impl NxProjects {
     /// Every `project.json` below the package of `ctx` (outside `node_modules`), when the `nx` plugin is enabled
-    /// there; none otherwise.
+    /// there; none otherwise. The package is taken to be the Nx workspace root. Nothing is left out by `.gitignore`
+    /// files or as build output: [`NxProjects::from_dirs`] takes the projects a file walk with those rules found.
     #[must_use]
     pub fn find(ctx: &PluginContext<'_>) -> Self {
+        Self::from_dirs(ctx, "", || {
+            project_dirs(ctx)
+                .into_iter()
+                .map(|dir| {
+                    let owned = !has_own_manifest(ctx, &dir);
+                    (dir, owned)
+                })
+                .collect()
+        })
+    }
+
+    /// The projects of the package of `ctx`, which lies at `path` in the Nx workspace, when the `nx` plugin is enabled
+    /// there; none otherwise, without calling `projects`. `projects` gives the directory of each `project.json` below
+    /// the package, relative to its directory (`""` for its own), and whether the package owns it: no other package's
+    /// `package.json` lies in the directory or between it and the package directory.
+    #[must_use]
+    pub fn from_dirs(ctx: &PluginContext<'_>, path: &str, projects: impl FnOnce() -> Vec<(String, bool)>) -> Self {
         if !crate::resolve::is_plugin_enabled(ctx, crate::plugins::nx::ID) {
             return Self::default();
         }
-        let dirs: Vec<String> = project_dirs(ctx);
-        let scopes = dirs
+        let mut projects = projects();
+        projects.sort();
+        projects.dedup();
+        let dirs: Vec<String> = projects
             .iter()
-            .filter(|dir| !dir.is_empty() && !has_own_manifest(ctx, dir))
-            .cloned()
+            .filter(|(dir, owned)| dir.is_empty() || *owned)
+            .map(|(dir, _)| dir.clone())
             .collect();
-        Self { dirs, scopes }
-    }
-
-    /// The projects whose directory `keep` accepts, such as those outside gitignored and build output directories.
-    #[must_use]
-    pub fn filter(mut self, keep: impl Fn(&str) -> bool) -> Self {
-        self.dirs.retain(|dir| keep(dir));
-        self.scopes.retain(|dir| keep(dir));
-        self
+        Self {
+            path: path.to_owned(),
+            all: projects.into_iter().map(|(dir, _)| dir).collect(),
+            scopes: dirs.iter().filter(|dir| !dir.is_empty()).cloned().collect(),
+            dirs,
+        }
     }
 }
 
 /// The directories, relative to the package directory and sorted, that hold a `project.json`; `""` for the package's
 /// own.
 pub(crate) fn project_dirs(ctx: &PluginContext<'_>) -> Vec<String> {
-    find_files(ctx.fs, ctx.dir, &["**/project.json".to_owned()])
+    find_files_within(ctx.fs, ctx.dir, &["**/project.json".to_owned()], PROJECT_DEPTH)
         .iter()
         .map(|path| path.rsplit_once('/').map_or("", |(dir, _)| dir).to_owned())
         .collect()
+}
+
+/// `path`, relative to the directory of the package at `package` in the Nx workspace, without a detour through
+/// directories above the package that leads back into it: `../../packages/b/run.mjs` in `packages/b` is `run.mjs`.
+pub(crate) fn within_package(package: &str, path: &str) -> String {
+    if package.is_empty() || !path.starts_with("..") {
+        return path.to_owned();
+    }
+    path_within(&join_rel(package, path), package)
+        .filter(|inside| !inside.is_empty())
+        .unwrap_or_else(|| path.to_owned())
 }
 
 /// Whether `dir`, or a directory between it and the package directory, holds a `package.json`: the project belongs
@@ -71,31 +109,26 @@ fn has_own_manifest(ctx: &PluginContext<'_>, dir: &str) -> bool {
     })
 }
 
-/// A scope's own context: the project directory as the package directory, the owning package's dependencies, no
-/// scripts (they belong to the owning package) and only the switches of the plugin table, since the globs a table
-/// gives are relative to the owning package.
-pub(crate) struct Scope {
-    /// The project directory, relative to the owning package's directory.
-    pub(crate) dir: String,
-    abs: PathBuf,
+/// What every scope of a package shares: no scripts (they belong to the owning package) and only the switches of the
+/// plugin table, since the globs a table gives are relative to the owning package.
+pub(crate) struct ScopeShared {
     scripts: IndexMap<String, String>,
     plugins: IndexMap<String, PluginConfig>,
 }
 
-impl Scope {
-    pub(crate) fn new(owner: &PluginContext<'_>, dir: &str) -> Self {
+impl ScopeShared {
+    pub(crate) fn new(owner: &PluginContext<'_>) -> Self {
         Self {
-            dir: dir.to_owned(),
-            abs: crate::support::join_lexically(owner.dir, dir),
             scripts: IndexMap::new(),
             plugins: switches(owner.plugins),
         }
     }
 
-    /// The context the plugins run in for this scope of the package `owner`.
-    pub(crate) fn context<'a>(&'a self, owner: &PluginContext<'a>) -> PluginContext<'a> {
+    /// The context the plugins run in for the scope whose absolute directory is `dir`, of the package `owner`: the
+    /// project directory as the package directory and the owning package's dependencies.
+    pub(crate) fn context<'a>(&'a self, owner: &PluginContext<'a>, dir: &'a std::path::Path) -> PluginContext<'a> {
         PluginContext {
-            dir: &self.abs,
+            dir,
             is_root: false,
             package_name: None,
             dependencies: owner.dependencies,
@@ -104,8 +137,14 @@ impl Scope {
             fs: owner.fs,
             plugins: &self.plugins,
             modules: owner.modules,
+            nx: None,
         }
     }
+}
+
+/// The absolute directory of the scope `dir` of the package `owner`.
+pub(crate) fn scope_dir(owner: &PluginContext<'_>, dir: &str) -> PathBuf {
+    crate::support::join_lexically(owner.dir, dir)
 }
 
 /// The plugin table reduced to its switches: `true`, `false`, or the `enabled` of a table.
@@ -136,9 +175,12 @@ pub(crate) fn rebase(mut output: PluginOutput, scope: &str) -> PluginOutput {
     globs(&mut output.production_entries);
     globs(&mut output.ignore);
     globs(&mut output.module_dirs);
-    for regex in &mut output.entry_regexes {
-        *regex = rebase_regex(scope, regex);
-    }
+    // An expression is matched against the path below the scope, which the regex crate cannot express in the
+    // expression itself without look-around.
+    let regexes = std::mem::take(&mut output.entry_regexes);
+    output
+        .scoped_entry_regexes
+        .extend(regexes.into_iter().map(|regex| ScopedEntryRegex::new(scope, regex)));
     for alias in &mut output.aliases {
         if let Some(target) = &mut alias.target {
             *target = join_rel(scope, target);
@@ -182,6 +224,7 @@ pub(crate) fn merge(into: &mut PluginOutput, from: PluginOutput) {
     for (list, items) in lists {
         extend_unique(list, items);
     }
+    extend_unique(&mut into.scoped_entry_regexes, from.scoped_entry_regexes);
     extend_unique(&mut into.config_files, from.config_files);
     extend_unique(&mut into.run_binaries, from.run_binaries);
     extend_unique(&mut into.aliases, from.aliases);
@@ -217,51 +260,6 @@ fn rebase_glob(scope: &str, glob: &str) -> String {
     }
 }
 
-/// An entry expression of the scope `scope` (matched against `/` and the path relative to the scope, see
-/// [`crate::PluginInput::EntryRegex`]) for a match against `/` and the path relative to the owning package. An
-/// expression anchored with a leading `^` stays anchored at the scope; an unanchored one matches anywhere below it.
-fn rebase_regex(scope: &str, regex: &str) -> String {
-    let (flags, body) = split_inline_flags(regex);
-    let prefix = format!("^/{}", regex::escape(scope));
-    match body.strip_prefix('^') {
-        Some(rest) if !has_top_level_alternation(rest) => format!("{flags}{prefix}(?:{rest})"),
-        _ => format!("{flags}{prefix}(?:/.*)?(?:{body})"),
-    }
-}
-
-/// The leading inline flag group of `regex` (`(?i)`) and the rest.
-fn split_inline_flags(regex: &str) -> (&str, &str) {
-    let Some(rest) = regex.strip_prefix("(?") else {
-        return ("", regex);
-    };
-    match rest.find(')') {
-        Some(end) if end > 0 && rest[..end].chars().all(|c| c.is_ascii_alphabetic()) => regex.split_at(end + 3),
-        _ => ("", regex),
-    }
-}
-
-/// Whether `regex` has a `|` outside every group and character class, so that a leading `^` anchors only its first
-/// alternative.
-fn has_top_level_alternation(regex: &str) -> bool {
-    let mut depth = 0_u32;
-    let mut in_class = false;
-    let mut chars = regex.chars();
-    while let Some(c) = chars.next() {
-        match c {
-            '\\' => {
-                chars.next();
-            }
-            '[' if !in_class => in_class = true,
-            ']' if in_class => in_class = false,
-            '(' if !in_class => depth += 1,
-            ')' if !in_class => depth = depth.saturating_sub(1),
-            '|' if !in_class && depth == 0 => return true,
-            _ => {}
-        }
-    }
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -277,28 +275,30 @@ mod tests {
         assert_eq!(rebase_glob("apps/web", "../../jest.preset.js"), "jest.preset.js");
     }
 
-    /// An anchored expression stays anchored at the scope, an unanchored one matches anywhere below it, and inline
-    /// flags stay in front; neither matches a sibling directory.
     #[test]
-    fn entry_expressions_match_below_the_scope_only() {
-        let matches = |regex: &str, path: &str| regex::Regex::new(regex).is_ok_and(|compiled| compiled.is_match(path));
-        let anchored = rebase_regex("apps/web", "^/e2e/.*\\.ts$");
-        assert_eq!(anchored, "^/apps/web(?:/e2e/.*\\.ts$)");
-        assert!(matches(&anchored, "/apps/web/e2e/a.ts"));
-        assert!(!matches(&anchored, "/apps/web/src/e2e/a.ts"));
+    fn a_detour_through_the_workspace_root_is_taken_out_of_a_path() {
+        assert_eq!(within_package("packages/b", "../../packages/b/run.mjs"), "run.mjs");
+        assert_eq!(within_package("packages/b", "../../tools/r.mjs"), "../../tools/r.mjs");
+        assert_eq!(within_package("packages/b", "../c/x.mjs"), "../c/x.mjs");
+        assert_eq!(within_package("packages/b", "src/x.mjs"), "src/x.mjs");
+        assert_eq!(within_package("", "../x.mjs"), "../x.mjs");
+    }
 
-        let unanchored = rebase_regex("apps/web", "(/__tests__/.*|(\\.|/)(test|spec))\\.[jt]sx?$");
-        assert!(matches(&unanchored, "/apps/web/src/a.test.ts"));
-        assert!(matches(&unanchored, "/apps/web/__tests__/a.ts"));
-        assert!(!matches(&unanchored, "/apps/api/src/a.test.ts"));
-        assert!(!matches(&unanchored, "/apps/web2/__tests__/a.ts"));
-
-        let flagged = rebase_regex("apps/web", "(?i)^/E2E/");
-        assert_eq!(flagged, "(?i)^/apps/web(?:/E2E/)");
-        assert!(matches(&flagged, "/apps/web/e2e/a.ts"));
-
-        let alternation = rebase_regex("apps/web", "^/a/|/b/");
-        assert!(matches(&alternation, "/apps/web/x/b/c.ts"));
-        assert!(!matches(&alternation, "/b/c.ts"));
+    /// A scope's expressions keep their text and are moved out of `entry_regexes`, with the scope beside them.
+    #[test]
+    fn entry_expressions_keep_their_scope() {
+        let output = PluginOutput {
+            entry_regexes: vec![r".*\.spec\.ts$".to_owned(), "^/e2e/".to_owned()],
+            ..PluginOutput::default()
+        };
+        let rebased = rebase(output, "apps/web");
+        assert!(rebased.entry_regexes.is_empty());
+        assert_eq!(
+            rebased.scoped_entry_regexes,
+            [
+                ScopedEntryRegex::new("apps/web", r".*\.spec\.ts$"),
+                ScopedEntryRegex::new("apps/web", "^/e2e/"),
+            ]
+        );
     }
 }
