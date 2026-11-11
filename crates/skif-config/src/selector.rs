@@ -1,10 +1,13 @@
 //! Compiled name selectors: glob lists with `!` negation and the `$LOCAL` token.
 
+use std::borrow::Cow;
 use std::path::Path;
 
 use globset::{Candidate, Glob, GlobSet, GlobSetBuilder};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use skif_core::HashSet;
 
 use crate::error::ConfigError;
 
@@ -30,6 +33,10 @@ pub const ROOT: &str = "$ROOT";
 #[derive(Debug, Clone)]
 pub struct Selector {
     patterns: Vec<String>,
+    /// The included patterns without glob syntax, matched by one lookup instead of the glob set.
+    include_literals: HashSet<Box<str>>,
+    /// The excluded patterns without glob syntax.
+    exclude_literals: HashSet<Box<str>>,
     include: GlobSet,
     exclude: GlobSet,
     include_local: bool,
@@ -41,6 +48,8 @@ impl Default for Selector {
     fn default() -> Self {
         Self {
             patterns: Vec::new(),
+            include_literals: HashSet::default(),
+            exclude_literals: HashSet::default(),
             include: GlobSet::empty(),
             exclude: GlobSet::empty(),
             include_local: false,
@@ -84,6 +93,15 @@ impl Selector {
                 } else {
                     selector.include_local = true;
                 }
+                continue;
+            }
+            if is_literal(body) {
+                let literals = if negated {
+                    &mut selector.exclude_literals
+                } else {
+                    &mut selector.include_literals
+                };
+                literals.insert(body.into());
                 continue;
             }
             let glob =
@@ -133,14 +151,45 @@ impl Selector {
         }
         let mut included = self.include_local && is_local;
         for name in names {
-            // One candidate for both sets: preparing it is most of the cost of a match against a few globs.
-            let candidate = Candidate::new(name);
-            if !self.exclude.is_empty() && self.exclude.is_match_candidate(&candidate) {
+            let literal = literal_key(name);
+            if self.exclude_literals.contains(literal.as_ref()) {
                 return false;
             }
-            included = included || (!self.include.is_empty() && self.include.is_match_candidate(&candidate));
+            // One candidate for both sets, prepared only when a glob is left to try: preparing it is most of the cost
+            // of a match against a few globs.
+            let mut candidate = None;
+            if !self.exclude.is_empty()
+                && self
+                    .exclude
+                    .is_match_candidate(candidate.get_or_insert_with(|| Candidate::new(name)))
+            {
+                return false;
+            }
+            included = included
+                || self.include_literals.contains(literal.as_ref())
+                || (!self.include.is_empty()
+                    && self
+                        .include
+                        .is_match_candidate(candidate.get_or_insert_with(|| Candidate::new(name))));
         }
         included || !self.has_include
+    }
+}
+
+/// Whether a pattern body has no glob syntax, so a glob compiled from it matches exactly the names equal to it.
+fn is_literal(body: &str) -> bool {
+    !body
+        .bytes()
+        .any(|byte| matches!(byte, b'*' | b'?' | b'[' | b']' | b'{' | b'}' | b'\\'))
+}
+
+/// `name` as the glob set sees it: off Unix the set matches with every `\` turned into `/`, so the literal lookup
+/// must too.
+fn literal_key(name: &str) -> Cow<'_, str> {
+    if cfg!(unix) || !name.contains('\\') {
+        Cow::Borrowed(name)
+    } else {
+        Cow::Owned(name.replace('\\', "/"))
     }
 }
 
@@ -316,6 +365,74 @@ mod tests {
                 "{patterns:?} vs {name} local={local}"
             );
         }
+    }
+
+    /// The selector rule over glob sets of every pattern, literals included.
+    fn glob_only_matches(patterns: &[&str], name: &str) -> bool {
+        let set = |negated: bool| {
+            let mut builder = GlobSetBuilder::new();
+            for pattern in patterns {
+                let (is_negated, body) = pattern.strip_prefix('!').map_or((false, *pattern), |body| (true, body));
+                if is_negated == negated {
+                    builder.add(Glob::new(body).unwrap());
+                }
+            }
+            builder.build().unwrap()
+        };
+        let has_include = patterns.iter().any(|pattern| !pattern.starts_with('!'));
+        !set(true).is_match(name) && (set(false).is_match(name) || !has_include)
+    }
+
+    #[test]
+    fn literal_patterns_match_like_their_globs() {
+        let pattern_lists: &[&[&str]] = &[
+            &["react"],
+            &["react", "react-dom"],
+            &["react", "@types/*"],
+            &["@types/*", "!@types/node"],
+            &["!react"],
+            &["!react", "!@types/*"],
+            &["a,b"],
+            &["/r/apps/web", "/r/apps/old/**"],
+            &["./x"],
+            &["a!b", "!a!b"],
+            &["React"],
+        ];
+        let names = [
+            "react",
+            "react-dom",
+            "reac",
+            "@types/node",
+            "@types/react",
+            "a,b",
+            "a",
+            "/r/apps/web",
+            "/r/apps/web/x",
+            "/r/apps/old/x",
+            "./x",
+            "x",
+            "a!b",
+            "React",
+        ];
+        for patterns in pattern_lists {
+            let compiled = selector(patterns);
+            for name in names {
+                assert_eq!(
+                    compiled.matches(name, false),
+                    glob_only_matches(patterns, name),
+                    "{patterns:?} vs {name}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn only_patterns_with_glob_syntax_compile_to_globs() {
+        let compiled = selector(&["react", "!legacy", "@types/*", "!{a,b}"]);
+        assert_eq!(compiled.include_literals.len(), 1);
+        assert_eq!(compiled.exclude_literals.len(), 1);
+        assert_eq!(compiled.include.len(), 1);
+        assert_eq!(compiled.exclude.len(), 1);
     }
 
     #[test]
