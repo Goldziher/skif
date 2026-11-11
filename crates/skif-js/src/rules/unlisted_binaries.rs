@@ -15,7 +15,8 @@ pub static META: RuleMeta = RuleMeta::new(
 
 /// Reports binaries that no dependency provides: those `package.json` scripts run, at the script, and those the
 /// commands of other files run (workflows, hooks and tool configs that plugins read, `node:child_process`, `execa`
-/// and `zx` calls in source files), at that file.
+/// and `zx` calls in source files) and the `node_modules/.bin` links source files look up
+/// (`require.resolve('.bin/x')`), at that file.
 pub struct UnlistedBinaries;
 
 impl JsRule for UnlistedBinaries {
