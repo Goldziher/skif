@@ -200,9 +200,12 @@ syncpack.
   `semver-groups/per-dependency-type-ranges` configure them).
 * On a dependency that names a workspace package, a range the package's own version satisfies is valid, as are
   `workspace:` specifiers and `*`/`latest` (`version-mismatch/local-package-wins-range-differs`).
-* A path specifier (`link:`, `file:`, `portal:`, `./`, `../` or `/`) takes no part in the version groups: it gets no
-  state and is never rewritten, because `local-path-dependency` owns it and its fix is the only one the value gets.
-  syncpack rewrites a path to another directory, or next to a semver version, to that version
+* A path specifier (`link:`, `file:`, `portal:`, `./`, `../`, `/` or `~/`) is never rewritten and never the target of
+  an alignment. In a dependency section, while `local-path-dependency` is on (as in every case here but
+  `workspace-protocol/link-path-rejected-by-default`), it gets no state, because that rule reports it and its fix is
+  the only one the value gets. With that rule off, and in an override section or a custom type, it keeps its state
+  without a fix, and a path that resolves to the workspace package is valid next to its own version. syncpack
+  rewrites a path to another directory, or next to a semver version, to that version
   (`version-mismatch/link-specifier-wrong-directory`, `version-mismatch/semver-and-file-specifier-mix`).
 * A `catalog:` instance leaves the preferred-semver group; the remaining instances still align.
 * Ranges rank by the lowest version they admit, so `^14.1.2` outranks `^14` and the shorthand is the one reported;

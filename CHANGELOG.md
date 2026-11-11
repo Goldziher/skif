@@ -231,14 +231,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
-- `version-mismatch` no longer rewrites a path dependency (`../a`, `file:`, `link:`, `portal:`) to a version: path
-  specifiers take no part in the version groups, so `local-path-dependency` gives the one fix a path gets
-  ([ADR 0106](adrs/0106-path-specifiers-belong-to-local-path-dependency.md),
+- `version-mismatch` no longer rewrites a path dependency (`../a`, `file:`, `link:`, `portal:`, `~/a`) to a version.
+  While `local-path-dependency` is on, the paths of the dependency sections take no part in the version groups, so
+  that rule gives the one fix a path gets; with it off, and in override sections and custom types, a path keeps its
+  state without a fix ([ADR 0106](adrs/0106-path-specifiers-belong-to-local-path-dependency.md),
   [#153](https://github.com/Goldziher/skif/issues/153)).
-- `local-path-dependency` under Yarn Classic replaces a path to a workspace member with `*`, as under npm, instead of
-  offering no fix and calling the member a path outside the workspace; the help names the member
+- `local-path-dependency` under Yarn Classic replaces a path to a workspace member with `*` (the exact version for a
+  prerelease member, which `*` does not match), as under npm, instead of offering no fix and calling the member a
+  path outside the workspace; the help names the member
   ([ADR 0106](adrs/0106-path-specifiers-belong-to-local-path-dependency.md),
   [#160](https://github.com/Goldziher/skif/issues/160)).
+- `local-path-dependency` reads a home-relative path (`~/a`) as a path, and when a path to a workspace member resolves
+  to another directory, its help names both directories: the fix links the member, which installs other code.
 - **Config evaluation**: a conditional spread (`...(ci ? { … } : {})`) no longer leaves the package incomplete; every
   branch is read ([#108](https://github.com/Goldziher/skif/issues/108)). Members of known objects, destructured keys,
   `import.meta.resolve(x)`, `dirname(require.resolve('<pkg>/package.json'))` and `void 0 ?? x` are evaluated; a
