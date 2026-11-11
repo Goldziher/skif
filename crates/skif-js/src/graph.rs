@@ -834,9 +834,9 @@ pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf]) -> ModuleGraph {
         }
     }
     while !frontier.is_empty() {
-        let paths: Vec<PathBuf> = frontier
+        let paths: Vec<&Path> = frontier
             .iter()
-            .map(|id| builder.modules[id.index()].abs.clone())
+            .map(|id| builder.modules[id.index()].abs.as_path())
             .collect();
         let parsed: Vec<Parsed> = map_ordered(&paths, inputs.sequential, |path| process(path, inputs));
         let mut next = Vec::new();
