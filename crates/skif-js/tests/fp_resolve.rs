@@ -520,6 +520,50 @@ fn a_typescript_range_is_read_by_the_lowest_version_it_admits() {
     }
 }
 
+#[test]
+fn a_catalog_typescript_range_is_read_from_the_workspace_catalogs() {
+    let catalogs = "packages:\n  - packages/*\ncatalog:\n  typescript: ^6.0.0\ncatalogs:\n  legacy:\n    typescript: ~5.9.0\n";
+    for (specifier, expected) in [
+        ("catalog:", strings(&["@types/chrome"])),
+        ("catalog:default", strings(&["@types/chrome"])),
+        ("catalog:legacy", Vec::new()),
+    ] {
+        let member = format!(
+            r#"{{"name":"app","private":true,"main":"src/index.ts","devDependencies":{{"@types/chrome":"0.0.1","typescript":"{specifier}"}}}}"#
+        );
+        let files = [
+            ("package.json", r#"{"name":"root","private":true}"#),
+            ("pnpm-workspace.yaml", catalogs),
+            ("packages/app/package.json", member.as_str()),
+            ("packages/app/tsconfig.json", PLAIN_TSCONFIG),
+            ("packages/app/src/index.ts", "export const a = 1;\n"),
+        ];
+        assert_eq!(unused_types_of(&files), expected, "{specifier}");
+    }
+}
+
+#[test]
+fn a_peer_typescript_range_counts_only_without_another_typescript_entry() {
+    for (dev, peer, expected) in [
+        // The package's own entry names no version, so the peer range of its consumers does not stand in for it.
+        (Some("latest"), "^6.0.0", Vec::new()),
+        (Some("^5.4.0"), "^6.0.0", Vec::new()),
+        (Some("^6.0.0"), "^5.0.0", strings(&["@types/chrome"])),
+        (None, "^6.0.0", strings(&["@types/chrome"])),
+    ] {
+        let dev = dev.map_or_else(String::new, |range| format!(r#","typescript":"{range}""#));
+        let manifest = format!(
+            r#"{{"name":"app","private":true,"main":"src/index.ts","devDependencies":{{"@types/chrome":"0.0.1"{dev}}},"peerDependencies":{{"typescript":"{peer}"}}}}"#
+        );
+        let files = [
+            ("package.json", manifest.as_str()),
+            ("tsconfig.json", PLAIN_TSCONFIG),
+            ("src/index.ts", "export const a = 1;\n"),
+        ];
+        assert_eq!(unused_types_of(&files), expected, "{dev} {peer}");
+    }
+}
+
 /// The `@types` packages of the workspace of `files` that `unused-dev-dependencies` reports.
 fn unused_types_of(files: &[(&str, &str)]) -> Vec<String> {
     names(&lint(files), "unused-dev-dependencies")
