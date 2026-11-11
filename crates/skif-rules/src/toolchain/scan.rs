@@ -12,8 +12,9 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use rayon::prelude::*;
 use skif_config::Selector;
-use skif_core::{FileSystem, LineIndex, Location, PackageId};
+use skif_core::{DirEntry, FileSystem, LineIndex, Location, PackageId};
 use skif_lint::LintContext;
 
 use super::options::{Resolved, ToolchainKind, ToolchainOptions};
@@ -112,29 +113,12 @@ impl Scan {
                 .map(|(id, package)| (slashed(&package.dir), (id, workspace.is_ignored(id))))
                 .collect(),
         };
-        let mut found: BTreeMap<String, (ToolchainKind, PackageId, bool)> = BTreeMap::new();
-        for (dir, &(id, ignored)) in &owners.dirs {
-            if ignored {
-                continue;
-            }
-            for name in owners.file_names(dir) {
-                let kind = default_kind(&name, true);
-                if let Some(kind) = kind {
-                    found.insert(join(dir, &name), (kind, id, true));
-                }
-            }
-            for sub in SUBDIRECTORIES {
-                let sub = join(dir, sub);
-                if owners.dirs.contains_key(&sub) || owners.is_project(&sub) {
-                    continue;
-                }
-                for name in owners.file_names(&sub) {
-                    if let Some(kind) = default_kind(&name, false) {
-                        found.insert(join(&sub, &name), (kind, id, true));
-                    }
-                }
-            }
-        }
+        let mut found: BTreeMap<String, (ToolchainKind, PackageId, bool)> = owners
+            .dirs
+            .par_iter()
+            .filter(|(_, (_, ignored))| !ignored)
+            .flat_map_iter(|(dir, &(id, _))| owners.default_files(dir, id))
+            .collect();
         if let Some(&(root, false)) = owners.dirs.get("") {
             for name in owners.file_names(WORKFLOWS) {
                 if has_extension(&name, &["yml", "yaml"]) {
@@ -155,7 +139,7 @@ impl Scan {
             }
         }
         let files = found
-            .into_iter()
+            .into_par_iter()
             .filter_map(|(path, (kind, package, at_default_place))| {
                 let source = fs.read_to_string(&workspace.root.join(&path)).ok()?;
                 let name = file_name(&path);
@@ -239,6 +223,31 @@ impl Owners<'_> {
     /// The names of the files directly in `dir`.
     fn file_names(&self, dir: &str) -> Vec<String> {
         file_names(self.fs, self.root, dir)
+    }
+
+    /// The toolchain files at the usual places of the package `id` in `dir`: its own directory, and those of
+    /// [`SUBDIRECTORIES`] it holds that are neither a workspace package nor a project of their own.
+    fn default_files(&self, dir: &str, id: PackageId) -> Vec<(String, (ToolchainKind, PackageId, bool))> {
+        let entries = self.fs.read_dir_shared(&self.root.join(dir)).unwrap_or_default();
+        let named = |entry: &DirEntry| entry.path.file_name().map(|name| name.to_string_lossy().into_owned());
+        let own = entries
+            .iter()
+            .filter(|entry| entry.is_file)
+            .filter_map(named)
+            .filter_map(|name| default_kind(&name, true).map(|kind| (join(dir, &name), (kind, id, true))));
+        let below = entries
+            .iter()
+            .filter(|entry| entry.is_dir)
+            .filter_map(named)
+            .filter(|name| SUBDIRECTORIES.contains(&name.as_str()))
+            .map(|name| join(dir, &name))
+            .filter(|sub| !self.dirs.contains_key(sub) && !self.is_project(sub))
+            .flat_map(|sub| {
+                self.file_names(&sub).into_iter().filter_map(move |name| {
+                    default_kind(&name, false).map(|kind| (join(&sub, &name), (kind, id, true)))
+                })
+            });
+        own.chain(below).collect()
     }
 
     /// Whether `dir` holds a `package.json` of its own.

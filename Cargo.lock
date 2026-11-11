@@ -2518,6 +2518,7 @@ name = "skif-rules"
 version = "0.3.0"
 dependencies = [
  "insta",
+ "rayon",
  "serde",
  "serde-saphyr",
  "serde_json",
