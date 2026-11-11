@@ -217,6 +217,8 @@ jobs:
         run: bash scripts/test-check-scripts.sh
       - name: Test the install scripts (pre-commit launcher and the Action's resolve, install and run steps)
         run: bash scripts/test-install-scripts.sh
+      - name: Test the end-to-end scripts (version resolution, scenario generation, expectations)
+        run: bash scripts/test-e2e-scripts.sh
       - name: Test the benchmark number refresh
         run: node --test tools/bench/refresh-numbers.test.mjs
 
@@ -338,7 +340,10 @@ jobs:
       - name: Resolve the newest Bun 1.x
         id: bun
         if: matrix.runtime == 'bun'
-        run: echo "version=$(scripts/e2e/resolve-pm-version.sh bun newest 1)" >> "$GITHUB_OUTPUT"
+        shell: bash
+        run: |
+          version="$(scripts/e2e/resolve-pm-version.sh bun newest 1)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: oven-sh/setup-bun@v2
         if: matrix.runtime == 'bun'
         with:
@@ -363,26 +368,18 @@ jobs:
             *) bash scripts/npm-smoke.sh "$RUNTIME" ;;
           esac
 
-  # Runs the built binary against real workspaces installed by each package manager, so the
-  # fixtures prove skif's view of a monorepo matches what npm, pnpm, yarn and bun actually accept.
-  e2e:
-    name: E2E (${{ matrix.package-manager }} ${{ matrix.slot }})
+  # Builds the binary the e2e jobs share, once per runner OS, so the package-manager jobs do not each compile it.
+  e2e-build:
+    name: E2E build (${{ matrix.os }})
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
-      # fail-fast stays off so one package manager's failure does not hide the others.
       fail-fast: false
       matrix:
-        # ADR 0027: the latest two majors of npm, pnpm and Yarn 2+ (`slot` picks the newest or the previous major from
-        # the registry) and the latest Bun 1.x.
         include:
-          - { package-manager: npm, slot: newest }
-          - { package-manager: npm, slot: previous }
-          - { package-manager: pnpm, slot: newest }
-          - { package-manager: pnpm, slot: previous }
-          - { package-manager: yarn, slot: newest }
-          - { package-manager: yarn, slot: previous }
-          - { package-manager: bun, slot: latest }
+          - { os: ubuntu, runner: ubuntu-latest }
+          - { os: macos, runner: macos-26 }
+          - { os: windows, runner: windows-latest }
     steps:
       - uses: actions/checkout@v7
       # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
@@ -390,39 +387,122 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
-      # node serves npm, yarn (through corepack) and pnpm; the package manager under test is installed below.
+      - name: Build skif
+        run: cargo build --locked -p skif-cli
+      - uses: actions/upload-artifact@v7
+        with:
+          name: e2e-skif-${{ matrix.os }}
+          path: target/debug/skif${{ matrix.os == 'windows' && '.exe' || '' }}
+          if-no-files-found: error
+          retention-days: 1
+
+  # Runs the built binary against real workspaces installed by each package manager, so the
+  # fixtures prove skif's view of a monorepo matches what npm, pnpm, Yarn and Bun actually accept.
+  # One job per manager, slot and OS runs every scenario of fixtures/e2e under every linker of the manager.
+  # `needs` waits for every build leg; `!cancelled()` still starts the jobs of an OS whose build succeeded when another
+  # OS's build failed, and those of the failed OS fail at the artifact download.
+  e2e:
+    name: E2E (${{ matrix.package-manager }} ${{ matrix.slot }}, ${{ matrix.os }})
+    needs: e2e-build
+    if: ${{ !cancelled() }}
+    timeout-minutes: ${{ matrix.os == 'ubuntu' && 30 || 45 }}
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      # fail-fast stays off so one package manager's failure does not hide the others.
+      fail-fast: false
+      matrix:
+        # ADR 0027 and ADR 0105: the latest two majors of npm, pnpm and Yarn 2+ (`slot` picks the newest or the
+        # previous major from the registry), the newest Yarn Classic 1.x and the newest Bun 1.x. The newest slot of
+        # every manager runs on Linux, macOS and Windows; the previous majors run on Linux only.
+        package-manager: [npm, pnpm, yarn, yarn-classic, bun]
+        slot: [newest, previous]
+        os: [ubuntu, macos, windows]
+        exclude:
+          - { package-manager: yarn-classic, slot: previous }
+          - { package-manager: bun, slot: previous }
+          - { slot: previous, os: macos }
+          - { slot: previous, os: windows }
+        include:
+          - { os: ubuntu, runner: ubuntu-latest }
+          - { os: macos, runner: macos-26 }
+          - { os: windows, runner: windows-latest }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: e2e-skif-${{ matrix.os }}
+          path: target/debug
+      # ~keep Artifacts do not keep the executable bit.
+      - name: Make skif executable
+        run: chmod +x target/debug/skif*
+      # node serves npm, pnpm and both Yarns; the package manager under test is installed below.
       - uses: xberg-io/actions/setup-mise@v1
         with:
           tools: node
-      - name: Resolve the newest Bun 1.x
-        id: bun
-        if: matrix.package-manager == 'bun'
-        run: echo "version=$(scripts/e2e/resolve-pm-version.sh bun newest 1)" >> "$GITHUB_OUTPUT"
-      - uses: oven-sh/setup-bun@v2
-        if: matrix.package-manager == 'bun'
-        with:
-          bun-version: ${{ steps.bun.outputs.version }}
-      # ~keep Node 25+ no longer bundles corepack, so yarn's corepack shim is installed explicitly.
-      - name: Enable corepack
-        if: matrix.package-manager == 'yarn'
-        run: |
-          npm install --global corepack@latest
-          corepack enable
-      - name: Install the package manager version under test
-        if: matrix.package-manager != 'bun'
+      - name: Resolve the version under test
+        id: version
         env:
           PM: ${{ matrix.package-manager }}
           SLOT: ${{ matrix.slot }}
         run: |
           set -euo pipefail
-          version="$(scripts/e2e/resolve-pm-version.sh "$PM" "$SLOT")"
+          # Bun and Yarn Classic are tested on their newest 1.x, so a later major does not silently enter the matrix.
+          major=""
+          case "$PM" in bun | yarn-classic) major=1 ;; esac
+          version="$(scripts/e2e/resolve-pm-version.sh "$PM" "$SLOT" ${major:+"$major"})"
           echo "Testing $PM $version (the $SLOT major)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: oven-sh/setup-bun@v2
+        if: matrix.package-manager == 'bun'
+        with:
+          bun-version: ${{ steps.version.outputs.version }}
+      # npm, pnpm, Yarn Classic and corepack's Yarn shim go into a prefix of their own that is put first on PATH, so
+      # neither the npm bundled in mise's Node directory nor a mise shim shadows them (which also needs no `mise
+      # reshim`); on Windows npm puts a prefix's executables in the prefix itself, elsewhere in its `bin`.
+      - name: Install the package manager version under test
+        env:
+          PM: ${{ matrix.package-manager }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          prefix="${RUNNER_TEMP}/package-manager"
+          bin="${prefix}/bin"
+          [[ "$RUNNER_OS" != Windows ]] || bin="$prefix"
+          mkdir -p "$bin"
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            cygpath -w "$bin" >> "$GITHUB_PATH"
+            PATH="$(cygpath -u "$bin"):${PATH}"
+          else
+            echo "$bin" >> "$GITHUB_PATH"
+            PATH="${bin}:${PATH}"
+          fi
           case "$PM" in
-            npm | pnpm) npm install --global "${PM}@${version}" ;;
-            yarn) corepack prepare "yarn@${version}" --activate ;;
+            npm | pnpm) npm install --global --prefix "$prefix" "${PM}@${VERSION}" ;;
+            yarn-classic) npm install --global --prefix "$prefix" "yarn@${VERSION}" ;;
+            # Node 25+ no longer bundles corepack, so Yarn Berry's corepack shim is installed explicitly.
+            yarn)
+              npm install --global --prefix "$prefix" corepack@latest
+              corepack enable --install-directory "$bin" yarn
+              corepack prepare "yarn@${VERSION}" --activate
+              ;;
+            bun) ;;
           esac
-          "$PM" --version
-      - name: Build skif
-        run: cargo build --locked
+          # bash remembered where the `npm` that ran the install lives (Node's bundled one, as the prefix was empty);
+          # forget it so the assertion resolves every command through PATH again.
+          hash -r
+          cmd="$PM"
+          [[ "$PM" != yarn-classic ]] || cmd=yarn
+          actual="$(cd "$RUNNER_TEMP" && "$cmd" --version | tr -d '\r')"
+          if [[ "$actual" != "$VERSION" ]]; then
+            echo "::error::${cmd} --version prints ${actual}, not the ${VERSION} under test"
+            type -a "$cmd"
+            exit 1
+          fi
       - name: Run end-to-end tests
-        run: scripts/e2e/run.sh ${{ matrix.package-manager }} target/debug/skif
+        env:
+          PM: ${{ matrix.package-manager }}
+          E2E_PM_VERSION: ${{ steps.version.outputs.version }}
+        run: scripts/e2e/run.sh "$PM" target/debug/skif

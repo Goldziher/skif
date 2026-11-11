@@ -1,0 +1,7 @@
+{
+  "name": "@e2e/tool",
+  "version": "0.0.0",
+  "bin": {
+    "e2e-tool": "cli.js"
+  }
+}

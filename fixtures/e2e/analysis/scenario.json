@@ -1,0 +1,93 @@
+{
+  "description": "JS analysis against the installed layout: an unused dependency, a phantom import of a transitive dependency, a script that runs a binary of another package's dependency, and one that runs a workspace member's binary without listing the member; `<pm> run tool` in b shows whether the layout provides that binary.",
+  "expect": {
+    "exit_code": 1,
+    "diagnostics": [
+      "unlisted-binaries:@e2e/b:semver",
+      "unlisted-dependencies:@e2e/b:isexe in packages/b/index.js",
+      "unused-dependencies:@e2e/a:semver"
+    ],
+    "run": {
+      "dir": "packages/b",
+      "script": "tool",
+      "succeeds": true
+    },
+    "after_fix": {
+      "exit_code": 1,
+      "diagnostics": [
+        "unlisted-binaries:@e2e/b:semver",
+        "unlisted-dependencies:@e2e/b:isexe in packages/b/index.js"
+      ]
+    }
+  },
+  "overrides": {
+    "pnpm/isolated": {
+      "reason": "pnpm's isolated linker links a member's binaries only into the packages that list it.",
+      "add": [
+        "unlisted-binaries:@e2e/b:e2e-tool"
+      ],
+      "run": {
+        "succeeds": false
+      },
+      "after_fix": {
+        "add": [
+          "unlisted-binaries:@e2e/b:e2e-tool"
+        ]
+      }
+    },
+    "pnpm/hoisted": {
+      "reason": "node-linker=hoisted puts e2e-tool on b's PATH, but skif does not read the linker, so it is reported as under the isolated linker.",
+      "known_issue": "#146 member binaries ignore pnpm and Yarn Berry hoisted linker settings",
+      "add": [
+        "unlisted-binaries:@e2e/b:e2e-tool"
+      ],
+      "after_fix": {
+        "add": [
+          "unlisted-binaries:@e2e/b:e2e-tool"
+        ]
+      }
+    },
+    "yarn": {
+      "reason": "Yarn Berry runs only the binaries of a package's own dependencies, under every linker.",
+      "add": [
+        "unlisted-binaries:@e2e/b:e2e-tool"
+      ],
+      "after_fix": {
+        "add": [
+          "unlisted-binaries:@e2e/b:e2e-tool"
+        ]
+      },
+      "run": {
+        "succeeds": false
+      }
+    },
+    "bun/default": {
+      "reason": "Bun installs a new workspace isolated (bun.lock configVersion 1), which links no member binary into b.",
+      "add": [
+        "unlisted-binaries:@e2e/b:e2e-tool"
+      ],
+      "after_fix": {
+        "add": [
+          "unlisted-binaries:@e2e/b:e2e-tool"
+        ]
+      },
+      "run": {
+        "succeeds": false
+      }
+    },
+    "bun/isolated": {
+      "reason": "Bun's isolated linker links a member's binaries only into the packages that list it.",
+      "add": [
+        "unlisted-binaries:@e2e/b:e2e-tool"
+      ],
+      "after_fix": {
+        "add": [
+          "unlisted-binaries:@e2e/b:e2e-tool"
+        ]
+      },
+      "run": {
+        "succeeds": false
+      }
+    }
+  }
+}
