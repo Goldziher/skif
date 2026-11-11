@@ -2,7 +2,7 @@
 # Tests the repository guards that decide what ships, each on a synthetic tree, so a pattern that drifts cannot make a
 # guard pass on nothing: every script gets a passing tree and the negative cases that must fail.
 #   check-pins, check-headers, check-rule-ids, check-plugin-list, check-dependency-tree, check-package-contents,
-#   check-schema, check-oxc-git-patch, check-doc-pins, npm-smoke.sh
+#   check-schema, check-oxc-git-patch, check-doc-pins, npm-smoke.sh, bench-import.sh
 #
 # Usage: scripts/test-check-scripts.sh
 # The literals checked below contain `$` on purpose; nothing is meant to expand.
@@ -401,6 +401,73 @@ expect "npm-smoke fails when the clean scenario is missing" 1 run_in "$smoke" np
 mv "${smoke}/clean" "${smoke}/fixtures/e2e/clean"
 printf '#!/usr/bin/env bash\nexit 1\n' >"${stubs}/node"
 expect "npm-smoke fails when the addon script fails" 1 run_in "$smoke" npm-smoke.sh node
+
+# ---------------------------------------------------------------- bench-import
+bench="$(new_tree bench)"
+results="${bench}/tools/bench/results"
+mkdir -p "${results}/raw"
+printf '{"schema":2}\n' >"${results}/summary.json"
+printf '# old\n' >"${results}/summary.md"
+printf '{}\n' >"${results}/raw/stale.json"
+export STUB_GH_LOG="${work}/gh.log" STUB_NODE_LOG="${work}/node.log"
+# `gh run download <id> --repo R --pattern P --dir D`: writes STUB_GH_ARTIFACTS (default 1) artifacts into D, each in
+# a directory of its own as gh does for --pattern; STUB_GH_NO_MD leaves out summary.md; STUB_GH_FAIL fails.
+cat >"${stubs}/gh" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >"$STUB_GH_LOG"
+if [[ -n "${STUB_GH_FAIL:-}" ]]; then
+  echo "no valid artifacts found to download" >&2
+  exit 1
+fi
+while [[ $# -gt 0 && "$1" != --dir ]]; do shift; done
+dir="$2"
+for n in $(seq "${STUB_GH_ARTIFACTS:-1}"); do
+  artifact="${dir}/bench-0123456789ab-ubuntu-24.04-${n}"
+  mkdir -p "${artifact}/raw"
+  printf '{"schema":3}\n' >"${artifact}/summary.json"
+  [[ -n "${STUB_GH_NO_MD:-}" ]] || printf '# new\n' >"${artifact}/summary.md"
+  printf '{"results":[]}\n' >"${artifact}/raw/00.json"
+done
+STUB
+# refresh-numbers.mjs: records its arguments and that the summary it was given exists; exits STUB_NODE_STATUS.
+cat >"${stubs}/node" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >"$STUB_NODE_LOG"
+[[ -f "${@: -1}" ]] || echo "missing summary ${*: -1}" >>"$STUB_NODE_LOG"
+exit "${STUB_NODE_STATUS:-0}"
+STUB
+chmod +x "${stubs}/gh" "${stubs}/node"
+bench_untouched() {
+  grep -qF '"schema":2' "${results}/summary.json" || fail "$1: summary.json was replaced"
+  grep -qF '# old' "${results}/summary.md" || fail "$1: summary.md was replaced"
+}
+
+expect "bench-import needs a run id" 2 run_in "$bench" bench-import.sh
+expect_in_out "bench-import usage" "usage: scripts/bench-import.sh <run-id>"
+expect "bench-import rejects a run id that is not a number" 2 run_in "$bench" bench-import.sh 'latest'
+expect "bench-import fails when the download fails" 1 env STUB_GH_FAIL=1 bash "${bench}/scripts/bench-import.sh" 42
+bench_untouched "bench-import download"
+expect "bench-import fails on more than one artifact" 1 env STUB_GH_ARTIFACTS=2 bash "${bench}/scripts/bench-import.sh" 42
+expect_in_out "bench-import two artifacts" "run 42 of Goldziher/skif has 2 bench artifacts; expected one"
+bench_untouched "bench-import two artifacts"
+expect "bench-import fails on an artifact without summary.md" 1 env STUB_GH_NO_MD=1 bash "${bench}/scripts/bench-import.sh" 42
+expect_in_out "bench-import incomplete" "of run 42 has no summary.md"
+bench_untouched "bench-import incomplete"
+expect "bench-import writes nothing when refresh-numbers refuses the summary" 1 env STUB_NODE_STATUS=1 bash "${bench}/scripts/bench-import.sh" 42
+bench_untouched "bench-import refused"
+
+expect "bench-import imports the artifact of a run" 0 run_in "$bench" bench-import.sh 42
+expect_in_out "bench-import done" "imported bench-0123456789ab-ubuntu-24.04-1 of run 42 into tools/bench/results"
+grep -qxE 'run download 42 --repo Goldziher/skif --pattern bench-\* --dir /.+/download' "$STUB_GH_LOG" ||
+  fail "bench-import gh arguments: $(cat "$STUB_GH_LOG")"
+grep -qxE 'tools/bench/refresh-numbers\.mjs --bench --summary /.+/bench-0123456789ab-ubuntu-24\.04-1/summary\.json' "$STUB_NODE_LOG" ||
+  fail "bench-import refresh arguments: $(cat "$STUB_NODE_LOG")"
+if grep -q '^missing summary' "$STUB_NODE_LOG"; then fail "bench-import: refresh-numbers was not given the downloaded summary"; fi
+grep -qF '"schema":3' "${results}/summary.json" || fail "bench-import: summary.json is not the artifact's"
+grep -qF '# new' "${results}/summary.md" || fail "bench-import: summary.md is not the artifact's"
+[[ -f "${results}/raw/00.json" && ! -e "${results}/raw/stale.json" ]] || fail "bench-import: raw/ is not the artifact's"
+expect "bench-import takes the repository from SKIF_BENCH_REPO" 0 env SKIF_BENCH_REPO=me/skif bash "${bench}/scripts/bench-import.sh" 7
+grep -qF 'run download 7 --repo me/skif ' "$STUB_GH_LOG" || fail "bench-import repository: $(cat "$STUB_GH_LOG")"
 
 if [[ "$failures" -ne 0 ]]; then
   echo "${failures} case(s) failed" >&2
