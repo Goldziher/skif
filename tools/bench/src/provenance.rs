@@ -64,7 +64,8 @@ pub struct Machine {
     pub physical_cores: Option<usize>,
     /// `MemTotal` of `/proc/meminfo`, `hw.memsize` on macOS.
     pub memory_bytes: Option<u64>,
-    /// The CPUs the process's cgroup may use (`cpu.max` quota over period); `None` without a limit.
+    /// The CPUs the process's cgroup may use: the smallest `cpu.max` quota over period of its cgroup and every ancestor;
+    /// `None` without a limit.
     pub cgroup_cpu_limit: Option<f64>,
     /// The hypervisor: `lscpu`'s `Hypervisor vendor`, else `systemd-detect-virt`; `virtual machine` on macOS when
     /// `kern.hv_vmm_present` is set.
@@ -210,22 +211,34 @@ fn macos_name() -> Option<String> {
     Some(format!("{name} {version}"))
 }
 
-/// The CPU limit of the cgroup (v2) this process belongs to, else of the root cgroup, else of the cgroup v1 `cpu`
-/// controller.
+/// The CPU limit of the cgroup (v2) this process belongs to and its ancestors (the root cgroup when the process names
+/// none), else of the cgroup v1 `cpu` controller.
 fn cgroup_cpu_limit() -> Option<f64> {
-    let own = read("/proc/self/cgroup")
+    let path = read("/proc/self/cgroup")
         .and_then(|text| cgroup_v2_path(&text))
-        .map(|path| format!("/sys/fs/cgroup{}/cpu.max", path.trim_end_matches('/')));
+        .unwrap_or_else(|| "/".to_owned());
     let v1 = || {
         let quota = read("/sys/fs/cgroup/cpu/cpu.cfs_quota_us")?;
         let period = read("/sys/fs/cgroup/cpu/cpu.cfs_period_us")?;
         cpu_max_limit(&format!("{} {}", quota.trim(), period.trim()))
     };
-    own.iter()
-        .map(String::as_str)
-        .chain(["/sys/fs/cgroup/cpu.max"])
-        .find_map(|path| read(path).and_then(|text| cpu_max_limit(&text)))
-        .or_else(v1)
+    cgroup_v2_limit(&path, read).or_else(v1)
+}
+
+/// The CPU limit of the cgroup v2 at `path` (`/system.slice/runner.service`): the smallest `cpu.max` limit of it and of
+/// every ancestor up to the root, since a parent's quota caps its children; `read` reads a file. `None` when none of
+/// them sets a limit.
+fn cgroup_v2_limit(path: &str, read: impl Fn(&str) -> Option<String>) -> Option<f64> {
+    let mut dir = path.trim_end_matches('/').to_owned();
+    let mut limits = Vec::new();
+    loop {
+        limits.extend(read(&format!("/sys/fs/cgroup{dir}/cpu.max")).and_then(|text| cpu_max_limit(&text)));
+        if dir.is_empty() {
+            break;
+        }
+        dir.truncate(dir.rfind('/').unwrap_or(0));
+    }
+    limits.into_iter().reduce(f64::min)
 }
 
 /// The physical cores of `/sys/devices/system/cpu/cpu*/topology`, for CPUs whose `/proc/cpuinfo` names no core ids.
@@ -437,6 +450,26 @@ mod tests {
             Some("/system.slice/runner.service")
         );
         assert_eq!(cgroup_v2_path("12:cpu,cpuacct:/docker/abc\n"), None, "cgroup v1 only");
+    }
+
+    #[test]
+    fn the_cgroup_cpu_limit_is_the_smallest_of_the_cgroup_and_its_ancestors() {
+        let files: BTreeMap<&str, &str> = BTreeMap::from([
+            ("/sys/fs/cgroup/system.slice/runner.service/cpu.max", "max 100000\n"),
+            ("/sys/fs/cgroup/system.slice/job.scope/cpu.max", "150000 100000\n"),
+            ("/sys/fs/cgroup/system.slice/cpu.max", "200000 100000\n"),
+            ("/sys/fs/cgroup/cpu.max", "400000 100000\n"),
+        ]);
+        let read = |path: &str| files.get(path).map(|text| (*text).to_owned());
+        assert_eq!(
+            cgroup_v2_limit("/system.slice/runner.service", &read),
+            Some(2.0),
+            "an unlimited cgroup under a limited parent has the parent's limit"
+        );
+        assert_eq!(cgroup_v2_limit("/system.slice/job.scope/", &read), Some(1.5));
+        assert_eq!(cgroup_v2_limit("/user.slice/session.scope", &read), Some(4.0));
+        assert_eq!(cgroup_v2_limit("/", &read), Some(4.0));
+        assert_eq!(cgroup_v2_limit("/system.slice/runner.service", |_: &str| None), None);
     }
 
     #[test]
