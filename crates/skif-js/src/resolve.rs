@@ -3,7 +3,7 @@
 use std::borrow::Borrow;
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
-use std::hash::Hash;
+use std::hash::{BuildHasher, Hash};
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,7 +14,7 @@ use oxc_resolver::{
     FileMetadata, ResolveError, ResolveOptions, ResolverGeneric, TsconfigDiscovery, TsconfigOptions, TsconfigReferences,
 };
 use serde_json::Value;
-use skif_core::{FileSystem, HashMap, OsFs};
+use skif_core::{FileSystem, HashMap, HashState, OsFs};
 use skif_js_syntax::is_stylesheet;
 use skif_workspace::Workspace;
 
@@ -76,7 +76,9 @@ impl oxc_resolver::FileSystem for ResolverFs {
         } else if kind.is_dir {
             Ok(FileMetadata::new(false, true, false))
         } else {
-            Err(io::Error::new(io::ErrorKind::NotFound, "not found"))
+            // The resolver only asks whether there is metadata, so a missing path, which most probes are, costs no
+            // allocated message.
+            Err(io::ErrorKind::NotFound.into())
         }
     }
 
@@ -241,13 +243,34 @@ fn alias_rest<'a>(specifier: &'a str, find: &str) -> Option<&'a str> {
     specifier.strip_prefix(find)?.strip_prefix('/')
 }
 
+/// The shards of a [`Memo`] or [`PairMemo`]: every import of every file asks several memos, so one lock per memo
+/// would make the threads of a pool queue on it, and the first lookup of each directory writes.
+const MEMO_SHARDS: usize = 32;
+
+/// The shard of a key. The high bits of an ahash hash are the well mixed ones.
+fn memo_shard<T: Hash + ?Sized>(key: &T) -> usize {
+    usize::try_from(HashState.hash_one(key) >> 32).unwrap_or(0) % MEMO_SHARDS
+}
+
+fn memo_shards<M: Default>() -> Box<[RwLock<M>]> {
+    (0..MEMO_SHARDS).map(|_| RwLock::new(M::default())).collect()
+}
+
 /// A map filled on first use; concurrent first uses may both compute, the results are equal. A hit allocates
-/// nothing; keys are hashed with ahash, as they are paths and names of the run's own tree.
-struct Memo<K, V>(RwLock<HashMap<K, V>>);
+/// nothing; keys are hashed with ahash, as they are paths and names of the run's own tree. The map is split over
+/// independently locked shards, so parallel lookups and first uses of different keys rarely meet on one lock.
+struct Memo<K, V>(Box<[RwLock<HashMap<K, V>>]>);
 
 impl<K: Eq + Hash, V: Clone> Memo<K, V> {
     fn new() -> Self {
-        Self(RwLock::new(HashMap::default()))
+        Self(memo_shards())
+    }
+
+    fn shard<Q>(&self, key: &Q) -> &RwLock<HashMap<K, V>>
+    where
+        Q: Hash + ?Sized,
+    {
+        &self.0[memo_shard(key)]
     }
 
     fn get<Q>(&self, key: &Q) -> Option<V>
@@ -255,7 +278,11 @@ impl<K: Eq + Hash, V: Clone> Memo<K, V> {
         K: Borrow<Q>,
         Q: Eq + Hash + ?Sized,
     {
-        self.0.read().unwrap_or_else(PoisonError::into_inner).get(key).cloned()
+        self.shard(key)
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(key)
+            .cloned()
     }
 
     fn get_or_compute<Q>(&self, key: &Q, compute: impl FnOnce() -> V) -> V
@@ -267,7 +294,7 @@ impl<K: Eq + Hash, V: Clone> Memo<K, V> {
             return known;
         }
         let value = compute();
-        self.0
+        self.shard(key)
             .write()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(key.to_owned(), value.clone());
@@ -276,12 +303,12 @@ impl<K: Eq + Hash, V: Clone> Memo<K, V> {
 }
 
 /// Values memoised by a pair of keys (a scope index or a package name, and a specifier), misses included. A hit
-/// allocates nothing.
-struct PairMemo<K, V>(RwLock<HashMap<K, HashMap<String, V>>>);
+/// allocates nothing. The pairs are split over shards by both keys, as a [`Memo`] is by its key.
+struct PairMemo<K, V>(Box<[RwLock<HashMap<K, HashMap<String, V>>>]>);
 
 impl<K: Eq + Hash + Clone, V: Clone> PairMemo<K, V> {
     fn new() -> Self {
-        Self(RwLock::new(HashMap::default()))
+        Self(memo_shards())
     }
 
     fn get_or_compute<Q>(&self, first: &Q, specifier: &str, compute: impl FnOnce() -> V) -> V
@@ -289,8 +316,8 @@ impl<K: Eq + Hash + Clone, V: Clone> PairMemo<K, V> {
         K: Borrow<Q>,
         Q: Eq + Hash + ToOwned<Owned = K> + ?Sized,
     {
-        if let Some(known) = self
-            .0
+        let shard = &self.0[memo_shard(&(first, specifier))];
+        if let Some(known) = shard
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .get(first)
@@ -299,7 +326,7 @@ impl<K: Eq + Hash + Clone, V: Clone> PairMemo<K, V> {
             return known.clone();
         }
         let value = compute();
-        self.0
+        shard
             .write()
             .unwrap_or_else(PoisonError::into_inner)
             .entry(first.to_owned())
@@ -501,6 +528,15 @@ impl Resolvers {
                     .map(|resolution| resolution.path().to_path_buf())
             }
         }
+    }
+}
+
+/// The path whose scope chain is that of `path`: `path` itself when it is a scope directory, else its parent, whose
+/// ancestors hold the same scopes.
+fn chain_key<'p>(path: &'p Path, scope_index: &HashMap<PathBuf, usize>) -> &'p Path {
+    match path.parent() {
+        Some(parent) if !scope_index.contains_key(path) => parent,
+        _ => path,
     }
 }
 
@@ -1305,9 +1341,11 @@ impl ModuleResolver {
 
     /// The scopes whose directory holds `importer`, innermost first, with their position in `scopes`.
     ///
-    /// Found by walking up the importer's ancestors instead of testing every scope, once per importer.
+    /// Found by walking up the importer's ancestors instead of testing every scope, once per directory: a path that
+    /// is no scope directory itself (any source file) has the scopes of its parent, so the files of one directory
+    /// share one chain.
     fn scopes_of(&self, importer: &Path) -> impl Iterator<Item = (usize, &AliasScope)> + '_ {
-        let chain = self.scope_chains.get_or_compute(importer, || {
+        let chain = self.scope_chains.get_or_compute(chain_key(importer, &self.scope_index), || {
             importer
                 .ancestors()
                 .filter_map(|dir| self.scope_index.get(dir).copied())
@@ -2584,6 +2622,64 @@ generated/index.ts
             *self.kinds.lock().unwrap().entry(path.to_path_buf()).or_default() += 1;
             self.inner.kind(path)
         }
+    }
+
+    #[test]
+    fn a_memo_computes_each_key_once_and_keeps_misses() {
+        let memo: Memo<PathBuf, Option<usize>> = Memo::new();
+        let computed = std::cell::Cell::new(0);
+        let compute = |value: Option<usize>| {
+            computed.set(computed.get() + 1);
+            value
+        };
+        for _ in 0..3 {
+            assert_eq!(memo.get_or_compute(Path::new("/ws/a"), || compute(Some(1))), Some(1));
+            assert_eq!(memo.get_or_compute(Path::new("/ws/b"), || compute(None)), None);
+        }
+        assert_eq!(computed.get(), 2);
+        assert_eq!(memo.get(Path::new("/ws/a")), Some(Some(1)));
+        assert_eq!(memo.get(Path::new("/ws/c")), None);
+    }
+
+    #[test]
+    fn a_pair_memo_tells_pairs_apart_by_both_keys() {
+        let memo: PairMemo<String, usize> = PairMemo::new();
+        assert_eq!(memo.get_or_compute("a", "./x", || 1), 1);
+        assert_eq!(memo.get_or_compute("a", "./y", || 2), 2);
+        assert_eq!(memo.get_or_compute("b", "./x", || 3), 3);
+        assert_eq!(memo.get_or_compute("a", "./x", || 4), 1);
+        assert_eq!(memo.get_or_compute("b", "./x", || 5), 3);
+    }
+
+    #[test]
+    fn the_files_of_a_directory_share_its_scope_chain() {
+        let r = resolver(&[
+            ("package.json", ROOT),
+            ("packages/a/package.json", r#"{"name":"@x/a"}"#),
+            ("packages/a/src/x.ts", ""),
+            ("packages/a/src/y.ts", ""),
+        ]);
+        let dirs = |path: &str| -> Vec<PathBuf> {
+            r.scopes_of(Path::new(path))
+                .map(|(_, scope)| scope.dir.clone())
+                .collect()
+        };
+        let both = vec![PathBuf::from("/ws/packages/a"), PathBuf::from("/ws")];
+        assert_eq!(dirs("/ws/packages/a/src/x.ts"), both);
+        assert_eq!(dirs("/ws/packages/a/src/y.ts"), both);
+        assert_eq!(dirs("/ws/packages/a/src"), both);
+        assert_eq!(dirs("/ws/packages/a"), both);
+        assert_eq!(dirs("/ws/packages"), vec![PathBuf::from("/ws")]);
+        assert_eq!(dirs("/ws/packages/b.ts"), vec![PathBuf::from("/ws")]);
+        let held: usize = r
+            .scope_chains
+            .0
+            .iter()
+            .map(|shard| shard.read().unwrap().len())
+            .sum();
+        // Keyed by `src` (both files), `packages/a` (`src` and the package itself), `/ws` (`packages`) and `packages`
+        // (`packages/b.ts`).
+        assert_eq!(held, 4);
     }
 
     #[test]
