@@ -360,9 +360,10 @@ fn explain_errors(
             &format!("error-{}", tool.label().replace(' ', "_")),
             ERROR_RERUN_TIMEOUT,
         )?;
-        let exit = run
-            .code
-            .map_or_else(|| "no status (a signal or the time limit)".to_owned(), |code| format!("status {code}"));
+        let exit = run.code.map_or_else(
+            || "no status (a signal or the time limit)".to_owned(),
+            |code| format!("status {code}"),
+        );
         let stderr: Vec<&str> = run.stderr.lines().collect();
         let tail = stderr[stderr.len().saturating_sub(ERROR_LOG_LINES)..].join("\n");
         eprintln!(
@@ -1033,12 +1034,7 @@ pub fn run(options: &RunOptions) -> Result<()> {
         let argvs: Vec<(Tool, Vec<String>)> = target
             .tools
             .iter()
-            .map(|&tool| {
-                (
-                    tool,
-                    tool_argv(tool, &program_of(tool), &skif_args, &target.knip_args),
-                )
-            })
+            .map(|&tool| (tool, tool_argv(tool, &program_of(tool), &skif_args, &target.knip_args)))
             .collect();
         let commands: Vec<(Tool, String)> = argvs.iter().map(|(tool, argv)| (*tool, command_line(argv))).collect();
         let export = raw.join(format!("{index:02}.json"));
@@ -1230,7 +1226,7 @@ mod tests {
         );
         assert!(
             with_skip.contains(
-                "\n\nsyncpack lint exited with an error in 2 of 2 runs, so its time may be that of a partial run: `ERROR: Error loading metro.config.js`.\n\n"
+                "\n\nsyncpack lint exited with an error in 2 of 2 runs, so its time may be that of a partial run: `ERROR: Error loading metro.config.js`.\n"
             ),
             "{with_skip}"
         );
@@ -1445,14 +1441,35 @@ mod tests {
         let knip_args = ["--no-gitignore".to_owned()];
         let program = Path::new("/my tools/bin/x");
         for (tool, argv) in [
-            (Tool::Skif, vec!["/my tools/bin/x", ".", "--format", "json", "--no-install", "--recursive"]),
+            (
+                Tool::Skif,
+                vec![
+                    "/my tools/bin/x",
+                    ".",
+                    "--format",
+                    "json",
+                    "--no-install",
+                    "--recursive",
+                ],
+            ),
             (
                 Tool::SkifManifest,
-                vec!["/my tools/bin/x", ".", "--format", "json", "--no-install", "--no-js", "--recursive"],
+                vec![
+                    "/my tools/bin/x",
+                    ".",
+                    "--format",
+                    "json",
+                    "--no-install",
+                    "--no-js",
+                    "--recursive",
+                ],
             ),
             (Tool::Sherif, vec!["/my tools/bin/x", "."]),
             (Tool::Syncpack, vec!["/my tools/bin/x", "lint"]),
-            (Tool::Knip, vec!["/my tools/bin/x", "--reporter", "json", "--no-gitignore"]),
+            (
+                Tool::Knip,
+                vec!["/my tools/bin/x", "--reporter", "json", "--no-gitignore"],
+            ),
         ] {
             assert_eq!(tool_argv(tool, program, &extra, &knip_args), argv, "{tool:?}");
             assert_eq!(
@@ -1469,7 +1486,14 @@ mod tests {
     fn the_comparison_tools_are_installed_from_their_lock_and_timed_by_path() {
         assert_eq!(
             tool_install_args(Path::new("/bench/tools")),
-            ["ci", "--ignore-scripts", "--no-audit", "--no-fund", "--prefix", "/bench/tools"]
+            [
+                "ci",
+                "--ignore-scripts",
+                "--no-audit",
+                "--no-fund",
+                "--prefix",
+                "/bench/tools"
+            ]
         );
         let bin = Path::new("/my tools/node_modules/.bin");
         assert_eq!(

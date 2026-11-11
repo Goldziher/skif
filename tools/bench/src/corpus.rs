@@ -170,8 +170,13 @@ fn tool_lock_mismatch(tools: &Tools, lock: &serde_json::Value) -> Option<String>
         return Some("the lock has no root dependencies (packages[\"\"].dependencies)".to_owned());
     };
     let pins = tool_pins(tools);
-    if let Some(extra) = root.keys().find(|name| !pins.iter().any(|(tool, _)| *tool == name.as_str())) {
-        return Some(format!("the lock's root depends on {extra:?}, which is not a [tools] entry"));
+    if let Some(extra) = root
+        .keys()
+        .find(|name| !pins.iter().any(|(tool, _)| *tool == name.as_str()))
+    {
+        return Some(format!(
+            "the lock's root depends on {extra:?}, which is not a [tools] entry"
+        ));
     }
     pins.iter().find_map(|(tool, version)| {
         let declared = root.get(*tool).and_then(serde_json::Value::as_str);
@@ -708,7 +713,10 @@ mod tests {
             ),
         ] {
             let error = load_locked(name, PINNED, &sha, Some(&lock)).unwrap_err().to_string();
-            assert!(error.contains(&format!("package-lock.json: {problem}; set the [tools] versions")), "{error}");
+            assert!(
+                error.contains(&format!("package-lock.json: {problem}; set the [tools] versions")),
+                "{error}"
+            );
         }
     }
 }
