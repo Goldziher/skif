@@ -100,8 +100,8 @@ pub(crate) fn blocks(source: &str, astro: bool) -> Blocks {
             cursor = body_start;
             continue;
         }
-        let closing = format!("</{name}");
-        let Some(close) = source[body_start..].find(&closing) else {
+        let closing: &[u8] = if name == "script" { b"</script" } else { b"</style" };
+        let Some(close) = memchr::memmem::find(&source.as_bytes()[body_start..], closing) else {
             break;
         };
         let body_end = body_start + close;
@@ -143,28 +143,34 @@ const SCRIPT_TYPES: [&str; 6] = [
     "ts",
 ];
 
-/// The next `<script` or `<style` at or after `from`: its start and tag name.
+/// The next `<script` or `<style` at or after `from`: its start and tag name. One pass over the rest of the file finds
+/// whichever comes first.
 fn next_block_tag(source: &str, from: usize) -> Option<(usize, &'static str)> {
-    let script = source[from..].find("<script").map(|at| (from + at, "script"));
-    let style = source[from..].find("<style").map(|at| (from + at, "style"));
-    match (script, style) {
-        (Some(a), Some(b)) => Some(if a.0 <= b.0 { a } else { b }),
-        (a, b) => a.or(b),
-    }
+    let rest = &source.as_bytes()[from..];
+    memchr::memmem::find_iter(rest, b"<s").find_map(|at| {
+        let tag = &rest[at..];
+        let name = if tag.starts_with(b"<script") {
+            "script"
+        } else if tag.starts_with(b"<style") {
+            "style"
+        } else {
+            return None;
+        };
+        Some((from + at, name))
+    })
 }
 
 /// Index of the `>` closing a start tag, skipping quoted attribute values.
 fn tag_close(source: &str, from: usize) -> Option<usize> {
-    let mut quote: Option<char> = None;
-    for (i, c) in source[from..].char_indices() {
-        match (quote, c) {
-            (Some(q), c) if c == q => quote = None,
-            (None, '"' | '\'') => quote = Some(c),
-            (None, '>') => return Some(from + i),
-            _ => {}
+    let bytes = source.as_bytes();
+    let mut at = from;
+    loop {
+        let found = at + memchr::memchr3(b'>', b'"', b'\'', &bytes[at..])?;
+        match bytes[found] {
+            b'>' => return Some(found),
+            quote => at = found + 1 + memchr::memchr(quote, &bytes[found + 1..])? + 1,
         }
     }
-    None
 }
 
 fn attribute(attrs: &str, wanted: &str) -> Option<String> {
@@ -221,6 +227,9 @@ mod tests {
             ("<scripty>no</scripty>", false, &[]),
             ("---\nimport a from 'a'\n---\n<div/>", true, &["\nimport a from 'a'\n"]),
             ("<script attr=\"a>b\">x</script>", false, &["x"]),
+            ("<span/><style>a</style><select/><script>let s</script>", false, &["let s"]),
+            ("<script data-x='>' data-y=\"'\">let q</script>", false, &["let q"]),
+            ("<script data-x=\"unclosed>let u</script>", false, &[]),
         ];
         for (src, astro, expected) in cases {
             let got: Vec<&str> = blocks(src, *astro)

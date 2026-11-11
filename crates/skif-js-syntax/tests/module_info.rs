@@ -549,6 +549,41 @@ fn in_file_references() {
 }
 
 #[test]
+fn export_clauses_are_no_in_file_references_but_other_mentions_are() {
+    let cases: &[(&str, &str, &[(&str, bool)])] = &[
+        (
+            "clause only",
+            "export const a = 1;\nexport { a as b };\n",
+            &[("a", false), ("b", false)],
+        ),
+        (
+            "clause and a read",
+            "export const a = 1;\nexport { a as b };\nconsole.log(a);\n",
+            &[("a", true), ("b", true)],
+        ),
+        (
+            "default export of a binding",
+            "export const a = 1;\nexport default a;\n",
+            &[("a", false), ("default", false)],
+        ),
+        (
+            "default export and a read in another export",
+            "export function f() { return 1; }\nexport default f;\nexport const g = () => f();\n",
+            &[("f", true), ("default", false), ("g", false)],
+        ),
+    ];
+    for (label, source, expected) in cases {
+        let info = parse("a.ts", source);
+        let flags: Vec<(&str, bool)> = info
+            .exports
+            .iter()
+            .map(|e| (e.name.as_str(), e.referenced_in_file))
+            .collect();
+        assert_eq!(flags, *expected, "{label}");
+    }
+}
+
+#[test]
 fn in_file_references_can_be_disabled() {
     let options = ParseOptions {
         in_file_references: false,
@@ -834,6 +869,14 @@ fn a_parameter_or_local_with_the_name_of_an_import_reads_nothing_of_it() {
         "the parameters named `chars` shadow the import; the type `chars.Kind` still names it"
     );
     assert_eq!(accessed(&info, "a"), (Vec::new(), false), "only the local `a` is read");
+}
+
+#[test]
+fn an_import_inside_a_module_declaration_is_tracked_next_to_top_level_imports() {
+    let source = "import * as a from 'a';\na.e;\ndeclare module 'x' {\n  import * as b from 'b';\n  export const c: typeof b.d;\n}\n";
+    let info = parse("a.ts", source);
+    assert_eq!(accessed(&info, "a"), (vec!["e".to_owned()], false));
+    assert_eq!(accessed(&info, "b"), (vec!["d".to_owned()], false));
 }
 
 #[test]
@@ -1668,6 +1711,12 @@ fn custom_element_registrations_are_recorded_on_the_export() {
         (
             "window.customElements.define",
             "export class A extends HTMLElement {}\nwindow.customElements.define('x-a', A);",
+            "A",
+            vec![Registration::Define],
+        ),
+        (
+            "define spelled with an escape",
+            "export class A extends HTMLElement {}\ncustomElements.\\u0064efine('x-a', A);",
             "A",
             vec![Registration::Define],
         ),

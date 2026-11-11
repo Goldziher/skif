@@ -49,6 +49,9 @@ impl Found {
 
 /// Records the registrations of the exported classes of `program` on `info.exports`.
 pub(crate) fn mark(program: &Program<'_>, analysis: &Analysis<'_>, info: &mut ModuleInfo) {
+    if info.exports.is_empty() || !may_register(program.source_text) {
+        return;
+    }
     let bindings = import_bindings(info);
     let mut found = Found::default();
     let base_classes = top_level_classes(program, &bindings, &mut found);
@@ -107,6 +110,15 @@ pub(crate) fn mark(program: &Program<'_>, analysis: &Analysis<'_>, info: &mut Mo
             }
         }
     }
+}
+
+/// Whether `source` can register a custom element: a registration is a decorator, which needs an `@`, or a `define`
+/// call, whose name only an escape (`\u0064efine`) can spell without the word.
+fn may_register(source: &str) -> bool {
+    let bytes = source.as_bytes();
+    memchr::memchr(b'@', bytes).is_some()
+        || memchr::memmem::find(bytes, b"define").is_some()
+        || memchr::memmem::find(bytes, b"\\u").is_some()
 }
 
 /// Whether a registration of `target` is one of `export`.

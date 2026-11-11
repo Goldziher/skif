@@ -4,8 +4,8 @@
 //! [`extract_config_object`] statically evaluates the object a tool config file exports. [`extract_config`] returns an
 //! [`ExtractedConfig`]: that value and the evaluated arguments of the calls the evaluator cannot follow that the file
 //! exports, returns from its config function or merges, following imports when given a [`ModuleLoader`]. No oxc type
-//! appears in the public API, every public type is `Send + Sync`, and an oxc allocator lives only for the duration of
-//! one call.
+//! appears in the public API, every public type is `Send + Sync`, and no oxc value outlives the call that parsed it:
+//! each thread parses into one arena it resets before every parse.
 //!
 //! Supported inputs are `.js .mjs .cjs .jsx .ts .mts .cts .tsx` and `.d.ts` files, plus the `<script>` blocks (and
 //! Astro frontmatter), the `<style>` imports and the markup identifiers of `.vue`, `.svelte` and `.astro` files:
@@ -46,6 +46,7 @@ mod template;
 mod tsrx;
 
 use skif_core::HashSet;
+use std::cell::RefCell;
 use std::path::Path;
 
 use oxc_allocator::Allocator;
@@ -120,6 +121,31 @@ fn unsupported(extension: &str) -> SyntaxError {
     }
 }
 
+/// The arena capacity a thread keeps between parses. A file that grew its arena past it gives the memory back, so one
+/// huge file does not hold that much memory per thread for the rest of the run.
+const RETAINED_ARENA_BYTES: usize = 16 * 1024 * 1024;
+
+thread_local! {
+    /// The arena this thread parses into, reused across parses so a small file does not pay for a fresh one.
+    static ARENA: RefCell<Allocator> = RefCell::new(Allocator::default());
+}
+
+/// Runs `f` with this thread's arena, reset first. A nested call, made while the arena is in use (an evaluated
+/// config importing another module), gets a fresh arena of its own.
+pub(crate) fn with_arena<R>(f: impl FnOnce(&Allocator) -> R) -> R {
+    ARENA.with(|arena| {
+        let Ok(mut allocator) = arena.try_borrow_mut() else {
+            return f(&Allocator::default());
+        };
+        allocator.reset();
+        let result = f(&allocator);
+        if allocator.capacity() > RETAINED_ARENA_BYTES {
+            *allocator = Allocator::default();
+        }
+        result
+    })
+}
+
 /// Parses one block of code. With `uses`, also records how every name is used in the block.
 fn parse_block(
     src: &str,
@@ -129,13 +155,24 @@ fn parse_block(
     options: ParseOptions,
     uses: Option<&mut members::Uses>,
 ) -> ModuleInfo {
-    let allocator = Allocator::default();
+    with_arena(|allocator| parse_block_in(allocator, src, base, source_type, lines, options, uses))
+}
+
+fn parse_block_in(
+    allocator: &Allocator,
+    src: &str,
+    base: u32,
+    source_type: SourceType,
+    lines: &LineIndex,
+    options: ParseOptions,
+    uses: Option<&mut members::Uses>,
+) -> ModuleInfo {
     let parser_options = OxcParseOptions {
         preserve_parens: false,
         allow_return_outside_function: true,
         ..OxcParseOptions::default()
     };
-    let ret = Parser::new(&allocator, src, source_type)
+    let ret = Parser::new(allocator, src, source_type)
         .with_options(parser_options)
         .parse();
     let parse_diagnostics: Vec<ParseIssue> = ret
@@ -173,7 +210,7 @@ fn parse_block(
     finder::Finder::new(&ctx, &mut info, &ret.program).visit_program(&ret.program);
     info.imports.sort_by_key(|i| i.span.start);
     // One semantic analysis serves every pass below that needs scopes; it is built only if one does.
-    let analysis = semantic::Analysis::new(&ret.program, options.in_file_references);
+    let analysis = semantic::Analysis::new(&ret.program);
     if options.member_accesses {
         let excluded: HashSet<(u32, u32)> = collected.reexport_spans.iter().copied().collect();
         members::track(&ret.program, &analysis, &mut info, &excluded, base);
@@ -182,7 +219,7 @@ fn parse_block(
         }
     }
     if options.in_file_references {
-        mark_in_file_references(&analysis, &collected.export_clause_spans, &mut info);
+        mark_in_file_references(&ret.program, &analysis, &collected.export_clause_spans, &mut info);
         signature_refs::mark(&ret.program, &mut info);
         members::mark_local_reads(&ret.program, &analysis, &mut info);
     }
@@ -353,25 +390,27 @@ fn add_style_and_source_imports(info: &mut ModuleInfo, blocks: &sfc::Blocks, sou
     info.imports.sort_by_key(|import| import.span.start);
 }
 
-fn mark_in_file_references(analysis: &semantic::Analysis<'_>, excluded: &[oxc_span::Span], info: &mut ModuleInfo) {
-    let wanted: HashSet<String> = info
+fn mark_in_file_references(
+    program: &oxc_ast::ast::Program<'_>,
+    analysis: &semantic::Analysis<'_>,
+    excluded: &[oxc_span::Span],
+    info: &mut ModuleInfo,
+) {
+    let local = |export: &Export| {
+        !matches!(
+            export.kind,
+            ExportKind::ReExport | ExportKind::StarReExport | ExportKind::Default
+        )
+    };
+    let wanted: HashSet<&str> = info
         .exports
         .iter()
-        .filter(|e| {
-            !matches!(
-                e.kind,
-                ExportKind::ReExport | ExportKind::StarReExport | ExportKind::Default
-            )
-        })
-        .filter_map(|e| e.local_name.clone())
+        .filter(|e| local(e))
+        .filter_map(|e| e.local_name.as_deref())
         .collect();
-    let referenced = semantic::referenced_locals(analysis, &wanted, excluded);
+    let referenced = semantic::referenced_locals(program, analysis, &wanted, excluded);
     for export in &mut info.exports {
-        let used = export.local_name.as_ref().is_some_and(|l| referenced.contains(l))
-            && !matches!(
-                export.kind,
-                ExportKind::ReExport | ExportKind::StarReExport | ExportKind::Default
-            );
+        let used = local(export) && export.local_name.as_deref().is_some_and(|l| referenced.contains(l));
         export.referenced_in_file = used;
         if used {
             info.in_file_references.push(export.name.clone());
@@ -387,4 +426,27 @@ pub(crate) fn js_string(value: oxc_str::JSStr<'_>) -> String {
     value
         .as_str()
         .map_or_else(|| value.display().to_string(), str::to_owned)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ParseOptions, Path, parse_module, with_arena};
+
+    #[test]
+    fn parses_in_a_reused_or_nested_arena_give_the_same_facts() {
+        let source = "import { a } from 'a';\nimport * as ns from 'ns';\nexport const b = a.c + ns.d;\nexport { b as e };\n";
+        let parse = || parse_module(Path::new("x.ts"), source, &ParseOptions::default()).ok();
+        let first = parse();
+        let nested = with_arena(|outer| {
+            let held = outer.alloc_str("held");
+            let inner = parse();
+            // The nested parse took an arena of its own, so what the outer one holds is intact.
+            assert_eq!(held, "held");
+            inner
+        });
+        let again = parse();
+        assert!(first.as_ref().is_some_and(|info| info.exports.len() == 2));
+        assert_eq!(nested, first);
+        assert_eq!(again, first);
+    }
 }

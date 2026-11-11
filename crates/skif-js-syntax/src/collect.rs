@@ -226,6 +226,8 @@ fn declared(ctx: &Ctx<'_>, decl: &Declaration<'_>) -> Vec<Declared> {
         Declaration::TSEnumDeclaration(e) => {
             let mut d = Declared::simple(e.id.name.as_str(), e.id.span, ExportKind::Enum, false);
             let members = &e.body.members;
+            // A member renumbers when a later member has no initializer: one before the last such member.
+            let last_implicit = members.iter().rposition(|m| m.initializer.is_none());
             d.enum_members = members
                 .iter()
                 .enumerate()
@@ -237,7 +239,7 @@ fn declared(ctx: &Ctx<'_>, decl: &Declaration<'_>) -> Vec<Declared> {
                         });
                         // A later member without an initializer takes its value from the one before it, so removing
                         // this member would renumber it.
-                        let renumbers = members[index + 1..].iter().any(|later| later.initializer.is_none());
+                        let renumbers = last_implicit.is_some_and(|last| index < last);
                         Member {
                             removal: if mentioned || renumbers {
                                 None
@@ -577,22 +579,32 @@ impl Export {
 
 /// Collects imports and exports from the top-level statements of `program`.
 pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInfo) -> Collected {
+    // Only a local `export { x }` clause reads the top-level names, so a file without one does not gather them.
+    let has_clause = program.body.iter().any(
+        |stmt| matches!(stmt, Statement::ExportNamedDeclaration(e) if !e.specifiers.is_empty()),
+    );
     let mut local_decls: HashMap<String, Declared> = HashMap::default();
-    for stmt in &program.body {
-        let decl = match stmt {
-            Statement::ExportDeclaration(e) => Some(&e.declaration),
-            other => other.as_declaration(),
-        };
-        if let Some(decl) = decl {
-            for d in declared(ctx, decl) {
-                local_decls.insert(d.name.clone(), d);
+    if has_clause {
+        for stmt in &program.body {
+            let decl = match stmt {
+                Statement::ExportDeclaration(e) => Some(&e.declaration),
+                other => other.as_declaration(),
+            };
+            if let Some(decl) = decl {
+                for d in declared(ctx, decl) {
+                    local_decls.insert(d.name.clone(), d);
+                }
             }
         }
     }
 
     let scope = Scope {
         declarations: &local_decls,
-        imports: import_bindings(program),
+        imports: if has_clause {
+            import_bindings(program)
+        } else {
+            HashMap::default()
+        },
     };
     let mut spans = ClauseSpans::default();
     for stmt in &program.body {
