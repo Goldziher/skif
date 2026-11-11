@@ -4,15 +4,16 @@
 //! not pays nothing. Other lockfiles (`yarn.lock`, `package-lock.json`, `bun.lock`) and older pnpm formats are not
 //! modelled; [`PnpmLockfile::read`] refuses a pnpm format other than 9.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use serde_json::{Map, Value};
-use skif_core::{DependencyKind, FileSystem, LineIndex, Span};
+use skif_core::{DependencyKind, FileSystem, HashMap, LineIndex, Span};
 
 use crate::error::WorkspaceError;
-use crate::pnpm::entry_span;
+use crate::pnpm::section_index;
 
 /// The file name of pnpm's lockfile.
 pub const PNPM_LOCKFILE: &str = "pnpm-lock.yaml";
@@ -44,6 +45,21 @@ pub struct PnpmLockfile {
     pub patched_dependencies: BTreeMap<String, LockedPatch>,
     /// `overrides:` as pnpm applied them: selector and replacement.
     pub overrides: BTreeMap<String, String>,
+    /// The entry spans of the sections located by key, each built on its first lookup.
+    spans: SectionSpans,
+}
+
+/// The spans of the entries of one top-level section, by key.
+type SpanIndex = HashMap<Box<str>, Span>;
+
+/// The span indexes of the sections whose entries diagnostics point at: a lookup scans the whole text, so a run that
+/// locates many entries scans each section once instead of once per lookup.
+#[derive(Debug, Clone, Default)]
+struct SectionSpans {
+    snapshots: OnceLock<SpanIndex>,
+    packages: OnceLock<SpanIndex>,
+    importers: OnceLock<SpanIndex>,
+    patched_dependencies: OnceLock<SpanIndex>,
 }
 
 /// One direct dependency of an importer.
@@ -166,38 +182,36 @@ impl PnpmLockfile {
         };
         let document: Value =
             serde_saphyr::from_str_with_options(text, options).map_err(|error| invalid(error.to_string()))?;
-        let Value::Object(document) = document else {
+        let Value::Object(mut document) = document else {
             return Err(invalid("the lockfile is not a mapping".to_owned()));
         };
-        let version = document.get("lockfileVersion").map(scalar).unwrap_or_default();
+        let version = document.remove("lockfileVersion").map(into_scalar).unwrap_or_default();
         if version.split('.').next() != Some("9") {
             let written = if version.is_empty() { "none" } else { version.as_str() };
             return Err(invalid(format!(
                 "lockfileVersion {written} is not supported; skif reads lockfile format 9 (pnpm 9 and 10)"
             )));
         }
-        let mapping = |key: &str| -> Result<Option<&Map<String, Value>>, WorkspaceError> {
-            match document.get(key) {
-                None | Some(Value::Null) => Ok(None),
-                Some(Value::Object(map)) => Ok(Some(map)),
+        // Each section is taken out of the document, so its keys and strings move into the model instead of being
+        // copied.
+        let mut mapping = |key: &str| -> Result<Map<String, Value>, WorkspaceError> {
+            match document.remove(key) {
+                None | Some(Value::Null) => Ok(Map::new()),
+                Some(Value::Object(map)) => Ok(map),
                 Some(_) => Err(invalid(format!("`{key}` must be a mapping"))),
             }
         };
         let mut importers = BTreeMap::new();
-        for (dir, importer) in mapping("importers")?.into_iter().flatten() {
+        for (dir, importer) in mapping("importers")? {
             let dependencies =
                 locked_dependencies(importer).map_err(|message| invalid(format!("importer `{dir}`: {message}")))?;
-            importers.insert(dir.clone(), dependencies);
+            importers.insert(dir, dependencies);
         }
-        let packages = mapping("packages")?
-            .into_iter()
-            .flatten()
-            .map(|(key, _)| key.clone())
-            .collect();
+        let packages = mapping("packages")?.into_iter().map(|(key, _)| key).collect();
         let mut snapshots = BTreeMap::new();
-        for (key, entry) in mapping("snapshots")?.into_iter().flatten() {
+        for (key, entry) in mapping("snapshots")? {
             let (name, version, suffix) =
-                split_key(key).ok_or_else(|| invalid(format!("snapshots: `{key}` is not `name@version`")))?;
+                split_key(&key).ok_or_else(|| invalid(format!("snapshots: `{key}` is not `name@version`")))?;
             let mut dependencies = Vec::new();
             for section in ["dependencies", "optionalDependencies"] {
                 if let Some(Value::Object(edges)) = entry.get(section) {
@@ -214,31 +228,29 @@ impl PnpmLockfile {
                 patch_hash: patch_hash(suffix).map(str::to_owned),
                 dependencies,
             };
-            snapshots.insert(key.clone(), snapshot);
+            snapshots.insert(key, snapshot);
         }
         let patched_dependencies = mapping("patchedDependencies")?
             .into_iter()
-            .flatten()
             .map(|(key, entry)| {
                 let locked = match entry {
                     // pnpm 10 records the hash alone.
                     Value::String(hash) => LockedPatch {
-                        hash: Some(hash.clone()),
+                        hash: Some(hash),
                         path: None,
                     },
-                    Value::Object(fields) => LockedPatch {
-                        hash: fields.get("hash").map(scalar).filter(|hash| !hash.is_empty()),
-                        path: fields.get("path").map(scalar).filter(|path| !path.is_empty()),
+                    Value::Object(mut fields) => LockedPatch {
+                        hash: fields.remove("hash").map(into_scalar).filter(|hash| !hash.is_empty()),
+                        path: fields.remove("path").map(into_scalar).filter(|path| !path.is_empty()),
                     },
                     _ => LockedPatch::default(),
                 };
-                (key.clone(), locked)
+                (key, locked)
             })
             .collect();
         let overrides = mapping("overrides")?
             .into_iter()
-            .flatten()
-            .map(|(selector, replacement)| (selector.clone(), scalar(replacement)))
+            .map(|(selector, replacement)| (selector, into_scalar(replacement)))
             .collect();
         Ok(Self {
             line_index: Arc::new(LineIndex::new(&source)),
@@ -250,7 +262,15 @@ impl PnpmLockfile {
             snapshots,
             patched_dependencies,
             overrides,
+            spans: SectionSpans::default(),
         })
+    }
+
+    fn entry_span(&self, index: &OnceLock<SpanIndex>, section: &str, key: &str) -> Option<Span> {
+        index
+            .get_or_init(|| section_index(&self.source, &self.line_index, section))
+            .get(key)
+            .copied()
     }
 
     /// The snapshots `importer` reaches through its direct dependencies and theirs. A `link:` to a workspace package
@@ -290,22 +310,22 @@ impl PnpmLockfile {
     /// The span of the `snapshots:` entry `key`, or of its `packages:` entry when the snapshot is not found.
     #[must_use]
     pub fn snapshot_span(&self, key: &str) -> Option<Span> {
-        entry_span(&self.source, &self.line_index, "snapshots", key).or_else(|| {
+        self.entry_span(&self.spans.snapshots, "snapshots", key).or_else(|| {
             let (name, version, _) = split_key(key)?;
-            entry_span(&self.source, &self.line_index, "packages", &format!("{name}@{version}"))
+            self.entry_span(&self.spans.packages, "packages", &format!("{name}@{version}"))
         })
     }
 
     /// The span of the `importers:` entry `importer`.
     #[must_use]
     pub fn importer_span(&self, importer: &str) -> Option<Span> {
-        entry_span(&self.source, &self.line_index, "importers", importer)
+        self.entry_span(&self.spans.importers, "importers", importer)
     }
 
     /// The span of the `patchedDependencies:` entry `key`.
     #[must_use]
     pub fn patched_dependency_span(&self, key: &str) -> Option<Span> {
-        entry_span(&self.source, &self.line_index, "patchedDependencies", key)
+        self.entry_span(&self.spans.patched_dependencies, "patchedDependencies", key)
     }
 }
 
@@ -343,38 +363,50 @@ fn patch_hash(suffix: &str) -> Option<&str> {
 }
 
 /// A scalar as text: YAML reads `9.0` and `1` as numbers.
-fn scalar(value: &Value) -> String {
+fn scalar(value: &Value) -> Cow<'_, str> {
     match value {
-        Value::String(text) => text.clone(),
-        Value::Number(number) => number.to_string(),
-        Value::Bool(flag) => flag.to_string(),
-        _ => String::new(),
+        Value::String(text) => Cow::Borrowed(text),
+        Value::Number(number) => Cow::Owned(number.to_string()),
+        Value::Bool(flag) => Cow::Owned(flag.to_string()),
+        _ => Cow::Borrowed(""),
+    }
+}
+
+/// [`scalar`] of a value that is not needed afterwards: a string is moved, not copied.
+fn into_scalar(value: Value) -> String {
+    match value {
+        Value::String(text) => text,
+        other => scalar(&other).into_owned(),
     }
 }
 
 /// The direct dependencies of one importer entry.
-fn locked_dependencies(importer: &Value) -> Result<Vec<LockedDependency>, String> {
+fn locked_dependencies(importer: Value) -> Result<Vec<LockedDependency>, String> {
+    let Value::Object(mut importer) = importer else {
+        return Ok(Vec::new());
+    };
     let mut dependencies = Vec::new();
     for kind in [
         DependencyKind::Dependencies,
         DependencyKind::DevDependencies,
         DependencyKind::OptionalDependencies,
     ] {
-        let section = match importer.get(kind.field()) {
+        let section = match importer.remove(kind.field()) {
             None | Some(Value::Null) => continue,
             Some(Value::Object(section)) => section,
             Some(_) => return Err(format!("`{}` must be a mapping", kind.field())),
         };
+        dependencies.reserve(section.len());
         for (name, entry) in section {
             let (specifier, version) = match entry {
-                Value::Object(fields) => (
-                    fields.get("specifier").map(scalar),
-                    fields.get("version").map(scalar).unwrap_or_default(),
+                Value::Object(mut fields) => (
+                    fields.remove("specifier").map(into_scalar),
+                    fields.remove("version").map(into_scalar).unwrap_or_default(),
                 ),
-                other => (None, scalar(other)),
+                other => (None, into_scalar(other)),
             };
             dependencies.push(LockedDependency {
-                name: name.clone(),
+                name,
                 kind,
                 specifier,
                 version,

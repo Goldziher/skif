@@ -249,7 +249,12 @@ impl<'s> Reader<'s> {
             }
         }
         self.pos += 1;
-        collector.end_section(start);
-        Some(self.complete(members))
+        let written = self.members.len() - members;
+        let section = self.complete(members);
+        // Without a key written twice the entries are already final, and the index of names is not needed.
+        if section.as_object().map_or(0, Map::len) != written {
+            collector.end_section(start);
+        }
+        Some(section)
     }
 }

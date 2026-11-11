@@ -1489,3 +1489,50 @@ fn ignored_package_manager_files_are_not_listed() {
         ["packages/a/yarn.lock", "packages/b/package-lock.json"]
     );
 }
+
+/// Counts the probes of member manifests that reach the wrapped file system.
+struct ManifestProbes {
+    inner: MemoryFs,
+    probes: std::sync::atomic::AtomicUsize,
+}
+
+impl skif_core::FileSystem for ManifestProbes {
+    fn read_to_string(&self, path: &Path) -> std::io::Result<std::sync::Arc<str>> {
+        self.inner.read_to_string(path)
+    }
+
+    fn read_dir(&self, path: &Path) -> std::io::Result<Vec<skif_core::DirEntry>> {
+        self.inner.read_dir(path)
+    }
+
+    fn is_file(&self, path: &Path) -> bool {
+        if path.starts_with("/ws/packages") && path.ends_with("package.json") {
+            self.probes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        self.inner.is_file(path)
+    }
+
+    fn is_dir(&self, path: &Path) -> bool {
+        self.inner.is_dir(path)
+    }
+}
+
+#[test]
+fn a_caching_file_system_answers_member_manifest_probes_from_the_listing() {
+    let manifest = root(r#"["packages/*"]"#);
+    let (a, b) = (pkg("a"), pkg("b"));
+    let inner = memory(&[
+        ("package.json", manifest.as_str()),
+        ("packages/a/package.json", a.as_str()),
+        ("packages/b/package.json", b.as_str()),
+        ("packages/c/readme.md", "no manifest"),
+    ]);
+    let fs = skif_core::CachedFs::new(ManifestProbes {
+        inner,
+        probes: std::sync::atomic::AtomicUsize::new(0),
+    });
+    let workspace = Workspace::discover_with_fs(Path::new("/ws"), &Config::default(), &fs).unwrap();
+    assert_eq!(dirs(&workspace), ["packages/a", "packages/b"]);
+    assert_eq!(workspace.facts.dirs_without_manifest, [PathBuf::from("packages/c")]);
+    assert_eq!(fs.inner().probes.load(std::sync::atomic::Ordering::SeqCst), 0);
+}
