@@ -470,13 +470,13 @@ mod tests {
         ]);
         let read = |path: &str| files.get(path).map(|text| (*text).to_owned());
         assert_eq!(
-            cgroup_v2_limit("/system.slice/runner.service", &read),
+            cgroup_v2_limit("/system.slice/runner.service", read),
             Some(2.0),
             "an unlimited cgroup under a limited parent has the parent's limit"
         );
-        assert_eq!(cgroup_v2_limit("/system.slice/job.scope/", &read), Some(1.5));
-        assert_eq!(cgroup_v2_limit("/user.slice/session.scope", &read), Some(4.0));
-        assert_eq!(cgroup_v2_limit("/", &read), Some(4.0));
+        assert_eq!(cgroup_v2_limit("/system.slice/job.scope/", read), Some(1.5));
+        assert_eq!(cgroup_v2_limit("/user.slice/session.scope", read), Some(4.0));
+        assert_eq!(cgroup_v2_limit("/", read), Some(4.0));
         assert_eq!(cgroup_v2_limit("/system.slice/runner.service", |_: &str| None), None);
     }
 
