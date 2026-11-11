@@ -15,6 +15,7 @@
 
 mod lockfile;
 pub mod manifest;
+mod paths;
 pub mod policy;
 pub mod toolchain;
 pub mod update;
