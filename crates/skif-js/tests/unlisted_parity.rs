@@ -126,6 +126,25 @@ fn a_bin_path_before_the_install_uses_the_package_of_the_binary() {
     assert_eq!(found(&diagnostics, "unused-dependencies"), none());
 }
 
+/// A `.bin/<name>` lookup that no listed dependency provides is an unlisted binary at the file, as a command that runs
+/// it is, and still not an unresolved import.
+#[test]
+fn a_bin_path_no_dependency_provides_is_an_unlisted_binary() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"codemod","version":"1.0.0","bin":{"codemod":"bin/transform.js"},"dependencies":{"jscodeshift":"17.0.0"}}"#,
+        ),
+        (
+            "bin/transform.js",
+            "exports.shift = require.resolve('.bin/jscodeshift');\nexports.nope = require.resolve('.bin/nope');\n",
+        ),
+    ]);
+    assert_eq!(found(&diagnostics, "unlisted-binaries"), ["bin/transform.js: nope"]);
+    assert_eq!(found(&diagnostics, "unresolved-imports"), none());
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none());
+}
+
 /// `import.meta.resolve('.bin/<name>')` and `require.resolve('node_modules/.bin/<name>')` name the binary too: each
 /// uses the installed package whose manifest provides it, whatever that package is called.
 #[test]

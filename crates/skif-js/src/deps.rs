@@ -1024,8 +1024,13 @@ impl DependencyUsage {
                     .and_then(|import| bin_link(&import.specifier))
                 {
                     // `require.resolve('.bin/tsc')` finds the binary's link to spawn it: a use of the dependency that
-                    // provides the binary, as a script that runs it is.
-                    self.provide_binary_or_ancestor(module.owner, bin);
+                    // provides the binary, as a script that runs it is, and an unlisted binary when none does.
+                    if !self.provide_binary_or_ancestor(module.owner, bin)
+                        && !module.ignored
+                        && !setup.ignores_binary(module.owner, bin)
+                    {
+                        self.push_unlisted_binary(module.owner, bin, &module.path);
+                    }
                 } else if let Some(import) = module.info.imports.get(resolved.import) {
                     // A path alias can stand in for a package the manifest lists: the alias serves development,
                     // the listed dependency is what consumers install. A bare builtin name (`events`, `buffer`) uses
@@ -1388,6 +1393,11 @@ impl DependencyUsage {
         if self.provide_binary(id, name) || self.ancestor_bins.contains_key(name) || setup.ignores_binary(id, name) {
             return;
         }
+        self.push_unlisted_binary(id, name, file);
+    }
+
+    /// Reports binary `name`, which `file` (relative to the root) runs in package `id`, as unlisted, once.
+    fn push_unlisted_binary(&mut self, id: PackageId, name: &str, file: &Path) {
         let binary = UnlistedBinary {
             package: id,
             name: name.to_owned(),

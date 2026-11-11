@@ -1663,7 +1663,12 @@ mod tests {
             ("packages/a/node_modules/.bin/installed", "#!/bin/sh\n"),
         ]);
         let importer = Path::new("/ws/packages/a/src/a.ts");
-        for specifier in [".bin/installed", ".bin/jscodeshift", "node_modules/.bin/tsc"] {
+        for specifier in [
+            ".bin/installed",
+            ".bin/jscodeshift",
+            "node_modules/.bin/tsc",
+            "./node_modules/.bin/tsc",
+        ] {
             let outcome = r.resolve(importer, specifier);
             assert_eq!(outcome.target, Resolved::Asset, "{specifier}");
             assert_eq!(outcome.package, None, "{specifier}");

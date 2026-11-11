@@ -412,9 +412,11 @@ All notable changes to this project are documented here. The format follows
   read.
 - The GitHub Action, pre-commit and Poly examples pin the current release line instead of 0.1
   ([#94](https://github.com/Goldziher/skif/issues/94)).
-- `require.resolve('.bin/x')` and `import.meta.resolve('.bin/x')` (also `node_modules/.bin/x`) are no longer an
-  `unresolved-imports` finding before the install: they name binary `x`, which uses the listed dependency that
-  provides it, so that dependency is not unused ([#164](https://github.com/Goldziher/skif/issues/164)).
+- A specifier `.bin/x`, `node_modules/.bin/x` or `./node_modules/.bin/x` in any import (`require.resolve`,
+  `import.meta.resolve`, `require`, `import`) is no longer an `unresolved-imports` finding before the install: it
+  names binary `x`, which uses the listed dependency that provides it, so that dependency is not unused, and is an
+  `unlisted-binaries` finding at the file when no dependency provides it
+  ([#164](https://github.com/Goldziher/skif/issues/164)).
 - A file reached through tsconfig `rootDirs` (code generated into `bazel-bin/packages/app`) that lies in no workspace
   package's directory and is not a listed source file belongs to the importing file's package, as do such files it
   imports below the same root directory, instead of the root: its imports are no longer `unlisted-dependencies` of the

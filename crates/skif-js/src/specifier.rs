@@ -152,12 +152,16 @@ pub(crate) fn node_modules_specifier_package(specifier: &str) -> Option<String> 
     package_name(&joined)
 }
 
-/// The binary a specifier names in a package manager's `node_modules/.bin` directory: `.bin/tsc` and
-/// `node_modules/.bin/tsc` are `tsc`. Node.js reads neither as a relative path but as a lookup below the
+/// The binary a specifier names in a package manager's `node_modules/.bin` directory: `.bin/tsc`,
+/// `node_modules/.bin/tsc` and `./node_modules/.bin/tsc` are `tsc`. Node.js reads `.bin/tsc` as a lookup below the
 /// `node_modules` directories, so `require.resolve('.bin/tsc')` finds the link the binary's package installs, not a
-/// module. `None` for any other specifier.
+/// module. The other two forms are read the same way as a heuristic for what the author means: Node.js looks the bare
+/// `node_modules/.bin/tsc` up below `node_modules/node_modules`, and finds `./node_modules/.bin/tsc` only from the
+/// directory that holds `node_modules`. `None` for any other specifier.
 pub(crate) fn bin_link(specifier: &str) -> Option<&str> {
     let name = specifier
+        .strip_prefix("./")
+        .unwrap_or(specifier)
         .strip_prefix("node_modules/")
         .unwrap_or(specifier)
         .strip_prefix(".bin/")?;
@@ -276,6 +280,7 @@ mod tests {
         let cases = [
             (".bin/jscodeshift", Some("jscodeshift")),
             ("node_modules/.bin/tsc", Some("tsc")),
+            ("./node_modules/.bin/tsc", Some("tsc")),
             (".bin/n8n-node", Some("n8n-node")),
             (".bin/", None),
             (".bin/a/b", None),
