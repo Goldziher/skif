@@ -582,8 +582,12 @@ fn ambient_types(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], path: &
 /// admits, else the one the root manifest lists. `None` when none of them names a version.
 fn typescript_major(fs: &dyn FileSystem, workspace: &Workspace, package: &Package) -> Option<u64> {
     installed_typescript_major(fs, &workspace.root.join(&package.dir), &workspace.root)
-        .or_else(|| declared_typescript_major(package))
-        .or_else(|| workspace.package(PackageId::ROOT).and_then(declared_typescript_major))
+        .or_else(|| declared_typescript_major(workspace, package))
+        .or_else(|| {
+            workspace
+                .package(PackageId::ROOT)
+                .and_then(|root| declared_typescript_major(workspace, root))
+        })
 }
 
 /// The major version of the `typescript` installed in the nearest `node_modules` from `start` up to `root`.
@@ -608,18 +612,24 @@ fn installed_typescript_major(fs: &dyn FileSystem, start: &Path, root: &Path) ->
     }
 }
 
-/// The major version of the lowest version the `typescript` range of `package` admits; a range under `dependencies`,
-/// `devDependencies` or `optionalDependencies` goes before a peer range, which describes the consumers.
-fn declared_typescript_major(package: &Package) -> Option<u64> {
-    let major = |peer: bool| {
+/// The major version of the lowest version the `typescript` ranges of `package` admit, a `catalog:` reference read
+/// from the workspace catalogs. The entries under `dependencies`, `devDependencies` or `optionalDependencies` decide
+/// when there are any, even when none of them names a version; a `peerDependencies` range, which describes the
+/// consumers, only when there are none.
+fn declared_typescript_major(workspace: &Workspace, package: &Package) -> Option<u64> {
+    let typescript = move |peer: bool| {
         package
             .dependencies
             .iter()
-            .filter(|entry| entry.name == "typescript" && (entry.kind == DependencyKind::PeerDependencies) == peer)
-            .filter_map(|entry| lowest_major(&entry.parsed))
-            .min()
+            .filter(move |entry| entry.name == "typescript" && (entry.kind == DependencyKind::PeerDependencies) == peer)
     };
-    major(false).or_else(|| major(true))
+    let peer = typescript(false).next().is_none();
+    typescript(peer)
+        .filter_map(|entry| match workspace.catalogs.resolve(&entry.name, &entry.specifier) {
+            Some(version) => lowest_major(&Specifier::new(version)),
+            None => lowest_major(&entry.parsed),
+        })
+        .min()
 }
 
 /// The major number of the lowest version `specifier` admits: `^6.0.0`, `>=6 <8` and `6.1.0-dev.1` are 6, `^5 || ^6`
