@@ -401,6 +401,352 @@ fn types_packages_are_not_ambient_when_the_tsconfig_narrows_them() {
     }
 }
 
+/// A manifest listing `@types/chrome` and `typescript` at `range`.
+fn types_manifest_with(range: &str) -> String {
+    format!(
+        r#"{{"name":"app","private":true,"main":"src/index.ts","devDependencies":{{"@types/chrome":"0.0.1","typescript":"{range}"}}}}"#
+    )
+}
+
+/// The manifest of an installed `typescript` at `version`.
+fn installed_typescript(version: &str) -> String {
+    format!(r#"{{"name":"typescript","version":"{version}","bin":{{"tsc":"./bin/tsc","tsserver":"./bin/tsserver"}}}}"#)
+}
+
+/// The `unused-dev-dependencies` of a package listing `@types/chrome` and `typescript` at `range`, with `typescript`
+/// at `installed` in its `node_modules`, under `tsconfig`.
+fn unused_types(range: &str, installed: Option<&str>, tsconfig: &str) -> Vec<String> {
+    let manifest = types_manifest_with(range);
+    let installed = installed.map(installed_typescript);
+    let mut files = vec![
+        ("package.json", manifest.as_str()),
+        ("tsconfig.json", tsconfig),
+        ("base.json", r#"{"compilerOptions":{"types":["*"]}}"#),
+        ("src/index.ts", "export const a = 1;\n"),
+    ];
+    if let Some(installed) = &installed {
+        files.push(("node_modules/typescript/package.json", installed.as_str()));
+    }
+    names(&lint(&files), "unused-dev-dependencies")
+}
+
+const PLAIN_TSCONFIG: &str = r#"{"compilerOptions":{"strict":true}}"#;
+
+#[test]
+fn types_packages_stay_ambient_without_a_types_option_before_typescript_6() {
+    // The installed version wins over the declared range; an unknown version keeps every package ambient.
+    for (range, installed) in [
+        ("^5.4.0", None),
+        ("5.9.3", Some("5.9.3")),
+        ("^6.0.0", Some("5.9.3")),
+        ("latest", None),
+    ] {
+        assert_eq!(
+            unused_types(range, installed, PLAIN_TSCONFIG),
+            Vec::<String>::new(),
+            "{range} {installed:?}"
+        );
+    }
+}
+
+#[test]
+fn types_packages_are_not_ambient_without_a_types_option_on_an_installed_typescript_6() {
+    for (range, installed) in [("^6.0.0", "6.0.2"), ("^5.4.0", "6.0.2"), ("latest", "6.0.2")] {
+        assert_eq!(
+            unused_types(range, Some(installed), PLAIN_TSCONFIG),
+            strings(&["@types/chrome"]),
+            "{range} {installed}"
+        );
+    }
+}
+
+#[test]
+fn types_packages_are_not_ambient_without_a_types_option_on_a_declared_typescript_6() {
+    for range in ["^6.0.0", "~6.0.2", "6.0.2", ">=6.0.0", "^6"] {
+        assert_eq!(
+            unused_types(range, None, PLAIN_TSCONFIG),
+            strings(&["@types/chrome"]),
+            "{range}"
+        );
+    }
+}
+
+#[test]
+fn a_types_wildcard_keeps_every_types_package_ambient_on_typescript_6() {
+    for tsconfig in [
+        r#"{"compilerOptions":{"types":["*"]}}"#,
+        r#"{"compilerOptions":{"types":["*","node"]}}"#,
+        r#"{"extends":"./base.json"}"#,
+    ] {
+        for installed in [None, Some("6.0.2")] {
+            assert_eq!(
+                unused_types("^6.0.0", installed, tsconfig),
+                Vec::<String>::new(),
+                "{tsconfig} {installed:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_member_without_typescript_follows_the_typescript_of_the_workspace_root() {
+    let member = r#"{"name":"app","private":true,"main":"src/index.ts","devDependencies":{"@types/chrome":"0.0.1"}}"#;
+    for (root_range, installed) in [("~6.0.0", None), ("latest", Some("6.0.2"))] {
+        let root = format!(
+            r#"{{"name":"root","private":true,"workspaces":["packages/*"],"devDependencies":{{"typescript":"{root_range}"}}}}"#
+        );
+        let installed = installed.map(installed_typescript);
+        let mut files = vec![
+            ("package.json", root.as_str()),
+            ("packages/app/package.json", member),
+            ("packages/app/tsconfig.json", PLAIN_TSCONFIG),
+            ("packages/app/src/index.ts", "export const a = 1;\n"),
+        ];
+        if let Some(installed) = &installed {
+            files.push(("node_modules/typescript/package.json", installed.as_str()));
+        }
+        assert_eq!(unused_types_of(&files), strings(&["@types/chrome"]), "{root_range}");
+    }
+}
+
+#[test]
+fn a_typescript_range_is_read_by_the_lowest_version_it_admits() {
+    // An upper bound alone admits versions below 6; a compound range is read by its lowest version.
+    for range in ["<6", "<6.0.0", "<=5.9.3", ">=5 <7", "^5 || ^6", ">5.9.3 <6"] {
+        assert_eq!(
+            unused_types(range, None, PLAIN_TSCONFIG),
+            Vec::<String>::new(),
+            "{range}"
+        );
+    }
+    for range in [">=6 <8", "^6 || ^7", ">6.0.0 <7", "6.1.0-dev.20261101"] {
+        assert_eq!(
+            unused_types(range, None, PLAIN_TSCONFIG),
+            strings(&["@types/chrome"]),
+            "{range}"
+        );
+    }
+}
+
+#[test]
+fn a_catalog_typescript_range_is_read_from_the_workspace_catalogs() {
+    let catalogs =
+        "packages:\n  - packages/*\ncatalog:\n  typescript: ^6.0.0\ncatalogs:\n  legacy:\n    typescript: ~5.9.0\n";
+    for (specifier, expected) in [
+        ("catalog:", strings(&["@types/chrome"])),
+        ("catalog:default", strings(&["@types/chrome"])),
+        ("catalog:legacy", Vec::new()),
+    ] {
+        let member = format!(
+            r#"{{"name":"app","private":true,"main":"src/index.ts","devDependencies":{{"@types/chrome":"0.0.1","typescript":"{specifier}"}}}}"#
+        );
+        let files = [
+            ("package.json", r#"{"name":"root","private":true}"#),
+            ("pnpm-workspace.yaml", catalogs),
+            ("packages/app/package.json", member.as_str()),
+            ("packages/app/tsconfig.json", PLAIN_TSCONFIG),
+            ("packages/app/src/index.ts", "export const a = 1;\n"),
+        ];
+        assert_eq!(unused_types_of(&files), expected, "{specifier}");
+    }
+}
+
+#[test]
+fn a_peer_typescript_range_counts_only_without_another_typescript_entry() {
+    for (dev, peer, expected) in [
+        // The package's own entry names no version, so the peer range of its consumers does not stand in for it.
+        (Some("latest"), "^6.0.0", Vec::new()),
+        (Some("^5.4.0"), "^6.0.0", Vec::new()),
+        (Some("^6.0.0"), "^5.0.0", strings(&["@types/chrome"])),
+        (None, "^6.0.0", strings(&["@types/chrome"])),
+    ] {
+        let dev = dev.map_or_else(String::new, |range| format!(r#","typescript":"{range}""#));
+        let manifest = format!(
+            r#"{{"name":"app","private":true,"main":"src/index.ts","devDependencies":{{"@types/chrome":"0.0.1"{dev}}},"peerDependencies":{{"typescript":"{peer}"}}}}"#
+        );
+        let files = [
+            ("package.json", manifest.as_str()),
+            ("tsconfig.json", PLAIN_TSCONFIG),
+            ("src/index.ts", "export const a = 1;\n"),
+        ];
+        assert_eq!(unused_types_of(&files), expected, "{dev} {peer}");
+    }
+}
+
+#[test]
+fn a_solution_tsconfig_is_judged_by_the_configs_it_references() {
+    let solution = r#"{"files":[],"references":[{"path":"./tsconfig.app.json"},{"path":"./tools"}]}"#;
+    let narrowing_solution =
+        r#"{"files":[],"compilerOptions":{"types":[]},"references":[{"path":"./tsconfig.app.json"}]}"#;
+    let node_only = r#"{"compilerOptions":{"types":["node"]}}"#;
+    for (range, tsconfig, app, expected) in [
+        // Vite's layout: a referenced config that includes every package keeps them on TypeScript 6.
+        ("^6.0.0", solution, TYPES_EVERY, Vec::new()),
+        ("^6.0.0", solution, node_only, strings(&["@types/chrome"])),
+        // A referenced config without `types` follows the version.
+        ("^5.4.0", narrowing_solution, PLAIN_TSCONFIG, Vec::new()),
+        (
+            "^6.0.0",
+            narrowing_solution,
+            PLAIN_TSCONFIG,
+            strings(&["@types/chrome"]),
+        ),
+    ] {
+        let configs = [
+            ("tsconfig.json", tsconfig),
+            ("tsconfig.app.json", app),
+            ("tools/tsconfig.json", node_only),
+        ];
+        assert_eq!(
+            unused_types_among(range, &configs),
+            expected,
+            "{range} {tsconfig} {app}"
+        );
+    }
+    // A config referenced by its directory counts too.
+    let configs = [
+        ("tsconfig.json", solution),
+        ("tsconfig.app.json", node_only),
+        ("tools/tsconfig.json", TYPES_EVERY),
+    ];
+    assert_eq!(unused_types_among("^6.0.0", &configs), Vec::<String>::new());
+}
+
+#[test]
+fn a_typescript_6_prerelease_counts_as_typescript_6() {
+    assert_eq!(
+        unused_types("^5.4.0", Some("6.0.0-beta"), PLAIN_TSCONFIG),
+        strings(&["@types/chrome"])
+    );
+    assert_eq!(
+        unused_types("6.1.0-dev.20261101", None, PLAIN_TSCONFIG),
+        strings(&["@types/chrome"])
+    );
+}
+
+#[test]
+fn a_member_follows_the_nearest_typescript_install() {
+    let member = r#"{"name":"app","private":true,"main":"src/index.ts","devDependencies":{"@types/chrome":"0.0.1"}}"#;
+    let root = r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#;
+    let five = installed_typescript("5.9.3");
+    let six = installed_typescript("6.0.2");
+    // The member's own install, then the root's; an unreadable manifest on the way is passed over.
+    for (own, at_root, expected) in [
+        (Some(five.as_str()), six.as_str(), Vec::new()),
+        (Some(six.as_str()), five.as_str(), strings(&["@types/chrome"])),
+        (Some("{not json"), six.as_str(), strings(&["@types/chrome"])),
+        (None, six.as_str(), strings(&["@types/chrome"])),
+    ] {
+        let mut files = vec![
+            ("package.json", root),
+            ("packages/app/package.json", member),
+            ("packages/app/tsconfig.json", PLAIN_TSCONFIG),
+            ("packages/app/src/index.ts", "export const a = 1;\n"),
+            ("node_modules/typescript/package.json", at_root),
+        ];
+        if let Some(own) = own {
+            files.push(("packages/app/node_modules/typescript/package.json", own));
+        }
+        assert_eq!(unused_types_of(&files), expected, "{own:?} {at_root}");
+    }
+}
+
+/// The `@types` packages of the workspace of `files` that `unused-dev-dependencies` reports.
+fn unused_types_of(files: &[(&str, &str)]) -> Vec<String> {
+    names(&lint(files), "unused-dev-dependencies")
+        .into_iter()
+        .filter(|name| name.starts_with("@types/"))
+        .collect()
+}
+
+/// The `unused-dev-dependencies` of a package listing `@types/chrome` and `typescript` at `range`, with the config
+/// files `configs` (its `tsconfig.json` among them).
+fn unused_types_among(range: &str, configs: &[(&str, &str)]) -> Vec<String> {
+    let manifest = types_manifest_with(range);
+    let mut files = vec![
+        ("package.json", manifest.as_str()),
+        ("src/index.ts", "export const a = 1;\n"),
+    ];
+    files.extend_from_slice(configs);
+    unused_types_of(&files)
+}
+
+const TYPES_EVERY: &str = r#"{"compilerOptions":{"types":["*"]}}"#;
+const TYPES_NONE: &str = r#"{"compilerOptions":{"types":[]}}"#;
+
+#[test]
+fn the_types_option_of_a_config_replaces_the_one_it_extends() {
+    let chrome = strings(&["@types/chrome"]);
+    for (tsconfig, base, expected) in [
+        (
+            r#"{"extends":"./base.json","compilerOptions":{"types":["*"]}}"#,
+            TYPES_NONE,
+            vec![],
+        ),
+        (
+            r#"{"extends":"./base.json","compilerOptions":{"types":[]}}"#,
+            TYPES_EVERY,
+            chrome.clone(),
+        ),
+        (
+            r#"{"extends":"./base.json","compilerOptions":{"types":["node"]}}"#,
+            TYPES_EVERY,
+            chrome.clone(),
+        ),
+        (r#"{"extends":"./base.json"}"#, TYPES_NONE, chrome.clone()),
+    ] {
+        assert_eq!(
+            unused_types_among("^6.0.0", &[("tsconfig.json", tsconfig), ("base.json", base)]),
+            expected,
+            "{tsconfig} over {base}"
+        );
+    }
+}
+
+#[test]
+fn a_later_extends_entry_overrides_an_earlier_one() {
+    for (extends, expected) in [
+        (r#"["./none.json","./every.json"]"#, Vec::<String>::new()),
+        (r#"["./every.json","./none.json"]"#, strings(&["@types/chrome"])),
+        // An entry that sets no `types` leaves the earlier one in force.
+        (r#"["./every.json","./plain.json"]"#, Vec::new()),
+    ] {
+        let tsconfig = format!(r#"{{"extends":{extends}}}"#);
+        let configs = [
+            ("tsconfig.json", tsconfig.as_str()),
+            ("every.json", TYPES_EVERY),
+            ("none.json", TYPES_NONE),
+            ("plain.json", PLAIN_TSCONFIG),
+        ];
+        assert_eq!(unused_types_among("^6.0.0", &configs), expected, "{extends}");
+    }
+}
+
+#[test]
+fn the_type_roots_of_a_config_replace_the_ones_it_extends() {
+    let typings = r#"{"compilerOptions":{"typeRoots":["./typings"]}}"#;
+    let default_roots = r#"{"compilerOptions":{"typeRoots":["./node_modules/@types"]}}"#;
+    for (tsconfig, base, expected) in [
+        (
+            r#"{"extends":"./base.json","compilerOptions":{"typeRoots":["node_modules/@types","./typings"]}}"#,
+            typings,
+            Vec::<String>::new(),
+        ),
+        (
+            r#"{"extends":"./base.json","compilerOptions":{"typeRoots":["./typings"]}}"#,
+            default_roots,
+            strings(&["@types/chrome"]),
+        ),
+        (r#"{"extends":"./base.json"}"#, typings, strings(&["@types/chrome"])),
+    ] {
+        assert_eq!(
+            unused_types_among("^5.4.0", &[("tsconfig.json", tsconfig), ("base.json", base)]),
+            expected,
+            "{tsconfig} over {base}"
+        );
+    }
+}
+
 #[test]
 fn declaration_files_do_not_shadow_the_runtime_file() {
     let diagnostics = lint(&[

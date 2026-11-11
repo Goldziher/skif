@@ -9,6 +9,7 @@ use serde_json::Value;
 use skif_core::{DependencyKind, FileSystem, Span};
 use skif_js_plugins::scripts::{ScriptContext, is_ignored_binary, parse_script};
 use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object, place_file_dir};
+use skif_specifier::Specifier;
 use skif_workspace::{Package, PackageId, PackageManager, Workspace, map_ordered, npmrc_entries};
 
 use crate::ancestors::{external_manifests, is_repository_root, listed_names, read_manifest};
@@ -21,6 +22,7 @@ use crate::resolve::{DECLARATION_SUFFIXES, is_installed};
 use crate::scripts::{ScriptBinary, script_context};
 use crate::setup::{Setup, package_dirs, package_in_dir};
 use crate::specifier::{RUNTIME_PACKAGES, bin_link, package_name, typed_package, types_package};
+use crate::tsconfig_files::{reference, references_of};
 use crate::tsconfig_paths::resolve_extends;
 
 /// Where a dependency an import names is listed.
@@ -170,7 +172,7 @@ const PNPM_WITHOUT_NPMRC_SETTINGS: u64 = 11;
 /// linker. A member's `.npmrc`, the user's `.npmrc`, the environment and `pnpm install --node-linker` are not read.
 fn pnpm_hoisted(workspace: &Workspace, fs: &dyn FileSystem) -> bool {
     let reads_npmrc = declared_version(workspace, "pnpm")
-        .and_then(|version| version.split('.').next()?.parse::<u64>().ok())
+        .and_then(major_of)
         .is_none_or(|major| major < PNPM_WITHOUT_NPMRC_SETTINGS);
     let linker = workspace
         .pnpm_workspace
@@ -365,10 +367,13 @@ pub struct UnlistedConfigDependency {
     pub readers: Vec<PackageId>,
 }
 
-/// The binaries and peer dependencies a package declares.
+/// The binaries, peer dependencies and version a package declares.
 pub(crate) struct Installed {
     pub(crate) bins: Vec<String>,
     pub(crate) peers: Vec<String>,
+    /// The `version` of its manifest; `None` when it has none, and for a package known only from the lockfile, whose
+    /// packages are read without one.
+    pub(crate) version: Option<String>,
 }
 
 /// The binary names a manifest declares: the package's own name for a `bin` string, the keys of a `bin` map.
@@ -441,6 +446,11 @@ fn read_installed(
     }
 }
 
+/// The `version` of a manifest.
+fn version_of(manifest: &Value) -> Option<String> {
+    manifest.get("version").and_then(Value::as_str).map(str::to_owned)
+}
+
 fn parse_installed(fs: &dyn FileSystem, dir: &Path, text: &str, name: &str) -> Option<Arc<Installed>> {
     let value: Value = serde_json::from_str(text).ok()?;
     let bins = if value.get("bin").is_some() {
@@ -451,6 +461,7 @@ fn parse_installed(fs: &dyn FileSystem, dir: &Path, text: &str, name: &str) -> O
     Some(Arc::new(Installed {
         bins,
         peers: peers_of(&value),
+        version: version_of(&value),
     }))
 }
 
@@ -537,34 +548,117 @@ impl<'a> TsconfigMemo<'a> {
     }
 }
 
-/// Whether the `tsconfig.json` at `path` makes TypeScript include every installed `@types/*` package: it exists, no
-/// `compilerOptions.types` narrows them along its `extends` chain (`types: ["*"]` lists them all), and `typeRoots`,
-/// when set, keeps `node_modules/@types`. An absent `types` counts as every package, TypeScript's default before
-/// version 6; TypeScript 6 defaults it to `[]`, which this does not tell apart.
-fn includes_all_types(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], path: &Path, depth: usize) -> bool {
-    const MAX_DEPTH: usize = 8;
-    let Some(config) = memo.get(path) else {
-        return false;
-    };
-    if let Some(options) = config.get("compilerOptions") {
-        if options.get("types").is_some_and(|types| !lists_every_type(types)) {
-            return false;
-        }
-        if let Some(ConfigValue::Array(roots)) = options.get("typeRoots") {
-            let keeps_default = roots.iter().filter_map(ConfigValue::as_str).any(|root| {
-                let root = root.trim_end_matches('/');
-                root.ends_with("node_modules/@types") || root == "@types"
-            });
-            if !keeps_default {
-                return false;
-            }
-        }
+/// What the `compilerOptions.types` of a `tsconfig.json` and its `extends` chain leave of the installed `@types/*`
+/// packages, ordered from fewest to most.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum AmbientTypes {
+    /// None: the config is missing, its `types` lists no `*`, or its `typeRoots` drop `node_modules/@types`.
+    Narrowed,
+    /// TypeScript's default, no `types` along the chain: every package before version 6, none from version 6.
+    Default,
+    /// Every package, on every TypeScript version: `types: ["*"]`.
+    Every,
+}
+
+/// What the `tsconfig.json` at `path` makes TypeScript include of the installed `@types/*` packages, from its
+/// effective `types` and `typeRoots`: each the value the config sets itself, else the one it inherits
+/// ([`inherited_option`]), as TypeScript replaces an inherited compiler option rather than merging it.
+fn ambient_types(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], path: &Path) -> AmbientTypes {
+    if memo.get(path).is_none() {
+        return AmbientTypes::Narrowed;
     }
+    let keeps_default_root = |options: &ConfigValue| match options.get("typeRoots") {
+        Some(ConfigValue::Array(roots)) => Some(roots.iter().filter_map(ConfigValue::as_str).any(|root| {
+            let root = root.trim_end_matches('/');
+            root.ends_with("node_modules/@types") || root == "@types"
+        })),
+        _ => None,
+    };
+    if inherited_option(memo, members, path, 0, &keeps_default_root) == Some(false) {
+        return AmbientTypes::Narrowed;
+    }
+    let lists_every = |options: &ConfigValue| options.get("types").map(lists_every_type);
+    match inherited_option(memo, members, path, 0, &lists_every) {
+        Some(true) => AmbientTypes::Every,
+        Some(false) => AmbientTypes::Narrowed,
+        None => AmbientTypes::Default,
+    }
+}
+
+/// What the `tsconfig.json` at `path` and the configs its `references` name inside its directory (a solution config,
+/// such as Vite's `files: []` beside `tsconfig.app.json` and `tsconfig.node.json`) make TypeScript include of the
+/// installed `@types/*` packages: every package when one of them includes every package, else the default when one
+/// of them leaves it.
+fn project_ambient_types(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], path: &Path) -> AmbientTypes {
+    let own = ambient_types(memo, members, path);
+    let Some(config) = memo.get(path) else {
+        return own;
+    };
     let dir = path.parent().unwrap_or(path);
-    extends_of(&config)
-        .iter()
-        .filter_map(|parent| resolve_extends(memo.fs, members, dir, parent))
-        .all(|target| depth >= MAX_DEPTH || includes_all_types(memo, members, &target, depth + 1))
+    let referenced = references_of(&config)
+        .into_iter()
+        .filter_map(|target| reference(memo.fs, dir, target))
+        .filter(|target| target.starts_with(dir) && target != path)
+        .map(|target| ambient_types(memo, members, &target));
+    referenced.fold(own, Ord::max)
+}
+
+/// The major version of TypeScript that `package` compiles with: that of the `typescript` installed in the nearest
+/// `node_modules` from its directory up to the workspace root, else the lowest version the `typescript` range it lists
+/// admits, else `root_declared`, the one the root manifest lists. `None` when none of them names a version.
+/// `installed` holds the `typescript` manifests read so far, by path.
+fn typescript_major(
+    fs: &dyn FileSystem,
+    workspace: &Workspace,
+    package: &Package,
+    installed: &mut HashMap<PathBuf, Option<Arc<Installed>>>,
+    root_declared: Option<u64>,
+) -> Option<u64> {
+    let dir = workspace.root.join(&package.dir);
+    read_installed(fs, &dir, &workspace.root, "typescript", installed)
+        .and_then(|typescript| typescript.version.as_deref().and_then(major_of))
+        .or_else(|| declared_typescript_major(workspace, package))
+        .or(root_declared)
+}
+
+/// The major version of the lowest version the `typescript` ranges of `package` admit, a `catalog:` reference read
+/// from the workspace catalogs. The entries under `dependencies`, `devDependencies` or `optionalDependencies` decide
+/// when there are any, even when none of them names a version; a `peerDependencies` range, which describes the
+/// consumers, only when there are none.
+fn declared_typescript_major(workspace: &Workspace, package: &Package) -> Option<u64> {
+    let typescript = move |peer: bool| {
+        package
+            .dependencies
+            .iter()
+            .filter(move |entry| entry.name == "typescript" && (entry.kind == DependencyKind::PeerDependencies) == peer)
+    };
+    let peer = typescript(false).next().is_none();
+    typescript(peer)
+        .filter_map(
+            |entry| match workspace.catalogs.resolve(&entry.name, &entry.specifier) {
+                Some(version) => lowest_major(&Specifier::new(version)),
+                None => lowest_major(&entry.parsed),
+            },
+        )
+        .min()
+}
+
+/// The major number of the lowest version `specifier` admits: `^6.0.0`, `>=6 <8` and `6.1.0-dev.1` are 6, `^5 || ^6`
+/// is 5, and an upper bound alone (`<6`, `<=5.9.3`) admits `0.0.0`. `None` for a specifier without a range (a tag, a
+/// path, a `catalog:` reference) and for `*` and `latest`, which follow the newest release.
+fn lowest_major(specifier: &Specifier) -> Option<u64> {
+    let range = match specifier {
+        Specifier::Latest(_) | Specifier::None => return None,
+        // npm reads a range the specifier model leaves unclassified, such as `<6`.
+        Specifier::Unsupported(raw) => Specifier::new_node_range(raw)?,
+        _ => specifier.get_node_range()?,
+    };
+    range.min_version().map(|version| version.major())
+}
+
+/// The major number of a version such as `6.0.2`, `6` or `6.0.0-beta`.
+fn major_of(version: &str) -> Option<u64> {
+    version.trim().split(['.', '-', '+']).next()?.parse().ok()
 }
 
 /// Whether a `compilerOptions.types` value holds `*`, which TypeScript 6 reads as every package of the type roots.
@@ -586,22 +680,30 @@ fn extends_of(config: &ConfigValue) -> Vec<&str> {
     }
 }
 
-/// The `compilerOptions.jsxImportSource` the `tsconfig.json` at `path` sets itself or inherits; a later `extends`
-/// entry overrides an earlier one.
-fn jsx_import_source(
+/// The `compilerOptions.jsxImportSource` the `tsconfig.json` at `path` sets itself or inherits.
+fn jsx_import_source(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], path: &Path) -> Option<String> {
+    inherited_option(memo, members, path, 0, &|options: &ConfigValue| {
+        options
+            .get("jsxImportSource")
+            .and_then(ConfigValue::as_str)
+            .map(str::to_owned)
+    })
+}
+
+/// What `read` makes of the `compilerOptions` of the nearest config that sets the option it reads: the
+/// `tsconfig.json` at `path` itself, else the configs it extends, a later `extends` entry before an earlier one, each
+/// with its own chain. `None` when no config of the chain sets it, or the config at `path` is missing.
+fn inherited_option<T>(
     memo: &TsconfigMemo<'_>,
     members: &[(String, PathBuf)],
     path: &Path,
     depth: usize,
-) -> Option<String> {
+    read: &impl Fn(&ConfigValue) -> Option<T>,
+) -> Option<T> {
     const MAX_DEPTH: usize = 8;
     let config = memo.get(path)?;
-    if let Some(source) = config
-        .get("compilerOptions")
-        .and_then(|options| options.get("jsxImportSource"))
-        .and_then(ConfigValue::as_str)
-    {
-        return Some(source.to_owned());
+    if let Some(value) = config.get("compilerOptions").and_then(read) {
+        return Some(value);
     }
     if depth >= MAX_DEPTH {
         return None;
@@ -611,7 +713,7 @@ fn jsx_import_source(
         .iter()
         .rev()
         .filter_map(|parent| resolve_extends(memo.fs, members, dir, parent))
-        .find_map(|target| jsx_import_source(memo, members, &target, depth + 1))
+        .find_map(|target| inherited_option(memo, members, &target, depth + 1, read))
 }
 
 /// The workspace members that have a name, with their absolute directory.
@@ -790,6 +892,7 @@ impl DependencyUsage {
                 let installed = Installed {
                     bins: bins_of(manifest, &name),
                     peers: peers_of(manifest),
+                    version: version_of(manifest),
                 };
                 Some((name, Arc::new(installed)))
             })
@@ -838,13 +941,28 @@ impl DependencyUsage {
         }
     }
 
-    /// TypeScript includes every visible `@types/*` package unless `compilerOptions.types` narrows them, so the
-    /// globals-only ones a package (and the root, which hoists them) lists are used when the package has a
-    /// `tsconfig.json` that does not narrow them.
+    /// TypeScript includes every visible `@types/*` package when `compilerOptions.types` lists `*`, and before version
+    /// 6 also when it is absent, so the globals-only ones a package (and the root, which hoists them) lists are used
+    /// when the package has a `tsconfig.json` that includes them all. From TypeScript 6 an absent `types` includes
+    /// none; a package whose TypeScript version is unknown keeps the earlier default.
     fn collect_ambient_types(&mut self, workspace: &Workspace, setup: &Setup, tsconfigs: &TsconfigMemo<'_>) {
+        const TYPES_DEFAULT_EMPTY_SINCE: u64 = 6;
         let members = member_dirs(workspace);
+        let mut installed = HashMap::new();
+        let root_declared = workspace
+            .package(PackageId::ROOT)
+            .and_then(|root| declared_typescript_major(workspace, root));
         for (id, package) in workspace.iter() {
-            if !includes_all_types(tsconfigs, &members, &setup.tsconfig_of(workspace, package), 0) {
+            let tsconfig = setup.tsconfig_of(workspace, package);
+            let includes_all = match project_ambient_types(tsconfigs, &members, &tsconfig) {
+                AmbientTypes::Narrowed => false,
+                AmbientTypes::Every => true,
+                AmbientTypes::Default => {
+                    typescript_major(tsconfigs.fs, workspace, package, &mut installed, root_declared)
+                        .is_none_or(|major| major < TYPES_DEFAULT_EMPTY_SINCE)
+                }
+            };
+            if !includes_all {
                 continue;
             }
             for scope in [id, PackageId::ROOT] {
@@ -864,7 +982,7 @@ impl DependencyUsage {
         let members = member_dirs(workspace);
         for (id, package) in workspace.iter() {
             let config = setup.tsconfig_of(workspace, package);
-            self.other_jsx_runtime[id.index()] = jsx_import_source(tsconfigs, &members, &config, 0)
+            self.other_jsx_runtime[id.index()] = jsx_import_source(tsconfigs, &members, &config)
                 .is_some_and(|source| package_name(&source).is_some_and(|name| name != "react"));
         }
     }

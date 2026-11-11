@@ -397,8 +397,16 @@ All notable changes to this project are documented here. The format follows
   `getJestProjects()`, from `@nx/jest` or `@nrwl/jest`, also spread into an array beside other projects) no longer
   leaves the root package unjudged; its projects are the Jest configs of the Nx projects ([ADR 0109](adrs/0109-nx-projects-as-scopes-of-the-package-that-owns-them.md)).
 - **TypeScript 6** `types: ["*"]` (every Nx 24 `tsconfig.base.json`) is no longer an unlisted package `*`; it keeps
-  every `@types` package visible. A config without `types` is still read as keeping them all, TypeScript's default
-  before version 6 (TypeScript 6 defaults `types` to `[]`).
+  every `@types` package visible.
+- **TypeScript 6** defaults `compilerOptions.types` to `[]`: under it, a `tsconfig.json` chain without `types` no
+  longer makes a globals-only `@types` package (`@types/chrome`, `@types/mocha`) count as used, so one nothing names
+  is reported as unused. The version is that of the nearest installed `typescript`, else the lowest version the
+  package's own `typescript` ranges admit (a `catalog:` reference read from the catalogs, a peer range only without
+  another entry; `<6` is below 6), else the root's; below version 6, or when none is known, every `@types` package
+  stays visible. A config's own `types` and `typeRoots` replace the inherited ones, a later `extends` entry overriding
+  an earlier one, and a solution config is judged by the configs its `references` name
+  ([ADR 0111](adrs/0111-ambient-types-packages-under-typescript-6.md),
+  [#201](https://github.com/Goldziher/skif/issues/201)).
 - `[js.workspaces."<dir>"]` tables accept the `extend-ignore*` keys instead of rejecting them.
 - A leading UTF-8 byte order mark no longer shifts first-line columns.
 - On Windows, a `--config` path in the `\\?\C:\` form no longer gives absolute finding locations.
