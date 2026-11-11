@@ -252,8 +252,8 @@ impl<'c> Walker<'c> {
         // A `cd` changes the directory of the commands after it in the same text; the text runs in a shell of its own
         // (another script, `sh -c`, a substitution), so the change ends with it.
         let saved = self.dir_state();
-        let tokens = tokenize(text);
-        self.functions.extend(tokens.functions.iter().cloned());
+        let mut tokens = tokenize(text);
+        self.functions.extend(std::mem::take(&mut tokens.functions));
         let frame = Frame { text, map };
         // So does a subshell `( … )`: the state each open one restores, with the segment index it ends before.
         let mut subshells: Vec<(usize, DirState)> = Vec::new();
