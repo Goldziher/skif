@@ -20,7 +20,7 @@ name = "poly"
 description = "Lint, format, and cache over MCP — the poly binary's stdio server."
 command = "poly"
 args = ["mcp"]
-package = "pkg:github/Goldziher/poly@v0.32.2"
+package = "pkg:github/Goldziher/poly@v0.34.2"
 
 [mcp]
 self_server_command = ["npx", "-y", "ai-rulez@latest", "mcp"]
