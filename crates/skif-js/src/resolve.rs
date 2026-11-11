@@ -164,6 +164,10 @@ pub(crate) struct Outcome {
     pub target: Resolved,
     /// The package name when the specifier is a package import (installed or workspace), `None` otherwise.
     pub package: Option<String>,
+    /// The target is a file found through the `rootDirs` of the importer's `tsconfig.json`: the same path below another
+    /// root directory, such as generated code in a build output tree. It belongs to the importer's package, whose
+    /// dependencies Node.js resolves its imports from, not to the package its location falls in.
+    pub root_dirs: bool,
 }
 
 struct Member {
@@ -1040,7 +1044,11 @@ impl ModuleResolver {
                     .is_some_and(|known| path.is_none_or(|path| path.starts_with(&known.dir)))
             }),
         };
-        Outcome { target: found, package }
+        Outcome {
+            target: found,
+            package,
+            root_dirs: false,
+        }
     }
 
     /// The path the first alias of `importer` with a known target, else the nearest `tsconfig` mapping, gives
@@ -1067,7 +1075,11 @@ impl ModuleResolver {
     /// A `node_modules/.bin` link ([`bin_link`]) is installed code whether or not it is installed yet: the binary it
     /// names is credited by the dependency rules, never resolved as a module.
     pub(crate) fn resolve(&self, importer: &Path, specifier: &str) -> Outcome {
-        let outcome = |target, package| Outcome { target, package };
+        let outcome = |target, package| Outcome {
+            target,
+            package,
+            root_dirs: false,
+        };
         if is_builtin(specifier) {
             return outcome(Resolved::Builtin, None);
         }
@@ -1085,7 +1097,11 @@ impl ModuleResolver {
     /// Lookup directories (`baseUrl`, `resolve.modules`) and the workspace-name prefix come first, as they do for
     /// TypeScript and the bundlers; an alias is tried when nothing is installed.
     fn resolve_module(&self, kind: Kind, importer: &Path, specifier: &str) -> Outcome {
-        let outcome = |target, package| Outcome { target, package };
+        let outcome = |target, package| Outcome {
+            target,
+            package,
+            root_dirs: false,
+        };
         if let Some(name) = node_modules_specifier_package(specifier) {
             // A `node_modules` directory that is part of the sources is followed like any other path.
             if let Ok(path) = self.resolvers(kind, importer).attempt(importer, specifier)
@@ -1114,12 +1130,17 @@ impl ModuleResolver {
             }
             return outcome(self.classify(path), member_name);
         }
-        if specifier.starts_with('.')
-            && let Some(found) = self
-                .through_root_dirs(importer, specifier)
-                .or_else(|| self.through_relative_package_directory(importer, specifier))
-        {
-            return outcome(found, None);
+        if specifier.starts_with('.') {
+            if let Some(found) = self.through_root_dirs(importer, specifier) {
+                return Outcome {
+                    target: found,
+                    package: None,
+                    root_dirs: true,
+                };
+            }
+            if let Some(found) = self.through_relative_package_directory(importer, specifier) {
+                return outcome(found, None);
+            }
         }
         if specifier.starts_with('#')
             && let Some(found) = self.through_imports(importer, specifier)
@@ -1211,7 +1232,11 @@ impl ModuleResolver {
     /// URL of a CSS `@import` is relative to the stylesheet, `postcss-import` tries `./<name>` before `node_modules`,
     /// and Sass, Less and Stylus resolve against the importing file first too (`@import "_code"` is `./_code.css`).
     pub(crate) fn resolve_style(&self, importer: &Path, specifier: &str) -> Outcome {
-        let outcome = |target, package| Outcome { target, package };
+        let outcome = |target, package| Outcome {
+            target,
+            package,
+            root_dirs: false,
+        };
         if has_foreign_scheme(specifier) {
             return outcome(Resolved::Ignored, None);
         }
@@ -1423,6 +1448,7 @@ impl ModuleResolver {
         Outcome {
             target,
             package: Some(name.to_owned()),
+            root_dirs: false,
         }
     }
 
@@ -1990,10 +2016,13 @@ generated/index.ts
             ("packages/a/bazel-out/bin/src/ui/generated.ts", ""),
         ]);
         let importer = Path::new("/ws/packages/a/src/ui/view.ts");
+        let generated = r.resolve(importer, "./generated");
         assert_eq!(
-            r.resolve(importer, "./generated").target,
+            generated.target,
             Resolved::File(PathBuf::from("/ws/packages/a/bazel-out/bin/src/ui/generated.ts"))
         );
+        assert!(generated.root_dirs);
+        assert!(!r.resolve(importer, "./view").root_dirs);
         assert_eq!(r.resolve(importer, "./absent").target, Resolved::Unresolved);
     }
 

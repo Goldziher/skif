@@ -415,6 +415,11 @@ All notable changes to this project are documented here. The format follows
 - `require.resolve('.bin/x')` and `import.meta.resolve('.bin/x')` (also `node_modules/.bin/x`) are no longer an
   `unresolved-imports` finding before the install: they name binary `x`, which uses the listed dependency that
   provides it, so that dependency is not unused ([#164](https://github.com/Goldziher/skif/issues/164)).
+- A file reached through tsconfig `rootDirs` (code generated into `bazel-bin/packages/app`) belongs to the importing
+  file's package, as do the files it imports beside it, instead of the root: its imports are no longer
+  `unlisted-dependencies` of the root and do not leave the package's dependencies unused
+  ([ADR 0110](adrs/0110-files-reached-through-rootdirs-belong-to-the-importing-package.md),
+  [#168](https://github.com/Goldziher/skif/issues/168)).
 
 ## [0.2.0] - 2026-11-08
 
