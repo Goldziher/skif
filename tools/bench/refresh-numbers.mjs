@@ -96,6 +96,29 @@ function requiredTools(target) {
   return [SKIF];
 }
 
+/** Why the summary was not measured by a run of the bench workflow on a GitHub-hosted runner from clean checkouts. */
+function provenanceProblems(summary) {
+  const problems = [];
+  const { github } = summary.machine;
+  if (github == null) {
+    problems.push("the summary records no GitHub Actions runner; only a run of the bench workflow is published");
+  } else {
+    if (github.runner_environment !== "github-hosted") {
+      problems.push(
+        `the run's runner environment is ${github.runner_environment ?? "unknown"}, not github-hosted; ` +
+          "only a GitHub-hosted runner is published",
+      );
+    }
+    if (github.run_url == null) problems.push("the summary names no workflow run (machine.github.run_url)");
+  }
+  for (const field of ["source_rev", "harness_rev"]) {
+    if (summary[field].endsWith("-dirty")) {
+      problems.push(`${field} ${summary[field]} has local changes; only clean checkouts are published`);
+    }
+  }
+  return problems;
+}
+
 /** Every reason the summary cannot be published; empty when it can. */
 export function summaryProblems(summary) {
   if (summary.schema !== SUMMARY_SCHEMA) {
@@ -104,8 +127,11 @@ export function summaryProblems(summary) {
         "`mise run bench:import -- <run-id>`",
     ];
   }
-  const problems = summary.skipped_tools.map(
-    (skip) => `${skip.tool} was not timed on ${skip.target ?? "any target"}: ${skip.reason}`,
+  const problems = provenanceProblems(summary);
+  problems.push(
+    ...summary.skipped_tools.map(
+      (skip) => `${skip.tool} was not timed on ${skip.target ?? "any target"}: ${skip.reason}`,
+    ),
   );
   if (summary.corpus_only.length > 0) {
     problems.push(
