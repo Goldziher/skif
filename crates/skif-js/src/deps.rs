@@ -9,6 +9,7 @@ use serde_json::Value;
 use skif_core::{DependencyKind, FileSystem, Span};
 use skif_js_plugins::scripts::{ScriptContext, is_ignored_binary, parse_script};
 use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object, place_file_dir};
+use skif_specifier::Specifier;
 use skif_workspace::{Package, PackageId, PackageManager, Workspace, map_ordered, npmrc_entries};
 
 use crate::ancestors::{external_manifests, is_repository_root, listed_names, read_manifest};
@@ -615,10 +616,23 @@ fn declared_typescript_major(package: &Package) -> Option<u64> {
             .dependencies
             .iter()
             .filter(|entry| entry.name == "typescript" && (entry.kind == DependencyKind::PeerDependencies) == peer)
-            .filter_map(|entry| entry.parsed.get_semver_number().and_then(major_of))
+            .filter_map(|entry| lowest_major(&entry.parsed))
             .min()
     };
     major(false).or_else(|| major(true))
+}
+
+/// The major number of the lowest version `specifier` admits: `^6.0.0`, `>=6 <8` and `6.1.0-dev.1` are 6, `^5 || ^6`
+/// is 5, and an upper bound alone (`<6`, `<=5.9.3`) admits `0.0.0`. `None` for a specifier without a range (a tag, a
+/// path, a `catalog:` reference) and for `*` and `latest`, which follow the newest release.
+fn lowest_major(specifier: &Specifier) -> Option<u64> {
+    let range = match specifier {
+        Specifier::Latest(_) | Specifier::None => return None,
+        // npm reads a range the specifier model leaves unclassified, such as `<6`.
+        Specifier::Unsupported(raw) => Specifier::new_node_range(raw)?,
+        _ => specifier.get_node_range()?,
+    };
+    range.min_version().map(|version| version.major())
 }
 
 /// The major number of a version such as `6.0.2`, `6` or `6.0.0-beta`.

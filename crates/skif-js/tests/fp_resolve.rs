@@ -509,6 +509,17 @@ fn a_member_without_typescript_follows_the_typescript_of_the_workspace_root() {
     }
 }
 
+#[test]
+fn a_typescript_range_is_read_by_the_lowest_version_it_admits() {
+    // An upper bound alone admits versions below 6; a compound range is read by its lowest version.
+    for range in ["<6", "<6.0.0", "<=5.9.3", ">=5 <7", "^5 || ^6", ">5.9.3 <6"] {
+        assert_eq!(unused_types(range, None, PLAIN_TSCONFIG), Vec::<String>::new(), "{range}");
+    }
+    for range in [">=6 <8", "^6 || ^7", ">6.0.0 <7", "6.1.0-dev.20261101"] {
+        assert_eq!(unused_types(range, None, PLAIN_TSCONFIG), strings(&["@types/chrome"]), "{range}");
+    }
+}
+
 /// The `@types` packages of the workspace of `files` that `unused-dev-dependencies` reports.
 fn unused_types_of(files: &[(&str, &str)]) -> Vec<String> {
     names(&lint(files), "unused-dev-dependencies")
