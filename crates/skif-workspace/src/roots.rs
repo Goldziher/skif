@@ -385,7 +385,7 @@ pub fn scan_files(
         sequential,
         wanted,
     };
-    let mut found = search.visit(start.to_path_buf(), 0, inherited_ignores(fs, start));
+    let mut found = search.visit(start, 0, inherited_ignores(fs, start));
     found.sort_unstable();
     found
 }
@@ -399,20 +399,24 @@ struct FileSearch<'a> {
 }
 
 impl FileSearch<'_> {
-    fn visit(&self, dir: PathBuf, depth: usize, ignores: Ignores) -> Vec<PathBuf> {
-        let Ok(entries) = self.fs.read_dir_shared(&dir) else {
+    fn visit(&self, dir: &Path, depth: usize, ignores: Ignores) -> Vec<PathBuf> {
+        let Ok(entries) = self.fs.read_dir_shared(dir) else {
             return Vec::new();
         };
         let file_name = |entry: &DirEntry| entry.path.file_name().and_then(|name| name.to_str()).map(str::to_owned);
-        let names: Vec<String> = entries.iter().filter(|entry| entry.is_file).filter_map(file_name).collect();
+        let names: Vec<String> = entries
+            .iter()
+            .filter(|entry| entry.is_file)
+            .filter_map(file_name)
+            .collect();
         let files = IGNORE_FILES
             .iter()
             .filter(|name| names.iter().any(|found| found == *name))
             .map(|name| dir.join(name));
-        let ignores = pushed(ignores, matcher_from(self.fs, &dir, files));
+        let ignores = pushed(ignores, matcher_from(self.fs, dir, files));
         let mut found: Vec<PathBuf> = entries
             .iter()
-            .filter(|entry| entry.is_file && file_name(*entry).is_some_and(|name| (self.wanted)(name.as_str())))
+            .filter(|entry| entry.is_file && file_name(entry).is_some_and(|name| (self.wanted)(name.as_str())))
             .map(|entry| entry.path.clone())
             .collect();
         if depth >= self.walk.max_depth {
@@ -426,7 +430,7 @@ impl FileSearch<'_> {
             .map(|entry| entry.path.clone())
             .collect();
         let below = map_ordered(&children, self.sequential, |child| {
-            self.visit(child.clone(), depth + 1, ignores.clone())
+            self.visit(child, depth + 1, ignores.clone())
         });
         found.extend(below.into_iter().flatten());
         found
