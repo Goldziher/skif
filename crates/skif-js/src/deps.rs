@@ -539,18 +539,33 @@ impl<'a> TsconfigMemo<'a> {
     }
 }
 
-/// Whether the `tsconfig.json` at `path` makes TypeScript include every installed `@types/*` package: it exists, no
-/// `compilerOptions.types` narrows them along its `extends` chain (`types: ["*"]` lists them all), and `typeRoots`,
-/// when set, keeps `node_modules/@types`. An absent `types` counts as every package, TypeScript's default before
-/// version 6; TypeScript 6 defaults it to `[]`, which this does not tell apart.
-fn includes_all_types(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], path: &Path, depth: usize) -> bool {
+/// What the `compilerOptions.types` of a `tsconfig.json` and its `extends` chain leave of the installed `@types/*`
+/// packages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AmbientTypes {
+    /// None: the config is missing, a `types` list narrows them, or `typeRoots` drops `node_modules/@types`.
+    Narrowed,
+    /// Every package, on every TypeScript version: `types: ["*"]`.
+    Every,
+    /// TypeScript's default, no `types` along the chain: every package before version 6, none from version 6.
+    Default,
+}
+
+/// What the `tsconfig.json` at `path` makes TypeScript include of the installed `@types/*` packages: [`AmbientTypes`]
+/// along its `extends` chain, where a narrowing anywhere wins and `typeRoots`, when set, must keep
+/// `node_modules/@types`.
+fn ambient_types(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], path: &Path, depth: usize) -> AmbientTypes {
     const MAX_DEPTH: usize = 8;
     let Some(config) = memo.get(path) else {
-        return false;
+        return AmbientTypes::Narrowed;
     };
+    let mut every = false;
     if let Some(options) = config.get("compilerOptions") {
-        if options.get("types").is_some_and(|types| !lists_every_type(types)) {
-            return false;
+        if let Some(types) = options.get("types") {
+            if !lists_every_type(types) {
+                return AmbientTypes::Narrowed;
+            }
+            every = true;
         }
         if let Some(ConfigValue::Array(roots)) = options.get("typeRoots") {
             let keeps_default = roots.iter().filter_map(ConfigValue::as_str).any(|root| {
@@ -558,15 +573,78 @@ fn includes_all_types(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], pa
                 root.ends_with("node_modules/@types") || root == "@types"
             });
             if !keeps_default {
-                return false;
+                return AmbientTypes::Narrowed;
             }
         }
     }
-    let dir = path.parent().unwrap_or(path);
-    extends_of(&config)
-        .iter()
-        .filter_map(|parent| resolve_extends(memo.fs, members, dir, parent))
-        .all(|target| depth >= MAX_DEPTH || includes_all_types(memo, members, &target, depth + 1))
+    if depth < MAX_DEPTH {
+        let dir = path.parent().unwrap_or(path);
+        for target in extends_of(&config)
+            .iter()
+            .filter_map(|parent| resolve_extends(memo.fs, members, dir, parent))
+        {
+            match ambient_types(memo, members, &target, depth + 1) {
+                AmbientTypes::Narrowed => return AmbientTypes::Narrowed,
+                AmbientTypes::Every => every = true,
+                AmbientTypes::Default => {}
+            }
+        }
+    }
+    if every { AmbientTypes::Every } else { AmbientTypes::Default }
+}
+
+/// The major version of TypeScript that `package` compiles with: that of the `typescript` installed in the nearest
+/// `node_modules` from its directory up to the workspace root, else the lowest version the `typescript` range it lists
+/// admits, else the one the root manifest lists. `None` when none of them names a version.
+fn typescript_major(fs: &dyn FileSystem, workspace: &Workspace, package: &Package) -> Option<u64> {
+    installed_typescript_major(fs, &workspace.root.join(&package.dir), &workspace.root)
+        .or_else(|| declared_typescript_major(package))
+        .or_else(|| {
+            workspace
+                .package(PackageId::ROOT)
+                .and_then(declared_typescript_major)
+        })
+}
+
+/// The major version of the `typescript` installed in the nearest `node_modules` from `start` up to `root`.
+fn installed_typescript_major(fs: &dyn FileSystem, start: &Path, root: &Path) -> Option<u64> {
+    let mut dir = start;
+    loop {
+        let manifest = dir.join("node_modules").join("typescript").join("package.json");
+        if let Ok(text) = fs.read_to_string(&manifest) {
+            return serde_json::from_str::<Value>(&text)
+                .ok()?
+                .get("version")
+                .and_then(Value::as_str)
+                .and_then(major_of);
+        }
+        if dir == root {
+            return None;
+        }
+        dir = dir.parent()?;
+        if !dir.starts_with(root) {
+            return None;
+        }
+    }
+}
+
+/// The major version of the lowest version the `typescript` range of `package` admits; a range under `dependencies`,
+/// `devDependencies` or `optionalDependencies` goes before a peer range, which describes the consumers.
+fn declared_typescript_major(package: &Package) -> Option<u64> {
+    let major = |peer: bool| {
+        package
+            .dependencies
+            .iter()
+            .filter(|entry| entry.name == "typescript" && (entry.kind == DependencyKind::PeerDependencies) == peer)
+            .filter_map(|entry| entry.parsed.get_semver_number().and_then(major_of))
+            .min()
+    };
+    major(false).or_else(|| major(true))
+}
+
+/// The major number of a version such as `6.0.2`, `6` or `6.0.0-beta`.
+fn major_of(version: &str) -> Option<u64> {
+    version.trim().split(['.', '-', '+']).next()?.parse().ok()
 }
 
 /// Whether a `compilerOptions.types` value holds `*`, which TypeScript 6 reads as every package of the type roots.
@@ -840,13 +918,21 @@ impl DependencyUsage {
         }
     }
 
-    /// TypeScript includes every visible `@types/*` package unless `compilerOptions.types` narrows them, so the
-    /// globals-only ones a package (and the root, which hoists them) lists are used when the package has a
-    /// `tsconfig.json` that does not narrow them.
+    /// TypeScript includes every visible `@types/*` package when `compilerOptions.types` lists `*`, and before version
+    /// 6 also when it is absent, so the globals-only ones a package (and the root, which hoists them) lists are used
+    /// when the package has a `tsconfig.json` that includes them all. From TypeScript 6 an absent `types` includes
+    /// none; a package whose TypeScript version is unknown keeps the earlier default.
     fn collect_ambient_types(&mut self, workspace: &Workspace, setup: &Setup, tsconfigs: &TsconfigMemo<'_>) {
+        const TYPES_DEFAULT_EMPTY_SINCE: u64 = 6;
         let members = member_dirs(workspace);
         for (id, package) in workspace.iter() {
-            if !includes_all_types(tsconfigs, &members, &setup.tsconfig_of(workspace, package), 0) {
+            let includes_all = match ambient_types(tsconfigs, &members, &setup.tsconfig_of(workspace, package), 0) {
+                AmbientTypes::Narrowed => false,
+                AmbientTypes::Every => true,
+                AmbientTypes::Default => typescript_major(tsconfigs.fs, workspace, package)
+                    .is_none_or(|major| major < TYPES_DEFAULT_EMPTY_SINCE),
+            };
+            if !includes_all {
                 continue;
             }
             for scope in [id, PackageId::ROOT] {

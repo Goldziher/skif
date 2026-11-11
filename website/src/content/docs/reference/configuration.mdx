@@ -786,8 +786,12 @@ reads the config, so a shared base config is satisfied when its owner or the pac
 an `ignore-dependencies` entry of the extending package silences it too. A `types` entry is satisfied by the package it
 names or its `@types` package: `types: ["cypress"]` with `cypress` listed at the root needs nothing more, and
 `@cloudflare/workers-types` or `@types/node` name themselves. `types: ["*"]` names no package: it keeps every `@types`
-package visible. A config without `types` is read as keeping them all too, TypeScript's default before version 6;
-TypeScript 6 defaults `types` to `[]`.
+package visible, so a globals-only one such as `@types/chrome` counts as used. A config without `types` keeps them all
+too before TypeScript 6, and none from TypeScript 6, which defaults `types` to `[]`: there an `@types` package is used
+only when an import, a `types` entry or a `/// <reference types>` names it. The version is that of the `typescript`
+installed in the nearest `node_modules` from the package up to the workspace root, else the lowest version the
+`typescript` range of the package admits, else that of the root manifest; when none names one, every `@types` package
+stays visible.
 
 `ignore-dependencies` silences a package; a config below `node_modules`, that git ignores (generated, such as
 `.nuxt/tsconfig.json`), in a fixture directory (unless `include-fixtures`) or matched by `ignore` is not judged.
