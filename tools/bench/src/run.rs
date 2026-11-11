@@ -10,7 +10,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::corpus::{self, Tools};
+use crate::corpus;
 use crate::parity;
 use crate::proc::{capture, find_on_path};
 use crate::provenance::{self, GithubRunner, Machine, Toolchain};
@@ -92,15 +92,8 @@ impl Tool {
 /// The comparison tools, each at the version `corpus.toml` pins.
 const COMPARISON_TOOLS: [Tool; 3] = [Tool::Sherif, Tool::Syncpack, Tool::Knip];
 
-/// The pinned version of a comparison tool; `None` for skif.
-fn pinned(tools: &Tools, tool: Tool) -> Option<&str> {
-    match tool {
-        Tool::Sherif => Some(tools.sherif.as_str()),
-        Tool::Syncpack => Some(tools.syncpack.as_str()),
-        Tool::Knip => Some(tools.knip.as_str()),
-        Tool::Skif | Tool::SkifManifest => None,
-    }
-}
+/// The files of the comparison tool lock directory (`corpus::tool_lock_dir`) that `npm ci` installs from.
+const TOOL_LOCK_FILES: [&str; 2] = ["package.json", "package-lock.json"];
 
 #[derive(Debug, Deserialize)]
 struct HyperfineExport {
@@ -671,31 +664,21 @@ fn hyperfine_version() -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-/// The `npm install` arguments that put the pinned comparison tools into `prefix`.
-fn tool_install_args(tools: &Tools, prefix: &Path) -> Vec<String> {
-    let mut args: Vec<String> = [
-        "install",
-        "--no-save",
-        "--no-package-lock",
-        "--no-audit",
-        "--no-fund",
-        "--prefix",
-    ]
-    .map(str::to_owned)
-    .into();
+/// The `npm ci` arguments that install the locked comparison tools, without their lifecycle scripts, into `prefix`,
+/// which holds a copy of the lock's `package.json` and `package-lock.json`.
+fn tool_install_args(prefix: &Path) -> Vec<String> {
+    let mut args: Vec<String> = ["ci", "--ignore-scripts", "--no-audit", "--no-fund", "--prefix"]
+        .map(str::to_owned)
+        .into();
     args.push(prefix.to_string_lossy().into_owned());
-    args.extend(
-        COMPARISON_TOOLS
-            .iter()
-            .filter_map(|&tool| Some(format!("{}@{}", tool.package()?, pinned(tools, tool)?))),
-    );
     args
 }
 
-/// Installs the comparison tools at their pinned versions into `prefix` once, so that hyperfine times their
-/// executables directly (not through `npx`, whose resolution would be timed too), and returns each installed tool
-/// with its executable. A tool that cannot be installed is recorded in `skipped`.
-fn install_tools(tools: &Tools, prefix: &Path, skipped: &mut Vec<Skipped>) -> Result<Vec<(Tool, PathBuf)>> {
+/// Installs the comparison tools from the lock in `lock_dir` (their pinned versions and every dependency's) into
+/// `prefix` once, so that hyperfine times their executables directly (not through `npx`, whose resolution would be
+/// timed too), and returns each installed tool with its executable. A tool that cannot be installed is recorded in
+/// `skipped`.
+fn install_tools(lock_dir: &Path, prefix: &Path, skipped: &mut Vec<Skipped>) -> Result<Vec<(Tool, PathBuf)>> {
     let mut skip_all = |reason: String| {
         for tool in COMPARISON_TOOLS {
             eprintln!("bench: {} is not timed: {reason}", tool.label());
@@ -713,19 +696,23 @@ fn install_tools(tools: &Tools, prefix: &Path, skipped: &mut Vec<Skipped>) -> Re
         ));
     }
     fs::create_dir_all(prefix).with_context(|| format!("creating {}", prefix.display()))?;
+    for file in TOOL_LOCK_FILES {
+        let (from, to) = (lock_dir.join(file), prefix.join(file));
+        fs::copy(&from, &to).with_context(|| format!("copying {} to {}", from.display(), to.display()))?;
+    }
     eprintln!(
-        "bench: installing the pinned comparison tools into {}",
+        "bench: installing the locked comparison tools into {}",
         prefix.display()
     );
     let run = capture(
-        Command::new("npm").args(tool_install_args(tools, prefix)),
+        Command::new("npm").args(tool_install_args(prefix)).current_dir(prefix),
         prefix,
-        "npm-install",
+        "npm-ci",
         INSTALL_TIMEOUT,
     )?;
     if run.timed_out || run.code != Some(0) {
         return Ok(skip_all(format!(
-            "npm install of the pinned tools failed: {}",
+            "npm ci of the locked tools failed: {}",
             run.failure_summary()
         )));
     }
@@ -828,11 +815,12 @@ pub fn run(options: &RunOptions) -> Result<()> {
         .skif_source
         .as_deref()
         .map_or_else(|| harness_rev.clone(), provenance::rev_of);
-    // Checks the names of `--only` before anything is installed.
-    let (pins, _) = corpus::select(&options.corpus_file, "bench", &options.only)?;
+    // Checks the names of `--only`, and that the comparison tool lock agrees with `[tools]`, before anything is
+    // installed.
+    corpus::select(&options.corpus_file, "bench", &options.only)?;
     let mut skipped = Vec::new();
     let prefix = std::path::absolute(options.generated_dir.join("tools")).context("resolving the tools directory")?;
-    let installed = install_tools(&pins, &prefix, &mut skipped)?;
+    let installed = install_tools(&corpus::tool_lock_dir(&options.corpus_file), &prefix, &mut skipped)?;
     let comparison: Vec<Tool> = installed.iter().map(|(tool, _)| *tool).collect();
     let tool_versions: BTreeMap<String, String> = installed
         .iter()
@@ -1263,20 +1251,10 @@ mod tests {
     }
 
     #[test]
-    fn the_comparison_tools_are_installed_at_their_pins_and_timed_by_path() {
-        let pins = Tools {
-            knip: "6.44.1".into(),
-            syncpack: "15.3.3".into(),
-            sherif: "1.13.0".into(),
-        };
-        let args = tool_install_args(&pins, Path::new("/bench/tools"));
-        assert_eq!(&args[..1], ["install"]);
-        let prefix = args.iter().position(|arg| arg == "--prefix").unwrap();
-        assert_eq!(args[prefix + 1], "/bench/tools");
-        assert!(args.contains(&"--no-save".to_owned()));
+    fn the_comparison_tools_are_installed_from_their_lock_and_timed_by_path() {
         assert_eq!(
-            &args[args.len() - 3..],
-            ["sherif@1.13.0", "syncpack@15.3.3", "knip@6.44.1"]
+            tool_install_args(Path::new("/bench/tools")),
+            ["ci", "--ignore-scripts", "--no-audit", "--no-fund", "--prefix", "/bench/tools"]
         );
         let bin = Path::new("/my tools/node_modules/.bin");
         assert_eq!(

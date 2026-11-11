@@ -1,0 +1,11 @@
+{
+  "name": "skif-bench-tools",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The comparison tools skif-bench run times, at the [tools] versions of ../corpus.toml",
+  "dependencies": {
+    "knip": "6.44.1",
+    "sherif": "1.13.0",
+    "syncpack": "15.3.3"
+  }
+}

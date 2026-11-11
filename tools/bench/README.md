@@ -15,8 +15,12 @@ with `--warmup` and `--runs`) on two kinds of targets:
 | Module graph | 10,000 TypeScript files in 100 packages (`--graph-files`, `--graph-packages`; `generate --source-files-per-package`) | `skif` |
 | Pinned corpus | the `bench` repositories of `corpus.toml` | `skif`, `skif --no-js`, `sherif`, `syncpack lint`, `knip --reporter json` |
 
-`sherif`, `syncpack` and `knip` are the versions pinned under `[tools]` in `corpus.toml`, the one place their versions
-are set: `run` installs them once with `npm install --prefix target/bench-generated/tools` and times the executables in
+`sherif`, `syncpack` and `knip` are the versions pinned under `[tools]` in `corpus.toml`, where their versions are
+declared. `tools/package.json` and `tools/package-lock.json` repeat them and pin every package they depend on; the
+harness refuses to load `corpus.toml` when the lock's root dependencies or its installed `node_modules/<tool>` versions
+differ from `[tools]`. To bump a tool, change `[tools]` and `tools/package.json`, then run
+`npm install --package-lock-only --ignore-scripts` in `tools/`. `run` copies the two files into
+`target/bench-generated/tools`, installs them there once with `npm ci --ignore-scripts` and times the executables in
 its `node_modules/.bin` directly, so no `npx` resolution is timed and nothing on `PATH` is used. A tool that cannot be
 installed (no `npm`, a failed install), or knip on a corpus repository whose install failed, is left out and recorded
 with the reason under `skipped_tools`. Results go to `target/bench-results/` (or `--out`): `summary.md` (tables plus the
@@ -480,8 +484,8 @@ in-process part.
 
 - **Warm cache.** hyperfine warms up before measuring, so numbers are warm file-cache, not cold start. Compare
   cold runs with `hyperfine --prepare` and a cache purge by hand if that matters.
-- **Comparison tools are the pinned versions.** `run` installs the `[tools]` versions of `corpus.toml` and records
-  each one's `--version` in the summary. Their output formats and defaults differ; `sherif` and `syncpack` only check
+- **Comparison tools are the pinned versions.** `run` installs the `[tools]` versions of `corpus.toml`, with the
+  dependencies `tools/package-lock.json` locks, and records each one's `--version` in the summary. Their output formats and defaults differ; `sherif` and `syncpack` only check
   manifests, `knip` analyses code.
 - **knip needs installed dependencies** to give realistic results: without them it fails to load tool configurations
   that import the repository's own packages (create-t3-turbo's `@acme/tsconfig`), and the time is that of a partial

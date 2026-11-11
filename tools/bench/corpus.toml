@@ -19,9 +19,11 @@
 #   knip-root        "rush": while knip runs, the checkout gets a root package.json whose workspaces come from rush.json
 #   notes            why the repository is in the corpus and what to expect from it
 
-# The comparison tools, pinned in this one place: parity, syncpack-diff and deadcode run them through npx, and
-# `skif-bench run` installs them into a scratch prefix and times their executables. Each is an exact version; a range
-# or a dist-tag is rejected.
+# The comparison tools, declared in this one place: parity, syncpack-diff and deadcode run them through npx, and
+# `skif-bench run` installs them with `npm ci` from tools/package.json and tools/package-lock.json, which repeat these
+# versions and lock their dependencies, into a scratch prefix and times their executables. Each is an exact version; a
+# range or a dist-tag is rejected, and so is a lock whose tool versions differ from these (to bump one, change it here
+# and in tools/package.json, then run `npm install --package-lock-only --ignore-scripts` in tools/).
 [tools]
 knip = "6.44.1"
 syncpack = "15.3.3"
