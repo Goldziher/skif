@@ -22,7 +22,8 @@ Which package owns a file that the importer reaches through `rootDirs`, and the 
 ## Decision Drivers
 
 * A file's imports are judged against the dependencies the runtime resolves them from
-* The common layouts keep their owners: a file of a package's own directory stays that package's
+* The common layouts keep their owners: a file of a workspace package's directory stays that package's, whoever
+  reaches it
 * The graph stays deterministic, built in the same order whatever the scheduling
 
 ## Considered Options
@@ -35,17 +36,23 @@ Which package owns a file that the importer reaches through `rootDirs`, and the 
 
 Chosen option: "The package of the importing file adopts the file", because `rootDirs` merges the directories into
 one virtual tree whose files are the importer's own, and the importer's owner is already known when the edge is
-lowered, in either direction between the root directories.
+lowered, whichever root directory the importer lies in.
 
-* The resolver marks an outcome found through `rootDirs` (`Outcome::root_dirs`). When the graph reaches such a file
-  for the first time, the importing module's package owns it instead of the package of its location.
-* A module so adopted passes its owner on: a file it reaches first by a relative import whose location falls in the
-  same package as the adopted module's own location (generated code beside generated code) is adopted too. A bare or
-  aliased import, or a relative one into another package's directory, keeps the owner of the target's location.
-* A module keeps the owner it got when first reached; the graph is built in rounds merged in a fixed order, so the
-  first importer is the same in every run.
-* An adopted file outside its owner's directory matches none of the owner's `ignore` or project globs, and is not a
-  file of another project.
+* The resolver records the root directory below which it found an outcome through `rootDirs` (`Outcome::root_dirs`,
+  such as `bazel-bin/packages/app`), whether it read `rootDirs` itself or the underlying resolver did. When the graph
+  reaches such a file for the first time from a module of a workspace package, that package owns it instead of the
+  root.
+* Only a file of the root is adopted: one that lies in no workspace package's directory and is not a listed source
+  file. A file of another workspace package, reached through `rootDirs` that point into its directory, stays that
+  package's.
+* A module so adopted passes its owner on: a file of the root it reaches first by a relative import below the same
+  root directory (generated code beside generated code) is adopted too, and carries that root directory on. A bare or
+  aliased import, or a relative one out of the root directory (into the output tree of another package, such as
+  `bazel-bin/packages/lib`), keeps the owner of the target's location.
+* A module keeps the owner it got when first reached; the graph is built in rounds from entries in path order, merged
+  in a fixed order, so the first importer is the same in every run.
+* An adopted file lies outside its owner's directory, so it matches none of the owner's `ignore` or project globs; the
+  `ignore` globs of the root, where it lies, still apply. It is not a file of another project.
 
 ### Consequences
 
@@ -56,21 +63,35 @@ lowered, in either direction between the root directories.
   owner by location.
 * Bad, because a generated file imported first from one package and later from another stays with the first; the
   layouts that motivate this give each package its own output tree.
+* Bad, because a file of the root that is a listed source file is never adopted: a checked-in file that another
+  package reaches through `rootDirs` is judged against the root's dependencies.
 
 ### Confirmation
 
 * `crates/skif-js/tests/fp_resolve.rs` (`files_reached_through_root_dirs_belong_to_the_importing_package`): a
   gitignored `bazel-bin` file reached through the `rootDirs` of `packages/app` and the file it imports beside it use
   app's `zod` and `uuid`, with no unlisted or unused dependency.
-* `crates/skif-js/src/resolve.rs` (`relative_imports_cross_root_dirs`): an outcome found through `rootDirs` is marked,
-  a direct relative one is not.
+* `crates/skif-js/tests/fp_resolve.rs`
+  (`the_trace_of_a_dependency_names_the_package_that_adopted_the_importing_file`): `--trace-dependency` names
+  `@mono/app` as the owner of the generated file and the package that uses `zod`.
+* `crates/skif-js/tests/fp_resolve.rs` (`root_dirs_into_another_workspace_package_leave_its_files_with_it`): `rootDirs`
+  into `packages/shared` leave its file with `@mono/shared`.
+* `crates/skif-js/tests/fp_resolve.rs` (`relative_imports_out_of_the_root_dir_of_an_adopted_file_are_not_adopted`): a
+  relative import from app's output tree into `bazel-bin/packages/lib` reaches a file of the root.
+* `crates/skif-js/tests/fp_resolve.rs` (`the_first_package_to_reach_a_shared_generated_file_owns_it`): of two
+  packages sharing one output tree, the first in path order owns the generated file.
+* `crates/skif-js/tests/js_config.rs` (`files_adopted_through_root_dirs_keep_the_ignore_globs_of_the_root`): the
+  root's `ignore` globs still apply to an adopted file.
+* `crates/skif-js/src/resolve.rs` (`relative_imports_cross_root_dirs`,
+  `another_root_dir_names_the_root_a_resolved_file_lies_below`): an outcome found through `rootDirs` names its root
+  directory, a direct relative one names none.
 * `adrlint lint adrs` and `adrlint lock --check` pass.
 
 ## Pros and Cons of the Options
 
 ### The package of the importing file adopts the file
 
-* Good, because it needs no path arithmetic and holds in both directions between root directories.
+* Good, because it needs little path arithmetic and holds whichever root directory the importer lies in.
 * Good, because the files the generated code imports beside it can follow the same owner.
 * Bad, because ownership now depends on how a file is first reached, not only on where it lies.
 

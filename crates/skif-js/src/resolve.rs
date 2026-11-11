@@ -2,6 +2,7 @@
 
 use std::borrow::Borrow;
 use std::collections::{BTreeMap, HashMap};
+use std::ffi::OsStr;
 use std::hash::Hash;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -97,16 +98,6 @@ impl oxc_resolver::FileSystem for ResolverFs {
 ///
 /// Tool configuration and `tsconfig` paths use `/`, Windows tooling and hand-written configs may use `\`; both
 /// join the same way, and no separator of the host leaks into the result.
-/// Whether the resolved file `found` is what `path` names: the file itself, with an extension added or swapped
-/// (`./c.js` for `c.ts`), or a file below it as a directory (`index.ts`).
-fn is_at(found: &Path, path: &Path) -> bool {
-    found.starts_with(path)
-        || (found.parent() == path.parent()
-            && found
-                .file_stem()
-                .is_some_and(|stem| Some(stem) == path.file_name() || Some(stem) == path.file_stem()))
-}
-
 pub(crate) fn join_normalized(base: &Path, relative: &str) -> PathBuf {
     let mut path = base.to_path_buf();
     for segment in relative.split(['/', '\\']) {
@@ -119,6 +110,30 @@ pub(crate) fn join_normalized(base: &Path, relative: &str) -> PathBuf {
         }
     }
     path
+}
+
+/// The suffixes of TypeScript declaration files.
+pub(crate) const DECLARATION_SUFFIXES: [&str; 3] = [".d.ts", ".d.mts", ".d.cts"];
+
+/// The file name of `path` without its extension, a declaration file's whole suffix included (`schema` for
+/// `schema.d.ts`).
+fn base_name(path: &Path) -> Option<&OsStr> {
+    let name = path.file_name()?;
+    name.to_str()
+        .and_then(|name| DECLARATION_SUFFIXES.iter().find_map(|suffix| name.strip_suffix(suffix)))
+        .map(OsStr::new)
+        .or_else(|| path.file_stem())
+}
+
+/// Whether the resolved file `found` is what `path` names: the file itself, with an extension added (`./a` for
+/// `a.ts` or `a.d.ts`) or a code extension swapped (`./c.js` for `c.ts` or `c.d.ts`), or a file below it as a
+/// directory (`index.ts`).
+fn is_at(found: &Path, path: &Path) -> bool {
+    found.starts_with(path)
+        || (found.parent() == path.parent()
+            && base_name(found).is_some_and(|base| {
+                Some(base) == path.file_name() || (is_code_file(path) && Some(base) == path.file_stem())
+            }))
 }
 
 /// A path as the specifier the resolver is asked for: with `/` separators, which it accepts for absolute paths on
@@ -174,10 +189,11 @@ pub(crate) struct Outcome {
     pub target: Resolved,
     /// The package name when the specifier is a package import (installed or workspace), `None` otherwise.
     pub package: Option<String>,
-    /// The target is a file found through the `rootDirs` of the importer's `tsconfig.json`: the same path below another
-    /// root directory, such as generated code in a build output tree. It belongs to the importer's package, whose
-    /// dependencies Node.js resolves its imports from, not to the package its location falls in.
-    pub root_dirs: bool,
+    /// The root directory the target lies below when it is a file found through the `rootDirs` of the importer's
+    /// `tsconfig.json`: the same path below another root directory, such as generated code in a build output tree
+    /// (`bazel-bin/packages/app`). Such a file belongs to the importer's package, whose dependencies Node.js resolves
+    /// its imports from, rather than to the root ([`crate::graph`]).
+    pub root_dirs: Option<PathBuf>,
 }
 
 struct Member {
@@ -1057,7 +1073,7 @@ impl ModuleResolver {
         Outcome {
             target: found,
             package,
-            root_dirs: false,
+            root_dirs: None,
         }
     }
 
@@ -1088,7 +1104,7 @@ impl ModuleResolver {
         let outcome = |target, package| Outcome {
             target,
             package,
-            root_dirs: false,
+            root_dirs: None,
         };
         if is_builtin(specifier) {
             return outcome(Resolved::Builtin, None);
@@ -1110,7 +1126,7 @@ impl ModuleResolver {
         let outcome = |target, package| Outcome {
             target,
             package,
-            root_dirs: false,
+            root_dirs: None,
         };
         if let Some(name) = node_modules_specifier_package(specifier) {
             // A `node_modules` directory that is part of the sources is followed like any other path.
@@ -1138,7 +1154,7 @@ impl ModuleResolver {
                 let package = name.unwrap_or(installed);
                 return self.package_target(&package, specifier);
             }
-            let root_dirs = self.in_another_root_dir(importer, specifier, &path);
+            let root_dirs = self.another_root_dir(importer, specifier, &path);
             return Outcome {
                 target: self.classify(path),
                 package: member_name,
@@ -1146,11 +1162,11 @@ impl ModuleResolver {
             };
         }
         if specifier.starts_with('.') {
-            if let Some(found) = self.through_root_dirs(importer, specifier) {
+            if let Some((found, root)) = self.through_root_dirs(importer, specifier) {
                 return Outcome {
                     target: found,
                     package: None,
-                    root_dirs: true,
+                    root_dirs: Some(root),
                 };
             }
             if let Some(found) = self.through_relative_package_directory(importer, specifier) {
@@ -1250,7 +1266,7 @@ impl ModuleResolver {
         let outcome = |target, package| Outcome {
             target,
             package,
-            root_dirs: false,
+            root_dirs: None,
         };
         if has_foreign_scheme(specifier) {
             return outcome(Resolved::Ignored, None);
@@ -1341,42 +1357,41 @@ impl ModuleResolver {
         })
     }
 
-    /// Whether the resolver found the relative `specifier` of `importer` at `found` through the `rootDirs` of the
-    /// nearest `tsconfig.json`, below a root directory other than the importer's: the resolver reads `rootDirs`
+    /// The root directory below which the resolver found the relative `specifier` of `importer` at `found` through
+    /// the `rootDirs` of the nearest `tsconfig.json`, when it is not the importer's: the resolver reads `rootDirs`
     /// itself, so a hit there looks like a plain relative path.
-    fn in_another_root_dir(&self, importer: &Path, specifier: &str, found: &Path) -> bool {
+    fn another_root_dir(&self, importer: &Path, specifier: &str, found: &Path) -> Option<PathBuf> {
         if !specifier.starts_with('.') {
-            return false;
+            return None;
         }
-        let Some(directory) = importer.parent() else {
-            return false;
-        };
+        let directory = importer.parent()?;
         if is_at(found, &join_normalized(directory, specifier)) {
-            return false;
+            return None;
         }
-        self.nearest_paths
-            .get_or_compute(directory, || self.tsconfigs.nearest(directory).map(Arc::new))
-            .is_some_and(|config| {
-                config
-                    .root_dir_candidates(directory, specifier)
-                    .iter()
-                    .any(|candidate| is_at(found, candidate))
-            })
+        let config = self
+            .nearest_paths
+            .get_or_compute(directory, || self.tsconfigs.nearest(directory).map(Arc::new))?;
+        config
+            .root_dir_targets(directory, specifier)
+            .into_iter()
+            .find(|(_, candidate)| is_at(found, candidate))
+            .map(|(root, _)| root.to_path_buf())
     }
 
     /// A relative specifier through the `rootDirs` of the nearest `tsconfig.json`: the same path below another root
-    /// directory, as for generated code that lives beside the sources in a virtual directory.
-    fn through_root_dirs(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
+    /// directory, as for generated code that lives beside the sources in a virtual directory. The file comes with the
+    /// root directory it was found below.
+    fn through_root_dirs(&self, importer: &Path, specifier: &str) -> Option<(Resolved, PathBuf)> {
         let directory = importer.parent()?;
         let config = self
             .nearest_paths
             .get_or_compute(directory, || self.tsconfigs.nearest(directory).map(Arc::new))?;
         config
-            .root_dir_candidates(directory, specifier)
+            .root_dir_targets(directory, specifier)
             .into_iter()
-            .find_map(|path| {
+            .find_map(|(root, path)| {
                 self.resolve_path(Kind::Script, directory, &path)
-                    .map(|found| self.classify(found))
+                    .map(|found| (self.classify(found), root.to_path_buf()))
             })
     }
 
@@ -1486,7 +1501,7 @@ impl ModuleResolver {
         Outcome {
             target,
             package: Some(name.to_owned()),
-            root_dirs: false,
+            root_dirs: None,
         }
     }
 
@@ -2059,9 +2074,69 @@ generated/index.ts
             generated.target,
             Resolved::File(PathBuf::from("/ws/packages/a/bazel-out/bin/src/ui/generated.ts"))
         );
-        assert!(generated.root_dirs);
-        assert!(!r.resolve(importer, "./view").root_dirs);
+        assert_eq!(
+            generated.root_dirs,
+            Some(PathBuf::from("/ws/packages/a/bazel-out/bin/src"))
+        );
+        assert_eq!(r.resolve(importer, "./view").root_dirs, None);
         assert_eq!(r.resolve(importer, "./absent").target, Resolved::Unresolved);
+    }
+
+    #[test]
+    fn another_root_dir_names_the_root_a_resolved_file_lies_below() {
+        let r = resolver(&[
+            ("package.json", ROOT),
+            (
+                "packages/a/tsconfig.json",
+                r#"{"compilerOptions":{"rootDirs":["src","bazel-out/bin/src"]}}"#,
+            ),
+            ("packages/a/src/ui/view.ts", ""),
+            ("packages/a/src/ui/local.ts", ""),
+            ("packages/a/bazel-out/bin/src/ui/generated.d.ts", ""),
+            ("packages/a/bazel-out/bin/src/shared/util.js", ""),
+            ("packages/a/other/stray.ts", ""),
+        ]);
+        let importer = Path::new("/ws/packages/a/src/ui/view.ts");
+        let output = Some(PathBuf::from("/ws/packages/a/bazel-out/bin/src"));
+        let cases = [
+            ("./generated.js", "/ws/packages/a/bazel-out/bin/src/ui/generated.d.ts", output.clone()),
+            ("../shared/util", "/ws/packages/a/bazel-out/bin/src/shared/util.js", output),
+            ("./local", "/ws/packages/a/src/ui/local.ts", None),
+            ("../../other/stray", "/ws/packages/a/other/stray.ts", None),
+            ("./stray", "/ws/packages/a/other/stray.ts", None),
+            ("generated", "/ws/packages/a/bazel-out/bin/src/ui/generated.d.ts", None),
+        ];
+        for (specifier, found, expected) in cases {
+            assert_eq!(
+                r.another_root_dir(importer, specifier, Path::new(found)),
+                expected,
+                "{specifier}"
+            );
+        }
+    }
+
+    #[test]
+    fn is_at_matches_the_file_a_relative_path_names() {
+        let dir = Path::new("/ws/src/ui");
+        let cases = [
+            ("./a.js", "/ws/src/ui/a.ts", true),
+            ("./a", "/ws/src/ui/a/index.ts", true),
+            ("./a", "/ws/src/ui/a.d.ts", true),
+            ("./schema.js", "/ws/src/ui/schema.d.ts", true),
+            ("./types.mjs", "/ws/src/ui/types.d.mts", true),
+            ("./a.b", "/ws/src/ui/a.b.ts", true),
+            ("./a.b", "/ws/src/ui/a.ts", false),
+            ("./a", "/ws/src/ui/b.ts", false),
+            ("../a.js", "/ws/src/a.ts", true),
+            ("../a.js", "/ws/src/ui/a.ts", false),
+        ];
+        for (specifier, found, expected) in cases {
+            assert_eq!(
+                is_at(Path::new(found), &join_normalized(dir, specifier)),
+                expected,
+                "{specifier} -> {found}"
+            );
+        }
     }
 
     #[test]

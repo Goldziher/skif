@@ -17,7 +17,7 @@ use crate::fixture::in_fixture_directory;
 use crate::graph::{ModuleGraph, ModuleId, Target};
 use crate::input::ConfigDependency;
 use crate::lockfile;
-use crate::resolve::is_installed;
+use crate::resolve::{DECLARATION_SUFFIXES, is_installed};
 use crate::scripts::{ScriptBinary, script_context};
 use crate::setup::{Setup, package_dirs, package_in_dir};
 use crate::specifier::{RUNTIME_PACKAGES, bin_link, package_name, typed_package, types_package};
@@ -298,11 +298,9 @@ struct ImportSite<'s> {
 
 /// Whether `path` is a TypeScript declaration file.
 fn is_declaration_file(path: &Path) -> bool {
-    path.file_name().and_then(|name| name.to_str()).is_some_and(|name| {
-        [".d.ts", ".d.mts", ".d.cts"]
-            .iter()
-            .any(|suffix| name.ends_with(suffix))
-    })
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| DECLARATION_SUFFIXES.iter().any(|suffix| name.ends_with(suffix)))
 }
 
 /// An import of a package the manifest does not list.
