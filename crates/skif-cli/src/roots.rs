@@ -330,7 +330,6 @@ fn distinct_ancestors(path: &Path) -> impl Iterator<Item = &Path> {
     })
 }
 
-
 /// Hands the files of other projects that the report of root `from` lists (absolute) to the innermost root holding
 /// each, as paths relative to that root. A file below `from` belongs to a root nested in it, which is linted later and
 /// takes it as an entry; a file outside `from` is counted as used by its root once every root is linted, as that root
