@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use skif_core::{FileSystem, IncompleteCause};
-use skif_workspace::{PackageId, Workspace};
+use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 
 use crate::analysis::on_disk;
 use crate::ancestors::external_manifests;
@@ -51,30 +51,100 @@ pub(crate) struct Disk<'a> {
 }
 
 /// The entry files of every package. `extra` are files, relative to the workspace root, that other roots of a
-/// multi-root run import; those the analysis owns are entries too.
+/// multi-root run import; those the analysis owns are entries too. The packages are looked at side by side unless
+/// `sequential`, and their findings merged in package order.
 pub(crate) fn entry_files(
     fs: &dyn FileSystem,
     workspace: &Workspace,
     setup: &Setup,
     candidates: &[Candidate],
-    extra: &[PathBuf],
+    (extra, sequential): (&[PathBuf], bool),
     disk: Disk<'_>,
 ) -> EntryFiles {
-    let mut entries = BTreeSet::new();
-    let mut unknown = Vec::new();
-    let mut provided = HashSet::default();
-    let mut other_roots = BTreeSet::new();
     let mut by_owner: Vec<Vec<&Candidate>> = vec![Vec::new(); workspace.iter().count()];
     for candidate in candidates {
         if let Some(owned) = by_owner.get_mut(candidate.owner.index()) {
             owned.push(candidate);
         }
     }
-    for (id, package) in workspace.iter() {
-        let Some(package_setup) = setup.package(id) else {
-            continue;
-        };
+    let context = EntryContext {
+        fs,
+        workspace,
+        setup,
+        candidates,
+        disk,
+    };
+    let packages: Vec<(PackageId, &Package, &PackageSetup)> = workspace
+        .iter()
+        .filter_map(|(id, package)| Some((id, package, setup.package(id)?)))
+        .collect();
+    let found = map_ordered(&packages, sequential, |&(id, package, package_setup)| {
         let mine: &[&Candidate] = by_owner.get(id.index()).map_or(&[], Vec::as_slice);
+        context.package_entries(id, package, package_setup, mine)
+    });
+    let mut entries = BTreeSet::new();
+    let mut unknown = Vec::new();
+    let mut provided = HashSet::default();
+    let mut other_roots = BTreeSet::new();
+    for mut package in found {
+        entries.append(&mut package.entries);
+        unknown.extend(package.unknown);
+        provided.extend(package.provided);
+        other_roots.append(&mut package.other_roots);
+    }
+    if !setup.production {
+        entries.extend(ancestor_script_files(fs, workspace, candidates));
+    }
+    entries.extend(
+        extra
+            .iter()
+            .filter_map(|file| candidate_at(candidates, &file.to_string_lossy().replace('\\', "/")))
+            .map(|candidate| candidate.abs.clone()),
+    );
+    EntryFiles {
+        files: entries.into_iter().collect(),
+        unknown,
+        provided,
+        other_roots: other_roots.into_iter().collect(),
+    }
+}
+
+/// What every package's entries are judged against.
+struct EntryContext<'a> {
+    fs: &'a dyn FileSystem,
+    workspace: &'a Workspace,
+    setup: &'a Setup,
+    candidates: &'a [Candidate],
+    disk: Disk<'a>,
+}
+
+/// The findings of one package, merged into [`EntryFiles`] in package order.
+struct PackageEntries {
+    entries: BTreeSet<PathBuf>,
+    unknown: Vec<(PackageId, IncompleteCause)>,
+    /// In the order they are found, so the merged set is built in the same order as one package after another.
+    provided: Vec<PathBuf>,
+    other_roots: BTreeSet<PathBuf>,
+}
+
+impl EntryContext<'_> {
+    /// The entries of package `id`, whose own candidates are `mine`.
+    fn package_entries(
+        &self,
+        id: PackageId,
+        package: &Package,
+        package_setup: &PackageSetup,
+        mine: &[&Candidate],
+    ) -> PackageEntries {
+        let EntryContext {
+            fs,
+            workspace,
+            setup,
+            candidates,
+            disk,
+        } = *self;
+        let mut unknown = Vec::new();
+        let mut provided = Vec::new();
         let owned = || owned_by(mine, &package_setup.dir);
         // The entries of this package alone: another package may already have found the same files.
         let mut own = BTreeSet::new();
@@ -154,22 +224,20 @@ pub(crate) fn entry_files(
             provided.extend(tool_entries.iter().cloned());
         }
         own.extend(tool_entries);
-        other_roots.extend(
-            package_setup
-                .plugin_entry_files
-                .iter()
-                .filter(|path| {
-                    is_code_file(path)
-                        && relative(path, &workspace.root).is_none_or(|rel| candidate_at(candidates, &rel).is_none())
-                        && fs.is_file(path)
-                })
-                .cloned(),
-        );
+        let other_roots = package_setup
+            .plugin_entry_files
+            .iter()
+            .filter(|path| {
+                is_code_file(path)
+                    && relative(path, &workspace.root).is_none_or(|rel| candidate_at(candidates, &rel).is_none())
+                    && fs.is_file(path)
+            })
+            .cloned()
+            .collect();
         // An install hook is an entry, so what it imports is used, but it is no project code: a package with nothing
         // else lists what code elsewhere installs it for.
         let has_entries = own.iter().any(|path| !is_install_hook(path));
-        entries.append(&mut own);
-        entries.extend(scope_entries(workspace, setup, candidates, package_setup));
+        own.extend(scope_entries(workspace, setup, candidates, package_setup));
         if !unmapped
             && !has_entries
             && package.manifest.value().get("scripts").is_none_or(is_empty_object)
@@ -179,21 +247,12 @@ pub(crate) fn entry_files(
         {
             unknown.push((id, IncompleteCause::NoEntries));
         }
-    }
-    if !setup.production {
-        entries.extend(ancestor_script_files(fs, workspace, candidates));
-    }
-    entries.extend(
-        extra
-            .iter()
-            .filter_map(|file| candidate_at(candidates, &file.to_string_lossy().replace('\\', "/")))
-            .map(|candidate| candidate.abs.clone()),
-    );
-    EntryFiles {
-        files: entries.into_iter().collect(),
-        unknown,
-        provided,
-        other_roots: other_roots.into_iter().collect(),
+        PackageEntries {
+            entries: own,
+            unknown,
+            provided,
+            other_roots,
+        }
     }
 }
 

@@ -1,8 +1,9 @@
 //! The analysis the rules read: module graph, export usage and dependency usage.
 
+use std::cell::OnceCell;
 use std::collections::BTreeSet;
 
-use skif_core::HashSet;
+use skif_core::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -291,17 +292,19 @@ fn judged_patterns(
     graph: &ModuleGraph,
     disk: &dyn FileSystem,
 ) -> Vec<JudgedPattern> {
-    let files: Vec<(PackageId, &Path, String)> = candidates
-        .iter()
-        .map(|candidate| (candidate.owner, candidate.abs.as_path(), candidate.rel.clone()))
-        .chain(graph.modules().iter().map(|module| {
-            (
-                module.owner,
-                module.abs.as_path(),
-                module.path.to_string_lossy().replace('\\', "/"),
+    // The known files are listed, and grouped by owner, only when a pattern is judged against them.
+    let module_rels: OnceCell<Vec<String>> = OnceCell::new();
+    let owners: OnceCell<HashMap<PackageId, Vec<&Path>>> = OnceCell::new();
+    let owners = || {
+        owners.get_or_init(|| {
+            group_by_owner(
+                candidates
+                    .iter()
+                    .map(|candidate| (candidate.owner, candidate.abs.as_path()))
+                    .chain(graph.modules().iter().map(|module| (module.owner, module.abs.as_path()))),
             )
-        }))
-        .collect();
+        })
+    };
     let judged = |pattern: &&String| {
         let body = pattern.trim();
         !body.is_empty() && !body.starts_with('!') && !body.starts_with("../")
@@ -310,7 +313,16 @@ fn judged_patterns(
     for pattern in config.js.ignore.iter().filter(judged) {
         found.judge("js.ignore".to_owned(), pattern, || {
             let globs = Globs::new([pattern]);
-            files.iter().any(|(_, _, rel)| globs.matches_any(rel)) || on_disk(disk, &workspace.root, pattern)
+            let module_rels = module_rels.get_or_init(|| {
+                graph
+                    .modules()
+                    .iter()
+                    .map(|module| module.path.to_string_lossy().replace('\\', "/"))
+                    .collect()
+            });
+            candidates.iter().any(|candidate| globs.matches_any(&candidate.rel))
+                || module_rels.iter().any(|rel| globs.matches_any(rel))
+                || on_disk(disk, &workspace.root, pattern)
         });
     }
     let keys = &setup.workspace_keys;
@@ -318,11 +330,8 @@ fn judged_patterns(
         let Some(package_setup) = setup.package(id) else {
             continue;
         };
-        let owned: Vec<String> = files
-            .iter()
-            .filter(|(owner, _, _)| *owner == id)
-            .filter_map(|(_, abs, _)| relative(abs, &package_setup.dir))
-            .collect();
+        let owned: OnceCell<Vec<String>> = OnceCell::new();
+        let owned = || owned.get_or_init(|| relative_to(owners().get(&id).map(Vec::as_slice), &package_setup.dir));
         let user = &package_setup.user_patterns;
         for (name, patterns, top_level) in [
             ("entry", &user.entry, &config.js.entry),
@@ -341,12 +350,30 @@ fn judged_patterns(
                 };
                 found.judge(key, pattern, || {
                     let globs = Globs::new([pattern]);
-                    owned.iter().any(|rel| globs.matches_any(rel)) || on_disk(disk, &package_setup.dir, pattern)
+                    owned().iter().any(|rel| globs.matches_any(rel)) || on_disk(disk, &package_setup.dir, pattern)
                 });
             }
         }
     }
     found.verdicts()
+}
+
+/// The paths of `files` grouped by the package that owns them, each group in the order of `files`.
+fn group_by_owner<'f>(files: impl IntoIterator<Item = (PackageId, &'f Path)>) -> HashMap<PackageId, Vec<&'f Path>> {
+    let mut groups: HashMap<PackageId, Vec<&'f Path>> = HashMap::default();
+    for (owner, path) in files {
+        groups.entry(owner).or_default().push(path);
+    }
+    groups
+}
+
+/// The paths of `group` below `dir`, relative to it and `/`-separated, in order; the others are left out.
+fn relative_to(group: Option<&[&Path]>, dir: &Path) -> Vec<String> {
+    group
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|path| relative(path, dir))
+        .collect()
 }
 
 /// The `ignore-files` patterns, each empty when it hides none of the files that would be reported unused (knip's
@@ -377,15 +404,22 @@ fn judged_ignore_files(
     }
     let keys = &setup.workspace_keys;
     let mut incomplete = HashSet::default();
+    let owners: OnceCell<HashMap<PackageId, Vec<&Path>>> = OnceCell::new();
+    let owners = || {
+        owners.get_or_init(|| {
+            group_by_owner(
+                unreached
+                    .iter()
+                    .map(|candidate| (candidate.owner, candidate.abs.as_path())),
+            )
+        })
+    };
     for (id, package) in workspace.iter() {
         let Some(package_setup) = setup.package(id) else {
             continue;
         };
-        let owned: Vec<String> = unreached
-            .iter()
-            .filter(|candidate| candidate.owner == id)
-            .filter_map(|candidate| relative(&candidate.abs, &package_setup.dir))
-            .collect();
+        let owned: OnceCell<Vec<String>> = OnceCell::new();
+        let owned = || owned.get_or_init(|| relative_to(owners().get(&id).map(Vec::as_slice), &package_setup.dir));
         for pattern in &package_setup.user_patterns.ignore_files {
             let globs = Globs::new([pattern]);
             if globs.is_empty() {
@@ -398,7 +432,7 @@ fn judged_ignore_files(
                 continue;
             }
             found.judge(key, pattern, || {
-                owned.iter().any(|rel| globs.matches_any(rel)) || on_disk(disk, &package_setup.dir, pattern)
+                owned().iter().any(|rel| globs.matches_any(rel)) || on_disk(disk, &package_setup.dir, pattern)
             });
         }
     }
@@ -499,7 +533,14 @@ impl<'a> JsAnalysis<'a> {
                 fs: disk.as_ref(),
                 gitignore: !config.js.no_gitignore,
             };
-            entry_files(fs.as_ref(), workspace, &setup, &candidates, extra_entries, published)
+            entry_files(
+                fs.as_ref(),
+                workspace,
+                &setup,
+                &candidates,
+                (extra_entries, sequential),
+                published,
+            )
         });
         setup.mark_entries_incomplete(&found.unknown);
         let entries = found.files;
@@ -939,5 +980,42 @@ impl<'a> JsAnalysis<'a> {
             }
         }
         found
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use skif_workspace::PackageId;
+
+    use super::{group_by_owner, relative_to};
+
+    #[test]
+    fn files_are_grouped_by_owner_in_their_order() {
+        let (a, b) = (PackageId::from_index(1), PackageId::from_index(2));
+        let groups = group_by_owner([
+            (a, Path::new("/w/a/x.ts")),
+            (b, Path::new("/w/b/y.ts")),
+            (a, Path::new("/w/a/src/z.ts")),
+        ]);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(
+            groups.get(&a).map(Vec::as_slice),
+            Some(&[Path::new("/w/a/x.ts"), Path::new("/w/a/src/z.ts")][..])
+        );
+        assert_eq!(groups.get(&b).map(Vec::as_slice), Some(&[Path::new("/w/b/y.ts")][..]));
+        assert_eq!(groups.get(&PackageId::ROOT), None);
+    }
+
+    #[test]
+    fn only_the_files_below_the_directory_are_made_relative() {
+        let group = [
+            Path::new("/w/a/x.ts"),
+            Path::new("/w/elsewhere/y.ts"),
+            Path::new("/w/a/src/z.ts"),
+        ];
+        assert_eq!(relative_to(Some(&group[..]), Path::new("/w/a")), ["x.ts", "src/z.ts"]);
+        assert!(relative_to(None, Path::new("/w/a")).is_empty());
     }
 }
