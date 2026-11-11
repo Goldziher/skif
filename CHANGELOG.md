@@ -425,6 +425,15 @@ All notable changes to this project are documented here. The format follows
   read.
 - The GitHub Action, pre-commit and Poly examples pin the current release line instead of 0.1
   ([#94](https://github.com/Goldziher/skif/issues/94)).
+- Fixes to a JSON object or array written on one line, such as a minified `package.json` or a
+  `"workspaces": ["packages/*"]` in a pretty-printed one, keep it on one line: a new catalog object or entry, a key
+  added to an empty object inside it, and a replaced value take its own spacing after commas and colons
+  (`"a":"1","b":"2"` stays compact) instead of being pretty-printed into it
+  ([#156](https://github.com/Goldziher/skif/issues/156)).
+- **`bazel run`**: with `BUILD_WORKSPACE_DIRECTORY` set, the `skif` binary and the npm package's `skif` bin first
+  change to `BUILD_WORKING_DIRECTORY`, else the workspace root, so `bazel run //:skif -- --fix` lints and fixes the
+  source tree instead of failing on the runfiles tree, and `PATH`, `--config` and report files resolve as typed in the
+  shell ([ADR 0112](adrs/0112-paths-under-bazel-run.md), [#171](https://github.com/Goldziher/skif/issues/171)).
 - A specifier `.bin/x`, `node_modules/.bin/x` or `./node_modules/.bin/x` in any import (`require.resolve`,
   `import.meta.resolve`, `require`, `import`) is no longer an `unresolved-imports` finding before the install: it
   names binary `x`, which uses the listed dependency that provides it, so that dependency is not unused, and is an

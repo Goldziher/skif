@@ -21,7 +21,9 @@ skif mcp
 skif lsp
 ```
 
-`skif [PATH]` lints the project containing `PATH` (default `.`). The root is resolved in this order:
+`skif [PATH]` lints the project containing `PATH` (default `.`). Under `bazel run`, `PATH` and every other relative
+path resolve against the directory Bazel was run from ([Bazel](../../guides/integrations/#bazel)). The root is
+resolved in this order:
 
 1. With `-r`/`--recursive`, every root at or below `PATH` (see below).
 2. Otherwise the nearest ancestor workspace that lists the package at `PATH` as a member. A package that declares a

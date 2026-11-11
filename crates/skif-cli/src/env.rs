@@ -1,7 +1,10 @@
 //! The process environment the CLI is allowed to look at, gathered in one place.
 
+use std::ffi::OsStr;
 use std::io::IsTerminal;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use crate::error::CliError;
 
 /// Facts about the invoking environment that change behaviour.
 #[derive(Debug, Clone, Copy)]
@@ -52,6 +55,34 @@ pub fn github_workspace() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// Under `bazel run`, makes the directory the user ran Bazel from the current directory, so the default `.` and every
+/// relative path on the command line name the source tree rather than the runfiles tree Bazel starts the binary in.
+/// Outside `bazel run` (no `BUILD_WORKSPACE_DIRECTORY`) the current directory is left alone. For the `skif` binary
+/// only: an embedding host such as Node.js keeps its own copy of the current directory, which this would desynchronise.
+pub fn enter_bazel_run_directory() -> Result<(), CliError> {
+    let Some(dir) = bazel_run_directory(
+        std::env::var_os("BUILD_WORKSPACE_DIRECTORY").as_deref(),
+        std::env::var_os("BUILD_WORKING_DIRECTORY").as_deref(),
+    ) else {
+        return Ok(());
+    };
+    std::env::set_current_dir(&dir)
+        .map_err(|error| CliError::io("cannot enter the `bazel run` directory", &dir, &error))
+}
+
+/// The directory a `bazel run` invocation started in, from `BUILD_WORKSPACE_DIRECTORY` (the workspace root) and
+/// `BUILD_WORKING_DIRECTORY` (the user's directory inside it): the working directory when set, else the workspace
+/// root. `None` when the workspace root is unset or empty, which means this is not `bazel run`; a working directory
+/// alone is ignored. Empty values count as unset, and a relative working directory is taken below the workspace root.
+pub fn bazel_run_directory(workspace: Option<&OsStr>, working: Option<&OsStr>) -> Option<PathBuf> {
+    let workspace = Path::new(workspace.filter(|value| !value.is_empty())?);
+    Some(
+        working
+            .filter(|value| !value.is_empty())
+            .map_or_else(|| workspace.to_path_buf(), |working| workspace.join(working)),
+    )
+}
+
 /// Whether a `CI` value means "this is CI".
 pub fn is_truthy(value: Option<&str>) -> bool {
     match value.map(str::trim) {
@@ -64,7 +95,35 @@ pub fn is_truthy(value: Option<&str>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_truthy;
+    use std::ffi::OsStr;
+    use std::path::PathBuf;
+
+    use super::{bazel_run_directory, is_truthy};
+
+    #[test]
+    fn the_bazel_run_directory_is_the_working_directory_else_the_workspace() {
+        let workspace = std::env::temp_dir().join("workspace");
+        let packages = workspace.join("packages");
+        let elsewhere = std::env::temp_dir().join("elsewhere");
+        let root = Some(workspace.as_os_str());
+        let cases: [(Option<&OsStr>, Option<&OsStr>, Option<PathBuf>); 8] = [
+            (None, None, None),
+            (None, Some(elsewhere.as_os_str()), None),
+            (Some(OsStr::new("")), Some(elsewhere.as_os_str()), None),
+            (root, None, Some(workspace.clone())),
+            (root, Some(OsStr::new("")), Some(workspace.clone())),
+            (root, Some(packages.as_os_str()), Some(packages.clone())),
+            (root, Some(elsewhere.as_os_str()), Some(elsewhere.clone())),
+            (root, Some(OsStr::new("packages")), Some(packages.clone())),
+        ];
+        for (workspace, working, expected) in cases {
+            assert_eq!(
+                bazel_run_directory(workspace, working),
+                expected,
+                "{workspace:?} {working:?}"
+            );
+        }
+    }
 
     #[test]
     fn ci_truthiness_table() {

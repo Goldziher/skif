@@ -78,6 +78,95 @@ fn format_document(value: &Value, layout: &Layout) -> String {
     lines.join(if layout.crlf { "\r\n" } else { "\n" })
 }
 
+/// A layout that writes some containers on one line and the rest one member per line.
+#[derive(Debug, Clone)]
+struct MixedLayout {
+    unit: &'static str,
+    /// Picks the non-empty containers written on one line, by their pre-order number modulo 64.
+    one_line: u64,
+    comma: &'static str,
+    colon: &'static str,
+    final_newline: bool,
+}
+
+fn mixed_layout() -> impl Strategy<Value = MixedLayout> {
+    (
+        prop::sample::select(vec!["  ", "\t"]),
+        any::<u64>(),
+        prop::sample::select(vec![", ", ","]),
+        prop::sample::select(vec![": ", ":"]),
+        any::<bool>(),
+    )
+        .prop_map(|(unit, one_line, comma, colon, final_newline)| MixedLayout {
+            unit,
+            one_line,
+            comma,
+            colon,
+            final_newline,
+        })
+}
+
+/// Writes a document in a [`MixedLayout`] and records the paths of the containers on one line: the picked ones,
+/// everything inside them, and the empty containers of a one-line parent.
+struct MixedWriter<'l> {
+    layout: &'l MixedLayout,
+    containers: u32,
+    one_line: Vec<Vec<PathSeg>>,
+}
+
+impl MixedWriter<'_> {
+    fn write(&mut self, value: &Value, depth: usize, parent_one_line: bool, path: &mut Vec<PathSeg>) -> String {
+        let (children, open, close): (Vec<(Option<&String>, &Value)>, char, char) = match value {
+            Value::Object(map) => (map.iter().map(|(key, child)| (Some(key), child)).collect(), '{', '}'),
+            Value::Array(items) => (items.iter().map(|child| (None, child)).collect(), '[', ']'),
+            scalar => return scalar.to_string(),
+        };
+        let picked = self.layout.one_line & (1_u64 << (self.containers % 64)) != 0;
+        self.containers += 1;
+        let one_line = parent_one_line || (!children.is_empty() && picked);
+        if one_line {
+            self.one_line.push(path.clone());
+        }
+        if children.is_empty() {
+            return format!("{open}{close}");
+        }
+        let mut members = Vec::new();
+        for (index, (key, child)) in children.into_iter().enumerate() {
+            path.push(key.map_or(PathSeg::Index(index), |key| PathSeg::Key(key.clone())));
+            let text = self.write(child, depth + 1, one_line, path);
+            path.pop();
+            members.push(match key {
+                Some(key) => format!("{}{}{text}", Value::String(key.clone()), self.layout.colon),
+                None => text,
+            });
+        }
+        if one_line {
+            return format!("{open}{}{close}", members.join(self.layout.comma));
+        }
+        let inner = self.layout.unit.repeat(depth + 1);
+        let body: Vec<String> = members.iter().map(|member| format!("{inner}{member}")).collect();
+        format!(
+            "{open}\n{}\n{}{close}",
+            body.join(",\n"),
+            self.layout.unit.repeat(depth)
+        )
+    }
+}
+
+/// `value` in `layout`, with the paths of the containers written on one line.
+fn format_mixed(value: &Value, layout: &MixedLayout) -> (String, Vec<Vec<PathSeg>>) {
+    let mut writer = MixedWriter {
+        layout,
+        containers: 0,
+        one_line: Vec::new(),
+    };
+    let mut text = writer.write(value, 0, false, &mut Vec::new());
+    if layout.final_newline {
+        text.push('\n');
+    }
+    (text, writer.one_line)
+}
+
 type Node<'v> = (Vec<PathSeg>, &'v Value, bool);
 
 /// Every node as `(path, value, parent_is_object)`.
@@ -243,6 +332,71 @@ proptest! {
             prop_assert!(!edited.replace("\r\n", "").contains('\n'), "bare LF in CRLF output: {edited:?}");
         } else if !layout.crlf {
             prop_assert!(!edited.contains('\r'));
+        }
+    }
+
+    /// Issue #156: an edit to a minified document keeps it on one line, except a value set for the whole document.
+    #[test]
+    fn minified_documents_stay_on_one_line(
+        doc in document().prop_filter("a document with members", |doc| doc != &Value::Object(Map::new())),
+        selector in any::<usize>(),
+        kind in any::<u8>(),
+        new_key in key(),
+        new_value in value(),
+        position in any::<u8>(),
+    ) {
+        let source = serde_json::to_string(&doc).unwrap();
+        let (path, action) = choose(&doc, selector, kind, new_key, new_value, position);
+        let whole = path.is_empty() && matches!(action, JsonAction::Set(_));
+        let expected = reference(&doc, &path, &action);
+        let op = FixOp::json("package.json", path, action);
+
+        let edited = apply(&source, FileKind::Json, &[&op]).expect("edit applies");
+
+        let parsed: Value = serde_json::from_str(&edited).expect("output is valid JSON");
+        prop_assert_eq!(serde_json::to_string(&parsed).unwrap(), serde_json::to_string(&expected).unwrap());
+        if !whole {
+            prop_assert!(!edited.contains('\n'), "a line break in {source:?} -> {edited:?}");
+        }
+    }
+
+    /// Issue #156: in a document mixing one-line and pretty-printed containers, an edit to a container on one line,
+    /// or a value set for a container on one line, adds no line break.
+    #[test]
+    fn one_line_containers_stay_on_one_line(
+        doc in document(),
+        layout in mixed_layout(),
+        selector in any::<usize>(),
+        kind in any::<u8>(),
+        new_key in key(),
+        new_value in value(),
+        position in any::<u8>(),
+    ) {
+        let (source, one_line) = format_mixed(&doc, &layout);
+        let (path, action) = choose(&doc, selector, kind, new_key, new_value, position);
+        let on_one_line = |at: &[PathSeg]| one_line.iter().any(|known| known.as_slice() == at);
+        let holder = match &action {
+            JsonAction::Insert { .. } | JsonAction::SortKeys => Some(path.as_slice()),
+            _ => path.split_last().map(|(_, parent)| parent),
+        };
+        let replaced = matches!(action, JsonAction::Set(_)) && !path.is_empty() && on_one_line(&path);
+        let stays = replaced || holder.is_some_and(on_one_line);
+        let expected = reference(&doc, &path, &action);
+        let op = FixOp::json("package.json", path, action);
+
+        let edited = apply(&source, FileKind::Json, &[&op]).expect("edit applies");
+
+        let parsed: Value = serde_json::from_str(&edited).expect("output is valid JSON");
+        prop_assert_eq!(serde_json::to_string(&parsed).unwrap(), serde_json::to_string(&expected).unwrap());
+        prop_assert_eq!(edited.ends_with('\n'), layout.final_newline);
+        if stays {
+            prop_assert_eq!(
+                edited.matches('\n').count(),
+                source.matches('\n').count(),
+                "a line break in {:?} -> {:?}",
+                source,
+                edited
+            );
         }
     }
 
