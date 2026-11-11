@@ -150,10 +150,6 @@ All notable changes to this project are documented here. The format follows
   links the open gaps ([#104](https://github.com/Goldziher/skif/issues/104)); the speed and knip agreement tables in
   the README and the guide are generated from recorded runs and name the commit, tool versions and machine
   ([#27](https://github.com/Goldziher/skif/issues/27), [#95](https://github.com/Goldziher/skif/issues/95)).
-- **`bazel run`**: with `BUILD_WORKSPACE_DIRECTORY` set, the CLI first changes to `BUILD_WORKING_DIRECTORY`, else the
-  workspace root, so `bazel run //:skif -- --fix` lints and fixes the source tree instead of the runfiles tree, and
-  `PATH`, `--config` and report files resolve as typed in the shell
-  ([ADR 0112](adrs/0112-paths-under-bazel-run.md), [#171](https://github.com/Goldziher/skif/issues/171)).
 
 ### Changed
 
@@ -421,6 +417,10 @@ All notable changes to this project are documented here. The format follows
   added to an empty object inside it, and a replaced value take its own spacing after commas and colons
   (`"a":"1","b":"2"` stays compact) instead of being pretty-printed into it
   ([#156](https://github.com/Goldziher/skif/issues/156)).
+- **`bazel run`**: with `BUILD_WORKSPACE_DIRECTORY` set, the `skif` binary and the npm package's `skif` bin first
+  change to `BUILD_WORKING_DIRECTORY`, else the workspace root, so `bazel run //:skif -- --fix` lints and fixes the
+  source tree instead of failing on the runfiles tree, and `PATH`, `--config` and report files resolve as typed in the
+  shell ([ADR 0112](adrs/0112-paths-under-bazel-run.md), [#171](https://github.com/Goldziher/skif/issues/171)).
 
 ## [0.2.0] - 2026-11-08
 

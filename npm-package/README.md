@@ -54,7 +54,8 @@ const exitCode = run(["--format", "json", "./my-monorepo"]);
   cannot run, `{ error: { kind, message, path? } }` (`kind` is `config`, `workspace`, `io`, `usage`, `ci-refusal` or `internal`). Both
   functions read the configuration file the way the command line does.
 - `run(argv)` runs the full command line (`argv` excludes the program name) and returns its exit code. Output
-  streams to the process's stdout and stderr.
+  streams to the process's stdout and stderr. Unlike the `skif` bin, it does not change directory under `bazel run`:
+  relative paths resolve against `process.cwd()`.
 
 Types ship in `index.d.ts`.
 

@@ -57,7 +57,8 @@ pub fn github_workspace() -> Option<PathBuf> {
 
 /// Under `bazel run`, makes the directory the user ran Bazel from the current directory, so the default `.` and every
 /// relative path on the command line name the source tree rather than the runfiles tree Bazel starts the binary in.
-/// Outside `bazel run` (no `BUILD_WORKSPACE_DIRECTORY`) the current directory is left alone.
+/// Outside `bazel run` (no `BUILD_WORKSPACE_DIRECTORY`) the current directory is left alone. For the `skif` binary
+/// only: an embedding host such as Node.js keeps its own copy of the current directory, which this would desynchronise.
 pub fn enter_bazel_run_directory() -> Result<(), CliError> {
     let Some(dir) = bazel_run_directory(
         std::env::var_os("BUILD_WORKSPACE_DIRECTORY").as_deref(),

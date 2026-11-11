@@ -3,7 +3,8 @@
 //! It is the only code that reads the environment, prints, prompts, writes files, spawns a process and opens a network
 //! connection (`skif update` only); [`run`] returns an exit code and no function below calls `std::process::exit`,
 //! except the panic hook that [`install_panic_hook`] puts in place for the `skif` binary. The npm addon calls [`run`];
-//! the binary calls [`run_to_exit`], which behaves the same but leaves the memory of a run to the operating system.
+//! the binary calls [`run_to_exit`], which also changes the current directory under `bazel run` and leaves the memory
+//! of a run to the operating system.
 
 use std::cell::Cell;
 use std::ffi::OsString;
@@ -49,10 +50,11 @@ use output::{emit_error, emit_error_with};
 
 /// Runs the CLI with `args` (the first item is the program name, as in `std::env::args_os`) and returns the exit
 /// code. The npm addon calls this; the `skif` binary calls [`run_to_exit`], which differs only in what happens to
-/// memory, so their behaviour cannot drift.
+/// memory and in entering the `bazel run` directory; everything else is shared, so their behaviour cannot drift.
 ///
-/// Under `bazel run` (`BUILD_WORKSPACE_DIRECTORY` is set) it first changes the process's current directory to
-/// `BUILD_WORKING_DIRECTORY`, else to the workspace root, so paths on the command line resolve as the user typed them.
+/// It never changes the process's current directory, even under `bazel run`: in a host such as Node.js, which caches
+/// its own current directory, a change made here would leave the host out of step. A host that runs skif under
+/// `bazel run` enters that directory itself first, as the npm package's `skif` bin does (ADR 0112).
 ///
 /// A panic in skif is caught and exits 2, as the binary's [`install_panic_hook`] makes it do; the panic hook prints
 /// the message and its location to stderr, and with `--format json` stdout also receives the `error` document (kind
@@ -120,8 +122,17 @@ fn internal_error(report: &str) -> CliError {
 /// Like [`run`], for a process that exits as soon as this returns: the lint command leaves its diagnostics, workspace
 /// model and file caches to the operating system instead of freeing them one allocation at a time, a measurable part
 /// of a large run. Never call it from a long-lived host such as the npm addon: that memory would leak on every call.
+///
+/// Under `bazel run` (`BUILD_WORKSPACE_DIRECTORY` is set) it first changes the process's current directory to
+/// `BUILD_WORKING_DIRECTORY`, else to the workspace root, so paths on the command line resolve as the user typed them
+/// rather than in the runfiles tree (ADR 0112); a directory it cannot enter exits 2.
 pub fn run_to_exit(args: impl IntoIterator<Item = OsString>) -> u8 {
-    run_with(args, Teardown::Leak)
+    let raw: Vec<OsString> = args.into_iter().collect();
+    if let Err(error) = env::enter_bazel_run_directory() {
+        emit_error(&error, if wants_json(&raw) { Format::Json } else { Format::Human });
+        return 2;
+    }
+    run_with(raw, Teardown::Leak)
 }
 
 fn run_with(args: impl IntoIterator<Item = OsString>, teardown: Teardown) -> u8 {
@@ -131,10 +142,6 @@ fn run_with(args: impl IntoIterator<Item = OsString>, teardown: Teardown) -> u8 
         Ok(cli) => cli,
         Err(error) => return usage(&raw, &error),
     };
-    if let Err(error) = env::enter_bazel_run_directory() {
-        emit_error(&error, if wants_json(&raw) { Format::Json } else { Format::Human });
-        return 2;
-    }
     match cli.command {
         None if cli.lint.watch => watch::run(&cli.lint, Env::detect()),
         None => lint::run(&cli.lint, Env::detect(), teardown),

@@ -176,10 +176,11 @@ native_binary(
 ```
 
 `bazel run //:skif` lints the source tree, and `bazel run //:skif -- --fix` fixes it. Under `bazel run`
-(`BUILD_WORKSPACE_DIRECTORY` is set) skif first changes to the directory you ran Bazel from
-(`BUILD_WORKING_DIRECTORY`, else the workspace root), as buildifier does, so the default `.` and every
-relative path on the command line, including `--config` and report files, resolve against it instead of the runfiles
-tree. Absolute paths are unaffected.
+(`BUILD_WORKSPACE_DIRECTORY` is set) the `skif` binary, and the npm package's `skif` bin, first change to the
+directory you ran Bazel from (`BUILD_WORKING_DIRECTORY`, else the workspace root), as buildifier does, so the default
+`.` and every relative path on the command line, including `--config` and report files, resolve against it instead of
+the runfiles tree. Absolute paths are unaffected. The npm package's `run()` function does not change directory: a
+script that calls it under `bazel run` resolves paths against its own current directory.
 
 ## npm and Bun
 

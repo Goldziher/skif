@@ -373,10 +373,17 @@ STUB
 cat >"${stubs}/npx" <<'STUB'
 #!/usr/bin/env bash
 # The skif bin: --version prints STUB_SMOKE_VERSION, a lint prints a report, an unknown flag exits STUB_SMOKE_USAGE_STATUS.
+# With STUB_SMOKE_BAZEL_RUN=ignored, a lint under bazel run prints another directory's report.
 case "$*" in
 *--no-such-flag*) exit "${STUB_SMOKE_USAGE_STATUS:-2}" ;;
 *--version*) echo "skif ${STUB_SMOKE_VERSION:-1.2.3}" ;;
-*) echo '{"summary":{"errors":0}}' ;;
+*)
+  if [[ -n "${BUILD_WORKSPACE_DIRECTORY:-}" && "${STUB_SMOKE_BAZEL_RUN:-}" == ignored ]]; then
+    echo '{"summary":{"errors":1}}'
+  else
+    echo '{"summary":{"errors":0}}'
+  fi
+  ;;
 esac
 STUB
 chmod +x "${stubs}/node" "${stubs}/npx"
@@ -387,6 +394,8 @@ expect "npm-smoke fails on the wrong bin version" 1 env STUB_SMOKE_VERSION=0.0.1
 expect_in_out "npm-smoke version" "expected version 1.2.3"
 expect "npm-smoke fails when the usage error does not exit 2" 1 env STUB_SMOKE_USAGE_STATUS=1 bash "${smoke}/scripts/npm-smoke.sh" node
 expect_in_out "npm-smoke exit code" "expected exit 2"
+expect "npm-smoke fails when the bin ignores bazel run" 1 env STUB_SMOKE_BAZEL_RUN=ignored bash "${smoke}/scripts/npm-smoke.sh" node
+expect_in_out "npm-smoke bazel run" "did not lint BUILD_WORKING_DIRECTORY"
 mv "${smoke}/fixtures/e2e/clean" "${smoke}/clean"
 expect "npm-smoke fails when the clean scenario is missing" 1 run_in "$smoke" npm-smoke.sh node
 mv "${smoke}/clean" "${smoke}/fixtures/e2e/clean"
