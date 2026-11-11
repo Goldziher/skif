@@ -331,7 +331,11 @@ mod tests {
                 ("packages/b/package.json", b.as_str()),
             ];
             let fixed = testing::fixed_json(META.id, &files, &config(""), "packages/a/package.json");
-            assert_eq!(fixed["dependencies"]["@scope/b"].as_str(), Some(expected), "{manager} {version}");
+            assert_eq!(
+                fixed["dependencies"]["@scope/b"].as_str(),
+                Some(expected),
+                "{manager} {version}"
+            );
             assert_fixes_clear(META.id, &files, &config(""));
         }
     }
@@ -393,7 +397,10 @@ mod tests {
     #[test]
     fn path_targets_resolve_from_the_package_directory() {
         let workspace_files = [
-            ("package.json", r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#),
+            (
+                "package.json",
+                r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
+            ),
             ("packages/a/package.json", r#"{"name":"a"}"#),
         ];
         let config = config("");

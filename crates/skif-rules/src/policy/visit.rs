@@ -674,7 +674,12 @@ mod tests {
     }
 
     fn marked(package: &str, dependency: &str, state: &'static str, target: Option<&str>) -> Marked {
-        (package.to_owned(), dependency.to_owned(), state, target.map(str::to_owned))
+        (
+            package.to_owned(),
+            dependency.to_owned(),
+            state,
+            target.map(str::to_owned),
+        )
     }
 
     fn one(package: &str, dependency: &str, state: &'static str) -> (String, String, &'static str) {
@@ -839,14 +844,19 @@ mod tests {
         const PINNED: &str = "[[version-groups]]\ndependencies = [\"mix\"]\npolicy = \"pinned\"\npin = \"2.0.0\"\n";
         const SAME_RANGE: &str = "[[version-groups]]\ndependencies = [\"mix\"]\npolicy = \"same-range\"\n";
         const SAME_MINOR: &str = "[[version-groups]]\ndependencies = [\"mix\"]\npolicy = \"same-minor\"\n";
-        const SNAP_APP: &str = "[[version-groups]]\ndependencies = [\"mix\"]\npolicy = \"snapped-to\"\nsnap-to = [\"app\"]\n";
+        const SNAP_APP: &str =
+            "[[version-groups]]\ndependencies = [\"mix\"]\npolicy = \"snapped-to\"\nsnap-to = [\"app\"]\n";
         const SNAP_TOOL: &str =
             "[[version-groups]]\ndependencies = [\"mix\"]\npolicy = \"snapped-to\"\nsnap-to = [\"tool\"]\n";
         let pin = Some("2.0.0");
         // With `local-path-dependency` on, the path gets no state and does not block the others; with it off, the
         // path keeps its state, never with a fix. A path is never the snap target.
         let cases: [(&str, Vec<Marked>, Vec<Marked>); 6] = [
-            ("", vec![], vec![marked("tool", "mix", "DiffersToHighestOrLowestSemver", None)]),
+            (
+                "",
+                vec![],
+                vec![marked("tool", "mix", "DiffersToHighestOrLowestSemver", None)],
+            ),
             (
                 PINNED,
                 vec![marked("app", "mix", "DiffersToPin", pin)],
@@ -855,7 +865,11 @@ mod tests {
                     marked("tool", "mix", "DiffersToPin", None),
                 ],
             ),
-            (SAME_RANGE, vec![], vec![marked("tool", "mix", "SameRangeMismatch", None)]),
+            (
+                SAME_RANGE,
+                vec![],
+                vec![marked("tool", "mix", "SameRangeMismatch", None)],
+            ),
             (
                 SAME_MINOR,
                 vec![],
@@ -864,7 +878,11 @@ mod tests {
                     marked("tool", "mix", "SameMinorHasMajorMismatch", None),
                 ],
             ),
-            (SNAP_APP, vec![], vec![marked("tool", "mix", "DiffersToSnapTarget", None)]),
+            (
+                SNAP_APP,
+                vec![],
+                vec![marked("tool", "mix", "DiffersToSnapTarget", None)],
+            ),
             (
                 SNAP_TOOL,
                 vec![marked("app", "mix", "DependsOnMissingSnapTarget", None)],
@@ -879,8 +897,16 @@ mod tests {
             let tool = manifest("tool", "1.0.0", &format!(r#""mix":"{specifier}""#));
             let members = [("app", app.as_str()), ("tool", tool.as_str())];
             for (toml, reported_elsewhere, kept) in &cases {
-                assert_eq!(&verdicts_in(ROOT, toml, &members, true), reported_elsewhere, "{specifier} {toml}");
-                assert_eq!(&verdicts_in(ROOT, toml, &members, false), kept, "{specifier} {toml} off");
+                assert_eq!(
+                    &verdicts_in(ROOT, toml, &members, true),
+                    reported_elsewhere,
+                    "{specifier} {toml}"
+                );
+                assert_eq!(
+                    &verdicts_in(ROOT, toml, &members, false),
+                    kept,
+                    "{specifier} {toml} off"
+                );
             }
         }
     }
@@ -910,7 +936,11 @@ mod tests {
                 ("tool", tool.as_str()),
             ];
             assert_eq!(verdicts_in(ROOT, "", &members, false), expected, "{specifier}");
-            assert_eq!(verdicts_in(ROOT, "", &members, true), [] as [Marked; 0], "{specifier} on");
+            assert_eq!(
+                verdicts_in(ROOT, "", &members, true),
+                [] as [Marked; 0],
+                "{specifier} on"
+            );
         }
     }
 
@@ -928,8 +958,8 @@ mod tests {
     fn banned_groups_still_report_a_path() {
         let toml = "[[version-groups]]\ndependencies = [\"mix\"]\npolicy = \"banned\"\n";
         let app = manifest("app", "1.0.0", r#""mix":"1.2.3""#);
-        let tool = manifest("tool", "1.0.0", r#""mix":"link:../../vendor/mix""#);
-        let members = [("app", app.as_str()), ("tool", tool.as_str())];
+        let linked = manifest("tool", "1.0.0", r#""mix":"link:../../vendor/mix""#);
+        let members = [("app", app.as_str()), ("tool", linked.as_str())];
         for paths_reported_elsewhere in [true, false] {
             assert_eq!(
                 verdicts_in(ROOT, toml, &members, paths_reported_elsewhere),
@@ -946,23 +976,27 @@ mod tests {
     /// version groups whether that rule is on or off.
     #[test]
     fn a_path_in_an_override_section_keeps_its_state_without_a_fix() {
+        const OVERRIDES: &str = "[policy]\ndependency-types = [\"prod\", \"dev\", \"local\", \"overrides\"]\n";
         let root_with = |specifier: &str| {
             format!(
-                r#"{{"name":"root","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"],"overrides":{{"lib":"{specifier}"}}}}"#
+                r#"{{"name":"root","version":"0.0.0","private":true,"packageManager":"npm@10.0.0","workspaces":["packages/*"],"overrides":{{"lib":"{specifier}"}}}}"#
             )
         };
         let lib = manifest("lib", "1.0.0", "");
         let other = manifest("other", "1.0.0", "");
         let members = [("lib", lib.as_str()), ("other", other.as_str())];
         let cases = [
-            ("file:./packages/other", vec![marked("root", "lib", "DiffersToLocal", None)]),
+            (
+                "file:./packages/other",
+                vec![marked("root", "lib", "DiffersToLocal", None)],
+            ),
             ("file:./packages/lib", vec![]),
         ];
         for (specifier, expected) in cases {
             let root = root_with(specifier);
             for paths_reported_elsewhere in [true, false] {
                 assert_eq!(
-                    verdicts_in(&root, "", &members, paths_reported_elsewhere),
+                    verdicts_in(&root, OVERRIDES, &members, paths_reported_elsewhere),
                     expected,
                     "{specifier} {paths_reported_elsewhere}"
                 );
