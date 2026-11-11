@@ -233,3 +233,16 @@ fn bare_major_ranges_cover_the_versions_of_their_major() {
         );
     }
 }
+
+#[test]
+fn major_and_minor_parse_their_range_once() {
+    for value in ["1", "1.2", "npm:foo@2", "workspace:3.4"] {
+        let spec = Specifier::new(value);
+        let first = spec.get_node_range().unwrap_or_else(|| panic!("`{value}` should have a range"));
+        let second = spec.get_node_range().unwrap_or_else(|| panic!("`{value}` should have a range"));
+        assert!(
+            std::sync::Arc::ptr_eq(&first, &second),
+            "`{value}` should reuse the parsed range"
+        );
+    }
+}
