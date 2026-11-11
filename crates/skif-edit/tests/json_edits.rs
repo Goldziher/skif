@@ -280,8 +280,8 @@ fn insert_places_keys() {
     ]);
 }
 
-/// Issue #156: edits to an object whose members share the line of its opening brace add no line break or
-/// indentation, and space commas and colons as the object (else the document) does.
+/// Issue #156: edits to an object or array written on one line, or to an empty one inside it, add no line break or
+/// indentation, and space commas and colons as that container (else its parent, else the document) does.
 #[test]
 fn single_line_objects_keep_their_layout() {
     const MINIFIED_ROOT: &str =
@@ -354,6 +354,30 @@ fn single_line_objects_keep_their_layout() {
             input: "{\n  \"a\": {\"b\": 1}\n}\n",
             ops: vec![insert(&["a"], "c", json!({"d": 1}), InsertPosition::End)],
             expected: "{\n  \"a\": {\"b\": 1, \"c\": {\"d\": 1}}\n}\n",
+        },
+        Case {
+            name: "an empty object in a single-line object of a pretty-printed document",
+            input: "{\n  \"a\": {\"b\": 1, \"c\": {}}\n}",
+            ops: vec![insert(&["a", "c"], "x", json!(1), InsertPosition::End)],
+            expected: "{\n  \"a\": {\"b\": 1, \"c\": {\"x\": 1}}\n}",
+        },
+        Case {
+            name: "a single-line array replaced in a pretty-printed document",
+            input: "{\n  \"name\": \"root\",\n  \"workspaces\": [\"packages/*\"]\n}\n",
+            ops: vec![set(&["workspaces"], json!(["packages/*", "apps/*"]))],
+            expected: "{\n  \"name\": \"root\",\n  \"workspaces\": [\"packages/*\", \"apps/*\"]\n}\n",
+        },
+        Case {
+            name: "an object whose closing brace is on another line is not on one line",
+            input: "{\"a\": {\n \"b\": 1\n}}",
+            ops: vec![set(&["a"], json!({"b": 1, "c": 2}))],
+            expected: "{\"a\": {\n \"b\": 1,\n \"c\": 2\n}}",
+        },
+        Case {
+            name: "a comma in a comment does not set the spacing",
+            input: r#"{"a": 1 /* 1,2 */, "b": 2}"#,
+            ops: vec![insert(&[], "c", json!(3), InsertPosition::End)],
+            expected: r#"{"a": 1 /* 1,2 */, "b": 2, "c": 3}"#,
         },
     ]);
 }

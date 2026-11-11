@@ -39,9 +39,9 @@ impl Style {
     }
 }
 
-/// How an object or array that keeps its members on the line of its opening bracket spaces them: the whitespace
-/// after each comma and after each colon. Generated text inside it stays on that line.
-struct Inline {
+/// How an object or array written on one line spaces its members: the whitespace after each comma and after each
+/// colon. Generated text inside it stays on that line.
+struct InlineSpacing {
     comma: String,
     colon: String,
 }
@@ -296,6 +296,8 @@ struct PendingInsert {
 /// Inserts queued for one object, in operation order.
 struct Insertions<'a, 'b> {
     holder: Container<'a, 'b>,
+    /// The container that holds `holder`; `None` for the root.
+    parent: Option<Container<'a, 'b>>,
     pending: Vec<PendingInsert>,
 }
 
@@ -348,38 +350,48 @@ impl<'a> Doc<'_, 'a> {
         }
     }
 
-    /// Replaces `target`, a member of `parent` (`None` for the root), with `value`, laid out as `parent` lays out its
-    /// members.
+    /// Replaces `target`, a member of `parent` (`None` for the root), with `value`: on one line, spaced like it, when
+    /// `parent` is on one line or `target` is a non-empty object or array on one line; else laid out with the
+    /// document's indentation.
     fn set(&self, target: &Value<'_>, parent: Option<&Container<'_, '_>>, value: &serde_json::Value) -> Edit {
-        let replacement = match parent.and_then(|holder| self.inline(holder)) {
-            Some(inline) => render_inline(value, &inline),
+        let spacing = parent.and_then(|holder| {
+            self.inline(holder, None)
+                .or_else(|| container(target).and_then(|own| self.inline(&own, Some(holder))))
+        });
+        let replacement = match spacing {
+            Some(spacing) => render_inline(value, &spacing),
             None => self.render(value, line_indent(self.source, target.start())),
         };
         Edit::new(target.start(), target.end(), replacement)
     }
 
-    /// The spacing of `holder` when it keeps its members on the line of its opening bracket; `None` when they are
-    /// laid out one per line. An empty object or array is on one line in a document that is, except the root itself.
-    fn inline(&self, holder: &Container<'_, '_>) -> Option<Inline> {
-        let one_line = match holder.members.first() {
-            Some(first) => !self.source[holder.open + 1..first.start].contains('\n'),
-            None => holder.open != self.root.start() && !self.source.trim_end().contains('\n'),
-        };
-        one_line.then(|| self.spacing(holder))
+    /// The spacing of `holder`, a member of `parent` (`None` for the root), when it is written on one line: its
+    /// closing bracket is on the line of its opening one, and it has members or `parent` is on one line too. `None`
+    /// when it is laid out over several lines.
+    fn inline(&self, holder: &Container<'_, '_>, parent: Option<&Container<'_, '_>>) -> Option<InlineSpacing> {
+        let one_line = self.on_one_line(holder)
+            && (!holder.members.is_empty() || parent.is_some_and(|parent| self.on_one_line(parent)));
+        one_line.then(|| self.spacing(holder, parent))
     }
 
-    /// The whitespace after the commas and colons of `holder`, else of the root object when it is on one line, else
-    /// the colon's for the comma and one space for the colon.
-    fn spacing(&self, holder: &Container<'_, '_>) -> Inline {
+    /// Whether the brackets of `holder` are on the same line.
+    fn on_one_line(&self, holder: &Container<'_, '_>) -> bool {
+        !self.source[holder.open..holder.close].contains('\n')
+    }
+
+    /// The whitespace after the first colon and after the first comma that are outside comments and not followed by a
+    /// line break, looked for in `holder`, then `parent`, then the root. Without such a colon it is one space; without
+    /// such a comma, the colon's.
+    fn spacing(&self, holder: &Container<'_, '_>, parent: Option<&Container<'_, '_>>) -> InlineSpacing {
         let root = container(&self.root);
-        let holders = || std::iter::once(holder).chain(root.as_ref());
+        let holders = || std::iter::once(holder).chain(parent).chain(root.as_ref());
         let colon = holders()
             .find_map(|holder| {
                 holder
                     .members
                     .iter()
                     .filter(|member| member.key.is_some())
-                    .find_map(|member| space_after(&self.source[member.name.1..member.value.start()], ':'))
+                    .find_map(|member| space_after(self.source, member.name.1, member.value.start(), b':'))
             })
             .unwrap_or_else(|| " ".to_owned());
         let comma = holders()
@@ -387,10 +399,10 @@ impl<'a> Doc<'_, 'a> {
                 holder
                     .members
                     .windows(2)
-                    .find_map(|pair| space_after(&self.source[pair[0].end..pair[1].start], ','))
+                    .find_map(|pair| space_after(self.source, pair[0].end, pair[1].start, b','))
             })
             .unwrap_or_else(|| colon.clone());
-        Inline { comma, colon }
+        InlineSpacing { comma, colon }
     }
 
     fn rename(op: &str, target: Located<'_, '_>, new_key: &str) -> Result<Vec<Edit>, EditPlanError> {
@@ -455,8 +467,9 @@ impl<'a> Doc<'_, 'a> {
         pointer: &[PathSeg],
         (key, value, position): (&str, &serde_json::Value, InsertPosition),
     ) -> Result<(), EditPlanError> {
-        let target = locate(&self.root, pointer).ok_or_else(|| EditPlanError::PathNotFound { op: op.to_owned() })?;
-        let holder = container(target.value)
+        let Located { value: target, parent } =
+            locate(&self.root, pointer).ok_or_else(|| EditPlanError::PathNotFound { op: op.to_owned() })?;
+        let holder = container(target)
             .filter(|holder| holder.is_object)
             .ok_or_else(|| EditPlanError::WrongNodeKind {
                 op: op.to_owned(),
@@ -466,6 +479,7 @@ impl<'a> Doc<'_, 'a> {
             .entry(holder.open)
             .or_insert_with(|| Insertions {
                 holder,
+                parent: parent.map(|(parent, _)| parent),
                 pending: Vec::new(),
             })
             .pending
@@ -534,7 +548,7 @@ impl<'a> Doc<'_, 'a> {
             return edits;
         }
 
-        let inline = self.inline(holder);
+        let inline = self.inline(holder, insertions.parent.as_ref());
         let multiline = inline.is_none();
         let outer = line_indent(self.source, holder.open);
         let inner = match holder.members.first() {
@@ -711,7 +725,7 @@ impl<'a> Doc<'_, 'a> {
     /// comment after the comma is not part of the separator.
     fn separator(&self, holder: &Container<'_, '_>, previous: usize) -> Option<(usize, usize, bool)> {
         let next = holder.members[previous + 1].start;
-        let comma = find_comma(self.source, holder.members[previous].end, next)?;
+        let comma = find_separator(self.source, holder.members[previous].end, next, b',')?;
         let after = comma + 1;
         if let Some(end) = rest_of_line(self.source, after).filter(|&end| end <= next) {
             return Some((comma, end, true));
@@ -788,7 +802,7 @@ impl<'a> Doc<'_, 'a> {
 }
 
 /// Serializes `value` on one line, spaced as `inline` says.
-fn render_inline(value: &serde_json::Value, inline: &Inline) -> String {
+fn render_inline(value: &serde_json::Value, inline: &InlineSpacing) -> String {
     let comma = format!(",{}", inline.comma);
     match value {
         serde_json::Value::Object(map) if !map.is_empty() => {
@@ -806,10 +820,10 @@ fn render_inline(value: &serde_json::Value, inline: &Inline) -> String {
     }
 }
 
-/// The spaces and tabs after the first `separator` in `gap`, the text between two tokens; `None` without one, or
-/// when a line break follows it.
-fn space_after(gap: &str, separator: char) -> Option<String> {
-    let after = &gap[gap.find(separator)? + 1..];
+/// The spaces and tabs after the first `separator` outside a comment in `source[from..to]`, the text between two
+/// tokens; `None` without one, or when a line break follows it.
+fn space_after(source: &str, from: usize, to: usize, separator: u8) -> Option<String> {
+    let after = &source[find_separator(source, from, to, separator)? + 1..to];
     let space = &after[..after.len() - after.trim_start_matches([' ', '\t']).len()];
     (!after[space.len()..].starts_with(['\r', '\n'])).then(|| space.to_owned())
 }
@@ -905,13 +919,13 @@ fn rest_of_line(source: &str, from: usize) -> Option<usize> {
         .then_some(from + newline + 1)
 }
 
-/// Offset of the first comma in `source[from..to]` that is not inside a comment.
-fn find_comma(source: &str, from: usize, to: usize) -> Option<usize> {
+/// Offset of the first `separator`, an ASCII byte, in `source[from..to]` that is not inside a comment.
+fn find_separator(source: &str, from: usize, to: usize, separator: u8) -> Option<usize> {
     let bytes = source.as_bytes();
     let mut at = from;
     while at < to {
         match bytes[at] {
-            b',' => return Some(at),
+            byte if byte == separator => return Some(at),
             b'/' if bytes.get(at + 1) == Some(&b'/') => {
                 at = source[at..to].find('\n').map_or(to, |newline| at + newline);
             }
