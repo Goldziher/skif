@@ -1,5 +1,5 @@
 {
-  "description": "JS analysis against the installed layout: an unused dependency, a phantom import of a transitive dependency, a script that runs a binary of another package's dependency, and one that runs a workspace member's binary without listing the member.",
+  "description": "JS analysis against the installed layout: an unused dependency, a phantom import of a transitive dependency, a script that runs a binary of another package's dependency, and one that runs a workspace member's binary without listing the member; `<pm> run tool` in b shows whether the layout provides that binary.",
   "expect": {
     "exit_code": 1,
     "diagnostics": [
@@ -7,6 +7,11 @@
       "unlisted-dependencies:@e2e/b:isexe in packages/b/index.js",
       "unused-dependencies:@e2e/a:semver"
     ],
+    "run": {
+      "dir": "packages/b",
+      "script": "tool",
+      "succeeds": true
+    },
     "after_fix": {
       "exit_code": 1,
       "diagnostics": [
@@ -16,8 +21,23 @@
     }
   },
   "overrides": {
-    "pnpm": {
-      "reason": "pnpm links a member's binaries only into the packages that list it. With node-linker=hoisted the install does put e2e-tool on b's PATH, but skif does not read the linker (ADR 0097), so it is reported under both linkers.",
+    "pnpm/isolated": {
+      "reason": "pnpm's isolated linker links a member's binaries only into the packages that list it.",
+      "add": [
+        "unlisted-binaries:@e2e/b:e2e-tool"
+      ],
+      "run": {
+        "succeeds": false
+      },
+      "after_fix": {
+        "add": [
+          "unlisted-binaries:@e2e/b:e2e-tool"
+        ]
+      }
+    },
+    "pnpm/hoisted": {
+      "reason": "node-linker=hoisted puts e2e-tool on b's PATH, but skif does not read the linker, so it is reported as under the isolated linker.",
+      "known_issue": "#146 member binaries ignore pnpm and Yarn Berry hoisted linker settings",
       "add": [
         "unlisted-binaries:@e2e/b:e2e-tool"
       ],
@@ -36,6 +56,9 @@
         "add": [
           "unlisted-binaries:@e2e/b:e2e-tool"
         ]
+      },
+      "run": {
+        "succeeds": false
       }
     },
     "bun/default": {
@@ -47,6 +70,9 @@
         "add": [
           "unlisted-binaries:@e2e/b:e2e-tool"
         ]
+      },
+      "run": {
+        "succeeds": false
       }
     },
     "bun/isolated": {
@@ -58,6 +84,9 @@
         "add": [
           "unlisted-binaries:@e2e/b:e2e-tool"
         ]
+      },
+      "run": {
+        "succeeds": false
       }
     }
   }

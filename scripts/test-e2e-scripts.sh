@@ -2,8 +2,10 @@
 # Tests the end-to-end scripts without a package manager or the network:
 #   e2e/resolve-pm-version.sh   the newest and previous majors from a stub `npm view`, Yarn Berry and Classic, Bun 1.x
 #   e2e/lib.sh                  the manager tables, the generated projects (workspace files, catalogs, linkers, pins,
-#                               overlays), the expectation overrides and the findings format, and every committed
-#                               scenario generated and its expectation evaluated for every manager and linker
+#                               overlays, a failing step failing the generator), the expectation overrides, script
+#                               runs and known issues, the findings format, and every committed scenario generated and
+#                               its expectation evaluated and checked for the shape run.sh reads, for every manager
+#                               and linker
 #
 # Usage: scripts/test-e2e-scripts.sh
 # The literals checked below contain `$` on purpose; nothing is meant to expand.
@@ -114,13 +116,14 @@ cat >"${scenario}/scenario.json" <<'JSON'
   "expect": {
     "exit_code": 1,
     "diagnostics": ["b-rule:root", "a-rule:@e2e/a:dep"],
+    "run": {"dir": "packages/a", "script": "t", "succeeds": true},
     "after_fix": {"exit_code": 0, "diagnostics": []},
     "migrate": {"exit_code": 0, "diagnostics": ["c-rule:root"]}
   },
   "overrides": {
     "pnpm": {"reason": "a note", "add": ["d-rule:root"], "after_fix": {"exit_code": 1, "add": ["e-rule:root"]}},
     "pnpm/hoisted": {"remove": ["a-rule:@e2e/a:dep"], "migrate": {"remove": ["c-rule:root"]}},
-    "bun/default": {"exit_code": 0},
+    "bun/default": {"exit_code": 0, "known_issue": "#1 a known bug", "run": {"succeeds": false}},
     "npm": {"remove": ["no-such-rule:root"]}
   }
 }
@@ -186,6 +189,15 @@ same "the yarn-classic overlay makes the root private and drops workspaces" \
   '{"name":"root","version":"0.0.0","private":true,"packageManager":"yarn@1.22.22"}' "$(jqr -c . "${dir}/package.json")"
 [[ ! -e "${dir}/yarn.lock" && ! -e "${dir}/.yarnrc.yml" ]] || fail "yarn-classic: Berry files written"
 expect "a merge overlay into a missing file" 1 e2e_overlay "${scenario}/overlays/npm" "${work}/empty-dest"
+# The steps after the overlay succeed, so only an explicitly propagated failure fails the generator.
+broken="${work}/broken-overlay"
+mkdir -p "${broken}/project" "${broken}/overlays/npm/missing"
+echo '{"name":"root","version":"0.0.0","workspaces":["packages/*"]}' >"${broken}/project/package.json"
+echo '{"main":"index.js"}' >"${broken}/overlays/npm/missing/package.merge.json"
+echo '{"expect":{"exit_code":0}}' >"${broken}/scenario.json"
+expect "e2e_generate fails when an overlay merges into a missing file" 1 \
+  e2e_generate "$broken" npm hoisted 11.0.0 "${work}/gen-broken"
+expect_in_out "e2e_generate names the missing merge target" "merges into a missing"
 
 # ---------------------------------------------------------------- e2e/lib.sh: applicability and expectations
 same "applies to a listed manager" "" "$(e2e_applies "$scenario" pnpm 10.0.0)"
@@ -197,12 +209,17 @@ cp "${work}/pnpm-only.json" "${work}/pnpm-only/scenario.json"
 same "not a listed manager" "not a bun scenario" "$(e2e_applies "${work}/pnpm-only" bun 1.3.0)"
 
 same "expectation without an override" \
-  '{"exit_code":1,"diagnostics":["a-rule:@e2e/a:dep","b-rule:root"],"after_fix":{"exit_code":0,"diagnostics":[]},"migrate":{"exit_code":0,"diagnostics":["c-rule:root"]}}' \
+  '{"exit_code":1,"diagnostics":["a-rule:@e2e/a:dep","b-rule:root"],"run":{"dir":"packages/a","script":"t","succeeds":true},"after_fix":{"exit_code":0,"diagnostics":[]},"migrate":{"exit_code":0,"diagnostics":["c-rule:root"]}}' \
   "$(e2e_expectation "$scenario" yarn pnp | tr -d '\r')"
 same "manager and linker overrides add, remove and reach the steps" \
-  '{"exit_code":1,"diagnostics":["b-rule:root","d-rule:root"],"after_fix":{"exit_code":1,"diagnostics":["e-rule:root"]},"migrate":{"exit_code":0,"diagnostics":[]}}' \
+  '{"exit_code":1,"diagnostics":["b-rule:root","d-rule:root"],"run":{"dir":"packages/a","script":"t","succeeds":true},"after_fix":{"exit_code":1,"diagnostics":["e-rule:root"]},"migrate":{"exit_code":0,"diagnostics":[]}}' \
   "$(e2e_expectation "$scenario" pnpm hoisted | tr -d '\r')"
 same "an override sets the exit code" 0 "$(e2e_expectation "$scenario" bun default | jqr .exit_code)"
+same "an override merges into the script run" '{"dir":"packages/a","script":"t","succeeds":false}' \
+  "$(e2e_expectation "$scenario" bun default | jqr -c .run)"
+same "an override's known issue is collected" '["#1 a known bug"]' \
+  "$(e2e_expectation "$scenario" bun default | jqr -c .known_issues)"
+same "no known issues without one" null "$(e2e_expectation "$scenario" yarn pnp | jqr -c .known_issues)"
 expect "an override removing an absent finding is an error" 5 e2e_expectation "$scenario" npm hoisted
 expect_in_out "stale override" "override removes absent findings: no-such-rule:root"
 
@@ -213,9 +230,57 @@ same "findings name the rule, package, dependency and a file that is not a manif
     {"rule":"b","package":"root","location":{"path":"package.json"}},
     {"rule":"a","package":"@e2e/a","dependency":"dep","location":{"path":"packages/a/package.json"}}]}')"
 
+# ---------------------------------------------------------------- structural checks
+# structure_errors <scenario-dir> <expectation-json>: prints what run.sh could not read in an evaluated expectation.
+structure_errors() {
+  jqr -r --argjson migrates "$(jq '.migrate.from != null' "$1/scenario.json")" '
+    def code($step): if (.exit_code | type) != "number" or .exit_code != (.exit_code | floor) or .exit_code < 0
+      then "\($step): exit_code is not a non-negative integer" else empty end;
+    code("lint"),
+    (if (.exit_code | type) == "number" and .exit_code != 0 and ($migrates | not) and .after_fix == null
+      then "a non-zero exit_code needs after_fix" else empty end),
+    (if $migrates and .migrate == null then "migrate.from needs expect.migrate" else empty end),
+    (if .after_fix != null then .after_fix | code("after_fix") else empty end),
+    (if .migrate != null then .migrate | code("migrate") else empty end),
+    (if .run != null and ((.run.dir | type) != "string" or (.run.script | type) != "string"
+        or (.run.succeeds | type) != "boolean")
+      then "run needs a string dir and script and a boolean succeeds" else empty end),
+    (.known_issues // [] | .[] | select(test("^#[0-9]+ .") | not) | "known issue \(.) does not start with #<issue>")
+  ' <<<"$2"
+}
+
+structure_case() {
+  local label="$1" scenario_json="$2" want="$3" got
+  mkdir -p "${work}/structure"
+  echo "$scenario_json" >"${work}/structure/scenario.json"
+  got="$(structure_errors "${work}/structure" "$(e2e_expectation "${work}/structure" npm hoisted)")"
+  same "structure: ${label}" "$want" "$got"
+}
+
+structure_case "a well-formed expectation" \
+  '{"expect":{"exit_code":1,"after_fix":{"exit_code":0},"run":{"dir":"a","script":"t","succeeds":true}}}' ""
+structure_case "a non-zero exit code without after_fix" '{"expect":{"exit_code":1}}' \
+  "a non-zero exit_code needs after_fix"
+structure_case "a migrating scenario needs no after_fix" \
+  '{"migrate":{"from":"sherif"},"expect":{"exit_code":1,"migrate":{"exit_code":0}}}' ""
+structure_case "migrate.from without expect.migrate" '{"migrate":{"from":"sherif"},"expect":{"exit_code":0}}' \
+  "migrate.from needs expect.migrate"
+structure_case "a string exit code" '{"expect":{"exit_code":"1","after_fix":{"exit_code":0}}}' \
+  "lint: exit_code is not a non-negative integer"
+structure_case "a missing exit code" '{"expect":{}}' "lint: exit_code is not a non-negative integer"
+structure_case "a non-integer after_fix exit code" '{"expect":{"exit_code":1,"after_fix":{"exit_code":0.5}}}' \
+  "after_fix: exit_code is not a non-negative integer"
+structure_case "a run without succeeds" '{"expect":{"exit_code":0,"run":{"dir":"a","script":"t"}}}' \
+  "run needs a string dir and script and a boolean succeeds"
+structure_case "a known issue without an issue number" \
+  '{"expect":{"exit_code":0},"overrides":{"npm":{"known_issue":"a bug"}}}' \
+  "known issue a bug does not start with #<issue>"
+
 # ---------------------------------------------------------------- every committed scenario
-# Each scenario generates for every manager and linker it applies to, and its expectation evaluates, so a broken
-# overlay or a stale override fails here before it costs a package-manager install in CI.
+# Each scenario generates for every manager and linker it applies to, its expectation evaluates and has the shape
+# run.sh reads, so a broken overlay, a stale override or a missing step fails here before it costs a package-manager
+# install in CI.
+
 scenarios=0
 for fixture in fixtures/e2e/*/; do
   fixture="${fixture%/}"
@@ -230,6 +295,9 @@ for fixture in fixtures/e2e/*/; do
       dest="${work}/fixtures/$(basename "$fixture")-${pm}-${linker}"
       expect "${fixture} generates for ${pm}/${linker}" 0 e2e_generate "$fixture" "$pm" "$linker" 99.0.0 "$dest"
       expect "${fixture} expectation for ${pm}/${linker}" 0 e2e_expectation "$fixture" "$pm" "$linker"
+      while IFS= read -r error; do
+        [[ -z "$error" ]] || fail "${fixture} expectation for ${pm}/${linker}: ${error}"
+      done <<<"$(structure_errors "$fixture" "$(cat "${work}/out")")"
     done
   done
 done
