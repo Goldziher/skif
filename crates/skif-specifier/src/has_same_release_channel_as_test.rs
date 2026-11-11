@@ -364,6 +364,10 @@ fn identifiers_compare_by_their_rendered_text() {
             left.to_string() == right.to_string(),
             "{left} vs {right} should match the text comparison"
         );
-        assert_eq!(crate::same_identifier_text(&left, &right), expected, "{left} vs {right}");
+        assert_eq!(
+            crate::same_identifier_text(&left, &right),
+            expected,
+            "{left} vs {right}"
+        );
     }
 }

@@ -473,9 +473,7 @@ impl Specifier {
             Self::Range(s) => Some(&s.node_version),
             Self::RangeMajor(s) => Some(s.node_version_ref()),
             Self::RangeMinor(s) => Some(s.node_version_ref()),
-            Self::WorkspaceProtocol(s) => s
-                .as_resolved()
-                .and_then(|spec| spec.node_version_ref()),
+            Self::WorkspaceProtocol(s) => s.as_resolved().and_then(|spec| spec.node_version_ref()),
             Self::Catalog(_)
             | Self::ComplexSemver(_)
             | Self::File(_)
@@ -510,15 +508,13 @@ impl Specifier {
             Self::RangeMinor(s) => Some(s.node_range_ref()),
             Self::WorkspaceProtocol(s) => {
                 // Try resolved specifier first, otherwise check for "*" (RangeOnly(Any))
-                s.as_resolved()
-                    .and_then(|spec| spec.node_range_ref())
-                    .or_else(|| {
-                        use crate::{semver_range::SemverRange, workspace_specifier::WorkspaceSpecifier};
-                        match &s.inner_specifier {
-                            WorkspaceSpecifier::RangeOnly(SemverRange::Any) => any_range(),
-                            _ => None,
-                        }
-                    })
+                s.as_resolved().and_then(|spec| spec.node_range_ref()).or_else(|| {
+                    use crate::{semver_range::SemverRange, workspace_specifier::WorkspaceSpecifier};
+                    match &s.inner_specifier {
+                        WorkspaceSpecifier::RangeOnly(SemverRange::Any) => any_range(),
+                        _ => None,
+                    }
+                })
             }
             Self::Exact(s) => Some(&s.node_range),
             Self::Latest(_) => any_range(),
