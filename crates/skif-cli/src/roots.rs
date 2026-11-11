@@ -11,6 +11,7 @@ use skif::{
     ConfigOverrides, Diagnostic, FileSystem, Linter, Location, ModuleCache, OsFs, Report, RuleMeta, RunOptions, Target,
     Workspace, join_lexical, slash,
 };
+use skif_core::HashMap;
 
 use crate::error::{CliError, Kind};
 
@@ -248,9 +249,14 @@ pub fn settle_shared_config(runs: &mut [RootRun]) {
 
 /// Hands the dependencies that the report of root `from` uses through manifests outside it (above it, or of the files
 /// of other roots it reaches) to the innermost root holding each manifest, as the manifest path relative to that root.
-fn route_ancestor_dependency_uses(targets: &[Target], from: usize, report: &Report, uses: &mut [OtherRootUses]) {
+fn route_ancestor_dependency_uses(
+    (targets, roots): (&[Target], &RootIndex<'_>),
+    from: usize,
+    report: &Report,
+    uses: &mut [OtherRootUses],
+) {
     for (manifest_dir, name) in &report.ancestor_dependency_uses {
-        let Some(owner) = owning_root(targets, manifest_dir).filter(|owner| *owner != from) else {
+        let Some(owner) = roots.owner(manifest_dir).filter(|owner| *owner != from) else {
             continue;
         };
         if let Ok(rel) = manifest_dir.strip_prefix(&targets[owner].root) {
@@ -274,27 +280,54 @@ pub fn lint_loaded(
     Ok(linter.run_with(workspace, &options)?)
 }
 
-/// How many other roots of the run enclose each root: a root nested in no other is at depth 0.
-fn nesting_depths(targets: &[Target]) -> Vec<usize> {
-    targets
-        .iter()
-        .map(|target| {
-            targets
-                .iter()
-                .filter(|other| other.root != target.root && target.root.starts_with(&other.root))
-                .count()
-        })
-        .collect()
+/// The roots of a run by directory, so the roots around a path are found by walking its ancestors instead of testing
+/// every root.
+struct RootIndex<'a> {
+    /// How many targets have each root, and the last of them by index.
+    roots: HashMap<&'a Path, (usize, usize)>,
 }
 
-/// The innermost root of `targets` that holds the absolute file `file`, by index.
-fn owning_root(targets: &[Target], file: &Path) -> Option<usize> {
-    targets
-        .iter()
-        .enumerate()
-        .filter(|(_, target)| file.starts_with(&target.root))
-        .max_by_key(|(_, target)| target.root.components().count())
-        .map(|(index, _)| index)
+impl<'a> RootIndex<'a> {
+    /// The index of `roots`, the root directories of the targets in order.
+    fn new(roots: impl IntoIterator<Item = &'a Path>) -> Self {
+        let mut index: HashMap<&'a Path, (usize, usize)> = HashMap::default();
+        for (position, root) in roots.into_iter().enumerate() {
+            let entry = index.entry(root).or_insert((0, position));
+            *entry = (entry.0 + 1, position);
+        }
+        Self { roots: index }
+    }
+
+    /// The index of the roots of `targets`.
+    fn of(targets: &'a [Target]) -> Self {
+        Self::new(targets.iter().map(|target| target.root.as_path()))
+    }
+
+    /// How many other roots enclose the root `root`: a root nested in no other is at depth 0.
+    fn depth(&self, root: &Path) -> usize {
+        distinct_ancestors(root)
+            .skip(1)
+            .filter_map(|dir| self.roots.get(dir))
+            .map(|(count, _)| count)
+            .sum()
+    }
+
+    /// The innermost root that holds the absolute file `file`, by index.
+    fn owner(&self, file: &Path) -> Option<usize> {
+        file.ancestors()
+            .find_map(|dir| self.roots.get(dir))
+            .map(|(_, index)| *index)
+    }
+}
+
+/// The ancestors of `path`, itself first, without the repeats a `.` component makes (`/a/.` is `/a`).
+fn distinct_ancestors(path: &Path) -> impl Iterator<Item = &Path> {
+    let mut previous: Option<&Path> = None;
+    path.ancestors().filter(move |dir| {
+        let repeat = previous == Some(*dir);
+        previous = Some(*dir);
+        !repeat
+    })
 }
 
 /// Hands the files of other projects that the report of root `from` lists (absolute) to the innermost root holding
@@ -302,14 +335,14 @@ fn owning_root(targets: &[Target], file: &Path) -> Option<usize> {
 /// takes it as an entry; a file outside `from` is counted as used by its root once every root is linted, as that root
 /// may be linted already.
 fn route_other_project_files(
-    targets: &[Target],
+    (targets, roots): (&[Target], &RootIndex<'_>),
     (from, report): (usize, &Report),
     extra: &mut [BTreeSet<PathBuf>],
     uses: &mut [OtherRootUses],
 ) {
     let base = &targets[from].root;
     for abs in &report.other_project_files {
-        let Some(owner) = owning_root(targets, abs).filter(|owner| *owner != from) else {
+        let Some(owner) = roots.owner(abs).filter(|owner| *owner != from) else {
             continue;
         };
         let Ok(rel) = abs.strip_prefix(&targets[owner].root) else {
@@ -335,7 +368,8 @@ fn route_other_project_files(
 /// that owns such a file or manifest no longer reports them unused. The `stale-js-config` findings about a
 /// configuration file several roots read are left to [`settle_shared_config`]: each report holds what its root found.
 pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Result<Vec<RootRun>, CliError> {
-    let depths = nesting_depths(&targets);
+    let roots = RootIndex::of(&targets);
+    let depths: Vec<usize> = targets.iter().map(|target| roots.depth(&target.root)).collect();
     let mut extra: Vec<BTreeSet<PathBuf>> = vec![BTreeSet::new(); targets.len()];
     let mut other_root_uses: Vec<OtherRootUses> = vec![OtherRootUses::default(); targets.len()];
     let mut reports: Vec<Option<Result<Report, CliError>>> = (0..targets.len()).map(|_| None).collect();
@@ -355,16 +389,17 @@ pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Res
             .collect();
         for (index, report) in linted {
             if let Ok(report) = &report {
-                route_other_project_files(&targets, (index, report), &mut extra, &mut other_root_uses);
+                route_other_project_files((&targets, &roots), (index, report), &mut extra, &mut other_root_uses);
             }
             reports[index] = Some(report);
         }
     }
     for (index, report) in reports.iter().enumerate() {
         if let Some(Ok(report)) = report {
-            route_ancestor_dependency_uses(&targets, index, report, &mut other_root_uses);
+            route_ancestor_dependency_uses((&targets, &roots), index, report, &mut other_root_uses);
         }
     }
+    drop(roots);
     targets
         .into_iter()
         .zip(reports)
@@ -500,6 +535,62 @@ mod tests {
         assert!(matches!(prefixed(&report, Path::new("a")), Cow::Owned(_)));
         let both = [prefixed(&report, Path::new("a")), prefixed(&report, Path::new(""))];
         assert_eq!(aggregate(&both).summary.packages, 6);
+    }
+
+    /// How many roots of `roots` other than `root` enclose it, testing every root.
+    fn depth_by_scan(roots: &[&Path], root: &Path) -> usize {
+        roots
+            .iter()
+            .filter(|other| **other != root && root.starts_with(other))
+            .count()
+    }
+
+    /// The innermost root of `roots` holding `file`, testing every root.
+    fn owner_by_scan(roots: &[&Path], file: &Path) -> Option<usize> {
+        roots
+            .iter()
+            .enumerate()
+            .filter(|(_, root)| file.starts_with(root))
+            .max_by_key(|(_, root)| root.components().count())
+            .map(|(index, _)| index)
+    }
+
+    #[test]
+    fn the_root_index_finds_what_testing_every_root_finds() {
+        let roots: Vec<&Path> = ["/r", "/r/a", "/r/a/b/c", "/r/ab", "/s", "/r/a/b/c/d/e"]
+            .into_iter()
+            .map(Path::new)
+            .collect();
+        let index = RootIndex::new(roots.iter().copied());
+        let depths: Vec<usize> = roots.iter().map(|root| index.depth(root)).collect();
+        assert_eq!(depths, [0, 1, 2, 1, 0, 3]);
+        for root in &roots {
+            assert_eq!(index.depth(root), depth_by_scan(&roots, root), "{}", root.display());
+        }
+        let files = [
+            ("/r/x.js", Some(0)),
+            ("/r/a/x.js", Some(1)),
+            ("/r/a/b/x.js", Some(1)),
+            ("/r/a/b/c/x.js", Some(2)),
+            ("/r/ab/x.js", Some(3)),
+            ("/r/abc/x.js", Some(0)),
+            ("/r/a/b/c/d/e", Some(5)),
+            ("/s", Some(4)),
+            ("/t/x.js", None),
+            ("/r/a/./b/c/x.js", Some(2)),
+        ];
+        for (file, owner) in files {
+            assert_eq!(index.owner(Path::new(file)), owner, "{file}");
+            assert_eq!(owner_by_scan(&roots, Path::new(file)), owner, "{file}");
+        }
+    }
+
+    #[test]
+    fn a_dot_component_does_not_count_an_enclosing_root_twice() {
+        let roots = [Path::new("/r"), Path::new("/r/./a")];
+        let index = RootIndex::new(roots);
+        assert_eq!(index.depth(Path::new("/r/./a")), 1);
+        assert_eq!(depth_by_scan(&roots, Path::new("/r/./a")), 1);
     }
 
     #[test]

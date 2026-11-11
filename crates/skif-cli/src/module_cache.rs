@@ -171,10 +171,11 @@ impl DiskModuleCache {
             };
             Some((*key, payload))
         });
-        let bytes = encode(records);
-        *stored = decode(bytes.clone()).unwrap_or_default();
+        let next = encode(records);
+        *stored = next;
         drop(stored);
-        write_atomically(&self.file, &bytes)
+        let stored = self.stored.read().unwrap_or_else(PoisonError::into_inner);
+        write_atomically(&self.file, &stored.bytes)
     }
 }
 
@@ -218,29 +219,33 @@ fn note(debug: bool, file: &Path, reason: &str) {
     }
 }
 
-/// The bytes of a store holding `records`, which come sorted by key.
-fn encode<'a>(records: impl Iterator<Item = (ModuleKey, &'a [u8])>) -> Vec<u8> {
+/// The store holding `records`, which come sorted by key: its bytes, and the index [`decode`] would build from them.
+fn encode<'a>(records: impl Iterator<Item = (ModuleKey, &'a [u8])>) -> Stored {
     let version = skif::module_cache_version();
-    let mut body = Vec::new();
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&MAGIC);
+    bytes.extend_from_slice(&FORMAT.to_le_bytes());
+    bytes.extend_from_slice(&u32::try_from(version.len()).unwrap_or(u32::MAX).to_le_bytes());
+    bytes.extend_from_slice(version.as_bytes());
+    // The count is known once the records are written; it is filled in then.
+    let count_at = bytes.len();
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    let mut index = BTreeMap::new();
     let mut count: u32 = 0;
     for (key, payload) in records {
         // A payload over 4 GiB cannot be framed; leaving it out is a miss on the next run.
         let Ok(length) = u32::try_from(payload.len()) else {
             continue;
         };
-        body.extend_from_slice(&key.to_bytes());
-        body.extend_from_slice(&length.to_le_bytes());
-        body.extend_from_slice(payload);
+        bytes.extend_from_slice(&key.to_bytes());
+        bytes.extend_from_slice(&length.to_le_bytes());
+        let start = bytes.len();
+        bytes.extend_from_slice(payload);
+        index.insert(key, start..bytes.len());
         count += 1;
     }
-    let mut bytes = Vec::with_capacity(body.len() + 32 + version.len());
-    bytes.extend_from_slice(&MAGIC);
-    bytes.extend_from_slice(&FORMAT.to_le_bytes());
-    bytes.extend_from_slice(&u32::try_from(version.len()).unwrap_or(u32::MAX).to_le_bytes());
-    bytes.extend_from_slice(version.as_bytes());
-    bytes.extend_from_slice(&count.to_le_bytes());
-    bytes.extend_from_slice(&body);
-    bytes
+    bytes[count_at..count_at + 4].copy_from_slice(&count.to_le_bytes());
+    Stored { bytes, index }
 }
 
 /// Reads bytes off the front of a store, every length bounded by what is left.
@@ -498,10 +503,25 @@ mod tests {
     }
 
     #[test]
+    fn an_encoded_store_carries_the_index_decoding_it_builds() {
+        let mut keys = [ModuleKey::from_bytes([2; 16]), ModuleKey::from_bytes([1; 16])];
+        keys.sort();
+        let records = [(keys[0], &b"first"[..]), (keys[1], &b"second payload"[..])];
+        let encoded = encode(records.into_iter());
+        let decoded = decode(encoded.bytes.clone()).unwrap();
+        assert_eq!(encoded.index, decoded.index);
+        assert_eq!(encoded.index.len(), 2);
+        assert_eq!(&encoded.bytes[encoded.index[&keys[1]].clone()], b"second payload");
+        let empty = encode(std::iter::empty());
+        assert!(empty.index.is_empty());
+        assert!(decode(empty.bytes).unwrap().index.is_empty());
+    }
+
+    #[test]
     fn a_payload_that_does_not_decode_is_a_miss() {
         let dir = tempfile::tempdir().unwrap();
         let (a, _) = module("export const a = 1;\n");
-        std::fs::write(file(dir.path()), encode([(a, &b"not json"[..])].into_iter())).unwrap();
+        std::fs::write(file(dir.path()), encode([(a, &b"not json"[..])].into_iter()).bytes).unwrap();
         let cache = DiskModuleCache::load(dir.path(), false);
         assert_eq!(cache.stored.read().unwrap().index.len(), 1);
         assert!(cache.get(a).is_none());
