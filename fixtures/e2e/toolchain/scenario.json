@@ -1,0 +1,40 @@
+{
+  "description": "Toolchain pins and commands outside package.json: a Dockerfile whose Node base image is older than the root's engines.node, and one install script per manager, of which all but the workspace's are foreign.",
+  "expect": {
+    "exit_code": 0,
+    "diagnostics": [
+      "toolchain-pin-drift:e2e-toolchain in Dockerfile",
+      "foreign-package-manager-command:e2e-toolchain in scripts/install-npm.sh",
+      "foreign-package-manager-command:e2e-toolchain in scripts/install-pnpm.sh",
+      "foreign-package-manager-command:e2e-toolchain in scripts/install-yarn.sh",
+      "foreign-package-manager-command:e2e-toolchain in scripts/install-bun.sh"
+    ]
+  },
+  "overrides": {
+    "npm": {
+      "remove": [
+        "foreign-package-manager-command:e2e-toolchain in scripts/install-npm.sh"
+      ]
+    },
+    "pnpm": {
+      "remove": [
+        "foreign-package-manager-command:e2e-toolchain in scripts/install-pnpm.sh"
+      ]
+    },
+    "yarn": {
+      "remove": [
+        "foreign-package-manager-command:e2e-toolchain in scripts/install-yarn.sh"
+      ]
+    },
+    "yarn-classic": {
+      "remove": [
+        "foreign-package-manager-command:e2e-toolchain in scripts/install-yarn.sh"
+      ]
+    },
+    "bun": {
+      "remove": [
+        "foreign-package-manager-command:e2e-toolchain in scripts/install-bun.sh"
+      ]
+    }
+  }
+}

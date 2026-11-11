@@ -1,9 +1,0 @@
-{
-  "name": "e2e-bun-clean",
-  "version": "0.0.0",
-  "private": true,
-  "packageManager": "bun@1.2.20",
-  "workspaces": [
-    "packages/*"
-  ]
-}

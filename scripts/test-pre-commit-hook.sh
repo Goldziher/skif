@@ -13,6 +13,8 @@ set -euo pipefail
   exit 2
 }
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=e2e/lib.sh
+source "${repo_root}/scripts/e2e/lib.sh"
 skif="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 runner="${PRE_COMMIT:-pre-commit}"
 [[ -x "$skif" ]] || {
@@ -37,12 +39,11 @@ fail() {
   failures=$((failures + 1))
 }
 
-# make_project <dir-name> <fixture> <hook>: a git repository holding a copy of the fixture and a config using the hook.
+# make_project <dir-name> <scenario> <hook>: a git repository holding the end-to-end scenario generated as an npm
+# workspace and a config using the hook. Nothing is installed, so the npm version of the pin is only test input.
 make_project() {
-  local fixture="$2" hook="$3" dir="${work}/$1"
-  mkdir -p "$dir"
-  cp -R "${repo_root}/fixtures/e2e/npm/${fixture}/." "$dir/"
-  rm -f "${dir}/expected.json"
+  local scenario="$2" hook="$3" dir="${work}/$1"
+  e2e_generate "${repo_root}/fixtures/e2e/${scenario}" npm hoisted 11.6.2 "$dir" || return
   cat >"${dir}/.pre-commit-config.yaml" <<YAML
 repos:
   - repo: ${repo_root}

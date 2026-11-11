@@ -1,0 +1,9 @@
+{
+  "name": "e2e-standalone",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "is-number": "7.0.0",
+    "semver": "7.7.2"
+  }
+}
