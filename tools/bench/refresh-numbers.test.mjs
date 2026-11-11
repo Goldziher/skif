@@ -174,6 +174,19 @@ test("a summary measured from a checkout with local changes is refused", () => {
   ]);
 });
 
+test("the provenance sentence names the harness commit when it is not the measured one", () => {
+  const older = summary();
+  older.source_rev = "fedcba987654";
+  assert.ok(
+    provenance(older).startsWith(
+      "Medians of 15 runs after 3 warmup runs (hyperfine 1.20.0), skif 0.3.0 at `fedcba987654` built with " +
+        "rustc 1.99.0 (0123abcd 2026-10-01) (measured by the harness at `0123456789ab`) against knip 6.44.1, ",
+    ),
+    provenance(older),
+  );
+  assert.ok(!provenance(summary()).includes("measured by the harness"));
+});
+
 test("the provenance sentence takes the machine line the harness wrote, not one of its own", () => {
   const other = summary();
   other.machine_text = "unknown OS, aarch64, unknown CPU, 2 logical CPUs";

@@ -137,11 +137,13 @@ export function provenance(summary) {
     .join(", ");
   const { github } = summary.machine;
   const rustc = summary.toolchain.rustc == null ? "" : ` built with ${summary.toolchain.rustc}`;
+  const harness =
+    summary.harness_rev === summary.source_rev ? "" : ` (measured by the harness at \`${summary.harness_rev}\`)`;
   const attempt = github?.run_attempt == null ? "" : `, attempt ${github.run_attempt}`;
   const run = github?.run_url == null ? "" : ` ([workflow run${attempt}](${github.run_url}))`;
   return (
     `Medians of ${summary.runs} runs after ${summary.warmup} warmup runs (${summary.hyperfine}), ` +
-    `${summary.skif} at \`${summary.source_rev}\`${rustc} against ${tools}, measured on ` +
+    `${summary.skif} at \`${summary.source_rev}\`${rustc}${harness} against ${tools}, measured on ` +
     `${date(summary.measured_at)} on ${runnerText(github)}${summary.machine_text}, load average ` +
     `${load(summary.load_before)} before and ${load(summary.load_after)} after the run${run}.`
   );
