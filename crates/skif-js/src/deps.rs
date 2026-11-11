@@ -172,7 +172,7 @@ const PNPM_WITHOUT_NPMRC_SETTINGS: u64 = 11;
 /// linker. A member's `.npmrc`, the user's `.npmrc`, the environment and `pnpm install --node-linker` are not read.
 fn pnpm_hoisted(workspace: &Workspace, fs: &dyn FileSystem) -> bool {
     let reads_npmrc = declared_version(workspace, "pnpm")
-        .and_then(|version| version.split('.').next()?.parse::<u64>().ok())
+        .and_then(major_of)
         .is_none_or(|major| major < PNPM_WITHOUT_NPMRC_SETTINGS);
     let linker = workspace
         .pnpm_workspace
@@ -369,10 +369,13 @@ pub struct UnlistedConfigDependency {
     pub readers: Vec<PackageId>,
 }
 
-/// The binaries and peer dependencies a package declares.
+/// The binaries, peer dependencies and version a package declares.
 pub(crate) struct Installed {
     pub(crate) bins: Vec<String>,
     pub(crate) peers: Vec<String>,
+    /// The `version` of its manifest; `None` when it has none, and for a package known only from the lockfile, whose
+    /// packages are read without one.
+    pub(crate) version: Option<String>,
 }
 
 /// The binary names a manifest declares: the package's own name for a `bin` string, the keys of a `bin` map.
@@ -445,6 +448,11 @@ fn read_installed(
     }
 }
 
+/// The `version` of a manifest.
+fn version_of(manifest: &Value) -> Option<String> {
+    manifest.get("version").and_then(Value::as_str).map(str::to_owned)
+}
+
 fn parse_installed(fs: &dyn FileSystem, dir: &Path, text: &str, name: &str) -> Option<Arc<Installed>> {
     let value: Value = serde_json::from_str(text).ok()?;
     let bins = if value.get("bin").is_some() {
@@ -455,6 +463,7 @@ fn parse_installed(fs: &dyn FileSystem, dir: &Path, text: &str, name: &str) -> O
     Some(Arc::new(Installed {
         bins,
         peers: peers_of(&value),
+        version: version_of(&value),
     }))
 }
 
@@ -598,37 +607,20 @@ fn project_ambient_types(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)],
 
 /// The major version of TypeScript that `package` compiles with: that of the `typescript` installed in the nearest
 /// `node_modules` from its directory up to the workspace root, else the lowest version the `typescript` range it lists
-/// admits, else the one the root manifest lists. `None` when none of them names a version.
-fn typescript_major(fs: &dyn FileSystem, workspace: &Workspace, package: &Package) -> Option<u64> {
-    installed_typescript_major(fs, &workspace.root.join(&package.dir), &workspace.root)
+/// admits, else `root_declared`, the one the root manifest lists. `None` when none of them names a version.
+/// `installed` holds the `typescript` manifests read so far, by path.
+fn typescript_major(
+    fs: &dyn FileSystem,
+    workspace: &Workspace,
+    package: &Package,
+    installed: &mut HashMap<PathBuf, Option<Arc<Installed>>>,
+    root_declared: Option<u64>,
+) -> Option<u64> {
+    let dir = workspace.root.join(&package.dir);
+    read_installed(fs, &dir, &workspace.root, "typescript", installed)
+        .and_then(|typescript| typescript.version.as_deref().and_then(major_of))
         .or_else(|| declared_typescript_major(workspace, package))
-        .or_else(|| {
-            workspace
-                .package(PackageId::ROOT)
-                .and_then(|root| declared_typescript_major(workspace, root))
-        })
-}
-
-/// The major version of the `typescript` installed in the nearest `node_modules` from `start` up to `root`.
-fn installed_typescript_major(fs: &dyn FileSystem, start: &Path, root: &Path) -> Option<u64> {
-    let mut dir = start;
-    loop {
-        let manifest = dir.join("node_modules").join("typescript").join("package.json");
-        if let Ok(text) = fs.read_to_string(&manifest) {
-            return serde_json::from_str::<Value>(&text)
-                .ok()?
-                .get("version")
-                .and_then(Value::as_str)
-                .and_then(major_of);
-        }
-        if dir == root {
-            return None;
-        }
-        dir = dir.parent()?;
-        if !dir.starts_with(root) {
-            return None;
-        }
-    }
+        .or(root_declared)
 }
 
 /// The major version of the lowest version the `typescript` ranges of `package` admit, a `catalog:` reference read
@@ -900,6 +892,7 @@ impl DependencyUsage {
                 let installed = Installed {
                     bins: bins_of(manifest, &name),
                     peers: peers_of(manifest),
+                    version: version_of(manifest),
                 };
                 Some((name, Arc::new(installed)))
             })
@@ -955,13 +948,19 @@ impl DependencyUsage {
     fn collect_ambient_types(&mut self, workspace: &Workspace, setup: &Setup, tsconfigs: &TsconfigMemo<'_>) {
         const TYPES_DEFAULT_EMPTY_SINCE: u64 = 6;
         let members = member_dirs(workspace);
+        let mut installed = HashMap::new();
+        let root_declared = workspace
+            .package(PackageId::ROOT)
+            .and_then(|root| declared_typescript_major(workspace, root));
         for (id, package) in workspace.iter() {
             let tsconfig = setup.tsconfig_of(workspace, package);
             let includes_all = match project_ambient_types(tsconfigs, &members, &tsconfig) {
                 AmbientTypes::Narrowed => false,
                 AmbientTypes::Every => true,
-                AmbientTypes::Default => typescript_major(tsconfigs.fs, workspace, package)
-                    .is_none_or(|major| major < TYPES_DEFAULT_EMPTY_SINCE),
+                AmbientTypes::Default => {
+                    typescript_major(tsconfigs.fs, workspace, package, &mut installed, root_declared)
+                        .is_none_or(|major| major < TYPES_DEFAULT_EMPTY_SINCE)
+                }
             };
             if !includes_all {
                 continue;

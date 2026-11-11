@@ -57,6 +57,7 @@ pub(crate) fn read(fs: &dyn FileSystem, root: &Path) -> Locked {
             let installed = Installed {
                 bins: entry.bins.into_iter().collect(),
                 peers: entry.peers.into_iter().collect(),
+                version: None,
             };
             (name, Arc::new(installed))
         })

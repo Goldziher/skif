@@ -594,6 +594,45 @@ fn a_solution_tsconfig_is_judged_by_the_configs_it_references() {
     assert_eq!(unused_types_among("^6.0.0", &configs), Vec::<String>::new());
 }
 
+#[test]
+fn a_typescript_6_prerelease_counts_as_typescript_6() {
+    assert_eq!(
+        unused_types("^5.4.0", Some("6.0.0-beta"), PLAIN_TSCONFIG),
+        strings(&["@types/chrome"])
+    );
+    assert_eq!(
+        unused_types("6.1.0-dev.20261101", None, PLAIN_TSCONFIG),
+        strings(&["@types/chrome"])
+    );
+}
+
+#[test]
+fn a_member_follows_the_nearest_typescript_install() {
+    let member = r#"{"name":"app","private":true,"main":"src/index.ts","devDependencies":{"@types/chrome":"0.0.1"}}"#;
+    let root = r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#;
+    let five = installed_typescript("5.9.3");
+    let six = installed_typescript("6.0.2");
+    // The member's own install, then the root's; an unreadable manifest on the way is passed over.
+    for (own, at_root, expected) in [
+        (Some(five.as_str()), six.as_str(), Vec::new()),
+        (Some(six.as_str()), five.as_str(), strings(&["@types/chrome"])),
+        (Some("{not json"), six.as_str(), strings(&["@types/chrome"])),
+        (None, six.as_str(), strings(&["@types/chrome"])),
+    ] {
+        let mut files = vec![
+            ("package.json", root),
+            ("packages/app/package.json", member),
+            ("packages/app/tsconfig.json", PLAIN_TSCONFIG),
+            ("packages/app/src/index.ts", "export const a = 1;\n"),
+            ("node_modules/typescript/package.json", at_root),
+        ];
+        if let Some(own) = own {
+            files.push(("packages/app/node_modules/typescript/package.json", own));
+        }
+        assert_eq!(unused_types_of(&files), expected, "{own:?} {at_root}");
+    }
+}
+
 /// The `@types` packages of the workspace of `files` that `unused-dev-dependencies` reports.
 fn unused_types_of(files: &[(&str, &str)]) -> Vec<String> {
     names(&lint(files), "unused-dev-dependencies")
