@@ -102,8 +102,11 @@ All notable changes to this project are documented here. The format follows
   run on Linux. The scenarios are shared across managers in `fixtures/e2e` and cover catalogs, `-r` over nested and
   standalone roots, JS analysis against the installed layout, `skif baseline`, `skif migrate` and toolchain pins. Each
   root pins `packageManager` to the version under test, which the previous-major jobs of pnpm and Yarn did not: they
-  ran the release the fixtures pinned. `scripts/test-e2e-scripts.sh` tests the scenario generator and the version
-  resolution.
+  ran the release the fixtures pinned. The analysis scenario runs a member's binary with the manager under each
+  linker, so which layouts provide it is proven, and an expectation that records a skif bug names its issue and is
+  printed as a known issue (pnpm's hoisted linker, [#146](https://github.com/Goldziher/skif/issues/146)).
+  `scripts/test-e2e-scripts.sh` tests the scenario generator, the version resolution and the shape of every
+  scenario's expectation.
 - **Breaking** for library users that match `skif_js_syntax::ConfigValue` exhaustively: it gains `OneOf`, a value that
   is one of several known values without knowing which. The evaluator gives it for a condition it cannot decide
   between values it knows (`process.env.CI ? 'github' : 'list'`, `[ci ? 'blob' : 'list']`, a binding one branch
