@@ -184,7 +184,12 @@ pub struct OsFs;
 
 impl FileSystem for OsFs {
     fn read_to_string(&self, path: &Path) -> io::Result<Arc<str>> {
-        std::fs::read_to_string(path).map(Arc::from)
+        let bytes = std::fs::read(path)?;
+        // Validated with SIMD, several times faster than `str::from_utf8` on the large files a workspace holds; the
+        // error is the one `fs::read_to_string` gives.
+        let text = simdutf8::basic::from_utf8(&bytes)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "stream did not contain valid UTF-8"))?;
+        Ok(Arc::from(text))
     }
 
     fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
@@ -409,6 +414,30 @@ mod tests {
         );
         assert_eq!(&*OsFs.read_to_string(&dir.path().join("b.txt")).unwrap(), "hello");
         assert!(OsFs.is_dir(dir.path()) && OsFs.is_file(&dir.path().join("a.txt")));
+    }
+
+    #[test]
+    fn os_reads_fail_on_invalid_utf8_as_the_standard_library_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let text = "r\u{e9}act \u{65e5}\u{672c} \u{1f600}\n";
+        std::fs::write(dir.path().join("valid.txt"), text).unwrap();
+        assert_eq!(&*OsFs.read_to_string(&dir.path().join("valid.txt")).unwrap(), text);
+        for bytes in [&b"ok \xff"[..], b"\xc3", b"a\xed\xa0\x80b"] {
+            let path = dir.path().join("invalid.txt");
+            std::fs::write(&path, bytes).unwrap();
+            let ours = OsFs.read_to_string(&path).unwrap_err();
+            let expected = std::fs::read_to_string(&path).unwrap_err();
+            assert_eq!(ours.kind(), io::ErrorKind::InvalidData, "{bytes:?}");
+            assert_eq!(
+                (ours.kind(), ours.to_string()),
+                (expected.kind(), expected.to_string()),
+                "{bytes:?}"
+            );
+        }
+        assert_eq!(
+            OsFs.read_to_string(&dir.path().join("missing.txt")).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
     }
 
     #[cfg(unix)]
