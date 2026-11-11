@@ -206,7 +206,7 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
                 action: JsonAction::Remove,
                 ..
             } => {
-                doc.queue_removal(&mut removals, &describe::op(op), index, pointer)?;
+                doc.queue_removal(&mut removals, op, index, pointer)?;
                 Vec::new()
             }
             FixOp::Json {
@@ -216,13 +216,7 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
                 },
                 ..
             } => {
-                doc.queue_insertion(
-                    &mut insertions,
-                    &describe::op(op),
-                    index,
-                    pointer,
-                    (key.as_str(), value, *position),
-                )?;
+                doc.queue_insertion(&mut insertions, op, index, pointer, (key.as_str(), value, *position))?;
                 Vec::new()
             }
             FixOp::Json {
@@ -230,7 +224,7 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
                 action: JsonAction::SortKeys,
                 ..
             } => {
-                for (edit, from) in doc.sort_edits(&describe::op(op), pointer)? {
+                for (edit, from) in doc.sort_edits(op, pointer)? {
                     moves.push((planned.len(), from));
                     planned.push(Planned {
                         op: index,
@@ -241,7 +235,7 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
                 }
                 Vec::new()
             }
-            FixOp::Json { pointer, action, .. } => doc.edits(&describe::op(op), pointer, action)?,
+            FixOp::Json { pointer, action, .. } => doc.edits(op, pointer, action)?,
             FixOp::Text { edit, .. } => {
                 // Text edits address the whole source, byte order mark included.
                 texts.push(Planned {
@@ -335,8 +329,8 @@ struct Doc<'s, 'a> {
 }
 
 impl<'a> Doc<'_, 'a> {
-    fn edits(&self, op: &str, pointer: &[PathSeg], action: &JsonAction) -> Result<Vec<Edit>, EditPlanError> {
-        let target = locate(&self.root, pointer).ok_or_else(|| EditPlanError::PathNotFound { op: op.to_owned() })?;
+    fn edits(&self, op: &FixOp, pointer: &[PathSeg], action: &JsonAction) -> Result<Vec<Edit>, EditPlanError> {
+        let target = locate(&self.root, pointer).ok_or_else(|| EditPlanError::PathNotFound { op: describe::op(op) })?;
         match action {
             JsonAction::Set(value) => {
                 let parent = target.parent.as_ref().map(|(holder, _)| holder);
@@ -346,7 +340,7 @@ impl<'a> Doc<'_, 'a> {
             // `Remove`, `Insert` and `SortKeys` are planned per container; any action added later has no in-place JSON
             // edit.
             _ => Err(EditPlanError::Unsupported {
-                op: op.to_owned(),
+                op: describe::op(op),
                 kind: FileKind::Json,
             }),
         }
@@ -407,10 +401,10 @@ impl<'a> Doc<'_, 'a> {
         InlineSpacing { comma, colon }
     }
 
-    fn rename(op: &str, target: Located<'_, '_>, new_key: &str) -> Result<Vec<Edit>, EditPlanError> {
+    fn rename(op: &FixOp, target: Located<'_, '_>, new_key: &str) -> Result<Vec<Edit>, EditPlanError> {
         let Some((holder, index)) = target.parent.filter(|(holder, _)| holder.is_object) else {
             return Err(EditPlanError::WrongNodeKind {
-                op: op.to_owned(),
+                op: describe::op(op),
                 expected: "an object member",
             });
         };
@@ -420,7 +414,7 @@ impl<'a> Doc<'_, 'a> {
         }
         if holder.members.iter().any(|other| other.key == Some(new_key)) {
             return Err(EditPlanError::DuplicateKey {
-                op: op.to_owned(),
+                op: describe::op(op),
                 key: new_key.to_owned(),
             });
         }
@@ -429,12 +423,12 @@ impl<'a> Doc<'_, 'a> {
     }
 
     /// The edits sorting the object at `pointer`, each with the byte range of the member whose text it writes.
-    fn sort_edits(&self, op: &str, pointer: &[PathSeg]) -> Result<Vec<MovedEdit>, EditPlanError> {
-        let target = locate(&self.root, pointer).ok_or_else(|| EditPlanError::PathNotFound { op: op.to_owned() })?;
+    fn sort_edits(&self, op: &FixOp, pointer: &[PathSeg]) -> Result<Vec<MovedEdit>, EditPlanError> {
+        let target = locate(&self.root, pointer).ok_or_else(|| EditPlanError::PathNotFound { op: describe::op(op) })?;
         let holder = container(target.value)
             .filter(|holder| holder.is_object)
             .ok_or_else(|| EditPlanError::WrongNodeKind {
-                op: op.to_owned(),
+                op: describe::op(op),
                 expected: "an object",
             })?;
         Ok(self.sort_keys(&holder))
@@ -464,18 +458,18 @@ impl<'a> Doc<'_, 'a> {
     fn queue_insertion<'b>(
         &'b self,
         insertions: &mut HashMap<usize, Insertions<'a, 'b>>,
-        op: &str,
+        op: &FixOp,
         op_index: usize,
         pointer: &[PathSeg],
         (key, value, position): (&str, &serde_json::Value, InsertPosition),
     ) -> Result<(), EditPlanError> {
         let Located { value: target, parent } =
-            locate(&self.root, pointer).ok_or_else(|| EditPlanError::PathNotFound { op: op.to_owned() })?;
+            locate(&self.root, pointer).ok_or_else(|| EditPlanError::PathNotFound { op: describe::op(op) })?;
         let holder =
             container(target)
                 .filter(|holder| holder.is_object)
                 .ok_or_else(|| EditPlanError::WrongNodeKind {
-                    op: op.to_owned(),
+                    op: describe::op(op),
                     expected: "an object",
                 })?;
         insertions
@@ -641,13 +635,13 @@ impl<'a> Doc<'_, 'a> {
     fn queue_removal<'b>(
         &'b self,
         removals: &mut HashMap<usize, Removals<'a, 'b>>,
-        op: &str,
+        op: &FixOp,
         op_index: usize,
         pointer: &[PathSeg],
     ) -> Result<(), EditPlanError> {
-        let target = locate(&self.root, pointer).ok_or_else(|| EditPlanError::PathNotFound { op: op.to_owned() })?;
+        let target = locate(&self.root, pointer).ok_or_else(|| EditPlanError::PathNotFound { op: describe::op(op) })?;
         let (holder, index) = target.parent.ok_or_else(|| EditPlanError::WrongNodeKind {
-            op: op.to_owned(),
+            op: describe::op(op),
             expected: "a removable member",
         })?;
         removals
