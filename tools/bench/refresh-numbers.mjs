@@ -14,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..", "..");
 
-export const SUMMARY_SCHEMA = 3;
+export const SUMMARY_SCHEMA = 4;
 const SKIF = "skif";
 const SKIF_MANIFEST = "skif --no-js";
 const SHERIF = "sherif";
@@ -49,36 +49,8 @@ export function duration(milliseconds) {
   return `${milliseconds.toFixed(1)} ms`;
 }
 
-const oneLine = (text) => text.split(/\s+/).filter(Boolean).join(" ");
-const gib = (bytes) => (bytes / 2 ** 30).toFixed(1);
 const RUNNER_ENVIRONMENTS = { "github-hosted": "GitHub-hosted", "self-hosted": "self-hosted" };
 const CHECK_LABELS = { pass: "pass", fail: "FAIL", invalid: "invalid" };
-
-/**
- * The machine in one line, as the `Machine:` line of `summary.md` writes it: operating system, kernel, architecture,
- * CPU model, CPUs, memory, cgroup limit and hypervisor; an unknown OS or CPU is named as such, any other unknown fact
- * is left out.
- */
-export function machineText(machine) {
-  const logical = machine.logical_cpus ?? machine.available_cpus;
-  let cpus = `${logical} logical CPUs`;
-  if (machine.physical_cores != null) cpus += ` (${machine.physical_cores} physical cores)`;
-  if (machine.logical_cpus != null && machine.available_cpus < machine.logical_cpus) {
-    cpus += `, ${machine.available_cpus} available to the run`;
-  }
-  return [
-    machine.os == null ? "unknown OS" : oneLine(machine.os),
-    machine.kernel == null ? null : oneLine(machine.kernel),
-    machine.arch,
-    machine.cpu == null ? "unknown CPU" : oneLine(machine.cpu),
-    cpus,
-    machine.memory_bytes == null ? null : `${gib(machine.memory_bytes)} GiB memory`,
-    machine.cgroup_cpu_limit == null ? null : `cgroup limit of ${machine.cgroup_cpu_limit} CPUs`,
-    machine.virtualization == null ? null : `hypervisor ${oneLine(machine.virtualization)}`,
-  ]
-    .filter((part) => part != null)
-    .join(", ");
-}
 
 /** The runner of a workflow run with its image, before the machine; empty outside GitHub Actions. */
 function runnerText(github) {
@@ -170,7 +142,7 @@ export function provenance(summary) {
   return (
     `Medians of ${summary.runs} runs after ${summary.warmup} warmup runs (${summary.hyperfine}), ` +
     `${summary.skif} at \`${summary.source_rev}\`${rustc} against ${tools}, measured on ` +
-    `${date(summary.measured_at)} on ${runnerText(github)}${machineText(summary.machine)}, load average ` +
+    `${date(summary.measured_at)} on ${runnerText(github)}${summary.machine_text}, load average ` +
     `${load(summary.load_before)} before and ${load(summary.load_after)} after the run${run}.`
   );
 }

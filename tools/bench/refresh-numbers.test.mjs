@@ -8,7 +8,6 @@ import {
   benchDetail,
   benchSummary,
   duration,
-  machineText,
   markers,
   parityAgreement,
   provenance,
@@ -56,12 +55,15 @@ function machine() {
 
 function summary() {
   return {
-    schema: 3,
+    schema: 4,
     skif: "skif 0.3.0",
     source_rev: "0123456789ab",
     harness_rev: "0123456789ab",
     measured_at: 1_794_268_800,
     machine: machine(),
+    machine_text:
+      "Ubuntu 24.04.3 LTS, Linux 6.11.0-1018-azure, x86_64, AMD EPYC 7763 64-Core Processor, 4 logical CPUs " +
+      "(2 physical cores), 15.6 GiB memory, hypervisor Microsoft",
     toolchain: {
       rustc: "rustc 1.99.0 (0123abcd 2026-10-01)",
       node: "v26.13.0",
@@ -172,28 +174,16 @@ test("a summary measured from a checkout with local changes is refused", () => {
   ]);
 });
 
-test("the machine line names unknown facts and leaves out missing ones, as summary.md does", () => {
-  const bare = {
-    os: null,
-    kernel: null,
-    arch: "aarch64",
-    cpu: null,
-    logical_cpus: null,
-    available_cpus: 2,
-    physical_cores: null,
-    memory_bytes: null,
-    cgroup_cpu_limit: null,
-    virtualization: null,
-    github: null,
-  };
-  assert.equal(machineText(bare), "unknown OS, aarch64, unknown CPU, 2 logical CPUs");
-  assert.equal(
-    machineText({ ...bare, logical_cpus: 8, cgroup_cpu_limit: 1.5 }),
-    "unknown OS, aarch64, unknown CPU, 8 logical CPUs, 2 available to the run, cgroup limit of 1.5 CPUs",
-  );
-  assert.equal(
-    machineText({ ...bare, cpu: "Neoverse-N2  \n", memory_bytes: 2 ** 30 }),
-    "unknown OS, aarch64, Neoverse-N2, 2 logical CPUs, 1.0 GiB memory",
+test("the provenance sentence takes the machine line the harness wrote, not one of its own", () => {
+  const other = summary();
+  other.machine_text = "unknown OS, aarch64, unknown CPU, 2 logical CPUs";
+  const sentence = provenance(other);
+  assert.ok(
+    sentence.includes(
+      " on a GitHub-hosted runner, image ubuntu24 20261102.1.0, unknown OS, aarch64, unknown CPU, 2 logical CPUs, " +
+        "load average ",
+    ),
+    sentence,
   );
 });
 
@@ -206,8 +196,8 @@ test("a skipped tool, a missing row or an old schema is a problem", () => {
     "corpus: babel (yarn) has no knip --reporter json row",
   ]);
   assert.match(
-    summaryProblems({ ...summary(), schema: 2 })[0],
-    /schema 2 is not 3; measure again with the bench workflow/,
+    summaryProblems({ ...summary(), schema: 3 })[0],
+    /schema 3 is not 4; measure again with the bench workflow/,
   );
   assert.deepEqual(summaryProblems({ ...summary(), corpus_only: ["babel", "vue-core"] }), [
     "the run timed only some corpus repositories (babel, vue-core); a partial run is not published",

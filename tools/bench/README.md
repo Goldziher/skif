@@ -18,33 +18,36 @@ with `--warmup` and `--runs`) on two kinds of targets:
 `sherif`, `syncpack` and `knip` are the versions pinned under `[tools]` in `corpus.toml`, where their versions are
 declared. `tools/package.json` and `tools/package-lock.json` repeat them and pin every package they depend on; the
 harness refuses to load `corpus.toml` when the lock's root dependencies or its installed `node_modules/<tool>` versions
-differ from `[tools]`. To bump a tool, change `[tools]` and `tools/package.json`, then run
-`npm install --package-lock-only --ignore-scripts` in `tools/`. `run` copies the two files into
-`target/bench-generated/tools`, installs them there once with `npm ci --ignore-scripts` and times the executables in
-its `node_modules/.bin` directly, so no `npx` resolution is timed and nothing on `PATH` is used. A tool that cannot be
-installed (no `npm`, a failed install), or knip on a corpus repository whose install failed, is left out and recorded
-with the reason under `skipped_tools`. Results go to `target/bench-results/` (or `--out`): `summary.md` (tables plus the
-ADR checks), `summary.json` (schema 3: skif version, the commit of the skif source it was built from with a `-dirty`
-flag (`--skif-source`, else the harness's own checkout) and the harness's commit, the machine record, the toolchain, the
-load average before and after the run, hyperfine version, each comparison tool's `--version`, the corpus repositories
-of an `--only` run, every target with mean, stddev, median, min and max in ms and the number of runs that exited with
-an error, and for an installed corpus repository `installed_with`, the package manager and the `--version` it reports
-in the checkout (where corepack resolves the repository's `packageManager`) or the repository's `install-command`, the
-skipped tools and the checks), and one raw hyperfine export per target under `raw/`. The machine record
-holds the operating system (`PRETTY_NAME` of `/etc/os-release`, `sw_vers` on macOS), the kernel (`uname -sr`), the
-architecture, the CPU model (`/proc/cpuinfo`, `lscpu` for Arm, `sysctl` on macOS), the logical CPUs, those the process
-may use and the physical cores, the total memory, the cgroup CPU limit, the hypervisor, and in a GitHub Actions job the
-runner image (`ImageOS`, `ImageVersion`), `RUNNER_OS`, `RUNNER_ARCH`, `RUNNER_ENVIRONMENT`, `RUNNER_NAME` and the URL
-of the run; the toolchain holds the `--version` of `rustc`, `node`, `npm`, `pnpm`, `yarn` and `bun` on `PATH`, probed
-in a directory without a `package.json` (so a corepack shim reports its default, not a corpus repository's version). A fact
-that cannot be read is `null`. `--only NAME,...` times only those repositories of the bench corpus. `run` exits non-zero when an ADR 0001 check fails, after
-writing the summary; `--no-enforce` turns that off. A status of 1 is a complete run that reported findings; a run that
-exits with a status above 1 (knip's exit code when it fails or cannot load a configuration file) or by a signal is an
-error, since its time may be that of a partial run. Such a tool is run once more outside hyperfine, the end of its
-stderr goes to the log and its error line to `error_output` in the summary and under its table, and an ADR 0001 check
-that compares it is `invalid` (not measured) instead of `pass` or `FAIL`; only `FAIL` makes `run` exit non-zero. A corpus repository's `bench-knip-args` in `corpus.toml` are passed to knip, so it reads the files skif
-reads (npm-cli sets `--no-gitignore`), and skif runs with `--recursive` where the repository sets `recursive` (babel),
-as `parity` runs it. hyperfine 1.x and 2.x exports are both read.
+differ from `[tools]`. To bump a tool, change `[tools]` and `tools/package.json`, then run `npm install
+--package-lock-only --ignore-scripts` in `tools/`. `run` copies the two files into `target/bench-generated/tools`,
+installs them there once with `npm ci --ignore-scripts` and times the executables in its `node_modules/.bin` directly,
+so no `npx` resolution is timed and nothing on `PATH` is used. A tool that cannot be installed (no `npm`, a failed
+install), or knip on a corpus repository whose install failed, is left out and recorded with the reason under
+`skipped_tools`. Results go to `target/bench-results/` (or `--out`): `summary.md` (tables plus the ADR checks),
+`summary.json` (schema 4: skif version, the commit of the skif source it was built from with a `-dirty` flag
+(`--skif-source`, else the harness's own checkout) and the harness's commit, the machine record and the one line
+`machine_text` that `summary.md` and the published tables print, the toolchain, the load average before and after the
+run, hyperfine version, each comparison tool's `--version`, the corpus repositories of an `--only` run, every target
+with mean, stddev, median, min and max in ms and the number of runs that exited with an error, and for an installed
+corpus repository `installed_with`, the package manager and the `--version` it reports in the checkout (where corepack
+resolves the repository's `packageManager`) or the repository's `install-command`, the skipped tools and the checks,
+each `pass`, `fail` or `invalid`), and one raw hyperfine export per target under `raw/`. The machine record holds the
+operating system (`PRETTY_NAME` of `/etc/os-release`, `sw_vers` on macOS), the kernel (`uname -sr`), the architecture,
+the CPU model (`/proc/cpuinfo`, `lscpu` for Arm, `sysctl` on macOS), the logical CPUs, those the process may use and the
+physical cores, the total memory, the cgroup CPU limit (the smallest `cpu.max` of the process's cgroup and its
+ancestors), the hypervisor, and in a GitHub Actions job the runner image (`ImageOS`, `ImageVersion`), `RUNNER_OS`,
+`RUNNER_ARCH`, `RUNNER_ENVIRONMENT`, `RUNNER_NAME`, the run attempt (`GITHUB_RUN_ATTEMPT`) and the URL of that attempt;
+the toolchain holds the `--version` of `rustc`, `node`, `npm`, `pnpm`, `yarn` and `bun` on `PATH`, probed in a directory
+without a `package.json` (so a corepack shim reports its default, not a corpus repository's version). A fact that cannot
+be read is `null`. `--only NAME,...` times only those repositories of the bench corpus. `run` exits non-zero when an ADR
+0001 check fails, after writing the summary; `--no-enforce` turns that off. A status of 1 is a complete run that
+reported findings; a run that exits with a status above 1 (knip's exit code when it fails or cannot load a configuration
+file) or by a signal is an error, since its time may be that of a partial run. Such a tool is run once more outside
+hyperfine, the end of its stderr goes to the log and its error line to `error_output` in the summary and under its
+table, and an ADR 0001 check that compares it is `invalid` (not measured) instead of `pass` or `FAIL`; only `FAIL` makes
+`run` exit non-zero. A corpus repository's `bench-knip-args` in `corpus.toml` are passed to knip, so it reads the files
+skif reads (npm-cli sets `--no-gitignore`), and skif runs with `--recursive` where the repository sets `recursive`
+(babel), as `parity` runs it. hyperfine 1.x and 2.x exports are both read.
 
 ## Targets (ADR 0001)
 
@@ -494,8 +497,8 @@ in-process part.
 - **Warm cache.** hyperfine warms up before measuring, so numbers are warm file-cache, not cold start. Compare
   cold runs with `hyperfine --prepare` and a cache purge by hand if that matters.
 - **Comparison tools are the pinned versions.** `run` installs the `[tools]` versions of `corpus.toml`, with the
-  dependencies `tools/package-lock.json` locks, and records each one's `--version` in the summary. Their output formats and defaults differ; `sherif` and `syncpack` only check
-  manifests, `knip` analyses code.
+  dependencies `tools/package-lock.json` locks, and records each one's `--version` in the summary. Their output formats
+  and defaults differ; `sherif` and `syncpack` only check manifests, `knip` analyses code.
 - **knip needs installed dependencies** to give realistic results: without them it fails to load tool configurations
   that import the repository's own packages (create-t3-turbo's `@acme/tsconfig`), and the time is that of a partial
   run. `run --install` installs each corpus repository first, as `parity --install` does (the `bench` workflow
