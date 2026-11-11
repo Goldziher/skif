@@ -3,11 +3,13 @@
 //             tools/bench/README.md, README.md and the comparison guide;
 //   --parity  tools/bench/baselines/parity.json (written by `skif-bench parity --write-baseline`) into README.md and
 //             the comparison guide.
-// Without either flag both are refreshed. It fails, and writes nothing, when the input does not hold every number
-// the blocks show: a tool that was not timed, a corpus repository without a knip row, a stale baseline.
+// Without either flag both are refreshed, and the speed tables are left as they are while no run has been imported
+// (tools/bench/results/summary.json does not exist and no --summary is given). It fails, and writes nothing, when the
+// input does not hold every number the blocks show: a tool that was not timed, a corpus repository without a knip row,
+// a stale baseline.
 // Usage: node tools/bench/refresh-numbers.mjs [--bench] [--parity] [--summary FILE] [--baseline FILE]
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -284,6 +286,7 @@ function parseArgs(argv) {
   const options = {
     bench: false,
     parity: false,
+    benchOptional: false,
     summary: join(here, "results", "summary.json"),
     baseline: join(here, "baselines", "parity.json"),
   };
@@ -296,6 +299,7 @@ function parseArgs(argv) {
     else throw new Error(`unknown argument ${arg}`);
   }
   if (!options.bench && !options.parity) {
+    options.benchOptional = !argv.includes("--summary");
     options.bench = true;
     options.parity = true;
   }
@@ -314,7 +318,9 @@ function main() {
     files.set(file, replaceBlock(files.get(file), name, body, { mdx, file }));
   };
   const problems = [];
-  if (options.bench) {
+  if (options.bench && options.benchOptional && !existsSync(options.summary)) {
+    console.log(`refresh-numbers: no ${options.summary}, so the speed tables are left as they are`);
+  } else if (options.bench) {
     const summary = readJson(options.summary);
     const found = summaryProblems(summary);
     problems.push(...found.map((problem) => `${options.summary}: ${problem}`));

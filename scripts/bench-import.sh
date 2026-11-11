@@ -82,6 +82,7 @@ fi
 
 node tools/bench/refresh-numbers.mjs --bench --summary "${artifact}/summary.json"
 
+mkdir -p "$results"
 rm -rf "${results}/raw"
 cp "${artifact}/summary.json" "${artifact}/summary.md" "${results}/"
 cp -R "${artifact}/raw" "${results}/raw"

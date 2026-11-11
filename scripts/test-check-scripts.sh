@@ -562,6 +562,10 @@ expect "bench-import takes an artifact extracted in place" 0 env STUB_GH_FLAT=1 
 expect_in_out "bench-import in place" "imported download of run 42 into tools/bench/results"
 expect "bench-import takes the repository from SKIF_BENCH_REPO" 0 env SKIF_BENCH_REPO=me/skif bash "${bench}/scripts/bench-import.sh" 7
 grep -qF 'run download 7 --repo me/skif ' "$STUB_GH_LOG" || fail "bench-import repository: $(cat "$STUB_GH_LOG")"
+rm -rf "$results"
+expect "bench-import creates the results directory of a first import" 0 run_in "$bench" bench-import.sh 42
+[[ -f "${results}/summary.json" && -f "${results}/summary.md" && -f "${results}/raw/00.json" ]] ||
+  fail "bench-import first import: $(ls -R "$results" 2>&1)"
 
 if [[ "$failures" -ne 0 ]]; then
   echo "${failures} case(s) failed" >&2
