@@ -504,8 +504,9 @@ impl<'a> TsconfigMemo<'a> {
 }
 
 /// Whether the `tsconfig.json` at `path` makes TypeScript include every installed `@types/*` package: it exists, no
-/// `compilerOptions.types` narrows them along its `extends` chain (TypeScript 6's `types: ["*"]` keeps them all), and
-/// `typeRoots`, when set, keeps `node_modules/@types`.
+/// `compilerOptions.types` narrows them along its `extends` chain (`types: ["*"]` lists them all), and `typeRoots`,
+/// when set, keeps `node_modules/@types`. An absent `types` counts as every package, TypeScript's default before
+/// version 6; TypeScript 6 defaults it to `[]`, which this does not tell apart.
 fn includes_all_types(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], path: &Path, depth: usize) -> bool {
     const MAX_DEPTH: usize = 8;
     let Some(config) = memo.get(path) else {

@@ -353,7 +353,8 @@ All notable changes to this project are documented here. The format follows
   `getJestProjects()`, from `@nx/jest` or `@nrwl/jest`) no longer leaves the root package unjudged; its projects are
   the Jest configs of the Nx projects ([ADR 0109](adrs/0109-nx-projects-as-scopes-of-the-package-that-owns-them.md)).
 - **TypeScript 6** `types: ["*"]` (every Nx 24 `tsconfig.base.json`) is no longer an unlisted package `*`; it keeps
-  every `@types` package visible, as a config without `types` does.
+  every `@types` package visible. A config without `types` is still read as keeping them all, TypeScript's default
+  before version 6 (TypeScript 6 defaults `types` to `[]`).
 - `[js.workspaces."<dir>"]` tables accept the `extend-ignore*` keys instead of rejecting them.
 - A leading UTF-8 byte order mark no longer shifts first-line columns.
 - On Windows, a `--config` path in the `\\?\C:\` form no longer gives absolute finding locations.
