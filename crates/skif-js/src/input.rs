@@ -5,6 +5,7 @@
 //! references the tool implies. The plugin table of `skif-js-plugins` implements this trait.
 
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use skif_core::FileSystem;
 pub use skif_core::{IncompleteCause, IncompleteEntries, IncompleteScope};
@@ -114,6 +115,9 @@ pub struct WorkspaceInputs {
     /// against `/` followed by the path relative to the package directory; besides `entry`, and like it not used in
     /// production mode.
     pub entry_regex: Vec<String>,
+    /// Entry expressions of the package's Nx project scopes (ADR 0109): each selects files below its scope, matched
+    /// like `entry_regex` against `/` followed by the path relative to the scope directory.
+    pub scoped_entry_regex: Vec<ScopedEntryRegex>,
     /// Files that belong to the project, added to the default or configured project globs.
     pub project: Vec<String>,
     /// Files whose issues are never reported, relative to the package directory.
@@ -168,6 +172,7 @@ impl WorkspaceInputs {
         self.entry.extend(other.entry);
         self.production_entry.extend(other.production_entry);
         self.entry_regex.extend(other.entry_regex);
+        self.scoped_entry_regex.extend(other.scoped_entry_regex);
         self.project.extend(other.project);
         self.ignore.extend(other.ignore);
         self.ignore_dependencies.extend(other.ignore_dependencies);
@@ -196,6 +201,46 @@ impl WorkspaceInputs {
     }
 }
 
+/// An entry expression that selects files below a directory of the package; see
+/// [`WorkspaceInputs::scoped_entry_regex`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScopedEntryRegex {
+    /// The directory, relative to the package directory with `/` separators.
+    pub scope: String,
+    /// The expression, in the syntax of the `regex` crate.
+    pub regex: String,
+}
+
+/// Listings of the workspace that every [`InputRequest`] of one run shares, each made on first use, so the input
+/// sources of the packages do not walk the same directories again.
+#[derive(Debug)]
+pub struct WorkspaceListing {
+    gitignore: bool,
+    sequential: bool,
+    nx_projects: OnceLock<Vec<(String, String)>>,
+}
+
+impl WorkspaceListing {
+    /// An empty listing, whose walks honour `.gitignore` files unless `gitignore` is off (`--no-gitignore`) and run
+    /// on the calling thread with `sequential`.
+    #[must_use]
+    pub fn new(gitignore: bool, sequential: bool) -> Self {
+        Self {
+            gitignore,
+            sequential,
+            nx_projects: OnceLock::new(),
+        }
+    }
+
+    /// The directories of the `project.json` files that the source walk reaches in `workspace`, relative to its root
+    /// and sorted, each with the directory of the package that owns it (`""` for the root): the Nx projects of ADR
+    /// 0109, below no build output, hidden or gitignored directory. One walk serves the whole run.
+    pub fn nx_projects(&self, fs: &dyn FileSystem, workspace: &Workspace) -> &[(String, String)] {
+        self.nx_projects
+            .get_or_init(|| crate::discover::nx_project_dirs(fs, workspace, self.sequential, self.gitignore))
+    }
+}
+
 /// The package an [`InputSource`] is asked about.
 #[derive(Clone, Copy)]
 pub struct InputRequest<'a> {
@@ -212,6 +257,8 @@ pub struct InputRequest<'a> {
     /// otherwise, both joined to the workspace's [`workspace_keys_anchor`](Workspace::workspace_keys_anchor) when it
     /// has one (`tools/sub` for the root package of the root in `tools/sub` of a run with an explicit configuration).
     pub workspace_key: &'a str,
+    /// The listings every request of the run shares.
+    pub listing: &'a WorkspaceListing,
 }
 
 impl std::fmt::Debug for InputRequest<'_> {
@@ -232,3 +279,70 @@ const _: () = {
     fn assert_send_sync<T: Send + Sync>() {}
     let _ = assert_send_sync::<WorkspaceInputs>;
 };
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use std::io;
+    use std::path::Path;
+    use std::sync::{Arc, Mutex};
+
+    use skif_config::Config;
+    use skif_core::{DirEntry, MemoryFs};
+
+    use super::*;
+
+    /// A file system that records the directories it lists.
+    struct Counting {
+        inner: MemoryFs,
+        listed: Mutex<Vec<PathBuf>>,
+    }
+
+    impl FileSystem for Counting {
+        fn read_to_string(&self, path: &Path) -> io::Result<Arc<str>> {
+            self.inner.read_to_string(path)
+        }
+
+        fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
+            self.listed.lock().unwrap().push(path.to_path_buf());
+            self.inner.read_dir(path)
+        }
+
+        fn is_file(&self, path: &Path) -> bool {
+            self.inner.is_file(path)
+        }
+
+        fn is_dir(&self, path: &Path) -> bool {
+            self.inner.is_dir(path)
+        }
+    }
+
+    /// The Nx projects of a run are listed by one walk, however many packages ask for them: each directory is listed
+    /// once.
+    #[test]
+    fn the_nx_projects_are_listed_once_per_run() {
+        let memory = MemoryFs::new()
+            .with_file("/ws/package.json", r#"{"name":"r","workspaces":["packages/*"]}"#)
+            .with_file("/ws/apps/web/project.json", "{}")
+            .with_file("/ws/packages/b/package.json", r#"{"name":"b"}"#)
+            .with_file("/ws/packages/b/project.json", "{}");
+        let config = Config::from_toml_str("").unwrap();
+        let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &memory).unwrap();
+        let fs = Counting {
+            inner: memory,
+            listed: Mutex::new(Vec::new()),
+        };
+        let listing = WorkspaceListing::new(true, true);
+        let expected = [
+            ("apps/web".to_owned(), String::new()),
+            ("packages/b".to_owned(), "packages/b".to_owned()),
+        ];
+        assert_eq!(listing.nx_projects(&fs, &workspace), expected);
+        let first_walk = fs.listed.lock().unwrap().clone();
+        assert_eq!(listing.nx_projects(&fs, &workspace), expected);
+        let listed = fs.listed.lock().unwrap().clone();
+        assert_eq!(listed, first_walk);
+        let apps = listed.iter().filter(|dir| *dir == Path::new("/ws/apps")).count();
+        assert_eq!(apps, 1, "{listed:?}");
+    }
+}

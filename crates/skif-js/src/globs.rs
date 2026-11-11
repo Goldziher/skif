@@ -1,7 +1,11 @@
 //! Glob sets with exclusions, and name matchers for the ignore lists.
 
+use std::collections::BTreeMap;
+
 use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 use regex::RegexSet;
+
+use crate::input::ScopedEntryRegex;
 
 /// Include and exclude globs matched against `/`-separated relative paths.
 #[derive(Debug, Clone, Default)]
@@ -9,8 +13,8 @@ pub(crate) struct Globs {
     include: GlobSet,
     exclude: GlobSet,
     has_include: bool,
-    /// Regular expressions matched besides `include`, against `/` followed by the path (Jest's `testRegex`).
-    include_regex: Option<RegexSet>,
+    /// Regular expressions matched besides `include` (Jest's `testRegex`).
+    include_regex: Option<EntryRegexes>,
     /// A second set matched besides this one, with exclusions of its own: the `files` of a `tsconfig`, which its
     /// `exclude` does not filter.
     also: Option<Box<Globs>>,
@@ -61,10 +65,9 @@ impl Globs {
         }
     }
 
-    /// Also includes the paths that one of `regexes` (see [`regex_set`]) matches against `/` followed by the path;
-    /// the exclude globs apply to them as to the include globs.
+    /// Also includes the paths that one of `regexes` matches; the exclude globs apply to them as to the include globs.
     #[must_use]
-    pub(crate) fn with_regexes(mut self, regexes: Option<RegexSet>) -> Self {
+    pub(crate) fn with_regexes(mut self, regexes: Option<EntryRegexes>) -> Self {
         self.has_include |= regexes.is_some();
         self.include_regex = regexes;
         self
@@ -102,7 +105,7 @@ impl Globs {
                 || self
                     .include_regex
                     .as_ref()
-                    .is_some_and(|set| set.is_match(&format!("/{path}"))))
+                    .is_some_and(|regexes| regexes.is_match(path)))
     }
 }
 
@@ -140,9 +143,49 @@ impl IncompleteScopeGlobs {
     }
 }
 
-/// The regular expressions `regexes` compiled once, as one set that the [`Globs`] including them share; `None` when
-/// there is none or the set does not compile (the plugin that names an expression checks that it compiles).
-pub(crate) fn regex_set(regexes: &[String]) -> Option<RegexSet> {
+/// Entry regular expressions compiled once, shared by the [`Globs`] including them: those of the package, matched
+/// against `/` followed by the path relative to the package directory, and those of each scope (an Nx project, ADR
+/// 0109), matched against `/` followed by the path relative to the scope, for the files below it only.
+#[derive(Debug, Clone)]
+pub(crate) struct EntryRegexes {
+    package: Option<RegexSet>,
+    /// Each scope with a trailing `/`, and its expressions, in scope order.
+    scoped: Vec<(String, RegexSet)>,
+}
+
+impl EntryRegexes {
+    /// The expressions `package` of the package and `scoped` of its scopes; `None` when there is none. A set that does
+    /// not compile is left out (the plugin that names an expression checks that it compiles).
+    pub(crate) fn new(package: &[String], scoped: &[ScopedEntryRegex]) -> Option<Self> {
+        let mut by_scope: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+        for regex in scoped {
+            let scope = format!("{}/", regex.scope.trim_end_matches('/'));
+            by_scope.entry(scope).or_default().push(&regex.regex);
+        }
+        let regexes = Self {
+            package: regex_set(package),
+            scoped: by_scope
+                .into_iter()
+                .filter_map(|(scope, regexes)| regex_set(regexes.as_slice()).map(|set| (scope, set)))
+                .collect(),
+        };
+        (regexes.package.is_some() || !regexes.scoped.is_empty()).then_some(regexes)
+    }
+
+    /// Whether an expression selects `path`, relative to the package directory.
+    fn is_match(&self, path: &str) -> bool {
+        self.package
+            .as_ref()
+            .is_some_and(|set| set.is_match(&format!("/{path}")))
+            || self.scoped.iter().any(|(scope, set)| {
+                path.strip_prefix(scope.as_str())
+                    .is_some_and(|rest| set.is_match(&format!("/{rest}")))
+            })
+    }
+}
+
+/// `regexes` compiled as one set; `None` when there is none or the set does not compile.
+fn regex_set<S: AsRef<str>>(regexes: &[S]) -> Option<RegexSet> {
     if regexes.is_empty() {
         None
     } else {
@@ -205,7 +248,7 @@ mod tests {
     #[test]
     fn regular_expressions_match_the_path_after_a_slash_and_the_exclusions_apply() {
         let regexes = [r"\.check\.js$".to_owned(), r"\/__tests__\/".to_owned()];
-        let jest = Globs::new(["**/__mocks__/**/*.js", "!vendor/**"]).with_regexes(regex_set(&regexes));
+        let jest = Globs::new(["**/__mocks__/**/*.js", "!vendor/**"]).with_regexes(EntryRegexes::new(&regexes, &[]));
         assert!(jest.is_match("src/a.check.js"));
         assert!(jest.is_match("src/__tests__/a.js"));
         assert!(jest.is_match("__tests__/a.js"));
@@ -216,12 +259,40 @@ mod tests {
         assert!(jest.matches_any("vendor/a.check.js"));
 
         // Regular expressions alone include paths.
-        let only = Globs::new(Vec::<String>::new()).with_regexes(regex_set(&[r"^/e2e/".to_owned()]));
+        let only = Globs::new(Vec::<String>::new()).with_regexes(EntryRegexes::new(&[r"^/e2e/".to_owned()], &[]));
         assert!(!only.is_empty());
         assert!(only.is_match("e2e/flow.js"));
         assert!(!only.is_match("lib/e2e/flow.js"));
-        assert!(regex_set(&[]).is_none());
+        assert!(EntryRegexes::new(&[], &[]).is_none());
         assert!(Globs::new(Vec::<String>::new()).with_regexes(None).is_empty());
+    }
+
+    /// A scope's expressions see the path below the scope only: an unanchored one does not reach into a sibling
+    /// directory whose name starts with the scope's (`apps/web2` for `apps/web`), and an anchored one is anchored at the
+    /// scope.
+    #[test]
+    fn scoped_regular_expressions_match_below_their_scope_only() {
+        let scoped = |regex: &str| ScopedEntryRegex {
+            scope: "apps/web".to_owned(),
+            regex: regex.to_owned(),
+        };
+        let globs = Globs::new(Vec::<String>::new()).with_regexes(EntryRegexes::new(
+            &[],
+            &[scoped(r".*\.spec\.ts$"), scoped(r"^.*\.e2e\.ts$")],
+        ));
+        assert!(globs.is_match("apps/web/src/a.spec.ts"));
+        assert!(globs.is_match("apps/web/a.spec.ts"));
+        assert!(globs.is_match("apps/web/e2e/flow.e2e.ts"));
+        assert!(!globs.is_match("apps/web2/a.spec.ts"));
+        assert!(!globs.is_match("apps/web2/flow.e2e.ts"));
+        assert!(!globs.is_match("apps/web.spec.ts"));
+        assert!(!globs.is_match("apps/api/a.spec.ts"));
+        assert!(!globs.is_match("a.spec.ts"));
+
+        let anchored = Globs::new(Vec::<String>::new()).with_regexes(EntryRegexes::new(&[], &[scoped("^/e2e/")]));
+        assert!(anchored.is_match("apps/web/e2e/a.ts"));
+        assert!(!anchored.is_match("apps/web/src/e2e/a.ts"));
+        assert!(!anchored.is_match("e2e/a.ts"));
     }
 
     #[test]

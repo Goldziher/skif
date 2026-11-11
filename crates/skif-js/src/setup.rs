@@ -15,11 +15,11 @@ use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 use crate::ancestors;
 use crate::config_check::relative_tsconfig;
 use crate::deps::member_dirs;
-use crate::globs::{Globs, IncompleteScopeGlobs, Names, regex_set};
+use crate::globs::{EntryRegexes, Globs, IncompleteScopeGlobs, Names};
 use crate::graph::ModuleGraph;
 use crate::input::{
     BuildDir, ConfigDependency, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope,
-    InputRequest, InputSource, PathAlias, RunBinary, WorkspaceInputs,
+    InputRequest, InputSource, PathAlias, RunBinary, WorkspaceInputs, WorkspaceListing,
 };
 use crate::listed::{self, Listed};
 use crate::resolve::join_normalized;
@@ -777,6 +777,7 @@ impl Setup {
         } else {
             Vec::new()
         };
+        let listing = WorkspaceListing::new(!js.no_gitignore, sequential);
         let members: Vec<(PackageId, &Package)> = workspace.iter().collect();
         let mut packages: Vec<Option<PackageSetup>> = map_ordered(&members, sequential, |&(id, package)| {
             if workspace.is_ignored(id) || js_ignored.contains(&id) {
@@ -806,6 +807,7 @@ impl Setup {
                 fs: fs.as_ref(),
                 ancestor_dependencies: &ancestor_dependencies,
                 workspace_key: &workspace_key,
+                listing: &listing,
             };
             for source in sources {
                 plugin.extend(source.inputs(&request));
@@ -814,7 +816,7 @@ impl Setup {
             let entry_regex = if production {
                 None
             } else {
-                regex_set(&plugin.entry_regex)
+                EntryRegexes::new(&plugin.entry_regex, &plugin.scoped_entry_regex)
             };
             let scripts = scripts::analyze(package);
 

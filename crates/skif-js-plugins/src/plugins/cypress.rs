@@ -6,8 +6,11 @@ use crate::support::{entry_glob, strings};
 /// The `cypress` plugin.
 pub struct Cypress;
 
+/// The plugin's identifier.
+pub const ID: crate::plugin::PluginId = "cypress";
+
 static SPEC: PluginSpec = PluginSpec {
-    id: "cypress",
+    id: ID,
     enablers: &[Enabler::Dependency("cypress")],
     config: &["cypress.config.{js,ts,mjs,cjs}"],
     entry: &[

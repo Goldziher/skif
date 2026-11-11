@@ -9,8 +9,11 @@ use crate::support::{conventional, get_in, is_relative, module_input, objects, s
 /// The `eslint` plugin.
 pub struct Eslint;
 
+/// The plugin's identifier.
+pub const ID: crate::plugin::PluginId = "eslint";
+
 static SPEC: PluginSpec = PluginSpec {
-    id: "eslint",
+    id: ID,
     enablers: &[
         Enabler::Dependency("eslint"),
         Enabler::Dependency("@eslint/js"),

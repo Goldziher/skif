@@ -359,6 +359,8 @@ fn every_listed_types_package_is_ambient_without_a_types_option() {
         r#"{"compilerOptions":{"strict":true}}"#,
         r#"{"compilerOptions":{"typeRoots":["node_modules/@types"]}}"#,
         r#"{"extends":"./base.json"}"#,
+        // TypeScript 6 spells "every package of the type roots" as `*`.
+        r#"{"compilerOptions":{"types":["*"]}}"#,
     ] {
         let diagnostics = lint(&[
             ("package.json", types_manifest()),

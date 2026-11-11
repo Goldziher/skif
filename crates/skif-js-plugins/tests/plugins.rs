@@ -4,7 +4,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
 use skif_config::{PluginConfig, PluginOptions};
@@ -263,6 +263,7 @@ fn resolve_inheriting(
         fs: &fs,
         plugins,
         modules: None,
+        nx: None,
     };
     resolve_plugins(&ctx)
 }
@@ -289,6 +290,7 @@ fn resolve_with_scripts(
         fs: &fs,
         plugins: &plugins,
         modules: None,
+        nx: None,
     };
     resolve_plugins(&ctx)
 }
@@ -437,6 +439,18 @@ fn typescript_types_found_in_local_type_roots_name_no_package() {
     );
     let out = output(&results, "typescript");
     assert_eq!(deps(out), BTreeSet::from(["node", "vitest"]));
+}
+
+/// TypeScript 6 reads `types: ["*"]` as every `@types` package (every Nx 24 `tsconfig.base.json` sets it): `*` names
+/// no package, while the names beside it still do.
+#[test]
+fn typescript_types_wildcard_names_no_package() {
+    let results = resolve(
+        &[("tsconfig.json", r#"{"compilerOptions":{"types":["*","node"]}}"#)],
+        &["typescript"],
+    );
+    let out = output(&results, "typescript");
+    assert_eq!(deps(out), BTreeSet::from(["node"]));
 }
 
 #[test]
@@ -1976,6 +1990,110 @@ fn nx() {
         "{:?}",
         out.referenced_binaries
     );
+}
+
+/// Target options name files relative to the workspace root: `main` and `additionalEntryPoints` of a build are
+/// production entries, `tsConfig` and `jestConfig` are configs of the `typescript` and `jest` plugins. `{projectRoot}`
+/// and `{workspaceRoot}` stand for the project's directory and the root, and a `run-commands` `cwd` is where the
+/// commands run.
+#[test]
+fn nx_target_options_tokens_and_cwd() {
+    let project = r#"{ "targets": {
+      "build": { "executor": "@nx/js:tsc", "options": {
+        "main": "{projectRoot}/src/entry.ts", "tsConfig": "libs/a/tsconfig.lib.json",
+        "additionalEntryPoints": ["libs/a/src/extra.ts"], "outputPath": "{options.outputPath}" } },
+      "test": { "executor": "@nx/jest:jest", "options": { "jestConfig": "{workspaceRoot}/libs/a/jest.config.ts" } },
+      "x": { "command": "node {projectRoot}/scripts/x.mjs" },
+      "pack": { "executor": "nx:run-commands", "options": { "commands": ["node scripts/pack.mjs"], "cwd": "packages/b" } },
+      "root": { "executor": "nx:run-commands", "options": { "command": "node {workspaceRoot}/tools/r.mjs" } }
+    } }"#;
+    let results = resolve(
+        &[
+            ("nx.json", "{}"),
+            ("libs/a/project.json", project),
+            ("libs/a/src/entry.ts", ""),
+            ("libs/a/src/extra.ts", ""),
+            ("libs/a/scripts/x.mjs", ""),
+            ("libs/a/tsconfig.lib.json", r#"{"compilerOptions":{"types":["node"]}}"#),
+            ("libs/a/jest.config.ts", "export default { testEnvironment: 'jsdom' };"),
+            ("packages/b/scripts/pack.mjs", ""),
+            ("tools/r.mjs", ""),
+        ],
+        &["nx", "jest", "typescript"],
+    );
+    let out = output(&results, "nx");
+    assert_eq!(out.production_entries, ["libs/a/src/entry.ts", "libs/a/src/extra.ts"]);
+    let mut entries = out.entries.clone();
+    entries.sort();
+    assert_eq!(
+        entries,
+        [
+            "libs/a/scripts/x.mjs",
+            "libs/a/src/entry.ts",
+            "libs/a/src/extra.ts",
+            "packages/b/scripts/pack.mjs",
+            "tools/r.mjs",
+        ]
+    );
+    let read: Vec<PathBuf> = [
+        "libs/a/project.json",
+        "nx.json",
+        "libs/a/tsconfig.lib.json",
+        "libs/a/jest.config.ts",
+    ]
+    .iter()
+    .map(|file| Path::new(DIR).join(file))
+    .collect();
+    assert_eq!(out.config_files, read);
+    assert_eq!(
+        deps(out),
+        BTreeSet::from(["@nx/js", "@nx/jest", "jest-environment-jsdom", "node", "nx"])
+    );
+}
+
+/// The options of the Nx executors that name another tool's config link it to that tool's plugin. `configFile`,
+/// `config` and `configDir` do so only for the executors of `@nx/vite`, `@nx/playwright` and `@nx/storybook`, the
+/// Storybook directory through its `main` file.
+#[test]
+fn nx_target_options_link_the_configs_of_other_tools() {
+    let project = r#"{ "targets": {
+      "build": { "executor": "@nx/vite:build", "options": { "configFile": "apps/web/vite.config.ts" } },
+      "bundle": { "executor": "@nx/webpack:webpack", "options": { "webpackConfig": "apps/web/webpack.config.js" } },
+      "e2e": { "executor": "@nx/cypress:cypress", "options": { "cypressConfig": "apps/web/cypress.config.ts" } },
+      "pw": { "executor": "@nrwl/playwright:playwright", "options": { "config": "apps/web/playwright.config.ts" } },
+      "sb": { "executor": "@nx/storybook:storybook", "options": { "configDir": "apps/web/.storybook" } },
+      "lint": { "executor": "@nx/eslint:lint", "options": { "eslintConfig": "apps/web/eslint.config.mjs" } },
+      "other": { "executor": "@nx/js:node", "options": { "config": "apps/web/other.config.ts", "configFile": "apps/web/other.ts" } }
+    } }"#;
+    let results = resolve(
+        &[
+            ("nx.json", "{}"),
+            ("apps/web/project.json", project),
+            ("apps/web/vite.config.ts", "export default {};"),
+            ("apps/web/webpack.config.js", "module.exports = {};"),
+            ("apps/web/cypress.config.ts", "export default {};"),
+            ("apps/web/playwright.config.ts", "export default {};"),
+            ("apps/web/.storybook/main.ts", "export default {};"),
+            ("apps/web/eslint.config.mjs", "export default [];"),
+            ("apps/web/other.config.ts", "export default {};"),
+            ("apps/web/other.ts", "export default {};"),
+        ],
+        &["nx"],
+    );
+    let read: Vec<PathBuf> = [
+        "apps/web/project.json",
+        "nx.json",
+        "apps/web/vite.config.ts",
+        "apps/web/webpack.config.js",
+        "apps/web/cypress.config.ts",
+        "apps/web/playwright.config.ts",
+        "apps/web/.storybook/main.ts",
+        "apps/web/eslint.config.mjs",
+    ]
+    .iter()
+    .map(|file| Path::new(DIR).join(file))
+    .collect();
+    assert_eq!(output(&results, "nx").config_files, read);
 }
 
 #[test]
@@ -3553,6 +3671,7 @@ fn biome_root_reference_is_the_config_of_the_farthest_ancestor() {
         fs: &fs,
         plugins: &plugins,
         modules: None,
+        nx: None,
     };
     let results = resolve_plugins(&ctx);
     let out = output(&results, "biome");
@@ -4349,6 +4468,7 @@ fn react_email_looks_for_the_installed_version_up_to_the_workspace_root() {
             fs: &fs,
             plugins: &plugins,
             modules: None,
+            nx: None,
         };
         resolve_plugins(&ctx)
     };
