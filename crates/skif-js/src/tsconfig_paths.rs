@@ -330,6 +330,14 @@ impl TsPaths {
     /// The files a relative `specifier` written in `directory` may stand for through `rootDirs`: the same relative
     /// path below each of the other root directories, in the order of the config.
     pub(crate) fn root_dir_candidates(&self, directory: &Path, specifier: &str) -> Vec<PathBuf> {
+        self.root_dir_targets(directory, specifier)
+            .into_iter()
+            .map(|(_, path)| path)
+            .collect()
+    }
+
+    /// [`Self::root_dir_candidates`], each with the root directory it lies below.
+    pub(crate) fn root_dir_targets(&self, directory: &Path, specifier: &str) -> Vec<(&Path, PathBuf)> {
         let Some(inside) = self
             .root_dirs
             .iter()
@@ -344,7 +352,7 @@ impl TsPaths {
         self.root_dirs
             .iter()
             .filter(|root| *root != inside)
-            .map(|root| join_normalized(&root.join(relative), specifier))
+            .map(|root| (root.as_path(), join_normalized(&root.join(relative), specifier)))
             .collect()
     }
 
@@ -660,6 +668,13 @@ mod tests {
         assert_eq!(
             paths.root_dir_candidates(Path::new(&src), "./gen/x"),
             [PathBuf::from(absolute("/ws/app/bazel-out/bin/src/ui/gen/x"))]
+        );
+        assert_eq!(
+            paths.root_dir_targets(Path::new(&src), "./gen/x"),
+            [(
+                Path::new(&absolute("/ws/app/bazel-out/bin/src")),
+                PathBuf::from(absolute("/ws/app/bazel-out/bin/src/ui/gen/x"))
+            )]
         );
         assert_eq!(
             paths.root_dir_candidates(Path::new(&absolute("/ws/app/bazel-out/bin/src/ui")), "../shared/y"),

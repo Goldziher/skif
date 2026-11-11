@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use skif_config::Config;
 use skif_core::{Diagnostic, FileSystem, MemoryFs, Report};
-use skif_js::{JsProvider, PluginSource};
+use skif_js::{InputSource, JsAnalysis, JsProvider, PluginSource};
 use skif_lint::{Registry, RunOptions, run, run_unsorted};
 use skif_workspace::Workspace;
 
@@ -563,6 +563,212 @@ fn an_alias_into_an_uninstalled_node_modules_uses_the_package() {
     ]);
     assert_eq!(
         names(&diagnostics, "unresolved-imports"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        names(&diagnostics, "unused-dependencies"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+}
+
+/// A package whose `tsconfig.json` merges its directory with its build output tree, `bazel-bin/packages/app`
+/// (gitignored), where `./gen/schema.js` is generated.
+const ROOT_DIRS_APP: &[(&str, &str)] = &[
+    (
+        "package.json",
+        r#"{"name":"mono","private":true,"workspaces":["packages/*"]}"#,
+    ),
+    (".gitignore", "bazel-bin\n"),
+    (
+        "packages/app/package.json",
+        r#"{"name":"@mono/app","version":"1.0.0","main":"src/index.ts","dependencies":{"uuid":"9.0.0","zod":"3.0.0"}}"#,
+    ),
+    (
+        "packages/app/tsconfig.json",
+        r#"{"compilerOptions":{"rootDirs":[".","../../bazel-bin/packages/app"]}}"#,
+    ),
+    (
+        "packages/app/src/index.ts",
+        "import { schema } from './gen/schema.js';\nexport const s = schema;\n",
+    ),
+    (
+        "bazel-bin/packages/app/src/gen/schema.js",
+        "import { z } from 'zod';\nimport { id } from './id.js';\nexport const schema = z.object({ id });\n",
+    ),
+    (
+        "bazel-bin/packages/app/src/gen/id.js",
+        "import { v4 } from 'uuid';\nexport const id = v4();\n",
+    ),
+];
+
+/// [`ROOT_DIRS_APP`] with `files` added, a file of the same path replacing its own.
+fn root_dirs_app(files: &[(&'static str, &'static str)]) -> Vec<(&'static str, &'static str)> {
+    ROOT_DIRS_APP.iter().chain(files).copied().collect()
+}
+
+/// A file generated into another `rootDirs` directory (`bazel-bin`, gitignored) belongs to the package whose file
+/// imports it: Node.js resolves its imports from that package's dependencies. So do the generated files beside it
+/// that it imports in turn.
+#[test]
+fn files_reached_through_root_dirs_belong_to_the_importing_package() {
+    let diagnostics = lint(ROOT_DIRS_APP);
+    assert_eq!(
+        names(&diagnostics, "unlisted-dependencies"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        names(&diagnostics, "unused-dependencies"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        names(&diagnostics, "unresolved-imports"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+}
+
+/// `--trace-dependency` names the adopting package as the owner of a file reached through `rootDirs`.
+#[test]
+fn the_trace_of_a_dependency_names_the_package_that_adopted_the_importing_file() {
+    let memory = ROOT_DIRS_APP.iter().fold(MemoryFs::new(), |memory, (path, text)| {
+        memory.with_file(format!("/ws/{path}"), text)
+    });
+    let config = Config::from_toml_str("").unwrap();
+    let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &memory).unwrap();
+    let fs: Arc<dyn FileSystem> = Arc::new(memory);
+    let sources: Vec<Arc<dyn InputSource>> = vec![Arc::new(PluginSource::new(config.js.plugins.clone()))];
+    let trace = JsAnalysis::build(&workspace, &config, &fs, &sources, true).trace_dependency("zod");
+    let owners: Vec<(&str, &str)> = trace
+        .imported_by
+        .iter()
+        .map(|import| (import.file.as_str(), import.package.as_str()))
+        .collect();
+    assert_eq!(
+        owners,
+        [("bazel-bin/packages/app/src/gen/schema.js", "@mono/app")],
+        "{trace:#?}"
+    );
+    assert_eq!(trace.used_by, ["@mono/app"], "{trace:#?}");
+}
+
+/// `rootDirs` that reach into another workspace package do not take its files: a file of `packages/shared` stays
+/// that package's, so its imports use the dependencies of `@mono/shared`, not of the importer.
+#[test]
+fn root_dirs_into_another_workspace_package_leave_its_files_with_it() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"mono","private":true,"workspaces":["packages/*"]}"#,
+        ),
+        (
+            "packages/a/package.json",
+            r#"{"name":"@mono/a","version":"1.0.0","main":"src/index.ts"}"#,
+        ),
+        (
+            "packages/a/tsconfig.json",
+            r#"{"compilerOptions":{"rootDirs":["src","../shared/src"]}}"#,
+        ),
+        (
+            "packages/a/src/index.ts",
+            "import { parse } from './util.js';\nexport const p = parse;\n",
+        ),
+        (
+            "packages/shared/package.json",
+            r#"{"name":"@mono/shared","version":"1.0.0","main":"src/index.ts","dependencies":{"zod":"3.0.0"}}"#,
+        ),
+        ("packages/shared/src/index.ts", "export const shared = 1;\n"),
+        (
+            "packages/shared/src/util.ts",
+            "import { z } from 'zod';\nexport const parse = z.string().parse;\n",
+        ),
+    ]);
+    assert_eq!(
+        names(&diagnostics, "unlisted-dependencies"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        names(&diagnostics, "unused-dependencies"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+}
+
+/// An adopted file passes its package on only below the root directory it was found below: a relative import from
+/// app's output tree into the sibling `bazel-bin/packages/lib` reaches a file of the root, not of app.
+#[test]
+fn relative_imports_out_of_the_root_dir_of_an_adopted_file_are_not_adopted() {
+    let diagnostics = lint(&root_dirs_app(&[
+        (
+            "packages/app/src/index.ts",
+            "import { schema } from './gen/schema.js';\nimport { b } from './gen/other.js';\nexport const s = [schema, b];\n",
+        ),
+        (
+            "bazel-bin/packages/app/src/gen/other.js",
+            "export { b } from '../../../lib/src/b.js';\n",
+        ),
+        (
+            "bazel-bin/packages/lib/src/b.js",
+            "import { v1 } from 'uuid';\nexport const b = v1();\n",
+        ),
+    ]));
+    assert_eq!(
+        paths(&diagnostics, "unlisted-dependencies"),
+        strings(&["bazel-bin/packages/lib/src/b.js"]),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        names(&diagnostics, "unlisted-dependencies"),
+        strings(&["uuid"]),
+        "{diagnostics:#?}"
+    );
+}
+
+/// Two packages whose `rootDirs` share one output tree reach the same generated file: the first importer, in the
+/// order of the files, owns it in every run.
+#[test]
+fn the_first_package_to_reach_a_shared_generated_file_owns_it() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"mono","private":true,"workspaces":["packages/*"]}"#,
+        ),
+        (".gitignore", "bazel-bin\n"),
+        (
+            "packages/a/package.json",
+            r#"{"name":"@mono/a","version":"1.0.0","main":"src/index.ts","dependencies":{"zod":"3.0.0"}}"#,
+        ),
+        (
+            "packages/a/tsconfig.json",
+            r#"{"compilerOptions":{"rootDirs":[".","../../bazel-bin/shared"]}}"#,
+        ),
+        (
+            "packages/a/src/index.ts",
+            "import { schema } from './gen.js';\nexport const s = schema;\n",
+        ),
+        (
+            "packages/b/package.json",
+            r#"{"name":"@mono/b","version":"1.0.0","main":"src/index.ts"}"#,
+        ),
+        (
+            "packages/b/tsconfig.json",
+            r#"{"compilerOptions":{"rootDirs":[".","../../bazel-bin/shared"]}}"#,
+        ),
+        (
+            "packages/b/src/index.ts",
+            "import { schema } from './gen.js';\nexport const s = schema;\n",
+        ),
+        (
+            "bazel-bin/shared/src/gen.js",
+            "import { z } from 'zod';\nexport const schema = z.object({});\n",
+        ),
+    ]);
+    assert_eq!(
+        names(&diagnostics, "unlisted-dependencies"),
         Vec::<String>::new(),
         "{diagnostics:#?}"
     );

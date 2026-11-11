@@ -602,6 +602,13 @@ output maps to no source file
 of kind `incomplete-scope`, a file outside it reported by `unused-files` names the scope, and a file of a package left
 unjudged as a whole is `entries-incomplete`.
 
+A file that a relative import reaches through the `rootDirs` of the importer's `tsconfig.json` (code generated into a
+build output tree such as `bazel-bin/packages/app`) belongs to the importing file's package when it lies in no workspace
+package's directory and is not a source file skif lists (build output that git ignores), and so do such files it imports
+by relative paths below the same root directory: their imports are judged against that package's dependencies, which
+Node.js resolves them from. A file of a workspace package always stays that package's, and the root's `ignore` globs
+still apply to an adopted file.
+
 **`paths`** is a `tsconfig`-style map for one workspace, `{ "alias/*" = ["./target/*"] }`, targets relative to the
 workspace directory. Each target is tried as a module alias ahead of the aliases tools declare.
 
@@ -699,23 +706,26 @@ The rest of knip's configuration hints are part of `stale-js-config` too:
   each package with more than one unused file gets one, largest first.
 
 **Where binaries are run.** `unlisted-binaries` reads the commands of the `package.json` scripts, the commands that
-plugins read from the files of their tools (workflow steps of `.github/workflows`, Git hooks, `lint-staged` tasks and the
-other configs that hold commands) and the literal commands that source files reachable from an entry run through
+plugins read from the files of their tools (workflow steps of `.github/workflows`, Git hooks, `lint-staged` tasks and
+the other configs that hold commands) and the literal commands that source files reachable from an entry run through
 `node:child_process` (`exec`, `execSync`, `spawn`, `spawnSync`, `execFile`, `execFileSync`), `execa`, `zx` and
 `nano-spawn`. A binary of a script is reported at the script in `package.json`; one of any other command at the file
 that holds the command. A binary fetched on demand (`npx x`, `pnpm dlx x`) is never reported, and a command whose
-arguments are computed is not read. The steps of CI workflows, Git hooks and task runners run on machines that bring
-their own tools, so a binary they run by name is never reported there; one they run through a package manager
-(`pnpm exec x`, `yarn x`) or a `node_modules/.bin` path is, as knip does. A GitHub Actions step whose `shell` is not a
-POSIX shell (`pwsh`, `cmd`, `python`) is not read. The binary of a workspace member is provided where the package
-manager puts it on the `PATH`: with npm, Yarn Classic, hoisted pnpm and hoisted Bun, which link every member's
-binaries into the root `node_modules/.bin`, for every package; with isolated pnpm, Yarn Berry, isolated Bun and in a
-Rush repository only for the packages that list the member and for the member's own scripts. pnpm is hoisted with
+arguments are computed is not read. A specifier `.bin/x`, `node_modules/.bin/x` or `./node_modules/.bin/x`, in
+`require.resolve`, `import.meta.resolve` or any other import, names the link of binary `x`, which code looks up to spawn
+it: it uses the dependency that provides `x`, whether or not it is installed, is reported at the file when no dependency
+provides `x`, and is never an `unresolved-imports` finding. The steps of CI workflows, Git hooks and task runners run on
+machines that bring their own tools, so a binary they run by name is never reported there; one they run through a
+package manager (`pnpm exec x`, `yarn x`) or a `node_modules/.bin` path is, as knip does. A GitHub Actions step whose
+`shell` is not a POSIX shell (`pwsh`, `cmd`, `python`) is not read. The binary of a workspace member is provided where
+the package manager puts it on the `PATH`: with npm, Yarn Classic, hoisted pnpm and hoisted Bun, which link every
+member's binaries into the root `node_modules/.bin`, for every package; with isolated pnpm, Yarn Berry, isolated Bun and
+in a Rush repository only for the packages that list the member and for the member's own scripts. pnpm is hoisted with
 `nodeLinker: hoisted` in `pnpm-workspace.yaml`, or without a `nodeLinker` there with `node-linker=hoisted` in the root
 `.npmrc` only before pnpm 11 (pnpm 11 reads its linker only from `pnpm-workspace.yaml`; without a pnpm version in
-`packageManager`, `.npmrc` is read). Bun is isolated with `linker = "isolated"` under
-`[install]` in the root `bunfig.toml`, or without a `linker` when `bun.lock` records `configVersion` 1. In a Rush repository (a `rush.json` at the root), `rush`, `rushx` and
-`rush-pnpm` are Rush's own commands and never unlisted.
+`packageManager`, `.npmrc` is read). Bun is isolated with `linker = "isolated"` under `[install]` in the root
+`bunfig.toml`, or without a `linker` when `bun.lock` records `configVersion` 1. In a Rush repository (a `rush.json` at
+the root), `rush`, `rushx` and `rush-pnpm` are Rush's own commands and never unlisted.
 
 **Scripts that change directory.** A `package.json` script command after `cd <dir>` or `pushd <dir>` (until `popd`),
 and one that `npm --prefix <dir> exec`, `pnpm -C <dir> exec` (`--dir`) or `yarn --cwd <dir> exec` runs, runs in that
