@@ -8,6 +8,7 @@ import {
   benchDetail,
   benchSummary,
   duration,
+  machineText,
   markers,
   parityAgreement,
   provenance,
@@ -27,21 +28,54 @@ const row = (tool, median_ms, extra = {}) => ({
   ...extra,
 });
 
+/** The machine of a GitHub-hosted x86 runner, as the harness records it there. */
+function machine() {
+  return {
+    os: "Ubuntu 24.04.3 LTS",
+    kernel: "Linux 6.11.0-1018-azure",
+    arch: "x86_64",
+    cpu: "AMD EPYC 7763 64-Core Processor",
+    logical_cpus: 4,
+    available_cpus: 4,
+    physical_cores: 2,
+    memory_bytes: 16_374_836 * 1024,
+    cgroup_cpu_limit: null,
+    virtualization: "Microsoft",
+    github: {
+      image_os: "ubuntu24",
+      image_version: "20261102.1.0",
+      runner_os: "Linux",
+      runner_arch: "X64",
+      runner_environment: "github-hosted",
+      runner_name: "GitHub Actions 1000012345",
+      run_url: "https://github.com/Goldziher/skif/actions/runs/19283746",
+    },
+  };
+}
+
 function summary() {
   return {
-    schema: 2,
+    schema: 3,
     skif: "skif 0.3.0",
     source_rev: "0123456789ab",
+    harness_rev: "0123456789ab",
     measured_at: 1_794_268_800,
-    host: "linux x86_64",
-    cpu: "Intel(R) Xeon(R) CPU @ 2.10GHz",
-    cores: 4,
+    machine: machine(),
+    toolchain: {
+      rustc: "rustc 1.99.0 (0123abcd 2026-10-01)",
+      node: "v26.13.0",
+      npm: "11.6.2",
+      pnpm: "12.16.1",
+      yarn: null,
+      bun: null,
+    },
     load_before: [1.5, 1.25, 1],
     load_after: [2, 1.5, 1.25],
     hyperfine: "hyperfine 1.20.0",
     tool_versions: { knip: "6.44.1", sherif: "sherif 1.13.0", syncpack: "15.3.3" },
     warmup: 3,
     runs: 15,
+    corpus_only: [],
     skipped_tools: [],
     targets: [
       {
@@ -69,13 +103,54 @@ function summary() {
   };
 }
 
-test("a complete summary has no problems and names what was measured", () => {
+test("a complete summary has no problems and names what was measured, on which runner and in which run", () => {
   assert.deepEqual(summaryProblems(summary()), []);
   assert.equal(
     provenance(summary()),
+    "Medians of 15 runs after 3 warmup runs (hyperfine 1.20.0), skif 0.3.0 at `0123456789ab` built with " +
+      "rustc 1.99.0 (0123abcd 2026-10-01) against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3, measured on " +
+      "2026-11-10 on a GitHub-hosted runner, image ubuntu24 20261102.1.0, Ubuntu 24.04.3 LTS, " +
+      "Linux 6.11.0-1018-azure, x86_64, AMD EPYC 7763 64-Core Processor, 4 logical CPUs (2 physical cores), " +
+      "15.6 GiB memory, hypervisor Microsoft, load average 1.50 / 1.25 / 1.00 before and 2.00 / 1.50 / 1.25 after " +
+      "the run ([workflow run](https://github.com/Goldziher/skif/actions/runs/19283746)).",
+  );
+});
+
+test("a local summary names the machine without a runner or a run", () => {
+  const local = summary();
+  local.machine.github = null;
+  local.toolchain.rustc = null;
+  assert.equal(
+    provenance(local),
     "Medians of 15 runs after 3 warmup runs (hyperfine 1.20.0), skif 0.3.0 at `0123456789ab` against knip 6.44.1, " +
-      "sherif 1.13.0, syncpack 15.3.3, measured on 2026-11-10 on linux x86_64, Intel(R) Xeon(R) CPU @ 2.10GHz, " +
-      "4 logical CPUs, load average 1.50 / 1.25 / 1.00 before and 2.00 / 1.50 / 1.25 after the run.",
+      "sherif 1.13.0, syncpack 15.3.3, measured on 2026-11-10 on Ubuntu 24.04.3 LTS, Linux 6.11.0-1018-azure, " +
+      "x86_64, AMD EPYC 7763 64-Core Processor, 4 logical CPUs (2 physical cores), 15.6 GiB memory, " +
+      "hypervisor Microsoft, load average 1.50 / 1.25 / 1.00 before and 2.00 / 1.50 / 1.25 after the run.",
+  );
+});
+
+test("the machine line names unknown facts and leaves out missing ones, as summary.md does", () => {
+  const bare = {
+    os: null,
+    kernel: null,
+    arch: "aarch64",
+    cpu: null,
+    logical_cpus: null,
+    available_cpus: 2,
+    physical_cores: null,
+    memory_bytes: null,
+    cgroup_cpu_limit: null,
+    virtualization: null,
+    github: null,
+  };
+  assert.equal(machineText(bare), "unknown OS, aarch64, unknown CPU, 2 logical CPUs");
+  assert.equal(
+    machineText({ ...bare, logical_cpus: 8, cgroup_cpu_limit: 1.5 }),
+    "unknown OS, aarch64, unknown CPU, 8 logical CPUs, 2 available to the run, cgroup limit of 1.5 CPUs",
+  );
+  assert.equal(
+    machineText({ ...bare, cpu: "Neoverse-N2  \n", memory_bytes: 2 ** 30 }),
+    "unknown OS, aarch64, Neoverse-N2, 2 logical CPUs, 1.0 GiB memory",
   );
 });
 
@@ -87,7 +162,10 @@ test("a skipped tool, a missing row or an old schema is a problem", () => {
     "sherif was not timed on any target: npm is not installed",
     "corpus: babel (yarn) has no knip --reporter json row",
   ]);
-  assert.match(summaryProblems({ ...summary(), schema: 1 })[0], /schema 1 is not 2/);
+  assert.match(summaryProblems({ ...summary(), schema: 2 })[0], /schema 2 is not 3; measure again with the bench workflow/);
+  assert.deepEqual(summaryProblems({ ...summary(), corpus_only: ["babel", "vue-core"] }), [
+    "the run timed only some corpus repositories (babel, vue-core); a partial run is not published",
+  ]);
   const noCorpus = summary();
   noCorpus.targets = noCorpus.targets.filter((t) => t.kind !== "corpus");
   assert.deepEqual(summaryProblems(noCorpus), ["the summary has no corpus target (was it run with --no-corpus?)"]);
