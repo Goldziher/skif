@@ -1,6 +1,8 @@
 //! The human-readable renderer.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::fmt;
 use std::io::{self, Write};
 
 use skif_core::{Diagnostic, Fix, FixSafety, IncompleteScope, Report, Severity, Span, Summary};
@@ -17,10 +19,11 @@ use crate::text::{escape_controls, frame};
 /// Returns any error produced by writing to `out`.
 pub fn render_human(report: &Report, options: &RenderOptions, out: &mut dyn Write) -> io::Result<()> {
     let paint = Painter::new(options.color);
-    let mut files: BTreeMap<String, Vec<&Diagnostic>> = BTreeMap::new();
+    // Keyed by the displayed path, borrowed from the diagnostic whenever displaying it changes nothing.
+    let mut files: BTreeMap<Cow<'_, str>, Vec<&Diagnostic>> = BTreeMap::new();
     for diagnostic in &report.diagnostics {
         files
-            .entry(options.display_path(&diagnostic.location.path).into_owned())
+            .entry(options.display_path(&diagnostic.location.path))
             .or_default()
             .push(diagnostic);
     }
@@ -31,9 +34,10 @@ pub fn render_human(report: &Report, options: &RenderOptions, out: &mut dyn Writ
                 .then_with(|| a.rule.cmp(&b.rule))
                 .then_with(|| a.message.cmp(&b.message))
         });
-        writeln!(out, "{}", paint.bold(&escape_controls(&path)))?;
+        let shown = escape_controls(&path);
+        writeln!(out, "{}", paint.bold(&shown))?;
         for diagnostic in diagnostics {
-            write_diagnostic(out, paint, options, &path, diagnostic)?;
+            write_diagnostic(out, paint, options, (&*path, &*shown), diagnostic)?;
         }
         writeln!(out)?;
     }
@@ -61,7 +65,7 @@ pub fn render_human(report: &Report, options: &RenderOptions, out: &mut dyn Writ
             plural(names.len(), "package"),
             names.join(", ")
         );
-        writeln!(out, "{}", paint.dim(&line))?;
+        writeln!(out, "{}", paint.dim(line))?;
     }
     writeln!(out, "{}", summary_line(paint, &report.summary))
 }
@@ -70,11 +74,54 @@ fn start(diagnostic: &Diagnostic) -> u32 {
     diagnostic.location.span.map_or(0, |span| span.start)
 }
 
+/// Spaces for the widest line number, a `u32`.
+const PAD: &str = "          ";
+
+/// `{severity}[{rule}]`, with the rule escaped as `escape_controls` escapes the whole label: the rest is plain.
+struct Label<'a>(Severity, &'a str);
+
+impl fmt::Display for Label<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}[{}]", severity_label(self.0), escape_controls(self.1))
+    }
+}
+
+/// `:{line}:{column}` of a span's start, or nothing without one.
+struct Position<'a>(Option<&'a Span>);
+
+impl fmt::Display for Position<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            Some(span) => write!(f, ":{}:{}", span.start_line, span.start_col),
+            None => Ok(()),
+        }
+    }
+}
+
+/// `count` copies of a character.
+struct Repeat(char, usize);
+
+impl fmt::Display for Repeat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (0..self.1).try_for_each(|_| fmt::Write::write_char(f, self.0))
+    }
+}
+
+/// A line number right-aligned to `width`.
+struct Number(u32, usize);
+
+impl fmt::Display for Number {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:>1$}", self.0, self.1)
+    }
+}
+
+/// Writes one diagnostic of the file at `path`, which is displayed (control characters escaped) as `shown`.
 fn write_diagnostic(
     out: &mut dyn Write,
     paint: Painter,
     options: &RenderOptions,
-    path: &str,
+    (path, shown): (&str, &str),
     diagnostic: &Diagnostic,
 ) -> io::Result<()> {
     let span = diagnostic.location.span;
@@ -84,30 +131,29 @@ fn write_diagnostic(
             .map(|line| (span, frame(line, span.start_col, same_line_end(&span))))
     });
     let width = span.map_or(1, |span| digits(span.start_line));
-    let pad = " ".repeat(width);
+    let pad = PAD.get(..width).unwrap_or(PAD);
     let bar = paint.dim("|");
-    let label = format!("{}[{}]", severity_label(diagnostic.severity), diagnostic.rule);
     writeln!(
         out,
         "  {}: {}",
-        paint.severity(diagnostic.severity, &escape_controls(&label)),
-        paint.bold(&escape_controls(&diagnostic.message))
+        paint.severity(diagnostic.severity, Label(diagnostic.severity, diagnostic.rule.as_str())),
+        paint.bold(escape_controls(&diagnostic.message))
     )?;
     writeln!(
         out,
-        "  {pad}{} {}",
+        "  {pad}{} {shown}{}",
         paint.accent("-->"),
-        escape_controls(&location_text(path, span.as_ref()))
+        Position(span.as_ref())
     )?;
     if let Some((span, framed)) = framed {
-        let number = paint.accent(&format!("{:>width$}", span.start_line));
+        let number = paint.accent(Number(span.start_line, width));
         writeln!(out, "  {pad} {bar}")?;
         writeln!(out, "  {number} {bar} {}", framed.text)?;
         writeln!(
             out,
             "  {pad} {bar} {}{}",
-            " ".repeat(framed.pad),
-            paint.severity(diagnostic.severity, &"^".repeat(framed.carets))
+            Repeat(' ', framed.pad),
+            paint.severity(diagnostic.severity, Repeat('^', framed.carets))
         )?;
     }
     let note = |out: &mut dyn Write, key: &str, value: &str| {
@@ -137,15 +183,15 @@ fn write_diagnostic(
         note(out, "note", &format!("{} ({at})", related.message))?;
     }
     for fix in &diagnostic.fixes {
-        note(out, &fix_key(fix), &fix.title)?;
+        note(out, fix_key(fix), &fix.title)?;
     }
     Ok(())
 }
 
-fn fix_key(fix: &Fix) -> String {
+const fn fix_key(fix: &Fix) -> &'static str {
     match fix.safety {
-        FixSafety::Safe => "fix (safe)".to_owned(),
-        _ => "fix (unsafe)".to_owned(),
+        FixSafety::Safe => "fix (safe)",
+        _ => "fix (unsafe)",
     }
 }
 
@@ -198,14 +244,14 @@ fn summary_line(paint: Painter, summary: &Summary) -> String {
         String::new()
     };
     if counts.is_empty() {
-        return paint.success(&format!("No issues found{scope}"));
+        return paint.success(format!("No issues found{scope}")).to_string();
     }
     let fixable = if summary.fixable > 0 {
         format!(" ({} fixable)", summary.fixable)
     } else {
         String::new()
     };
-    paint.bold(&format!("Found {}{scope}{fixable}", counts.join(", ")))
+    paint.bold(format!("Found {}{scope}{fixable}", counts.join(", "))).to_string()
 }
 
 #[cfg(test)]
