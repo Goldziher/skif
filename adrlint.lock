@@ -545,3 +545,18 @@ blake3 = "6f8ff36a136192b4078d49e8306573002f4587be9d6410fc8e103df122fe4dea"
 number = 109
 status = "accepted"
 blake3 = "0c08be1bff78e28e3ad3d4331b498caeb0f5d319efa526603aee229de1c35361"
+
+[adrs."adrs/0110-files-reached-through-rootdirs-belong-to-the-importing-package.md"]
+number = 110
+status = "accepted"
+blake3 = "317c45d41b53b18ba5a5cb721792c381823e5ba3483571fa7c3e50b507b160b4"
+
+[adrs."adrs/0111-ambient-types-packages-under-typescript-6.md"]
+number = 111
+status = "accepted"
+blake3 = "53f144c47259ff317100af965b931e1714691dfb0189433ffd148b6baa5d2427"
+
+[adrs."adrs/0112-paths-under-bazel-run.md"]
+number = 112
+status = "accepted"
+blake3 = "45305dabdf49cd53fa68e2277a3293306d0585f9f92919c8be89941c36ec7e80"
