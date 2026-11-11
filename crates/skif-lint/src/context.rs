@@ -8,7 +8,7 @@ use skif_config::Config;
 use skif_core::{Diagnostic, FileSystem, OsFs, RuleMeta, Severity};
 use skif_workspace::Workspace;
 
-/// One shared value, computed by the first rule that asks for it.
+/// One shared value, stored by the first rule that finishes computing it.
 type Slot = Arc<OnceLock<Arc<dyn Any + Send + Sync>>>;
 
 /// Values computed once per run and shared by every rule and provider (see [`LintContext::shared`]).
@@ -29,8 +29,13 @@ impl SharedCache {
             let mut slots = self.slots.lock().unwrap_or_else(PoisonError::into_inner);
             Arc::clone(slots.entry(TypeId::of::<T>()).or_default())
         };
-        let value: &Arc<dyn Any + Send + Sync> = slot.get_or_init(|| Arc::new(init()));
-        Arc::clone(value)
+        let value = if let Some(value) = slot.get() {
+            Arc::clone(value)
+        } else {
+            let computed: Arc<dyn Any + Send + Sync> = Arc::new(init());
+            Arc::clone(slot.get_or_init(|| computed))
+        };
+        value
             .downcast::<T>()
             .unwrap_or_else(|_| unreachable!("a cache slot only ever holds the type it is keyed by"))
     }
@@ -116,9 +121,12 @@ impl<'a> LintContext<'a> {
         self
     }
 
-    /// A value of type `T` computed at most once per run: the first caller runs `init`, later and concurrent callers
-    /// (other rules, other providers) get the same value. Use it for analyses several rules need, keyed by the type
-    /// of the value; the value must not depend on anything that varies between rules.
+    /// A value of type `T` shared for the whole run: callers after the first stored value (other rules, other
+    /// providers) get that value. Callers that arrive while no value is stored yet each run `init` and the first to
+    /// finish wins, so `init` may run more than once and must compute the same value every time. No caller ever
+    /// waits for another's `init`: a rayon worker blocked on a value whose `init` uses rayon itself can hold a job
+    /// that `init` needs, and the run would deadlock. Use it for analyses several rules need, keyed by the type of
+    /// the value; the value must not depend on anything that varies between rules.
     pub fn shared<T: Any + Send + Sync>(&self, init: impl FnOnce() -> T) -> Arc<T> {
         self.shared.get_or_init(init)
     }
@@ -208,5 +216,45 @@ impl EnabledRules {
     /// The base severity and configured flag of an enabled rule.
     pub(crate) fn base(&self, id: &str) -> Option<(Option<Severity>, bool)> {
         self.severities.get(id).copied()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SharedCache;
+    use rayon::prelude::*;
+    use std::sync::{Arc, mpsc};
+    use std::time::Duration;
+
+    #[test]
+    fn a_rule_asking_for_a_value_while_its_own_worker_computes_it_gets_the_stored_value() {
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(1)
+                .build()
+                .expect("a thread pool");
+            let cache = SharedCache::default();
+            // The only worker runs the first job, whose `init` lets the worker run the second job, which asks for
+            // the same value: a blocking cache would wait for the `init` below it on the same thread forever.
+            let values: Vec<Arc<u32>> = pool.install(|| {
+                (0..2)
+                    .into_par_iter()
+                    .with_max_len(1)
+                    .map(|_| {
+                        cache.get_or_init(|| {
+                            rayon::yield_now();
+                            7_u32
+                        })
+                    })
+                    .collect()
+            });
+            sender.send(values).expect("the test is waiting");
+        });
+        let values = receiver
+            .recv_timeout(Duration::from_secs(30))
+            .expect("both jobs got the value");
+        assert_eq!(values.iter().map(|value| **value).collect::<Vec<_>>(), [7, 7]);
+        assert!(Arc::ptr_eq(&values[0], &values[1]));
     }
 }
