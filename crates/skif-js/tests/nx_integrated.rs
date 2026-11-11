@@ -198,7 +198,10 @@ fn a_members_project_json_names_its_files_from_the_workspace_root() {
         ("nx.json", "{}"),
         ("packages/b/package.json", r#"{ "name": "b", "version": "1.0.0" }"#),
         ("packages/b/project.json", project),
-        ("packages/b/src/entry.ts", "import { helper } from './helper';\nhelper();\n"),
+        (
+            "packages/b/src/entry.ts",
+            "import { helper } from './helper';\nhelper();\n",
+        ),
         ("packages/b/src/helper.ts", "export function helper() {}\n"),
         ("packages/b/src/unused.ts", "export const unused = 1;\n"),
         ("packages/b/scripts/gen.mjs", "console.log('gen');\n"),

@@ -144,7 +144,10 @@ fn run_in_scopes(
                 continue;
             }
             let setting = scope_ctx.plugins.get(spec.id);
-            let found = rebase(run_plugin(plugin, setting, &scope_ctx, None, &[], Some(files.as_slice())), scope);
+            let found = rebase(
+                run_plugin(plugin, setting, &scope_ctx, None, &[], Some(files.as_slice())),
+                scope,
+            );
             merge(outputs[index].get_or_insert_with(PluginOutput::default), found);
         }
     }
@@ -596,7 +599,10 @@ fn run_plugin(
     for project in scripted.project {
         push_unique(&mut collector.out.project, project);
     }
-    let found = listing.map_or_else(|| find_files(ctx.fs, ctx.dir, &patterns), |files| matching(files, &patterns));
+    let found = listing.map_or_else(
+        || find_files(ctx.fs, ctx.dir, &patterns),
+        |files| matching(files, &patterns),
+    );
     collector.queue.extend(found.into_iter().map(|path| Queued {
         path,
         depth: 0,

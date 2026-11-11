@@ -140,12 +140,11 @@ fn nx_project_calls(source: &str) -> usize {
 /// walk of the package finds without it.
 fn nx_project_configs(cx: &PluginContext<'_>, config: &ConfigAst<'_>) -> Vec<PluginInput> {
     let walked;
-    let dirs: &[String] = match cx.nx {
-        Some(projects) => &projects.all,
-        None => {
-            walked = project_dirs(cx);
-            &walked
-        }
+    let dirs: &[String] = if let Some(projects) = cx.nx {
+        &projects.all
+    } else {
+        walked = project_dirs(cx);
+        &walked
     };
     let mut files: Vec<String> = Vec::new();
     for dir in dirs {
