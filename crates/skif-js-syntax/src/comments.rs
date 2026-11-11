@@ -49,7 +49,8 @@ pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInf
                 });
             }
         }
-        if text.starts_with("/**") {
+        // Both `@import` and `import('…')` hold the word, which flattening never creates.
+        if text.starts_with("/**") && memchr::memmem::find(text.as_bytes(), b"import").is_some() {
             let flat = flatten(text);
             let type_expressions = tag_type_expressions(&flat);
             let import_types = type_expressions

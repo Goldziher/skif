@@ -15,6 +15,7 @@ readme = "README.md"
 include = ["/src/**", "/benches/**", "/tests/**", "/Cargo.toml", "/LICENSE", "/ATTRIBUTIONS.md", "/README.md"]
 
 [dependencies]
+memchr.workspace = true
 oxc_allocator.workspace = true
 oxc_ast.workspace = true
 oxc_ast_visit.workspace = true

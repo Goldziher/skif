@@ -35,6 +35,8 @@ pub(crate) struct Finder<'c, 's> {
     component_decorators: HashSet<String>,
     /// Start offsets of the `import("x")` expressions a mock names (`vi.mock(import("x"))`), which are not imports.
     mocked_imports: HashSet<u32>,
+    /// The names of `info.exports`, gathered at the first `CommonJS` export, which keeps them up to date.
+    export_names: Option<HashSet<String>>,
 }
 
 impl Finder<'_, '_> {
@@ -64,9 +66,13 @@ impl Finder<'_, '_> {
     }
 
     fn cjs_export(&mut self, name: &str, span: oxc_span::Span) {
-        if self.info.exports.iter().any(|export| export.name == name) {
+        let names = self
+            .export_names
+            .get_or_insert_with(|| self.info.exports.iter().map(|export| export.name.clone()).collect());
+        if names.contains(name) {
             return;
         }
+        names.insert(name.to_owned());
         let mut export = Export::bare(name.to_owned(), ExportKind::Value, self.ctx.span(span));
         export.local_name = None;
         self.info.exports.push(export);
@@ -82,6 +88,7 @@ impl<'c, 's> Finder<'c, 's> {
             module_file: is_module_file(program),
             component_decorators: component_decorator_names(info),
             mocked_imports: HashSet::default(),
+            export_names: None,
             ctx,
             info,
         }
@@ -682,7 +689,9 @@ impl Finder<'_, '_> {
 
     fn visit_special_call(&mut self, it: &CallExpression<'_>) {
         let first = it.arguments.first().and_then(Argument::as_expression);
-        let span = self.ctx.span(it.span);
+        // Most calls are none of these, so the span is mapped to lines only for one that is recorded.
+        let ctx = self.ctx;
+        let span = || ctx.span(it.span);
         match &it.callee {
             Expression::Identifier(id) if id.name.as_str() == "require" => match first.and_then(static_string) {
                 Some(specifier) => {
@@ -692,10 +701,10 @@ impl Finder<'_, '_> {
                         kind: ImportKind::Require,
                         names,
                         call: None,
-                        span,
+                        span: span(),
                     });
                 }
-                None if !it.arguments.is_empty() => self.computed_specifier(first, span),
+                None if !it.arguments.is_empty() => self.computed_specifier(first, span()),
                 None => {}
             },
             Expression::StaticMemberExpression(m) => {
@@ -708,13 +717,13 @@ impl Finder<'_, '_> {
                             kind: ImportKind::Require,
                             names: Vec::new(),
                             call: None,
-                            span,
+                            span: span(),
                         }),
-                        None => self.info.unresolved_dynamic.push(span),
+                        None => self.info.unresolved_dynamic.push(span()),
                     }
                 } else if is_import_meta(&m.object) && (property == "glob" || property == "globEager") {
                     let options = it.arguments.get(1).and_then(Argument::as_expression);
-                    self.glob(first, options, span);
+                    self.glob(first, options, span());
                 } else if let Some(call) = mock_call(m)
                     && !is_virtual_mock(it)
                     && let Some((specifier, import)) = first.and_then(mock_specifier)
@@ -728,7 +737,7 @@ impl Finder<'_, '_> {
                         kind: ImportKind::Mock,
                         names: Vec::new(),
                         call: Some(call),
-                        span,
+                        span: span(),
                     });
                 }
             }
