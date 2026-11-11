@@ -90,7 +90,25 @@ lockfile it finds: one in a member's directory (`package-lock.json`, `npm-shrink
 `pnpm-lock.yaml`, `bun.lock`, `bun.lockb`), and one at the root that another manager than the detected one writes
 (`package-lock.json` next to `pnpm-lock.yaml` in a pnpm workspace). Either of npm's two lockfiles is accepted at the
 root, and so is either of Bun's. Next to each other, the one the manager ignores is reported: `package-lock.json` beside
-`npm-shrinkwrap.json`, which npm installs from, and a binary `bun.lockb` beside `bun.lock`, which Bun installs from. Without a detected manager the root lockfiles are not judged. Its unsafe fix deletes the file.
+`npm-shrinkwrap.json`, which npm installs from, and a binary `bun.lockb` beside `bun.lock`, which Bun installs from.
+Without a detected manager the root lockfiles are not judged. Its unsafe fix deletes the file.
+
+A member's lockfile that a build installs from is not reported, so the fix never deletes it. skif reads the build
+files and runs nothing:
+
+- a Bazel label of the lockfile, `"//libs/a:pnpm-lock.yaml"` (also `@//` and `@@//`), in a `MODULE.bazel`,
+  `REPO.bazel`, `WORKSPACE`, `WORKSPACE.bazel`, `*.bzl`, `BUILD` or `BUILD.bazel` file below the root, as rules_js's
+  `npm_translate_lock(pnpm_lock = ...)` takes it. Labels are read relative to the Bazel repository the root belongs to,
+  so in a workspace at `js/` of a Bazel repository the label is `//js/libs/a:pnpm-lock.yaml`, and the Bazel files at
+  the top of that repository are read too;
+- the lockfile's name (`"pnpm-lock.yaml"` or `":pnpm-lock.yaml"`) in a `BUILD` or `BUILD.bazel` file of its own
+  directory, as in `exports_files` or `srcs`;
+- a `COPY` or `ADD` of it, by name or by a glob such as `pnpm-lock.yaml*`, in a Dockerfile (`Dockerfile`,
+  `Dockerfile.*`, `*.Dockerfile`, `Containerfile`) of its own directory, the build context the file is written for.
+  A copy from another stage (`--from`) and `COPY . .` do not count.
+
+Comments are skipped. An `allow` entry for such a lockfile is reported as stale, since the rule would not report the
+file without it.
 
 `nested-workspace-root` reports a `pnpm-workspace.yaml` in a member's directory: pnpm takes the nearest one above the
 working directory, so an install in that member leaves the root workspace. skif lints such a member as a root of its

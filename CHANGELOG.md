@@ -24,12 +24,15 @@ All notable changes to this project are documented here. The format follows
   [#139](https://github.com/Goldziher/skif/issues/139)).
 - `stray-lockfile`: a lockfile in a workspace member, or one at the root written by another package manager (also a
   `bun.lockb` beside a `bun.lock`, which Bun ignores, and a `package-lock.json` beside an `npm-shrinkwrap.json`, which
-  npm ignores, [#157](https://github.com/Goldziher/skif/issues/157)); the unsafe fix deletes it.
+  npm ignores, [#157](https://github.com/Goldziher/skif/issues/157)); the unsafe fix deletes it. A member lockfile a
+  build installs from, named by a Bazel label (`//libs/a:pnpm-lock.yaml`), a `BUILD` file of its directory or a
+  Dockerfile there that copies it, is not reported ([#180](https://github.com/Goldziher/skif/issues/180)).
   `nested-workspace-root`: a `pnpm-workspace.yaml` in a member, or a Bun member whose `package.json` declares
   `workspaces`. Both skip gitignored files and take `allow`, globs of files kept on purpose, each a string or
   `{ name, reason }`
   ([ADR 0089](adrs/0089-stray-lockfiles-and-nested-workspace-roots.md),
   [ADR 0104](adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md),
+  [ADR 0107](adrs/0107-stray-lockfiles-a-build-installs-from-and-a-dependency-in-none-of-several-catalogs.md),
   [#140](https://github.com/Goldziher/skif/issues/140)).
 - `stale-patched-dependencies` (`warn`): a `patchedDependencies` entry (pnpm, or Bun's root `package.json`) whose
   `name@version` the lockfile no longer resolves or records without the patch, a missing patch file or one outside
