@@ -2408,6 +2408,7 @@ dependencies = [
  "insta",
  "memchr",
  "proptest",
+ "rayon",
  "schemars",
  "serde",
  "serde_json",

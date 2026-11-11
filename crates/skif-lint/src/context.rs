@@ -28,12 +28,9 @@ impl SharedCache {
             let mut slots = self.slots.lock().unwrap_or_else(PoisonError::into_inner);
             Arc::clone(slots.entry(TypeId::of::<T>()).or_default())
         };
-        let value = if let Some(value) = slot.get() {
-            Arc::clone(value)
-        } else {
-            let computed: Arc<dyn Any + Send + Sync> = Arc::new(init());
-            Arc::clone(slot.get_or_init(|| computed))
-        };
+        let value = Arc::clone(skif_core::get_or_compute(&slot, || {
+            Arc::new(init()) as Arc<dyn Any + Send + Sync>
+        }));
         value
             .downcast::<T>()
             .unwrap_or_else(|_| unreachable!("a cache slot only ever holds the type it is keyed by"))
@@ -120,12 +117,10 @@ impl<'a> LintContext<'a> {
         self
     }
 
-    /// A value of type `T` shared for the whole run: callers after the first stored value (other rules, other
-    /// providers) get that value. Callers that arrive while no value is stored yet each run `init` and the first to
-    /// finish wins, so `init` may run more than once and must compute the same value every time. No caller ever
-    /// waits for another's `init`: a rayon worker blocked on a value whose `init` uses rayon itself can hold a job
-    /// that `init` needs, and the run would deadlock. Use it for analyses several rules need, keyed by the type of
-    /// the value; the value must not depend on anything that varies between rules.
+    /// A value of type `T` shared for the whole run by every rule and provider, computed as
+    /// [`get_or_compute`](skif_core::get_or_compute) does: `init` may run more than once and must compute the same
+    /// value every time, and no caller waits for another's `init`. Use it for analyses several rules need, keyed by
+    /// the type of the value; the value must not depend on anything that varies between rules.
     pub fn shared<T: Any + Send + Sync>(&self, init: impl FnOnce() -> T) -> Arc<T> {
         self.shared.get_or_init(init)
     }
