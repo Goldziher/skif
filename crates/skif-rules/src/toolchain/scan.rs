@@ -12,10 +12,10 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use rayon::prelude::*;
 use skif_config::Selector;
 use skif_core::{DirEntry, FileSystem, LineIndex, Location, PackageId};
 use skif_lint::LintContext;
+use skif_workspace::map_ordered;
 
 use super::options::{Resolved, ToolchainKind, ToolchainOptions};
 use super::parse::{self, Parsed};
@@ -113,12 +113,17 @@ impl Scan {
                 .map(|(id, package)| (slashed(&package.dir), (id, workspace.is_ignored(id))))
                 .collect(),
         };
-        let mut found: BTreeMap<String, (ToolchainKind, PackageId, bool)> = owners
+        let scanned: Vec<(&String, PackageId)> = owners
             .dirs
-            .par_iter()
+            .iter()
             .filter(|(_, (_, ignored))| !ignored)
-            .flat_map_iter(|(dir, &(id, _))| owners.default_files(dir, id))
+            .map(|(dir, &(id, _))| (dir, id))
             .collect();
+        let mut found: BTreeMap<String, (ToolchainKind, PackageId, bool)> =
+            map_ordered(&scanned, cx.sequential, |&(dir, id)| owners.default_files(dir, id))
+                .into_iter()
+                .flatten()
+                .collect();
         if let Some(&(root, false)) = owners.dirs.get("") {
             for name in owners.file_names(WORKFLOWS) {
                 if has_extension(&name, &["yml", "yaml"]) {
@@ -138,21 +143,23 @@ impl Scan {
                 }
             }
         }
-        let files = found
-            .into_par_iter()
-            .filter_map(|(path, (kind, package, at_default_place))| {
-                let source = fs.read_to_string(&workspace.root.join(&path)).ok()?;
-                let name = file_name(&path);
-                Some(ToolchainFile {
-                    kind,
-                    package,
-                    at_default_place,
-                    lines: LineIndex::new(&source),
-                    parsed: parse::parse(kind, name, &source),
-                    path,
-                })
+        let found: Vec<(String, (ToolchainKind, PackageId, bool))> = found.into_iter().collect();
+        let files = map_ordered(&found, cx.sequential, |(path, (kind, package, at_default_place))| {
+            let (kind, package, at_default_place) = (*kind, *package, *at_default_place);
+            let source = fs.read_to_string(&workspace.root.join(path)).ok()?;
+            let name = file_name(path);
+            Some(ToolchainFile {
+                kind,
+                package,
+                at_default_place,
+                lines: LineIndex::new(&source),
+                parsed: parse::parse(kind, name, &source),
+                path: path.clone(),
             })
-            .collect();
+        })
+        .into_iter()
+        .flatten()
+        .collect();
         Self { files }
     }
 }
