@@ -19,7 +19,7 @@
 use skif_core::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::time::SystemTime;
 
 use skif_core::{DirEntry, FileSystem, PathKind};
@@ -523,8 +523,9 @@ pub(crate) struct IndexedFs {
     inner: Arc<dyn FileSystem>,
     tree: TrackedTree,
     trust: Trust,
-    /// The listing served for each tracked directory, decided once.
-    served: Mutex<HashMap<PathBuf, Arc<[DirEntry]>>>,
+    /// The listing served for each tracked directory, decided once. Read far more often than written: every listing
+    /// of a tracked directory after the first is a read.
+    served: RwLock<HashMap<PathBuf, Arc<[DirEntry]>>>,
 }
 
 impl IndexedFs {
@@ -533,7 +534,7 @@ impl IndexedFs {
             inner,
             tree,
             trust,
-            served: Mutex::new(HashMap::default()),
+            served: RwLock::new(HashMap::default()),
         }
     }
 
@@ -576,11 +577,11 @@ impl FileSystem for IndexedFs {
         let Some(indexed) = self.tree.listing(path) else {
             return self.inner.read_dir_shared(path);
         };
-        if let Some(served) = self.served.lock().unwrap_or_else(PoisonError::into_inner).get(path) {
+        if let Some(served) = self.served.read().unwrap_or_else(PoisonError::into_inner).get(path) {
             return Ok(Arc::clone(served));
         }
         let listing = self.serve(path, indexed)?;
-        let mut served = self.served.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut served = self.served.write().unwrap_or_else(PoisonError::into_inner);
         Ok(Arc::clone(served.entry(path.to_path_buf()).or_insert(listing)))
     }
 
