@@ -734,7 +734,13 @@ mod tests {
             let files = bazel_and_docker_files(&[]);
             let files: Vec<(&str, &str)> = files
                 .into_iter()
-                .map(|(path, text)| if path == "MODULE.bazel" { (path, module.as_str()) } else { (path, text) })
+                .map(|(path, text)| {
+                    if path == "MODULE.bazel" {
+                        (path, module.as_str())
+                    } else {
+                        (path, text)
+                    }
+                })
                 .collect();
             assert_eq!(paths(&lint(META.id, &files, &config(""))), [] as [&str; 0], "{label}");
         }
@@ -764,7 +770,10 @@ mod tests {
             ("tools/image/Dockerfile", "FROM node:22\nCOPY pnpm-lock.yaml ./\n"),
             ("tools/other/pnpm-lock.yaml", ""),
         ];
-        assert_eq!(paths(&lint(META.id, &files, &config(""))), ["tools/other/pnpm-lock.yaml"]);
+        assert_eq!(
+            paths(&lint(META.id, &files, &config(""))),
+            ["tools/other/pnpm-lock.yaml"]
+        );
     }
 
     #[test]

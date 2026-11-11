@@ -8,35 +8,37 @@ use skif_core::FileSystem;
 /// its `WORKSPACE` or `WORKSPACE.bazel`: the name the repository is known by.
 #[must_use]
 pub fn bazel_workspace_name(fs: &dyn FileSystem, root: &Path) -> Option<String> {
-    ["MODULE.bazel", "WORKSPACE", "WORKSPACE.bazel"].iter().find_map(|file| {
-        let text = fs.read_to_string(&root.join(file)).ok()?;
-        let call = if *file == "MODULE.bazel" {
-            "module("
-        } else {
-            "workspace("
-        };
-        let at = text.match_indices(call).find_map(|(at, _)| {
-            text[..at]
-                .chars()
-                .next_back()
-                .is_none_or(|before| !(before.is_alphanumeric() || before == '_'))
-                .then_some(at)
-        })?;
-        let body = &text[at + call.len()..];
-        let body = &body[..body.find(')')?];
-        let at = body.match_indices("name").find_map(|(at, _)| {
-            body[..at]
-                .chars()
-                .next_back()
-                .is_none_or(|before| !(before.is_alphanumeric() || before == '_'))
-                .then_some(at)
-        })?;
-        let value = body[at + "name".len()..].trim_start().strip_prefix('=')?.trim_start();
-        let quote = value.chars().next().filter(|quote| matches!(quote, '"' | '\''))?;
-        let value = &value[1..];
-        let name = &value[..value.find(quote)?];
-        (!name.is_empty()).then(|| name.to_owned())
-    })
+    ["MODULE.bazel", "WORKSPACE", "WORKSPACE.bazel"]
+        .iter()
+        .find_map(|file| {
+            let text = fs.read_to_string(&root.join(file)).ok()?;
+            let call = if *file == "MODULE.bazel" {
+                "module("
+            } else {
+                "workspace("
+            };
+            let at = text.match_indices(call).find_map(|(at, _)| {
+                text[..at]
+                    .chars()
+                    .next_back()
+                    .is_none_or(|before| !(before.is_alphanumeric() || before == '_'))
+                    .then_some(at)
+            })?;
+            let body = &text[at + call.len()..];
+            let body = &body[..body.find(')')?];
+            let at = body.match_indices("name").find_map(|(at, _)| {
+                body[..at]
+                    .chars()
+                    .next_back()
+                    .is_none_or(|before| !(before.is_alphanumeric() || before == '_'))
+                    .then_some(at)
+            })?;
+            let value = body[at + "name".len()..].trim_start().strip_prefix('=')?.trim_start();
+            let quote = value.chars().next().filter(|quote| matches!(quote, '"' | '\''))?;
+            let value = &value[1..];
+            let name = &value[..value.find(quote)?];
+            (!name.is_empty()).then(|| name.to_owned())
+        })
 }
 
 #[cfg(test)]

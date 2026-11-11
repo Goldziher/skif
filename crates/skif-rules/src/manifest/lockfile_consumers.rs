@@ -406,7 +406,8 @@ mod tests {
 
     #[test]
     fn string_literals_skip_exclude_lists() {
-        let source = "srcs = glob([\"**/*\"], exclude = [\"pnpm-lock.yaml\", [\"x\"]], my_exclude = [\"kept\"]) + [\"after\"]\n";
+        let source =
+            "srcs = glob([\"**/*\"], exclude = [\"pnpm-lock.yaml\", [\"x\"]], my_exclude = [\"kept\"]) + [\"after\"]\n";
         assert_eq!(string_literals(source), ["**/*", "kept", "after"]);
     }
 
@@ -431,7 +432,10 @@ mod tests {
         for (literal, expected) in cases {
             assert_eq!(named.labelled_lockfile(literal).as_deref(), expected, "{literal}");
         }
-        assert_eq!(repository("", None).labelled_lockfile("@mono//libs/a:pnpm-lock.yaml"), None);
+        assert_eq!(
+            repository("", None).labelled_lockfile("@mono//libs/a:pnpm-lock.yaml"),
+            None
+        );
     }
 
     #[test]
@@ -550,10 +554,16 @@ mod tests {
         };
         let lockfile = "apps/web/pnpm-lock.yaml";
         let cases = [
-            (dockerfile("apps/web/Dockerfile", &["package.json", "pnpm-lock.yaml"], &[]), true),
+            (
+                dockerfile("apps/web/Dockerfile", &["package.json", "pnpm-lock.yaml"], &[]),
+                true,
+            ),
             (dockerfile("apps/web/Dockerfile", &["./pnpm-lock.yaml"], &[]), true),
             (dockerfile("apps/web/Dockerfile", &["pnpm-lock.yaml*"], &[]), true),
-            (dockerfile("apps/web/Dockerfile", &["apps/web/pnpm-lock.yaml"], &[]), true),
+            (
+                dockerfile("apps/web/Dockerfile", &["apps/web/pnpm-lock.yaml"], &[]),
+                true,
+            ),
             (dockerfile("Dockerfile", &["apps/web/pnpm-lock.yaml"], &[]), true),
             (dockerfile("apps/web/Dockerfile", &["."], &[PackageManager::Pnpm]), true),
             (dockerfile("apps/web/Dockerfile", &["."], &[]), false),
