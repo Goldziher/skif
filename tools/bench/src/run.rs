@@ -571,7 +571,10 @@ fn machine_text(machine: &Machine) -> String {
     if let Some(cores) = machine.physical_cores {
         let _ = write!(cpus, " ({cores} physical cores)");
     }
-    if machine.logical_cpus.is_some_and(|logical| machine.available_cpus < logical) {
+    if machine
+        .logical_cpus
+        .is_some_and(|logical| machine.available_cpus < logical)
+    {
         let _ = write!(cpus, ", {} available to the run", machine.available_cpus);
     }
     let mut parts = vec![or_unknown(machine.os.as_deref(), "OS")];
@@ -580,7 +583,11 @@ fn machine_text(machine: &Machine) -> String {
     parts.push(or_unknown(machine.cpu.as_deref(), "CPU"));
     parts.push(cpus);
     parts.extend(machine.memory_bytes.map(|bytes| format!("{} GiB memory", gib(bytes))));
-    parts.extend(machine.cgroup_cpu_limit.map(|limit| format!("cgroup limit of {limit} CPUs")));
+    parts.extend(
+        machine
+            .cgroup_cpu_limit
+            .map(|limit| format!("cgroup limit of {limit} CPUs")),
+    );
     parts.extend(
         machine
             .virtualization
@@ -602,11 +609,17 @@ fn runner_text(github: &GithubRunner) -> String {
     let field = |value: Option<&str>| value.map_or_else(|| "unknown".to_owned(), code_span);
     let mut text = format!(
         "Runner: {} {}, image {} {}, {} {}",
-        github.runner_environment.as_deref().map_or_else(|| "unknown".to_owned(), one_line),
+        github
+            .runner_environment
+            .as_deref()
+            .map_or_else(|| "unknown".to_owned(), one_line),
         field(github.runner_name.as_deref()),
         field(github.image_os.as_deref()),
         field(github.image_version.as_deref()),
-        github.runner_os.as_deref().map_or_else(|| "unknown".to_owned(), one_line),
+        github
+            .runner_os
+            .as_deref()
+            .map_or_else(|| "unknown".to_owned(), one_line),
         github.runner_arch.as_deref().map_or_else(String::new, one_line),
     );
     let end = text.trim_end().len();
@@ -1053,9 +1066,8 @@ mod tests {
             "{with_skip}"
         );
         assert!(
-            with_skip.contains(
-                "skif 0.0.0 at `0123456789ab` (harness at `ba9876543210`); hyperfine `hyperfine 1.20.0`"
-            ),
+            with_skip
+                .contains("skif 0.0.0 at `0123456789ab` (harness at `ba9876543210`); hyperfine `hyperfine 1.20.0`"),
             "{with_skip}"
         );
         assert!(
@@ -1149,7 +1161,10 @@ mod tests {
             runner_name: None,
             run_url: None,
         };
-        assert_eq!(runner_text(&runner), "Runner: unknown unknown, image unknown unknown, unknown.");
+        assert_eq!(
+            runner_text(&runner),
+            "Runner: unknown unknown, image unknown unknown, unknown."
+        );
         let none = Toolchain {
             rustc: None,
             node: None,

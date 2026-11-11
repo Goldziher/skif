@@ -560,3 +560,8 @@ blake3 = "53f144c47259ff317100af965b931e1714691dfb0189433ffd148b6baa5d2427"
 number = 112
 status = "accepted"
 blake3 = "45305dabdf49cd53fa68e2277a3293306d0585f9f92919c8be89941c36ec7e80"
+
+[adrs."adrs/0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md"]
+number = 113
+status = "accepted"
+blake3 = "cffb7e08619b399b58f3ecb5b0ecbe36e5836044399955fcf6f60e713fa3939a"

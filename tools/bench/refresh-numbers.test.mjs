@@ -162,7 +162,10 @@ test("a skipped tool, a missing row or an old schema is a problem", () => {
     "sherif was not timed on any target: npm is not installed",
     "corpus: babel (yarn) has no knip --reporter json row",
   ]);
-  assert.match(summaryProblems({ ...summary(), schema: 2 })[0], /schema 2 is not 3; measure again with the bench workflow/);
+  assert.match(
+    summaryProblems({ ...summary(), schema: 2 })[0],
+    /schema 2 is not 3; measure again with the bench workflow/,
+  );
   assert.deepEqual(summaryProblems({ ...summary(), corpus_only: ["babel", "vue-core"] }), [
     "the run timed only some corpus repositories (babel, vue-core); a partial run is not published",
   ]);
