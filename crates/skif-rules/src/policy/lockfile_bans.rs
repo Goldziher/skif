@@ -6,10 +6,10 @@ use std::collections::BTreeMap;
 use skif_config::{GroupScope, VersionGroup, VersionPolicy};
 use skif_core::{Location, diagnostic};
 use skif_lint::{Emitter, LintContext};
-use skif_workspace::Package;
+use skif_workspace::{Package, map_ordered};
 
 use super::state::BANNED_DEPENDENCY;
-use crate::lockfile::{self, display_key, importer_package, snapshot_location};
+use crate::lockfile::{self, ImporterPackages, display_key, snapshot_location};
 
 /// A banned resolution and the shortest way an importer reaches it.
 struct Finding<'l> {
@@ -48,25 +48,33 @@ pub(super) fn emit(cx: &LintContext<'_>, out: &mut Emitter<'_>) {
         (group.dependencies.is_empty() || group.dependencies.matches(name, false))
             && (group.packages.is_empty() || package.is_some_and(|package| package.is_selected_by(&group.packages)))
     };
+    let packages = ImporterPackages::index(cx.workspace);
+    // What each importer reaches is walked on its own, in parallel unless the run is `sequential`; the banned
+    // resolutions are then merged in importer order.
+    let importers: Vec<&str> = lock.importers.keys().map(String::as_str).collect();
+    let reached: Vec<Vec<(usize, &str, Vec<&str>)>> = map_ordered(&importers, cx.sequential, |&importer| {
+        let package = packages.get(importer);
+        let resolutions = lock.resolutions(importer);
+        resolutions
+            .keys()
+            .filter_map(|key| {
+                let name = lock.snapshots[key].name.as_str();
+                let &(group, _) = groups.iter().find(|entry| admits(entry.1, name, package))?;
+                Some((group, key, resolutions.chain(key)?))
+            })
+            .collect()
+    });
     // By `name@version`: peer variants of one release are one finding.
     let mut findings: BTreeMap<String, Finding<'_>> = BTreeMap::new();
-    for importer in lock.importers.keys() {
-        let package = importer_package(cx.workspace, importer);
-        let resolutions = lock.resolutions(importer);
-        for key in resolutions.keys() {
-            let name = lock.snapshots[key].name.as_str();
-            let Some(&(group, _)) = groups.iter().find(|entry| admits(entry.1, name, package)) else {
-                continue;
-            };
-            let Some(chain) = resolutions.chain(key) else {
-                continue;
-            };
+    for (&importer, banned) in importers.iter().zip(reached) {
+        for (group, key, chain) in banned {
+            let release = display_key(key);
             let shorter = findings
-                .get(&display_key(key))
+                .get(&release)
                 .is_none_or(|found| chain.len() < found.chain.len());
             if shorter {
                 findings.insert(
-                    display_key(key),
+                    release,
                     Finding {
                         group,
                         key,
@@ -91,7 +99,7 @@ pub(super) fn emit(cx: &LintContext<'_>, out: &mut Emitter<'_>) {
             .join(" > ");
         let name = &lock.snapshots[finding.key].name;
         let version = &lock.snapshots[finding.key].version;
-        let package = importer_package(cx.workspace, finding.importer);
+        let package = packages.get(finding.importer);
         let mut builder = diagnostic(
             &BANNED_DEPENDENCY,
             format!(
@@ -246,6 +254,57 @@ snapshots:
              pulls it in through `mid@2.0.0`"
         );
         assert_eq!(diagnostics[0].location.path, Path::new("pnpm-lock.yaml"));
+    }
+
+    #[test]
+    fn the_shortest_chain_of_the_first_importer_that_has_it_is_reported() {
+        let lock = "lockfileVersion: '9.0'
+
+importers:
+
+  .: {}
+
+  packages/app:
+    dependencies:
+      mid:
+        specifier: ^2.0.0
+        version: 2.0.0
+
+  packages/web:
+    dependencies:
+      bad:
+        specifier: 1.0.0
+        version: 1.0.0
+
+  packages/zap:
+    dependencies:
+      bad:
+        specifier: 1.0.0
+        version: 1.0.0
+
+packages:
+
+  bad@1.0.0:
+    resolution: {integrity: sha512-bad}
+
+  mid@2.0.0:
+    resolution: {integrity: sha512-mid}
+
+snapshots:
+
+  bad@1.0.0: {}
+
+  mid@2.0.0:
+    dependencies:
+      bad: 1.0.0
+";
+        let (diagnostics, _) = banned(Some(lock), BAN_BAD);
+        let messages: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
+        assert_eq!(
+            messages,
+            ["`bad@1.0.0` is resolved although a banned version group forbids it; importer `packages/web` pulls it in \
+              through `bad@1.0.0`"]
+        );
     }
 
     #[test]
