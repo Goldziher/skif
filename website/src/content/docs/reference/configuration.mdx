@@ -699,7 +699,8 @@ manager puts it on the `PATH`: with npm, Yarn Classic, hoisted pnpm and hoisted 
 binaries into the root `node_modules/.bin`, for every package; with isolated pnpm, Yarn Berry, isolated Bun and in a
 Rush repository only for the packages that list the member and for the member's own scripts. pnpm is hoisted with
 `nodeLinker: hoisted` in `pnpm-workspace.yaml`, or without a `nodeLinker` there with `node-linker=hoisted` in the root
-`.npmrc`. Bun is isolated with `linker = "isolated"` under
+`.npmrc` only before pnpm 11 (pnpm 11 reads its linker only from `pnpm-workspace.yaml`; without a pnpm version in
+`packageManager`, `.npmrc` is read). Bun is isolated with `linker = "isolated"` under
 `[install]` in the root `bunfig.toml`, or without a `linker` when `bun.lock` records `configVersion` 1. In a Rush repository (a `rush.json` at the root), `rush`, `rushx` and
 `rush-pnpm` are Rush's own commands and never unlisted.
 

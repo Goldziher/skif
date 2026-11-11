@@ -298,7 +298,8 @@ All notable changes to this project are documented here. The format follows
   [ADR 0097](adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md)).
 - **Member binaries**: under pnpm's and Bun's isolated linkers, Yarn Berry and Rush, a member's binary satisfies only
   the packages that depend on it, as those link it; under pnpm's hoisted linker (`nodeLinker: hoisted` in
-  `pnpm-workspace.yaml`, or `node-linker=hoisted` in the root `.npmrc`) it satisfies every package, as under npm;
+  `pnpm-workspace.yaml`, or `node-linker=hoisted` in the root `.npmrc` only before pnpm 11) it satisfies every
+  package, as under npm;
   `rush`, `rushx` and `rush-pnpm` are provided in a Rush repository
   ([ADR 0097](adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md),
   [ADR 0108](adrs/0108-member-binaries-under-pnpm-s-hoisted-node-linker.md),
