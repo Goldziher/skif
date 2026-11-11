@@ -103,6 +103,14 @@ echo "== ${runtime}: bin lint of the clean fixture"
 (cd "$project" && "${exec_bin[@]}" "$fixture" --format json) >"${project}/out.json"
 jq -e '.summary' "${project}/out.json" >/dev/null
 
+echo "== ${runtime}: bin under bazel run lints the working directory, not the current one"
+(cd "$project" && BUILD_WORKSPACE_DIRECTORY="$work" BUILD_WORKING_DIRECTORY=fixture "${exec_bin[@]}" --format json) \
+  >"${project}/bazel-run.json"
+[[ "$(jq -S . "${project}/bazel-run.json")" == "$(jq -S . "${project}/out.json")" ]] || {
+  echo "::error::under bazel run the bin did not lint BUILD_WORKING_DIRECTORY: $(cat "${project}/bazel-run.json")"
+  exit 1
+}
+
 echo "== ${runtime}: exit code propagates"
 status=0
 (cd "$project" && "${exec_bin[@]}" --no-such-flag) >/dev/null 2>&1 || status=$?
