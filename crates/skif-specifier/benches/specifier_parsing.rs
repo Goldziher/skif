@@ -133,6 +133,14 @@ fn bench_corpus(c: &mut Criterion) {
             .collect();
         b.iter(|| black_box(range.satisfies_all(black_box(&others))));
     });
+    group.bench_function("satisfies_all_bare_numbers_vs_5", |b| {
+        let major = Specifier::new("4");
+        let others: Vec<Arc<Specifier>> = ["4.17", "4", "4.1", "^4.17.21", "4.2"]
+            .iter()
+            .map(|s| Specifier::new(s))
+            .collect();
+        b.iter(|| black_box(major.satisfies_all(black_box(&others))));
+    });
     group.bench_function("satisfies_all_corpus_pairs", |b| {
         b.iter(|| {
             for pair in parsed.chunks(6) {
