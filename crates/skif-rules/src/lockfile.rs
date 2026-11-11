@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use skif_core::{Diagnostic, Location, RuleMeta, diagnostic};
+use skif_core::{Diagnostic, HashMap, Location, RuleMeta, diagnostic};
 use skif_lint::LintContext;
 use skif_workspace::{OTHER_LOCKFILES, PNPM_LOCKFILE, Package, PnpmLockfile, Workspace, WorkspaceError, split_key};
 
@@ -71,10 +71,27 @@ pub(crate) fn display_key(key: &str) -> String {
     split_key(key).map_or_else(|| key.to_owned(), |(name, version, _)| format!("{name}@{version}"))
 }
 
-/// The workspace package of each importer directory of the lockfile (`.` is the root).
-pub(crate) fn importer_package<'w>(workspace: &'w Workspace, importer: &str) -> Option<&'w Package> {
-    let dir = if importer == "." { "" } else { importer };
-    workspace
-        .all_packages()
-        .find(|package| package.dir.to_str().is_some_and(|candidate| candidate == dir))
+/// The workspace package of each importer directory of the lockfile (`.` is the root), indexed once: the checks look
+/// one up per importer, and a lockfile has an importer per package.
+pub(crate) struct ImporterPackages<'w> {
+    by_dir: HashMap<&'w str, &'w Package>,
+}
+
+impl<'w> ImporterPackages<'w> {
+    pub(crate) fn index(workspace: &'w Workspace) -> Self {
+        let mut by_dir: HashMap<&'w str, &'w Package> = HashMap::default();
+        for package in workspace.all_packages() {
+            if let Some(dir) = package.dir.to_str() {
+                // The first package of a directory, as a search in workspace order finds it.
+                by_dir.entry(dir).or_insert(package);
+            }
+        }
+        Self { by_dir }
+    }
+
+    /// The package of the importer `importer`.
+    pub(crate) fn get(&self, importer: &str) -> Option<&'w Package> {
+        let dir = if importer == "." { "" } else { importer };
+        self.by_dir.get(dir).copied()
+    }
 }
