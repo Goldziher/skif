@@ -150,6 +150,17 @@ All notable changes to this project are documented here. The format follows
   links the open gaps ([#104](https://github.com/Goldziher/skif/issues/104)); the speed and knip agreement tables in
   the README and the guide are generated from recorded runs and name the commit, tool versions and machine
   ([#27](https://github.com/Goldziher/skif/issues/27), [#95](https://github.com/Goldziher/skif/issues/95)).
+- **Benchmarks**: the `bench` workflow (`.github/workflows/bench.yml`, dispatched by hand) measures the speed tables on
+  a pinned GitHub-hosted runner image (`ubuntu-24.04` or `ubuntu-24.04-arm`) with the inputs `ref`, `runner`, `runs`,
+  `warmup` and `only`, builds with each checkout's `rust-version` and `--locked`, and uploads the summary and the raw
+  hyperfine exports as an artifact; `mise run bench:import -- <run-id>` downloads it, refreshes the tables and puts
+  the summary into `tools/bench/results` for a local commit. `skif-bench run` records the machine (operating system,
+  kernel, architecture, CPU model, logical, available and physical CPUs, memory, cgroup CPU limit, hypervisor, the
+  GitHub runner image and run URL) and the toolchain (`rustc`, `node`, `npm`, `pnpm`, `yarn`, `bun`) in
+  `summary.json` schema 3 and the `summary.md` header, takes `--only` to time some corpus repositories and
+  `--skif-source` to name the checkout the measured binary was built from, and refuses a comparison tool in
+  `corpus.toml` that is not pinned to an exact version
+  ([ADR 0113](adrs/0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md)).
 
 ### Changed
 
@@ -260,6 +271,9 @@ All notable changes to this project are documented here. The format follows
   printed as a known issue (pnpm's hoisted linker, [#146](https://github.com/Goldziher/skif/issues/146)).
   `scripts/test-e2e-scripts.sh` tests the scenario generator, the version resolution and the shape of every
   scenario's expectation.
+- `mise run bench:publish` is removed: the published speed tables come from the `bench` workflow and
+  `mise run bench:import`; `mise run bench` still measures locally
+  ([ADR 0113](adrs/0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md)).
 
 ### Fixed
 

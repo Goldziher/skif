@@ -20,10 +20,17 @@ are set: `run` installs them once with `npm install --prefix target/bench-genera
 its `node_modules/.bin` directly, so no `npx` resolution is timed and nothing on `PATH` is used. A tool that cannot be
 installed (no `npm`, a failed install), or knip on a corpus repository whose install failed, is left out and recorded
 with the reason under `skipped_tools`. Results go to `target/bench-results/` (or `--out`): `summary.md` (tables plus the
-ADR checks), `summary.json` (schema 2: skif version and source commit with a `-dirty` flag, host, CPU model and logical
-CPUs, the load average before and after the run, hyperfine version, each comparison tool's `--version`, every target
-with mean, stddev, median, min and max in ms and the number of runs that exited with an error, the skipped tools and the
-checks), and one raw hyperfine export per target under `raw/`. `run` exits non-zero when an ADR 0001 check fails, after
+ADR checks), `summary.json` (schema 3: skif version, the commit of the skif source it was built from with a `-dirty`
+flag (`--skif-source`, else the harness's own checkout) and the harness's commit, the machine record, the toolchain, the
+load average before and after the run, hyperfine version, each comparison tool's `--version`, the corpus repositories
+of an `--only` run, every target with mean, stddev, median, min and max in ms and the number of runs that exited with
+an error, the skipped tools and the checks), and one raw hyperfine export per target under `raw/`. The machine record
+holds the operating system (`PRETTY_NAME` of `/etc/os-release`, `sw_vers` on macOS), the kernel (`uname -sr`), the
+architecture, the CPU model (`/proc/cpuinfo`, `lscpu` for Arm, `sysctl` on macOS), the logical CPUs, those the process
+may use and the physical cores, the total memory, the cgroup CPU limit, the hypervisor, and in a GitHub Actions job the
+runner image (`ImageOS`, `ImageVersion`), `RUNNER_OS`, `RUNNER_ARCH`, `RUNNER_ENVIRONMENT`, `RUNNER_NAME` and the URL
+of the run; the toolchain holds the `--version` of `rustc`, `node`, `npm`, `pnpm`, `yarn` and `bun` on `PATH`. A fact
+that cannot be read is `null`. `--only NAME,...` times only those repositories of the bench corpus. `run` exits non-zero when an ADR 0001 check fails, after
 writing the summary; `--no-enforce` turns that off. A tool that exits with a status above 1 (knip's exit code when it
 fails or cannot load a configuration file) is noted under its table and in the knip check, since its time may be that of
 a partial run. A corpus repository's `bench-knip-args` in `corpus.toml` are passed to knip, so it reads the files skif
@@ -50,7 +57,7 @@ their dependencies installed.
 mise run bench            # build release skif, fetch the corpus, run everything
 mise run bench:micro      # all criterion benchmarks (see "In-process benchmarks")
 mise run bench:corpus     # only fetch the timed corpus repositories
-mise run bench:publish    # run, write tools/bench/results and refresh the generated speed tables
+mise run bench:import -- <run-id>  # import a bench workflow run into tools/bench/results and refresh the speed tables
 mise run parity:publish   # refresh the generated agreement tables from baselines/parity.json
 mise run corpus:fetch     # fetch the parity corpus (all pinned repositories)
 mise run parity           # findings parity with knip (see "Parity with knip")
@@ -65,7 +72,7 @@ Directly:
 ```sh
 cargo run --release -p skif-bench -- generate --packages 500 --out DIR [--seed S] [--pm pnpm|npm|yarn|bun] [--catalog] [--mismatch-rate F] [--force]
 cargo run --release -p skif-bench -- corpus fetch [--suite bench|parity] [--only NAME,...] [--file corpus.toml] [--dir target/bench-corpus]
-cargo run --release -p skif-bench -- run [--skif PATH] [--sizes 50,500,2000] [--graph-files 10000] [--pm pnpm] [--no-corpus] [--warmup 3] [--runs 15] [--skif-arg ARG]... [--no-enforce] [--install]
+cargo run --release -p skif-bench -- run [--skif PATH] [--skif-source DIR] [--sizes 50,500,2000] [--graph-files 10000] [--pm pnpm] [--no-corpus | --only NAME,...] [--warmup 3] [--runs 15] [--skif-arg ARG]... [--no-enforce] [--install]
 cargo run --release -p skif-bench -- parity [--skif PATH] [--only NAME,...] [--install] [--recursive] [--repo-knip-config] [--include-test-files] [--check | --write-baseline]
 cargo run --release -p skif-bench -- syncpack-diff [--skif PATH] [--only NAME,...] [--no-fixtures] [--no-corpus] [--check | --write-baseline]
 cargo run --release -p skif-bench -- deadcode [--skif PATH] [--packages 5] [--seed 1] [--knip] [--json] [--out target/bench-deadcode] [--force]
@@ -319,14 +326,39 @@ runs both checks and writes the parity table and any drift to the job summary. T
 
 ## Measured numbers
 
-`mise run bench:publish` writes `tools/bench/results/summary.{json,md}` and rewrites the block below, and the speed
-tables of the root `README.md` and of the comparison guide, with `refresh-numbers.mjs --bench`. The first line of each
-block names the skif version and source commit, the comparison tool versions, the machine, its load and the date.
-`refresh-numbers.mjs` writes nothing and exits non-zero when a comparison tool was not timed, or a corpus repository
-has no row for one of the tools. `mise run parity:publish` (`refresh-numbers.mjs --parity`) writes the agreement
-tables from `baselines/parity.json` the same way, and refuses a baseline recorded by an older harness.
-`node --test tools/bench/refresh-numbers.test.mjs` tests both. Publish from a quiet machine after `release-bump`, or
-the skif version names the previous release.
+The published numbers come from the `bench` workflow (`.github/workflows/bench.yml`), which runs only when dispatched,
+on a pinned GitHub-hosted runner image ([ADR 0113](../../adrs/0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md)):
+
+```sh
+gh workflow run bench.yml -f ref=v0.3.0 -f runner=ubuntu-24.04   # also: -f runs=15 -f warmup=3 -f only=babel
+gh run list --workflow bench.yml --limit 1                       # the run id
+mise run bench:import -- <run-id>
+```
+
+`ref` is the commit, tag or branch of skif to measure (default: the dispatched ref, which is also where the harness,
+`corpus.toml` and the tool versions come from); `runner` is `ubuntu-24.04` or `ubuntu-24.04-arm`. The workflow builds
+skif and the harness with the `rust-version` of their own `Cargo.toml` and `--locked`, installs Node, pnpm and
+hyperfine from `mise.lock` and a pinned corepack, times everything with `run --install --no-enforce`, writes
+`summary.md` to the job summary and uploads `summary.{json,md}` and `raw/` as the artifact
+`bench-<commit>-<runner>`. Only one bench run runs at a time. The harness fails before timing anything when a corpus
+repository is not pinned to a full commit SHA or a comparison tool not to an exact version.
+
+`mise run bench:import -- <run-id>` (`scripts/bench-import.sh`, needs `gh` and Node) downloads that artifact, refreshes
+the block below, and the speed tables of the root `README.md` and of the comparison guide, with
+`refresh-numbers.mjs --bench`, then puts the summary into `tools/bench/results` for a commit made locally. The first
+line of each block names the skif version, source commit and the `rustc` that built it, the comparison tool versions,
+the runner image and the machine, its load, the date and the workflow run. `refresh-numbers.mjs` writes nothing and
+exits non-zero when a comparison tool was not timed, a corpus repository has no row for one of the tools, the run was
+narrowed with `only`, or the summary is of an older schema; the import then changes nothing either.
+`mise run parity:publish` (`refresh-numbers.mjs --parity`) writes the agreement tables from `baselines/parity.json`
+the same way, and refuses a baseline recorded by an older harness. `node --test tools/bench/refresh-numbers.test.mjs`
+tests both. Measure the release commit after `release-bump`, or the skif version names the previous release.
+
+GitHub-hosted runners are shared virtual machines: a neighbour's load moves the times of a run by several percent, and
+two runs of the same image may land on different CPU models (the summary names the one it got). The tables show
+medians, which one slow run does not move, over 15 runs after 3 warmup runs; compare runs on the same runner image and
+CPU model, and read the ratios against knip, sherif and syncpack, which share the machine and its noise, rather than
+the absolute times. `mise run bench` stays for local measurement while developing; its numbers are not published.
 
 knip's error lines below are not failed runs: on some repositories knip finishes its analysis and prints its whole
 report, then exits with 2 because some of the repository's tool configurations do not load (create-t3-turbo:
@@ -335,7 +367,7 @@ report, then exits with 2 because some of the repository's tool configurations d
 npm's deny-all `.gitignore` otherwise hides the workspaces from knip, which then analyses only the root package.
 
 <!-- bench:numbers:start -->
-Not yet measured for this release: run `mise run bench:publish`.
+Not yet measured for this release: run the `bench` workflow and `mise run bench:import -- <run-id>`.
 <!-- bench:numbers:end -->
 
 ## Seeded defects
@@ -453,7 +485,7 @@ in-process part.
   manifests, `knip` analyses code.
 - **knip needs installed dependencies** to give realistic results: without them it fails to load tool configurations
   that import the repository's own packages (create-t3-turbo's `@acme/tsconfig`), and the time is that of a partial
-  run. `run --install` installs each corpus repository first, as `parity --install` does (`mise run bench:publish`
+  run. `run --install` installs each corpus repository first, as `parity --install` does (the `bench` workflow
   passes it); a repository whose install fails is timed without knip. Installing changes the timings of every tool,
   not only knip's (skif, sherif and syncpack then run on a tree with `node_modules`), so compare only runs made the
   same way. Installed, knip still reports two errors on create-t3-turbo that are the repository's own:
