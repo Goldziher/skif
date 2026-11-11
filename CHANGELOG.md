@@ -90,6 +90,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Supported versions and CI**: the newest Yarn Classic 1.x is supported and tested, no longer untested legacy input
+  ([ADR 0105](adrs/0105-yarn-classic-support-and-the-end-to-end-matrix-of-linkers-and-operating-systems.md)). The
+  end-to-end job runs every scenario under every linker of its manager (pnpm isolated and hoisted, Yarn 2+ Plug'n'Play,
+  `node-modules` and `pnpm`, Bun default, hoisted and isolated), checks that the install produced that layout, and
+  runs the newest slot of npm, pnpm, Yarn 2+, Yarn Classic and Bun on Linux, macOS and Windows; the previous majors
+  run on Linux. The scenarios are shared across managers in `fixtures/e2e` and cover catalogs, `-r` over nested and
+  standalone roots, JS analysis against the installed layout, `skif baseline`, `skif migrate` and toolchain pins. Each
+  root pins `packageManager` to the version under test, which the previous-major jobs of pnpm and Yarn did not: they
+  ran the release the fixtures pinned. `scripts/test-e2e-scripts.sh` tests the scenario generator and the version
+  resolution.
 - **Breaking** for library users that match `skif_js_syntax::ConfigValue` exhaustively: it gains `OneOf`, a value that
   is one of several known values without knowing which. The evaluator gives it for a condition it cannot decide
   between values it knows (`process.env.CI ? 'github' : 'list'`, `[ci ? 'blob' : 'list']`, a binding one branch
