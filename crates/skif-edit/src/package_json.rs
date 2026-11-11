@@ -681,19 +681,21 @@ fn sort_exports(node: &mut Node, order: &[String], change: &mut ExportsChange) {
     let Node::Object(object) = node else {
         return;
     };
-    let mut positions: Vec<usize> = Vec::with_capacity(object.members.len());
+    let count = object.members.len();
+    let is_default = |index: usize| object.members[index].key == "default";
+    let mut positions: Vec<usize> = Vec::with_capacity(count);
+    let mut placed = vec![false; count];
     for key in order {
         for (index, member) in object.members.iter().enumerate() {
-            if &member.key == key && member.key != "default" && !positions.contains(&index) {
+            if &member.key == key && !is_default(index) && !placed[index] {
+                placed[index] = true;
                 positions.push(index);
             }
         }
     }
-    let defaults: Vec<usize> = (0..object.members.len())
-        .filter(|index| object.members[*index].key == "default")
-        .collect();
-    let rest: Vec<usize> = (0..object.members.len())
-        .filter(|index| !positions.contains(index) && !defaults.contains(index))
+    let defaults: Vec<usize> = (0..count).filter(|&index| is_default(index)).collect();
+    let rest: Vec<usize> = (0..count)
+        .filter(|&index| !placed[index] && !is_default(index))
         .collect();
     positions.extend(rest);
     positions.extend(defaults);
