@@ -4,8 +4,8 @@
 //! [`extract_config_object`] statically evaluates the object a tool config file exports. [`extract_config`] returns an
 //! [`ExtractedConfig`]: that value and the evaluated arguments of the calls the evaluator cannot follow that the file
 //! exports, returns from its config function or merges, following imports when given a [`ModuleLoader`]. No oxc type
-//! appears in the public API, every public type is `Send + Sync`, and an oxc allocator lives only for the duration of
-//! one call.
+//! appears in the public API, every public type is `Send + Sync`, and no oxc value outlives the call that parsed it:
+//! each thread parses into one arena it resets before every parse.
 //!
 //! Supported inputs are `.js .mjs .cjs .jsx .ts .mts .cts .tsx` and `.d.ts` files, plus the `<script>` blocks (and
 //! Astro frontmatter), the `<style>` imports and the markup identifiers of `.vue`, `.svelte` and `.astro` files:
@@ -46,6 +46,7 @@ mod template;
 mod tsrx;
 
 use skif_core::HashSet;
+use std::cell::RefCell;
 use std::path::Path;
 
 use oxc_allocator::Allocator;
@@ -120,6 +121,31 @@ fn unsupported(extension: &str) -> SyntaxError {
     }
 }
 
+/// The arena capacity a thread keeps between parses. A file that grew its arena past it gives the memory back, so one
+/// huge file does not hold that much memory per thread for the rest of the run.
+const RETAINED_ARENA_BYTES: usize = 16 * 1024 * 1024;
+
+thread_local! {
+    /// The arena this thread parses into, reused across parses so a small file does not pay for a fresh one.
+    static ARENA: RefCell<Allocator> = RefCell::new(Allocator::default());
+}
+
+/// Runs `f` with this thread's arena, reset first. A nested call, made while the arena is in use (an evaluated
+/// config importing another module), gets a fresh arena of its own.
+pub(crate) fn with_arena<R>(f: impl FnOnce(&Allocator) -> R) -> R {
+    ARENA.with(|arena| {
+        let Ok(mut allocator) = arena.try_borrow_mut() else {
+            return f(&Allocator::default());
+        };
+        allocator.reset();
+        let result = f(&allocator);
+        if allocator.capacity() > RETAINED_ARENA_BYTES {
+            *allocator = Allocator::default();
+        }
+        result
+    })
+}
+
 /// Parses one block of code. With `uses`, also records how every name is used in the block.
 fn parse_block(
     src: &str,
@@ -129,13 +155,24 @@ fn parse_block(
     options: ParseOptions,
     uses: Option<&mut members::Uses>,
 ) -> ModuleInfo {
-    let allocator = Allocator::default();
+    with_arena(|allocator| parse_block_in(allocator, src, base, source_type, lines, options, uses))
+}
+
+fn parse_block_in(
+    allocator: &Allocator,
+    src: &str,
+    base: u32,
+    source_type: SourceType,
+    lines: &LineIndex,
+    options: ParseOptions,
+    uses: Option<&mut members::Uses>,
+) -> ModuleInfo {
     let parser_options = OxcParseOptions {
         preserve_parens: false,
         allow_return_outside_function: true,
         ..OxcParseOptions::default()
     };
-    let ret = Parser::new(&allocator, src, source_type)
+    let ret = Parser::new(allocator, src, source_type)
         .with_options(parser_options)
         .parse();
     let parse_diagnostics: Vec<ParseIssue> = ret

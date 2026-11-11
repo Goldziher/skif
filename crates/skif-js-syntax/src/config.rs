@@ -482,19 +482,20 @@ pub fn extract_config_object_with(source: &str, path: &Path, loader: &dyn Module
 }
 
 fn evaluate_config(source: &str, path: &Path, modules: Option<&Modules<'_>>) -> Option<ExtractedConfig> {
-    let allocator = Allocator::default();
-    let program = parse_program(&allocator, source, path)?;
-    let top = top_level(&program);
-    let bindings = module_bindings(&program);
-    let imports = import_bindings(&program);
-    let file = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
-    let eval = Evaluator::new(&top, &bindings, &imports, file, ".", path, modules);
-    let exported = exported(&program)?;
-    let value = eval.exported_value(exported, exports_changed(&program));
-    let call_arguments = eval.exported_call_arguments(exported, &value);
-    Some(ExtractedConfig {
-        value: ConfigValue::from(value),
-        call_arguments: call_arguments.into_iter().map(ConfigValue::from).collect(),
+    crate::with_arena(|allocator| {
+        let program = parse_program(allocator, source, path)?;
+        let top = top_level(&program);
+        let bindings = module_bindings(&program);
+        let imports = import_bindings(&program);
+        let file = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+        let eval = Evaluator::new(&top, &bindings, &imports, file, ".", path, modules);
+        let exported = exported(&program)?;
+        let value = eval.exported_value(exported, exports_changed(&program));
+        let call_arguments = eval.exported_call_arguments(exported, &value);
+        Some(ExtractedConfig {
+            value: ConfigValue::from(value),
+            call_arguments: call_arguments.into_iter().map(ConfigValue::from).collect(),
+        })
     })
 }
 
@@ -1096,29 +1097,30 @@ pub fn extract_constructor_options(source: &str, path: &Path, constructor: &str,
     let Ok(source_type) = SourceType::from_path(path) else {
         return Vec::new();
     };
-    let allocator = Allocator::default();
-    let ret = Parser::new(&allocator, source, source_type)
-        .with_options(OxcParseOptions {
-            preserve_parens: false,
-            ..OxcParseOptions::default()
-        })
-        .parse();
-    if ret.diagnostics.errors().next().is_some() {
-        return Vec::new();
-    }
-    let program = &ret.program;
-    let top = top_level(program);
-    let bindings = module_bindings(program);
-    let mut finder = OptionFinder {
-        top: &top,
-        bindings: &bindings,
-        file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
-        constructor,
-        key,
-        found: Vec::new(),
-    };
-    finder.visit_program(program);
-    finder.found.into_iter().map(ConfigValue::from).collect()
+    crate::with_arena(|allocator| {
+        let ret = Parser::new(allocator, source, source_type)
+            .with_options(OxcParseOptions {
+                preserve_parens: false,
+                ..OxcParseOptions::default()
+            })
+            .parse();
+        if ret.diagnostics.errors().next().is_some() {
+            return Vec::new();
+        }
+        let program = &ret.program;
+        let top = top_level(program);
+        let bindings = module_bindings(program);
+        let mut finder = OptionFinder {
+            top: &top,
+            bindings: &bindings,
+            file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
+            constructor,
+            key,
+            found: Vec::new(),
+        };
+        finder.visit_program(program);
+        finder.found.into_iter().map(ConfigValue::from).collect()
+    })
 }
 
 /// Statically evaluates the value of every property named `key` of every object literal in `source`, however deeply
@@ -1144,24 +1146,25 @@ pub fn extract_property_calls(source: &str, path: &Path, key: &str, argument: &C
 
 /// The values of the properties `key` in `source`, or the results of calling them with `call_with`.
 fn find_properties(source: &str, path: &Path, key: &str, call_with: Option<&ConfigValue>) -> Vec<ConfigValue> {
-    let allocator = Allocator::default();
-    let Some(program) = parse_program(&allocator, source, path) else {
-        return Vec::new();
-    };
-    let top = top_level(&program);
-    let bindings = module_bindings(&program);
-    let mut finder = PropertyFinder {
-        top: &top,
-        bindings: &bindings,
-        file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
-        key,
-        call_with,
-        evaluated: HashMap::default(),
-        shadowed: Vec::new(),
-        found: Vec::new(),
-    };
-    finder.visit_program(&program);
-    finder.found.into_iter().map(ConfigValue::from).collect()
+    crate::with_arena(|allocator| {
+        let Some(program) = parse_program(allocator, source, path) else {
+            return Vec::new();
+        };
+        let top = top_level(&program);
+        let bindings = module_bindings(&program);
+        let mut finder = PropertyFinder {
+            top: &top,
+            bindings: &bindings,
+            file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
+            key,
+            call_with,
+            evaluated: HashMap::default(),
+            shadowed: Vec::new(),
+            found: Vec::new(),
+        };
+        finder.visit_program(&program);
+        finder.found.into_iter().map(ConfigValue::from).collect()
+    })
 }
 
 /// Statically evaluates the arguments of every call of a method named `method` in `source`, whatever object it is
@@ -1170,25 +1173,26 @@ fn find_properties(source: &str, path: &Path, key: &str, call_with: Option<&Conf
 /// function is not. Returns nothing when the file does not parse.
 #[must_use]
 pub fn extract_method_calls(source: &str, path: &Path, method: &str) -> Vec<Vec<ConfigValue>> {
-    let allocator = Allocator::default();
-    let Some(program) = parse_program(&allocator, source, path) else {
-        return Vec::new();
-    };
-    let top = top_level(&program);
-    let bindings = module_bindings(&program);
-    let mut finder = MethodCallFinder {
-        top: &top,
-        bindings: &bindings,
-        file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
-        method,
-        found: Vec::new(),
-    };
-    finder.visit_program(&program);
-    finder
-        .found
-        .into_iter()
-        .map(|arguments| arguments.into_iter().map(ConfigValue::from).collect())
-        .collect()
+    crate::with_arena(|allocator| {
+        let Some(program) = parse_program(allocator, source, path) else {
+            return Vec::new();
+        };
+        let top = top_level(&program);
+        let bindings = module_bindings(&program);
+        let mut finder = MethodCallFinder {
+            top: &top,
+            bindings: &bindings,
+            file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
+            method,
+            found: Vec::new(),
+        };
+        finder.visit_program(&program);
+        finder
+            .found
+            .into_iter()
+            .map(|arguments| arguments.into_iter().map(ConfigValue::from).collect())
+            .collect()
+    })
 }
 
 /// Parses `source` as the JavaScript or TypeScript file `path` names, without keeping parentheses; `None` for another
@@ -1277,18 +1281,19 @@ fn parse_imported_calls(
     let Ok(source_type) = SourceType::from_path(path) else {
         return Vec::new();
     };
-    let allocator = Allocator::default();
-    let ret = Parser::new(&allocator, source, source_type)
-        .with_options(OxcParseOptions {
-            preserve_parens: false,
-            ..OxcParseOptions::default()
-        })
-        .parse();
-    if ret.diagnostics.errors().next().is_some() {
-        return Vec::new();
-    }
-    let file = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
-    imported_calls_in(&ret.program, file, modules, globals, commands)
+    crate::with_arena(|allocator| {
+        let ret = Parser::new(allocator, source, source_type)
+            .with_options(OxcParseOptions {
+                preserve_parens: false,
+                ..OxcParseOptions::default()
+            })
+            .parse();
+        if ret.diagnostics.errors().next().is_some() {
+            return Vec::new();
+        }
+        let file = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+        imported_calls_in(&ret.program, file, modules, globals, commands)
+    })
 }
 
 /// The calls and tagged templates in a parsed `program` whose function is imported from one of `modules`, as
