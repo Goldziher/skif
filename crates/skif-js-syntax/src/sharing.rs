@@ -498,10 +498,7 @@ impl Sharing<'_> {
     }
 
     /// The bindings a change `origin` of `symbol` reaches through the links (`links_of`, by binding), with the part it
-    /// changes there, `symbol` among them; see [`through`]. A new value of a key that exact links carry back to a
-    /// binding it came from, deeper below it, is the change it came from ([`repeats`]): the links make both parts one
-    /// object (`c` and `c.next` of `function last(c) { return c.next ? last(c.next) : c; }`), and following it deeper
-    /// would only end in a cut path that leaves all of that object partly unknown.
+    /// changes there, `symbol` among them; see [`through`].
     fn reached(
         &self,
         links_of: &HashMap<SymbolId, Vec<usize>>,
@@ -509,11 +506,8 @@ impl Sharing<'_> {
         origin: &Write,
     ) -> Vec<(SymbolId, Write)> {
         let mut seen = vec![(symbol, origin.clone())];
-        // The index in `seen` of the change each one was carried from.
-        let mut parents: Vec<Option<usize>> = vec![None];
-        let mut queue = vec![0];
-        while let Some(current) = queue.pop() {
-            let (at, write) = seen[current].clone();
+        let mut queue = seen.clone();
+        while let Some((at, write)) = queue.pop() {
             for &index in links_of.get(&at).map_or(&[][..], Vec::as_slice) {
                 let link = &self.links[index];
                 for (from, to) in [(&link.a, &link.b), (&link.b, &link.a)] {
@@ -523,9 +517,6 @@ impl Sharing<'_> {
                     let Some(mut next) = through(from, to, link.exact, &write) else {
                         continue;
                     };
-                    if repeats(&seen, &parents, current, to.symbol, &next) {
-                        continue;
-                    }
                     if next.keys.len() > MAX_KEYS {
                         next = Write::contents(next.keys[..MAX_KEYS].to_vec());
                     }
@@ -538,9 +529,8 @@ impl Sharing<'_> {
                     if seen.len() >= MAX_PLACES {
                         return self.linked_in_full(symbol);
                     }
-                    seen.push((to.symbol, next));
-                    parents.push(Some(current));
-                    queue.push(seen.len() - 1);
+                    seen.push((to.symbol, next.clone()));
+                    queue.push((to.symbol, next));
                 }
             }
         }
@@ -601,35 +591,6 @@ fn through(from: &Place, to: &Place, exact: bool, write: &Write) -> Option<Write
         });
     }
     (from.keys.starts_with(&write.keys) && write.key.is_none()).then(|| Write::contents(to.keys.clone()))
-}
-
-/// Whether `next`, a change of `symbol` carried from the change at `current` of `seen` (each with the index of the one
-/// it was carried from in `parents`), gives a new value to the key that change or one it was carried from gives a new
-/// value to at a part of `symbol` above it. Only exact links carry a new value of a key, so the links it went through
-/// make that part and the one below it one object.
-fn repeats(
-    seen: &[(SymbolId, Write)],
-    parents: &[Option<usize>],
-    current: usize,
-    symbol: SymbolId,
-    next: &Write,
-) -> bool {
-    if next.key.is_none() {
-        return false;
-    }
-    let mut at = Some(current);
-    while let Some(index) = at {
-        let (known, write) = &seen[index];
-        if *known == symbol
-            && write.key == next.key
-            && next.keys.len() > write.keys.len()
-            && next.keys.starts_with(&write.keys)
-        {
-            return true;
-        }
-        at = parents[index];
-    }
-    false
 }
 
 impl<'a> Visit<'a> for Sharing<'_> {

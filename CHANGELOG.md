@@ -69,8 +69,7 @@ All notable changes to this project are documented here. The format follows
   fresh config no longer leaves that config's `entry` unknown; one that returns its parameter, or stores it in what it
   returns (`{ e: env }`, `config.x = env`), still shares it there, as do a getter, method or callback in what it
   returns and a parameter's default (`b = a`). Configs exported side by side (`module.exports = [a(), b()]`) no
-  longer leave each other partly unknown, and a key set on what a function that calls itself returns
-  (`last(config).b = 2`) is unknown in the config without leaving the rest of it partly unknown.
+  longer leave each other partly unknown.
 
 ### Changed
 
