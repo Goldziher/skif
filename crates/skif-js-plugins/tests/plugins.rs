@@ -3472,6 +3472,16 @@ fn bun_reads_runtime_preloads_the_security_scanner_and_the_jsx_source_from_bunfi
     assert_deps(out, &["preact", "@socketsecurity/bun-security-scanner"]);
 }
 
+#[test]
+fn bun_reads_the_lint_plugins_from_bunfig() {
+    let config = "[lint]\nplugins = [\"eslint-plugin-unicorn\", \"./lint/local-rules.ts\"]\n";
+    let results = resolve(&[("bunfig.toml", config)], &[]);
+    let out = output(&results, "bun");
+    assert_entries(&out.entries, &["lint/local-rules.ts"]);
+    assert_deps(out, &["eslint-plugin-unicorn"]);
+    assert!(!deps(out).contains("./lint/local-rules.ts"));
+}
+
 /// Bun Shell and `Bun.spawn` run commands, `Bun.build` bundles its `entrypoints` from the package directory, and the
 /// `Bun` global uses the type package that declares it.
 #[test]

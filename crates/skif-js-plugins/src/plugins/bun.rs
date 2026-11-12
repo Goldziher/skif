@@ -18,8 +18,14 @@ pub struct Bun;
 /// The modules whose types declare the `Bun` global.
 const TYPE_PACKAGES: [&str; 2] = ["@types/bun", "bun-types"];
 
-/// The keys of `bunfig.toml` that name a module to load: a package, or a file relative to the config.
-const MODULE_KEYS: [&[&str]; 3] = [&["preload"], &["test", "preload"], &["install", "security", "scanner"]];
+/// The keys of `bunfig.toml` that name a module to load: a package, or a file relative to the config. `[lint] plugins`
+/// lists the ESLint plugins `bun lint` loads.
+const MODULE_KEYS: [&[&str]; 4] = [
+    &["preload"],
+    &["test", "preload"],
+    &["install", "security", "scanner"],
+    &["lint", "plugins"],
+];
 
 static SPEC: PluginSpec = PluginSpec {
     id: "bun",
@@ -47,8 +53,8 @@ impl Plugin for Bun {
         &SPEC
     }
 
-    /// The modules of `preload` (the runtime's) and `[test] preload`, the package `jsxImportSource` names, and the
-    /// security scanner of `[install.security] scanner`, a package or a file.
+    /// The modules of `preload` (the runtime's) and `[test] preload`, the package `jsxImportSource` names, the
+    /// security scanner of `[install.security] scanner` and the plugins of `[lint] plugins`, each a package or a file.
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let value = config.value;
         let mut out: Vec<PluginInput> = MODULE_KEYS
