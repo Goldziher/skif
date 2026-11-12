@@ -134,8 +134,9 @@ old one.
 | 0124 | [Bazel Rule Sources Are Used Files, Not Entries](0124-bazel-rule-sources-are-used-files-not-entries.md) | accepted |
 | 0125 | [A Whole Use of a Module Object Uses Its Values Only](0125-a-whole-use-of-a-module-object-uses-its-values-only.md) | accepted |
 | 0126 | [A Whole Use of an Enum in Its Own File Uses Every Member](0126-a-whole-use-of-an-enum-in-its-own-file-uses-every-member.md) | accepted |
-| 0127 | [A knip Plugin for Projects That Run knip Next to skif](0127-a-knip-plugin-for-projects-that-run-knip-next-to-skif.md) | accepted |
-| 0128 | [Directories Matched by ignore-workspaces Leave the Packages Above Them](0128-directories-matched-by-ignore-workspaces-leave-the-packages-above-them.md) | accepted |
+| 0127 | [`skif migrate --merge` Unites List Entries by Name](0127-migrate-merge-unites-list-entries-by-name.md) | accepted |
+| 0128 | [A knip Plugin for Projects That Run knip Next to skif](0128-a-knip-plugin-for-projects-that-run-knip-next-to-skif.md) | accepted |
+| 0129 | [Directories Matched by ignore-workspaces Leave the Packages Above Them](0129-directories-matched-by-ignore-workspaces-leave-the-packages-above-them.md) | accepted |
 
 ## Effective statements
 
@@ -241,8 +242,8 @@ the lines below stay as written; this table says which record governs.
 | [0060](0060-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md), plugin count | the table holds 162 plugins | [0061](0061-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md): 39 plugins are added; the table holds 201 plugins |
 | [0061](0061-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md), plugin count | the table holds 201 plugins | [0062](0062-custom-element-registrations-and-the-taskr-plugin.md): `lit`, `catalyst`, `fast` and `taskr` are added; the table holds 205 plugins |
 | [0062](0062-custom-element-registrations-and-the-taskr-plugin.md), plugin count | the table holds 205 plugins | [0115](0115-bazel-build-files-and-output-trees-in-the-js-analysis.md): `bazel` is added; the table holds 206 plugins |
-| [0115](0115-bazel-build-files-and-output-trees-in-the-js-analysis.md), plugin count | the table holds 206 plugins | [0127](0127-a-knip-plugin-for-projects-that-run-knip-next-to-skif.md): `knip` is added; the table holds 207 plugins |
-| [0034](0034-js-configuration-parity-with-knip.md), `ignore-workspaces` paragraph | the packages in matched directories contribute no files, entries or dependency findings | [0128](0128-directories-matched-by-ignore-workspaces-leave-the-packages-above-them.md): a matched directory also leaves the packages above it, so their files below it are not analysed either |
+| [0115](0115-bazel-build-files-and-output-trees-in-the-js-analysis.md), plugin count | the table holds 206 plugins | [0128](0128-a-knip-plugin-for-projects-that-run-knip-next-to-skif.md): `knip` is added; the table holds 207 plugins |
+| [0034](0034-js-configuration-parity-with-knip.md), `ignore-workspaces` paragraph | the packages in matched directories contribute no files, entries or dependency findings | [0129](0129-directories-matched-by-ignore-workspaces-leave-the-packages-above-them.md): a matched directory also leaves the packages above it, so their files below it are not analysed either |
 | [0059](0059-twenty-one-more-plugins-and-commands-run-from-source.md), line 45 | `lit` is not added: plugins cannot mark exports as used | [0062](0062-custom-element-registrations-and-the-taskr-plugin.md): a plugin names a custom element library whose registrations mark exports as used; `lit` is added |
 | [0060](0060-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md), line 52 | `stencil` does not mark custom elements as used | [0062](0062-custom-element-registrations-and-the-taskr-plugin.md): `@Component` classes from `@stencil/core` are used; component style URLs are still not marked |
 | [0061](0061-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md), line 41 | `catalyst` and `fast` are not added: skif does not mark custom elements | [0062](0062-custom-element-registrations-and-the-taskr-plugin.md): both are added and mark the classes they register |
