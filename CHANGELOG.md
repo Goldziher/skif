@@ -25,6 +25,12 @@ All notable changes to this project are documented here. The format follows
   read; `turbo` arguments are still never taken for binaries or files
   ([#193](https://github.com/Goldziher/skif/issues/193)).
 
+### Fixed
+
+- **Nx**: in a project scope (ADR 0109) whose `project.json` targets run a tool's Nx executor (`@nx/vite:build`,
+  `@nrwl/vite:*`), the tool's plugin runs without a config file and applies its config-less conventions: Vite's
+  `index.html` makes `src/main.tsx` an entry ([#202](https://github.com/Goldziher/skif/issues/202)).
+
 ## [0.3.0] - 2026-11-11
 
 ### Added

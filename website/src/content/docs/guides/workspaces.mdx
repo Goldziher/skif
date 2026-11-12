@@ -228,8 +228,10 @@ a `package.json`; a workspace member's are the member's.
 - A project of an integrated workspace has no `package.json`: the root lists its dependencies. Its directory is a scope
   of the root. Every plugin reads the project's configs there (`vite.config.ts`, `index.html`, `eslint.config.mjs`,
   `jest.config.ts`, `.babelrc`, `tsconfig.json`), as for a package, and what they name and make entries counts for the
-  root. A plugin with no config file in the project and no default entries is not run there. A config of the project
-  that cannot be read leaves only the project's files unjudged.
+  root. A plugin with no config file in the project and no default entries is not run there, unless a target of the
+  project runs the tool's Nx executor (`@nx/vite:build`): the tool's conventions then apply as without a config, so
+  Vite's `index.html` names the app's entry. A config of the project that cannot be read leaves only the project's
+  files unjudged.
 - The root `jest.config.ts` that Nx generates (`projects: await getJestProjectsAsync()`, or
   `[...getJestProjects(), ...]`) reads the Jest config of each project: a project's `jestConfig` option and the
   `jest.config.*` in its directory.

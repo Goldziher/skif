@@ -5,7 +5,7 @@ use skif_js_syntax::ConfigValue;
 
 use crate::config_load::load_config;
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginId, PluginInput, PluginSpec};
-use crate::plugins::{cypress, eslint, jest, playwright, storybook, typescript, vite, webpack};
+use crate::plugins::{cypress, eslint, expo_router, jest, playwright, storybook, typescript, vite, webpack};
 use crate::support::{join_rel, package_name, path_within, relative_path, strings};
 
 /// The `nx` plugin.
@@ -177,10 +177,52 @@ const LINKED_OPTIONS: &[LinkedOption] = &[
 
 /// Whether the target's `executor` comes from the Nx plugin `name` (`@nx/vite:build` from `vite`).
 fn runs_nx_plugin(executor: Option<&str>, name: &str) -> bool {
-    executor
-        .and_then(|executor| executor.split(':').next())
-        .and_then(|package| package.strip_prefix("@nx/").or_else(|| package.strip_prefix("@nrwl/")))
-        .is_some_and(|plugin| plugin == name)
+    executor.and_then(nx_plugin_of).is_some_and(|plugin| plugin == name)
+}
+
+/// The Nx plugin an executor comes from: `vite` for `@nx/vite:build` and `@nrwl/vite:build`.
+fn nx_plugin_of(executor: &str) -> Option<&str> {
+    let package = executor.split(':').next()?;
+    package.strip_prefix("@nx/").or_else(|| package.strip_prefix("@nrwl/"))
+}
+
+/// Plugins whose tool the executors of an Nx plugin of another name run.
+const EXECUTOR_ALIASES: &[(PluginId, &str)] = &[(expo_router::ID, "expo")];
+
+/// The Nx plugins whose executors the targets of the `project.json` in the directory of `cx` run (`vite` for
+/// `@nx/vite:build`), sorted.
+pub(crate) fn executor_plugins(cx: &PluginContext<'_>) -> Vec<String> {
+    let path = cx.dir.join("project.json");
+    let Some(project) = cx
+        .fs
+        .read_to_string(&path)
+        .ok()
+        .and_then(|source| load_config(&path, &source))
+    else {
+        return Vec::new();
+    };
+    let Some(ConfigValue::Object(targets)) = project.get("targets") else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = targets
+        .iter()
+        .filter_map(|(_, target)| nx_plugin_of(target.get("executor")?.as_str()?))
+        .map(str::to_owned)
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// Whether one of `executor_plugins` ([`executor_plugins`]) runs the tool of the plugin `plugin` (`@nx/vite:build`
+/// runs Vite), with the tool's defaults when the project has no config file of it.
+pub(crate) fn runs_tool_of(executor_plugins: &[String], plugin: PluginId) -> bool {
+    executor_plugins.iter().any(|name| {
+        name == plugin
+            || EXECUTOR_ALIASES
+                .iter()
+                .any(|(id, alias)| *id == plugin && name == alias)
+    })
 }
 
 /// What a target of the project at `roots` names: its executor's package, its commands, the build entries of `main`
