@@ -9,6 +9,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `unused-dependencies` and `unused-dev-dependencies` no longer report a dependency on a workspace member that has no
+  `main`, `module`, `exports`, `bin`, `browser`, `types` or `typings` and no source file (a tooling, asset or style
+  package): such a dependency only orders tasks, as Turborepo's `^build` and Nx's task dependencies do
+  ([#191](https://github.com/Goldziher/skif/issues/191)).
+
 ### Fixed
 
 - A recursive run no longer lints the output of `turbo prune --docker` as two extra roots: below the start path, the
