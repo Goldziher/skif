@@ -182,7 +182,7 @@ fn the_tool_configs_of_an_integrated_project_are_read_for_the_root() {
 fn resolving_with_listed_projects_matches_finding_them_first() {
     let fs = memory(WEB_FILES);
     let (scripts, plugins) = (IndexMap::new(), IndexMap::new());
-    let listed = || vec![("".to_owned(), true), ("apps/web".to_owned(), true)];
+    let listed = || vec![(String::new(), true), ("apps/web".to_owned(), true)];
     for dependencies in [owned(ROOT_DEPENDENCIES), owned(&["vite", "jest"])] {
         let ctx = context(&fs, DIR, &dependencies, &scripts, &plugins);
         let found = NxProjects::from_dirs(&ctx, "", listed);

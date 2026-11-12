@@ -771,7 +771,7 @@ fn execute(args: &LintArgs, env: Env, teardown: Teardown, modules: Option<&dyn C
     apply_tsconfig(args, &mut targets)?;
     warn_empty_tsconfig_projects(&targets, fs);
     let modules = modules.map(|host| host.modules(&base));
-    let run_fs: Arc<dyn FileSystem> = Arc::clone(&shared);
+    let run_fs: Arc<dyn FileSystem> = shared.clone();
     let linters = Linters::build_with(&targets, Some(&run_fs), modules.as_ref())?;
     // An unknown `--fix-type` is a usage error before any root is linted.
     let only = fix::fix_type_rules(&args.fix_type, linters.rules().into_iter().map(|meta| meta.id))?;
