@@ -1,7 +1,9 @@
 //! Bazel as the JavaScript analysis sees it: the repository root, the output trees below it and the outputs a `BUILD`
 //! file declares. Starlark is scanned as text and never evaluated: string literals, and the keyword arguments of the
-//! calls at the top level of a file.
+//! calls at the top level of a file. The one expression read is a comprehension that formats each string of a list
+//! literal.
 
+use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 
 use skif_core::FileSystem;
@@ -160,15 +162,130 @@ impl Call {
     }
 }
 
-/// The contents of every string literal of Starlark `source`, without those of `#` comments, in order.
-pub(crate) fn string_literals(source: &str) -> Vec<String> {
-    tokens(source)
-        .into_iter()
-        .filter_map(|token| match token {
-            Token::Text(text) => Some(text),
-            _ => None,
-        })
-        .collect()
+/// The name of the call whose arguments are file patterns.
+const GLOB: &str = "glob";
+
+/// The string literals of Starlark `source` that may be labels, without those of `#` comments, each with the byte
+/// range of `source` that holds it, in order. A literal of a `glob(...)` call is a file pattern and is none. A format
+/// template (`"x/%s" % name`, `"x/{}".format(name)`) is none either: a comprehension that formats each string of a
+/// list literal with one `%s` (`["x/%s" % n for n in ["a", "b"]]`) gives the formatted strings instead, each at its
+/// item of the list.
+pub(crate) fn label_literals(source: &str) -> Vec<(String, Range<usize>)> {
+    let tokens = spanned_tokens(source);
+    let mut found = Vec::new();
+    let mut at = 0;
+    while let Some((token, range)) = tokens.get(at) {
+        match token {
+            Token::Name(name) if name == GLOB && matches!(tokens.get(at + 1), Some((Token::Open('('), _))) => {
+                at = after_group(&tokens, at + 1);
+                continue;
+            }
+            Token::Text(text) => {
+                if let Some((items, next)) = formatted_items(&tokens, at) {
+                    found.extend(items);
+                    at = next;
+                    continue;
+                }
+                if !is_template(&tokens, at) {
+                    found.push((text.clone(), range.clone()));
+                }
+            }
+            _ => {}
+        }
+        at += 1;
+    }
+    found
+}
+
+/// The position after the bracket that closes the one opened at token `open`.
+fn after_group(tokens: &[Spanned], open: usize) -> usize {
+    let mut depth = 0_usize;
+    for (at, (token, _)) in tokens.iter().enumerate().skip(open) {
+        match token {
+            Token::Open(_) => depth += 1,
+            Token::Close => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return at + 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    tokens.len()
+}
+
+/// Whether the string literal at token `at` is formatted: `%` or `.format(` follows it.
+fn is_template(tokens: &[Spanned], at: usize) -> bool {
+    match tokens.get(at + 1) {
+        Some((Token::Percent, _)) => true,
+        Some((Token::Dot, _)) => matches!(tokens.get(at + 2), Some((Token::Name(name), _)) if name == "format"),
+        _ => false,
+    }
+}
+
+/// The strings that the comprehension starting with the template at token `at` gives, `"<template>" % <name> for
+/// <name> in [<string>, ...]`, each with the range of its item, and the position after the list; `None` for any other
+/// shape: an item that is no string literal, a filter (`if`), a template without exactly one `%s`.
+fn formatted_items(tokens: &[Spanned], at: usize) -> Option<(Vec<(String, Range<usize>)>, usize)> {
+    let (Token::Text(template), _) = tokens.get(at)? else {
+        return None;
+    };
+    let name = |offset: usize| match tokens.get(at + offset) {
+        Some((Token::Name(name), _)) => Some(name.as_str()),
+        _ => None,
+    };
+    let shaped = matches!(tokens.get(at + 1), Some((Token::Percent, _)))
+        && name(2).is_some()
+        && name(3) == Some("for")
+        && name(4) == name(2)
+        && name(5) == Some("in")
+        && matches!(tokens.get(at + 6), Some((Token::Open('['), _)));
+    if !shaped {
+        return None;
+    }
+    let mut items = Vec::new();
+    let mut next = at + 7;
+    loop {
+        match tokens.get(next)? {
+            (Token::Text(item), range) => {
+                items.push((format_one(template, item)?, range.clone()));
+                next += 1;
+                match tokens.get(next)? {
+                    (Token::Comma, _) => next += 1,
+                    (Token::Close, _) => break,
+                    _ => return None,
+                }
+            }
+            (Token::Close, _) => break,
+            _ => return None,
+        }
+    }
+    let filtered = matches!(tokens.get(next + 1), Some((Token::Name(word), _)) if word == "if");
+    (!filtered).then_some((items, next + 1))
+}
+
+/// `template` with its one `%s` replaced by `value` and each `%%` by `%`; `None` when it has no `%s`, more than one,
+/// or another directive.
+fn format_one(template: &str, value: &str) -> Option<String> {
+    let mut out = String::with_capacity(template.len() + value.len());
+    let mut filled = false;
+    let mut chars = template.chars();
+    while let Some(c) = chars.next() {
+        if c != '%' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('%') => out.push('%'),
+            Some('s') if !filled => {
+                out.push_str(value);
+                filled = true;
+            }
+            _ => return None,
+        }
+    }
+    filled.then_some(out)
 }
 
 /// The calls at the top level of Starlark `source`; a method call (`"x".format(...)`) is none.
@@ -323,42 +440,64 @@ enum Token {
     /// `=` on its own, not part of `==`, `!=`, `<=`, `>=` or an augmented assignment.
     Assign,
     Dot,
-    /// Anything else: numbers and operators.
+    /// `%`, the formatting operator when it follows a string.
+    Percent,
+    /// Anything else: numbers and other operators.
     Other,
 }
 
+/// A token and the byte range of the source it spans.
+type Spanned = (Token, Range<usize>);
+
 /// The tokens of Starlark `source`, without whitespace and `#` comments.
 fn tokens(source: &str) -> Vec<Token> {
+    spanned_tokens(source).into_iter().map(|(token, _)| token).collect()
+}
+
+/// The tokens of Starlark `source`, without whitespace and `#` comments, each with the byte range of `source` it spans.
+fn spanned_tokens(source: &str) -> Vec<Spanned> {
     let chars: Vec<char> = source.chars().collect();
+    // The byte offset of each character, and of the end of `source`.
+    let offsets: Vec<usize> = source
+        .char_indices()
+        .map(|(offset, _)| offset)
+        .chain(std::iter::once(source.len()))
+        .collect();
     let mut tokens = Vec::new();
     let mut at = 0;
     while let Some(&c) = chars.get(at) {
-        match c {
+        let start = at;
+        let token = match c {
             '#' => {
                 while chars.get(at).is_some_and(|&c| c != '\n') {
                     at += 1;
                 }
+                None
             }
             '"' | '\'' => {
                 let (text, next) = string(&chars, at, false);
-                tokens.push(Token::Text(text));
                 at = next;
+                Some(Token::Text(text))
             }
             '(' | '[' | '{' => {
-                tokens.push(Token::Open(c));
                 at += 1;
+                Some(Token::Open(c))
             }
             ')' | ']' | '}' => {
-                tokens.push(Token::Close);
                 at += 1;
+                Some(Token::Close)
             }
             ',' => {
-                tokens.push(Token::Comma);
                 at += 1;
+                Some(Token::Comma)
             }
             '.' => {
-                tokens.push(Token::Dot);
                 at += 1;
+                Some(Token::Dot)
+            }
+            '%' => {
+                at += 1;
+                Some(Token::Percent)
             }
             '=' => {
                 let compound = chars.get(at + 1) == Some(&'=')
@@ -369,11 +508,10 @@ fn tokens(source: &str) -> Vec<Token> {
                 if chars.get(at + 1) == Some(&'=') {
                     at += 1;
                 }
-                tokens.push(if compound { Token::Other } else { Token::Assign });
                 at += 1;
+                Some(if compound { Token::Other } else { Token::Assign })
             }
             c if c.is_alphanumeric() || c == '_' => {
-                let start = at;
                 while chars.get(at).is_some_and(|&c| c.is_alphanumeric() || c == '_') {
                     at += 1;
                 }
@@ -381,19 +519,25 @@ fn tokens(source: &str) -> Vec<Token> {
                 let prefix = word.len() <= 2 && word.chars().all(|c| matches!(c, 'r' | 'R' | 'b' | 'B'));
                 if prefix && matches!(chars.get(at), Some('"' | '\'')) {
                     let (text, next) = string(&chars, at, word.contains(['r', 'R']));
-                    tokens.push(Token::Text(text));
                     at = next;
+                    Some(Token::Text(text))
                 } else if c.is_ascii_digit() {
-                    tokens.push(Token::Other);
+                    Some(Token::Other)
                 } else {
-                    tokens.push(Token::Name(word));
+                    Some(Token::Name(word))
                 }
             }
-            c if c.is_whitespace() || c == '\\' => at += 1,
-            _ => {
-                tokens.push(Token::Other);
+            c if c.is_whitespace() || c == '\\' => {
                 at += 1;
+                None
             }
+            _ => {
+                at += 1;
+                Some(Token::Other)
+            }
+        };
+        if let Some(token) = token {
+            tokens.push((token, offsets[start]..offsets[at]));
         }
     }
     tokens
@@ -441,12 +585,75 @@ mod tests {
 
     use super::*;
 
+    /// The texts of [`label_literals`] of `source`, with the text of `source` each range holds.
+    fn labels(source: &str) -> Vec<(String, &str)> {
+        label_literals(source)
+            .into_iter()
+            .map(|(text, range)| (text, &source[range]))
+            .collect()
+    }
+
+    fn texts(source: &str) -> Vec<String> {
+        label_literals(source).into_iter().map(|(text, _)| text).collect()
+    }
+
     #[test]
     fn literals_skip_comments_and_read_every_quote_style() {
         let source = "# \"commented\"\nload('@npm//:defs.bzl', \"x\") # 'trailing'\ny = r\"a\\b\" + \"\"\"multi\nline\"\"\" + 'it\\'s'\n";
+        assert_eq!(texts(source), ["@npm//:defs.bzl", "x", "a\\b", "multi\nline", "it's"]);
         assert_eq!(
-            string_literals(source),
-            ["@npm//:defs.bzl", "x", "a\\b", "multi\nline", "it's"]
+            labels(source)
+                .into_iter()
+                .map(|(_, written)| written)
+                .collect::<Vec<_>>(),
+            ["'@npm//:defs.bzl'", "\"x\"", "r\"a\\b\"", "\"\"\"multi\nline\"\"\"", "'it\\'s'"]
+        );
+    }
+
+    /// A comprehension that formats each string of a list literal names the formatted strings, each at its item; a
+    /// glob's patterns and any other template name nothing.
+    #[test]
+    fn label_literals_expand_formatted_lists_and_skip_globs_and_templates() {
+        let source = r#"
+load("@npm//packages/app:vite/package_json.bzl", vite_bin = "bin")
+
+VITE_BUILD_DEPS = [":node_modules/%s" % node_module for node_module in [
+    "typescript",
+    "@types/node",
+]]
+
+js_library(
+    name = "test_files",
+    data = glob(["**/*"], exclude = [".*/**", "coverage/**", "dist/**", "node_modules/**"]),
+    deps = [":node_modules/zod"],
+)
+
+PERCENT = [":node_modules/%s%%" % n for n in ["a"]]
+FILTERED = [":node_modules/%s" % n for n in ["b"] if n]
+COMPUTED = [":node_modules/%s" % n for n in NAMES]
+MIXED = [":node_modules/%s" % n for n in ["c", NAME]]
+TWO = [":node_modules/%s/%s" % n for n in ["d"]]
+OTHER = [":node_modules/%d" % n for n in ["e"]]
+OTHER_NAME = [":node_modules/%s" % n for m in ["f"]]
+SINGLE = ":node_modules/%s" % name
+FORMATTED = ":node_modules/{}".format(name)
+"#;
+        assert_eq!(
+            labels(source),
+            [
+                ("@npm//packages/app:vite/package_json.bzl".to_owned(), "\"@npm//packages/app:vite/package_json.bzl\""),
+                ("bin".to_owned(), "\"bin\""),
+                (":node_modules/typescript".to_owned(), "\"typescript\""),
+                (":node_modules/@types/node".to_owned(), "\"@types/node\""),
+                ("test_files".to_owned(), "\"test_files\""),
+                (":node_modules/zod".to_owned(), "\":node_modules/zod\""),
+                (":node_modules/a%".to_owned(), "\"a\""),
+                ("b".to_owned(), "\"b\""),
+                ("c".to_owned(), "\"c\""),
+                ("d".to_owned(), "\"d\""),
+                ("e".to_owned(), "\"e\""),
+                ("f".to_owned(), "\"f\""),
+            ]
         );
     }
 

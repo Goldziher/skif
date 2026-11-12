@@ -52,6 +52,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **Bazel plugin**: a `BUILD` file comprehension that formats each string of a list literal
+  (`[":node_modules/%s" % name for name in ["typescript", "vite"]]`) names the formatted packages instead of the
+  dependency `%s`, and the patterns of a `glob(...)` (`"node_modules/**"`), any other format template and a
+  `node_modules` target that is no valid npm package name name no dependency
+  ([#220](https://github.com/Goldziher/skif/issues/220)).
 - **JS**: pattern keys of `exports` and `imports` maps are selected as Node.js orders them: of two patterns with the
   same prefix, the longer one wins (`./features/*.css` over `./features/*` for `./features/a.css`).
 - **Migrate**: `--merge --output <FILE>` writes the merge of the existing `skif.toml` and the migration to `FILE`

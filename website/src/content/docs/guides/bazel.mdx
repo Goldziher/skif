@@ -20,6 +20,11 @@ applies.
     label's Bazel package, and in no other: a nested package whose `BUILD` file holds a label of an enclosing
     package's `node_modules` does not use its own listing through it. A dependency named this way that the label's
     package does not list is `unlisted-dependencies` at that `BUILD` file.
+  - A comprehension that formats each string of a list literal with one `%s` names the formatted labels:
+    `[":node_modules/%s" % name for name in ["typescript", "vite"]]` uses `typescript` and `vite`. Any other format
+    template (`":node_modules/%s" % name`, `":node_modules/{}".format(name)`), the patterns of a `glob(...)`
+    (`"node_modules/**"`, its `exclude` too) and a `node_modules` target that is no valid npm package name name no
+    dependency.
   - The `entry_point` of `js_binary`, `js_run_devserver` and `js_test` is an entry, whose exports are public, when a
     literal names an existing file of the package (`"src/main.ts"` or `":src/main.ts"`).
   - The `data` of those rules and the `srcs` and `data` of `js_library` and `ts_project` are build sources: the files
@@ -53,8 +58,9 @@ applies.
 
 ## What skif does not read
 
-- **Macros and computed values.** Only literals count. A `glob([...])`, a `select({...})`, a variable, or a target that
-  a macro in a `.bzl` file defines names no dependency, entry, build source or output. Such a file can be
+- **Macros and computed values.** Only literals count, and the formatting comprehension above. A `glob([...])`, a
+  `select({...})`, a variable, a comprehension of another shape (over a variable, with an `if` filter), or a target
+  that a macro in a `.bzl` file defines names no dependency, entry, build source or output. Such a file can be
   `unused-files` and such an import `unresolved-imports`.
 - **Labels in a sibling package.** Each package reads only the `BUILD` files below its own directory, so
   `"//packages/app:node_modules/zod"` written in `packages/web/BUILD.bazel` does not count for `packages/app`. A
