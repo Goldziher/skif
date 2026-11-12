@@ -36,6 +36,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **Migrate**: a knip ignore entry without a comment of its own takes the comment heading its group (the nearest
+  comment above an earlier entry of the same list) as its `reason`, else the comment on the list's key (above
+  `ignoreDependencies: [`, after its opening bracket, or after the list on its line); before, a group heading reached
+  only the first entry and a key comment none, so a fully commented knip config failed `require-ignore-reasons` after
+  migration. The note of a list names its entries left without a comment. `skif-js-syntax` gains
+  `extract_config_comments`, which reports group headings (`ElementComment::heading`) and `PropertyComment`s.
 - **Bun**: the members claimed for a workspace whose root cannot be discovered keep a directory a positive pattern
   names by its literal path despite a negation, as discovery does ([#158](https://github.com/Goldziher/skif/issues/158)).
 

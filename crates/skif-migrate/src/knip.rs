@@ -584,14 +584,16 @@ fn tags(state: &mut State<'_>, src: &Src, path: &str, list: &[String], plan: &mu
     }
 }
 
-/// The entries of the knip list `key` of `target`, each with the comment the configuration file has on it (on the
-/// lines above it or after it on its line) as its reason.
+/// The entries of the knip list `key` of `target`, each with a comment of the configuration file as its reason: the
+/// entry's own comment (on the lines above it or after it on its line), else the comment heading the group of entries
+/// it is in (the nearest comment above an earlier entry of the list), else the comment on the key itself.
 fn reasoned(
     src: &Src,
     target: &Target,
     key: &str,
     items: Vec<(String, &ConfigValue)>,
 ) -> Vec<(String, Option<String>)> {
+    let on_key = src.comments.on_key(|list| is_list(list, key, target));
     items
         .into_iter()
         .map(|(entry, value)| {
@@ -601,6 +603,7 @@ fn reasoned(
             };
             let reason = literal
                 .and_then(|literal| src.comments.on_value(literal, |array| is_list(array, key, target)))
+                .or(on_key)
                 .map(str::to_owned);
             (entry, reason)
         })
@@ -631,7 +634,7 @@ fn plain(list: Vec<String>) -> Vec<(String, Option<String>)> {
 }
 
 /// Writes `list` to `key` of the table `path` and notes it. Nothing happens for an empty list. An entry with a reason
-/// is written as a `{ name, reason }` table.
+/// is written as a `{ name, reason }` table; when some entries have one, the note names those that do not.
 fn write_list(
     state: &mut State<'_>,
     src: &Src,
@@ -644,14 +647,27 @@ fn write_list(
     if list.is_empty() {
         return;
     }
-    let marked = list.iter().any(|(entry, _)| entry.ends_with('!'));
+    let mut details = Vec::new();
+    if list.iter().any(|(entry, _)| entry.ends_with('!')) {
+        details.push("the `!` production markers are kept".to_owned());
+    }
     let reasons = list.iter().filter(|(_, reason)| reason.is_some()).count();
+    if reasons > 0 {
+        details.push(format!("{reasons} with their comment as `reason`"));
+        let missing: Vec<String> = list
+            .iter()
+            .filter(|(_, reason)| reason.is_none())
+            .map(|(entry, _)| format!("`{entry}`"))
+            .collect();
+        if !missing.is_empty() {
+            details.push(format!("no comment to carry over for {}", missing.join(", ")));
+        }
+    }
     table(&mut state.doc, path).extend_entries(key, list);
-    let suffix = match (marked, reasons) {
-        (true, 0) => " (the `!` production markers are kept)".to_owned(),
-        (false, 0) => String::new(),
-        (true, _) => format!(" (the `!` production markers are kept; {reasons} with their comment as `reason`)"),
-        (false, _) => format!(" ({reasons} with their comment as `reason`)"),
+    let suffix = if details.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", details.join("; "))
     };
     state.note(
         src,
