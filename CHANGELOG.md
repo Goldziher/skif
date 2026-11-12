@@ -153,6 +153,9 @@ All notable changes to this project are documented here. The format follows
   (`deepmerge(a, b, { arrayMerge })`), and an export of a merge package that is no copying merge (`deepmergeInto`,
   `defuFn`, `mergeWithCustomize`), may change what it is given; the value of `deepmerge` given options and of
   `mergeWith` is unknown, as they may merge any way. The object of a `with` statement is partly unknown after it.
+  A callback or loop over the entries or values of a `const` object of strings that no change reaches
+  (`Object.entries(pages).map(([name, template]) => new HtmlWebpackPlugin({ chunks: [name], template }))`) no longer
+  leaves the object partly unknown, so a multi-page webpack config keeps its `entry` known.
 - **Config evaluation**: `.map`, `.flatMap` and `.filter` of a known array call their callback (an inline function,
   or one the config declares) with each element and its index, so Vitest projects spread from
   `` ['light', 'dark'].map((theme) => ({ test: { name: `browser-${theme}` } })) `` are known instead of leaving the

@@ -442,8 +442,8 @@ struct Sharing<'s> {
     aliases: Vec<(SymbolId, SymbolId)>,
     /// The `const` bindings that hold a primitive value ([`is_primitive`]), which shares no object.
     primitives: HashSet<SymbolId>,
-    /// The `const` bindings of a list of primitive values ([`is_primitive_list`]), whose elements are objects only
-    /// once code changes the list.
+    /// The `const` bindings of a list or an object of primitive values ([`is_primitive_list`],
+    /// [`is_primitive_record`]), whose elements and values are objects only once code changes it.
     primitive_lists: HashSet<SymbolId>,
     /// The links of the first parameter of each callback given to a method of one of [`Self::primitive_lists`] to
     /// that list, made only when a change may reach the list ([`Self::link_elements`]).
@@ -672,12 +672,7 @@ impl Sharing<'_> {
         }
         let receiver = callee.as_member_expression().map(MemberExpression::object);
         // The elements of a list of primitive values share no object unless code changes the list.
-        let list = receiver
-            .and_then(|receiver| match receiver.get_inner_expression() {
-                Expression::Identifier(id) => self.symbol(id),
-                _ => None,
-            })
-            .filter(|list| self.primitive_lists.contains(list));
+        let list = receiver.and_then(|receiver| self.primitive_source(receiver));
         let of_receiver = receiver.map_or_else(Vec::new, |receiver| {
             self.refs(Part::Value, |refs| refs.visit_expression(receiver))
         });
@@ -707,6 +702,22 @@ impl Sharing<'_> {
                 }
                 self.hold(&Place::of(name), false, held.clone());
             }
+        }
+    }
+
+    /// The one of [`Self::primitive_lists`] whose elements or values the elements of `expr` are: the list or object
+    /// itself, or what `Object.entries`, `Object.values` or `Object.keys` makes of it, whose elements are its keys and
+    /// values or pairs of them.
+    fn primitive_source(&self, expr: &Expression<'_>) -> Option<SymbolId> {
+        let source = match expr.get_inner_expression() {
+            Expression::CallExpression(call) if lists_entries(self.names(), call) => {
+                call.arguments.first()?.as_expression()?
+            }
+            other => other,
+        };
+        match source.get_inner_expression() {
+            Expression::Identifier(id) => self.symbol(id).filter(|symbol| self.primitive_lists.contains(symbol)),
+            _ => None,
         }
     }
 
@@ -1310,7 +1321,10 @@ impl<'a> Visit<'a> for Sharing<'_> {
             if whole && self.in_const && is_primitive(self.names(), init) {
                 self.primitives.extend(names.iter().copied());
             }
-            if whole && self.in_const && is_primitive_list(self.names(), init) {
+            if whole
+                && self.in_const
+                && (is_primitive_list(self.names(), init) || is_primitive_record(self.names(), init))
+            {
                 self.primitive_lists.extend(names.iter().copied());
             }
             if names.is_empty() {
@@ -1360,13 +1374,22 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
-        // The loop's names take the elements of what it iterates, somewhere at or below it.
+        // The loop's names take the elements of what it iterates, somewhere at or below it; over a list or object of
+        // primitive values, only once a change may reach it ([`Self::link_elements`]).
         let held = self.refs(Part::Value, |refs| refs.visit_expression(&it.right));
+        let source = self.primitive_source(&it.right);
         match &it.left {
             ForStatementLeft::VariableDeclaration(declaration) => {
                 for declarator in &declaration.declarations {
                     for name in bound_symbols(&declarator.id) {
-                        self.hold(&Place::of(name), false, held.clone());
+                        match source {
+                            Some(list) => self.element_links.push(Link {
+                                a: Place::of(name),
+                                b: Place::of(list),
+                                join: Join::Within,
+                            }),
+                            None => self.hold(&Place::of(name), false, held.clone()),
+                        }
                     }
                 }
             }
@@ -2123,6 +2146,40 @@ fn is_primitive_list(names: Names<'_>, expr: &Expression<'_>) -> bool {
         ArrayExpressionElement::Elision(_) => true,
         other => other.as_expression().is_some_and(|value| is_primitive(names, value)),
     })
+}
+
+/// Whether `expr` is an object literal of values that hold no object ([`is_primitive`]), with static keys other than
+/// `__proto__` and no spread, method or accessor.
+fn is_primitive_record(names: Names<'_>, expr: &Expression<'_>) -> bool {
+    let Expression::ObjectExpression(object) = expr.get_inner_expression() else {
+        return false;
+    };
+    object.properties.iter().all(|property| match property {
+        ObjectPropertyKind::ObjectProperty(p) => {
+            !p.method
+                && p.kind == PropertyKind::Init
+                && p.key
+                    .static_name()
+                    .is_some_and(|key| crate::js_string(key.as_js_str()) != "__proto__")
+                && is_primitive(names, &p.value)
+        }
+        ObjectPropertyKind::SpreadProperty(_) => false,
+    })
+}
+
+/// Whether `call` is `Object.entries`, `Object.values` or `Object.keys` of the global `Object`, whose result lists the
+/// keys and values of the object it is given.
+fn lists_entries(names: Names<'_>, call: &CallExpression<'_>) -> bool {
+    matches!(
+        call.callee.get_inner_expression(),
+        Expression::StaticMemberExpression(m)
+            if matches!(m.property.name.as_str(), "entries" | "values" | "keys")
+                && matches!(
+                    m.object.get_inner_expression(),
+                    Expression::Identifier(object)
+                        if object.name.as_str() == "Object" && resolved(names.scoping, object).is_none()
+                )
+    )
 }
 
 /// Whether `argument` is a function written in place (`(item) => …`, `function (item) { … }`).
