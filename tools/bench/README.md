@@ -317,8 +317,13 @@ has no Bazel plugin. An unlisted dependency only skif reports at a `BUILD` file 
 manifest lists) is the `bazel-build-file` known deviation, and so is a dependency only knip reports unused that a label
 of a `BUILD` file in the package's directory names: a `node_modules` target of the package's Bazel package
 (`":node_modules/zod"`, `"//:node_modules/typescript"` for the root package) or the `package_json.bzl` of another
-repository (`"@npm//packages/app:esbuild/package_json.bzl"`). The harness scans the string literals of every `BUILD`
-file below a directory skif's file discovery enters, in a checkout whose root holds `MODULE.bazel`, `REPO.bazel`,
+repository (`"@npm//packages/app:esbuild/package_json.bzl"`). skif credits a peer dependency of a used package, so a
+dependency the package lists that the installed `package.json` of such a credited dependency (the nearest
+`node_modules/<name>` at or above the package) names in `peerDependencies`, optional or not, is `bazel-build-file` too,
+and so are its own peers in turn; an `@types/` dependency counts when the package it types is such a peer. The harness
+scans the string literals of every `BUILD`
+file below a directory skif's file discovery enters (a `coverage`, `out` or `target` directory is skipped only
+directly in the root or a package directory), in a checkout whose root holds `MODULE.bazel`, `REPO.bazel`,
 `WORKSPACE.bazel` or `WORKSPACE`, resolving each label's Bazel package from the nearest of these root files that names
 `aspect_rules_js`, as skif does. The files skif makes entries from the `srcs`, `data` and `entry_point` of the
 `rules_js` rules, the files they reach and their exports stay compared: the harness does not read the rule calls.

@@ -245,7 +245,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 22] = [
     },
     Deviation {
         id: BAZEL_BUILD_FILE,
-        reason: "skif's Bazel plugin reads the `BUILD.bazel` and `BUILD` files of a repository that uses `rules_js`, which knip has no plugin for: skif reports these unlisted dependencies at a `BUILD` file that names a package by label, and credits these dependencies knip reports as unused through a label of a `BUILD` file in the package's directory: a `node_modules` target of the package's Bazel package (`\":node_modules/zod\"`, `\"//:node_modules/typescript\"`) or the `package_json.bzl` of another repository (`\"@npm//packages/app:esbuild/package_json.bzl\"`), the harness scanning the string literals of every `BUILD` file below a Bazel root that names `aspect_rules_js` as skif does. The files skif makes entries from the `srcs`, `data` and `entry_point` of the rules, and their exports, stay compared",
+        reason: "skif's Bazel plugin reads the `BUILD.bazel` and `BUILD` files of a repository that uses `rules_js`, which knip has no plugin for: skif reports these unlisted dependencies at a `BUILD` file that names a package by label, and credits these dependencies knip reports as unused through a label of a `BUILD` file in the package's directory: a `node_modules` target of the package's Bazel package (`\":node_modules/zod\"`, `\"//:node_modules/typescript\"`) or the `package_json.bzl` of another repository (`\"@npm//packages/app:esbuild/package_json.bzl\"`), and a peer dependency of such a dependency that the package lists (one its installed `package.json` names in `peerDependencies`, optional or not, or the package an `@types/` one types), which skif credits as a peer of a used package, the harness scanning the string literals of every `BUILD` file below a Bazel root that names `aspect_rules_js` as skif does. The files skif makes entries from the `srcs`, `data` and `entry_point` of the rules, and their exports, stay compared",
     },
     Deviation {
         id: IN_KNIP_UNUSED_FILE,
@@ -1468,7 +1468,8 @@ struct Classifier<'a> {
     knip_unused_credits: &'a BTreeSet<String>,
     /// The same for the files only skif reports as unused.
     skif_unused_credits: &'a BTreeSet<String>,
-    /// `<manifest>|<package>` for every dependency a `BUILD` file credits (`bazel_credits`).
+    /// `<manifest>|<package>` for every dependency a `BUILD` file credits, with their peers (`bazel_credits`,
+    /// `with_peer_credits`).
     bazel_credits: &'a BTreeSet<String>,
     /// The `<file>|<export>` keys only knip reports whose export a used export's signature names (`signature_types`).
     signature_types: &'a BTreeSet<String>,
@@ -1892,6 +1893,60 @@ fn bazel_credits(
         }
     }
     credits
+}
+
+/// `credits` ([`bazel_credits`]) with the dependencies they make used as peers, as skif credits a peer dependency of a
+/// used package (`credit` in `crates/skif-js/src/deps.rs`): a dependency a manifest lists is credited when the
+/// installed manifest of a credited dependency of the same manifest names it, or the package an `@types/` dependency
+/// types, in `peerDependencies`, optional or not, and a peer so credited credits its own peers in turn. `manifest`
+/// reads the `package.json` of a directory; a dependency's installed manifest is the nearest `node_modules/<name>` at
+/// or above the listing package's directory ([`installed_manifest`]).
+fn with_peer_credits(credits: BTreeSet<String>, manifest: &ManifestReader<'_>) -> BTreeSet<String> {
+    let mut pending: Vec<String> = credits.iter().cloned().collect();
+    let mut credited = credits;
+    while let Some(key) = pending.pop() {
+        let Some((listing, host)) = key.split_once('|') else {
+            continue;
+        };
+        let dir = parent_dir(listing);
+        let (Some(installed), Some(listed)) = (installed_manifest(dir, host, manifest), manifest(dir)) else {
+            continue;
+        };
+        let Some(peers) = installed.get("peerDependencies").and_then(Value::as_object) else {
+            continue;
+        };
+        let names = DEPENDENCY_FIELDS
+            .iter()
+            .filter_map(|field| listed.get(*field).and_then(Value::as_object))
+            .flat_map(|dependencies| dependencies.keys());
+        for name in names {
+            let peer = peers.contains_key(name)
+                || name
+                    .strip_prefix("@types/")
+                    .is_some_and(|typed| peers.contains_key(&typed_package(typed)));
+            let candidate = format!("{listing}|{name}");
+            if peer && credited.insert(candidate.clone()) {
+                pending.push(candidate);
+            }
+        }
+    }
+    credited
+}
+
+/// The manifest of the package `name` as installed for the package in `dir`: the `package.json` of the nearest
+/// `node_modules/<name>` at or above `dir`, up to the checkout root.
+fn installed_manifest(dir: &str, name: &str, manifest: &ManifestReader<'_>) -> Option<Rc<Value>> {
+    let installed = format!("node_modules/{name}");
+    let mut candidate = dir;
+    loop {
+        if let Some(found) = manifest(&joined(candidate, &installed)) {
+            return Some(found);
+        }
+        if candidate.is_empty() {
+            return None;
+        }
+        candidate = parent_dir(candidate);
+    }
 }
 
 /// The `BUILD.bazel` and `BUILD` files of a checkout whose root holds one of [`BAZEL_ROOT_FILES`], with their sources,
@@ -2335,7 +2390,10 @@ impl Facts {
             published_reach: published_reach(knip_unused, skif_unused, layout, &read_source),
             knip_unused_credits: unused_file_credits(knip_unused, skif_unused, layout.is_file, &read_source),
             skif_unused_credits: unused_file_credits(skif_unused, knip_unused, layout.is_file, &read_source),
-            bazel_credits: bazel_credits(&read_build_files(root, &is_project), layout.is_file, &read_source),
+            bazel_credits: with_peer_credits(
+                bazel_credits(&read_build_files(root, &is_project), layout.is_file, &read_source),
+                layout.manifest,
+            ),
             signature_types: signature_types(skif, knip, &read_source),
         }
     }
@@ -5054,6 +5112,70 @@ vi.mock("mocked-package");
                 "{side:?} {category} {key}"
             );
         }
+    }
+
+    #[test]
+    fn the_peers_of_a_dependency_a_build_file_credits_are_credited_too() {
+        let manifests: BTreeMap<&str, Value> = [
+            (
+                "",
+                json!({ "devDependencies": {
+                    "@angular/build": "21", "@angular/localize": "21", "@angular/compiler-cli": "21",
+                    "@types/foo": "1", "left-pad": "1"
+                } }),
+            ),
+            (
+                "node_modules/@angular/build",
+                json!({
+                    "peerDependencies": { "@angular/localize": "21", "@angular/core": "21", "foo": "1" },
+                    "peerDependenciesMeta": { "@angular/localize": { "optional": true } }
+                }),
+            ),
+            (
+                "node_modules/@angular/localize",
+                json!({ "peerDependencies": { "@angular/compiler-cli": "21" } }),
+            ),
+            ("node_modules/host-x", json!({ "peerDependencies": { "peer-y": "1" } })),
+            (
+                "modules",
+                json!({ "dependencies": { "@angular/localize": "21", "@angular/compiler-cli": "21" } }),
+            ),
+            (
+                "modules/node_modules/@angular/localize",
+                json!({ "peerDependencies": { "@angular/compiler-cli": "21" } }),
+            ),
+            (
+                "packages/b",
+                json!({
+                    "dependencies": { "@angular/build": "21" },
+                    "peerDependencies": { "@angular/localize": "21" }
+                }),
+            ),
+            ("packages/a", json!({ "dependencies": { "host-x": "1", "peer-y": "1" } })),
+        ]
+        .into_iter()
+        .collect();
+        let manifest = |dir: &str| manifests.get(dir).cloned().map(Rc::new);
+        let credits = strings(&[
+            "package.json|@angular/build",
+            "modules/package.json|@angular/localize",
+            "packages/b/package.json|@angular/build",
+        ]);
+        assert_eq!(
+            with_peer_credits(credits, &manifest),
+            strings(&[
+                "modules/package.json|@angular/compiler-cli",
+                "modules/package.json|@angular/localize",
+                "package.json|@angular/build",
+                "package.json|@angular/compiler-cli",
+                "package.json|@angular/localize",
+                "package.json|@types/foo",
+                "packages/b/package.json|@angular/build",
+                "packages/b/package.json|@angular/localize",
+            ]),
+            "an optional peer, the peer of a credited peer, an `@types/` twin of a peer and a peer installed above the \
+             package are credited; a peer the manifest does not list and the peers of an uncredited host are not"
+        );
     }
 
     #[test]
