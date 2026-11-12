@@ -1809,7 +1809,7 @@ fn a_trailing_knip_comment_is_kept_and_entries_without_one_stay_strings() {
 fn knip_jsonc_comments_become_reasons_of_the_list_they_are_in() {
     let migration = knip_file(
         "knip.jsonc",
-        "{\n  // the whole file\n  \"ignoreDependencies\": [\"left-pad\"],\n  \"workspaces\": {\n    \"apps/web\": {\n      \"ignoreDependencies\": [\n        \"left-pad\" // kept for the legacy build\n      ]\n    }\n  }\n}\n",
+        "{\n  // the whole file\n\n  \"ignoreDependencies\": [\"left-pad\"],\n  \"workspaces\": {\n    \"apps/web\": {\n      \"ignoreDependencies\": [\n        \"left-pad\" // kept for the legacy build\n      ]\n    }\n  }\n}\n",
     );
     let parsed = table(&migration);
     assert_eq!(
@@ -1827,6 +1827,98 @@ fn knip_jsonc_comments_become_reasons_of_the_list_they_are_in() {
         "{}",
         migration.toml
     );
+}
+
+fn reason(name: &str, reason: &str) -> skif_config::IgnoreItem {
+    skif_config::IgnoreItem::new(name).with_reason(reason)
+}
+
+#[test]
+fn knip_entry_group_heading_and_property_comments_become_reasons_of_every_entry() {
+    let fixture = read("knip-reasons", "knip.ts");
+    let migration = knip_file("knip.ts", &fixture.text);
+    let js = &migration.config.js;
+    let ci = "installed on the CI image, not in package.json";
+    assert_eq!(
+        js.ignore_binaries,
+        vec![reason("docker", ci), reason("make", ci)],
+        "{}",
+        migration.toml
+    );
+    let bundler = "loaded by the bundler from a config string";
+    let codegen = "types only, pulled in by codegen";
+    assert_eq!(
+        js.ignore_dependencies,
+        vec![
+            skif_config::IgnoreItem::new("unexplained"),
+            reason("some-loader", bundler),
+            reason("other-loader", bundler),
+            reason("left-pad", "kept for the legacy build"),
+            reason("after-trailing", bundler),
+            reason("@demo/types", codegen),
+            reason("@demo/runtime", codegen),
+        ],
+        "{}",
+        migration.toml
+    );
+    let virtual_modules = "virtual modules of the bundler";
+    assert_eq!(
+        js.ignore_unresolved,
+        vec![
+            reason("virtual:routes", virtual_modules),
+            reason("/^virtual:/", virtual_modules)
+        ],
+        "{}",
+        migration.toml
+    );
+    assert_eq!(
+        js.workspaces["packages/app"].ignore_dependencies,
+        vec![
+            reason("host-sdk", "resolved by the host page at run time"),
+            reason("cdn-widget", "the one exception: loaded from a CDN"),
+        ],
+        "{}",
+        migration.toml
+    );
+    assert_eq!(
+        migration.config.missing_ignore_reason().as_deref(),
+        Some("js.ignore-dependencies[0] `unexplained`")
+    );
+    let dependencies = note(&migration, "ignoreDependencies");
+    assert_eq!(dependencies.class, NoteClass::Exact);
+    assert_eq!(
+        dependencies.message,
+        "written to [js] ignore-dependencies (6 with their comment as `reason`; no comment to carry over for \
+         `unexplained`)"
+    );
+    assert_eq!(
+        note(&migration, "ignoreBinaries").message,
+        "written to [js] ignore-binaries (2 with their comment as `reason`)"
+    );
+}
+
+#[test]
+fn a_fully_commented_knip_config_migrates_to_one_that_requires_reasons() {
+    let fixture = read("knip-reasons", "knip.ts");
+    let commented = fixture.text.replace("    'unexplained',\n", "");
+    assert_ne!(commented, fixture.text, "the fixture has the entry without a comment");
+    let migration = knip_file("knip.ts", &commented);
+    assert_eq!(
+        migration.config.missing_ignore_reason(),
+        None,
+        "{}",
+        migration.toml
+    );
+    let mut required = table(&migration);
+    required
+        .entry("lint")
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()))
+        .as_table_mut()
+        .unwrap()
+        .insert("require-ignore-reasons".to_owned(), toml::Value::Boolean(true));
+    let config = skif_config::Config::from_toml_str(&toml::to_string(&required).unwrap()).unwrap();
+    assert!(config.lint.require_ignore_reasons);
+    assert_eq!(config.missing_ignore_reason(), None);
 }
 
 #[test]

@@ -1,20 +1,22 @@
-//! The comments a tool's configuration file writes next to the elements of its lists, so that the translation can
-//! carry the comment on an ignore entry over as its `reason`.
+//! The comments a tool's configuration file writes next to the elements of its lists and on its keys, so that the
+//! translation can carry the comment on an ignore entry, on the group of entries it heads, or on the list's key over
+//! as the entry's `reason`.
 //!
-//! JavaScript, TypeScript and JSON with comments are read through the parser (`skif_js_syntax`); YAML is read line
-//! by line, for the block style a configuration file is written in. JSON proper has no comments, so a `package.json`
-//! key yields none.
+//! JavaScript, TypeScript and JSON with comments are read through the parser (`skif_js_syntax`), which also reports
+//! group headings and key comments; YAML is read line by line, for the block style a configuration file is written
+//! in, and yields the comments on elements only. JSON proper has no comments, so a `package.json` key yields none.
 
 use std::path::Path;
 
-use skif_js_syntax::{ElementComment, PathSegment, extract_array_comments};
+use skif_js_syntax::{ConfigComments, ElementComment, PathSegment, PropertyComment, extract_config_comments};
 
 use crate::Input;
 
-/// The element comments of one configuration file.
+/// The element and key comments of one configuration file.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Comments {
     elements: Vec<ElementComment>,
+    properties: Vec<PropertyComment>,
 }
 
 impl Comments {
@@ -26,25 +28,34 @@ impl Comments {
             .extension()
             .and_then(|extension| extension.to_str())
             .map(str::to_ascii_lowercase);
-        let elements = match extension.as_deref() {
+        let from_yaml = |text: &str| (yaml(text), Vec::new());
+        let found = match extension.as_deref() {
             Some("js" | "cjs" | "mjs" | "ts" | "cts" | "mts" | "jsx" | "tsx") => {
-                extract_array_comments(&input.text, path)
+                extract_config_comments(&input.text, path).map(split)
             }
             Some("json" | "jsonc" | "json5") => json_like(&input.text),
-            Some("yml" | "yaml") => Some(yaml(&input.text)),
+            Some("yml" | "yaml") => Some(from_yaml(&input.text)),
             Some("toml") => None,
-            _ => json_like(&input.text).or_else(|| Some(yaml(&input.text))),
+            _ => json_like(&input.text).or_else(|| Some(from_yaml(&input.text))),
         };
-        Self {
-            elements: elements.unwrap_or_default(),
-        }
+        let (elements, properties) = found.unwrap_or_default();
+        Self { elements, properties }
     }
 
-    /// The comment on the string or regular expression `value` of an array whose path `array` accepts.
+    /// The comment on the string or regular expression `value` of an array whose path `array` accepts: its own
+    /// comment, else the group heading above it in that array.
     pub(crate) fn on_value(&self, value: &str, array: impl Fn(&[PathSegment]) -> bool) -> Option<&str> {
         self.elements
             .iter()
             .find(|comment| comment.value.as_deref() == Some(value) && array(&comment.array))
+            .map(|comment| comment.text.as_str())
+    }
+
+    /// The comment on the key whose value is the list at a path `list` accepts.
+    pub(crate) fn on_key(&self, list: impl Fn(&[PathSegment]) -> bool) -> Option<&str> {
+        self.properties
+            .iter()
+            .find(|comment| list(&comment.path))
             .map(|comment| comment.text.as_str())
     }
 
@@ -56,6 +67,7 @@ impl Comments {
             .iter()
             .find(|comment| {
                 comment.index == index
+                    && !comment.heading
                     && !comment.after_spread
                     && matches!(comment.array.last(), Some(PathSegment::Key(last)) if last == key)
             })
@@ -64,8 +76,12 @@ impl Comments {
 }
 
 /// JSON with comments, trailing commas and single quotes is a JavaScript expression.
-fn json_like(text: &str) -> Option<Vec<ElementComment>> {
-    extract_array_comments(&format!("module.exports = {text}"), Path::new("config.js"))
+fn json_like(text: &str) -> Option<(Vec<ElementComment>, Vec<PropertyComment>)> {
+    extract_config_comments(&format!("module.exports = {text}"), Path::new("config.js")).map(split)
+}
+
+fn split(comments: ConfigComments) -> (Vec<ElementComment>, Vec<PropertyComment>) {
+    (comments.elements, comments.properties)
 }
 
 /// The comments of the sequence items of a block-style YAML document: the comment lines directly above an item, and
