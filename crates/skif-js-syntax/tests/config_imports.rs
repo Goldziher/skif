@@ -838,6 +838,28 @@ fn a_function_of_a_followed_module_that_changes_what_it_keeps_changes_the_import
     }
 }
 
+/// What `this` or `super` is in a function of a followed module depends on how it is called (`add.bind(base)`), so a
+/// write through it changes a value of a module: calling the function leaves the imported values partly unknown, and
+/// one that only reads through `this` leaves them known.
+#[test]
+fn a_write_through_this_in_a_function_of_a_followed_module_changes_the_imported_values() {
+    for shared in [
+        "import { base } from './base';\nfunction add(p) { this.plugins.push(p); }\n\
+         export const addPlugin = add.bind(base);",
+        "import { base } from './base';\nconst parent = { list: base.plugins };\n\
+         const child = { __proto__: parent, add(p) { super.list.push(p); } };\n\
+         export const addPlugin = child.add.bind(child);",
+    ] {
+        let value = shared_config(shared, "addPlugin", "addPlugin('x');");
+        assert_eq!(read_at(&value, &["plugins"]), &ConfigValue::Unknown, "{shared}: {value:?}");
+        assert_eq!(read_at(&value, &["name"]), &s("app"), "{shared}: {value:?}");
+    }
+    let reading = "import { base } from './base';\nfunction copy() { return [...this.plugins]; }\n\
+                   export const addPlugin = copy.bind(base);";
+    let value = shared_config(reading, "addPlugin", "addPlugin('x');");
+    assert_eq!(read_at(&value, &["plugins"]), &strings(&[]), "{value:?}");
+}
+
 /// A `define…` helper of a workspace package the loader follows is code of the project, which may change what it is
 /// given: the config it was given is partly unknown after the call.
 #[test]
