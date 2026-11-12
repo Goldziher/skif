@@ -326,7 +326,10 @@ fn cdk_app(scripts: &str) -> String {
 
 /// The files of [`cdk_app`] besides its manifest and `tsconfig.json`.
 const CDK_APP_FILES: [(&str, &str); 2] = [
-    ("cdk.json", r#"{ "app": "pnpm exec ts-node --prefer-ts-exts app/main.ts" }"#),
+    (
+        "cdk.json",
+        r#"{ "app": "pnpm exec ts-node --prefer-ts-exts app/main.ts" }"#,
+    ),
     ("app/main.ts", "import leftPad from 'left-pad';\nleftPad('a', 2);\n"),
 ];
 
