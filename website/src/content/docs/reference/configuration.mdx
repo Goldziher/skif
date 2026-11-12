@@ -609,6 +609,18 @@ by relative paths below the same root directory: their imports are judged agains
 Node.js resolves them from. A file of a workspace package always stays that package's, and the root's `ignore` globs
 still apply to an adopted file.
 
+In a Bazel repository (the nearest directory at or above the workspace root, within the git repository, with a
+`MODULE.bazel`, `REPO.bazel`, `WORKSPACE.bazel` or `WORKSPACE`), the output trees behind the `bazel-*` links at its top
+(`bazel-bin`, `bazel-out`, `bazel-testlogs`, `bazel-<workspace>`) are never read: their contents are whatever the last
+build left, for whichever configuration. An import that reaches a file there, through `rootDirs` or otherwise, is of
+generated code and is not followed, so no finding is located in them. A relative import of a missing file is not
+reported when the nearest `BUILD.bazel` or `BUILD` file at or above the file's directory declares it as an output:
+it is a literal of the `outs`, `out` or `stdout` of a target there (`js_run_binary(outs = ["src/gen/schema.js"])`),
+also with another extension or none, or lies below one of its `out_dirs` or `out_dir`. Bazel builds it into
+`bazel-bin` beside the package. A `rootDirs` directory below `bazel-bin` does not make a missing import generated,
+built or not; the `BUILD` files decide, so an import that none declares is unresolved whatever was built. The
+dependencies of the generated code are those its target names (see the `bazel` plugin below).
+
 **`paths`** is a `tsconfig`-style map for one workspace, `{ "alias/*" = ["./target/*"] }`, targets relative to the
 workspace directory. Each target is tried as a module alias ahead of the aliases tools declare.
 

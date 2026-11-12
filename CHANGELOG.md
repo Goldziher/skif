@@ -24,6 +24,13 @@ All notable changes to this project are documented here. The format follows
 - `unlisted-binaries` no longer reports `bazel`, `bazelisk` and `ibazel`: they are build tools of the machine, as
   `docker` and `make` are, unless `ignore-global-binaries` is off. A listed `@bazel/bazelisk` or `@bazel/ibazel` is
   still used by the scripts that run them ([#172](https://github.com/Goldziher/skif/issues/172)).
+- In a Bazel repository the JS analysis no longer reads the `bazel-*` output trees, whose contents depend on the last
+  build: an import that reaches a file there is generated code, and a relative import of a missing file that the
+  nearest `BUILD` file declares as an output (`outs`, `out`, `stdout`, `out_dirs`, `out_dir`) is not unresolved,
+  whether or not `rootDirs` point into `bazel-bin` and whatever was built. An import that no `BUILD` file declares is
+  unresolved in every state
+  ([ADR 0115](adrs/0115-bazel-build-files-and-output-trees-in-the-js-analysis.md),
+  [#170](https://github.com/Goldziher/skif/issues/170)).
 
 ## [0.3.0] - 2026-11-11
 

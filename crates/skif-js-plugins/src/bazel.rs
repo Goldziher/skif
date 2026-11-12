@@ -14,12 +14,13 @@ pub const BUILD_FILES: [&str; 2] = ["BUILD.bazel", "BUILD"];
 
 /// The Bazel repository root that holds `dir`: the nearest directory at or above it with one of [`ROOT_FILES`],
 /// looked for up to the git repository root (a directory holding `.git`), so that a stray file higher up is not
-/// taken for it. `None` outside a Bazel repository.
+/// taken for it. `None` outside a Bazel repository, and when `dir` lies in an output tree of the repository found (a
+/// test's runfiles below `bazel-out`), where every file would be output.
 #[must_use]
 pub fn repository_root(fs: &dyn FileSystem, dir: &Path) -> Option<PathBuf> {
     for candidate in dir.ancestors() {
         if ROOT_FILES.iter().any(|name| fs.is_file(&candidate.join(name))) {
-            return Some(candidate.to_path_buf());
+            return (!is_output_path(candidate, dir)).then(|| candidate.to_path_buf());
         }
         let git = candidate.join(".git");
         if fs.is_dir(&git) || fs.is_file(&git) {
@@ -477,6 +478,8 @@ copy_file(name = "c", src = "a.js", out = "copied.js")
             .with_file("/MODULE.bazel", "")
             .with_file("/ws/.git/HEAD", "ref: refs/heads/main\n");
         assert_eq!(repository_root(&fenced, Path::new("/ws/app")), None);
+        let runfiles = "/ws/bazel-out/k8-fastbuild/bin/lint.runfiles/_main";
+        assert_eq!(repository_root(&fs, Path::new(runfiles)), None);
     }
 
     #[test]

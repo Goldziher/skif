@@ -1124,3 +1124,144 @@ fn the_first_package_to_reach_a_shared_generated_file_owns_it() {
         "{diagnostics:#?}"
     );
 }
+
+/// A `rules_js` package whose `BUILD.bazel` declares `src/gen/schema.js` as the output of a `js_run_binary` target,
+/// generated into `bazel-bin` (gitignored), and whose `src/index.ts` imports it and a file nothing declares.
+const BAZEL_APP: &[(&str, &str)] = &[
+    (
+        "MODULE.bazel",
+        "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n",
+    ),
+    (".gitignore", "bazel-*\n"),
+    (
+        "package.json",
+        r#"{"name":"mono","private":true,"workspaces":["packages/*"]}"#,
+    ),
+    (
+        "packages/app/package.json",
+        r#"{"name":"@mono/app","version":"1.0.0","main":"src/index.ts","dependencies":{"zod":"3.0.0"}}"#,
+    ),
+    (
+        "packages/app/BUILD.bazel",
+        concat!(
+            "load(\"@aspect_rules_js//js:defs.bzl\", \"js_run_binary\")\n\n",
+            "npm_link_all_packages(name = \"node_modules\")\n\n",
+            "js_run_binary(\n",
+            "    name = \"schema\",\n",
+            "    tool = \"//tools:codegen\",\n",
+            "    srcs = [\":node_modules/zod\"],\n",
+            "    outs = [\"src/gen/schema.js\"],\n",
+            ")\n",
+        ),
+    ),
+    (
+        "packages/app/src/index.ts",
+        "import { schema } from './gen/schema.js';\nimport { typo } from './gen/typo.js';\nexport const s = [schema, typo];\n",
+    ),
+];
+
+const BAZEL_ROOT_DIRS: (&str, &str) = (
+    "packages/app/tsconfig.json",
+    r#"{"compilerOptions":{"rootDirs":[".","../../bazel-bin/packages/app"]}}"#,
+);
+
+/// The generated file as the last build left it, importing a package that `@mono/app` does not list.
+const BAZEL_BUILT: (&str, &str) = (
+    "bazel-bin/packages/app/src/gen/schema.js",
+    "import { v4 } from 'uuid';\nexport const schema = v4();\n",
+);
+
+/// Another output of a build that did not build `:schema`.
+const BAZEL_PARTIAL: (&str, &str) = ("bazel-bin/packages/app/src/other.js", "export const other = 1;\n");
+
+/// The rule, path and message of every diagnostic, sorted.
+fn findings(diagnostics: &[Diagnostic]) -> Vec<String> {
+    let mut found: Vec<String> = diagnostics
+        .iter()
+        .map(|d| {
+            format!(
+                "{} {}: {}",
+                d.rule.as_str(),
+                d.location.path.to_string_lossy().replace('\\', "/"),
+                d.message
+            )
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+/// In a Bazel repository an import of an output a `BUILD` file declares is generated code, whether or not `rootDirs`
+/// reach `bazel-bin` and whatever the last build left there: the results are the same, the declared output is never
+/// unresolved, the copy in `bazel-bin` is never read, and an import that no `BUILD` file declares stays unresolved.
+#[test]
+fn bazel_outputs_are_generated_whatever_was_built() {
+    let variants: [&[(&str, &str)]; 6] = [
+        &[],
+        &[BAZEL_ROOT_DIRS],
+        &[BAZEL_ROOT_DIRS, BAZEL_BUILT],
+        &[BAZEL_ROOT_DIRS, BAZEL_PARTIAL],
+        &[BAZEL_BUILT],
+        &[BAZEL_PARTIAL],
+    ];
+    let mut baseline: Option<Vec<String>> = None;
+    for extra in variants {
+        let files: Vec<(&str, &str)> = BAZEL_APP.iter().chain(extra).copied().collect();
+        let diagnostics = lint(&files);
+        assert_eq!(
+            paths(&diagnostics, "unresolved-imports"),
+            strings(&["packages/app/src/index.ts"]),
+            "{extra:?}: {diagnostics:#?}"
+        );
+        let unresolved: Vec<&str> = diagnostics
+            .iter()
+            .filter(|d| d.rule.as_str() == "unresolved-imports")
+            .map(|d| d.message.as_str())
+            .collect();
+        assert!(
+            unresolved.len() == 1 && unresolved[0].contains("./gen/typo.js"),
+            "{extra:?}: {unresolved:?}"
+        );
+        assert_eq!(
+            names(&diagnostics, "unlisted-dependencies"),
+            Vec::<String>::new(),
+            "{extra:?}: {diagnostics:#?}"
+        );
+        assert_eq!(
+            names(&diagnostics, "unused-dependencies"),
+            Vec::<String>::new(),
+            "{extra:?}: {diagnostics:#?}"
+        );
+        let found = findings(&diagnostics);
+        assert!(
+            found.iter().all(|line| !line.contains(" bazel-")),
+            "{extra:?}: {found:#?}"
+        );
+        match &baseline {
+            Some(first) => assert_eq!(&found, first, "{extra:?}"),
+            None => baseline = Some(found),
+        }
+    }
+}
+
+/// Outside a Bazel repository nothing changes: the output a `BUILD` file declares is unresolved like any missing file.
+#[test]
+fn build_files_declare_nothing_outside_a_bazel_repository() {
+    let files: Vec<(&str, &str)> = BAZEL_APP
+        .iter()
+        .filter(|(path, _)| *path != "MODULE.bazel")
+        .copied()
+        .collect();
+    let diagnostics = lint(&files);
+    let mut unresolved: Vec<&str> = diagnostics
+        .iter()
+        .filter(|d| d.rule.as_str() == "unresolved-imports")
+        .map(|d| d.message.as_str())
+        .collect();
+    unresolved.sort_unstable();
+    assert_eq!(unresolved.len(), 2, "{diagnostics:#?}");
+    assert!(
+        unresolved.iter().any(|message| message.contains("./gen/schema.js")),
+        "{unresolved:?}"
+    );
+}
