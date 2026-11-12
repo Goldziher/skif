@@ -932,7 +932,16 @@ fn a_changed_argument_reaches_what_the_function_returns_where_it_holds_it() {
         assert!(!open(config), "{config:?}");
         assert_eq!(get(config, &["entry"]), &s("./a.js"), "{config:?}");
     }
-    assert!(open(get(&configs[0], &["e"])), "{:?}", configs[0]);
+    // Both the read of `env` in `wrap` and the read of `r` reach `e`, which is left open once.
+    assert_eq!(
+        get(&configs[0], &["e"]),
+        &ConfigValue::Object(vec![
+            ("mode".to_owned(), s("a")),
+            (UNKNOWN_SPREAD.to_owned(), ConfigValue::Unknown),
+        ]),
+        "{:?}",
+        configs[0]
+    );
     // `cfg.x = env` is also a write of `cfg`, which reaches what shares it as an unknown `x`.
     assert!(
         configs[2].get("x").is_some_and(ConfigValue::has_unknown),
