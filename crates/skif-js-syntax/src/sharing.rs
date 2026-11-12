@@ -85,8 +85,8 @@ impl Unstable {
 
     /// Whether the evaluator follows the alias `id` declares ([`alias_source`]): it applies the changes made through
     /// it to the local it takes a part of, which this pass then leaves unmarked. One is followed when it is the only
-    /// alias of that local, only its own function changes it, it shares an object with no other binding, and the local
-    /// is not changed directly nor by another function.
+    /// alias of that local, only its own function changes it, no other binding it may share an object with is changed,
+    /// and the local is not changed directly nor by another function.
     pub(crate) fn follows(&self, id: &BindingIdentifier<'_>) -> bool {
         id.symbol_id.get().is_some_and(|symbol| self.followed.contains(&symbol))
     }
@@ -188,7 +188,17 @@ impl Sharing<'_> {
             && !self.changes.contains_key(&alias)
             && !self.changes.contains_key(&root)
             && !self.mutated.contains(&root)
-            && !self.links.iter().any(|&(a, b)| a == alias || b == alias)
+            && !self.shares_with_changed(alias)
+    }
+
+    /// Whether `symbol` may share an object, through the links made so far, with another binding whose object or
+    /// array code changes.
+    fn shares_with_changed(&self, symbol: SymbolId) -> bool {
+        let mut parent = forest(&self.links);
+        let class = find(&mut parent, symbol);
+        self.mutated
+            .iter()
+            .any(|&other| other != symbol && find(&mut parent, other) == class)
     }
 
     /// Links every alias the evaluator does not follow to the local it takes a part of, until no more is linked (a
@@ -219,13 +229,7 @@ impl Sharing<'_> {
     /// returns the aliases the evaluator follows, which mark nothing.
     fn share(&mut self) -> HashSet<SymbolId> {
         let followed = self.link_aliases();
-        let mut parent: HashMap<SymbolId, SymbolId> = HashMap::default();
-        for &(a, b) in &self.links {
-            let (a, b) = (find(&mut parent, a), find(&mut parent, b));
-            if a != b {
-                parent.insert(a, b);
-            }
-        }
+        let mut parent = forest(&self.links);
         let mut changed: HashMap<SymbolId, Vec<SymbolId>> = HashMap::default();
         for &symbol in &self.mutated {
             let class = changed.entry(find(&mut parent, symbol)).or_default();
@@ -447,6 +451,18 @@ impl<'a> Visit<'a> for Refs<'_> {
         walk::walk_arrow_function_expression(self, it);
         self.in_body = false;
     }
+}
+
+/// The union-find forest of the sets of bindings `links` joins.
+fn forest(links: &[(SymbolId, SymbolId)]) -> HashMap<SymbolId, SymbolId> {
+    let mut parent: HashMap<SymbolId, SymbolId> = HashMap::default();
+    for &(a, b) in links {
+        let (a, b) = (find(&mut parent, a), find(&mut parent, b));
+        if a != b {
+            parent.insert(a, b);
+        }
+    }
+    parent
 }
 
 /// The representative of the set `symbol` is in, in a union-find forest.
