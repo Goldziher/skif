@@ -1862,8 +1862,9 @@ impl<'a> Visit<'a> for Sharing<'_> {
             return walk::walk_call_expression(self, it);
         }
         // A call that keeps what it is given apart shares none of it with its callee, nor its arguments among
-        // themselves: what it returns holds them only as the value holding the call says.
-        if self.keeps_apart(it) {
+        // themselves: what it returns holds them only as the value holding the call says. So does `Object.assign` of
+        // an object literal, which copies the keys of the others into it.
+        if self.keeps_apart(it) || assigns_fresh(self.names(), it) {
             return walk::walk_call_expression(self, it);
         }
         // A function the module declares passes each argument to the parameter that takes it when they are kept apart,
@@ -2274,6 +2275,20 @@ impl<'a> Visit<'a> for Refs<'_> {
             }
             Some(_) => return,
             None => {}
+        }
+        // `Object.assign({ … }, a, b)` is the literal it is given first with the own keys of the others copied in, as
+        // `{ …, ...a, ...b }` is.
+        if assigns_fresh(names, it) {
+            for (index, argument) in it.arguments.iter().enumerate() {
+                if let Some(value) = argument.as_expression() {
+                    if index == 0 {
+                        self.visit_expression(value);
+                    } else {
+                        self.spread(value);
+                    }
+                }
+            }
+            return;
         }
         match it.callee.get_inner_expression() {
             // A function the module declares stands for what it returns, which holds what it is given only as its
@@ -2786,6 +2801,22 @@ fn assigns(names: Names<'_>, call: &CallExpression<'_>) -> bool {
             .arguments
             .first()
             .is_some_and(|first| first.as_expression().is_some())
+}
+
+/// Whether `call` is `Object.assign` of the global `Object` given an object literal first and no spread argument: it
+/// returns that literal with the own keys of the others copied in ([`Join::Copy`]), and changes none of them.
+fn assigns_fresh(names: Names<'_>, call: &CallExpression<'_>) -> bool {
+    let first = call
+        .arguments
+        .first()
+        .and_then(Argument::as_expression)
+        .map(Expression::get_inner_expression);
+    matches!(
+        call.callee.get_inner_expression(),
+        Expression::StaticMemberExpression(m) if m.property.name.as_str() == "assign"
+    ) && assigns(names, call)
+        && !has_spread(call)
+        && matches!(first, Some(Expression::ObjectExpression(_)))
 }
 
 /// The key `Object.defineProperty(object, key, …)` or `Reflect.defineProperty(object, key, …)` defines on its first
