@@ -227,6 +227,13 @@ reverse, counts as shared under knip's category and key: a tsconfig `types` entr
 manifest lists for skif and a module knip cannot resolve. The two keys pair when they name the same package, a
 specifier with a subpath (`vite/client`) pairing with its package (`vite`).
 
+**Signature types.** skif counts an export that the signature of a used export of the same file mentions as used
+([ADR 0029](../../adrs/0029-namespace-export-rules-virtual-modules-linked-configs-and-the-node-plugin.md)):
+`export interface Props` that `export function Widget(p: Props)` names. knip has no such rule. An export or type only knip reports is the
+`signature-type` known deviation when skif's parser (`referenced_in`) finds it in the signature of another export of
+the file that skif does not report as unused, directly or through exports in such signatures; the harness parses only
+the files with such findings and takes an export skif does not report for a used one.
+
 **Known deviations.** Findings on one side below a path in a repository's `knip-unread` list are the `knip-unread`
 deviation: knip reads no files there, as npm's deny-all `.gitignore` hides its workspaces, so it reports every
 dependency there as unused and says nothing about the files. In `files`, a file only knip reports is not counted as a

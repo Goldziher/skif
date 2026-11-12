@@ -92,6 +92,7 @@ pub const IMPORTED_BY_SKIF_UNUSED_FILE: &str = "imported-by-skif-unused-file";
 pub const ENTRY_MODULE_DUPLICATE: &str = "entry-module-duplicate";
 pub const BAZEL_BUILD_FILE: &str = "bazel-build-file";
 pub const DECLARATION_FILE: &str = "declaration-file";
+pub const SIGNATURE_TYPE: &str = "signature-type";
 
 /// The dependency categories skif does not judge anywhere in a package whose entry files are not all known (ADR 0053),
 /// whatever the package's `scope`.
@@ -185,7 +186,7 @@ const DEPENDENCY_FIELDS: [&str; 4] = [
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 21] = [
+pub const KNIP_DEVIATIONS: [Deviation; 22] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
@@ -237,6 +238,10 @@ pub const KNIP_DEVIATIONS: [Deviation; 21] = [
     Deviation {
         id: ENTRY_MODULE_DUPLICATE,
         reason: "knip reports these duplicate exports (one value exported under several names, `export const x …; export default x`) in a file skif makes an entry from the manifest and the defaults alone: a default entry file of its project (`index`, `cli` or `main` at the top or in `src`) or the source of a path its manifest publishes (as in `published-source`). skif's `duplicate-exports` skips entry modules, whose names are all public API; knip reports them. Entries that only skif's plugins or the configuration make are not known to the harness, so duplicates there stay compared",
+    },
+    Deviation {
+        id: SIGNATURE_TYPE,
+        reason: "knip reports these exports and types as unused, and skif's parser finds each in the signature of another export of the same file that skif does not report as unused (a parameter, return or member type of an exported function, class or constant), directly or through other exports in such signatures. ADR 0029 counts an export that a used export's signature mentions as used; knip has no such rule. The harness takes an export skif does not report for a used one. A type that only an exported `interface` or `type` alias mentions is not exempt in skif either and stays compared",
     },
     Deviation {
         id: BAZEL_BUILD_FILE,
@@ -1461,6 +1466,8 @@ struct Classifier<'a> {
     skif_unused_credits: &'a BTreeSet<String>,
     /// `<manifest>|<package>` for every dependency a `BUILD` file credits (`bazel_credits`).
     bazel_credits: &'a BTreeSet<String>,
+    /// The `<file>|<export>` keys only knip reports whose export a used export's signature names (`signature_types`).
+    signature_types: &'a BTreeSet<String>,
     /// knip ran with the scratch root manifest of a Rush repository (`knip-root = "rush"`).
     rush_root: bool,
     layout: &'a Layout<'a>,
@@ -1518,6 +1525,9 @@ impl Classifier<'_> {
             })
             .or_else(|| {
                 imported_by_unused_file(self.knip_unused_credits, category, key).then_some(IMPORTED_BY_KNIP_UNUSED_FILE)
+            })
+            .or_else(|| {
+                (EXPORT_LABELS.contains(&category) && self.signature_types.contains(key)).then_some(SIGNATURE_TYPE)
             })
             .or_else(config_error)
     }
@@ -1662,6 +1672,69 @@ fn unused_file_imports(
         );
     }
     keys
+}
+
+/// The exported names each file has findings for in [`EXPORT_LABELS`], by file.
+fn export_names(keys: &Keys) -> BTreeMap<&str, BTreeSet<&str>> {
+    let mut names: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    for category in EXPORT_LABELS {
+        for key in keys.get(category).into_iter().flatten() {
+            if let Some((file, name)) = key.split_once('|') {
+                names.entry(file).or_default().insert(name);
+            }
+        }
+    }
+    names
+}
+
+/// Whether an export of `module` named `name` appears in the signature of another of its exports that `used` accepts,
+/// directly or through exports in the signatures of such ones (`referenced_in`, as `signature_use` in `skif-js` follows
+/// it), skipping the names in `visited`.
+fn in_used_signature<'m>(
+    module: &'m ModuleInfo,
+    name: &str,
+    used: &dyn Fn(&str) -> bool,
+    visited: &mut BTreeSet<&'m str>,
+) -> bool {
+    module
+        .exports
+        .iter()
+        .filter(|export| export.name == name)
+        .flat_map(|export| &export.referenced_in)
+        .any(|container| {
+            used(container) || (visited.insert(container.as_str()) && in_used_signature(module, container, used, visited))
+        })
+}
+
+/// `<file>|<export>` for every export only knip reports in [`EXPORT_LABELS`] that the signature of another export of
+/// the file names when skif does not report that one as unused ([`in_used_signature`]): skif counts it as used
+/// (ADR 0029). Only the files with such findings are parsed; `read` gives a file's source, and a file it cannot read
+/// or parse yields nothing.
+fn signature_types(skif: &Keys, knip: &Keys, read: &dyn Fn(&str) -> Option<String>) -> BTreeSet<String> {
+    let options = ParseOptions {
+        in_file_references: true,
+        member_accesses: false,
+    };
+    let skif_names = export_names(skif);
+    let none = BTreeSet::new();
+    let mut found = BTreeSet::new();
+    for (file, names) in export_names(knip) {
+        let reported = skif_names.get(file).unwrap_or(&none);
+        let only: Vec<&str> = names.difference(reported).copied().collect();
+        if only.is_empty() {
+            continue;
+        }
+        let Some(module) = read(file).and_then(|source| parse_module(Path::new(file), &source, &options).ok()) else {
+            continue;
+        };
+        let used = |container: &str| !reported.contains(container);
+        for name in only {
+            if in_used_signature(&module, name, &used, &mut BTreeSet::new()) {
+                found.insert(format!("{file}|{name}"));
+            }
+        }
+    }
+    found
 }
 
 /// Whether `path` is a `BUILD.bazel` or `BUILD` file.
@@ -2231,6 +2304,7 @@ struct Facts {
     knip_unused_credits: BTreeSet<String>,
     skif_unused_credits: BTreeSet<String>,
     bazel_credits: BTreeSet<String>,
+    signature_types: BTreeSet<String>,
 }
 
 impl Facts {
@@ -2256,6 +2330,7 @@ impl Facts {
             knip_unused_credits: unused_file_credits(knip_unused, skif_unused, layout.is_file, &read_source),
             skif_unused_credits: unused_file_credits(skif_unused, knip_unused, layout.is_file, &read_source),
             bazel_credits: bazel_credits(&read_build_files(root), layout.is_file, &read_source),
+            signature_types: signature_types(skif, knip, &read_source),
         }
     }
 
@@ -2284,6 +2359,7 @@ impl Facts {
             knip_unused_credits: &self.knip_unused_credits,
             skif_unused_credits: &self.skif_unused_credits,
             bazel_credits: &self.bazel_credits,
+            signature_types: &self.signature_types,
             rush_root,
             layout,
         }
@@ -3457,6 +3533,7 @@ mod tests {
             ENTRY_MODULE_DUPLICATE,
             BAZEL_BUILD_FILE,
             DECLARATION_FILE,
+            SIGNATURE_TYPE,
             KNIP_CONFIG_ERROR,
             NOT_JUDGED,
         ] {
@@ -3576,6 +3653,7 @@ mod tests {
             knip_unused_credits: &NO_KEYS,
             skif_unused_credits: &NO_KEYS,
             bazel_credits: &NO_KEYS,
+            signature_types: &NO_KEYS,
             rush_root: false,
             layout,
         }
@@ -4738,6 +4816,65 @@ vi.mock("mocked-package");
                 None,
                 "{category} {key}"
             );
+        }
+    }
+
+    #[test]
+    fn exports_only_knip_reports_that_a_used_export_s_signature_names_split_off() {
+        let source = "export interface Props { a: string }\n\
+                      export interface Hidden { a: string }\n\
+                      export interface Entry { a: string }\n\
+                      export interface Lonely { a: string }\n\
+                      export function Widget(p: Props): void {}\n\
+                      export function unused(h: Hidden): void {}\n\
+                      export class Store { get(): Entry { return { a: '' }; } }\n\
+                      export function open(): Store { return new Store(); }\n";
+        let read = |file: &str| (file == "src/ops.ts").then(|| source.to_owned());
+        let skif = Keys::from([
+            ("exports".to_owned(), strings(&["src/ops.ts|unused", "src/ops.ts|Store"])),
+            ("types".to_owned(), strings(&["src/ops.ts|Lonely"])),
+        ]);
+        let knip = Keys::from([
+            (
+                "types".to_owned(),
+                strings(&[
+                    "src/ops.ts|Props",
+                    "src/ops.ts|Hidden",
+                    "src/ops.ts|Entry",
+                    "src/ops.ts|Lonely",
+                    "src/gone.ts|Props",
+                ]),
+            ),
+            ("exports".to_owned(), strings(&["src/ops.ts|unused"])),
+        ]);
+        let found = signature_types(&skif, &knip, &read);
+        assert_eq!(
+            found,
+            strings(&["src/ops.ts|Entry", "src/ops.ts|Props"]),
+            "the signature of an export skif reports does not count, one of an export in a used signature does, and \
+             a file that cannot be read yields nothing"
+        );
+
+        let manifest = |dir: &str| dir.is_empty().then(|| Rc::new(json!({ "name": "root" })));
+        let every_file = |_: &str| true;
+        let layout = Layout::new(BTreeSet::new(), &manifest, &every_file);
+        let classifier = Classifier {
+            signature_types: &found,
+            ..bare(&layout)
+        };
+        for category in ["types", "nsTypes", "exports", "nsExports"] {
+            assert_eq!(
+                classifier.classify(Side::Tool, category, "src/ops.ts|Props"),
+                Some(SIGNATURE_TYPE),
+                "{category}"
+            );
+        }
+        for (side, category, key) in [
+            (Side::Tool, "types", "src/ops.ts|Hidden"),
+            (Side::Tool, "enumMembers", "src/ops.ts|Props"),
+            (Side::Skif, "types", "src/ops.ts|Props"),
+        ] {
+            assert_eq!(classifier.classify(side, category, key), None, "{side:?} {category} {key}");
         }
     }
 
