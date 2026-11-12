@@ -36,6 +36,19 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **Migrate**: `--merge --output <FILE>` writes the merge of the existing `skif.toml` and the migration to `FILE`
+  instead of the translation alone, and leaves the existing file as it is; an existing `FILE` is refused. A merge with
+  the `exact` profile no longer turns off the default rules a file without a `sources` line relies on: it writes no
+  `off` value into a file that has content, and the report lists those checks (`left-as-existing`). Migrating knip
+  into a file with `[js] enabled = false` sets it to `true`, which the report names (`replaced-existing`); `Merged`
+  gains `left_as_existing` and `replaced_existing`, and `Migration::merge_summary` renders the report of a merge
+  ([#207](https://github.com/Goldziher/skif/issues/207)).
+- **Migrate**: a knip ignore entry without a comment of its own takes the comment heading its group (the nearest
+  comment above an earlier entry of the same list) as its `reason`, else the comment on the list's key (above
+  `ignoreDependencies: [`, after its opening bracket, or after the list on its line); before, a group heading reached
+  only the first entry and a key comment none, so a fully commented knip config failed `require-ignore-reasons` after
+  migration. The note of a list names its entries left without a comment. `skif-js-syntax` gains
+  `extract_config_comments`, which reports group headings (`ElementComment::heading`) and `PropertyComment`s.
 - `stale-js-config` (`package-entry`) reports a `bin` path that a build running only the TypeScript compiler
   (`"build": "tsc"`) cannot write, because no file of the package is named after it, and the package is judged from
   its other entries instead of being listed in `incomplete-packages` with `unmapped-published`. A `bin` path a source

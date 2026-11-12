@@ -39,6 +39,8 @@ pub(crate) const KNIP_FILES: &[&str] = &[
 ];
 
 // `[js]`
+pub(crate) const JS: &str = "js";
+pub(crate) const JS_ENABLED: &str = "enabled";
 pub(crate) const JS_IGNORE_WORKSPACES: &str = "ignore-workspaces";
 pub(crate) const JS_IGNORE_UNRESOLVED: &str = "ignore-unresolved";
 pub(crate) const JS_IGNORE_EXPORTS_USED_IN_FILE: &str = "ignore-exports-used-in-file";

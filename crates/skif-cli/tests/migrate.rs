@@ -462,3 +462,125 @@ fn force_warns_when_the_replaced_file_extended_others() {
     let quiet = run(migrate(plain.path()).arg("--force"));
     assert!(!quiet.stderr.contains("--force replaces"), "{}", quiet.stderr);
 }
+
+const KNIP_PACKAGE: &str = r#"{"name":"root","private":true,"packageManager":"pnpm@10.0.0","scripts":{"knip":"knip --dependencies"},"devDependencies":{"knip":"6.41.0"}}"#;
+
+/// A file written by hand or for sherif and syncpack, without a `sources` line.
+const HAND_WRITTEN: &str = "[js]\nenabled = false\n\n[rules]\nversion-mismatch = \"error\"\n";
+
+/// A pnpm project that runs knip and already has a `skif.toml`.
+fn knip_project_with_config() -> tempfile::TempDir {
+    let dir = project(KNIP_PACKAGE);
+    fs::write(dir.path().join("pnpm-workspace.yaml"), "packages:\n  - packages/*\n").unwrap();
+    fs::write(
+        dir.path().join("knip.ts"),
+        "export default { ignoreDependencies: [\"left-pad\"] };\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("skif.toml"), HAND_WRITTEN).unwrap();
+    dir
+}
+
+#[test]
+fn merge_with_output_writes_the_merge_there_and_leaves_the_existing_file_alone() {
+    let dir = knip_project_with_config();
+    let out = dir.path().join("merged.toml");
+    let result = run(migrate(dir.path())
+        .args(["--from", "knip", "--merge", "--output"])
+        .arg(&out));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    let merged = fs::read_to_string(&out).unwrap();
+    assert!(
+        merged.starts_with(
+            "[js]\nenabled = true\nignore-dependencies = [\"left-pad\"]\n\n[rules]\nversion-mismatch = \"error\"\n"
+        ),
+        "{merged}"
+    );
+    assert!(merged.contains("unused-dependencies = \"error\""), "{merged}");
+    assert!(merged.contains("sources = [\"knip\"]"), "{merged}");
+    assert_eq!(fs::read_to_string(dir.path().join("skif.toml")).unwrap(), HAND_WRITTEN);
+    assert!(
+        result
+            .stdout
+            .contains(&format!("Wrote {}", out.display()).replace('\\', "/")),
+        "{}",
+        result.stdout
+    );
+}
+
+#[test]
+fn merge_refuses_an_output_file_that_exists_and_is_not_the_configuration() {
+    let dir = knip_project_with_config();
+    let out = dir.path().join("other.toml");
+    fs::write(&out, "[lint]\nfail-on-warnings = true\n").unwrap();
+    let result = run(migrate(dir.path())
+        .args(["--from", "knip", "--merge", "--output"])
+        .arg(&out));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    assert!(
+        result.stderr.contains("already exists") && result.stderr.contains("name a file that does not exist"),
+        "{}",
+        result.stderr
+    );
+    assert_eq!(fs::read_to_string(&out).unwrap(), "[lint]\nfail-on-warnings = true\n");
+    assert_eq!(fs::read_to_string(dir.path().join("skif.toml")).unwrap(), HAND_WRITTEN);
+}
+
+#[test]
+fn merge_with_the_exact_profile_turns_off_no_rule_the_existing_file_runs() {
+    let dir = knip_project_with_config();
+    let result = run(migrate(dir.path()).args(["--from", "knip", "--merge", "--format", "json"]));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    let text = fs::read_to_string(dir.path().join("skif.toml")).unwrap();
+    assert!(!text.contains("not checked by"), "{text}");
+    let written = migrated(&dir);
+    let rules = written["rules"].as_table().unwrap();
+    let off: Vec<&String> = rules
+        .iter()
+        .filter(|(_, level)| level.as_str() == Some("off"))
+        .map(|(id, _)| id)
+        .collect();
+    assert_eq!(off, Vec::<&String>::new(), "{text}");
+    assert_eq!(rules["version-mismatch"].as_str(), Some("error"));
+    assert_eq!(rules["unused-dependencies"].as_str(), Some("error"));
+    assert_eq!(written["js"]["enabled"].as_bool(), Some(true), "{text}");
+
+    let report = result.json();
+    let left: BTreeSet<&str> = report["left-as-existing"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|path| path.as_str().unwrap())
+        .collect();
+    for path in [
+        "rules.stray-lockfile",
+        "rules.catalog-mismatch",
+        "rules.toolchain-pin-drift",
+    ] {
+        assert!(left.contains(path), "{path}: {left:?}");
+    }
+    assert!(!left.contains("rules.version-mismatch"), "{left:?}");
+    assert_eq!(report["replaced-existing"], serde_json::json!(["js.enabled"]));
+}
+
+#[test]
+fn the_merge_summary_says_which_checks_stay_and_that_the_javascript_analysis_is_on() {
+    let dir = knip_project_with_config();
+    let result = run(migrate(dir.path()).args(["--from", "knip", "--merge", "--dry-run"]));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    assert!(
+        result
+            .stderr
+            .contains("left as the existing configuration has them by --merge: ")
+            && result.stderr.contains("stray-lockfile"),
+        "{}",
+        result.stderr
+    );
+    assert!(
+        result.stderr.contains("Replaced the existing value of: js.enabled"),
+        "{}",
+        result.stderr
+    );
+    assert!(!result.stderr.contains("turned off in [rules]"), "{}", result.stderr);
+    assert_eq!(fs::read_to_string(dir.path().join("skif.toml")).unwrap(), HAND_WRITTEN);
+}

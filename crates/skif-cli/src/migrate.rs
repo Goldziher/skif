@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Map, Value, json};
 use skif::{CONFIG_FILE_NAMES, Config, Linter, slash};
 use skif_migrate::{
-    Input, MigrateError, Migration, Options, Profile, RuleInfo, Tool, ToolInput, config_file_names, migrate,
+    Input, Merged, MigrateError, Migration, Options, Profile, RuleInfo, Tool, ToolInput, config_file_names, migrate,
     package_json_mentions, script_config_path,
 };
 use skif_report::escape_controls;
@@ -278,9 +278,21 @@ struct Plan {
     /// Where the configuration goes, or `None` for stdout.
     target: Option<PathBuf>,
     toml: String,
-    kept_existing: Vec<String>,
+    /// The merge with the existing configuration, under `--merge`.
+    merged: Option<Merged>,
 }
 
+fn already_exists(existing: &Path, hint: &str) -> CliError {
+    CliError {
+        path: Some(slash(existing)),
+        ..CliError::new(Kind::Config, format!("{} already exists; {hint}", existing.display()))
+    }
+}
+
+/// Where the configuration goes and what it is. With `--merge`, the base is the project's configuration (the
+/// `skif.toml` or `.skif.toml` in the root), else the file `--output` names; the merge goes to `--output` when it is
+/// given and to the base otherwise. `--output` naming another file that exists is refused: `--merge` excludes
+/// `--force`, and the merge must not silently replace a file it did not read.
 fn plan_output(args: &MigrateArgs, root: &Path, migration: &Migration) -> Result<Plan, CliError> {
     let to_stdout = args.dry_run || args.output.as_deref() == Some(Path::new("-"));
     let default_target = args.output.is_none();
@@ -291,29 +303,38 @@ fn plan_output(args: &MigrateArgs, root: &Path, migration: &Migration) -> Result
         _ => root.join(CONFIG_FILE_NAMES[0]),
     };
     let existing = existing_config(root, &target, default_target);
-    let mut toml = migration.toml.clone();
-    let mut kept_existing = Vec::new();
-    let mut destination = target;
-    if let Some(existing) = &existing
-        && args.merge
-    {
-        let text = read_text(existing)?;
-        let merged = migration.merge_into(&text).map_err(migrate_error)?;
-        kept_existing = merged.kept_existing;
-        toml = merged.toml;
-        destination.clone_from(existing);
-    } else if let Some(existing) = &existing {
-        if !args.force && !to_stdout {
-            return Err(CliError {
-                path: Some(slash(existing)),
-                ..CliError::new(
-                    Kind::Config,
-                    format!(
-                        "{} already exists; pass --merge to combine the migration with it, --force to replace it, or --output to write elsewhere",
-                        existing.display()
+    if args.merge {
+        let base = existing_config(root, &root.join(CONFIG_FILE_NAMES[0]), true).or_else(|| existing.clone());
+        if let Some(base) = base {
+            if let Some(existing) = existing.as_deref().filter(|existing| *existing != base.as_path())
+                && !to_stdout
+            {
+                return Err(already_exists(
+                    existing,
+                    &format!(
+                        "--merge writes the merge of {} and the migration to --output, so name a file that does not \
+                         exist",
+                        base.display()
                     ),
-                )
+                ));
+            }
+            let text = read_text(&base)?;
+            let merged = migration.merge_into(&text).map_err(migrate_error)?;
+            let destination = if default_target { base } else { target };
+            return Ok(Plan {
+                target: (!to_stdout).then_some(destination),
+                toml: merged.toml.clone(),
+                merged: Some(merged),
             });
+        }
+    }
+    let mut destination = target;
+    if let Some(existing) = &existing {
+        if !args.force && !to_stdout {
+            return Err(already_exists(
+                existing,
+                "pass --merge to combine the migration with it, --force to replace it, or --output to write elsewhere",
+            ));
         }
         if !to_stdout {
             warn_dropped_extends(existing)?;
@@ -322,8 +343,8 @@ fn plan_output(args: &MigrateArgs, root: &Path, migration: &Migration) -> Result
     }
     Ok(Plan {
         target: (!to_stdout).then_some(destination),
-        toml,
-        kept_existing,
+        toml: migration.toml.clone(),
+        merged: None,
     })
 }
 
@@ -384,7 +405,20 @@ fn report(args: &MigrateArgs, format: RulesFormat, migration: &Migration, plan: 
             if plan.target.is_none() {
                 document.insert("toml".to_owned(), json!(plan.toml));
             }
-            document.insert("kept-existing".to_owned(), json!(plan.kept_existing));
+            let none = Vec::new();
+            let merged = plan.merged.as_ref();
+            document.insert(
+                "kept-existing".to_owned(),
+                json!(merged.map_or(&none, |merged| &merged.kept_existing)),
+            );
+            document.insert(
+                "left-as-existing".to_owned(),
+                json!(merged.map_or(&none, |merged| &merged.left_as_existing)),
+            );
+            document.insert(
+                "replaced-existing".to_owned(),
+                json!(merged.map_or(&none, |merged| &merged.replaced_existing)),
+            );
             let mut text = serde_json::to_string_pretty(&Value::Object(document))
                 .map_err(|error| CliError::new(Kind::Internal, error.to_string()))?;
             text.push('\n');
@@ -395,9 +429,26 @@ fn report(args: &MigrateArgs, format: RulesFormat, migration: &Migration, plan: 
             if let Some(target) = &plan.target {
                 let _ = writeln!(summary, "Wrote {}\n", slash(target));
             }
-            summary.push_str(&migration.summary());
-            if !plan.kept_existing.is_empty() {
-                let _ = writeln!(summary, "Kept the existing value of: {}", plan.kept_existing.join(", "));
+            match &plan.merged {
+                Some(merged) => {
+                    summary.push_str(&migration.merge_summary(merged));
+                    if !merged.kept_existing.is_empty() {
+                        let _ = writeln!(
+                            summary,
+                            "Kept the existing value of: {}",
+                            merged.kept_existing.join(", ")
+                        );
+                    }
+                    if !merged.replaced_existing.is_empty() {
+                        let _ = writeln!(
+                            summary,
+                            "Replaced the existing value of: {} (the migrated knip settings need the JavaScript \
+                             analysis on)",
+                            merged.replaced_existing.join(", ")
+                        );
+                    }
+                }
+                None => summary.push_str(&migration.summary()),
             }
             if plan.target.is_some() {
                 write_stdout(summary.as_bytes())

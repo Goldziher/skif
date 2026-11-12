@@ -344,7 +344,8 @@ pub struct MigrateArgs {
     #[arg(long, value_name = "FILE")]
     pub output: Option<PathBuf>,
 
-    /// Combine with the existing `skif.toml` instead of refusing to overwrite it.
+    /// Combine with the existing `skif.toml` instead of refusing to overwrite it; with `--output`, write the
+    /// combination there and leave the existing file as it is.
     #[arg(long, conflicts_with = "force")]
     pub merge: bool,
 

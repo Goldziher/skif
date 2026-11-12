@@ -289,8 +289,8 @@ impl<'a> State<'a> {
             if !self.tools.contains(&Tool::Knip) {
                 let marker = profile_marker(&self.tools);
                 self.doc
-                    .table(&["js"])
-                    .set_commented("enabled", Val::Bool(false), marker);
+                    .table(&[keys::JS])
+                    .set_commented(keys::JS_ENABLED, Val::Bool(false), marker);
             }
         }
         if let Some(src) = self.sherif_versions.take() {
