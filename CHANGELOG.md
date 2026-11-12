@@ -9,6 +9,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A recursive run no longer lints the output of `turbo prune --docker` as two extra roots: below the start path, the
+  `json` and `full` trees of a directory without a `package.json` that holds a lockfile next to them are skipped
+  ([#194](https://github.com/Goldziher/skif/issues/194)).
+
 ## [0.3.0] - 2026-11-11
 
 ### Added
