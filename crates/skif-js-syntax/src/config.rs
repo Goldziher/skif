@@ -3441,7 +3441,10 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         }
         let mut frames = self.frames.borrow_mut();
         for (frame, other) in frames.iter_mut().zip(consequent) {
-            let names: Vec<String> = frame.keys().chain(other.keys()).cloned().collect();
+            // Each name once: joining a binding with a branch again is not the same as joining it once.
+            let mut names: Vec<String> = frame.keys().chain(other.keys()).cloned().collect();
+            names.sort_unstable();
+            names.dedup();
             for name in names {
                 let joined = match (frame.get(&name), other.get(&name)) {
                     (Some(Binding::Value(a)), Some(Binding::Value(b))) => Binding::Value(join(a, b)),
