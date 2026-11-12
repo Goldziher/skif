@@ -27,7 +27,7 @@ use std::collections::BTreeMap;
 use oxc_ast::ast::{
     Argument, ArrayExpression, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator, AssignmentPattern,
     AssignmentTarget, AssignmentTargetMaybeDefault, AssignmentTargetPattern, AssignmentTargetProperty,
-    AssignmentTargetPropertyIdentifier, BindingIdentifier, BindingPattern, CallExpression, ChainExpression,
+    AssignmentTargetPropertyIdentifier, BindingIdentifier, BindingPattern, CallExpression, ChainExpression, Class,
     ComputedMemberExpression, Declaration, ExportDeclaration, Expression, ExpressionStatement, ForOfStatement,
     ForStatementLeft, FormalParameter, FormalParameters, Function,
     IdentifierReference, ImportDeclaration, ImportDeclarationSpecifier, MemberExpression, NewExpression,
@@ -851,6 +851,17 @@ impl<'a> Visit<'a> for Sharing<'_> {
         self.functions
             .push(it.scope_id.get().unwrap_or_else(|| self.scoping.root_scope_id()));
         walk::walk_arrow_function_expression(self, it);
+        self.functions.pop();
+    }
+
+    fn visit_class(&mut self, it: &Class<'a>) {
+        // A static block or a field initialiser runs when the class is defined or an object of it is made, which the
+        // evaluator does not follow: a write there is one of no function the binding belongs to.
+        let Some(scope) = it.scope_id.get() else {
+            return walk::walk_class(self, it);
+        };
+        self.functions.push(scope);
+        walk::walk_class(self, it);
         self.functions.pop();
     }
 
