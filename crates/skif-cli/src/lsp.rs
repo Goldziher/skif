@@ -465,12 +465,7 @@ impl Server {
         for (path, diagnostics) in &by_file {
             let uri = path_to_uri(path);
             // Positions are computed in the text the lint read: the buffer of an open document.
-            let text = fs.read_to_string(path).unwrap_or_default();
-            let index = LineIndex::new(&text);
-            let items: Vec<Value> = diagnostics
-                .iter()
-                .map(|diagnostic| lsp_diagnostic(diagnostic, &index, &text))
-                .collect();
+            let items = file_diagnostics(diagnostics, || fs.read_to_string(path).unwrap_or_default());
             notifications.push(publish_diagnostics(&uri, &items));
             current.insert(uri);
         }
@@ -528,6 +523,20 @@ fn publish_diagnostics(uri: &str, diagnostics: &[Value]) -> Value {
 fn position(index: &LineIndex, offset: u32) -> Value {
     let (line, _) = index.line_col(offset);
     json!({ "line": line - 1, "character": index.utf16_col(offset) - 1 })
+}
+
+/// The LSP diagnostics of the `diagnostics` of one file, whose text `read` gives. The file is read only when a
+/// diagnostic has a span, and its lines are indexed only when a span lies within it: the others are placed by their
+/// lines and columns, or at the start of the file.
+fn file_diagnostics(diagnostics: &[&Diagnostic], read: impl FnOnce() -> Arc<str>) -> Vec<Value> {
+    let spans = || diagnostics.iter().filter_map(|diagnostic| diagnostic.location.span.as_ref());
+    let text: Arc<str> = if spans().next().is_some() { read() } else { Arc::from("") };
+    let indexed = spans().any(|span| span.end as usize <= text.len());
+    let index = LineIndex::new(if indexed { &*text } else { "" });
+    diagnostics
+        .iter()
+        .map(|diagnostic| lsp_diagnostic(diagnostic, &index, &text))
+        .collect()
 }
 
 fn lsp_diagnostic(diagnostic: &Diagnostic, index: &LineIndex, text: &str) -> Value {
@@ -662,6 +671,37 @@ mod tests {
         assert_eq!(uri, "file:///C:/my%20repo/package.json");
         assert_eq!(uri_to_path(&uri).unwrap(), path);
         assert_eq!(uri_to_path("file:///c%3A/a/b").unwrap(), Path::new(r"c:\a\b"));
+    }
+
+    /// A file is read only for a diagnostic with a span, and every diagnostic is placed as it is with the whole file
+    /// indexed: by its span within the text, by its lines and columns past it, at the start without a span.
+    #[test]
+    fn file_diagnostics_read_and_index_the_file_only_for_spans() {
+        static META: skif::RuleMeta = skif::RuleMeta::new(
+            "demo",
+            skif::Category::Manifest,
+            Some(Severity::Warning),
+            skif::Fixability::None,
+            "demo",
+        );
+        let text = "{\n  \"n\": \"é😀x\"\n}";
+        let at = |span: Option<skif::Span>| {
+            skif::diagnostic(&META, "m", skif::Location::new("package.json", span)).build()
+        };
+        let x = u32::try_from(text.find('x').unwrap()).unwrap();
+        let within = at(Some(skif::Span::new(x, x + 1, 2, 13, 2, 14)));
+        let past = at(Some(skif::Span::new(900, 901, 7, 3, 7, 4)));
+        let none = at(None);
+        let unspanned = file_diagnostics(&[&none], || panic!("a diagnostic without a span reads no file"));
+        assert_eq!(unspanned, [lsp_diagnostic(&none, &LineIndex::new(""), "")]);
+        assert_eq!(unspanned[0]["range"]["start"], json!({ "line": 0, "character": 0 }));
+        let index = LineIndex::new(text);
+        let all = [&within, &past, &none];
+        let expected: Vec<Value> = all.iter().map(|diagnostic| lsp_diagnostic(diagnostic, &index, text)).collect();
+        assert_eq!(file_diagnostics(&all, || Arc::from(text)), expected);
+        assert_eq!(expected[0]["range"]["start"], json!({ "line": 1, "character": 11 }));
+        assert_eq!(expected[1]["range"]["start"], json!({ "line": 6, "character": 2 }));
+        assert_eq!(file_diagnostics(&[&past], || Arc::from(text)), [expected[1].clone()]);
     }
 
     #[test]
