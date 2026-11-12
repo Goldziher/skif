@@ -229,3 +229,23 @@ package-manager = "pnpm"
 suites = ["parity"]
 recursive = true
 notes = "Largest tree of the corpus. examples/* and many test apps are standalone projects (nested roots), so skif runs recursively to read the files knip reads from the root."
+
+[[repo]]
+name = "turborepo-examples"
+url = "https://github.com/vercel/turborepo.git"
+rev = "af729aba869736a9f03a0192d438cca35f4cc02b"
+package-manager = "pnpm"
+suites = ["parity"]
+sparse = ["examples/basic", "examples/kitchen-sink", "examples/with-shell-commands", "examples/with-vitest", "examples/with-nestjs", "examples/with-yarn", "examples/with-npm"]
+recursive = true
+install-command = ["bash", "-c", "for d in basic kitchen-sink with-shell-commands with-vitest with-nestjs; do pnpm -C examples/$d install --ignore-scripts --frozen-lockfile || exit 1; done; (cd examples/with-yarn && corepack yarn install --ignore-scripts) && npm --prefix examples/with-npm ci --ignore-scripts"]
+notes = "Official Turborepo examples: per-package turbo.json with extends [\"//\"], turbo/generators (with-vitest, with-yarn, with-npm), task-ordering-only workspace dependencies (with-shell-commands), pnpm, yarn and npm. Each example is a standalone root below the repository's own workspace, so skif runs recursively. The repository root is pnpm 12 with apps/, docs/ and packages/ outside the sparse set; its unmatched patterns are not a parity category. Expect the tooling-config unused-dependencies findings on both sides."
+
+[[repo]]
+name = "nx-examples-integrated"
+url = "https://github.com/nrwl/nx-examples.git"
+rev = "2edc2edcc9d7400345e2ff6664212e326cadf301"
+package-manager = "yarn"
+suites = ["parity"]
+install-command = ["corepack", "yarn", "install", "--mode=skip-build"]
+notes = "Nx 23 integrated repository (the last revision before package-manager workspaces): 17 projects with project.json and no package.json, every dependency in the root package.json, tsconfig.base.json paths, nx.json inferred-target plugins (@nx/jest, @nx/eslint, @nx/cypress, @nx/webpack or rsbuild), a root jest.config.ts calling getJestProjectsAsync() and nx:run-commands deploy targets."
