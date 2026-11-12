@@ -89,6 +89,7 @@ pub const USED_IN_SKIF_UNUSED_FILE: &str = "used-in-skif-unused-file";
 pub const RUSH_ROOT_FILE: &str = "rush-root-file";
 pub const IMPORTED_BY_KNIP_UNUSED_FILE: &str = "imported-by-knip-unused-file";
 pub const IMPORTED_BY_SKIF_UNUSED_FILE: &str = "imported-by-skif-unused-file";
+pub const ENTRY_MODULE_DUPLICATE: &str = "entry-module-duplicate";
 
 /// The dependency categories skif does not judge anywhere in a package whose entry files are not all known (ADR 0053),
 /// whatever the package's `scope`.
@@ -168,7 +169,7 @@ const DEPENDENCY_FIELDS: [&str; 4] = [
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 18] = [
+pub const KNIP_DEVIATIONS: [Deviation; 19] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
@@ -211,7 +212,11 @@ pub const KNIP_DEVIATIONS: [Deviation; 18] = [
     },
     Deviation {
         id: PUBLISHED_SOURCE,
-        reason: "knip reports these files as unused, and each is either a TypeScript file whose package publishes its path with a built extension (`.js`, `.mjs`, `.cjs`, `.jsx` or a `.d.ts` variant) or without one in `main`, `module`, `source`, `types`, `typings`, `browser`, `bin`, an `exports` leaf or, in an n8n node package, `n8n.nodes` and `n8n.credentials`, where `*` matches any part of the path and a path below a build directory (`dist`, `lib`, `out`, `esm` and the like, also `lib-commonjs`) is also the path below `src` (for the n8n fields, the path without the build directory), or a file such a source imports by relative path, directly or through other files only knip reports unused. A published path without `*` is first mapped through the build directories of the package, as skif's TypeScript plugin reads them: below the `outDir` of a `tsconfig.json`, `tsconfig.*.json` or `jsconfig.json` of the package directory is the same path below its `rootDir` (without one, the directory its `include` and `files` share). The exports and types (also as namespace exports and types) only knip reports in a published source are `published-source` too: skif makes the source an entry, whose exports are public. skif makes the source of a published path an entry and uses what it imports; knip maps a published path to source only through a tsconfig `outDir` it resolves itself and does not read the n8n fields. The harness checks the published path and the relative imports, not why skif has no finding for each file; enum and namespace members and duplicates of these files, and the exports of the files they reach, stay compared",
+        reason: "knip reports these files as unused, and each is either a TypeScript file whose package publishes its path with a built extension (`.js`, `.mjs`, `.cjs`, `.jsx` or a `.d.ts` variant) or without one in `main`, `module`, `source`, `types`, `typings`, `browser`, `bin`, an `exports` leaf or, in an n8n node package, `n8n.nodes` and `n8n.credentials`, where `*` matches any part of the path and a path below a build directory (`dist`, `lib`, `out`, `esm` and the like, also `lib-commonjs`) is also the path below `src` (for the n8n fields, the path without the build directory), or a file such a source imports by relative path, directly or through other files only knip reports unused. A published path without `*` is first mapped through the build directories of the package, as skif's TypeScript plugin reads them: below the `outDir` of a `tsconfig.json`, `tsconfig.*.json` or `jsconfig.json` of the package directory is the same path below its `rootDir` (without one, the directory its `include` and `files` share). The exports and types (also as namespace exports and types) only knip reports in a published source are `published-source` too: skif makes the source an entry, whose exports are public. skif makes the source of a published path an entry and uses what it imports; knip maps a published path to source only through a tsconfig `outDir` it resolves itself and does not read the n8n fields. The harness checks the published path and the relative imports, not why skif has no finding for each file; enum and namespace members of these files, and the exports of the files they reach, stay compared, and their duplicates are `entry-module-duplicate`",
+    },
+    Deviation {
+        id: ENTRY_MODULE_DUPLICATE,
+        reason: "knip reports these duplicate exports (one value exported under several names, `export const x …; export default x`) in a file skif makes an entry from the manifest and the defaults alone: a default entry file of its project (`index`, `cli` or `main` at the top or in `src`) or the source of a path its manifest publishes (as in `published-source`). skif's `duplicate-exports` skips entry modules, whose names are all public API; knip reports them. Entries that only skif's plugins or the configuration make are not known to the harness, so duplicates there stay compared",
     },
     Deviation {
         id: IN_KNIP_UNUSED_FILE,
@@ -1078,6 +1083,8 @@ struct Layout<'a> {
     manifest: &'a ManifestReader<'a>,
     is_file: &'a FileProbe<'a>,
     build_dirs: &'a BuildDirReader<'a>,
+    /// [`DEFAULT_ENTRY`], compiled as skif compiles package-relative globs.
+    default_entry: IncompleteScopeGlobs,
 }
 
 impl<'a> Layout<'a> {
@@ -1087,7 +1094,21 @@ impl<'a> Layout<'a> {
             manifest,
             is_file,
             build_dirs: &no_build_dirs,
+            default_entry: IncompleteScopeGlobs::new(DEFAULT_ENTRY.iter().map(|glob| (*glob).to_owned()).collect()),
         }
+    }
+
+    /// Whether `path` is a default entry file of its project ([`DEFAULT_ENTRY`], relative to the project directory).
+    fn is_default_entry(&self, path: &str) -> bool {
+        let dir = owner_dir(path, &|dir: &str| self.is_project(dir));
+        self.default_entry.is_match(below(&dir, path))
+    }
+
+    /// Whether skif makes `path` an entry of its project from the manifest and the defaults alone: a default entry file
+    /// or the source of a published path ([`Self::publishes_source_of`]). Entries from plugins and configuration are
+    /// not known here.
+    fn is_entry_module(&self, path: &str) -> bool {
+        self.is_default_entry(path) || self.publishes_source_of(path)
     }
 
     /// The same layout, with the build directories of each package from `build_dirs`.
@@ -1403,6 +1424,9 @@ impl Classifier<'_> {
             .or_else(|| self.layout.in_skipped_directory(path).then_some(SKIPPED_DIRECTORY))
             .or_else(|| self.non_member_project(category, key).then_some(NON_MEMBER_PROJECT))
             .or_else(|| self.published_source(category, path).then_some(PUBLISHED_SOURCE))
+            .or_else(|| {
+                (category == "duplicates" && self.layout.is_entry_module(path)).then_some(ENTRY_MODULE_DUPLICATE)
+            })
             .or_else(|| in_unused_file(category, path, self.skif_unused_files).then_some(IN_SKIF_UNUSED_FILE))
             .or_else(|| {
                 used_in_unused_file(self.knip_unused_imports, category, key).then_some(USED_IN_KNIP_UNUSED_FILE)
@@ -3072,6 +3096,7 @@ mod tests {
             USED_IN_SKIF_UNUSED_FILE,
             IMPORTED_BY_KNIP_UNUSED_FILE,
             IMPORTED_BY_SKIF_UNUSED_FILE,
+            ENTRY_MODULE_DUPLICATE,
             KNIP_CONFIG_ERROR,
             NOT_JUDGED,
         ] {
@@ -3531,6 +3556,43 @@ mod tests {
                     "skif judges the members of a used export: {category}"
                 );
             }
+        });
+    }
+
+    #[test]
+    fn duplicates_only_knip_reports_in_default_entries_and_published_sources_split_off() {
+        let manifests = [
+            ("", json!({ "name": "root", "workspaces": ["packages/*"] })),
+            ("packages/a", json!({ "name": "a", "main": "./dist/server.js" })),
+        ];
+        with_classifier(&["packages/a"], &manifests, &[], |classifier| {
+            for key in [
+                "packages/a/src/server.ts|default|format",
+                "packages/a/index.mjs|a|b",
+                "packages/a/src/index.ts|a|b",
+                "packages/a/cli.cts|a|b",
+                "src/main.tsx|a|b",
+            ] {
+                assert_eq!(
+                    classifier.classify(Side::Tool, "duplicates", key),
+                    Some(ENTRY_MODULE_DUPLICATE),
+                    "{key}"
+                );
+            }
+            for (side, category, key) in [
+                (Side::Tool, "duplicates", "packages/a/src/util.ts|a|b"),
+                (Side::Tool, "duplicates", "packages/a/lib/index.ts|a|b"),
+                (Side::Tool, "duplicates", "packages/a/src/main/index.ts|a|b"),
+                (Side::Tool, "duplicates", "packages/a/index.json|a|b"),
+                (Side::Tool, "exports", "packages/a/src/index.ts|unused"),
+                (Side::Skif, "duplicates", "packages/a/src/index.ts|a|b"),
+            ] {
+                assert_eq!(classifier.classify(side, category, key), None, "{side:?} {category} {key}");
+            }
+            assert_eq!(
+                classifier.classify(Side::Tool, "exports", "packages/a/src/server.ts|unused"),
+                Some(PUBLISHED_SOURCE)
+            );
         });
     }
 
