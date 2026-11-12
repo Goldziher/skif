@@ -834,7 +834,8 @@ const BUILT_IN_EXTRACTORS: &[&str] = &[
 ];
 
 const BUILT_IN_EXTRACTORS_HINT: &str = "skif reads Vue, Svelte, Astro, MDX, TSRX, CSS, Sass, Less and Stylus files itself; \
-                                         other file types need a plugin or an entry pattern";
+                                         declare another file type in `[js.compilers]`, with regular expressions that \
+                                         capture its imports (`imports`) or one of skif's readers (`as`)";
 
 /// Extensions whose files are outside skif's default `project`: knip reports unused ones once a compiler reads them.
 const OUTSIDE_DEFAULT_PROJECT: &[&str] = &["mdx", "tsrx"];
