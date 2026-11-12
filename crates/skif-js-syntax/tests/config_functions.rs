@@ -3090,3 +3090,23 @@ fn a_change_through_the_list_a_callback_is_given_reaches_the_list() {
         assert_ne!(get(&value, &["test", "include"]), &strings(&["a.test.ts"]), "{source}: {value:?}");
     }
 }
+
+/// What `Promise.resolve(config)` resolves to, awaited or given to a `then` callback, is the config itself, so a change
+/// through it reaches the config.
+#[test]
+fn a_change_through_a_resolved_promise_reaches_what_it_resolves_to() {
+    let config = "const config = { entry: './src/main.js', build: { outDir: 'dist' } };";
+    for body in [
+        "const resolved = await Promise.resolve(config);\nresolved.build.outDir = 'out';",
+        "await Promise.resolve(config).then((c) => { c.build.outDir = 'out'; });",
+        "const pending = Promise.resolve(config);\nawait pending.finally(() => {}).then((c) => { c.build.outDir = 'out'; });",
+    ] {
+        for source in [
+            format!("{config}\n{body}\nexport default config;"),
+            format!("export default async () => {{\n{config}\n{body}\nreturn config;\n}};"),
+        ] {
+            let value = extract("vite.config.mjs", &source);
+            assert_ne!(at(&value, &["build", "outDir"]), &s("dist"), "{source}: {value:?}");
+        }
+    }
+}
