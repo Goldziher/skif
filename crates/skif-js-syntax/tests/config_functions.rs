@@ -2230,3 +2230,25 @@ fn a_change_through_a_loop_name_or_a_callback_parameter_reaches_what_it_takes() 
         }
     }
 }
+
+/// A destructuring assignment gives its names a part of what it is given, or their default
+/// (`({ r } = { r: config.output })`, `[out] = [config.output]`, `({ r = config.output } = {})`), so a change through
+/// them reaches that part of the config, at the top level and in a function the evaluator runs.
+#[test]
+fn a_change_through_a_name_a_destructuring_assigns_reaches_what_it_takes() {
+    let config = "const config = { entry: './src/main.js', output: { path: 'dist' } };";
+    for body in [
+        "let r;\n({ r } = { r: config.output });\nr.path = 'build';",
+        "let out;\n[out] = [config.output];\nout.path = 'build';",
+        "let r;\n({ r = config.output } = {});\nr.path = 'build';",
+        "let r;\n({ a: { r } } = { a: { r: config.output } });\nr.path = 'build';",
+    ] {
+        for source in [
+            format!("{config}\n{body}\nmodule.exports = config;"),
+            format!("module.exports = () => {{\n{config}\n{body}\nreturn config;\n}};"),
+        ] {
+            let value = extract("webpack.config.js", &source);
+            assert!(open(&value) || open(get(&value, &["output"])), "{source}: {value:?}");
+        }
+    }
+}
