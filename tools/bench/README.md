@@ -211,27 +211,44 @@ neither side, so its dependencies stay compared: the harness parses those files 
 (`skif-js-syntax`) for their bare imports, requires, re-exports and dynamic imports. knip does not analyse such a
 file, so it never sees the import skif credits; the harness does not check that this import is the one skif counts.
 The mirror, a dependency only skif reports unused that a file of the same workspace only skif reports unused
-imports, is `used-in-skif-unused-file`, from the same import scan.
+imports, is `used-in-skif-unused-file`, from the same import scan. The same holds inside the files such a file
+imports: an export, type, namespace export or duplicate only knip reports is `imported-by-knip-unused-file` when a
+file only knip lists under `files` imports it by relative path, by name, through a namespace whose members it reads,
+or as a whole module (a namespace used as a whole, `import()`, `require`), directly or through the `export … from` and
+`export *` re-exports of the files in between (a star re-export forwards only the names the re-exporting file does not
+export itself). The mirror on skif's side is `imported-by-skif-unused-file`. Enum and namespace members stay
+compared: their key names the member, not the export an import reads.
 
 **Labels.** `exports`, `types`, `nsExports` and `nsTypes` key the same `<file>|<name>`, and the tools label some
 differently: knip calls a `const enum` a type and files an export under `nsExports` when any importer uses a namespace,
-skif when all do. A skif finding knip has under another of these labels counts as shared, under knip's label.
+skif when all do. A skif finding knip has under another of these labels counts as shared, under knip's label. In the
+same way an import only skif reports in `unlisted` that knip reports in `unresolved` on the same file, or the
+reverse, counts as shared under knip's category and key: a tsconfig `types` entry or `importHelpers` is a package no
+manifest lists for skif and a module knip cannot resolve. The two keys pair when they name the same package, a
+specifier with a subpath (`vite/client`) pairing with its package (`vite`).
+
+**Signature types.** skif counts an export that the signature of a used export of the same file mentions as used ([ADR
+0029](../../adrs/0029-namespace-export-rules-virtual-modules-linked-configs-and-the-node-plugin.md)):
+`export interface Props` that `export function Widget(p: Props)` names. knip has no such rule. An export or type only
+knip reports is the `signature-type` known deviation when skif's parser (`referenced_in`) finds it in the signature of
+another export of the file that skif does not report as unused, directly or through exports in such signatures; the
+harness parses only the files with such findings and takes an export skif does not report for a used one.
 
 **Known deviations.** Findings on one side below a path in a repository's `knip-unread` list are the `knip-unread`
 deviation: knip reads no files there, as npm's deny-all `.gitignore` hides its workspaces, so it reports every
 dependency there as unused and says nothing about the files. In `files`, a file only knip reports is not counted as a
-difference when it is outside skif's project set (`non-code-file`) or a test file or any file below a test directory
-(`test-file`). A finding only knip reports below a `fixtures` or `__fixtures__` directory is `fixture-file` in the
-issue types skif does not report there: files, exports, types and members unless `[js] include-fixtures` is set, and
-unresolved imports and unlisted dependencies at all (other test-data names such as `testdata` or `*-fixtures` are
-judged by skif and not counted here). Those are reported in their own column and section, with the reason, and
-`--check` ignores them. Most `test-file` findings are test files, which skif's test-runner plugins make entries, or
-test helpers and setup files; in next.js thousands are the app files of test fixtures below test directories, which
-are not test entries. The harness sets them apart by path, without establishing why skif does not report each one.
-`--include-test-files` counts the `files` of `fixture-file` and `test-file` as differences (not usable with a
-baseline, nor is `--repo-knip-config`). See
-[ADR 0030](../../adrs/0030-harness-known-deviations-and-comparison-scope.md) and
-[ADR 0068](../../adrs/0068-what-the-knip-comparison-sets-apart.md).
+difference when it is outside skif's project set (`non-code-file`), a declaration file `.d.ts`, which skif never reports
+unused (`declaration-file`; a `.d.mts` or `.d.cts` file stays compared), or a test file or any file below a test
+directory (`test-file`). A finding only knip reports below a `fixtures` or `__fixtures__` directory is `fixture-file` in
+the issue types skif does not report there: files, exports, types and members unless `[js] include-fixtures` is set, and
+unresolved imports and unlisted dependencies at all (other test-data names such as `testdata` or `*-fixtures` are judged
+by skif and not counted here). Those are reported in their own column and section, with the reason, and `--check`
+ignores them. Most `test-file` findings are test files, which skif's test-runner plugins make entries, or test helpers
+and setup files; in next.js thousands are the app files of test fixtures below test directories, which are not test
+entries. The harness sets them apart by path, without establishing why skif does not report each one.
+`--include-test-files` counts the `files` of `fixture-file` and `test-file` as differences (not usable with a baseline,
+nor is `--repo-knip-config`). See [ADR 0030](../../adrs/0030-harness-known-deviations-and-comparison-scope.md) and [ADR
+0068](../../adrs/0068-what-the-knip-comparison-sets-apart.md).
 
 **Foreign tsconfig paths.** knip resolves every import through the merged tsconfig `paths` of all workspaces; skif
 uses the `paths` of the configuration the importing file follows, and reports an import that only another package's
@@ -243,7 +260,7 @@ detail stays a difference. See [ADR 0075](../../adrs/0075-imports-only-another-p
 **Where each tool looks.** knip's workspaces are the root and the members its patterns select (`pnpm-workspace.yaml`
 or the `workspaces` of `package.json`); the harness reads them with skif's workspace discovery and records their
 number in `parity.json` (`workspace_members`). A project directory is one whose `package.json` has a field besides
-`type`, `sideEffects` and `imports`. Four more known deviations follow from these facts, each decided by path and
+`type`, `sideEffects` and `imports`. Five more known deviations follow from these facts, each decided by path and
 manifest, not by listing findings:
 
 - `knip-unjudged-manifest`: an unused dependency or a script binary only skif reports, on a `package.json` that is not
@@ -254,7 +271,12 @@ manifest, not by listing findings:
   not one of knip's workspaces. knip counts those files to an enclosing workspace without their own manifest's entries
   and dependencies; skif's analysis of the enclosing workspace skips the directory. When a recursive skif run lints
   the project as a package of one of its roots (the `packages` of the JSON `roots`), its exports, types, members and
-  duplicates stay compared, since skif judges them there.
+  duplicates stay compared, since skif judges them there, except the exports and types of the project's default entry
+  files (`index`, `cli` or `main` at the top or in `src`): they are public in skif's run of the project, and knip
+  reads them without the project's entries. On skif's side, an unused file, an unlisted dependency or an
+  unlisted binary only skif reports below such a project is `non-member-project` too: the recursive run lints the
+  project with its own entry files, plugins, configs and manifest (a package its `.eslintrc.json` or `project.json`
+  names), which knip does not read there. A binary on a `package.json` that knip reports anything on stays compared.
 - `skipped-directory`: a finding only knip reports in a file below a directory skif's file discovery skips by name
   (`node_modules`, `dist`, `.next`, `.vercel` and the other build output names, `out`, `target` and `coverage`
   directly in a package directory, and hidden directories other than tool ones such as `.github`), unless the
@@ -262,22 +284,44 @@ manifest, not by listing findings:
 - `published-source`: an unused TypeScript file only knip reports whose path its package publishes with a built
   extension (`main`, `module`, `types`, `bin`, an `exports` leaf with `*` patterns, as `.js`, `.mjs`, `.cjs`, `.jsx` or
   a `.d.ts` variant) or without one (`./out/main`). A published path below a build directory (`dist`, `lib`, `out`,
-  `esm` and the others of `skif_js::is_out_dir`, also with a flavour suffix such as `lib-commonjs`) also names the
-  same path below `src`, as skif maps it: `./lib-commonjs/*.js` publishes every `src/**/*.ts`. A published path
-  without `*` names one source only, the first of skif's candidates that exists (`src/x.ts` before `lib/x.ts` for
-  `./lib/x.js`, `.ts` before `.tsx`). In an n8n node package the files of `n8n.nodes` and `n8n.credentials` are
+  `esm` and the others of `skif_js::is_out_dir`, also with a flavour suffix such as `lib-commonjs`) also names the same
+  path below `src`, as skif maps it: `./lib-commonjs/*.js` publishes every `src/**/*.ts`. A published path without `*`
+  names one source only, the first of skif's candidates that exists (`src/x.ts` before `lib/x.ts` for `./lib/x.js`,
+  `.ts` before `.tsx`), after mapping it through the package's build directories as skif's TypeScript plugin reads them:
+  the path below the `outDir` of a `tsconfig.json`, `tsconfig.*.json` or `jsconfig.json` in the package directory is the
+  same path below its `rootDir` (without one, the directory its `include` and `files` share), so `./dist/esm/index.js`
+  with a `tsconfig.build.esm.json` of `outDir: "dist/esm"` and `rootDir: "src"` names `src/index.ts`; a configuration
+  extended from elsewhere is not read. In an n8n node package the files of `n8n.nodes` and `n8n.credentials` are
   published too, a path below a build directory naming the path without it (`dist/nodes/A/A.node.js` names
   `nodes/A/A.node.ts`), as skif reads them (`skif_js::n8n_load_paths`). A file such a source imports by relative path
   (resolved with its extension, a TypeScript twin of a `.js` one, or the `index` file of a directory), directly or
-  through other files only knip reports unused, is `published-source` too. skif makes the source of a published path
-  an entry and uses what it imports; knip maps a published path to source only through a tsconfig `outDir` and does
-  not read the n8n fields. The exports, types and members of these files stay compared.
+  through other files only knip reports unused, is `published-source` too. skif makes the source of a published path an
+  entry and uses what it imports; knip maps a published path to source only through a tsconfig `outDir` and does not
+  read the n8n fields. An export or type (also as a namespace export or type) only knip reports in a published source is
+  `published-source` as well: an entry's exports are public in skif. Enum and namespace members of these files, and the
+  exports of the files they reach, stay compared.
+- `entry-module-duplicate`: a duplicate export only knip reports (`export const x …; export default x`) in a file skif
+  makes an entry from the manifest and the defaults alone: a default entry file of its project (`index`, `cli` or
+  `main` at the top or in `src`, matched as skif matches them) or a published source as in `published-source`.
+  skif's `duplicate-exports` skips entry modules, whose names are all public API. Duplicates in entries that only
+  skif's plugins or the configuration make stay compared.
 
-`non-member-project` and `published-source` check where a finding is, not why skif has no finding there. Unlisted
-dependencies a `declare module` satisfies, and npm's `lib/commands` files that skif reaches through a computed
-`require` in `lib/npm.js`, stay compared: the harness cannot check them from its data. See
+`non-member-project`, `published-source` and `entry-module-duplicate` check where a finding is, not why skif has no
+finding there. Unlisted dependencies a `declare module` satisfies, and npm's `lib/commands` files that skif reaches
+through a computed `require` in `lib/npm.js`, stay compared: the harness cannot check them from its data. See
 [ADR 0080](../../adrs/0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md)
 and [ADR 0100](../../adrs/0100-knip-comparison-n8n-node-files-and-what-published-sources-import.md).
+
+**Bazel.** skif's Bazel plugin reads the `BUILD.bazel` and `BUILD` files of a repository that uses `rules_js`; knip
+has no Bazel plugin. An unlisted dependency only skif reports at a `BUILD` file (a package a label names that no
+manifest lists) is the `bazel-build-file` known deviation, and so is a dependency only knip reports unused that a label
+of a `BUILD` file in the package's directory names: a `node_modules` target of the package's Bazel package
+(`":node_modules/zod"`, `"//:node_modules/typescript"` for the root package) or the `package_json.bzl` of another
+repository (`"@npm//packages/app:esbuild/package_json.bzl"`). The harness scans the string literals of every `BUILD`
+file below a directory skif's file discovery enters, in a checkout whose root holds `MODULE.bazel`, `REPO.bazel`,
+`WORKSPACE.bazel` or `WORKSPACE`, resolving each label's Bazel package from the nearest of these root files that names
+`aspect_rules_js`, as skif does. The files skif makes entries from the `srcs`, `data` and `entry_point` of the
+`rules_js` rules, the files they reach and their exports stay compared: the harness does not read the rule calls.
 
 **Not judged by skif.** skif lists under `incomplete-packages` in its JSON report the packages whose entry files it
 cannot all know (a tool config it cannot read), and does not report their unused dependencies, exports, types and
@@ -288,13 +332,25 @@ members, nor the files the config could make entries. A finding only knip report
 a file its globs match (relative to the package directory, matched as skif matches them) when the scope is
 `{"within": [...]}` ([ADR 0065](../../adrs/0065-narrowed-scope-for-incomplete-entries.md),
 [ADR 0081](../../adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md)); a package listed twice gets
-the union of its scopes. These are counted in their own column of `parity.md`, apart from the agreement counts and the
+the union of its scopes. A narrowed scope also covers the files of the packages nested below its package that its
+globs match relative to that package (a root scope of `packages/*/e2e/**` reaches `packages/web/e2e/run.ts`), as skif
+makes each of them an entry; the dependencies of a nested package are not judged only when skif lists that package
+itself. These are counted in their own column of `parity.md`, apart from the agreement counts and the
 other known deviations, and ignored by `--check`. `unlisted`, `unresolved`, `binaries` and `duplicates` are judged in
 every package and stay compared. `parity.json` lists the directories per repository under `not_judged_packages`, and
 the globs of the narrowed ones under `narrowed_packages`. See
 [ADR 0053](../../adrs/0053-incomplete-packages-in-the-json-report.md),
 [ADR 0068](../../adrs/0068-what-the-knip-comparison-sets-apart.md) and
 [ADR 0099](../../adrs/0099-knip-comparison-narrowed-scopes-rush-installs-and-dependencies-of-unused-files.md).
+
+**Counted, explained.** Some differences have a known cause but no mechanical test the harness can run cheaply, so they
+stay counted as differences. knip reports the members of an enum used as a whole value (passed or returned,
+`@IsEnum(E)`, `Object.values(E)`, `keyof typeof E`), which makes every member reachable: telling that use apart from
+`E.member` needs a reference analysis per enum. knip has no esbuild plugin, so the `entryPoints` of an esbuild script
+and the files they reach are unused files and exports for knip only. skif's Bazel plugin makes the `srcs` of
+`BUILD.bazel` targets entries; the harness credits the dependencies those files name but not the files and exports
+they reach, which would need skif's rule-call scanner. Exports of a nested root's plugin entries (a next.js page's
+`getStaticProps`) stay compared too: only the default entries of a nested root are set apart.
 
 ## Policy diff against syncpack
 
