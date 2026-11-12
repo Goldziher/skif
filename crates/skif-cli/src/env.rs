@@ -83,6 +83,17 @@ pub fn bazel_run_directory(workspace: Option<&OsStr>, working: Option<&OsStr>) -
     )
 }
 
+/// `TEST_TMPDIR`, the private scratch directory `bazel test` gives a test, when set and non-empty. Under `bazel test`
+/// the working directory is the runfiles tree inside Bazel's output tree, which a test must not write to.
+pub fn bazel_test_tmpdir() -> Option<PathBuf> {
+    test_tmpdir(std::env::var_os("TEST_TMPDIR").as_deref())
+}
+
+/// [`bazel_test_tmpdir`] from the value of `TEST_TMPDIR`: an empty value counts as unset.
+pub fn test_tmpdir(value: Option<&OsStr>) -> Option<PathBuf> {
+    value.filter(|value| !value.is_empty()).map(PathBuf::from)
+}
+
 /// Whether a `CI` value means "this is CI".
 pub fn is_truthy(value: Option<&str>) -> bool {
     match value.map(str::trim) {
@@ -98,7 +109,15 @@ mod tests {
     use std::ffi::OsStr;
     use std::path::PathBuf;
 
-    use super::{bazel_run_directory, is_truthy};
+    use super::{bazel_run_directory, is_truthy, test_tmpdir};
+
+    #[test]
+    fn an_empty_test_tmpdir_is_unset() {
+        let dir = std::env::temp_dir().join("test-tmp");
+        assert_eq!(test_tmpdir(None), None);
+        assert_eq!(test_tmpdir(Some(OsStr::new(""))), None);
+        assert_eq!(test_tmpdir(Some(dir.as_os_str())), Some(dir.clone()));
+    }
 
     #[test]
     fn the_bazel_run_directory_is_the_working_directory_else_the_workspace() {

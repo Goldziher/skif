@@ -182,6 +182,9 @@ directory you ran Bazel from (`BUILD_WORKING_DIRECTORY`, else the workspace root
 the runfiles tree. Absolute paths are unaffected. The npm package's `run()` function does not change directory: a
 script that calls it under `bazel run` resolves paths against its own current directory.
 
+Under `bazel test` (a `native_test` with the sources as `data`), `--cache` without `--cache-location` keeps its store
+in the test's `$TEST_TMPDIR/skif/` instead of below the workspace root, which there is Bazel's output tree.
+
 ## npm and Bun
 
 The `skif-cli` package is a native addon built with napi-rs for the Node.js lines that are not end-of-life (22, 24 and 26 today; see the [Node.js release schedule](https://nodejs.org/en/about/previous-releases)) and Bun 1.x; older versions may work but are not supported. It is ESM only (from CommonJS use `import()`, or `require()` on Node 22.12+), has no install script,

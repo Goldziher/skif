@@ -53,10 +53,10 @@ impl CacheHost for Arc<MemoryModuleCache> {
     }
 }
 
-/// `--cache`: the store in `--cache-location`, or in `node_modules/.cache/skif` below the run's base, loaded when
-/// the first run asks for it and written after each run.
+/// `--cache`: the store in `--cache-location`, else under `bazel test` in `$TEST_TMPDIR/skif`, else in
+/// `node_modules/.cache/skif` below the run's base, loaded when the first run asks for it and written after each run.
 pub struct Persistent {
-    /// `--cache-location`, absolute; `None` for the default below the base.
+    /// `--cache-location`, else the `bazel test` scratch directory, absolute; `None` for the default below the base.
     location: Option<PathBuf>,
     /// `--debug`: say on stderr why a store was ignored.
     debug: bool,
@@ -68,8 +68,9 @@ impl Persistent {
         Self {
             location: args
                 .cache_location
-                .as_ref()
-                .map(|dir| std::path::absolute(dir).unwrap_or_else(|_| dir.clone())),
+                .clone()
+                .or_else(|| crate::env::bazel_test_tmpdir().map(|dir| bazel_test_location(&dir)))
+                .map(|dir| std::path::absolute(&dir).unwrap_or(dir)),
             debug: args.debug,
             store: OnceLock::new(),
         }
@@ -79,6 +80,12 @@ impl Persistent {
 /// The directory `--cache` uses without `--cache-location`.
 pub fn default_location(base: &Path) -> PathBuf {
     base.join("node_modules").join(".cache").join("skif")
+}
+
+/// The directory `--cache` uses without `--cache-location` under `bazel test`, in the test's `TEST_TMPDIR`: the
+/// default below the base would write into Bazel's output tree through the runfiles links.
+pub fn bazel_test_location(test_tmpdir: &Path) -> PathBuf {
+    test_tmpdir.join("skif")
 }
 
 impl CacheHost for Persistent {

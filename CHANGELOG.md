@@ -17,6 +17,9 @@ All notable changes to this project are documented here. The format follows
 - `skif explain-usage` finds a file below a linked directory (Bazel's `bazel-bin`) by its path through the link, as
   the lint report names it, instead of failing with the canonical path as outside the workspace
   ([#176](https://github.com/Goldziher/skif/issues/176)).
+- Under `bazel test` (`TEST_TMPDIR` set), `--cache` without `--cache-location` keeps its store in
+  `$TEST_TMPDIR/skif` instead of writing `node_modules/.cache/skif` into Bazel's output tree through the runfiles links
+  ([#177](https://github.com/Goldziher/skif/issues/177)).
 
 ## [0.3.0] - 2026-11-11
 
