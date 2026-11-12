@@ -14,6 +14,9 @@ pub(crate) struct ScriptBlock {
     /// The block is JavaScript or TypeScript. Other blocks (`type="application/json"`, `type="text/template"`) are
     /// data: they are neither parsed nor part of the template.
     pub parse: bool,
+    /// The block is the module script of a Svelte component (`context="module"` in Svelte 4, `module` in Svelte 5),
+    /// whose exports are exports of the module; the exports of the instance script are props.
+    pub module: bool,
 }
 
 /// A `<style>` region of a component file.
@@ -114,6 +117,7 @@ pub(crate) fn blocks(source: &str, astro: bool) -> Blocks {
                 typescript: astro || matches!(lang.as_str(), "ts" | "tsx" | "typescript"),
                 jsx: lang == "tsx" || lang == "jsx",
                 parse: kind.is_empty() || SCRIPT_TYPES.contains(&kind.as_str()),
+                module: has_attribute(attrs, "module") || attribute(attrs, "context").is_some_and(|c| c == "module"),
             });
         } else {
             found.styles.push(StyleBlock {
@@ -195,6 +199,46 @@ fn attribute(attrs: &str, wanted: &str) -> Option<String> {
     None
 }
 
+/// Whether the attributes `attrs` of a start tag hold one named `wanted`, with a value or without one (`module`).
+fn has_attribute(attrs: &str, wanted: &str) -> bool {
+    let bytes = attrs.as_bytes();
+    let skip_space = |mut at: usize| {
+        while bytes.get(at).is_some_and(u8::is_ascii_whitespace) {
+            at += 1;
+        }
+        at
+    };
+    let mut at = 0;
+    while at < bytes.len() {
+        let start = at;
+        while bytes
+            .get(at)
+            .is_some_and(|&byte| !byte.is_ascii_whitespace() && !matches!(byte, b'=' | b'/' | b'>'))
+        {
+            at += 1;
+        }
+        if at > start && attrs[start..at].eq_ignore_ascii_case(wanted) {
+            return true;
+        }
+        let after_name = skip_space(at);
+        if bytes.get(after_name) != Some(&b'=') {
+            at = at.max(start + 1);
+            continue;
+        }
+        let value = skip_space(after_name + 1);
+        at = match bytes.get(value) {
+            Some(&quote @ (b'"' | b'\'')) => {
+                memchr::memchr(quote, &bytes[value + 1..]).map_or(bytes.len(), |end| value + end + 2)
+            }
+            _ => bytes[value..]
+                .iter()
+                .position(u8::is_ascii_whitespace)
+                .map_or(bytes.len(), |end| value + end),
+        };
+    }
+    false
+}
+
 fn astro_frontmatter(source: &str) -> Option<ScriptBlock> {
     let lead = source.len() - source.trim_start().len();
     let rest = &source[lead..];
@@ -207,6 +251,7 @@ fn astro_frontmatter(source: &str) -> Option<ScriptBlock> {
         typescript: true,
         jsx: false,
         parse: true,
+        module: false,
     })
 }
 
@@ -252,6 +297,24 @@ mod tests {
             found.scripts.iter().map(|b| b.typescript).collect::<Vec<_>>(),
             [true, false]
         );
+    }
+
+    #[test]
+    fn detects_svelte_module_scripts() {
+        let cases = [
+            ("<script context=\"module\">x</script>", true),
+            ("<script lang='ts' context = 'module'>x</script>", true),
+            ("<script module>x</script>", true),
+            ("<script module lang=\"ts\">x</script>", true),
+            ("<script>x</script>", false),
+            ("<script context=\"instance\">x</script>", false),
+            ("<script data-module title=\"module\" modules>x</script>", false),
+        ];
+        for (source, module) in cases {
+            let found = blocks(source, false);
+            let modules: Vec<bool> = found.scripts.iter().map(|b| b.module).collect();
+            assert_eq!(modules, [module], "{source}");
+        }
     }
 
     #[test]

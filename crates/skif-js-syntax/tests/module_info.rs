@@ -1655,6 +1655,40 @@ fn is_attributes_and_resolve_component_calls_name_components() {
     );
 }
 
+/// The instance `<script>` of a Svelte component declares props with `export let` (and instance accessors with
+/// `export const` and `export function`); only the module script (`context="module"` in Svelte 4, `module` in Svelte
+/// 5) declares exports of the module.
+#[test]
+fn svelte_instance_script_exports_are_props_and_module_script_exports_are_exports() {
+    let instance = "  export let label;\n  export const size = 1;\n  export function focus() {}\n";
+    for (case, module_tag) in [
+        ("svelte 4", "<script context=\"module\">"),
+        ("svelte 4, single quotes and lang", "<script lang=\"ts\" context='module'>"),
+        ("svelte 5", "<script module>"),
+        ("svelte 5 with lang", "<script module lang=\"ts\">"),
+    ] {
+        let source = format!(
+            "{module_tag}\n  export const preload = () => {{}};\n</script>\n<script>\n{instance}</script>\n<button>{{label}}</button>\n"
+        );
+        let info = parse("Button.svelte", &source);
+        let names: Vec<&str> = info.exports.iter().map(|export| export.name.as_str()).collect();
+        assert_eq!(names, ["preload"], "{case}");
+    }
+    for instance_tag in ["<script>", "<script lang=\"ts\">", "<script data-module=\"x\" title=\"module\">"] {
+        let source = format!("{instance_tag}\n{instance}</script>\n<button>{{label}}</button>\n");
+        let info = parse("Button.svelte", &source);
+        assert!(info.exports.is_empty(), "{instance_tag}: {:?}", info.exports);
+    }
+}
+
+#[test]
+fn a_vue_script_without_setup_keeps_its_exports() {
+    let info = parse("A.vue", "<script>\nexport const helper = 1;\nexport default {};\n</script>\n");
+    let mut names: Vec<&str> = info.exports.iter().map(|export| export.name.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["default", "helper"]);
+}
+
 #[test]
 fn script_blocks_of_one_component_share_their_imports() {
     let svelte = "<script context=\"module\">\n  import * as util from './util';\n</script>\n<script>\n  export let n = util.double(1);\n</script>\n";

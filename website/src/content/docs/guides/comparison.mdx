@@ -258,6 +258,12 @@ file, such as a tooling, asset or style package. Such a dependency orders tasks 
 dependencies), and knip reports it. A member with one of those fields or a source file is judged as before; when it
 is listed only to order tasks, add it to `ignore-dependencies` with a `reason`.
 
+A package with a reached `.svelte` file uses `svelte`, the compiler of its components; knip credits `svelte` only
+where a file or a configuration names it. skif reads the exports of a component's module script
+(`<script context="module">`, `<script module>`) and reports the unused ones; the exports of the instance `<script>`
+(`export let`) are props, not exports. knip reads only the imports of a `.svelte` file, so it reports none of its
+exports.
+
 The remaining differences each have an open issue, and their size is in the
 [agreement table](../benchmarks/#agreement-with-knip):
 `unlisted-dependencies` ([#96](https://github.com/Goldziher/skif/issues/96)), `unlisted-binaries`

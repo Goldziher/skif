@@ -52,6 +52,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **JS**: the exports of a Svelte component's instance `<script>` (`export let label`, `export const`, `export
+  function`) are props and instance accessors, so `unused-exports` no longer reports them; the exports of the module
+  script (`<script context="module">` in Svelte 4, `<script module>` in Svelte 5) are still judged. A package with a
+  reached `.svelte` file uses `svelte`, which is no longer reported by `unused-dependencies`
+  ([#212](https://github.com/Goldziher/skif/issues/212)).
 - **JS**: a namespace import read through JSX member tags (`<S.Button />`, `<S.Button></S.Button>`) reads the member
   after the namespace, as `S.Button` does, instead of using the module as a whole; a nested tag
   (`<S.Ctx.Provider />`) reads `Ctx`. The other exports of the module are reported by `unused-namespace-exports`
