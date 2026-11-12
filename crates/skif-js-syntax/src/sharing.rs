@@ -199,9 +199,9 @@ pub(crate) struct Unstable {
 enum Effect {
     /// It changes none of them: one of [`PURE_FUNCTIONS`], a method that changes at most the object it is called on
     /// ([`PURE_METHODS`], [`LIST_ADDERS`], [`OWN_RESULT_METHODS`]) called on an object that is known to have it
-    /// ([`builtin`]), a `define*` call of a function the module does not declare, which returns what it is given, a
-    /// merge that builds a new object ([`copies`]), or `Object.assign`, which changes only its first argument
-    /// ([`changed_by_call`]).
+    /// ([`builtin`]), a `define*` call of a global or of a package the evaluator does not follow ([`foreign`]), which
+    /// returns what it is given, a merge that builds a new object ([`copies`]), or `Object.assign` given its first
+    /// argument other than through a spread, which changes only that argument ([`assigns`]).
     Keeps,
     /// It calls a function the module declares, whose changes of what its parameters take reach the arguments through
     /// the links of the call ([`Callables`]).
