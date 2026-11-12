@@ -62,7 +62,9 @@ All notable changes to this project are documented here. The format follows
   `config.output.path = …`, `foo(config.module)`) leaves only that part unknown, also in what shares it (a local a
   function returns); `push` and `unshift` of a local list add their elements, and under a condition the evaluator
   cannot decide the part is one of its values before and after. A call that may change the whole config still leaves
-  all of it partly unknown.
+  all of it partly unknown. A call of a function the config declares (`const r = set(config)`) shares with the config
+  only what the function may return of it, and a change through what a method returns (`config.plugins.find(…)`)
+  reaches the object it is called on.
 
 ### Changed
 

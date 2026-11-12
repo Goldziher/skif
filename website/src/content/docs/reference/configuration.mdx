@@ -1059,7 +1059,9 @@ leaves it what both branches have in common. Only the part a change reaches is a
 leaves `module.rules` partly unknown, `config.output.path = …` leaves `output.path` unknown, and the rest of `config`
 stays known; `push` and `unshift` of a local list add their elements. An object changed through another name for it
 (`const a = cfg`, `{ test: t }`, `{ ...base }`, a function given `cfg`), by a function that writes what it captures, by
-`delete` or inside an expression is partly unknown wherever it is read, in the part the change reaches. A `const` of a
+`delete` or inside an expression is partly unknown wherever it is read, in the part the change reaches. A call of a
+function the config declares shares with what it is given only what the function may return of it, and what a method
+returns (`config.plugins.find(…)`, `list.slice()`) may be a part of the object it is called on. A `const` of a
 function that takes a local of that function,
 or a static part of it (`const { coverage } = config.test`), is followed instead when it is the only such name for the
 local and no other function shares either: a change through it is applied to that part of the local, so
