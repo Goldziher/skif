@@ -399,7 +399,7 @@ doc_pins_tree() {
 doc_pins_tree v0.4 v0.4.0 v0.4.0
 # History may name any release, and a `rev:` that belongs to another repository is not a skif pin.
 printf -- '- uses: Goldziher/skif@v0.1\n' >"${docpins}/CHANGELOG.md"
-printf -- '- uses: Goldziher/skif@v0.1\n' >"${docpins}/adrs/0001-old.md"
+printf -- '- uses: Goldziher/skif@v0.1\n' >"${docpins}/adrs/0001-mission-scope-and-non-goals.md"
 printf 'repos:\n  - repo: https://github.com/example/other\n    rev: v0.1.0\n' >"${docpins}/website/src/content/docs/guides/other.mdx"
 expect "check-doc-pins accepts pins on the workspace line" 0 run_in "$docpins" check-doc-pins.sh
 expect_in_out "check-doc-pins accepts" "Every documentation pin names the v0.4 line of 0.4.2"

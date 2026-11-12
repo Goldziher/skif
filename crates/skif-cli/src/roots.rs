@@ -284,7 +284,7 @@ pub fn credit_other_root_uses(report: Report, uses: &OtherRootUses) -> Report {
 }
 
 /// Decides the `stale-js-config` findings about configuration files several roots of the run read
-/// ([`skif::settle_shared_config`], ADR 0098). Called once, on the reports the run shows: after the lint after fixing
+/// ([`skif::settle_shared_config`], ADR 0004). Called once, on the reports the run shows: after the lint after fixing
 /// and after the flags narrowed them.
 pub fn settle_shared_config(runs: &mut [RootRun]) {
     skif::settle_shared_config(

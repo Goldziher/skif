@@ -1,4 +1,4 @@
-//! `skif --watch`: lint, then lint again whenever a file below the root changes (ADR 0056).
+//! `skif --watch`: lint, then lint again whenever a file below the root changes (ADR 0028).
 //!
 //! The watcher polls: it lists the files below the root with their size and modification time and compares the
 //! list with the previous one. A run starts once the tree has been quiet for [`QUIET`], so a checkout or a
@@ -10,7 +10,7 @@
 //! The reports the run writes (`--output`, `--format FORMAT=FILE`) and a `--cache-location` store are left out of the
 //! scan: each run rewrites them, and seeing that write would start the next run, forever.
 //!
-//! The rounds share one module cache (ADR 0066), pruned after each round to what it used: in memory, or with
+//! The rounds share one module cache (ADR 0029), pruned after each round to what it used: in memory, or with
 //! `--cache` the store on disk, written after each round.
 
 use std::collections::{BTreeMap, BTreeSet};

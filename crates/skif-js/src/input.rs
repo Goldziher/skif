@@ -96,7 +96,7 @@ pub struct BuildDir {
 }
 
 /// A custom element library: a class it registers is used by the browser through its tag name, so it is no unused
-/// export (ADR 0062). `customElements.define('x-y', Class)` counts without one.
+/// export (ADR 0020). `customElements.define('x-y', Class)` counts without one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CustomElementLibrary {
     /// Specifiers the library is imported from; one that ends with `/` matches every specifier below it.
@@ -137,7 +137,7 @@ pub struct WorkspaceInputs {
     /// against `/` followed by the path relative to the package directory; besides `entry`, and like it not used in
     /// production mode.
     pub entry_regex: Vec<String>,
-    /// Entry expressions of the package's Nx project scopes (ADR 0109): each selects files below its scope, matched
+    /// Entry expressions of the package's Nx project scopes (ADR 0032): each selects files below its scope, matched
     /// like `entry_regex` against `/` followed by the path relative to the scope directory.
     pub scoped_entry_regex: Vec<ScopedEntryRegex>,
     /// Files that belong to the project, added to the default or configured project globs.
@@ -188,7 +188,7 @@ pub struct WorkspaceInputs {
     /// Why the entries are incomplete, when `entries_incomplete` is set and the source knows.
     pub incomplete_reasons: Vec<IncompleteEntries>,
     /// Where the entries the source could not read can lie, when `entries_incomplete` is set: only files there are
-    /// left unjudged by `unused-files` (ADR 0065).
+    /// left unjudged by `unused-files` (ADR 0016).
     pub incomplete_scope: IncompleteScope,
 }
 

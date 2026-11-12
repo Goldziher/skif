@@ -21,7 +21,7 @@ use common::{CATALOG_GROUPS, JOINT_GROUPS, POLICY_GROUPS, Planned, rule_ids, run
 const ROOT: &str = "/ws";
 
 /// Plans the first fix of every diagnostic of `family` through the facade, at the `Unsafe` ceiling; the harness
-/// compares which fixes are safe through `expected.json` (ADR 0051).
+/// compares which fixes are safe through `expected.json` (ADR 0009).
 fn through_the_facade(
     files: &BTreeMap<String, String>,
     config: &Config,

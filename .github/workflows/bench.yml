@@ -1,6 +1,6 @@
 name: bench
 
-# The published speed benchmarks (ADR 0113): skif against the sherif, syncpack and knip pinned in
+# The published speed benchmarks (ADR 0029): skif against the sherif, syncpack and knip pinned in
 # tools/bench/corpus.toml, on a pinned GitHub-hosted runner image, run by hand only. The harness, its mise tools and the
 # corpus come from the dispatched ref, checked out at the workspace root; the measured skif from the `ref` input,
 # checked out in measured/ (untracked there, so the harness commit stays clean). The summary records the machine, the

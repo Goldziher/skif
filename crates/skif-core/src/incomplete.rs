@@ -44,7 +44,7 @@ impl IncompletePackage {
     }
 }
 
-/// Where the unknown entries of a package can lie, and so which of its files are not judged unused (ADR 0065).
+/// Where the unknown entries of a package can lie, and so which of its files are not judged unused (ADR 0016).
 ///
 /// Serialized as `"package"` or `{"within": [globs]}`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

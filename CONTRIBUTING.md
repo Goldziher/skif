@@ -37,7 +37,7 @@ the same checks on commit; do not commit with `--no-verify`. Commits are convent
 corpus (`tools/bench/corpus.toml`) and print the per-repository differences; `mise run corpus:check` checks both against
 the baselines committed in `tools/bench/baselines`, as the weekly `corpus` workflow does. A change that moves
 the findings of a rule on real code refreshes the baselines with `--write-baseline` in the same pull request
-(see `tools/bench/README.md`, [ADR 0026](adrs/0026-parity-and-diff-tasks-on-a-pinned-corpus.md)). `mise run bench`
+(see `tools/bench/README.md`, [ADR 0021](adrs/0021-knip-and-syncpack-comparison-harness.md)). `mise run bench`
 exits non-zero when a speed target of ADR 0001 fails.
 
 `mise run schema:check` regenerates the JSON Schema of `skif.toml` and fails when `schema/skif.schema.json`
@@ -57,7 +57,7 @@ the CI matrices, and the LICENSE and ATTRIBUTIONS files each published crate mus
 5. For a JS plugin, add its row to `skif-js-plugins`, list it in `crates/skif-js-plugins/README.md` and in
    `website/src/content/docs/reference/configuration.mdx` (`scripts/check-plugin-list.sh` compares both with the
    code), add a fixture project
-   that exercises it ([ADR 0011](adrs/0011-plugin-model.md)), and compare the behaviour with the pinned knip commit recorded in `ATTRIBUTIONS.md`.
+   that exercises it ([ADR 0015](adrs/0015-plugin-model-and-plugin-set.md)), and compare the behaviour with the pinned knip commit recorded in `ATTRIBUTIONS.md`.
 6. Add or extend an end-to-end scenario under `fixtures/e2e` when the rule changes what a package manager
    layout produces (see [End-to-end tests](#end-to-end-tests)), and a bench in `tools/bench` when it changes the
    hot path.
@@ -112,7 +112,7 @@ publishing; the steps around it are by hand.
      (`scripts/check-npm-packages-exist.sh`), so check with `bash scripts/check-npm-packages-exist.sh` before tagging.
      Windows is not on npm: `skif-win32-x64-msvc` and `skif-win32-arm64-msvc` do not exist yet, and their
      targets return to `napi.targets` once both names exist and have the trusted publisher
-     ([ADR 0114](adrs/0114-windows-npm-packages-deferred.md)).
+     ([ADR 0027](adrs/0027-distribution-and-release.md)).
    - crates.io: every crate in `scripts/publish-crates.sh`. `skif-node` and `skif-bench` are `publish = false`.
    - `Goldziher/homebrew-tap` needs a `Formula/` directory and `Goldziher/scoop-bucket` a `bucket/` directory; the
      `HOMEBREW_TOKEN` secret must be able to push to both, and needs the `workflows` permission on this repository to

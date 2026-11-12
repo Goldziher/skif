@@ -119,7 +119,7 @@ pub struct RootView<'a> {
     pub fix: Option<&'a FixRun>,
 }
 
-/// Renders the report into memory, for a file or for one of several outputs of a run (ADR 0054).
+/// Renders the report into memory, for a file or for one of several outputs of a run (ADR 0022).
 pub fn render(
     report: &Report,
     roots: &[RootView<'_>],

@@ -1,9 +1,9 @@
 //! Catalog rules: `catalog-not-used`, `catalog-mismatch`, `catalog-missing-entry`, `catalog-version-divergence`,
-//! `unresolved-catalog-references` and `unused-catalog-entries` (ADR 0009, ADR 0048).
+//! `unresolved-catalog-references` and `unused-catalog-entries` (ADR 0010).
 //!
 //! Catalogs come from `pnpm-workspace.yaml`, the root `package.json`, bun's `workspaces` object and Yarn's
 //! `.yarnrc.yml` ([`skif_workspace::Catalogs`]), each read only for the package manager that uses it. A fix that moves an instance onto an existing entry holding its
-//! own specifier, or a compatible upgrade of it, is safe; every other fix is unsafe (ADR 0051).
+//! own specifier, or a compatible upgrade of it, is safe; every other fix is unsafe (ADR 0009).
 
 mod analysis;
 mod mismatch;

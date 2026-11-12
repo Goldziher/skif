@@ -161,7 +161,7 @@ fn a_file_in_a_package_with_unreadable_configs_names_each_config() {
     );
 }
 
-/// A test config that spreads an unknown base narrows what it hides to tests and setup modules (ADR 0065): a setup
+/// A test config that spreads an unknown base narrows what it hides to tests and setup modules (ADR 0016): a setup
 /// module is an entry of the narrowed scope, and a file outside the scope is judged.
 #[test]
 fn a_narrowed_scope_is_told_from_the_package_wide_case() {

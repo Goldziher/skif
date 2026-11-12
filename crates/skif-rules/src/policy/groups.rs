@@ -1,7 +1,7 @@
 //! Version groups and semver groups: compiled selectors and the assignment of every instance to its group.
 //!
 //! Groups are evaluated in configuration order and the first group whose selectors match owns the instance
-//! (ADR 0009). After the configured version groups sits a catch-all preferred-semver group. The catch-all takes the
+//! (ADR 0010). After the configured version groups sits a catch-all preferred-semver group. The catch-all takes the
 //! instances in the sections `[policy] dependency-types` names (production and development dependencies by default)
 //! that the catalog rules do not report, and nothing else: a group that names a section itself governs that section
 //! whatever the policy default says. A configured group governs every instance its selectors match, a dependency a
@@ -96,7 +96,7 @@ impl<'i> NameMatches<'i> {
 }
 
 /// Whether `[policy] dependency-types` (`scope`) puts the `ty` place under the policies by default: production and
-/// development dependencies and a package's own version unless it says otherwise (ADR 0072). Peer and optional ranges
+/// development dependencies and a package's own version unless it says otherwise (ADR 0010). Peer and optional ranges
 /// state a compatibility window rather than a version to install, so aligning them is opt-in. So are the override
 /// sections and the custom types: the scope has to name them.
 fn in_default_scope(scope: &DependencyTypes, ty: &DependencyType) -> bool {

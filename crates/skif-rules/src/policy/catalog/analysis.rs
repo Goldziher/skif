@@ -477,7 +477,7 @@ pub(super) fn emit(
 /// A fix that rewrites `instance` to `catalog`, after `catalog_ops`.
 ///
 /// Moving to an entry the catalog already holds is safe when the entry is a plain version or `^`/`~` range that is
-/// the instance's own specifier or a compatible upgrade of the same shape (ADR 0051). A fix that also writes the
+/// the instance's own specifier or a compatible upgrade of the same shape (ADR 0009). A fix that also writes the
 /// entry (`catalog_ops` is not empty) chose that version itself and stays unsafe, as does every other move, also to
 /// an entry whose text equals a `workspace:`, `npm:`, git or `latest` specifier.
 pub(super) fn use_catalog_fix(
@@ -548,7 +548,7 @@ mod tests {
         assert_eq!(entry_versions(&["^18", "^18"]).as_deref(), Some("^18"));
     }
 
-    /// Only a plain version or `^`/`~` range may move to an entry of the same text on its own (ADR 0051): a tag or
+    /// Only a plain version or `^`/`~` range may move to an entry of the same text on its own (ADR 0009): a tag or
     /// an alias in the catalog says nothing about which version is installed.
     #[test]
     fn using_an_entry_of_the_same_text_is_safe_only_for_a_plain_version() {

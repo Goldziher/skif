@@ -1,6 +1,6 @@
 //! The instance states a version or semver group can assign, and the rule each one is reported under.
 //!
-//! The names are syncpack's (ADR 0009) and travel in `Diagnostic.detail`. States that mean "valid" have no variant:
+//! The names are syncpack's (ADR 0010) and travel in `Diagnostic.detail`. States that mean "valid" have no variant:
 //! an instance without a [`Verdict`] is valid.
 
 use std::sync::Arc;
@@ -126,7 +126,7 @@ impl State {
         }
     }
 
-    /// The rule this state is reported under (ADR 0009).
+    /// The rule this state is reported under (ADR 0010).
     pub(crate) fn rule(self) -> &'static RuleMeta {
         match self {
             Self::IsBanned => &BANNED_DEPENDENCY,
@@ -239,7 +239,7 @@ pub(crate) struct Verdict {
 mod tests {
     use super::*;
 
-    /// The emitted states of the ADR 0009 table with the rule each maps to.
+    /// The emitted states of the ADR 0010 table with the rule each maps to.
     const TABLE: [(State, &str, &str, bool); 26] = [
         (State::IsBanned, "IsBanned", "banned-dependency", true),
         (

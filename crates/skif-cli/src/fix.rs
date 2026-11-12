@@ -117,7 +117,7 @@ pub fn prompts(args: &LintArgs, env: Env) -> bool {
 /// the format is `human`, neither `--no-prompt` nor `--select` was given, and configuration does not already
 /// determine the answer. With `--select` the first alternative (which the rules order by the selected version) is
 /// taken; otherwise an alternative that names the version `[policy] prefer` selects is taken; a diagnostic with
-/// several fixes and neither stays unfixed (`needs-choice`), as ADR 0008 requires of a non-interactive run.
+/// several fixes and neither stays unfixed (`needs-choice`), as ADR 0009 requires of a non-interactive run.
 pub fn selection(
     args: &LintArgs,
     env: Env,

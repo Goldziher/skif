@@ -95,7 +95,7 @@ fn rule_ids_are_unique_kebab_case_and_documented() {
         assert!(RuleId::new(meta.id).is_ok(), "{} is not kebab-case", meta.id);
         assert!(meta.summary.len() > 20, "{} has no real summary", meta.id);
         assert!(meta.summary.ends_with('.'), "{} summary must be a sentence", meta.id);
-        // `package-json-format` is opt-in: it reformats manifests no other rule touches (ADR 0055).
+        // `package-json-format` is opt-in: it reformats manifests no other rule touches (ADR 0009).
         assert!(
             meta.default.is_some() || meta.id == "package-json-format",
             "{} must be on by default",

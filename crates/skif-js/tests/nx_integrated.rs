@@ -1,4 +1,4 @@
-//! An integrated Nx workspace (ADR 0109): projects with a `project.json` and no `package.json`, whose dependencies the
+//! An integrated Nx workspace (ADR 0032): projects with a `project.json` and no `package.json`, whose dependencies the
 //! root lists. Their tool configs are read, so neither the configs, the files they make entries nor the packages they
 //! name are reported, while an unused file of a project and an unused dependency still are.
 //!

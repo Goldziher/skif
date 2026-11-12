@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fails unless the dependency declarations follow the workspace conventions:
 #   - the oxc crates in [workspace.dependencies] use caret ranges, and all but oxc_resolver name one release, see
-#     ADR 0010 and ADR 0021;
+#     ADR 0013;
 #   - every dependency of a member crate is inherited with `workspace = true`.
 #
 # Usage: scripts/check-pins.sh

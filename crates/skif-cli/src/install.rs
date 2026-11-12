@@ -1,4 +1,4 @@
-//! The post-fix package manager step (ADR 0016): `<manager> install` in the workspace root.
+//! The post-fix package manager step (ADR 0024): `<manager> install` in the workspace root.
 //!
 //! This is the only place skif starts another process. The executable is found through the platform's lookup
 //! (`which`, which honours `PATHEXT`), so Windows `.cmd` shims resolve without hard-coding an extension.

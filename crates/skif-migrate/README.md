@@ -11,4 +11,4 @@ One-shot translation of sherif, syncpack and knip configuration into a `skif.tom
   key path it came from.
 
 See the [migration guide](https://github.com/Goldziher/skif/blob/main/website/src/content/docs/guides/migrating.mdx) and
-[ADR 0039](https://github.com/Goldziher/skif/blob/main/adrs/0039-skif-migrate-a-one-shot-translator-from-sherif-syncpack-and-knip.md).
+[ADR 0025](https://github.com/Goldziher/skif/blob/main/adrs/0025-skif-migrate.md).

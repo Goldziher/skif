@@ -54,7 +54,7 @@ scoop install skif
 ```
 
 The npm package needs Node.js 22, 24 or 26, or Bun 1.x, on macOS or Linux. Windows has no npm package
-([ADR 0114](adrs/0114-windows-npm-packages-deferred.md)): on Windows, use cargo-binstall, Scoop or the
+([ADR 0027](adrs/0027-distribution-and-release.md)): on Windows, use cargo-binstall, Scoop or the
 [release archives](https://goldziher.github.io/skif/start/installation/#prebuilt-binaries).
 
 GitHub Action:

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fails when the plugin ids listed in crates/skif-js-plugins/README.md or in the website configuration reference
-# differ from the plugin ids defined in crates/skif-js-plugins/src/plugins (ADR 0011). A list is the paragraph that
+# differ from the plugin ids defined in crates/skif-js-plugins/src/plugins (ADR 0015). A list is the paragraph that
 # follows a line starting "The table holds N plugins" (or "N built-in plugins"), with each id in backticks.
 #
 # Usage: scripts/check-plugin-list.sh

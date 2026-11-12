@@ -47,7 +47,7 @@ Medians of 15 runs after 3 warmup runs (hyperfine 1.20.0), skif 0.3.0 at `150634
 ### All measurements
 
 Mean and median of every timed command on every target of the same run, with the ratio of each tool's median to
-skif's, and the speed targets that [ADR 0001](https://github.com/Goldziher/skif/blob/main/adrs/0001-mission-and-scope.md)
+skif's, and the speed targets that [ADR 0001](https://github.com/Goldziher/skif/blob/main/adrs/0001-mission-scope-and-non-goals.md)
 sets: manifest and policy rules on 500 packages in under 50 ms, the JS analysis at least 5x faster than knip on the same
 tree, and parsing and building the module graph of 10,000 files in under 2 s. The graph target times a whole `skif`
 run, which also runs every JS rule, so it is an upper bound.
@@ -216,12 +216,12 @@ Findings knip@6.44.1 and skif share on 18 pinned repositories (angular, babel, c
 
 A low share means the tools differ, and either one could be right. Some differences are intended and counted apart:
 skif makes test files entries, does not report files in `fixtures` directories
-([ADR 0050](https://github.com/Goldziher/skif/blob/main/adrs/0050-fixture-directories-in-the-js-analysis.md)), reads a
+([ADR 0014](https://github.com/Goldziher/skif/blob/main/adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md)), reads a
 namespace import differently. Findings in packages skif does not judge, in packages where knip could not load a config,
 inside a file the other tool reports as unused (the file is the one disagreement), and exports used only by such
 files are counted apart too. So are declaration files, which skif never reports as unused, types named in the
 signature of an export skif keeps
-([ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-namespace-export-rules-virtual-modules-linked-configs-and-the-node-plugin.md)),
+([ADR 0018](https://github.com/Goldziher/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)),
 duplicate exports of entry modules, which skif's rule leaves alone, and dependencies a Bazel `BUILD` file names, which
 knip does not read. It also sets apart what follows from where each tool looks, decided from paths and manifests:
 projects with their own `package.json` that are not knip workspaces, on both sides (knip neither judges their
@@ -231,7 +231,7 @@ the node and credential files an n8n node package lists), which skif makes entri
 the files they import that only knip reports as unused. An import one tool reports as unlisted and the other as
 unresolved counts as agreement. A repository whose knip run is not a valid comparison is named and left out of the
 sums. Reading the disagreements found false findings on both sides
-([ADR 0049](https://github.com/Goldziher/skif/blob/main/adrs/0049-js-corrections-from-adjudicating-knip-disagreements.md)).
+([ADR 0013](https://github.com/Goldziher/skif/blob/main/adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md)).
 The remaining differences, and what each tool reports differently, are in the
 [comparison guide](../comparison/#parity-with-knip).
 
@@ -281,7 +281,7 @@ error stops the run from being published.
 
 The workflow runs only when dispatched, on a pinned GitHub-hosted runner image (`ubuntu-24.04` or
 `ubuntu-24.04-arm`), and builds skif and the harness with `--locked` and the `rust-version` of their `Cargo.toml`
-([ADR 0113](https://github.com/Goldziher/skif/blob/main/adrs/0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md)).
+([ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-and-benchmarks.md)).
 GitHub-hosted runners are shared virtual machines: a neighbour's load moves the times of a run by several percent, and
 two runs of the same image may land on different CPU models (the summary names the one it got). Read the ratios
 against knip, sherif and syncpack, which share the machine and its noise, rather than the absolute times.

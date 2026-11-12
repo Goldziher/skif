@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fails unless the dependency layering of ADR 0002 and ADR 0010 holds:
+# Fails unless the dependency layering of ADR 0002 and ADR 0013 holds:
 #   - `skif` without default features pulls in no oxc crate;
 #   - `skif-core` depends on no other workspace crate;
 #   - oxc crates are reachable only through skif-js-syntax, skif-js-plugins and skif-js.

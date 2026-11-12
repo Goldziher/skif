@@ -1,4 +1,4 @@
-//! `skif --cache` (ADR 0066): the module cache on disk never changes the report.
+//! `skif --cache` (ADR 0029): the module cache on disk never changes the report.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

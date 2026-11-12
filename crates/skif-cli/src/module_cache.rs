@@ -1,4 +1,4 @@
-//! The module caches of the command line (ADR 0066): `--cache` persists parse results in `modules.bin`, and the
+//! The module caches of the command line (ADR 0029): `--cache` persists parse results in `modules.bin`, and the
 //! long-lived hosts (`--watch`, `skif lsp`, `skif mcp`) keep theirs in memory.
 //!
 //! `modules.bin` is one file:

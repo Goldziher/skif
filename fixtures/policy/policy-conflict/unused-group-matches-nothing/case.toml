@@ -1,3 +1,3 @@
 description = "A version group whose selectors match no instance is reported on skif.toml."
-source = "skif (ADR 0009 confirmation)"
+source = "skif (ADR 0010 confirmation)"
 tags = ["unused-group"]

@@ -381,7 +381,7 @@ pub struct Export {
     pub registrations: Vec<Registration>,
 }
 
-/// How a class is registered as a custom element (ADR 0062).
+/// How a class is registered as a custom element (ADR 0020).
 ///
 /// [`Registration::Define`] is unambiguous on its own. The other two only name the binding the registration goes
 /// through; whether that binding registers anything depends on the library it comes from, which the caller decides
@@ -461,7 +461,7 @@ pub struct ModuleInfo {
     /// The tag names of the template of a `.vue` file as written (`AppButton`, `app-card`, `div`), with the static
     /// values of its `is` attributes (`is="AppButton"`, `:is="'AppButton'"`), and the names of the
     /// `resolveComponent('AppButton')` calls of any file, sorted and without duplicates: `unplugin-vue-components`
-    /// imports the components it registers into the files that use them so (ADR 0084). Empty for other files.
+    /// imports the components it registers into the files that use them so (ADR 0020). Empty for other files.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub template_tags: Vec<String>,
     /// Syntax errors the parser recovered from; the other fields describe the recovered program. For component

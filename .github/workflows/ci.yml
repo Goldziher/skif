@@ -325,7 +325,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # ADR 0027: every non-end-of-life Node line (22, 24, 26) and the latest Bun 1.x.
+        # ADR 0030: every non-end-of-life Node line (22, 24, 26) and the latest Bun 1.x.
         runtime: [node-22, node-24, node-26, bun]
     steps:
       - uses: actions/checkout@v7
@@ -337,7 +337,7 @@ jobs:
       - uses: xberg-io/actions/setup-mise@v1
         with:
           tools: node pnpm
-      # The newest Bun 1.x (ADR 0027), resolved from the registry so Bun 2 does not silently enter the matrix.
+      # The newest Bun 1.x (ADR 0030), resolved from the registry so Bun 2 does not silently enter the matrix.
       - name: Resolve the newest Bun 1.x
         id: bun
         if: matrix.runtime == 'bun'
@@ -415,7 +415,7 @@ jobs:
       # fail-fast stays off so one package manager's failure does not hide the others.
       fail-fast: false
       matrix:
-        # ADR 0027 and ADR 0105: the latest two majors of npm, pnpm and Yarn 2+ (`slot` picks the newest or the
+        # ADR 0030: the latest two majors of npm, pnpm and Yarn 2+ (`slot` picks the newest or the
         # previous major from the registry), the newest Yarn Classic 1.x and the newest Bun 1.x. The newest slot of
         # every manager runs on Linux, macOS and Windows; the previous majors run on Linux only.
         package-manager: [npm, pnpm, yarn, yarn-classic, bun]

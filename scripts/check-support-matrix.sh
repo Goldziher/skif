@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fails when the package managers, linkers, package manager versions or Node.js versions that the docs say skif is
-# tested with differ from what CI tests (ADR 0027, ADR 0105): the `e2e` matrix of .github/workflows/ci.yml (managers,
+# tested with differ from what CI tests (ADR 0030): the `e2e` matrix of .github/workflows/ci.yml (managers,
 # version slots, operating systems), `e2e_linkers` in scripts/e2e/lib.sh and the `npm-addon` matrix (runtimes). The
 # expected text is built from those sources and compared with the skif cells of the support tables in README.md and
 # the comparison guide, and with the table under "Supported versions" in the installation guide.

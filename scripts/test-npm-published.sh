@@ -127,7 +127,7 @@ exist_case "a target napi does not name" 2 "${work}/unknown.json"
 exist_expect "unknown target" "napi target riscv64gc-unknown-linux-gnu has no known npm platform name"
 
 # The real manifest: the umbrella plus its six platform packages. The Windows names do not exist yet, so the
-# manifest must not list them (ADR 0114).
+# manifest must not list them (ADR 0027).
 rm -f "${work}/registry/skif-win32-x64-msvc" "${work}/registry/skif-win32-arm64-msvc"
 for name in skif-cli skif-darwin-arm64 skif-darwin-x64 skif-linux-x64-gnu skif-linux-arm64-gnu skif-linux-x64-musl \
   skif-linux-arm64-musl; do

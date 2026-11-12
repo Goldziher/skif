@@ -27,6 +27,6 @@ skif init            # write a starter skif.toml
 ```
 
 Exit codes: `0` clean, `1` problems remain, `2` skif could not run. The full flag and exit-code contract is in
-the repository's [ADR 0016](https://github.com/Goldziher/skif/blob/main/adrs/0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md).
+the repository's [ADR 0024](https://github.com/Goldziher/skif/blob/main/adrs/0024-cli-contract.md).
 
 Licensed under MIT.

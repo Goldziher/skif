@@ -1,4 +1,4 @@
-//! `package.json` formatting (ADR 0055) on the fixtures under `tests/fixtures/package-json`: a before-and-after
+//! `package.json` formatting (ADR 0009) on the fixtures under `tests/fixtures/package-json`: a before-and-after
 //! snapshot per case, and formatting twice equals formatting once.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]

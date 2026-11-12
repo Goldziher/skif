@@ -87,7 +87,7 @@ rev = "37563fc32267fd0fcbdff8caf98862962e5d46b5"
 package-manager = "pnpm"
 suites = ["parity"]
 # Not recursive: the nested projects knip reads (packages/compiler-cli/preprocessor, integration/*) lie inside workspace
-# members, so a recursive run does not lint them as roots either (ADR 0022). It would add at most
+# members, so a recursive run does not lint them as roots either (ADR 0006). It would add at most
 # packages/misc/angular-in-memory-web-api and packages/, whose manifest (`{"type": "module"}`) only marks the module
 # type and whose files the workspace already reads.
 notes = "Bazel-driven pnpm workspace; many integration projects."

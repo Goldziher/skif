@@ -1,4 +1,4 @@
-//! The command line, as specified by ADR 0016.
+//! The command line, as specified by ADR 0024.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -964,7 +964,7 @@ impl LintArgs {
     }
 
     /// The format that decides the run's behaviour (JSON-mode errors, colour, prompts, where the fix summary goes):
-    /// the one written to stdout, else the first one given, else `human` (ADR 0054).
+    /// the one written to stdout, else the first one given, else `human` (ADR 0022).
     pub fn format(&self) -> Format {
         self.format
             .iter()

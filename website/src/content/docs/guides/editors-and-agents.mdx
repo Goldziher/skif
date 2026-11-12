@@ -5,7 +5,7 @@ description: Teach AI agents skif with its agent skill, use skif from agents thr
 
 skif runs as a server for the tools you write code with. The servers and watch mode are part of the `skif` binary;
 nothing else to install. The design is recorded in
-[ADR 0056](https://github.com/Goldziher/skif/blob/main/adrs/0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md).
+[ADR 0028](https://github.com/Goldziher/skif/blob/main/adrs/0028-editors-agents-and-git-hooks.md).
 
 ## Agent skill
 
@@ -57,7 +57,7 @@ The plugin holds the skill and registers the [MCP server](#mcp-server-for-agents
 or later with npm on `PATH`, not an install of skif; its first start downloads the npm package. Without npm the
 server fails to start and the skill still works. The plugin's version is the skif release it documents, so a plugin
 manager that updates on a version change picks up each release, and its server with it. The design is recorded in
-[ADR 0102](https://github.com/Goldziher/skif/blob/main/adrs/0102-agent-skill-distributed-from-the-repository.md).
+[ADR 0028](https://github.com/Goldziher/skif/blob/main/adrs/0028-editors-agents-and-git-hooks.md).
 
 ## MCP server for agents
 
@@ -122,9 +122,9 @@ Parsing source files is the largest part of a JavaScript analysis. skif keeps th
 a key of its file name, its text and the parser's version, so an unchanged file is not parsed again and a changed
 file always is: the cache never changes a report. Everything else (configuration, manifests, the module graph, the
 rules) is computed on every run. The design is recorded in
-[ADR 0066](https://github.com/Goldziher/skif/blob/main/adrs/0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md)
+[ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-and-benchmarks.md)
 and, for multi-root runs,
-[ADR 0101](https://github.com/Goldziher/skif/blob/main/adrs/0101-a-module-cache-shared-by-the-roots-of-a-run.md).
+[ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-and-benchmarks.md).
 
 - **`skif --cache`** keeps the results between runs in `node_modules/.cache/skif/modules.bin` below the workspace
   root (or below the invocation directory of a multi-root run, and in `$TEST_TMPDIR/skif/` under `bazel test`);
@@ -184,7 +184,7 @@ A message larger than 64 MiB, or one whose header the server cannot read, ends t
 to stderr and exits with code 1, and the editor can restart it.
 
 There is no skif editor extension
-([ADR 0067](https://github.com/Goldziher/skif/blob/main/adrs/0067-no-editor-extension.md)). Any editor that can start
+([ADR 0028](https://github.com/Goldziher/skif/blob/main/adrs/0028-editors-agents-and-git-hooks.md)). Any editor that can start
 a language server for JSON files can run it; VS Code needs a generic language-server client extension for that. For
 example Neovim:
 

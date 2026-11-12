@@ -1,4 +1,4 @@
-//! ADR 0007: released rule IDs are permanent, retired IDs stay reserved.
+//! ADR 0008: released rule IDs are permanent, retired IDs stay reserved.
 //!
 //! `rule-ids.txt` lists every released ID and `retired-rule-ids.txt` the IDs that were renamed. A rule that
 //! disappears from the registry, or a new rule missing from the list, fails here.

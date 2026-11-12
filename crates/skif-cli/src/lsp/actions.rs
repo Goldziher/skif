@@ -5,9 +5,9 @@
 //! ` (unsafe)` after its title, because choosing it is the explicit consent `--fix-unsafe` stands for on the
 //! command line. A `source.fixAll.skif` action applies every safe fix of the document's diagnostics, taking the
 //! alternative `[policy] prefer` names where there are several, as a non-interactive `skif --fix` does. A plan that
-//! creates or deletes a file is never offered (deleting files stays a CLI opt-in, ADR 0052).
+//! creates or deletes a file is never offered (deleting files stays a CLI opt-in, ADR 0009).
 //!
-//! Plans read the open documents' buffers (ADR 0066), so their edits are positions in the text the editor holds. A
+//! Plans read the open documents' buffers (ADR 0029), so their edits are positions in the text the editor holds. A
 //! plan is offered only when every file it edits still has the text it was planned against, and every file it edits
 //! that was or is open still has the text the last lint of its root read; otherwise it waits for the next lint. When the client
 //! supports `documentChanges`, the edit of an open document carries its version, so the client refuses it if the

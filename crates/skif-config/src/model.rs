@@ -1424,7 +1424,7 @@ impl UpdateTarget {
 /// The default of `[update] max-concurrent-requests`, syncpack's `maxConcurrentRequests`.
 pub const DEFAULT_MAX_CONCURRENT_REQUESTS: usize = 12;
 
-/// `[update]`: how `skif update` reads the package registry (ADR 0058). Linting never reads it.
+/// `[update]`: how `skif update` reads the package registry (ADR 0026). Linting never reads it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
@@ -1778,7 +1778,7 @@ impl WorkspaceProtocol {
     }
 }
 
-/// `[format]`: what the `package-json-format` rule and `skif format` check, with syncpack's defaults (ADR 0055).
+/// `[format]`: what the `package-json-format` rule and `skif format` check, with syncpack's defaults (ADR 0009).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]

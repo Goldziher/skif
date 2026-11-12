@@ -12,4 +12,4 @@ The oxc boundary of [skif](https://github.com/Goldziher/skif): one JavaScript or
 - `parse_cached` parses through a `ModuleCache` (`MemoryModuleCache` in memory) under a `ModuleKey` of the file name,
   its text, the parse options and the crate version, so an unchanged file is not parsed again.
 
-No oxc type appears in the public API; the oxc crates are held to one release (see ADR 0010).
+No oxc type appears in the public API; the oxc crates are held to one release (see ADR 0013).

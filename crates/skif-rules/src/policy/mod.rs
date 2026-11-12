@@ -1,4 +1,4 @@
-//! Version and semver group policies (ADR 0009).
+//! Version and semver group policies (ADR 0010).
 //!
 //! The rules of this module share one analysis. [`PolicyProvider`] collects the dependency instances (`instances`) of the
 //! workspace once, assigns each to its first matching version group and semver group (`groups`), derives the state
@@ -92,7 +92,7 @@ impl RuleProvider for PolicyProvider {
                 catalog::owned_dependencies(usages, cx.workspace, &cx.config.catalog)
             });
             instances.mark_catalog_owned(&owned);
-            // While `local-path-dependency` is on, it reports the paths of the dependency sections (ADR 0106).
+            // While `local-path-dependency` is on, it reports the paths of the dependency sections (ADR 0010).
             let paths_reported_elsewhere = cx.enabled.contains(local_path_dependency::META.id);
             let analysis = analysis::Analysis::from_instances(
                 cx.workspace,

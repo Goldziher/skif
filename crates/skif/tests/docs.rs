@@ -11,15 +11,15 @@ use std::path::PathBuf;
 
 use skif::{Config, Linter, RuleMeta};
 
-/// Policy states of ADR 0009 that no rule emits yet, with the reason.
+/// Policy states of ADR 0010 that no rule emits yet, with the reason.
 const UNIMPLEMENTED_STATES: [(&str, &str); 3] = [
     (
         "DiffersToHighestOrLowestSemverMinor",
-        "a `same-minor` group cannot name a direction, see ADR 0009",
+        "a `same-minor` group cannot name a direction, see ADR 0010",
     ),
     (
         "DiffersToNpmRegistry",
-        "reported by `skif update`, never by a lint rule, see ADR 0058",
+        "reported by `skif update`, never by a lint rule, see ADR 0026",
     ),
     (
         "RefuseToCatalogLocal",
@@ -93,7 +93,7 @@ fn render(metas: &[&RuleMeta]) -> String {
             let _ = writeln!(out, "- sherif name: `{sherif}`");
         }
     }
-    out.push_str("\n## Unimplemented states\n\nThese policy states of ADR 0009 are not emitted yet.\n\n");
+    out.push_str("\n## Unimplemented states\n\nThese policy states of ADR 0010 are not emitted yet.\n\n");
     for (state, reason) in UNIMPLEMENTED_STATES {
         let _ = writeln!(out, "- `{state}`: {reason}");
     }

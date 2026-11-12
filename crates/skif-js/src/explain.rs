@@ -50,10 +50,10 @@ pub enum EntryReason {
     /// `playwright.config.ts` naming the tests of a member.
     EnclosingEntryGlob,
     /// In the narrowed scope of a package whose entries are incomplete: a config the analysis cannot fully read may
-    /// make it an entry, so it is treated as one (ADR 0065).
+    /// make it an entry, so it is treated as one (ADR 0016).
     IncompleteScope,
     /// In the narrowed scope of an incomplete package that contains its package, such as a root test config whose
-    /// globs reach the files of the members below it (ADR 0081).
+    /// globs reach the files of the members below it (ADR 0016).
     EnclosingIncompleteScope,
     /// The module is an entry, but none of the known rules accounts for it.
     Unknown,
@@ -116,7 +116,7 @@ pub struct Importer {
     /// The importing file, relative to the workspace root.
     pub file: String,
     /// 1-based line of the import; 0 for an import with no location, that of a registered component a template of the
-    /// file uses (ADR 0084).
+    /// file uses (ADR 0020).
     pub line: u32,
     /// How the import is written.
     pub kind: ImportKind,
@@ -134,7 +134,7 @@ pub struct ExportUser {
     /// The importing file, relative to the workspace root.
     pub file: String,
     /// 1-based line of the import; 0 for an import with no location, that of a registered component a template of the
-    /// file uses (ADR 0084).
+    /// file uses (ADR 0020).
     pub line: u32,
     /// What the import takes.
     pub how: String,
@@ -200,7 +200,7 @@ pub struct ExportReport {
     pub in_used_signature: bool,
     /// The export is itself a re-export.
     pub is_re_export: bool,
-    /// The class behind the export is registered as a custom element (ADR 0062), so the browser uses it.
+    /// The class behind the export is registered as a custom element (ADR 0020), so the browser uses it.
     #[serde(skip_serializing_if = "is_false")]
     pub registered: bool,
     /// The entry files of the package are not fully known and the file may be one of the unknown ones (the package
@@ -229,7 +229,7 @@ pub struct UsageReport {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub incomplete: Vec<IncompleteEntries>,
     /// When the entry files of its package are not fully known but can only be files matching these globs (relative
-    /// to the package directory): the narrowed scope of ADR 0065. Files in it are treated as entries and every other
+    /// to the package directory): the narrowed scope of ADR 0016. Files in it are treated as entries and every other
     /// file is judged; [`UsageReport::incomplete`] then lists the reasons too. Empty when the package's entries are
     /// known, or unknown package-wide.
     #[serde(skip_serializing_if = "Vec::is_empty")]

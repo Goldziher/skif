@@ -362,7 +362,7 @@ fn discover(
 
 /// `root` relative to `start`, the directory a run with an explicit configuration file started at, when `root` lies
 /// below it: the [`Workspace::set_workspace_keys_anchor`] of the root, so that the `[js.workspaces]` keys and
-/// `ignore-workspaces` globs of the file select packages from `start` (ADR 0098). `"."` is then the root at `start`
+/// `ignore-workspaces` globs of the file select packages from `start` (ADR 0004). `"."` is then the root at `start`
 /// alone, and `tools/sub` the root in that directory. `None` for the root at `start`.
 fn start_relative(root: &Path, start: &Path) -> Option<String> {
     root.strip_prefix(start)

@@ -1,13 +1,13 @@
 //! JavaScript and TypeScript tool knowledge for skif.
 //!
 //! The [`scripts`] module turns a `package.json` script into the binaries, entry files and
-//! dependencies it references. The declarative plugin table of ADR 0011 lives in [`plugin`],
+//! dependencies it references. The declarative plugin table of ADR 0015 lives in [`plugin`],
 //! the per-tool modules and [`registry`]; [`resolve_plugins`] is the seam the module graph consumes, and
-//! [`resolve_plugins_with`] runs the plugins in the Nx projects of a package too ([`NxProjects`], ADR 0109).
+//! [`resolve_plugins_with`] runs the plugins in the Nx projects of a package too ([`NxProjects`], ADR 0032).
 //!
 //! The plugins' behaviour follows [knip](https://github.com/webpro-nl/knip) (ISC), which is the
 //! reference for each tool's enablers, config files, entry patterns and config-referenced
-//! dependencies. Configs are read statically and never executed (ADR 0010).
+//! dependencies. Configs are read statically and never executed (ADR 0013).
 
 #![warn(missing_docs)]
 

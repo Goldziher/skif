@@ -1,5 +1,5 @@
 //! `skif baseline`: record the current findings as `[[ignore]]` entries in a baseline file that the root configuration
-//! extends, remove the entries that match nothing, and fail when the baseline gained entries (ADR 0071).
+//! extends, remove the entries that match nothing, and fail when the baseline gained entries (ADR 0023).
 //!
 //! Which finding an entry matches is decided by [`ignore_matches`], the code a lint run suppresses with. Reading the
 //! files, the git history and writing happen here.

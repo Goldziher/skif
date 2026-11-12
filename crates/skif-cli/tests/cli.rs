@@ -1,4 +1,4 @@
-//! End-to-end tests of the `skif` binary against the contract in ADR 0016.
+//! End-to-end tests of the `skif` binary against the contract in ADR 0024.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -1749,7 +1749,7 @@ fn dependency_versions(dir: &Path, member: &str, section: &str) -> Value {
     serde_json::from_str::<Value>(&text).unwrap()[section].clone()
 }
 
-/// ADR 0051: `--fix` aligns a version within its semver window, whether the workspace or a pin chose it, and leaves
+/// ADR 0009: `--fix` aligns a version within its semver window, whether the workspace or a pin chose it, and leaves
 /// the cross-major move (also to a pin), the change of range and the move of type packages to `--fix-unsafe`.
 #[test]
 fn fix_applies_compatible_version_alignments_and_leaves_the_rest() {

@@ -1,9 +1,9 @@
-//! A cache of parse results keyed by everything a parse depends on (ADR 0066).
+//! A cache of parse results keyed by everything a parse depends on (ADR 0029).
 //!
 //! A [`ModuleInfo`] is a pure function of the file name, the text and the [`ParseOptions`], so a key over those
 //! inputs can never return a stale result: a changed file has a new key. The cache itself is supplied by the host
 //! through [`ModuleCache`]; this crate only owns the key, the stored value, an in-memory implementation and the
-//! [`ParseCoalescer`] that makes the threads of one run parse each key once (ADR 0101).
+//! [`ParseCoalescer`] that makes the threads of one run parse each key once (ADR 0029).
 
 use std::collections::BTreeMap;
 
@@ -160,7 +160,7 @@ impl ModuleCache for MemoryModuleCache {
 }
 
 /// Parses each key once while several threads ask for it: a lookup of a key another thread is parsing waits for
-/// that parse and is given its outcome instead of parsing the file again (ADR 0101).
+/// that parse and is given its outcome instead of parsing the file again (ADR 0029).
 ///
 /// It is not a [`ModuleCache`] and holds no result: it sits beside the cache a run parses through, and
 /// [`ParseCoalescer::parse_cached`] takes that cache, so coalescing does not depend on how the cache is wrapped. It

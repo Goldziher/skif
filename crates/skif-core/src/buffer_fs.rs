@@ -1,4 +1,4 @@
-//! A [`FileSystem`] that reads an editor's unsaved buffers over another file system (ADR 0066).
+//! A [`FileSystem`] that reads an editor's unsaved buffers over another file system (ADR 0029).
 
 use std::collections::BTreeMap;
 use std::io;

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fails when a rule id recorded in rule-ids.txt is no longer documented in docs/rules.md, when docs/rules.md
-# documents an id that rule-ids.txt does not record yet (ADR 0007), and when the rule ids registered in code (the
+# documents an id that rule-ids.txt does not record yet (ADR 0008), and when the rule ids registered in code (the
 # top-level `RuleMeta` statics under crates/*/src) differ from rule-ids.txt. Rule ids are a public contract: a released id
 # is never removed, only retired through a superseding decision, and a new id is added to rule-ids.txt in the same
 # change that adds the rule. Prose that states a rule count ("N rules", "the N `js` rules") in the README files, the
