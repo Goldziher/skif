@@ -19,14 +19,15 @@ pub static META: RuleMeta = RuleMeta::new(
     Category::Workspace,
     Some(Severity::Warning),
     Fixability::None,
-    "Node and package-manager versions pinned in version files, Dockerfiles and CI workflows must match the root's.",
+    "Node and package-manager versions pinned in version files, Dockerfiles, CI workflows and Bazel module files must match the root's.",
 );
 
 /// The kinds of file read when the `kinds` option is not set.
-const DEFAULT_KINDS: [ToolchainKind; 3] = [
+const DEFAULT_KINDS: [ToolchainKind; 4] = [
     ToolchainKind::VersionFiles,
     ToolchainKind::Dockerfiles,
     ToolchainKind::Workflows,
+    ToolchainKind::Bazel,
 ];
 
 /// The root version files, in the order the first one with a Node version becomes the source of truth.
@@ -45,8 +46,12 @@ const COREPACK_DETAIL: &str = "CorepackUnpinned";
 /// an exact source and satisfy a range, a range must admit an exact source. A Dockerfile that runs `corepack enable`
 /// and never `corepack prepare` is reported at `info`, since the manager version is then whatever corepack resolves.
 ///
-/// Options (`[rules.toolchain-pin-drift]`): `kinds` (default version files, Dockerfiles and workflows), `files` and
-/// `ignore-files`, as for every toolchain rule.
+/// The root's `MODULE.bazel`, `WORKSPACE.bazel` and `WORKSPACE` are read statically for the versions `rules_js` and
+/// `rules_nodejs` install under Bazel: `pnpm_version` of `pnpm.pnpm(...)` and `npm_translate_lock(...)`, and
+/// `node_version` of `node.toolchain(...)` and `nodejs_register_toolchains(...)`, each a string literal.
+///
+/// Options (`[rules.toolchain-pin-drift]`): `kinds` (default version files, Dockerfiles, workflows and Bazel files),
+/// `files` and `ignore-files`, as for every toolchain rule.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ToolchainPinDrift;
 
@@ -631,6 +636,50 @@ FROM node:16
         ];
         assert_eq!(findings(&member, ""), [row("packages/a/.nvmrc", "18", NODE_DETAIL)]);
         assert_eq!(findings(&member, ignored), []);
+    }
+
+    #[test]
+    fn bazel_module_pins_are_checked_against_the_root() {
+        let root = r#"{"name":"root","private":true,"packageManager":"pnpm@9.15.9","workspaces":["packages/*"]}"#;
+        let module = "\
+module(name = \"repro\")
+pnpm = use_extension(\"@aspect_rules_js//npm:extensions.bzl\", \"pnpm\")
+pnpm.pnpm(name = \"pnpm\", pnpm_version = \"8.15.0\")
+npm = use_extension(\"@aspect_rules_js//npm:extensions.bzl\", \"npm\")
+npm.npm_translate_lock(name = \"npm\", pnpm_lock = \"//:pnpm-lock.yaml\", pnpm_version = \"9.15.9\")
+node = use_extension(\"@rules_nodejs//nodejs:extensions.bzl\", \"node\")
+node.toolchain(node_version = \"18.19.0\")
+# node.toolchain(node_version = \"16.0.0\")
+bazel_dep(name = \"rules_nodejs\", version = \"6.3.0\")
+";
+        let files = [
+            ("package.json", root),
+            (".nvmrc", "20.11.1\n"),
+            ("MODULE.bazel", module),
+            (
+                "WORKSPACE",
+                "nodejs_register_toolchains(name = \"nodejs\", node_version = \"20.11.1\")\n",
+            ),
+        ];
+        assert_eq!(
+            findings(&files, ""),
+            [
+                row("MODULE.bazel", "18.19.0", NODE_DETAIL),
+                row("MODULE.bazel", "8.15.0", MANAGER_DETAIL),
+            ]
+        );
+        let diagnostics = lint(META.id, &files, &config(""));
+        let pnpm = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.detail.as_deref() == Some(MANAGER_DETAIL))
+            .unwrap();
+        assert_eq!(
+            pnpm.message,
+            "`pnpm.pnpm pnpm_version` pins pnpm 8.15.0, which does not match 9.15.9 from `packageManager`"
+        );
+        assert_eq!(pnpm.location.span.unwrap().start_line, 3);
+        let without = "[rules.toolchain-pin-drift]\nkinds = [\"version-files\"]\n";
+        assert_eq!(findings(&files, without), []);
     }
 
     #[test]
