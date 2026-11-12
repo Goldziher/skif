@@ -1,5 +1,6 @@
 //! `banned-dependency` over the lockfile: the `scope = "lockfile"` banned groups judge every package `pnpm-lock.yaml`
-//! resolves, transitive ones included, and report it with the shortest chain an importer pulls it in through.
+//! (or `bun.lock` in a Bun workspace) resolves, transitive ones included, and report it with the shortest chain an
+//! importer pulls it in through.
 
 use std::collections::BTreeMap;
 
@@ -9,7 +10,7 @@ use skif_lint::{Emitter, LintContext};
 use skif_workspace::{Package, map_ordered};
 
 use super::state::BANNED_DEPENDENCY;
-use crate::lockfile::{self, ImporterPackages, display_key, snapshot_location};
+use crate::lockfile::{self, ImporterPackages};
 
 /// A banned resolution and the shortest way an importer reaches it.
 struct Finding<'l> {
@@ -51,14 +52,14 @@ pub(super) fn emit(cx: &LintContext<'_>, out: &mut Emitter<'_>) {
     let packages = ImporterPackages::index(cx.workspace);
     // What each importer reaches is walked on its own, in parallel unless the run is `sequential`; the banned
     // resolutions are then merged in importer order.
-    let importers: Vec<&str> = lock.importers.keys().map(String::as_str).collect();
+    let importers: Vec<&str> = lock.importers();
     let reached: Vec<Vec<(usize, &str, Vec<&str>)>> = map_ordered(&importers, cx.sequential, |&importer| {
         let package = packages.get(importer);
         let resolutions = lock.resolutions(importer);
         resolutions
             .keys()
             .filter_map(|key| {
-                let name = lock.snapshots[key].name.as_str();
+                let name = lock.snapshots()[key].name.as_str();
                 let &(group, _) = groups.iter().find(|entry| admits(entry.1, name, package))?;
                 Some((group, key, resolutions.chain(key)?))
             })
@@ -68,7 +69,7 @@ pub(super) fn emit(cx: &LintContext<'_>, out: &mut Emitter<'_>) {
     let mut findings: BTreeMap<String, Finding<'_>> = BTreeMap::new();
     for (&importer, banned) in importers.iter().zip(reached) {
         for (group, key, chain) in banned {
-            let release = display_key(key);
+            let release = lock.release(key);
             let shorter = findings
                 .get(&release)
                 .is_none_or(|found| chain.len() < found.chain.len());
@@ -94,11 +95,11 @@ pub(super) fn emit(cx: &LintContext<'_>, out: &mut Emitter<'_>) {
         let path = finding
             .chain
             .iter()
-            .map(|key| display_key(key))
+            .map(|key| lock.release(key))
             .collect::<Vec<_>>()
             .join(" > ");
-        let name = &lock.snapshots[finding.key].name;
-        let version = &lock.snapshots[finding.key].version;
+        let name = &lock.snapshots()[finding.key].name;
+        let version = &lock.snapshots()[finding.key].version;
         let package = packages.get(finding.importer);
         let mut builder = diagnostic(
             &BANNED_DEPENDENCY,
@@ -106,7 +107,7 @@ pub(super) fn emit(cx: &LintContext<'_>, out: &mut Emitter<'_>) {
                 "`{release}` is resolved although {by} forbids it; importer `{}` pulls it in through `{path}`",
                 finding.importer
             ),
-            snapshot_location(lock, finding.key),
+            lock.location(finding.key),
         )
         .dependency(name.clone())
         .specifier(version.clone())
@@ -362,6 +363,108 @@ snapshots:
             old[0].message.contains("lockfileVersion 6.0 is not supported"),
             "{}",
             old[0].message
+        );
+    }
+
+    /// A Bun workspace whose `app` depends on `mid`, which depends on the banned `bad`; `web` has a copy of `bad` of
+    /// its own, nested below its name.
+    const BUN_ROOT: &str = r#"{"name":"root","private":true,"packageManager":"bun@1.4.4","workspaces":["packages/*"]}"#;
+
+    const BUN_LOCK: &str = r#"{
+  "lockfileVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "root",
+    },
+    "packages/app": {
+      "name": "app",
+      "dependencies": {
+        "mid": "^2.0.0",
+      },
+    },
+    "packages/web": {
+      "name": "web",
+      "dependencies": {
+        "bad": "0.9.0",
+      },
+    },
+  },
+  "packages": {
+    "bad": ["bad@1.0.0", "", {}, "sha512-a"],
+
+    "mid": ["mid@2.0.0", "", { "dependencies": { "bad": "^1.0.0" } }, "sha512-b"],
+
+    "web/bad": ["bad@0.9.0", "", {}, "sha512-c"],
+  }
+}
+"#;
+
+    #[test]
+    fn a_bun_workspace_is_judged_on_bun_lock() {
+        let files = [
+            ("package.json", BUN_ROOT),
+            ("packages/app/package.json", APP),
+            ("packages/web/package.json", r#"{"name":"web","dependencies":{"bad":"0.9.0"}}"#),
+            ("bun.lock", BUN_LOCK),
+        ];
+        let diagnostics = lint(BANNED_DEPENDENCY.id, &files, &config(BAN_BAD));
+        let found: Vec<(&str, &str, Option<&str>)> = diagnostics
+            .iter()
+            .map(|d| (d.message.as_str(), located(&files, d), d.package.as_deref()))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (
+                    "`bad@0.9.0` is resolved although a banned version group forbids it; importer `packages/web` pulls \
+                     it in through `bad@0.9.0`",
+                    r#""web/bad""#,
+                    Some("web")
+                ),
+                (
+                    "`bad@1.0.0` is resolved although a banned version group forbids it; importer `packages/app` pulls \
+                     it in through `mid@2.0.0 > bad@1.0.0`",
+                    r#""bad""#,
+                    Some("app")
+                ),
+            ]
+        );
+        assert!(diagnostics.iter().all(|d| d.location.path == Path::new("bun.lock")));
+    }
+
+    #[test]
+    fn a_bun_workspace_without_bun_lock_is_reported_instead_of_passing() {
+        let missing = [("package.json", BUN_ROOT), ("packages/app/package.json", APP)];
+        let messages: Vec<String> = lint(BANNED_DEPENDENCY.id, &missing, &config(BAN_BAD))
+            .into_iter()
+            .map(|d| d.message)
+            .collect();
+        assert_eq!(
+            messages,
+            ["there is no `bun.lock`, so nothing is checked for the `scope = \"lockfile\"` version groups"]
+        );
+        let binary = [
+            ("package.json", BUN_ROOT),
+            ("packages/app/package.json", APP),
+            ("bun.lockb", "binary"),
+        ];
+        let diagnostics = lint(BANNED_DEPENDENCY.id, &binary, &config(BAN_BAD));
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+        assert_eq!(
+            diagnostics[0].message,
+            "skif reads `bun.lock` only; `bun.lockb` is not checked for the `scope = \"lockfile\"` version groups"
+        );
+        assert_eq!(diagnostics[0].location.path, Path::new("bun.lockb"));
+        let broken = [
+            ("package.json", BUN_ROOT),
+            ("packages/app/package.json", APP),
+            ("bun.lock", "{ \"packages\": "),
+        ];
+        let diagnostics = lint(BANNED_DEPENDENCY.id, &broken, &config(BAN_BAD));
+        assert!(
+            diagnostics[0].message.starts_with("`bun.lock` cannot be read ("),
+            "{}",
+            diagnostics[0].message
         );
     }
 
