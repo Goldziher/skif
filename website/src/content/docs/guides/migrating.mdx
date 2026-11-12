@@ -316,7 +316,16 @@ profile then knows the checks of all of them at once, and a rule one tool ignore
 `--merge` edits the existing `skif.toml` (or `.skif.toml`) in place, so its comments and the order of its tables stay.
 Tables the file lacks are appended after its text under a banner; in a table both files define, keys it lacks are added,
 lists are united, and the existing value wins over a different one (the command lists those keys). Running the same
-migration again with `--merge` changes nothing.
+migration again with `--merge` changes nothing. With `--output <FILE>`, the merge of the existing file and the
+migration is written to `FILE` and the existing file is left as it is; a `FILE` that already exists is refused, since
+`--merge` cannot be combined with `--force`.
+
+A merge only adds what the migrated tools need: the `exact` profile writes no `off` value into a file that has content.
+A rule the file does not name keeps running, whether one of its recorded sources checked it or the file (written by
+hand, or for other tools) relies on skif's default; the report lists these checks as left as the existing
+configuration has them (`left-as-existing` in `--format json`). Migrating knip into a file with `[js] enabled = false`
+sets it to `true`, because the knip settings are `[js]` settings that only take effect with the JavaScript analysis
+on; the report says so (`replaced-existing`). Set it back to `false` to keep the analysis off.
 
 Migrating the tools in steps works too, and ends with the same checks as one run:
 
