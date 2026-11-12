@@ -53,7 +53,11 @@ fn nameless(package: &Package, out: &mut Emitter<'_>) {
     .help("give the package a `name`, or narrow the workspace patterns so the directory is not matched");
     if let Some(name) = package.dir.file_name().and_then(|name| name.to_str()) {
         let op = if has_key {
-            FixOp::json(manifest.path.clone(), name_key.to_vec(), JsonAction::Set(Value::from(name)))
+            FixOp::json(
+                manifest.path.clone(),
+                name_key.to_vec(),
+                JsonAction::Set(Value::from(name)),
+            )
         } else {
             FixOp::json(
                 manifest.path.clone(),
@@ -243,7 +247,10 @@ mod tests {
         let npm_root = r#"{"name":"root","private":true,"packageManager":"npm@11.0.0","workspaces":["packages/*"]}"#;
         let members = [
             ("packages/a/package.json", MEMBER),
-            ("packages/blank/package.json", "{\n  \"name\": \"\",\n  \"version\": \"1.0.0\"\n}\n"),
+            (
+                "packages/blank/package.json",
+                "{\n  \"name\": \"\",\n  \"version\": \"1.0.0\"\n}\n",
+            ),
             ("packages/none/package.json", "{\n  \"version\": \"1.0.0\"\n}\n"),
         ];
         let mut files = vec![("package.json", bun_root)];
@@ -254,7 +261,9 @@ mod tests {
             .map(|d| {
                 (
                     d.location.path.to_str().unwrap(),
-                    d.location.span.map(|span| testing::slice(&files, d.location.path.to_str().unwrap(), span)),
+                    d.location
+                        .span
+                        .map(|span| testing::slice(&files, d.location.path.to_str().unwrap(), span)),
                     d.message.as_str(),
                 )
             })

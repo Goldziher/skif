@@ -2016,8 +2016,14 @@ fn a_write_through_an_element_leaves_every_element_of_the_list_open() {
 #[test]
 fn a_function_named_like_a_well_known_one_may_change_its_argument() {
     for (bound, call) in [
-        ("function readFileSync(c) { c.entry = './changed.js'; return ''; }", "readFileSync(config);"),
-        ("const String = (c) => { c.entry = './changed.js'; return ''; };", "String(config);"),
+        (
+            "function readFileSync(c) { c.entry = './changed.js'; return ''; }",
+            "readFileSync(config);",
+        ),
+        (
+            "const String = (c) => { c.entry = './changed.js'; return ''; };",
+            "String(config);",
+        ),
         ("import { existsSync } from './store.js';", "existsSync(config);"),
         ("const { readFileSync } = require('./store');", "readFileSync(config);"),
         ("const path = require('./helpers');", "path.join(config);"),
@@ -2191,7 +2197,9 @@ fn a_method_named_like_a_list_one_may_change_its_argument_on_another_object() {
 
 /// Whether the webpack config of a test, or its `module`, or the first of its rules, is open.
 fn rules_changed(value: &ConfigValue) -> bool {
-    let first = get(value, &["module", "rules"]).as_array().and_then(<[ConfigValue]>::first);
+    let first = get(value, &["module", "rules"])
+        .as_array()
+        .and_then(<[ConfigValue]>::first);
     open(value) || open(get(value, &["module"])) || first.is_some_and(open)
 }
 

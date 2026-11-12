@@ -404,7 +404,10 @@ snapshots:
         let files = [
             ("package.json", BUN_ROOT),
             ("packages/app/package.json", APP),
-            ("packages/web/package.json", r#"{"name":"web","dependencies":{"bad":"0.9.0"}}"#),
+            (
+                "packages/web/package.json",
+                r#"{"name":"web","dependencies":{"bad":"0.9.0"}}"#,
+            ),
             ("bun.lock", BUN_LOCK),
         ];
         let diagnostics = lint(BANNED_DEPENDENCY.id, &files, &config(BAN_BAD));

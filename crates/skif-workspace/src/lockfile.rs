@@ -311,7 +311,10 @@ impl PnpmLockfile {
 
 /// The snapshots reached from the snapshot keys `direct` through the `dependencies` of each, breadth-first, so each
 /// has a shortest chain; ties go to the key listed first. A key that names no snapshot is not followed.
-pub(crate) fn reach(snapshots: &BTreeMap<String, Snapshot>, direct: impl IntoIterator<Item = String>) -> Resolutions<'_> {
+pub(crate) fn reach(
+    snapshots: &BTreeMap<String, Snapshot>,
+    direct: impl IntoIterator<Item = String>,
+) -> Resolutions<'_> {
     let mut parents: BTreeMap<&str, Option<&str>> = BTreeMap::new();
     let mut queue = VecDeque::new();
     for key in direct {
@@ -323,7 +326,11 @@ pub(crate) fn reach(snapshots: &BTreeMap<String, Snapshot>, direct: impl IntoIte
         }
     }
     while let Some(key) = queue.pop_front() {
-        for dependency in snapshots.get(key).into_iter().flat_map(|snapshot| &snapshot.dependencies) {
+        for dependency in snapshots
+            .get(key)
+            .into_iter()
+            .flat_map(|snapshot| &snapshot.dependencies)
+        {
             if let Some((dependency, _)) = snapshots.get_key_value(dependency.as_str())
                 && !parents.contains_key(dependency.as_str())
             {

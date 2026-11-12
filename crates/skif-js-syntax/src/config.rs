@@ -3419,7 +3419,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// Runs the statements of a block in a frame of their own, so a `const` or `let` declared in it does not replace a
     /// binding outside it. A `var` it declares is function-scoped, and is left unknown outside the block.
     fn block(&self, statements: &'p [Statement<'a>], depth: u32) -> Option<Value> {
-        self.frames.borrow_mut().push(Frame::default(, self.unstable));
+        self.frames.borrow_mut().push(Frame::default());
         let value = self.run(statements, depth);
         self.frames.borrow_mut().pop();
         let mut vars = Vars::default();
