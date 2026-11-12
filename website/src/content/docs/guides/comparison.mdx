@@ -93,7 +93,7 @@ under [Parity with knip](#parity-with-knip).
 | Why a file, export or dependency counts as used | Yes: `skif explain-usage`, `--trace-dependency` | No | No | Yes: `--trace-file`, `--trace-export`, `--trace-dependency` |
 | Production and strict modes | Yes | No | No | Yes |
 | Component and template files | Yes (2) | No | No | Yes (3) |
-| Custom compilers for other file types | No | No | No | Yes |
+| Custom compilers for other file types | Partial: `[js.compilers]`, declared import patterns or one of skif's readers, never a function | No | No | Yes |
 | Built-in plugins for tools and frameworks | 206 | No | No | 207 |
 | Runs no project code while linting | Yes (4) | Yes (5) | Partial (6) | No (7) |
 
