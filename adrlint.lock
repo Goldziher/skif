@@ -645,3 +645,8 @@ blake3 = "a11a02597648e7d9dfb03e4d5dd90c6231ddad20fb523026219e86b23fafcfe8"
 number = 129
 status = "accepted"
 blake3 = "6e25f19b9221ecb27249eff2418b2fe607c52ca06785c1007a9920983efcdbf7"
+
+[adrs."adrs/0130-bazel-label-lists-built-by-a-format-comprehension.md"]
+number = 130
+status = "accepted"
+blake3 = "cc28467103a5fff902877bca5778f68698e202b2e4f4839711feb9d24a73bdd1"

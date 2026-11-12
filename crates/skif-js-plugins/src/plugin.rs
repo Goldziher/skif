@@ -1,12 +1,11 @@
 //! The plugin model of ADR 0011: a declarative [`PluginSpec`] row, an optional config resolver and the
 //! [`PluginOutput`] handed to the module graph.
 
-use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
 use skif_config::PluginConfig;
-use skif_core::FileSystem;
+use skif_core::{FileSystem, Span};
 use skif_js_syntax::{ConfigValue, ModuleLoader};
 
 use crate::files::GlobCache;
@@ -137,7 +136,12 @@ pub enum PluginInput {
     /// config file: that package must list it, and a nested package whose file names it does not use its own listing
     /// (a Bazel label of the package's `node_modules` in a nested package's `BUILD` file;
     /// [`DepRef::reader_lists`]).
-    ReaderDependency(String),
+    ReaderDependency {
+        /// The package name, without version or subpath.
+        name: String,
+        /// Where the config names it ([`DepRef::span`]).
+        span: Span,
+    },
     /// A binary the config invokes.
     Binary(String),
     /// A further config file of the same plugin (`extends`, project references).
@@ -405,8 +409,9 @@ pub struct DepRef {
     pub name: String,
     /// The file that references it.
     pub from: PathBuf,
-    /// Byte range in `from`, when known; config values carry no spans, so this is usually `None`.
-    pub span: Option<Range<usize>>,
+    /// Where in `from` the reference is, when known; most config values carry no position, so this is usually
+    /// `None`. A merged reference keeps the position of the reference it is judged as.
+    pub span: Option<Span>,
     /// The reference does not require the package to be declared (optional peers, on-demand fetches).
     pub optional: bool,
     /// A config file the plugin read names the package itself in a required reference, rather than in an optional
@@ -458,11 +463,13 @@ impl DepRef {
             self.type_only &= other.type_only;
             self.reader_may_list &= other.reader_may_list;
             self.reader_lists &= other.reader_lists;
+            self.span = self.span.or(other.span);
         } else {
             self.named_by_config = true;
             self.type_only = other.type_only;
             self.reader_may_list = other.reader_may_list;
             self.reader_lists = other.reader_lists;
+            self.span = other.span;
         }
     }
 }

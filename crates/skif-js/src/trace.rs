@@ -226,6 +226,19 @@ pub struct DependencyUse {
     pub binary: Option<String>,
 }
 
+/// A config file that names the dependency for a package whose manifest does not list it: a reference
+/// `unlisted-dependencies` judges with the detail `ConfigReference`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub struct DependencyReference {
+    /// The config file, relative to the workspace root.
+    pub file: String,
+    /// 1-based line of the reference, when the config gives its position.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+}
+
 /// The dependency in one package: whether its manifest lists it, the verdict and the evidence for it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -247,6 +260,8 @@ pub struct PackageDependencyUsage {
     /// Imports of it by files of this package that credit no manifest: a type-only import in strict mode, or a file
     /// of another project.
     pub not_counted: Vec<DependencyImport>,
+    /// The config files that name it for this package although no manifest lists it, sorted by file and line.
+    pub unlisted_references: Vec<DependencyReference>,
 }
 
 /// What [`JsAnalysis::explain_dependency`] returns.
@@ -369,6 +384,19 @@ fn render_package(out: &mut String, package: &PackageDependencyUsage) {
             import.file, import.line, import.specifier
         );
     }
+    if !package.unlisted_references.is_empty() {
+        let _ = writeln!(out, "    named without a listing by:");
+    }
+    for reference in &package.unlisted_references {
+        match reference.line {
+            Some(line) => {
+                let _ = writeln!(out, "      {}:{line}", reference.file);
+            }
+            None => {
+                let _ = writeln!(out, "      {}", reference.file);
+            }
+        }
+    }
 }
 
 fn slashed(path: &std::path::Path) -> String {
@@ -490,6 +518,17 @@ impl JsAnalysis<'_> {
             .filter(|(module, _)| self.graph.module(*module).owner == id && !counted.contains(module))
             .map(|(_, import)| import.clone())
             .collect();
+        let mut unlisted_references: Vec<DependencyReference> = self
+            .dependencies
+            .unlisted_config
+            .iter()
+            .filter(|unlisted| unlisted.name == name && (unlisted.package == id || unlisted.readers.contains(&id)))
+            .map(|unlisted| DependencyReference {
+                file: slashed(&unlisted.file),
+                line: unlisted.span.map(|span| span.start_line),
+            })
+            .collect();
+        unlisted_references.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
         PackageDependencyUsage {
             package: label(package),
             dir: dir_of(package),
@@ -498,6 +537,7 @@ impl JsAnalysis<'_> {
             credit,
             uses,
             not_counted,
+            unlisted_references,
         }
     }
 

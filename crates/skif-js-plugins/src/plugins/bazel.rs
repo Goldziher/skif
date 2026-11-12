@@ -9,18 +9,21 @@
 //! and the `srcs` and `data` of `js_library` and `ts_project` are build sources: used files whose imports are
 //! followed, but no entries, so their exports are judged. Each is a file of the package named by its path or by a
 //! label of the `BUILD` file's own package (`":src/index.ts"`). A computed value (`glob([...])`, `select({...})`, a
-//! variable) names nothing.
+//! variable) names nothing; the exception is a comprehension that formats each string of a list literal
+//! (`[":node_modules/%s" % name for name in ["vite"]]`), which names each formatted label. Neither a `glob` pattern
+//! (`"node_modules/**"`), another format template nor a target that is no npm package name names a dependency.
 //!
 //! The plugin reads nothing outside a Bazel repository that uses `rules_js`: the nearest directory at or above the
 //! package holding `MODULE.bazel`, `REPO.bazel`, `WORKSPACE.bazel` or `WORKSPACE` must name `aspect_rules_js` in
 //! one of its root files. The `BUILD` files of a nested package and those in Bazel's output trees (`bazel-bin`,
 //! `bazel-out`) give no entries; a nested package's `BUILD` file still names dependencies of this package by label.
 
+use std::ops::Range;
 use std::path::Path;
 
-use skif_core::slash;
+use skif_core::{LineIndex, Span, is_valid_package_name, slash};
 
-use crate::bazel::{ROOT_FILES, calls, is_output_path, package_path, repository_root, string_literals};
+use crate::bazel::{ROOT_FILES, calls, is_output_path, label_literals, package_path, repository_root};
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::support::{join_rel, package_name};
 
@@ -72,11 +75,16 @@ impl Plugin for Bazel {
             return Vec::new();
         };
         let bazel_package = join_rel(&package, config.base);
-        let mut out: Vec<PluginInput> = string_literals(config.source)
-            .iter()
-            .filter_map(|literal| linked_dependency(literal, &bazel_package))
-            .filter(|(owner, _)| *owner == package)
-            .map(|(_, name)| PluginInput::ReaderDependency(name))
+        let lines = LineIndex::new(config.source);
+        let mut out: Vec<PluginInput> = label_literals(config.source)
+            .into_iter()
+            .filter_map(|(literal, range)| {
+                let (owner, name) = linked_dependency(&literal, &bazel_package)?;
+                (owner == package).then(|| PluginInput::ReaderDependency {
+                    name,
+                    span: span(&lines, &range),
+                })
+            })
             .collect();
         if in_nested_package(cx, config.base) {
             return out;
@@ -108,6 +116,12 @@ fn input(file: String, entry: bool, test: bool) -> PluginInput {
     }
 }
 
+/// The span of the byte `range` of the source `lines` indexes.
+fn span(lines: &LineIndex, range: &Range<usize>) -> Span {
+    let offset = |at: usize| u32::try_from(at).unwrap_or(u32::MAX);
+    lines.span(offset(range.start), offset(range.end))
+}
+
 /// Whether a root file of the Bazel repository at `root` names `rules_js`.
 fn uses_rules_js(cx: &PluginContext<'_>, root: &Path) -> bool {
     ROOT_FILES.iter().any(|name| {
@@ -133,7 +147,8 @@ fn in_nested_package(cx: &PluginContext<'_>, base: &str) -> bool {
 /// The Bazel package, relative to the repository root, and the npm package that `label` names as a linked dependency,
 /// written in a `BUILD` file of the Bazel package `bazel_package`: a `node_modules/<name>` target of the main
 /// repository (`":node_modules/x"`, `"//pkg:node_modules/@scope/x"`, `"@//pkg:node_modules/x/dir"`) or the
-/// `<name>/package_json.bzl` of another repository (`"@npm//pkg:x/package_json.bzl"`).
+/// `<name>/package_json.bzl` of another repository (`"@npm//pkg:x/package_json.bzl"`). The name must be one the npm
+/// registry can hold: a glob pattern (`":node_modules/**"`) or a format template (`":node_modules/%s"`) names none.
 fn linked_dependency(label: &str, bazel_package: &str) -> Option<(String, String)> {
     let (repository, rest) = match label.strip_prefix('@') {
         Some(after) => {
@@ -147,14 +162,17 @@ fn linked_dependency(label: &str, bazel_package: &str) -> Option<(String, String
         None => (bazel_package, rest.strip_prefix(':').unwrap_or(rest)),
     };
     if let Some(name) = target.strip_suffix("/package_json.bzl") {
-        let named = !repository.is_empty() && package_name(name).as_deref() == Some(name);
+        let named =
+            !repository.is_empty() && package_name(name).as_deref() == Some(name) && is_valid_package_name(name);
         return named.then(|| (package.to_owned(), name.to_owned()));
     }
     let linked = target.strip_prefix("node_modules/")?;
     if !repository.is_empty() {
         return None;
     }
-    package_name(linked).map(|name| (package.to_owned(), name))
+    package_name(linked)
+        .filter(|name| is_valid_package_name(name))
+        .map(|name| (package.to_owned(), name))
 }
 
 #[cfg(test)]
@@ -185,6 +203,14 @@ mod tests {
             ("//packages/app/node_modules/esbuild", None),
             ("src/index.ts", None),
             ("@types/node", None),
+            (":node_modules/%s", None),
+            ("node_modules/**", None),
+            (":node_modules/*", None),
+            (":node_modules/@types/*", None),
+            (":node_modules/{name}", None),
+            (":node_modules/.bin", None),
+            ("@npm//packages/app:%s/package_json.bzl", None),
+            ("@npm//:@scope/*/package_json.bzl", None),
         ] {
             let expected = found.map(|(package, name)| (package.to_owned(), name.to_owned()));
             assert_eq!(linked_dependency(label, "packages/app"), expected, "{label}");

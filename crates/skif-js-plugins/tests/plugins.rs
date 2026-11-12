@@ -6753,6 +6753,55 @@ fn bazel_build_files_credit_linked_dependencies_and_add_entries() {
     );
 }
 
+/// A `BUILD` file that builds its labels with a format comprehension over a list literal names each formatted package,
+/// at the line of its item; the template itself, the patterns of a `glob` and labels that are no package name name
+/// nothing, next to the `package_json.bzl` load of a package also named by the comprehension, which keeps the position
+/// of its first reference.
+#[test]
+fn bazel_format_comprehensions_name_their_packages_and_glob_patterns_none() {
+    let build = concat!(
+        "load(\"@npm//packages/app:vite/package_json.bzl\", vite_bin = \"bin\")\n",
+        "load(\"@npm//:defs.bzl\", \"npm_link_all_packages\")\n",
+        "\n",
+        "npm_link_all_packages(name = \"node_modules\")\n",
+        "\n",
+        "VITE_BUILD_DEPS = [\":node_modules/%s\" % node_module for node_module in [\n",
+        "    \"typescript\",\n",
+        "    \"vite\",\n",
+        "]]\n",
+        "\n",
+        "js_library(\n",
+        "    name = \"test_files\",\n",
+        "    data = glob([\"**/*\"], exclude = [\".*/**\", \"coverage/**\", \"dist/**\", \"node_modules/**\"]),\n",
+        "    deps = [\":node_modules/{}\".format(NAME), \":node_modules/@types/*\"],\n",
+        ")\n",
+    );
+    let files = [
+        RULES_JS_MODULE,
+        ("/ws/packages/app/package.json", r#"{"name":"app"}"#),
+        ("/ws/packages/app/BUILD", build),
+    ];
+    let results = resolve_in_tree(&files, "/ws/packages/app", false);
+    let out = output(&results, "bazel");
+    let found: Vec<(&str, Option<u32>, bool)> = out
+        .referenced_dependencies
+        .iter()
+        .map(|dependency| {
+            (
+                dependency.name.as_str(),
+                dependency.span.map(|span| span.start_line),
+                dependency.reader_lists,
+            )
+        })
+        .collect();
+    assert_eq!(found, [("vite", Some(1), true), ("typescript", Some(7), true)]);
+    let typescript = out.referenced_dependencies[1].span.unwrap();
+    assert_eq!(
+        &build[typescript.start as usize..typescript.end as usize],
+        "\"typescript\""
+    );
+}
+
 /// Outside a Bazel repository that uses `rules_js` the `BUILD` files of a package name nothing.
 #[test]
 fn bazel_build_files_name_nothing_without_rules_js() {

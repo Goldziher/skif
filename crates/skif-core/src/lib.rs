@@ -55,7 +55,7 @@ pub mod timing;
 pub use buffer_fs::BufferFs;
 pub use builder::{DiagnosticBuilder, diagnostic};
 pub use cached_fs::CachedFs;
-pub use dependency::DependencyKind;
+pub use dependency::{DependencyKind, is_valid_package_name};
 pub use diagnostic::Diagnostic;
 pub use display::slash;
 pub use fix::{
