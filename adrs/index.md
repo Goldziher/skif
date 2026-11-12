@@ -134,6 +134,7 @@ old one.
 | 0124 | [Bazel Rule Sources Are Used Files, Not Entries](0124-bazel-rule-sources-are-used-files-not-entries.md) | accepted |
 | 0125 | [A Whole Use of a Module Object Uses Its Values Only](0125-a-whole-use-of-a-module-object-uses-its-values-only.md) | accepted |
 | 0126 | [A Whole Use of an Enum in Its Own File Uses Every Member](0126-a-whole-use-of-an-enum-in-its-own-file-uses-every-member.md) | accepted |
+| 0127 | [`skif migrate --merge` Unites List Entries by Name](0127-migrate-merge-unites-list-entries-by-name.md) | accepted |
 
 ## Effective statements
 
