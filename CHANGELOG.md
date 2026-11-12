@@ -11,6 +11,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `[js.compilers]`, the static counterpart of knip's `compilers`: an extension skif has no reader for is read by
+  regular expressions with one capture group (`html = { imports = ['<script[^>]+src="([^"]+)"'] }`), whose captures
+  are imports resolved from the file, or with one of skif's readers (`page = { as = "mdx" }`). Such files join the
+  default project, so `unused-files` judges them, and their imports count as usage and are reported by
+  `unresolved-imports` and `unlisted-dependencies` like written ones. An invalid entry is a configuration error, and
+  `skif migrate --from knip` points a compiler it cannot translate at the table
+  ([#209](https://github.com/Goldziher/skif/issues/209)).
 - **Bun**: a workspace pattern with leading `..` segments (`../shared`, `../libs/*`) selects members outside the root,
   as `bun install` does: it is no longer an `invalid-workspace-file` error, and counts as matched; the members it
   selects are listed in `DiscoveryFacts::outside_root_members` and are not linted
