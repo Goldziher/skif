@@ -165,12 +165,15 @@ impl Call {
 /// The name of the call whose arguments are file patterns.
 const GLOB: &str = "glob";
 
+/// A label literal and the byte range of the source that holds it.
+type Located = (String, Range<usize>);
+
 /// The string literals of Starlark `source` that may be labels, without those of `#` comments, each with the byte
 /// range of `source` that holds it, in order. A literal of a `glob(...)` call is a file pattern and is none. A format
 /// template (`"x/%s" % name`, `"x/{}".format(name)`) is none either: a comprehension that formats each string of a
 /// list literal with one `%s` (`["x/%s" % n for n in ["a", "b"]]`) gives the formatted strings instead, each at its
 /// item of the list.
-pub(crate) fn label_literals(source: &str) -> Vec<(String, Range<usize>)> {
+pub(crate) fn label_literals(source: &str) -> Vec<Located> {
     let tokens = spanned_tokens(source);
     let mut found = Vec::new();
     let mut at = 0;
@@ -227,7 +230,7 @@ fn is_template(tokens: &[Spanned], at: usize) -> bool {
 /// The strings that the comprehension starting with the template at token `at` gives, `"<template>" % <name> for
 /// <name> in [<string>, ...]`, each with the range of its item, and the position after the list; `None` for any other
 /// shape: an item that is no string literal, a filter (`if`), a template without exactly one `%s`.
-fn formatted_items(tokens: &[Spanned], at: usize) -> Option<(Vec<(String, Range<usize>)>, usize)> {
+fn formatted_items(tokens: &[Spanned], at: usize) -> Option<(Vec<Located>, usize)> {
     let (Token::Text(template), _) = tokens.get(at)? else {
         return None;
     };
