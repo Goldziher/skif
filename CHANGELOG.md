@@ -9,6 +9,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A `bazel` plugin for rules_js repositories: the `BUILD.bazel` and `BUILD` files of a package are scanned as Starlark
+  text. `node_modules` labels (`":node_modules/esbuild"`, `"//packages/app:node_modules/zod"`) and
+  `package_json.bzl` loads (`"@npm//packages/app:esbuild/package_json.bzl"`) use the dependency of the package they
+  name, and the `entry_point`, `srcs` and `data` files of `js_binary`, `js_run_devserver`, `js_test`, `js_library` and
+  `ts_project` are entries. The table holds 206 plugins
+  ([ADR 0115](adrs/0115-bazel-build-files-and-output-trees-in-the-js-analysis.md),
+  [#169](https://github.com/Goldziher/skif/issues/169)).
+
+### Fixed
+
+- `unlisted-binaries` no longer reports `bazel`, `bazelisk` and `ibazel`: they are build tools of the machine, as
+  `docker` and `make` are, unless `ignore-global-binaries` is off. A listed `@bazel/bazelisk` or `@bazel/ibazel` is
+  still used by the scripts that run them ([#172](https://github.com/Goldziher/skif/issues/172)).
+- In a Bazel repository the JS analysis no longer reads the `bazel-*` output trees, whose contents depend on the last
+  build: an import that reaches a file there is generated code, and a relative import of a missing file that the
+  nearest `BUILD` file declares as an output (`outs`, `out`, `stdout`, `out_dirs`, `out_dir`) is not unresolved,
+  whether or not `rootDirs` point into `bazel-bin` and whatever was built. An import that no `BUILD` file declares is
+  unresolved in every state
+  ([ADR 0115](adrs/0115-bazel-build-files-and-output-trees-in-the-js-analysis.md),
+  [#170](https://github.com/Goldziher/skif/issues/170)).
 ### Changed
 
 - The GitHub Action is named `skif dependency linter`, because the GitHub Marketplace needs a name that no other action, user or organization holds. Workflows keep `uses: Goldziher/skif@v0.3`.

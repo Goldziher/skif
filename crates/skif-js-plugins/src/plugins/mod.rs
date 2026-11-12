@@ -9,6 +9,7 @@ pub mod ava;
 pub mod aws_cdk;
 pub mod azure_pipelines;
 pub mod babel;
+pub mod bazel;
 pub mod biome;
 pub mod borp;
 pub mod browser_extension;

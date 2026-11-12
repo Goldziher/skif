@@ -609,6 +609,18 @@ by relative paths below the same root directory: their imports are judged agains
 Node.js resolves them from. A file of a workspace package always stays that package's, and the root's `ignore` globs
 still apply to an adopted file.
 
+In a Bazel repository (the nearest directory at or above the workspace root, within the git repository, with a
+`MODULE.bazel`, `REPO.bazel`, `WORKSPACE.bazel` or `WORKSPACE`), the output trees behind the `bazel-*` links at its top
+(`bazel-bin`, `bazel-out`, `bazel-testlogs`, `bazel-<workspace>`) are never read: their contents are whatever the last
+build left, for whichever configuration. An import that reaches a file there, through `rootDirs` or otherwise, is of
+generated code and is not followed, so no finding is located in them. A relative import of a missing file is not
+reported when the nearest `BUILD.bazel` or `BUILD` file at or above the file's directory declares it as an output:
+it is a literal of the `outs`, `out` or `stdout` of a target there (`js_run_binary(outs = ["src/gen/schema.js"])`),
+also with another extension or none, or lies below one of its `out_dirs` or `out_dir`. Bazel builds it into
+`bazel-bin` beside the package. A `rootDirs` directory below `bazel-bin` does not make a missing import generated,
+built or not; the `BUILD` files decide, so an import that none declares is unresolved whatever was built. The
+dependencies of the generated code are those its target names (see the `bazel` plugin below).
+
 **`paths`** is a `tsconfig`-style map for one workspace, `{ "alias/*" = ["./target/*"] }`, targets relative to the
 workspace directory. Each target is tried as a module alias ahead of the aliases tools declare.
 
@@ -752,8 +764,9 @@ the file. knip judges these commands at the script's own package.
 
 **`ignore-global-binaries`** (default `true`, top level only) keeps `unlisted-binaries` quiet about the system and
 platform tools scripts run (`rm`, `curl`, `git`, `docker`), which are installed globally, like knip's
-`ignoreGlobalBinaries`. Set it to `false` to report each one that no dependency provides, unless `ignore-binaries`
-lists it. Shell builtins (`cd`, `echo`, `export`), shells, pass-through commands (`env`, `sudo`, `xargs`), the package
+`ignoreGlobalBinaries`. The Bazel launchers `bazel`, `bazelisk` and `ibazel` count as such tools too, while a listed
+`@bazel/bazelisk` or `@bazel/ibazel` is still used by the scripts that run them. Set it to `false` to report each one
+that no dependency provides, unless `ignore-binaries` lists it. Shell builtins (`cd`, `echo`, `export`), shells, pass-through commands (`env`, `sudo`, `xargs`), the package
 managers and `node` are never reported.
 
 `discovery` chooses how source files are found. `auto` (the default) and `walk` walk the directories, which finds
@@ -955,9 +968,9 @@ script `src` or build input HTML file starts at `src`; a `root` that is not a st
 package's entries incomplete. The build input is read from `build.rolldownOptions.input` (Vite 8), else from
 `build.rollupOptions.input`, as knip reads it.
 
-The table holds 205 built-in plugins:
+The table holds 206 built-in plugins:
 
-`typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`, `tsdown`, `oxlint`, `angular`, `karma`, `esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`, `cypress`, `mocha`, `sveltekit`, `prisma`, `graphql-codegen`, `docusaurus`, `vitepress`, `wrangler`, `expo`, `react-native`, `metro`, `release-it`, `semantic-release`, `lefthook`, `simple-git-hooks`, `stylelint`, `markdownlint`, `cspell`, `nodemon`, `pm2`, `pnpm`, `yarn`, `syncpack`, `node`, `expo-router`, `tanstack-router`, `ava`, `biome`, `c8`, `dotenv`, `electron-vite`, `gatsby`, `i18next-parser`, `jasmine`, `knex`, `lingui`, `msw`, `nest`, `netlify`, `nitro`, `nyc`, `oclif`, `panda-css`, `plop`, `preconstruct`, `react-router`, `remark`, `remix`, `rolldown`, `rsbuild`, `rslib`, `sanity`, `sentry`, `size-limit`, `stryker`, `svgo`, `svgr`, `swc`, `tsd`, `typedoc`, `unbuild`, `unocss`, `vercel`, `vike`, `tap`, `oxfmt`, `bun`, `unplugin-icons`, `webdriver-io`, `pre-commit`, `parcel`, `next-intl`, `dependency-cruiser`, `commitizen`, `electron-forge`, `serverless-framework`, `github-action`, `vue`, `unplugin-auto-import`, `unplugin-vue-components`, `unplugin-vue-router`, `mdx`, `next-mdx`, `starlight`, `pino`, `execa`, `zx`, `nano-spawn`, `azure-pipelines`, `sapper`, `tauri`, `capacitor`, `convex`, `payload`, `wxt`, `hardhat`, `temporal`, `react-email`, `openapi-ts`, `danger`, `changelogen`, `purgecss`, `fumadocs`, `nuxtjs-i18n`, `playwright-ct`, `sst`, `qwik`, `quasar`, `stencil`, `eleventy`, `cucumber`, `relay`, `orval`, `vite-plugin-pwa`, `xo`, `textlint`, `rstest`, `sveltejs-package`, `taskfile`, `mise`, `moonrepo`, `wireit`, `travis`, `buf`, `nano-staged`, `astro-db`, `astro-og-canvas`, `bumpp`, `changelogithub`, `create-typescript-app`, `eve`, `expressive-code`, `kysely-codegen`, `lockfile-lint`, `lost-pixel`, `node-modules-inspector`, `vercel-og`, `vite-pwa-assets-generator`, `astro-markdoc`, `borp`, `ladle`, `linthtml`, `lunaria`, `marko`, `mcp`, `mdxlint`, `npm-package-json-lint`, `osls`, `playwright-test`, `raycast`, `react-cosmos`, `tsrs`, `varlock`, `yorkie`, `filesystem-routing`, `flue`, `laravel-vite-plugin`, `railway`, `solidjs-vite-plugin`, `vite-plugin-pages`, `vite-plugin-vue-layouts-next`, `vite-plus`, `openclaw`, `typescript-content-mapper`, `lit`, `catalyst`, `fast` and `taskr`.
+`typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`, `tsdown`, `oxlint`, `angular`, `karma`, `esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`, `cypress`, `mocha`, `sveltekit`, `prisma`, `graphql-codegen`, `docusaurus`, `vitepress`, `wrangler`, `expo`, `react-native`, `metro`, `release-it`, `semantic-release`, `lefthook`, `simple-git-hooks`, `stylelint`, `markdownlint`, `cspell`, `nodemon`, `pm2`, `pnpm`, `yarn`, `syncpack`, `node`, `expo-router`, `tanstack-router`, `ava`, `biome`, `c8`, `dotenv`, `electron-vite`, `gatsby`, `i18next-parser`, `jasmine`, `knex`, `lingui`, `msw`, `nest`, `netlify`, `nitro`, `nyc`, `oclif`, `panda-css`, `plop`, `preconstruct`, `react-router`, `remark`, `remix`, `rolldown`, `rsbuild`, `rslib`, `sanity`, `sentry`, `size-limit`, `stryker`, `svgo`, `svgr`, `swc`, `tsd`, `typedoc`, `unbuild`, `unocss`, `vercel`, `vike`, `tap`, `oxfmt`, `bun`, `unplugin-icons`, `webdriver-io`, `pre-commit`, `parcel`, `next-intl`, `dependency-cruiser`, `commitizen`, `electron-forge`, `serverless-framework`, `github-action`, `vue`, `unplugin-auto-import`, `unplugin-vue-components`, `unplugin-vue-router`, `mdx`, `next-mdx`, `starlight`, `pino`, `execa`, `zx`, `nano-spawn`, `azure-pipelines`, `sapper`, `tauri`, `capacitor`, `convex`, `payload`, `wxt`, `hardhat`, `temporal`, `react-email`, `openapi-ts`, `danger`, `changelogen`, `purgecss`, `fumadocs`, `nuxtjs-i18n`, `playwright-ct`, `sst`, `qwik`, `quasar`, `stencil`, `eleventy`, `cucumber`, `relay`, `orval`, `vite-plugin-pwa`, `xo`, `textlint`, `rstest`, `sveltejs-package`, `taskfile`, `mise`, `moonrepo`, `wireit`, `travis`, `buf`, `nano-staged`, `astro-db`, `astro-og-canvas`, `bumpp`, `changelogithub`, `create-typescript-app`, `eve`, `expressive-code`, `kysely-codegen`, `lockfile-lint`, `lost-pixel`, `node-modules-inspector`, `vercel-og`, `vite-pwa-assets-generator`, `astro-markdoc`, `borp`, `ladle`, `linthtml`, `lunaria`, `marko`, `mcp`, `mdxlint`, `npm-package-json-lint`, `osls`, `playwright-test`, `raycast`, `react-cosmos`, `tsrs`, `varlock`, `yorkie`, `filesystem-routing`, `flue`, `laravel-vite-plugin`, `railway`, `solidjs-vite-plugin`, `vite-plugin-pages`, `vite-plugin-vue-layouts-next`, `vite-plus`, `openclaw`, `typescript-content-mapper`, `lit`, `catalyst`, `fast`, `taskr` and `bazel`.
 
 A JavaScript or TypeScript config is evaluated statically. A value it imports from another file of the project, or from
 a workspace package (through its `exports` or `main`, mapped back to the source file), is evaluated in that module too:
@@ -1121,6 +1134,18 @@ counterpart. These differences are deliberate:
   `customElements` that does not hold the registry is not detected.
 - `taskr` has no knip counterpart: `taskfile.js` and the local plugins of `package.json#taskr.requires` are entries,
   and `@taskr/*` and `taskr-*` dependencies count as used, as taskr loads them by name.
+- `bazel` has no knip counterpart. It is enabled by a `BUILD.bazel` or `BUILD` file at the top of a package and reads
+  the `BUILD` files below the package as Starlark text, never evaluated, in a Bazel repository whose `MODULE.bazel`,
+  `REPO.bazel`, `WORKSPACE.bazel` or `WORKSPACE` names `aspect_rules_js` (the nearest one at or above the package,
+  within the git repository). A label of the `node_modules` that `npm_link_all_packages` links for the package
+  (`":node_modules/esbuild"`, `"//packages/app:node_modules/@types/node"`) and a load of a package's
+  `package_json.bzl` (`"@npm//packages/app:esbuild/package_json.bzl"`) use that dependency; a label of another
+  package's `node_modules` belongs to that package, so `"//:node_modules/typescript"` in a member's `BUILD` file uses
+  the root's `typescript`. The `entry_point` and `data` of `js_binary`, `js_run_devserver` and `js_test` and the
+  `srcs` and `data` of `js_library` and `ts_project` are entries (production entries except for `js_test`) when they
+  name an existing file of the package, by path or as `":path"`; `glob()`, `select()` and variables name nothing, nor
+  does a macro of a `.bzl` file. The `BUILD` files of a nested package give no entries, and those below the `bazel-*`
+  links at the repository root are not read.
 - A `tsconfig` with `outDir` maps build output back to source through its `rootDir`. Without one, skif takes the
   longest common directory of the `include` patterns (each up to its first wildcard) and the `files`, not counting
   declaration files; TypeScript computes it from the files it compiles. A config with neither keeps the `dist` to

@@ -6,7 +6,7 @@ use skif_core::HashMap;
 
 use crate::plugin::Plugin;
 use crate::plugins::{
-    angular, astro, astro_db, astro_markdoc, astro_og_canvas, ava, aws_cdk, azure_pipelines, babel, biome, borp,
+    angular, astro, astro_db, astro_markdoc, astro_og_canvas, ava, aws_cdk, azure_pipelines, babel, bazel, biome, borp,
     browser_extension, buf, bumpp, bun, c8, capacitor, catalyst, changelogen, changelogithub, changesets, commitizen,
     commitlint, convex, create_typescript_app, cspell, cucumber, cypress, danger, dependency_cruiser, docusaurus,
     dotenv, drizzle, electron_forge, electron_vite, eleventy, esbuild, eslint, eve, execa, expo, expo_router,
@@ -28,7 +28,7 @@ use crate::plugins::{
     zx,
 };
 
-static PLUGINS: [&dyn Plugin; 205] = [
+static PLUGINS: [&dyn Plugin; 206] = [
     &typescript::Typescript,
     &eslint::Eslint,
     &prettier::Prettier,
@@ -234,6 +234,7 @@ static PLUGINS: [&dyn Plugin; 205] = [
     &catalyst::Catalyst,
     &fast::Fast,
     &taskr::Taskr,
+    &bazel::Bazel,
 ];
 
 /// Every plugin, in the order of the table (ADR 0011, ADR 0022, ADR 0025, ADR 0029).

@@ -14,7 +14,7 @@ use skif_js_plugins::{DepRef, IncompleteCause, PluginContext, PluginId, PluginOu
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 205] = [
+const ADR_IDS: [&str; 206] = [
     "typescript",
     "eslint",
     "prettier",
@@ -220,6 +220,7 @@ const ADR_IDS: [&str; 205] = [
     "catalyst",
     "fast",
     "taskr",
+    "bazel",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -6173,4 +6174,186 @@ fn github_actions_steps_in_a_shell_that_is_not_posix_are_skipped() {
         "{:?}",
         out.referenced_binaries
     );
+}
+
+/// Resolves the plugins for the package in `dir` of a tree whose `files` have absolute paths.
+fn resolve_in_tree(files: &[(&str, &str)], dir: &str, is_root: bool) -> Vec<(PluginId, PluginOutput)> {
+    let fs = files
+        .iter()
+        .fold(MemoryFs::new(), |fs, (path, content)| fs.with_file(*path, content));
+    let scripts = IndexMap::new();
+    let plugins = IndexMap::new();
+    let ctx = PluginContext {
+        dir: Path::new(dir),
+        is_root,
+        package_name: Some("app"),
+        dependencies: &[],
+        inherited_dependencies: &[],
+        scripts: &scripts,
+        fs: &fs,
+        plugins: &plugins,
+        modules: None,
+        nx: None,
+    };
+    resolve_plugins(&ctx)
+}
+
+const RULES_JS_MODULE: (&str, &str) = (
+    "/ws/MODULE.bazel",
+    "module(name = \"mono\")\nbazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n",
+);
+
+const APP_BUILD: &str = r#"load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_library")
+load("@npm//packages/app:esbuild/package_json.bzl", esbuild_bin = "bin")
+load("@npm//:defs.bzl", "npm_link_all_packages")
+
+npm_link_all_packages(name = "node_modules")
+
+js_binary(
+    name = "codegen",
+    entry_point = "tools/codegen.mjs",
+    data = [":node_modules/@types/node", "tools/template.hbs"],
+)
+
+js_library(
+    name = "lib",
+    srcs = [":src/index.js", "src/missing.js"] + glob(["src/globbed/*.js"]),
+    deps = [
+        "//packages/app:node_modules/zod",
+        "//:node_modules/typescript",
+        "//packages/lib:node_modules/uuid",
+    ],
+)
+"#;
+
+/// The files of a `rules_js` package `packages/app` and its nested package `packages/app/nested`, with `module` as the
+/// root `MODULE.bazel`.
+fn bazel_app(module: (&'static str, &'static str)) -> Vec<(&'static str, &'static str)> {
+    vec![
+        module,
+        ("/ws/packages/app/package.json", r#"{"name":"app"}"#),
+        ("/ws/packages/app/BUILD.bazel", APP_BUILD),
+        ("/ws/packages/app/tools/codegen.mjs", ""),
+        ("/ws/packages/app/tools/template.hbs", ""),
+        ("/ws/packages/app/src/index.js", ""),
+        ("/ws/packages/app/src/globbed/a.js", ""),
+        (
+            "/ws/packages/app/tools/BUILD",
+            "js_test(name = \"check\", entry_point = \"check.test.mjs\", data = [\":fixture.json\"])\n",
+        ),
+        ("/ws/packages/app/tools/check.test.mjs", ""),
+        ("/ws/packages/app/tools/fixture.json", "{}"),
+        ("/ws/packages/app/nested/package.json", r#"{"name":"nested"}"#),
+        (
+            "/ws/packages/app/nested/BUILD.bazel",
+            "js_binary(name = \"n\", entry_point = \"main.js\", data = [\"//packages/app:node_modules/chalk\"])\n",
+        ),
+        ("/ws/packages/app/nested/main.js", ""),
+    ]
+}
+
+/// The `node_modules` labels and `package_json.bzl` loads of a package's `BUILD` files use its dependencies, and the
+/// files its `rules_js` rules build from are entries, tests' files outside production.
+#[test]
+fn bazel_build_files_credit_linked_dependencies_and_add_entries() {
+    let results = resolve_in_tree(&bazel_app(RULES_JS_MODULE), "/ws/packages/app", false);
+    let out = output(&results, "bazel");
+    assert_eq!(deps(out), BTreeSet::from(["@types/node", "chalk", "esbuild", "zod"]));
+    let esbuild = out
+        .referenced_dependencies
+        .iter()
+        .find(|dependency| dependency.name == "esbuild")
+        .unwrap();
+    assert_eq!(esbuild.from, PathBuf::from("/ws/packages/app/BUILD.bazel"));
+    assert!(esbuild.named_by_config && !esbuild.optional);
+    let chalk = out
+        .referenced_dependencies
+        .iter()
+        .find(|dependency| dependency.name == "chalk")
+        .unwrap();
+    assert_eq!(chalk.from, PathBuf::from("/ws/packages/app/nested/BUILD.bazel"));
+    let production: BTreeSet<&str> = out.production_entries.iter().map(String::as_str).collect();
+    assert_eq!(
+        production,
+        BTreeSet::from(["src/index.js", "tools/codegen.mjs", "tools/template.hbs"])
+    );
+    let entries: BTreeSet<&str> = out.entries.iter().map(String::as_str).collect();
+    assert_eq!(
+        entries,
+        BTreeSet::from([
+            "src/index.js",
+            "tools/check.test.mjs",
+            "tools/codegen.mjs",
+            "tools/fixture.json",
+            "tools/template.hbs",
+        ])
+    );
+    let configs: BTreeSet<PathBuf> = out.config_files.iter().cloned().collect();
+    assert!(
+        configs.contains(Path::new("/ws/packages/app/tools/BUILD")),
+        "{configs:?}"
+    );
+}
+
+/// Outside a Bazel repository that uses `rules_js` the `BUILD` files of a package name nothing.
+#[test]
+fn bazel_build_files_name_nothing_without_rules_js() {
+    for module in [
+        (
+            "/ws/MODULE.bazel",
+            "module(name = \"mono\")\nbazel_dep(name = \"rules_go\", version = \"1.0\")\n",
+        ),
+        ("/ws/README.md", "no Bazel here\n"),
+    ] {
+        let results = resolve_in_tree(&bazel_app(module), "/ws/packages/app", false);
+        let out = output(&results, "bazel");
+        assert_eq!(deps(out), BTreeSet::new(), "{module:?}");
+        assert_eq!(out.entries, Vec::<String>::new(), "{module:?}");
+    }
+}
+
+/// A package without a `BUILD` file of its own does not enable the plugin.
+#[test]
+fn bazel_is_enabled_by_a_build_file_of_the_package() {
+    let files = [
+        RULES_JS_MODULE,
+        ("/ws/packages/app/package.json", r#"{"name":"app"}"#),
+        (
+            "/ws/packages/app/src/BUILD.bazel",
+            "js_library(name = \"x\", srcs = [\"a.js\"])\n",
+        ),
+    ];
+    let results = resolve_in_tree(&files, "/ws/packages/app", false);
+    assert!(results.iter().all(|(id, _)| *id != "bazel"), "{results:?}");
+}
+
+/// At the repository root, the labels of the root's `node_modules` in a nested package's `BUILD` file use the root's
+/// dependency, and the `BUILD` files that Bazel's output trees mirror are not read.
+#[test]
+fn bazel_root_labels_from_nested_packages_count_and_output_trees_do_not() {
+    let files = [
+        RULES_JS_MODULE,
+        ("/ws/package.json", r#"{"name":"mono"}"#),
+        (
+            "/ws/BUILD.bazel",
+            "js_binary(name = \"x\", entry_point = \"scripts/x.js\", data = [\":node_modules/prettier\"])\n",
+        ),
+        ("/ws/scripts/x.js", ""),
+        ("/ws/packages/app/package.json", r#"{"name":"app"}"#),
+        (
+            "/ws/packages/app/BUILD.bazel",
+            "ts_project(name = \"t\", srcs = [\"a.ts\"], tsc = \"//:node_modules/typescript/bin/tsc\")\n",
+        ),
+        ("/ws/packages/app/a.ts", ""),
+        (
+            "/ws/bazel-mono/BUILD.bazel",
+            "js_binary(name = \"y\", entry_point = \"scripts/y.js\", data = [\":node_modules/left-pad\"])\n",
+        ),
+        ("/ws/bazel-mono/scripts/y.js", ""),
+    ];
+    let results = resolve_in_tree(&files, "/ws", true);
+    let out = output(&results, "bazel");
+    assert_eq!(deps(out), BTreeSet::from(["prettier", "typescript"]));
+    let entries: BTreeSet<&str> = out.entries.iter().map(String::as_str).collect();
+    assert_eq!(entries, BTreeSet::from(["scripts/x.js"]));
 }

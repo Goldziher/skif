@@ -1,8 +1,8 @@
 use proptest::prelude::*;
 
 use super::{
-    BinaryVia, FileTree, ScriptContext, ScriptInfo, is_ignored_binary, is_powershell_command, parse_script,
-    without_commands,
+    BinaryVia, FileTree, ScriptContext, ScriptInfo, is_ignored_binary, is_machine_binary, is_powershell_command,
+    parse_script, without_commands,
 };
 
 type Scripts = &'static [(&'static str, &'static str)];
@@ -671,6 +671,20 @@ fn ignored_binaries() {
     for name in ["node", "tsc", "vite", "rimraf"] {
         assert!(!is_ignored_binary(name), "{name}");
     }
+}
+
+/// The Bazel launchers are binaries of the script, which credit the package that provides them, and machine tools.
+#[test]
+fn bazel_launchers_are_machine_binaries_not_ignored_ones() {
+    let info = parse("bazel build //... && ibazel test //... && bazelisk run //:lint");
+    let binaries: Vec<&str> = info.binaries.iter().map(|b| b.name.as_str()).collect();
+    assert_eq!(binaries, ["bazel", "ibazel", "bazelisk"]);
+    assert!(info.global_binaries.is_empty());
+    for name in ["bazel", "bazelisk", "ibazel"] {
+        assert!(is_machine_binary(name), "{name}");
+        assert!(!is_ignored_binary(name), "{name}");
+    }
+    assert!(!is_machine_binary("docker"));
 }
 
 #[test]

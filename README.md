@@ -8,7 +8,7 @@
 skif lints manifests, enforces version and catalog policies, and finds unused dependencies and dead code,
 with one config file and one report. It never runs your project's code.
 
-npm · pnpm · yarn · bun · **49 rules** · **205 plugins** · format-preserving fixes
+npm · pnpm · yarn · bun · **49 rules** · **206 plugins** · format-preserving fixes
 
 [![crates.io](https://img.shields.io/crates/v/skif?style=flat-square)](https://crates.io/crates/skif)
 [![npm](https://img.shields.io/npm/v/skif-cli?style=flat-square)](https://www.npmjs.com/package/skif-cli)
@@ -72,7 +72,7 @@ matrix, explains each "Partial" and lists the sources.
 | Unused `package.json` subpath imports and exports | No | No | No | Yes |
 | Vue, Svelte, Astro, MDX, Marko | Yes | No | No | Yes |
 | Custom compilers for other file types | No | No | No | Yes |
-| Built-in plugins | 205 | No | No | 207 |
+| Built-in plugins | 206 | No | No | 207 |
 | Runs no project code while linting | Yes | Yes | Partial: imports its own JS config | No |
 | Autofix | Yes | Yes | Yes | Yes |
 | Safe and unsafe fix levels | Yes | No | No | Partial: file deletion opt-in |

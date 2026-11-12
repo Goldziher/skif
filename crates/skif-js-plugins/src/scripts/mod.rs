@@ -21,7 +21,10 @@ use std::ops::Range;
 use indexmap::IndexMap;
 use skif_core::shell as tokenize;
 
-pub use tables::{IGNORED_BINARIES, SHELL_BUILTINS, is_ignored_binary, is_powershell_command, is_shell_builtin};
+pub use tables::{
+    IGNORED_BINARIES, MACHINE_BINARIES, SHELL_BUILTINS, is_ignored_binary, is_machine_binary, is_powershell_command,
+    is_shell_builtin,
+};
 
 pub use skif_config::PackageManager;
 
