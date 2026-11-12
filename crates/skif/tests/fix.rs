@@ -1,7 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use serde_json::json;
 use skif::{
@@ -632,4 +633,117 @@ fn text_edits_apply_to_files_that_are_neither_json_nor_yaml() {
     let plan = apply_fixes(&workspace, &report, &FixSelection::default(), &fs).unwrap();
 
     assert_eq!(modified(&plan.changes, "notes.txt"), "bye world");
+}
+
+/// Counts the reads of each file through a [`MemoryFs`].
+struct CountingReads {
+    inner: MemoryFs,
+    reads: std::sync::Mutex<std::collections::BTreeMap<PathBuf, usize>>,
+    total: AtomicUsize,
+}
+
+impl FileSystem for CountingReads {
+    fn read_to_string(&self, path: &Path) -> std::io::Result<Arc<str>> {
+        *self.reads.lock().unwrap().entry(path.to_path_buf()).or_default() += 1;
+        self.total.fetch_add(1, Ordering::SeqCst);
+        self.inner.read_to_string(path)
+    }
+
+    fn read_dir(&self, path: &Path) -> std::io::Result<Vec<skif::DirEntry>> {
+        self.inner.read_dir(path)
+    }
+
+    fn is_file(&self, path: &Path) -> bool {
+        self.inner.is_file(path)
+    }
+
+    fn is_dir(&self, path: &Path) -> bool {
+        self.inner.is_dir(path)
+    }
+}
+
+/// Several fixes of one file are each planned against the file read once, and the plan holds the edits of all of
+/// them, as planning each fix on its own text would.
+#[test]
+fn several_fixes_of_one_file_read_it_once_and_all_apply() {
+    let memory = fs();
+    let workspace = workspace(&memory);
+    let counting = CountingReads {
+        inner: memory,
+        reads: std::sync::Mutex::default(),
+        total: AtomicUsize::new(0),
+    };
+    let report = report_of(vec![
+        ("demo-a-private", vec![private_fix()]),
+        (
+            "demo-c-name",
+            vec![fix(
+                "rename",
+                FixSafety::Safe,
+                vec![FixOp::json(
+                    "package.json",
+                    vec![PathSeg::Key("name".into())],
+                    JsonAction::Set(json!("main")),
+                )],
+            )],
+        ),
+        (
+            "demo-d-member",
+            vec![fix(
+                "pin member",
+                FixSafety::Safe,
+                vec![set_version("packages/a/package.json", "1.0.1")],
+            )],
+        ),
+    ]);
+    let plan = apply_fixes(&workspace, &report, &FixSelection::default(), &counting).unwrap();
+
+    assert_eq!(plan.applied.len(), 3, "{:?}", plan.skipped);
+    assert_eq!(
+        modified(&plan.changes, "package.json"),
+        "{\n  \"name\": \"main\",\n  \"workspaces\": [\"packages/*\"],\n  \"private\": true\n}\n",
+    );
+    assert_eq!(
+        modified(&plan.changes, "packages/a/package.json"),
+        "{\n  \"name\": \"a\",\n  \"version\": \"1.0.1\"\n}\n"
+    );
+    let reads = counting.reads.lock().unwrap().clone();
+    assert_eq!(
+        reads,
+        std::collections::BTreeMap::from([
+            (PathBuf::from("/ws/package.json"), 1),
+            (PathBuf::from("/ws/packages/a/package.json"), 1),
+        ])
+    );
+    assert_eq!(counting.total.load(Ordering::SeqCst), 2);
+}
+
+/// Every fix of a file that does not parse is skipped with the parse error, each with the same message.
+#[test]
+fn every_fix_of_a_file_that_does_not_parse_is_skipped_with_its_parse_error() {
+    let fs = fs().with_file("/ws/tsconfig.json", "{\n  \"extends\": ");
+    let workspace = workspace(&fs);
+    let report = report_of(vec![
+        (
+            "demo-a-version",
+            vec![fix("pin", FixSafety::Safe, vec![set_version("tsconfig.json", "1.0.1")])],
+        ),
+        (
+            "demo-b-version",
+            vec![fix("pin again", FixSafety::Safe, vec![set_version("tsconfig.json", "2.0.0")])],
+        ),
+    ]);
+    let plan = apply_fixes(&workspace, &report, &FixSelection::default(), &fs).unwrap();
+
+    assert!(plan.changes.is_empty(), "{:?}", plan.changes);
+    let reasons: Vec<&SkipReason> = plan.skipped.iter().map(|skipped| &skipped.reason).collect();
+    assert_eq!(reasons.len(), 2, "{reasons:?}");
+    assert_eq!(reasons[0], reasons[1]);
+    let SkipReason::Failed(message) = reasons[0] else {
+        panic!("{reasons:?}");
+    };
+    assert!(
+        message.starts_with("tsconfig.json: cannot parse JSON source: "),
+        "{message}"
+    );
 }
