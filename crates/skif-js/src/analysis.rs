@@ -903,12 +903,11 @@ impl<'a> JsAnalysis<'a> {
                 .is_some_and(|own| std::ptr::eq(own, module))
         });
         let computed;
-        let positions = match memo {
-            Some(memo) => skif_core::get_or_compute(memo, || self.unused_export_positions(module)),
-            None => {
-                computed = self.unused_export_positions(module);
-                &computed
-            }
+        let positions = if let Some(memo) = memo {
+            skif_core::get_or_compute(memo, || self.unused_export_positions(module))
+        } else {
+            computed = self.unused_export_positions(module);
+            &computed
         };
         positions.iter().map(|&position| &exports[position]).collect()
     }

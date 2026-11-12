@@ -38,7 +38,6 @@ All notable changes to this project are documented here. The format follows
 
 - **Bun**: the members claimed for a workspace whose root cannot be discovered keep a directory a positive pattern
   names by its literal path despite a negation, as discovery does ([#158](https://github.com/Goldziher/skif/issues/158)).
-
 - **Config evaluation**: an optional member (`base?.setupFiles`, `undefined` when `base` is `null` or `undefined`) and
   a computed member whose key evaluates to a string (`base['setupFiles']`, `base[KEY]`) read a known object as
   `base.setupFiles` does, instead of leaving the package incomplete
