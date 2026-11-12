@@ -33,6 +33,7 @@ mod fixture;
 mod git_index;
 mod globs;
 mod graph;
+mod hoisting;
 mod input;
 mod listed;
 mod lockfile;
