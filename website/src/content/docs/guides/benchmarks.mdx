@@ -194,24 +194,24 @@ both tools on pinned public repositories and compares the findings per issue typ
 committed baseline of that comparison:
 
 {/* parity:agreement:start */}
-Findings knip@6.44.1 and skif share on 16 pinned repositories (angular, babel, cal-com, create-t3-turbo, jest, mastra, n8n, next-js, npm-cli, opencode, rules-js, rushstack, tanstack-query, vercel-examples, vscode, vue-core; 16 of them installed), from `tools/bench/baselines/parity.json`, recorded at skif `1c497a74f5fa`.
+Findings knip@6.44.1 and skif share on 18 pinned repositories (angular, babel, cal-com, create-t3-turbo, jest, mastra, n8n, next-js, npm-cli, nx-examples-integrated, opencode, rules-js, rushstack, tanstack-query, turborepo-examples, vercel-examples, vscode, vue-core; 18 of them installed), from `tools/bench/baselines/parity.json`, recorded at skif `31e2e6343385`, `cf3cc6975fc7-dirty`.
 
 | Finding | Shared | Of skif's findings | Of knip's findings |
 | --- | ---: | ---: | ---: |
-| Unused files | 11,041 | 100% | 96% |
-| Unused exports | 6,918 | 99% | 91% |
-| Unused types | 3,328 | 99% | 89% |
-| Unused dev dependencies | 1,236 | 99% | 98% |
-| Unlisted dependencies | 819 | 97% | 60% |
-| Unused dependencies | 630 | 98% | 95% |
-| Unused namespace exports | 424 | 100% | 76% |
-| Unused namespace types | 312 | 100% | 93% |
-| Duplicate exports | 158 | 96% | 83% |
-| Unused enum members | 129 | 100% | 24% |
+| Unused files | 10,541 | 100% | 94% |
+| Unused exports | 7,107 | 99% | 95% |
+| Unused types | 3,526 | 98% | 98% |
+| Unused dev dependencies | 1,240 | 99% | 97% |
+| Unlisted dependencies | 820 | 95% | 60% |
+| Unused dependencies | 507 | 98% | 95% |
+| Unused namespace exports | 425 | 100% | 91% |
+| Unused namespace types | 316 | 100% | 97% |
+| Duplicate exports | 159 | 96% | 99% |
+| Unused enum members | 122 | 100% | 23% |
 | Unused namespace members | 105 | 99% | 94% |
-| Unlisted binaries | 85 | 90% | 36% |
-| Unresolved imports | 26 | 100% | 38% |
-| Unused optional peer dependencies | 3 | 60% | 60% |
+| Unlisted binaries | 86 | 93% | 36% |
+| Unresolved imports | 29 | 100% | 42% |
+| Unused optional peer dependencies | 3 | 50% | 60% |
 {/* parity:agreement:end */}
 
 A low share means the tools differ, and either one could be right. Some differences are intended and counted apart:
