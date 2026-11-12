@@ -104,7 +104,10 @@ fn script_tags_captured_by_an_imports_pattern_make_what_they_load_used() {
 #[test]
 fn a_compiler_file_nothing_loads_is_an_unused_project_file() {
     let mut files = html_package();
-    files.push(("packages/a/public/stray.html", "<script src=\"../src/orphan.ts\"></script>\n"));
+    files.push((
+        "packages/a/public/stray.html",
+        "<script src=\"../src/orphan.ts\"></script>\n",
+    ));
     let with = lint(&files, &format!("{HTML}{HTML_ENTRY}"));
     assert_eq!(
         paths(&with, "unused-files"),
@@ -113,10 +116,7 @@ fn a_compiler_file_nothing_loads_is_an_unused_project_file() {
     );
 
     // A `project` of the workspace that leaves the extension out leaves such files unjudged.
-    let narrowed = lint(
-        &files,
-        &format!("{HTML}{HTML_ENTRY}project = [\"src/**/*.ts\"]\n"),
-    );
+    let narrowed = lint(&files, &format!("{HTML}{HTML_ENTRY}project = [\"src/**/*.ts\"]\n"));
     assert_eq!(paths(&narrowed, "unused-files"), ["packages/a/src/orphan.ts"]);
 }
 
@@ -124,7 +124,10 @@ fn a_compiler_file_nothing_loads_is_an_unused_project_file() {
 fn an_extracted_import_is_unresolved_or_unlisted_where_a_written_one_would_be() {
     let files = vec![
         MANIFEST,
-        ("packages/a/package.json", r#"{"name":"@x/a","dependencies":{"listed":"1"}}"#),
+        (
+            "packages/a/package.json",
+            r#"{"name":"@x/a","dependencies":{"listed":"1"}}"#,
+        ),
         (
             "packages/a/index.html",
             "<script src=\"./src/missing.ts\"></script>\n<script src=\"some-lib/dist/x.js\"></script>\n\
@@ -188,5 +191,8 @@ fn a_project_pattern_naming_a_compiler_extension_is_no_unanalysed_extension() {
             .collect()
     };
     assert_eq!(unregistered(&lint(&files, &project)).len(), 1);
-    assert_eq!(unregistered(&lint(&files, &format!("{HTML}{project}"))), Vec::<String>::new());
+    assert_eq!(
+        unregistered(&lint(&files, &format!("{HTML}{project}"))),
+        Vec::<String>::new()
+    );
 }

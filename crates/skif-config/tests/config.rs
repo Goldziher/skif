@@ -1219,7 +1219,9 @@ fn every_js_compiler_reader_is_named_once_and_in_order() {
     sorted.sort_unstable();
     sorted.dedup();
     assert_eq!(sorted, readers);
-    for reader in ["js", "ts", "tsx", "vue", "svelte", "astro", "mdx", "marko", "tsrx", "css", "scss"] {
+    for reader in [
+        "js", "ts", "tsx", "vue", "svelte", "astro", "mdx", "marko", "tsrx", "css", "scss",
+    ] {
         assert!(readers.contains(&reader), "{reader}");
     }
 }

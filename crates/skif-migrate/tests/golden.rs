@@ -1743,7 +1743,10 @@ fn a_knip_compiler_function_for_another_file_type_points_at_js_compilers() {
     );
     let compiler = note(&migration, "compilers.html");
     assert_eq!(compiler.class, NoteClass::Unsupported);
-    assert_eq!(compiler.message, "custom compilers are functions, which skif never runs");
+    assert_eq!(
+        compiler.message,
+        "custom compilers are functions, which skif never runs"
+    );
     assert!(
         compiler
             .suggestion

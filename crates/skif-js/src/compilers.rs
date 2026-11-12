@@ -111,8 +111,11 @@ mod tests {
     use crate::resolve::is_read_file;
 
     fn declared(entries: &[(&str, JsCompiler)]) -> Compilers {
-        let map: IndexMap<String, JsCompiler> =
-            entries.iter().cloned().map(|(key, value)| (key.to_owned(), value)).collect();
+        let map: IndexMap<String, JsCompiler> = entries
+            .iter()
+            .cloned()
+            .map(|(key, value)| (key.to_owned(), value))
+            .collect();
         Compilers::new(&map)
     }
 
@@ -144,7 +147,14 @@ mod tests {
         let found: Vec<(&str, ImportKind, u32, u32)> = info
             .imports
             .iter()
-            .map(|import| (import.specifier.as_str(), import.kind, import.span.start_line, import.span.start_col))
+            .map(|import| {
+                (
+                    import.specifier.as_str(),
+                    import.kind,
+                    import.span.start_line,
+                    import.span.start_col,
+                )
+            })
             .collect();
         assert_eq!(
             found,
@@ -172,6 +182,9 @@ mod tests {
             assert!(!compilers.handles(Path::new(path)), "{path}");
         }
         assert_eq!(compilers.extensions().collect::<Vec<_>>(), ["doc", "html"]);
-        assert_eq!(reader_path(Path::new("/r/docs/page.doc"), "mdx"), Path::new("/r/docs/page.mdx"));
+        assert_eq!(
+            reader_path(Path::new("/r/docs/page.doc"), "mdx"),
+            Path::new("/r/docs/page.mdx")
+        );
     }
 }

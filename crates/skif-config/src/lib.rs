@@ -29,9 +29,9 @@ pub use error::ConfigError;
 pub use model::{
     Catalog, CatalogMode, Config, CustomStrategy, CustomType, DEFAULT_DISCOVER_IGNORE, DEFAULT_MAX_CONCURRENT_REQUESTS,
     DependencyFamily, ExportKinds, FIXTURE_DIRECTORIES, FamilyScope, Format, GroupScope, IgnoreEntry,
-    IgnoreExportsUsedInFile, IgnoreItem, InstanceFilter, Js, JsCompiler, JsCycles, JsDiscovery, JsWorkspace, Lint, Override,
-    OverrideReading, OverrideScope, PackageJs, PackageManager, PluginConfig, PluginOptions, Policy, Prefer, ResetKey,
-    SemverGroup, SemverRange, Update, UpdateGroup, UpdateTarget, VersionGroup, VersionPolicy, Workspace,
+    IgnoreExportsUsedInFile, IgnoreItem, InstanceFilter, Js, JsCompiler, JsCycles, JsDiscovery, JsWorkspace, Lint,
+    Override, OverrideReading, OverrideScope, PackageJs, PackageManager, PluginConfig, PluginOptions, Policy, Prefer,
+    ResetKey, SemverGroup, SemverRange, Update, UpdateGroup, UpdateTarget, VersionGroup, VersionPolicy, Workspace,
     WorkspaceProtocol,
 };
 pub use overrides::ConfigOverrides;

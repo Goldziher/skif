@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use skif_config::{
-    Ceiling, Config, ConfigCache, ConfigError, ConfigLoader, ConfigOverrides, JsCompiler, Level, Op, PluginConfig, ResolvedConfig,
-    SourceKind, VersionPolicy, discover,
+    Ceiling, Config, ConfigCache, ConfigError, ConfigLoader, ConfigOverrides, JsCompiler, Level, Op, PluginConfig,
+    ResolvedConfig, SourceKind, VersionPolicy, discover,
 };
 use skif_core::{FileSystem, MemoryFs};
 
