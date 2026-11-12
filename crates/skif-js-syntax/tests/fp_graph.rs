@@ -208,33 +208,76 @@ fn signature_references_follow_the_first_import_binding_and_exported_containers_
 }
 
 #[test]
-fn only_members_read_by_name_in_the_declaring_file_are_recorded() {
+fn members_read_by_name_in_the_declaring_file_are_recorded() {
     let info = parse(
         "a.ts",
         "export enum Color { Red, Green, Blue }\n\
          export const first = Color.Red;\n\
          export const second = Color['Green'];\n\
-         export function describe(c: Color, k: keyof typeof Color): string { return String(c) + k; }\n\
+         export function describe(c: Color): string { return String(c); }\n\
          export enum Mode { A, B }\n\
+         export const { A } = Mode;\n\
          export const modes = Object.values(Mode);\n\
-         export const copy = { ...Mode };\n\
-         export const bare = Mode;\n\
-         export const dynamic = (k: string) => Mode[k];\n\
-         export function each() { for (const k in Mode) { console.log(k); } }\n\
          export enum Hidden { A, B }\n\
-         export { Hidden as Renamed };\n\
-         export const { A } = Mode;\n",
+         export { Hidden as Renamed };\n",
     );
-    let read = |name: &str| {
+    let facts = |name: &str| {
         info.exports
             .iter()
             .find(|export| export.name == name)
-            .map(|export| export.members_read_in_file.clone())
+            .map(|export| (export.members_read_in_file.clone(), export.used_whole_in_file))
             .unwrap()
     };
-    assert_eq!(read("Color"), ["Green", "Red"]);
-    assert_eq!(read("Mode"), ["A"]);
-    assert_eq!(read("Hidden"), Vec::<String>::new());
+    assert_eq!(facts("Color"), (vec!["Green".to_owned(), "Red".to_owned()], false));
+    assert_eq!(facts("Mode"), (vec!["A".to_owned()], true));
+    assert_eq!(facts("Hidden"), (Vec::<String>::new(), false));
+}
+
+#[test]
+fn an_enum_used_as_a_whole_in_its_own_file_is_flagged_and_one_read_by_name_or_annotated_is_not() {
+    let cases: &[(&str, bool)] = &[
+        ("export const all = Object.values(E);", true),
+        ("export const names = Object.keys(E);", true),
+        ("declare function use(e: unknown): void;\nuse(E);", true),
+        ("export const copy = { ...E };", true),
+        (
+            "export function each() { for (const k in E) { console.log(k); } }",
+            true,
+        ),
+        ("export const pick = (k: string) => E[k as keyof typeof E];", true),
+        ("export const dynamic = (k: 'A' | 'B') => E[k];", true),
+        ("export const bare = E;", true),
+        ("export function get() { return E; }", true),
+        ("export type Shape = typeof E;", true),
+        ("export type Keys = keyof typeof E;", true),
+        ("export type Values = `${E}`;", true),
+        ("export type Prefixed = `on-${E}`;", true),
+        ("export function annotated(e: E): E { return e; }", false),
+        ("export const read = E.A;", false),
+        ("export const literal = E['A'];", false),
+        ("export const { A } = E;", false),
+        ("export type One = `${E.A}`;", false),
+        ("export type OneValue = typeof E.A;", false),
+        ("export { E as Renamed };", false),
+    ];
+    for (code, whole) in cases {
+        let info = parse(
+            "a.ts",
+            &format!("enum E {{ A = 'a', B = 'b' }}\nexport {{ E }};\n{code}\n"),
+        );
+        let export = info.exports.iter().find(|export| export.name == "E").unwrap();
+        assert_eq!(export.used_whole_in_file, *whole, "{code}");
+    }
+}
+
+#[test]
+fn a_namespace_used_as_a_whole_in_its_own_file_is_not_flagged() {
+    let info = parse(
+        "a.ts",
+        "export namespace N { export const a = 1; export const b = 2; }\nexport const all = Object.values(N);\n",
+    );
+    let export = info.exports.iter().find(|export| export.name == "N").unwrap();
+    assert!(!export.used_whole_in_file, "{export:?}");
 }
 
 #[test]

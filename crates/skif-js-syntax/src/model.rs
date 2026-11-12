@@ -31,6 +31,9 @@ pub enum ImportKind {
     /// `vi.mock("x")`, `jest.mock("x")` and the other test-runner calls that name a module: the test loads or
     /// replaces the module, which keeps a local file reachable but is not an import of a dependency.
     Mock,
+    /// `new URL("./x", import.meta.url)`, which the parser does not report: the file is loaded as a program of its own
+    /// (a worker, an asset), so every export of it counts as used, as for an entry.
+    Url,
 }
 
 /// A test-runner call that names a module, recorded on an [`ImportKind::Mock`] import. It serializes as the call is
@@ -364,6 +367,11 @@ pub struct Export {
     /// namespace member's bare name inside the namespace body); sorted.
     #[serde(default)]
     pub members_read_in_file: Vec<String>,
+    /// An enum export used as a whole in this file, which may read any member: as a value (`Object.values(E)`,
+    /// `E[key]`, a spread, `for (k in E)`, passed, stored or returned) or in a type through `typeof E` or a template
+    /// literal type (`${E}`). A type annotation `x: E` names the enum type and reads no member.
+    #[serde(default)]
+    pub used_whole_in_file: bool,
     /// `export const b = a`: the identifier the exported constant is initialised with.
     #[serde(default)]
     pub alias_of: Option<String>,

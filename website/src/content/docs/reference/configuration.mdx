@@ -1036,11 +1036,14 @@ exports like any other. A fixture file is still read when an entry reaches it, b
 dependency only an unreached fixture imports stays unused. Other directories of test data (`api-fixtures`,
 `__testfixtures__`) and other test file names (`*_spec.*`) go on `ignore` and `entry`. In a package whose `exports` contain a wildcard (`"./*": "./src/*.ts"`) the
 `*` matches across directories, as in Node.js, so every file it matches is an entry; the catch-all `"./*"` and the `main`, `bin` and `types` fields are not widened. In an enum or a namespace, a
-member read in its own file (`E.A`, `E["A"]`, `const { A } = E`) counts as used; using the whole enum there
-(`Object.values(E)`, `E[key]`, a spread, passing it as a value) or mentioning its type (`x: E`, `typeof E`) credits no
-member, as in knip. Inside a namespace, a member read by its bare name (`findVisible()`, `token: ProgressToken`) counts
+member read in its own file (`E.A`, `E["A"]`, `const { A } = E`) counts as used. Using the whole enum there
+(`Object.values(E)`, `E[key]`, a spread, passing it as a value, `typeof E`, `keyof typeof E` or `` `${E}` `` in a
+type) uses every member of it, where knip credits none; a type annotation `x: E` names the enum type and uses no
+member ([ADR 0126](https://github.com/Goldziher/skif/blob/main/adrs/0126-a-whole-use-of-an-enum-in-its-own-file-uses-every-member.md)).
+A namespace used as a whole in its own file credits none of its members. Inside a namespace, a member read by its bare name (`findVisible()`, `token: ProgressToken`) counts
 as used, unless a parameter or local of the same name shadows it; the declarations of a merged namespace share their
-members. A file that another loads with `new URL("./x", import.meta.url)` is used as a whole. A module that a test mocks
+members. A file that another loads with `new URL("./x", import.meta.url)` is used as a whole, its types included: it runs as a
+program of its own, as an entry does. A module that a test mocks
 (`vi.mock("x")`, `jest.mock("x")`, `jest.requireActual("x")` and the like, read from the syntax tree, so a call written
 inside a string does not count) stays reachable, and a listed package it names is used, but mocking a package that no
 `package.json` lists is not an unlisted import; a `{ virtual: true }` mock is ignored. A relative or aliased mock
@@ -1294,11 +1297,15 @@ counterpart. These differences are deliberate:
   (`":node_modules/esbuild"`, `"//packages/app:node_modules/@types/node"`) and a load of a package's
   `package_json.bzl` (`"@npm//packages/app:esbuild/package_json.bzl"`) use that dependency; a label of another
   package's `node_modules` belongs to that package, so `"//:node_modules/typescript"` in a member's `BUILD` file uses
-  the root's `typescript`. The `entry_point` and `data` of `js_binary`, `js_run_devserver` and `js_test` and the
-  `srcs` and `data` of `js_library` and `ts_project` are entries (production entries except for `js_test`) when they
-  name an existing file of the package, by path or as `":path"`; `glob()`, `select()` and variables name nothing, nor
-  does a macro of a `.bzl` file. The `BUILD` files of a nested package give no entries, and those below the `bazel-*`
-  links at the repository root are not read.
+  the root's `typescript`. The `entry_point` of `js_binary`, `js_run_devserver` and `js_test` is an entry, and the
+  `data` of those rules and the `srcs` and `data` of `js_library` and `ts_project` are build sources: used files whose
+  imports are followed but whose exports, types and members are judged, as they are no entries. A literal counts
+  when it names an existing file of the package, by path or as `":path"` (one of a workspace member below the
+  package is an entry or build source of that member, and one of a nested root an entry of that root under
+  `skif -r`), and those of `js_test` only outside
+  `--production`; `glob()`, `select()` and variables name nothing, nor does a macro of a `.bzl` file. The `BUILD`
+  files of a nested package give no entries or build sources, and those below the `bazel-*` links at the repository
+  root are not read.
 - A `tsconfig` with `outDir` maps build output back to source through its `rootDir`. Without one, skif takes the
   longest common directory of the `include` patterns (each up to its first wildcard) and the `files`, not counting
   declaration files; TypeScript computes it from the files it compiles. A config with neither keeps the `dist` to

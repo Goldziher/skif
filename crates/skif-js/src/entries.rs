@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use skif_core::HashSet;
+use skif_core::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -12,6 +12,7 @@ use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 use crate::analysis::on_disk;
 use crate::ancestors::external_manifests;
 use crate::discover::{Candidate, is_ignored_in_repository, relative};
+use crate::explain::EntryReason;
 use crate::globs::Globs;
 use crate::manifest_paths::{
     bin_stub_sources, bin_targets, crossing_stars, is_out_dir, manifest_targets, map_to_source, should_have_source,
@@ -25,6 +26,11 @@ use crate::setup::{PackageSetup, Setup};
 pub(crate) struct EntryFiles {
     /// Sorted and without duplicates.
     pub files: Vec<PathBuf>,
+    /// The build sources of every package ([`PackageSetup::build_source`]), its own files and those of the packages
+    /// nested below it ([`PackageSetup::shared_build_source`]): the module graph starts from them too, but their
+    /// exports are judged. One that is also an entry stays an entry ([`crate::graph`] interns entries first). Sorted
+    /// and without duplicates.
+    pub build_sources: Vec<PathBuf>,
     /// Packages whose real entries are unknown, so their files and dependencies cannot be judged unused, with the
     /// cause: those that publish build output or bin files none of which maps back to a source file
     /// ([`IncompleteCause::UnmappedPublished`]), and those with no source file at or below their directory other than
@@ -37,9 +43,13 @@ pub(crate) struct EntryFiles {
     /// manifest, whose exports are judged like a configured entry's). A configured entry naming one of them is
     /// redundant (knip's `entry-redundant`).
     pub provided: HashSet<PathBuf>,
-    /// Files that plugins name as entries (a workflow step's `node build/report.ts`) and that exist but are no
-    /// candidate of this analysis, absolute and sorted: a multi-root run hands them to the root that owns them.
+    /// Files that plugins name as entries (a workflow step's `node build/report.ts`) or as build sources and that exist
+    /// but are no candidate of this analysis, absolute and sorted: a multi-root run hands them to the root that owns
+    /// them, as entries.
     pub other_roots: Vec<PathBuf>,
+    /// The entry files that a script runs, also through a build directory (`node dist/cli.js` for `src/cli.ts`), and
+    /// that a bin stub loads, with that reason, which `explain-usage` cannot find from the paths alone.
+    pub origins: HashMap<PathBuf, EntryReason>,
 }
 
 /// Where published paths are looked up to tell build output not built yet from a path into nothing: `fs` lists
@@ -86,14 +96,23 @@ pub(crate) fn entry_files(
     let mut unknown = Vec::new();
     let mut provided = HashSet::default();
     let mut other_roots = BTreeSet::new();
+    let mut build_sources = BTreeSet::new();
+    let mut origins = HashMap::default();
     for mut package in found {
         entries.append(&mut package.entries);
+        build_sources.append(&mut package.build_sources);
         unknown.extend(package.unknown);
         provided.extend(package.provided);
         other_roots.append(&mut package.other_roots);
+        for (path, reason) in package.origins {
+            origins.entry(path).or_insert(reason);
+        }
     }
     if !setup.production {
-        entries.extend(ancestor_script_files(fs, workspace, candidates));
+        for path in ancestor_script_files(fs, workspace, candidates) {
+            origins.entry(path.clone()).or_insert(EntryReason::Script);
+            entries.insert(path);
+        }
     }
     entries.extend(
         extra
@@ -102,10 +121,12 @@ pub(crate) fn entry_files(
             .map(|candidate| candidate.abs.clone()),
     );
     EntryFiles {
+        build_sources: build_sources.into_iter().collect(),
         files: entries.into_iter().collect(),
         unknown,
         provided,
         other_roots: other_roots.into_iter().collect(),
+        origins,
     }
 }
 
@@ -121,10 +142,12 @@ struct EntryContext<'a> {
 /// The findings of one package, merged into [`EntryFiles`] in package order.
 struct PackageEntries {
     entries: BTreeSet<PathBuf>,
+    build_sources: BTreeSet<PathBuf>,
     unknown: Vec<(PackageId, IncompleteCause)>,
     /// In the order they are found, so the merged set is built in the same order as one package after another.
     provided: Vec<PathBuf>,
     other_roots: BTreeSet<PathBuf>,
+    origins: Vec<(PathBuf, EntryReason)>,
 }
 
 impl EntryContext<'_> {
@@ -150,6 +173,7 @@ impl EntryContext<'_> {
         let mut own = BTreeSet::new();
         // What provides an entry besides the configured and default globs.
         let mut from_tools = BTreeSet::new();
+        let mut build_sources = BTreeSet::new();
         for (candidate, rel) in owned() {
             if package_setup.entry.is_match(&rel) {
                 own.insert(candidate.abs.clone());
@@ -157,8 +181,22 @@ impl EntryContext<'_> {
                     from_tools.insert(candidate.abs.clone());
                 }
             }
+            if package_setup.build_source.is_match(&rel) {
+                build_sources.insert(candidate.abs.clone());
+            }
         }
-        own.extend(nested_entries(workspace, setup, candidates, id, package_setup));
+        own.extend(nested_matches(
+            (workspace, setup, candidates),
+            id,
+            package_setup,
+            &package_setup.shared_entry,
+        ));
+        build_sources.extend(nested_matches(
+            (workspace, setup, candidates),
+            id,
+            package_setup,
+            &package_setup.shared_build_source,
+        ));
         if !package_setup.external_entry.is_empty() {
             own.extend(
                 candidates
@@ -200,9 +238,11 @@ impl EntryContext<'_> {
                 published_without_source = true;
             }
         }
+        let mut origins = Vec::new();
         for target in bin_targets(package.manifest.value()) {
             let sources = bin_stub_sources(fs, &package_setup.dir, &target);
             mapped_any |= !sources.is_empty();
+            origins.extend(sources.iter().map(|source| (source.clone(), EntryReason::BinStub)));
             from_tools.extend(sources);
         }
         own.extend(from_tools.iter().cloned());
@@ -218,7 +258,9 @@ impl EntryContext<'_> {
             .cloned()
             .collect();
         if !setup.production {
-            tool_entries.extend(script_files(fs, package_setup, mine));
+            let run = script_files(fs, package_setup, mine);
+            origins.extend(run.iter().map(|path| (path.clone(), EntryReason::Script)));
+            tool_entries.extend(run);
         }
         if !package_setup.include_entry_exports {
             provided.extend(tool_entries.iter().cloned());
@@ -227,6 +269,7 @@ impl EntryContext<'_> {
         let other_roots = package_setup
             .plugin_entry_files
             .iter()
+            .chain(&package_setup.build_source_files)
             .filter(|path| {
                 is_code_file(path)
                     && relative(path, &workspace.root).is_none_or(|rel| candidate_at(candidates, &rel).is_none())
@@ -249,9 +292,11 @@ impl EntryContext<'_> {
         }
         PackageEntries {
             entries: own,
+            build_sources,
             unknown,
             provided,
             other_roots,
+            origins,
         }
     }
 }
@@ -268,16 +313,16 @@ fn is_install_hook(path: &Path) -> bool {
         .is_some_and(|name| INSTALL_HOOKS.contains(&name))
 }
 
-/// Files of workspace packages nested below `package_setup` that its plugin and configuration entry globs match.
-/// Packages excluded with `ignore-packages` own no files that count.
-fn nested_entries<'a>(
-    workspace: &'a Workspace,
-    setup: &'a Setup,
-    candidates: &'a [Candidate],
+/// Files of workspace packages nested below package `id`, whose settings are `package_setup`, that `shared` matches:
+/// its plugin and configuration entry globs ([`PackageSetup::shared_entry`]) or its build sources
+/// ([`PackageSetup::shared_build_source`]). Packages excluded with `ignore-packages` own no files that count.
+fn nested_matches<'a>(
+    (workspace, setup, candidates): (&'a Workspace, &'a Setup, &'a [Candidate]),
     id: PackageId,
     package_setup: &'a PackageSetup,
+    shared: &'a Globs,
 ) -> impl Iterator<Item = PathBuf> + 'a {
-    let nested: &[Candidate] = if package_setup.shared_entry.is_empty() {
+    let nested: &[Candidate] = if shared.is_empty() {
         &[]
     } else {
         below(candidates, &workspace.root, &package_setup.dir)
@@ -285,9 +330,7 @@ fn nested_entries<'a>(
     nested
         .iter()
         .filter(move |candidate| candidate.owner != id && setup.package(candidate.owner).is_some())
-        .filter(move |candidate| {
-            relative(&candidate.abs, &package_setup.dir).is_some_and(|rel| package_setup.shared_entry.is_match(&rel))
-        })
+        .filter(move |candidate| relative(&candidate.abs, &package_setup.dir).is_some_and(|rel| shared.is_match(&rel)))
         .map(|candidate| candidate.abs.clone())
 }
 

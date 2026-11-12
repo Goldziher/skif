@@ -17,11 +17,19 @@ applies.
   `bazel` plugin reads the `BUILD.bazel` and `BUILD` files of each package that has one at its top:
   - A `node_modules` label (`":node_modules/esbuild"`, `"//packages/app:node_modules/zod"`) or a `package_json.bzl`
     load (`"@npm//packages/app:esbuild/package_json.bzl"`) uses that dependency in the package whose directory is the
-    label's Bazel package. A dependency named this way in the package's own `BUILD` file that its `package.json`
-    does not list is `unlisted-dependencies` at that file.
-  - The `entry_point` and `data` of `js_binary`, `js_run_devserver` and `js_test`, and the `srcs` and `data` of
-    `js_library` and `ts_project`, are entries when a literal names an existing file of the package (`"src/main.ts"`
-    or `":src/main.ts"`). Those of `js_test` count only outside `--production`.
+    label's Bazel package, and in no other: a nested package whose `BUILD` file holds a label of an enclosing
+    package's `node_modules` does not use its own listing through it. A dependency named this way that the label's
+    package does not list is `unlisted-dependencies` at that `BUILD` file.
+  - The `entry_point` of `js_binary`, `js_run_devserver` and `js_test` is an entry, whose exports are public, when a
+    literal names an existing file of the package (`"src/main.ts"` or `":src/main.ts"`).
+  - The `data` of those rules and the `srcs` and `data` of `js_library` and `ts_project` are build sources: the files
+    so named are used, and so is what they import, but they are no entries. Their unused exports and types are
+    `unused-exports` and `unused-types`, and their members and duplicates are checked, as in any other module. A file
+    that something else makes an entry (a `main` or `bin` of `package.json`, an `entry` glob) stays one.
+  - A root `BUILD` file can name the files of a workspace member below it that has no `BUILD` file of its own
+    (`srcs = ["packages/foo/src/x.ts"]`): they are entries or build sources of that member. One in a project of its
+    own below the root (a nested root) is an entry of that root under `skif -r`.
+  - The files of `js_test` count only outside `--production`.
 - **Output trees.** The `bazel-bin`, `bazel-out`, `bazel-testlogs` and `bazel-<workspace>` links at the top of the
   Bazel repository are never read. An import that reaches a file there, directly or through `rootDirs`, is generated
   code and is not followed.
@@ -46,11 +54,11 @@ applies.
 ## What skif does not read
 
 - **Macros and computed values.** Only literals count. A `glob([...])`, a `select({...})`, a variable, or a target that
-  a macro in a `.bzl` file defines names no dependency, entry or output. Such a file can be `unused-files` and such
-  an import `unresolved-imports`.
+  a macro in a `.bzl` file defines names no dependency, entry, build source or output. Such a file can be
+  `unused-files` and such an import `unresolved-imports`.
 - **Labels in a sibling package.** Each package reads only the `BUILD` files below its own directory, so
   `"//packages/app:node_modules/zod"` written in `packages/web/BUILD.bazel` does not count for `packages/app`. A
-  nested package's `BUILD` file still counts for the package above it, but gives it no entries.
+  nested package's `BUILD` file still counts for the package above it, but gives it no entries or build sources.
 - **Generated code.** The imports of a file in `bazel-bin` are not judged. The dependencies its target names
   (`srcs = [":node_modules/zod"]`) are used instead.
 - **`.bazelignore`.** The JS analysis does not honour it: nested Bazel modules listed there are often pnpm
@@ -271,8 +279,18 @@ bazel = false
 - A `bazel-*` link member is left out of the analysis even when it was meant to be linted; `!bazel-*` is the supported
   layout.
 - Installing skif through rules_js is untested (above).
+- The exports of `srcs` and `data` files are judged, so an export that another Bazel target reads only through a
+  module name that Bazel maps and skif does not resolve (a package name that an `npm_package` target gives and no
+  `package.json`, `tsconfig` `paths` or `[js] paths` entry does) is `unused-exports`. Tag it `@public`, or name a
+  tag of your own in the `ignore-tags` option of `unused-exports`:
+
+  ```toml
+  [rules]
+  unused-exports = { ignore-tags = ["bazel"] }
+  ```
 
 The decisions are in [ADR 0115](https://github.com/Goldziher/skif/blob/main/adrs/0115-bazel-build-files-and-output-trees-in-the-js-analysis.md),
 [ADR 0116](https://github.com/Goldziher/skif/blob/main/adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
-[ADR 0112](https://github.com/Goldziher/skif/blob/main/adrs/0112-paths-under-bazel-run.md) and
-[ADR 0117](https://github.com/Goldziher/skif/blob/main/adrs/0117-the-cache-default-under-bazel-test.md).
+[ADR 0112](https://github.com/Goldziher/skif/blob/main/adrs/0112-paths-under-bazel-run.md),
+[ADR 0117](https://github.com/Goldziher/skif/blob/main/adrs/0117-the-cache-default-under-bazel-test.md) and
+[ADR 0124](https://github.com/Goldziher/skif/blob/main/adrs/0124-bazel-rule-sources-are-used-files-not-entries.md).

@@ -397,6 +397,15 @@ pub(crate) struct PackageSetup {
     /// The plugin entries that name one file rather than a glob (a workflow step's `node build/report.ts`), absolute.
     /// One that is no file of this analysis may belong to another root of a multi-root run.
     pub plugin_entry_files: Vec<PathBuf>,
+    /// The build sources plugins give (the `srcs` and `data` of a Bazel rule), for the mode: files the module graph
+    /// starts from, whose exports are judged, unlike an entry's.
+    pub build_source: Globs,
+    /// The build sources that, like [`Self::shared_entry`], also match files of the workspace packages nested below
+    /// this one: a root `BUILD` file names the sources of a member that has none of its own.
+    pub shared_build_source: Globs,
+    /// The build sources that name one file rather than a glob, absolute. One that is no file of this analysis may
+    /// belong to another root of a multi-root run, as a [`Self::plugin_entry_files`] path may.
+    pub build_source_files: Vec<PathBuf>,
     /// The tool configuration of the package could not be fully read, so its entry files are not all known.
     /// Files and dependencies cannot be judged unused then.
     pub entries_incomplete: bool,
@@ -899,6 +908,20 @@ impl Setup {
                 .map(|pattern| join_normalized(&abs_dir, pattern))
                 .collect();
             plugin_entry.retain(|pattern| !pattern.trim_start_matches('!').starts_with("../"));
+            let mut build_source = plugin.production_build_source;
+            if !production {
+                build_source.extend(plugin.build_source);
+            }
+            let shared_build_source: Vec<String> = build_source
+                .iter()
+                .filter(|pattern| is_shared_pattern(pattern))
+                .cloned()
+                .collect();
+            let build_source_files: Vec<PathBuf> = build_source
+                .iter()
+                .filter(|pattern| is_literal_path(pattern))
+                .map(|pattern| join_normalized(&abs_dir, pattern))
+                .collect();
 
             let tsconfig_project = js
                 .use_tsconfig_files
@@ -967,6 +990,9 @@ impl Setup {
                 shared_entry: globs.globs(&shared_entry),
                 plugin_entry: globs.globs(&plugin_entry).with_regexes(entry_regex),
                 plugin_entry_files,
+                build_source: globs.globs(&build_source),
+                shared_build_source: globs.globs(&shared_build_source),
+                build_source_files,
                 entries_incomplete: plugin.entries_incomplete,
                 incomplete_scope: match &plugin.incomplete_scope {
                     IncompleteScope::Within(patterns) if plugin.entries_incomplete => {
