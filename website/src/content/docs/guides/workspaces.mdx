@@ -126,6 +126,12 @@ root. A nested workspace that the patterns do not select is an independent proje
 workspace it also reports a member `package.json` that declares `workspaces`: Bun reads the field from the root
 `package.json` only, so it never installs the packages such a member lists.
 
+After a Bazel build the root holds convenience links (`bazel-bin`, `bazel-out`, `bazel-testlogs` and `bazel-<name>`,
+the last a link to the execroot, which mirrors the root). A `*` or glob segment of a workspace pattern follows links to
+directories, as pnpm's does, so `packages: ['*']` makes such a link a member. skif keeps it a member, excludes it from
+analysis so the root's findings are not repeated under it, and `nested-workspace-root` reports it once, at its
+`package.json`, with the detail `BazelConvenienceLink`. Add `!bazel-*` to the patterns to drop it.
+
 Both rules look at the root and the directories the workspace patterns select, not deeper, and skip files a
 `.gitignore`, an `.ignore` or `.git/info/exclude` excludes and members `[workspace] ignore-packages` excludes. A
 project that is installed on its own on purpose is better excluded from the workspace patterns; when it has to stay,
