@@ -26,6 +26,7 @@ All notable changes to this project are documented here. The format follows
   (`const { coverage } = config.test; coverage.enabled = true`) is applied to that part of the local, so the rest of
   the config, and the options spread into it, stay known; a local with more than one such alias, or one shared with
   another function, is still left partly unknown ([#166](https://github.com/Goldziher/skif/issues/166)).
+
 ### Changed
 
 - `DepRef` of `skif-js-plugins` gains `dir`, the directory a command loads the package in after `cd`, and `BinaryRef`
@@ -57,6 +58,7 @@ All notable changes to this project are documented here. The format follows
   list the member, as under pnpm's isolated linker
   ([ADR 0120](adrs/0120-working-directories-binaries-missing-where-a-command-runs-and-npm-s-linked-strategy.md),
   [#162](https://github.com/Goldziher/skif/issues/162)).
+
 ### Added
 
 - `stale-lerna-config` (`warn`): `useWorkspaces` in `lerna.json` and a `lerna.json` without `version`, which Lerna 7
@@ -180,6 +182,7 @@ All notable changes to this project are documented here. The format follows
   unresolved in every state
   ([ADR 0115](adrs/0115-bazel-build-files-and-output-trees-in-the-js-analysis.md),
   [#170](https://github.com/Goldziher/skif/issues/170)).
+
 ### Changed
 
 - The GitHub Action is named `skif dependency linter`, because the GitHub Marketplace needs a name that no other action, user or organization holds. Workflows keep `uses: Goldziher/skif@v0.3`.

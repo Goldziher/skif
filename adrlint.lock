@@ -570,3 +570,33 @@ blake3 = "f24ade40030c2b634df3f18276f8e9f48d7a8691cacf51d140ef921c21516a9e"
 number = 114
 status = "accepted"
 blake3 = "eed3685bb6b5522e513d25adc46fb361a554a07de1940028a1dcf74d23ae368d"
+
+[adrs."adrs/0115-bazel-build-files-and-output-trees-in-the-js-analysis.md"]
+number = 115
+status = "accepted"
+blake3 = "7a700939227ad0eca3186ca1f0651e4897d3fb84c440ea767ea2ff77489e95f3"
+
+[adrs."adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md"]
+number = 116
+status = "accepted"
+blake3 = "3afb37746489234fdbf59e58f8894a9c84d071ab6d1744ad83a3c05b291e7d85"
+
+[adrs."adrs/0117-the-cache-default-under-bazel-test.md"]
+number = 117
+status = "accepted"
+blake3 = "5aa43ca45a09e9766e3b7c82db61a6f1654e00b9154e7e5e05bc0d3bbbdea68a"
+
+[adrs."adrs/0118-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md"]
+number = 118
+status = "accepted"
+blake3 = "366c1eed6face86a7a56c67b6f723d8574fbdab9696053c99f9dbdb78bd897f7"
+
+[adrs."adrs/0119-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md"]
+number = 119
+status = "accepted"
+blake3 = "6c6df647019e32814ce747977c510903b4db90cfbd97ecfa7b8ee36fa5f80877"
+
+[adrs."adrs/0120-working-directories-binaries-missing-where-a-command-runs-and-npm-s-linked-strategy.md"]
+number = 120
+status = "accepted"
+blake3 = "7a77c839806a05a3db642b46d443553ecdaf2ac6092170bdc49f4ca9ac35df13"
