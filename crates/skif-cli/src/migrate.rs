@@ -285,10 +285,7 @@ struct Plan {
 fn already_exists(existing: &Path, hint: &str) -> CliError {
     CliError {
         path: Some(slash(existing)),
-        ..CliError::new(
-            Kind::Config,
-            format!("{} already exists; {hint}", existing.display()),
-        )
+        ..CliError::new(Kind::Config, format!("{} already exists; {hint}", existing.display()))
     }
 }
 
@@ -436,7 +433,11 @@ fn report(args: &MigrateArgs, format: RulesFormat, migration: &Migration, plan: 
                 Some(merged) => {
                     summary.push_str(&migration.merge_summary(merged));
                     if !merged.kept_existing.is_empty() {
-                        let _ = writeln!(summary, "Kept the existing value of: {}", merged.kept_existing.join(", "));
+                        let _ = writeln!(
+                            summary,
+                            "Kept the existing value of: {}",
+                            merged.kept_existing.join(", ")
+                        );
                     }
                     if !merged.replaced_existing.is_empty() {
                         let _ = writeln!(

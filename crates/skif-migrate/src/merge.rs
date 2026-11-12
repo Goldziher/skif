@@ -322,7 +322,7 @@ impl Merge {
                 }
             }
             (Some(_), None) => *existing = added.clone(),
-            (None, Some(_)) => self.left.push(path),
+            (None, Some(_)) => {}
             (None, None) => {
                 if !same(existing, added) {
                     self.kept.push(path);
@@ -576,7 +576,11 @@ mod tests {
         let merged = merge_into(&sherif, existing).unwrap();
         assert!(!merged.toml.contains("[js]"), "{}", merged.toml);
         assert!(!merged.toml.contains("unused-files"), "{}", merged.toml);
-        assert!(merged.toml.contains("[rules]\nversion-mismatch = \"warn\"\n"), "{}", merged.toml);
+        assert!(
+            merged.toml.contains("[rules]\nversion-mismatch = \"warn\"\n"),
+            "{}",
+            merged.toml
+        );
         assert_eq!(merged.left_as_existing, ["js.enabled", "rules.unused-files"]);
     }
 

@@ -320,7 +320,10 @@ impl Roots<'_, '_> {
             return Vec::new();
         };
         let open = array.span.start + 1;
-        let first = array.elements.first().map_or(array.span.end, |element| element.span().start);
+        let first = array
+            .elements
+            .first()
+            .map_or(array.span.end, |element| element.span().start);
         self.comments
             .iter()
             .filter(|comment| comment.span.start >= open && comment.span.end <= first)
@@ -648,7 +651,12 @@ mod tests {
         let found = comments("export default {\n  ignore: [\n    // generated\n    'a',\n    'b',\n  ],\n};\n");
         assert_eq!(
             found,
-            [ElementComment::new(vec![key("ignore")], 0, Some("a".to_owned()), "generated")]
+            [ElementComment::new(
+                vec![key("ignore")],
+                0,
+                Some("a".to_owned()),
+                "generated"
+            )]
         );
     }
 

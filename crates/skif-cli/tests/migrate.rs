@@ -485,17 +485,27 @@ fn knip_project_with_config() -> tempfile::TempDir {
 fn merge_with_output_writes_the_merge_there_and_leaves_the_existing_file_alone() {
     let dir = knip_project_with_config();
     let out = dir.path().join("merged.toml");
-    let result = run(migrate(dir.path()).args(["--from", "knip", "--merge", "--output"]).arg(&out));
+    let result = run(migrate(dir.path())
+        .args(["--from", "knip", "--merge", "--output"])
+        .arg(&out));
     assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
     let merged = fs::read_to_string(&out).unwrap();
     assert!(
-        merged.starts_with("[js]\nenabled = true\nignore-dependencies = [\"left-pad\"]\n\n[rules]\nversion-mismatch = \"error\"\n"),
+        merged.starts_with(
+            "[js]\nenabled = true\nignore-dependencies = [\"left-pad\"]\n\n[rules]\nversion-mismatch = \"error\"\n"
+        ),
         "{merged}"
     );
     assert!(merged.contains("unused-dependencies = \"error\""), "{merged}");
     assert!(merged.contains("sources = [\"knip\"]"), "{merged}");
     assert_eq!(fs::read_to_string(dir.path().join("skif.toml")).unwrap(), HAND_WRITTEN);
-    assert!(result.stdout.contains(&format!("Wrote {}", out.display()).replace('\\', "/")), "{}", result.stdout);
+    assert!(
+        result
+            .stdout
+            .contains(&format!("Wrote {}", out.display()).replace('\\', "/")),
+        "{}",
+        result.stdout
+    );
 }
 
 #[test]
@@ -503,7 +513,9 @@ fn merge_refuses_an_output_file_that_exists_and_is_not_the_configuration() {
     let dir = knip_project_with_config();
     let out = dir.path().join("other.toml");
     fs::write(&out, "[lint]\nfail-on-warnings = true\n").unwrap();
-    let result = run(migrate(dir.path()).args(["--from", "knip", "--merge", "--output"]).arg(&out));
+    let result = run(migrate(dir.path())
+        .args(["--from", "knip", "--merge", "--output"])
+        .arg(&out));
     assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
     assert!(
         result.stderr.contains("already exists") && result.stderr.contains("name a file that does not exist"),
@@ -540,7 +552,11 @@ fn merge_with_the_exact_profile_turns_off_no_rule_the_existing_file_runs() {
         .iter()
         .map(|path| path.as_str().unwrap())
         .collect();
-    for path in ["rules.stray-lockfile", "rules.catalog-mismatch", "rules.toolchain-pin-drift"] {
+    for path in [
+        "rules.stray-lockfile",
+        "rules.catalog-mismatch",
+        "rules.toolchain-pin-drift",
+    ] {
         assert!(left.contains(path), "{path}: {left:?}");
     }
     assert!(!left.contains("rules.version-mismatch"), "{left:?}");
