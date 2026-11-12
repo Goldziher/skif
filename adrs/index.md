@@ -122,6 +122,7 @@ old one.
 | 0112 | [Paths Under bazel run](0112-paths-under-bazel-run.md) | accepted |
 | 0113 | [Speed Benchmarks on a Pinned GitHub-Hosted Runner](0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md) | accepted |
 | 0114 | [Windows npm Packages Deferred Until Their Names Exist](0114-windows-npm-packages-deferred.md) | accepted |
+| 0119 | [Local Nx Plugins and Executor-Run Conventions in Nx Projects](0119-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md) | accepted |
 
 ## Effective statements
 
@@ -320,3 +321,4 @@ the lines below stay as written; this table says which record governs.
 | [0001](0001-mission-and-scope.md), line 81 | the performance targets are measured by `mise run bench` on Apple silicon | [0113](0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md): the published numbers come from the manually dispatched `bench` workflow on a pinned GitHub-hosted runner image, with the machine, runner and toolchain recorded; `mise run bench` measures locally while developing |
 | [0026](0026-parity-and-diff-tasks-on-a-pinned-corpus.md), "Speed" | `mise run bench:publish` writes the summary to `tools/bench/results` and refreshes the published table | [0113](0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md): `bench:publish` is removed; the `bench` workflow uploads the summary and `mise run bench:import -- <run-id>` refreshes the tables from it |
 | [0070](0070-windows-npm-packages.md), decision outcome, consequences and confirmation | eight platform packages including `skif-win32-x64-msvc` and `skif-win32-arm64-msvc`, loaded, installed and verified on Windows x64 and arm64 | [0114](0114-windows-npm-packages-deferred.md): six platform packages and no Windows addon build, load, install or verification job; the targets return once both names exist on npm and have a trusted publisher |
+| [0109](0109-nx-projects-as-scopes-of-the-package-that-owns-them.md), "Projects and scopes" | a plugin with no default entry, production, project or ignore globs that finds no config file in a scope is not run there | [0119](0119-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md): it also runs there when a target of the scope's `project.json` runs the tool's Nx executor (`@nx/vite:build`), and applies its config-less conventions |
