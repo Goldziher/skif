@@ -123,8 +123,8 @@ pub struct WorkspaceInputs {
     pub entry: Vec<String>,
     /// Entry files that are part of the shipped product; the only plugin entries used in production mode.
     pub production_entry: Vec<String>,
-    /// Files a tool builds from that are no entries (the `srcs` of a Bazel rule), in every mode: they are used and
-    /// what they import is followed, but their exports are judged as any module's.
+    /// Files a tool builds from that are no entries (such as the `srcs` and `data` of a Bazel rule), in every mode:
+    /// they are used and what they import is followed, but their exports are judged as any module's.
     pub build_source: Vec<String>,
     /// The build sources that are part of the shipped product; the only ones used in production mode.
     pub production_build_source: Vec<String>,

@@ -119,7 +119,7 @@ pub enum PluginInput {
     Entry(String),
     /// An entry that is also part of a production build.
     ProductionEntry(String),
-    /// A file the config builds from that is no entry point (a source of a Bazel rule's `srcs`): the file is used and
+    /// A file the config builds from that is no entry point (such as a Bazel rule's `srcs`): the file is used and
     /// what it imports is followed, but its exports are not public, so they, its types, members and duplicates are
     /// judged as any module's.
     BuildSource(String),
