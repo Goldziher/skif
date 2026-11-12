@@ -1145,7 +1145,8 @@ of the project, `./tools`, `#tools` or `@/tools`, or of a workspace package may 
 a merge that copies (`merge` of `webpack-merge`, `deepmerge` given no options or options without a function, `defu`,
 the `mergeConfig` of Vite and Vitest), `createRequire`, or
 `Object.assign`, `Object.defineProperties` or `Object.defineProperty` and `Reflect.defineProperty`, which change only
-their first argument, the last two only the key they name when it is a string; these are no `define…` helpers. A `define…` helper and a merge that copies keep none of their
+their first argument, the last two only the key they name when it is a string, unless that argument is given through a
+spread (`Object.assign(...[config, extra])`); these are no `define…` helpers. A `define…` helper and a merge that copies keep none of their
 arguments in another, so a change of one argument leaves the others known. A list or string
 method (`push`, `slice`, `concat`) changes at most its object only when that object is known to be a list or string,
 and one that calls a function it is given with the list's elements (`forEach`, `map`, `reduce`) only when that
