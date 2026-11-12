@@ -825,12 +825,9 @@ fn typescript_major(
 /// consumers, only when there are none.
 fn declared_typescript_major(workspace: &Workspace, package: &Package) -> Option<u64> {
     let typescript = move |peer: bool| {
-        package
-            .dependencies
-            .iter()
-            .filter(move |entry| {
-                &*entry.name == "typescript" && (entry.kind == DependencyKind::PeerDependencies) == peer
-            })
+        package.dependencies.iter().filter(move |entry| {
+            &*entry.name == "typescript" && (entry.kind == DependencyKind::PeerDependencies) == peer
+        })
     };
     let peer = typescript(false).next().is_none();
     typescript(peer)
