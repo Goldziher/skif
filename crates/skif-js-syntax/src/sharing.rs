@@ -199,6 +199,9 @@ pub(crate) struct Unstable {
     /// Whether a function of the module may change a value of the module when it is called
     /// ([`Sharing::writes_modules`]).
     writes_modules: bool,
+    /// Whether the module hands out a binding of a module whose functions may change a value of a module
+    /// ([`Sharing::exposes_changing`]).
+    exposes_modules: bool,
     /// The references that are the only one of a binding no other module can read and that are read once per binding:
     /// not in a loop, nor in a function other than the binding's own, and not of an alias the evaluator follows. None
     /// when the module reads `arguments`, calls `eval` or has a `with` statement, which reach bindings without a
@@ -254,12 +257,14 @@ impl Unstable {
             ends: HashMap::default(),
             late: Vec::new(),
             runs_modules: false,
+            callee_refs: HashSet::default(),
             function_writes: Vec::new(),
             suspending: HashSet::default(),
             writes_this: false,
         };
         sharing.visit_program(program);
         let (followed, writes_modules) = sharing.share();
+        let exposes_modules = sharing.exposes_changing();
         let sole = if sharing.dynamic {
             HashSet::default()
         } else {
@@ -282,6 +287,7 @@ impl Unstable {
             sole,
             runs_modules: sharing.runs_modules,
             writes_modules,
+            exposes_modules,
             ..Self::default()
         };
         for (symbol, change) in std::mem::take(&mut sharing.changes) {
@@ -377,11 +383,12 @@ impl Unstable {
     /// Whether a function of the module may change a value of a module when it is called: code in a function writes
     /// to, or gives a call that may change it, a top-level binding, an import, an object one of them may hold or what
     /// `this` or `super` is there ([`Sharing::writes_modules`]), or the module calls a function of a module that may ([`Imports::changes_modules`])
-    /// or whose code is not known (a bare import neither followed nor installed), or imports one for its effects. A
-    /// function that builds and returns new objects changes none, whatever it does to them or to what its parameters
-    /// take, which a call gives it.
+    /// or whose code is not known (a bare import neither followed nor installed), imports one for its effects, or hands
+    /// out a binding of such a module other than by calling it (`export { tweak }`, `export const tools = { tweak }`),
+    /// which code of another module may call ([`Sharing::exposes_changing`]). A function that builds and returns new
+    /// objects changes none, whatever it does to them or to what its parameters take, which a call gives it.
     pub(crate) fn changes_modules(&self) -> bool {
-        self.runs_modules || self.writes_modules
+        self.runs_modules || self.writes_modules || self.exposes_modules
     }
 
     /// Whether a change made through the argument `id` of a call may be read after the call: `id` is not the only
@@ -550,6 +557,9 @@ struct Sharing<'s> {
     /// Whether code of a module the evaluator follows may run unseen and change what such a module exports
     /// ([`Self::runs_followed`]).
     runs_modules: bool,
+    /// The references that are what a call, a `new` or a tagged template calls: the name itself, or the name the
+    /// member chain it calls starts from (`tweak`, `tools` in `tools.tweak()`).
+    callee_refs: HashSet<ReferenceId>,
     /// The changes code in a function makes of a binding, each with the scope of that function and whether it is a
     /// change of what a call of a function the module declares returns ([`Held::result`]).
     function_writes: Vec<(SymbolId, ScopeId, Change, bool)>,
@@ -1030,6 +1040,30 @@ impl Sharing<'_> {
         } else {
             is_package(module) && !self.imports.is_installed(module)
         }
+    }
+
+    /// Records the name a call, a `new` or a tagged template calls, or the name its member chain starts from
+    /// ([`Self::callee_refs`]).
+    fn note_callee(&mut self, callee: &Expression<'_>) {
+        if let Some(reference) = reach(callee).and_then(|(id, _, _)| id.reference_id.get()) {
+            self.callee_refs.insert(reference);
+        }
+    }
+
+    /// Whether the module hands out a binding of a module whose functions may change a value of a module
+    /// ([`Self::changing_binding`]) other than by calling it: it exports it (`export { tweak }`, `export default
+    /// tweak`), puts it in a value (`export const tools = { tweak }`) or gives it to a name, where code of another
+    /// module may call it.
+    fn exposes_changing(&self) -> bool {
+        self.known.modules.keys().any(|&symbol| {
+            self.scoping
+                .get_resolved_reference_ids(symbol)
+                .iter()
+                .any(|reference| {
+                    self.scoping.get_reference(*reference).is_value() && !self.callee_refs.contains(reference)
+                })
+                && self.changing_binding(symbol)
+        })
     }
 
     /// Whether `call` may run code of a module that changes a value of a module ([`Self::changing_binding`]): of a
@@ -1850,6 +1884,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        self.note_callee(&it.callee);
         if foreign(self.names(), &it.callee) {
             self.foreign_calls.insert(it.span);
         }
@@ -1933,6 +1968,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
+        self.note_callee(&it.callee);
         self.runs_modules |= self.of_changing_module(&it.callee);
         // A class the pass does not know may change what it is given, and keep it in another argument.
         if constructs_builtin(self.scoping, it) {
@@ -1974,6 +2010,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_tagged_template_expression(&mut self, it: &TaggedTemplateExpression<'a>) {
+        self.note_callee(&it.tag);
         self.runs_modules |= self.of_changing_module(&it.tag);
         walk::walk_tagged_template_expression(self, it);
     }
