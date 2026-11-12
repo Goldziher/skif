@@ -148,6 +148,7 @@
         "include-entry-exports": false,
         "use-tsconfig-files": false,
         "include-fixtures": false,
+        "use-public-hoisting": false,
         "discovery": "auto",
         "cycles": {
           "allow": [],
@@ -1160,9 +1161,14 @@
           "description": "Report files in `fixtures` and `__fixtures__` directories as unused, and their unused exports, types and\nmembers, like any other file. Off by default: those directories hold test data that tests load by path.",
           "default": false
         },
+        "use-public-hoisting": {
+          "type": "boolean",
+          "description": "Count a package that the install hoists publicly into a `node_modules` above a package as available to it,\nso importing it without listing it is not an unlisted dependency: pnpm's `public-hoist-pattern` and\n`shamefully-hoist` (from `pnpm-workspace.yaml`, or the root `.npmrc` before pnpm 11), and `rules_js`'s\n`public_hoist_packages`. Off by default, as in knip; strict mode ignores it.",
+          "default": false
+        },
         "discovery": {
           "$ref": "#/$defs/JsDiscovery",
-          "description": "How source files are found: `auto` (the default) and `walk` walk the directories; `git` lists them from the\ngit index and re-lists from disk every directory modified since the index was written (faster, blind to an\nuntracked file older than the last write of the index). `git` falls back to the walk when the workspace is not\nin a git work tree with a usable SHA-1 index.",
+          "description": "How source files are found: `auto` (the default) and `walk` walk the directories; `git` lists them from the\ngit index and re-lists from disk every directory modified since the index was written (faster, blind to an\nuntracked file older than the last write of the index). `git` falls back to the walk when the workspace is not\nin a git work tree with a usable SHA-1 index. The toolchain scan and the Bazel `BUILD` file search of\n`stray-lockfile` list directories the same way.",
           "default": "auto"
         },
         "cycles": {

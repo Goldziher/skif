@@ -2083,7 +2083,7 @@ pub struct Js {
     pub include_fixtures: bool,
     /// Count a package that the install hoists publicly into a `node_modules` above a package as available to it,
     /// so importing it without listing it is not an unlisted dependency: pnpm's `public-hoist-pattern` and
-    /// `shamefully-hoist` (from `pnpm-workspace.yaml`, or the root `.npmrc` before pnpm 11), and rules_js's
+    /// `shamefully-hoist` (from `pnpm-workspace.yaml`, or the root `.npmrc` before pnpm 11), and `rules_js`'s
     /// `public_hoist_packages`. Off by default, as in knip; strict mode ignores it.
     pub use_public_hoisting: bool,
     /// How source files are found: `auto` (the default) and `walk` walk the directories; `git` lists them from the

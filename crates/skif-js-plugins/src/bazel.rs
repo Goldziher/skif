@@ -246,7 +246,7 @@ fn read_call(rule: &str, tokens: &[Token], start: usize) -> (Call, usize) {
     (call, at)
 }
 
-/// The packages that rules_js's `npm_translate_lock` hoists with `public_hoist_packages`, from Starlark `source`, each
+/// The packages that `rules_js`'s `npm_translate_lock` hoists with `public_hoist_packages`, from Starlark `source`, each
 /// with the Bazel packages it lists (`""` is the repository root), in order: every `public_hoist_packages = {...}`,
 /// a keyword argument or an assignment, whose value is a dict literal with string keys. A location counts when it is
 /// a string literal in the list literal of its key; a computed key or list (a variable, a call) names nothing.
@@ -291,9 +291,7 @@ fn read_hoist_dict(tokens: &[Token], start: usize, found: &mut Vec<(String, Vec<
                 }
             }
             Token::Comma if depth == 1 => entry = None,
-            Token::Text(key)
-                if depth == 1 && entry.is_none() && matches!(tokens.get(at + 1), Some(Token::Other)) =>
-            {
+            Token::Text(key) if depth == 1 && entry.is_none() && matches!(tokens.get(at + 1), Some(Token::Other)) => {
                 found.push((key.clone(), Vec::new()));
                 entry = Some(found.len() - 1);
             }
@@ -510,7 +508,10 @@ public_hoist_packages = {"assigned": ["tools"]}
         let owned = |key: &str, locations: &[&str]| {
             (
                 key.to_owned(),
-                locations.iter().map(|location| (*location).to_owned()).collect::<Vec<_>>(),
+                locations
+                    .iter()
+                    .map(|location| (*location).to_owned())
+                    .collect::<Vec<_>>(),
             )
         };
         assert_eq!(
