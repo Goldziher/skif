@@ -49,6 +49,12 @@ All notable changes to this project are documented here. The format follows
   because test files may be the only importers. `--include subpaths` and `--fix-type subpaths` select the imports
   rule, and `skif migrate --from knip` maps `subpaths`, `includeSubpathExports` and `--include-subpath-exports`
   ([#208](https://github.com/Goldziher/skif/issues/208)).
+- **`knip` plugin**: in a project that runs knip next to skif, with `knip` as a dependency, knip's config files
+  (`knip.json`, `knip.jsonc`, `.knip.json`, `.knip.jsonc`, `knip.*`, `knip.config.*`, the `knip` key of
+  `package.json`) are configs and the JavaScript and TypeScript ones are entries, so `unused-files` no longer reports
+  them and what they import is used; the table holds 207 plugins
+  ([ADR 0127](adrs/0127-a-knip-plugin-for-projects-that-run-knip-next-to-skif.md),
+  [#217](https://github.com/Goldziher/skif/issues/217)).
 
 ### Fixed
 
