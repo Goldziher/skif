@@ -606,7 +606,13 @@ mod tests {
                 .into_iter()
                 .map(|(_, written)| written)
                 .collect::<Vec<_>>(),
-            ["'@npm//:defs.bzl'", "\"x\"", "r\"a\\b\"", "\"\"\"multi\nline\"\"\"", "'it\\'s'"]
+            [
+                "'@npm//:defs.bzl'",
+                "\"x\"",
+                "r\"a\\b\"",
+                "\"\"\"multi\nline\"\"\"",
+                "'it\\'s'"
+            ]
         );
     }
 
@@ -641,7 +647,10 @@ FORMATTED = ":node_modules/{}".format(name)
         assert_eq!(
             labels(source),
             [
-                ("@npm//packages/app:vite/package_json.bzl".to_owned(), "\"@npm//packages/app:vite/package_json.bzl\""),
+                (
+                    "@npm//packages/app:vite/package_json.bzl".to_owned(),
+                    "\"@npm//packages/app:vite/package_json.bzl\""
+                ),
                 ("bin".to_owned(), "\"bin\""),
                 (":node_modules/typescript".to_owned(), "\"typescript\""),
                 (":node_modules/@types/node".to_owned(), "\"@types/node\""),
