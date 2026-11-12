@@ -238,8 +238,8 @@ package-manager = "pnpm"
 suites = ["parity"]
 sparse = ["examples/basic", "examples/kitchen-sink", "examples/with-shell-commands", "examples/with-vitest", "examples/with-nestjs", "examples/with-yarn", "examples/with-npm"]
 recursive = true
-install-command = ["bash", "-c", "for d in basic kitchen-sink with-shell-commands with-vitest with-nestjs; do pnpm -C examples/$d install --ignore-scripts --frozen-lockfile || exit 1; done; (cd examples/with-yarn && corepack yarn install --ignore-scripts) && npm --prefix examples/with-npm ci --ignore-scripts"]
-notes = "Official Turborepo examples: per-package turbo.json with extends [\"//\"], turbo/generators (with-vitest, with-yarn, with-npm), task-ordering-only workspace dependencies (with-shell-commands), pnpm, yarn and npm. Each example is a standalone root below the repository's own workspace, so skif runs recursively. The repository root is pnpm 12 with apps/, docs/ and packages/ outside the sparse set; its unmatched patterns are not a parity category. Expect the tooling-config unused-dependencies findings on both sides."
+install-command = ["bash", "-c", "for d in basic kitchen-sink with-shell-commands with-vitest with-nestjs; do pnpm -C examples/$d install --ignore-scripts --frozen-lockfile || exit 1; done; (cd examples/with-yarn && corepack yarn install --ignore-scripts) && npx -y npm@12.2.0 --prefix examples/with-npm ci --ignore-scripts"]
+notes = "Official Turborepo examples: per-package turbo.json with extends [\"//\"], turbo/generators (with-vitest, with-yarn, with-npm), task-ordering-only workspace dependencies (with-shell-commands), pnpm, yarn and npm (with-npm pins npm 12.2.0 in devEngines, so it installs with that version). Each example is a standalone root below the repository's own workspace, so skif runs recursively. The repository root is pnpm 12 with apps/, docs/ and packages/ outside the sparse set; its unmatched patterns are not a parity category. Expect the tooling-config unused-dependencies findings on both sides."
 
 [[repo]]
 name = "nx-examples-integrated"
