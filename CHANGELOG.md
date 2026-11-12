@@ -27,7 +27,7 @@ All notable changes to this project are documented here. The format follows
   ([#176](https://github.com/Goldziher/skif/issues/176)).
 - Under `bazel test` (`TEST_TMPDIR` set), `--cache` without `--cache-location` keeps its store in
   `$TEST_TMPDIR/skif` instead of writing `node_modules/.cache/skif` into Bazel's output tree through the runfiles links
-  ([#177](https://github.com/Goldziher/skif/issues/177)).
+  ([ADR 0117](adrs/0117-the-cache-default-under-bazel-test.md), [#177](https://github.com/Goldziher/skif/issues/177)).
 
 ## [0.3.0] - 2026-11-11
 
