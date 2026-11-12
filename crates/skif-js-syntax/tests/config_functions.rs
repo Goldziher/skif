@@ -2946,3 +2946,21 @@ fn a_call_given_a_followed_alias_once_changes_its_local() {
     );
     assert!(open(get(&value, &["build"])), "{value:?}");
 }
+
+/// An alias of a local that is assigned again (`config = { ...config, test: { ...config.test } }`) may take an object
+/// the local no longer holds, though an equal one: a change through the alias is not applied to the local.
+#[test]
+fn an_alias_of_a_local_assigned_again_is_not_followed() {
+    let value = extract(
+        "vitest.config.ts",
+        "import { defineConfig } from 'vitest/config';\n\
+         export default defineConfig(() => {\n\
+           let config = { test: { include: ['a.test.ts'] } };\n\
+           const test = config.test;\n\
+           config = { ...config, test: { ...config.test } };\n\
+           test.include = ['b.test.ts'];\n\
+           return config;\n\
+         });",
+    );
+    assert_ne!(at(&value, &["test", "include"]), &strings(&["b.test.ts"]), "{value:?}");
+}

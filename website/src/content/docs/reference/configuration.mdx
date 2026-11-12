@@ -1118,7 +1118,7 @@ itself or reads `arguments`; a getter, method or callback in what it returns sha
 parameter shares its default (`b = a`). What a method returns (`config.plugins.find(…)`, `list.slice()`) may be a part of the
 object it is called on. A `const` of a function that takes a local of that function,
 or a static part of it (`const { coverage } = config.test`), is followed instead when it is the only such name for the
-local and no other function shares either: a change through it is applied to that part of the local, so
+local, no other function shares either and the local is never assigned again: a change through it is applied to that part of the local, so
 `coverage.enabled = true` in a branch with an unknown test leaves `enabled` one of both values and the rest of `config`
 known. What else may hold that object (a list or object holding `config`, the options spread into it, another key of
 `config` given the same object) is partly unknown where it is read after the alias is declared. A `resolve` call (`require.resolve`, `createRequire(...).resolve`) changes nothing, and neither do the functions

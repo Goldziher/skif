@@ -135,7 +135,8 @@ All notable changes to this project are documented here. The format follows
   reaches the object it is called on.
 - **Config evaluation**: more changes the evaluator does not run reach what they change. A call given only an alias
   the evaluator follows (`const { build } = config; applyDefaults(build)`) leaves that part of the local partly
-  unknown.
+  unknown, and an alias of a local that is assigned again is not followed, as it may hold an object the local no
+  longer does.
 - **Config evaluation**: `.map`, `.flatMap` and `.filter` of a known array call their callback (an inline function,
   or one the config declares) with each element and its index, so Vitest projects spread from
   `` ['light', 'dark'].map((theme) => ({ test: { name: `browser-${theme}` } })) `` are known instead of leaving the

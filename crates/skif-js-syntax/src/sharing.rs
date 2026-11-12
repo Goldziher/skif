@@ -245,7 +245,8 @@ impl Unstable {
     /// it to the part of the local it takes, which this pass then leaves unmarked there, marking only what else may
     /// share an object with that part. One is followed when it is the only alias of that local, only its own function
     /// changes it, no other binding it or the local may share an object with is changed, and the local is not changed
-    /// directly nor by another function.
+    /// directly nor by another function, nor ever assigned again, which may leave the alias an object the local no
+    /// longer holds.
     pub(crate) fn follows(&self, id: &BindingIdentifier<'_>) -> bool {
         id.symbol_id.get().is_some_and(|symbol| self.followed.contains(&symbol))
     }
@@ -825,6 +826,7 @@ impl Sharing<'_> {
     fn follows(&self, index: usize, parent: &mut HashMap<SymbolId, SymbolId>) -> bool {
         let (alias, root) = self.aliases[index];
         self.aliases.iter().filter(|(_, other)| *other == root).count() == 1
+            && !self.scoping.symbol_is_mutated(root)
             && !self.changes.contains_key(&alias)
             && !self.changes.contains_key(&root)
             && !self.mutated.iter().any(|(symbol, _)| *symbol == root)
