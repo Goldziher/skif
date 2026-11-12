@@ -1325,3 +1325,27 @@ fn a_write_through_this_that_may_reach_a_value_of_a_module_changes_the_imported_
         assert!(read_at(&value, &["plugins"]).has_unknown(), "{shared}: {value:?}");
     }
 }
+
+/// A binding a function gives what `this` holds (`const list = this.plugins`, `const self = this`, `const { plugins } =
+/// this`) is `this` there: a change through it, in a function bound to a value of a module, changes that value.
+#[test]
+fn a_write_through_a_binding_taking_this_changes_the_imported_values() {
+    for body in [
+        "const list = this.plugins; list.push(p);",
+        "const self = this; self.plugins.push(p);",
+        "const { plugins } = this; plugins.push(p);",
+        "let list; list = this.plugins; list.push(p);",
+        "this.plugins.forEach((list) => list.push(p));",
+    ] {
+        let shared = format!(
+            "import {{ base }} from './base';\nfunction add(p) {{ {body} }}\nexport const addPlugin = add.bind(base);"
+        );
+        let value = shared_config(Box::leak(shared.into_boxed_str()), "addPlugin", "addPlugin('x');");
+        assert_eq!(
+            read_at(&value, &["plugins"]),
+            &ConfigValue::Unknown,
+            "{body}: {value:?}"
+        );
+        assert_eq!(read_at(&value, &["name"]), &s("app"), "{body}: {value:?}");
+    }
+}

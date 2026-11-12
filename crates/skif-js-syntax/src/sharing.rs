@@ -278,6 +278,7 @@ impl Unstable {
             this_sites: vec![ThisSite::Module],
             method_sites: HashMap::default(),
             this_writes: Vec::new(),
+            this_bound: HashMap::default(),
             makers: HashMap::default(),
             named_inits: HashMap::default(),
             default_exports: HashSet::default(),
@@ -615,11 +616,16 @@ struct Sharing<'s> {
     this_sites: Vec<ThisSite>,
     /// What `this` is in each method found and not visited yet, by the scope of its function.
     method_sites: HashMap<ScopeId, ThisSite>,
-    /// The writes through `this` or `super` in a function (`this.plugins.push(p)`) and the calls given it that may
-    /// change it, each with what `this` is there and whether it gives a key of `this` itself a new value (`this.options = o`). What `this` is depends on
+    /// The writes through `this` or `super` in a function (`this.plugins.push(p)`), a call given it that may change
+    /// it, and a write reaching a binding that takes what it holds ([`Self::this_bound`]), each with what `this` is
+    /// there and whether it gives a key of `this` itself a new value (`this.options = o`). What `this` is depends on
     /// how the function is called (`add.bind(base)`, `obj.add(p)`), which the links do not follow
     /// ([`Self::this_changes_modules`]).
     this_writes: Vec<(ThisSite, bool)>,
+    /// The bindings of a function that take what `this` or `super` holds (`const list = this.plugins`, `const self =
+    /// this`, `const { plugins } = this`), with what `this` is there: a change of what they hold is a write through
+    /// `this`.
+    this_bound: HashMap<SymbolId, ThisSite>,
     /// The functions and classes found, by scope, as what makes the objects of [`ThisSite::Made`].
     makers: HashMap<ScopeId, Maker>,
     /// The bindings a declaration initialises with a function or a class, by the scope of that function or class.
@@ -903,6 +909,24 @@ impl Sharing<'_> {
         }
     }
 
+    /// Records that the names `symbols` take what `value` holds when it may be what `this` or `super` holds in a
+    /// function ([`Self::this_bound`]).
+    fn bind_this(&mut self, symbols: &[SymbolId], value: &Expression<'_>) {
+        if self.functions.last() == Some(&self.scoping.root_scope_id()) {
+            return;
+        }
+        let mut finder = MentionsThis::default();
+        finder.visit_expression(value);
+        let site = match (finder.sup, finder.this) {
+            (true, _) => ThisSite::Super,
+            (false, true) => self.this_site(),
+            (false, false) => return,
+        };
+        for &symbol in symbols {
+            self.this_bound.insert(symbol, site);
+        }
+    }
+
     /// Records what `this` is in the function `function` of the scope `scope`, a method when one was found for it
     /// ([`Self::method_sites`]), and the function as a [`Maker`], before it is visited.
     fn enter_function(&mut self, scope: ScopeId, declared: Option<SymbolId>) -> ThisSite {
@@ -1101,6 +1125,10 @@ impl Sharing<'_> {
                 .flat_map(|(position, (names, _))| names.iter().map(move |&name| (name, position == 0)))
                 .chain(parameters.rest.iter().map(|&name| (name, false)));
             let names: Vec<(SymbolId, bool)> = positions.collect();
+            if let Some(receiver) = receiver {
+                let symbols: Vec<SymbolId> = names.iter().map(|&(name, _)| name).collect();
+                self.bind_this(&symbols, receiver);
+            }
             for (name, first) in names {
                 if let Some(list) = list {
                     if first {
@@ -1728,6 +1756,10 @@ impl Sharing<'_> {
         for (symbol, origin) in origins {
             let through_alias = applied.iter().find(|alias| alias.alias == symbol);
             for (other, write) in self.reached(&links_of, symbol, &origin) {
+                // A change of what a binding that takes what `this` holds holds is a write through `this`.
+                if let Some(&site) = self.this_bound.get(&other) {
+                    self.wrote_this(site, false);
+                }
                 // The evaluator applies the change to the part of the binding it is made through, not to another part
                 // of it that may hold the same object (`config.b = config.a`).
                 if other == symbol && origin.covers(&write) {
@@ -2120,6 +2152,9 @@ impl<'a> Visit<'a> for Sharing<'_> {
                 self.named_inits.insert(scope, symbol);
             }
         }
+        if let Some(init) = &it.init {
+            self.bind_this(&bound_symbols(&it.id), init);
+        }
         if let Some(init) = &it.init
             && let Some((names, root)) = self.alias(&it.id, init)
         {
@@ -2168,6 +2203,11 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
+        let mut places = Vec::new();
+        let mut defaults = Vec::new();
+        self.target_parts(&it.left, &mut places, &mut defaults);
+        let targets: Vec<SymbolId> = places.iter().map(|place| place.symbol).collect();
+        self.bind_this(&targets, &it.right);
         // A function assigned stands for what its parameters take as well as what it returns, as one declared does.
         let part = if matches!(
             it.right.get_inner_expression(),
@@ -2214,6 +2254,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
         match &it.left {
             ForStatementLeft::VariableDeclaration(declaration) => {
                 for declarator in &declaration.declarations {
+                    self.bind_this(&bound_symbols(&declarator.id), &it.right);
                     for name in bound_symbols(&declarator.id) {
                         match source {
                             Some(list) => {
@@ -2241,6 +2282,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
 
     fn visit_formal_parameter(&mut self, it: &FormalParameter<'a>) {
         if let Some(initializer) = &it.initializer {
+            self.bind_this(&bound_symbols(&it.pattern), initializer);
             self.default_of(&it.pattern, initializer);
         }
         walk::walk_formal_parameter(self, it);
@@ -2302,6 +2344,12 @@ impl<'a> Visit<'a> for Sharing<'_> {
         // A call whose effect the pass does not know may change what it is given, wherever it is made.
         match self.effect(it) {
             Some(effect) => {
+                // A function the module declares may change what `this` holds when it is given it.
+                if effect == Effect::Followed {
+                    for argument in it.arguments.iter().filter_map(given) {
+                        self.note_this(argument, false);
+                    }
+                }
                 self.effects.insert(it.span, effect);
             }
             None => self.mutate_arguments(&it.arguments),
