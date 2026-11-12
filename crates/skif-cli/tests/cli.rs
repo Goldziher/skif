@@ -1033,6 +1033,100 @@ fn fix_through_a_symlink_out_of_the_workspace_is_refused() {
     }
 }
 
+/// A `pnpm-lock.yaml` of pnpm 11 and later: the package manager's environment, then the project's lockfile.
+const TWO_DOCUMENT_LOCK: &str = r"---
+lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    configDependencies: {}
+    packageManagerDependencies:
+      pnpm:
+        specifier: 12.9.1
+        version: 12.9.1
+
+packages:
+
+  pnpm@12.9.1:
+    resolution: {integrity: sha512-pnpm}
+    engines: {node: '>=18.*'}
+    hasBin: true
+
+snapshots:
+
+  pnpm@12.9.1: {}
+
+---
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .: {}
+
+  packages/a:
+    dependencies:
+      left-pad:
+        specifier: 1.3.0
+        version: 1.3.0
+
+packages:
+
+  left-pad@1.3.0:
+    resolution: {integrity: sha512-left-pad}
+
+snapshots:
+
+  left-pad@1.3.0: {}
+";
+
+#[test]
+fn a_lockfile_ban_reads_the_project_document_of_a_two_document_pnpm_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::create_dir_all(root.join("packages/a")).unwrap();
+    fs::write(
+        root.join("package.json"),
+        r#"{"name": "monorepo", "version": "0.0.0", "private": true, "packageManager": "pnpm@12.9.1"}"#,
+    )
+    .unwrap();
+    fs::write(root.join("pnpm-workspace.yaml"), "packages:\n  - \"packages/*\"\n").unwrap();
+    fs::write(
+        root.join("packages/a/package.json"),
+        r#"{"name": "a", "version": "1.0.0", "private": true, "dependencies": {"left-pad": "1.3.0"}}"#,
+    )
+    .unwrap();
+    fs::write(root.join("pnpm-lock.yaml"), TWO_DOCUMENT_LOCK).unwrap();
+    // `pnpm` is resolved only in the environment's document, which no ban judges.
+    fs::write(
+        root.join("skif.toml"),
+        "[[version-groups]]\ndependencies = [\"left-pad\", \"pnpm\"]\npolicy = \"banned\"\nscope = \"lockfile\"\n",
+    )
+    .unwrap();
+
+    let result = run(skif().args(["--format", "json"]).arg(root));
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+    let report = result.json();
+    let banned: Vec<&Value> = report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["rule"] == "banned-dependency")
+        .collect();
+    assert_eq!(banned.len(), 1, "{}", result.stdout);
+    assert_eq!(
+        banned[0]["message"],
+        "`left-pad@1.3.0` is resolved although a banned version group forbids it; importer `packages/a` pulls it in \
+         through `left-pad@1.3.0`"
+    );
+    assert_eq!(banned[0]["location"]["path"], "pnpm-lock.yaml");
+    assert_eq!(banned[0]["location"]["span"]["start-line"], 48);
+}
+
 #[test]
 fn pnpm_is_asked_to_update_the_lockfile_after_a_fix() {
     let dir = fixture("dirty");
