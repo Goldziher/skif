@@ -128,6 +128,61 @@ fn strict_counts_required_peers_and_skips_type_only_imports() {
     insta::assert_snapshot!("strict_human", redact(&strict.stdout, dir.path()));
 }
 
+/// `--isolate-workspaces` is workspace isolation without production mode: `left-pad`, which only the root lists for
+/// development, no longer satisfies `@cli/a`'s import, and the root's development dependencies are still checked, so
+/// `left-pad` is unused there. `--strict`, which is production mode, checks no development dependency.
+#[test]
+fn isolate_workspaces_reports_a_members_use_of_an_ancestor_only_dev_dependency() {
+    let unlisted = ("unlisted-dependencies".to_owned(), "packages/a/index.ts".to_owned());
+    let unused_dev = ("unused-dev-dependencies".to_owned(), "package.json".to_owned());
+    let (_, default) = lint_json(&[]);
+    assert!(!findings(&default).contains(&unlisted), "{default:#}");
+    assert!(!findings(&default).contains(&unused_dev), "{default:#}");
+    let (result, isolated) = lint_json(&["--isolate-workspaces"]);
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+    assert!(findings(&isolated).contains(&unlisted), "{isolated:#}");
+    assert!(findings(&isolated).contains(&unused_dev), "{isolated:#}");
+    let (_, strict) = lint_json(&["--strict"]);
+    assert!(!findings(&strict).contains(&unused_dev), "{strict:#}");
+}
+
+/// Isolation alone keeps the default mode's rules for what counts: a single package has nothing to be isolated from,
+/// so `--isolate-workspaces` reports what the default run reports, without strict mode's type-only and
+/// `devDependencies` findings.
+#[test]
+fn isolate_workspaces_is_not_strict_mode() {
+    let dir = fixture("strict");
+    let default = run(skif().args(["--format", "json"]).arg(dir.path()));
+    let isolated = run(skif()
+        .args(["--format", "json", "--isolate-workspaces"])
+        .arg(dir.path()));
+    assert_eq!(isolated.code, default.code, "{}{}", isolated.stdout, isolated.stderr);
+    assert_eq!(findings(&isolated.json()), findings(&default.json()));
+}
+
+/// `[js] strict = true` in the configuration file is `--strict`: the same report and exit code, in a workspace and in
+/// a single package; `[js] isolate-workspaces = true` is `--isolate-workspaces`.
+#[test]
+fn strict_and_isolate_workspaces_in_the_configuration_equal_their_flags() {
+    for (name, key, flag) in [
+        ("filters", "strict", "--strict"),
+        ("strict", "strict", "--strict"),
+        ("filters", "isolate-workspaces", "--isolate-workspaces"),
+    ] {
+        let by_flag = fixture(name);
+        let flagged = run(skif().args(["--color", "never", flag]).arg(by_flag.path()));
+        let by_file = fixture(name);
+        std::fs::write(by_file.path().join("skif.toml"), format!("[js]\n{key} = true\n")).unwrap();
+        let configured = run(skif().args(["--color", "never"]).arg(by_file.path()));
+        assert_eq!(configured.code, flagged.code, "{name} {key}");
+        assert_eq!(
+            redact(&configured.stdout, by_file.path()),
+            redact(&flagged.stdout, by_flag.path()),
+            "{name} {key}"
+        );
+    }
+}
+
 fn rules(report: &Value) -> BTreeSet<String> {
     findings(report).into_iter().map(|(rule, _)| rule).collect()
 }

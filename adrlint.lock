@@ -650,3 +650,8 @@ blake3 = "6e25f19b9221ecb27249eff2418b2fe607c52ca06785c1007a9920983efcdbf7"
 number = 130
 status = "accepted"
 blake3 = "cc28467103a5fff902877bca5778f68698e202b2e4f4839711feb9d24a73bdd1"
+
+[adrs."adrs/0131-workspace-isolation-without-production-mode.md"]
+number = 131
+status = "accepted"
+blake3 = "db83cee0da436379bf574b030d211f4290515b00890a57dc7d0e4dd3ed74777e"

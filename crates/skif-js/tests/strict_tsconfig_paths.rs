@@ -29,7 +29,7 @@ fn lint(files: &[(&str, &str)], production: bool, strict: bool) -> Vec<Diagnosti
     });
     let mut config = Config::from_toml_str("").unwrap();
     config.js.production = production;
-    config.js.isolate_workspaces = strict;
+    config.js.strict = strict;
     let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
     let fs: Arc<dyn FileSystem> = Arc::new(memory);
     let provider = JsProvider::new(fs).with_input_source(Arc::new(PluginSource::new(config.js.plugins.clone())));

@@ -169,10 +169,9 @@ fn an_ignored_dependency_is_unused_but_not_reported() {
 /// manifest, and the verdict is the `unused-dependencies` finding.
 #[test]
 fn strict_mode_lists_the_type_only_imports_that_count_for_nothing() {
-    let mut config = Config::from_toml_str("").unwrap();
-    config.js.isolate_workspaces = true;
+    let config = Config::from_toml_str("[js]\nstrict = true\n").unwrap();
     let explanation = explain_with(&config, &[], "zod", None);
-    assert!(explanation.strict);
+    assert!(explanation.strict && explanation.production);
     let web = package(&explanation, "web");
     assert_eq!(web.verdict, DependencyVerdict::Unused, "{explanation:#?}");
     let not_counted: Vec<(&str, u32, bool)> = web
