@@ -2974,7 +2974,10 @@ fn a_property_defined_on_a_config_is_unknown() {
     for (body, keyed) in [
         ("Object.defineProperty(config, 'entry', { value: './b.js' });", true),
         ("Reflect.defineProperty(config, 'entry', { value: './b.js' });", true),
-        ("Object.defineProperties(config, { entry: { value: './b.js' } });", false),
+        (
+            "Object.defineProperties(config, { entry: { value: './b.js' } });",
+            false,
+        ),
     ] {
         for source in [
             format!("{config}\n{body}\nmodule.exports = config;"),
@@ -3002,9 +3005,18 @@ fn a_write_through_an_object_that_is_not_a_chain_reaches_what_it_may_be() {
             "config.module.rules.find((r) => r.loader === 'babel-loader').loader = 'swc-loader';",
             &["module", "rules", "0", "loader"],
         ),
-        ("(process.env.PROD ? config.prod : config.dev).devtool = false;", &["prod", "devtool"]),
-        ("(process.env.PROD ? config.prod : config.dev).devtool = false;", &["dev", "devtool"]),
-        ("delete (process.env.PROD ? config.prod : config.dev).devtool;", &["dev", "devtool"]),
+        (
+            "(process.env.PROD ? config.prod : config.dev).devtool = false;",
+            &["prod", "devtool"],
+        ),
+        (
+            "(process.env.PROD ? config.prod : config.dev).devtool = false;",
+            &["dev", "devtool"],
+        ),
+        (
+            "delete (process.env.PROD ? config.prod : config.dev).devtool;",
+            &["dev", "devtool"],
+        ),
         (
             "Object.assign(process.env.PROD ? config.prod : config.dev, { devtool: false });",
             &["prod", "devtool"],
@@ -3084,11 +3096,13 @@ fn a_change_through_the_list_a_callback_is_given_reaches_the_list() {
         "include.reduce((all, name, index, list) => { list.push('b.test.ts'); return all; }, []);",
         "include.map((...args) => args[2].push('b.test.ts'));",
     ] {
-        let source = format!(
-            "const include = ['a.test.ts'];\n{callback}\nexport default {{ test: {{ include }} }};"
-        );
+        let source = format!("const include = ['a.test.ts'];\n{callback}\nexport default {{ test: {{ include }} }};");
         let value = extract("vitest.config.mjs", &source);
-        assert_ne!(get(&value, &["test", "include"]), &strings(&["a.test.ts"]), "{source}: {value:?}");
+        assert_ne!(
+            get(&value, &["test", "include"]),
+            &strings(&["a.test.ts"]),
+            "{source}: {value:?}"
+        );
     }
 }
 

@@ -678,7 +678,11 @@ impl Sharing<'_> {
         // The elements of a list of primitive values share no object unless code changes the list.
         let list = receiver.and_then(|receiver| self.primitive_source(receiver));
         let of_receiver = receiver.map_or_else(Vec::new, |receiver| self.receiver_refs(receiver));
-        let mut held = if list.is_some() { Vec::new() } else { of_receiver.clone() };
+        let mut held = if list.is_some() {
+            Vec::new()
+        } else {
+            of_receiver.clone()
+        };
         for argument in arguments {
             held.extend(self.refs(Part::Value, |refs| refs.visit_argument(argument)));
         }
@@ -1499,9 +1503,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
                 // A function value the pass does not follow (one a call made, `aliaser(config)`) may change what it
                 // holds or captures, which it shares with what it was made from. One a module exports is taken to
                 // change none of the module's locals.
-                if !exact
-                    && let Some(symbol) = symbol.filter(|symbol| !self.known.modules.contains_key(symbol))
-                {
+                if !exact && let Some(symbol) = symbol.filter(|symbol| !self.known.modules.contains_key(symbol)) {
                     self.called_values.insert(it.span);
                     self.changed(symbol, Write::default());
                 }
@@ -2250,13 +2252,12 @@ fn copies(names: Names<'_>, call: &CallExpression<'_>) -> bool {
                 .iter()
                 .any(|(package, exports)| *package == module.as_str() && exports.contains(&export));
             let options_free = module != "deepmerge"
-                || call
-                    .arguments
-                    .iter()
-                    .skip(2)
-                    .all(|argument| argument.as_expression().is_some_and(|options| function_free(names, options)));
-            (copying && options_free)
-                || (export == "mergeConfig" && MERGE_CONFIG_MODULES.contains(&module.as_str()))
+                || call.arguments.iter().skip(2).all(|argument| {
+                    argument
+                        .as_expression()
+                        .is_some_and(|options| function_free(names, options))
+                });
+            (copying && options_free) || (export == "mergeConfig" && MERGE_CONFIG_MODULES.contains(&module.as_str()))
         }),
     }
 }
@@ -2317,7 +2318,10 @@ pub(crate) fn property_defined(call: &CallExpression<'_>) -> Option<String> {
     if m.property.name.as_str() != "defineProperty" || first_argument_setter(&call.callee).is_none() {
         return None;
     }
-    call.arguments.get(1).and_then(Argument::as_expression).and_then(static_string)
+    call.arguments
+        .get(1)
+        .and_then(Argument::as_expression)
+        .and_then(static_string)
 }
 
 /// Whether the name a callee (`defineConfig`, `vitest.defineProject`) starts from is not one the project declares a
@@ -2992,7 +2996,9 @@ pub(crate) fn changed_by_call<'p, 'a>(
         return call.arguments.first().and_then(Argument::as_expression);
     }
     match call.callee.get_inner_expression() {
-        Expression::StaticMemberExpression(m) if PURE_METHODS.contains(&m.property.name.as_str()) && !calls_back => None,
+        Expression::StaticMemberExpression(m) if PURE_METHODS.contains(&m.property.name.as_str()) && !calls_back => {
+            None
+        }
         callee => callee.as_member_expression().map(MemberExpression::object),
     }
 }

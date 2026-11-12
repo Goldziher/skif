@@ -4086,7 +4086,9 @@ fn taint_value(value: &mut Value) {
         Value::Object(entries) => open_entries(entries),
         Value::Array(items) => {
             items.iter_mut().for_each(open_below);
-            items.push(Value::Unknown);
+            if !matches!(items.last(), Some(Value::Unknown)) {
+                items.push(Value::Unknown);
+            }
         }
         _ => {}
     }
@@ -4388,7 +4390,13 @@ impl<'u> Writes<'u> {
         }
         let unstable = self.unstable;
         for (name, keys, _) in unstable.parts_of(expr) {
-            self.change(name, Write { keys: keys.clone(), key: None });
+            self.change(
+                name,
+                Write {
+                    keys: keys.clone(),
+                    key: None,
+                },
+            );
         }
     }
 
@@ -4443,7 +4451,13 @@ impl<'a> Visit<'a> for Writes<'_> {
                     let unstable = self.unstable;
                     for (name, keys, exact) in unstable.parts_of(&m.object) {
                         let key = exact.then(|| m.property.name.as_str().to_owned());
-                        self.change(name, Write { keys: keys.clone(), key });
+                        self.change(
+                            name,
+                            Write {
+                                keys: keys.clone(),
+                                key,
+                            },
+                        );
                     }
                 }
             },
@@ -4480,7 +4494,9 @@ impl<'a> Visit<'a> for Writes<'_> {
             && !self.unstable.is_namespace(target)
         {
             match (property_defined(it), reach(target)) {
-                (Some(key), Some((root, keys, true))) => self.change(root.name.as_str(), Write { keys, key: Some(key) }),
+                (Some(key), Some((root, keys, true))) => {
+                    self.change(root.name.as_str(), Write { keys, key: Some(key) })
+                }
                 _ => self.object(target),
             }
         }
