@@ -33,15 +33,15 @@
 use std::collections::BTreeMap;
 
 use oxc_ast::ast::{
-    Argument, ArrayExpression, ArrayExpressionElement, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator, AssignmentPattern,
-    AssignmentTarget, AssignmentTargetMaybeDefault, AssignmentTargetPattern, AssignmentTargetProperty,
-    AssignmentTargetPropertyIdentifier, BindingIdentifier, BindingPattern, CallExpression, ChainExpression, Class,
-    ComputedMemberExpression, Declaration, DoWhileStatement, ExportDeclaration, Expression, ExpressionStatement,
-    ForInStatement, ForOfStatement, ForStatement, ForStatementLeft, FormalParameter, FormalParameters, Function,
-    IdentifierReference, ImportDeclaration, ImportDeclarationSpecifier, LogicalOperator, MemberExpression, NewExpression,
-    ObjectExpression, ObjectPropertyKind, PrivateFieldExpression, Program, PropertyKind, ReturnStatement,
-    SimpleAssignmentTarget, StaticMemberExpression, TaggedTemplateExpression, UnaryExpression, UnaryOperator,
-    VariableDeclaration, VariableDeclarationKind, VariableDeclarator, WhileStatement,
+    Argument, ArrayExpression, ArrayExpressionElement, ArrowFunctionExpression, AssignmentExpression,
+    AssignmentOperator, AssignmentPattern, AssignmentTarget, AssignmentTargetMaybeDefault, AssignmentTargetPattern,
+    AssignmentTargetProperty, AssignmentTargetPropertyIdentifier, BindingIdentifier, BindingPattern, CallExpression,
+    ChainExpression, Class, ComputedMemberExpression, Declaration, DoWhileStatement, ExportDeclaration, Expression,
+    ExpressionStatement, ForInStatement, ForOfStatement, ForStatement, ForStatementLeft, FormalParameter,
+    FormalParameters, Function, IdentifierReference, ImportDeclaration, ImportDeclarationSpecifier, LogicalOperator,
+    MemberExpression, NewExpression, ObjectExpression, ObjectPropertyKind, PrivateFieldExpression, Program,
+    PropertyKind, ReturnStatement, SimpleAssignmentTarget, StaticMemberExpression, TaggedTemplateExpression,
+    UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind, VariableDeclarator, WhileStatement,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::{ReferenceId, ScopeFlags, ScopeId, Scoping, SemanticBuilder, SymbolId};
