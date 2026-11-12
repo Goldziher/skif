@@ -52,8 +52,10 @@ All notable changes to this project are documented here. The format follows
   options it is given known ([#166](https://github.com/Goldziher/skif/issues/166)).
 - **Config factories**: a change made through a `const` that takes a part of a local of the same function
   (`const { coverage } = config.test; coverage.enabled = true`) is applied to that part of the local, so the rest of
-  the config, and the options spread into it, stay known; a local with more than one such alias, or one shared with
-  another function, is still left partly unknown ([#166](https://github.com/Goldziher/skif/issues/166)).
+  the config, and the options spread into it, stay known; what else may hold that part (a list or object holding the
+  local, the options when they are read after the change, another key given the same object) is partly unknown where it
+  is read after the alias is declared, and a local with more than one such alias, or one shared with another function,
+  is still left partly unknown ([#166](https://github.com/Goldziher/skif/issues/166)).
 - **Config evaluation**: a call of a well-known function that changes nothing it is given (`path.join`,
   `fs.readFileSync`, `JSON.stringify`, `console.log`) no longer makes the config holding its result partly unknown,
   and a `const` holding a string or number shares no object with what it is given to; a literal `entry` next to
