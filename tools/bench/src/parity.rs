@@ -91,6 +91,7 @@ pub const IMPORTED_BY_KNIP_UNUSED_FILE: &str = "imported-by-knip-unused-file";
 pub const IMPORTED_BY_SKIF_UNUSED_FILE: &str = "imported-by-skif-unused-file";
 pub const ENTRY_MODULE_DUPLICATE: &str = "entry-module-duplicate";
 pub const BAZEL_BUILD_FILE: &str = "bazel-build-file";
+pub const DECLARATION_FILE: &str = "declaration-file";
 
 /// The dependency categories skif does not judge anywhere in a package whose entry files are not all known (ADR 0053),
 /// whatever the package's `scope`.
@@ -184,10 +185,14 @@ const DEPENDENCY_FIELDS: [&str; 4] = [
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 20] = [
+pub const KNIP_DEVIATIONS: [Deviation; 21] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
+    },
+    Deviation {
+        id: DECLARATION_FILE,
+        reason: "knip reports these declaration files (`.d.ts`) as unused; skif never reports a `.d.ts` file as unused, since one holds ambient declarations or the typings a package publishes, which no import needs to name. skif's exemption covers `.d.ts` only, so a `.d.mts` or `.d.cts` file stays compared",
     },
     Deviation {
         id: TEST_FILE,
@@ -716,9 +721,10 @@ fn skif_only_deviation(category: &str, key: &str, foreign: &BTreeSet<String>) ->
     (category == "unlisted" && foreign.contains(key)).then_some(FOREIGN_TSCONFIG_PATHS)
 }
 
-/// Whether a knip-reported unused file is a known deviation: outside skif's project set (not code), in a directory
-/// skif treats as fixtures, a test file or any code file below a test directory (such as the apps of an end-to-end
-/// suite). Fixtures and tests only count when `include_test_files` is off.
+/// Whether a knip-reported unused file is a known deviation: outside skif's project set (not code), a declaration file
+/// skif never reports (`.d.ts`, as `unused-files` filters them), in a directory skif treats as fixtures, a test file or
+/// any code file below a test directory (such as the apps of an end-to-end suite). Fixtures and tests only count when
+/// `include_test_files` is off.
 fn classify_file(path: &str, include_test_files: bool) -> Option<&'static str> {
     let normalized = path.replace('\\', "/");
     let (directories, name) = normalized.rsplit_once('/').unwrap_or(("", normalized.as_str()));
@@ -727,6 +733,9 @@ fn classify_file(path: &str, include_test_files: bool) -> Option<&'static str> {
         .map(|(_, extension)| extension.to_ascii_lowercase());
     if !extension.is_some_and(|e| CODE_EXTENSIONS.contains(&e.as_str())) {
         return Some(NON_CODE_FILE);
+    }
+    if name.ends_with(".d.ts") {
+        return Some(DECLARATION_FILE);
     }
     if include_test_files {
         return None;
@@ -2879,6 +2888,15 @@ mod tests {
         assert_eq!(classify_file("pkg/fixtures/a.ts", true), None);
         assert_eq!(classify_file("pkg/src/a.ts", false), None);
         assert_eq!(classify_file("pkg/src/latest.tsx", false), None);
+        assert_eq!(classify_file("typings/legacy.d.ts", false), Some(DECLARATION_FILE));
+        assert_eq!(
+            classify_file("pkg/test/globals.d.ts", true),
+            Some(DECLARATION_FILE),
+            "whatever `--include-test-files` says"
+        );
+        assert_eq!(classify_file("lib/watch.d.mts", false), None, "skif judges `.d.mts`");
+        assert_eq!(classify_file("lib/types.d.cts", false), None);
+        assert_eq!(classify_file("src/d.ts", false), None);
     }
 
     #[test]
@@ -3438,6 +3456,7 @@ mod tests {
             IMPORTED_BY_SKIF_UNUSED_FILE,
             ENTRY_MODULE_DUPLICATE,
             BAZEL_BUILD_FILE,
+            DECLARATION_FILE,
             KNIP_CONFIG_ERROR,
             NOT_JUDGED,
         ] {
@@ -3904,12 +3923,16 @@ mod tests {
                 "packages/core/src/other.ts",
                 "packages/core/schematics.ts",
                 "packages/core/schematics/a.js",
-                "packages/core/schematics/types.d.ts",
                 "packages/common/locales/ff-CM.mts",
                 "packages/common/locale/ff-CM.ts",
             ] {
                 assert_eq!(classifier.classify(Side::Tool, "files", key), None, "{key}");
             }
+            assert!(!classifier.layout.publishes_source_of("packages/core/schematics/types.d.ts"));
+            assert_eq!(
+                classifier.classify(Side::Tool, "files", "packages/core/schematics/types.d.ts"),
+                Some(DECLARATION_FILE)
+            );
             for category in ["exports", "types", "nsExports", "nsTypes"] {
                 assert_eq!(
                     classifier.classify(Side::Tool, category, "packages/core/index.ts|unused"),
@@ -4129,7 +4152,6 @@ mod tests {
             }
             for key in [
                 "libraries/heft/scripts/build.ts",
-                "libraries/heft/src/index.d.ts",
                 "extensions/git/src/other.ts",
                 "extensions/git/main.ts",
                 "packages/tool/src/tool.ts",
@@ -4137,6 +4159,10 @@ mod tests {
             ] {
                 assert_eq!(classifier.classify(Side::Tool, "files", key), None, "{key}");
             }
+            assert!(
+                !classifier.layout.publishes_source_of("libraries/heft/src/index.d.ts"),
+                "a declaration file is no source of a published path"
+            );
         });
         assert!(is_published_twin("./lib-commonjs/*.js", "src/a/b", "ts"));
         assert!(!is_published_twin("./lib-commonjs/*.js", "lib-commonjs-src/a", "ts"));
