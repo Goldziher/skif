@@ -1970,8 +1970,8 @@ fn read_build_files(root: &Path, is_package: &dyn Fn(&str) -> bool) -> Vec<(Stri
             };
             let path = joined(&dir, &name);
             if kind.is_dir() {
-                let here =
-                    !PACKAGE_ROOT_ONLY_DIRECTORIES.contains(&name.as_str()) || dir.is_empty() || is_package(dir.as_str());
+                let at_package_root = dir.is_empty() || is_package(dir.as_str());
+                let here = !PACKAGE_ROOT_ONLY_DIRECTORIES.contains(&name.as_str()) || at_package_root;
                 let skipped = (SKIPPED_DIRECTORIES.contains(&name.as_str()) && here)
                     || (name.starts_with('.') && !TOOL_DIRECTORIES.contains(&name.as_str()))
                     || (dir.is_empty() && name.starts_with("bazel-"));
