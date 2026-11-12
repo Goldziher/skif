@@ -10,13 +10,16 @@ import { fileURLToPath } from "node:url";
 
 import {
   baselineProblems,
+  benchClaims,
   benchDetail,
   benchSummary,
   duration,
   markers,
+  mdxText,
   parityAgreement,
   provenance,
   replaceBlock,
+  speedClaim,
   summaryProblems,
 } from "./refresh-numbers.mjs";
 
@@ -186,6 +189,13 @@ test("a knip failure corpus.toml declares and the run matched is published as fa
   assert.ok(compact.includes(`| create-t3-turbo | 33 ms | fails: ${METRO_REASON} | - |\n`), compact);
   assert.match(compact, /\| create-t3-turbo \| 4\.0 ms \| 30 ms \| 36 ms \|/);
   assert.match(compact, /\| babel \| 884 ms \| 7\.2 s \| 8x \|/);
+  assert.ok(
+    benchClaims(matched).startsWith(
+      "- **8.1x faster than knip** for dead-code analysis, on 1 pinned public repository where knip completes; " +
+        "it fails on create-t3-turbo.\n",
+    ),
+    benchClaims(matched),
+  );
   const detail = benchDetail(matched);
   assert.ok(detail.includes(`| knip --reporter json | fails: ${METRO_REASON} | - | - |\n`), detail);
   assert.ok(detail.includes("| sherif | 30.0 | 30.0 | 1.0x |\n"), detail);
@@ -319,6 +329,7 @@ test("the compact tables use medians and the knip to skif ratio", () => {
 
 test("the detail tables print no ratio for the skif rows and name what installed a corpus repository", () => {
   const text = benchDetail(summary());
+  assert.match(text, /^\*\*generated: 500 packages \(pnpm\)\*\*\n/);
   assert.match(text, /\*\*corpus: babel \(yarn\)\*\*\n\nInstalled with `yarn 4\.10\.3`\.\n\n\| Tool \|/);
   assert.match(text, /\*\*generated: 500 packages \(pnpm\)\*\*\n\n\| Tool \|/);
   assert.match(text, /\| skif --no-js \| 9\.4 \| 9\.4 \| - \|/);
@@ -326,10 +337,74 @@ test("the detail tables print no ratio for the skif rows and name what installed
   assert.match(text, /\| corpus: babel \(yarn\) \| d \| pass \|/);
 });
 
+test("the claims give each tool's ratio range over the targets it was timed on, with the runs they come from", () => {
+  assert.equal(
+    benchClaims(summary()),
+    [
+      "- **8.1x faster than knip** for dead-code analysis, on 1 pinned public repository.",
+      "- **2.1–3.9x faster than sherif** for manifest and workspace checks (`skif --no-js`), on 1 pinned public " +
+        "repository and 1 generated workspace of 500 packages.",
+      "- **5.7–29.7x faster than syncpack** for version-policy checks (`skif --no-js`), on 1 pinned public " +
+        "repository and 1 generated workspace of 500 packages.",
+      "",
+      "skif 0.3.0 against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3: medians of 15 runs on a GitHub-hosted " +
+        "runner, measured on 2026-11-10.",
+    ].join("\n"),
+  );
+});
+
+test("the claims leave out a knip that fails and give the median ratio from three targets on", () => {
+  const matched = withT3({
+    errorRuns: 15,
+    failure: { reason: METRO_REASON, error: METRO_ERROR },
+    check: { description: `${GOAL} (not measured: knip fails here: ${METRO_REASON})`, status: "not-measured" },
+  });
+  const lines = benchClaims(matched).split("\n");
+  assert.equal(
+    lines[0],
+    "- **8.1x faster than knip** for dead-code analysis, on 1 pinned public repository where knip completes; it " +
+      "fails on create-t3-turbo.",
+  );
+  assert.equal(
+    lines[1],
+    "- **2.1–7.5x faster than sherif** (median 3.9x) for manifest and workspace checks (`skif --no-js`), on 2 " +
+      "pinned public repositories and 1 generated workspace of 500 packages.",
+  );
+  assert.match(lines[2], /^- \*\*5\.7–29\.7x faster than syncpack\*\* \(median 9\.0x\) for version-policy checks/);
+});
+
+test("the claims leave knip out when it fails on every repository", () => {
+  const matched = withT3({
+    errorRuns: 15,
+    failure: { reason: METRO_REASON, error: METRO_ERROR },
+    check: { description: `${GOAL} (not measured: knip fails here: ${METRO_REASON})`, status: "not-measured" },
+  });
+  matched.targets = matched.targets.filter((target) => target.target !== "corpus: babel (yarn)");
+  assert.doesNotMatch(benchClaims(matched), /knip\*\*/);
+  assert.match(benchClaims(matched), /^- \*\*2\.1–7\.5x faster than sherif\*\* for manifest/);
+});
+
+test("a speed claim rounds every ratio down and says where skif was slower", () => {
+  assert.equal(speedClaim("t", [1.99, 2.09]), "**1.9–2.0x faster than t**");
+  assert.equal(speedClaim("t", [7.0, 7.09]), "**7.0x faster than t**");
+  assert.equal(speedClaim("t", [3, 1.25, 9.99]), "**1.2–9.9x faster than t** (median 3.0x)");
+  assert.equal(speedClaim("t", [3, 1.5, 9, 4]), "**1.5–9.0x faster than t** (median 3.5x)");
+  assert.equal(
+    speedClaim("t", [0.8, 2, 5.55]),
+    "**up to 5.5x faster than t** (median 2.0x), and slower on 1 of 3 targets",
+  );
+  assert.equal(speedClaim("t", [0.5, 0.97]), "**slower than t** on every target (0.9x its speed at best)");
+});
+
 test("durations switch unit at 10 ms and 1 s", () => {
   assert.equal(duration(4.62), "4.6 ms");
   assert.equal(duration(375.4), "375 ms");
   assert.equal(duration(1999), "2.0 s");
+});
+
+test("text for MDX escapes what MDX would parse as JSX or an expression, but not inside code spans", () => {
+  assert.equal(mdxText("rules < 50 ms in {x}, `a < {b}` kept"), "rules &lt; 50 ms in &#123;x&#125;, `a < {b}` kept");
+  assert.equal(mdxText("no markup"), "no markup");
 });
 
 test("blocks are replaced between their markers, which differ in MDX", () => {
@@ -405,7 +480,11 @@ test("a baseline from an older harness is a problem", () => {
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 /** The files refresh-numbers.mjs rewrites, relative to the repository root. */
-const TARGETS = ["tools/bench/README.md", "README.md", "website/src/content/docs/guides/comparison.mdx"];
+const TARGETS = [
+  "README.md",
+  "website/src/content/docs/guides/comparison.mdx",
+  "website/src/content/docs/guides/benchmarks.mdx",
+];
 
 /** A temporary tree holding a copy of the script, the files it rewrites and the parity baseline; returns its root. */
 function scriptTree(t) {
@@ -436,14 +515,20 @@ test("a refused summary leaves every target file byte for byte as it was", (t) =
   assert.deepEqual(contents(root), before);
 });
 
-test("without flags and without an imported summary only the agreement tables are refreshed", (t) => {
+test("without flags and without an imported summary only the agreement table is refreshed", (t) => {
   const root = scriptTree(t);
   assert.equal(existsSync(join(root, "tools", "bench", "results", "summary.json")), false);
-  const before = readFileSync(join(root, "tools", "bench", "README.md"));
+  const page = join(root, "website", "src", "content", "docs", "guides", "benchmarks.mdx");
+  const agreement = /(\{\/\* parity:agreement:start \*\/\}\n)[^]*?(\n\{\/\* parity:agreement:end)/;
+  writeFileSync(page, readFileSync(page, "utf8").replace(agreement, "$1stale$2"));
+  const [readme, comparison] = contents(root);
   const run = runScript(root);
   assert.equal(run.status, 0, run.stderr);
-  assert.match(run.stdout, /results\/summary\.json, so the speed tables are left as they are/);
-  assert.deepEqual(readFileSync(join(root, "tools", "bench", "README.md")), before);
+  assert.match(run.stdout, /results\/summary\.json, so the speed blocks are left as they are/);
+  const [readmeAfter, comparisonAfter, pageAfter] = contents(root);
+  assert.deepEqual([readmeAfter, comparisonAfter], [readme, comparison]);
+  assert.doesNotMatch(pageAfter.toString("utf8"), /\nstale\n/);
+  assert.match(pageAfter.toString("utf8"), /\| Unused files \| /);
 });
 
 test("--bench without an imported summary fails", (t) => {
@@ -455,7 +540,7 @@ test("--bench without an imported summary fails", (t) => {
   assert.deepEqual(contents(root), before);
 });
 
-test("a summary with a matched knip failure is written into every speed table", (t) => {
+test("a summary with a matched knip failure is written into every speed block", (t) => {
   const root = scriptTree(t);
   const matched = withT3({
     errorRuns: 15,
@@ -466,9 +551,11 @@ test("a summary with a matched knip failure is written into every speed table", 
   writeFileSync(file, JSON.stringify(matched));
   const run = runScript(root, "--bench", "--summary", file);
   assert.equal(run.status, 0, run.stderr);
-  const [bench, readme, guide] = contents(root).map((bytes) => bytes.toString("utf8"));
-  assert.ok(bench.includes(`| knip --reporter json | fails: ${METRO_REASON} | - | - |\n`), bench);
-  for (const text of [readme, guide]) {
-    assert.ok(text.includes(`| create-t3-turbo | 33 ms | fails: ${METRO_REASON} | - |\n`), text);
-  }
+  const [readme, comparison, page] = contents(root).map((bytes) => bytes.toString("utf8"));
+  assert.ok(page.includes(`| knip --reporter json | fails: ${METRO_REASON} | - | - |\n`), page);
+  assert.ok(page.includes(`| create-t3-turbo | 33 ms | fails: ${METRO_REASON} | - |\n`), page);
+  const claim = "\n- **8.1x faster than knip** for dead-code analysis";
+  assert.ok(readme.includes(`<!-- bench:claims:start -->${claim}`), readme);
+  assert.ok(comparison.includes(`{/* bench:claims:start */}${claim}`), comparison);
+  assert.ok(readme.includes("it fails on create-t3-turbo.\n"), readme);
 });

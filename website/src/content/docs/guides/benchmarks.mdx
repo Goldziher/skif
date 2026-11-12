@@ -1,0 +1,307 @@
+---
+title: Benchmarks
+description: How fast skif is against knip, sherif and syncpack, how accurate it is on seeded defects and dead code, how often it agrees with knip, and how each number is measured.
+---
+
+Every speed number on this page comes from one run of the
+[`bench` workflow](https://github.com/Goldziher/skif/blob/main/.github/workflows/bench.yml) on a GitHub-hosted
+runner, and the agreement table from the committed parity baseline. Both are generated: the first line of each block
+names the skif commit, the tool versions, the runner image and the machine, and the speed block links the
+[workflow run](https://github.com/Goldziher/skif/actions/workflows/bench.yml) the numbers came from. How they are
+measured is under [Methodology](#methodology).
+
+## Speed
+
+Full skif runs are timed against knip, and `skif --no-js`, which skips the JS analysis, against sherif and syncpack,
+on the [pinned public repositories](https://github.com/Goldziher/skif/blob/main/tools/bench/corpus.toml) with their
+dependencies installed and on generated workspaces. Absolute times depend on the machine; the ratios are the result.
+On npm-cli knip runs with `--no-gitignore`, since npm's `.gitignore` otherwise hides every workspace from it.
+
+{/* bench:summary:start */}
+Medians of 15 runs after 3 warmup runs (hyperfine 1.20.0), skif 0.3.0 at `150634614dea` built with rustc 1.99.1 (58cf8f9c3 2026-10-13) against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3, measured on 2026-11-12 on a GitHub-hosted runner, image ubuntu24 20261101.360.1, Ubuntu 24.04.5 LTS, Linux 7.0.0-1017-azure, x86_64, AMD EPYC 9V45 96-Core Processor, 4 logical CPUs (2 physical cores), 15.6 GiB memory, hypervisor Microsoft, load average 3.76 / 2.39 / 1.02 before and 1.72 / 1.95 / 1.12 after the run ([workflow run, attempt 1](https://github.com/Goldziher/skif/actions/runs/43136971156/attempts/1)).
+
+**Dead-code analysis against knip** (full skif run)
+
+| Repository | skif | knip | knip / skif |
+| --- | ---: | ---: | ---: |
+| create-t3-turbo | 23 ms | fails: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide | - |
+| vue-core | 43 ms | fails: its SFC playground Vite config reads a build-time global that only the repository's own build defines | - |
+| tanstack-query | 280 ms | 2.5 s | 9x |
+| babel | 603 ms | 3.7 s | 6x |
+| npm-cli | 64 ms | 481 ms | 8x |
+
+**Manifest and policy checks** (`skif --no-js`)
+
+| Target | skif --no-js | sherif | syncpack |
+| --- | ---: | ---: | ---: |
+| create-t3-turbo | 3.0 ms | 22 ms | 26 ms |
+| vue-core | 3.1 ms | 23 ms | 28 ms |
+| tanstack-query | 8.9 ms | 35 ms | 86 ms |
+| babel | 12 ms | 25 ms | 251 ms |
+| npm-cli | 4.6 ms | 22 ms | 56 ms |
+| Generated, 50 packages | 3.6 ms | 22 ms | 30 ms |
+| Generated, 500 packages | 18 ms | 38 ms | 109 ms |
+| Generated, 2000 packages | 81 ms | 94 ms | 495 ms |
+{/* bench:summary:end */}
+
+### All measurements
+
+Mean and median of every timed command on every target of the same run, with the ratio of each tool's median to
+skif's, and the speed targets that [ADR 0001](https://github.com/Goldziher/skif/blob/main/adrs/0001-mission-and-scope.md)
+sets: manifest and policy rules on 500 packages in under 50 ms, the JS analysis at least 5x faster than knip on the same
+tree, and parsing and building the module graph of 10,000 files in under 2 s. The graph target times a whole `skif`
+run, which also runs every JS rule, so it is an upper bound.
+
+{/* bench:numbers:start */}
+**generated: 50 packages (pnpm)**
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif --no-js | 3.6 | 3.6 | - |
+| sherif | 23.0 | 22.4 | 6.5x |
+| syncpack lint | 30.1 | 29.8 | 8.4x |
+
+**generated: 500 packages (pnpm)**
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif --no-js | 18.5 | 18.3 | - |
+| sherif | 37.8 | 38.0 | 2.0x |
+| syncpack lint | 110 | 109 | 6.0x |
+
+**generated: 2000 packages (pnpm)**
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif --no-js | 81.5 | 81.3 | - |
+| sherif | 94.0 | 93.9 | 1.2x |
+| syncpack lint | 498 | 495 | 6.1x |
+
+**graph: 10000 files in 100 packages**
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif | 156 | 156 | - |
+
+**corpus: create-t3-turbo (pnpm)**
+
+Installed with `pnpm 10.19.0`.
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif | 25.1 | 23.0 | - |
+| skif --no-js | 2.9 | 3.0 | - |
+| sherif | 25.6 | 22.3 | 8.7x |
+| syncpack lint | 26.3 | 26.1 | 8.9x |
+| knip --reporter json | fails: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide | - | - |
+
+**corpus: vue-core (pnpm)**
+
+Installed with `pnpm 12.11.2`.
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif | 43.1 | 42.9 | - |
+| skif --no-js | 3.1 | 3.1 | - |
+| sherif | 22.7 | 22.6 | 7.3x |
+| syncpack lint | 28.1 | 27.7 | 9.0x |
+| knip --reporter json | fails: its SFC playground Vite config reads a build-time global that only the repository's own build defines | - | - |
+
+**corpus: tanstack-query (pnpm)**
+
+Installed with `pnpm 12.4.2`.
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif | 281 | 280 | - |
+| skif --no-js | 8.9 | 8.9 | - |
+| sherif | 33.6 | 34.6 | 3.8x |
+| syncpack lint | 85.7 | 85.6 | 9.7x |
+| knip --reporter json | 2541 | 2533 | 9.0x |
+
+**corpus: babel (yarn)**
+
+Installed with `yarn 4.17.0`.
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif | 604 | 603 | - |
+| skif --no-js | 12.2 | 12.1 | - |
+| sherif | 25.3 | 24.8 | 2.1x |
+| syncpack lint | 251 | 251 | 20.6x |
+| knip --reporter json | 3677 | 3675 | 6.1x |
+
+**corpus: npm-cli (npm)**
+
+Installed with `npx --yes npm@11.6.2 ci --ignore-scripts`.
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif | 63.2 | 64.0 | - |
+| skif --no-js | 4.6 | 4.6 | - |
+| sherif | 21.8 | 21.6 | 4.7x |
+| syncpack lint | 55.9 | 55.8 | 12.1x |
+| knip --reporter json | 483 | 481 | 7.6x |
+
+| ADR 0001 target | Check | Result |
+| --- | --- | --- |
+| generated: 500 packages (pnpm) | manifest and policy rules &lt; 50 ms (measured 18.5 ms) | pass |
+| graph: 10000 files in 100 packages | parse and module graph of 10000 files &lt; 2000 ms, whole run including every JS rule (measured 155.7 ms) | pass |
+| corpus: create-t3-turbo (pnpm) | JS analysis >= 5x faster than knip (not measured: knip fails here: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide) | not measured |
+| corpus: vue-core (pnpm) | JS analysis >= 5x faster than knip (not measured: knip fails here: its SFC playground Vite config reads a build-time global that only the repository's own build defines) | not measured |
+| corpus: tanstack-query (pnpm) | JS analysis >= 5x faster than knip (measured 9.0x) | pass |
+| corpus: babel (yarn) | JS analysis >= 5x faster than knip (measured 6.1x) | pass |
+| corpus: npm-cli (npm) | JS analysis >= 5x faster than knip (measured 7.6x) | pass |
+{/* bench:numbers:end */}
+
+## Accuracy on seeded defects
+
+A generated 500-package workspace with defects injected on purpose. `Actual` is counted from the files, so the right
+answer is known. Counted by hand on 2026-11-06 (skif 0.1.0), not re-counted for this release; the method is in the
+[benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md#seeded-defects):
+
+| Defect | Actual | skif | sherif | syncpack |
+| --- | ---: | ---: | ---: | ---: |
+| Dependencies with mismatched versions | 200 | 200 | 200 | 200 |
+| Unsorted dependency maps | 25 | 25 | 25 | n/a |
+| Type packages in `dependencies` | 24 | 24 | 24 | n/a |
+| Empty dependency objects | 31 | 31 | 31 | n/a |
+
+skif and sherif name the same 200 dependencies. skif and syncpack report the same 4,568 mismatched instances, with
+nothing unique to either. `n/a` means the tool does not check for that defect.
+
+## Precision on seeded dead code
+
+A generated 5-package workspace with seeded unused files, exports, types and dependencies, next to live code that is
+reached only through patterns that caused false findings on real repositories (namespace reads, `typeof import()`,
+`import.meta.glob`, tsconfig `paths`, `#` subpath imports, manual mocks, fixtures and more). The answer key lists all
+33 seeded findings. skif measured on 2026-11-08 and knip 6.44.1 on 2026-11-07, not re-measured for this release;
+reproduce with `mise run bench:deadcode -- --knip`:
+
+| Tool | Precision | Recall |
+| --- | ---: | ---: |
+| skif | 100% | 100% |
+| knip | 77% | 100% |
+
+skif reports no false finding; knip reports exports read only through `typeof import("./m")["name"]` and files in
+`fixtures` directories. Per issue type and pattern: the
+[benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md#dead-code-precision-and-recall).
+
+## Agreement with knip
+
+Real repositories have no answer key for dead code, so this measures agreement, not correctness. A weekly job runs
+both tools on pinned public repositories and compares the findings per issue type; the table is generated from the
+committed baseline of that comparison:
+
+{/* parity:agreement:start */}
+Findings knip@6.44.1 and skif share on 16 pinned repositories (angular, babel, cal-com, create-t3-turbo, jest, mastra, n8n, next-js, npm-cli, opencode, rules-js, rushstack, tanstack-query, vercel-examples, vscode, vue-core; 16 of them installed), from `tools/bench/baselines/parity.json`, recorded at skif `1c497a74f5fa`.
+
+| Finding | Shared | Of skif's findings | Of knip's findings |
+| --- | ---: | ---: | ---: |
+| Unused files | 11,041 | 100% | 96% |
+| Unused exports | 6,918 | 99% | 91% |
+| Unused types | 3,328 | 99% | 89% |
+| Unused dev dependencies | 1,236 | 99% | 98% |
+| Unlisted dependencies | 819 | 97% | 60% |
+| Unused dependencies | 630 | 98% | 95% |
+| Unused namespace exports | 424 | 100% | 76% |
+| Unused namespace types | 312 | 100% | 93% |
+| Duplicate exports | 158 | 96% | 83% |
+| Unused enum members | 129 | 100% | 24% |
+| Unused namespace members | 105 | 99% | 94% |
+| Unlisted binaries | 85 | 90% | 36% |
+| Unresolved imports | 26 | 100% | 38% |
+| Unused optional peer dependencies | 3 | 60% | 60% |
+{/* parity:agreement:end */}
+
+A low share means the tools differ, and either one could be right. Some differences are intended and counted apart:
+skif makes test files entries, does not report files in `fixtures` directories
+([ADR 0050](https://github.com/Goldziher/skif/blob/main/adrs/0050-fixture-directories-in-the-js-analysis.md)), reads a
+namespace import differently. Findings in packages skif does not judge, in packages where knip could not load a config,
+and inside a file the other tool reports as unused (the file is the one disagreement) are counted apart too. It also
+sets apart what follows from where each tool looks, decided from paths and manifests: projects with their own
+`package.json` that are not knip workspaces (knip neither judges their dependencies nor uses their entry files, while
+skif lints them as roots of their own), directories skif's file discovery skips, and TypeScript sources whose built
+path a package publishes (and the node and credential files an n8n node package lists), which skif makes entries,
+together with the files they import that only knip reports as unused. A repository whose knip run is not a valid
+comparison is named and left out of the sums. Reading the disagreements found false findings on both sides
+([ADR 0049](https://github.com/Goldziher/skif/blob/main/adrs/0049-js-corrections-from-adjudicating-knip-disagreements.md)).
+The remaining differences, and what each tool reports differently, are in the
+[comparison guide](../comparison/#parity-with-knip).
+
+## Methodology
+
+### What is measured
+
+[`skif-bench run`](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md#what-it-measures) times whole
+command-line invocations, process start-up included, on three kinds of targets:
+
+| Target | Contents | Tools timed |
+| --- | --- | --- |
+| Generated workspaces | 50, 500 and 2000 packages, pnpm layout, 5% issue rate, seed 1 | `skif --no-js`, `sherif`, `syncpack lint` |
+| Module graph | 10,000 TypeScript files in 100 packages | `skif` |
+| Pinned corpus | the `bench` repositories of `corpus.toml` | `skif`, `skif --no-js`, `sherif`, `syncpack lint`, `knip --reporter json` |
+
+skif runs as `skif . --format json --no-install`, with `--no-js` for the manifest and policy rows and with
+`--recursive` where a repository sets `recursive` (babel); the working directory is the target. Non-zero exits are
+ignored, since a linter exits 1 when it finds something; a run that exits above 1 or by a signal is an error, since its
+time may be that of a partial run.
+
+### Runs and statistics
+
+[hyperfine](https://github.com/sharkdp/hyperfine) runs each command without a shell (`-N`), with 3 warmup runs and 15
+measured runs by default (the workflow's `warmup` and `runs` inputs). The tables show medians, which one slow run does
+not move. The warmup means the numbers are warm file cache, not cold start.
+
+### Pinned corpus and tools
+
+[`tools/bench/corpus.toml`](https://github.com/Goldziher/skif/blob/main/tools/bench/corpus.toml) pins every repository
+to a full commit SHA and declares the sherif, syncpack and knip versions under `[tools]`. The harness installs those
+versions with `npm ci --ignore-scripts` from `tools/bench/tools/package-lock.json`, refuses to run when the lock and
+`[tools]` differ, and times the executables in `node_modules/.bin` directly, so no `npx` resolution is timed and
+nothing on `PATH` is used. The harness fails before timing anything when a repository is not pinned to a full commit
+SHA or a tool not to an exact version.
+
+### Installed dependencies
+
+knip needs installed dependencies to load the repositories' tool configurations, so the workflow installs each corpus
+repository first (`run --install`), through a pinned corepack whose pnpm and yarn shims follow the repository's
+`packageManager`. Installing changes the timings of every tool, not only knip's, so compare only runs made the same
+way. Where knip fails even installed, for reasons that are the repository's own, `corpus.toml` declares the failure
+(`bench-knip-failure`); a run whose error matches is published as `fails: <reason>`, without a ratio, and any other
+error stops the run from being published.
+
+### The runner
+
+The workflow runs only when dispatched, on a pinned GitHub-hosted runner image (`ubuntu-24.04` or
+`ubuntu-24.04-arm`), and builds skif and the harness with `--locked` and the `rust-version` of their `Cargo.toml`
+([ADR 0113](https://github.com/Goldziher/skif/blob/main/adrs/0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md)).
+GitHub-hosted runners are shared virtual machines: a neighbour's load moves the times of a run by several percent, and
+two runs of the same image may land on different CPU models (the summary names the one it got). Read the ratios
+against knip, sherif and syncpack, which share the machine and its noise, rather than the absolute times.
+
+### Publishing a run
+
+`mise run bench:import -- <run-id>` imports only a successful, dispatched run of `bench` whose commit is on `main`,
+puts its summary and raw hyperfine exports into
+[`tools/bench/results`](https://github.com/Goldziher/skif/tree/main/tools/bench/results), and regenerates the blocks of
+this page and the headline claims of the README and the [comparison guide](../comparison/#performance). It writes
+nothing when a comparison tool was not timed, the run was narrowed to some repositories, a tool exited with an error
+that is not a declared knip failure, an ADR 0001 check is invalid, or the run did not come from clean checkouts on a
+GitHub-hosted runner. The headline claims give, for each tool, the range of the ratios of its median to skif's over
+the targets it completed on, with the median ratio from three targets on, each rounded down to one decimal.
+
+### Reproducing
+
+```sh
+gh workflow run bench.yml -f ref=main -f runner=ubuntu-24.04   # also: -f runs=15 -f warmup=3 -f only=babel
+gh run list --workflow bench.yml --limit 1                     # the run id
+mise run bench:import -- <run-id>
+```
+
+On your own machine, `mise run bench` builds skif in release mode and times it the same way (it needs hyperfine and
+npm); add `--install` to `skif-bench run` to install the corpus first, as the workflow does. Local numbers are not
+published. `mise run bench:deadcode -- --knip` reproduces the precision table, and
+`mise run parity -- --install --write-baseline` followed by `mise run parity:publish` the agreement table. The
+[benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md) documents every command and
+option.

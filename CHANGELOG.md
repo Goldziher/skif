@@ -12,6 +12,11 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - The GitHub Action is named `skif dependency linter`, because the GitHub Marketplace needs a name that no other action, user or organization holds. Workflows keep `uses: Goldziher/skif@v0.3`.
+- The benchmark results moved from the README to a [benchmarks page](https://goldziher.github.io/skif/guides/benchmarks/)
+  in the docs, with the speed tables, the accuracy and knip agreement results, a link to the `bench` workflow and its
+  run, and the methodology. The README and the comparison guide show generated headline claims instead (`bench:claims`:
+  each tool's range of median ratios to skif, rounded down), and `mise run bench:import` and `mise run parity:publish`
+  write the tables to the new page.
 
 ## [0.3.0] - 2026-11-11
 

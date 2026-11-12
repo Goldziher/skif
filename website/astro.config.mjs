@@ -79,6 +79,7 @@ export default defineConfig({
             { label: "Library usage", slug: "guides/library" },
             { label: "Migrating", slug: "guides/migrating" },
             { label: "Comparison", slug: "guides/comparison" },
+            { label: "Benchmarks", slug: "guides/benchmarks" },
           ],
         },
         {
