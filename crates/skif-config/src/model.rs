@@ -2606,6 +2606,14 @@ impl Override {
             .as_ref()
             .is_some_and(|scope| scope.applies_to_slashed(package, file))
     }
+
+    /// The names and `/`-separated absolute directories this override covers, when it selects packages only and by
+    /// literal patterns only: it then [applies to](Self::applies_to) a package exactly when the
+    /// [`Selector::literal_key`] of its name or directory is one of them. `None` for any other override.
+    #[must_use]
+    pub fn literal_packages(&self) -> Option<impl Iterator<Item = &str>> {
+        self.scope.as_ref().and_then(OverrideScope::literal_packages)
+    }
 }
 
 /// Where an [`Override`] was declared, with its patterns resolved to absolute ones.
@@ -2648,6 +2656,13 @@ impl OverrideScope {
     #[must_use]
     pub fn unanchored(&self) -> &[String] {
         &self.unanchored
+    }
+
+    fn literal_packages(&self) -> Option<impl Iterator<Item = &str>> {
+        if !self.has_packages || self.has_files {
+            return None;
+        }
+        self.packages.only_literals()
     }
 
     fn applies_to(&self, package: Option<(&str, &Path)>, file: Option<&Path>) -> bool {

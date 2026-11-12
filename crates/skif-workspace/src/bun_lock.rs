@@ -5,6 +5,7 @@
 //! not read.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Bound;
 use std::path::{Path, PathBuf};
 
 use jsonc_parser::{ParseOptions, parse_to_serde_value};
@@ -153,8 +154,11 @@ impl BunLockfile {
     /// The versions of `name` the lockfile resolves, in byte order.
     #[must_use]
     pub fn versions_of(&self, name: &str) -> BTreeSet<&str> {
+        // Every key of `name` starts with `name@`, so they are one run of the sorted keys.
+        let prefix = format!("{name}@");
         self.packages
-            .iter()
+            .range::<str, _>((Bound::Included(prefix.as_str()), Bound::Unbounded))
+            .take_while(|key| key.starts_with(&prefix))
             .filter_map(|key| split_key(key))
             .filter(|(resolved, _, _)| *resolved == name)
             .map(|(_, version, _)| version)
@@ -353,6 +357,35 @@ mod tests {
         assert_eq!(parent_key("app/@types/ms"), Some("app"));
         assert_eq!(parent_key("debug"), None);
         assert_eq!(parent_key("@s/web"), None);
+    }
+
+    #[test]
+    fn versions_are_those_of_the_name_and_not_of_names_it_starts() {
+        let lock = BunLockfile {
+            path: PathBuf::from(BUN_LOCKFILE),
+            packages: [
+                "ms@1.0.0",
+                "ms-x@2.0.0",
+                "ms@2.0.0(react@18.0.0)",
+                "msa@3.0.0",
+                "@ms/x@4.0.0",
+                "m@5.0.0",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+            patched_dependencies: BTreeMap::new(),
+            snapshots: BTreeMap::new(),
+            importers: BTreeMap::new(),
+        };
+        assert_eq!(
+            lock.versions_of("ms").into_iter().collect::<Vec<_>>(),
+            ["1.0.0", "2.0.0"]
+        );
+        assert_eq!(lock.versions_of("@ms/x").into_iter().collect::<Vec<_>>(), ["4.0.0"]);
+        assert_eq!(lock.versions_of("m").into_iter().collect::<Vec<_>>(), ["5.0.0"]);
+        assert!(lock.versions_of("absent").is_empty());
+        assert!(lock.versions_of("").is_empty());
     }
 
     #[test]

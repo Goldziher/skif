@@ -318,6 +318,10 @@ impl<F: FileSystem> FileSystem for CachedFs<F> {
         self.inner.read_bytes(path)
     }
 
+    fn read_prefix(&self, path: &Path, limit: usize) -> io::Result<Vec<u8>> {
+        self.inner.read_prefix(path, limit)
+    }
+
     fn modified(&self, path: &Path) -> Option<SystemTime> {
         self.inner.modified(path)
     }

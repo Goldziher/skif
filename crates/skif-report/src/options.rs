@@ -3,6 +3,7 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use skif_core::RuleMeta;
 
@@ -63,11 +64,12 @@ impl RenderOptions {
         self
     }
 
-    /// Registers the text of a file so that the human format can show a code frame for it.
+    /// Registers the text of a file so that the human format can show a code frame for it. The text is shared, not
+    /// copied, when it is given as an `Arc<str>`.
     ///
     /// The report does not carry source text; without this, frames are skipped.
     #[must_use]
-    pub fn with_source(mut self, path: impl AsRef<Path>, text: impl Into<String>) -> Self {
+    pub fn with_source(mut self, path: impl AsRef<Path>, text: impl Into<Arc<str>>) -> Self {
         let key = relativize(path.as_ref(), self.root.as_deref()).into_owned();
         self.sources.insert(key, Source::new(text.into()));
         self
@@ -133,5 +135,17 @@ mod tests {
         let options = RenderOptions::default().with_root("/repo/web").with_repo_root("/repo");
         assert_eq!(options.repo_path(Path::new("../skif.toml")), "skif.toml");
         assert_eq!(options.repo_path(Path::new("src/a.ts")), "web/src/a.ts");
+    }
+
+    #[test]
+    fn a_shared_source_is_kept_without_a_copy() {
+        let text: Arc<str> = Arc::from("{\n  \"name\": \"a\"\n}\n");
+        let options = RenderOptions::default()
+            .with_root("/repo")
+            .with_source("/repo/package.json", Arc::clone(&text));
+        assert_eq!(Arc::strong_count(&text), 2);
+        assert_eq!(options.source_line("package.json", 2), Some("  \"name\": \"a\""));
+        let copied = RenderOptions::default().with_source("package.json", "a\nb".to_owned());
+        assert_eq!(copied.source_line("package.json", 2), Some("b"));
     }
 }

@@ -180,8 +180,8 @@ impl EntryRegexes {
             .as_ref()
             .is_some_and(|set| set.is_match(&format!("/{path}")))
             || self.scoped.iter().any(|(scope, set)| {
-                path.strip_prefix(scope.as_str())
-                    .is_some_and(|rest| set.is_match(&format!("/{rest}")))
+                // `scope` ends with `/`, so the path from that `/` on is `/` followed by the path below the scope.
+                path.starts_with(scope.as_str()) && set.is_match(&path[scope.len() - 1..])
             })
     }
 }
@@ -335,6 +335,15 @@ mod tests {
         assert!(anchored.is_match("apps/web/e2e/a.ts"));
         assert!(!anchored.is_match("apps/web/src/e2e/a.ts"));
         assert!(!anchored.is_match("e2e/a.ts"));
+
+        let exact = ScopedEntryRegex {
+            scope: "apps/web/".to_owned(),
+            regex: r"^/a\.ts$".to_owned(),
+        };
+        let exact = Globs::new(Vec::<String>::new()).with_regexes(EntryRegexes::new(&[], &[exact]));
+        assert!(exact.is_match("apps/web/a.ts"));
+        assert!(!exact.is_match("apps/web/src/a.ts"));
+        assert!(!exact.is_match("apps/weba.ts"));
     }
 
     #[test]

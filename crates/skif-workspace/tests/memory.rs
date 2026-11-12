@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use skif_config::{Config, Selector};
@@ -1725,4 +1726,47 @@ fn a_caching_file_system_answers_member_manifest_probes_from_the_listing() {
     assert_eq!(dirs(&workspace), ["packages/a", "packages/b"]);
     assert_eq!(workspace.facts.dirs_without_manifest, [PathBuf::from("packages/c")]);
     assert_eq!(fs.inner().probes.load(std::sync::atomic::Ordering::SeqCst), 0);
+}
+
+#[test]
+fn claimed_dirs_without_loading_the_members_are_those_of_a_full_discovery() {
+    let layouts: [&[(&str, &str)]; 6] = [
+        &[
+            ("package.json", r#"{"workspaces": ["p/*", "!p/skipped"]}"#),
+            ("p/good/package.json", r#"{"name": "good"}"#),
+            ("p/bad/package.json", "{ not json"),
+            ("p/bare/README.md", "no manifest"),
+            ("p/skipped/package.json", r#"{"name": "skipped"}"#),
+        ],
+        &[
+            ("package.json", r#"{"name": "root"}"#),
+            ("pnpm-workspace.yaml", "packages:\n  - apps/*\n"),
+            ("apps/web/package.json", r#"{"name": "web"}"#),
+            ("libs/ui/package.json", r#"{"name": "ui"}"#),
+        ],
+        &[
+            ("package.json", r#"{"name": "single"}"#),
+            ("sub/package.json", r#"{"name": "sub"}"#),
+        ],
+        &[("package.json", r#"{"workspaces": ["missing/*"]}"#)],
+        &[("package.json", "{ not json")],
+        &[("README.md", "no manifest")],
+    ];
+    for files in layouts {
+        let fs = memory(files);
+        let root = Path::new("/ws");
+        let config = Config::default();
+        let full = Workspace::discover_with_fs(root, &config, &fs).map(|workspace| workspace.claimed_dirs());
+        let claimed = Workspace::claimed_dirs_with_fs(root, &config, &fs);
+        match (full, claimed) {
+            (Ok(full), Ok(claimed)) => assert_eq!(claimed, full, "{files:?}"),
+            (Err(full), Err(claimed)) => assert_eq!(claimed.to_string(), full.to_string(), "{files:?}"),
+            (full, claimed) => panic!("{files:?}: {full:?} against {claimed:?}"),
+        }
+    }
+    let fs = memory(layouts[0]);
+    assert_eq!(
+        Workspace::claimed_dirs_with_fs(Path::new("/ws"), &Config::default(), &fs).unwrap(),
+        BTreeSet::from([PathBuf::from("/ws/p/bad"), PathBuf::from("/ws/p/good")])
+    );
 }
