@@ -122,6 +122,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Bazel plugin**: the `srcs` and `data` of `js_library` and `ts_project`, and the `data` of `js_binary`,
+  `js_run_devserver` and `js_test`, are build sources instead of entries: the files are used and what they import is
+  followed, but their exports are not public, so `unused-exports`, `unused-types`, the member rules and
+  `duplicate-exports` judge them as any module's. The `entry_point` of a rule stays an entry with public exports.
+  `skif-js-plugins` gains `PluginInput::BuildSource` and `ProductionBuildSource` and `PluginOutput::build_sources`
+  and `production_build_sources`; `WorkspaceInputs` gains `build_source` and `production_build_source`;
+  `UsageReport` gains `build_source` and `chain_from_build_source`, serialized as `build-source` and
+  `chain-from-build-source` when true
+  ([ADR 0124](adrs/0124-bazel-rule-sources-are-used-files-not-entries.md)).
 - `DepRef` of `skif-js-plugins` gains `dir`, the directory a command loads the package in after `cd`, and `BinaryRef`
   gains `judged`, false for a binary that is only a credit; a struct literal of `DepRef` needs the new field.
   `PluginOutput::referenced_binaries` leaves out the binaries a command runs in another directory, which

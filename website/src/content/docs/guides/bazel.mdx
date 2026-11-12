@@ -19,9 +19,13 @@ applies.
     load (`"@npm//packages/app:esbuild/package_json.bzl"`) uses that dependency in the package whose directory is the
     label's Bazel package. A dependency named this way in the package's own `BUILD` file that its `package.json`
     does not list is `unlisted-dependencies` at that file.
-  - The `entry_point` and `data` of `js_binary`, `js_run_devserver` and `js_test`, and the `srcs` and `data` of
-    `js_library` and `ts_project`, are entries when a literal names an existing file of the package (`"src/main.ts"`
-    or `":src/main.ts"`). Those of `js_test` count only outside `--production`.
+  - The `entry_point` of `js_binary`, `js_run_devserver` and `js_test` is an entry, whose exports are public, when a
+    literal names an existing file of the package (`"src/main.ts"` or `":src/main.ts"`).
+  - The `data` of those rules and the `srcs` and `data` of `js_library` and `ts_project` are build sources: the files
+    so named are used, and so is what they import, but they are no entries. Their unused exports and types are
+    `unused-exports` and `unused-types`, and their members and duplicates are checked, as in any other module. A file
+    that something else makes an entry (a `main` or `bin` of `package.json`, an `entry` glob) stays one.
+  - The files of `js_test` count only outside `--production`.
 - **Output trees.** The `bazel-bin`, `bazel-out`, `bazel-testlogs` and `bazel-<workspace>` links at the top of the
   Bazel repository are never read. An import that reaches a file there, directly or through `rootDirs`, is generated
   code and is not followed.
@@ -46,11 +50,11 @@ applies.
 ## What skif does not read
 
 - **Macros and computed values.** Only literals count. A `glob([...])`, a `select({...})`, a variable, or a target that
-  a macro in a `.bzl` file defines names no dependency, entry or output. Such a file can be `unused-files` and such
-  an import `unresolved-imports`.
+  a macro in a `.bzl` file defines names no dependency, entry, build source or output. Such a file can be
+  `unused-files` and such an import `unresolved-imports`.
 - **Labels in a sibling package.** Each package reads only the `BUILD` files below its own directory, so
   `"//packages/app:node_modules/zod"` written in `packages/web/BUILD.bazel` does not count for `packages/app`. A
-  nested package's `BUILD` file still counts for the package above it, but gives it no entries.
+  nested package's `BUILD` file still counts for the package above it, but gives it no entries or build sources.
 - **Generated code.** The imports of a file in `bazel-bin` are not judged. The dependencies its target names
   (`srcs = [":node_modules/zod"]`) are used instead.
 - **`.bazelignore`.** The JS analysis does not honour it: nested Bazel modules listed there are often pnpm
