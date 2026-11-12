@@ -27,6 +27,8 @@
 | [`unused-namespace-members`](#unused-namespace-members) | js | warning | unsafe |
 | [`unused-namespace-types`](#unused-namespace-types) | js | warning | unsafe |
 | [`unused-optional-peer-dependencies`](#unused-optional-peer-dependencies) | js | warning | none |
+| [`unused-subpath-exports`](#unused-subpath-exports) | js | off | none |
+| [`unused-subpath-imports`](#unused-subpath-imports) | js | warning | unsafe |
 | [`unused-types`](#unused-types) | js | warning | unsafe |
 | [`empty-dependencies`](#empty-dependencies) | manifest | error | safe |
 | [`incompatible-peer-dependencies`](#incompatible-peer-dependencies) | manifest | warning | none |
@@ -239,6 +241,22 @@ An optional peer dependency is imported but not installed as a dependency or dev
 - Category: js
 - Default severity: warning
 - Fixable: none
+
+## unused-subpath-exports
+
+A `package.json` `exports` subpath is not imported by any workspace package.
+
+- Category: js
+- Default severity: off
+- Fixable: none
+
+## unused-subpath-imports
+
+A `package.json` `imports` entry is not imported by any file of its package.
+
+- Category: js
+- Default severity: warning
+- Fixable: unsafe
 
 ## unused-types
 

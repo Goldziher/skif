@@ -294,6 +294,20 @@ expression: redact_version(&json.stdout)
       "summary": "A project file is not reachable from any entry file."
     },
     {
+      "id": "unused-subpath-imports",
+      "category": "js",
+      "default": "warning",
+      "fixable": "unsafe",
+      "summary": "A `package.json` `imports` entry is not imported by any file of its package."
+    },
+    {
+      "id": "unused-subpath-exports",
+      "category": "js",
+      "default": null,
+      "fixable": "none",
+      "summary": "A `package.json` `exports` subpath is not imported by any workspace package."
+    },
+    {
       "id": "unused-exports",
       "category": "js",
       "default": "warning",
