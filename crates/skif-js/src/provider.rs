@@ -8,11 +8,10 @@ use skif_js_syntax::ModuleCache;
 use skif_lint::{
     Emitter, EnabledRules, LintContext, OptionsError, ProviderError, RuleProvider, parse_options, reject_options,
 };
-use skif_workspace::map_ordered;
+use skif_workspace::{IndexCache, map_ordered};
 
 use crate::analysis::{Caches, JsAnalysis};
 use crate::config_check;
-use crate::git_index::IndexCache;
 use crate::input::InputSource;
 use crate::rules::{JsRule, rules};
 use crate::setup::UnusedExportsOptions;

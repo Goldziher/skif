@@ -8,17 +8,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use skif_config::{Config, JsDiscovery};
+use skif_config::Config;
 use skif_core::{FileSystem, IncompletePackage, IncompleteScope, Span, timing};
 use skif_js_syntax::{Export, ExportKind, Member, ParseOptions, parse_cached};
-use skif_workspace::{PackageId, Workspace, map_ordered};
+use skif_workspace::{IndexCache, IndexedFs, PackageId, TrackedFiles, Workspace, map_ordered};
 
 use crate::config_hints::{ConfigHint, HintInputs, config_hints};
 use crate::deps::{DependencyUsage, ForeignMapping};
 use crate::discover::{Candidate, discover_with, relative, take_file_links};
 use crate::entries::{Disk, entry_files};
 use crate::fixture::in_fixture_directory;
-use crate::git_index::{IndexCache, indexed_fs};
 use crate::globs::Globs;
 use crate::graph::{self, Inputs, Module, ModuleGraph, Target};
 use crate::input::InputSource;
@@ -466,24 +465,17 @@ fn judged_ignore_files(
     found.verdicts()
 }
 
-/// `fs` with the files tracked by git listed from the git index when `[js] discovery = "git"`, every directory
-/// modified since the index was written listed from disk. `None` for `auto` and `walk`, which walk the directories:
-/// the index cannot tell whether an unchanged directory holds an untracked file created before it was last written
-/// (ADR 0095), and when the workspace is not in a git work tree with a usable index.
+/// `fs` with the files tracked by git listed from the git index when the configuration selects it (see
+/// [`TrackedFiles::for_discovery`]), every directory modified since the index was written listed from disk. `None`
+/// when the directories are walked.
 fn overlay(
     fs: &Arc<dyn FileSystem>,
     workspace: &Workspace,
     config: &Config,
     cache: &IndexCache,
 ) -> Option<Arc<dyn FileSystem>> {
-    // The git index lists no ignored file, so reading what `.gitignore` hides needs the walk.
-    if config.js.no_gitignore {
-        return None;
-    }
-    if config.js.discovery != JsDiscovery::Git {
-        return None;
-    }
-    indexed_fs(fs, &workspace.root, cache)
+    let tracked = TrackedFiles::for_discovery(fs.as_ref(), &workspace.root, config, cache)?;
+    Some(Arc::new(IndexedFs::new(Arc::clone(fs), Arc::new(tracked))))
 }
 
 /// The file system of `workspace` for the discovery `config` selects: the git index overlay when it applies, `fs`

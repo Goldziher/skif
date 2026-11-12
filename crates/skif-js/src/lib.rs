@@ -30,7 +30,6 @@ mod discover;
 mod entries;
 mod explain;
 mod fixture;
-mod git_index;
 mod globs;
 mod graph;
 mod input;
