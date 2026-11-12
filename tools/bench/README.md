@@ -271,13 +271,19 @@ manifest, not by listing findings:
   `esm` and the others of `skif_js::is_out_dir`, also with a flavour suffix such as `lib-commonjs`) also names the
   same path below `src`, as skif maps it: `./lib-commonjs/*.js` publishes every `src/**/*.ts`. A published path
   without `*` names one source only, the first of skif's candidates that exists (`src/x.ts` before `lib/x.ts` for
-  `./lib/x.js`, `.ts` before `.tsx`). In an n8n node package the files of `n8n.nodes` and `n8n.credentials` are
+  `./lib/x.js`, `.ts` before `.tsx`), after mapping it through the package's build directories as skif's TypeScript
+  plugin reads them: the path below the `outDir` of a `tsconfig.json`, `tsconfig.*.json` or `jsconfig.json` in the
+  package directory is the same path below its `rootDir` (without one, the directory its `include` and `files`
+  share), so `./dist/esm/index.js` with a `tsconfig.build.esm.json` of `outDir: "dist/esm"` and `rootDir: "src"` names
+  `src/index.ts`; a configuration extended from elsewhere is not read. In an n8n node package the files of `n8n.nodes` and `n8n.credentials` are
   published too, a path below a build directory naming the path without it (`dist/nodes/A/A.node.js` names
   `nodes/A/A.node.ts`), as skif reads them (`skif_js::n8n_load_paths`). A file such a source imports by relative path
   (resolved with its extension, a TypeScript twin of a `.js` one, or the `index` file of a directory), directly or
   through other files only knip reports unused, is `published-source` too. skif makes the source of a published path
   an entry and uses what it imports; knip maps a published path to source only through a tsconfig `outDir` and does
-  not read the n8n fields. The exports, types and members of these files stay compared.
+  not read the n8n fields. An export or type (also as a namespace export or type) only knip reports in a published
+  source is `published-source` as well: an entry's exports are public in skif. Enum and namespace members and
+  duplicates of these files, and the exports of the files they reach, stay compared.
 
 `non-member-project` and `published-source` check where a finding is, not why skif has no finding there. Unlisted
 dependencies a `declare module` satisfies, and npm's `lib/commands` files that skif reaches through a computed
