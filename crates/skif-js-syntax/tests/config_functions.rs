@@ -1387,15 +1387,29 @@ fn a_read_that_is_not_definite_stays_so_through_every_value_it_reaches() {
             "{source}"
         );
     }
-    // A nested function that stores a part of `base` into an object it changes may share that part with `base`
-    // (`sharing.rs`), so the read is unknown rather than the union.
-    let shared = format!(
+    // A nested function that stores a part of `base` into an object of its own shares that part with `base` but does
+    // not change it, so the read is the union; one that changes the part through that object (`push`) changes `base`,
+    // whose part then holds more.
+    let stored = format!(
         "{base}const make = () => {{ const t = {{}}; t.files = base.setupFiles; return t.files ?? ['./local.ts']; }};\n\
          export default {{ test: {{ setupFiles: make() }} }};"
     );
     assert_eq!(
-        get(&extract("vitest.config.ts", &shared), &["test", "setupFiles"]),
-        &ConfigValue::Unknown
+        get(&extract("vitest.config.ts", &stored), &["test", "setupFiles"]),
+        &strings(&["./ci.ts", "./local.ts"])
+    );
+    let changed = format!(
+        "{base}const make = () => {{\n\
+           const t = {{}};\n\
+           t.files = base.setupFiles ?? [];\n\
+           t.files.push('./extra.ts');\n\
+           return base.setupFiles ?? ['./local.ts'];\n\
+         }};\n\
+         export default {{ test: {{ setupFiles: make() }} }};"
+    );
+    assert_eq!(
+        get(&extract("vitest.config.ts", &changed), &["test", "setupFiles"]),
+        &ConfigValue::Array(vec![s("./ci.ts"), ConfigValue::Unknown, s("./local.ts")])
     );
     let spread = extract(
         "vitest.config.ts",
