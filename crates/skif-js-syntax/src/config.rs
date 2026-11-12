@@ -10,12 +10,12 @@ use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Argument, ArrayExpressionElement, ArrowFunctionExpression, AssignmentOperator, AssignmentTarget,
     AssignmentTargetPropertyIdentifier, BinaryOperator, BindingIdentifier, BindingPattern, BlockStatement,
-    CallExpression, CatchClause, ConditionalExpression, Declaration, ExportDefaultDeclarationKind, Expression,
-    ExpressionStatement, ForInStatement, ForOfStatement, ForStatement, Function, IdentifierReference, IfStatement,
-    ImportDeclarationSpecifier, ImportOrExportKind, LogicalExpression, LogicalOperator, NewExpression, ObjectProperty,
-    ObjectPropertyKind, Program, ReturnStatement, SimpleAssignmentTarget, Statement, StaticMemberExpression,
-    TaggedTemplateExpression, TemplateLiteral, UnaryExpression, UnaryOperator, VariableDeclaration,
-    VariableDeclarationKind,
+    CallExpression, CatchClause, ChainElement, ChainExpression, ComputedMemberExpression, ConditionalExpression,
+    Declaration, ExportDefaultDeclarationKind, Expression, ExpressionStatement, ForInStatement, ForOfStatement,
+    ForStatement, Function, IdentifierReference, IfStatement, ImportDeclarationSpecifier, ImportOrExportKind,
+    LogicalExpression, LogicalOperator, MemberExpression, NewExpression, ObjectProperty, ObjectPropertyKind, Program,
+    ReturnStatement, SimpleAssignmentTarget, Statement, StaticMemberExpression, TaggedTemplateExpression,
+    TemplateLiteral, UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_parser::{ParseOptions as OxcParseOptions, Parser};
@@ -23,7 +23,7 @@ use oxc_span::{SourceType, Span};
 use serde::{Deserialize, Serialize};
 
 use crate::finder::static_string;
-use crate::sharing::{Change, Unstable, changed_by_call, statement_call};
+use crate::sharing::{Change, Unstable, alias_names, alias_source, changed_by_call, statement_call};
 
 const MAX_DEPTH: u32 = 32;
 
@@ -390,10 +390,12 @@ pub trait ModuleLoader {
 /// are followed when `a` is known, and `.length` of a known string or array is its length. A member `a.b` of a known
 /// object is the value of its key `b`, unknown when an unknown spread may set it or the object may inherit it (a member
 /// of `Object.prototype`, an object with a `__proto__`), and `undefined` (handed out as `null`) when the object does
-/// not have it, so `[...base.plugins, 'x']` and `options.setupFiles ?? []` are known; a destructuring reads a key the
-/// same way, and a parameter's or a destructuring's default applies to `undefined`, not to a literal `null`. A key
-/// merged from a spread whose test is unknown (below) may be absent or hold any of the values merged for it, so a read
-/// of it is not definite, and neither is a value that carries the read on: a key of an object or a binding holding
+/// not have it, so `[...base.plugins, 'x']` and `options.setupFiles ?? []` are known. An optional member `a?.b` reads
+/// the same way and is `undefined` when `a` is `null` or `undefined`, the rest of its chain unread, and so does a
+/// computed member whose key evaluates to a string (`a['b']`, `a[KEY]`). A destructuring reads a key the same way,
+/// and a parameter's or a destructuring's default applies to `undefined`, not to a literal `null`. A key merged from a
+/// spread whose test is unknown (below) may be absent or hold any of the values merged for it, so a read of it is not
+/// definite, and neither is a value that carries the read on: a key of an object or a binding holding
 /// it, the argument it is passed as, the value a function returns it as, a fallback over it and an array spreading it,
 /// in the module that reads it or one importing it. Over a value that is not definite, `a ?? c` and `a || c` credit
 /// both sides, a default is credited next to it, and a test on it and its `.length` are unknown.
@@ -442,8 +444,11 @@ pub struct ExtractedConfig {
     /// spread. A `define*` call (`defineConfig(createBase(options))`) is looked through to the expression it wraps, a
     /// top-level constant to its initialiser, and a config function the tool calls whose body is one expression or a
     /// single `return` (`export default () => createConfig({ … })`) to what it returns, its parameters unknown.
-    /// The values are those the evaluation computed. Empty otherwise; an unfollowed call anywhere else, such as one a
-    /// function body computes in a local first, keeps no arguments.
+    /// Such a call nested in an object or array literal of that value keeps its arguments too, each in an object under
+    /// the keys it is found at: `{ test: createTest({ setupFiles }) }` keeps `{ test: { setupFiles } }`, so a file
+    /// named under a key that excludes files stays under it. The values are those the evaluation computed. Empty
+    /// otherwise; an unfollowed call anywhere else, such as one a function body computes in a local first, keeps no
+    /// arguments.
     pub call_arguments: Vec<ConfigValue>,
 }
 
@@ -854,6 +859,34 @@ impl<'p, 'a> Callable<'p, 'a> {
 enum Binding<'p, 'a> {
     Value(Value),
     Callable(Callable<'p, 'a>),
+    /// A `const` that takes a part of a local of its function (`const { coverage } = config.test`), whose changes the
+    /// evaluator applies to that local too ([`Unstable::follows`]).
+    Alias(Alias),
+}
+
+/// The value of an alias binding, and the part of a local it takes: the local `root`, bound in the frame at index
+/// `frame`, at `keys` below it.
+#[derive(Clone)]
+struct Alias {
+    value: Value,
+    root: String,
+    frame: usize,
+    keys: Vec<String>,
+}
+
+impl Alias {
+    /// Whether `other` takes the same part of the same local.
+    fn same_part(&self, other: &Self) -> bool {
+        self.root == other.root && self.frame == other.frame && self.keys == other.keys
+    }
+}
+
+/// A change the evaluator applies to a local object.
+enum Edit {
+    /// `name.key = value`.
+    Set(String, Value),
+    /// A change it does not follow, which leaves the object partly unknown.
+    Taint,
 }
 
 type Frame<'p, 'a> = HashMap<String, Binding<'p, 'a>>;
@@ -2054,6 +2087,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 }
             }
             Expression::StaticMemberExpression(member) => self.member(member, depth),
+            Expression::ComputedMemberExpression(member) => self.computed_member(member, depth),
+            Expression::ChainExpression(chain) => self.chain(chain, depth),
             Expression::NewExpression(new) => self.url(new, depth),
             Expression::UnaryExpression(u) if u.operator == UnaryOperator::UnaryNegation => {
                 match self.expr(&u.argument, depth) {
@@ -2095,7 +2130,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     fn identifier(&self, name: &str, depth: u32) -> Value {
         if let Some(binding) = self.lookup(name) {
             return match binding {
-                Binding::Value(value) => value,
+                Binding::Value(value) | Binding::Alias(Alias { value, .. }) => value,
                 Binding::Callable(_) => Value::Unknown,
             };
         }
@@ -2209,6 +2244,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             Expression::AwaitExpression(e) => self.computes_itself(&e.argument, depth),
             Expression::StaticMemberExpression(member) => self.computes_itself(&member.object, depth),
             Expression::ComputedMemberExpression(member) => self.computes_itself(&member.object, depth),
+            Expression::ChainExpression(chain) => {
+                chain_object(chain).is_some_and(|object| self.computes_itself(object, depth))
+            }
             Expression::CallExpression(call) => self.computes_itself(&call.callee, depth),
             Expression::ConditionalExpression(conditional) => {
                 self.computes_itself(&conditional.consequent, depth)
@@ -2241,6 +2279,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             Expression::AwaitExpression(e) => self.takes_imported(&e.argument, depth),
             Expression::StaticMemberExpression(member) => self.takes_imported(&member.object, depth),
             Expression::ComputedMemberExpression(member) => self.takes_imported(&member.object, depth),
+            Expression::ChainExpression(chain) => {
+                chain_object(chain).is_some_and(|object| self.takes_imported(object, depth))
+            }
             Expression::CallExpression(call) => {
                 let required = matches!(
                     call.callee.get_inner_expression(),
@@ -2341,17 +2382,95 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// `length` of a known string or array, and a key of a known object ([`property_of`]). The `length` of a value that
     /// is not definite is unknown.
     fn member(&self, member: &'p StaticMemberExpression<'a>, depth: u32) -> Value {
-        let property = member.property.name.as_str();
-        match (member.object.get_inner_expression(), property) {
+        self.member_of(&member.object, member.property.name.as_str(), depth)
+    }
+
+    /// `object[key]` with a key known as a string (`base['setupFiles']`, `base[KEY]` of a constant), read as
+    /// `object.key` is; unknown for any other key.
+    fn computed_member(&self, member: &'p ComputedMemberExpression<'a>, depth: u32) -> Value {
+        self.member_key(&member.expression, depth)
+            .map_or(Value::Unknown, |key| self.member_of(&member.object, &key, depth))
+    }
+
+    /// The member `property` of `object`, as [`Self::member`] reads it.
+    fn member_of(&self, object: &'p Expression<'a>, property: &str, depth: u32) -> Value {
+        self.special_member(object, property, depth)
+            .unwrap_or_else(|| property_of(&self.expr(object, depth), property))
+    }
+
+    /// A member whose value is not a key of the object's value: a path `import.meta` names, the `pathname` of a
+    /// `new URL(…)` and an export of a namespace import. `None` for any other member.
+    fn special_member(&self, object: &'p Expression<'a>, property: &str, depth: u32) -> Option<Value> {
+        Some(match (object.get_inner_expression(), property) {
             (Expression::ImportMeta(_), "dirname" | "dir") => Value::String(normalized(&[self.dir])),
             (Expression::ImportMeta(_), "filename" | "url" | "path") => Value::String(self.file_path()),
             (Expression::ImportMeta(_), "file") => Value::String(self.file.to_owned()),
-            (object @ Expression::NewExpression(_), "pathname") => self.expr(object, depth),
-            (Expression::Identifier(object), _) if self.is_namespace(object.name.as_str()) => {
-                self.namespace_member(object.name.as_str(), property)
+            (url @ Expression::NewExpression(_), "pathname") => self.expr(url, depth),
+            (Expression::Identifier(namespace), _) if self.is_namespace(namespace.name.as_str()) => {
+                self.namespace_member(namespace.name.as_str(), property)
             }
-            (object, _) => property_of(&self.expr(object, depth), property),
+            _ => return None,
+        })
+    }
+
+    /// The key of a computed member when it evaluates to a string.
+    fn member_key(&self, key: &'p Expression<'a>, depth: u32) -> Option<String> {
+        match self.expr(key, depth) {
+            Value::String(key) => Some(key),
+            _ => None,
         }
+    }
+
+    /// An optional chain (`base?.setupFiles`, `base?.['setupFiles']`, `base?.test.include`): its members read as
+    /// [`Self::member`] and [`Self::computed_member`] read them, and the chain is `undefined` when the object of an
+    /// optional member is `null` or `undefined`, the rest of it unread. A call in the chain is evaluated as any call.
+    fn chain(&self, chain: &'p ChainExpression<'a>, depth: u32) -> Value {
+        let link = match &chain.expression {
+            ChainElement::StaticMemberExpression(m) => {
+                self.chain_member(&m.object, Some(m.property.name.as_str().to_owned()), m.optional, depth)
+            }
+            ChainElement::ComputedMemberExpression(m) => {
+                let key = self.member_key(&m.expression, depth);
+                self.chain_member(&m.object, key, m.optional, depth)
+            }
+            ChainElement::CallExpression(call) => Some(self.call(call, depth)),
+            ChainElement::TSNonNullExpression(e) => self.chain_link(&e.expression, depth),
+            ChainElement::PrivateFieldExpression(_) => Some(Value::Unknown),
+        };
+        link.unwrap_or(Value::Undefined)
+    }
+
+    /// The value of `expr` inside an optional chain; `None` when an optional member in it short-circuits.
+    fn chain_link(&self, expr: &'p Expression<'a>, depth: u32) -> Option<Value> {
+        match expr.get_inner_expression() {
+            Expression::StaticMemberExpression(m) => {
+                self.chain_member(&m.object, Some(m.property.name.as_str().to_owned()), m.optional, depth)
+            }
+            Expression::ComputedMemberExpression(m) => {
+                let key = self.member_key(&m.expression, depth);
+                self.chain_member(&m.object, key, m.optional, depth)
+            }
+            _ => Some(self.expr(expr, depth)),
+        }
+    }
+
+    /// The member `key` of `object` inside an optional chain, unknown when the key is not known: `None` when the
+    /// member is `optional` and the object is `null` or `undefined`.
+    fn chain_member(
+        &self,
+        object: &'p Expression<'a>,
+        key: Option<String>,
+        optional: bool,
+        depth: u32,
+    ) -> Option<Value> {
+        if let Some(special) = key.as_deref().and_then(|key| self.special_member(object, key, depth)) {
+            return Some(special);
+        }
+        let base = self.chain_link(object, depth)?;
+        if optional && matches!(base, Value::Null | Value::Undefined) {
+            return None;
+        }
+        Some(key.map_or(Value::Unknown, |key| property_of(&base, &key)))
     }
 
     /// Whether `name` is a namespace import that no binding of a function being evaluated shadows.
@@ -2699,7 +2818,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         let local = self.frames.borrow().iter().rev().find_map(|frame| {
             frame.get(name).map(|binding| match binding {
                 Binding::Callable(callable) => Some(*callable),
-                Binding::Value(_) => None,
+                Binding::Value(_) | Binding::Alias(_) => None,
             })
         });
         let (callable, isolate) = match local {
@@ -2857,8 +2976,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// The arguments of the calls the evaluator cannot follow whose results `expr`, which evaluated to `value`, is or
     /// merges: a call that evaluated to unknown, looking through `await`, a `define*` call to the expression it wraps,
     /// a top-level constant to its initialiser, a function the tool calls to the expression it returns
-    /// ([`Self::returned_call_arguments`]), and a merge (`mergeConfig`, `Object.assign`) to each of its arguments.
-    /// The values are those the evaluation computed; arguments it did not evaluate are evaluated now.
+    /// ([`Self::returned_call_arguments`]), a merge (`mergeConfig`, `Object.assign`) to each of its arguments, and an
+    /// object or array literal to what it holds ([`Self::nested_call_arguments`]). The values are those the evaluation
+    /// computed; arguments it did not evaluate are evaluated now.
     fn unknown_call_arguments(&self, expr: &'p Expression<'a>, value: &Value, depth: u32) -> Vec<Value> {
         if depth > MAX_DEPTH {
             return Vec::new();
@@ -2870,8 +2990,83 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             Expression::Identifier(id) => self.constant_call_arguments(id.name.as_str(), value, depth),
             Expression::ArrowFunctionExpression(f) => self.returned_call_arguments(Callable::Arrow(f), value, depth),
             Expression::FunctionExpression(f) => self.returned_call_arguments(Callable::Function(f), value, depth),
+            Expression::ObjectExpression(object) => self.object_call_arguments(&object.properties, value, depth),
+            Expression::ArrayExpression(array) => self.array_call_arguments(&array.elements, value, depth),
             _ => Vec::new(),
         }
+    }
+
+    /// [`Self::unknown_call_arguments`] of `expr`, which evaluated to `value`, inside an object or array literal: of
+    /// a call, `await` looked through, and of the object and array literals it nests. A name is not looked up there,
+    /// so constants that refer to each other are not walked once per reference.
+    fn nested_call_arguments(&self, expr: &'p Expression<'a>, value: &Value, depth: u32) -> Vec<Value> {
+        if depth > MAX_DEPTH {
+            return Vec::new();
+        }
+        let depth = depth + 1;
+        match expr.get_inner_expression() {
+            Expression::AwaitExpression(a) => self.nested_call_arguments(&a.argument, value, depth),
+            Expression::CallExpression(call) => self.unknown_arguments_of_call(call, value, depth),
+            Expression::ObjectExpression(object) => self.object_call_arguments(&object.properties, value, depth),
+            Expression::ArrayExpression(array) => self.array_call_arguments(&array.elements, value, depth),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The arguments of the calls the evaluator cannot follow in the keys of an object literal that evaluated to
+    /// `value`, each put in an object under the key it is found at (`{ test: <argument> }`), so a file named under an
+    /// exclusion key (`coverage: { exclude: makeList(['./a.ts']) }`) is still found under it. A spread counts as
+    /// unknown only when the object has an unknown spread.
+    fn object_call_arguments(&self, properties: &'p [ObjectPropertyKind<'a>], value: &Value, depth: u32) -> Vec<Value> {
+        let object = value.definite();
+        let spread = if object.get(UNKNOWN_SPREAD).is_some() || object.get(OWN_SPREAD).is_some() {
+            Value::Unknown
+        } else {
+            Value::Null
+        };
+        let mut out = Vec::new();
+        for property in properties {
+            match property {
+                ObjectPropertyKind::ObjectProperty(p) => {
+                    let Some(key) = p.key.static_name() else {
+                        continue;
+                    };
+                    let key = crate::js_string(key.as_js_str());
+                    let field = object.get(&key).cloned().unwrap_or(Value::Unknown);
+                    out.extend(
+                        self.nested_call_arguments(&p.value, &field, depth)
+                            .into_iter()
+                            .map(|argument| Value::Object(vec![(key.clone(), argument)])),
+                    );
+                }
+                ObjectPropertyKind::SpreadProperty(s) => {
+                    out.extend(self.nested_call_arguments(&s.argument, &spread, depth));
+                }
+            }
+        }
+        out
+    }
+
+    /// The arguments of the calls the evaluator cannot follow in the elements of an array literal that evaluated to
+    /// `value`, up to its first spread, after which an element's value is not known by its position.
+    fn array_call_arguments(
+        &self,
+        elements: &'p [ArrayExpressionElement<'a>],
+        value: &Value,
+        depth: u32,
+    ) -> Vec<Value> {
+        let unknown = Value::Unknown;
+        let items: &[Value] = match value.definite() {
+            Value::Array(items) => items,
+            _ => &[],
+        };
+        elements
+            .iter()
+            .take_while(|element| !matches!(element, ArrayExpressionElement::SpreadElement(_)))
+            .enumerate()
+            .filter_map(|(index, element)| Some((element.as_expression()?, items.get(index).unwrap_or(&unknown))))
+            .flat_map(|(element, item)| self.nested_call_arguments(element, item, depth))
+            .collect()
     }
 
     /// [`Self::unknown_call_arguments`] of `call`.
@@ -3176,6 +3371,10 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             for name in names {
                 let joined = match (frame.get(&name), other.get(&name)) {
                     (Some(Binding::Value(a)), Some(Binding::Value(b))) => Binding::Value(join(a, b)),
+                    (Some(Binding::Alias(a)), Some(Binding::Alias(b))) if a.same_part(b) => Binding::Alias(Alias {
+                        value: join(&a.value, &b.value),
+                        ..a.clone()
+                    }),
                     (Some(Binding::Callable(a)), Some(Binding::Callable(b))) if a.same(*b) => Binding::Callable(*a),
                     _ => Binding::Value(Value::Unknown),
                 };
@@ -3230,6 +3429,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// Binds the names a `const`/`let`/`var` declaration declares in the innermost frame: a name to the value, as
     /// definite as it is, and a destructured name to the part of the value it takes, or to [`ConfigValue::Unknown`].
+    /// A name that is an alias the evaluator follows is bound as one ([`Binding::Alias`]).
     fn declare(&self, declaration: &'p VariableDeclaration<'a>, depth: u32) {
         for declarator in &declaration.declarations {
             if let BindingPattern::BindingIdentifier(id) = &declarator.id
@@ -3247,7 +3447,53 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             } else {
                 value
             };
+            let aliases = self.aliases(declaration.kind, declarator);
             self.bind_pattern(&declarator.id, value, depth);
+            for (name, alias) in aliases {
+                self.bind_alias(&name, alias);
+            }
+        }
+    }
+
+    /// The aliases a declaration makes that the evaluator follows ([`Unstable::follows`]), by name, before they are
+    /// bound: each takes the part of the local the declaration reads ([`alias_source`]) at the key it destructures.
+    fn aliases(&self, kind: VariableDeclarationKind, declarator: &'p VariableDeclarator<'a>) -> Vec<(String, Alias)> {
+        if kind != VariableDeclarationKind::Const {
+            return Vec::new();
+        }
+        let Some((root, keys)) = declarator.init.as_ref().and_then(|init| alias_source(init)) else {
+            return Vec::new();
+        };
+        let root = root.name.as_str();
+        let Some(frame) = self.frames.borrow().iter().rposition(|frame| frame.contains_key(root)) else {
+            return Vec::new();
+        };
+        alias_names(&declarator.id)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(id, _)| self.unstable.follows(id))
+            .map(|(id, key)| {
+                let mut keys = keys.clone();
+                keys.extend(key);
+                let alias = Alias {
+                    value: Value::Unknown,
+                    root: root.to_owned(),
+                    frame,
+                    keys,
+                };
+                (id.name.as_str().to_owned(), alias)
+            })
+            .collect()
+    }
+
+    /// Makes the binding `name` of the innermost frame `alias`, holding the value it is bound to.
+    fn bind_alias(&self, name: &str, mut alias: Alias) {
+        let mut frames = self.frames.borrow_mut();
+        if let Some(binding) = frames.last_mut().and_then(|frame| frame.get_mut(name))
+            && let Binding::Value(value) = &mut *binding
+        {
+            alias.value = std::mem::replace(value, Value::Unknown);
+            *binding = Binding::Alias(alias);
         }
     }
 
@@ -3307,31 +3553,19 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// Sets `key` of the local object `name`, which then holds `value` there.
     fn set_key(&self, name: &str, key: &str, value: Value) {
-        let mut frames = self.frames.borrow_mut();
-        let Some(Binding::Value(held)) = frames.iter_mut().rev().find_map(|frame| frame.get_mut(name)) else {
-            return;
-        };
-        match held.definite_mut() {
-            Value::Object(entries) => match entries.iter_mut().find(|(existing, _)| existing == key) {
-                Some((_, slot)) => *slot = value,
-                None => entries.push((key.to_owned(), value)),
-            },
-            // `list.length = 0` on an array.
-            Value::Array(items) => items.push(Value::Unknown),
-            _ => {}
-        }
+        self.edit(name, &Edit::Set(key.to_owned(), value));
     }
 
     /// Records that the local `name` was changed in a way the evaluator does not follow.
     fn taint(&self, name: &str) {
+        self.edit(name, &Edit::Taint);
+    }
+
+    /// Applies `edit` to the innermost local `name`, and through it when it is an alias ([`edit_binding`]).
+    fn edit(&self, name: &str, edit: &Edit) {
         let mut frames = self.frames.borrow_mut();
-        let Some(Binding::Value(held)) = frames.iter_mut().rev().find_map(|frame| frame.get_mut(name)) else {
-            return;
-        };
-        match held.definite_mut() {
-            Value::Object(entries) => entries.push((UNKNOWN_SPREAD.to_owned(), Value::Unknown)),
-            Value::Array(items) => items.push(Value::Unknown),
-            _ => {}
+        if let Some(index) = frames.iter().rposition(|frame| frame.contains_key(name)) {
+            edit_binding(&mut frames, index, name, &[], edit);
         }
     }
 
@@ -3404,6 +3638,101 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         }
         Value::Object(out)
     }
+}
+
+/// Applies `edit` at `keys` below the binding `name` of the frame at `index`. Through an alias it applies to the part
+/// of the local the alias takes as well, when that part still holds what the alias held, and leaves the part partly
+/// unknown when it does not (the local was given another object there).
+fn edit_binding(frames: &mut [Frame<'_, '_>], index: usize, name: &str, keys: &[String], edit: &Edit) {
+    let Some(binding) = frames.get_mut(index).and_then(|frame| frame.get_mut(name)) else {
+        return;
+    };
+    let (root, frame, part, before) = match binding {
+        Binding::Value(value) => return edit_at(value, keys, edit),
+        Binding::Callable(_) => return,
+        Binding::Alias(alias) => {
+            let before = alias.value.clone();
+            edit_at(&mut alias.value, keys, edit);
+            (alias.root.clone(), alias.frame, alias.keys.clone(), before)
+        }
+    };
+    let held = frames
+        .get(frame)
+        .and_then(|bindings| bindings.get(&root))
+        .and_then(|binding| match binding {
+            Binding::Value(value) | Binding::Alias(Alias { value, .. }) => value_at(value, &part),
+            Binding::Callable(_) => None,
+        });
+    if held == Some(&before) {
+        let mut path = part;
+        path.extend_from_slice(keys);
+        edit_binding(frames, frame, &root, &path, edit);
+    } else {
+        edit_binding(frames, frame, &root, &part, &Edit::Taint);
+    }
+}
+
+/// Applies `edit` to the object at `keys` below `value`. A key on the way that the object does not have, or that an
+/// unknown spread may set, leaves the object above it partly unknown instead.
+fn edit_at(value: &mut Value, keys: &[String], edit: &Edit) {
+    let target = value.definite_mut();
+    let Some((key, rest)) = keys.split_first() else {
+        return match edit {
+            Edit::Set(key, field) => set_entry(target, key, field.clone()),
+            Edit::Taint => taint_value(target),
+        };
+    };
+    match target {
+        Value::Object(entries) => {
+            let found = entries
+                .iter()
+                .rposition(|(name, _)| name == key || ConfigValue::is_spread_key(name))
+                .filter(|&at| entries[at].0 == *key);
+            match found {
+                Some(at) => edit_at(&mut entries[at].1, rest, edit),
+                None => entries.push((UNKNOWN_SPREAD.to_owned(), Value::Unknown)),
+            }
+        }
+        other => taint_value(other),
+    }
+}
+
+/// Sets `key` of an object to `field`; on an array (`list.length = 0`) the elements are no longer known.
+fn set_entry(value: &mut Value, key: &str, field: Value) {
+    match value.definite_mut() {
+        Value::Object(entries) => match entries.iter_mut().find(|(existing, _)| existing == key) {
+            Some((_, slot)) => *slot = field,
+            None => entries.push((key.to_owned(), field)),
+        },
+        Value::Array(items) => items.push(Value::Unknown),
+        _ => {}
+    }
+}
+
+/// Leaves an object or array partly unknown: an object may have any other key and an array any other element.
+fn taint_value(value: &mut Value) {
+    match value.definite_mut() {
+        Value::Object(entries) => entries.push((UNKNOWN_SPREAD.to_owned(), Value::Unknown)),
+        Value::Array(items) => items.push(Value::Unknown),
+        _ => {}
+    }
+}
+
+/// The value at `keys` below `value`, as member reads find it; `None` where a key is missing or an unknown spread may
+/// set it.
+fn value_at<'v>(value: &'v Value, keys: &[String]) -> Option<&'v Value> {
+    let Some((key, rest)) = keys.split_first() else {
+        return Some(value);
+    };
+    let Value::Object(entries) = value else {
+        return None;
+    };
+    entries
+        .iter()
+        .rev()
+        .find(|(name, _)| name == key || ConfigValue::is_spread_key(name))
+        .filter(|(name, _)| name == key)
+        .and_then(|(_, child)| value_at(child, rest))
 }
 
 /// The first argument of a call of a function named `define*` (`defineConfig`, `vitest.defineProject`), which
@@ -3543,24 +3872,42 @@ fn returns(statement: &Statement<'_>) -> bool {
 }
 
 /// The locals a statement or expression may write, outside the functions it declares: the names it assigns
-/// (`x = …`, `x++`, `[x] = …`) and the objects it may change (`x.a = …`, `x.list.push(…)`, `Object.assign(x, …)`).
+/// (`x = …`, `x++`, `[x] = …`) and the objects it may change (`x.a = …`, `x.list.push(…)`, `Object.assign(x, …)`),
+/// among them the local an alias declared there takes a part of when the alias is changed.
 #[derive(Default)]
 struct Writes {
     assigned: Vec<String>,
     changed: Vec<String>,
+    /// The aliases declared ([`alias_source`]), each with the local it takes a part of.
+    aliases: Vec<(String, String)>,
 }
 
 impl Writes {
     fn of_statement(statement: &Statement<'_>) -> Self {
         let mut writes = Self::default();
         writes.visit_statement(statement);
-        writes
+        writes.through_aliases()
     }
 
     fn of_expression(expression: &Expression<'_>) -> Self {
         let mut writes = Self::default();
         writes.visit_expression(expression);
-        writes
+        writes.through_aliases()
+    }
+
+    /// The writes with the local each changed alias takes a part of changed too, as the evaluator, which does not run
+    /// the code, cannot apply them to it.
+    fn through_aliases(mut self) -> Self {
+        let mut index = 0;
+        while let Some(name) = self.changed.get(index).cloned() {
+            for (alias, root) in &self.aliases {
+                if *alias == name && !self.changed.contains(root) {
+                    self.changed.push(root.clone());
+                }
+            }
+            index += 1;
+        }
+        self
     }
 
     /// What an expression statement writes itself, as [`Evaluator::mutation`] reads it: the target of an assignment
@@ -3591,6 +3938,16 @@ impl Writes {
 }
 
 impl<'a> Visit<'a> for Writes {
+    fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+        if let Some((root, _)) = it.init.as_ref().and_then(|init| alias_source(init)) {
+            for (id, _) in alias_names(&it.id).unwrap_or_default() {
+                self.aliases
+                    .push((id.name.as_str().to_owned(), root.name.as_str().to_owned()));
+            }
+        }
+        walk::walk_variable_declarator(self, it);
+    }
+
     fn visit_simple_assignment_target(&mut self, it: &SimpleAssignmentTarget<'a>) {
         match it {
             SimpleAssignmentTarget::AssignmentTargetIdentifier(id) => self.assigned.push(id.name.as_str().to_owned()),
@@ -4103,6 +4460,15 @@ fn is_resolve_of(call: &CallExpression<'_>, object: &str) -> bool {
             if m.property.name.as_str() == "resolve"
                 && matches!(m.object.get_inner_expression(), Expression::Identifier(o) if o.name.as_str() == object)
     )
+}
+
+/// What an optional chain reads from: the object of its outermost member, or the callee of its call.
+fn chain_object<'b, 'a>(chain: &'b ChainExpression<'a>) -> Option<&'b Expression<'a>> {
+    match &chain.expression {
+        ChainElement::CallExpression(call) => Some(&call.callee),
+        ChainElement::TSNonNullExpression(e) => Some(&e.expression),
+        element => element.as_member_expression().map(MemberExpression::object),
+    }
 }
 
 /// The identifier at the start of a member chain (`config` in `config.a.b`).

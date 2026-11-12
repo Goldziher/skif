@@ -1,6 +1,7 @@
-//! Tool configs built by a factory (`export default createVitestConfig({ setupFiles: ['./config/boot.ts'] })`): a
-//! factory of a workspace package is evaluated with the options it is given, and the files named in the options of a
-//! factory that cannot be followed are entries, while the package stays incomplete.
+//! Tool configs built by a factory (`export default createVitestConfig({ setupFiles: ['./config/boot.ts'] })`) or read
+//! from an imported config: a factory of a workspace package is evaluated with the options it is given, a member of an
+//! imported config is its value, and the files named in the options of a factory that cannot be followed are entries,
+//! while the package stays incomplete.
 //!
 //! Every case is a minimal synthetic workspace.
 
@@ -93,4 +94,109 @@ fn the_files_an_unknown_factory_is_given_are_entries_of_an_incomplete_package() 
     let scopes: Vec<&IncompleteScope> = incomplete.iter().map(|package| &package.scope).collect();
     assert_eq!(scopes, [&IncompleteScope::Package]);
     assert_eq!(boot["in-graph"], true, "{boot}");
+}
+
+/// A member of an imported config read optionally or with a string key is its value, so the setup module it names is
+/// an entry and the package is complete. A factory that cannot be followed below the top level of the config leaves
+/// the package incomplete, and the setup module it is given is still an entry.
+#[test]
+fn optional_and_computed_members_and_nested_factories_name_entries() {
+    for vitest_config in [
+        "import base from './base.mjs';\nexport default { test: { setupFiles: base?.setupFiles } };\n",
+        "import base from './base.mjs';\nexport default { test: { setupFiles: base['setupFiles'] } };\n",
+    ] {
+        let mut files = workspace(vitest_config);
+        files.push((
+            "packages/app/base.mjs",
+            "export default { setupFiles: ['./config/boot.ts'] };\n",
+        ));
+        let (incomplete, boot) = analyse(&files, "packages/app/config/boot.ts");
+        assert_eq!(incomplete, Vec::new(), "{vitest_config}");
+        assert_eq!(boot["in-graph"], true, "{vitest_config}: {boot}");
+    }
+    let files = workspace(
+        "import { createTest } from '@acme/vitest-preset';\n\
+         export default { test: createTest({ setupFiles: ['./config/boot.ts'] }) };\n",
+    );
+    let (incomplete, boot) = analyse(&files, "packages/app/config/boot.ts");
+    let scopes: Vec<&IncompleteScope> = incomplete.iter().map(|package| &package.scope).collect();
+    assert_eq!(scopes, [&IncompleteScope::Package]);
+    assert_eq!(boot["in-graph"], true, "{boot}");
+}
+
+/// The files of a shared config package, published from `dist` and compiled with `rootDir: "."`: a `./node` factory
+/// that pins module paths with the function `createRequire` returns, in a callback, and a `./frontend` factory that
+/// turns coverage on, when an environment variable asks for it, through a destructured part of the config it builds.
+fn shared_config_package() -> Vec<(&'static str, &'static str)> {
+    vec![
+        (
+            "packages/vitest-config/package.json",
+            r#"{"name":"@x/vitest-config","private":true,"type":"module","exports":{"./node":"./dist/node.js","./frontend":"./dist/frontend.js"},"dependencies":{"vitest":"3.0.0"}}"#,
+        ),
+        (
+            "packages/vitest-config/tsconfig.json",
+            r#"{"compilerOptions":{"rootDir":".","outDir":"dist"},"include":["*.ts"]}"#,
+        ),
+        (
+            "packages/vitest-config/node.ts",
+            "import { createRequire } from 'node:module';\n\
+             import { join } from 'node:path';\n\
+             import { defineConfig } from 'vitest/config';\n\
+             export const pinAliases = (deps, from = process.cwd()) => {\n\
+               const req = createRequire(join(from, 'noop.js'));\n\
+               return deps.flatMap((dep) => {\n\
+                 try { return [{ find: dep, replacement: req.resolve(dep) }]; } catch { return []; }\n\
+               });\n\
+             };\n\
+             const baseOptions = (options = {}) => ({ globals: true, environment: 'node', ...options });\n\
+             export const createVitestConfig = (options = {}, { pin = [] } = {}) =>\n\
+               defineConfig({\n\
+                 test: baseOptions(options),\n\
+                 ...(pin.length ? { resolve: { alias: pinAliases(pin) } } : {}),\n\
+               });\n\
+             export const vitestConfig = createVitestConfig();\n",
+        ),
+        (
+            "packages/vitest-config/frontend.ts",
+            "import { defineConfig } from 'vitest/config';\n\
+             export const createVitestConfig = (options = {}) => {\n\
+               const vitestConfig = defineConfig({\n\
+                 test: { globals: true, environment: 'jsdom', coverage: { enabled: false }, ...options },\n\
+               });\n\
+               if (process.env.COVERAGE === 'true') {\n\
+                 const { coverage } = vitestConfig.test;\n\
+                 coverage.enabled = true;\n\
+                 Object.assign(coverage, coverageFor(process.env.CHANGED_FILES));\n\
+               }\n\
+               return vitestConfig;\n\
+             };\n\
+             const coverageFor = (changed) => (changed ? { include: changed.split(',') } : {});\n",
+        ),
+    ]
+}
+
+/// A factory of a shared config package that pins module paths with `require.resolve`, the config it exports, and a
+/// factory that changes a destructured part of the config it builds are evaluated with the options they are given: the
+/// setup module named there is an entry and the app's entries are complete.
+#[test]
+fn a_shared_config_factory_that_resolves_paths_or_changes_a_part_of_its_config_is_evaluated() {
+    for vitest_config in [
+        "import { createVitestConfig } from '@x/vitest-config/node';\n\
+         export default createVitestConfig({ setupFiles: ['./config/boot.ts'] });\n",
+        "import { mergeConfig, defineConfig } from 'vitest/config';\n\
+         import { vitestConfig } from '@x/vitest-config/node';\n\
+         export default mergeConfig(vitestConfig, defineConfig({ test: { setupFiles: ['./config/boot.ts'] } }));\n",
+        "import { createVitestConfig } from '@x/vitest-config/frontend';\n\
+         export default createVitestConfig({ setupFiles: ['./config/boot.ts'] });\n",
+    ] {
+        let mut files: Vec<(&str, &str)> = workspace(vitest_config)
+            .into_iter()
+            .filter(|(path, _)| !path.starts_with("packages/vitest-config/"))
+            .collect();
+        files.extend(shared_config_package());
+        let (incomplete, boot) = analyse(&files, "packages/app/config/boot.ts");
+        let app: Vec<&IncompletePackage> = incomplete.iter().filter(|package| package.name == "@x/app").collect();
+        assert_eq!(app, Vec::<&IncompletePackage>::new(), "{vitest_config}");
+        assert_eq!(boot["in-graph"], true, "{vitest_config}: {boot}");
+    }
 }
