@@ -962,7 +962,7 @@
           "default": 12
         }
       },
-      "description": "`[update]`: how `skif update` reads the package registry (ADR 0058). Linting never reads it."
+      "description": "`[update]`: how `skif update` reads the package registry (ADR 0026). Linting never reads it."
     },
     "UpdateGroup": {
       "type": "object",
@@ -1661,7 +1661,7 @@
           "description": "Check the layout against `JSON.stringify(manifest, null, indent)`: spaces or tabs, for example `\"  \"` or\n`\"\\t\"`. Unset keeps each file's layout."
         }
       },
-      "description": "`[format]`: what the `package-json-format` rule and `skif format` check, with syncpack's defaults (ADR 0055)."
+      "description": "`[format]`: what the `package-json-format` rule and `skif format` check, with syncpack's defaults (ADR 0009)."
     },
     "Override": {
       "type": "object",

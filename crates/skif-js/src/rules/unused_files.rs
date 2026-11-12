@@ -10,7 +10,7 @@ use crate::analysis::JsAnalysis;
 /// Metadata of `unused-files`. Warning until the rule reaches corpus parity with knip; `unused-dependencies`, `unlisted-dependencies` and `unresolved-imports` stay errors.
 ///
 /// Fixable sometimes: a finding of a run that walks the directories has an unsafe fix that deletes the file, one of a
-/// run that lists the files from the git index (`[js] discovery = "git"`) has none (ADR 0095).
+/// run that lists the files from the git index (`[js] discovery = "git"`) has none (ADR 0014).
 pub static META: RuleMeta = RuleMeta::new(
     "unused-files",
     Category::Js,
@@ -26,7 +26,7 @@ const INDEX_HELP: &str = "delete it, or add it to `entry` when a tool loads it; 
 
 /// Reports project files that no entry file imports, directly or through other files.
 ///
-/// Its fix deletes the file, except when the files were listed from the git index (ADR 0095).
+/// Its fix deletes the file, except when the files were listed from the git index (ADR 0014).
 pub struct UnusedFiles;
 
 /// The message of a file no entry reaches, with `/` separators on every platform so reports and SARIF fingerprints

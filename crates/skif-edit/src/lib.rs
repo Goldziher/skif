@@ -3,7 +3,7 @@
 //! [`plan_edits`] turns structural [`FixOp`]s into byte-level [`TextEdit`]s over the original source, so every byte a
 //! fix does not touch (indentation, comments, key order, line endings) stays identical. [`apply`] plans and applies.
 //!
-//! [`format_package_json`] formats a `package.json` as syncpack's `format` does (ADR 0055).
+//! [`format_package_json`] formats a `package.json` as syncpack's `format` does (ADR 0009).
 //!
 //! JSON (including JSONC comments) is located with `jsonc-parser` byte ranges. YAML needs the `yaml` feature and is
 //! edited with `yamlpatch`; see [`FileKind::Yaml`].

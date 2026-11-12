@@ -1,4 +1,4 @@
-//! Several reports in one run: a repeatable `--format FORMAT[=FILE]` (ADR 0054).
+//! Several reports in one run: a repeatable `--format FORMAT[=FILE]` (ADR 0022).
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

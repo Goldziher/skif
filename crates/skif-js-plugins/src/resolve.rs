@@ -60,7 +60,7 @@ pub fn resolve_plugins(ctx: &PluginContext<'_>) -> Vec<(PluginId, PluginOutput)>
     resolve_plugins_in(ctx, "", || NxProjects::found_dirs(ctx))
 }
 
-/// Like [`resolve_plugins`], with the Nx projects below the package given (ADR 0109). The `nx` plugin reads the
+/// Like [`resolve_plugins`], with the Nx projects below the package given (ADR 0032). The `nx` plugin reads the
 /// `project.json` of each of [`NxProjects::dirs`], with its paths relative to the Nx workspace root
 /// ([`NxProjects::path`]). Every other plugin also runs in each of [`NxProjects::scopes`] as if it were a package
 /// with the dependencies of `ctx`, and what it finds there is part of its output for `ctx`.

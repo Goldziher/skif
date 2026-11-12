@@ -1,4 +1,4 @@
-//! Nx projects as scopes of the package that owns them (ADR 0109).
+//! Nx projects as scopes of the package that owns them (ADR 0032).
 //!
 //! An Nx project is a directory with a `project.json`. In an integrated workspace it has no `package.json`: its
 //! dependencies are listed by the package that holds it, usually the root, and its tools (`vite.config.ts`,
@@ -18,7 +18,7 @@ use crate::support::{join_rel, path_within};
 /// a project may lie deeper than the configs the plugins look for.
 const PROJECT_DEPTH: usize = 48;
 
-/// The Nx projects below a package, and where the package lies in the Nx workspace (ADR 0109).
+/// The Nx projects below a package, and where the package lies in the Nx workspace (ADR 0032).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct NxProjects {

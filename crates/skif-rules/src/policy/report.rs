@@ -222,7 +222,7 @@ fn related_of(analysis: &Analysis<'_>, holders: &Holders<'_>, id: InstanceId, ve
 
 /// The fix of a fixable state: the entry is removed when banned, and set to the chosen specifier otherwise.
 ///
-/// The specifier is written as the group chose it, never re-rendered. Its safety follows ADR 0051.
+/// The specifier is written as the group chose it, never re-rendered. Its safety follows ADR 0009.
 fn fix_of(instance: &Instance<'_>, verdict: &Verdict) -> Option<Fix> {
     if !verdict.state.is_fixable() {
         return None;
@@ -245,7 +245,7 @@ fn fix_of(instance: &Instance<'_>, verdict: &Verdict) -> Option<Fix> {
     Some(Fix::new(title, safety, vec![op]))
 }
 
-/// How safe rewriting `instance` to `target` is (ADR 0051).
+/// How safe rewriting `instance` to `target` is (ADR 0009).
 ///
 /// Whatever chose the target (a pin, the highest or lowest version in use, a snap target, the workspace package),
 /// moving to it is safe only as a compatible upgrade that keeps the specifier's shape: a pin can name another major,

@@ -54,7 +54,7 @@ use output::{emit_error, emit_error_with};
 ///
 /// It never changes the process's current directory, even under `bazel run`: in a host such as Node.js, which caches
 /// its own current directory, a change made here would leave the host out of step. A host that runs skif under
-/// `bazel run` enters that directory itself first, as the npm package's `skif` bin does (ADR 0112).
+/// `bazel run` enters that directory itself first, as the npm package's `skif` bin does (ADR 0031).
 ///
 /// A panic in skif is caught and exits 2, as the binary's [`install_panic_hook`] makes it do; the panic hook prints
 /// the message and its location to stderr, and with `--format json` stdout also receives the `error` document (kind
@@ -125,7 +125,7 @@ fn internal_error(report: &str) -> CliError {
 ///
 /// Under `bazel run` (`BUILD_WORKSPACE_DIRECTORY` is set) it first changes the process's current directory to
 /// `BUILD_WORKING_DIRECTORY`, else to the workspace root, so paths on the command line resolve as the user typed them
-/// rather than in the runfiles tree (ADR 0112); a directory it cannot enter exits 2.
+/// rather than in the runfiles tree (ADR 0031); a directory it cannot enter exits 2.
 pub fn run_to_exit(args: impl IntoIterator<Item = OsString>) -> u8 {
     let raw: Vec<OsString> = args.into_iter().collect();
     if let Err(error) = env::enter_bazel_run_directory() {
@@ -196,7 +196,7 @@ fn usage(raw: &[OsString], error: &clap::Error) -> u8 {
 }
 
 /// Whether the command line asks for JSON-mode errors: the format that goes to stdout is `json`, or, when every
-/// `--format` names a file, the first one is (ADR 0054). Read from the raw arguments, before clap has parsed them.
+/// `--format` names a file, the first one is (ADR 0022). Read from the raw arguments, before clap has parsed them.
 fn wants_json(raw: &[OsString]) -> bool {
     let args: Vec<&str> = raw.iter().filter_map(|arg| arg.to_str()).collect();
     let mut values = Vec::new();

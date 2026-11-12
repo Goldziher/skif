@@ -3,11 +3,11 @@
 JavaScript and TypeScript tool knowledge for skif.
 
 - `scripts`: parses `package.json` scripts into the binaries, entry files and dependencies they reference.
-- `plugin`, `plugins`, `registry`: the declarative plugin table of ADR 0011 (extended by ADR 0022, ADR 0025, ADR 0029, ADR 0036, ADR 0049, ADR 0059, ADR 0060, ADR 0061, ADR 0062 and ADR 0115). A plugin is a `PluginSpec` row
+- `plugin`, `plugins`, `registry`: the declarative plugin table of ADR 0015 (see also ADR 0006, ADR 0013, ADR 0018, ADR 0020 and ADR 0031). A plugin is a `PluginSpec` row
   (enablers, config, entry, production and project globs, provided binaries, the custom element library whose
   registered classes are used) with an optional resolver that reads the
   tool's config statically and reports the dependencies, entries and scripts it references. Configs are never
-  executed (ADR 0010).
+  executed (ADR 0013).
 - `bazel`: the Bazel repository root, its `bazel-*` output trees and the outputs a `BUILD` file declares, scanned
   as Starlark text and never evaluated.
 - `resolve_plugins`: the entry point the module graph calls, given a `PluginContext` for one workspace.

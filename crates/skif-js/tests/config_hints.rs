@@ -175,7 +175,7 @@ const APP_MAIN: (&str, &str) = ("app/main.js", "console.log('r2b');\n");
 const LEFT_PAD_UNUSED: &str = "package.json: `left-pad` is listed in `dependencies` but never used";
 
 /// A path into nothing is reported, contributes no entry and leaves the package judged from its other entries
-/// (ADR 0069).
+/// (ADR 0016).
 #[test]
 fn a_bin_path_into_nothing_is_reported_and_the_package_is_judged() {
     let diagnostics = lint(&[DANGLING_BIN, APP_MAIN], "");

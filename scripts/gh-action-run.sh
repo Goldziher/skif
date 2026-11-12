@@ -89,7 +89,7 @@ has_skif_config() {
 # from-sherif (opt-in migration aid): a project with no skif configuration yet whose root package.json runs sherif (a `sherif` key, or a
 # script that runs it) is linted with its sherif settings translated by `skif migrate`, so a job that replaces sherif
 # keeps its ignores and --fail-on-warnings. `--profile full` keeps skif's default rules; the translation goes to a
-# temporary file, never into the repository. The skif binary itself never reads sherif configuration (ADR 0039).
+# temporary file, never into the repository. The skif binary itself never reads sherif configuration (ADR 0025).
 use_sherif_config() {
   [ "${FROM_SHERIF:-false}" = "true" ] || return 1
   if [ ! -f package.json ] || ! grep -q 'sherif' package.json; then

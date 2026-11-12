@@ -2,7 +2,7 @@
 //! corpus repositories and diffs the findings.
 //!
 //! syncpack has no JSON lint report, but `syncpack json` prints every instance with its status code, and skif's
-//! `detail` carries the same status code names ([ADR 0009](../../adrs/0009-version-and-catalog-policies.md)). A
+//! `detail` carries the same status code names ([ADR 0010](../../adrs/0010-version-semver-range-and-catalog-policies.md)). A
 //! finding is keyed `<package.json>|<dependency>` within its status code. A fixture whose `skif.toml` holds anything
 //! that does not translate to a syncpack configuration is skipped with the reason.
 
@@ -194,7 +194,7 @@ fn translate(text: &str) -> Result<Translated, String> {
 
 /// The `--dependency-types` value for a fixture's `[policy] dependency-types`: skif's default scope (with `local`) when
 /// the list is absent or empty, the list itself otherwise, which takes the own versions out on both sides when it
-/// does not name `local` (ADR 0072).
+/// does not name `local` (ADR 0010).
 fn dependency_types(translated: Option<&str>) -> String {
     match translated {
         None | Some("") => DEFAULT_DEPENDENCY_TYPES.to_owned(),

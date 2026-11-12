@@ -128,8 +128,8 @@ RUN npm ci
 `# skif-ignore-file <rule> -- <reason>` covers the whole file, and a comment without rule ids covers every toolchain
 rule. `foreign-package-manager-command` does not report read-only commands (`npm view`, `npm whoami`, `yarn info`) or
 a global install of the workspace's own manager (`npm install -g pnpm@9`). See
-[ADR 0087](https://github.com/Goldziher/skif/blob/main/adrs/0087-toolchain-pins-outside-package-json-and-the-toolchain-pin-drift-rule.md)
-and [ADR 0088](https://github.com/Goldziher/skif/blob/main/adrs/0088-foreign-package-manager-commands.md).
+[ADR 0011](https://github.com/Goldziher/skif/blob/main/adrs/0011-lockfile-and-toolchain-rules.md)
+and [ADR 0011](https://github.com/Goldziher/skif/blob/main/adrs/0011-lockfile-and-toolchain-rules.md).
 
 ### `[[ignore]]`
 
@@ -892,7 +892,7 @@ is listed from the index without an `opendir`. One case is invisible to `git`: a
 last rewrite of the index (a `git add` or `git commit` of another file, or a `git status` that refreshes it) in a
 directory nothing has touched since. That is why `auto` does not use the index: such a file is the entry or the only
 importer of a file that would then be reported as unused. `git` suits a fresh checkout, as in CI, and its
-`unused-files` findings offer no fix that deletes the file ([ADR 0095](https://github.com/Goldziher/skif/blob/main/adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md)). `git` falls back to
+`unused-files` findings offer no fix that deletes the file ([ADR 0014](https://github.com/Goldziher/skif/blob/main/adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md)). `git` falls back to
 the walk when there is no usable index: a repository outside git, a split or sparse index, a SHA-256 repository
 (`extensions.objectformat`), or an index whose SHA-1 checksum does not match (an index written with `index.skipHash`,
 which `feature.manyFiles` sets, is read without the check, so a torn read of an index that is being rewritten is then only
@@ -901,7 +901,7 @@ reported. The `.gitignore` rules, hidden directories and `[js] ignore` apply to 
 The rules that list directories for files workspace discovery does not read, the toolchain scan (version files,
 Dockerfiles, shell scripts, workflows and the `files` globs) and the search for the Bazel `BUILD` files of
 `stray-lockfile`, list through the same index listing under `git`, so they share its speed and its blind spot
-([ADR 0121](https://github.com/Goldziher/skif/blob/main/adrs/0121-one-git-index-listing-for-every-provider.md)).
+([ADR 0014](https://github.com/Goldziher/skif/blob/main/adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md)).
 
 A dependency counts as listed when the package's own `package.json`, the `package.json` of a package that contains
 it, or any `package.json` above the analysed root up to the git repository root lists it; the same manifests enable
@@ -1075,7 +1075,7 @@ dependency only an unreached fixture imports stays unused. Other directories of 
 member read in its own file (`E.A`, `E["A"]`, `const { A } = E`) counts as used. Using the whole enum there
 (`Object.values(E)`, `E[key]`, a spread, passing it as a value, `typeof E`, `keyof typeof E` or `` `${E}` `` in a
 type) uses every member of it, where knip credits none; a type annotation `x: E` names the enum type and uses no
-member ([ADR 0126](https://github.com/Goldziher/skif/blob/main/adrs/0126-a-whole-use-of-an-enum-in-its-own-file-uses-every-member.md)).
+member ([ADR 0018](https://github.com/Goldziher/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)).
 A namespace used as a whole in its own file credits none of its members. Inside a namespace, a member read by its bare name (`findVisible()`, `token: ProgressToken`) counts
 as used, unless a parameter or local of the same name shadows it; the declarations of a merged namespace share their
 members. A file that another loads with `new URL("./x", import.meta.url)` is used as a whole, its types included: it runs as a

@@ -1,4 +1,4 @@
-//! The plugin table of ADR 0011.
+//! The plugin table of ADR 0015.
 
 use std::sync::LazyLock;
 
@@ -238,7 +238,7 @@ static PLUGINS: [&dyn Plugin; 207] = [
     &knip::Knip,
 ];
 
-/// Every plugin, in the order of the table (ADR 0011, ADR 0022, ADR 0025, ADR 0029).
+/// Every plugin, in the order of the table (ADR 0015, ADR 0006, ADR 0018).
 #[must_use]
 pub fn plugins() -> &'static [&'static dyn Plugin] {
     &PLUGINS

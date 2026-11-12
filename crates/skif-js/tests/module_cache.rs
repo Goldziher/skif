@@ -1,4 +1,4 @@
-//! The module cache of ADR 0066: lookups per run, unchanged results, and parse results that survive serialization.
+//! The module cache of ADR 0029: lookups per run, unchanged results, and parse results that survive serialization.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

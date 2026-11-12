@@ -1,4 +1,4 @@
-//! The module cache the linters of one run parse through (ADR 0101): a host's cache, which holds every file, or the
+//! The module cache the linters of one run parse through (ADR 0029): a host's cache, which holds every file, or the
 //! cache of a multi-root run, which holds only the files more than one root can reach.
 
 use std::path::{Path, PathBuf};

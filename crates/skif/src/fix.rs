@@ -80,7 +80,7 @@ pub struct FixSelection {
     /// How diagnostics with several fixes and no pick are handled.
     pub alternatives: Alternatives,
     /// Whether a fix that deletes a file may be planned. Off by default: such a fix is skipped with
-    /// [`SkipReason::RemovesFiles`] whatever its safety, so deleting files is always a separate opt-in (ADR 0052).
+    /// [`SkipReason::RemovesFiles`] whatever its safety, so deleting files is always a separate opt-in (ADR 0009).
     pub remove_files: bool,
 }
 

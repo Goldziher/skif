@@ -393,7 +393,7 @@ pub(crate) struct PackageSetup {
     pub incomplete_reasons: Vec<IncompleteEntries>,
     /// When the entry files are incomplete, the globs (relative to the package directory) of the only files that may
     /// be unknown entries; `None` when they may be anywhere. The matching project files are treated as entries and
-    /// every other file is judged unused as usual (ADR 0065).
+    /// every other file is judged unused as usual (ADR 0016).
     pub incomplete_scope: Option<IncompleteScopeGlobs>,
     /// The module (relative to the workspace root) and 1-based line of a computed `import()` or `require()` in the
     /// package, which may load any of its files: the narrowed scope a config gave then leaves the package unjudged
@@ -460,8 +460,8 @@ impl PackageSetup {
     }
 
     /// Whether the file `rel` (relative to the package directory) and its exports can be judged unused: the package's
-    /// entries are known, or the entries its configs hide lie in a narrowed scope `rel` is outside of (ADR 0065,
-    /// ADR 0081).
+    /// entries are known, or the entries its configs hide lie in a narrowed scope `rel` is outside of (ADR 0016,
+    /// ADR 0016).
     pub(crate) fn judges(&self, rel: &str) -> bool {
         !self.unjudged_package_wide() && !self.in_incomplete_scope(rel)
     }
@@ -1177,7 +1177,7 @@ impl Setup {
         ignores_in_file_use(setting, export)
     }
 
-    /// Whether `export` of a module of package `id` is a registered custom element (ADR 0062):
+    /// Whether `export` of a module of package `id` is a registered custom element (ADR 0020):
     /// `customElements.define` always counts, a decorator or base class only when it comes from the library of a
     /// plugin enabled for the package.
     pub(crate) fn is_registered(&self, id: PackageId, export: &Export) -> bool {

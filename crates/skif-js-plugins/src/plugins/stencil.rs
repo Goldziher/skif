@@ -1,6 +1,6 @@
 //! Stencil: components under `srcDir`, spec and e2e tests, and the global script and styles, TypeScript config and
 //! test setup files named anywhere in `stencil.config.*`. A class decorated with `@Component` from `@stencil/core` is
-//! a registered custom element and so a used export (ADR 0062).
+//! a registered custom element and so a used export (ADR 0020).
 
 use skif_js_syntax::{ConfigValue, extract_property_values};
 

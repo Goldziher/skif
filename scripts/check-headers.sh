@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fails unless every source file of the vendored skif-specifier crate starts with an attribution header:
-# either `// Vendored from syncpack ...` or `// Added for skif (not in syncpack) ...` (ADR 0015). Code derived from
+# either `// Vendored from syncpack ...` or `// Added for skif (not in syncpack) ...` (ADR 0033). Code derived from
 # sherif and knip is not vendored file by file and carries no header; ATTRIBUTIONS.md covers it, and its sections,
 # Modifications lists and recorded commits are checked below.
 #
@@ -43,7 +43,7 @@ if [[ "$(grep -c '^### Modifications$' ATTRIBUTIONS.md)" -lt 3 ]]; then
   failures=$((failures + 1))
 fi
 
-# The knip section records the commit the JS analysis follows and the licence holder (ADR 0015).
+# The knip section records the commit the JS analysis follows and the licence holder (ADR 0033).
 knip_section="$(sed -n '/^## knip$/,$p' ATTRIBUTIONS.md)"
 for needle in "da07b6e9887f9a1eb08545da29755b7f9d309bca" "Copyright (c) 2022-2026 Lars Kappert" "ISC License"; do
   if ! grep -qF "$needle" <<<"$knip_section"; then

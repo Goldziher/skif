@@ -1,4 +1,4 @@
-//! Custom elements (ADR 0062), linted from the `custom-elements` fixture with the plugin table.
+//! Custom elements (ADR 0020), linted from the `custom-elements` fixture with the plugin table.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

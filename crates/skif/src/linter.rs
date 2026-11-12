@@ -208,7 +208,7 @@ impl Linter {
         Ok(linter)
     }
 
-    /// Like [`with_fs`](Self::with_fs), with the JS analysis parsing source files through `modules` (ADR 0066).
+    /// Like [`with_fs`](Self::with_fs), with the JS analysis parsing source files through `modules` (ADR 0029).
     ///
     /// A host that lints repeatedly (watch mode, an editor) keeps the `Arc` and passes it to every linter it builds,
     /// so unchanged files are parsed once; [`MemoryModuleCache`](crate::MemoryModuleCache) is an in-process cache,
@@ -227,7 +227,7 @@ impl Linter {
     }
 
     /// Like [`with_fs`](Self::with_fs), with the JS analysis parsing source files through `modules`, the cache the
-    /// linters of one run share (ADR 0101), as [`shared_modules`](Self::shared_modules) builds it. A host that builds
+    /// linters of one run share (ADR 0029), as [`shared_modules`](Self::shared_modules) builds it. A host that builds
     /// one linter per distinct configuration of a multi-root run passes the same `modules` to each;
     /// [`for_targets`](Self::for_targets) builds one per target.
     ///

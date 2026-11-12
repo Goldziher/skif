@@ -1,4 +1,4 @@
-# Every released rule ID (ADR 0007). IDs are never removed or renamed; add new ones here with the rule.
+# Every released rule ID (ADR 0008). IDs are never removed or renamed; add new ones here with the rule.
 empty-dependencies
 root-package-private-field
 root-package-manager-field

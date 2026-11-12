@@ -1,6 +1,6 @@
 name: oxc lockstep
 
-# poly redirects skif's crates.io oxc crates to its git copy of an oxc release (ADR 0021). This builds
+# poly redirects skif's crates.io oxc crates to its git copy of an oxc release (ADR 0013). This builds
 # skif against the matching oxc tag so pin or API drift shows up here, not in poly.
 on:
   schedule:

@@ -48,7 +48,7 @@ inputs:
       job that replaced sherif keeps its flags until skif.toml is committed. `baseline write`, `prune` and `check`
       read it through a temporary file that extends the translation and then the baseline file. Not done for other
       skif subcommands or when `args` has `--config` or `--no-config`. The skif binary itself never reads sherif
-      configuration (ADR 0039).
+      configuration (ADR 0025).
     required: false
     default: "false"
   install-only:

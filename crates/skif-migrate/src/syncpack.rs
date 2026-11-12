@@ -286,7 +286,7 @@ fn read_config(
     }
 }
 
-/// Writes a format key to `[format]`. `package-json-format` is turned on once the run is read (ADR 0055), and only
+/// Writes a format key to `[format]`. `package-json-format` is turned on once the run is read (ADR 0009), and only
 /// when a script runs `syncpack format`: `syncpack lint` never checks the layout.
 fn format_key(state: &mut State<'_>, src: &Src, path: &str, key: &str, item: &ConfigValue, run: &mut Run) {
     let (target, value) = match key {

@@ -318,7 +318,7 @@ pub(crate) fn discover_with(
 
 /// The directories, relative to the workspace root and sorted, of the `project.json` files that the walk of
 /// [`discover_with`] reaches, each with the directory of the package that owns it (`""` for the root): the Nx projects
-/// of ADR 0109, below neither build output, a hidden or gitignored directory nor a directory of its own `package.json`
+/// of ADR 0032, below neither build output, a hidden or gitignored directory nor a directory of its own `package.json`
 /// that is no member.
 pub(crate) fn nx_project_dirs(
     fs: &dyn FileSystem,

@@ -50,7 +50,7 @@ fn every_case_is_accounted_for() {
 }
 
 /// README step 6: every configuration loads and validates, every rule is registered and every `detail` is a state
-/// of the ADR 0009 table or of ADR 0048 or ADR 0107.
+/// that ADR 0010 or ADR 0011 names.
 #[test]
 fn every_fixture_is_well_formed() {
     let adr = [

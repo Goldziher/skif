@@ -33,7 +33,7 @@ translated as [`skif migrate`](../migrating/#sherif) translates them, and skif's
 needs a human is reported as a warning and the rest still applies; a translation that fails is a warning and skif runs
 without it. The action does not do this for a skif subcommand in `args` (`rules`, `update`, ...), when `args` has
 `--config` or `--no-config`. The translation is done by the action, not by skif: the skif binary never reads sherif
-configuration while linting ([ADR 0039](https://github.com/Goldziher/skif/blob/main/adrs/0039-skif-migrate-a-one-shot-translator-from-sherif-syncpack-and-knip.md)). Commit the output of
+configuration while linting ([ADR 0025](https://github.com/Goldziher/skif/blob/main/adrs/0025-skif-migrate.md)). Commit the output of
 `skif migrate` to settle the configuration and drop the input; from then on the action reads `skif.toml`.
 `skif baseline write`, `prune` and `check` get the translation too, through a temporary file that extends it and then
 the baseline file (`--file`, or `skif.baseline.toml`), since a baseline applies only through a configuration that
@@ -180,7 +180,7 @@ The `skif-cli` package is a native addon built with napi-rs for the Node.js line
 and downloads nothing at install time: one platform package per target is an optional dependency, so your package
 manager installs only the one that matches the machine: macOS and Linux (glibc and musl), each on x64 and arm64.
 Windows has no npm package
-([ADR 0114](https://github.com/Goldziher/skif/blob/main/adrs/0114-windows-npm-packages-deferred.md)); on Windows,
+([ADR 0027](https://github.com/Goldziher/skif/blob/main/adrs/0027-distribution-and-release.md)); on Windows,
 use the release archives, cargo-binstall or Scoop.
 
 ```js

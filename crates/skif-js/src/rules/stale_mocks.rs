@@ -7,7 +7,7 @@ use super::support::{module_location, unresolved_imports};
 use crate::analysis::JsAnalysis;
 
 /// Metadata of `stale-mocks`. An error, as the same findings were under `unresolved-imports`: the test runners throw
-/// on most of these calls (ADR 0073).
+/// on most of these calls (ADR 0019).
 pub static META: RuleMeta = RuleMeta::new(
     "stale-mocks",
     Category::Js,

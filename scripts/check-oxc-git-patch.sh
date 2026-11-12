@@ -2,7 +2,7 @@
 # Builds skif with js-analysis while every oxc crate is redirected to the git commit of an oxc release
 # tag, the way poly redirects them with [patch.crates-io]. Fails when the pins drift from that release
 # (cargo reports the patch as unused), when the build breaks, or when two copies of an oxc crate remain
-# in the graph. See ADR 0021.
+# in the graph. See ADR 0013.
 #
 # Usage: scripts/check-oxc-git-patch.sh [OXC_TAG]
 #   OXC_TAG  tag in oxc-project/oxc, e.g. crates_v0.157.0. Defaults to the release matching the
@@ -44,7 +44,7 @@ done
 cargo "${config[@]}" build -p skif --features js-analysis 2>&1 | tee "$log"
 
 if grep -E "Patch .* was not used" "$log"; then
-  echo "::error::oxc pins in Cargo.toml do not match ${tag}: a patch was not used. Bump all oxc pins together (ADR 0021)." >&2
+  echo "::error::oxc pins in Cargo.toml do not match ${tag}: a patch was not used. Bump all oxc pins together (ADR 0013)." >&2
   exit 1
 fi
 

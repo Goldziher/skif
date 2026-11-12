@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fails unless every published crate and the npm package carry the root LICENSE and ATTRIBUTIONS.md (byte-identical
-# copies) and ship both in their package, as the MIT notices of vendored and derived code require (ADR 0015).
+# copies) and ship both in their package, as the MIT notices of vendored and derived code require (ADR 0033).
 #
 # Usage: scripts/check-package-contents.sh
 set -euo pipefail

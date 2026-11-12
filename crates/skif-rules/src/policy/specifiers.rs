@@ -20,7 +20,7 @@ pub(super) fn floor_version(specifier: &Specifier) -> Option<impl Ord + Clone + 
     floor.or_else(|| specifier.get_node_version())
 }
 
-/// Whether rewriting `from` to `to` is a version alignment that `--fix` may apply on its own (ADR 0051).
+/// Whether rewriting `from` to `to` is a version alignment that `--fix` may apply on its own (ADR 0009).
 ///
 /// Both must be plain versions or `^`/`~` ranges of the same shape (`1.2.3` stays exact, `^1.2` stays `^` with a
 /// major and a minor), and an identical specifier is always safe. Otherwise neither may carry a prerelease or build

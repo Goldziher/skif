@@ -22,7 +22,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
     ```
 
     The npm package is a napi-rs addon for non-EoL Node.js (22, 24, 26) and Bun 1.x on macOS and Linux, x64 and arm64.
-    Windows has no npm package (ADR 0114): on Windows, use the release archives, cargo-binstall or Scoop. See
+    Windows has no npm package (ADR 0027): on Windows, use the release archives, cargo-binstall or Scoop. See
     [npm and Bun](../../guides/integrations/#npm-and-bun).
   </TabItem>
   <TabItem label="Homebrew">
@@ -108,8 +108,8 @@ ships, on Linux, and the latest majors also on macOS and Windows.
 The scenarios cover a clean workspace, a set of fixable manifest and workspace issues fixed with `--fix`, catalogs (pnpm, Bun
 and Yarn 4.10 and later), `-r` over nested workspaces and a standalone package, JS analysis against the installed
 layout, `skif baseline`, `skif migrate` and toolchain pins
-([ADR 0105](https://github.com/Goldziher/skif/blob/main/adrs/0105-yarn-classic-support-and-the-end-to-end-matrix-of-linkers-and-operating-systems.md)).
+([ADR 0030](https://github.com/Goldziher/skif/blob/main/adrs/0030-supported-versions-and-the-end-to-end-matrix.md)).
 
 Older versions may work, but there is no guarantee: they are not tested, not blocked (`engines` is advisory), and
 bugs reproducible only on them are not fixed. A version is dropped in the first release after it reaches
-end-of-life ([ADR 0027](https://github.com/Goldziher/skif/blob/main/adrs/0027-supported-versions-follow-upstream-end-of-life-policies.md)).
+end-of-life ([ADR 0030](https://github.com/Goldziher/skif/blob/main/adrs/0030-supported-versions-and-the-end-to-end-matrix.md)).

@@ -16,7 +16,7 @@ pub const SATISFIED_LOCAL_RANGE: &str = "satisfied-local-range";
 pub const SHORTHAND_RANKING: &str = "shorthand-ranking";
 pub const UNREAD_BY_SYNCPACK: &str = "unread-by-syncpack";
 
-/// The intended differences between skif and syncpack ([ADR 0030](../../adrs/0030-harness-known-deviations-and-comparison-scope.md)).
+/// The intended differences between skif and syncpack ([ADR 0021](../../adrs/0021-knip-and-syncpack-comparison-harness.md)).
 pub const SYNCPACK_DEVIATIONS: [Deviation; 6] = [
     Deviation {
         id: SATISFIED_LOCAL_RANGE,

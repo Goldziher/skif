@@ -14,7 +14,7 @@ pub static META: RuleMeta = RuleMeta::new(
     "A `package.json` is not formatted as `[format]` describes: key order, sorted fields, `exports` conditions, shorthand `bugs` and `repository`, and the indent. The fix is unsafe when `sort-exports` reorders conditions other than `types` and `default`.",
 );
 
-/// Reports manifests that `skif format` would change (ADR 0055).
+/// Reports manifests that `skif format` would change (ADR 0009).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PackageJsonFormat;
 

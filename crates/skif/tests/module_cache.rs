@@ -1,4 +1,4 @@
-//! ADR 0066 through the facade: a module cache and an overlay of unsaved buffers change no report.
+//! ADR 0029 through the facade: a module cache and an overlay of unsaved buffers change no report.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

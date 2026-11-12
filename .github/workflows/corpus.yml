@@ -1,6 +1,6 @@
 name: corpus
 
-# Findings parity with knip and the policy diff against syncpack on the pinned corpus (ADR 0026). It needs the
+# Findings parity with knip and the policy diff against syncpack on the pinned corpus (ADR 0021). It needs the
 # network, Node and every package manager, so it runs weekly and on demand, never on pull requests.
 on:
   schedule:

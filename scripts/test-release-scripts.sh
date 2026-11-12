@@ -379,7 +379,7 @@ rm "${work}/npm-missing/skif-linux-x64-musl-1.2.3.tgz"
 expect "check-npm-tarballs rejects a missing platform package" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-missing" 1.2.3
 expect_in_out "check-npm-tarballs missing platform" "not the umbrella plus the six platform packages"
 
-# No Windows package is published until its npm name exists (ADR 0114).
+# No Windows package is published until its npm name exists (ADR 0027).
 npm_fixture "${work}/npm-windows" 1.2.3
 pack_tarball "${work}/npm-windows" skif-win32-x64-msvc-1.2.3.tgz '{}' skif.win32-x64-msvc.node LICENSE ATTRIBUTIONS.md
 expect "check-npm-tarballs rejects a Windows package" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-windows" 1.2.3

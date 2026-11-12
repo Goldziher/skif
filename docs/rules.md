@@ -490,8 +490,8 @@ A workspace pattern does not match any directory.
 
 ## Unimplemented states
 
-These policy states of ADR 0009 are not emitted yet.
+These policy states of ADR 0010 are not emitted yet.
 
-- `DiffersToHighestOrLowestSemverMinor`: a `same-minor` group cannot name a direction, see ADR 0009
-- `DiffersToNpmRegistry`: reported by `skif update`, never by a lint rule, see ADR 0058
+- `DiffersToHighestOrLowestSemverMinor`: a `same-minor` group cannot name a direction, see ADR 0010
+- `DiffersToNpmRegistry`: reported by `skif update`, never by a lint rule, see ADR 0026
 - `RefuseToCatalogLocal`: a workspace package is never moved into a catalog

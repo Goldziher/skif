@@ -1,4 +1,4 @@
-//! Nx projects below a package (ADR 0109): the `nx` plugin reads the `project.json` of the package and of its scopes,
+//! Nx projects below a package (ADR 0032): the `nx` plugin reads the `project.json` of the package and of its scopes,
 //! with paths relative to the workspace root, and a project without a `package.json` of its own is a scope in which the
 //! other plugins read their configs, credited to the package.
 

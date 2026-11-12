@@ -229,7 +229,7 @@ fn a_spy_on_a_namespace_uses_only_the_member_it_spies_on() {
 }
 
 /// knip counts a namespace passed to `spyOn` as a use of the whole module and reports nothing here; skif reads the
-/// spied member only (ADR 0079), so an export that neither the named import nor the spy reads stays unused.
+/// spied member only (ADR 0018), so an export that neither the named import nor the spy reads stays unused.
 #[test]
 fn a_spy_next_to_a_named_import_leaves_the_other_exports_unused() {
     let diagnostics = lint_files(&[

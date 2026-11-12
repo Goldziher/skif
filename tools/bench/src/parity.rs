@@ -46,7 +46,7 @@ const RULE_CATEGORIES: [(&str, &str); 14] = [
 ];
 
 /// knip issue type (as named in its JSON) to the common category. `nsExports` and `nsTypes` are their own categories
-/// (the counterparts of `unused-namespace-exports` and `unused-namespace-types`, ADR 0029), not names of
+/// (the counterparts of `unused-namespace-exports` and `unused-namespace-types`, ADR 0018), not names of
 /// `namespaceMembers`; knip's default run reports a namespace-only module's unused exports and types under `exports`
 /// and `types` with a `namespace` field, which [`knip_keys`] moves into them. `classMembers` has no skif rule and is
 /// left out of the comparison.
@@ -76,7 +76,7 @@ pub const KNIP_CONFIG_ERROR: &str = "knip-config-error";
 pub const FOREIGN_TSCONFIG_PATHS: &str = "foreign-tsconfig-paths";
 
 /// The `detail` of an `unlisted-dependencies` finding whose import only another package's tsconfig `paths` map
-/// (ADR 0075).
+/// (ADR 0019).
 const FOREIGN_TSCONFIG_PATHS_DETAIL: &str = "ForeignTsconfigPaths";
 pub const KNIP_UNJUDGED_MANIFEST: &str = "knip-unjudged-manifest";
 pub const NON_MEMBER_PROJECT: &str = "non-member-project";
@@ -94,13 +94,13 @@ pub const BAZEL_BUILD_FILE: &str = "bazel-build-file";
 pub const DECLARATION_FILE: &str = "declaration-file";
 pub const SIGNATURE_TYPE: &str = "signature-type";
 
-/// The dependency categories skif does not judge anywhere in a package whose entry files are not all known (ADR 0053),
+/// The dependency categories skif does not judge anywhere in a package whose entry files are not all known (ADR 0022),
 /// whatever the package's `scope`.
 const NOT_JUDGED_DEPENDENCY_CATEGORIES: [&str; 2] = ["dependencies", "devDependencies"];
 
-/// The categories skif does not judge in the files of a package whose entry files are not all known: files (ADR 0053),
-/// and exports, types and members, which skif stopped reporting there with #48 (ADR 0068). Where the package's `scope`
-/// is narrowed to globs (`{"within": [...]}`), skif judges them in every file outside the globs (ADR 0065, ADR 0081).
+/// The categories skif does not judge in the files of a package whose entry files are not all known: files (ADR 0022),
+/// and exports, types and members, which skif stopped reporting there with #48 (ADR 0021). Where the package's `scope`
+/// is narrowed to globs (`{"within": [...]}`), skif judges them in every file outside the globs (ADR 0016).
 const NOT_JUDGED_FILE_CATEGORIES: [&str; 7] = [
     "files",
     "exports",
@@ -111,7 +111,7 @@ const NOT_JUDGED_FILE_CATEGORIES: [&str; 7] = [
     "namespaceMembers",
 ];
 
-/// The categories skif does not report in a fixture directory (ADR 0050): files, exports, types and members unless
+/// The categories skif does not report in a fixture directory (ADR 0014): files, exports, types and members unless
 /// `[js] include-fixtures` is set, which the harness never sets, and unresolved imports and unlisted dependencies at
 /// all.
 const FIXTURE_CATEGORIES: [&str; 9] = [
@@ -127,7 +127,7 @@ const FIXTURE_CATEGORIES: [&str; 9] = [
 ];
 
 /// The categories `non-member-project` leaves compared in a project that skif lints as a package of a root of a
-/// recursive run (ADR 0022): skif judges the exports, types, members and duplicate exports of its files as knip does
+/// recursive run (ADR 0006): skif judges the exports, types, members and duplicate exports of its files as knip does
 /// from the enclosing workspace. Unused files, unresolved imports and unlisted dependencies there depend on the
 /// project's own entry files, plugins and manifest, which knip does not read, so they stay set apart.
 const ROOT_COMPARED_CATEGORIES: [&str; 7] = [
@@ -201,7 +201,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 22] = [
     },
     Deviation {
         id: FIXTURE_FILE,
-        reason: "knip reports these findings in files below a `fixtures` or `__fixtures__` directory, where skif reports no unused file, export, type or member unless `[js] include-fixtures` is set, and no unresolved import or unlisted dependency at all (ADR 0050). Other names of test data (`fixture`, `testdata`, `*-fixtures`) are judged like any other directory by skif and are not counted here",
+        reason: "knip reports these findings in files below a `fixtures` or `__fixtures__` directory, where skif reports no unused file, export, type or member unless `[js] include-fixtures` is set, and no unresolved import or unlisted dependency at all (ADR 0014). Other names of test data (`fixture`, `testdata`, `*-fixtures`) are judged like any other directory by skif and are not counted here",
     },
     Deviation {
         id: KNIP_UNREAD,
@@ -209,7 +209,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 22] = [
     },
     Deviation {
         id: NOT_JUDGED,
-        reason: "skif lists the package under `incomplete-packages`: a tool config it cannot read leaves its entry files unknown, so it does not judge the package's dependencies, nor its files, exports, types and members where the config could make entries: the whole package for a `scope` of `\"package\"`, only the files its globs match (relative to the package) for a `scope` of `{\"within\": [...]}`, among them the files of the packages nested below it, which skif makes entries (ADR 0065, ADR 0081)",
+        reason: "skif lists the package under `incomplete-packages`: a tool config it cannot read leaves its entry files unknown, so it does not judge the package's dependencies, nor its files, exports, types and members where the config could make entries: the whole package for a `scope` of `\"package\"`, only the files its globs match (relative to the package) for a `scope` of `{\"within\": [...]}`, among them the files of the packages nested below it, which skif makes entries (ADR 0016)",
     },
     Deviation {
         id: KNIP_CONFIG_ERROR,
@@ -217,15 +217,15 @@ pub const KNIP_DEVIATIONS: [Deviation; 22] = [
     },
     Deviation {
         id: FOREIGN_TSCONFIG_PATHS,
-        reason: "skif reports an import that only the tsconfig `paths` of another package map as `unlisted-dependencies` with the detail `ForeignTsconfigPaths`; knip merges the `paths` of all workspaces and resolves it (ADR 0075)",
+        reason: "skif reports an import that only the tsconfig `paths` of another package map as `unlisted-dependencies` with the detail `ForeignTsconfigPaths`; knip merges the `paths` of all workspaces and resolves it (ADR 0019)",
     },
     Deviation {
         id: KNIP_UNJUDGED_MANIFEST,
-        reason: "skif reports these unused dependencies, and binaries the scripts run, in a `package.json` that is not one of knip's workspaces: not the root manifest, not selected by the root's workspace patterns (`pnpm-workspace.yaml` or the `workspaces` of `package.json`, as skif's workspace discovery reads them) and not a file knip reports anything for. knip judges the dependencies and scripts of its workspaces only; a recursive skif run lints such a project as a root of its own (ADR 0022)",
+        reason: "skif reports these unused dependencies, and binaries the scripts run, in a `package.json` that is not one of knip's workspaces: not the root manifest, not selected by the root's workspace patterns (`pnpm-workspace.yaml` or the `workspaces` of `package.json`, as skif's workspace discovery reads them) and not a file knip reports anything for. knip judges the dependencies and scripts of its workspaces only; a recursive skif run lints such a project as a root of its own (ADR 0006)",
     },
     Deviation {
         id: NON_MEMBER_PROJECT,
-        reason: "knip reports these findings in a file (unused files, exports, types, members, duplicates and unresolved imports, and unlisted dependencies that the file's own `package.json` lists) below a directory with its own `package.json` (one with fields besides `type`, `sideEffects` and `imports`) that is not one of knip's workspaces (as in `knip-unjudged-manifest`). knip counts such files to an enclosing workspace, without the entry files, plugins and dependencies of their own manifest; skif's analysis of the enclosing workspace skips the directory, and a recursive run lints it as a root of its own when no workspace member encloses it (ADR 0022), where its exports, types, members and duplicates stay compared, but for the exports and types of the project's default entry files (`index`, `cli` or `main` at the top or in `src`), which are public in skif's run of the project and which knip reads without the project's entries. On skif's side, an unused file, unlisted dependency or unlisted binary only skif reports below such a project is set apart too: a recursive run lints the project with its own entry files, plugins, configs and manifest (a package its `.eslintrc.json` or `project.json` names), which knip does not read there; a binary on a `package.json` that knip reports anything on stays compared. The harness checks the manifests, not why skif has no finding for each one",
+        reason: "knip reports these findings in a file (unused files, exports, types, members, duplicates and unresolved imports, and unlisted dependencies that the file's own `package.json` lists) below a directory with its own `package.json` (one with fields besides `type`, `sideEffects` and `imports`) that is not one of knip's workspaces (as in `knip-unjudged-manifest`). knip counts such files to an enclosing workspace, without the entry files, plugins and dependencies of their own manifest; skif's analysis of the enclosing workspace skips the directory, and a recursive run lints it as a root of its own when no workspace member encloses it (ADR 0006), where its exports, types, members and duplicates stay compared, but for the exports and types of the project's default entry files (`index`, `cli` or `main` at the top or in `src`), which are public in skif's run of the project and which knip reads without the project's entries. On skif's side, an unused file, unlisted dependency or unlisted binary only skif reports below such a project is set apart too: a recursive run lints the project with its own entry files, plugins, configs and manifest (a package its `.eslintrc.json` or `project.json` names), which knip does not read there; a binary on a `package.json` that knip reports anything on stays compared. The harness checks the manifests, not why skif has no finding for each one",
     },
     Deviation {
         id: SKIPPED_DIRECTORY,
@@ -241,7 +241,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 22] = [
     },
     Deviation {
         id: SIGNATURE_TYPE,
-        reason: "knip reports these exports and types as unused, and skif's parser finds each in the signature of another export of the same file that skif does not report as unused (a parameter, return or member type of an exported function, class or constant), directly or through other exports in such signatures. ADR 0029 counts an export that a used export's signature mentions as used; knip has no such rule. The harness takes an export skif does not report for a used one. A type that only an exported `interface` or `type` alias mentions is not exempt in skif either and stays compared",
+        reason: "knip reports these exports and types as unused, and skif's parser finds each in the signature of another export of the same file that skif does not report as unused (a parameter, return or member type of an exported function, class or constant), directly or through other exports in such signatures. ADR 0018 counts an export that a used export's signature mentions as used; knip has no such rule. The harness takes an export skif does not report for a used one. A type that only an exported `interface` or `type` alias mentions is not exempt in skif either and stays compared",
     },
     Deviation {
         id: BAZEL_BUILD_FILE,
@@ -283,7 +283,7 @@ const CODE_EXTENSIONS: [&str; 11] = [
 ];
 
 const TEST_DIRECTORIES: [&str; 6] = ["test", "tests", "__tests__", "e2e", "cypress", "__mocks__"];
-/// The directories skif's JS analysis treats as fixtures (`skif_config::FIXTURE_DIRECTORIES`, ADR 0050).
+/// The directories skif's JS analysis treats as fixtures (`skif_config::FIXTURE_DIRECTORIES`, ADR 0014).
 const FIXTURE_DIRECTORIES: [&str; 2] = ["fixtures", "__fixtures__"];
 
 /// The default entry files of a workspace, the same in knip and skif. A configured `entry` replaces them in both, so a
@@ -629,7 +629,7 @@ pub fn not_judged_dirs(document: &Value) -> BTreeMap<String, NotJudgedScope> {
     packages
 }
 
-/// The package directories of every root of a recursive skif run (the `packages` of its JSON `roots`, ADR 0022),
+/// The package directories of every root of a recursive skif run (the `packages` of its JSON `roots`, ADR 0006),
 /// relative to the checkout with `/` separators, the root package as the empty string. Empty for a single-workspace
 /// run, whose report has no `roots`.
 pub fn skif_root_packages(document: &Value) -> BTreeSet<String> {
@@ -663,7 +663,7 @@ fn owner_dir(key: &str, is_package: &dyn Fn(&str) -> bool) -> String {
 /// Whether a one-sided finding is in a category skif does not judge where it lies: a dependency of a package skif
 /// lists as incomplete, or a file, export, type or member in its files, all of them or only those its narrowed scope
 /// matches. A narrowed scope also reaches the files of the packages nested below the incomplete package, matched
-/// relative to the incomplete package, as skif makes every file it matches an entry (ADR 0081).
+/// relative to the incomplete package, as skif makes every file it matches an entry (ADR 0016).
 fn not_judged(
     category: &str,
     key: &str,
@@ -1449,7 +1449,7 @@ struct Classifier<'a> {
     knip_failed: &'a BTreeSet<String>,
     /// The `package.json` files knip reports any finding on.
     knip_manifests: &'a BTreeSet<String>,
-    /// The `unlisted` keys whose import only another package's tsconfig `paths` map (ADR 0075).
+    /// The `unlisted` keys whose import only another package's tsconfig `paths` map (ADR 0019).
     foreign_paths: &'a BTreeSet<String>,
     /// The files knip reports as unused, before any are set apart.
     knip_unused_files: &'a BTreeSet<String>,
@@ -1718,7 +1718,7 @@ fn in_used_signature<'m>(
 
 /// `<file>|<export>` for every export only knip reports in [`EXPORT_LABELS`] that the signature of another export of
 /// the file names when skif does not report that one as unused ([`in_used_signature`]): skif counts it as used
-/// (ADR 0029). Only the files with such findings are parsed; `read` gives a file's source, and a file it cannot read
+/// (ADR 0018). Only the files with such findings are parsed; `read` gives a file's source, and a file it cannot read
 /// or parse yields nothing.
 fn signature_types(skif: &Keys, knip: &Keys, read: &dyn Fn(&str) -> Option<String>) -> BTreeSet<String> {
     let options = ParseOptions {
@@ -3283,7 +3283,7 @@ mod tests {
         );
         assert!(
             !counts.contains_key("exports"),
-            "skif does not judge the exports of an incomplete package (ADR 0068)"
+            "skif does not judge the exports of an incomplete package (ADR 0021)"
         );
         assert!(!counts.contains_key("devDependencies"));
     }

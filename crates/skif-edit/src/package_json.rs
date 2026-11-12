@@ -1,4 +1,4 @@
-//! `package.json` formatting as syncpack's `format` does it, decided by ADR 0055.
+//! `package.json` formatting as syncpack's `format` does it, decided by ADR 0009.
 //!
 //! The manifest is read into a tree that keeps the source text of every scalar and every gap between members. Steps
 //! reorder members (or collapse a shorthand field); rendering puts each member's text back into the gaps it came from,
@@ -190,7 +190,7 @@ pub struct Formatted {
     pub output: String,
 }
 
-/// Formats a `package.json` source as ADR 0055 describes.
+/// Formats a `package.json` source as ADR 0009 describes.
 ///
 /// # Errors
 ///

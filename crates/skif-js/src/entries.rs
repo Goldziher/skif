@@ -36,7 +36,7 @@ pub(crate) struct EntryFiles {
     /// ([`IncompleteCause::UnmappedPublished`]), and those with no source file at or below their directory other than
     /// a package manager's install hook (`.pnpmfile.cjs`), no other entry and no script, whose manifest only lists what
     /// code elsewhere installs it for ([`IncompleteCause::NoEntries`]). A published path that names no file at all
-    /// ([`names_no_file`]) is no entry and does not make a package's entries unknown (ADR 0069).
+    /// ([`names_no_file`]) is no entry and does not make a package's entries unknown (ADR 0016).
     pub unknown: Vec<(PackageId, IncompleteCause)>,
     /// The entry files something other than the configured and default `entry` globs makes entries: plugins, the
     /// manifest, tool configuration files and scripts (with `include-entry-exports`, only plugin entry globs and the
@@ -356,10 +356,10 @@ fn below<'a>(candidates: &'a [Candidate], root: &Path, dir: &Path) -> &'a [Candi
     &candidates[start..start + run]
 }
 
-/// The files the narrowed scope of an incomplete package matches (ADR 0065), its own and those of the analysed
+/// The files the narrowed scope of an incomplete package matches (ADR 0016), its own and those of the analysed
 /// workspace packages nested below it, whatever its `project` globs say: each may be an entry its configs hide (a
 /// setup module in `test/`, a nested package's test a root test config runs), so they are entries and what they
-/// import is counted (ADR 0081).
+/// import is counted (ADR 0016).
 fn scope_entries(
     workspace: &Workspace,
     setup: &Setup,
@@ -516,7 +516,7 @@ pub(crate) fn map_published(fs: &dyn FileSystem, package_setup: &PackageSetup, t
 /// root, or its `info/exclude`) and a path in `bin` a build step of the package may write ([`bin_build`]) are build
 /// output, but a path in `bin` the package's build cannot write ([`BinBuild::CannotWrite`]) is not, gitignored or
 /// not. A path outside the package is never judged. Such a path is no entry, so it neither makes the package's
-/// entries unknown nor uses anything (ADR 0069); `stale-js-config` reports it (`package-entry`).
+/// entries unknown nor uses anything (ADR 0016); `stale-js-config` reports it (`package-entry`).
 pub(crate) fn names_no_file(
     disk: Disk<'_>,
     root: &Path,

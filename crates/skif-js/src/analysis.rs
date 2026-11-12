@@ -903,7 +903,7 @@ impl<'a> JsAnalysis<'a> {
     }
 
     /// Whether the exports of `module` can be judged although the entry files of its package may be incomplete
-    /// (ADR 0081). In a package whose entries are known, always. In a package unjudged as a whole, never: a file no
+    /// (ADR 0016). In a package whose entries are known, always. In a package unjudged as a whole, never: a file no
     /// known entry reaches may be an entry and import the module. In a package whose incomplete entries lie in a
     /// narrowed scope, every file the scope matches is an entry of the graph already (outside the package's `project`
     /// globs and in the packages nested below it too), so each import an unknown entry can make is counted: only a

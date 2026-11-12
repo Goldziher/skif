@@ -1,6 +1,6 @@
 //! The SARIF 2.1.0 renderer.
 //!
-//! Columns follow ADR 0012: converted to UTF-16 code units (`utf16CodeUnits`) using the source text registered with
+//! Columns follow ADR 0022: converted to UTF-16 code units (`utf16CodeUnits`) using the source text registered with
 //! [`RenderOptions::with_source`]; when some file's text is unknown the run declares `unicodeCodePoints` and emits
 //! skif's scalar-value columns unchanged. Paths are percent-encoded URI references. Fixes are
 //! operations on structured files rather than text replacements, so they are listed under `properties.fixes`

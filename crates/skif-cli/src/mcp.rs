@@ -1,4 +1,4 @@
-//! `skif mcp`: a Model Context Protocol server on the stdio transport (ADR 0056).
+//! `skif mcp`: a Model Context Protocol server on the stdio transport (ADR 0028).
 //!
 //! One JSON-RPC 2.0 message per line in each direction. The tools return the same documents the commands print
 //! with `--format json`; a tool that cannot run returns the `error` document with `isError`, as the protocol asks.
@@ -7,7 +7,7 @@
 //! next message waits for it, and `notifications/cancelled` cannot stop a call already running. A line longer than
 //! [`MAX_LINE`] is refused with `-32600` without being buffered, and the server goes on with the next line.
 //!
-//! The `lint` tool keeps one in-memory module cache per canonical `path` and `recursive` pair (ADR 0066), pruned
+//! The `lint` tool keeps one in-memory module cache per canonical `path` and `recursive` pair (ADR 0029), pruned
 //! after each call to what it used, so a repeated call parses only the files that changed. `explain_usage` is
 //! uncached.
 

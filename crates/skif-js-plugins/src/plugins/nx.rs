@@ -24,7 +24,7 @@ static SPEC: PluginSpec = PluginSpec {
         Enabler::DependencyPrefix("@nrwl/"),
         Enabler::DependencyPrefix("@nx/"),
     ],
-    // The `project.json` of each project the package owns is read as well (ADR 0109).
+    // The `project.json` of each project the package owns is read as well (ADR 0032).
     config: &["nx.json", "project.json"],
     package_json_key: Some("nx"),
     binaries: &["nx"],

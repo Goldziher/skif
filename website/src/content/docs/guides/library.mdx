@@ -146,7 +146,7 @@ passes the `SharedModules` it returns to each `Linter::with_shared_modules`.
 
 A `ModuleCache` only stores and returns results: coalescing concurrent parses is done beside it, so a cache that
 wraps another implements `get` and `put` and nothing else. The design is recorded in
-[ADR 0101](https://github.com/Goldziher/skif/blob/main/adrs/0101-a-module-cache-shared-by-the-roots-of-a-run.md).
+[ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-performance-caching-and-benchmarks.md).
 
 A `Linter` built with `Linter::with_fs` remembers directory listings, existence checks and small configuration
 files read through the file system for one run and starts every `run_with` from an empty cache, so a host that edits

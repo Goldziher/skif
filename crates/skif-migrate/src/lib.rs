@@ -1,6 +1,6 @@
 //! One-shot translation of sherif, syncpack and knip configuration into a `skif.toml`.
 //!
-//! This is a translator, not a compatibility reader: skif keeps reading `skif.toml` only (ADR 0039). The library is
+//! This is a translator, not a compatibility reader: skif keeps reading `skif.toml` only (ADR 0025). The library is
 //! pure. The caller reads the files and passes their text in a [`ToolInput`] per tool; [`migrate`] returns the
 //! generated TOML, the typed [`Config`] it was re-parsed into, and a [`Note`] for every construct that was not
 //! translated one to one. JavaScript and TypeScript configuration files are evaluated statically by

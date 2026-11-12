@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Prints the newest stable release of the latest or the second-latest major of a package manager, so the e2e matrix
-# tests what ADR 0027 and ADR 0105 promise (the latest two majors of npm, pnpm and Yarn 2+, the newest Yarn Classic
+# tests what ADR 0030 promise (the latest two majors of npm, pnpm and Yarn 2+, the newest Yarn Classic
 # and Bun 1.x) without a version list to keep current.
 #
 # Usage: scripts/e2e/resolve-pm-version.sh <npm|pnpm|yarn|yarn-classic|bun> <newest|previous> [major]
 #
 # With a `major`, only releases of that major are considered, so `bun newest 1` is the newest Bun 1.x and keeps
-# working when Bun 2 ships (ADR 0027 supports Bun 1.x only), and `yarn-classic newest 1` stays on Yarn 1.x.
+# working when Bun 2 ships (ADR 0030 supports Bun 1.x only), and `yarn-classic newest 1` stays on Yarn 1.x.
 #
 # Reads the registry with `npm view`. Yarn 2+ is published as @yarnpkg/cli-dist (`yarn`); the `yarn` package is
 # Classic 1.x (`yarn-classic`).

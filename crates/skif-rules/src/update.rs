@@ -1,4 +1,4 @@
-//! `skif update`: newer published versions for the dependencies the version policies govern (ADR 0058).
+//! `skif update`: newer published versions for the dependencies the version policies govern (ADR 0026).
 //!
 //! The module is pure. The package registry is reached through the [`Registry`] trait, which the host implements:
 //! the `skif` command line does HTTP, a test or an embedding host answers from memory. [`plan_updates`] collects the
@@ -625,7 +625,7 @@ fn write_op(workspace: &Workspace, candidate: &Candidate<'_>, specifier: &str) -
     }
 }
 
-/// Finds every declared version a newer published version can replace (ADR 0058).
+/// Finds every declared version a newer published version can replace (ADR 0026).
 ///
 /// The registry is asked once for each distinct dependency name among the instances that may move, through
 /// [`Registry::fetch_all`]; a name that is not [a valid package name](is_valid_package_name) is not asked about and

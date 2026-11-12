@@ -187,7 +187,7 @@ pub fn project(diagnostic: &Diagnostic) -> Value {
         "path": diagnostic.location.path.to_string_lossy().replace('\\', "/"),
         "fixable": diagnostic.is_fixable(),
     });
-    // ADR 0051: a fix `--fix` applies is marked; the key is absent for an unsafe fix and for no fix.
+    // ADR 0009: a fix `--fix` applies is marked; the key is absent for an unsafe fix and for no fix.
     if diagnostic
         .fixes
         .first()
@@ -363,7 +363,7 @@ fn edit_file(source: &str, path: &str, ops: &[FixOp]) -> Result<String, Failure>
 }
 
 /// Plans the first fix of every diagnostic, in order, at the `Unsafe` ceiling; which of them are safe is compared
-/// through the `safe` key of `expected.json` (ADR 0051). Identical operations of different fixes count once, as several fixes may share the catalog entry
+/// through the `safe` key of `expected.json` (ADR 0009). Identical operations of different fixes count once, as several fixes may share the catalog entry
 /// they add.
 pub fn plan_fixes(files: &BTreeMap<String, String>, diagnostics: &[Diagnostic]) -> Result<Planned, String> {
     let mut edits: BTreeMap<String, Vec<FixOp>> = BTreeMap::new();

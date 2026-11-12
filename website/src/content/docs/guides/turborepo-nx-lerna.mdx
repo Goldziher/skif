@@ -93,8 +93,8 @@ ancestor, or `[js.plugins] nx = true`):
 - `nx exec -- <cmd>` is walked as a command of the package. `nx run` and `nx run-many` take task names.
 
 The details are under [Nx workspaces](../workspaces/#nx-workspaces) and in
-[ADR 0109](https://github.com/Goldziher/skif/blob/main/adrs/0109-nx-projects-as-scopes-of-the-package-that-owns-them.md)
-and [ADR 0118](https://github.com/Goldziher/skif/blob/main/adrs/0118-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md).
+[ADR 0032](https://github.com/Goldziher/skif/blob/main/adrs/0032-nx-and-lerna-and-pruned-output-trees.md)
+and [ADR 0032](https://github.com/Goldziher/skif/blob/main/adrs/0032-nx-and-lerna-and-pruned-output-trees.md).
 
 `missing-package-manifest` does not report an Nx project (a directory with a `project.json`), or a grouping directory
 such as `libs/cart` under `["libs/*", "libs/*/*"]` whose content is only selected members.
@@ -132,7 +132,7 @@ What skif reads:
   `rimraf` and an unlisted binary there is reported. `lerna run <task>` takes task names.
 
 See [Lerna](../workspaces/#lerna) for the precedence in full and
-[ADR 0119](https://github.com/Goldziher/skif/blob/main/adrs/0119-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md).
+[ADR 0032](https://github.com/Goldziher/skif/blob/main/adrs/0032-nx-and-lerna-and-pruned-output-trees.md).
 
 ## Task-ordering dependencies
 

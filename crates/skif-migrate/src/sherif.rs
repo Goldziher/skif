@@ -365,7 +365,7 @@ fn note_families(state: &mut State<'_>, src: &Src, scoped: bool) {
 }
 
 /// The sections sherif compares versions in. It never compares a dependency with a package's own `version`, so the
-/// scope leaves `local` out (ADR 0072).
+/// scope leaves `local` out (ADR 0010).
 const SCOPE: &[&str] = &["prod", "dev"];
 
 /// The specifier types sherif's `multiple-dependency-versions` never compares. sherif keeps a specifier only when the

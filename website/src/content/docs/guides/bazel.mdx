@@ -73,7 +73,7 @@ applies.
   when it lists `BUILD` files. Files under a `.bazelignore`d directory without a `package.json` belong to the package
   above them; use `[js] ignore` for them ([recipes](#recipes)).
 - **Pins outside the root files.** A pin in a loaded `.bzl` file, or in the files of a Bazel repository above the
-  workspace, is not read by default ([ADR 0116](https://github.com/Goldziher/skif/blob/main/adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md)).
+  workspace, is not read by default ([ADR 0031](https://github.com/Goldziher/skif/blob/main/adrs/0031-bazel.md)).
 - **`bazel query`.** skif never runs Bazel, so targets, sources and outputs that only a query or a build would show
   are not seen.
 
@@ -158,7 +158,7 @@ changes to the directory you ran Bazel from (`BUILD_WORKING_DIRECTORY`, else the
 gazelle do. The default `.` and every relative path on the command line (`--config`, `--output`, `--format
 FORMAT=FILE`) then resolve against the source tree, and `--fix` writes there. Run from a subdirectory, skif lints the
 workspace that holds it. The npm package's `skif` bin does the same; the `run()` function of the npm package does not
-([ADR 0112](https://github.com/Goldziher/skif/blob/main/adrs/0112-paths-under-bazel-run.md)).
+([ADR 0031](https://github.com/Goldziher/skif/blob/main/adrs/0031-bazel.md)).
 
 This is the model to use for fixes: `bazel run //:skif -- --fix`. A fix inside a runfiles tree fails with
 `refusing to write through a symlink`, because runfiles are links into the source tree.
@@ -206,7 +206,7 @@ runfiles tree has no `.git`, so skif lists the files by walking the directories 
 Under `bazel test` (`TEST_TMPDIR` is set), `--cache` without `--cache-location` keeps its store in
 `$TEST_TMPDIR/skif/`, not in Bazel's output tree. `TEST_TMPDIR` is cleared between test runs, so the cache saves
 parsing only within one run
-([ADR 0117](https://github.com/Goldziher/skif/blob/main/adrs/0117-the-cache-default-under-bazel-test.md)).
+([ADR 0031](https://github.com/Goldziher/skif/blob/main/adrs/0031-bazel.md)).
 
 Keeping the inputs complete is work: a file missing from `data` changes the findings. `bazel run` and CI read the
 source tree directly, so most repositories use those and keep a `skif_test` optional.
@@ -297,10 +297,10 @@ bazel = false
   unused-exports = { ignore-tags = ["bazel"] }
   ```
 
-The decisions are in [ADR 0115](https://github.com/Goldziher/skif/blob/main/adrs/0115-bazel-build-files-and-output-trees-in-the-js-analysis.md),
-[ADR 0116](https://github.com/Goldziher/skif/blob/main/adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
-[ADR 0112](https://github.com/Goldziher/skif/blob/main/adrs/0112-paths-under-bazel-run.md),
-[ADR 0117](https://github.com/Goldziher/skif/blob/main/adrs/0117-the-cache-default-under-bazel-test.md),
-[ADR 0123](https://github.com/Goldziher/skif/blob/main/adrs/0123-publicly-hoisted-packages-as-available-dependencies.md),
-[ADR 0124](https://github.com/Goldziher/skif/blob/main/adrs/0124-bazel-rule-sources-are-used-files-not-entries.md) and
-[ADR 0130](https://github.com/Goldziher/skif/blob/main/adrs/0130-bazel-label-lists-built-by-a-format-comprehension.md).
+The decisions are in [ADR 0031](https://github.com/Goldziher/skif/blob/main/adrs/0031-bazel.md),
+[ADR 0031](https://github.com/Goldziher/skif/blob/main/adrs/0031-bazel.md),
+[ADR 0031](https://github.com/Goldziher/skif/blob/main/adrs/0031-bazel.md),
+[ADR 0031](https://github.com/Goldziher/skif/blob/main/adrs/0031-bazel.md),
+[ADR 0012](https://github.com/Goldziher/skif/blob/main/adrs/0012-package-manager-semantics-pnpm-yarn-bun-npm-rush.md),
+[ADR 0031](https://github.com/Goldziher/skif/blob/main/adrs/0031-bazel.md) and
+[ADR 0031](https://github.com/Goldziher/skif/blob/main/adrs/0031-bazel.md).

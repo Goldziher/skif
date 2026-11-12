@@ -1,6 +1,6 @@
 [workspace-protocol]
 internal = true
 
-# local-path-dependency reports path specifiers itself when it is on (ADR 0031)
+# local-path-dependency reports path specifiers itself when it is on (ADR 0010)
 [rules]
 local-path-dependency = "off"

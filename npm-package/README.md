@@ -78,7 +78,7 @@ covered by the registry's integrity hashes.
 
 Windows has no platform package, so importing `skif-cli` on Windows fails; use the
 [release archives](https://github.com/Goldziher/skif/releases), `cargo binstall skif-cli` or
-[Scoop](https://github.com/Goldziher/skif#installation) instead ([ADR 0114](https://github.com/Goldziher/skif/blob/main/adrs/0114-windows-npm-packages-deferred.md)).
+[Scoop](https://github.com/Goldziher/skif#installation) instead ([ADR 0027](https://github.com/Goldziher/skif/blob/main/adrs/0027-distribution-and-release.md)).
 
 If no platform package is installed (for example because optional dependencies were disabled), importing
 `skif-cli` fails with an error naming the missing package.

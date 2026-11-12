@@ -12,7 +12,7 @@
 //! which finds untracked files and directories and drops deleted files; an older one cannot have gained or lost an
 //! entry since the index was written and is served from the index. That is still blind to an untracked file created
 //! before the index was last written (any `git add`, `git commit` or refreshing `git status` writes it), which the
-//! index does not record, so only `[js] discovery = "git"` uses the overlay (ADR 0095). On a file system without
+//! index does not record, so only `[js] discovery = "git"` uses the overlay (ADR 0014). On a file system without
 //! modification times the index alone is trusted.
 //! [`TrackedFiles::for_discovery`] applies that choice.
 //!
@@ -536,7 +536,7 @@ impl TrackedFiles {
 
     /// [`read`](Self::read) when `config` lists files from the git index: `[js] discovery = "git"` without
     /// `no_gitignore`. `None` for `auto` and `walk`, which walk the directories, because the index cannot tell
-    /// whether an unchanged directory holds an untracked file created before it was last written (ADR 0095), and
+    /// whether an unchanged directory holds an untracked file created before it was last written (ADR 0014), and
     /// with `no_gitignore`, because the index lists no ignored file.
     #[must_use]
     pub fn for_discovery(fs: &dyn FileSystem, root: &Path, config: &Config, cache: &IndexCache) -> Option<Self> {

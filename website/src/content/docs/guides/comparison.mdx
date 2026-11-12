@@ -107,7 +107,7 @@ under [Parity with knip](#parity-with-knip).
 3. Built-in import extraction for `.astro`, `.vue`, `.svelte`, `.mdx`, `.marko`, `.tsrx`, `.css` (Tailwind), `.less`,
    `.sass`, `.scss`, `.styl`, `.stylus`, `.prisma` and `.md` (unplugin-vue-markdown); a custom compiler can replace any
    of them.
-4. Tool configurations are read statically ([ADR 0001](https://github.com/Goldziher/skif/blob/main/adrs/0001-mission-and-scope.md));
+4. Tool configurations are read statically ([ADR 0001](https://github.com/Goldziher/skif/blob/main/adrs/0001-mission-scope-and-non-goals.md));
    a package whose configuration skif cannot read is listed under `incomplete-packages` in the JSON report. After
    writing, `--fix` and `skif update` run the package manager's install, which runs the project's install scripts;
    `--no-install` skips it.
@@ -190,13 +190,13 @@ under [Parity with knip](#parity-with-knip).
 
 1. On Windows, use the release archives, cargo-binstall, Scoop or the GitHub Action. Windows has no npm package:
    `skif-cli` ships no Windows addon until the Windows platform package names exist on npm
-   ([ADR 0114](https://github.com/Goldziher/skif/blob/main/adrs/0114-windows-npm-packages-deferred.md)).
+   ([ADR 0027](https://github.com/Goldziher/skif/blob/main/adrs/0027-distribution-and-release.md)).
 
 The skif versions and operating systems per package manager are under
 [Supported versions](../../start/installation/#supported-versions)
-([ADR 0027](https://github.com/Goldziher/skif/blob/main/adrs/0027-supported-versions-follow-upstream-end-of-life-policies.md)),
+([ADR 0030](https://github.com/Goldziher/skif/blob/main/adrs/0030-supported-versions-and-the-end-to-end-matrix.md)),
 and the end-to-end matrix is the `e2e` job of `.github/workflows/ci.yml`
-([ADR 0105](https://github.com/Goldziher/skif/blob/main/adrs/0105-yarn-classic-support-and-the-end-to-end-matrix-of-linkers-and-operating-systems.md)).
+([ADR 0030](https://github.com/Goldziher/skif/blob/main/adrs/0030-supported-versions-and-the-end-to-end-matrix.md)).
 `scripts/check-support-matrix.sh` fails when the skif rows above, the README or the supported versions table differ
 from the `e2e` and `npm-addon` matrices and the linkers of `scripts/e2e/lib.sh`. Lefthook needs no hook from skif: it
 is configured in the consuming repository ([Lefthook](../integrations/#lefthook)).
@@ -288,7 +288,7 @@ file is an entry. knip reports one that nothing imports.
 A namespace passed as an argument is a use of the whole module in both tools, with one exception in skif: a
 test-runner spy with a literal member name (`vi.spyOn(ns, "a")`, `jest.spyOn(ns, "a")`, Jasmine's `spyOn(ns, "a")`)
 reads member `a` only, as `ns.a` does
-([ADR 0079](https://github.com/Goldziher/skif/blob/main/adrs/0079-namespace-reads-through-spies-and-imports-awaited-together.md)).
+([ADR 0018](https://github.com/Goldziher/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)).
 knip counts such a spy as a use of every export, so skif reports the exports that nothing else reads and knip does
 not.
 
@@ -298,7 +298,7 @@ export and none of the module's interfaces and type aliases: those stay used whe
 when the importer exports the namespace itself (`export default ns`, `export = ns`), and are reported by
 `unused-types` otherwise. A file loaded with `new URL("./x", import.meta.url)` is no module object but a program of its
 own, so it keeps every export used, as an entry does
-([ADR 0125](https://github.com/Goldziher/skif/blob/main/adrs/0125-a-whole-use-of-a-module-object-uses-its-values-only.md)).
+([ADR 0018](https://github.com/Goldziher/skif/blob/main/adrs/0018-export-namespace-and-member-rules.md)).
 knip reports such types only under `nsTypes`, which is off by default, and not at all for a spread or an `import()`.
 
 knip merges the tsconfig `paths` of every workspace, so an import that only another package's `paths` map resolves
