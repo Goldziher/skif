@@ -9,6 +9,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Config evaluation**: an optional member (`base?.setupFiles`, `undefined` when `base` is `null` or `undefined`) and
+  a computed member whose key evaluates to a string (`base['setupFiles']`, `base[KEY]`) read a known object as
+  `base.setupFiles` does, instead of leaving the package incomplete
+  ([#148](https://github.com/Goldziher/skif/issues/148)).
+- **Config factories**: the existing files given to a call the evaluator cannot follow are entries wherever the call
+  sits in the exported config (`{ test: createTest({ setupFiles: ['./setup.ts'] }) }`), not only when the config is
+  the call's result; a file under an exclusion key is still left out
+  ([#148](https://github.com/Goldziher/skif/issues/148)).
+- **Config factories**: a `resolve` call (`require.resolve`, the function `createRequire` returns) no longer counts
+  as a change of the object it is called on, so a shared config factory that pins module paths with one keeps the
+  options it is given known ([#166](https://github.com/Goldziher/skif/issues/166)).
+- **Config factories**: a change made through a `const` that takes a part of a local of the same function
+  (`const { coverage } = config.test; coverage.enabled = true`) is applied to that part of the local, so the rest of
+  the config, and the options spread into it, stay known; a local with more than one such alias, or one shared with
+  another function, is still left partly unknown ([#166](https://github.com/Goldziher/skif/issues/166)).
 ### Changed
 
 - `DepRef` of `skif-js-plugins` gains `dir`, the directory a command loads the package in after `cd`, and `BinaryRef`

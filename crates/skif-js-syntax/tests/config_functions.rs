@@ -747,6 +747,8 @@ fn open(value: &ConfigValue) -> bool {
     value.get("...").is_some()
 }
 
+/// A change made through another name for an object, by a call or by a closure reaches the original, which is then
+/// partly unknown; a change through an alias the evaluator follows (`const a = cfg` in a function) is applied to it.
 #[test]
 fn a_change_through_an_alias_a_call_or_a_closure_reaches_the_original() {
     let value = extract(
@@ -762,13 +764,99 @@ fn a_change_through_an_alias_a_call_or_a_closure_reaches_the_original() {
          export default [alias(), nested(), closure(), callback(), helper(), local(), top, captured];",
     );
     let configs = value.as_array().unwrap();
-    for (index, config) in configs.iter().enumerate() {
+    assert_eq!(
+        configs[0],
+        ConfigValue::Object(vec![
+            ("a".to_owned(), ConfigValue::Number(1.0)),
+            ("x".to_owned(), ConfigValue::Unknown),
+        ])
+    );
+    for (index, config) in configs.iter().enumerate().skip(1) {
         if index != 3 {
             assert!(open(config), "{index}: {config:?}");
         }
     }
     assert!(open(get(&configs[3], &["paths"])));
     assert_eq!(get(&configs[3], &["m"]), &ConfigValue::Unknown);
+}
+
+/// A change made through a `const` that takes a part of a local of its function (`const { coverage } = config.test`)
+/// is applied to that part of the local, in a branch with an unknown test as in the branch, and a change the evaluator
+/// does not follow there (`Object.assign`) leaves only that part partly unknown. Two aliases of one local, and an alias
+/// changed in code the evaluator does not run (a loop), leave the whole local partly unknown.
+#[test]
+fn a_change_through_a_destructured_part_of_a_local_is_applied_to_it() {
+    let value = extract(
+        "vitest.config.ts",
+        "const make = (options = {}) => {\n\
+           const config = { test: { setupFiles: ['./setup.ts'], coverage: { enabled: false }, ...options } };\n\
+           if (process.env.COVERAGE) {\n\
+             const { coverage } = config.test;\n\
+             coverage.enabled = true;\n\
+             Object.assign(coverage, extra());\n\
+           }\n\
+           return config;\n\
+         };\n\
+         const twice = () => {\n\
+           const config = { test: { include: ['a.test.ts'] } };\n\
+           const { test } = config;\n\
+           const t = config.test;\n\
+           t.include = ['b.test.ts'];\n\
+           return config;\n\
+         };\n\
+         const looped = () => {\n\
+           const config = { test: { include: ['a.test.ts'] } };\n\
+           for (const name of names) { const { test } = config; test.include = ['b.test.ts']; }\n\
+           return config;\n\
+         };\n\
+         export default [make({ globals: true }), twice(), looped()];",
+    );
+    let configs = value.as_array().unwrap();
+    assert_eq!(
+        get(&configs[0], &["test"]),
+        &ConfigValue::Object(vec![
+            ("setupFiles".to_owned(), strings(&["./setup.ts"])),
+            (
+                "coverage".to_owned(),
+                ConfigValue::Object(vec![
+                    (
+                        "enabled".to_owned(),
+                        ConfigValue::OneOf(vec![ConfigValue::Bool(false), ConfigValue::Bool(true)])
+                    ),
+                    (UNKNOWN_SPREAD.to_owned(), ConfigValue::Unknown),
+                ])
+            ),
+            ("globals".to_owned(), ConfigValue::Bool(true)),
+        ])
+    );
+    assert!(!open(&configs[0]), "{:?}", configs[0]);
+    assert!(open(&configs[1]), "{:?}", configs[1]);
+    assert!(open(&configs[2]), "{:?}", configs[2]);
+}
+
+/// A `resolve` call (`require.resolve`, the function `createRequire` returns) a callback makes does not change the
+/// object it is called on, so options merged next to the result of the function that makes it stay known; a method that
+/// may change it still leaves them partly unknown.
+#[test]
+fn a_resolve_call_in_a_callback_changes_nothing_it_shares() {
+    let value = extract(
+        "vitest.config.ts",
+        "import { createRequire } from 'node:module';\n\
+         const pin = (deps) => { const req = createRequire(deps); return deps.map((dep) => req.resolve(dep)); };\n\
+         const hook = (deps) => { const req = createRequire(deps); return deps.map((dep) => req.register(dep)); };\n\
+         const make = (options = {}) => ({ test: { globals: true, ...options }, alias: pin([]) });\n\
+         const hooked = (options = {}) => ({ test: { globals: true, ...options }, alias: hook([]) });\n\
+         export default [make({ setupFiles: ['./setup.ts'] }), hooked({ setupFiles: ['./setup.ts'] })];",
+    );
+    let configs = value.as_array().unwrap();
+    assert_eq!(
+        get(&configs[0], &["test"]),
+        &ConfigValue::Object(vec![
+            ("globals".to_owned(), ConfigValue::Bool(true)),
+            ("setupFiles".to_owned(), strings(&["./setup.ts"])),
+        ])
+    );
+    assert!(open(get(&configs[1], &["test"])), "{:?}", configs[1]);
 }
 
 #[test]
@@ -936,6 +1024,43 @@ fn a_missing_key_is_undefined_to_a_member_and_a_destructuring_alike() {
     assert_eq!(get(&value, &["defaulted"]), &s("default"));
     assert_eq!(value.get("open"), Some(&ConfigValue::Unknown));
     assert_eq!(value.get("openMember"), Some(&ConfigValue::Unknown));
+}
+
+/// An optional member and a computed member whose key evaluates to a string read a known object as a member does. An
+/// optional member of `null` or `undefined` is `undefined`, the rest of its chain unread, so a fallback over it
+/// applies; a computed key that is not a known string leaves the value unknown.
+#[test]
+fn optional_and_computed_members_read_like_members() {
+    let setup = strings(&["./setup.ts"]);
+    let include = strings(&["src/a.test.ts"]);
+    let cases = [
+        ("base.setupFiles", setup.clone()),
+        ("base?.setupFiles", setup.clone()),
+        ("base['setupFiles']", setup.clone()),
+        ("base?.['setupFiles']", setup.clone()),
+        ("base[KEY]", setup.clone()),
+        ("base[`setup${'Files'}`]", setup.clone()),
+        ("base?.setupFiles ?? []", setup.clone()),
+        ("base?.test.include", include.clone()),
+        ("base.test?.['include']", include.clone()),
+        ("base['test']?.include", include),
+        ("missing?.setupFiles", ConfigValue::Null),
+        ("missing?.a.b", ConfigValue::Null),
+        ("base.absent?.setupFiles", ConfigValue::Null),
+        ("missing?.setupFiles ?? ['./fallback.ts']", strings(&["./fallback.ts"])),
+        ("base[process.env.KEY]", ConfigValue::Unknown),
+        ("base.test.include[0]", ConfigValue::Unknown),
+        ("opaque()?.setupFiles", ConfigValue::Unknown),
+    ];
+    for (read, expected) in cases {
+        let source = format!(
+            "const base = {{ setupFiles: ['./setup.ts'], test: {{ include: ['src/a.test.ts'] }} }};\n\
+             const KEY = 'setupFiles';\nconst missing = null;\n\
+             export default {{ value: {read} }};"
+        );
+        let value = extract("vitest.config.ts", &source);
+        assert_eq!(get(&value, &["value"]), &expected, "{read}");
+    }
 }
 
 /// A key a known object does not have itself may still be inherited: a member of `Object.prototype` (`constructor`,
@@ -1235,6 +1360,57 @@ fn the_arguments_of_an_unknown_call_returned_or_merged_are_kept() {
     }
     let known = format!("{preset}export default mergeConfig({{ test: {{ setupFiles: ['./s.ts'] }} }}, {{}});");
     assert_eq!(extract(&known).1, Vec::new());
+}
+
+/// A call that cannot be followed nested in an object or array literal of the exported config keeps its arguments, each
+/// in an object under the keys it is found at, so a key that excludes files still holds what it names. A spread keeps
+/// them when the object has an unknown spread; a call the evaluator follows, and one after a spread into an array, keep
+/// none.
+#[test]
+fn the_arguments_of_an_unknown_call_nested_in_the_config_are_kept_under_their_keys() {
+    let arguments = |source: &str| {
+        let source = format!(
+            "import {{ defineConfig }} from 'vitest/config';\n\
+             import {{ createTest, makeList, plugin, base }} from '@acme/vitest-preset';\n{source}"
+        );
+        extract_config(&source, Path::new("vitest.config.ts"), None)
+            .expect("config is understood")
+            .call_arguments
+    };
+    let under = |key: &str, value: ConfigValue| ConfigValue::Object(vec![(key.to_owned(), value)]);
+    let setup = under("setupFiles", strings(&["./setup.ts"]));
+    let cases = [
+        (
+            "export default { test: createTest({ setupFiles: ['./setup.ts'] }) };",
+            vec![under("test", setup.clone())],
+        ),
+        (
+            "export default defineConfig({ test: { coverage: { exclude: makeList(['./skip.ts']) } } });",
+            vec![under(
+                "test",
+                under("coverage", under("exclude", strings(&["./skip.ts"]))),
+            )],
+        ),
+        (
+            "export default { plugins: ['a', plugin({ config: './plugin.config.ts' })] };",
+            vec![under("plugins", under("config", s("./plugin.config.ts")))],
+        ),
+        (
+            "export default { ...createTest({ setupFiles: ['./setup.ts'] }) };",
+            vec![setup],
+        ),
+        (
+            "const files = () => ['./setup.ts'];\nexport default { test: { setupFiles: files() } };",
+            Vec::new(),
+        ),
+        (
+            "export default { plugins: [...base(), plugin('./after.ts')] };",
+            Vec::new(),
+        ),
+    ];
+    for (source, expected) in cases {
+        assert_eq!(arguments(source), expected, "{source}");
+    }
 }
 
 /// A condition the evaluator cannot decide between values it knows is one of them: a ternary, a fallback over a read

@@ -5,17 +5,22 @@
 //! code may change: one a nested function assigns or changes, and one that may share an object with a binding that is
 //! changed (`const a = cfg`, `{ test: t }`, `{ ...base }`, `f(cfg)`). Reading one of them yields a value that says it
 //! may hold more than the evaluator saw.
+//!
+//! A `const` that takes a part of a local of its own function (`const { coverage } = config.test`) is the exception
+//! when the evaluator can follow it ([`Unstable::follows`]): it then applies the changes made through the alias to the
+//! local itself, so they do not mark the local, nor what may share an object with it.
 
 use std::collections::BTreeMap;
 
 use oxc_ast::ast::{
-    Argument, ArrowFunctionExpression, AssignmentExpression, AssignmentTargetPropertyIdentifier, BindingPattern,
-    CallExpression, Expression, ExpressionStatement, FormalParameters, Function, IdentifierReference, MemberExpression,
-    Program, ReturnStatement, SimpleAssignmentTarget, UnaryExpression, UnaryOperator, VariableDeclarator,
+    Argument, ArrowFunctionExpression, AssignmentExpression, AssignmentTargetPropertyIdentifier, BindingIdentifier,
+    BindingPattern, CallExpression, Expression, ExpressionStatement, FormalParameters, Function, IdentifierReference,
+    MemberExpression, Program, ReturnStatement, SimpleAssignmentTarget, UnaryExpression, UnaryOperator,
+    VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::{ReferenceId, ScopeFlags, ScopeId, Scoping, SemanticBuilder, SymbolId};
-use skif_core::HashMap;
+use skif_core::{HashMap, HashSet};
 
 /// How code the evaluator does not follow may change a binding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -33,6 +38,8 @@ pub(crate) struct Unstable {
     reads: HashMap<ReferenceId, Change>,
     /// Such top-level bindings, by name.
     top: HashMap<String, Change>,
+    /// The aliases whose changes the evaluator applies to the local they take a part of.
+    followed: HashSet<SymbolId>,
 }
 
 impl Unstable {
@@ -45,10 +52,15 @@ impl Unstable {
             links: Vec::new(),
             mutated: Vec::new(),
             changes: BTreeMap::new(),
+            aliases: Vec::new(),
+            in_const: false,
         };
         sharing.visit_program(program);
-        sharing.share();
-        let mut unstable = Self::default();
+        let followed = sharing.share();
+        let mut unstable = Self {
+            followed,
+            ..Self::default()
+        };
         for (symbol, change) in sharing.changes {
             if scoping.symbol_scope_id(symbol) == scoping.root_scope_id() {
                 unstable.top.insert(scoping.symbol_name(symbol).to_owned(), change);
@@ -70,6 +82,14 @@ impl Unstable {
     pub(crate) fn of_top(&self, name: &str) -> Option<Change> {
         self.top.get(name).copied()
     }
+
+    /// Whether the evaluator follows the alias `id` declares ([`alias_source`]): it applies the changes made through
+    /// it to the local it takes a part of, which this pass then leaves unmarked. One is followed when it is the only
+    /// alias of that local, only its own function changes it, it shares an object with no other binding, and the local
+    /// is not changed directly nor by another function.
+    pub(crate) fn follows(&self, id: &BindingIdentifier<'_>) -> bool {
+        id.symbol_id.get().is_some_and(|symbol| self.followed.contains(&symbol))
+    }
 }
 
 struct Sharing<'s> {
@@ -81,6 +101,10 @@ struct Sharing<'s> {
     /// Bindings whose object or array code changes.
     mutated: Vec<SymbolId>,
     changes: BTreeMap<SymbolId, Change>,
+    /// The aliases declared, each with the local it takes a part of; linked only when it is not followed.
+    aliases: Vec<(SymbolId, SymbolId)>,
+    /// Whether the declarations being visited are `const`.
+    in_const: bool,
 }
 
 impl Sharing<'_> {
@@ -139,8 +163,62 @@ impl Sharing<'_> {
         refs.out
     }
 
-    /// Marks every binding that may share an object with a changed one, other than a binding changed on its own.
-    fn share(&mut self) {
+    /// The aliases a `const` declaration of `pattern` with `init` declares, with the local they take a part of: `None`
+    /// unless the local is one of the function being visited ([`alias_source`], [`alias_names`]).
+    fn alias(&self, pattern: &BindingPattern<'_>, init: &Expression<'_>) -> Option<(Vec<SymbolId>, SymbolId)> {
+        if !self.in_const {
+            return None;
+        }
+        let root = self.symbol(alias_source(init)?.0)?;
+        let function = *self.functions.last()?;
+        if function == self.scoping.root_scope_id() || self.function_of(root) != function {
+            return None;
+        }
+        let names = alias_names(pattern)?
+            .into_iter()
+            .map(|(id, _)| id.symbol_id.get())
+            .collect::<Option<Vec<SymbolId>>>()?;
+        Some((names, root))
+    }
+
+    /// Whether the evaluator follows the alias at `index` of [`Self::aliases`]; see [`Unstable::follows`].
+    fn follows(&self, index: usize) -> bool {
+        let (alias, root) = self.aliases[index];
+        self.aliases.iter().filter(|(_, other)| *other == root).count() == 1
+            && !self.changes.contains_key(&alias)
+            && !self.changes.contains_key(&root)
+            && !self.mutated.contains(&root)
+            && !self.links.iter().any(|&(a, b)| a == alias || b == alias)
+    }
+
+    /// Links every alias the evaluator does not follow to the local it takes a part of, until no more is linked (a
+    /// link may make another alias one that shares an object), and returns the followed ones.
+    fn link_aliases(&mut self) -> HashSet<SymbolId> {
+        let mut linked = vec![false; self.aliases.len()];
+        loop {
+            let unfollowed: Vec<usize> = (0..self.aliases.len())
+                .filter(|&index| !linked[index] && !self.follows(index))
+                .collect();
+            if unfollowed.is_empty() {
+                break;
+            }
+            for index in unfollowed {
+                linked[index] = true;
+                self.links.push(self.aliases[index]);
+            }
+        }
+        self.aliases
+            .iter()
+            .zip(linked)
+            .filter(|(_, linked)| !linked)
+            .map(|(&(alias, _), _)| alias)
+            .collect()
+    }
+
+    /// Marks every binding that may share an object with a changed one, other than a binding changed on its own, and
+    /// returns the aliases the evaluator follows, which mark nothing.
+    fn share(&mut self) -> HashSet<SymbolId> {
+        let followed = self.link_aliases();
         let mut parent: HashMap<SymbolId, SymbolId> = HashMap::default();
         for &(a, b) in &self.links {
             let (a, b) = (find(&mut parent, a), find(&mut parent, b));
@@ -165,6 +243,7 @@ impl Sharing<'_> {
                 self.change(symbol, Change::Contents);
             }
         }
+        followed
     }
 }
 
@@ -189,8 +268,18 @@ impl<'a> Visit<'a> for Sharing<'_> {
         self.functions.pop();
     }
 
+    fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
+        let saved = std::mem::replace(&mut self.in_const, it.kind == VariableDeclarationKind::Const);
+        walk::walk_variable_declaration(self, it);
+        self.in_const = saved;
+    }
+
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
-        if let Some(init) = &it.init {
+        if let Some(init) = &it.init
+            && let Some((names, root)) = self.alias(&it.id, init)
+        {
+            self.aliases.extend(names.into_iter().map(|name| (name, root)));
+        } else if let Some(init) = &it.init {
             let mut held: Vec<SymbolId> = it
                 .id
                 .get_binding_identifiers()
@@ -386,6 +475,49 @@ fn root_reference<'b, 'a>(expr: &'b Expression<'a>) -> Option<&'b IdentifierRefe
     }
 }
 
+/// The local an alias declaration takes a part of and the keys of that part: `config` and `["test"]` for `config.test`,
+/// and the local alone for `config`. `None` for any other expression, a computed or optional member included.
+pub(crate) fn alias_source<'b, 'a>(init: &'b Expression<'a>) -> Option<(&'b IdentifierReference<'a>, Vec<String>)> {
+    let mut keys = Vec::new();
+    let mut expr = init.get_inner_expression();
+    loop {
+        match expr {
+            Expression::Identifier(id) => {
+                keys.reverse();
+                return Some((id, keys));
+            }
+            Expression::StaticMemberExpression(member) => {
+                keys.push(member.property.name.as_str().to_owned());
+                expr = member.object.get_inner_expression();
+            }
+            _ => return None,
+        }
+    }
+}
+
+/// The names an alias declaration binds, each with the key of the part it takes: the name alone, or each name of an
+/// object pattern with its key (`{ coverage, css: style }`). `None` for any other pattern, and for an object pattern
+/// with a default, a nested pattern, a key that is not static or a rest element.
+pub(crate) fn alias_names<'b, 'a>(
+    pattern: &'b BindingPattern<'a>,
+) -> Option<Vec<(&'b BindingIdentifier<'a>, Option<String>)>> {
+    match pattern {
+        BindingPattern::BindingIdentifier(id) => Some(vec![(&**id, None)]),
+        BindingPattern::ObjectPattern(object) if object.rest.is_none() => object
+            .properties
+            .iter()
+            .map(|property| match &property.value {
+                BindingPattern::BindingIdentifier(id) => {
+                    let key = property.key.static_name()?;
+                    Some((&**id, Some(crate::js_string(key.as_js_str()))))
+                }
+                _ => None,
+            })
+            .collect(),
+        _ => None,
+    }
+}
+
 /// The call an expression statement makes, awaited or not.
 pub(crate) fn statement_call<'b, 'a>(expr: &'b Expression<'a>) -> Option<&'b CallExpression<'a>> {
     match expr.get_inner_expression() {
@@ -395,7 +527,8 @@ pub(crate) fn statement_call<'b, 'a>(expr: &'b Expression<'a>) -> Option<&'b Cal
     }
 }
 
-/// Methods that never change the object they are called on.
+/// Methods that never change the object they are called on. `resolve` is that of `require`, `path`, `Promise`,
+/// `import.meta` and the function `createRequire` returns.
 const PURE_METHODS: &[&str] = &[
     "at",
     "charAt",
@@ -427,6 +560,7 @@ const PURE_METHODS: &[&str] = &[
     "reduceRight",
     "replace",
     "replaceAll",
+    "resolve",
     "slice",
     "some",
     "split",
