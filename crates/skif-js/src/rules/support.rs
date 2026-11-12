@@ -62,6 +62,16 @@ pub(super) fn entry_location(package: &Package, entry: &DependencyEntry) -> Loca
     )
 }
 
+/// The key of the manifest field at `pointer` (`imports` > `#x`), else the key of its top-level field when the path
+/// has no key of its own, such as the `.` of an `exports` field that is a path.
+pub(super) fn manifest_key_location(package: &Package, pointer: &[PathSeg]) -> Location {
+    let manifest = &package.manifest;
+    let span = manifest
+        .field_key_span(pointer)
+        .or_else(|| pointer.get(..1).and_then(|field| manifest.field_key_span(field)));
+    Location::new(manifest.path.clone(), span)
+}
+
 /// Removes a dependency entry from its manifest section.
 pub(super) fn remove_dependency_fix(package: &Package, entry: &DependencyEntry) -> Fix {
     Fix::new(

@@ -22,7 +22,10 @@ fn known_rules() -> Vec<RuleInfo> {
         .lines()
         .map(str::trim)
         .filter(|id| !id.is_empty())
-        .map(|id| RuleInfo::new(id, !["circular-imports", "package-json-format"].contains(&id)))
+        .map(|id| {
+            let off_by_default = ["circular-imports", "package-json-format", "unused-subpath-exports"];
+            RuleInfo::new(id, !off_by_default.contains(&id))
+        })
         .collect()
 }
 
@@ -1185,6 +1188,77 @@ fn knip_catalog_type_turns_on_the_unused_catalog_entries_report() {
             migration.toml
         );
     }
+}
+
+#[test]
+fn knip_subpaths_turn_on_the_import_rule_and_with_include_subpath_exports_the_export_rule() {
+    let default = knip(None, &[("k", "knip")]);
+    let rules = table(&default)["rules"].clone();
+    assert_eq!(rules["unused-subpath-imports"].as_str(), Some("error"));
+    assert!(rules.get("unused-subpath-exports").is_none(), "{}", default.toml);
+
+    for (config, scripts) in [
+        (Some(r#"{ "includeSubpathExports": true }"#), [("k", "knip")]),
+        (None, [("k", "knip --include-subpath-exports")]),
+    ] {
+        let migration = knip(config, &scripts);
+        let rules = table(&migration)["rules"].clone();
+        for rule in ["unused-subpath-imports", "unused-subpath-exports"] {
+            assert_eq!(rules[rule].as_str(), Some("error"), "{rule} {config:?} {scripts:?}");
+        }
+    }
+    assert_eq!(
+        class(
+            &knip(Some(r#"{ "includeSubpathExports": true }"#), &[]),
+            "includeSubpathExports"
+        ),
+        NoteClass::Exact
+    );
+    let flag = knip(None, &[("k", "knip --include-subpath-exports")]);
+    assert_eq!(class(&flag, "scripts.k: --include-subpath-exports"), NoteClass::Exact);
+    assert!(
+        !has_note(&flag, NoteClass::Human, "not translated"),
+        "{:#?}",
+        flag.notes
+    );
+}
+
+#[test]
+fn knip_excluded_subpaths_turn_both_subpath_rules_off() {
+    let migration = knip(
+        Some(r#"{ "includeSubpathExports": true, "exclude": ["subpaths"] }"#),
+        &[("k", "knip")],
+    );
+    let rules = table(&migration)["rules"].clone();
+    for rule in ["unused-subpath-imports", "unused-subpath-exports"] {
+        assert_eq!(rules[rule].as_str(), Some("off"), "{rule}: {}", migration.toml);
+    }
+}
+
+#[test]
+fn knip_include_subpath_exports_of_one_workspace_is_left_to_a_human() {
+    let migration = knip(
+        Some(r#"{ "workspaces": { "packages/a": { "includeSubpathExports": true } } }"#),
+        &[("k", "knip")],
+    );
+    assert!(
+        table(&migration)["rules"].get("unused-subpath-exports").is_none(),
+        "{}",
+        migration.toml
+    );
+    assert!(
+        has_note(&migration, NoteClass::Human, "includeSubpathExports"),
+        "{:#?}",
+        migration.notes
+    );
+}
+
+#[test]
+fn knip_production_notes_that_skif_reports_no_subpaths_there() {
+    let migration = knip(None, &[("k", "knip --production")]);
+    assert_eq!(class(&migration, "subpaths"), NoteClass::Approximate);
+    let development = knip(None, &[("k", "knip")]);
+    assert!(development.notes.iter().all(|note| note.path != "subpaths"));
 }
 
 #[test]
