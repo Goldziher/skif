@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use skif_config::{
-    Ceiling, Config, ConfigCache, ConfigError, ConfigLoader, ConfigOverrides, Level, Op, PluginConfig, ResolvedConfig,
+    Ceiling, Config, ConfigCache, ConfigError, ConfigLoader, ConfigOverrides, JsCompiler, Level, Op, PluginConfig, ResolvedConfig,
     SourceKind, VersionPolicy, discover,
 };
 use skif_core::{FileSystem, MemoryFs};
@@ -227,6 +227,14 @@ fn a_plugin_switch_keeps_the_options_and_a_table_replaces_them() {
 
     let bare = two("[js.plugins]\nvitest = true\n", "[js.plugins]\nvitest = false\n").config;
     assert_eq!(bare.js.plugins["vitest"], PluginConfig::Enabled(false));
+}
+
+#[test]
+fn a_compiler_entry_replaces_the_inherited_one_and_the_others_are_kept() {
+    let org = "[js.compilers]\nhtml = { imports = [\"src=\\\"([^\\\"]+)\\\"\"] }\nfoo = { as = \"mdx\" }\n";
+    let config = two(org, "[js.compilers]\nhtml = { as = \"vue\" }\n").config;
+    assert_eq!(config.js.compilers["html"], JsCompiler::reading("vue"));
+    assert_eq!(config.js.compilers["foo"], JsCompiler::reading("mdx"));
 }
 
 #[test]

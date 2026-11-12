@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use skif_config::{
     Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, CustomStrategy, DEFAULT_DISCOVER_IGNORE,
-    FIXTURE_DIRECTORIES, FamilyScope, GroupScope, IgnoreEntry, IgnoreExportsUsedInFile, IgnoreItem, Level,
+    FIXTURE_DIRECTORIES, FamilyScope, GroupScope, IgnoreEntry, IgnoreExportsUsedInFile, IgnoreItem, JsCompiler, Level,
     PackageManager, PluginConfig, Prefer, RuleConfig, Selector, SemverRange, UpdateTarget, VersionPolicy, discover,
     discover_with_fs,
 };
@@ -323,6 +323,11 @@ fn full_fixture_sections() {
     assert_eq!(js.ignore_binaries, ["tsc"]);
     assert_eq!(js.workspaces["packages/app"].entry, ["src/main.tsx"]);
     assert_eq!(js.workspaces["packages/app"].ignore_binaries, ["vite"]);
+    assert_eq!(
+        js.compilers["html"],
+        JsCompiler::matching([r#"<script[^>]+src="([^"]+)""#])
+    );
+    assert_eq!(js.compilers["page"], JsCompiler::reading("mdx"));
     assert_eq!(js.plugins["vitest"], PluginConfig::Enabled(true));
     assert_eq!(js.plugins["storybook"], PluginConfig::Enabled(false));
     let PluginConfig::Options(eslint) = &js.plugins["eslint"] else {
@@ -1182,4 +1187,110 @@ fn schema_ignore_list_entries_are_a_string_or_a_table() {
         assert_eq!(items["$ref"], "#/$defs/IgnoreItem", "{definition}.{key}: {items}");
     }
     assert!(defs["Lint"]["properties"].get("require-ignore-reasons").is_some());
+}
+
+#[test]
+fn js_compilers_read_files_with_a_reader_or_import_patterns_and_round_trip() {
+    let config = Config::from_toml_str(
+        r#"[js.compilers]
+html = { imports = ['<script[^>]+src="([^"]+)"', "data-module='([^']+)'"] }
+foo = { as = "mdx" }
+"#,
+    )
+    .unwrap();
+    let compilers = &config.js.compilers;
+    assert_eq!(compilers.keys().collect::<Vec<_>>(), ["html", "foo"]);
+    assert_eq!(
+        compilers["html"],
+        JsCompiler::matching([r#"<script[^>]+src="([^"]+)""#, "data-module='([^']+)'"])
+    );
+    assert_eq!(compilers["foo"], JsCompiler::reading("mdx"));
+    let text = config.to_toml_string().unwrap();
+    assert!(text.contains("[js.compilers"), "{text}");
+    assert_eq!(Config::from_toml_str(&text).unwrap(), config, "{text}");
+    assert!(Config::default().js.compilers.is_empty());
+    assert!(!Config::default().to_toml_string().unwrap().contains("compilers"));
+}
+
+#[test]
+fn every_js_compiler_reader_is_named_once_and_in_order() {
+    let readers = JsCompiler::READERS;
+    let mut sorted = readers.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted, readers);
+    for reader in ["js", "ts", "tsx", "vue", "svelte", "astro", "mdx", "marko", "tsrx", "css", "scss"] {
+        assert!(readers.contains(&reader), "{reader}");
+    }
+}
+
+#[test]
+fn invalid_js_compilers_are_configuration_errors_naming_the_entry() {
+    let cases = [
+        (
+            "[js.compilers]\nvue = { as = \"mdx\" }\n",
+            "js.compilers.vue: skif reads `.vue` files itself; remove the entry",
+        ),
+        (
+            "[js.compilers]\nCSS = { as = \"mdx\" }\n",
+            "js.compilers.CSS: write the extension in lowercase without the leading dot",
+        ),
+        (
+            "[js.compilers]\n\".html\" = { as = \"mdx\" }\n",
+            "js.compilers.\".html\": write the extension in lowercase without the leading dot",
+        ),
+        (
+            "[js.compilers]\n\"\" = { as = \"mdx\" }\n",
+            "write the extension in lowercase without the leading dot",
+        ),
+        (
+            "[js.compilers]\nhtml = {}\n",
+            "js.compilers.html: set exactly one of `as` and `imports`",
+        ),
+        (
+            "[js.compilers]\nhtml = { as = \"mdx\", imports = [\"(x)\"] }\n",
+            "js.compilers.html: set exactly one of `as` and `imports`",
+        ),
+        (
+            "[js.compilers]\nhtml = { as = \"md\" }\n",
+            "js.compilers.html: unknown reader `md`; did you mean \"mdx\"? (expected one of astro, cjs,",
+        ),
+        (
+            "[js.compilers]\nhtml = { as = \"html\" }\n",
+            "js.compilers.html: unknown reader `html` (expected one of",
+        ),
+        (
+            "[js.compilers]\nhtml = { imports = [] }\n",
+            "js.compilers.html.imports: list at least one regular expression",
+        ),
+        (
+            "[js.compilers]\nhtml = { imports = [\"(x)\", \"(unclosed\"] }\n",
+            "js.compilers.html.imports[1]: not a valid regular expression",
+        ),
+        (
+            "[js.compilers]\nhtml = { imports = [\"src=x\"] }\n",
+            "js.compilers.html.imports[0]: has 0 capture groups; it needs exactly one, which captures the specifier",
+        ),
+        (
+            "[js.compilers]\nhtml = { imports = [\"(a)(b)\"] }\n",
+            "js.compilers.html.imports[0]: has 2 capture groups; it needs exactly one, which captures the specifier",
+        ),
+    ];
+    for (source, expected) in cases {
+        let error = Config::from_toml_str(source).unwrap_err();
+        assert!(matches!(error, ConfigError::Invalid { .. }), "{source}: {error}");
+        assert!(error.to_string().contains(expected), "{source}: {error}");
+    }
+    let unknown = Config::from_toml_str("[js.compilers]\nhtml = { reader = \"mdx\" }\n").unwrap_err();
+    assert!(matches!(unknown, ConfigError::Parse { line: Some(2), .. }), "{unknown}");
+    // A non-capturing group is no capture group, and a named group is one.
+    Config::from_toml_str("[js.compilers]\nhtml = { imports = [\"(?:src|href)=\\\"(?P<specifier>[^\\\"]+)\\\"\"] }\n")
+        .unwrap();
+}
+
+#[test]
+fn js_compilers_are_root_scoped() {
+    let source = "[[overrides]]\npackages = [\"a\"]\n[overrides.js]\ncompilers = { html = { as = \"mdx\" } }\n";
+    let error = Config::from_toml_str(source).unwrap_err();
+    assert!(error.to_string().contains("compilers"), "{error}");
 }
