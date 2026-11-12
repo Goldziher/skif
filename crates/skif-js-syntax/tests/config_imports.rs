@@ -9,32 +9,55 @@ use skif_js_syntax::{
     ConfigValue, ModuleLoader, UNKNOWN_SPREAD, extract_config, extract_config_object, extract_config_object_with,
 };
 
-/// Modules by absolute path; relative specifiers resolve with a `.ts` extension, `@fx/base` to `/ws/base/index.ts`. Any
-/// other bare specifier names an installed package, but for the `@app/` scope, an alias of a project directory the
-/// loader does not resolve.
+/// Modules by absolute path; relative specifiers resolve with a `.ts` extension, `@fx/base` to `/ws/base/index.ts`, and
+/// only scripts are loaded: a declaration file, JSON, a stylesheet or an asset holds no code. Any other bare specifier
+/// names an installed package, but for the `@app/` scope, an alias of a project directory the loader does not resolve.
 struct Files(BTreeMap<PathBuf, &'static str>);
+
+/// The path a relative specifier names from `from`, as written.
+fn relative(from: &Path, specifier: &str) -> Option<PathBuf> {
+    if let Some(rest) = specifier.strip_prefix("./") {
+        Some(from.parent()?.join(rest))
+    } else if let Some(rest) = specifier.strip_prefix("../") {
+        Some(from.parent()?.parent()?.join(rest))
+    } else {
+        None
+    }
+}
+
+/// Whether `path` has the extension of a module the loader follows.
+fn is_script(path: &Path) -> bool {
+    path.extension().is_some_and(|extension| extension == "ts" || extension == "js")
+}
 
 impl ModuleLoader for Files {
     fn load(&self, from: &Path, specifier: &str) -> Option<(PathBuf, String)> {
-        let path = if let Some(rest) = specifier.strip_prefix("./") {
-            from.parent()?.join(rest)
-        } else if let Some(rest) = specifier.strip_prefix("../") {
-            from.parent()?.parent()?.join(rest)
-        } else if specifier == "@fx/base" {
-            PathBuf::from("/ws/base/index")
-        } else {
-            return None;
+        let path = match relative(from, specifier) {
+            Some(path) => path,
+            None if specifier == "@fx/base" => PathBuf::from("/ws/base/index"),
+            None => return None,
         };
         let path = if path.extension().is_some() {
             path
         } else {
             path.with_extension("ts")
         };
+        if !is_script(&path) {
+            return None;
+        }
         self.0.get(&path).map(|source| (path, (*source).to_owned()))
     }
 
     fn is_installed(&self, _from: &Path, specifier: &str) -> bool {
         !specifier.starts_with(['.', '/']) && !specifier.starts_with("@app/")
+    }
+
+    /// A relative specifier of a declaration file beside it (`./types` for `types.d.ts`), or of a file the map holds
+    /// that is not a script.
+    fn holds_no_code(&self, from: &Path, specifier: &str) -> bool {
+        relative(from, specifier).is_some_and(|path| {
+            self.0.contains_key(&path.with_extension("d.ts")) || (self.0.contains_key(&path) && !is_script(&path))
+        })
     }
 }
 
@@ -1049,5 +1072,48 @@ fn a_followed_module_that_changes_an_import_reaches_the_values_the_config_import
         let value = eval(&pure);
         assert_eq!(read_at(&value, &["build", "outDir"]), &s("dist"), "{config}: {value:?}");
         assert_eq!(read_at(&value, &["name"]), &s("app"), "{config}: {value:?}");
+    }
+}
+
+/// A barrel that re-exports a file holding no code (a declaration file, JSON, a stylesheet, an asset) changes no value
+/// of a module: calling a function of it leaves the imported values known. One that re-exports a relative module the
+/// loader neither follows nor knows to hold no code may change them.
+#[test]
+fn a_reexport_of_a_file_that_holds_no_code_changes_nothing() {
+    for (reexport, out_dir) in [
+        ("export * from './types';", s("dist")),
+        ("export * from './types.js';", s("dist")),
+        ("export { default as pkg } from './package.json';", s("dist")),
+        ("export { default as styles } from './x.css';", s("dist")),
+        ("export { default as logo } from './logo.svg';", s("dist")),
+        ("export * from './missing';", ConfigValue::Unknown),
+    ] {
+        let tools = format!("{reexport}\nexport function name() {{ return 'app'; }}");
+        let loader = files(&[
+            (
+                "/ws/app/config.ts",
+                "import base from './base';\nimport { name } from './tools';\n\
+                 export default { ...base, name: name() };",
+            ),
+            (
+                "/ws/app/base.ts",
+                "export default { root: 'src', build: { outDir: 'dist' } };",
+            ),
+            ("/ws/app/tools.ts", &*Box::leak(tools.into_boxed_str())),
+            ("/ws/app/types.d.ts", "export interface Options { root: string }"),
+            ("/ws/app/package.json", r#"{ "name": "app" }"#),
+            ("/ws/app/x.css", ".a { color: red; }"),
+            ("/ws/app/logo.svg", "<svg></svg>"),
+        ]);
+        let value = eval(&loader);
+        assert_eq!(
+            read_at(&value, &["build", "outDir"]),
+            &out_dir,
+            "{reexport}: {value:?}"
+        );
+        if out_dir == s("dist") {
+            assert_eq!(read_at(&value, &["root"]), &s("src"), "{reexport}: {value:?}");
+            assert_eq!(read_at(&value, &["name"]), &s("app"), "{reexport}: {value:?}");
+        }
     }
 }

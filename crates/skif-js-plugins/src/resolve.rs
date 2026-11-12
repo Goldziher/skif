@@ -464,6 +464,10 @@ impl ModuleLoader for Recording<'_> {
     fn is_installed(&self, from: &Path, specifier: &str) -> bool {
         self.inner.is_installed(from, specifier)
     }
+
+    fn holds_no_code(&self, from: &Path, specifier: &str) -> bool {
+        self.inner.holds_no_code(from, specifier)
+    }
 }
 
 /// Whether `source` holds a string literal naming the package `name` or a path inside it (`'eslint-plugin-foo'`,
