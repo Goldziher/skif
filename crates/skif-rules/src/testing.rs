@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use skif_config::Config;
-use skif_core::{Diagnostic, FixOp, MemoryFs, Span};
+use skif_core::{Diagnostic, FileSystem, FixOp, MemoryFs, Span};
 use skif_edit::FileKind;
 use skif_lint::{Registry, RunOptions, run_unsorted};
 use skif_workspace::Workspace;
@@ -35,10 +35,14 @@ pub fn lint(rule: &str, files: Files<'_>, config: &Config) -> Vec<Diagnostic> {
 
 /// As [`lint`], with the given run options; the rules read the lockfile and patch files from the same in-memory files.
 pub fn lint_with(rule: &str, files: Files<'_>, config: &Config, options: &RunOptions<'_>) -> Vec<Diagnostic> {
-    let fs = memory(files);
-    let workspace = Workspace::discover_with_fs(Path::new("/ws"), config, &fs).unwrap();
+    lint_in(rule, &memory(files), config, options)
+}
+
+/// As [`lint_with`], discovering the workspace at `/ws` of `fs`.
+pub fn lint_in(rule: &str, fs: &dyn FileSystem, config: &Config, options: &RunOptions<'_>) -> Vec<Diagnostic> {
+    let workspace = Workspace::discover_with_fs(Path::new("/ws"), config, fs).unwrap();
     let registry = Registry::new(crate::providers()).unwrap();
-    run_unsorted(&registry, &workspace, config, &options.with_fs(&fs))
+    run_unsorted(&registry, &workspace, config, &options.with_fs(fs))
         .unwrap()
         .into_iter()
         .filter(|diagnostic| diagnostic.rule.as_str() == rule)

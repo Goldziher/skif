@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use skif_core::{Category, Fixability, Location, RuleMeta, Severity, diagnostic, slash};
+use skif_core::{Category, Diagnostic, Fixability, Location, RuleMeta, Severity, diagnostic, slash};
 use skif_lint::{Emitter, LintContext, OptionsError, Rule};
 use skif_workspace::{Package, PackageManager};
 
@@ -13,10 +13,13 @@ pub static META: RuleMeta = RuleMeta::new(
     Category::Workspace,
     Some(Severity::Warning),
     Fixability::None,
-    "A workspace member holds a `pnpm-workspace.yaml` of its own, so installs in that directory leave the workspace, or in a Bun workspace a `package.json` that declares `workspaces`, which Bun never installs.",
+    "A workspace member holds a `pnpm-workspace.yaml` of its own, so installs in that directory leave the workspace, or in a Bun workspace a `package.json` that declares `workspaces`, which Bun never installs; or a member is a Bazel convenience link (`bazel-<name>`) a workspace pattern follows.",
 );
 
 const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
+
+/// The detail of a member inside a Bazel convenience link.
+const BAZEL_LINK_DETAIL: &str = "BazelConvenienceLink";
 
 /// Reports a `pnpm-workspace.yaml` in a directory the workspace patterns select and, in a Bun workspace, a member
 /// `package.json` that declares `workspaces`.
@@ -29,6 +32,12 @@ const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
 ///
 /// Bun reads `workspaces` from the root `package.json` only: it installs a member that declares its own as a plain
 /// package and never installs the packages that member lists, while skif lints the member as a root of its own.
+///
+/// A member inside a Bazel convenience link at the root (`bazel-<name>`, which links to the execroot and so mirrors
+/// the root with its `pnpm-workspace.yaml`, or `bazel-bin`) is reported once, at its `package.json`, with the detail
+/// `BazelConvenienceLink` and the pattern `!bazel-*` as the fix to write. A `*` or glob segment of a workspace pattern
+/// follows directory links, as pnpm's does, so the link stays a member; discovery excludes it from analysis, so the
+/// root's findings are not repeated under it, and the files inside it are not reported here otherwise.
 ///
 /// Options (`[rules.nested-workspace-root] allow`): paths, matched literally first, or globs, relative to the workspace
 /// root, of `pnpm-workspace.yaml` files kept on purpose, each a string or `{ name, reason }`. An entry that matches no
@@ -50,11 +59,12 @@ struct Nested<'w> {
 fn nested<'w>(cx: &LintContext<'w>) -> Vec<Nested<'w>> {
     let workspace = cx.workspace;
     let ignore = &cx.config.workspace.ignore_packages;
+    let linked = |path: &Path| workspace.facts.bazel_links.iter().any(|link| path.starts_with(link));
     workspace
         .facts
         .package_manager_files
         .iter()
-        .filter(|path| path.file_name().is_some_and(|name| name == PNPM_WORKSPACE))
+        .filter(|path| path.file_name().is_some_and(|name| name == PNPM_WORKSPACE) && !linked(path.as_path()))
         .filter_map(|path| {
             let dir = path.parent().filter(|dir| !dir.as_os_str().is_empty())?;
             let package = workspace.packages().iter().find(|package| package.dir == dir);
@@ -73,7 +83,9 @@ fn nested<'w>(cx: &LintContext<'w>) -> Vec<Nested<'w>> {
                 .iter()
                 .filter(|_| workspace.package_manager == Some(PackageManager::Bun))
                 .filter(|package| {
-                    !package.is_selected_by(ignore) && package.manifest.value().get("workspaces").is_some()
+                    !package.is_selected_by(ignore)
+                        && !linked(package.dir.as_path())
+                        && package.manifest.value().get("workspaces").is_some()
                 })
                 .map(|package| Nested {
                     path: package.manifest.path.as_path(),
@@ -133,6 +145,9 @@ impl Rule for NestedWorkspaceRoot {
             }
             out.emit(builder.build());
         }
+        for link in &cx.workspace.facts.bazel_links {
+            out.emit(bazel_link_finding(link));
+        }
         let paths: Vec<&Path> = found.iter().map(|entry| entry.path).collect();
         let what = if cx.workspace.package_manager == Some(PackageManager::Bun) {
             "nested `pnpm-workspace.yaml` or member `workspaces`"
@@ -141,6 +156,27 @@ impl Rule for NestedWorkspaceRoot {
         };
         allow.report_stale(cx, &META, &paths, what, out);
     }
+}
+
+/// The finding for the member at `dir`, inside a Bazel convenience link. It names no package: discovery excludes the
+/// member from analysis, and the emitter drops the findings of an excluded package.
+fn bazel_link_finding(dir: &Path) -> Diagnostic {
+    let manifest = dir.join("package.json");
+    diagnostic(
+        &META,
+        format!(
+            "`{}` is a workspace member, but it is a Bazel convenience link a workspace pattern follows",
+            slash(dir)
+        ),
+        Location::new(manifest, None),
+    )
+    .help(
+        "Bazel creates `bazel-*` links at the root on every build, and a `*` or glob segment of a pattern follows \
+         directory links as pnpm's does; add `!bazel-*` to the workspace patterns. skif excludes the member from \
+         analysis",
+    )
+    .detail(BAZEL_LINK_DETAIL)
+    .build()
 }
 
 #[cfg(test)]
@@ -275,6 +311,86 @@ mod tests {
             ];
             assert_eq!(lint(META.id, &files, &config("")), [], "{manager}");
         }
+    }
+
+    /// The files under `/ws` with the root entries named `bazel-*` listed as symbolic links, as a Bazel build leaves
+    /// them.
+    struct BazelLinks(skif_core::MemoryFs);
+
+    impl skif_core::FileSystem for BazelLinks {
+        fn read_to_string(&self, path: &Path) -> std::io::Result<std::sync::Arc<str>> {
+            self.0.read_to_string(path)
+        }
+
+        fn read_dir(&self, path: &Path) -> std::io::Result<Vec<skif_core::DirEntry>> {
+            let entries = self.0.read_dir(path)?;
+            if path != Path::new("/ws") {
+                return Ok(entries);
+            }
+            Ok(entries
+                .into_iter()
+                .map(|entry| {
+                    let linked = entry
+                        .path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.starts_with("bazel-"));
+                    if linked { entry.symlink() } else { entry }
+                })
+                .collect())
+        }
+
+        fn is_file(&self, path: &Path) -> bool {
+            self.0.is_file(path)
+        }
+
+        fn is_dir(&self, path: &Path) -> bool {
+            self.0.is_dir(path)
+        }
+    }
+
+    /// A rules_js workspace after a build: `*` selects the `bazel-ws` link to the execroot, which mirrors the root.
+    fn linked_files() -> Vec<(&'static str, &'static str)> {
+        const ROOT: &str = r#"{"name":"root","private":true,"dependencies":{"b":"1.0.0","a":"1.0.0"}}"#;
+        const PATTERNS: &str = "packages: ['*', 'lib/*']\n";
+        vec![
+            ("package.json", ROOT),
+            ("pnpm-workspace.yaml", PATTERNS),
+            ("pnpm-lock.yaml", ""),
+            ("app/package.json", r#"{"name":"app"}"#),
+            ("bazel-ws/package.json", ROOT),
+            ("bazel-ws/pnpm-workspace.yaml", PATTERNS),
+        ]
+    }
+
+    #[test]
+    fn a_member_inside_a_bazel_convenience_link_is_reported_once() {
+        let files = linked_files();
+        let fs = BazelLinks(crate::testing::memory(&files));
+        let options = skif_lint::RunOptions::default();
+        let diagnostics = crate::testing::lint_in(META.id, &fs, &config(""), &options);
+        assert_eq!(paths(&diagnostics), ["bazel-ws/package.json"]);
+        assert_eq!(
+            diagnostics[0].message,
+            "`bazel-ws` is a workspace member, but it is a Bazel convenience link a workspace pattern follows"
+        );
+        assert_eq!(diagnostics[0].detail.as_deref(), Some(BAZEL_LINK_DETAIL));
+        assert!(diagnostics[0].help.as_deref().unwrap().contains("add `!bazel-*`"));
+        assert_eq!(diagnostics[0].package, None);
+        // The root's findings are not repeated under the link.
+        let unsorted = crate::testing::lint_in("unsorted-dependencies", &fs, &config(""), &options);
+        assert_eq!(paths(&unsorted), ["package.json"]);
+    }
+
+    #[test]
+    fn a_real_directory_named_like_a_bazel_link_is_judged_as_any_member() {
+        let files = linked_files();
+        let diagnostics = lint(META.id, &files, &config(""));
+        assert_eq!(paths(&diagnostics), ["bazel-ws/pnpm-workspace.yaml"]);
+        assert_eq!(diagnostics[0].detail, None);
+        let mut unsorted = paths(&lint("unsorted-dependencies", &files, &config("")));
+        unsorted.sort();
+        assert_eq!(unsorted, ["bazel-ws/package.json", "package.json"]);
     }
 
     #[test]

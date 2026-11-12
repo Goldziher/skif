@@ -9,6 +9,7 @@
 //! there; the `ignore-files` option suppresses a whole file from the configuration.
 
 mod commands;
+mod docker_builds;
 mod foreign_command;
 mod options;
 mod parse;
@@ -27,6 +28,7 @@ pub use foreign_command::ForeignPackageManagerCommand;
 pub use options::{ToolchainKind, ToolchainOptions};
 pub use pin_drift::ToolchainPinDrift;
 
+use crate::paths::{file_name, join};
 use parse::Parsed;
 use scan::{Scan, ToolchainFile};
 
@@ -59,6 +61,9 @@ pub(crate) struct DockerfileCopies {
     pub sources: Vec<String>,
     /// The package managers a `RUN` installs the project with after a `COPY . .` of the whole build context.
     pub installs_after_context_copy: Vec<PackageManager>,
+    /// The build contexts (workspace-relative, `""` for the root) a build command of a script or workflow, or a
+    /// Compose file at the root, builds the Dockerfile from.
+    pub contexts: Vec<String>,
 }
 
 impl DockerfileCopies {
@@ -75,12 +80,37 @@ impl DockerfileCopies {
             path,
             sources: parsed.copied.clone(),
             installs_after_context_copy,
+            contexts: Vec::new(),
         }
     }
 }
 
-/// The Dockerfiles that copy from their build context: those of the scan the toolchain rules share, and those
-/// directly in the workspace-relative `dirs` that the scan does not read.
+/// The builds the scripts and workflows of the scan and the Compose files at the root run, as (Dockerfile, build
+/// context) pairs relative to the workspace root; a path that leaves the root is left out.
+fn builds(cx: &LintContext<'_>, scan: &Scan) -> BTreeSet<(String, String)> {
+    let commands = scan
+        .files
+        .iter()
+        .filter(|file| matches!(file.kind, ToolchainKind::ShellScripts | ToolchainKind::Workflows))
+        .flat_map(|file| &file.parsed.commands)
+        .filter_map(|command| docker_builds::command_build(&command.words));
+    let compose = docker_builds::COMPOSE_FILES
+        .iter()
+        .filter_map(|name| cx.fs().read_to_string(&cx.workspace.root.join(name)).ok())
+        .flat_map(|source| docker_builds::compose_builds(&source));
+    commands
+        .chain(compose)
+        .filter_map(|build| {
+            let context = docker_builds::normalized(&build.context)?;
+            let dockerfile = build.dockerfile.unwrap_or_else(|| join(&context, "Dockerfile"));
+            Some((docker_builds::normalized(&dockerfile)?, context))
+        })
+        .collect()
+}
+
+/// The Dockerfiles that copy from their build context: those of the scan the toolchain rules share, those directly in
+/// the workspace-relative `dirs` that the scan does not read, and those a build command or Compose file names
+/// (see [`builds`]), with the contexts those build them from.
 pub(crate) fn dockerfile_copies(cx: &LintContext<'_>, dirs: &BTreeSet<&str>) -> Vec<DockerfileCopies> {
     let scan = Scan::of(cx, &rule_ids());
     let scanned = scan
@@ -92,10 +122,20 @@ pub(crate) fn dockerfile_copies(cx: &LintContext<'_>, dirs: &BTreeSet<&str>) -> 
         .iter()
         .flat_map(|dir| scan.unscanned_dockerfiles(cx.fs(), &cx.workspace.root, dir))
         .map(|(path, parsed)| DockerfileCopies::of(path, &parsed));
-    scanned
-        .chain(beside)
-        .filter(|copies| !copies.sources.is_empty())
-        .collect()
+    let mut found: Vec<DockerfileCopies> = scanned.chain(beside).collect();
+    for (dockerfile, context) in builds(cx, &scan) {
+        if !found.iter().any(|copies| copies.path == dockerfile)
+            && let Ok(source) = cx.fs().read_to_string(&cx.workspace.root.join(&dockerfile))
+        {
+            let parsed = parse::parse(ToolchainKind::Dockerfiles, file_name(&dockerfile), &source);
+            found.push(DockerfileCopies::of(dockerfile.clone(), &parsed));
+        }
+        if let Some(copies) = found.iter_mut().find(|copies| copies.path == dockerfile) {
+            copies.contexts.push(context);
+        }
+    }
+    found.retain(|copies| !copies.sources.is_empty());
+    found
 }
 
 /// One finding in a toolchain file, before suppression comments are applied.

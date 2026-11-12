@@ -2,7 +2,8 @@
 //!
 //! Dockerfiles are split into instructions (continuation lines joined, comment lines skipped), workflows are read
 //! line by line for their steps (`uses:` with its `with:` inputs, `run:` scalars and block scalars), shell scripts are
-//! commands throughout and version files are read by their own syntax. Every span is a byte range of the file.
+//! commands throughout and version files are read by their own syntax. Bazel files are read as Starlark for the
+//! version arguments of the `rules_js` and `rules_nodejs` calls. Every span is a byte range of the file.
 
 use std::ops::Range;
 
@@ -12,6 +13,7 @@ use skif_core::shell::{self, Word};
 use super::commands::{self, Corepack};
 use super::options::ToolchainKind;
 use super::suppress::{self, Directive};
+use crate::starlark::{self, Kind};
 
 /// What a pin pins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,6 +78,7 @@ pub(crate) fn parse(kind: ToolchainKind, name: &str, source: &str) -> Parsed {
         ToolchainKind::Dockerfiles => dockerfile(source, &mut parsed),
         ToolchainKind::Workflows => workflow(source, &mut parsed),
         ToolchainKind::ShellScripts => shell_commands(source, 0, 0, &mut parsed.commands),
+        ToolchainKind::Bazel => bazel(source, &mut parsed.pins),
     }
     parsed.commands.sort_by_key(|command| command.span().start);
     let mut enable = None;
@@ -251,6 +254,58 @@ fn mise(name: &str, source: &str, pins: &mut Vec<Pin>) {
 /// The byte offset of the `=` of a `key = value` line.
 fn key_end(line: &str) -> usize {
     line.find('=').unwrap_or_default()
+}
+
+/// The tool a keyword argument of a call in a Bazel file pins, by the last segment of the call's name and the
+/// argument's name: `pnpm_version` of `pnpm.pnpm(...)` and `npm_translate_lock(...)` (`rules_js`), `node_version` of
+/// `node.toolchain(...)` (`rules_nodejs` under bzlmod) and of `nodejs_register_toolchains(...)` (its `WORKSPACE`
+/// macro).
+fn bazel_argument(call: &str, argument: &str) -> Option<Tool> {
+    let last = call.rsplit('.').next().unwrap_or(call);
+    match (last, argument) {
+        ("pnpm" | "npm_translate_lock", "pnpm_version") => Some(Tool::Manager(PackageManager::Pnpm)),
+        ("toolchain" | "nodejs_register_toolchains", "node_version") => Some(Tool::Node),
+        _ => None,
+    }
+}
+
+/// The versions `MODULE.bazel`, `WORKSPACE` or a `.bzl` file passes as a string literal to a call that installs pnpm
+/// or Node (see [`bazel_argument`]); `#` comments are skipped and a computed value pins nothing.
+fn bazel(source: &str, pins: &mut Vec<Pin>) {
+    let tokens = starlark::tokens(source);
+    // The calls whose parentheses are open, innermost last, with the depth of brackets inside each.
+    let mut calls: Vec<(Option<String>, usize)> = Vec::new();
+    for (index, token) in tokens.iter().enumerate() {
+        match token.kind {
+            Kind::Punct(b'(') => calls.push((starlark::callee(source, &tokens, index), 0)),
+            Kind::Punct(b'[' | b'{') => {
+                if let Some((_, depth)) = calls.last_mut() {
+                    *depth += 1;
+                }
+            }
+            Kind::Punct(b']' | b'}') => {
+                if let Some((_, depth)) = calls.last_mut() {
+                    *depth = depth.saturating_sub(1);
+                }
+            }
+            Kind::Punct(b')') => {
+                calls.pop();
+            }
+            Kind::Name => {
+                let Some((Some(call), 0)) = calls.last() else { continue };
+                let argument = token.text(source);
+                let Some(tool) = bazel_argument(call, argument) else { continue };
+                let (Some(equals), Some(value)) = (tokens.get(index + 1), tokens.get(index + 2)) else {
+                    continue;
+                };
+                if equals.is(b'=') && value.kind == Kind::Str {
+                    let version = value.text(source);
+                    pins.extend(pin(tool, version, value.span.start, format!("{call} {argument}")));
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// The escape character of a Dockerfile: `\`, or the one an `# escape=` parser directive at the top sets.
@@ -673,6 +728,31 @@ mod tests {
         assert_eq!(
             pins(ToolchainKind::VersionFiles, ".bun-version", "# pinned for CI\n1.3.0\n"),
             [row(Tool::Manager(PackageManager::Bun), "1.3.0", ".bun-version")]
+        );
+    }
+
+    #[test]
+    fn bazel_files_pin_through_rules_js_and_rules_nodejs_calls() {
+        let source = "\
+pnpm.pnpm(name = \"pnpm\", pnpm_version = \"8.15.0\")
+npm_translate_lock(name = \"npm\", data = [\"//:package.json\"], pnpm_version = '9.1.0')
+node.toolchain(node_version = \"20.11.1\", node_urls = [\"https://example.com/{filename}\"])
+nodejs_register_toolchains(name = \"nodejs\", node_version = r\"18.19.0\")
+# pnpm.pnpm(pnpm_version = \"7.0.0\")
+other(pnpm_version = \"6.0.0\", inner = pnpm.pnpm(pnpm_version = PNPM))
+pnpm.pnpm(pnpm_version = \"${VERSION}\", extra = {\"pnpm_version\": \"5.0.0\"})
+node.toolchain(versions = [dict(node_version = \"16.0.0\")])
+if pnpm_version == \"4.0.0\":
+    pass
+";
+        assert_eq!(
+            pins(ToolchainKind::Bazel, "MODULE.bazel", source),
+            [
+                row(PNPM, "8.15.0", "pnpm.pnpm pnpm_version"),
+                row(PNPM, "9.1.0", "npm_translate_lock pnpm_version"),
+                row(Tool::Node, "20.11.1", "node.toolchain node_version"),
+                row(Tool::Node, "18.19.0", "nodejs_register_toolchains node_version"),
+            ]
         );
     }
 

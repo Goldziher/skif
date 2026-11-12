@@ -16,6 +16,9 @@ pub enum ToolchainKind {
     Workflows,
     /// `*.sh`.
     ShellScripts,
+    /// `MODULE.bazel`, `WORKSPACE.bazel` and `WORKSPACE` at the workspace root; through `files`, also `.bzl` and
+    /// `*.MODULE.bazel` files.
+    Bazel,
 }
 
 impl ToolchainKind {
@@ -27,6 +30,7 @@ impl ToolchainKind {
             Self::Dockerfiles => "dockerfiles",
             Self::Workflows => "workflows",
             Self::ShellScripts => "shell-scripts",
+            Self::Bazel => "bazel",
         }
     }
 }
@@ -95,7 +99,7 @@ impl ToolchainOptions {
 
 /// JSON Schema of [`ToolchainOptions`], with `defaults` as the default of `kinds`.
 pub(crate) fn schema(defaults: &[ToolchainKind]) -> serde_json::Value {
-    let kinds = ["version-files", "dockerfiles", "workflows", "shell-scripts"];
+    let kinds = ["version-files", "dockerfiles", "workflows", "shell-scripts", "bazel"];
     let defaults: Vec<&str> = defaults.iter().map(|kind| kind.name()).collect();
     serde_json::json!({
         "type": "object",
@@ -146,6 +150,8 @@ mod tests {
 
         let unknown = ToolchainOptions::parse(&table("kind = []\n")).unwrap_err();
         assert_eq!(unknown.key(), Some("kind"));
+        let bazel = ToolchainOptions::parse(&table("kinds = [\"bazel\"]\n")).unwrap();
+        assert_eq!(bazel.kinds, Some(vec![ToolchainKind::Bazel]));
         let bad_kind = ToolchainOptions::parse(&table("kinds = [\"makefiles\"]\n")).unwrap_err();
         assert_eq!(bad_kind.key(), Some("kinds"));
         let bad_glob = ToolchainOptions::parse(&table("files = [\"a/[\"]\n")).unwrap_err();
