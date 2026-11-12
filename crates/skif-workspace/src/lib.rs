@@ -37,6 +37,7 @@ pub use bun_lock::{BUN_LOCKFILE, BunLockfile, parse_bun_lock};
 pub use catalogs::Catalogs;
 pub use detect::package_manager_from_manifest;
 pub use error::WorkspaceError;
+pub use lerna::LernaFacts;
 pub use lockfile::{
     LockedDependency, LockedPatch, OTHER_LOCKFILES, PNPM_LOCKFILE, PnpmLockfile, Resolutions, Snapshot, snapshot_key,
     split_key,
@@ -68,6 +69,7 @@ const _: () = {
     let _ = assert_send_sync::<PnpmLockfile>;
     let _ = assert_send_sync::<BunLockfile>;
     let _ = assert_send_sync::<DiscoveryFacts>;
+    let _ = assert_send_sync::<LernaFacts>;
     let _ = assert_send_sync::<PatternFact>;
     let _ = assert_send_sync::<WorkspaceSource>;
     let _ = assert_send_sync::<Candidates>;

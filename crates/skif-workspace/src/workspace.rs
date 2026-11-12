@@ -14,6 +14,7 @@ use skif_specifier::SpecifierCache;
 use crate::catalogs::{self, Catalogs};
 use crate::detect;
 use crate::error::WorkspaceError;
+use crate::lerna::LernaFacts;
 use crate::package::{Package, PackageId};
 use crate::parallel::map_ordered;
 use crate::pattern::{self, Expander, Pattern};
@@ -89,6 +90,9 @@ pub struct DiscoveryFacts {
     /// patterns selected, relative to the root and sorted. Files a `.gitignore`, an `.ignore` or `.git/info/exclude`
     /// excludes are left out; directories below a package that the patterns did not select are not searched.
     pub package_manager_files: Vec<PathBuf>,
+    /// The `lerna.json` next to the root `package.json`, when it is valid JSON, also when another file declares the
+    /// members.
+    pub lerna: Option<LernaFacts>,
 }
 
 /// The lockfiles every supported package manager writes, by file name.
@@ -295,6 +299,18 @@ impl ManagerFiles<'_> {
     }
 }
 
+/// Records in `facts` what the `packages` of `lerna.json` select that `members`, the directories the workspace
+/// declaration selects, do not, and the other way round. Lerna reads `packages` before the package manager's
+/// workspaces, so the two lists then disagree on what a Lerna command acts on.
+fn diverge_from_lerna(facts: &mut LernaFacts, expander: &Expander<'_>, members: &BTreeSet<String>) {
+    let Some(globs) = facts.packages.as_ref() else {
+        return;
+    };
+    let selected = pattern::selected_with_manifest(expander, globs.iter().map(String::as_str));
+    facts.only_in_lerna = selected.difference(members).map(PathBuf::from).collect();
+    facts.only_in_workspace = members.difference(&selected).map(PathBuf::from).collect();
+}
+
 fn json_patterns(root_package: &Package) -> Option<Declared> {
     let (source, base, items) = match root_package.manifest.value.get("workspaces")? {
         Value::Array(items) => (
@@ -444,17 +460,19 @@ impl Workspace {
         };
 
         let from_json = json_patterns(&root_package);
-        // `lerna.json` is the last resort: it is read only when nothing else declares members, and then an unreadable
-        // or invalid one declares nothing, as in root discovery, so a stale file never fails a workspace it does not
-        // define.
+        // `lerna.json` is the last resort: it declares the members only when nothing else does. An unreadable or
+        // invalid one declares nothing, as in root discovery, so a stale file never fails a workspace it does not
+        // define. A valid one is recorded either way, for the rules on Lerna's own reading of it.
         let others_declare = from_json.is_some()
             || pnpm_config.as_ref().is_some_and(|parsed| parsed.packages.is_some())
             || rush.is_some();
         let lerna_path = root.join(lerna::FILE);
-        let lerna = (has_root_manifest && !others_declare)
+        let lerna_file = has_root_manifest
             .then(|| fs.read_to_string(&lerna_path).ok())
             .flatten()
             .and_then(|text| lerna::parse(lerna_path, text).ok());
+        let mut lerna_facts = lerna_file.as_ref().map(LernaFacts::new);
+        let lerna = lerna_file.filter(|_| !others_declare);
 
         let package_manager = detect::detect(
             fs,
@@ -662,6 +680,17 @@ impl Workspace {
             }
         }
         package_manager_files.sort();
+        if let Some(facts) = lerna_facts.as_mut()
+            && declared.source != WorkspaceSource::LernaJson
+        {
+            let members: BTreeSet<String> = packages
+                .iter()
+                .map(|package| &package.dir)
+                .chain(&failed_dirs)
+                .map(|dir| dir.to_string_lossy().replace('\\', "/"))
+                .collect();
+            diverge_from_lerna(facts, &expander, &members);
+        }
         let ignore = &config.workspace.ignore_packages;
         let mut ignored: Vec<bool> = std::iter::once(&root_package)
             .chain(&packages)
@@ -699,6 +728,7 @@ impl Workspace {
                 implicit_patterns: declared.implicit,
                 yarn_classic,
                 package_manager_files,
+                lerna: lerna_facts,
             },
             pnpm_workspace,
             yarnrc,

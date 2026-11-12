@@ -1398,6 +1398,110 @@ fn lerna_json_is_not_read_when_something_else_declares_the_members() {
     assert_eq!(dirs(&workspace), ["packages/a"]);
 }
 
+fn lerna_paths(dirs: &[PathBuf]) -> Vec<String> {
+    dirs.iter().map(|dir| dir.to_str().unwrap().replace('\\', "/")).collect()
+}
+
+#[test]
+fn lerna_packages_that_differ_from_the_workspaces_are_recorded() {
+    let lerna = r#"{"version": "1.0.0", "packages": ["packages/*", "tools/*", "!tools/skip"]}"#;
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*","apps/*"]}"#,
+        ),
+        ("lerna.json", lerna),
+        ("packages/a/package.json", r#"{"name":"a"}"#),
+        ("apps/web/package.json", r#"{"name":"web"}"#),
+        ("tools/cli/package.json", r#"{"name":"cli"}"#),
+        ("tools/skip/package.json", r#"{"name":"skip"}"#),
+        ("tools/empty/readme.md", ""),
+    ];
+    let workspace = discover(&files, &Config::default()).unwrap();
+    assert_eq!(workspace.facts.source, WorkspaceSource::PackageJsonWorkspaces);
+    assert_eq!(dirs(&workspace), ["apps/web", "packages/a"]);
+    let facts = workspace.facts.lerna.as_ref().unwrap();
+    assert_eq!(facts.path, Path::new("lerna.json"));
+    assert_eq!(
+        facts.packages.as_deref(),
+        Some(["packages/*".to_owned(), "tools/*".to_owned(), "!tools/skip".to_owned()].as_slice())
+    );
+    assert_eq!(lerna_paths(&facts.only_in_lerna), ["tools/cli"]);
+    assert_eq!(lerna_paths(&facts.only_in_workspace), ["apps/web"]);
+    let span = facts.packages_span.unwrap();
+    assert_eq!(
+        &lerna[span.start as usize..span.end as usize],
+        r#""packages": ["packages/*", "tools/*", "!tools/skip"]"#
+    );
+}
+
+#[test]
+fn lerna_packages_that_select_the_same_members_differently_do_not_differ() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
+        ),
+        ("lerna.json", r#"{"version": "1.0.0", "packages": ["./packages/a", "packages/b"]}"#),
+        ("packages/a/package.json", r#"{"name":"a"}"#),
+        ("packages/b/package.json", r#"{"name":"b"}"#),
+    ];
+    let workspace = discover(&files, &Config::default()).unwrap();
+    let facts = workspace.facts.lerna.as_ref().unwrap();
+    assert!(facts.only_in_lerna.is_empty());
+    assert!(facts.only_in_workspace.is_empty());
+}
+
+#[test]
+fn lerna_packages_that_declare_the_members_differ_from_nothing() {
+    let files = [
+        ("package.json", r#"{"name":"root","private":true}"#),
+        ("lerna.json", LERNA),
+        ("packages/a/package.json", r#"{"name":"a"}"#),
+        ("other/c/package.json", r#"{"name":"c"}"#),
+    ];
+    let workspace = discover(&files, &Config::default()).unwrap();
+    assert_eq!(workspace.facts.source, WorkspaceSource::LernaJson);
+    let facts = workspace.facts.lerna.as_ref().unwrap();
+    assert!(facts.only_in_lerna.is_empty());
+    assert!(facts.only_in_workspace.is_empty());
+}
+
+#[test]
+fn a_lerna_json_with_use_workspaces_is_recorded_while_the_workspaces_decide() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
+        ),
+        ("lerna.json", r#"{"useWorkspaces": true, "npmClient": "pnpm"}"#),
+        ("packages/a/package.json", r#"{"name":"a"}"#),
+    ];
+    let workspace = discover(&files, &Config::default()).unwrap();
+    assert_eq!(workspace.facts.source, WorkspaceSource::PackageJsonWorkspaces);
+    // `npmClient` names the manager only when `lerna.json` declares the members.
+    assert_eq!(workspace.package_manager, None);
+    let facts = workspace.facts.lerna.as_ref().unwrap();
+    assert_eq!(facts.use_workspaces, Some(true));
+    assert!(facts.use_workspaces_span.is_some());
+    assert!(!facts.has_version);
+    assert_eq!(facts.packages, None);
+    assert!(facts.only_in_lerna.is_empty());
+}
+
+#[test]
+fn without_lerna_json_there_are_no_lerna_facts() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
+        ),
+        ("packages/a/package.json", r#"{"name":"a"}"#),
+    ];
+    let workspace = discover(&files, &Config::default()).unwrap();
+    assert_eq!(workspace.facts.lerna, None);
+}
+
 #[test]
 fn an_invalid_lerna_json_declares_nothing() {
     let files = [

@@ -15,7 +15,7 @@ use skif_core::{DirEntry, FileSystem};
 
 use crate::detect;
 use crate::manifest::parse_value;
-use crate::pattern::{self, Expander, Pattern};
+use crate::pattern::{self, Expander};
 use crate::pnpm;
 use crate::workspace::LOCKFILES;
 #[cfg(test)]
@@ -461,19 +461,9 @@ fn declared_patterns(fs: &dyn FileSystem, root: &Path) -> Vec<String> {
 /// patterns cannot be read.
 #[must_use]
 pub fn declared_member_dirs(fs: &dyn FileSystem, root: &Path) -> BTreeSet<PathBuf> {
-    let expander = Expander { fs, root };
-    let mut selected = BTreeSet::new();
-    let mut negations = Vec::new();
-    for raw in declared_patterns(fs, root) {
-        if raw.trim_start().starts_with('!') {
-            negations.extend(pattern::negation(&raw).ok());
-        } else if let Ok(pattern) = Pattern::new(&raw) {
-            selected.extend(expander.expand(&pattern));
-        }
-    }
-    selected
+    let patterns = declared_patterns(fs, root);
+    pattern::selected_with_manifest(&Expander { fs, root }, patterns.iter().map(String::as_str))
         .into_iter()
-        .filter(|dir| expander.has_manifest(dir) && !negations.iter().any(|negation| negation.is_match(dir)))
         .map(|dir| root.join(dir))
         .collect()
 }
