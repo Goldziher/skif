@@ -43,6 +43,7 @@ const ALWAYS_USED: &[&str] = &["typescript", "knip", "skif"];
 
 /// The packages that compile a file type skif extracts imports from without running a compiler (ADR 0001): a file
 /// of that type in the graph uses those of them its package lists, the way knip's built-in compilers mark them.
+/// `svelte` compiles every `.svelte` component, though no file need import it.
 const COMPILER_DEPENDENCIES: &[(&str, &[&str])] = &[
     ("marko", &["marko"]),
     (
@@ -72,6 +73,7 @@ const COMPILER_DEPENDENCIES: &[(&str, &[&str])] = &[
         ],
     ),
     ("stylus", &["stylus"]),
+    ("svelte", &["svelte"]),
 ];
 
 /// Packages whose `@types` twin does not need the package itself.

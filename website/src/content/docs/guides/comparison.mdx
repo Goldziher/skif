@@ -94,7 +94,7 @@ under [Parity with knip](#parity-with-knip).
 | Production and strict modes | Yes | No | No | Yes |
 | Component and template files | Yes (2) | No | No | Yes (3) |
 | Custom compilers for other file types | Partial: `[js.compilers]`, declared import patterns or one of skif's readers, never a function | No | No | Yes |
-| Built-in plugins for tools and frameworks | 206 | No | No | 207 |
+| Built-in plugins for tools and frameworks | 207 | No | No | 207 |
 | Runs no project code while linting | Yes (4) | Yes (5) | Partial (6) | No (7) |
 
 1. Added in knip 6.45.0: unused `imports` entries by default, and unused `exports` subpaths with
@@ -257,6 +257,12 @@ A dependency on a workspace member that nothing can import or run is not reporte
 file, such as a tooling, asset or style package. Such a dependency orders tasks (Turborepo's `^build`, Nx's task
 dependencies), and knip reports it. A member with one of those fields or a source file is judged as before; when it
 is listed only to order tasks, add it to `ignore-dependencies` with a `reason`.
+
+A package with a reached `.svelte` file uses `svelte`, the compiler of its components; knip credits `svelte` only
+where a file or a configuration names it. skif reads the exports of a component's module script
+(`<script context="module">`, `<script module>`) and reports the unused ones; the exports of the instance `<script>`
+(`export let`) are props, not exports. knip reads only the imports of a `.svelte` file, so it reports none of its
+exports.
 
 The remaining differences each have an open issue, and their size is in the
 [agreement table](../benchmarks/#agreement-with-knip):

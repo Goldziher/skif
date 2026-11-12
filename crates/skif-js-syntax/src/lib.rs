@@ -212,7 +212,9 @@ fn parse_block_in(
         ..ModuleInfo::default()
     };
     let collected = collect::collect(&ctx, &ret.program, &mut info);
-    finder::Finder::new(&ctx, &mut info, &ret.program).visit_program(&ret.program);
+    let mut finder = finder::Finder::new(&ctx, &mut info, &ret.program);
+    finder.visit_program(&ret.program);
+    let cjs_shorthand = finder.into_cjs_shorthand();
     info.imports.sort_by_key(|i| i.span.start);
     // One semantic analysis serves every pass below that needs scopes; it is built only if one does.
     let analysis = semantic::Analysis::new(&ret.program);
@@ -224,7 +226,13 @@ fn parse_block_in(
         }
     }
     if options.in_file_references {
-        mark_in_file_references(&ret.program, &analysis, &collected.export_clause_spans, &mut info);
+        mark_in_file_references(
+            &ret.program,
+            &analysis,
+            &collected.export_clause_spans,
+            &cjs_shorthand,
+            &mut info,
+        );
         signature_refs::mark(&ret.program, &mut info);
         members::mark_local_reads(&ret.program, &analysis, &mut info);
     }
@@ -249,7 +257,8 @@ fn parse_block_in(
 /// blocks and `src` attributes, and the identifiers its markup uses.
 ///
 /// Spans of every fact are offsets into `source`. Script blocks are analysed as one module: an import of one block
-/// that another block or the markup reads counts as used there.
+/// that another block or the markup reads counts as used there. Only the module script of a Svelte component
+/// declares exports.
 fn parse_component(
     extension: &str,
     source: &str,
@@ -269,7 +278,7 @@ fn parse_component(
         let source_type = source_type_for(Path::new(name)).ok_or_else(|| unsupported(extension))?;
         let base = u32::try_from(block.start).unwrap_or(u32::MAX);
         let mut uses = members::Uses::default();
-        let part = parse_block(
+        let mut part = parse_block(
             &source[block.start..block.end],
             base,
             source_type,
@@ -277,6 +286,11 @@ fn parse_component(
             options,
             Some(&mut uses),
         );
+        if extension == "svelte" && block.context == sfc::ScriptContext::Instance {
+            // The exports of a Svelte instance script are props (`export let`) and accessors of the component
+            // instance, which the parent sets as attributes or reads through `bind:this`, not module exports.
+            part.exports.clear();
+        }
         parts.push(part);
         all_uses.push(uses);
     }
@@ -395,27 +409,39 @@ fn add_style_and_source_imports(info: &mut ModuleInfo, blocks: &sfc::Blocks, sou
     info.imports.sort_by_key(|import| import.span.start);
 }
 
+/// Marks the exports whose binding the file references outside the export itself: a local declaration, an import
+/// binding the file re-exports (`import a from './a'; export { a }`), read as a value, and the binding a
+/// `module.exports = { a }` property names. `clause_spans` are the identifiers of export clauses, and `cjs_shorthand`
+/// the bindings and identifier spans of the `module.exports` properties; neither is a reference.
 fn mark_in_file_references(
     program: &oxc_ast::ast::Program<'_>,
     analysis: &semantic::Analysis<'_>,
-    excluded: &[oxc_span::Span],
+    clause_spans: &[oxc_span::Span],
+    cjs_shorthand: &[(String, oxc_span::Span)],
     info: &mut ModuleInfo,
 ) {
-    let local = |export: &Export| {
-        !matches!(
-            export.kind,
-            ExportKind::ReExport | ExportKind::StarReExport | ExportKind::Default
-        )
+    let cjs_names: HashSet<&str> = cjs_shorthand.iter().map(|(name, _)| name.as_str()).collect();
+    let binding = |export: &Export| -> Option<String> {
+        match export.kind {
+            ExportKind::Default => None,
+            // `export { a } from './a'` has no local binding; `export { a }` of an import binding has.
+            ExportKind::ReExport | ExportKind::StarReExport => export.local_name.clone(),
+            _ if export.local_name.is_none() && export.from.is_none() => {
+                cjs_names.contains(export.name.as_str()).then(|| export.name.clone())
+            }
+            _ => export.local_name.clone(),
+        }
     };
-    let wanted: HashSet<&str> = info
-        .exports
+    let bindings: Vec<Option<String>> = info.exports.iter().map(binding).collect();
+    let wanted: HashSet<&str> = bindings.iter().flatten().map(String::as_str).collect();
+    let excluded: Vec<oxc_span::Span> = clause_spans
         .iter()
-        .filter(|e| local(e))
-        .filter_map(|e| e.local_name.as_deref())
+        .copied()
+        .chain(cjs_shorthand.iter().map(|(_, span)| *span))
         .collect();
-    let referenced = semantic::referenced_locals(program, analysis, &wanted, excluded);
-    for export in &mut info.exports {
-        let used = local(export) && export.local_name.as_deref().is_some_and(|l| referenced.contains(l));
+    let referenced = semantic::referenced_locals(program, analysis, &wanted, &excluded);
+    for (export, local) in info.exports.iter_mut().zip(&bindings) {
+        let used = local.as_deref().is_some_and(|l| referenced.contains(l));
         export.referenced_in_file = used;
         if used {
             info.in_file_references.push(export.name.clone());

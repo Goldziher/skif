@@ -51,6 +51,25 @@ pub(crate) const JS_TSCONFIG: &str = "tsconfig";
 pub(crate) const JS_USE_TSCONFIG_FILES: &str = "use-tsconfig-files";
 pub(crate) const JS_IGNORE_GLOBAL_BINARIES: &str = "ignore-global-binaries";
 
+/// The `[js]` and `[js.workspaces."<dir>"]` lists in which an entry ending in `!` is a production entry.
+pub(crate) const JS_PRODUCTION_LISTS: &[&str] = &["entry", "project"];
+
+/// The `[js]` and `[js.workspaces."<dir>"]` ignore lists, in which an entry ending in `!` applies in production mode
+/// only (or, for the file globs, in every mode).
+pub(crate) const JS_IGNORE_LISTS: &[&str] = &[
+    "ignore",
+    "extend-ignore",
+    "ignore-files",
+    "ignore-dependencies",
+    "ignore-binaries",
+    "ignore-unresolved",
+    "ignore-members",
+    JS_IGNORE_WORKSPACES,
+    "extend-ignore-dependencies",
+    "extend-ignore-binaries",
+    "extend-ignore-unresolved",
+];
+
 // `[js.workspaces."<dir>"]`; the root is `"."`.
 pub(crate) const WS_PATHS: &str = "paths";
 pub(crate) const WS_IGNORE_UNRESOLVED: &str = "ignore-unresolved";

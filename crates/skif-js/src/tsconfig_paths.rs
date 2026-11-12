@@ -311,7 +311,7 @@ impl TsConfigs {
 
 /// The part of `specifier` a `paths` pattern captures, with the length of the fixed prefix (an exact pattern ranks
 /// above every wildcard).
-fn match_pattern<'a>(pattern: &str, specifier: &'a str) -> Option<(usize, &'a str)> {
+pub(crate) fn match_pattern<'a>(pattern: &str, specifier: &'a str) -> Option<(usize, &'a str)> {
     match pattern.split_once('*') {
         None => (pattern == specifier).then_some((usize::MAX, "")),
         Some((prefix, suffix)) => {
