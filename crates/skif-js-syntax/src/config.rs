@@ -4495,7 +4495,7 @@ impl<'a> Visit<'a> for Writes<'_> {
         {
             match (property_defined(it), reach(target)) {
                 (Some(key), Some((root, keys, true))) => {
-                    self.change(root.name.as_str(), Write { keys, key: Some(key) })
+                    self.change(root.name.as_str(), Write { keys, key: Some(key) });
                 }
                 _ => self.object(target),
             }
