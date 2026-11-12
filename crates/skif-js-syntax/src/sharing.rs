@@ -146,8 +146,8 @@ pub(crate) struct Unstable {
     /// What the calls the pass knows do to the objects they are given, by span; any other may change them.
     effects: HashMap<Span, Effect>,
     /// The references that are the only one of a binding no other module can read and that are read once per binding:
-    /// not in a loop, nor in a function other than the binding's own. None when the module reads `arguments` or calls
-    /// `eval`, which reach bindings without a reference.
+    /// not in a loop, nor in a function other than the binding's own, and not of an alias the evaluator follows. None
+    /// when the module reads `arguments` or calls `eval`, which reach bindings without a reference.
     sole: HashSet<ReferenceId>,
 }
 
@@ -197,7 +197,7 @@ impl Unstable {
         let sole = if sharing.dynamic {
             HashSet::default()
         } else {
-            sole_references(scoping, &sharing.exported, &sharing.repeated)
+            sole_references(scoping, &sharing.exported, &followed, &sharing.repeated)
         };
         let mut unstable = Self {
             followed,
@@ -283,16 +283,17 @@ fn sorted(mut change: Change) -> Change {
 }
 
 /// The references that are the only one of their binding, other than of a binding a module exports by declaring it
-/// (`export const config = …`), which another module may read, and other than those of `repeated`, which may be read
-/// more than once.
+/// (`export const config = …`), which another module may read, of an alias the evaluator follows, whose changes are
+/// read through the local it takes a part of, and other than those of `repeated`, which may be read more than once.
 fn sole_references(
     scoping: &Scoping,
     exported: &HashSet<SymbolId>,
+    followed: &HashSet<SymbolId>,
     repeated: &HashSet<ReferenceId>,
 ) -> HashSet<ReferenceId> {
     scoping
         .symbol_ids()
-        .filter(|symbol| !exported.contains(symbol))
+        .filter(|symbol| !exported.contains(symbol) && !followed.contains(symbol))
         .filter_map(|symbol| match scoping.get_resolved_reference_ids(symbol) {
             [only] if !repeated.contains(only) => Some(*only),
             _ => None,

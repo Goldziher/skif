@@ -2929,3 +2929,20 @@ fn a_change_through_a_value_spread_from_an_object_literal_reaches_its_key() {
         );
     }
 }
+
+/// A call given only an alias the evaluator follows (`const { build } = config; applyDefaults(build)`) may change the
+/// part of the local the alias takes, though the alias is not read after the call: the local is read after it.
+#[test]
+fn a_call_given_a_followed_alias_once_changes_its_local() {
+    let value = extract(
+        "vite.config.ts",
+        "import { defineConfig } from 'vite';\n\
+         export default defineConfig(() => {\n\
+           const config = { build: { outDir: 'dist' } };\n\
+           const { build } = config;\n\
+           applyDefaults(build);\n\
+           return config;\n\
+         });",
+    );
+    assert!(open(get(&value, &["build"])), "{value:?}");
+}
