@@ -692,7 +692,13 @@ fn below<'p>(dir: &str, path: &'p str) -> &'p str {
         return path;
     }
     path.strip_prefix(dir)
-        .and_then(|rest| if rest.is_empty() { Some(rest) } else { rest.strip_prefix('/') })
+        .and_then(|rest| {
+            if rest.is_empty() {
+                Some(rest)
+            } else {
+                rest.strip_prefix('/')
+            }
+        })
         .unwrap_or(path)
 }
 
@@ -1104,9 +1110,7 @@ fn imported_by_unused_file(credits: &BTreeSet<String>, category: &str, key: &str
         return false;
     };
     credits.contains(&format!("{path}|{WHOLE_MODULE}"))
-        || names
-            .split('|')
-            .any(|name| credits.contains(&format!("{path}|{name}")))
+        || names.split('|').any(|name| credits.contains(&format!("{path}|{name}")))
 }
 
 /// The files only knip reports as unused (`unused` but not `other_unused`) that one of them whose path its package
@@ -1423,7 +1427,7 @@ fn build_dir_reader(root: &Path) -> impl Fn(&str) -> Vec<(String, String)> + '_ 
             .flatten()
             .flatten()
             .filter_map(|entry| entry.file_name().into_string().ok())
-            .filter(|name| name == "jsconfig.json" || (name.starts_with("tsconfig.") && name.ends_with(".json")))
+            .filter(|name| name == "jsconfig.json" || (name.starts_with("tsconfig.") && is_json_file(name)))
             .collect();
         let found: Vec<(String, String)> = names
             .iter()
@@ -1489,7 +1493,10 @@ impl Classifier<'_> {
         if side == Side::Skif {
             return skif_only_deviation(category, key, self.foreign_paths)
                 .or_else(|| self.unjudged_manifest(category, path).then_some(KNIP_UNJUDGED_MANIFEST))
-                .or_else(|| self.skif_non_member_project(category, path).then_some(NON_MEMBER_PROJECT))
+                .or_else(|| {
+                    self.skif_non_member_project(category, path)
+                        .then_some(NON_MEMBER_PROJECT)
+                })
                 .or_else(|| (category == "unlisted" && is_build_file(path)).then_some(BAZEL_BUILD_FILE))
                 .or_else(|| in_unused_file(category, path, self.knip_unused_files).then_some(IN_KNIP_UNUSED_FILE))
                 .or_else(|| {
@@ -1521,7 +1528,8 @@ impl Classifier<'_> {
                 used_in_unused_file(self.knip_unused_imports, category, key).then_some(USED_IN_KNIP_UNUSED_FILE)
             })
             .or_else(|| {
-                (IMPORTED_CATEGORIES.contains(&category) && self.bazel_credits.contains(key)).then_some(BAZEL_BUILD_FILE)
+                (IMPORTED_CATEGORIES.contains(&category) && self.bazel_credits.contains(key))
+                    .then_some(BAZEL_BUILD_FILE)
             })
             .or_else(|| {
                 imported_by_unused_file(self.knip_unused_credits, category, key).then_some(IMPORTED_BY_KNIP_UNUSED_FILE)
@@ -1702,7 +1710,8 @@ fn in_used_signature<'m>(
         .filter(|export| export.name == name)
         .flat_map(|export| &export.referenced_in)
         .any(|container| {
-            used(container) || (visited.insert(container.as_str()) && in_used_signature(module, container, used, visited))
+            used(container)
+                || (visited.insert(container.as_str()) && in_used_signature(module, container, used, visited))
         })
 }
 
@@ -1834,10 +1843,7 @@ fn linked_dependency(label: &str, bazel_package: &str) -> Option<(String, String
 fn bazel_root<'p>(dir: &'p str, is_file: &FileProbe<'_>) -> Option<&'p str> {
     let mut candidate = dir;
     loop {
-        if BAZEL_ROOT_FILES
-            .iter()
-            .any(|name| is_file(&joined(candidate, name)))
-        {
+        if BAZEL_ROOT_FILES.iter().any(|name| is_file(&joined(candidate, name))) {
             return Some(candidate);
         }
         if candidate.is_empty() {
@@ -2720,6 +2726,12 @@ pub fn run(options: &Options) -> Result<()> {
     diff::conclude(&options.gate, &current)
 }
 
+fn is_json_file(name: &str) -> bool {
+    Path::new(name)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -3311,7 +3323,10 @@ mod tests {
     #[test]
     fn a_narrowed_scope_reaches_the_files_of_the_packages_below_its_package() {
         let dirs = BTreeMap::from([
-            (String::new(), NotJudgedScope::within(vec!["packages/*/e2e/**".to_owned()])),
+            (
+                String::new(),
+                NotJudgedScope::within(vec!["packages/*/e2e/**".to_owned()]),
+            ),
             (
                 "packages/core".to_owned(),
                 NotJudgedScope::within(vec!["**/__tests__/**".to_owned()]),
@@ -4006,7 +4021,11 @@ mod tests {
             ] {
                 assert_eq!(classifier.classify(Side::Tool, "files", key), None, "{key}");
             }
-            assert!(!classifier.layout.publishes_source_of("packages/core/schematics/types.d.ts"));
+            assert!(
+                !classifier
+                    .layout
+                    .publishes_source_of("packages/core/schematics/types.d.ts")
+            );
             assert_eq!(
                 classifier.classify(Side::Tool, "files", "packages/core/schematics/types.d.ts"),
                 Some(DECLARATION_FILE)
@@ -4066,7 +4085,11 @@ mod tests {
                 (Side::Tool, "exports", "packages/a/src/index.ts|unused"),
                 (Side::Skif, "duplicates", "packages/a/src/index.ts|a|b"),
             ] {
-                assert_eq!(classifier.classify(side, category, key), None, "{side:?} {category} {key}");
+                assert_eq!(
+                    classifier.classify(side, category, key),
+                    None,
+                    "{side:?} {category} {key}"
+                );
             }
             assert_eq!(
                 classifier.classify(Side::Tool, "exports", "packages/a/src/server.ts|unused"),
@@ -4077,7 +4100,10 @@ mod tests {
 
     #[test]
     fn published_paths_map_to_their_sources_through_the_build_directories_of_the_package() {
-        assert_eq!(build_source("dist", "src", "dist/a/b.js").as_deref(), Some("src/a/b.js"));
+        assert_eq!(
+            build_source("dist", "src", "dist/a/b.js").as_deref(),
+            Some("src/a/b.js")
+        );
         assert_eq!(build_source("dist/esm", "", "dist/esm/a.js").as_deref(), Some("a.js"));
         assert_eq!(build_source("dist", "src", "dist").as_deref(), Some("src"));
         assert_eq!(build_source("dist", "src", "distant/a.js"), None);
@@ -4102,7 +4128,10 @@ mod tests {
             ),
             (r#"{ "compilerOptions": { "outDir": "dist" } }"#, None),
             (r#"{ "compilerOptions": { "rootDir": "src" } }"#, None),
-            (r#"{ "compilerOptions": { "outDir": "../out", "rootDir": "src" } }"#, None),
+            (
+                r#"{ "compilerOptions": { "outDir": "../out", "rootDir": "src" } }"#,
+                None,
+            ),
             ("{ not json", None),
         ] {
             assert_eq!(
@@ -4163,7 +4192,11 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         let package = root.join("packages/ai");
         fs::create_dir_all(&package).unwrap();
-        fs::write(package.join("tsconfig.json"), r#"{ "compilerOptions": { "strict": true } }"#).unwrap();
+        fs::write(
+            package.join("tsconfig.json"),
+            r#"{ "compilerOptions": { "strict": true } }"#,
+        )
+        .unwrap();
         fs::write(
             package.join("tsconfig.build.esm.json"),
             r#"{ "extends": "./tsconfig.json", "compilerOptions": { "outDir": "dist/esm", "rootDir": "src" } }"#,
@@ -4174,7 +4207,11 @@ mod tests {
             r#"{ "compilerOptions": { "outDir": "dist/cjs" }, "include": ["src"] }"#,
         )
         .unwrap();
-        fs::write(package.join("base.json"), r#"{ "compilerOptions": { "outDir": "out", "rootDir": "." } }"#).unwrap();
+        fs::write(
+            package.join("base.json"),
+            r#"{ "compilerOptions": { "outDir": "out", "rootDir": "." } }"#,
+        )
+        .unwrap();
         let read = build_dir_reader(&root);
         assert_eq!(
             read("packages/ai"),
@@ -4184,7 +4221,7 @@ mod tests {
             ],
             "in file name order; a file that is no tsconfig is not read"
         );
-        assert!(read("packages/missing").is_empty());
+        assert_eq!(read("packages/missing"), Vec::<(String, String)>::new());
         fs::remove_dir_all(&root).unwrap();
     }
 
@@ -4734,7 +4771,10 @@ vi.mock("mocked-package");
                 "packages/a/src/util.ts",
                 "export const helper = 1;\nexport const second = 2;\nexport const unusedHelper = 3;\nexport type Shape = { a: number };\n",
             ),
-            ("packages/a/src/ns.ts", "export const read = 1;\nexport const unread = 2;\n"),
+            (
+                "packages/a/src/ns.ts",
+                "export const read = 1;\nexport const unread = 2;\n",
+            ),
             ("packages/a/src/def.ts", "export default 1;\nexport const other = 2;\n"),
             ("packages/a/src/side.ts", "export const effect = 1;\n"),
             (
@@ -4745,7 +4785,10 @@ vi.mock("mocked-package");
                 "packages/a/src/impl.ts",
                 "export const deep = 1;\nexport const own = 2;\nexport const shallow = 3;\n",
             ),
-            ("packages/a/src/other.ts", "export const original = 1;\nexport const rest = 2;\n"),
+            (
+                "packages/a/src/other.ts",
+                "export const original = 1;\nexport const rest = 2;\n",
+            ),
             ("packages/a/src/lazy.ts", "export const anything = 1;\n"),
         ]);
         let is_file = |file: &str| sources.contains_key(file);
@@ -4811,11 +4854,7 @@ vi.mock("mocked-package");
             ("enumMembers", "packages/a/src/lazy.ts|Red"),
             ("unlisted", "packages/a/src/lazy.ts|react"),
         ] {
-            assert_eq!(
-                classifier.classify(Side::Tool, category, key),
-                None,
-                "{category} {key}"
-            );
+            assert_eq!(classifier.classify(Side::Tool, category, key), None, "{category} {key}");
         }
     }
 
@@ -4831,7 +4870,10 @@ vi.mock("mocked-package");
                       export function open(): Store { return new Store(); }\n";
         let read = |file: &str| (file == "src/ops.ts").then(|| source.to_owned());
         let skif = Keys::from([
-            ("exports".to_owned(), strings(&["src/ops.ts|unused", "src/ops.ts|Store"])),
+            (
+                "exports".to_owned(),
+                strings(&["src/ops.ts|unused", "src/ops.ts|Store"]),
+            ),
             ("types".to_owned(), strings(&["src/ops.ts|Lonely"])),
         ]);
         let knip = Keys::from([
@@ -4874,7 +4916,11 @@ vi.mock("mocked-package");
             (Side::Tool, "enumMembers", "src/ops.ts|Props"),
             (Side::Skif, "types", "src/ops.ts|Props"),
         ] {
-            assert_eq!(classifier.classify(side, category, key), None, "{side:?} {category} {key}");
+            assert_eq!(
+                classifier.classify(side, category, key),
+                None,
+                "{side:?} {category} {key}"
+            );
         }
     }
 
@@ -4939,7 +4985,10 @@ vi.mock("mocked-package");
                  js_library(name = \"lib\", srcs = [\"src/index.ts\"], deps = [\":node_modules/zod\", \
                  \"//:node_modules/typescript\", '//packages/other:node_modules/left-pad'])\n",
             ),
-            ("packages/app/src/BUILD", "deps = [\"//packages/app:node_modules/@types/node\"]\n"),
+            (
+                "packages/app/src/BUILD",
+                "deps = [\"//packages/app:node_modules/@types/node\"]\n",
+            ),
             (
                 "tools/BUILD.bazel",
                 "deps = [\"//packages/app:node_modules/react\", \"//:node_modules/prettier\"]\n",
@@ -4978,7 +5027,11 @@ vi.mock("mocked-package");
         for (side, category, key) in [
             (Side::Tool, "devDependencies", "packages/app/package.json|zod"),
             (Side::Tool, "dependencies", "package.json|typescript"),
-            (Side::Tool, "optionalPeerDependencies", "packages/app/package.json|esbuild"),
+            (
+                Side::Tool,
+                "optionalPeerDependencies",
+                "packages/app/package.json|esbuild",
+            ),
             (Side::Skif, "unlisted", "packages/app/BUILD.bazel|lodash"),
             (Side::Skif, "unlisted", "packages/app/src/BUILD|lodash"),
         ] {
@@ -4995,7 +5048,11 @@ vi.mock("mocked-package");
             (Side::Skif, "unlisted", "packages/app/src/index.ts|lodash"),
             (Side::Skif, "unlisted", "packages/app/BUILD.bazel.bak|lodash"),
         ] {
-            assert_eq!(classifier.classify(side, category, key), None, "{side:?} {category} {key}");
+            assert_eq!(
+                classifier.classify(side, category, key),
+                None,
+                "{side:?} {category} {key}"
+            );
         }
     }
 
