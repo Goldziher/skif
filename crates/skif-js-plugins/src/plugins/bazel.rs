@@ -18,9 +18,10 @@
 //! one of its root files. The `BUILD` files of a nested package and those in Bazel's output trees (`bazel-bin`,
 //! `bazel-out`) give no entries; a nested package's `BUILD` file still names dependencies of this package by label.
 
+use std::ops::Range;
 use std::path::Path;
 
-use skif_core::{is_valid_package_name, slash};
+use skif_core::{LineIndex, Span, is_valid_package_name, slash};
 
 use crate::bazel::{ROOT_FILES, calls, is_output_path, label_literals, package_path, repository_root};
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
@@ -74,11 +75,16 @@ impl Plugin for Bazel {
             return Vec::new();
         };
         let bazel_package = join_rel(&package, config.base);
+        let lines = LineIndex::new(config.source);
         let mut out: Vec<PluginInput> = label_literals(config.source)
-            .iter()
-            .filter_map(|(literal, _)| linked_dependency(literal, &bazel_package))
-            .filter(|(owner, _)| *owner == package)
-            .map(|(_, name)| PluginInput::ReaderDependency(name))
+            .into_iter()
+            .filter_map(|(literal, range)| {
+                let (owner, name) = linked_dependency(&literal, &bazel_package)?;
+                (owner == package).then(|| PluginInput::ReaderDependency {
+                    name,
+                    span: span(&lines, &range),
+                })
+            })
             .collect();
         if in_nested_package(cx, config.base) {
             return out;
@@ -108,6 +114,12 @@ fn input(file: String, entry: bool, test: bool) -> PluginInput {
         (false, true) => PluginInput::BuildSource(file),
         (false, false) => PluginInput::ProductionBuildSource(file),
     }
+}
+
+/// The span of the byte `range` of the source `lines` indexes.
+fn span(lines: &LineIndex, range: &Range<usize>) -> Span {
+    let offset = |at: usize| u32::try_from(at).unwrap_or(u32::MAX);
+    lines.span(offset(range.start), offset(range.end))
 }
 
 /// Whether a root file of the Bazel repository at `root` names `rules_js`.

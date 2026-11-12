@@ -19,7 +19,8 @@ applies.
     load (`"@npm//packages/app:esbuild/package_json.bzl"`) uses that dependency in the package whose directory is the
     label's Bazel package, and in no other: a nested package whose `BUILD` file holds a label of an enclosing
     package's `node_modules` does not use its own listing through it. A dependency named this way that the label's
-    package does not list is `unlisted-dependencies` at that `BUILD` file.
+    package does not list is `unlisted-dependencies` at the label's line of that `BUILD` file, and
+    `skif explain-usage --dependency <name> --package <package>` lists that file and line.
   - A comprehension that formats each string of a list literal with one `%s` names the formatted labels:
     `[":node_modules/%s" % name for name in ["typescript", "vite"]]` uses `typescript` and `vite`. Any other format
     template (`":node_modules/%s" % name`, `":node_modules/{}".format(name)`), the patterns of a `glob(...)`
