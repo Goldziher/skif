@@ -318,6 +318,48 @@ fn a_file_in_the_narrowed_scope_is_an_entry() {
     );
 }
 
+/// The narrowed scope of an incomplete root reaches the files of the members below it (ADR 0081); the reason names
+/// that enclosing scope and its package rather than none.
+#[test]
+fn a_member_file_in_the_narrowed_scope_of_the_root_is_an_entry_of_that_scope() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*"],"devDependencies":{"vitest":"3.0.0"}}"#,
+        ),
+        (
+            "vitest.config.ts",
+            "import base from './vitest.base';\nexport default { ...base };\n",
+        ),
+        (
+            "packages/core/package.json",
+            r#"{"name":"core","version":"1.0.0","main":"src/index.ts"}"#,
+        ),
+        ("packages/core/src/index.ts", "export const main = 1;\n"),
+        ("packages/core/src/test-utils/mock.ts", "export const mock = 1;\n"),
+    ];
+    let mock = report(&files, "", "packages/core/src/test-utils/mock.ts");
+    assert_eq!(
+        (&mock["in-graph"], &mock["entry"], &mock["scope-package"]),
+        (&json!(true), &json!("enclosing-incomplete-scope"), &json!(".")),
+        "{mock}"
+    );
+    assert_eq!(mock["incomplete"][0]["plugin"], "vitest", "{mock}");
+    assert!(
+        mock["incomplete-scope"].as_array().is_some_and(|globs| globs
+            .iter()
+            .any(|glob| glob.as_str().is_some_and(|glob| glob.contains("test-utils")))),
+        "{mock}"
+    );
+    // A file of the member's own scope-less package keeps its own reason, without a scope package.
+    let index = report(&files, "", "packages/core/src/index.ts");
+    assert_eq!(
+        (&index["entry"], index.get("scope-package")),
+        (&json!("entry-glob"), None),
+        "{index}"
+    );
+}
+
 /// The exports of a file outside the narrowed scope are judged: every file of the scope is an entry, so whatever an
 /// unknown entry imports is counted (ADR 0081). The exports of a file in the scope stay unjudged.
 #[test]

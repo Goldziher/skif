@@ -376,7 +376,7 @@ fn slashed(path: &std::path::Path) -> String {
 }
 
 /// The directory of `package` relative to the workspace root, `.` for the root.
-fn dir_of(package: &Package) -> String {
+pub(crate) fn dir_of(package: &Package) -> String {
     let dir = slashed(&package.dir);
     if dir.is_empty() { ".".to_owned() } else { dir }
 }

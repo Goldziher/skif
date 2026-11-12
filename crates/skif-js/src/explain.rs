@@ -21,6 +21,7 @@ use crate::input::IncompleteEntries;
 use crate::manifest_paths::{crossing_stars, manifest_targets, source_candidates, source_patterns};
 use crate::resolve::join_normalized;
 use crate::setup::PackageSetup;
+use crate::trace::dir_of;
 
 /// Re-export hops followed when explaining an export.
 const MAX_DEPTH: usize = 8;
@@ -48,6 +49,9 @@ pub enum EntryReason {
     /// In the narrowed scope of a package whose entries are incomplete: a config the analysis cannot fully read may
     /// make it an entry, so it is treated as one (ADR 0065).
     IncompleteScope,
+    /// In the narrowed scope of an incomplete package that contains its package, such as a root test config whose
+    /// globs reach the files of the members below it (ADR 0081).
+    EnclosingIncompleteScope,
     /// The module is an entry, but none of the known rules accounts for it.
     Unknown,
 }
@@ -67,6 +71,10 @@ impl EntryReason {
             Self::EnclosingEntryGlob => "matches an entry glob a plugin gives a package that contains its package",
             Self::IncompleteScope => {
                 "may be an entry of a configuration that is not fully known, so it is treated as one (narrowed scope)"
+            }
+            Self::EnclosingIncompleteScope => {
+                "may be an entry of a configuration of a package that contains its package and is not fully known, so \
+                 it is treated as one (narrowed scope)"
             }
             Self::Unknown => "unknown: no entry rule of the analysis accounts for it",
         }
@@ -222,6 +230,11 @@ pub struct UsageReport {
     /// known, or unknown package-wide.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub incomplete_scope: Vec<String>,
+    /// When the entry is [`EnclosingIncompleteScope`](EntryReason::EnclosingIncompleteScope): the directory of the
+    /// enclosing package (relative to the workspace root, `.` for the root) whose narrowed scope
+    /// [`UsageReport::incomplete_scope`] is, and whose reasons [`UsageReport::incomplete`] lists.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope_package: Option<String>,
     /// When the package's configs gave a narrowed scope but a module of the package imports a computed path, which
     /// may load any of its files: that module and the 1-based line, as `file:line` relative to the workspace root.
     /// The package is then unjudged package-wide.
@@ -320,6 +333,15 @@ impl UsageReport {
                 let _ = writeln!(
                     out,
                     "  the narrowed scope of its package: {}",
+                    self.incomplete_scope.join(", ")
+                );
+                self.render_incomplete(&mut out);
+            }
+            if entry == EntryReason::EnclosingIncompleteScope {
+                let _ = writeln!(
+                    out,
+                    "  the narrowed scope of the enclosing package `{}`: {}",
+                    self.scope_package.as_deref().unwrap_or("."),
                     self.incomplete_scope.join(", ")
                 );
                 self.render_incomplete(&mut out);
@@ -561,6 +583,7 @@ impl JsAnalysis<'_> {
                 absence: Some(absence),
                 incomplete,
                 incomplete_scope,
+                scope_package: None,
                 widened_by,
                 entry: None,
                 imported_by: Vec::new(),
@@ -576,10 +599,18 @@ impl JsAnalysis<'_> {
             .chain_to_entry(module.id)
             .map(|chain| chain.iter().map(|id| slashed(&self.graph.module(*id).path)).collect());
         let entry = module.is_entry.then(|| self.entry_reason(module));
-        let (incomplete, incomplete_scope) = if entry == Some(EntryReason::IncompleteScope) {
-            self.narrowed_scope(module.owner)
-        } else {
-            (Vec::new(), Vec::new())
+        let scope_owner = match entry {
+            Some(EntryReason::IncompleteScope) => Some(module.owner),
+            Some(EntryReason::EnclosingIncompleteScope) => self.enclosing_incomplete_scope(module),
+            _ => None,
+        };
+        let (incomplete, incomplete_scope) =
+            scope_owner.map_or_else(|| (Vec::new(), Vec::new()), |owner| self.narrowed_scope(owner));
+        let scope_package = match entry {
+            Some(EntryReason::EnclosingIncompleteScope) => {
+                scope_owner.and_then(|owner| self.workspace.package(owner)).map(dir_of)
+            }
+            _ => None,
         };
         UsageReport {
             file: slashed(&module.path),
@@ -587,6 +618,7 @@ impl JsAnalysis<'_> {
             absence: None,
             incomplete,
             incomplete_scope,
+            scope_package,
             widened_by: None,
             entry,
             imported_by: self.importers(module, &walk),
@@ -654,10 +686,28 @@ impl JsAnalysis<'_> {
                     .is_some_and(|other| other.external_entry.is_match(&path))
         });
         if external {
-            EntryReason::ExternalEntryGlob
-        } else {
-            EntryReason::Unknown
+            return EntryReason::ExternalEntryGlob;
         }
+        if self.enclosing_incomplete_scope(module).is_some() {
+            return EntryReason::EnclosingIncompleteScope;
+        }
+        EntryReason::Unknown
+    }
+
+    /// The innermost package that contains the package of `module` and whose narrowed incomplete scope matches it, as
+    /// `scope_entries` makes such files entries.
+    fn enclosing_incomplete_scope(&self, module: &Module) -> Option<PackageId> {
+        let root = &self.workspace.root;
+        self.workspace
+            .iter()
+            .filter(|(id, _)| *id != module.owner)
+            .filter(|(id, _)| {
+                self.setup.package(*id).is_some_and(|other| {
+                    relative(&module.abs, &other.dir).is_some_and(|rel| other.in_incomplete_scope(&rel))
+                })
+            })
+            .max_by_key(|(_, package)| root.join(&package.dir).components().count())
+            .map(|(id, _)| id)
     }
 
     /// Whether a script of any package runs `abs`. The paths scripts name are collapsed as the entry files are, so

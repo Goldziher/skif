@@ -125,6 +125,11 @@ All notable changes to this project are documented here. The format follows
   gives it the `declaration-file` absence, and the AWS CDK and Knex plugins skip it when scanning sources. Before,
   those checks named `.d.ts` only. `skif-js-syntax` gains `is_declaration_file` and `DECLARATION_SUFFIXES`
   ([#100](https://github.com/Goldziher/skif/issues/100)).
+- `explain-usage`: a file that the narrowed incomplete scope of an enclosing package makes an entry (a root test
+  config whose globs reach the files of the members below it, ADR 0081) has the entry kind
+  `enclosing-incomplete-scope`, with that package's directory in `scope-package` and its scope and reasons in
+  `incomplete-scope` and `incomplete`, instead of `unknown`. `skif_js::EntryReason` gains `EnclosingIncompleteScope`
+  and `UsageReport` gains `scope_package` ([#165](https://github.com/Goldziher/skif/issues/165)).
 
 ### Changed
 
