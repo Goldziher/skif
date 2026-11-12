@@ -37,7 +37,7 @@ under [Parity with knip](#parity-with-knip).
 | `workspace:` protocol for workspace packages | Yes: `workspace-protocol` | No | Partial (7) | No |
 | Path dependencies (`file:`, `link:`, `portal:`) | Yes: `local-path-dependency` | No | Partial (8) | No |
 | Peer ranges the installed dev version does not satisfy | Yes: `incompatible-peer-dependencies` | No | Partial (9) | No |
-| Toolchain pins: `packageManager`, `engines`, `.nvmrc`, `.tool-versions`, `mise.toml`, Dockerfiles, workflows | Yes: `toolchain-pin-drift`, `member-toolchain-fields`, `root-package-manager-field` | Partial (10) | Partial (11) | No |
+| Toolchain pins: `packageManager`, `engines`, `.nvmrc`, `.tool-versions`, `mise.toml`, Dockerfiles, workflows, `MODULE.bazel` | Yes: `toolchain-pin-drift`, `member-toolchain-fields`, `root-package-manager-field` | Partial (10) | Partial (11) | No |
 | Another package manager's commands in Dockerfiles, workflows and shell scripts | Yes: `foreign-package-manager-command` | No | No | No |
 | Lockfile checks: stray lockfiles, bans and families over the lockfile, stale patches | Partial (12) | No | No | No |
 | `package.json` formatting: key order, `exports` conditions, shorthands | Yes: `skif format`, `package-json-format` | Partial (13) | Yes: `syncpack format` | No |

@@ -17,6 +17,7 @@ mod lockfile;
 pub mod manifest;
 mod paths;
 pub mod policy;
+mod starlark;
 pub mod toolchain;
 pub mod update;
 

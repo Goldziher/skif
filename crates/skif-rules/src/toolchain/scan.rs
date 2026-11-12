@@ -2,7 +2,8 @@
 //! them, once per run for every toolchain rule.
 //!
 //! The usual places are the root and every package directory that is not ignored (version files, Dockerfiles and
-//! `*.sh`), their `docker` and `scripts` subdirectories (Dockerfiles and `*.sh`) and the root's `.github/workflows`.
+//! `*.sh`), their `docker` and `scripts` subdirectories (Dockerfiles and `*.sh`), the root's `.github/workflows` and
+//! the root's Bazel files (`MODULE.bazel`, `WORKSPACE.bazel`, `WORKSPACE`).
 //! The `files` globs of the rules add more. A file is owned by the innermost package whose directory holds it; one
 //! below a directory with a `package.json` that is not a workspace package, or below an ignored package, belongs to
 //! another project and is not read.
@@ -31,6 +32,8 @@ const VERSION_FILES: [&str; 6] = [
 ];
 const SUBDIRECTORIES: [&str; 2] = ["docker", "scripts"];
 const WORKFLOWS: &str = ".github/workflows";
+/// The Bazel files read at the workspace root, where `rules_js` and `rules_nodejs` take their versions.
+const BAZEL_FILES: [&str; 3] = ["MODULE.bazel", "WORKSPACE.bazel", "WORKSPACE"];
 const MANIFEST: &str = "package.json";
 /// How deep a glob's walk descends below its literal prefix.
 const MAX_DEPTH: usize = 16;
@@ -130,6 +133,11 @@ impl Scan {
                     found.insert(join(WORKFLOWS, &name), (ToolchainKind::Workflows, root, true));
                 }
             }
+            for name in owners.file_names("") {
+                if BAZEL_FILES.contains(&name.as_str()) {
+                    found.insert(name, (ToolchainKind::Bazel, root, true));
+                }
+            }
         }
         if let Ok(selector) = Selector::new(globs.iter().cloned())
             && !selector.is_empty()
@@ -182,6 +190,12 @@ fn is_dockerfile(name: &str) -> bool {
         || has_extension(name, &["dockerfile"])
 }
 
+/// Whether `name` is a Bazel file that may pin a toolchain: one of [`BAZEL_FILES`], a `.bzl` file or an included
+/// `*.MODULE.bazel` file.
+fn is_bazel_file(name: &str) -> bool {
+    BAZEL_FILES.contains(&name) || has_extension(name, &["bzl"]) || name.ends_with(".MODULE.bazel")
+}
+
 /// The kind of a file found at a usual place by its name; version files count only in a package directory itself.
 fn default_kind(name: &str, package_dir: bool) -> Option<ToolchainKind> {
     if package_dir && VERSION_FILES.contains(&name) {
@@ -195,10 +209,13 @@ fn default_kind(name: &str, package_dir: bool) -> Option<ToolchainKind> {
     }
 }
 
-/// The kind of a file a glob found: by its name, YAML read as a workflow, anything else as a shell script.
+/// The kind of a file a glob found: by its name, YAML read as a workflow, Bazel files as Starlark, anything else as a
+/// shell script.
 fn glob_kind(path: &str) -> ToolchainKind {
     let name = file_name(path);
-    if VERSION_FILES.contains(&name) {
+    if is_bazel_file(name) {
+        ToolchainKind::Bazel
+    } else if VERSION_FILES.contains(&name) {
         ToolchainKind::VersionFiles
     } else if is_dockerfile(name) {
         ToolchainKind::Dockerfiles
@@ -351,5 +368,9 @@ mod tests {
         assert_eq!(glob_kind("ci/pipeline.yaml"), ToolchainKind::Workflows);
         assert_eq!(glob_kind("ci/release"), ToolchainKind::ShellScripts);
         assert_eq!(glob_kind("deploy/Dockerfile.base"), ToolchainKind::Dockerfiles);
+        for path in ["js/MODULE.bazel", "tools/node.bzl", "deps/npm.MODULE.bazel", "WORKSPACE.bazel"] {
+            assert_eq!(glob_kind(path), ToolchainKind::Bazel, "{path}");
+        }
+        assert_eq!(default_kind("MODULE.bazel", true), None, "read at the root only");
     }
 }

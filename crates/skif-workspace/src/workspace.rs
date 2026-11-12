@@ -18,7 +18,7 @@ use crate::package::{Package, PackageId};
 use crate::parallel::map_ordered;
 use crate::pattern::{self, Expander, Pattern};
 use crate::pnpm::{self, YamlSource};
-use crate::{lerna, roots, rush};
+use crate::{bazel, lerna, roots, rush};
 
 const MANIFEST: &str = "package.json";
 const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
@@ -84,6 +84,11 @@ pub struct DiscoveryFacts {
     /// patterns selected, relative to the root and sorted. Files a `.gitignore`, an `.ignore` or `.git/info/exclude`
     /// excludes are left out; directories below a package that the patterns did not select are not searched.
     pub package_manager_files: Vec<PathBuf>,
+    /// Members inside a Bazel convenience link at the root (`bazel-<name>`, `bazel-bin`), relative to the root and
+    /// sorted. A `*` or glob segment follows directory links as pnpm's does, so such a link becomes a member, a copy of
+    /// part of the source tree or of Bazel's output. They stay members and are excluded from analysis as
+    /// `[workspace] ignore-packages` would.
+    pub bazel_links: Vec<PathBuf>,
 }
 
 /// The lockfiles every supported package manager writes, by file name.
@@ -126,7 +131,8 @@ pub struct Workspace {
     failed_dirs: Vec<PathBuf>,
     /// Package name to id, the root first: with a name declared twice the first package wins.
     by_name: HashMap<Box<str>, PackageId>,
-    /// Indexed by [`PackageId`]: whether `[workspace] ignore-packages` excludes the package.
+    /// Indexed by [`PackageId`]: whether `[workspace] ignore-packages` excludes the package, or it lies inside a Bazel
+    /// convenience link ([`DiscoveryFacts::bazel_links`]).
     ignored: Vec<bool>,
     /// Whether this is a standalone package found below another root of a recursive run.
     nested: bool,
@@ -642,6 +648,13 @@ impl Workspace {
         if !has_root_manifest && let Some(slot) = ignored.first_mut() {
             *slot = true;
         }
+        let bazel_links =
+            bazel::convenience_link_members(fs, &root, packages.iter().map(|package| package.dir.as_path()));
+        for (slot, package) in ignored.iter_mut().skip(1).zip(&packages) {
+            if bazel_links.contains(&package.dir) {
+                *slot = true;
+            }
+        }
 
         // A `pnpm-workspace.yaml` that only holds settings selects pnpm's default patterns; when those find no
         // package besides the root, the directory is a single package, not a monorepo.
@@ -671,6 +684,7 @@ impl Workspace {
                 implicit_patterns: declared.implicit,
                 yarn_classic,
                 package_manager_files,
+                bazel_links: bazel_links.into_iter().collect(),
             },
             pnpm_workspace,
             yarnrc,
@@ -734,7 +748,8 @@ impl Workspace {
         self.by_name.get(name).and_then(|&id| self.package(id))
     }
 
-    /// Whether `[workspace] ignore-packages` excludes the package with `id`.
+    /// Whether `[workspace] ignore-packages` excludes the package with `id`, or it lies inside a Bazel convenience link
+    /// ([`DiscoveryFacts::bazel_links`]).
     #[must_use]
     pub fn is_ignored(&self, id: PackageId) -> bool {
         self.ignored.get(id.index()).copied().unwrap_or(false)

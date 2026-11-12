@@ -11,6 +11,35 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `nested-workspace-root` reports a workspace member inside a Bazel convenience link (`bazel-<name>`, `bazel-bin`),
+  which a `*` or glob segment of a pattern follows as pnpm's does, once with the detail `BazelConvenienceLink` and
+  `!bazel-*` as the pattern to add. The member stays in the workspace but is excluded from analysis, so the root's
+  findings are no longer repeated under `bazel-<name>/`
+  ([ADR 0116](adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
+  [#174](https://github.com/Goldziher/skif/issues/174)).
+- `toolchain-pin-drift` reads the root's `MODULE.bazel`, `WORKSPACE.bazel` and `WORKSPACE`, a new `bazel` kind read by
+  default: the `pnpm_version` of `pnpm.pnpm(...)` and `npm_translate_lock(...)` (rules_js) and the `node_version` of
+  `node.toolchain(...)` and `nodejs_register_toolchains(...)` (rules_nodejs) are checked against `packageManager` and
+  the root's Node version, statically. A `files` glob also reads `.bzl` and `*.MODULE.bazel` files
+  ([ADR 0116](adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
+  [#175](https://github.com/Goldziher/skif/issues/175)).
+- `stray-lockfile` sees more Bazel consumers of a member lockfile: a label inside a longer string where
+  `$(location ...)`, `$(execpath ...)` or another location function expands it (a `genrule`'s `cmd`), and a
+  `glob(...)` of the lockfile's package whose include patterns match it and whose exclude patterns do not; a docstring
+  no longer counts as a label ([ADR 0116](adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
+  [#199](https://github.com/Goldziher/skif/issues/199)).
+- `stray-lockfile` also sees a Dockerfile elsewhere built from a member's directory: a `docker build -f <file>
+  <context>` (also `docker buildx build`, `podman build`) in a script or workflow, or a Compose file's
+  `build.context`, gives that Dockerfile the member's directory as its context
+  ([#199](https://github.com/Goldziher/skif/issues/199)).
+
+### Fixed
+
+- `stray-lockfile` no longer reports a member lockfile that only another package's `BUILD` file names, or a macro such
+  a file loads: when the files Bazel reads for a lockfile do not name it, the Bazel repository is listed for its
+  `BUILD` files, skipping hidden directories, `node_modules`, symbolic links and `.bazelignore`d directories
+  ([ADR 0116](adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
+  [#198](https://github.com/Goldziher/skif/issues/198)).
 - A `bazel` plugin for rules_js repositories: the `BUILD.bazel` and `BUILD` files of a package are scanned as Starlark
   text. `node_modules` labels (`":node_modules/esbuild"`, `"//packages/app:node_modules/zod"`) and
   `package_json.bzl` loads (`"@npm//packages/app:esbuild/package_json.bzl"`) use the dependency of the package they
