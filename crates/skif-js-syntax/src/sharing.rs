@@ -3300,7 +3300,8 @@ const CALLING_PURE_FUNCTIONS: &[(&str, &str)] = &[("JSON", "parse"), ("JSON", "s
 /// What `call` returns when it calls one of [`PURE_FUNCTIONS`] (`path.posix` and `path.win32` count as `path`); `None`
 /// for any other call, such as one of a function the module declares under such a name, and for one of
 /// [`CALLING_PURE_FUNCTIONS`] given after its first argument anything but a literal that holds no function or
-/// `undefined` (`JSON.stringify(config, replacer)`), as the function it may be given may change what it is called with.
+/// `undefined` (`JSON.stringify(config, replacer)`), or given a spread argument (`JSON.stringify(...[config, r])`),
+/// which may hold such a function at any place, as the function it may be given may change what it is called with.
 fn pure_function(names: Names<'_>, call: &CallExpression<'_>) -> Option<Returns> {
     let (object, name) = match call.callee.get_inner_expression() {
         Expression::Identifier(id) => match resolved(names.scoping, id) {
@@ -3327,7 +3328,7 @@ fn pure_function(names: Names<'_>, call: &CallExpression<'_>) -> Option<Returns>
                 .is_some_and(|value| holds_no_function(names, value))
         })
     };
-    (!calls_back || given_no_function()).then_some(returns)
+    (!calls_back || (!has_spread(call) && given_no_function())).then_some(returns)
 }
 
 /// Whether `expr` is a literal that holds no function ([`function_free`]) or the global `undefined`.

@@ -3355,8 +3355,8 @@ fn a_setter_given_its_first_argument_through_a_spread_may_change_what_it_spreads
 }
 
 /// `JSON.stringify` given a replacer that is not a literal calls it with every value of what it is given, which it may
-/// change, so the config is partly unknown after it; given `null`, `undefined`, a list of keys or a number of spaces,
-/// it changes nothing.
+/// change, so the config is partly unknown after it, as it is when its arguments come through a spread, which may hold
+/// such a replacer; given `null`, `undefined`, a list of keys or a number of spaces, it changes nothing.
 #[test]
 fn json_stringify_with_a_replacer_function_may_change_what_it_is_given() {
     let config = "const config = { plugins: [] };";
@@ -3375,6 +3375,15 @@ fn json_stringify_with_a_replacer_function_may_change_what_it_is_given() {
         ),
         (
             "const banner = JSON.stringify(config, (k, v) => { if (Array.isArray(v)) v.push('x'); return v; });",
+            true,
+        ),
+        (
+            "const r = (k, v) => { if (Array.isArray(v)) v.push('x'); return v; };\nJSON.stringify(...[config, r]);",
+            true,
+        ),
+        (
+            "const r = (k, v) => { if (Array.isArray(v)) v.push('x'); return v; };\nconst args = [config, r];\n\
+             const banner = JSON.stringify(...args);",
             true,
         ),
         ("const banner = JSON.stringify(config, null, 2);", false),
