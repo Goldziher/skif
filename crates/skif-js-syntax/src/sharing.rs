@@ -814,7 +814,11 @@ impl<'a> Visit<'a> for Refs<'_> {
         for property in &it.properties {
             match property {
                 ObjectPropertyKind::ObjectProperty(p) => {
-                    match p.key.static_name().filter(|_| !p.method && p.kind == PropertyKind::Init) {
+                    match p
+                        .key
+                        .static_name()
+                        .filter(|_| !p.method && p.kind == PropertyKind::Init)
+                    {
                         Some(key) => {
                             let key = crate::js_string(key.as_js_str());
                             self.at_key(key, |refs| refs.visit_expression(&p.value));

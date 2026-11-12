@@ -1084,7 +1084,10 @@ fn rspack_package(config: &'static str) -> Vec<(&'static str, String)> {
     vec![
         ("package.json", package),
         ("rspack.config.js", config.to_owned()),
-        ("src/app.js", "import padStart from 'pad-start';\npadStart('a', 2);\n".to_owned()),
+        (
+            "src/app.js",
+            "import padStart from 'pad-start';\npadStart('a', 2);\n".to_owned(),
+        ),
     ]
 }
 

@@ -1648,7 +1648,10 @@ fn a_pure_call_leaves_the_config_holding_its_result_known() {
          module.exports = config;",
     );
     assert!(!open(&value), "{value:?}");
-    assert_eq!(get(&value, &["entry"]), &ConfigValue::Object(vec![("main".to_owned(), s("./src/main.js"))]));
+    assert_eq!(
+        get(&value, &["entry"]),
+        &ConfigValue::Object(vec![("main".to_owned(), s("./src/main.js"))])
+    );
 }
 
 /// A `const` that holds a string shares no object, so giving it to a call that may change what it is given does not
@@ -1704,8 +1707,14 @@ fn a_write_through_a_part_of_a_config_changes_only_that_part() {
             ConfigValue::Array(vec![first, dev]),
         ])
     );
-    assert_eq!(get(&value, &["output", "path"]), &ConfigValue::OneOf(vec![s("dist"), s("build")]));
-    assert_eq!(get(&value, &["plugins"]), &ConfigValue::Array(vec![s("a"), ConfigValue::Unknown]));
+    assert_eq!(
+        get(&value, &["output", "path"]),
+        &ConfigValue::OneOf(vec![s("dist"), s("build")])
+    );
+    assert_eq!(
+        get(&value, &["plugins"]),
+        &ConfigValue::Array(vec![s("a"), ConfigValue::Unknown])
+    );
 }
 
 /// A write through a part of a config a function returns, made where the evaluator does not run it (a top-level

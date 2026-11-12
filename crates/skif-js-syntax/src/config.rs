@@ -3658,7 +3658,10 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         for argument in &arguments {
             self.havoc(Writes::of_expression(argument));
         }
-        let items = arguments.into_iter().map(|argument| self.expr(argument, depth)).collect();
+        let items = arguments
+            .into_iter()
+            .map(|argument| self.expr(argument, depth))
+            .collect();
         self.edit(root.name.as_str(), &keys, &Edit::Insert { front, items });
         true
     }
