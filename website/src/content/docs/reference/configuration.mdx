@@ -1135,7 +1135,8 @@ may change every object it is given, in any position and through a spread, and e
 it is given holds, at any depth (`kit.fill({ cfg: config })`, `foo([config])`, all of `options` for
 `foo({ ...options })`), unless it is a `define…` helper of a package (one of a module of the project, `./tools`,
 `#tools` or `@/tools`, may change what it is given),
-a merge that copies (`webpack-merge`, `deepmerge`, `defu`, the `mergeConfig` of Vite and Vitest), `createRequire`, or
+a merge that copies (`merge` of `webpack-merge`, `deepmerge` given no options or options without a function, `defu`,
+the `mergeConfig` of Vite and Vitest), `createRequire`, or
 `Object.assign`, `Object.defineProperties` or `Object.defineProperty` and `Reflect.defineProperty`, which change only
 their first argument, the last two only the key they name when it is a string; these are no `define…` helpers. A `define…` helper and a merge that copies keep none of their
 arguments in another, so a change of one argument leaves the others known. A list or string

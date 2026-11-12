@@ -2135,8 +2135,16 @@ fn pure_method(names: Names<'_>, call: &CallExpression<'_>) -> bool {
     )
 }
 
-/// Packages whose functions build a new object and change none of the objects they are given.
-const COPYING_PACKAGES: &[&str] = &["deepmerge", "deepmerge-ts", "defu", "ts-deepmerge", "webpack-merge"];
+/// The functions of packages that build a new object and change none of the objects they are given, by package: `""`
+/// for the module itself or its default export. Their other exports may change what they are given (`deepmergeInto`)
+/// or call functions it holds (`defuFn`, `mergeWithCustomize`).
+const COPYING_EXPORTS: &[(&str, &[&str])] = &[
+    ("deepmerge", &[""]),
+    ("deepmerge-ts", &["deepmerge"]),
+    ("defu", &["", "defu"]),
+    ("ts-deepmerge", &["", "merge"]),
+    ("webpack-merge", &["", "merge"]),
+];
 
 /// Modules whose `mergeConfig` builds a new config and changes none of those it is given.
 const MERGE_CONFIG_MODULES: &[&str] = &["vite", "vitest", "vitest/config"];
@@ -2145,7 +2153,9 @@ const MERGE_CONFIG_MODULES: &[&str] = &["vite", "vitest", "vitest/config"];
 const COPYING_GLOBALS: &[&str] = &["defu", "mergeConfig"];
 
 /// Whether `call` calls a merge that builds a new object and changes none of the objects it is given: a function of
-/// one of [`COPYING_PACKAGES`], the `mergeConfig` of Vite or Vitest, or one of [`COPYING_GLOBALS`].
+/// [`COPYING_EXPORTS`], the `mergeConfig` of Vite or Vitest, or one of [`COPYING_GLOBALS`]. The options `deepmerge`
+/// takes after the objects it merges may hold functions it calls with them (`arrayMerge`, `customMerge`), so a call
+/// given options counts only when they are an object literal of values that hold no function ([`function_free`]).
 fn copies(names: Names<'_>, call: &CallExpression<'_>) -> bool {
     let Expression::Identifier(id) = call.callee.get_inner_expression() else {
         return false;
@@ -2153,9 +2163,38 @@ fn copies(names: Names<'_>, call: &CallExpression<'_>) -> bool {
     match resolved(names.scoping, id) {
         None => COPYING_GLOBALS.contains(&id.name.as_str()),
         Some(symbol) => names.known.modules.get(&symbol).is_some_and(|(module, imported)| {
-            COPYING_PACKAGES.contains(&module.as_str())
-                || (imported.as_deref() == Some("mergeConfig") && MERGE_CONFIG_MODULES.contains(&module.as_str()))
+            let export = imported.as_deref().unwrap_or_default();
+            let copying = COPYING_EXPORTS
+                .iter()
+                .any(|(package, exports)| *package == module.as_str() && exports.contains(&export));
+            let options_free = module != "deepmerge"
+                || call
+                    .arguments
+                    .iter()
+                    .skip(2)
+                    .all(|argument| argument.as_expression().is_some_and(|options| function_free(names, options)));
+            (copying && options_free)
+                || (export == "mergeConfig" && MERGE_CONFIG_MODULES.contains(&module.as_str()))
         }),
+    }
+}
+
+/// Whether `expr` is a literal that holds no function: a value that holds no object ([`is_primitive`]), or an object
+/// or array literal of such values, with no spread, method or accessor.
+fn function_free(names: Names<'_>, expr: &Expression<'_>) -> bool {
+    match expr.get_inner_expression() {
+        Expression::ObjectExpression(object) => object.properties.iter().all(|property| match property {
+            ObjectPropertyKind::ObjectProperty(p) => {
+                !p.method && p.kind == PropertyKind::Init && function_free(names, &p.value)
+            }
+            ObjectPropertyKind::SpreadProperty(_) => false,
+        }),
+        Expression::ArrayExpression(array) => array.elements.iter().all(|element| match element {
+            ArrayExpressionElement::SpreadElement(_) => false,
+            ArrayExpressionElement::Elision(_) => true,
+            other => other.as_expression().is_some_and(|value| function_free(names, value)),
+        }),
+        other => is_primitive(names, other),
     }
 }
 
