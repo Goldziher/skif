@@ -6726,7 +6726,8 @@ fn bazel_build_files_credit_linked_dependencies_and_add_entries() {
 
 /// A `BUILD` file that builds its labels with a format comprehension over a list literal names each formatted package,
 /// at the line of its item; the template itself, the patterns of a `glob` and labels that are no package name name
-/// nothing, next to the `package_json.bzl` load of a package also named by the comprehension.
+/// nothing, next to the `package_json.bzl` load of a package also named by the comprehension, which keeps the position
+/// of its first reference.
 #[test]
 fn bazel_format_comprehensions_name_their_packages_and_glob_patterns_none() {
     let build = concat!(
@@ -6753,12 +6754,23 @@ fn bazel_format_comprehensions_name_their_packages_and_glob_patterns_none() {
     ];
     let results = resolve_in_tree(&files, "/ws/packages/app", false);
     let out = output(&results, "bazel");
-    let found: Vec<(&str, bool)> = out
+    let found: Vec<(&str, Option<u32>, bool)> = out
         .referenced_dependencies
         .iter()
-        .map(|dependency| (dependency.name.as_str(), dependency.reader_lists))
+        .map(|dependency| {
+            (
+                dependency.name.as_str(),
+                dependency.span.map(|span| span.start_line),
+                dependency.reader_lists,
+            )
+        })
         .collect();
-    assert_eq!(found, [("vite", true), ("typescript", true)]);
+    assert_eq!(found, [("vite", Some(1), true), ("typescript", Some(7), true)]);
+    let typescript = out.referenced_dependencies[1].span.unwrap();
+    assert_eq!(
+        &build[typescript.start as usize..typescript.end as usize],
+        "\"typescript\""
+    );
 }
 
 /// Outside a Bazel repository that uses `rules_js` the `BUILD` files of a package name nothing.
