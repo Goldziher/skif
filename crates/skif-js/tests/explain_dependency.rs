@@ -270,7 +270,10 @@ const BAZEL: &[(&str, &str)] = &[
         "packages/tool/package.json",
         r#"{"name":"tool","version":"1.0.0","main":"src/index.ts","devDependencies":{"typescript":"5.0.0"}}"#,
     ),
-    ("packages/tool/tsconfig.json", r#"{"extends":"@acme/tsconfig/base.json"}"#),
+    (
+        "packages/tool/tsconfig.json",
+        r#"{"extends":"@acme/tsconfig/base.json"}"#,
+    ),
     ("packages/tool/src/index.ts", "export const tool = 1;\n"),
 ];
 
@@ -319,7 +322,9 @@ fn an_unlisted_config_reference_is_explained_with_its_file_and_line() {
     assert_eq!(verdict, DependencyVerdict::NotListed);
     assert_eq!(found, [("packages/app/BUILD".to_owned(), Some(6))]);
     assert!(
-        text.contains("  packages/app (app): not listed\n    named without a listing by:\n      packages/app/BUILD:6\n"),
+        text.contains(
+            "  packages/app (app): not listed\n    named without a listing by:\n      packages/app/BUILD:6\n"
+        ),
         "{text}"
     );
     let (_, found, text) = references("@acme/tsconfig", "tool");
