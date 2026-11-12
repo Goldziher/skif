@@ -204,8 +204,8 @@ impl Unstable {
 
     /// Whether the evaluator follows the alias `id` declares ([`alias_source`]): it applies the changes made through
     /// it to the local it takes a part of, which this pass then leaves unmarked. One is followed when it is the only
-    /// alias of that local, only its own function changes it, no other binding it may share an object with is changed,
-    /// and the local is not changed directly nor by another function.
+    /// alias of that local, only its own function changes it, no other binding it or the local may share an object
+    /// with is changed, and the local is not changed directly nor by another function.
     pub(crate) fn follows(&self, id: &BindingIdentifier<'_>) -> bool {
         id.symbol_id.get().is_some_and(|symbol| self.followed.contains(&symbol))
     }
@@ -658,24 +658,30 @@ impl Sharing<'_> {
         self.links.iter().map(|link| (link.a.symbol, link.b.symbol)).collect()
     }
 
-    /// Whether the evaluator follows the alias at `index` of [`Self::aliases`]; see [`Unstable::follows`].
-    fn follows(&self, index: usize) -> bool {
+    /// Whether the evaluator follows the alias at `index` of [`Self::aliases`], given the union-find forest of the links
+    /// made so far; see [`Unstable::follows`].
+    fn follows(&self, index: usize, parent: &mut HashMap<SymbolId, SymbolId>) -> bool {
         let (alias, root) = self.aliases[index];
         self.aliases.iter().filter(|(_, other)| *other == root).count() == 1
             && !self.changes.contains_key(&alias)
             && !self.changes.contains_key(&root)
             && !self.mutated.iter().any(|(symbol, _)| *symbol == root)
-            && !self.shares_with_changed(alias)
+            && !self.shares_with_changed(parent, alias, &[alias])
+            && !self.shares_with_changed(parent, root, &[alias, root])
     }
 
-    /// Whether `symbol` may share an object, through the links made so far, with another binding whose object or
-    /// array code changes.
-    fn shares_with_changed(&self, symbol: SymbolId) -> bool {
-        let mut parent = forest(&self.pairs());
-        let class = find(&mut parent, symbol);
+    /// Whether `symbol` may share an object, through the links of the union-find forest `parent`, with a binding other
+    /// than those of `except` whose object or array code changes.
+    fn shares_with_changed(
+        &self,
+        parent: &mut HashMap<SymbolId, SymbolId>,
+        symbol: SymbolId,
+        except: &[SymbolId],
+    ) -> bool {
+        let class = find(parent, symbol);
         self.mutated
             .iter()
-            .any(|&(other, _)| other != symbol && find(&mut parent, other) == class)
+            .any(|&(other, _)| !except.contains(&other) && find(parent, other) == class)
     }
 
     /// Links every alias the evaluator does not follow to the local it takes a part of, until no more is linked (a
@@ -684,8 +690,9 @@ impl Sharing<'_> {
     fn link_aliases(&mut self) -> HashSet<SymbolId> {
         let mut linked = vec![false; self.aliases.len()];
         loop {
+            let mut parent = forest(&self.pairs());
             let unfollowed: Vec<usize> = (0..self.aliases.len())
-                .filter(|&index| !linked[index] && !self.follows(index))
+                .filter(|&index| !linked[index] && !self.follows(index, &mut parent))
                 .collect();
             if unfollowed.is_empty() {
                 break;
