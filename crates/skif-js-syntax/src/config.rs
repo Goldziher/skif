@@ -870,22 +870,13 @@ impl Modules<'_> {
     /// or of a module that is neither followed, nor an installed package ([`ModuleLoader::is_installed`]), nor a file
     /// that holds no code ([`ModuleLoader::holds_no_code`]), whose code is not known.
     fn reexports_change_modules(&self, path: &Path, program: &Program<'_>) -> bool {
-        program
-            .body
-            .iter()
-            .filter_map(|stmt| match stmt {
-                Statement::ExportFromDeclaration(e) if !e.export_kind.is_type() => Some(&e.source),
-                Statement::ExportAllDeclaration(e) if !e.export_kind.is_type() => Some(&e.source),
-                _ => None,
-            })
-            .any(|source| {
-                let specifier = crate::js_string(source.value);
-                if self.follows(path, &specifier) {
-                    self.changes_modules(path, &specifier)
-                } else {
-                    !self.is_installed(path, &specifier) && !self.loader.holds_no_code(path, &specifier)
-                }
-            })
+        reexported(program).into_iter().any(|specifier| {
+            if self.follows(path, &specifier) {
+                self.changes_modules(path, &specifier)
+            } else {
+                !self.is_installed(path, &specifier) && !self.loader.holds_no_code(path, &specifier)
+            }
+        })
     }
 
     /// The value `imported` names in the module `specifier` resolves to from `from`, called with `args` when given.
@@ -983,6 +974,21 @@ impl Modules<'_> {
             }
         }
     }
+}
+
+/// The modules `program` re-exports a value of (`export { tweak } from './tweak'`, `export * from './tools'`), by
+/// specifier.
+fn reexported(program: &Program<'_>) -> Vec<String> {
+    program
+        .body
+        .iter()
+        .filter_map(|stmt| match stmt {
+            Statement::ExportFromDeclaration(e) if !e.export_kind.is_type() => Some(&e.source),
+            Statement::ExportAllDeclaration(e) if !e.export_kind.is_type() => Some(&e.source),
+            _ => None,
+        })
+        .map(|source| crate::js_string(source.value))
+        .collect()
 }
 
 /// What the analysis of a followed module finds ([`Modules::facts`]).

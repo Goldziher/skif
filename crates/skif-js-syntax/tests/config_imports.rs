@@ -1260,3 +1260,68 @@ fn a_change_of_what_a_factory_that_builds_new_objects_returns_changes_that_part_
     assert_eq!(read_at(&value, &["test", "globals"]), &ConfigValue::Bool(true), "{value:?}");
     assert!(read_at(&value, &["sharedFiles"]).has_unknown(), "{value:?}");
 }
+
+/// A write through `this` changes no value of a module where `this` is an object a call makes anew: a constructor or a
+/// field initialiser giving a key of the new instance a value, a method of a class no code run when the module is
+/// loaded constructs, a method of an object literal a factory returns (a Vite or Rollup plugin's hooks). Constructing
+/// or calling it leaves the imported values known.
+#[test]
+fn a_write_through_this_of_an_object_a_call_makes_leaves_the_imported_values_known() {
+    for (shared, name, statement) in [
+        (
+            "export class EnvPlugin {\n  seen = [];\n  constructor(options) { this.options = options; this.count = 0; }\n  \
+             apply(compiler) { this.compiler = compiler; this.seen.push(compiler); }\n}",
+            "EnvPlugin",
+            "const plugin = new EnvPlugin({ mode: 'test' });",
+        ),
+        (
+            "export const envPlugin = () => ({ name: 'env', load(id) { this.addWatchFile(id); return null; } });",
+            "envPlugin",
+            "const plugin = envPlugin();",
+        ),
+        (
+            "export function envPlugin() {\n  return {\n    name: 'env',\n    \
+             buildStart() { this.emitFile({ type: 'asset', fileName: 'env.json' }); },\n    \
+             transform: function (code) { this.warn(code); return code; },\n  };\n}",
+            "envPlugin",
+            "envPlugin();",
+        ),
+        (
+            "export const make = () => ({ list: [], add(p) { const list = this.list; list.push(p); } });",
+            "make",
+            "make().add('x');",
+        ),
+    ] {
+        let value = shared_config(shared, name, statement);
+        assert_eq!(read_at(&value, &["plugins"]), &strings(&[]), "{shared}: {value:?}");
+        assert_eq!(read_at(&value, &["name"]), &s("app"), "{shared}: {value:?}");
+    }
+}
+
+/// A write through `this` changes a value of a module where `this` may be one: in a function the module hands out,
+/// which a namespace import calls on the module's namespace, and in a constructor through a key of the instance, which
+/// may hold such a value.
+#[test]
+fn a_write_through_this_that_may_reach_a_value_of_a_module_changes_the_imported_values() {
+    for (shared, config) in [
+        (
+            "export const plugins = [];\nexport function add(p) { this.plugins.push(p); }",
+            "import * as shared from './shared';\nshared.add('x');\nexport default { plugins: shared.plugins };",
+        ),
+        (
+            "import { base } from './base';\n\
+             class Registry { constructor() { this.list = base.plugins; this.list.push('x'); } }\n\
+             export const make = () => new Registry();",
+            "import { base } from './base';\nimport { make } from './shared';\nmake();\n\
+             export default { plugins: base.plugins };",
+        ),
+    ] {
+        let loader = files(&[
+            ("/ws/app/config.ts", config),
+            ("/ws/app/shared.ts", shared),
+            ("/ws/app/base.ts", "export const base = { plugins: [] };"),
+        ]);
+        let value = eval(&loader);
+        assert!(read_at(&value, &["plugins"]).has_unknown(), "{shared}: {value:?}");
+    }
+}
