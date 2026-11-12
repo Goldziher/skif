@@ -105,19 +105,26 @@ files and runs nothing:
   `npm_translate_lock(pnpm_lock = ...)` takes it. The Bazel repository is the nearest directory at or above the root,
   inside the git repository, with a `MODULE.bazel`, `REPO.bazel`, `WORKSPACE` or `WORKSPACE.bazel`; without one, no
   Bazel file is read. Labels are relative to it, so in a workspace at `js/` of a Bazel repository the label is
-  `//js/libs/a:pnpm-lock.yaml`;
+  `//js/libs/a:pnpm-lock.yaml`. A label also counts inside a longer string where a location function expands it, as
+  in a `genrule`'s `cmd = "cp $(location //libs/a:pnpm-lock.yaml) $@"` (also `$(execpath ...)`, `$(rootpath ...)`,
+  `$(rlocationpath ...)` and their plural forms);
 - its path relative to a `BUILD` or `BUILD.bazel` file of its own directory or one above (`"pnpm-lock.yaml"`,
   `":pnpm-lock.yaml"`, `"a/pnpm-lock.yaml"`), as in `exports_files` or `srcs`;
+- a `glob(...)` in the `BUILD` file of its package (the nearest directory at or above it with a `BUILD` file) whose
+  include patterns match it and whose exclude patterns do not (`glob(["**/*.yaml"])`);
+- when none of those name it, a label of it in any `BUILD` file of the Bazel repository, or in a `.bzl` file such a
+  file loads: the repository is then listed for its `BUILD` files, without entering hidden directories,
+  `node_modules`, symbolic links (the `bazel-*` links) or the directories `.bazelignore` names;
 - a `COPY` or `ADD` of it, by name or by a glob such as `pnpm-lock.yaml*`, in a Dockerfile (`Dockerfile`,
   `Dockerfile.*`, `*.Dockerfile`, `Containerfile`) of its own directory, or in any Dockerfile with the path from the
   workspace root (`COPY libs/a/pnpm-lock.yaml ./`), for a build whose context is the root;
 - a `COPY . .` in a Dockerfile of its own directory followed by an install with its package manager (`pnpm install`,
   `npm ci`, `yarn`, `bun install`).
 
-A copy from another stage (`--from`) does not count. Comments and the names in an `exclude = [...]` list are skipped.
-No directory is listed for Bazel files: a lockfile that only another package's `BUILD` file names is not found, so
-list it in its own package (`exports_files`) or give it an `allow` entry. An `allow`
-entry for such a lockfile is reported as stale, since the rule would not report the file without it.
+A copy from another stage (`--from`) does not count. Comments, docstrings and the names in an `exclude = [...]` list
+are skipped. A directory is listed for Bazel files only while a lockfile is left that the files Bazel reads for it do
+not name. An `allow` entry for a lockfile a build names is reported as stale, since the rule would not report the file
+without it.
 
 `nested-workspace-root` reports a `pnpm-workspace.yaml` in a member's directory: pnpm takes the nearest one above the
 working directory, so an install in that member leaves the root workspace. skif lints such a member as a root of its

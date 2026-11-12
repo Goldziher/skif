@@ -23,6 +23,19 @@ All notable changes to this project are documented here. The format follows
   the root's Node version, statically. A `files` glob also reads `.bzl` and `*.MODULE.bazel` files
   ([ADR 0116](adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
   [#175](https://github.com/Goldziher/skif/issues/175)).
+- `stray-lockfile` sees more Bazel consumers of a member lockfile: a label inside a longer string where
+  `$(location ...)`, `$(execpath ...)` or another location function expands it (a `genrule`'s `cmd`), and a
+  `glob(...)` of the lockfile's package whose include patterns match it and whose exclude patterns do not; a docstring
+  no longer counts as a label ([ADR 0116](adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
+  [#199](https://github.com/Goldziher/skif/issues/199)).
+
+### Fixed
+
+- `stray-lockfile` no longer reports a member lockfile that only another package's `BUILD` file names, or a macro such
+  a file loads: when the files Bazel reads for a lockfile do not name it, the Bazel repository is listed for its
+  `BUILD` files, skipping hidden directories, `node_modules`, symbolic links and `.bazelignore`d directories
+  ([ADR 0116](adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
+  [#198](https://github.com/Goldziher/skif/issues/198)).
 
 ## [0.3.0] - 2026-11-11
 

@@ -6,17 +6,22 @@
 //! `@<module name>//`, and with the directory in the target (`"//:libs/a/pnpm-lock.yaml"`). The files read are those
 //! Bazel reads: the `MODULE.bazel`, `REPO.bazel`, `WORKSPACE.bazel` and `WORKSPACE` at the top of the Bazel repository,
 //! the `BUILD` and `BUILD.bazel` files of each lockfile's directory and the directories above it, and every `.bzl`
-//! (or `*.MODULE.bazel`) file of the main repository those files load or name by a label, transitively. Nothing else
-//! is listed or read, so a lockfile only another package's `BUILD` file names, through an implicitly exported file, is
-//! not found. A `BUILD` file also names a lockfile of its own directory or below by a relative path
-//! (`"pnpm-lock.yaml"`, `":a/pnpm-lock.yaml"`). A literal in an `exclude = [...]` list names nothing.
+//! (or `*.MODULE.bazel`) file of the main repository those files load or name by a label, transitively. Only when
+//! those leave a lockfile unnamed is the Bazel repository listed for its `BUILD` files, which are read with the files
+//! they load, so that a lockfile only another package's `BUILD` file names (through an implicitly exported file) is
+//! found too; the listing does not enter hidden directories, `node_modules`, symbolic links or the directories
+//! `.bazelignore` names. A `BUILD` file also names a lockfile of its own directory or below by a relative path
+//! (`"pnpm-lock.yaml"`, `":a/pnpm-lock.yaml"`), and the `BUILD` file of the lockfile's package by a `glob(...)` whose
+//! include patterns match it and whose exclude patterns do not. A label also counts inside a longer string where
+//! `$(location ...)`, `$(execpath ...)` or another location function expands it (a `genrule`'s `cmd`). A literal in
+//! an `exclude = [...]` list names nothing, and neither does a docstring.
 //!
 //! A Dockerfile names a lockfile when a `COPY` or `ADD` from the build context copies it, by name or by a glob
 //! (`pnpm-lock.yaml*`), with the build context taken as the Dockerfile's directory or the workspace root; and when a
 //! Dockerfile of the lockfile's directory copies the whole context (`COPY . .`) and then installs with the lockfile's
 //! package manager. The Dockerfiles are those the toolchain scan reads and those of the lockfiles' directories.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use skif_config::Selector;
@@ -25,6 +30,7 @@ use skif_lint::LintContext;
 use skif_workspace::{LOCKFILES, PackageManager, bazel_workspace_name, repository_root};
 
 use crate::paths::{file_name, join, parent};
+use crate::starlark::{self, Kind, Token};
 use crate::toolchain::{self, DockerfileCopies};
 
 /// The files that mark the root of a Bazel repository.
@@ -54,76 +60,211 @@ fn manager_of(path: &str) -> Option<PackageManager> {
     }
 }
 
-/// The end of the identifier that starts at byte `at` of `source`.
-fn identifier_end(source: &str, at: usize) -> usize {
-    source[at..]
-        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-        .map_or(source.len(), |end| at + end)
+/// The functions of a `genrule` command or `args` that expand a label to a path: `$(location //libs/a:x)`.
+const LOCATION_FUNCTIONS: [&str; 8] = [
+    "location",
+    "locations",
+    "execpath",
+    "execpaths",
+    "rootpath",
+    "rootpaths",
+    "rlocationpath",
+    "rlocationpaths",
+];
+
+/// How deep the listing of a Bazel repository for its `BUILD` files descends.
+const MAX_DEPTH: usize = 32;
+
+/// The labels that `$(location <label>)` and the other [`LOCATION_FUNCTIONS`] expand inside `literal`, as a
+/// `genrule`'s `cmd` writes them.
+fn expanded_labels(literal: &str) -> impl Iterator<Item = &str> {
+    literal.match_indices("$(").filter_map(move |(at, _)| {
+        let (function, rest) = literal[at + 2..].split_once(char::is_whitespace)?;
+        if !LOCATION_FUNCTIONS.contains(&function) {
+            return None;
+        }
+        let rest = rest.trim_start();
+        let end = rest.find(|c: char| c == ')' || c.is_whitespace())?;
+        Some(&rest[..end]).filter(|label| !label.is_empty())
+    })
 }
 
-/// The contents of the string literals of Starlark `source`, without `#` comments and without those of an
-/// `exclude = [...]` list; escapes are kept as written.
-fn string_literals(source: &str) -> Vec<&str> {
-    let bytes = source.as_bytes();
-    let mut literals = Vec::new();
-    let mut depth = 0_usize;
-    // The bracket depth of the open `exclude = [` list, if any.
-    let mut exclude: Option<usize> = None;
-    let mut at = 0;
-    while at < bytes.len() {
-        match bytes[at] {
-            b'#' => at = source[at..].find('\n').map_or(bytes.len(), |end| at + end),
-            quote @ (b'"' | b'\'') => {
-                let keep = exclude.is_none();
-                let triple = if quote == b'"' { "\"\"\"" } else { "'''" };
-                if source[at..].starts_with(triple) {
-                    let start = at + 3;
-                    let end = source[start..].find(triple).map_or(bytes.len(), |end| start + end);
-                    if keep {
-                        literals.push(&source[start..end]);
+/// A `glob(...)` call: the patterns it includes and those it excludes, relative to its package.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Glob {
+    include: Vec<String>,
+    exclude: Vec<String>,
+}
+
+impl Glob {
+    /// Whether the glob selects `path`, relative to its package.
+    fn selects(&self, path: &str) -> bool {
+        self.include.iter().any(|pattern| glob_matches(pattern, path))
+            && !self.exclude.iter().any(|pattern| glob_matches(pattern, path))
+    }
+}
+
+/// Whether the Bazel glob `pattern` matches `path`, both relative to a package: `**` is any number of segments and
+/// `*` any run of characters within one.
+fn glob_matches(pattern: &str, path: &str) -> bool {
+    let pattern: Vec<&str> = pattern.split('/').collect();
+    let path: Vec<&str> = path.split('/').collect();
+    segments_match(&pattern, &path)
+}
+
+fn segments_match(pattern: &[&str], path: &[&str]) -> bool {
+    match pattern.split_first() {
+        None => path.is_empty(),
+        Some((&"**", rest)) => (0..=path.len()).any(|skip| segments_match(rest, &path[skip..])),
+        Some((first, rest)) => path
+            .split_first()
+            .is_some_and(|(segment, others)| segment_matches(first, segment) && segments_match(rest, others)),
+    }
+}
+
+fn segment_matches(pattern: &str, name: &str) -> bool {
+    match pattern.split_once('*') {
+        None => pattern == name,
+        Some((prefix, rest)) => name.strip_prefix(prefix).is_some_and(|tail| {
+            (0..=tail.len())
+                .filter(|&skip| tail.is_char_boundary(skip))
+                .any(|skip| segment_matches(rest, &tail[skip..]))
+        }),
+    }
+}
+
+/// What a Starlark file says that can name a lockfile.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Starlark<'s> {
+    /// Its string literals, escapes kept as written, then the labels a `$(location ...)` inside one expands; without
+    /// those of an `exclude = [...]` list and without docstrings (a string that is the first statement of the file or
+    /// of a `def`).
+    literals: Vec<&'s str>,
+    /// Its `glob(...)` calls.
+    globs: Vec<Glob>,
+}
+
+impl<'s> Starlark<'s> {
+    fn read(source: &'s str) -> Self {
+        let tokens = starlark::tokens(source);
+        let mut literals = Vec::new();
+        let mut expanded = Vec::new();
+        let mut depth = 0_usize;
+        // The bracket depth inside the open `exclude = [` list, if any.
+        let mut exclude: Option<usize> = None;
+        // The bracket depth of a `def` whose `:` has not come yet.
+        let mut header: Option<usize> = None;
+        let mut docstring = true;
+        for (index, token) in tokens.iter().enumerate() {
+            let at_docstring = std::mem::replace(&mut docstring, false);
+            match token.kind {
+                Kind::Str if exclude.is_none() && !at_docstring => {
+                    let literal = token.text(source);
+                    literals.push(literal);
+                    expanded.extend(expanded_labels(literal));
+                }
+                Kind::Punct(b'(' | b'[' | b'{') => depth += 1,
+                Kind::Punct(b')' | b']' | b'}') => {
+                    if exclude == Some(depth) {
+                        exclude = None;
                     }
-                    at = end + 3;
-                    continue;
+                    depth = depth.saturating_sub(1);
                 }
-                let start = at + 1;
-                let mut end = start;
-                while end < bytes.len() && bytes[end] != quote && bytes[end] != b'\n' {
-                    end += if bytes[end] == b'\\' { 2 } else { 1 };
+                Kind::Punct(b':') if header == Some(depth) => {
+                    header = None;
+                    docstring = true;
                 }
-                let end = end.min(bytes.len());
-                if keep {
-                    literals.push(&source[start..end]);
-                }
-                at = end + 1;
-            }
-            b'[' => {
-                depth += 1;
-                at += 1;
-            }
-            b']' => {
-                if exclude == Some(depth) {
-                    exclude = None;
-                }
-                depth = depth.saturating_sub(1);
-                at += 1;
-            }
-            byte if byte.is_ascii_alphabetic() || byte == b'_' => {
-                let end = identifier_end(source, at);
-                if exclude.is_none()
-                    && &source[at..end] == "exclude"
-                    && source[end..]
-                        .trim_start()
-                        .strip_prefix('=')
-                        .is_some_and(|value| value.trim_start().starts_with('['))
+                Kind::Name if token.is_name(source, "def") => header = Some(depth),
+                Kind::Name
+                    if exclude.is_none()
+                        && token.is_name(source, "exclude")
+                        && tokens.get(index + 1).is_some_and(|next| next.is(b'='))
+                        && tokens.get(index + 2).is_some_and(|next| next.is(b'[')) =>
                 {
                     exclude = Some(depth + 1);
                 }
-                at = end;
+                _ => {}
             }
-            _ => at += 1,
+        }
+        literals.extend(expanded);
+        Self {
+            literals,
+            globs: globs(source, &tokens),
         }
     }
-    literals
+}
+
+/// The index of the `,` that ends the argument starting at token `start` of a call closed at `close`, or `close`.
+fn argument_end(tokens: &[Token], start: usize, close: usize) -> usize {
+    let mut depth = 0_usize;
+    for (index, token) in tokens.iter().enumerate().take(close).skip(start) {
+        match token.kind {
+            Kind::Punct(b'(' | b'[' | b'{') => depth += 1,
+            Kind::Punct(b')' | b']' | b'}') => depth = depth.saturating_sub(1),
+            Kind::Punct(b',') if depth == 0 => return index,
+            _ => {}
+        }
+    }
+    close
+}
+
+/// The `glob(...)` calls among `tokens`, also as `native.glob(...)`: the string literals of the list given first or
+/// as `include`, and of the one given second or as `exclude`.
+fn globs(source: &str, tokens: &[Token]) -> Vec<Glob> {
+    let mut found = Vec::new();
+    for (index, token) in tokens.iter().enumerate() {
+        if !token.is_name(source, "glob") || !tokens.get(index + 1).is_some_and(|next| next.is(b'(')) {
+            continue;
+        }
+        let close = starlark::closing(tokens, index + 1);
+        let mut glob = Glob::default();
+        let mut positional = 0;
+        let mut at = index + 2;
+        while at < close {
+            let named = tokens[at].kind == Kind::Name && tokens.get(at + 1).is_some_and(|next| next.is(b'='));
+            let (include, list) = if named {
+                match tokens[at].text(source) {
+                    "include" => (Some(true), at + 2),
+                    "exclude" => (Some(false), at + 2),
+                    _ => (None, at + 2),
+                }
+            } else {
+                positional += 1;
+                let include = match positional {
+                    1 => Some(true),
+                    2 => Some(false),
+                    _ => None,
+                };
+                (include, at)
+            };
+            let end = argument_end(tokens, list, close);
+            if let Some(include) = include
+                && tokens.get(list).is_some_and(|open| open.is(b'['))
+            {
+                let patterns = tokens[list..end]
+                    .iter()
+                    .filter(|token| token.kind == Kind::Str)
+                    .map(|token| token.text(source).to_owned());
+                if include {
+                    glob.include.extend(patterns);
+                } else {
+                    glob.exclude.extend(patterns);
+                }
+            }
+            at = end + 1;
+        }
+        found.push(glob);
+    }
+    found
+}
+
+/// Whether `source` can name a lockfile: it holds a lockfile's name, a `glob(` or the name of a Starlark file it may
+/// load. A file that cannot is not lexed.
+fn may_name_lockfile(source: &str) -> bool {
+    LOCKFILES.iter().any(|name| source.contains(name))
+        || source.contains("glob(")
+        || source.contains(".bzl")
+        || source.contains(".MODULE.bazel")
 }
 
 /// The Bazel repository the workspace root belongs to.
@@ -230,50 +371,159 @@ fn listed_lockfile(dir: &str, literal: &str) -> Option<String> {
     (!target.contains(':') && is_lockfile_target(target)).then(|| join(dir, target))
 }
 
-/// The workspace-relative lockfiles the Bazel files name; `lockfile_dirs` are the directories of the lockfiles to
-/// judge. Nothing is read outside a Bazel repository, and no directory is listed.
-fn bazel_consumers(fs: &dyn FileSystem, root: &Path, lockfile_dirs: &BTreeSet<&str>) -> BTreeSet<String> {
+/// The reading of Bazel files for the lockfiles they name, each file read once.
+struct Search<'a> {
+    fs: &'a dyn FileSystem,
+    repository: &'a BazelRepository,
+    /// The files queued so far, relative to the Bazel root.
+    seen: BTreeSet<String>,
+    /// The workspace-relative lockfiles named so far.
+    consumed: BTreeSet<String>,
+    /// The `glob(...)` calls of each `BUILD` file read, by its directory relative to the Bazel root.
+    globs: BTreeMap<String, Vec<Glob>>,
+}
+
+impl<'a> Search<'a> {
+    fn new(fs: &'a dyn FileSystem, repository: &'a BazelRepository) -> Self {
+        Self {
+            fs,
+            repository,
+            seen: BTreeSet::new(),
+            consumed: BTreeSet::new(),
+            globs: BTreeMap::new(),
+        }
+    }
+
+    /// Reads the files at `paths` (relative to the Bazel root) that exist and were not queued before, and the
+    /// Starlark files they load, transitively.
+    fn read(&mut self, paths: impl IntoIterator<Item = String>) {
+        let repository = self.repository;
+        let mut queue: Vec<String> = paths
+            .into_iter()
+            .filter(|path| !self.seen.contains(path) && self.fs.is_file(&repository.dir.join(path)))
+            .collect();
+        self.seen.extend(queue.iter().cloned());
+        while let Some(path) = queue.pop() {
+            let Ok(source) = self.fs.read_to_string(&repository.dir.join(&path)) else {
+                continue;
+            };
+            let dir = parent(&path);
+            let build = BUILD_FILES.contains(&file_name(&path));
+            if build {
+                self.globs.entry(dir.to_owned()).or_default();
+            }
+            if !may_name_lockfile(&source) {
+                continue;
+            }
+            let file = Starlark::read(&source);
+            self.consumed.extend(repository.labelled_in_workspace(&file.literals));
+            if build {
+                if let Some(dir) = repository.in_workspace(dir.to_owned()) {
+                    let listed = file.literals.iter().filter_map(|literal| listed_lockfile(&dir, literal));
+                    self.consumed.extend(listed);
+                }
+                self.globs.entry(dir.to_owned()).or_default().extend(file.globs);
+            }
+            for loaded in file
+                .literals
+                .iter()
+                .filter_map(|literal| repository.loaded_file(dir, literal))
+            {
+                if !self.seen.contains(&loaded) && self.fs.is_file(&repository.dir.join(&loaded)) {
+                    self.seen.insert(loaded.clone());
+                    queue.push(loaded);
+                }
+            }
+        }
+    }
+
+    /// Whether a `glob(...)` of the `BUILD` file of the package `lockfile` (workspace-relative) belongs to selects
+    /// it. The package is the nearest directory at or above the lockfile's that holds a `BUILD` file read; a glob
+    /// does not reach into the directories of other packages.
+    fn globbed(&self, lockfile: &str) -> bool {
+        let path = self.repository.bazel_path(lockfile);
+        ancestors(parent(&path))
+            .into_iter()
+            .find_map(|dir| self.globs.get(dir).map(|globs| (dir, globs)))
+            .is_some_and(|(dir, globs)| {
+                let relative = if dir.is_empty() { path.as_str() } else { &path[dir.len() + 1..] };
+                globs.iter().any(|glob| glob.selects(relative))
+            })
+    }
+}
+
+/// The `BUILD` and `BUILD.bazel` files below the Bazel root `dir`, relative to it, found by listing its directories.
+/// Hidden directories, `node_modules`, symbolic links (the `bazel-*` convenience links among them) and the
+/// directories `.bazelignore` names are not entered, as Bazel does not look for packages there.
+fn listed_build_files(fs: &dyn FileSystem, dir: &Path) -> Vec<String> {
+    let ignored: BTreeSet<String> = fs
+        .read_to_string(&dir.join(".bazelignore"))
+        .map(|text| {
+            text.lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty() && !line.starts_with('#'))
+                .map(|line| line.trim_end_matches('/').to_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut found = Vec::new();
+    let mut pending = vec![(String::new(), 0_usize)];
+    while let Some((relative, depth)) = pending.pop() {
+        let Ok(entries) = fs.read_dir_shared(&dir.join(&relative)) else {
+            continue;
+        };
+        for entry in entries.iter() {
+            let Some(name) = entry.path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let path = join(&relative, name);
+            if entry.is_file && BUILD_FILES.contains(&name) {
+                found.push(path);
+            } else if entry.is_dir
+                && !entry.is_symlink
+                && !name.starts_with('.')
+                && name != "node_modules"
+                && depth < MAX_DEPTH
+                && !ignored.contains(&path)
+            {
+                pending.push((path, depth + 1));
+            }
+        }
+    }
+    found.sort_unstable();
+    found
+}
+
+/// Which of `lockfiles` (workspace-relative) the Bazel files name. Nothing is read outside a Bazel repository. The
+/// files Bazel reads to find each lockfile come first, and no directory is listed when they name every lockfile;
+/// otherwise the repository is listed for its `BUILD` files, which are read with the files they load, for a lockfile
+/// that only another package names.
+fn bazel_consumers(fs: &dyn FileSystem, root: &Path, lockfiles: &[String]) -> BTreeSet<String> {
     let Some(repository) = BazelRepository::find(fs, root) else {
         return BTreeSet::new();
     };
     let repo = &repository;
-    let build_files = lockfile_dirs
+    let dirs: BTreeSet<&str> = lockfiles.iter().map(|lockfile| parent(lockfile)).collect();
+    let build_files = dirs
         .iter()
         .flat_map(|dir| ancestors(dir))
         .flat_map(move |dir| BUILD_FILES.iter().map(move |name| repo.bazel_path(&join(dir, name))));
-    let mut queue: Vec<String> = BAZEL_ROOT_FILES
+    let first: BTreeSet<String> = BAZEL_ROOT_FILES
         .iter()
         .map(|name| (*name).to_owned())
         .chain(build_files)
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .filter(|path| fs.is_file(&repository.dir.join(path)))
         .collect();
-    let mut seen: BTreeSet<String> = queue.iter().cloned().collect();
-    let mut consumed = BTreeSet::new();
-    while let Some(path) = queue.pop() {
-        let Ok(source) = fs.read_to_string(&repository.dir.join(&path)) else {
-            continue;
-        };
-        let literals = string_literals(&source);
-        consumed.extend(repository.labelled_in_workspace(&literals));
-        let dir = parent(&path);
-        if BUILD_FILES.contains(&file_name(&path))
-            && let Some(dir) = repository.in_workspace(dir.to_owned())
-        {
-            consumed.extend(literals.iter().filter_map(|literal| listed_lockfile(&dir, literal)));
-        }
-        for loaded in literals
-            .iter()
-            .filter_map(|literal| repository.loaded_file(dir, literal))
-        {
-            if !seen.contains(&loaded) && fs.is_file(&repository.dir.join(&loaded)) {
-                seen.insert(loaded.clone());
-                queue.push(loaded);
-            }
-        }
+    let mut search = Search::new(fs, repo);
+    search.read(first);
+    let named = |search: &Search<'_>, lockfile: &String| search.consumed.contains(lockfile) || search.globbed(lockfile);
+    if !lockfiles.iter().all(|lockfile| named(&search, lockfile)) {
+        search.read(listed_build_files(fs, &repository.dir));
     }
-    consumed
+    lockfiles
+        .iter()
+        .filter(|lockfile| named(&search, lockfile))
+        .cloned()
+        .collect()
 }
 
 /// `dir` and the directories above it, up to the root (`""`).
@@ -307,21 +557,23 @@ fn copies(dockerfile: &DockerfileCopies, lockfile: &str) -> bool {
                     .is_some_and(|manager| dockerfile.installs_after_context_copy.contains(&manager))))
 }
 
-/// Which of `lockfiles` (workspace-relative, `/`-separated) a Bazel file or a Dockerfile of the workspace names.
+/// Which of `lockfiles` (workspace-relative, `/`-separated) a Dockerfile or a Bazel file of the workspace names; the
+/// Bazel files are searched only for those no Dockerfile copies.
 pub(super) fn consumed(cx: &LintContext<'_>, lockfiles: &[String]) -> BTreeSet<String> {
     if lockfiles.is_empty() {
         return BTreeSet::new();
     }
     let dirs: BTreeSet<&str> = lockfiles.iter().map(|lockfile| parent(lockfile)).collect();
-    let bazel = bazel_consumers(cx.fs(), &cx.workspace.root, &dirs);
     let dockerfiles = toolchain::dockerfile_copies(cx, &dirs);
-    lockfiles
+    let (copied, rest): (Vec<String>, Vec<String>) = lockfiles
         .iter()
-        .filter(|lockfile| {
-            bazel.contains(lockfile.as_str()) || dockerfiles.iter().any(|dockerfile| copies(dockerfile, lockfile))
-        })
         .cloned()
-        .collect()
+        .partition(|lockfile| dockerfiles.iter().any(|dockerfile| copies(dockerfile, lockfile)));
+    let mut consumed: BTreeSet<String> = copied.into_iter().collect();
+    if !rest.is_empty() {
+        consumed.extend(bazel_consumers(cx.fs(), &cx.workspace.root, &rest));
+    }
+    consumed
 }
 
 #[cfg(test)]
@@ -380,8 +632,12 @@ mod tests {
     }
 
     fn consumers(fs: &dyn FileSystem, root: &str, lockfiles: &[&str]) -> Vec<String> {
-        let dirs: BTreeSet<&str> = lockfiles.iter().map(|lockfile| parent(lockfile)).collect();
-        bazel_consumers(fs, Path::new(root), &dirs).into_iter().collect()
+        let lockfiles: Vec<String> = lockfiles.iter().map(|lockfile| (*lockfile).to_owned()).collect();
+        bazel_consumers(fs, Path::new(root), &lockfiles).into_iter().collect()
+    }
+
+    fn string_literals(source: &str) -> Vec<&str> {
+        Starlark::read(source).literals
     }
 
     #[test]
@@ -395,6 +651,77 @@ mod tests {
         let source =
             "srcs = glob([\"**/*\"], exclude = [\"pnpm-lock.yaml\", [\"x\"]], my_exclude = [\"kept\"]) + [\"after\"]\n";
         assert_eq!(string_literals(source), ["**/*", "kept", "after"]);
+    }
+
+    #[test]
+    fn string_literals_skip_docstrings_of_the_file_and_of_functions() {
+        let source = "\
+\"\"\"//libs/a:pnpm-lock.yaml\"\"\"
+load(\"//tools:deps.bzl\", \"deps\")
+def lock(name, default = {\"k\": \"v\"}):
+    \"//libs/b:pnpm-lock.yaml\"
+    return \"//libs/c:pnpm-lock.yaml\"
+x = {\"key\": \"value\"}
+";
+        assert_eq!(
+            string_literals(source),
+            ["//tools:deps.bzl", "deps", "k", "v", "//libs/c:pnpm-lock.yaml", "key", "value"]
+        );
+    }
+
+    #[test]
+    fn labels_a_location_function_expands_count_inside_longer_strings() {
+        let source = "genrule(cmd = \"cp $(location //libs/a:pnpm-lock.yaml) $@ && cat $(execpath  :yarn.lock)\", \
+                      args = [\"$(rlocationpath @npm//:x)\", \"$(PWD) $(locations\"])\n";
+        let literals = string_literals(source);
+        assert_eq!(&literals[literals.len() - 3..], ["//libs/a:pnpm-lock.yaml", ":yarn.lock", "@npm//:x"]);
+    }
+
+    #[test]
+    fn globs_read_their_include_and_exclude_lists_by_position_or_name() {
+        let source = "\
+a = glob([\"**/pnpm-lock.yaml\", \"*.json\"], [\"x/**\"])
+b = native.glob(include = [\"sub/*\"], exclude = [\"sub/yarn.lock\"], allow_empty = True)
+c = glob(exclude = [\"z\"], include = [\"**\"])
+d = glob(SRCS)
+";
+        let glob = |include: &[&str], exclude: &[&str]| Glob {
+            include: include.iter().map(|pattern| (*pattern).to_owned()).collect(),
+            exclude: exclude.iter().map(|pattern| (*pattern).to_owned()).collect(),
+        };
+        assert_eq!(
+            Starlark::read(source).globs,
+            [
+                glob(&["**/pnpm-lock.yaml", "*.json"], &["x/**"]),
+                glob(&["sub/*"], &["sub/yarn.lock"]),
+                glob(&["**"], &["z"]),
+                glob(&[], &[]),
+            ]
+        );
+    }
+
+    #[test]
+    fn globs_match_as_bazel_matches_them() {
+        let cases = [
+            ("**/pnpm-lock.yaml", "pnpm-lock.yaml", true),
+            ("**/pnpm-lock.yaml", "a/b/pnpm-lock.yaml", true),
+            ("**", "a/pnpm-lock.yaml", true),
+            ("*", "pnpm-lock.yaml", true),
+            ("*", "a/pnpm-lock.yaml", false),
+            ("pnpm-*.yaml", "pnpm-lock.yaml", true),
+            ("*.json", "pnpm-lock.yaml", false),
+            ("a/**/*.yaml", "a/pnpm-lock.yaml", true),
+            ("b/**", "a/pnpm-lock.yaml", false),
+        ];
+        for (pattern, path, expected) in cases {
+            assert_eq!(glob_matches(pattern, path), expected, "{pattern} {path}");
+        }
+        let excluding = Glob {
+            include: vec!["**".to_owned()],
+            exclude: vec!["pnpm-lock.yaml".to_owned()],
+        };
+        assert!(!excluding.selects("pnpm-lock.yaml"));
+        assert!(excluding.selects("package.json"));
     }
 
     #[test]
@@ -516,13 +843,16 @@ mod tests {
         assert_eq!(with.listings.load(Ordering::SeqCst), 0);
     }
 
-    #[test]
-    fn only_the_files_bazel_loads_are_read() {
-        let fs = MemoryFs::new()
+    /// A Bazel repository whose lockfiles are named by the files Bazel reads for them (`a`, `b`, `e`), only by the
+    /// `BUILD` file of another package or a macro it loads (`d`, `f`), by a `.bzl` file nothing loads (`c`), by a
+    /// `BUILD` file below a `.bazelignore`d directory (`g`) and by a glob of their own package (`h`).
+    fn bazel_tree() -> MemoryFs {
+        MemoryFs::new()
             .with_file(
                 "/ws/WORKSPACE",
                 "load(\"//tools:deps.bzl\", \"deps\")\nload(\"@rules_js//npm:repositories.bzl\", \"x\")\n",
             )
+            .with_file("/ws/.bazelignore", "# nested modules\nexamples/\n")
             .with_file(
                 "/ws/tools/deps.bzl",
                 "load(\":more.bzl\", \"m\")\nLOCK = \"//libs/a:pnpm-lock.yaml\"\n",
@@ -530,20 +860,60 @@ mod tests {
             .with_file("/ws/tools/more.bzl", "LOCK = \"//libs/b:pnpm-lock.yaml\"\n")
             .with_file("/ws/tools/unloaded.bzl", "LOCK = \"//libs/c:pnpm-lock.yaml\"\n")
             .with_file("/ws/apps/x/BUILD", "LOCK = \"//libs/d:pnpm-lock.yaml\"\n")
+            .with_file("/ws/apps/y/BUILD.bazel", "load(\"//apps/y:lock.bzl\", \"lock\")\nlock()\n")
+            .with_file(
+                "/ws/apps/y/lock.bzl",
+                "def lock():\n    native.filegroup(srcs = [\"//libs/f:pnpm-lock.yaml\"])\n",
+            )
+            .with_file("/ws/examples/z/BUILD", "LOCK = \"//libs/g:pnpm-lock.yaml\"\n")
             .with_file("/ws/libs/e/BUILD.bazel", "load(\"//libs:macros.bzl\", \"m\")\n")
-            .with_file("/ws/libs/macros.bzl", "LOCK = \"//libs/e:pnpm-lock.yaml\"\n");
-        let counting = Counting::new(fs);
-        let lockfiles = ["a", "b", "c", "d", "e"].map(|name| format!("libs/{name}/pnpm-lock.yaml"));
-        let lockfiles: Vec<&str> = lockfiles.iter().map(String::as_str).collect();
-        assert_eq!(
-            consumers(&counting, "/ws", &lockfiles),
-            [
-                "libs/a/pnpm-lock.yaml",
-                "libs/b/pnpm-lock.yaml",
-                "libs/e/pnpm-lock.yaml"
-            ]
-        );
+            .with_file("/ws/libs/macros.bzl", "LOCK = \"//libs/e:pnpm-lock.yaml\"\n")
+            .with_file("/ws/libs/h/BUILD.bazel", "filegroup(name = \"all\", srcs = glob([\"**/*.yaml\"]))\n")
+            .with_file("/ws/libs/h/sub/BUILD", "filegroup(name = \"sub\")\n")
+    }
+
+    fn lockfiles(names: &str) -> Vec<String> {
+        names.chars().map(|name| format!("libs/{name}/pnpm-lock.yaml")).collect()
+    }
+
+    #[test]
+    fn when_the_files_bazel_reads_name_every_lockfile_no_directory_is_listed() {
+        let counting = Counting::new(bazel_tree());
+        let judged = lockfiles("abeh");
+        let judged: Vec<&str> = judged.iter().map(String::as_str).collect();
+        assert_eq!(consumers(&counting, "/ws", &judged), judged);
         assert_eq!(counting.listings.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn a_lockfile_only_another_package_names_is_found_by_listing_the_build_files() {
+        let counting = Counting::new(bazel_tree());
+        let judged = lockfiles("abcdefgh");
+        let judged: Vec<&str> = judged.iter().map(String::as_str).collect();
+        assert_eq!(consumers(&counting, "/ws", &judged), lockfiles("abdefh"));
+        assert!(counting.listings.load(Ordering::SeqCst) > 0);
+    }
+
+    #[test]
+    fn a_glob_reaches_only_into_its_own_package() {
+        let judged = ["libs/h/sub/pnpm-lock.yaml", "libs/h/pnpm-lock.yaml"];
+        assert_eq!(consumers(&bazel_tree(), "/ws", &judged), ["libs/h/pnpm-lock.yaml"]);
+    }
+
+    #[test]
+    fn the_listing_skips_hidden_and_ignored_directories_and_node_modules() {
+        let fs = MemoryFs::new()
+            .with_file("/ws/.bazelignore", "examples\n")
+            .with_file("/ws/apps/BUILD", "")
+            .with_file("/ws/apps/web/BUILD.bazel", "")
+            .with_file("/ws/examples/BUILD", "")
+            .with_file("/ws/.cache/BUILD", "")
+            .with_file("/ws/node_modules/x/BUILD", "")
+            .with_file("/ws/BUILD.bazel", "");
+        assert_eq!(
+            listed_build_files(&fs, Path::new("/ws")),
+            ["BUILD.bazel", "apps/BUILD", "apps/web/BUILD.bazel"]
+        );
     }
 
     #[test]
