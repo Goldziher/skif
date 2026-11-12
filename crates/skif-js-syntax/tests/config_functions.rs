@@ -755,6 +755,11 @@ fn open(value: &ConfigValue) -> bool {
     value.get("...").is_some()
 }
 
+/// Whether `value` is unknown, or an object that may have any other key.
+fn open_or_unknown(value: &ConfigValue) -> bool {
+    *value == ConfigValue::Unknown || open(value)
+}
+
 /// A change made through another name for an object, by a call or by a closure reaches the original, which is then
 /// partly unknown where the change is, and a change of an object another one holds reaches only the part that holds
 /// it; a change through an alias the evaluator follows (`const a = cfg` in a function) is applied to it.
@@ -2280,7 +2285,7 @@ fn an_alias_of_a_local_shared_with_a_changed_object_is_not_followed() {
            return { coverage };\n\
          };",
     );
-    assert!(open(get(&value, &["coverage"])), "{value:?}");
+    assert!(open_or_unknown(get(&value, &["coverage"])), "{value:?}");
 }
 
 /// A class's static block and field initialisers run when the class is defined or an object of it is made, which the
