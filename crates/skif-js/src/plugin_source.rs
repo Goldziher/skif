@@ -326,7 +326,11 @@ fn dir_below(dir: &str, package_dir: &str) -> Option<String> {
 impl InputSource for PluginSource {
     fn inputs(&self, request: &InputRequest<'_>) -> WorkspaceInputs {
         let package = request.package;
-        let dependencies: Vec<String> = package.dependencies.iter().map(|entry| entry.name.to_string()).collect();
+        let dependencies: Vec<String> = package
+            .dependencies
+            .iter()
+            .map(|entry| entry.name.to_string())
+            .collect();
         let inherited = inherited_dependencies(request);
         let scripts = scripts(request);
         let dir = request.workspace.root.join(Path::new(&package.dir));

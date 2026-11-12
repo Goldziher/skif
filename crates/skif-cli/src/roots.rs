@@ -208,7 +208,10 @@ fn distinct_configs<'a>(configs: impl IntoIterator<Item = &'a skif::Config>) -> 
 /// order does not count (`==` compares the rules as a map), what the configuration extends, and the lengths of its
 /// lists.
 fn config_key(config: &skif::Config) -> u64 {
-    let rules = config.rules.keys().fold(0_u64, |sum, id| sum.wrapping_add(HashState.hash_one(id)));
+    let rules = config
+        .rules
+        .keys()
+        .fold(0_u64, |sum, id| sum.wrapping_add(HashState.hash_one(id)));
     HashState.hash_one((
         rules,
         &config.extends,
@@ -563,7 +566,9 @@ mod tests {
         let with_rules = |ids: &[&str]| {
             let mut config = skif::Config::default();
             for id in ids {
-                config.rules.insert((*id).to_owned(), skif::RuleConfig::level(skif::Level::Error));
+                config
+                    .rules
+                    .insert((*id).to_owned(), skif::RuleConfig::level(skif::Level::Error));
             }
             config
         };
