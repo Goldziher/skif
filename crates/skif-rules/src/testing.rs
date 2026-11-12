@@ -3,10 +3,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeMap;
+use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use skif_config::Config;
-use skif_core::{Diagnostic, FileSystem, FixOp, MemoryFs, Span};
+use skif_core::{DirEntry, Diagnostic, FileSystem, FixOp, MemoryFs, Span};
 use skif_edit::FileKind;
 use skif_lint::{Registry, RunOptions, run_unsorted};
 use skif_workspace::Workspace;
@@ -22,6 +24,71 @@ pub fn memory(files: Files<'_>) -> MemoryFs {
     files.iter().fold(MemoryFs::new(), |fs, (path, content)| {
         fs.with_file(Path::new("/ws").join(path), content)
     })
+}
+
+/// The files under `/ws` in a git work tree whose index tracks the paths of `tracked`, on a file system that reports
+/// no modification times, so that every tracked directory is listed from the index.
+pub struct GitTree {
+    files: MemoryFs,
+    index: Vec<u8>,
+}
+
+impl GitTree {
+    pub fn new(files: Files<'_>, tracked: &[&str]) -> Self {
+        Self {
+            files: memory(files).with_file("/ws/.git/HEAD", "ref: refs/heads/main\n"),
+            index: git_index(tracked),
+        }
+    }
+}
+
+/// A version 2 git index of regular files at `paths`, with the all-zero trailer of `index.skipHash`.
+fn git_index(paths: &[&str]) -> Vec<u8> {
+    const REGULAR: u32 = 0o100_644;
+    let mut sorted = paths.to_vec();
+    sorted.sort_unstable();
+    let mut out = b"DIRC".to_vec();
+    out.extend(2_u32.to_be_bytes());
+    out.extend(u32::try_from(sorted.len()).unwrap().to_be_bytes());
+    for path in sorted {
+        let start = out.len();
+        out.extend([0; 24]);
+        out.extend(REGULAR.to_be_bytes());
+        out.extend([0; 12 + 20]);
+        out.extend(u16::try_from(path.len()).unwrap().to_be_bytes());
+        out.extend(path.as_bytes());
+        // NUL padded to a multiple of eight bytes, counted from the start of the entry.
+        let size = (out.len() - start + 8) & !7;
+        out.resize(start + size, 0);
+    }
+    out.extend([0; 20]);
+    out
+}
+
+impl FileSystem for GitTree {
+    fn read_to_string(&self, path: &Path) -> io::Result<Arc<str>> {
+        self.files.read_to_string(path)
+    }
+
+    fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
+        self.files.read_dir(path)
+    }
+
+    fn is_file(&self, path: &Path) -> bool {
+        self.files.is_file(path)
+    }
+
+    fn is_dir(&self, path: &Path) -> bool {
+        self.files.is_dir(path)
+    }
+
+    fn read_bytes(&self, path: &Path) -> io::Result<Vec<u8>> {
+        if path == Path::new("/ws/.git/index") {
+            Ok(self.index.clone())
+        } else {
+            self.files.read_bytes(path)
+        }
+    }
 }
 
 pub fn workspace(files: Files<'_>, config: &Config) -> Workspace {

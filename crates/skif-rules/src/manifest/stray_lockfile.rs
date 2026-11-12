@@ -804,6 +804,100 @@ mod tests {
         }
     }
 
+    /// The stray lockfiles of `files` in a git work tree whose index tracks every file but `untracked`, sorted.
+    fn strays_in_git_tree(files: &[(&str, &str)], untracked: &[&str], toml: &str) -> Vec<String> {
+        let tracked: Vec<&str> = files
+            .iter()
+            .map(|(path, _)| *path)
+            .filter(|path| !untracked.contains(path))
+            .collect();
+        let tree = testing::GitTree::new(files, &tracked);
+        let mut found = paths(&testing::lint_in(
+            META.id,
+            &tree,
+            &config(toml),
+            &RunOptions::default(),
+        ));
+        found.sort_unstable();
+        found
+    }
+
+    const GIT_DISCOVERY: &str = "[js]\ndiscovery = \"git\"\n";
+
+    #[test]
+    fn under_git_discovery_the_bazel_listing_comes_from_the_git_index() {
+        // Only `apps/web/BUILD.bazel` names the lockfile of `libs/a`, and only the listing of the repository finds it.
+        let files = [
+            (
+                "package.json",
+                r#"{"name":"root","private":true,"packageManager":"pnpm@10.34.6"}"#,
+            ),
+            ("pnpm-workspace.yaml", "packages: [libs/a, apps/web]\n"),
+            ("pnpm-lock.yaml", ""),
+            ("MODULE.bazel", ""),
+            ("libs/a/package.json", MEMBER_A),
+            ("libs/a/pnpm-lock.yaml", ""),
+            ("apps/web/package.json", r#"{"name":"web"}"#),
+            (
+                "apps/web/BUILD.bazel",
+                "npm_translate_lock(pnpm_lock = \"//libs/a:pnpm-lock.yaml\")\n",
+            ),
+        ];
+        let untracked = ["apps/web/BUILD.bazel"];
+        assert_eq!(strays_in_git_tree(&files, &[], GIT_DISCOVERY), [] as [&str; 0]);
+        assert_eq!(
+            strays_in_git_tree(&files, &untracked, GIT_DISCOVERY),
+            ["libs/a/pnpm-lock.yaml"],
+            "an untracked BUILD file in a directory the index lists is not seen"
+        );
+        assert_eq!(
+            strays_in_git_tree(&files, &untracked, ""),
+            [] as [&str; 0],
+            "the default discovery walks the directories"
+        );
+        assert_eq!(
+            strays_in_git_tree(&files, &untracked, "[js]\ndiscovery = \"walk\"\n"),
+            [] as [&str; 0]
+        );
+    }
+
+    #[test]
+    fn under_git_discovery_the_toolchain_scan_lists_from_the_git_index() {
+        // `apps/web/Dockerfile` copies the lockfile of `apps/web`; the scan finds it by listing the member directory.
+        let files = bazel_and_docker_files(&[]);
+        let untracked = ["apps/web/Dockerfile"];
+        assert_eq!(
+            strays_in_git_tree(&files, &[], GIT_DISCOVERY),
+            ["libs/b/pnpm-lock.yaml"]
+        );
+        assert_eq!(
+            strays_in_git_tree(&files, &untracked, GIT_DISCOVERY),
+            ["apps/web/pnpm-lock.yaml", "libs/b/pnpm-lock.yaml"]
+        );
+        assert_eq!(strays_in_git_tree(&files, &untracked, ""), ["libs/b/pnpm-lock.yaml"]);
+    }
+
+    #[test]
+    fn under_git_discovery_a_dockerfile_beside_a_lockfile_is_listed_from_the_git_index() {
+        let files = [
+            (
+                "package.json",
+                r#"{"name":"root","private":true,"packageManager":"pnpm@10.34.6"}"#,
+            ),
+            ("pnpm-workspace.yaml", "packages: [tools/*]\n"),
+            ("pnpm-lock.yaml", ""),
+            ("tools/image/pnpm-lock.yaml", ""),
+            ("tools/image/Dockerfile", "FROM node:22\nCOPY pnpm-lock.yaml ./\n"),
+        ];
+        let untracked = ["tools/image/Dockerfile"];
+        assert_eq!(strays_in_git_tree(&files, &[], GIT_DISCOVERY), [] as [&str; 0]);
+        assert_eq!(
+            strays_in_git_tree(&files, &untracked, GIT_DISCOVERY),
+            ["tools/image/pnpm-lock.yaml"]
+        );
+        assert_eq!(strays_in_git_tree(&files, &untracked, ""), [] as [&str; 0]);
+    }
+
     #[test]
     fn a_dockerfile_building_from_the_workspace_root_names_the_lockfile_it_copies() {
         for (path, dockerfile) in [
