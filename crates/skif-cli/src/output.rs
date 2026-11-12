@@ -198,7 +198,7 @@ fn render_options(report: &Report, rendering: &Rendering<'_>, fs: &dyn FileSyste
     if matches!(rendering.format, Format::Human | Format::Sarif) {
         for path in framed_files(report) {
             if let Ok(text) = fs.read_to_string(&root.join(&path)) {
-                options = options.with_source(&path, text.to_string());
+                options = options.with_source(&path, text);
             }
         }
     }

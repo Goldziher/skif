@@ -3,19 +3,20 @@
 
 use std::borrow::Cow;
 use std::fmt::Write as _;
+use std::sync::Arc;
 
 use unicode_width::UnicodeWidthChar;
 
 /// The text of a file with the offset at which each line starts, so a line is a slice instead of a scan.
 #[derive(Debug, Clone)]
 pub(crate) struct Source {
-    text: String,
+    text: Arc<str>,
     starts: Vec<usize>,
 }
 
 impl Source {
     /// Indexes the lines of `text` once.
-    pub(crate) fn new(text: String) -> Self {
+    pub(crate) fn new(text: Arc<str>) -> Self {
         let starts = std::iter::once(0)
             .chain(
                 text.bytes()
@@ -169,13 +170,13 @@ mod tests {
 
     #[test]
     fn lines_of_a_source_handle_crlf_and_bounds() {
-        let source = Source::new("a\r\nb\n".to_owned());
+        let source = Source::new(Arc::from("a\r\nb\n"));
         assert_eq!(source.line(1), Some("a"));
         assert_eq!(source.line(2), Some("b"));
         assert_eq!(source.line(3), Some(""));
         assert_eq!(source.line(4), None);
         assert_eq!(source.line(0), None);
-        assert_eq!(Source::new(String::new()).line(1), Some(""));
-        assert_eq!(Source::new(String::new()).line(2), None);
+        assert_eq!(Source::new(Arc::from("")).line(1), Some(""));
+        assert_eq!(Source::new(Arc::from("")).line(2), None);
     }
 }
