@@ -131,16 +131,20 @@ pub struct Linters {
 }
 
 impl Linters {
-    /// Builds one linter per distinct configuration. They read the disk themselves: the cache a linter keeps over its
-    /// file system serves all the roots it lints, and a second layer under it would outlive a run. The linters of a
-    /// multi-root run share the module cache [`Linter::shared_modules`] builds, which lives as long as they do.
+    /// Builds one linter per distinct configuration, reading the disk. The cache a linter keeps over its file system
+    /// serves all the roots it lints. The linters of a multi-root run share the module cache
+    /// [`Linter::shared_modules`] builds, which lives as long as they do.
     pub fn build(targets: &[Target]) -> Result<Self, CliError> {
         Self::build_with(targets, None, None)
     }
 
-    /// Like [`Linters::build`], reading through `fs` instead of the disk (the language server's unsaved buffers) and
-    /// parsing every source file through `modules` when given (`--cache`, or the cache of a long-lived host) instead
-    /// of the in-memory cache of a multi-root run.
+    /// Like [`Linters::build`], reading through `fs` instead of the disk and parsing every source file through
+    /// `modules` when given (`--cache`, or the cache of a long-lived host) instead of the in-memory cache of a
+    /// multi-root run.
+    ///
+    /// `fs` is the language server's unsaved buffers, or the [`CachedFs`](skif::CachedFs) a command found its roots
+    /// through, so the linters do not read the listings and manifests discovery already read again. Such a cache
+    /// lives for one command and is cleared after the command writes files, before it lints again.
     pub fn build_with(
         targets: &[Target],
         fs: Option<&Arc<dyn FileSystem>>,

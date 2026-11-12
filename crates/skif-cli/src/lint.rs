@@ -551,7 +551,7 @@ fn relint_root(
     fs: &CachedFs<OsFs>,
 ) -> (FixRun, Result<RootRun, CliError>) {
     if !again {
-        let install = install_step(args, &[], &run.workspace);
+        let install = installed(install_step(args, &[], &run.workspace), fs);
         let fix_run = FixRun {
             plan,
             install,
@@ -562,7 +562,7 @@ fn relint_root(
     match linted.unwrap_or_else(|| relint(linter, &run, fs)) {
         Ok((workspace, report)) => {
             let changed: Vec<&Path> = plan.paths().collect();
-            let install = install_step(args, &changed, &workspace);
+            let install = installed(install_step(args, &changed, &workspace), fs);
             let fix_run = FixRun {
                 plan,
                 install,
@@ -579,6 +579,15 @@ fn relint_root(
         }
         Err(error) => (FixRun::relint_failed(plan), Err(error)),
     }
+}
+
+/// `status`, after emptying `fs` when the package manager ran: it may have rewritten what the linters read through
+/// `fs` (installed manifests, the lockfile), and the next root is linted again from disk.
+fn installed(status: InstallStatus, fs: &CachedFs<OsFs>) -> InstallStatus {
+    if !matches!(status, InstallStatus::Skipped { .. }) {
+        fs.clear();
+    }
+    status
 }
 
 /// Plans the fixes of every root and describes them without writing anything: what `--dry-run` shows.
@@ -617,7 +626,7 @@ pub(crate) fn lint_to_json_with(
     recursive: bool,
     modules: Option<&Arc<dyn ModuleCache>>,
 ) -> Result<String, CliError> {
-    let fs = CachedFs::new(OsFs);
+    let fs = Arc::new(CachedFs::new(OsFs));
     let start = canonical(path)?;
     let Resolved {
         base,
@@ -627,9 +636,9 @@ pub(crate) fn lint_to_json_with(
         truncated,
         ..
     } = timing::phase("root discovery (roots, configs, workspaces)", || {
-        roots::resolve(&start, recursive, &fs, overrides)
+        roots::resolve(&start, recursive, &*fs, overrides)
     })?;
-    let linters = Linters::build_with(&targets, None, modules)?;
+    let linters = Linters::build_with(&targets, Some(&(fs as Arc<dyn FileSystem>)), modules)?;
     let mut runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
     roots::settle_shared_config(&mut runs);
     let reports: Vec<Cow<'_, Report>> = runs
@@ -668,9 +677,10 @@ pub fn lint_root(
     modules: Option<&dyn CacheHost>,
 ) -> Result<(PathBuf, Report, Vec<RootRun>), CliError> {
     let start = canonical(path)?;
-    let Resolved { base, targets, .. } = roots::resolve(&start, false, &CachedFs::new(Arc::clone(fs)), overrides)?;
+    let cached: Arc<dyn FileSystem> = Arc::new(CachedFs::new(Arc::clone(fs)));
+    let Resolved { base, targets, .. } = roots::resolve(&start, false, cached.as_ref(), overrides)?;
     let modules = modules.map(|host| host.modules(&base));
-    let linters = Linters::build_with(&targets, Some(fs), modules.as_ref())?;
+    let linters = Linters::build_with(&targets, Some(&cached), modules.as_ref())?;
     let mut runs = roots::lint_targets(&base, targets, &linters)?;
     roots::settle_shared_config(&mut runs);
     let reports: Vec<Cow<'_, Report>> = runs
@@ -724,7 +734,8 @@ fn roots_json(runs: &[RootRun], reports: &[Cow<'_, Report>]) -> Value {
 }
 
 fn execute(args: &LintArgs, env: Env, teardown: Teardown, modules: Option<&dyn CacheHost>) -> Result<u8, CliError> {
-    let fs = CachedFs::new(OsFs);
+    let shared = Arc::new(CachedFs::new(OsFs));
+    let fs: &CachedFs<OsFs> = &shared;
     let targets_out = args.targets()?;
     if args.dry_run && !args.fixing() {
         return Err(CliError::new(Kind::Usage, "--dry-run needs --fix or --fix-unsafe"));
@@ -745,7 +756,7 @@ fn execute(args: &LintArgs, env: Env, teardown: Teardown, modules: Option<&dyn C
         failures: root_errors,
         truncated,
     } = timing::phase("root discovery (roots, configs, workspaces)", || {
-        roots::resolve(&start, args.recursive, &fs, &overrides(args))
+        roots::resolve(&start, args.recursive, fs, &overrides(args))
     })?;
     note_truncated(&truncated);
     warn_unanchored_patterns(&targets);
@@ -758,22 +769,23 @@ fn execute(args: &LintArgs, env: Env, teardown: Teardown, modules: Option<&dyn C
         filter.configure(&mut target.config)?;
     }
     apply_tsconfig(args, &mut targets)?;
-    warn_empty_tsconfig_projects(&targets, &fs);
+    warn_empty_tsconfig_projects(&targets, fs);
     let modules = modules.map(|host| host.modules(&base));
-    let linters = Linters::build_with(&targets, None, modules.as_ref())?;
+    let run_fs: Arc<dyn FileSystem> = Arc::clone(&shared);
+    let linters = Linters::build_with(&targets, Some(&run_fs), modules.as_ref())?;
     // An unknown `--fix-type` is a usage error before any root is linted.
     let only = fix::fix_type_rules(&args.fix_type, linters.rules().into_iter().map(|meta| meta.id))?;
     let mut runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
     filter.apply_runs(&mut runs)?;
     if !multi && args.fixing() {
-        warn_nested_roots(args, &base, &runs, &fs);
+        warn_nested_roots(args, &base, &runs, fs);
     }
 
     let mut fixes: Vec<FixRun> = Vec::new();
     if args.dry_run() {
-        fixes = plan_roots(args, env, &runs, &fs, only.as_ref())?;
+        fixes = plan_roots(args, env, &runs, fs, only.as_ref())?;
     } else if args.fixing() {
-        match fix_roots((args, &filter), env, &linters, runs, &fs, only.as_ref())? {
+        match fix_roots((args, &filter), env, &linters, runs, fs, only.as_ref())? {
             Fixed::All(fixed_runs, done) => {
                 runs = fixed_runs;
                 fixes = done;
@@ -838,7 +850,7 @@ fn execute(args: &LintArgs, env: Env, teardown: Teardown, modules: Option<&dyn C
         &targets_out,
         rendering,
         (&aggregate, shown.as_ref(), &views, &root_fixes),
-        &fs,
+        fs,
     )?;
     if !fixes.is_empty() && !matches!(args.format(), Format::Human | Format::Json) {
         write_summary_to_stderr(&root_fixes);
@@ -875,7 +887,8 @@ fn execute(args: &LintArgs, env: Env, teardown: Teardown, modules: Option<&dyn C
         std::mem::forget(reports);
         std::mem::forget(runs);
         std::mem::forget(linters);
-        std::mem::forget(fs);
+        std::mem::forget(run_fs);
+        std::mem::forget(shared);
     }
     Ok(code)
 }
