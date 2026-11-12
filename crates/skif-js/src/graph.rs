@@ -101,8 +101,9 @@ pub struct Module {
     pub foreign: bool,
     /// Is an entry file; its exports are public.
     pub is_entry: bool,
-    /// Is a build source that is no entry (a Bazel rule's `srcs`): the graph starts from it as from an entry, so it and
-    /// what it imports are used, but its exports are judged as any module's.
+    /// Is a build source that is no entry, a file a plugin names as one a tool builds from (the `srcs` and `data` of a
+    /// Bazel rule): the graph starts from it as from an entry, so it and what it imports are used, but its exports are
+    /// judged as any module's.
     pub is_build_source: bool,
     /// What the file declares and references.
     pub info: ModuleInfo,

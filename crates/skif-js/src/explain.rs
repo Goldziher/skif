@@ -242,8 +242,8 @@ pub struct UsageReport {
     pub widened_by: Option<String>,
     /// Which rule makes it an entry file, when it is one.
     pub entry: Option<EntryReason>,
-    /// The file is a build source that is no entry (a Bazel rule's `srcs`): used, and the graph starts from it, but its
-    /// exports are judged.
+    /// The file is a build source that is no entry, a file a plugin names as one a tool builds from (the `srcs` and
+    /// `data` of a Bazel rule): used, and the graph starts from it, but its exports are judged.
     #[serde(skip_serializing_if = "is_false")]
     pub build_source: bool,
     /// Every import of the module.
@@ -357,8 +357,8 @@ impl UsageReport {
         if self.build_source {
             let _ = writeln!(
                 out,
-                "  build source: a tool builds from it (a Bazel rule's srcs or data), so it is used, but it is no entry \
-                 and its exports are judged"
+                "  build source: a plugin names it as a file a tool builds from (such as a Bazel rule's srcs or data), \
+                 so it is used, but it is no entry and its exports are judged"
             );
         }
         if self.imported_by.is_empty() {
