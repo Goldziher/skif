@@ -287,6 +287,14 @@ reads member `a` only, as `ns.a` does
 knip counts such a spy as a use of every export, so skif reports the exports that nothing else reads and knip does
 not.
 
+A use of a module object as a whole (a namespace passed around, spread, indexed with a computed key or named in
+`typeof ns`, and `require("./m")` or `import("./m")`) reaches the values of the module only. In skif it uses every value
+export and none of the module's interfaces and type aliases: those stay used when they are read by name (`ns.Type`) or
+when the importer exports the namespace itself (`export default ns`, `export = ns`), and are reported by
+`unused-types` otherwise
+([ADR 0124](https://github.com/Goldziher/skif/blob/main/adrs/0124-a-whole-use-of-a-module-object-uses-its-values-only.md)).
+knip reports such types only under `nsTypes`, which is off by default, and not at all for a spread or an `import()`.
+
 knip merges the tsconfig `paths` of every workspace, so an import that only another package's `paths` map resolves
 for it. skif resolves an import with the configuration the importing file follows, as TypeScript does: such an import
 is reported by `unlisted-dependencies` with the detail `ForeignTsconfigPaths`, a message that names the config whose
