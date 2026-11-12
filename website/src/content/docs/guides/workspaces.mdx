@@ -119,7 +119,12 @@ files and runs nothing:
   `Dockerfile.*`, `*.Dockerfile`, `Containerfile`) of its own directory, or in any Dockerfile with the path from the
   workspace root (`COPY libs/a/pnpm-lock.yaml ./`), for a build whose context is the root;
 - a `COPY . .` in a Dockerfile of its own directory followed by an install with its package manager (`pnpm install`,
-  `npm ci`, `yarn`, `bun install`).
+  `npm ci`, `yarn`, `bun install`);
+- either of the last two in a Dockerfile elsewhere that a build gives the lockfile's directory as its context: a
+  `docker build`, `docker buildx build` or `podman build` command in a script or workflow the toolchain rules read
+  (`docker build -f docker/web.Dockerfile apps/web`, both paths from the workspace root), or a service of a Compose
+  file at the root (`compose.yaml`, `compose.yml`, `docker-compose.yaml`, `docker-compose.yml`) whose `build` names the
+  directory, with its `dockerfile` relative to that context.
 
 A copy from another stage (`--from`) does not count. Comments, docstrings and the names in an `exclude = [...]` list
 are skipped. A directory is listed for Bazel files only while a lockfile is left that the files Bazel reads for it do

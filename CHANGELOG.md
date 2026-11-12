@@ -28,6 +28,10 @@ All notable changes to this project are documented here. The format follows
   `glob(...)` of the lockfile's package whose include patterns match it and whose exclude patterns do not; a docstring
   no longer counts as a label ([ADR 0116](adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
   [#199](https://github.com/Goldziher/skif/issues/199)).
+- `stray-lockfile` also sees a Dockerfile elsewhere built from a member's directory: a `docker build -f <file>
+  <context>` (also `docker buildx build`, `podman build`) in a script or workflow, or a Compose file's
+  `build.context`, gives that Dockerfile the member's directory as its context
+  ([#199](https://github.com/Goldziher/skif/issues/199)).
 
 ### Fixed
 
