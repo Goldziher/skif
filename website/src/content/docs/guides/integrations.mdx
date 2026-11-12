@@ -169,6 +169,11 @@ relative paths resolve against the source tree instead of the runfiles tree. Und
 store in `$TEST_TMPDIR/skif/`. The [Bazel guide](../bazel/) covers fetching the release archives, `bazel test`
 inputs, what skif reads from `BUILD` and `MODULE.bazel` files, and its limits.
 
+## Turborepo, Nx and Lerna
+
+Run skif once at the workspace root, as a root script or a root task, not as a task of every package. See
+[Turborepo, Nx and Lerna](../turborepo-nx-lerna/).
+
 ## npm and Bun
 
 The `skif-cli` package is a native addon built with napi-rs for the Node.js lines that are not end-of-life (22, 24 and 26 today; see the [Node.js release schedule](https://nodejs.org/en/about/previous-releases)) and Bun 1.x; older versions may work but are not supported. It is ESM only (from CommonJS use `import()`, or `require()` on Node 22.12+), has no install script,
