@@ -52,6 +52,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **JS**: production mode leaves the development entries of plugins (Storybook stories, test files, Vitest
+  `setupFiles`) out of the project, as knip does, so they are no longer reported by `unused-files`
+  ([#210](https://github.com/Goldziher/skif/issues/210)).
 - **JS**: pattern keys of `exports` and `imports` maps are selected as Node.js orders them: of two patterns with the
   same prefix, the longer one wins (`./features/*.css` over `./features/*` for `./features/a.css`).
 - **Migrate**: `--merge --output <FILE>` writes the merge of the existing `skif.toml` and the migration to `FILE`

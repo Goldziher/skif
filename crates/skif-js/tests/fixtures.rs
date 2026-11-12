@@ -336,6 +336,20 @@ fn storybook_addons_behind_get_absolute_path_are_used() {
     );
 }
 
+/// The stories of the `storybook-addon-helpers` fixture are development entries: production mode leaves them out of
+/// the project, so only the dead files are reported, as in a normal run.
+#[test]
+fn production_mode_leaves_stories_out_of_the_project() {
+    let diagnostics = Run::new("storybook-addon-helpers", "[js]\nproduction = true").lint_with_plugins();
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        [
+            "packages/docs/src/dead.ts: packages/docs/src/dead.ts",
+            "packages/ui/src/dead.ts: packages/ui/src/dead.ts",
+        ]
+    );
+}
+
 /// The `incomplete-judged` fixture: `narrowed` merges an unknown base into its Vitest config, so its unknown entries
 /// lie in the test scope, whose files are entries; `whole` has a Vitest config unknown as a whole. The exports, types
 /// and enum members outside the narrowed scope are judged (ADR 0081), those of the scope's setup module and of the
