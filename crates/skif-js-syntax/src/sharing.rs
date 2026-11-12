@@ -2199,8 +2199,9 @@ pub(crate) fn property_defined(call: &CallExpression<'_>) -> Option<String> {
     call.arguments.get(1).and_then(Argument::as_expression).and_then(static_string)
 }
 
-/// Whether the name a callee (`defineConfig`, `vitest.defineProject`) starts from is not one the module declares a
-/// value for: a global, an import, or a binding of a `require`.
+/// Whether the name a callee (`defineConfig`, `vitest.defineProject`) starts from is not one the project declares a
+/// value for: a global, or an import or a binding of a `require` of a package ([`is_package`]), not of a module of
+/// the project.
 fn foreign(names: Names<'_>, callee: &Expression<'_>) -> bool {
     let root = match callee.get_inner_expression() {
         Expression::StaticMemberExpression(member) => member.object.get_inner_expression(),
@@ -2210,8 +2211,27 @@ fn foreign(names: Names<'_>, callee: &Expression<'_>) -> bool {
         return false;
     };
     resolved(names.scoping, id).is_none_or(|symbol| {
-        names.scoping.symbol_flags(symbol).is_import() || names.known.modules.contains_key(&symbol)
+        names
+            .known
+            .modules
+            .get(&symbol)
+            .is_some_and(|(module, _)| is_package(module))
     })
+}
+
+/// Whether a module specifier names a package (`vite`, `@vitest/config`, `node:path`) rather than a file of the
+/// project: a relative or absolute path, a subpath import (`#tools`) or an alias that is no package name (`@/tools`,
+/// `~/tools`).
+fn is_package(specifier: &str) -> bool {
+    match specifier.strip_prefix('@') {
+        Some(scoped) => scoped
+            .split_once('/')
+            .is_some_and(|(scope, name)| !scope.is_empty() && !name.is_empty()),
+        None => specifier
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_ascii_alphanumeric()),
+    }
 }
 
 /// What the pass knows of the names of a module: how they resolve, and what the module binds them to.
