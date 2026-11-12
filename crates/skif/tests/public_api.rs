@@ -343,7 +343,7 @@ fn the_documented_allow_list_is_the_one_the_adr_records() {
         .map(|entry| entry.unwrap().path())
         .filter(|path| path.extension().is_some_and(|extension| extension == "md"))
         .map(|path| std::fs::read_to_string(path).unwrap())
-        .filter(|text| text.contains("# Third-Party Types in the Facade API"))
+        .filter(|text| text.contains("### Third-party types in the public API"))
         .collect();
     let [record] = records.as_slice() else {
         panic!(
