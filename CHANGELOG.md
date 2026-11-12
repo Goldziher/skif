@@ -115,6 +115,11 @@ All notable changes to this project are documented here. The format follows
   element is one of several known strings (Vitest and Jest setup files and test globs, Vite, Rollup, tsup and webpack
   entries) makes each an entry candidate: one that names no file is what another branch would give and is dropped,
   and the package is judged. An alternative that is not a known string still leaves it incomplete.
+- `unlisted-dependencies`: a peer dependency that a listed package marks optional (`peerDependenciesMeta.<name>.optional`
+  in its installed manifest, `optionalPeers` in `bun.lock`, the same field in the other lockfiles) no longer provides
+  an unlisted import of it, because the package manager does not install an optional peer for its host. A required
+  peer still does; crediting a listed dependency as a peer of a used one is unchanged
+  ([#96](https://github.com/Goldziher/skif/issues/96)).
 
 ### Changed
 

@@ -155,3 +155,25 @@ fn optional_peer_dependencies_must_be_installed_for_development() {
         ["packages/a/package.json: sass"]
     );
 }
+
+#[test]
+fn an_optional_peer_of_a_listed_package_does_not_provide_an_unlisted_import() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"type":"module","main":"index.ts",
+                "devDependencies":{"test-runner-x":"1.0.0"}}"#,
+        ),
+        (
+            "node_modules/test-runner-x/package.json",
+            r#"{"name":"test-runner-x","version":"1.0.0",
+                "peerDependencies":{"otel-api-x":"^1.9.0","required-peer-x":"^1.0.0"},
+                "peerDependenciesMeta":{"otel-api-x":{"optional":true}}}"#,
+        ),
+        (
+            "index.ts",
+            "import otel from 'otel-api-x';\nimport peer from 'required-peer-x';\nexport default [otel, peer];\n",
+        ),
+    ]);
+    assert_eq!(names(&diagnostics, "unlisted-dependencies"), ["index.ts: otel-api-x"]);
+}
