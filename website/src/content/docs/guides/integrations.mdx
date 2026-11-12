@@ -163,27 +163,16 @@ pre-commit:
 
 ## Bazel
 
-Wrap the `skif` binary in a target, for example with bazel_skylib's `native_binary`:
+Wrap the `skif` binary in a `native_binary` target and run `bazel run //:skif`, or `bazel run //:skif -- --fix`.
+Under `bazel run` the binary, and the npm package's `skif` bin, first change to the directory you ran Bazel from, so
+relative paths resolve against the source tree instead of the runfiles tree. Under `bazel test`, `--cache` keeps its
+store in `$TEST_TMPDIR/skif/`. The [Bazel guide](../bazel/) covers fetching the release archives, `bazel test`
+inputs, what skif reads from `BUILD` and `MODULE.bazel` files, and its limits.
 
-```starlark
-load("@bazel_skylib//rules:native_binary.bzl", "native_binary")
+## Turborepo, Nx and Lerna
 
-native_binary(
-    name = "skif",
-    src = ":skif_binary",  # the skif binary for the host platform, e.g. extracted from a release archive
-    out = "skif",
-)
-```
-
-`bazel run //:skif` lints the source tree, and `bazel run //:skif -- --fix` fixes it. Under `bazel run`
-(`BUILD_WORKSPACE_DIRECTORY` is set) the `skif` binary, and the npm package's `skif` bin, first change to the
-directory you ran Bazel from (`BUILD_WORKING_DIRECTORY`, else the workspace root), as buildifier does, so the default
-`.` and every relative path on the command line, including `--config` and report files, resolve against it instead of
-the runfiles tree. Absolute paths are unaffected. The npm package's `run()` function does not change directory: a
-script that calls it under `bazel run` resolves paths against its own current directory.
-
-Under `bazel test` (a `native_test` with the sources as `data`), `--cache` without `--cache-location` keeps its store
-in the test's `$TEST_TMPDIR/skif/` instead of below the workspace root, which there is Bazel's output tree.
+Run skif once at the workspace root, as a root script or a root task, not as a task of every package. See
+[Turborepo, Nx and Lerna](../turborepo-nx-lerna/).
 
 ## npm and Bun
 
@@ -217,7 +206,7 @@ const exitCode = run(["--format", "json", "./my-monorepo"]);
 - `lintAsync(path, options?)` does the same on a worker thread and resolves with `{ report }` or, when the lint
   cannot run, `{ error: { kind, message, path? } }`. `kind` is `config`, `workspace`, `io`, `usage`, `ci-refusal` or `internal`.
 - `run(argv)` runs the full command line (`argv` excludes the program name) and returns its exit code. Output
-  streams to the process's stdout and stderr. Under `bazel run` it changes the process's current directory first, as
-  the binary does ([Bazel](#bazel)).
+  streams to the process's stdout and stderr. It never changes the process's current directory, also under `bazel run`;
+  the package's `skif` bin does that before it calls `run` ([Bazel](#bazel)).
 
 Types ship in `index.d.ts`. Both `lint` and `lintAsync` read the configuration file the way the command line does.

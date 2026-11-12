@@ -1,0 +1,278 @@
+---
+title: Bazel
+description: What skif reads in a Bazel and rules_js repository, how to run it with bazel run, bazel test or in CI, and its limits there.
+---
+
+skif lints the JavaScript workspace of a Bazel repository from its files: `package.json`, the workspace declaration,
+the tool configs and the sources, plus the Bazel files listed below. It never runs Bazel, and it reads Starlark as
+text without evaluating it. Its findings are the same before and after a build, whatever was built last.
+
+The Bazel repository is the nearest directory at or above the workspace root, inside the git repository, that holds
+`MODULE.bazel`, `REPO.bazel`, `WORKSPACE.bazel` or `WORKSPACE`. Outside one, none of the Bazel handling on this page
+applies.
+
+## What skif reads
+
+- **`BUILD` files of rules_js packages.** When a root file of the Bazel repository names `aspect_rules_js`, the
+  `bazel` plugin reads the `BUILD.bazel` and `BUILD` files of each package that has one at its top:
+  - A `node_modules` label (`":node_modules/esbuild"`, `"//packages/app:node_modules/zod"`) or a `package_json.bzl`
+    load (`"@npm//packages/app:esbuild/package_json.bzl"`) uses that dependency in the package whose directory is the
+    label's Bazel package. A dependency named this way in the package's own `BUILD` file that its `package.json`
+    does not list is `unlisted-dependencies` at that file.
+  - The `entry_point` and `data` of `js_binary`, `js_run_devserver` and `js_test`, and the `srcs` and `data` of
+    `js_library` and `ts_project`, are entries when a literal names an existing file of the package (`"src/main.ts"`
+    or `":src/main.ts"`). Those of `js_test` count only outside `--production`.
+- **Output trees.** The `bazel-bin`, `bazel-out`, `bazel-testlogs` and `bazel-<workspace>` links at the top of the
+  Bazel repository are never read. An import that reaches a file there, directly or through `rootDirs`, is generated
+  code and is not followed.
+- **Declared outputs.** A relative import of a file that does not exist is not `unresolved-imports` when the nearest
+  `BUILD` file at or above that file's directory declares it in the `outs`, `out` or `stdout` of a call (also with
+  another extension or none), or it lies below an `out_dirs` or `out_dir` there.
+- **Toolchain pins.** `toolchain-pin-drift` reads the `MODULE.bazel`, `WORKSPACE.bazel` and `WORKSPACE` at the
+  workspace root: the `pnpm_version` of `pnpm.pnpm(...)` and `npm_translate_lock(...)` and the `node_version` of
+  `node.toolchain(...)` and `nodejs_register_toolchains(...)`. A pnpm 8 pin there next to `packageManager: pnpm@9`
+  is reported, at `pnpm.pnpm pnpm_version`.
+- **Lockfile consumers.** `stray-lockfile` does not report a member lockfile that Bazel installs from: a label of it
+  in a root file, a `BUILD` file or a `.bzl` file they load, a `$(location ...)` of it, or a `glob(...)` of its
+  package that matches it. The full list is under
+  [lockfiles and nested workspaces](../workspaces/#lockfiles-and-nested-workspaces).
+- **Convenience links as members.** A `*` or glob segment of a workspace pattern follows links, as pnpm's does, so
+  after a build `packages: ['*']` selects `bazel-<name>`. skif keeps it a member, leaves it out of the analysis, and
+  `nested-workspace-root` reports it once with the detail `BazelConvenienceLink`.
+- **Build tools in scripts.** `bazel`, `bazelisk` and `ibazel` in a script are machine binaries, as `docker` and
+  `make` are, so they are not `unlisted-binaries`. A listed `@bazel/bazelisk` or `@bazel/ibazel` is still used by the
+  scripts that run them.
+
+## What skif does not read
+
+- **Macros and computed values.** Only literals count. A `glob([...])`, a `select({...})`, a variable, or a target that
+  a macro in a `.bzl` file defines names no dependency, entry or output. Such a file can be `unused-files` and such
+  an import `unresolved-imports`.
+- **Labels in a sibling package.** Each package reads only the `BUILD` files below its own directory, so
+  `"//packages/app:node_modules/zod"` written in `packages/web/BUILD.bazel` does not count for `packages/app`. A
+  nested package's `BUILD` file still counts for the package above it, but gives it no entries.
+- **Generated code.** The imports of a file in `bazel-bin` are not judged. The dependencies its target names
+  (`srcs = [":node_modules/zod"]`) are used instead.
+- **`.bazelignore`.** The JS analysis does not honour it: nested Bazel modules listed there are often pnpm
+  workspaces of their own that `skif -r` should still lint. Only `stray-lockfile` reads it, to skip those directories
+  when it lists `BUILD` files. Files under a `.bazelignore`d directory without a `package.json` belong to the package
+  above them; use `[js] ignore` for them ([recipes](#recipes)).
+- **Pins outside the root files.** A pin in a loaded `.bzl` file, or in the files of a Bazel repository above the
+  workspace, is not read by default ([ADR 0116](https://github.com/Goldziher/skif/blob/main/adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md)).
+- **`bazel query`.** skif never runs Bazel, so targets, sources and outputs that only a query or a build would show
+  are not seen.
+
+## Installing skif for Bazel
+
+Each release attaches one archive per platform and `checksums.txt`
+([prebuilt binaries](../../start/installation/#prebuilt-binaries)). A `.tar.gz` archive holds `skif` at its top
+level, so it can be fetched as a Bazel repository. With Bzlmod, in `MODULE.bazel`:
+
+```python
+bazel_dep(name = "platforms", version = "<version>")
+bazel_dep(name = "bazel_skylib", version = "<version>")
+
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "skif_macos_arm64",
+    url = "https://github.com/Goldziher/skif/releases/download/v0.3.0/skif-aarch64-apple-darwin.tar.gz",
+    sha256 = "<the archive's line in checksums.txt>",
+    build_file_content = 'exports_files(["skif"])',
+)
+
+http_archive(
+    name = "skif_linux_x86_64",
+    url = "https://github.com/Goldziher/skif/releases/download/v0.3.0/skif-x86_64-unknown-linux-musl.tar.gz",
+    sha256 = "<the archive's line in checksums.txt>",
+    build_file_content = 'exports_files(["skif"])',
+)
+```
+
+Add one repository per platform you build on: `aarch64-apple-darwin`, `x86_64-apple-darwin`, and the
+`-unknown-linux-musl` archives, which run on any Linux. The Windows archives are `.zip` files holding `skif.exe`.
+Then, in the root `BUILD.bazel`, pick the binary for the host:
+
+```python
+load("@bazel_skylib//rules:native_binary.bzl", "native_binary")
+
+config_setting(
+    name = "macos_arm64",
+    constraint_values = ["@platforms//os:macos", "@platforms//cpu:aarch64"],
+)
+
+config_setting(
+    name = "linux_x86_64",
+    constraint_values = ["@platforms//os:linux", "@platforms//cpu:x86_64"],
+)
+
+alias(
+    name = "skif_bin",
+    actual = select({
+        ":macos_arm64": "@skif_macos_arm64//:skif",
+        ":linux_x86_64": "@skif_linux_x86_64//:skif",
+    }),
+)
+
+native_binary(
+    name = "skif",
+    src = ":skif_bin",
+    out = "skif",
+)
+```
+
+[rules_multitool](https://github.com/theoremlp/rules_multitool) does the same from a lockfile: an entry per platform
+with `"kind": "archive"`, the archive's `url` and `sha256`, `"file": "skif"`, and `os` and `cpu`. `bazel run
+@multitool//tools/skif` then runs it.
+
+The npm package `skif-cli` is not tested through rules_js `npm_translate_lock`: it installs one platform package per
+target as an optional dependency, and that has not been checked under rules_js.
+
+## Running skif
+
+### `bazel run`
+
+```bash
+bazel run //:skif                 # lint
+bazel run //:skif -- --fix        # fix
+bazel run //:skif -- -W packages/app --format json
+```
+
+`bazel run` starts a binary in its runfiles tree. When `BUILD_WORKSPACE_DIRECTORY` is set, the `skif` binary first
+changes to the directory you ran Bazel from (`BUILD_WORKING_DIRECTORY`, else the workspace root), as buildifier and
+gazelle do. The default `.` and every relative path on the command line (`--config`, `--output`, `--format
+FORMAT=FILE`) then resolve against the source tree, and `--fix` writes there. Run from a subdirectory, skif lints the
+workspace that holds it. The npm package's `skif` bin does the same; the `run()` function of the npm package does not
+([ADR 0112](https://github.com/Goldziher/skif/blob/main/adrs/0112-paths-under-bazel-run.md)).
+
+This is the model to use for fixes: `bazel run //:skif -- --fix`. A fix inside a runfiles tree fails with
+`refusing to write through a symlink`, because runfiles are links into the source tree.
+
+### `bazel test`
+
+A test sees only the files given as `data`. skif needs every `package.json`, the workspace declaration, the lockfile,
+`skif.toml`, the tsconfigs and the sources. Include the Bazel root file and the `BUILD` files too, so the runfiles
+tree is a Bazel repository to skif and the Bazel handling above applies. A root `glob()` stops at Bazel package
+boundaries, so each package provides a `filegroup`:
+
+```python
+# packages/app/BUILD.bazel
+filegroup(
+    name = "skif_inputs",
+    srcs = ["BUILD.bazel", "package.json"] + glob(["tsconfig*.json", "src/**"]),
+    visibility = ["//:__pkg__"],
+)
+```
+
+```python
+# BUILD.bazel
+load("@bazel_skylib//rules:native_binary.bzl", "native_test")
+
+native_test(
+    name = "skif_test",
+    src = ":skif_bin",
+    out = "skif_test_bin",
+    args = ["--cache"],
+    data = [
+        "BUILD.bazel",
+        "MODULE.bazel",
+        "package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "skif.toml",
+        "//packages/app:skif_inputs",
+    ],
+)
+```
+
+The test fails when skif exits non-zero: with an error finding, or with a warning under `--fail-on-warnings`. The
+runfiles tree has no `.git`, so skif lists the files by walking the directories instead of reading the git index.
+
+Under `bazel test` (`TEST_TMPDIR` is set), `--cache` without `--cache-location` keeps its store in
+`$TEST_TMPDIR/skif/`, not in Bazel's output tree. `TEST_TMPDIR` is cleared between test runs, so the cache saves
+parsing only within one run
+([ADR 0117](https://github.com/Goldziher/skif/blob/main/adrs/0117-the-cache-default-under-bazel-test.md)).
+
+Keeping the inputs complete is work: a file missing from `data` changes the findings. `bazel run` and CI read the
+source tree directly, so most repositories use those and keep a `skif_test` optional.
+
+### CI
+
+skif needs no Bazel build, so CI can run it outside Bazel, before or after the build, with the same result. Use the
+[GitHub Action](../integrations/#github-action) or any other install from the repository root:
+
+```yaml
+- uses: actions/checkout@v7
+- uses: Goldziher/skif@v0.3
+```
+
+## Recipes
+
+Ignore the convenience links in git. skif skips them without this, since it does not enter linked directories when
+it lists files or looks for roots, but it keeps them out of other tools' way:
+
+```text
+bazel-*
+```
+
+Drop the `bazel-<name>` link from a `*` pattern, as `nested-workspace-root` suggests:
+
+```yaml
+# pnpm-workspace.yaml
+packages:
+  - "*"
+  - "!bazel-*"
+```
+
+Declare generated files where skif can see them: a literal in the `outs` of the target in the `BUILD` file of the
+importing package, and the generated code's dependencies as labels.
+
+```python
+js_run_binary(
+    name = "schema",
+    tool = ":codegen",
+    srcs = [":node_modules/zod"],
+    outs = ["src/gen/schema.js"],
+)
+```
+
+`import "./gen/schema.js"` from `src/index.ts` is then generated code, and `zod` is used. `rootDirs` pointing into
+`bazel-bin` is still what TypeScript needs to type-check the import; skif does not need it.
+
+Ignore files of a `.bazelignore`d directory that has no `package.json`:
+
+```toml
+[js]
+ignore = ["e2e/coverage/**"]
+```
+
+Read a Bazel pin from a loaded `.bzl` file:
+
+```toml
+[rules.toolchain-pin-drift]
+files = ["tools/versions.bzl"]
+```
+
+Turn the `bazel` plugin off:
+
+```toml
+[js.plugins]
+bazel = false
+```
+
+## Known limits
+
+- Packages that rules_js hoists publicly (`public_hoist_packages`, `.npmrc` `public-hoist-pattern`) and that a package
+  imports without listing are `unlisted-dependencies`, as in knip. List them, or ignore them with
+  `ignore-dependencies` ([#178](https://github.com/Goldziher/skif/issues/178)).
+- Macros, `glob()`, `select()` and variables in `BUILD` files are not evaluated (above).
+- A Bazel repository with a member lockfile that nothing names lists its directories for `BUILD` files on every run,
+  until the lockfile is removed or allowed.
+- A `bazel-*` link member is left out of the analysis even when it was meant to be linted; `!bazel-*` is the supported
+  layout.
+- Installing skif through rules_js is untested (above).
+
+The decisions are in [ADR 0115](https://github.com/Goldziher/skif/blob/main/adrs/0115-bazel-build-files-and-output-trees-in-the-js-analysis.md),
+[ADR 0116](https://github.com/Goldziher/skif/blob/main/adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
+[ADR 0112](https://github.com/Goldziher/skif/blob/main/adrs/0112-paths-under-bazel-run.md) and
+[ADR 0117](https://github.com/Goldziher/skif/blob/main/adrs/0117-the-cache-default-under-bazel-test.md).
