@@ -951,6 +951,31 @@ fn a_changed_argument_reaches_what_the_function_returns_where_it_holds_it() {
     assert!(open(&configs[1]), "{:?}", configs[1]);
 }
 
+/// A getter or a method of what a function returns holds what it returns, so a change through what the getter gives
+/// (`r.e.x = 1`) or the method returns reaches the argument the function was given.
+#[test]
+fn a_change_through_a_returned_getter_or_method_reaches_the_argument() {
+    let value = extract(
+        "rspack.config.js",
+        "function getter(env) { return { get e() { return env; } }; }\n\
+         function method(env) { return { e() { return env; } }; }\n\
+         const viaGetter = () => { const options = { mode: 'a' }; const r = getter(options); r.e.x = 1; return options; };\n\
+         const viaMethod = () => { const options = { mode: 'a' }; const r = method(options); const got = r.e(); got.x = 1; return options; };\n\
+         module.exports = [viaGetter(), viaMethod()];",
+    );
+    let configs = value.as_array().unwrap();
+    assert_eq!(configs.len(), 2);
+    for config in configs {
+        assert_eq!(
+            config,
+            &ConfigValue::Object(vec![
+                ("mode".to_owned(), s("a")),
+                (UNKNOWN_SPREAD.to_owned(), ConfigValue::Unknown),
+            ])
+        );
+    }
+}
+
 /// A parameter with a default may take the default (`b = a`), so a change through it reaches what the other parameter
 /// takes; a function that calls itself is followed through its name, which stands for its parameters and what it
 /// returns, so a change through what it returns reaches its argument.
