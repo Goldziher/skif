@@ -1039,7 +1039,7 @@ dependency only an unreached fixture imports stays unused. Other directories of 
 member read in its own file (`E.A`, `E["A"]`, `const { A } = E`) counts as used. Using the whole enum there
 (`Object.values(E)`, `E[key]`, a spread, passing it as a value, `typeof E`, `keyof typeof E` or `` `${E}` `` in a
 type) uses every member of it, where knip credits none; a type annotation `x: E` names the enum type and uses no
-member ([ADR 0125](https://github.com/Goldziher/skif/blob/main/adrs/0125-a-whole-use-of-an-enum-in-its-own-file-uses-every-member.md)).
+member ([ADR 0126](https://github.com/Goldziher/skif/blob/main/adrs/0126-a-whole-use-of-an-enum-in-its-own-file-uses-every-member.md)).
 A namespace used as a whole in its own file credits none of its members. Inside a namespace, a member read by its bare name (`findVisible()`, `token: ProgressToken`) counts
 as used, unless a parameter or local of the same name shadows it; the declarations of a merged namespace share their
 members. A file that another loads with `new URL("./x", import.meta.url)` is used as a whole, its types included: it runs as a
