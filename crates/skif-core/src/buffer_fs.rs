@@ -87,6 +87,13 @@ impl<F: FileSystem> FileSystem for BufferFs<F> {
         }
     }
 
+    fn read_prefix(&self, path: &Path, limit: usize) -> io::Result<Vec<u8>> {
+        match self.buffer(path) {
+            Some(text) => Ok(text.as_bytes()[..text.len().min(limit)].to_vec()),
+            None => self.base.read_prefix(path, limit),
+        }
+    }
+
     fn modified(&self, path: &Path) -> Option<SystemTime> {
         self.base.modified(path)
     }
