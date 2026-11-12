@@ -44,7 +44,8 @@ Scope of the analysis:
 | `--dependencies`, `--exports`, `--files`, `--cycles` | knip's shortcuts for `--include`. |
 | `--no-js` | Skip the JavaScript analysis (manifest, workspace and policy rules only; what the git hooks run). |
 | `--production` | Analyse production code only. |
-| `--strict` | knip's strict mode: `--production`, and each package may use only what its own manifest lists. |
+| `--isolate-workspaces` | Each package may use only what its own manifest lists, without production mode (`[js] isolate-workspaces`). |
+| `--strict` | knip's strict mode: `--production` and `--isolate-workspaces`, and only direct dependencies count (`[js] strict`). |
 | `--include-entry-exports` | Also report unused exports of entry files. |
 | `--tsconfig <FILE>`, `--use-tsconfig-files` | TypeScript configuration of the root / take project files from `tsconfig.json`. |
 | `--no-gitignore` | Also analyse files `.gitignore` hides. |
