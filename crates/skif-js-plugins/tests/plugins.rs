@@ -2113,6 +2113,44 @@ fn cypress() {
     );
 }
 
+/// Nx's `nxE2EPreset(__filename, options)` sets `supportFile` and `specPattern` below its `cypressDir` (`src` by
+/// default); a key written after the spread wins over the preset.
+#[test]
+fn cypress_nx_e2e_preset() {
+    let config = |e2e: &str| {
+        format!(
+            "import {{ nxE2EPreset }} from '@nx/cypress/plugins/cypress-preset';\nimport {{ defineConfig }} from 'cypress';\n\
+             export default defineConfig({{ e2e: {e2e} }});\n"
+        )
+    };
+    let entries = |text: &str| {
+        let results = resolve(&[("cypress.config.ts", text)], &["cypress"]);
+        output(&results, "cypress").entries.clone()
+    };
+    let preset = entries(&config(
+        "{ ...nxE2EPreset(__filename, { bundler: 'vite' }), baseUrl: 'http://localhost:4200' }",
+    ));
+    assert_entries(&preset, &["src/support/e2e.{js,ts}", "src/**/*.cy.{js,jsx,ts,tsx}"]);
+    let dir = entries(&config("{ ...nxE2EPreset(__dirname, { cypressDir: 'cypress' }) }"));
+    assert_entries(&dir, &["cypress/support/e2e.{js,ts}", "cypress/**/*.cy.{js,jsx,ts,tsx}"]);
+    assert!(!dir.iter().any(|entry| entry.starts_with("src/")), "{dir:?}");
+    let overridden = entries(&config(
+        "{ specPattern: 'early/**/*.cy.ts', ...nxE2EPreset(__filename), supportFile: 'e2e/support.ts' }",
+    ));
+    assert_entries(&overridden, &["e2e/support.ts", "src/**/*.cy.{js,jsx,ts,tsx}"]);
+    assert!(
+        !overridden
+            .iter()
+            .any(|entry| entry == "src/support/e2e.{js,ts}" || entry == "early/**/*.cy.ts"),
+        "{overridden:?}"
+    );
+    // A spread of something else is not the preset.
+    let other = entries(
+        "import { base } from './base';\nexport default { e2e: { ...base() } };\n",
+    );
+    assert!(!other.iter().any(|entry| entry.starts_with("src/")), "{other:?}");
+}
+
 #[test]
 fn mocha() {
     let config = r#"{

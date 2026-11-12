@@ -15,6 +15,9 @@ All notable changes to this project are documented here. The format follows
   of the package, as `pnpm -r exec` is: `lerna exec -- rimraf dist` uses `rimraf`, and an unlisted binary there is
   reported. `lerna run` and `nx run` keep reading task names
   ([#187](https://github.com/Goldziher/skif/issues/187)).
+- **Cypress**: an `e2e` config that spreads Nx's `nxE2EPreset()` has the preset's `supportFile` and `specPattern`
+  (`src/support/e2e.{js,ts}` and `src/**/*.cy.{js,jsx,ts,tsx}`, below `cypressDir`), so the support files of Nx e2e
+  projects are no longer unused ([#188](https://github.com/Goldziher/skif/issues/188)).
 
 ### Removed
 

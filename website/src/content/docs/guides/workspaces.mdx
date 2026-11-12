@@ -233,5 +233,8 @@ a `package.json`; a workspace member's are the member's.
 - The root `jest.config.ts` that Nx generates (`projects: await getJestProjectsAsync()`, or
   `[...getJestProjects(), ...]`) reads the Jest config of each project: a project's `jestConfig` option and the
   `jest.config.*` in its directory.
+- A `cypress.config.*` whose `e2e` spreads `nxE2EPreset(__filename, …)` (`@nx/cypress/plugins/cypress-preset`) has
+  the preset's `supportFile` and `specPattern`: `src/support/e2e.{js,ts}` and `src/**/*.cy.{js,jsx,ts,tsx}`, below
+  the `cypressDir` option when it is a string. A key written after the spread wins over the preset.
 - A buildable library with a `package.json` that is not a workspace member is a separate project, like any directory
   with its own manifest: its files are not analysed.
