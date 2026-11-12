@@ -725,6 +725,36 @@ fn member_accesses_through_imports() {
 }
 
 #[test]
+fn jsx_member_tags_read_the_first_member_of_a_namespace() {
+    let cases: [(&str, &str, &[&str], &[(&str, &[&str])]); 5] = [
+        ("self-closing", "<S.Used />", &["Used"], &[]),
+        ("opening and closing", "<S.Used>text</S.Used>", &["Used"], &[]),
+        ("nested", "<S.Ctx.Provider value={1} />", &["Ctx"], &[("Ctx", &["Provider"])]),
+        ("nested with closing tag", "<S.Ctx.Provider>x</S.Ctx.Provider>", &["Ctx"], &[("Ctx", &["Provider"])]),
+        ("two tags", "<S.Used><S.Other /></S.Used>", &["Other", "Used"], &[]),
+    ];
+    for (case, jsx, members, nested_members) in cases {
+        let source = format!("import * as S from './styles';\nexport default () => {jsx};\n");
+        let info = parse("a.jsx", &source);
+        let s = &info.imports[0].names[0];
+        assert_eq!(s.accessed_members, members, "{case}");
+        assert!(!s.escapes, "{case}: a member tag does not use the namespace as a whole");
+        assert_eq!(s.nested_members, nested(nested_members), "{case}");
+    }
+}
+
+#[test]
+fn a_namespace_rendered_as_a_tag_or_passed_around_in_jsx_is_used_as_a_whole() {
+    for jsx in ["<S />", "<C value={S} />"] {
+        let source = format!("import * as S from './styles';\nexport default () => <S.A>{jsx}</S.A>;\n");
+        let info = parse("a.jsx", &source);
+        let s = &info.imports[0].names[0];
+        assert_eq!(s.accessed_members, ["A"], "{jsx}");
+        assert!(s.escapes, "{jsx}");
+    }
+}
+
+#[test]
 fn imports_awaited_together_bind_the_element_of_the_array_pattern_at_their_position() {
     let source = "async function f() {\n  const [{ a }, ns, , skipped, ...rest] = await Promise.all([\n    import('./x'),\n    import('./y'),\n    import('./hole'),\n    import('./skipped'),\n    import('./rest'),\n  ]);\n  ns.b;\n  use(a, rest);\n}\n";
     let info = parse("a.ts", source);

@@ -128,6 +128,31 @@ fn a_module_that_is_also_imported_by_name_keeps_the_plain_rules() {
     assert_eq!(found(&diagnostics, "unused-namespace-types"), none());
 }
 
+/// A JSX member tag reads the first member after the namespace, as a member expression does: `<S.Used />` reads `Used`
+/// and `<S.Ctx.Provider />` reads `Ctx`, so the other exports of the module stay unused.
+#[test]
+fn a_namespace_read_through_jsx_member_tags_uses_only_the_members_it_reads() {
+    let styles = (
+        "styles.js",
+        "export const Used = () => null;\nexport const Unused = () => null;\nexport const Ctx = { Provider: () => null };\n",
+    );
+    let package = ("package.json", r#"{"name":"app","private":true,"main":"index.jsx"}"#);
+    for (tag, unused) in [
+        ("<S.Used />", ["styles.js: Ctx", "styles.js: Unused"]),
+        ("<S.Used>text</S.Used>", ["styles.js: Ctx", "styles.js: Unused"]),
+        ("<S.Ctx.Provider />", ["styles.js: Unused", "styles.js: Used"]),
+    ] {
+        let source = format!("import * as S from './styles.js';\nexport default () => {tag};\n");
+        let diagnostics = lint_files(&[package, ("index.jsx", source.as_str()), styles], "");
+        assert_eq!(
+            found(&diagnostics, "unused-namespace-exports"),
+            unused,
+            "{tag}: {diagnostics:#?}"
+        );
+        assert_eq!(found(&diagnostics, "unused-exports"), none(), "{tag}");
+    }
+}
+
 /// A use of the module object as a whole reads every value of the module and none of its types: `typeof ns` and
 /// `require` have only the values, so the interface and the type alias stay unused.
 #[test]
