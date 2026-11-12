@@ -143,7 +143,8 @@ All notable changes to this project are documented here. The format follows
   of a local that object may be instead of being dropped. A list method that calls a function it is given with the
   list's elements (`configs.forEach(withSentry)`, `list.forEach(fn, thisArg)`) changes nothing only when that
   function is written in place or declared by the config and no `this` object follows it; otherwise the elements
-  and that object are partly unknown.
+  and that object are partly unknown. Calling a local that holds a function the evaluator does not follow
+  (`const addAlias = aliaser(config); …; addAlias('~', './lib')`) leaves what it was made from partly unknown.
 - **Config evaluation**: `.map`, `.flatMap` and `.filter` of a known array call their callback (an inline function,
   or one the config declares) with each element and its index, so Vitest projects spread from
   `` ['light', 'dark'].map((theme) => ({ test: { name: `browser-${theme}` } })) `` are known instead of leaving the

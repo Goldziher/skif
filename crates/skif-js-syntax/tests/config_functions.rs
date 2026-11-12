@@ -3053,3 +3053,22 @@ fn a_list_method_calling_code_that_is_not_followed_may_change_the_elements() {
     );
     assert!(!open(&kept), "{kept:?}");
 }
+
+/// A function that a call the evaluator cannot follow made (`const addAlias = aliaser(config)`) may change what it was
+/// made from when it is called, also after the evaluator set a key of it.
+#[test]
+fn a_function_an_unknown_call_made_may_change_what_it_was_made_from() {
+    let value = extract(
+        "vite.config.ts",
+        "import { defineConfig } from 'vite';\n\
+         import aliaser from 'aliaser';\n\
+         export default defineConfig(() => {\n\
+           const config = { root: 'src' };\n\
+           const addAlias = aliaser(config);\n\
+           config.resolve = { alias: { '@': './src' } };\n\
+           addAlias('~', './lib');\n\
+           return config;\n\
+         });",
+    );
+    assert!(open_or_unknown(at(&value, &["resolve", "alias"])), "{value:?}");
+}
