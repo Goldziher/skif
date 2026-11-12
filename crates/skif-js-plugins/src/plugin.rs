@@ -132,8 +132,8 @@ pub enum PluginInput {
     /// A shell script, parsed with the script parser.
     Script(String),
     /// A shell script that runs in `dir`, a directory of the workspace other than its root (a workflow step with a
-    /// `working-directory`). The files it runs are entries; the binaries and packages it names belong to whichever
-    /// package lives in `dir` and are not recorded.
+    /// `working-directory`), read as if it started with `cd <dir>`: the files it runs are entries, and the binaries it
+    /// runs and the packages it loads carry the directory ([`BinaryRef::dir`], [`DepRef::dir`]).
     ScriptAt {
         /// The directory the script runs in, relative to the workspace directory.
         dir: String,
@@ -396,6 +396,10 @@ pub struct DepRef {
     /// The package reading the config may list the package the config reference names instead of the package that
     /// owns `from`: a compiler option of a shared base `tsconfig` applies to each package extending it.
     pub reader_may_list: bool,
+    /// The directory the command that loads the package runs in after `cd` or `pushd`, or that a step's
+    /// `working-directory` names, relative to the directory of the package the plugin runs for, `/`-separated: the
+    /// package is needed by the package in that directory. `None` where the command starts.
+    pub dir: Option<String>,
 }
 
 impl DepRef {
@@ -411,6 +415,7 @@ impl DepRef {
             named_by_config: named_by_config && !optional,
             type_only: false,
             reader_may_list: false,
+            dir: None,
         }
     }
 
@@ -448,11 +453,15 @@ pub struct BinaryRef {
     /// The command runs the binary in `dir` without naming a workspace (`pnpm -C sub exec rspack`): it is credited to
     /// the package there and never judged where the command starts.
     pub filtered: bool,
+    /// A binary nothing provides is unlisted. Otherwise it is only a credit: one fetched on demand (`npx x`), or run by
+    /// name where a plugin's binaries are optional ([`PluginSpec::optional_binaries`]); only such a binary that runs in
+    /// another directory is a [`BinaryRef`] at all.
+    pub judged: bool,
 }
 
 impl BinaryRef {
     /// The binary `name` that a command read from `from` runs, in `dir` (see [`BinaryRef::dir`] and
-    /// [`BinaryRef::filtered`]).
+    /// [`BinaryRef::filtered`]), judged.
     #[must_use]
     pub fn new(name: String, from: &Path, dir: Option<String>, filtered: bool) -> Self {
         Self {
@@ -460,7 +469,15 @@ impl BinaryRef {
             from: from.to_path_buf(),
             dir,
             filtered,
+            judged: true,
         }
+    }
+
+    /// The binary as a credit only, never unlisted (see [`BinaryRef::judged`]).
+    #[must_use]
+    pub fn credit_only(mut self) -> Self {
+        self.judged = false;
+        self
     }
 }
 
@@ -487,12 +504,15 @@ pub struct PluginOutput {
     pub config_files: Vec<PathBuf>,
     /// Packages the configs reference by name.
     pub referenced_dependencies: Vec<DepRef>,
-    /// Binaries the configs invoke (from embedded scripts).
+    /// Binaries the configs invoke (from embedded scripts), where the command starts: one that runs in another
+    /// directory is only in `run_binaries`.
     pub referenced_binaries: Vec<String>,
-    /// The binaries of `referenced_binaries` that a command read from a file runs, with that file, for
-    /// `unlisted-binaries`. Binaries fetched on demand (`npx x`), run in another workspace (`pnpm --filter web exec
-    /// x`), assumed installed globally or ignored by the script parser are left out; so are the binaries a plugin
-    /// names without a command (`PluginInput::Binary`).
+    /// The binaries that a command read from a file runs, with that file, for `unlisted-binaries`: those of
+    /// `referenced_binaries` and those that run in another directory, which `referenced_binaries` leaves out. Binaries
+    /// run in another workspace (`pnpm --filter web exec x`), assumed installed globally or ignored by the script
+    /// parser are left out, and so are the binaries a plugin names without a command (`PluginInput::Binary`); one
+    /// fetched on demand (`npx x`) or optional is here only when it runs in another directory, as a credit
+    /// ([`BinaryRef::judged`]).
     pub run_binaries: Vec<BinaryRef>,
     /// Binaries the tool itself provides.
     pub provided_binaries: Vec<String>,

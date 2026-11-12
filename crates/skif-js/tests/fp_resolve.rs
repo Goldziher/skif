@@ -158,6 +158,41 @@ fn uses_through_ancestor_manifests_are_reported_with_the_innermost_manifest() {
     );
 }
 
+/// A binary that a script or a workflow step runs after `cd` into a project of its own below the workspace (a directory
+/// with a `package.json` that is no workspace member, such as a nested root of a recursive run) is judged against that
+/// project's manifest: a provider it lists is used through it, for the multi-root host to credit, and nothing is
+/// unlisted at the command; one it does not provide is unlisted at the command, naming the project.
+#[test]
+fn binaries_run_after_cd_into_a_project_of_its_own_are_judged_against_its_manifest() {
+    let root = r#"{"name":"repo","private":true,"scripts":{"css":"cd build/rspack && rspack build"}}"#;
+    let project = r#"{"name":"rspack-build","private":true,"devDependencies":{"@rspack/cli":"1.0.0"}}"#;
+    let workflow = "name: css\non: [push]\njobs:\n  scan:\n    runs-on: ubuntu-latest\n    steps:\n      \
+                    - run: cd build/rspack && pnpm exec rspack build\n      \
+                    - run: cd build/rspack && pnpm exec webpack serve\n";
+    let report = report_at(
+        "/ws",
+        &[
+            ("/ws/.git/HEAD", ""),
+            ("/ws/package.json", root),
+            ("/ws/build/rspack/package.json", project),
+            ("/ws/.github/workflows/css.yml", workflow),
+        ],
+    );
+    let unlisted: Vec<&str> = report
+        .diagnostics
+        .iter()
+        .filter(|d| d.rule.as_str() == "unlisted-binaries")
+        .map(|d| d.message.as_str())
+        .collect();
+    let expected = "`.github/workflows/css.yml` runs `webpack` in `build/rspack`, which no dependency of \
+                    `rspack-build` provides";
+    assert_eq!(unlisted, [expected], "{:#?}", report.diagnostics);
+    assert_eq!(
+        report.ancestor_dependency_uses,
+        [(PathBuf::from("/ws/build/rspack"), "@rspack/cli".to_owned())]
+    );
+}
+
 /// Two standalone projects side by side: `b` requires `../a/lib.js`, which requires `./helper.js` and `lodash`, a
 /// dependency of `a`.
 const SIBLINGS: [(&str, &str); 6] = [

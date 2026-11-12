@@ -9,6 +9,37 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `DepRef` of `skif-js-plugins` gains `dir`, the directory a command loads the package in after `cd`, and `BinaryRef`
+  gains `judged`, false for a binary that is only a credit; a struct literal of `DepRef` needs the new field.
+  `PluginOutput::referenced_binaries` leaves out the binaries a command runs in another directory, which
+  `run_binaries` holds. `RunBinary` of `skif-js` gains `judged`, `WorkspaceInputs` gains `relocated_dependencies`, and
+  `UnlistedBinary` gains `runs_in` (a `RunsIn`, exported); a struct literal of `UnlistedBinary` needs the new field.
+- `Report::ancestor_dependency_uses` also lists the dependencies of a project of its own below the root (a nested root)
+  that provide a binary a command runs after `cd` into it, so `skif -r` counts them as used by that root.
+
+### Fixed
+
+- A package that a workflow step, a tool config's command or a source file loads after `cd <dir>`
+  (`run: cd packages/web && node -r @x/register x.js`) is needed by the workspace package in that directory, not by
+  the package where the command starts. A step's `working-directory` (its own, or the `defaults.run` of its job or
+  workflow), an Azure Pipelines `workingDirectory` and the `cwd` of a tool's command are read as a leading `cd`, so the
+  binaries and packages of such a step are credited to the package there
+  ([ADR 0121](adrs/0121-working-directories-binaries-missing-where-a-command-runs-and-npm-s-linked-strategy.md),
+  [#147](https://github.com/Goldziher/skif/issues/147)).
+- `unlisted-binaries` reports a binary that a script, a workflow step or a source file runs after `cd` into another
+  workspace package that does not provide it, at the command and naming the package
+  (``script `a` runs `x` in `packages/web`, which no dependency of `web` provides``); a script of that package that a
+  package manager runs there is not a binary. After `cd` into a project of its own below the workspace (a directory
+  with a `package.json` that is no workspace member, such as a nested root of `skif -r`), the binary is judged against
+  that project's manifest
+  ([ADR 0121](adrs/0121-working-directories-binaries-missing-where-a-command-runs-and-npm-s-linked-strategy.md),
+  [#163](https://github.com/Goldziher/skif/issues/163)).
+- Under npm with `install-strategy=linked` in the root `.npmrc`, a member's binary satisfies only the packages that
+  list the member, as under pnpm's isolated linker
+  ([ADR 0121](adrs/0121-working-directories-binaries-missing-where-a-command-runs-and-npm-s-linked-strategy.md),
+  [#162](https://github.com/Goldziher/skif/issues/162)).
 ### Added
 
 - `stale-lerna-config` (`warn`): `useWorkspaces` in `lerna.json` and a `lerna.json` without `version`, which Lerna 7

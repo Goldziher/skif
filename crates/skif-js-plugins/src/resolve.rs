@@ -538,7 +538,7 @@ impl Collector<'_, '_> {
                 PluginInput::LinkedConfig { plugin, path } => self.linked_config(plugin, &path, depth),
                 PluginInput::VirtualModule(pattern) => push_unique(&mut self.out.virtual_modules, pattern),
                 PluginInput::Script(text) => self.script(&text, from, optional),
-                PluginInput::ScriptAt { dir, script } => self.script_at(&dir, &script),
+                PluginInput::ScriptAt { dir, script } => self.script_at(&dir, &script, from, optional),
                 PluginInput::SourceScript { file, script } => {
                     let source = self.ctx.dir.join(&file);
                     // A call whose `cwd` is computed from the file's location runs in the file's directory.
@@ -615,7 +615,7 @@ impl Collector<'_, '_> {
             .out
             .referenced_dependencies
             .iter_mut()
-            .find(|d| d.name == reference.name && d.from == reference.from)
+            .find(|d| d.name == reference.name && d.from == reference.from && d.dir == reference.dir)
         {
             Some(existing) => existing.merge(&reference),
             None => self.out.referenced_dependencies.push(reference),
@@ -644,17 +644,24 @@ impl Collector<'_, '_> {
         for binary in info.binaries {
             // As for the scripts of `package.json`: a binary fetched on demand, run in another workspace or that the
             // script parser ignores is never unlisted here.
-            let judged = !optional || binary.via != BinaryVia::Direct || binary.bin_path;
+            let named = binary.via != BinaryVia::Direct || binary.bin_path;
+            let judged = (!optional || named) && !binary.via.is_ephemeral();
             // A filtered binary counts only as a credit to the package of the directory it runs in.
             let dir = binary.relocation_dir().map(str::to_owned);
             let placed = !binary.filtered || dir.is_some();
-            if judged && placed && !binary.via.is_ephemeral() && !is_ignored_binary(&binary.name) {
+            // A binary run in another directory belongs to whatever is there, so it is no credit where the command
+            // starts.
+            let elsewhere = dir.is_some();
+            if placed && (judged || elsewhere) && !is_ignored_binary(&binary.name) {
                 let run = BinaryRef::new(binary.name.clone(), from, dir, binary.filtered);
+                let run = if judged { run } else { run.credit_only() };
                 if !self.out.run_binaries.contains(&run) {
                     self.out.run_binaries.push(run);
                 }
             }
-            push_unique(&mut self.out.referenced_binaries, binary.name);
+            if !elsewhere {
+                push_unique(&mut self.out.referenced_binaries, binary.name);
+            }
         }
         // A command that runs in the Nx workspace root names the package's own files through it
         // (`cd ../.. && node packages/b/run.mjs`).
@@ -663,18 +670,22 @@ impl Collector<'_, '_> {
             push_unique(&mut self.out.entries, within_package(package_path, &file.path));
         }
         for dep in info.dependencies {
-            self.dependency(DepRef::new(dep.name, from, dep.ephemeral, false));
+            self.dependency(DepRef {
+                dir: dep.dir,
+                ..DepRef::new(dep.name, from, dep.ephemeral, false)
+            });
         }
     }
 
-    /// The files a script runs in `dir` are entries; what it names besides belongs to the package in `dir`.
-    fn script_at(&mut self, dir: &str, text: &str) {
+    /// A command read from `from` that runs in `dir`, read as if it started with `cd <dir>`: the files it runs are
+    /// entries there, and the binaries and packages it names carry the directory, as after `cd`.
+    fn script_at(&mut self, dir: &str, text: &str, from: &Path, optional: bool) {
+        // A line of its own, so that a script that starts with a comment or a shebang still follows it.
+        let cd = format!("cd '{}'\n", dir.replace('\'', r"'\''"));
         let mut texts = vec![text.to_owned()];
         texts.extend(flag_values(text, &["cdk"], &["-a", "--app"]));
         for text in texts {
-            for file in parse_script(&text, self.script_context()).files {
-                push_unique(&mut self.out.entries, join_rel(dir, &file.path));
-            }
+            self.parse_script(&format!("{cd}{text}"), from, optional);
         }
     }
 }

@@ -195,6 +195,11 @@ pub(crate) fn rebase(mut output: PluginOutput, scope: &str) -> PluginOutput {
             *dir = join_rel(scope, dir);
         }
     }
+    for dependency in &mut output.referenced_dependencies {
+        if let Some(dir) = &mut dependency.dir {
+            *dir = join_rel(scope, dir);
+        }
+    }
     for reason in &mut output.incomplete_reasons {
         reason.scope = match &reason.scope {
             IncompleteScope::Within(within) => {
@@ -234,7 +239,9 @@ pub(crate) fn merge(into: &mut PluginOutput, from: PluginOutput) {
         match into
             .referenced_dependencies
             .iter_mut()
-            .find(|existing| existing.name == reference.name && existing.from == reference.from)
+            .find(|existing| {
+                existing.name == reference.name && existing.from == reference.from && existing.dir == reference.dir
+            })
         {
             Some(existing) => existing.merge(&reference),
             None => into.referenced_dependencies.push(reference),

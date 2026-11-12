@@ -16,7 +16,8 @@ pub static META: RuleMeta = RuleMeta::new(
 /// Reports binaries that no dependency provides: those `package.json` scripts run, at the script, and those the
 /// commands of other files run (workflows, hooks and tool configs that plugins read, `node:child_process`, `execa`
 /// and `zx` calls in source files) and the `node_modules/.bin` links source files look up
-/// (`require.resolve('.bin/x')`), at that file.
+/// (`require.resolve('.bin/x')`), at that file. A binary a command runs after `cd` into another workspace package or a
+/// project of its own is judged there, and the message names it.
 pub struct UnlistedBinaries;
 
 impl JsRule for UnlistedBinaries {
@@ -29,13 +30,17 @@ impl JsRule for UnlistedBinaries {
             let Some(package) = analysis.workspace.package(binary.package) else {
                 continue;
             };
+            // A binary run after `cd` in another package or project names where it runs and whose dependencies lack it.
+            let runs = match &binary.runs_in {
+                Some(runs_in) => format!(
+                    "`{}` in `{}`, which no dependency of `{}` provides",
+                    binary.name, runs_in.dir, runs_in.name
+                ),
+                None => format!("`{}`, which no dependency provides", binary.name),
+            };
             let (message, location) = if let Some(file) = &binary.file {
                 (
-                    format!(
-                        "`{}` runs `{}`, which no dependency provides",
-                        file.to_string_lossy().replace('\\', "/"),
-                        binary.name
-                    ),
+                    format!("`{}` runs {runs}", file.to_string_lossy().replace('\\', "/")),
                     Location::new(file.clone(), None),
                 )
             } else {
@@ -43,10 +48,7 @@ impl JsRule for UnlistedBinaries {
                     .manifest
                     .field_span(&[PathSeg::Key("scripts".to_owned()), PathSeg::Key(binary.script.clone())]);
                 (
-                    format!(
-                        "script `{}` runs `{}`, which no dependency provides",
-                        binary.script, binary.name
-                    ),
+                    format!("script `{}` runs {runs}", binary.script),
                     Location::new(package.manifest.path.clone(), span),
                 )
             };

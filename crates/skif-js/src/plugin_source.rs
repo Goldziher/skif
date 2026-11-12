@@ -166,12 +166,13 @@ fn scripts(request: &InputRequest<'_>) -> IndexMap<String, String> {
         .unwrap_or_default()
 }
 
-/// The packages of the `optional` (or required) references; a reference to types only also names the package's
-/// `DefinitelyTyped` package, which a manifest may list in its place.
+/// The packages of the `optional` references, or of the required ones that the package where the command starts
+/// needs (not one loaded in another directory, see [`WorkspaceInputs::relocated_dependencies`]); a reference to types
+/// only also names the package's `DefinitelyTyped` package, which a manifest may list in its place.
 fn names(output: &[skif_js_plugins::DepRef], optional: bool) -> impl Iterator<Item = String> + '_ {
     output
         .iter()
-        .filter(move |dependency| dependency.optional == optional)
+        .filter(move |dependency| dependency.optional == optional && (optional || dependency.dir.is_none()))
         .flat_map(|dependency| {
             let types = types_package(&dependency.name).filter(|_| dependency.type_only);
             std::iter::once(dependency.name.clone()).chain(types)
@@ -219,6 +220,12 @@ fn inputs(output: PluginOutput) -> WorkspaceInputs {
         ignore_binaries,
         virtual_modules: output.virtual_modules,
         dependencies: names(&output.referenced_dependencies, false).collect(),
+        relocated_dependencies: output
+            .referenced_dependencies
+            .iter()
+            .filter(|dependency| !dependency.optional)
+            .filter_map(|dependency| Some((dependency.dir.clone()?, dependency.name.clone())))
+            .collect(),
         config_dependencies: output
             .referenced_dependencies
             .iter()
@@ -234,7 +241,14 @@ fn inputs(output: PluginOutput) -> WorkspaceInputs {
         run_binaries: output
             .run_binaries
             .into_iter()
-            .map(|run| RunBinary::new(run.name, run.from, run.dir, run.filtered))
+            .map(|run| {
+                let binary = RunBinary::new(run.name, run.from, run.dir, run.filtered);
+                if run.judged {
+                    binary
+                } else {
+                    binary.credit_only()
+                }
+            })
             .collect(),
         config_files: output.config_files,
         aliases: output
