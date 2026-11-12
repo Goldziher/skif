@@ -2308,3 +2308,18 @@ fn a_write_in_a_class_body_is_unknown() {
     assert_eq!(get(&value, &["output", "path"]), &UNKNOWN, "{value:?}");
     assert_eq!(get(&value, &["entry"]), &s("./src/main.js"), "{value:?}");
 }
+
+/// The elements of a `const` list of strings are no objects a callback could change, unless code changes the list: one
+/// that may hold an object pushed into it is changed through a callback's parameter, as is what shares that object.
+#[test]
+fn a_callback_over_a_list_that_may_hold_an_object_changes_that_object() {
+    let value = extract(
+        "webpack.config.js",
+        "const extra = { entry: './src/main.js' };\n\
+         const list = ['a'];\n\
+         list.push(extra);\n\
+         list.forEach((item) => change(item));\n\
+         module.exports = extra;",
+    );
+    assert!(open(&value), "{value:?}");
+}

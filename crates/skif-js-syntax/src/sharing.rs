@@ -32,7 +32,7 @@
 use std::collections::BTreeMap;
 
 use oxc_ast::ast::{
-    Argument, ArrayExpression, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator, AssignmentPattern,
+    Argument, ArrayExpression, ArrayExpressionElement, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator, AssignmentPattern,
     AssignmentTarget, AssignmentTargetMaybeDefault, AssignmentTargetPattern, AssignmentTargetProperty,
     AssignmentTargetPropertyIdentifier, BindingIdentifier, BindingPattern, CallExpression, ChainExpression, Class,
     ComputedMemberExpression, Declaration, DoWhileStatement, ExportDeclaration, Expression, ExpressionStatement,
@@ -171,6 +171,8 @@ impl Unstable {
             changes: BTreeMap::new(),
             aliases: Vec::new(),
             primitives: HashSet::default(),
+            primitive_lists: HashSet::default(),
+            element_links: Vec::new(),
             in_const: false,
             callables: callables(program, scoping),
         };
@@ -325,6 +327,12 @@ struct Sharing<'s> {
     aliases: Vec<(SymbolId, SymbolId)>,
     /// The `const` bindings that hold a primitive value ([`is_primitive`]), which shares no object.
     primitives: HashSet<SymbolId>,
+    /// The `const` bindings of a list of primitive values ([`is_primitive_list`]), whose elements are objects only
+    /// once code changes the list.
+    primitive_lists: HashSet<SymbolId>,
+    /// The links of the parameters of each callback given to a method of one of [`Self::primitive_lists`] to that
+    /// list, made only when a change may reach the list ([`Self::link_elements`]).
+    element_links: Vec<Link>,
     /// Whether the declarations being visited are `const`.
     in_const: bool,
     /// The functions the module declares ([`callables`]).
@@ -449,13 +457,28 @@ impl Sharing<'_> {
             return;
         }
         let receiver = callee.as_member_expression().map(MemberExpression::object);
-        let mut held = receiver.map_or_else(Vec::new, |receiver| {
-            self.refs(Part::Value, |refs| refs.visit_expression(receiver))
-        });
+        // The elements of a list of primitive values share no object unless code changes the list.
+        let list = receiver
+            .and_then(|receiver| match receiver.get_inner_expression() {
+                Expression::Identifier(id) => self.symbol(id),
+                _ => None,
+            })
+            .filter(|list| self.primitive_lists.contains(list));
+        let mut held = match (receiver, list) {
+            (Some(receiver), None) => self.refs(Part::Value, |refs| refs.visit_expression(receiver)),
+            _ => Vec::new(),
+        };
         for argument in arguments {
             held.extend(self.refs(Part::Value, |refs| refs.visit_argument(argument)));
         }
         for parameter in parameters {
+            if let Some(list) = list {
+                self.element_links.push(Link {
+                    a: Place::of(parameter),
+                    b: Place::of(list),
+                    exact: false,
+                });
+            }
             self.hold(&Place::of(parameter), false, held.clone());
         }
     }
@@ -744,6 +767,40 @@ impl Sharing<'_> {
             .collect()
     }
 
+    /// Links the parameters of the callbacks given to a method of one of [`Self::primitive_lists`] to that list when a
+    /// change may reach it, until no more is linked: its elements may then be objects that a change of a parameter
+    /// changes. Each alias counts as linked to the local it takes a part of, as which the evaluator follows is not
+    /// known yet. In a module that calls `eval` or reads `arguments`, every such link is made.
+    fn link_elements(&mut self) {
+        let mut pending = std::mem::take(&mut self.element_links);
+        if self.dynamic {
+            return self.links.append(&mut pending);
+        }
+        while !pending.is_empty() {
+            let base = self.links.len();
+            self.links.extend(self.aliases.iter().map(|&(alias, root)| Link {
+                a: Place::of(alias),
+                b: Place::of(root),
+                exact: false,
+            }));
+            let links_of = self.links_of();
+            let reached: HashSet<SymbolId> = self
+                .mutated
+                .iter()
+                .flat_map(|(symbol, write)| self.reached(&links_of, *symbol, write))
+                .map(|(symbol, _)| symbol)
+                .collect();
+            self.links.truncate(base);
+            let (linked, rest): (Vec<Link>, Vec<Link>) =
+                pending.into_iter().partition(|link| reached.contains(&link.b.symbol));
+            pending = rest;
+            if linked.is_empty() {
+                break;
+            }
+            self.links.extend(linked);
+        }
+    }
+
     /// Drops the links and changes of bindings that hold a primitive value, which share no object.
     fn drop_primitives(&mut self) {
         let primitives = &self.primitives;
@@ -822,6 +879,7 @@ impl Sharing<'_> {
     /// and returns the aliases the evaluator follows, which mark nothing.
     fn share(&mut self) -> HashSet<SymbolId> {
         self.drop_primitives();
+        self.link_elements();
         let followed = self.link_aliases();
         let mut origins: Vec<(SymbolId, Write)> = Vec::new();
         for origin in &self.mutated {
@@ -926,6 +984,9 @@ impl<'a> Visit<'a> for Sharing<'_> {
                 .collect();
             if whole && self.in_const && is_primitive(self.names(), init) {
                 self.primitives.extend(names.iter().copied());
+            }
+            if whole && self.in_const && is_primitive_list(self.names(), init) {
+                self.primitive_lists.extend(names.iter().copied());
             }
             if names.is_empty() {
                 self.link_among(&held);
@@ -1075,9 +1136,13 @@ impl<'a> Visit<'a> for Sharing<'_> {
                     .map(|(place, _)| (place, false))
             }
         };
+        // A method that keeps nothing it is given returns what a callback returns, and calls it with what the object
+        // holds ([`Self::callbacks`]).
+        let keeps_callbacks = pure_method(self.names(), it);
         let mut held: Vec<Held> = it
             .arguments
             .iter()
+            .filter(|argument| !(keeps_callbacks && is_inline_function(argument)))
             .flat_map(|argument| self.refs(Part::Value, |refs| refs.visit_argument(argument)))
             .collect();
         // A method of an object that is not a local's part may keep what it is given in what that object holds.
@@ -1643,6 +1708,38 @@ fn constructs_builtin(scoping: &Scoping, new: &NewExpression<'_>) -> bool {
     matches!(
         new.callee.get_inner_expression(),
         Expression::Identifier(id) if resolved(scoping, id).is_none() && BUILTIN_CLASSES.contains(&id.name.as_str())
+    )
+}
+
+/// Whether `expr` is a list literal of values that hold no object ([`is_primitive`]), with no spread.
+fn is_primitive_list(names: Names<'_>, expr: &Expression<'_>) -> bool {
+    let Expression::ArrayExpression(array) = expr.get_inner_expression() else {
+        return false;
+    };
+    array.elements.iter().all(|element| match element {
+        ArrayExpressionElement::SpreadElement(_) => false,
+        ArrayExpressionElement::Elision(_) => true,
+        other => other.as_expression().is_some_and(|value| is_primitive(names, value)),
+    })
+}
+
+/// Whether `argument` is a function written in place (`(item) => …`, `function (item) { … }`).
+fn is_inline_function(argument: &Argument<'_>) -> bool {
+    argument.as_expression().is_some_and(|argument| {
+        matches!(
+            argument.get_inner_expression(),
+            Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+        )
+    })
+}
+
+/// Whether `call` calls one of [`PURE_METHODS`] on an object known to have it ([`builtin`]), which keeps nothing it is
+/// given.
+fn pure_method(names: Names<'_>, call: &CallExpression<'_>) -> bool {
+    matches!(
+        call.callee.get_inner_expression(),
+        Expression::StaticMemberExpression(m)
+            if PURE_METHODS.contains(&m.property.name.as_str()) && builtin(names, &m.object)
     )
 }
 
