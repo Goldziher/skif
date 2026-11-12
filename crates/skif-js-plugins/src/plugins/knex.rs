@@ -5,7 +5,7 @@
 //! dependency. The search reads the text, not the syntax tree: it follows a call only when its first argument is an
 //! object literal with a string literal `client`, and does not see a `knex` binding that is renamed again.
 
-use skif_js_syntax::ConfigValue;
+use skif_js_syntax::{ConfigValue, is_declaration_file};
 
 use crate::files::find_files;
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
@@ -47,7 +47,7 @@ impl Plugin for Knex {
         let patterns = ["**/*.{ts,mts,cts,tsx,js,mjs,cjs,jsx}".to_owned()];
         let mut out = Vec::new();
         for source in find_files(cx.fs, cx.dir, &patterns) {
-            if source.ends_with(".d.ts") {
+            if is_declaration_file(&source) {
                 continue;
             }
             let Ok(text) = cx.fs.read_to_string(&cx.dir.join(&source)) else {

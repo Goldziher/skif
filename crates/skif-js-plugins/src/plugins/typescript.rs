@@ -1,6 +1,6 @@
 //! TypeScript: `tsconfig.json` chains and the packages its options name.
 
-use skif_js_syntax::ConfigValue;
+use skif_js_syntax::{ConfigValue, is_declaration_file};
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::support::{is_relative, join_rel, objects, package_name, strings, strip_wildcard};
@@ -200,7 +200,7 @@ fn has_input_extension(segment: &str) -> bool {
 fn inferred_root_dir(value: &ConfigValue) -> Option<String> {
     let mut roots = Vec::new();
     for pattern in value.get("include").map(strings).unwrap_or_default() {
-        if is_declaration(pattern) {
+        if is_declaration_file(pattern) {
             continue;
         }
         let segments: Vec<&str> = pattern.split('/').collect();
@@ -217,7 +217,7 @@ fn inferred_root_dir(value: &ConfigValue) -> Option<String> {
         roots.push(join_rel("", &directory.join("/")));
     }
     for file in value.get("files").map(strings).unwrap_or_default() {
-        if is_declaration(file) {
+        if is_declaration_file(file) {
             continue;
         }
         roots.push(join_rel(
@@ -237,12 +237,6 @@ fn inferred_root_dir(value: &ConfigValue) -> Option<String> {
     } else {
         common.join("/")
     })
-}
-
-fn is_declaration(path: &str) -> bool {
-    [".d.ts", ".d.mts", ".d.cts"]
-        .iter()
-        .any(|suffix| path.ends_with(suffix))
 }
 
 fn with_json_extension(path: &str) -> String {

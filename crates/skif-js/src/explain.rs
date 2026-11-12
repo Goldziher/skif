@@ -10,7 +10,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use serde::Serialize;
-use skif_js_syntax::{ExportKind, Import, ImportKind, ImportedKind, ImportedName};
+use skif_js_syntax::{ExportKind, Import, ImportKind, ImportedKind, ImportedName, is_declaration_file};
 use skif_workspace::PackageId;
 
 use crate::analysis::JsAnalysis;
@@ -82,7 +82,7 @@ pub enum Absence {
     UnusedFile,
     /// Its package is excluded from the run (`ignore-packages`, or `[js]` turned off for it).
     PackageExcluded,
-    /// A declaration file (`.d.ts`), which is never reported as unused.
+    /// A declaration file (`.d.ts`, `.d.mts`, `.d.cts`), which is never reported as unused.
     DeclarationFile,
     /// The entry files of its package are not fully known and may be anywhere in it, so none of its files is judged
     /// (package-wide); [`UsageReport::incomplete`] says why.
@@ -703,7 +703,7 @@ impl JsAnalysis<'_> {
         if !self.outside_graph.contains(&rel) {
             return (Absence::NotDiscovered, Vec::new());
         }
-        if rel.ends_with(".d.ts") {
+        if is_declaration_file(&rel) {
             return (Absence::DeclarationFile, Vec::new());
         }
         let Some(in_package) = relative(&abs, &package.dir) else {

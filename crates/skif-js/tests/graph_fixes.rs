@@ -185,15 +185,17 @@ fn plugin_config_files_are_entries_and_their_imports_count() {
 
 #[test]
 fn ambient_declaration_files_are_entries() {
-    let diagnostics = lint_files(
-        &[
-            PACKAGE,
-            ("types/global.d.ts", "declare const VERSION: string;\n"),
-            ("src/index.ts", "export {};\n"),
-        ],
-        "",
-    );
-    assert_eq!(found(&diagnostics, "unused-files"), none());
+    for declaration in ["types/global.d.ts", "types/global.d.mts", "types/global.d.cts"] {
+        let diagnostics = lint_files(
+            &[
+                PACKAGE,
+                (declaration, "declare const VERSION: string;\n"),
+                ("src/index.ts", "export {};\n"),
+            ],
+            "",
+        );
+        assert_eq!(found(&diagnostics, "unused-files"), none(), "{declaration}");
+    }
 }
 
 #[test]

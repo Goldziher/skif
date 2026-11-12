@@ -16,7 +16,7 @@ use oxc_resolver::{
 use serde_json::Value;
 use skif_core::{FileSystem, HashMap, HashState, OsFs, slash};
 use skif_js_plugins::bazel::{DeclaredOutputs, build_file, is_output_path, repository_root_within};
-use skif_js_syntax::is_stylesheet;
+use skif_js_syntax::{DECLARATION_SUFFIXES, is_stylesheet};
 use skif_workspace::Workspace;
 
 use crate::compilers::Compilers;
@@ -113,9 +113,6 @@ pub(crate) fn join_normalized(base: &Path, relative: &str) -> PathBuf {
     }
     path
 }
-
-/// The suffixes of TypeScript declaration files.
-pub(crate) const DECLARATION_SUFFIXES: [&str; 3] = [".d.ts", ".d.mts", ".d.cts"];
 
 /// The file name of `path` without its extension, a declaration file's whole suffix included (`schema` for
 /// `schema.d.ts`).
