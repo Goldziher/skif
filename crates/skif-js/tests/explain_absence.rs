@@ -548,13 +548,14 @@ fn a_whole_namespace_use_is_listed_for_values_and_not_for_types() {
 }
 
 /// The source of the build output a script runs and a file an extensionless `bin` stub loads are entries for those
-/// reasons, which the report names instead of `unknown`.
+/// reasons, which the report names instead of `unknown`. The `typescript` plugin reads the build directory from
+/// `tsconfig.json`, so the fixture depends on it.
 #[test]
 fn a_built_script_source_and_a_file_a_bin_stub_loads_name_their_entry_rule() {
     let files = [
         (
             "package.json",
-            r#"{"name":"app","version":"1.0.0","private":true,"bin":{"tool":"bin/tool"},"scripts":{"cov":"node dist/report.js"}}"#,
+            r#"{"name":"app","version":"1.0.0","private":true,"bin":{"tool":"bin/tool"},"scripts":{"cov":"node dist/report.js"},"devDependencies":{"typescript":"5.6.0"}}"#,
         ),
         (
             "tsconfig.json",
