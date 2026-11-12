@@ -305,6 +305,17 @@ through a computed `require` in `lib/npm.js`, stay compared: the harness cannot 
 [ADR 0080](../../adrs/0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md)
 and [ADR 0100](../../adrs/0100-knip-comparison-n8n-node-files-and-what-published-sources-import.md).
 
+**Bazel.** skif's Bazel plugin reads the `BUILD.bazel` and `BUILD` files of a repository that uses `rules_js`; knip
+has no Bazel plugin. An unlisted dependency only skif reports at a `BUILD` file (a package a label names that no
+manifest lists) is the `bazel-build-file` known deviation, and so is a dependency only knip reports unused that a label
+of a `BUILD` file in the package's directory names: a `node_modules` target of the package's Bazel package
+(`":node_modules/zod"`, `"//:node_modules/typescript"` for the root package) or the `package_json.bzl` of another
+repository (`"@npm//packages/app:esbuild/package_json.bzl"`). The harness scans the string literals of every `BUILD`
+file below a directory skif's file discovery enters, in a checkout whose root holds `MODULE.bazel`, `REPO.bazel`,
+`WORKSPACE.bazel` or `WORKSPACE`, resolving each label's Bazel package from the nearest of these root files that names
+`aspect_rules_js`, as skif does. The files skif makes entries from the `srcs`, `data` and `entry_point` of the
+`rules_js` rules, the files they reach and their exports stay compared: the harness does not read the rule calls.
+
 **Not judged by skif.** skif lists under `incomplete-packages` in its JSON report the packages whose entry files it
 cannot all know (a tool config it cannot read), and does not report their unused dependencies, exports, types and
 members, nor the files the config could make entries. A finding only knip reports in `dependencies` or
