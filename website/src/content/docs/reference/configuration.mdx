@@ -719,8 +719,9 @@ machines that bring their own tools, so a binary they run by name is never repor
 package manager (`pnpm exec x`, `yarn x`) or a `node_modules/.bin` path is, as knip does. A GitHub Actions step whose
 `shell` is not a POSIX shell (`pwsh`, `cmd`, `python`) is not read. The binary of a workspace member is provided where
 the package manager puts it on the `PATH`: with npm, Yarn Classic, hoisted pnpm and hoisted Bun, which link every
-member's binaries into the root `node_modules/.bin`, for every package; with isolated pnpm, Yarn Berry, isolated Bun and
-in a Rush repository only for the packages that list the member and for the member's own scripts. pnpm is hoisted with
+member's binaries into the root `node_modules/.bin`, for every package; with isolated pnpm, npm with
+`install-strategy=linked` in the root `.npmrc`, Yarn Berry, isolated Bun and in a Rush repository only for the packages
+that list the member and for the member's own scripts. pnpm is hoisted with
 `nodeLinker: hoisted` in `pnpm-workspace.yaml`, or without a `nodeLinker` there with `node-linker=hoisted` in the root
 `.npmrc` only before pnpm 11 (pnpm 11 reads its linker only from `pnpm-workspace.yaml`; without a pnpm version in
 `packageManager`, `.npmrc` is read). Bun is isolated with `linker = "isolated"` under `[install]` in the root

@@ -122,15 +122,17 @@ const RUSH_COMMANDS: &[&str] = &["rush", "rushx", "rush-pnpm"];
 
 /// Whether the binaries of a workspace member are on the `PATH` of every package: npm, Yarn Classic and the hoisted
 /// linkers of pnpm ([`pnpm_hoisted`]) and Bun hoist the members into the root `node_modules` and link their binaries
-/// into its `.bin`, while pnpm's isolated linker, Yarn Berry, Rush and Bun's isolated linker ([`bun_isolated`]) link a
-/// member's binaries only into the packages that depend on it. An unknown package manager counts as hoisting, so it
-/// reports nothing new, and so does a Yarn whose version the repository does not tell ([`yarn_berry`]).
+/// into its `.bin`, while pnpm's isolated linker, npm's linked strategy ([`npm_linked`]), Yarn Berry, Rush and Bun's
+/// isolated linker ([`bun_isolated`]) link a member's binaries only into the packages that depend on it. An unknown
+/// package manager counts as hoisting, so it reports nothing new, and so does a Yarn whose version the repository does
+/// not tell ([`yarn_berry`]).
 /// `bun_config_version` is the `configVersion` of `bun.lock`.
 fn hoists_member_bins(workspace: &Workspace, rush: bool, bun_config_version: Option<u64>, fs: &dyn FileSystem) -> bool {
     if rush {
         return false;
     }
     match workspace.package_manager {
+        Some(PackageManager::Npm) => !npm_linked(workspace, fs),
         Some(PackageManager::Pnpm) => pnpm_hoisted(workspace, fs),
         Some(PackageManager::Yarn) => !yarn_berry(workspace, fs),
         Some(PackageManager::Bun) => !bun_isolated(fs, &workspace.root, bun_config_version),
@@ -180,17 +182,24 @@ fn pnpm_hoisted(workspace: &Workspace, fs: &dyn FileSystem) -> bool {
         .pnpm_workspace
         .as_ref()
         .and_then(|yaml| yaml.node_linker.clone())
-        .or_else(|| {
-            if !reads_npmrc {
-                return None;
-            }
-            let npmrc = fs.read_to_string(&workspace.root.join(".npmrc")).ok()?;
-            npmrc_entries(&npmrc)
-                .filter(|(key, _)| *key == "node-linker")
-                .last()
-                .map(|(_, value)| value.to_owned())
-        });
+        .or_else(|| reads_npmrc.then(|| npmrc_setting(fs, &workspace.root, "node-linker")).flatten());
     linker.as_deref() == Some("hoisted")
+}
+
+/// Whether npm installs the workspace with its linked strategy, which installs isolated, as pnpm does: the last
+/// top-level `install-strategy` of the root `.npmrc` is `linked`. Without one, npm hoists. A member's `.npmrc`, the
+/// user's `.npmrc`, the environment and `npm install --install-strategy` are not read.
+fn npm_linked(workspace: &Workspace, fs: &dyn FileSystem) -> bool {
+    npmrc_setting(fs, &workspace.root, "install-strategy").as_deref() == Some("linked")
+}
+
+/// The value of the last top-level entry `key` of the `.npmrc` in `root`, as npm's `ini` parser reads it.
+fn npmrc_setting(fs: &dyn FileSystem, root: &Path, key: &str) -> Option<String> {
+    let npmrc = fs.read_to_string(&root.join(".npmrc")).ok()?;
+    npmrc_entries(&npmrc)
+        .filter(|(entry, _)| *entry == key)
+        .last()
+        .map(|(_, value)| value.to_owned())
 }
 
 /// Whether Bun installs the workspace at `root` with its isolated linker. `linker` in the `[install]` table of the
