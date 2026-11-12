@@ -30,9 +30,9 @@
 //! at any depth ([`given_parts`]); a spread of a local there (`{ ...options }`) leaves all of the local open, as a
 //! change of only what its keys hold is not one the pass can say ([`Effect`]). The pass knows the effect of a
 //! well-known function only where its name resolves to the module that declares it, and treats a `define…` helper of
-//! a library and a merge that copies ([`copies`]) and `Object.assign`, beyond its first argument, as changing nothing;
-//! the first two keep nothing they are given in another argument either. A loop name, a
-//! callback parameter and a name a destructuring assigns share with what they take, but for the element a callback
+//! a package it does not follow (not one of the workspace) and a merge that copies ([`copies`]) and `Object.assign`,
+//! beyond its first argument, as changing nothing; the first two keep nothing they are given in another argument
+//! either. A loop name, a callback parameter and a name a destructuring assigns share with what they take, but for the element a callback
 //! or a loop over a `const` list or object of primitive values (or its `Object.entries`) takes when no change reaches
 //! it, and a write in a class body is one the evaluator does not follow.
 //!
@@ -871,8 +871,8 @@ impl Sharing<'_> {
     }
 
     /// Whether `call` changes none of the objects it is given and keeps none of them in another or in what it is called
-    /// on: a `define…` helper of a library, which returns what it is given, or a merge that builds a new object
-    /// ([`copies`]).
+    /// on: a `define…` helper of a package the evaluator does not follow ([`foreign`]), which returns what it is given,
+    /// or a merge that builds a new object ([`copies`]).
     fn keeps_apart(&self, call: &CallExpression<'_>) -> bool {
         let names = self.names();
         (defined(call).is_some() && foreign(names, &call.callee)) || copies(names, call)
@@ -1858,8 +1858,8 @@ impl<'a> Visit<'a> for Refs<'_> {
             }
             _ => self.opaque(|refs| refs.visit_expression(&it.callee)),
         }
-        // A `define*` call is the value it is given.
-        let defined = defined(it).is_some();
+        // A `define*` call of a package is the value it is given.
+        let defined = defined(it).is_some() && foreign(names, &it.callee);
         for (index, argument) in it.arguments.iter().enumerate() {
             if defined && index == 0 {
                 self.visit_argument(argument);
@@ -2328,8 +2328,8 @@ pub(crate) fn property_defined(call: &CallExpression<'_>) -> Option<String> {
 }
 
 /// Whether the name a callee (`defineConfig`, `vitest.defineProject`) starts from is not one the project declares a
-/// value for: a global, or an import or a binding of a `require` of a package ([`is_package`]), not of a module of
-/// the project.
+/// value for: a global, or an import or a binding of a `require` of a package the evaluator does not follow
+/// ([`Known::foreign`]), not of a module or a workspace package of the project.
 fn foreign(names: Names<'_>, callee: &Expression<'_>) -> bool {
     let root = match callee.get_inner_expression() {
         Expression::StaticMemberExpression(member) => member.object.get_inner_expression(),
@@ -2338,13 +2338,7 @@ fn foreign(names: Names<'_>, callee: &Expression<'_>) -> bool {
     let Expression::Identifier(id) = root else {
         return false;
     };
-    resolved(names.scoping, id).is_none_or(|symbol| {
-        names
-            .known
-            .modules
-            .get(&symbol)
-            .is_some_and(|(module, _)| is_package(module))
-    })
+    resolved(names.scoping, id).is_none_or(|symbol| names.known.foreign.contains(&symbol))
 }
 
 /// Whether a module specifier names a package (`vite`, `@vitest/config`, `node:path`) rather than a file of the

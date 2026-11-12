@@ -651,3 +651,22 @@ fn a_write_through_what_a_method_of_a_followed_package_returns_reaches_it() {
     let value = eval(&loader);
     assert_eq!(read_at(&value, &["build", "outDir"]), &ConfigValue::Unknown, "{value:?}");
 }
+
+/// A `define…` helper of a workspace package the loader follows is code of the project, which may change what it is
+/// given: the config it was given is partly unknown after the call.
+#[test]
+fn a_define_helper_of_a_followed_package_may_change_what_it_is_given() {
+    let loader = files(&[
+        (
+            "/ws/app/config.ts",
+            "import { defineConfig } from '@fx/base';\nconst base = { build: { outDir: 'dist' } };\n\
+             defineConfig(base);\nexport default base;",
+        ),
+        (
+            "/ws/base/index.ts",
+            "export function defineConfig(c) { c.build.outDir = 'out'; return c; }",
+        ),
+    ]);
+    let value = eval(&loader);
+    assert_eq!(read_at(&value, &["build", "outDir"]), &ConfigValue::Unknown, "{value:?}");
+}
