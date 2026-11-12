@@ -1195,6 +1195,13 @@
           "description": "Plugin switches keyed by plugin name.",
           "default": {}
         },
+        "compilers": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/JsCompiler"
+          },
+          "description": "How to read the files of extensions skif has no reader for, keyed by the extension without its dot (`html`):\nthe static counterpart of knip's `compilers`, which never runs project code. Such files join the default\nproject, and the imports read from them count as usage."
+        },
         "extend-ignore": {
           "type": "array",
           "items": {
@@ -1549,6 +1556,30 @@
         }
       },
       "description": "Table form of a plugin entry."
+    },
+    "JsCompiler": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "as": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Read the files as if they had this extension, with the reader skif has for it (`as = \"mdx\"`): one of\n[`JsCompiler::READERS`]."
+        },
+        "imports": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Regular expressions with exactly one capture group, matched against the whole text of a file: every match\ncaptures an import specifier, resolved as an import written in that file."
+        }
+      },
+      "description": "One `[js.compilers]` entry: how the files of one extension are read. Exactly one of `as` and `imports` is set."
     },
     "Format": {
       "type": "object",
