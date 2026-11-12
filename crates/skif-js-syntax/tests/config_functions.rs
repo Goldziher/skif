@@ -3360,10 +3360,22 @@ fn a_setter_given_its_first_argument_through_a_spread_may_change_what_it_spreads
 fn json_stringify_with_a_replacer_function_may_change_what_it_is_given() {
     let config = "const config = { plugins: [] };";
     for (call, changes) in [
-        ("function r(k, v) { if (Array.isArray(v)) v.push('x'); return v; }\nconst banner = JSON.stringify(config, r);", true),
-        ("const r = (k, v) => { if (Array.isArray(v)) v.push('x'); return v; };\nconst banner = JSON.stringify(config, r);", true),
-        ("import { r } from 'replacer';\nconst banner = JSON.stringify(config, r);", true),
-        ("const banner = JSON.stringify(config, (k, v) => { if (Array.isArray(v)) v.push('x'); return v; });", true),
+        (
+            "function r(k, v) { if (Array.isArray(v)) v.push('x'); return v; }\nconst banner = JSON.stringify(config, r);",
+            true,
+        ),
+        (
+            "const r = (k, v) => { if (Array.isArray(v)) v.push('x'); return v; };\nconst banner = JSON.stringify(config, r);",
+            true,
+        ),
+        (
+            "import { r } from 'replacer';\nconst banner = JSON.stringify(config, r);",
+            true,
+        ),
+        (
+            "const banner = JSON.stringify(config, (k, v) => { if (Array.isArray(v)) v.push('x'); return v; });",
+            true,
+        ),
         ("const banner = JSON.stringify(config, null, 2);", false),
         ("const banner = JSON.stringify(config, undefined, 2);", false),
         ("const banner = JSON.stringify(config, ['plugins']);", false),
@@ -3373,7 +3385,11 @@ fn json_stringify_with_a_replacer_function_may_change_what_it_is_given() {
         if changes {
             assert_eq!(at(&value, &["plugins"]), &UNKNOWN, "{source}: {value:?}");
         } else {
-            assert_eq!(value, ConfigValue::Object(vec![("plugins".to_owned(), strings(&[]))]), "{source}: {value:?}");
+            assert_eq!(
+                value,
+                ConfigValue::Object(vec![("plugins".to_owned(), strings(&[]))]),
+                "{source}: {value:?}"
+            );
         }
     }
 }
