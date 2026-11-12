@@ -1084,7 +1084,9 @@ method (`push`, `slice`, `concat`) changes at most its object only when that obj
 change through an element of a list leaves every element open; a loop name, a callback parameter, a name a destructuring
 assignment sets and a function assigned with `=` share with what they take, except a callback over a `const` list of
 strings or numbers that no change reaches; a value spread from an object literal (`...(ci ? { plugins: list } : {})`)
-is shared at the key it is spread at only; and a write in a class body leaves what it reaches unknown. A key a plugin reads files from that is unknown below
+is shared at the key it is spread at only; a spread of a local (`{ ...options }`) copies its keys, so a change below
+one of them (`options.coverage.enabled = true`) reaches the copy at that key only, and a new value of a key of either
+leaves the other as it was; and a write in a class body leaves what it reaches unknown. A key a plugin reads files from that is unknown below
 the top level, such as vitest's `setupFiles: isPostgres ? [...] : []` or a `test` object an unknown spread may replace,
 leaves the plugin's entries incomplete instead of being read as empty.
 
