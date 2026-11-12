@@ -2034,6 +2034,11 @@ fn a_function_named_like_a_well_known_one_may_change_its_argument() {
         ("const path = require('./helpers');", "path.join(config);"),
         ("import fs from './fs.js';", "fs.readFileSync(config);"),
         ("const JSON = require('./json');", "JSON.stringify(config);"),
+        ("import { createRequire } from './mine.js';", "createRequire(config);"),
+        (
+            "const Object = { assign: (a, b) => { b.entry = './changed.js'; } };",
+            "Object.assign({}, config);",
+        ),
     ] {
         let source = format!(
             "{bound}\nconst config = {{ entry: './src/main.js', module: {{ rules: [] }} }};\n{call}\nmodule.exports = config;"

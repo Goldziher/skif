@@ -143,8 +143,9 @@ pub(crate) struct Unstable {
 enum Effect {
     /// It changes none of them: one of [`PURE_FUNCTIONS`], a method that changes at most the object it is called on
     /// ([`PURE_METHODS`], [`LIST_ADDERS`], [`OWN_RESULT_METHODS`]) called on an object that is known to have it
-    /// ([`builtin`]), a `define*` call of a function the module does not declare, which returns what it is given, or a
-    /// merge that builds a new object ([`copies`]).
+    /// ([`builtin`]), a `define*` call of a function the module does not declare, which returns what it is given, a
+    /// merge that builds a new object ([`copies`]), or `Object.assign`, which changes only its first argument
+    /// ([`changed_by_call`]).
     Keeps,
     /// It calls a function the module declares, whose changes of what its parameters take reach the arguments through
     /// the links of the call ([`Callables`]).
@@ -553,6 +554,7 @@ impl Sharing<'_> {
         let keeps = pure_function(names, call).is_some()
             || (defined(call).is_some() && foreign(names, &call.callee))
             || copies(names, call)
+            || assigns(names, call)
             || matches!(
                 call.callee.get_inner_expression(),
                 Expression::StaticMemberExpression(m)
@@ -1668,6 +1670,20 @@ fn copies(names: Names<'_>, call: &CallExpression<'_>) -> bool {
     }
 }
 
+/// Whether `call` is `Object.assign` of the global `Object`, which changes its first argument only.
+fn assigns(names: Names<'_>, call: &CallExpression<'_>) -> bool {
+    matches!(
+        call.callee.get_inner_expression(),
+        Expression::StaticMemberExpression(m)
+            if m.property.name.as_str() == "assign"
+                && matches!(
+                    m.object.get_inner_expression(),
+                    Expression::Identifier(object)
+                        if object.name.as_str() == "Object" && resolved(names.scoping, object).is_none()
+                )
+    )
+}
+
 /// Whether the name a callee (`defineConfig`, `vitest.defineProject`) starts from is not one the module declares a
 /// value for: a global, an import, or a binding of a `require`.
 fn foreign(names: Names<'_>, callee: &Expression<'_>) -> bool {
@@ -1816,8 +1832,8 @@ const BUILTIN_OBJECTS: &[&str] = &[
 
 /// Whether the object a method is called on is one whose methods the pass knows: one `expr` creates
 /// ([`creates_builtin`]), the result of one of [`PURE_FUNCTIONS`] (a string, a list or plain data), a `const` holding
-/// one ([`Known::builtins`]), one of [`BUILTIN_OBJECTS`] the module does not declare, or the `path`, `fs` or `url`
-/// module itself.
+/// one ([`Known::builtins`]), one of [`BUILTIN_OBJECTS`] the module does not declare, or the `path`, `fs`, `url` or
+/// `module` module itself.
 fn builtin(names: Names<'_>, receiver: &Expression<'_>) -> bool {
     match receiver.get_inner_expression() {
         Expression::Identifier(id) => match resolved(names.scoping, id) {
@@ -2069,8 +2085,8 @@ enum Returns {
 /// Functions of a well-known module or global, by the name of the object they are called on (`path` in `path.join`;
 /// empty for a global function called by name), that change neither that object nor any argument: each object with
 /// the functions (all of them when none is listed) and what they return. A module's functions count where the module
-/// binds `path`, `fs` or `url` to that module or imports the function from it, and a global's where the name is not
-/// declared in the module ([`pure_function`]).
+/// binds `path`, `fs`, `url` or `module` to that module or imports the function from it, and a global's where the name
+/// is not declared in the module ([`pure_function`]).
 const PURE_FUNCTIONS: &[(&str, &[&str], Returns)] = &[
     (
         "path",
@@ -2097,6 +2113,7 @@ const PURE_FUNCTIONS: &[(&str, &[&str], Returns)] = &[
     ),
     ("url", &["fileURLToPath"], Returns::Primitive),
     ("url", &["pathToFileURL"], Returns::Fresh),
+    ("module", &["createRequire"], Returns::Fresh),
     ("JSON", &["stringify"], Returns::Primitive),
     ("JSON", &["parse"], Returns::Fresh),
     ("Object", &["keys", "getOwnPropertyNames"], Returns::Fresh),
@@ -2153,7 +2170,7 @@ fn pure_function(names: Names<'_>, call: &CallExpression<'_>) -> Option<Returns>
 }
 
 /// The name in [`PURE_FUNCTIONS`] of the object a function is called on: a global of [`GLOBAL_OBJECTS`] the module
-/// does not declare, or a binding of the `path`, `fs` or `url` module itself.
+/// does not declare, or a binding of the `path`, `fs`, `url` or `module` module itself.
 fn module_object(names: Names<'_>, object: &Expression<'_>) -> Option<&'static str> {
     match object.get_inner_expression() {
         Expression::Identifier(id) => match resolved(names.scoping, id) {
@@ -2182,6 +2199,7 @@ fn known_module(specifier: &str) -> Option<&'static str> {
         "path" | "path/posix" => Some("path"),
         "fs" => Some("fs"),
         "url" => Some("url"),
+        "module" => Some("module"),
         _ => None,
     }
 }
