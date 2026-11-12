@@ -9,13 +9,14 @@ use std::sync::LazyLock;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Argument, ArrayExpressionElement, ArrowFunctionExpression, AssignmentOperator, AssignmentTarget,
-    AssignmentTargetPropertyIdentifier, BinaryOperator, BindingIdentifier, BindingPattern, BlockStatement,
-    CallExpression, CatchClause, ChainElement, ChainExpression, ComputedMemberExpression, ConditionalExpression,
-    Declaration, ExportDefaultDeclarationKind, Expression, ExpressionStatement, ForInStatement, ForOfStatement,
-    ForStatement, Function, IdentifierReference, IfStatement, ImportDeclarationSpecifier, ImportOrExportKind,
-    LogicalExpression, LogicalOperator, MemberExpression, NewExpression, ObjectProperty, ObjectPropertyKind, Program,
-    ReturnStatement, SimpleAssignmentTarget, Statement, StaticMemberExpression, TaggedTemplateExpression,
-    TemplateLiteral, UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
+    AssignmentTargetPropertyIdentifier, BinaryExpression, BinaryOperator, BindingIdentifier, BindingPattern,
+    BlockStatement, CallExpression, CatchClause, ChainElement, ChainExpression, ComputedMemberExpression,
+    ConditionalExpression, Declaration, ExportDefaultDeclarationKind, Expression, ExpressionStatement, ForInStatement,
+    ForOfStatement, ForStatement, Function, IdentifierReference, IfStatement, ImportDeclarationSpecifier,
+    ImportOrExportKind, LogicalExpression, LogicalOperator, MemberExpression, NewExpression, ObjectProperty,
+    ObjectPropertyKind, Program, ReturnStatement, SimpleAssignmentTarget, Statement, StaticMemberExpression,
+    TaggedTemplateExpression, TemplateLiteral, UnaryExpression, UnaryOperator, VariableDeclaration,
+    VariableDeclarationKind, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_parser::{ParseOptions as OxcParseOptions, Parser};
@@ -102,7 +103,7 @@ pub enum ConfigValue {
     Bool(bool),
     /// A numeric literal.
     Number(f64),
-    /// A string literal or a template literal without expressions.
+    /// A string literal, or a string computed from known values (a template literal, a concatenation, a path).
     String(String),
     /// An array literal; spreads of static arrays are flattened, anything else becomes [`ConfigValue::Unknown`].
     Array(Vec<ConfigValue>),
@@ -375,7 +376,8 @@ pub trait ModuleLoader {
 
 /// Statically evaluates what `source` exports: `export default …`, `module.exports = …` or `export = …`.
 ///
-/// Understood: object, array, string, number, boolean and `null` literals; template literals without expressions;
+/// Understood: object, array, string, number, boolean and `null` literals; template literals whose substitutions are
+/// known strings, numbers or booleans, and `+` of such values with a string (or of two numbers);
 /// `as`/`satisfies`/`!`/parenthesised wrappers; calls named `define*` (such as `defineConfig`), which evaluate to
 /// their first argument; arrow and function expressions that return a single expression; spreads of static values; and
 /// identifiers that name a top-level `const` initialised with something static; and paths computed from the config
@@ -409,6 +411,13 @@ pub trait ModuleLoader {
 /// every branch (`[...(ci ? ['a'] : [])]`), a branch of `null`, `undefined` or a boolean none. `.filter(Boolean)` of a
 /// known array drops the falsy elements and keeps one that may be falsy as the values it has when it is not
 /// (`[ci ? 'github' : null, ci && 'blob'].filter(Boolean)` keeps `'github'` and `'blob'`).
+/// `.map`, `.flatMap` and `.filter` of a known array call an inline callback, or one the module declares, with each
+/// element and its index (`` ['light', 'dark'].map((theme) => ({ name: `browser-${theme}` })) ``); an unknown element,
+/// which may stand for a spread of any length, stays unknown, and a predicate whose result is not known keeps the
+/// element and leaves the length unknown. `Object.fromEntries` of a known list of `[key, value]` pairs is their object,
+/// an element that is not such a pair adding an unknown spread. `a === b` and `a !== b` of known primitives are known,
+/// and a known array's element at a constant index (`LIST[0]`) is its value, `undefined` past its end and unknown at
+/// or after an unknown element.
 ///
 /// Functions are followed: a returned config function may declare local `const`/`let` bindings and local functions,
 /// assign members of a local object, and call top-level or local functions with known arguments, a parameter not passed
@@ -947,6 +956,9 @@ fn top_level<'p, 'a>(program: &'p Program<'a>) -> TopLevel<'p, 'a> {
     }
     top
 }
+
+/// Array methods [`Evaluator::array_callback_call`] runs over a known array.
+const ARRAY_CALLBACK_METHODS: &[&str] = &["map", "flatMap", "filter"];
 
 /// Functions of `path`, whose results are computed lexically.
 const PATH_FUNCTIONS: &[&str] = &["resolve", "join", "dirname", "normalize"];
@@ -2117,12 +2129,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 flags: r.regex.flags.to_string(),
             },
             Expression::TemplateLiteral(template) => self.template(template, depth),
-            Expression::BinaryExpression(b) if b.operator == BinaryOperator::Addition => {
-                match (self.expr(&b.left, depth), self.expr(&b.right, depth)) {
-                    (Value::String(left), Value::String(right)) => Value::String(left + &right),
-                    _ => Value::Unknown,
-                }
-            }
+            Expression::BinaryExpression(b) => self.binary(b, depth),
             Expression::StaticMemberExpression(member) => self.member(member, depth),
             Expression::ComputedMemberExpression(member) => self.computed_member(member, depth),
             Expression::ChainExpression(chain) => self.chain(chain, depth),
@@ -2382,6 +2389,23 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         modules.evaluate(self.path, &specifier, &Imported::Default, None)
     }
 
+    /// `a + b` of known values ([`add`]), and `a === b` or `a !== b` of two known primitives ([`strictly_equal`]);
+    /// any other operator is unknown.
+    fn binary(&self, binary: &'p BinaryExpression<'a>, depth: u32) -> Value {
+        let equal = match binary.operator {
+            BinaryOperator::Addition => None,
+            BinaryOperator::StrictEquality => Some(true),
+            BinaryOperator::StrictInequality => Some(false),
+            _ => return Value::Unknown,
+        };
+        let (left, right) = (self.expr(&binary.left, depth), self.expr(&binary.right, depth));
+        match equal {
+            None => add(&left, &right),
+            Some(equal) => strictly_equal(&left, &right).map_or(Value::Unknown, |same| Value::Bool(same == equal)),
+        }
+    }
+
+    /// A template literal whose substitutions are known strings, numbers or booleans ([`primitive_text`]).
     fn template(&self, template: &'p TemplateLiteral<'a>, depth: u32) -> Value {
         let mut out = String::new();
         for (index, quasi) in template.quasis.iter().enumerate() {
@@ -2392,7 +2416,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     .map_or_else(|| quasi.value.raw.as_str().to_owned(), crate::js_string),
             );
             if let Some(expression) = template.expressions.get(index) {
-                let Value::String(text) = self.expr(expression, depth) else {
+                let Some(text) = primitive_text(&self.expr(expression, depth)) else {
                     return Value::Unknown;
                 };
                 out.push_str(&text);
@@ -2422,8 +2446,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         self.member_of(&member.object, member.property.name.as_str(), depth)
     }
 
-    /// `object[key]` with a key known as a string (`base['setupFiles']`, `base[KEY]` of a constant), read as
-    /// `object.key` is; unknown for any other key.
+    /// `object[key]` with a key known as a string or a number (`base['setupFiles']`, `base[KEY]` of a constant,
+    /// `LIST[0]`), read as `object.key` is; unknown for any other key.
     fn computed_member(&self, member: &'p ComputedMemberExpression<'a>, depth: u32) -> Value {
         self.member_key(&member.expression, depth)
             .map_or(Value::Unknown, |key| self.member_of(&member.object, &key, depth))
@@ -2450,10 +2474,12 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         })
     }
 
-    /// The key of a computed member when it evaluates to a string.
+    /// The key of a computed member when it evaluates to a string, or to a number, as JavaScript writes it
+    /// ([`number_text`]): `list[0]` reads the key `"0"`, which [`property_of`] finds in an array.
     fn member_key(&self, key: &'p Expression<'a>, depth: u32) -> Option<String> {
         match self.expr(key, depth) {
             Value::String(key) => Some(key),
+            Value::Number(number) => number_text(number),
             _ => None,
         }
     }
@@ -2851,14 +2877,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             return None;
         };
         let name = id.name.as_str();
-        // The binding's kind decides, so a value bound to the name is not cloned to find out.
-        let local = self.frames.borrow().iter().rev().find_map(|frame| {
-            frame.get(name).map(|binding| match binding {
-                Binding::Callable(callable) => Some(*callable),
-                Binding::Value(_) | Binding::Alias(_) => None,
-            })
-        });
-        let (callable, isolate) = match local {
+        let (callable, isolate) = match self.local_function(name) {
             Some(Some(callable)) => (callable, false),
             Some(None) => return None,
             None => match self.functions.get(name) {
@@ -2867,6 +2886,136 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             },
         };
         Some(self.invoke(callable, Some(self.arguments(call, depth).as_slice()), isolate, depth))
+    }
+
+    /// The innermost binding of `name` in the functions being evaluated, `Some(None)` when it is not bound to a
+    /// function; `None` when no function being evaluated binds it. The binding's kind decides, so a value bound to the
+    /// name is not cloned to find out.
+    fn local_function(&self, name: &str) -> Option<Option<Callable<'p, 'a>>> {
+        self.frames.borrow().iter().rev().find_map(|frame| {
+            frame.get(name).map(|binding| match binding {
+                Binding::Callable(callable) => Some(*callable),
+                Binding::Value(_) | Binding::Alias(_) => None,
+            })
+        })
+    }
+
+    /// The function a callback argument `expr` is, and whether a call of it is isolated from the bindings of the
+    /// functions being evaluated: an inline function, which sees them, a function one of them declares, or a top-level
+    /// function. `None` for anything else, such as an imported function.
+    fn callback(&self, expr: &'p Expression<'a>) -> Option<(Callable<'p, 'a>, bool)> {
+        if let Some(callable) = Callable::of_expression(expr) {
+            return Some((callable, false));
+        }
+        let Expression::Identifier(id) = expr.get_inner_expression() else {
+            return None;
+        };
+        let name = id.name.as_str();
+        match self.local_function(name) {
+            Some(local) => local.map(|callable| (callable, false)),
+            None => self.functions.get(name).map(|callable| (*callable, true)),
+        }
+    }
+
+    /// `list.map(f)`, `list.flatMap(f)` and `list.filter(f)` of a known array with a callback the evaluator can call
+    /// ([`Self::callback`]): `f` is called with each element and its index (the array itself is not known to it),
+    /// within the call budget. An unknown element, which may stand for a spread of any length, is not passed to `f` and
+    /// stays unknown, and the indexes after it are unknown. `flatMap` adds the elements of an array `f` returns, or the
+    /// value itself; `filter` keeps the elements `f` is truthy for, and one it may be truthy for, which leaves the result
+    /// not definite. A result is not definite when the array is not. `None` for any other call, and when the array or
+    /// the callback is not known.
+    fn array_callback_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
+        let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
+            return None;
+        };
+        let method = member.property.name.as_str();
+        if !ARRAY_CALLBACK_METHODS.contains(&method) {
+            return None;
+        }
+        let (callable, isolate) = self.callback(call.arguments.first()?.as_expression()?)?;
+        let (Value::Array(items), mut definite) = self.read(&member.object, depth) else {
+            return None;
+        };
+        let mut out = Vec::new();
+        let mut indexed = true;
+        for (index, item) in items.into_iter().enumerate() {
+            if item == Value::Unknown {
+                indexed = false;
+                out.push(Value::Unknown);
+                continue;
+            }
+            let index = u32::try_from(index)
+                .ok()
+                .filter(|_| indexed)
+                .map_or(Value::Unknown, |index| Value::Number(f64::from(index)));
+            let args = [item.clone(), index, Value::Unknown];
+            let (result, result_definite) = self.invoke(callable, Some(args.as_slice()), isolate, depth).split();
+            match method {
+                "map" => out.push(Value::doubtful(result, result_definite)),
+                "flatMap" => match result {
+                    Value::Array(listed) => {
+                        out.extend(listed);
+                        definite &= result_definite;
+                    }
+                    Value::OneOf(_) => out.push(Value::Unknown),
+                    other => out.push(Value::doubtful(other, result_definite)),
+                },
+                _ => match truthiness(&result).filter(|_| result_definite) {
+                    Some(false) => {}
+                    Some(true) => out.push(item),
+                    None => {
+                        definite = false;
+                        out.push(item);
+                    }
+                },
+            }
+        }
+        Some(Value::doubtful(Value::Array(out), definite))
+    }
+
+    /// `Object.fromEntries(list)` of a known list of `[key, value]` pairs: the object they make, a later pair for a key
+    /// replacing the value of an earlier one, and a key that is a number or a boolean written as JavaScript writes it
+    /// ([`primitive_text`]). An element that is not such a pair with a known key may add any key, recorded under the
+    /// marker key `list` spreads under ([`Self::spread_key`]), before the pairs after it. The keys are not definite
+    /// when the list is not. Unknown for any other argument; `None` for any other call, and for an `Object` the module
+    /// binds.
+    fn from_entries_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
+        let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
+            return None;
+        };
+        let on_object = matches!(
+            member.object.get_inner_expression(),
+            Expression::Identifier(object) if object.name.as_str() == "Object"
+        );
+        if !on_object || member.property.name.as_str() != "fromEntries" || self.binds("Object") {
+            return None;
+        }
+        let Some(argument) = single_argument(call) else {
+            return Some(Value::Unknown);
+        };
+        let (Value::Array(pairs), definite) = self.read(argument, depth) else {
+            return Some(Value::Unknown);
+        };
+        let mut entries: Vec<(String, Value)> = Vec::new();
+        for pair in pairs {
+            let Some((key, value)) = entry_pair(pair) else {
+                let marker = self.spread_key(argument);
+                if entries.last().is_none_or(|(last, _)| last != marker) {
+                    entries.push((marker.to_owned(), Value::Unknown));
+                }
+                continue;
+            };
+            let value = Value::doubtful(value, definite);
+            let found = entries
+                .iter()
+                .rposition(|(name, _)| *name == key || ConfigValue::is_spread_key(name))
+                .filter(|&at| entries[at].0 == key);
+            match found {
+                Some(at) => entries[at].1 = value,
+                None => entries.push((key, value)),
+            }
+        }
+        Some(Value::Object(entries))
     }
 
     /// A call of a config combinator (`mergeConfig`, `defu`, `Object.assign`, `deepmerge`, `merge`): the merge of the
@@ -3003,7 +3152,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             .or_else(|| self.flat_config_call(call, depth))
             .or_else(|| self.local_call(call, depth))
             .or_else(|| self.merge_call(call, depth))
-            .or_else(|| self.filter_call(call, depth));
+            .or_else(|| self.filter_call(call, depth))
+            .or_else(|| self.array_callback_call(call, depth))
+            .or_else(|| self.from_entries_call(call, depth));
         if let Some(value) = special {
             return value;
         }
@@ -4179,8 +4330,90 @@ fn property_of(value: &Value, key: &str) -> Value {
             None if inherits(entries, key) => Value::Unknown,
             None => Value::Undefined,
         },
+        (Value::Array(items), _) if definite => {
+            array_index(key).map_or(Value::Unknown, |index| element_at(items, index))
+        }
         _ => Value::Unknown,
     }
+}
+
+/// The array index a property key names: a canonical non-negative integer (`"0"`, `"12"`, not `"01"` or `"+1"`).
+fn array_index(key: &str) -> Option<usize> {
+    let index: u32 = key.parse().ok()?;
+    (index.to_string() == key)
+        .then(|| usize::try_from(index).ok())
+        .flatten()
+}
+
+/// The element at `index` of a known array: unknown at or after an unknown element, which may stand for a spread of any
+/// length, and `undefined` past the end.
+fn element_at(items: &[Value], index: usize) -> Value {
+    if items.iter().take(index.saturating_add(1)).any(|item| *item == Value::Unknown) {
+        return Value::Unknown;
+    }
+    items.get(index).cloned().unwrap_or(Value::Undefined)
+}
+
+/// The key and value of a `[key, value]` pair `Object.fromEntries` takes: a known array whose first element is a known
+/// string, number or boolean ([`primitive_text`]), the value `undefined` when the pair has no second element. `None`
+/// for anything else.
+fn entry_pair(pair: Value) -> Option<(String, Value)> {
+    let Value::Array(parts) = pair else {
+        return None;
+    };
+    let mut parts = parts.into_iter();
+    let key = primitive_text(&parts.next()?)?;
+    Some((key, parts.next().unwrap_or(Value::Undefined)))
+}
+
+/// The text JavaScript makes of a known string, number ([`number_text`]) or boolean in a template literal, a `+` with a
+/// string or a property key; `None` for anything else, `null` and `undefined` included, which a path or name written
+/// from them is unlikely to mean.
+fn primitive_text(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.clone()),
+        Value::Number(number) => number_text(*number),
+        Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    }
+}
+
+/// How JavaScript writes the number `number`, when it writes it without an exponent (zero, or a magnitude from
+/// `1e-6` up to `1e21`), where Rust writes the same shortest digits; `None` for any other number, `NaN` and the
+/// infinities included.
+fn number_text(number: f64) -> Option<String> {
+    if number == 0.0 {
+        // `-0` is written `0` too.
+        return Some("0".to_owned());
+    }
+    (1e-6..1e21)
+        .contains(&number.abs())
+        .then(|| format!("{number}"))
+}
+
+/// `left + right` of known values: the sum of two numbers, or the text of both ([`primitive_text`]) when one is a
+/// string; unknown otherwise.
+fn add(left: &Value, right: &Value) -> Value {
+    match (left, right) {
+        (Value::Number(a), Value::Number(b)) => Value::Number(a + b),
+        (Value::String(_), _) | (_, Value::String(_)) => match (primitive_text(left), primitive_text(right)) {
+            (Some(a), Some(b)) => Value::String(a + &b),
+            _ => Value::Unknown,
+        },
+        _ => Value::Unknown,
+    }
+}
+
+/// Whether `left === right` for two known primitives; `None` when either is anything else, such as an object or an
+/// array, which compare by identity, or a value that is not known or not definite.
+fn strictly_equal(left: &Value, right: &Value) -> Option<bool> {
+    let primitive = |value: &Value| {
+        matches!(
+            value,
+            Value::Null | Value::Undefined | Value::Bool(_) | Value::Number(_) | Value::String(_)
+        )
+    };
+    (primitive(left) && primitive(right)).then(|| left == right)
 }
 
 /// Whether an object with `entries` may inherit `key` it does not have itself: a member of `Object.prototype`, or any
