@@ -18,6 +18,13 @@
 //! given. The name of any other function the module declares stands for both what its parameters take and what it
 //! returns.
 //!
+//! A call whose effect is not known (a function the module or a library declares, a `new` of a class other than a
+//! builtin one, a list or string method on an object not known to be a list or string) may change every object it is
+//! given, in any position and through a spread ([`Effect`]). The pass knows the effect of a well-known function only
+//! where its name resolves to the module that declares it, and treats a `define…` helper of a library and a merge
+//! that copies ([`copies`]) as changing nothing. A loop name, a callback parameter and a name a destructuring assigns
+//! share with what they take, and a write in a class body is one the evaluator does not follow.
+//!
 //! A `const` that takes a part of a local of its own function (`const { coverage } = config.test`) is the exception
 //! when the evaluator can follow it ([`Unstable::follows`]): it then applies the changes made through the alias to the
 //! local itself, so they do not mark the local, nor what may share an object with it.
@@ -929,9 +936,6 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
-        // What the target is written with may be shared with it; the target itself is visited by the walk. A value
-        // stored where no local holds it (`module.exports = [a(), b()]`, a global) is not changed by being stored, and
-        // no change through that place is followed, so its parts share nothing among themselves there.
         // A function assigned stands for what its parameters take as well as what it returns, as one declared does.
         let part = if matches!(
             it.right.get_inner_expression(),
@@ -942,6 +946,9 @@ impl<'a> Visit<'a> for Sharing<'_> {
             Part::Value
         };
         let held = self.refs(part, |refs| refs.visit_expression(&it.right));
+        // What the target is written with may be shared with it; the target itself is visited by the walk. A value
+        // stored where no local holds it (`module.exports = [a(), b()]`, a global) is not changed by being stored, and
+        // no change through that place is followed, so its parts share nothing among themselves there.
         match it.left.as_simple_assignment_target() {
             Some(target) => {
                 let hub = match target {
