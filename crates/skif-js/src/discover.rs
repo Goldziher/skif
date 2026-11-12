@@ -7,9 +7,8 @@ use std::sync::Arc;
 use ignore::Match;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use skif_core::{DirEntry, FileSystem};
-use skif_workspace::{PackageId, Workspace, map_ordered};
+use skif_workspace::{PackageId, Workspace, git_common_dir, git_dirs, map_ordered};
 
-use crate::git_index::{common_dir, locate};
 use crate::resolve::is_code_file;
 
 /// Directories that never hold analysed sources: dependencies, VCS data and common build output.
@@ -139,10 +138,10 @@ pub(crate) fn is_ignored_path(fs: &dyn FileSystem, root: &Path, path: &Path) -> 
 /// [`discover`] does not read, and the repository's `info/exclude`. Outside a work tree only the ignore files from
 /// `root` down count, as for [`is_ignored_path`]. The global excludes file (`core.excludesFile`) is not read.
 pub(crate) fn is_ignored_in_repository(fs: &dyn FileSystem, root: &Path, path: &Path) -> bool {
-    let Some((work_tree, git_dir)) = locate(fs, root) else {
+    let Some((work_tree, git_dir)) = git_dirs(fs, root) else {
         return is_ignored_path(fs, root, path);
     };
-    let exclude = common_dir(fs, &git_dir).join("info").join("exclude");
+    let exclude = git_common_dir(fs, &git_dir).join("info").join("exclude");
     let mut builder = GitignoreBuilder::new(&work_tree);
     let mut any = false;
     if let Ok(text) = fs.read_to_string(&exclude) {

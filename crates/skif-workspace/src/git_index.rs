@@ -1,8 +1,10 @@
 //! The files git tracks, read from `.git/index` without running git, and a file system overlay that serves them.
 //!
-//! Walking a large work tree costs one `opendir`/`getdents` per directory, which dominates the analysis on a slow
-//! file system, while the index already lists every tracked file. [`IndexedFs`] answers the listing of a tracked
-//! directory from the index and hands everything else to the file system it wraps.
+//! Walking a large work tree costs one `opendir`/`getdents` per directory, which dominates a run on a slow file
+//! system, while the index already lists every tracked file. [`TrackedFiles`] is that listing for one root, and
+//! [`IndexedFs`] answers the listing of a tracked directory from it and hands everything else to the file system it
+//! wraps. The JS analysis discovers source files through it, and the rules that list directories themselves (the
+//! toolchain scan, the Bazel `BUILD` files of the lockfile consumers) reach it through the lint context.
 //!
 //! The index knows tracked files only, so by itself it is blind to a file that was created or deleted since the last
 //! `git add`. A directory is therefore `stat`ed (no `opendir`) and compared with the modification time of the index
@@ -12,6 +14,7 @@
 //! before the index was last written (any `git add`, `git commit` or refreshing `git status` writes it), which the
 //! index does not record, so only `[js] discovery = "git"` uses the overlay (ADR 0095). On a file system without
 //! modification times the index alone is trusted.
+//! [`TrackedFiles::for_discovery`] applies that choice.
 //!
 //! Whatever is listed is confirmed when it is used: [`IndexedFs`] answers existence checks from the real file system,
 //! so a tracked file that was deleted is never reported as present.
@@ -22,6 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::time::SystemTime;
 
+use skif_config::{Config, JsDiscovery};
 use skif_core::{DirEntry, FileSystem, PathKind};
 
 const HEADER_LEN: usize = 12;
@@ -318,13 +322,20 @@ fn parse(bytes: &[u8]) -> Option<TrackedPaths> {
     Some(tracked)
 }
 
-/// The parsed indexes of a run, so that analysing several roots of one repository reads and parses its index once.
+/// The parsed indexes of a run, so that analysing several roots of one repository, or one root by several providers,
+/// reads and parses its index once.
 ///
 /// An entry is reused while the index file keeps its modification time; a file system that does not report one is
 /// never cached.
 #[derive(Default)]
-pub(crate) struct IndexCache {
+pub struct IndexCache {
     entries: Mutex<HashMap<PathBuf, CachedIndex>>,
+}
+
+impl std::fmt::Debug for IndexCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IndexCache").finish_non_exhaustive()
+    }
 }
 
 struct CachedIndex {
@@ -334,16 +345,22 @@ struct CachedIndex {
 }
 
 impl IndexCache {
+    /// The parsed index at `index`. The lock is not held while the index is read and parsed, so a provider never waits
+    /// for another's parse (two concurrent first reads both parse, and store the same result).
     fn get(&self, fs: &dyn FileSystem, index: &Path, modified: Option<SystemTime>) -> Option<Arc<TrackedPaths>> {
-        let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(modified) = modified
-            && let Some(cached) = entries.get(index).filter(|cached| cached.modified == modified)
+            && let Some(cached) = self
+                .entries
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(index)
+                .filter(|cached| cached.modified == modified)
         {
             return cached.paths.clone();
         }
         let paths = fs.read_bytes(index).ok().and_then(|bytes| parse(&bytes)).map(Arc::new);
         if let Some(modified) = modified {
-            entries.insert(
+            self.entries.lock().unwrap_or_else(PoisonError::into_inner).insert(
                 index.to_path_buf(),
                 CachedIndex {
                     modified,
@@ -357,7 +374,7 @@ impl IndexCache {
 
 /// The directories of the tracked tree under a root, with the entries of each.
 #[derive(Debug, Default)]
-pub(crate) struct TrackedTree {
+struct TrackedTree {
     dirs: HashMap<PathBuf, Arc<[DirEntry]>>,
 }
 
@@ -454,8 +471,9 @@ impl TrackedTree {
 }
 
 /// The work tree root and the git directory that belong to `root`: the closest ancestor with a `.git` directory, or
-/// a `.git` file pointing at one (linked work trees and submodules).
-pub(crate) fn locate(fs: &dyn FileSystem, root: &Path) -> Option<(PathBuf, PathBuf)> {
+/// a `.git` file pointing at one (linked work trees and submodules). `None` outside a git work tree.
+#[must_use]
+pub fn git_dirs(fs: &dyn FileSystem, root: &Path) -> Option<(PathBuf, PathBuf)> {
     for dir in root.ancestors() {
         let dot_git = dir.join(".git");
         let kind = fs.kind(&dot_git);
@@ -473,7 +491,8 @@ pub(crate) fn locate(fs: &dyn FileSystem, root: &Path) -> Option<(PathBuf, PathB
 
 /// The directory of the repository `git_dir` belongs to that holds what its work trees share (`config`,
 /// `info/exclude`): a linked work tree names it in `commondir`, any other git directory is its own.
-pub(crate) fn common_dir(fs: &dyn FileSystem, git_dir: &Path) -> PathBuf {
+#[must_use]
+pub fn git_common_dir(fs: &dyn FileSystem, git_dir: &Path) -> PathBuf {
     fs.read_to_string(&git_dir.join("commondir"))
         .ok()
         .map_or_else(|| git_dir.to_path_buf(), |text| git_dir.join(text.trim()))
@@ -481,28 +500,51 @@ pub(crate) fn common_dir(fs: &dyn FileSystem, git_dir: &Path) -> PathBuf {
 
 /// The configuration file of the repository `git_dir` belongs to; a linked work tree keeps it in the common directory.
 fn config_path(fs: &dyn FileSystem, git_dir: &Path) -> PathBuf {
-    common_dir(fs, git_dir).join("config")
+    git_common_dir(fs, git_dir).join("config")
 }
 
-/// `fs` with the files tracked below `root` served from the git index, or `None` when `root` is not in a git work
-/// tree, the index cannot be read, verified or understood (another format or hash width, a split or sparse index) or
-/// nothing below `root` is tracked. A directory modified since the index was written is listed from disk; when `fs`
-/// reports no modification time for the index, every tracked directory is listed from the index.
-pub(crate) fn indexed_fs(fs: &Arc<dyn FileSystem>, root: &Path, cache: &IndexCache) -> Option<Arc<dyn FileSystem>> {
-    let (work_tree, git_dir) = locate(fs.as_ref(), root)?;
-    if fs
-        .read_to_string(&config_path(fs.as_ref(), &git_dir))
-        .is_ok_and(|config| selects_sha256(&config))
-    {
-        return None;
+/// The files git tracks below one root, by directory, with when the listing of a directory may be used: the listing
+/// [`IndexedFs`] serves.
+#[derive(Debug)]
+pub struct TrackedFiles {
+    tree: TrackedTree,
+    trust: Trust,
+}
+
+impl TrackedFiles {
+    /// The files tracked below `root`, read through `fs` and `cache`, or `None` when `root` is not in a git work
+    /// tree, the index cannot be read, verified or understood (another format or hash width, a split or sparse
+    /// index) or nothing below `root` is tracked. A directory modified since the index was written is listed from
+    /// disk; when `fs` reports no modification time for the index, every tracked directory is listed from the index.
+    #[must_use]
+    pub fn read(fs: &dyn FileSystem, root: &Path, cache: &IndexCache) -> Option<Self> {
+        let (work_tree, git_dir) = git_dirs(fs, root)?;
+        if fs
+            .read_to_string(&config_path(fs, &git_dir))
+            .is_ok_and(|config| selects_sha256(&config))
+        {
+            return None;
+        }
+        let index = git_dir.join("index");
+        let modified = fs.modified(&index);
+        let tracked = cache.get(fs, &index, modified)?;
+        let tree = TrackedTree::build(root, root.strip_prefix(&work_tree).ok()?, &tracked);
+        tree.dirs.contains_key(root).then_some(())?;
+        let trust = modified.map_or(Trust::Always, Trust::ChangedSince);
+        Some(Self { tree, trust })
     }
-    let index = git_dir.join("index");
-    let modified = fs.modified(&index);
-    let tracked = cache.get(fs.as_ref(), &index, modified)?;
-    let tree = TrackedTree::build(root, root.strip_prefix(&work_tree).ok()?, &tracked);
-    tree.dirs.contains_key(root).then_some(())?;
-    let trust = modified.map_or(Trust::Always, Trust::ChangedSince);
-    Some(Arc::new(IndexedFs::new(Arc::clone(fs), tree, trust)))
+
+    /// [`read`](Self::read) when `config` lists files from the git index: `[js] discovery = "git"` without
+    /// `no_gitignore`. `None` for `auto` and `walk`, which walk the directories, because the index cannot tell
+    /// whether an unchanged directory holds an untracked file created before it was last written (ADR 0095), and
+    /// with `no_gitignore`, because the index lists no ignored file.
+    #[must_use]
+    pub fn for_discovery(fs: &dyn FileSystem, root: &Path, config: &Config, cache: &IndexCache) -> Option<Self> {
+        if config.js.no_gitignore || config.js.discovery != JsDiscovery::Git {
+            return None;
+        }
+        Self::read(fs, root, cache)
+    }
 }
 
 /// When the index listing of a directory may be used.
@@ -513,34 +555,35 @@ enum Trust {
     ChangedSince(SystemTime),
 }
 
-/// A file system that lists tracked directories from a [`TrackedTree`] and defers everything else to `inner`.
+/// A file system that lists tracked directories from [`TrackedFiles`] and defers everything else to `inner`.
 ///
 /// A path the index does not list, a directory that changed since the index was written and every existence check is
 /// asked of `inner`, so untracked and ignored files stay reachable by path (`node_modules`, generated sources) and a
 /// file deleted from disk is never reported as present. A tracked symbolic link is listed the way a directory listing
-/// of `inner` reports it, as a file or a directory according to its target.
-pub(crate) struct IndexedFs {
-    inner: Arc<dyn FileSystem>,
-    tree: TrackedTree,
-    trust: Trust,
+/// of `inner` reports it, as a file or a directory according to its target. `inner` is any file system, owned
+/// (`Arc<dyn FileSystem>`) or borrowed (`&dyn FileSystem`).
+pub struct IndexedFs<F> {
+    inner: F,
+    tracked: Arc<TrackedFiles>,
     /// The listing served for each tracked directory, decided once. Read far more often than written: every listing
     /// of a tracked directory after the first is a read.
     served: RwLock<HashMap<PathBuf, Arc<[DirEntry]>>>,
 }
 
-impl IndexedFs {
-    fn new(inner: Arc<dyn FileSystem>, tree: TrackedTree, trust: Trust) -> Self {
+impl<F: FileSystem> IndexedFs<F> {
+    /// `inner` with the directories of `tracked` listed from the index.
+    #[must_use]
+    pub fn new(inner: F, tracked: Arc<TrackedFiles>) -> Self {
         Self {
             inner,
-            tree,
-            trust,
+            tracked,
             served: RwLock::new(HashMap::default()),
         }
     }
 
     /// The entries of the tracked directory `dir`, whose index listing is `indexed`.
     fn serve(&self, dir: &Path, indexed: &Arc<[DirEntry]>) -> io::Result<Arc<[DirEntry]>> {
-        if let Trust::ChangedSince(index_modified) = self.trust
+        if let Trust::ChangedSince(index_modified) = self.tracked.trust
             && self
                 .inner
                 .modified(dir)
@@ -564,7 +607,7 @@ impl IndexedFs {
     }
 }
 
-impl FileSystem for IndexedFs {
+impl<F: FileSystem> FileSystem for IndexedFs<F> {
     fn read_to_string(&self, path: &Path) -> io::Result<Arc<str>> {
         self.inner.read_to_string(path)
     }
@@ -574,7 +617,7 @@ impl FileSystem for IndexedFs {
     }
 
     fn read_dir_shared(&self, path: &Path) -> io::Result<Arc<[DirEntry]>> {
-        let Some(indexed) = self.tree.listing(path) else {
+        let Some(indexed) = self.tracked.tree.listing(path) else {
             return self.inner.read_dir_shared(path);
         };
         if let Some(served) = self.served.read().unwrap_or_else(PoisonError::into_inner).get(path) {
@@ -721,6 +764,12 @@ mod tests {
 
     fn below<'a>(tracked: &'a TrackedPaths, prefix: &'a str) -> Vec<&'a str> {
         tracked.below(prefix).map(|(path, _)| path).collect()
+    }
+
+    /// `fs` with the files tracked below `root` listed from the index, as the JS analysis builds it.
+    fn indexed_fs(fs: &Arc<dyn FileSystem>, root: &Path, cache: &IndexCache) -> Option<Arc<dyn FileSystem>> {
+        let tracked = TrackedFiles::read(fs.as_ref(), root, cache)?;
+        Some(Arc::new(IndexedFs::new(Arc::clone(fs), Arc::new(tracked))))
     }
 
     #[test]
@@ -923,7 +972,13 @@ mod tests {
             .with_file("/ws/src/untracked.ts", "")
             .with_file("/ws/node_modules/x/index.js", "");
         let tree = TrackedTree::build(Path::new("/ws"), Path::new(""), &tracked(&["src/a.ts", "gone.ts"]));
-        let fs = IndexedFs::new(Arc::new(disk), tree, Trust::Always);
+        let fs = IndexedFs::new(
+            disk,
+            Arc::new(TrackedFiles {
+                tree,
+                trust: Trust::Always,
+            }),
+        );
         assert!(fs.is_file(Path::new("/ws/src/a.ts")));
         assert!(
             !fs.is_file(Path::new("/ws/gone.ts")),
@@ -1213,11 +1268,32 @@ mod tests {
         assert!(indexed_fs(&fs, Path::new("/repo/app"), &IndexCache::default()).is_some());
     }
 
+    /// A directory below the system's temporary directory, removed when dropped.
+    #[cfg(unix)]
+    struct TempDir(PathBuf);
+
+    #[cfg(unix)]
+    impl TempDir {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("skif-workspace-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn tracked_symbolic_links_are_listed_like_the_disk_lists_them() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        let dir = TempDir::new("tracked-symbolic-links");
+        let root = dir.0.canonicalize().unwrap();
         std::fs::create_dir_all(root.join(".git")).unwrap();
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::create_dir_all(root.join("shared")).unwrap();

@@ -20,6 +20,7 @@ mod bun_lock;
 mod catalogs;
 mod detect;
 mod error;
+mod git_index;
 mod lerna;
 mod lockfile;
 mod manifest;
@@ -37,6 +38,7 @@ pub use bun_lock::{BUN_LOCKFILE, BunLockfile, parse_bun_lock};
 pub use catalogs::Catalogs;
 pub use detect::package_manager_from_manifest;
 pub use error::WorkspaceError;
+pub use git_index::{IndexCache, IndexedFs, TrackedFiles, git_common_dir, git_dirs};
 pub use lerna::LernaFacts;
 pub use lockfile::{
     LockedDependency, LockedPatch, OTHER_LOCKFILES, PNPM_LOCKFILE, PnpmLockfile, Resolutions, Snapshot, snapshot_key,
