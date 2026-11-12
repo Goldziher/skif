@@ -2988,3 +2988,36 @@ fn a_property_defined_on_a_config_is_unknown() {
         }
     }
 }
+
+/// A write through an object that is not a name or a member chain (what a method returns, a condition between two
+/// parts of a local) reaches each part of a local it may be, as a new value of a key, a `delete` or a change by
+/// `Object.assign` does, and leaves the rest of the config known.
+#[test]
+fn a_write_through_an_object_that_is_not_a_chain_reaches_what_it_may_be() {
+    let config = "const config = { entry: './src/main.js', module: { rules: [{ loader: 'babel-loader' }] }, \
+                  prod: { devtool: 'source-map' }, dev: { devtool: 'eval' } };";
+    let cases: [(&str, &[&str]); 5] = [
+        (
+            "config.module.rules.find((r) => r.loader === 'babel-loader').loader = 'swc-loader';",
+            &["module", "rules", "0", "loader"],
+        ),
+        ("(process.env.PROD ? config.prod : config.dev).devtool = false;", &["prod", "devtool"]),
+        ("(process.env.PROD ? config.prod : config.dev).devtool = false;", &["dev", "devtool"]),
+        ("delete (process.env.PROD ? config.prod : config.dev).devtool;", &["dev", "devtool"]),
+        (
+            "Object.assign(process.env.PROD ? config.prod : config.dev, { devtool: false });",
+            &["prod", "devtool"],
+        ),
+    ];
+    for (body, path) in cases {
+        for source in [
+            format!("{config}\n{body}\nmodule.exports = config;"),
+            format!("module.exports = () => {{\n{config}\n{body}\nreturn config;\n}};"),
+        ] {
+            let value = extract("webpack.config.js", &source);
+            assert_eq!(at(&value, path), &UNKNOWN, "{source}: {value:?}");
+            assert_eq!(get(&value, &["entry"]), &s("./src/main.js"), "{source}: {value:?}");
+            assert!(!open(&value), "{source}: {value:?}");
+        }
+    }
+}

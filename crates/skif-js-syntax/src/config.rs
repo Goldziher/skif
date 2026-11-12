@@ -3800,7 +3800,13 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                             self.edit(root.name.as_str(), &keys, &edit);
                         }
                         Some((root, keys, false)) => self.edit(root.name.as_str(), &keys, &Edit::Taint),
-                        None => {}
+                        // An object that is not a name or a member chain (`list.find(…).loader = …`) may be any part
+                        // of a local it may hold.
+                        None => {
+                            let mut writes = Writes::new(self.unstable);
+                            writes.visit_assignment_target(&a.left);
+                            self.havoc(writes.through_aliases());
+                        }
                     },
                     _ => self.havoc(Writes::of_expression(expr, self.unstable)),
                 }
@@ -4333,10 +4339,15 @@ impl<'u> Writes<'u> {
         writes
     }
 
-    /// Records a change of what the object `expr` (a name or a member chain) holds.
+    /// Records a change of what the object `expr` holds: the part of a local a name or a member chain is, or each part
+    /// any other object may be ([`Unstable::parts_of`]).
     fn object(&mut self, expr: &Expression<'_>) {
         if let Some((root, keys, _)) = reach(expr) {
-            self.change(root.name.as_str(), Write { keys, key: None });
+            return self.change(root.name.as_str(), Write { keys, key: None });
+        }
+        let unstable = self.unstable;
+        for (name, keys, _) in unstable.parts_of(expr) {
+            self.change(name, Write { keys: keys.clone(), key: None });
         }
     }
 
@@ -4385,7 +4396,15 @@ impl<'a> Visit<'a> for Writes<'_> {
                     let key = Some(m.property.name.as_str().to_owned());
                     self.change(root.name.as_str(), Write { keys, key });
                 }
-                _ => self.object(&m.object),
+                Some(_) => self.object(&m.object),
+                // `(a ? x.a : x.b).key = …` sets the key of each part of a local the object is.
+                None => {
+                    let unstable = self.unstable;
+                    for (name, keys, exact) in unstable.parts_of(&m.object) {
+                        let key = exact.then(|| m.property.name.as_str().to_owned());
+                        self.change(name, Write { keys: keys.clone(), key });
+                    }
+                }
             },
             other => {
                 if let Some(member) = other.as_member_expression() {
