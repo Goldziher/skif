@@ -348,8 +348,8 @@ impl Expander<'_> {
 }
 
 /// The root-relative directories with a `package.json` that `patterns` select, negations applied. With
-/// `literals_kept` (Bun), a negation does not remove a directory a positive pattern names by its literal path. A pattern
-/// that cannot be used selects nothing.
+/// `literals_kept` (Bun), a negation does not remove a directory a positive pattern names by its literal path. A
+/// pattern that cannot be used selects nothing.
 pub(crate) fn selected_with_manifest<'p>(
     expander: &Expander<'_>,
     patterns: impl IntoIterator<Item = &'p str>,
