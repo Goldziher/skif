@@ -190,20 +190,14 @@ package-manager = "pnpm"
 suites = ["parity"]
 # The tool configurations of the packages import the built dist of these workspace config packages; the install runs
 # without scripts, so they are built here, each with the workspace packages it depends on (`...`), in dependency order.
+# Then `@n8n/db` generates its gitignored `src/migrations/{sqlite,postgresdb}/index.ts`, which its `src/index.ts`
+# imports and which list the migrations; the generator reads only the migration files (no network).
 build-command = [
-  "pnpm",
-  "--filter",
-  "@n8n/oxlint-config...",
-  "--filter",
-  "@n8n/vitest-config...",
-  "--filter",
-  "@n8n/eslint-config...",
-  "--filter",
-  "@n8n/stylelint-config...",
-  "--filter",
-  "@n8n/constants...",
-  "run",
-  "build",
+  "sh",
+  "-c",
+  """pnpm --filter @n8n/oxlint-config... --filter @n8n/vitest-config... --filter @n8n/eslint-config... \
+--filter @n8n/stylelint-config... --filter @n8n/constants... run build \
+&& pnpm --filter @n8n/db run gen:migration-index""",
 ]
 notes = "Large pnpm workspace with many nodes packages."
 

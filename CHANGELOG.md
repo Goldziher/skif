@@ -176,6 +176,8 @@ All notable changes to this project are documented here. The format follows
   the root or a package directory, as skif's file discovery does, so the dependencies they name are `bazel-build-file`.
 - `skif-bench parity` counts a dependency only knip reports unused as `bazel-build-file` when it is a peer dependency
   of a dependency a `BUILD` file credits, as skif credits the peers of a used package.
+- The n8n parity corpus entry also generates `@n8n/db`'s gitignored migration indexes after its build, so knip no
+  longer reports the migrations they list as unused files.
 
 ### Fixed
 
