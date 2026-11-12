@@ -42,7 +42,9 @@ re-export that is not marked `type` counts as a value, as only its source tells 
 use reads by name (`ns.Type` in a type position) are used as before. A namespace binding that the importing module
 exports itself (`export default ns`, `export = ns`) keeps using every export, values and types, since the importers of
 that module can read any of them through it. Entry modules, `export * as ns` re-exports and the modules a glob
-import matches keep marking every export used, as ADR 0029 decides.
+import matches keep marking every export used, as ADR 0029 decides. So do the files a `new URL("./x",
+import.meta.url)` names: such a file is loaded as a program of its own (a worker, an asset), not as a module object,
+so it is used as an entry is.
 
 A module used as a whole is not namespace-only, so its unused types are reported by `unused-types`, not by
 `unused-namespace-types`. The rest of ADR 0029 is unchanged.
@@ -64,7 +66,9 @@ A module used as a whole is not namespace-only, so its unused types are reported
   `a_namespace_used_as_a_whole_uses_every_value_export_and_no_type` (a spread, `Object.keys`, a computed index,
   `typeof` of a type-only namespace import, `require()` and `import()`) and
   `a_whole_namespace_use_keeps_the_types_read_by_name_and_an_exported_namespace_keeps_all`.
-* `crates/skif-js/tests/explain_absence.rs`: `a_whole_namespace_use_is_listed_for_values_and_not_for_types`.
+* `crates/skif-js/tests/knip_parity.rs`: `a_new_url_target_is_used_as_a_whole`.
+* `crates/skif-js/tests/explain_absence.rs`: `a_whole_namespace_use_is_listed_for_values_and_not_for_types` and
+  `a_new_url_target_lists_the_loader_as_a_user_of_a_type_export`.
 * `adrlint lint adrs`, `adrlint format --check adrs` and `adrlint lock --check` pass.
 
 ## Pros and Cons of the Options
