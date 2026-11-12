@@ -16,6 +16,12 @@ All notable changes to this project are documented here. The format follows
   reported. `lerna run` and `nx run` keep reading task names
   ([#187](https://github.com/Goldziher/skif/issues/187)).
 
+### Removed
+
+- `skif_js_plugins::scripts::ScriptInfo::turbo_tasks`: the task names passed to `turbo` were collected but never
+  read; `turbo` arguments are still never taken for binaries or files
+  ([#193](https://github.com/Goldziher/skif/issues/193)).
+
 ## [0.3.0] - 2026-11-11
 
 ### Added

@@ -582,10 +582,8 @@ impl<'c> Walker<'c> {
                 self.bin(name, span, st, bin_path);
                 self.run_all(args, frame);
             }
-            "turbo" => {
-                self.bin(name, span, st, bin_path);
-                self.turbo(args);
-            }
+            // Its arguments are task names and filters, which name scripts of the workspaces, not commands.
+            "turbo" => self.bin(name, span, st, bin_path),
             "command"
                 if args
                     .iter()
@@ -1151,24 +1149,6 @@ impl<'c> Walker<'c> {
             let word = &args[i];
             let name = word.text.split_whitespace().next().unwrap_or("");
             self.script_pattern(name, word, frame);
-        }
-    }
-
-    fn turbo(&mut self, args: &[Word]) {
-        let parsed = args::parse(args, tables::TURBO_VALUE_FLAGS, false);
-        let mut names: Vec<&str> = parsed.positionals.iter().map(|&i| args[i].text.as_str()).collect();
-        match names.first().copied() {
-            None => return,
-            Some("run" | "watch") => {
-                names.remove(0);
-            }
-            Some(first) if tables::TURBO_SUBCOMMANDS.contains(&first) => return,
-            Some(_) => {}
-        }
-        for name in names {
-            if !self.info.turbo_tasks.iter().any(|t| t == name) {
-                self.info.turbo_tasks.push(name.to_owned());
-            }
         }
     }
 
