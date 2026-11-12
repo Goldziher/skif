@@ -3801,8 +3801,8 @@ fn edit_binding(frames: &mut [Frame<'_, '_>], index: usize, name: &str, keys: &[
 }
 
 /// Applies `edit` to the object at `keys` below `value`, in each value it may be ([`Value::OneOf`]). A key on the way
-/// that the object does not have, or that an unknown spread may set, leaves the object above it partly unknown
-/// instead.
+/// that an unknown spread may set leaves the object above it partly unknown instead, and one the object does not have
+/// leaves it as it is: no object is there for the edit to change.
 fn edit_at(value: &mut Value, keys: &[String], edit: &Edit) {
     let target = value.definite_mut();
     if let Value::OneOf(alternatives) = &mut *target {
@@ -3822,11 +3822,13 @@ fn edit_at(value: &mut Value, keys: &[String], edit: &Edit) {
         Value::Object(entries) => {
             let found = entries
                 .iter()
-                .rposition(|(name, _)| name == key || ConfigValue::is_spread_key(name))
-                .filter(|&at| entries[at].0 == *key);
+                .rposition(|(name, _)| name == key || ConfigValue::is_spread_key(name));
             match found {
-                Some(at) => edit_at(&mut entries[at].1, rest, edit),
-                None => open_entries(entries),
+                Some(at) if entries[at].0 == *key => edit_at(&mut entries[at].1, rest, edit),
+                // An unknown spread may have set the key.
+                Some(_) => open_entries(entries),
+                // An object without the key holds nothing there to change.
+                None => {}
             }
         }
         other => taint_value(other),

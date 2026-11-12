@@ -37,7 +37,7 @@ use oxc_ast::ast::{
     AssignmentTargetPropertyIdentifier, BindingIdentifier, BindingPattern, CallExpression, ChainExpression, Class,
     ComputedMemberExpression, Declaration, DoWhileStatement, ExportDeclaration, Expression, ExpressionStatement,
     ForInStatement, ForOfStatement, ForStatement, ForStatementLeft, FormalParameter, FormalParameters, Function,
-    IdentifierReference, ImportDeclaration, ImportDeclarationSpecifier, MemberExpression, NewExpression,
+    IdentifierReference, ImportDeclaration, ImportDeclarationSpecifier, LogicalOperator, MemberExpression, NewExpression,
     ObjectExpression, ObjectPropertyKind, PrivateFieldExpression, Program, PropertyKind, ReturnStatement,
     SimpleAssignmentTarget, StaticMemberExpression, TaggedTemplateExpression, UnaryExpression, UnaryOperator,
     VariableDeclaration, VariableDeclarationKind, VariableDeclarator, WhileStatement,
@@ -1332,6 +1332,24 @@ impl Refs<'_> {
         self.at.pop();
     }
 
+    /// A spread in an object (`...value`): an object literal adds its keys where the spread is, as does each value a
+    /// condition or `&&` may be (the left of `&&` is then a falsy value, which adds none); anything else may add any
+    /// key.
+    fn spread<'a>(&mut self, value: &Expression<'a>)
+    where
+        Self: Visit<'a>,
+    {
+        match value.get_inner_expression() {
+            Expression::ObjectExpression(object) => self.visit_object_expression(object),
+            Expression::ConditionalExpression(c) => {
+                self.spread(&c.consequent);
+                self.spread(&c.alternate);
+            }
+            Expression::LogicalExpression(l) if l.operator == LogicalOperator::And => self.spread(&l.right),
+            other => self.opaque(|refs| refs.visit_expression(other)),
+        }
+    }
+
     /// A member read: the part of the local its chain names ([`reach`]), or what an object that is not a local
     /// holds, somewhere below.
     fn member(&mut self, expr: &Expression<'_>) {
@@ -1382,7 +1400,7 @@ impl<'a> Visit<'a> for Refs<'_> {
                         }),
                     }
                 }
-                ObjectPropertyKind::SpreadProperty(s) => self.opaque(|refs| refs.visit_expression(&s.argument)),
+                ObjectPropertyKind::SpreadProperty(s) => self.spread(&s.argument),
             }
         }
     }
