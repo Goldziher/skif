@@ -3072,3 +3072,21 @@ fn a_function_an_unknown_call_made_may_change_what_it_was_made_from() {
     );
     assert!(open_or_unknown(at(&value, &["resolve", "alias"])), "{value:?}");
 }
+
+/// The parameters of a callback after the element (the index, and the list itself for `forEach`, `map`, `reduce`)
+/// may take the list a method is called on, so a change through them (`list.push(…)`) reaches a `const` list of
+/// strings too.
+#[test]
+fn a_change_through_the_list_a_callback_is_given_reaches_the_list() {
+    for callback in [
+        "include.forEach((name, index, list) => { if (index === 0) list.push('b.test.ts'); });",
+        "include.reduce((all, name, index, list) => { list.push('b.test.ts'); return all; }, []);",
+        "include.map((...args) => args[2].push('b.test.ts'));",
+    ] {
+        let source = format!(
+            "const include = ['a.test.ts'];\n{callback}\nexport default {{ test: {{ include }} }};"
+        );
+        let value = extract("vitest.config.mjs", &source);
+        assert_ne!(get(&value, &["test", "include"]), &strings(&["a.test.ts"]), "{source}: {value:?}");
+    }
+}

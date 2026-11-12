@@ -30,8 +30,9 @@
 //! well-known function only where its name resolves to the module that declares it, and treats a `define…` helper of
 //! a library and a merge that copies ([`copies`]) and `Object.assign`, beyond its first argument, as changing nothing;
 //! the first two keep nothing they are given in another argument either. A loop name, a
-//! callback parameter and a name a destructuring assigns share with what they take, but for a callback over a `const`
-//! list of primitive values that no change reaches, and a write in a class body is one the evaluator does not follow.
+//! callback parameter and a name a destructuring assigns share with what they take, but for the element a callback
+//! over a `const` list of primitive values takes when no change reaches the list, and a write in a class body is one
+//! the evaluator does not follow.
 //!
 //! A `const` that takes a part of a local of its own function (`const { coverage } = config.test`) is the exception
 //! when the evaluator can follow it ([`Unstable::follows`]): it then applies the changes made through the alias to that
@@ -426,8 +427,8 @@ struct Sharing<'s> {
     /// The `const` bindings of a list of primitive values ([`is_primitive_list`]), whose elements are objects only
     /// once code changes the list.
     primitive_lists: HashSet<SymbolId>,
-    /// The links of the parameters of each callback given to a method of one of [`Self::primitive_lists`] to that
-    /// list, made only when a change may reach the list ([`Self::link_elements`]).
+    /// The links of the first parameter of each callback given to a method of one of [`Self::primitive_lists`] to
+    /// that list, made only when a change may reach the list ([`Self::link_elements`]).
     element_links: Vec<Link>,
     /// Whether the declarations being visited are `const`.
     in_const: bool,
@@ -629,9 +630,12 @@ impl Sharing<'_> {
     }
 
     /// Links the parameters of each function given inline to a call (`list.forEach((item) => …)`) to what the object
-    /// the call is made on and its arguments hold, which the function may be called with.
+    /// the call is made on and its arguments hold, which the function may be called with. Over one of
+    /// [`Self::primitive_lists`], the first parameter takes an element, linked only once a change may reach the list,
+    /// and those after it and a rest parameter (the index, and the list itself for `forEach`, `map` or `reduce`) may
+    /// take the list.
     fn callbacks(&mut self, callee: &Expression<'_>, arguments: &[Argument<'_>]) {
-        let parameters: Vec<SymbolId> = arguments
+        let functions: Vec<Parameters> = arguments
             .iter()
             .filter_map(Argument::as_expression)
             .filter_map(|argument| match argument.get_inner_expression() {
@@ -639,9 +643,8 @@ impl Sharing<'_> {
                 Expression::FunctionExpression(f) => Some(Parameters::of(&f.params)),
                 _ => None,
             })
-            .flat_map(|parameters| parameters.names().map(|(name, _)| name).collect::<Vec<_>>())
             .collect();
-        if parameters.is_empty() {
+        if functions.iter().all(|parameters| parameters.names().next().is_none()) {
             return;
         }
         let receiver = callee.as_member_expression().map(MemberExpression::object);
@@ -652,22 +655,35 @@ impl Sharing<'_> {
                 _ => None,
             })
             .filter(|list| self.primitive_lists.contains(list));
-        let mut held = match (receiver, list) {
-            (Some(receiver), None) => self.refs(Part::Value, |refs| refs.visit_expression(receiver)),
-            _ => Vec::new(),
-        };
+        let of_receiver = receiver.map_or_else(Vec::new, |receiver| {
+            self.refs(Part::Value, |refs| refs.visit_expression(receiver))
+        });
+        let mut held = if list.is_some() { Vec::new() } else { of_receiver.clone() };
         for argument in arguments {
             held.extend(self.refs(Part::Value, |refs| refs.visit_argument(argument)));
         }
-        for parameter in parameters {
-            if let Some(list) = list {
-                self.element_links.push(Link {
-                    a: Place::of(parameter),
-                    b: Place::of(list),
-                    join: Join::Within,
-                });
+        for parameters in functions {
+            let positions = parameters
+                .items
+                .iter()
+                .enumerate()
+                .flat_map(|(position, (names, _))| names.iter().map(move |&name| (name, position == 0)))
+                .chain(parameters.rest.iter().map(|&name| (name, false)));
+            let names: Vec<(SymbolId, bool)> = positions.collect();
+            for (name, first) in names {
+                if let Some(list) = list {
+                    if first {
+                        self.element_links.push(Link {
+                            a: Place::of(name),
+                            b: Place::of(list),
+                            join: Join::Within,
+                        });
+                    } else {
+                        self.hold(&Place::of(name), false, of_receiver.clone());
+                    }
+                }
+                self.hold(&Place::of(name), false, held.clone());
             }
-            self.hold(&Place::of(parameter), false, held.clone());
         }
     }
 

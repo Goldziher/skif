@@ -1142,8 +1142,9 @@ an imported callback (`configs.forEach(withSentry)`) may change each element and
 function the evaluator does not follow (`const addAlias = aliaser(config)`) may change what it was made from each time
 it is called; one bound to an import or a `require` is taken to change none of the config's locals. A
 change through an element of a list leaves every element open; a loop name, a callback parameter, a name a destructuring
-assignment sets and a function assigned with `=` share with what they take, except a callback over a `const` list of
-strings or numbers that no change reaches; a value spread from an object literal (`...(ci ? { plugins: list } : {})`)
+assignment sets and a function assigned with `=` share with what they take, except the element a callback over a
+`const` list of strings or numbers takes when no change reaches the list (its later parameters, such as the list
+`forEach` passes, still share it); a value spread from an object literal (`...(ci ? { plugins: list } : {})`)
 is shared at the key it is spread at only; a write through one key reaches another key of the same local that holds
 the same object (`config.b = config.a`); a spread of a local (`{ ...options }`) copies its keys, so a change below
 one of them (`options.coverage.enabled = true`) reaches the copy at that key only, and a new value of a key of either
