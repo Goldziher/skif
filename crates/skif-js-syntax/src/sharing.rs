@@ -26,9 +26,10 @@ use std::collections::BTreeMap;
 
 use oxc_ast::ast::{
     Argument, ArrayExpression, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator, AssignmentPattern,
+    AssignmentTarget, AssignmentTargetMaybeDefault, AssignmentTargetPattern, AssignmentTargetProperty,
     AssignmentTargetPropertyIdentifier, BindingIdentifier, BindingPattern, CallExpression, ChainExpression,
-    ComputedMemberExpression, Declaration, ExportDeclaration, Expression, ExpressionStatement, FormalParameter,
-    FormalParameters, Function,
+    ComputedMemberExpression, Declaration, ExportDeclaration, Expression, ExpressionStatement, ForOfStatement,
+    ForStatementLeft, FormalParameter, FormalParameters, Function,
     IdentifierReference, ImportDeclaration, ImportDeclarationSpecifier, MemberExpression, NewExpression,
     ObjectExpression, ObjectPropertyKind, PrivateFieldExpression, Program, PropertyKind, ReturnStatement,
     SimpleAssignmentTarget, StaticMemberExpression, TaggedTemplateExpression, UnaryExpression, UnaryOperator,
@@ -400,6 +401,119 @@ impl Sharing<'_> {
     fn mutate_arguments(&mut self, arguments: &[Argument<'_>]) {
         for argument in arguments.iter().filter_map(given) {
             self.mutate(argument);
+        }
+    }
+
+    /// Links the parameters of each function given inline to a call (`list.forEach((item) => …)`) to what the object
+    /// the call is made on and its arguments hold, which the function may be called with.
+    fn callbacks(&mut self, callee: &Expression<'_>, arguments: &[Argument<'_>]) {
+        let parameters: Vec<SymbolId> = arguments
+            .iter()
+            .filter_map(Argument::as_expression)
+            .filter_map(|argument| match argument.get_inner_expression() {
+                Expression::ArrowFunctionExpression(f) => Some(Parameters::of(&f.params)),
+                Expression::FunctionExpression(f) => Some(Parameters::of(&f.params)),
+                _ => None,
+            })
+            .flat_map(|parameters| parameters.names().map(|(name, _)| name).collect::<Vec<_>>())
+            .collect();
+        if parameters.is_empty() {
+            return;
+        }
+        let receiver = callee.as_member_expression().map(MemberExpression::object);
+        let mut held = receiver.map_or_else(Vec::new, |receiver| {
+            self.refs(Part::Value, |refs| refs.visit_expression(receiver))
+        });
+        for argument in arguments {
+            held.extend(self.refs(Part::Value, |refs| refs.visit_argument(argument)));
+        }
+        for parameter in parameters {
+            self.hold(&Place::of(parameter), false, held.clone());
+        }
+    }
+
+    /// The parts of locals an assignment target writes (`x`, `{ a: cfg.b }`, `[y = d]`), and the defaults it may
+    /// write instead of what it is given.
+    fn target_parts<'b, 'a>(
+        &self,
+        target: &'b AssignmentTarget<'a>,
+        places: &mut Vec<Place>,
+        defaults: &mut Vec<&'b Expression<'a>>,
+    ) {
+        if let Some(simple) = target.as_simple_assignment_target() {
+            let place = match simple {
+                SimpleAssignmentTarget::AssignmentTargetIdentifier(id) => self.symbol(id).map(Place::of),
+                other => other
+                    .as_member_expression()
+                    .and_then(|member| self.member_place(member))
+                    .map(|(place, _)| place),
+            };
+            places.extend(place);
+            return;
+        }
+        match target.as_assignment_target_pattern() {
+            Some(AssignmentTargetPattern::ArrayAssignmentTarget(array)) => {
+                for element in array.elements.iter().flatten() {
+                    self.default_target_parts(element, places, defaults);
+                }
+                if let Some(rest) = &array.rest {
+                    self.target_parts(&rest.target, places, defaults);
+                }
+            }
+            Some(AssignmentTargetPattern::ObjectAssignmentTarget(object)) => {
+                for property in &object.properties {
+                    match property {
+                        AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(p) => {
+                            places.extend(self.symbol(&p.binding).map(Place::of));
+                            defaults.extend(&p.init);
+                        }
+                        AssignmentTargetProperty::AssignmentTargetPropertyProperty(p) => {
+                            self.default_target_parts(&p.binding, places, defaults);
+                        }
+                    }
+                }
+                if let Some(rest) = &object.rest {
+                    self.target_parts(&rest.target, places, defaults);
+                }
+            }
+            None => {}
+        }
+    }
+
+    /// [`Self::target_parts`] of a target that may have a default.
+    fn default_target_parts<'b, 'a>(
+        &self,
+        target: &'b AssignmentTargetMaybeDefault<'a>,
+        places: &mut Vec<Place>,
+        defaults: &mut Vec<&'b Expression<'a>>,
+    ) {
+        match target {
+            AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(with) => {
+                defaults.push(&with.init);
+                self.target_parts(&with.binding, places, defaults);
+            }
+            other => {
+                if let Some(target) = other.as_assignment_target() {
+                    self.target_parts(target, places, defaults);
+                }
+            }
+        }
+    }
+
+    /// Links each part a destructuring target writes to what `held` holds, or its defaults hold, somewhere at or below
+    /// it, as the part it takes is not tracked; with no part, what `held` holds is linked among itself.
+    fn destructure(&mut self, target: &AssignmentTarget<'_>, mut held: Vec<Held>) {
+        let mut places = Vec::new();
+        let mut defaults = Vec::new();
+        self.target_parts(target, &mut places, &mut defaults);
+        if places.is_empty() {
+            return self.link_among(&held);
+        }
+        for default in defaults {
+            held.extend(self.refs(Part::Value, |refs| refs.visit_expression(default)));
+        }
+        for place in places {
+            self.hold(&place, false, held.clone());
         }
     }
 
@@ -780,7 +894,16 @@ impl<'a> Visit<'a> for Sharing<'_> {
         // What the target is written with may be shared with it; the target itself is visited by the walk. A value
         // stored where no local holds it (`module.exports = [a(), b()]`, a global) is not changed by being stored, and
         // no change through that place is followed, so its parts share nothing among themselves there.
-        let held = self.refs(Part::Value, |refs| refs.visit_expression(&it.right));
+        // A function assigned stands for what its parameters take as well as what it returns, as one declared does.
+        let part = if matches!(
+            it.right.get_inner_expression(),
+            Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+        ) {
+            Part::Function { parameters: true }
+        } else {
+            Part::Value
+        };
+        let held = self.refs(part, |refs| refs.visit_expression(&it.right));
         match it.left.as_simple_assignment_target() {
             Some(target) => {
                 let hub = match target {
@@ -798,6 +921,26 @@ impl<'a> Visit<'a> for Sharing<'_> {
             None => self.link_among(&held),
         }
         walk::walk_assignment_expression(self, it);
+    }
+
+    fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
+        // The loop's names take the elements of what it iterates, somewhere at or below it.
+        let held = self.refs(Part::Value, |refs| refs.visit_expression(&it.right));
+        match &it.left {
+            ForStatementLeft::VariableDeclaration(declaration) => {
+                for declarator in &declaration.declarations {
+                    for name in bound_symbols(&declarator.id) {
+                        self.hold(&Place::of(name), false, held.clone());
+                    }
+                }
+            }
+            left => {
+                if let Some(target) = left.as_assignment_target() {
+                    self.destructure(target, held);
+                }
+            }
+        }
+        walk::walk_for_of_statement(self, it);
     }
 
     fn visit_formal_parameter(&mut self, it: &FormalParameter<'a>) {
@@ -852,6 +995,8 @@ impl<'a> Visit<'a> for Sharing<'_> {
             }
             None => self.mutate_arguments(&it.arguments),
         }
+        self.callbacks(it.callee.get_inner_expression(), &it.arguments);
+        let receiver = it.callee.get_inner_expression().as_member_expression().map(MemberExpression::object);
         if pure_function(self.names(), it).is_some() {
             self.pure.insert(it.span);
             return walk::walk_call_expression(self, it);
@@ -879,11 +1024,17 @@ impl<'a> Visit<'a> for Sharing<'_> {
                     .map(|(place, _)| (place, false))
             }
         };
-        let held: Vec<Held> = it
+        let mut held: Vec<Held> = it
             .arguments
             .iter()
             .flat_map(|argument| self.refs(Part::Value, |refs| refs.visit_argument(argument)))
             .collect();
+        // A method of an object that is not a local's part may keep what it is given in what that object holds.
+        if hub.is_none()
+            && let Some(receiver) = receiver
+        {
+            held.extend(self.refs(Part::Value, |refs| refs.visit_expression(receiver)));
+        }
         self.hold_or_link(hub, held);
         walk::walk_call_expression(self, it);
     }
