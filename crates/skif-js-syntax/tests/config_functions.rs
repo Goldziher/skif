@@ -834,6 +834,61 @@ fn a_change_through_a_destructured_part_of_a_local_is_applied_to_it() {
     assert!(open(&configs[2]), "{:?}", configs[2]);
 }
 
+/// An alias the evaluator follows may share an object with a binding nothing changes, such as a module function whose
+/// result a change through the alias copies in (`Object.assign(coverage, coverageFor(files))`): its changes are still
+/// applied to the local. One that shares an object with a binding that is changed leaves the whole local partly
+/// unknown.
+#[test]
+fn an_alias_sharing_an_object_only_with_unchanged_bindings_is_followed() {
+    let value = extract(
+        "vitest.config.ts",
+        "import { defineConfig } from 'vitest/config';\n\
+         const make = (options = {}) => {\n\
+           const config = defineConfig({\n\
+             test: { globals: true, environment: 'jsdom', coverage: { enabled: false }, ...options },\n\
+           });\n\
+           if (process.env.COVERAGE === 'true') {\n\
+             const { coverage } = config.test;\n\
+             coverage.enabled = true;\n\
+             Object.assign(coverage, coverageFor(process.env.CHANGED_FILES));\n\
+           }\n\
+           return config;\n\
+         };\n\
+         const listed = () => {\n\
+           const config = { test: { coverage: { enabled: false } } };\n\
+           if (process.env.COVERAGE) {\n\
+             const { coverage } = config.test;\n\
+             const list = [coverage];\n\
+             list[0].enabled = true;\n\
+           }\n\
+           return config;\n\
+         };\n\
+         const coverageFor = (changed) => (changed ? { include: changed.split(',') } : {});\n\
+         export default [make({ setupFiles: ['./config/boot.ts'] }), listed()];",
+    );
+    let configs = value.as_array().unwrap();
+    assert_eq!(
+        get(&configs[0], &["test"]),
+        &ConfigValue::Object(vec![
+            ("globals".to_owned(), ConfigValue::Bool(true)),
+            ("environment".to_owned(), s("jsdom")),
+            (
+                "coverage".to_owned(),
+                ConfigValue::Object(vec![
+                    (
+                        "enabled".to_owned(),
+                        ConfigValue::OneOf(vec![ConfigValue::Bool(false), ConfigValue::Bool(true)])
+                    ),
+                    (UNKNOWN_SPREAD.to_owned(), ConfigValue::Unknown),
+                ])
+            ),
+            ("setupFiles".to_owned(), strings(&["./config/boot.ts"])),
+        ])
+    );
+    assert!(!open(&configs[0]), "{:?}", configs[0]);
+    assert!(open(&configs[1]), "{:?}", configs[1]);
+}
+
 /// A `resolve` call (`require.resolve`, the function `createRequire` returns) a callback makes does not change the
 /// object it is called on, so options merged next to the result of the function that makes it stay known; a method that
 /// may change it still leaves them partly unknown.
