@@ -19,6 +19,9 @@ All notable changes to this project are documented here. The format follows
   sits in the exported config (`{ test: createTest({ setupFiles: ['./setup.ts'] }) }`), not only when the config is
   the call's result; a file under an exclusion key is still left out
   ([#148](https://github.com/Goldziher/skif/issues/148)).
+- **Config factories**: a `resolve` call (`require.resolve`, the function `createRequire` returns) no longer counts
+  as a change of the object it is called on, so a shared config factory that pins module paths with one keeps the
+  options it is given known ([#166](https://github.com/Goldziher/skif/issues/166)).
 
 ## [0.3.0] - 2026-11-11
 
