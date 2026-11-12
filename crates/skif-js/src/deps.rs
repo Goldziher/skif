@@ -1057,6 +1057,46 @@ pub struct DependencyUsage {
     pub unlisted_binaries: Vec<UnlistedBinary>,
     /// Packages that tool configs name and no manifest lists, in package order.
     pub unlisted_config: Vec<UnlistedConfigDependency>,
+    unlisted_config_index: UnlistedConfigIndex,
+}
+
+/// Where each entry of [`DependencyUsage::unlisted_config`] is, by package, name and file, and which readers each
+/// entry has, so recording one more reference costs no scan of the entries or of their readers.
+#[derive(Debug, Clone, Default)]
+struct UnlistedConfigIndex {
+    positions: HashMap<(PackageId, String, PathBuf), usize>,
+    readers: HashSet<(usize, PackageId)>,
+}
+
+impl UnlistedConfigIndex {
+    /// Records that config `file` of `package` names the unlisted `name`, read by `reader`: a new entry at the end of
+    /// `list` the first time, after which `reader` joins the readers of that entry once, in the order first seen.
+    fn record(
+        &mut self,
+        list: &mut Vec<UnlistedConfigDependency>,
+        package: PackageId,
+        name: &str,
+        file: PathBuf,
+        reader: Option<PackageId>,
+    ) {
+        let position = *self
+            .positions
+            .entry((package, name.to_owned(), file))
+            .or_insert_with_key(|(package, name, file)| {
+                list.push(UnlistedConfigDependency {
+                    package: *package,
+                    name: name.clone(),
+                    file: file.clone(),
+                    readers: Vec::new(),
+                });
+                list.len() - 1
+            });
+        if let Some(reader) = reader
+            && self.readers.insert((position, reader))
+        {
+            list[position].readers.push(reader);
+        }
+    }
 }
 
 impl DependencyUsage {
@@ -1606,26 +1646,8 @@ impl DependencyUsage {
         if by_owner || by_reader {
             return;
         }
-        let file = PathBuf::from(file);
-        let existing = self
-            .unlisted_config
-            .iter_mut()
-            .find(|unlisted| unlisted.package == owner && unlisted.name == name && unlisted.file == file);
-        match existing {
-            Some(unlisted) => {
-                if let Some(reader) = reader
-                    && !unlisted.readers.contains(&reader)
-                {
-                    unlisted.readers.push(reader);
-                }
-            }
-            None => self.unlisted_config.push(UnlistedConfigDependency {
-                package: owner,
-                name: name.to_owned(),
-                file,
-                readers: reader.into_iter().collect(),
-            }),
-        }
+        self.unlisted_config_index
+            .record(&mut self.unlisted_config, owner, name, PathBuf::from(file), reader);
     }
 
     fn collect_scripts(&mut self, workspace: &Workspace, setup: &Setup, fs: &dyn FileSystem) {
@@ -2053,7 +2075,7 @@ mod tests {
     use skif_core::MemoryFs;
     use skif_workspace::{PackageId, Workspace};
 
-    use super::{SharedInstalled, package_ancestors};
+    use super::{SharedInstalled, UnlistedConfigDependency, UnlistedConfigIndex, package_ancestors};
 
     #[test]
     fn shared_installed_manifests_are_read_once_and_only_where_node_modules_is() {
@@ -2121,5 +2143,37 @@ mod tests {
         assert_eq!(of("ab"), ["r"]);
         assert_eq!(of("r"), [] as [std::string::String; 0]);
         assert!(package_ancestors(&workspace, true).iter().all(Vec::is_empty));
+    }
+
+    #[test]
+    fn unlisted_config_entries_are_kept_once_per_package_name_and_file_with_each_reader_once() {
+        let (a, b, c) = (PackageId::from_index(1), PackageId::from_index(2), PackageId::from_index(3));
+        let mut list = Vec::new();
+        let mut index = UnlistedConfigIndex::default();
+        let mut record = |package, name, file: &str, reader| {
+            index.record(&mut list, package, name, PathBuf::from(file), reader);
+        };
+        record(a, "x", "tsconfig.base.json", Some(b));
+        record(a, "y", "tsconfig.base.json", None);
+        record(a, "x", "tsconfig.base.json", Some(c));
+        record(a, "x", "tsconfig.base.json", Some(b));
+        record(a, "x", "other.json", None);
+        record(b, "x", "tsconfig.base.json", None);
+        record(a, "x", "tsconfig.base.json", None);
+        let entry = |package, name: &str, file: &str, readers: Vec<PackageId>| UnlistedConfigDependency {
+            package,
+            name: name.to_owned(),
+            file: PathBuf::from(file),
+            readers,
+        };
+        assert_eq!(
+            list,
+            [
+                entry(a, "x", "tsconfig.base.json", vec![b, c]),
+                entry(a, "y", "tsconfig.base.json", vec![]),
+                entry(a, "x", "other.json", vec![]),
+                entry(b, "x", "tsconfig.base.json", vec![]),
+            ]
+        );
     }
 }
