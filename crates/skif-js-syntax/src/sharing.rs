@@ -1041,7 +1041,11 @@ impl<'a> Visit<'a> for Sharing<'_> {
             None => self.mutate_arguments(&it.arguments),
         }
         self.callbacks(it.callee.get_inner_expression(), &it.arguments);
-        let receiver = it.callee.get_inner_expression().as_member_expression().map(MemberExpression::object);
+        let receiver = it
+            .callee
+            .get_inner_expression()
+            .as_member_expression()
+            .map(MemberExpression::object);
         if pure_function(self.names(), it).is_some() {
             self.pure.insert(it.span);
             return walk::walk_call_expression(self, it);
@@ -1730,9 +1734,11 @@ impl FindKnown<'_> {
             return None;
         };
         match call.callee.get_inner_expression() {
-            Expression::Identifier(id) if id.name.as_str() == "require" && resolved(self.scoping, id).is_none() => {
-                call.arguments.first().and_then(Argument::as_expression).and_then(static_string)
-            }
+            Expression::Identifier(id) if id.name.as_str() == "require" && resolved(self.scoping, id).is_none() => call
+                .arguments
+                .first()
+                .and_then(Argument::as_expression)
+                .and_then(static_string),
             _ => None,
         }
     }
@@ -1838,7 +1844,7 @@ fn creates_builtin(scoping: &Scoping, expr: &Expression<'_>) -> bool {
         | Expression::StringLiteral(_)
         | Expression::TemplateLiteral(_)
         | Expression::RegExpLiteral(_)
-        | Expression::MetaProperty(_) => true,
+        | Expression::ImportMeta(_) => true,
         Expression::NewExpression(new) => constructs_builtin(scoping, new),
         _ => false,
     }
@@ -2120,7 +2126,9 @@ const PURE_FUNCTIONS: &[(&str, &[&str], Returns)] = &[
 ];
 
 /// The globals [`PURE_FUNCTIONS`] lists functions of, by name.
-const GLOBAL_OBJECTS: &[&str] = &["Array", "JSON", "Math", "Number", "Object", "String", "console", "process"];
+const GLOBAL_OBJECTS: &[&str] = &[
+    "Array", "JSON", "Math", "Number", "Object", "String", "console", "process",
+];
 
 /// What `call` returns when it calls one of [`PURE_FUNCTIONS`] (`path.posix` and `path.win32` count as `path`); `None`
 /// for any other call, such as one of a function the module declares under such a name.
@@ -2133,7 +2141,9 @@ fn pure_function(names: Names<'_>, call: &CallExpression<'_>) -> Option<Returns>
                 (known_module(module)?, imported.as_deref()?)
             }
         },
-        Expression::StaticMemberExpression(member) => (module_object(names, &member.object)?, member.property.name.as_str()),
+        Expression::StaticMemberExpression(member) => {
+            (module_object(names, &member.object)?, member.property.name.as_str())
+        }
         _ => return None,
     };
     PURE_FUNCTIONS
@@ -2147,7 +2157,10 @@ fn pure_function(names: Names<'_>, call: &CallExpression<'_>) -> Option<Returns>
 fn module_object(names: Names<'_>, object: &Expression<'_>) -> Option<&'static str> {
     match object.get_inner_expression() {
         Expression::Identifier(id) => match resolved(names.scoping, id) {
-            None => GLOBAL_OBJECTS.iter().find(|global| **global == id.name.as_str()).copied(),
+            None => GLOBAL_OBJECTS
+                .iter()
+                .find(|global| **global == id.name.as_str())
+                .copied(),
             Some(symbol) => match names.known.modules.get(&symbol) {
                 Some((module, None)) => known_module(module),
                 _ => None,

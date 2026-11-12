@@ -205,7 +205,12 @@ fn bun_selects_members_outside_the_root_without_loading_them() {
         bun.facts.outside_root_members,
         [PathBuf::from("../libs/lib"), PathBuf::from("../shared")]
     );
-    let counts: Vec<(usize, bool)> = bun.facts.patterns.iter().map(|fact| (fact.matched, fact.invalid)).collect();
+    let counts: Vec<(usize, bool)> = bun
+        .facts
+        .patterns
+        .iter()
+        .map(|fact| (fact.matched, fact.invalid))
+        .collect();
     assert_eq!(counts, [(1, false), (1, false), (2, false)]);
     assert!(bun.manifest_errors.is_empty());
     assert!(bun.package_by_name("shared").is_none());
@@ -234,7 +239,11 @@ fn bun_excludes_a_member_without_a_name_from_analysis() {
         ];
         let config = Config::from_toml_str(&format!("[workspace]\nignore-packages = [{ignore}]\n")).unwrap();
         let workspace = discover(&files, &config).unwrap();
-        let ignored: Vec<bool> = workspace.package_ids().skip(1).map(|id| workspace.is_ignored(id)).collect();
+        let ignored: Vec<bool> = workspace
+            .package_ids()
+            .skip(1)
+            .map(|id| workspace.is_ignored(id))
+            .collect();
         (workspace, ignored)
     };
     let (bun, ignored) = run("bun@1.4.4", "");

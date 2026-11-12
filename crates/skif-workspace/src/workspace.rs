@@ -336,7 +336,12 @@ fn has_name(fs: &dyn FileSystem, manifest: &Path) -> bool {
     fs.read_to_string(manifest)
         .ok()
         .and_then(|text| parse_value(&text))
-        .is_some_and(|value| value.get("name").and_then(Value::as_str).is_some_and(|name| !name.is_empty()))
+        .is_some_and(|value| {
+            value
+                .get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| !name.is_empty())
+        })
 }
 
 fn json_patterns(root_package: &Package) -> Option<Declared> {
