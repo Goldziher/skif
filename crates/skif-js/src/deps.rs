@@ -1990,7 +1990,9 @@ impl DependencyUsage {
                     .iter()
                     .filter(|dep| {
                         (unscoped(dep) == bin && !self.known_bins[scope.index()].contains(&***dep))
-                            || BINARY_PACKAGES.iter().any(|(b, package)| *b == bin && *package == &***dep)
+                            || BINARY_PACKAGES
+                                .iter()
+                                .any(|(b, package)| *b == bin && *package == &***dep)
                     })
                     .map(|dep| (Listed::Package(scope), dep.to_string())),
             );
