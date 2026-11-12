@@ -302,7 +302,12 @@ mod tests {
     #[test]
     fn brace_groups_containing_a_slash_match_across_segments() {
         let fs = fs_with(&["src/app/a.ts", "lib/b.ts", "other/c.ts", "src/app/a.js"]);
-        let found = find_files(&fs, &GlobCache::new(), Path::new("/ws"), &["{src/app,lib}/*.ts".to_owned()]);
+        let found = find_files(
+            &fs,
+            &GlobCache::new(),
+            Path::new("/ws"),
+            &["{src/app,lib}/*.ts".to_owned()],
+        );
         assert_eq!(found, ["lib/b.ts", "src/app/a.ts"]);
     }
 
@@ -325,7 +330,11 @@ mod tests {
             vec!["**/*.spec.ts".to_owned(), "src/*.ts".to_owned()],
             vec!["**/project.json".to_owned()],
         ] {
-            assert_eq!(matching(&listing, &globs), find_files(&fs, &cache, dir, &globs), "{globs:?}");
+            assert_eq!(
+                matching(&listing, &globs),
+                find_files(&fs, &cache, dir, &globs),
+                "{globs:?}"
+            );
         }
         let projects = ["**/project.json".to_owned()];
         assert_eq!(find_files(&fs, &cache, dir, &projects), Vec::<String>::new());
@@ -371,7 +380,12 @@ mod tests {
     #[test]
     fn nested_and_empty_groups_match() {
         let fs = fs_with(&["a.ts", "src/a.ts", "src/lib/a.ts", "x/a.ts"]);
-        let found = find_files(&fs, &GlobCache::new(), Path::new("/ws"), &["{,src/{,lib/}}a.ts".to_owned()]);
+        let found = find_files(
+            &fs,
+            &GlobCache::new(),
+            Path::new("/ws"),
+            &["{,src/{,lib/}}a.ts".to_owned()],
+        );
         assert_eq!(found, ["a.ts", "src/a.ts", "src/lib/a.ts"]);
     }
 

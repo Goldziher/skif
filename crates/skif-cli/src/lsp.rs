@@ -529,10 +529,18 @@ fn position(index: &LineIndex, offset: u32) -> Value {
 /// diagnostic has a span, and its lines are indexed only when a span lies within it: the others are placed by their
 /// lines and columns, or at the start of the file.
 fn file_diagnostics(diagnostics: &[&Diagnostic], read: impl FnOnce() -> Arc<str>) -> Vec<Value> {
-    let spans = || diagnostics.iter().filter_map(|diagnostic| diagnostic.location.span.as_ref());
-    let text: Arc<str> = if spans().next().is_some() { read() } else { Arc::from("") };
+    let spans = || {
+        diagnostics
+            .iter()
+            .filter_map(|diagnostic| diagnostic.location.span.as_ref())
+    };
+    let text: Arc<str> = if spans().next().is_some() {
+        read()
+    } else {
+        Arc::from("")
+    };
     let indexed = spans().any(|span| span.end as usize <= text.len());
-    let index = LineIndex::new(if indexed { &*text } else { "" });
+    let index = LineIndex::new(if indexed { &text } else { "" });
     diagnostics
         .iter()
         .map(|diagnostic| lsp_diagnostic(diagnostic, &index, &text))
@@ -685,9 +693,8 @@ mod tests {
             "demo",
         );
         let text = "{\n  \"n\": \"é😀x\"\n}";
-        let at = |span: Option<skif::Span>| {
-            skif::diagnostic(&META, "m", skif::Location::new("package.json", span)).build()
-        };
+        let at =
+            |span: Option<skif::Span>| skif::diagnostic(&META, "m", skif::Location::new("package.json", span)).build();
         let x = u32::try_from(text.find('x').unwrap()).unwrap();
         let within = at(Some(skif::Span::new(x, x + 1, 2, 13, 2, 14)));
         let past = at(Some(skif::Span::new(900, 901, 7, 3, 7, 4)));
@@ -697,7 +704,10 @@ mod tests {
         assert_eq!(unspanned[0]["range"]["start"], json!({ "line": 0, "character": 0 }));
         let index = LineIndex::new(text);
         let all = [&within, &past, &none];
-        let expected: Vec<Value> = all.iter().map(|diagnostic| lsp_diagnostic(diagnostic, &index, text)).collect();
+        let expected: Vec<Value> = all
+            .iter()
+            .map(|diagnostic| lsp_diagnostic(diagnostic, &index, text))
+            .collect();
         assert_eq!(file_diagnostics(&all, || Arc::from(text)), expected);
         assert_eq!(expected[0]["range"]["start"], json!({ "line": 1, "character": 11 }));
         assert_eq!(expected[1]["range"]["start"], json!({ "line": 6, "character": 2 }));

@@ -730,7 +730,11 @@ fn every_fix_of_a_file_that_does_not_parse_is_skipped_with_its_parse_error() {
         ),
         (
             "demo-b-version",
-            vec![fix("pin again", FixSafety::Safe, vec![set_version("tsconfig.json", "2.0.0")])],
+            vec![fix(
+                "pin again",
+                FixSafety::Safe,
+                vec![set_version("tsconfig.json", "2.0.0")],
+            )],
         ),
     ]);
     let plan = apply_fixes(&workspace, &report, &FixSelection::default(), &fs).unwrap();

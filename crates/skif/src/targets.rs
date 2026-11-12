@@ -564,7 +564,11 @@ mod tests {
         assert_eq!(roots(&below), expected);
         assert_eq!(failed(&below), [PathBuf::from("/w/broken")]);
         assert_eq!(failed(&below), failed(&all));
-        let nested: Vec<bool> = below.targets.iter().map(|target| target.workspace.is_nested()).collect();
+        let nested: Vec<bool> = below
+            .targets
+            .iter()
+            .map(|target| target.workspace.is_nested())
+            .collect();
         let nested_in_all: Vec<bool> = all
             .targets
             .iter()

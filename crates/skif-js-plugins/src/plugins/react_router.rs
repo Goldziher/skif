@@ -64,7 +64,14 @@ fn app_inputs(cx: &PluginContext<'_>, app: &str) -> Vec<PluginInput> {
             break;
         }
     }
-    if find_files(cx.fs, cx.globs, cx.dir, &[join_rel(app, "entry.server.{js,ts,jsx,tsx}")]).is_empty() {
+    if find_files(
+        cx.fs,
+        cx.globs,
+        cx.dir,
+        &[join_rel(app, "entry.server.{js,ts,jsx,tsx}")],
+    )
+    .is_empty()
+    {
         out.push(PluginInput::Dependency("@react-router/node".to_owned()));
         out.push(PluginInput::Dependency("isbot".to_owned()));
     }

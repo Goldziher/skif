@@ -91,10 +91,16 @@ impl NxProjects {
 /// The directories, relative to the package directory and sorted, that hold a `project.json`; `""` for the package's
 /// own.
 pub(crate) fn project_dirs(ctx: &PluginContext<'_>) -> Vec<String> {
-    find_files_within(ctx.fs, ctx.globs, ctx.dir, &["**/project.json".to_owned()], PROJECT_DEPTH)
-        .iter()
-        .map(|path| path.rsplit_once('/').map_or("", |(dir, _)| dir).to_owned())
-        .collect()
+    find_files_within(
+        ctx.fs,
+        ctx.globs,
+        ctx.dir,
+        &["**/project.json".to_owned()],
+        PROJECT_DEPTH,
+    )
+    .iter()
+    .map(|path| path.rsplit_once('/').map_or("", |(dir, _)| dir).to_owned())
+    .collect()
 }
 
 /// `path`, relative to the directory of the package at `package` in the Nx workspace, without a detour through

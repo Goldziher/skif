@@ -206,9 +206,9 @@ impl Parsed<'_> {
     /// Checks that `after`, an edit result of the source, is a document as well formed as the source.
     pub(crate) fn validate(&self, after: &str) -> Result<(), EditPlanError> {
         let after = after.strip_prefix(BOM).unwrap_or(after);
-        let strict = *self.strict.get_or_init(|| {
-            parse_to_ast(self.doc.source, &CollectOptions::default(), &parse_options(true)).is_ok()
-        });
+        let strict = *self
+            .strict
+            .get_or_init(|| parse_to_ast(self.doc.source, &CollectOptions::default(), &parse_options(true)).is_ok());
         let parsed = parse_to_ast(after, &CollectOptions::default(), &parse_options(strict)).map_err(|error| {
             EditPlanError::InvalidOutput {
                 kind: FileKind::Json,
