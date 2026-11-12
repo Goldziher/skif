@@ -1067,7 +1067,13 @@ a base config merged with `mergeConfig`, spread into an object, or listed in an 
 from an installed package stays unknown, and an imported value that depends on itself through imports is unknown there.
 An imported value the config changes (`base.build.outDir = "out"`, `withPlugins(base)`, a write through a local holding
 it, at the top level or in a function) is read as changed, as a local is; a method called on a namespace import
-(`shared.make()`) is taken to change nothing of it. A `define…` call (`defineConfig({ … })`) is the value it is
+(`shared.make()`) is taken to change nothing of it. A change through one import of a module reaches its other
+imports (`ns.default` and the default import, two exports that may be one object), and imported values of other
+modules too, as one may hold another. Calling a function of a project module or a workspace package that changes a
+value of a module (an import of its own, a binding it exports, also through a function of another module it calls),
+and importing or requiring a module for its effects only (`import "./setup"`), leaves every value imported from such
+modules partly unknown; a module whose functions change no such value leaves them known. What a module imported for
+its values does when it is loaded is not followed. A `define…` call (`defineConfig({ … })`) is the value it is
 given, and a merge (`mergeConfig`, `merge`, `Object.assign`) the merge of what it is given, only when its name is a
 global or comes from a package the evaluator does not follow; one from a module or a workspace package of the project
 it cannot follow, or a function the config takes from an object it declares (`const { defineProperty } = Object`), is
