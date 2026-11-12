@@ -23,7 +23,7 @@ use crate::input::{
 };
 use crate::listed::{self, Listed};
 use crate::resolve::join_normalized;
-use crate::scripts::{self, ScriptBinary, ScriptFacts};
+use crate::scripts::{self, RelocatedDependency, ScriptBinary, ScriptFacts};
 use crate::tsconfig_files;
 
 const EXTENSIONS: &str = "{js,mjs,cjs,jsx,ts,tsx,mts,cts}";
@@ -636,11 +636,13 @@ fn forward_workspace_binaries(packages: &mut [Option<PackageSetup>], workspace: 
     }
 }
 
-/// Credits what a package's scripts run in another directory (`cd sub && rspack`) to the workspace package that
-/// directory is in, as [`forward_workspace_binaries`] credits a named workspace: a listed provider there is used and
-/// nothing is unlisted. A directory in the package itself, outside every package or outside the workspace leaves the
-/// command where it was written: judged as a command of the package, unless it also targets another workspace
-/// (`pnpm -C dir exec`).
+/// Credits what a package's scripts, and the commands of its tools' files, load in another directory
+/// (`cd sub && node -r hook x.js`) to the workspace package that directory is in, and the binaries its scripts fetch
+/// on demand there (`cd sub && npx x`), as [`forward_workspace_binaries`] credits a named workspace. A directory in the
+/// package itself, outside every package or outside the workspace leaves a package or such a binary where the command
+/// was written, unless the command also targets another workspace (`pnpm -C dir dlx`). Any other binary a script runs
+/// in another directory stays in [`ScriptFacts::relocated_binaries`], which the dependency usage judges in the package
+/// or project there.
 fn relocate_script_commands(packages: &mut [Option<PackageSetup>], workspace: &Workspace) {
     let dirs = package_dirs(workspace);
     let owner = |from: PackageId, dir: &str| package_in_dir(&dirs, from, dir);
@@ -648,19 +650,16 @@ fn relocate_script_commands(packages: &mut [Option<PackageSetup>], workspace: &W
     let mut dependencies: Vec<(PackageId, String)> = Vec::new();
     for setup in packages.iter_mut().flatten() {
         let from = setup.id;
-        for relocated in std::mem::take(&mut setup.scripts.relocated_binaries) {
+        let (ephemeral, judged): (Vec<_>, Vec<_>) = std::mem::take(&mut setup.scripts.relocated_binaries)
+            .into_iter()
+            .partition(|relocated| relocated.ephemeral);
+        setup.scripts.relocated_binaries = judged;
+        for relocated in ephemeral {
             let target = owner(from, &relocated.dir);
             if target != from {
                 credits.push((target, relocated.binary));
-            } else if !relocated.filtered {
-                let list = if relocated.ephemeral {
-                    &mut setup.scripts.ephemeral_binaries
-                } else {
-                    &mut setup.scripts.binaries
-                };
-                if !list.contains(&relocated.binary) {
-                    list.push(relocated.binary);
-                }
+            } else if !relocated.filtered && !setup.scripts.ephemeral_binaries.contains(&relocated.binary) {
+                setup.scripts.ephemeral_binaries.push(relocated.binary);
             }
         }
         for relocated in std::mem::take(&mut setup.scripts.relocated_dependencies) {
@@ -695,17 +694,23 @@ pub(crate) fn package_dirs(workspace: &Workspace) -> Vec<(PackageId, String)> {
 /// The innermost package of `dirs` ([`package_dirs`]) that holds `dir`, a directory relative to the package `from`;
 /// `from` itself when `dir` leaves the workspace root.
 pub(crate) fn package_in_dir(dirs: &[(PackageId, String)], from: PackageId, dir: &str) -> PackageId {
+    placed_dir(dirs, from, dir).map_or(from, |(id, _)| id)
+}
+
+/// The innermost package of `dirs` ([`package_dirs`]) that holds `dir`, a directory relative to the package `from`,
+/// with `dir` relative to the workspace root, `/`-separated; `None` when `dir` leaves the workspace root.
+pub(crate) fn placed_dir(dirs: &[(PackageId, String)], from: PackageId, dir: &str) -> Option<(PackageId, String)> {
     let base = dirs
         .iter()
         .find(|(id, _)| *id == from)
         .map_or("", |(_, base)| base.as_str());
-    let Some(target) = join_dir(base, dir) else {
-        return from;
-    };
-    dirs.iter()
+    let target = join_dir(base, dir)?;
+    let id = dirs
+        .iter()
         .filter(|(_, candidate)| contains_dir(candidate, &target))
         .max_by_key(|(_, candidate)| candidate.len())
-        .map_or(from, |(id, _)| *id)
+        .map_or(from, |(id, _)| *id);
+    Some((id, target))
 }
 
 /// `dir` joined onto the workspace-relative directory `base`, `/`-separated with `.` and `..` resolved; `None` when it
@@ -849,7 +854,13 @@ impl Setup {
             } else {
                 EntryRegexes::new(&plugin.entry_regex, &plugin.scoped_entry_regex)
             };
-            let scripts = scripts::analyze(package);
+            let mut scripts = scripts::analyze(package);
+            // A package that a command of a tool's file loads in another directory is placed as a script's is.
+            scripts.relocated_dependencies.extend(
+                std::mem::take(&mut plugin.relocated_dependencies)
+                    .into_iter()
+                    .map(|(dir, name)| RelocatedDependency { dir, name }),
+            );
 
             let mut entry = listed::user_globs(&user.entry, production, &default_entry());
             entry.extend(ambient_declarations());

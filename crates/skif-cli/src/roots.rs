@@ -202,8 +202,9 @@ pub struct RootRun {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OtherRootUses {
     /// Dependencies of the root's manifests that other roots use: those the code of roots nested in it imports or
-    /// runs without listing them, and those the files of this root in `files` import. The manifest path relative to
-    /// the root, and the dependency name.
+    /// runs without listing them, those the files of this root in `files` import, and those providing a binary that a
+    /// command of an enclosing root runs after `cd` into this root. The manifest path relative to the root, and the
+    /// dependency name.
     pub dependencies: BTreeSet<(PathBuf, String)>,
     /// Files of the root, relative to it, that the code of a root outside whose directory they lie reaches (a nested
     /// root requiring `../tools/detect.js`, a sibling root), with everything those files import in turn.
