@@ -2279,8 +2279,8 @@ impl JsCompiler {
     /// The extensions skif reads itself, sorted: the possible values of `as`, and the extensions a compiler cannot be
     /// declared for.
     pub const READERS: &'static [&'static str] = &[
-        "astro", "cjs", "css", "cts", "js", "jsx", "less", "marko", "mdx", "mjs", "mts", "pcss", "sass", "scss", "styl",
-        "stylus", "svelte", "ts", "tsrx", "tsx", "vue",
+        "astro", "cjs", "css", "cts", "js", "jsx", "less", "marko", "mdx", "mjs", "mts", "pcss", "sass", "scss",
+        "styl", "stylus", "svelte", "ts", "tsrx", "tsx", "vue",
     ];
 
     /// Reads the files with the reader of `extension` (`as`).
@@ -2317,7 +2317,9 @@ impl JsCompiler {
             ));
         }
         if Self::READERS.contains(&extension) {
-            return Some(format!("{key}: skif reads `.{extension}` files itself; remove the entry"));
+            return Some(format!(
+                "{key}: skif reads `.{extension}` files itself; remove the entry"
+            ));
         }
         match (self.reader.as_deref(), self.imports.as_deref()) {
             (Some(reader), None) => (!Self::READERS.contains(&reader)).then(|| {
