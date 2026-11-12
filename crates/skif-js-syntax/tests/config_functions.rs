@@ -803,6 +803,44 @@ fn a_change_through_an_alias_a_call_or_a_closure_reaches_the_original() {
     assert_eq!(get(&configs[3], &["m"]), &ConfigValue::Unknown);
 }
 
+/// What a method returns may be a part of the object it is called on (`list.find(…)`), so a change through it reaches
+/// that part of the object, also when a function the module declares returns it.
+#[test]
+fn a_change_through_what_a_method_returns_reaches_its_object() {
+    let value = extract(
+        "vite.config.ts",
+        "const found = () => {\n\
+           const cfg = { a: 1, list: [{ b: 1 }] };\n\
+           const item = cfg.list.find(Boolean);\n\
+           item.b = 2;\n\
+           return cfg;\n\
+         };\n\
+         const first = (c) => c.list.find(Boolean);\n\
+         const returned = () => {\n\
+           const cfg = { a: 1, list: [{ b: 1 }] };\n\
+           const item = first(cfg);\n\
+           item.b = 2;\n\
+           return cfg;\n\
+         };\n\
+         export default [found(), returned()];",
+    );
+    let configs = value.as_array().unwrap();
+    assert_eq!(
+        configs[0],
+        ConfigValue::Object(vec![
+            ("a".to_owned(), ConfigValue::Number(1.0)),
+            (
+                "list".to_owned(),
+                ConfigValue::Array(vec![
+                    ConfigValue::Object(vec![("b".to_owned(), ConfigValue::Number(1.0))]),
+                    ConfigValue::Unknown,
+                ])
+            ),
+        ])
+    );
+    assert!(open(&configs[1]), "{:?}", configs[1]);
+}
+
 /// A change made through a `const` that takes a part of a local of its function (`const { coverage } = config.test`)
 /// is applied to that part of the local, in a branch with an unknown test as in the branch, and a change the evaluator
 /// does not follow there (`Object.assign`) leaves only that part partly unknown. Two aliases of one local, and an alias
