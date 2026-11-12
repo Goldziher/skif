@@ -87,6 +87,9 @@ pub struct JsAnalysis<'a> {
     pub(crate) config_hints: Vec<ConfigHint>,
     /// Files plugins name as entries that are no file of this analysis, absolute; see [`Self::other_project_files`].
     other_root_entries: Vec<PathBuf>,
+    /// The packages that own a file another root of a multi-root run imports, which may import their `exports`
+    /// subpaths: `unused-subpath-exports` does not judge them.
+    pub(crate) imported_by_other_roots: HashSet<PackageId>,
     /// Whether tracked directories were listed from the git index (`[js] discovery = "git"`), which can miss an
     /// untracked file that uses a file reported as unused; `unused-files` then offers no fix that deletes it.
     pub(crate) listed_from_index: bool,
@@ -674,6 +677,11 @@ impl<'a> JsAnalysis<'a> {
             })
             .collect();
         let unused_export_memo = graph.modules().iter().map(|_| OnceLock::new()).collect();
+        let imported_by_other_roots = extra_entries
+            .iter()
+            .filter_map(|entry| graph.id_of(&workspace.root.join(entry)))
+            .map(|id| graph.module(id).owner)
+            .collect();
         Self {
             workspace,
             graph,
@@ -689,6 +697,7 @@ impl<'a> JsAnalysis<'a> {
             judged_ignore_files,
             config_hints,
             other_root_entries,
+            imported_by_other_roots,
             listed_from_index,
             task_only_members,
             unused_export_memo,

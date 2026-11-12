@@ -1,6 +1,7 @@
 # knip issue type, then the skif rule ids that report the same findings (comma separated), or `-` when skif has none.
 # The `default` column says whether knip reports the type when no `include`, `exclude` or shortcut flag narrows it.
 files unused-files yes
+subpaths unused-subpath-imports yes
 dependencies unused-dependencies yes
 devDependencies unused-dev-dependencies yes
 optionalPeerDependencies unused-optional-peer-dependencies yes
