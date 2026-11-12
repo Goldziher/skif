@@ -26,7 +26,7 @@ use crate::specifier::{
     assumed_package, bin_link, has_foreign_scheme, is_builtin, node_modules_package, node_modules_specifier_package,
     package_name, subpath,
 };
-use crate::tsconfig_paths::{ForeignPaths, TsConfigs, TsPaths};
+use crate::tsconfig_paths::{ForeignPaths, TsConfigs, TsPaths, match_pattern};
 
 /// Extensions that are parsed and followed.
 pub(crate) const CODE_EXTENSIONS: &[&str] = &[
@@ -211,6 +211,8 @@ struct Alias {
 /// The aliases declared for a package directory, longest `find` first.
 struct AliasScope {
     dir: PathBuf,
+    /// The `paths` patterns of the skif configuration with their targets, relative to `dir`, in configuration order.
+    paths: Vec<(String, Vec<String>)>,
     aliases: Vec<Alias>,
     /// Absolute directories bare specifiers are looked up in, in lookup order.
     module_dirs: Vec<PathBuf>,
@@ -232,6 +234,43 @@ pub(crate) const EXTENSION_ALIASES: &[(&str, &[&str])] = &[
 
 /// Roots of `SvelteKit`'s virtual modules, which no file backs.
 const VIRTUAL_ROOTS: &[&str] = &["$app", "$env", "$service-worker"];
+
+impl AliasScope {
+    /// The paths the `paths` patterns map `specifier` to, as TypeScript tries them: the patterns by their fixed prefix,
+    /// longest first and an exact pattern above every wildcard, each with its targets in order. A relative or absolute
+    /// specifier is never mapped.
+    fn pattern_paths(&self, specifier: &str) -> Vec<PathBuf> {
+        if is_relative_or_absolute(specifier) {
+            return Vec::new();
+        }
+        let mut matched: Vec<(usize, &[String], &str)> = self
+            .paths
+            .iter()
+            .filter_map(|(pattern, targets)| {
+                let (rank, captured) = match_pattern(pattern, specifier)?;
+                Some((rank, targets.as_slice(), captured))
+            })
+            .collect();
+        matched.sort_by_key(|(rank, ..)| std::cmp::Reverse(*rank));
+        matched
+            .into_iter()
+            .flat_map(|(_, targets, captured)| {
+                targets
+                    .iter()
+                    .map(move |target| join_normalized(&self.dir, &target.replacen('*', captured, 1)))
+            })
+            .collect()
+    }
+}
+
+/// Whether `specifier` is a path TypeScript never maps through `paths`: `.`, `..`, or one starting with `./`, `../`
+/// or `/`.
+fn is_relative_or_absolute(specifier: &str) -> bool {
+    matches!(specifier, "." | "..")
+        || specifier.starts_with("./")
+        || specifier.starts_with("../")
+        || specifier.starts_with('/')
+}
 
 /// The rest of `specifier` below the alias `find`, `""` for the alias itself.
 fn alias_rest<'a>(specifier: &'a str, find: &str) -> Option<&'a str> {
@@ -744,6 +783,11 @@ impl ModuleResolver {
                     .collect();
                 AliasScope {
                     dir: package.dir.clone(),
+                    paths: package
+                        .paths
+                        .iter()
+                        .map(|(pattern, targets)| (pattern.clone(), targets.clone()))
+                        .collect(),
                     aliases,
                     module_dirs,
                 }
@@ -1181,10 +1225,13 @@ impl ModuleResolver {
     /// `specifier`; `None` when no alias with a target matches.
     fn alias_candidate(&self, importer: &Path, specifier: &str) -> Option<PathBuf> {
         self.scopes_of(importer)
-            .flat_map(|(_, scope)| &scope.aliases)
-            .find_map(|alias| {
-                let rest = alias_rest(specifier, &alias.find)?;
-                alias.target.as_ref().map(|target| join_normalized(target, rest))
+            .find_map(|(_, scope)| {
+                scope.pattern_paths(specifier).into_iter().next().or_else(|| {
+                    scope.aliases.iter().find_map(|alias| {
+                        let rest = alias_rest(specifier, &alias.find)?;
+                        alias.target.as_ref().map(|target| join_normalized(target, rest))
+                    })
+                })
             })
             .or_else(|| {
                 let directory = importer.parent()?;
@@ -1532,6 +1579,12 @@ impl ModuleResolver {
         let mut matched = false;
         let directory = importer.parent()?;
         for (_, scope) in self.scopes_of(importer) {
+            for path in scope.pattern_paths(specifier) {
+                matched = true;
+                if let Some(found) = self.follow_alias(kind, directory, &path, (path.as_path(), "")) {
+                    return Some(found);
+                }
+            }
             for alias in &scope.aliases {
                 let Some(rest) = alias_rest(specifier, &alias.find) else {
                     continue;
@@ -1542,18 +1595,8 @@ impl ModuleResolver {
                     continue;
                 };
                 let path = join_normalized(target, rest);
-                // An alias into `node_modules` is the package there, installed or not.
-                if let Some(package) = node_modules_package(&path) {
-                    return Some(Resolved::External(package));
-                }
-                if let Some(found) = self.resolve_path(kind, directory, &path) {
-                    return Some(self.classify(found));
-                }
-                if let Some(found) = self.through_package_directory(target, rest) {
+                if let Some(found) = self.follow_alias(kind, directory, &path, (target.as_path(), rest)) {
                     return Some(found);
-                }
-                if self.is_generated(&path) {
-                    return Some(Resolved::Ignored);
                 }
             }
         }
@@ -1562,6 +1605,23 @@ impl ModuleResolver {
             (true, true) => Some(Resolved::Ignored),
             (true, false) => Some(Resolved::Unresolved),
         }
+    }
+
+    /// What the path `path` an alias gives a specifier imported from `directory` names: the package of a path into
+    /// `node_modules`, installed or not, a file, the sources of a package directory (`within`: the directory and the
+    /// rest of the specifier below it, see [`Self::through_package_directory`]) or generated code; `None` when nothing
+    /// is there.
+    fn follow_alias(&self, kind: Kind, directory: &Path, path: &Path, within: (&Path, &str)) -> Option<Resolved> {
+        if let Some(package) = node_modules_package(path) {
+            return Some(Resolved::External(package));
+        }
+        if let Some(found) = self.resolve_path(kind, directory, path) {
+            return Some(self.classify(found));
+        }
+        if let Some(found) = self.through_package_directory(within.0, within.1) {
+            return Some(found);
+        }
+        self.is_generated(path).then_some(Resolved::Ignored)
     }
 
     /// An alias target that is a package directory, such as a sibling checkout whose `main` points at output that was

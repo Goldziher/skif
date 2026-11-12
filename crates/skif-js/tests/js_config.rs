@@ -314,6 +314,75 @@ fn paths_resolve_aliases_for_one_workspace() {
     assert_eq!(paths(&aliased, "unused-files"), none(), "{aliased:#?}");
 }
 
+/// A package `app` whose `src/main.js` imports `specifier`, with `src/services/index.js` and `lib/services/index.js`.
+fn services_workspace(specifier: &str) -> Vec<(&'static str, String)> {
+    vec![
+        (MANIFEST.0, MANIFEST.1.to_owned()),
+        (
+            "packages/app/package.json",
+            r#"{"name":"app","version":"1.0.0","private":true,"main":"src/main.js"}"#.to_owned(),
+        ),
+        (
+            "packages/app/src/main.js",
+            format!("import s from \"{specifier}\";\nconsole.log(s);\n"),
+        ),
+        ("packages/app/src/services/index.js", "export default 2;\n".to_owned()),
+        ("packages/app/lib/services/index.js", "export default 3;\n".to_owned()),
+    ]
+}
+
+fn lint_services(specifier: &str, paths_table: &str) -> Vec<Diagnostic> {
+    let files = services_workspace(specifier);
+    let files: Vec<(&str, &str)> = files.iter().map(|(path, text)| (*path, text.as_str())).collect();
+    lint(&files, &format!("[js.workspaces.\"packages/app\".paths]\n{paths_table}"))
+}
+
+#[test]
+fn paths_keys_match_with_a_wildcard_anywhere_as_in_tsconfig() {
+    for (specifier, paths_table) in [
+        ("services", "\"*\" = [\"./src/*\"]\n"),
+        ("services", "\"serv*\" = [\"./src/serv*\"]\n"),
+        ("services/index", "\"services/*\" = [\"./src/services/*\"]\n"),
+        ("services", "\"services\" = [\"./src/services\"]\n"),
+        ("services", "\"*\" = [\"./missing/*\", \"./src/*\"]\n"),
+    ] {
+        let diagnostics = lint_services(specifier, paths_table);
+        assert_eq!(found(&diagnostics, "unlisted-dependencies"), none(), "{paths_table}: {diagnostics:#?}");
+        assert_eq!(found(&diagnostics, "unresolved-imports"), none(), "{paths_table}: {diagnostics:#?}");
+        assert_eq!(
+            paths(&diagnostics, "unused-files"),
+            ["packages/app/lib/services/index.js"],
+            "{paths_table}: {diagnostics:#?}"
+        );
+    }
+}
+
+#[test]
+fn the_paths_key_with_the_longest_prefix_wins() {
+    for paths_table in [
+        "\"*\" = [\"./lib/*\"]\n\"serv*\" = [\"./src/serv*\"]\n",
+        "\"serv*\" = [\"./src/serv*\"]\n\"*\" = [\"./lib/*\"]\n",
+        "\"*\" = [\"./lib/*\"]\n\"services\" = [\"./src/services\"]\n",
+    ] {
+        let diagnostics = lint_services("services", paths_table);
+        assert_eq!(
+            paths(&diagnostics, "unused-files"),
+            ["packages/app/lib/services/index.js"],
+            "{paths_table}: {diagnostics:#?}"
+        );
+    }
+}
+
+#[test]
+fn a_wildcard_paths_key_does_not_map_relative_imports() {
+    let diagnostics = lint_services("./services/missing", "\"*\" = [\"./lib/*\"]\n");
+    assert_eq!(
+        found(&diagnostics, "unresolved-imports"),
+        ["packages/app/src/main.js: cannot resolve `./services/missing`"],
+        "{diagnostics:#?}"
+    );
+}
+
 #[test]
 fn include_entry_exports_is_set_per_workspace() {
     let files = {
