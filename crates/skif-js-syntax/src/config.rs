@@ -3837,11 +3837,37 @@ fn insert_items(value: &mut Value, front: bool, items: &[Value]) {
     }
 }
 
-/// Leaves an object or array partly unknown: an object may have any other key and an array any other element.
+/// Leaves an object or array partly unknown: an object may have any other key, and an array any other element and
+/// any change below each of its elements, as a change of what it holds (`rules[0].loader = …`) does not say which
+/// element it reaches.
 fn taint_value(value: &mut Value) {
     match value.definite_mut() {
         Value::Object(entries) => open_entries(entries),
-        Value::Array(items) => items.push(Value::Unknown),
+        Value::Array(items) => {
+            items.iter_mut().for_each(open_below);
+            items.push(Value::Unknown);
+        }
+        _ => {}
+    }
+}
+
+/// Leaves every object and array in a value open, at every depth, in each value it may be.
+fn open_below(value: &mut Value) {
+    match value {
+        Value::Object(entries) => {
+            for (_, field) in entries.iter_mut() {
+                open_below(field);
+            }
+            open_entries(entries);
+        }
+        Value::Array(items) => {
+            items.iter_mut().for_each(open_below);
+            if !matches!(items.last(), Some(Value::Unknown)) {
+                items.push(Value::Unknown);
+            }
+        }
+        Value::OneOf(alternatives) => alternatives.iter_mut().for_each(open_below),
+        Value::Maybe(inner) => open_below(inner),
         _ => {}
     }
 }
