@@ -117,7 +117,8 @@ is not reported, since Lerna before 7 then follows the package manager.
 removed `lerna bootstrap`, `lerna add` and `lerna link`; a root or member script that runs one, also through `npx`,
 `pnpm exec` or `yarn`, is reported at the script. The release is read from `node_modules/lerna/package.json`, else
 from the lowest version the root `package.json` admits for `lerna`; without either, or with a tag such as `latest`,
-nothing is reported. A script that runs a pinned release (`npx lerna@6 bootstrap`) is not reported.
+nothing is reported. A script that runs a pinned release (`npx lerna@6 bootstrap`) is not reported. See also
+[Turborepo, Nx and Lerna](../turborepo-nx-lerna/).
 
 ## Lockfiles and nested workspaces
 
@@ -176,7 +177,8 @@ After a Bazel build the root holds convenience links (`bazel-bin`, `bazel-out`, 
 the last a link to the execroot, which mirrors the root). A `*` or glob segment of a workspace pattern follows links to
 directories, as pnpm's does, so `packages: ['*']` makes such a link a member. skif keeps it a member, excludes it from
 analysis so the root's findings are not repeated under it, and `nested-workspace-root` reports it once, at its
-`package.json`, with the detail `BazelConvenienceLink`. Add `!bazel-*` to the patterns to drop it.
+`package.json`, with the detail `BazelConvenienceLink`. Add `!bazel-*` to the patterns to drop it. The
+[Bazel guide](../bazel/) covers the rest of a Bazel repository.
 
 Both rules look at the root and the directories the workspace patterns select, not deeper, and skip files a
 `.gitignore`, an `.ignore` or `.git/info/exclude` excludes and members `[workspace] ignore-packages` excludes. A
@@ -266,6 +268,8 @@ skif -r --format json    # one document with a "roots" array
 - If no root is found, skif exits with code `2` and says no workspace or package was found.
 
 ## Nx workspaces
+
+How to run skif next to Nx, and its limits there, are in [Turborepo, Nx and Lerna](../turborepo-nx-lerna/).
 
 skif reads Nx's `nx.json`, the `nx` key of `package.json` and the `project.json` files of a package when the `nx`
 plugin is enabled (`nx`, `@nx/*` or `@nrwl/*` is a dependency, or `[js.plugins] nx = true`). The projects are found
