@@ -539,7 +539,7 @@ fn uses_export(importer: &ModuleInfo, import: &Import, export: &str, is_type: bo
     import.names.iter().find_map(|name| {
         let hit = match &name.kind {
             ImportedKind::Default => export == "default",
-            ImportedKind::Named(imported) => imported == export,
+            ImportedKind::Named(named) => named == export,
             ImportedKind::Namespace => {
                 let whole = name.escapes && (!is_type || usage::exports_binding(importer, name));
                 whole || name.accessed_members.iter().any(|member| member == export)
