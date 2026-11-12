@@ -79,6 +79,29 @@ fn reject_parent_segments(pattern: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// The leading `..` segments of `pattern`, and the rest of it.
+fn split_parent_segments(pattern: &str) -> (usize, &str) {
+    let mut rest = pattern;
+    let mut ups = 0;
+    loop {
+        if rest == ".." {
+            return (ups + 1, "");
+        }
+        match rest.strip_prefix("../") {
+            Some(after) => {
+                ups += 1;
+                rest = after.trim_start_matches('/');
+            }
+            None => return (ups, rest),
+        }
+    }
+}
+
+/// Whether the root-relative directory `dir` lies outside the root: it starts with a `..` segment.
+pub(crate) fn is_outside_root(dir: &str) -> bool {
+    dir == ".." || dir.starts_with("../")
+}
+
 /// Upper bound on the patterns one brace expression may expand to.
 const MAX_ALTERNATIVES: usize = 256;
 
@@ -154,22 +177,43 @@ impl Pattern {
     /// # Errors
     /// A message when the pattern contains a `..` segment or expands to too many alternatives.
     pub(crate) fn new(raw: &str) -> Result<Self, String> {
+        Self::parse(raw, false)
+    }
+
+    /// As [`new`](Self::new); with `outside_root` (Bun, which installs members outside the root), leading `..`
+    /// segments are accepted and select directories above the root (`../shared`, `../libs/*`), which the expansion
+    /// returns with those segments (`../shared`). A `..` after the first other segment is still refused.
+    ///
+    /// # Errors
+    /// As [`new`](Self::new), apart from the leading `..` segments `outside_root` accepts.
+    pub(crate) fn parse(raw: &str, outside_root: bool) -> Result<Self, String> {
         let normalized = normalize(raw);
-        reject_parent_segments(&normalized)?;
+        let (ups, rest) = if outside_root {
+            split_parent_segments(&normalized)
+        } else {
+            (0, normalized.as_str())
+        };
+        reject_parent_segments(rest)?;
         let mut expanded = Vec::new();
-        expand_braces(&normalized, &mut expanded)?;
+        expand_braces(rest, &mut expanded)?;
         let alternatives = expanded
             .iter()
             .map(|alternative| {
-                alternative
-                    .split('/')
-                    .filter(|segment| !segment.is_empty() && *segment != ".")
-                    .map(|segment| match segment {
-                        "**" => Segment::DoubleStar,
-                        "*" => Segment::Star,
-                        _ if segment.contains(GLOB_CHARS) => compile(segment).map_or(Segment::Never, Segment::Glob),
-                        _ => Segment::Literal(segment.to_owned()),
-                    })
+                let parents = std::iter::repeat_with(|| Segment::Literal("..".to_owned())).take(ups);
+                parents
+                    .chain(
+                        alternative
+                            .split('/')
+                            .filter(|segment| !segment.is_empty() && *segment != ".")
+                            .map(|segment| match segment {
+                                "**" => Segment::DoubleStar,
+                                "*" => Segment::Star,
+                                _ if segment.contains(GLOB_CHARS) => {
+                                    compile(segment).map_or(Segment::Never, Segment::Glob)
+                                }
+                                _ => Segment::Literal(segment.to_owned()),
+                            }),
+                    )
                     .collect()
             })
             .collect();
@@ -303,22 +347,31 @@ impl Expander<'_> {
     }
 }
 
-/// The root-relative directories with a `package.json` that `patterns` select, negations applied. A pattern that
-/// cannot be used selects nothing.
+/// The root-relative directories with a `package.json` that `patterns` select, negations applied. With
+/// `literals_kept` (Bun), a negation does not remove a directory a positive pattern names by its literal path. A
+/// pattern that cannot be used selects nothing.
 pub(crate) fn selected_with_manifest<'p>(
     expander: &Expander<'_>,
     patterns: impl IntoIterator<Item = &'p str>,
+    literals_kept: bool,
 ) -> BTreeSet<String> {
     let mut selected = BTreeSet::new();
     let mut negations = Vec::new();
+    let mut literals = BTreeSet::new();
     for raw in patterns {
         if raw.trim_start().starts_with('!') {
             negations.extend(negation(raw).ok());
         } else if let Ok(pattern) = Pattern::new(raw) {
+            if literals_kept {
+                literals.extend(literal_dir(raw));
+            }
             selected.extend(expander.expand(&pattern));
         }
     }
-    selected.retain(|dir| expander.has_manifest(dir) && !negations.iter().any(|negation| negation.is_match(dir)));
+    selected.retain(|dir| {
+        expander.has_manifest(dir)
+            && (literals.contains(dir) || !negations.iter().any(|negation| negation.is_match(dir)))
+    });
     selected
 }
 
@@ -387,6 +440,39 @@ mod tests {
         assert_eq!(expand(&fs, "packages/*"), ["packages/a", "packages/b", "packages/b-c"]);
         assert_eq!(expand(&fs, "packages/b*"), ["packages/b", "packages/b-c"]);
         assert_eq!(fs.is_dir.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn leading_parent_segments_select_directories_above_the_root_only_when_allowed() {
+        let mut inner = MemoryFs::new();
+        for file in [
+            "/ws/../shared/package.json",
+            "/ws/../libs/a/package.json",
+            "/ws/../libs/b/package.json",
+        ] {
+            inner.insert(file, "{}");
+        }
+        let fs = Probes {
+            inner,
+            is_dir: AtomicUsize::new(0),
+        };
+        let expander = Expander {
+            fs: &fs,
+            root: Path::new("/ws"),
+        };
+        let outside = |raw: &str| -> Vec<String> {
+            expander
+                .expand(&Pattern::parse(raw, true).unwrap())
+                .into_iter()
+                .collect()
+        };
+        assert_eq!(outside("../shared"), ["../shared"]);
+        assert_eq!(outside("./../libs/*/"), ["../libs/a", "../libs/b"]);
+        assert_eq!(outside("../missing"), Vec::<String>::new());
+        assert!(Pattern::new("../shared").is_err());
+        assert!(Pattern::parse("libs/../shared", true).is_err());
+        assert!(is_outside_root("../shared") && is_outside_root(".."));
+        assert!(!is_outside_root("..x/y") && !is_outside_root("packages/a"));
     }
 
     #[test]

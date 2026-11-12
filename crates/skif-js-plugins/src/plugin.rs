@@ -207,6 +207,11 @@ pub enum PluginInput {
     /// The config computes its entry points in a way that cannot be evaluated statically, so the entries found are
     /// not all of them. Sets [`PluginOutput::entries_incomplete`].
     EntriesIncomplete,
+    /// The config moves or narrows where the tool looks for the files of its default entry globs (`bun test`'s
+    /// `[test] root` and `pathIgnorePatterns`): these globs or files, relative to the workspace directory, replace the
+    /// plugin's default entry globs ([`PluginSpec::entry`]). Entries configured for the plugin in `[js.plugins]`,
+    /// which replace the defaults already, are kept as they are.
+    ReplaceDefaultEntries(Vec<String>),
 }
 
 /// A module alias read from a config file; see [`PluginInput::Alias`].

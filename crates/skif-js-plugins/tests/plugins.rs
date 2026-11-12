@@ -3472,6 +3472,87 @@ fn bun_reads_runtime_preloads_the_security_scanner_and_the_jsx_source_from_bunfi
     assert_deps(out, &["preact", "@socketsecurity/bun-security-scanner"]);
 }
 
+#[test]
+fn bun_reads_the_lint_plugins_from_bunfig() {
+    let config = "[lint]\nplugins = [\"eslint-plugin-unicorn\", \"./lint/local-rules.ts\"]\n";
+    let results = resolve(&[("bunfig.toml", config)], &[]);
+    let out = output(&results, "bun");
+    assert_entries(&out.entries, &["lint/local-rules.ts"]);
+    assert_deps(out, &["eslint-plugin-unicorn"]);
+    assert!(!deps(out).contains("./lint/local-rules.ts"));
+}
+
+/// `[test] root` moves the test globs of `bun test` below that directory, relative to `bunfig.toml`.
+#[test]
+fn bun_test_root_replaces_the_default_test_globs() {
+    let config = "[test]\nroot = \"./tests\"\n";
+    let results = resolve(&[("bunfig.toml", config)], &[]);
+    let out = output(&results, "bun");
+    assert_entries(
+        &out.entries,
+        &[
+            "tests/**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "tests/**/*_{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        ],
+    );
+    assert!(
+        !out.entries.iter().any(|entry| entry.starts_with("**/")),
+        "{:?}",
+        out.entries
+    );
+}
+
+/// `pathIgnorePatterns` leaves files and whole directories out of what `bun test` runs; its globs are relative to
+/// `bunfig.toml`, not to `[test] root`.
+#[test]
+fn bun_test_path_ignore_patterns_leave_test_files_out() {
+    let test = "import { test } from \"bun:test\";\ntest(\"x\", () => {});\n";
+    let files = |config: &'static str| {
+        vec![
+            ("bunfig.toml", config),
+            ("src/a.test.ts", test),
+            ("tests/d.test.ts", test),
+            ("tests/keep/b_spec.ts", test),
+            ("tests/skip/c.test.ts", test),
+            ("tests/skip/deep/e.test.ts", test),
+            ("tests/f.test.ts", test),
+        ]
+    };
+    let narrowed = files("[test]\nroot = \"tests\"\npathIgnorePatterns = [\"tests/skip\", \"tests/f.test.ts\"]\n");
+    let results = resolve(&narrowed, &[]);
+    let mut entries = output(&results, "bun").entries.clone();
+    entries.sort();
+    assert_eq!(entries, ["tests/d.test.ts", "tests/keep/b_spec.ts"]);
+    // Without a root, the whole package is searched; a pattern relative to the root instead of the config matches
+    // nothing.
+    let anywhere = files("[test]\npathIgnorePatterns = [\"skip/**\", \"src/**\"]\n");
+    let results = resolve(&anywhere, &[]);
+    let mut entries = output(&results, "bun").entries.clone();
+    entries.sort();
+    assert_eq!(
+        entries,
+        [
+            "tests/d.test.ts",
+            "tests/f.test.ts",
+            "tests/keep/b_spec.ts",
+            "tests/skip/c.test.ts",
+            "tests/skip/deep/e.test.ts"
+        ]
+    );
+}
+
+/// Entries configured for the plugin in `[js.plugins]` win over what `bunfig.toml` says.
+#[test]
+fn bun_configured_entries_are_kept_over_the_test_root() {
+    let mut plugins = IndexMap::new();
+    plugins.insert(
+        "bun".to_string(),
+        PluginConfig::Options(PluginOptions::new().with_entry(["checks/**/*.ts"])),
+    );
+    let results = resolve_with(&[("bunfig.toml", "[test]\nroot = \"tests\"\n")], &[], true, &plugins);
+    assert_eq!(output(&results, "bun").entries, ["checks/**/*.ts"]);
+}
+
 /// Bun Shell and `Bun.spawn` run commands, `Bun.build` bundles its `entrypoints` from the package directory, and the
 /// `Bun` global uses the type package that declares it.
 #[test]
@@ -3513,6 +3594,30 @@ fn bun_reads_the_commands_and_entry_points_source_files_hand_to_its_api() {
     locked.push(("bun.lock", ""));
     let results = resolve(&locked, &["typescript"]);
     assert_absent(output(&results, "bun"), &["@types/bun", "bun-types"]);
+}
+
+/// An entry point of `Bun.build` that the calling file's location computes is relative to that file, not to the
+/// package.
+#[test]
+fn bun_build_entry_points_from_import_meta_dir_are_relative_to_the_file() {
+    let files = [
+        ("bun.lock", ""),
+        (
+            "scripts/build.ts",
+            r#"import path from "node:path";
+            await Bun.build({
+                entrypoints: [
+                    path.join(import.meta.dir, "worker.ts"),
+                    path.resolve(import.meta.dir, "../src/cli.ts"),
+                    "./src/app.ts",
+                ],
+            });"#,
+        ),
+    ];
+    let results = resolve(&files, &[]);
+    let mut production = output(&results, "bun").production_entries.clone();
+    production.sort();
+    assert_eq!(production, ["scripts/worker.ts", "src/app.ts", "src/cli.ts"]);
 }
 
 /// The sources of a member below a workspace root are the member's: the root reads none of its commands or entry

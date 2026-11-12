@@ -392,9 +392,9 @@ fn visit(fs: &dyn FileSystem, walk: &Walk<'_>, dir: PathBuf, depth: usize, ignor
 
 /// The patterns `root` declares, from the source `Workspace::discover` would choose: `pnpm-workspace.yaml` for a pnpm
 /// workspace, else the `workspaces` of `package.json`, then a leftover `pnpm-workspace.yaml`, then `rush.json`, then
-/// the `packages` of `lerna.json`. A
-/// stale `pnpm-workspace.yaml` in a Yarn or npm repository does not decide the members.
-fn declared_patterns(fs: &dyn FileSystem, root: &Path) -> Vec<String> {
+/// the `packages` of `lerna.json`, with the package manager detected for `root`. A stale `pnpm-workspace.yaml` in a
+/// Yarn or npm repository does not decide the members.
+fn declared_patterns(fs: &dyn FileSystem, root: &Path) -> (Vec<String>, Option<PackageManager>) {
     let yaml_path = root.join(PNPM_WORKSPACE);
     let from_yaml = fs
         .read_to_string(&yaml_path)
@@ -430,27 +430,26 @@ fn declared_patterns(fs: &dyn FileSystem, root: &Path) -> Vec<String> {
             .or_else(|| lerna.as_ref().and_then(|lerna| lerna.package_manager)),
         fs.is_file(&yaml_path),
     );
-    if package_manager == Some(PackageManager::Pnpm)
+    let patterns = if package_manager == Some(PackageManager::Pnpm)
         && let Some(patterns) = from_yaml.clone()
     {
-        return patterns;
-    }
-    if let Some(items) = items {
-        return items
+        patterns
+    } else if let Some(items) = items {
+        items
             .iter()
             .filter_map(|item| item.as_str().map(str::to_owned))
-            .collect();
-    }
-    if let Some(patterns) = from_yaml {
-        return patterns;
-    }
-    if let Some(parsed) = rush {
-        return parsed.projects.into_iter().map(|(_, folder, _)| folder).collect();
-    }
-    lerna
-        .and_then(|lerna| lerna.packages)
-        .map(|packages| packages.into_iter().map(|(_, glob, _)| glob).collect())
-        .unwrap_or_default()
+            .collect()
+    } else if let Some(patterns) = from_yaml {
+        patterns
+    } else if let Some(parsed) = rush {
+        parsed.projects.into_iter().map(|(_, folder, _)| folder).collect()
+    } else {
+        lerna
+            .and_then(|lerna| lerna.packages)
+            .map(|packages| packages.into_iter().map(|(_, glob, _)| glob).collect())
+            .unwrap_or_default()
+    };
+    (patterns, package_manager)
 }
 
 /// The absolute directories the patterns declared at `root` select (negations applied), read straight from
@@ -458,11 +457,13 @@ fn declared_patterns(fs: &dyn FileSystem, root: &Path) -> Vec<String> {
 ///
 /// This is how the members of a workspace that cannot be discovered (a broken root manifest or `rush.json`) are
 /// still claimed. Only directories with a `package.json` count, and the result is empty when the
-/// patterns cannot be read.
+/// patterns cannot be read. In a Bun workspace a negation does not remove a directory a positive pattern names by its
+/// literal path, as in [`Workspace::discover`](crate::Workspace::discover).
 #[must_use]
 pub fn declared_member_dirs(fs: &dyn FileSystem, root: &Path) -> BTreeSet<PathBuf> {
-    let patterns = declared_patterns(fs, root);
-    pattern::selected_with_manifest(&Expander { fs, root }, patterns.iter().map(String::as_str))
+    let (patterns, package_manager) = declared_patterns(fs, root);
+    let literals_kept = package_manager == Some(PackageManager::Bun);
+    pattern::selected_with_manifest(&Expander { fs, root }, patterns.iter().map(String::as_str), literals_kept)
         .into_iter()
         .map(|dir| root.join(dir))
         .collect()
@@ -892,6 +893,30 @@ mod tests {
             .with_file("/r/p/empty/readme.md", "x");
         assert_eq!(
             declared_member_dirs(&fs, Path::new("/r")),
+            BTreeSet::from([PathBuf::from("/r/p/m")])
+        );
+    }
+
+    #[test]
+    fn declared_member_dirs_keeps_a_literal_member_a_negation_names_only_under_bun() {
+        let files = |manager: &str| {
+            MemoryFs::new()
+                .with_file(
+                    "/r/package.json",
+                    format!(
+                        r#"{{"packageManager": "{manager}", "workspaces": ["p/*", "p/kept", "!p/kept", "!p/gone"]}}"#
+                    ),
+                )
+                .with_file("/r/p/kept/package.json", r#"{"name": "kept"}"#)
+                .with_file("/r/p/gone/package.json", r#"{"name": "gone"}"#)
+                .with_file("/r/p/m/package.json", r#"{"name": "m"}"#)
+        };
+        assert_eq!(
+            declared_member_dirs(&files("bun@1.4.4"), Path::new("/r")),
+            BTreeSet::from([PathBuf::from("/r/p/kept"), PathBuf::from("/r/p/m")])
+        );
+        assert_eq!(
+            declared_member_dirs(&files("npm@11.0.0"), Path::new("/r")),
             BTreeSet::from([PathBuf::from("/r/p/m")])
         );
     }
