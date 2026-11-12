@@ -240,7 +240,10 @@ fn an_enum_used_as_a_whole_in_its_own_file_is_flagged_and_one_read_by_name_or_an
         ("export const names = Object.keys(E);", true),
         ("declare function use(e: unknown): void;\nuse(E);", true),
         ("export const copy = { ...E };", true),
-        ("export function each() { for (const k in E) { console.log(k); } }", true),
+        (
+            "export function each() { for (const k in E) { console.log(k); } }",
+            true,
+        ),
         ("export const pick = (k: string) => E[k as keyof typeof E];", true),
         ("export const dynamic = (k: 'A' | 'B') => E[k];", true),
         ("export const bare = E;", true),
@@ -258,7 +261,10 @@ fn an_enum_used_as_a_whole_in_its_own_file_is_flagged_and_one_read_by_name_or_an
         ("export { E as Renamed };", false),
     ];
     for (code, whole) in cases {
-        let info = parse("a.ts", &format!("enum E {{ A = 'a', B = 'b' }}\nexport {{ E }};\n{code}\n"));
+        let info = parse(
+            "a.ts",
+            &format!("enum E {{ A = 'a', B = 'b' }}\nexport {{ E }};\n{code}\n"),
+        );
         let export = info.exports.iter().find(|export| export.name == "E").unwrap();
         assert_eq!(export.used_whole_in_file, *whole, "{code}");
     }
