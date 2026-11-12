@@ -25,6 +25,9 @@ applies.
     so named are used, and so is what they import, but they are no entries. Their unused exports and types are
     `unused-exports` and `unused-types`, and their members and duplicates are checked, as in any other module. A file
     that something else makes an entry (a `main` or `bin` of `package.json`, an `entry` glob) stays one.
+  - A root `BUILD` file can name the files of a workspace member below it that has no `BUILD` file of its own
+    (`srcs = ["packages/foo/src/x.ts"]`): they are entries or build sources of that member. One in a project of its
+    own below the root (a nested root) is an entry of that root under `skif -r`.
   - The files of `js_test` count only outside `--production`.
 - **Output trees.** The `bazel-bin`, `bazel-out`, `bazel-testlogs` and `bazel-<workspace>` links at the top of the
   Bazel repository are never read. An import that reaches a file there, directly or through `rootDirs`, is generated
@@ -275,8 +278,18 @@ bazel = false
 - A `bazel-*` link member is left out of the analysis even when it was meant to be linted; `!bazel-*` is the supported
   layout.
 - Installing skif through rules_js is untested (above).
+- The exports of `srcs` and `data` files are judged, so an export that another Bazel target reads only through a
+  module name that Bazel maps and skif does not resolve (a package name that an `npm_package` target gives and no
+  `package.json`, `tsconfig` `paths` or `[js] paths` entry does) is `unused-exports`. Tag it `@public`, or name a
+  tag of your own in the `ignore-tags` option of `unused-exports`:
+
+  ```toml
+  [rules]
+  unused-exports = { ignore-tags = ["bazel"] }
+  ```
 
 The decisions are in [ADR 0115](https://github.com/Goldziher/skif/blob/main/adrs/0115-bazel-build-files-and-output-trees-in-the-js-analysis.md),
 [ADR 0116](https://github.com/Goldziher/skif/blob/main/adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
-[ADR 0112](https://github.com/Goldziher/skif/blob/main/adrs/0112-paths-under-bazel-run.md) and
-[ADR 0117](https://github.com/Goldziher/skif/blob/main/adrs/0117-the-cache-default-under-bazel-test.md).
+[ADR 0112](https://github.com/Goldziher/skif/blob/main/adrs/0112-paths-under-bazel-run.md),
+[ADR 0117](https://github.com/Goldziher/skif/blob/main/adrs/0117-the-cache-default-under-bazel-test.md) and
+[ADR 0124](https://github.com/Goldziher/skif/blob/main/adrs/0124-bazel-rule-sources-are-used-files-not-entries.md).

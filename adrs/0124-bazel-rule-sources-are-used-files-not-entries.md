@@ -52,6 +52,10 @@ exports a runner gives it.
   its exports are not public: `unused-exports`, `unused-types`, the namespace and member rules and
   `duplicate-exports` judge it. A file that an entry rule also matches (a `main` or `bin` of `package.json`, an
   `entry` glob, another plugin's entry) stays an entry.
+* Build sources reach where plugin entries do: one that matches a file of a workspace package nested below the
+  package (a root `BUILD` file naming the sources of a member that has no `BUILD` file) is a build source of that
+  package, and one that names a file of another project below the root (a nested root) is handed to that root as
+  plugin entry files are, where it is an entry.
 * The `bazel` plugin gives the `entry_point` of `js_binary`, `js_run_devserver` and `js_test` as an entry, a
   production entry except for `js_test`. The `data` of those rules and the `srcs` and `data` of `js_library` and
   `ts_project` are build sources, production ones except for `js_test`. This amends the entries paragraph of ADR
@@ -81,9 +85,12 @@ exports a runner gives it.
 * `crates/skif-js/tests/fp_resolve.rs`: `bazel_sources_are_used_and_their_exports_judged` (the `srcs` of a
   `ts_project` and the file one of them imports are no `unused-files`, an unused export and type of a source are
   `unused-exports` and `unused-types`, the export of a `js_binary` `entry_point` is not reported, and a file nothing
-  names is `unused-files`).
-* `crates/skif-js/tests/explain_absence.rs`: `a_bazel_source_is_a_build_source_whose_exports_are_judged` and
-  `the_text_report_names_build_sources`.
+  names is `unused-files`), `a_bazel_source_that_is_also_an_entry_keeps_public_exports` (a source that is the `main`,
+  a default entry or an `entry` glob keeps public exports), `bazel_test_data_is_no_production_build_source`,
+  `duplicates_and_members_of_a_bazel_source_are_reported` and `a_root_bazel_source_in_a_member_is_a_build_source`.
+* `crates/skif-js/tests/explain_absence.rs`: `a_bazel_source_is_a_build_source_whose_exports_are_judged`,
+  `the_text_report_names_build_sources` and `a_published_bazel_source_is_an_entry_not_a_build_source`.
+* `crates/skif-cli/tests/multi.rs`: `a_bazel_source_of_a_nested_root_is_used_there`.
 * `adrlint lint adrs`, `adrlint format --check adrs` and `adrlint lock --check` pass.
 
 ## Pros and Cons of the Options

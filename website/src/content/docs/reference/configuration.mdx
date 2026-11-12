@@ -1248,7 +1248,9 @@ counterpart. These differences are deliberate:
   the root's `typescript`. The `entry_point` of `js_binary`, `js_run_devserver` and `js_test` is an entry, and the
   `data` of those rules and the `srcs` and `data` of `js_library` and `ts_project` are build sources: used files whose
   imports are followed but whose exports, types and members are judged, as they are no entries. A literal counts
-  when it names an existing file of the package, by path or as `":path"`, and those of `js_test` only outside
+  when it names an existing file of the package, by path or as `":path"` (one of a workspace member below the
+  package is an entry or build source of that member, and one of a nested root an entry of that root under
+  `skif -r`), and those of `js_test` only outside
   `--production`; `glob()`, `select()` and variables name nothing, nor does a macro of a `.bzl` file. The `BUILD`
   files of a nested package give no entries or build sources, and those below the `bazel-*` links at the repository
   root are not read.
