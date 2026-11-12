@@ -218,13 +218,19 @@ A low share means the tools differ, and either one could be right. Some differen
 skif makes test files entries, does not report files in `fixtures` directories
 ([ADR 0050](https://github.com/Goldziher/skif/blob/main/adrs/0050-fixture-directories-in-the-js-analysis.md)), reads a
 namespace import differently. Findings in packages skif does not judge, in packages where knip could not load a config,
-and inside a file the other tool reports as unused (the file is the one disagreement) are counted apart too. It also
-sets apart what follows from where each tool looks, decided from paths and manifests: projects with their own
-`package.json` that are not knip workspaces (knip neither judges their dependencies nor uses their entry files, while
-skif lints them as roots of their own), directories skif's file discovery skips, and TypeScript sources whose built
-path a package publishes (and the node and credential files an n8n node package lists), which skif makes entries,
-together with the files they import that only knip reports as unused. A repository whose knip run is not a valid
-comparison is named and left out of the sums. Reading the disagreements found false findings on both sides
+inside a file the other tool reports as unused (the file is the one disagreement), and exports used only by such
+files are counted apart too. So are declaration files, which skif never reports as unused, types named in the
+signature of an export skif keeps
+([ADR 0029](https://github.com/Goldziher/skif/blob/main/adrs/0029-namespace-export-rules-virtual-modules-linked-configs-and-the-node-plugin.md)),
+duplicate exports of entry modules, which skif's rule leaves alone, and dependencies a Bazel `BUILD` file names, which
+knip does not read. It also sets apart what follows from where each tool looks, decided from paths and manifests:
+projects with their own `package.json` that are not knip workspaces, on both sides (knip neither judges their
+dependencies nor uses their entry files, while skif lints them as roots of their own), directories skif's file
+discovery skips, and TypeScript sources whose built path a package publishes, also through a tsconfig `outDir` (and
+the node and credential files an n8n node package lists), which skif makes entries, together with their exports and
+the files they import that only knip reports as unused. An import one tool reports as unlisted and the other as
+unresolved counts as agreement. A repository whose knip run is not a valid comparison is named and left out of the
+sums. Reading the disagreements found false findings on both sides
 ([ADR 0049](https://github.com/Goldziher/skif/blob/main/adrs/0049-js-corrections-from-adjudicating-knip-disagreements.md)).
 The remaining differences, and what each tool reports differently, are in the
 [comparison guide](../comparison/#parity-with-knip).
