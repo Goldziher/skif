@@ -52,6 +52,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **JS**: a namespace import read through JSX member tags (`<S.Button />`, `<S.Button></S.Button>`) reads the member
+  after the namespace, as `S.Button` does, instead of using the module as a whole; a nested tag
+  (`<S.Ctx.Provider />`) reads `Ctx`. The other exports of the module are reported by `unused-namespace-exports`
+  ([#213](https://github.com/Goldziher/skif/issues/213)).
 - **JS**: pattern keys of `exports` and `imports` maps are selected as Node.js orders them: of two patterns with the
   same prefix, the longer one wins (`./features/*.css` over `./features/*` for `./features/a.css`).
 - **Migrate**: `--merge --output <FILE>` writes the merge of the existing `skif.toml` and the migration to `FILE`
