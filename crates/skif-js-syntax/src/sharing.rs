@@ -64,9 +64,9 @@ use oxc_ast::ast::{
     ExpressionStatement, ForInStatement, ForOfStatement, ForStatement, ForStatementLeft, FormalParameter,
     FormalParameters, Function, IdentifierReference, ImportDeclaration, ImportDeclarationSpecifier, LogicalOperator,
     MemberExpression, NewExpression, ObjectExpression, ObjectPropertyKind, PrivateFieldExpression, Program,
-    PropertyKind, ReturnStatement, SimpleAssignmentTarget, StaticMemberExpression, TaggedTemplateExpression,
-    UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind, VariableDeclarator, WhileStatement,
-    WithStatement,
+    PropertyKind, ReturnStatement, SimpleAssignmentTarget, StaticMemberExpression, Super, TaggedTemplateExpression,
+    ThisExpression, UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
+    WhileStatement, WithStatement,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::{ReferenceId, ScopeFlags, ScopeId, Scoping, SemanticBuilder, SymbolId};
@@ -247,6 +247,7 @@ impl Unstable {
             runs_modules: false,
             function_writes: Vec::new(),
             suspending: HashSet::default(),
+            writes_this: false,
         };
         sharing.visit_program(program);
         let (followed, writes_modules) = sharing.share();
@@ -365,8 +366,8 @@ impl Unstable {
     }
 
     /// Whether a function of the module may change a value of a module when it is called: code in a function writes
-    /// to, or gives a call that may change it, a top-level binding, an import, or an object one of them may hold
-    /// ([`Sharing::writes_modules`]), or the module calls a function of a module that may ([`Imports::changes_modules`]),
+    /// to, or gives a call that may change it, a top-level binding, an import, an object one of them may hold or what
+    /// `this` or `super` is there ([`Sharing::writes_modules`]), or the module calls a function of a module that may ([`Imports::changes_modules`]),
     /// or imports one for its effects. A function that builds and returns new objects changes none, whatever it does
     /// to them or to what its parameters take, which a call gives it.
     pub(crate) fn changes_modules(&self) -> bool {
@@ -545,6 +546,10 @@ struct Sharing<'s> {
     /// The scopes of the generators and `async` functions, whose code runs after the call that made them returns,
     /// with what that call gave them.
     suspending: HashSet<ScopeId>,
+    /// Whether code in a function writes through `this` or `super` (`this.plugins.push(p)`), or gives it to a call
+    /// that may change it: what `this` is depends on how the function is called (`add.bind(base)`, `obj.add(p)`),
+    /// which the links do not follow.
+    writes_this: bool,
 }
 
 /// An alias the evaluator follows ([`Unstable::follows`]): the local it takes a part of, the keys of that part and where
@@ -613,6 +618,7 @@ impl Sharing<'_> {
     /// method returns (`list.find(…)`) or a condition chooses; those are recorded for the evaluator
     /// ([`Unstable::parts_of`]).
     fn parts(&mut self, expr: &Expression<'_>) -> Vec<(Place, bool, bool)> {
+        self.note_this(expr);
         if reach(expr).is_some() {
             return self
                 .place(expr)
@@ -749,10 +755,21 @@ impl Sharing<'_> {
         self.loops -= 1;
     }
 
+    /// Records whether the object `expr`, which code changes, may be what `this` or `super` is in a function
+    /// ([`Self::writes_this`]).
+    fn note_this(&mut self, expr: &Expression<'_>) {
+        if self.functions.last() != Some(&self.scoping.root_scope_id()) && !self.writes_this {
+            let mut finder = MentionsThis(false);
+            finder.visit_expression(expr);
+            self.writes_this = finder.0;
+        }
+    }
+
     /// Records a change of each object a call is given, of what a spread argument holds, and of each part of a local
     /// a literal argument holds ([`given_parts`]).
     fn mutate_arguments(&mut self, arguments: &[Argument<'_>]) {
         for argument in arguments.iter().filter_map(given) {
+            self.note_this(argument);
             for (id, keys) in given_parts(argument) {
                 if let Some(symbol) = self.symbol(id) {
                     self.changed(symbol, Write::contents(keys));
@@ -1415,9 +1432,13 @@ impl Sharing<'_> {
     /// the call that made it gave it ([`Self::suspending`]), nor for a change through the name of a function of the
     /// module (`f.cache.plugins.push(p)`), which is one of the function object itself: such a change, and one of a
     /// binding of an enclosing function, which a function made by an earlier call may make later, is followed through
-    /// every link ([`Self::closure_reaches_modules`]). In a module that calls `eval`, reads `arguments` or has a `with`
-    /// statement, any change in a function counts.
+    /// every link ([`Self::closure_reaches_modules`]). A write through `this` or `super` in a function counts, as what
+    /// it is depends on how the function is called ([`Self::writes_this`]). In a module that calls `eval`, reads
+    /// `arguments` or has a `with` statement, any change in a function counts.
     fn writes_modules(&self, links_of: &HashMap<SymbolId, Vec<usize>>) -> bool {
+        if self.writes_this {
+            return true;
+        }
         if self.function_writes.is_empty() {
             return false;
         }
@@ -2518,6 +2539,24 @@ impl<'a> Visit<'a> for FindCallables<'_> {
         }
         walk::walk_call_expression(self, it);
     }
+}
+
+/// Whether the code visited reads `this` or `super` of the function it is in, outside the functions and classes it
+/// declares other than arrow functions, which have the `this` of where they are.
+struct MentionsThis(bool);
+
+impl<'a> Visit<'a> for MentionsThis {
+    fn visit_this_expression(&mut self, _: &ThisExpression) {
+        self.0 = true;
+    }
+
+    fn visit_super(&mut self, _: &Super) {
+        self.0 = true;
+    }
+
+    fn visit_function(&mut self, _: &Function<'a>, _: ScopeFlags) {}
+
+    fn visit_class(&mut self, _: &Class<'a>) {}
 }
 
 /// Whether the code visited reads `arguments`, which takes the arguments of a call whatever its parameters.
