@@ -46,6 +46,8 @@ unused-namespace-exports
 unused-namespace-members
 unused-namespace-types
 unused-optional-peer-dependencies
+unused-subpath-exports
+unused-subpath-imports
 unused-types
 version-mismatch
 workspace-protocol
