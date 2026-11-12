@@ -804,7 +804,8 @@ fn a_change_through_an_alias_a_call_or_a_closure_reaches_the_original() {
 }
 
 /// What a method returns may be a part of the object it is called on (`list.find(…)`), so a change through it reaches
-/// that part of the object, also when a function the module declares returns it.
+/// that part of the object, also when a function the module declares returns it: any element of the list, which is
+/// then open.
 #[test]
 fn a_change_through_what_a_method_returns_reaches_its_object() {
     let value = extract(
@@ -832,7 +833,10 @@ fn a_change_through_what_a_method_returns_reaches_its_object() {
             (
                 "list".to_owned(),
                 ConfigValue::Array(vec![
-                    ConfigValue::Object(vec![("b".to_owned(), ConfigValue::Number(1.0))]),
+                    ConfigValue::Object(vec![
+                        ("b".to_owned(), ConfigValue::Number(1.0)),
+                        (UNKNOWN_SPREAD.to_owned(), ConfigValue::Unknown),
+                    ]),
                     ConfigValue::Unknown,
                 ])
             ),
@@ -1974,5 +1978,31 @@ fn what_may_reach_the_whole_config_leaves_it_partly_unknown() {
         );
         let value = extract("rspack.config.js", &source);
         assert!(open(&value), "{body}: {value:?}");
+    }
+}
+
+/// A write through a computed member (`rules[0].loader = …`) may change any element of the list it reaches, so each
+/// element is left open, whether the write is at the top level, in a function the evaluator runs or in one it does
+/// not follow.
+#[test]
+fn a_write_through_an_element_leaves_every_element_of_the_list_open() {
+    for source in [
+        "const config = { module: { rules: [{ loader: 'babel-loader' }] } };\n\
+         config.module.rules[0].loader = 'other-loader';\n\
+         module.exports = config;",
+        "module.exports = () => {\n\
+           const config = { module: { rules: [{ loader: 'babel-loader' }] } };\n\
+           config.module.rules[0].loader = 'other-loader';\n\
+           return config;\n\
+         };",
+        "const config = { module: { rules: [{ loader: 'babel-loader' }] } };\n\
+         function change() { config.module.rules[0].loader = 'other-loader'; }\n\
+         change();\n\
+         module.exports = config;",
+    ] {
+        let value = extract("webpack.config.js", source);
+        let rules = get(&value, &["module", "rules"]);
+        let first = rules.as_array().and_then(<[ConfigValue]>::first);
+        assert!(first.is_some_and(open), "{source}: {value:?}");
     }
 }
