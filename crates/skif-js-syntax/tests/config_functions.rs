@@ -1933,6 +1933,8 @@ fn a_write_through_a_part_of_a_config_changes_only_that_part() {
         get(&value, &["output", "path"]),
         &ConfigValue::OneOf(vec![s("dist"), s("build")])
     );
+    // `splice` removes `'a'`, which the list still names: a list left partly unknown may name an element it no longer
+    // holds, as long as what it may hold instead is unknown.
     assert_eq!(
         get(&value, &["plugins"]),
         &ConfigValue::Array(vec![s("a"), ConfigValue::Unknown])
