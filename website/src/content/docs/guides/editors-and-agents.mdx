@@ -127,7 +127,8 @@ and, for multi-root runs,
 [ADR 0101](https://github.com/Goldziher/skif/blob/main/adrs/0101-a-module-cache-shared-by-the-roots-of-a-run.md).
 
 - **`skif --cache`** keeps the results between runs in `node_modules/.cache/skif/modules.bin` below the workspace
-  root (or below the invocation directory of a multi-root run); `--cache-location <DIR>` puts the file elsewhere.
+  root (or below the invocation directory of a multi-root run, and in `$TEST_TMPDIR/skif/` under `bazel test`);
+  `--cache-location <DIR>` puts the file elsewhere.
   The file is written after a run only when its entries changed, and it holds exactly the files that run parsed, so
   it does not grow with edits; a narrower run (`--production`, one root of several) drops the entries it did not
   use. A damaged file, or one written by another skif version, is ignored and replaced. If the file cannot be

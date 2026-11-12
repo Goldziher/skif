@@ -151,7 +151,7 @@ pub use fix::{
     preferred_alternative,
 };
 #[cfg(feature = "js-analysis")]
-pub use js::{explain_usage, trace_dependency};
+pub use js::{explain_dependency, explain_usage, trace_dependency};
 pub use linter::{Linter, RunOptions, builtin_providers};
 pub use path::join_lexical;
 pub use root::{config_file, find_workspace_root, load_config, resolve_config};
@@ -161,9 +161,10 @@ pub use shared_config::settle_shared_config;
 pub use skif_js::cache_version as module_cache_version;
 #[cfg(feature = "js-analysis")]
 pub use skif_js::{
-    Absence, CachedModule, DependencyImport, DependencyListing, DependencyTrace, EntryReason, ExportReport, ExportUser,
-    Importer, MemoryModuleCache, ModuleCache, ModuleKey, ReExport, SharedModules, UsageReport, Verdict,
-    empty_tsconfig_projects, relative_tsconfig,
+    Absence, CachedModule, DependencyCredit, DependencyExplanation, DependencyImport, DependencyListing,
+    DependencyTrace, DependencyUse, DependencyVerdict, EntryReason, ExportReport, ExportUser, Importer,
+    MemoryModuleCache, ModuleCache, ModuleKey, PackageDependencyUsage, ReExport, SharedModules, UsageReport, UseKind,
+    Verdict, empty_tsconfig_projects, relative_tsconfig,
 };
 /// The state of one dependency instance, from [`Linter::instances`].
 #[cfg(feature = "manifest")]
@@ -259,6 +260,7 @@ const _: () = {
         let _ = assert_send_sync::<ModuleKey>;
         let _ = assert_send_sync::<std::sync::Arc<dyn ModuleCache>>;
         let _ = assert_send_sync::<DependencyTrace>;
+        let _ = assert_send_sync::<DependencyExplanation>;
         let _ = assert_send_sync::<skif_js::JsProvider>;
     }
     #[cfg(feature = "fix")]

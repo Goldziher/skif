@@ -96,26 +96,13 @@ pub(super) fn report_unused_dependencies(
         }
         for entry in package.dependencies.iter().filter(|entry| kinds.contains(&entry.kind)) {
             if analysis.dependencies.is_referenced(id, &entry.name)
-                || analysis.ignores_dependency(id, &entry.name)
-                || (entry.kind == DependencyKind::PeerDependencies && is_optional_peer(package, &entry.name))
+                || analysis.unused_dependency_exemption(id, package, entry).is_some()
             {
                 continue;
             }
             out.emit(unused_dependency(meta, package, entry));
         }
     }
-}
-
-/// Whether `peerDependenciesMeta` marks peer dependency `name` of `package` optional.
-fn is_optional_peer(package: &Package, name: &str) -> bool {
-    package
-        .manifest
-        .value()
-        .get("peerDependenciesMeta")
-        .and_then(|meta| meta.get(name))
-        .and_then(|entry| entry.get("optional"))
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
 }
 
 fn unused_dependency(meta: &'static RuleMeta, package: &Package, entry: &DependencyEntry) -> Diagnostic {

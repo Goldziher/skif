@@ -358,6 +358,120 @@ fn recursive_reports_every_root_with_its_own_sources() {
 }
 
 #[test]
+fn show_with_an_explicit_config_applies_that_file_alone() {
+    let dir = chain();
+    // Canonical, so the file and the root share their leading directories (`/var` is a link on macOS).
+    let ws = dir.path().canonicalize().unwrap().join("ws");
+    put(&ws, "ci.toml", "[policy]\nprefer = \"lowest\"\n");
+    let json = run(skif()
+        .args(["config", "--show", "--format", "json", "--config"])
+        .arg(ws.join("ci.toml"))
+        .arg(&ws));
+    assert_eq!(json.code, 0, "{}{}", json.stdout, json.stderr);
+    let document = json.json();
+    let root = &document["roots"][0];
+    assert_eq!(paths(&root["sources"]), ["ci.toml"]);
+    assert_eq!(root["sources"][0]["kind"], "explicit");
+    assert_eq!(root["config"]["policy"]["prefer"], "lowest");
+    // The discovered chain sets `fail-on-warnings`; the explicit file replaces it.
+    assert_eq!(root["config"]["lint"]["fail-on-warnings"], false);
+
+    let human = run(skif().args(["config", "--show", "--config"]).arg(ws.join("ci.toml")).arg(&ws));
+    assert_eq!(human.code, 0, "{}{}", human.stdout, human.stderr);
+    let header: Vec<&str> = human.stdout.lines().filter(|line| line.starts_with('#')).collect();
+    insta::assert_snapshot!("show_sources_explicit", header.join("\n"));
+    assert!(human.stdout.contains("prefer = \"lowest\"  # from ci.toml:2\n"), "{}", human.stdout);
+}
+
+#[test]
+fn show_without_config_reads_no_file() {
+    let dir = chain();
+    let ws = dir.path().join("ws");
+    let json = run(skif().args(["config", "--show", "--format", "json", "--no-config"]).arg(&ws));
+    assert_eq!(json.code, 0, "{}{}", json.stdout, json.stderr);
+    let document = json.json();
+    assert_eq!(document["roots"][0]["sources"], serde_json::json!([]));
+    assert_eq!(document["roots"][0]["config"]["lint"]["fail-on-warnings"], false);
+
+    let human = run(skif().args(["config", "--show", "--no-config"]).arg(&ws));
+    assert!(
+        human.stdout.contains("#   (none: the built-in defaults)\n"),
+        "{}",
+        human.stdout
+    );
+    assert_eq!(
+        run(skif().args(["config", "--show", "--no-config", "--config", "ci.toml"]).arg(&ws)).code,
+        2
+    );
+}
+
+#[test]
+fn explain_with_an_explicit_config_names_that_file() {
+    let dir = chain();
+    let ws = dir.path().canonicalize().unwrap().join("ws");
+    put(&ws, "ci.toml", "[lint]\nfail-on-warnings = false\n");
+    let result = run(skif()
+        .args(["config", "--explain", "lint.fail-on-warnings", "--format", "json", "--config"])
+        .arg(ws.join("ci.toml"))
+        .arg(&ws));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    let entry = &result.json()["roots"][0]["entries"][0];
+    assert_eq!(entry["value"], false);
+    assert_eq!(paths(&entry["set-by"]), ["ci.toml"]);
+}
+
+/// A project with a standalone package nested in `tools/sub`, and an explicit configuration file outside it whose
+/// `[js.workspaces]` keys name both roots. Returns the directory, the project and the configuration file.
+fn nested_root_with_explicit_config() -> (TempDir, std::path::PathBuf, std::path::PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().canonicalize().unwrap();
+    let repo = base.join("repo");
+    fs::create_dir_all(repo.join(".git")).unwrap();
+    put(
+        &repo,
+        "package.json",
+        r#"{"name":"app","version":"1.0.0","private":true,"packageManager":"pnpm@10.0.0","main":"src/main.js"}"#,
+    );
+    put(&repo, "src/main.js", "module.exports = 1;\n");
+    put(
+        &repo,
+        "tools/sub/package.json",
+        r#"{"name":"sub","version":"1.0.0","private":true,"packageManager":"pnpm@10.0.0","main":"src/index.js"}"#,
+    );
+    put(&repo, "tools/sub/src/index.js", "module.exports = 3;\n");
+    put(
+        &base,
+        "config/skif.toml",
+        "[js.workspaces.\".\"]\nentry = [\"src/extra.js\"]\n\n[js.workspaces.\"tools/sub\"]\nentry = [\"src/tool.js\"]\n",
+    );
+    let file = base.join("config").join("skif.toml");
+    (dir, repo, file)
+}
+
+#[test]
+fn recursive_with_an_explicit_config_names_where_its_workspace_keys_select_each_root() {
+    let (_dir, repo, file) = nested_root_with_explicit_config();
+    let json = run(skif()
+        .args(["config", "-r", "--show", "--format", "json", "--config"])
+        .arg(&file)
+        .arg(&repo));
+    assert_eq!(json.code, 0, "{}{}", json.stdout, json.stderr);
+    let document = json.json();
+    let roots = document["roots"].as_array().unwrap();
+    let names: Vec<&str> = roots.iter().map(|root| root["path"].as_str().unwrap()).collect();
+    assert_eq!(names, [".", "tools/sub"]);
+    assert_eq!(paths(&roots[0]["sources"]), ["../config/skif.toml"]);
+    assert_eq!(paths(&roots[1]["sources"]), ["../config/skif.toml"]);
+    assert_eq!(roots[0].get("workspace-keys-anchor"), None, "{document}");
+    assert_eq!(roots[1]["workspace-keys-anchor"], "tools/sub");
+
+    let human = run(skif().args(["config", "-r", "--show", "--config"]).arg(&file).arg(&repo));
+    assert_eq!(human.code, 0, "{}{}", human.stdout, human.stderr);
+    let header: Vec<&str> = human.stdout.lines().filter(|line| line.starts_with('#')).collect();
+    insta::assert_snapshot!("show_sources_explicit_recursive", header.join("\n"));
+}
+
+#[test]
 fn init_names_the_files_the_new_one_inherits_from() {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir_all(dir.path().join(".git")).unwrap();
