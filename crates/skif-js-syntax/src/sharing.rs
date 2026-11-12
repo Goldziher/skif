@@ -62,11 +62,13 @@ use oxc_ast::ast::{
     Argument, ArrayExpression, ArrayExpressionElement, ArrowFunctionExpression, AssignmentExpression,
     AssignmentOperator, AssignmentPattern, AssignmentTarget, AssignmentTargetMaybeDefault, AssignmentTargetPattern,
     AssignmentTargetProperty, AssignmentTargetPropertyIdentifier, BindingIdentifier, BindingPattern, CallExpression,
-    ChainExpression, Class, ComputedMemberExpression, Declaration, DoWhileStatement, ExportDeclaration, Expression,
-    ExpressionStatement, ForInStatement, ForOfStatement, ForStatement, ForStatementLeft, FormalParameter,
-    FormalParameters, Function, IdentifierReference, ImportDeclaration, ImportDeclarationSpecifier, LogicalOperator,
-    MemberExpression, NewExpression, ObjectExpression, ObjectPropertyKind, PrivateFieldExpression, Program,
-    PropertyKind, ReturnStatement, SimpleAssignmentTarget, StaticMemberExpression, Super, TaggedTemplateExpression,
+    ChainExpression, Class, ComputedMemberExpression, Declaration, DoWhileStatement, ExportDeclaration,
+    ExportDefaultDeclaration, ExportDefaultDeclarationKind, Expression, ExpressionStatement, ForInStatement,
+    ForOfStatement, ForStatement, ForStatementLeft, FormalParameter, FormalParameters, Function, IdentifierReference,
+    ImportDeclaration, ImportDeclarationSpecifier, LogicalOperator, MemberExpression, MethodDefinition,
+    MethodDefinitionKind, NewExpression, ObjectExpression, ObjectProperty, ObjectPropertyKind, PrivateFieldExpression,
+    Program, PropertyDefinition, PropertyKind, ReturnStatement, SimpleAssignmentTarget, StaticBlock,
+    StaticMemberExpression, Super, TaggedTemplateExpression,
     ThisExpression, UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
     WhileStatement, WithStatement,
 };
@@ -273,7 +275,15 @@ impl Unstable {
             callee_refs: HashSet::default(),
             function_writes: Vec::new(),
             suspending: HashSet::default(),
-            writes_this: false,
+            this_sites: vec![ThisSite::Module],
+            method_sites: HashMap::default(),
+            this_writes: Vec::new(),
+            makers: HashMap::default(),
+            named_inits: HashMap::default(),
+            default_exports: HashSet::default(),
+            iifes: HashSet::default(),
+            rebound: Vec::new(),
+            rebinds: false,
         };
         sharing.visit_program(program);
         let (followed, writes_modules) = sharing.share();
@@ -601,10 +611,63 @@ struct Sharing<'s> {
     /// The scopes of the generators and `async` functions, whose code runs after the call that made them returns,
     /// with what that call gave them.
     suspending: HashSet<ScopeId>,
-    /// Whether code in a function writes through `this` or `super` (`this.plugins.push(p)`), or gives it to a call
-    /// that may change it: what `this` is depends on how the function is called (`add.bind(base)`, `obj.add(p)`),
-    /// which the links do not follow.
-    writes_this: bool,
+    /// What `this` is in the code being visited, innermost last ([`ThisSite`]).
+    this_sites: Vec<ThisSite>,
+    /// What `this` is in each method found and not visited yet, by the scope of its function.
+    method_sites: HashMap<ScopeId, ThisSite>,
+    /// The writes through `this` or `super` in a function (`this.plugins.push(p)`) and the calls given it that may
+    /// change it, each with what `this` is there and whether it gives a key of `this` itself a new value (`this.options = o`). What `this` is depends on
+    /// how the function is called (`add.bind(base)`, `obj.add(p)`), which the links do not follow
+    /// ([`Self::this_changes_modules`]).
+    this_writes: Vec<(ThisSite, bool)>,
+    /// The functions and classes found, by scope, as what makes the objects of [`ThisSite::Made`].
+    makers: HashMap<ScopeId, Maker>,
+    /// The bindings a declaration initialises with a function or a class, by the scope of that function or class.
+    named_inits: HashMap<ScopeId, SymbolId>,
+    /// The scopes of the functions and classes the module exports as its default.
+    default_exports: HashSet<ScopeId>,
+    /// The scopes of the functions called where they are written (`(function () { … })()`), whose `this` is no
+    /// object.
+    iifes: HashSet<ScopeId>,
+    /// The bindings a call of `call`, `apply` or `bind` gives a `this` (`add.bind(base)`), which may be a function the
+    /// module declares.
+    rebound: Vec<SymbolId>,
+    /// Whether code may call a method with an object other than the one it is found on as `this`: a `call`, `apply`
+    /// or `bind` of a function that is no binding given an object, or a read of a prototype (`Cls.prototype`,
+    /// `Object.getPrototypeOf(x)`), whose methods are then called on it.
+    rebinds: bool,
+}
+
+/// What `this` is where code writes through it ([`Sharing::this_writes`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ThisSite {
+    /// The `this` of the module, outside every function but arrow functions (`module.exports` in a CommonJS module).
+    Module,
+    /// The object `new` makes, in a constructor or an instance field initialiser.
+    Instance,
+    /// The class, in a static field initialiser or a static block, which run when the class is defined.
+    Load,
+    /// The class, in a static method.
+    Class,
+    /// What a function that is no method is called on: it is bound to the binding given, if any, and has the scope
+    /// given.
+    Plain(Option<SymbolId>, ScopeId),
+    /// An object code of the function, class or module of the scope given makes: the object literal a method is in,
+    /// or an instance of the class whose method it is.
+    Made(ScopeId),
+    /// What `super` is, a prototype the object a method is in inherits from.
+    Super,
+}
+
+/// A function or a class the module declares, which makes the objects of [`ThisSite::Made`] when it runs or is
+/// constructed.
+struct Maker {
+    /// The binding it is declared as or initialises, if any.
+    binding: Option<SymbolId>,
+    /// The scope of the function, class or module it is written in.
+    enclosing: ScopeId,
+    /// Whether the module exports it as its default.
+    default_export: bool,
 }
 
 /// An alias the evaluator follows ([`Unstable::follows`]): the local it takes a part of, the keys of that part and where
@@ -671,9 +734,9 @@ impl Sharing<'_> {
     /// call of a function the module declares returns ([`Held::result`]): the part a name or a member chain is
     /// ([`Self::place`]), or each part what any other expression evaluates to may hold ([`Refs`]), as the object a
     /// method returns (`list.find(…)`) or a condition chooses; those are recorded for the evaluator
-    /// ([`Unstable::parts_of`]).
-    fn parts(&mut self, expr: &Expression<'_>) -> Vec<(Place, bool, bool)> {
-        self.note_this(expr);
+    /// ([`Unstable::parts_of`]). With `keyed`, a key of the object is written (`this.options = o`).
+    fn parts(&mut self, expr: &Expression<'_>, keyed: bool) -> Vec<(Place, bool, bool)> {
+        self.note_this(expr, keyed);
         if reach(expr).is_some() {
             return self
                 .place(expr)
@@ -709,7 +772,7 @@ impl Sharing<'_> {
     /// is not exactly a part of a local.
     fn set(&mut self, member: &MemberExpression<'_>) {
         let key = member.static_property_name().map(crate::js_string);
-        for (place, exact, result) in self.parts(member.object()) {
+        for (place, exact, result) in self.parts(member.object(), true) {
             let write = match &key {
                 Some(key) if exact => Write {
                     keys: place.keys,
@@ -727,7 +790,7 @@ impl Sharing<'_> {
         if reach(member.object()).is_some() {
             return self.member_place(member).into_iter().collect();
         }
-        self.parts(member.object())
+        self.parts(member.object(), true)
             .into_iter()
             .map(|(place, _, _)| (place, false))
             .collect()
@@ -780,7 +843,7 @@ impl Sharing<'_> {
 
     /// Records a change of what the object `expr` holds, in each part of a local it may be ([`Self::parts`]).
     fn mutate(&mut self, expr: &Expression<'_>) {
-        for (place, _, result) in self.parts(expr) {
+        for (place, _, result) in self.parts(expr, false) {
             self.changed_as(place.symbol, Write::contents(place.keys), result);
         }
     }
@@ -810,21 +873,188 @@ impl Sharing<'_> {
         self.loops -= 1;
     }
 
-    /// Records whether the object `expr`, which code changes, may be what `this` or `super` is in a function
-    /// ([`Self::writes_this`]).
-    fn note_this(&mut self, expr: &Expression<'_>) {
-        if self.functions.last() != Some(&self.scoping.root_scope_id()) && !self.writes_this {
-            let mut finder = MentionsThis(false);
-            finder.visit_expression(expr);
-            self.writes_this = finder.0;
+    /// Records a write through `this` or `super` when the object `expr`, which code in a function changes, may be what
+    /// one of them holds ([`Self::this_writes`]); with `keyed`, a key of the object is written, which is one of `this`
+    /// itself when `expr` is `this`.
+    fn note_this(&mut self, expr: &Expression<'_>, keyed: bool) {
+        if self.functions.last() == Some(&self.scoping.root_scope_id()) {
+            return;
         }
+        let mut finder = MentionsThis::default();
+        finder.visit_expression(expr);
+        if finder.this {
+            let keyed = keyed && matches!(expr.get_inner_expression(), Expression::ThisExpression(_));
+            self.wrote_this(self.this_site(), keyed);
+        }
+        if finder.sup {
+            self.wrote_this(ThisSite::Super, false);
+        }
+    }
+
+    /// What `this` is in the code being visited.
+    fn this_site(&self) -> ThisSite {
+        self.this_sites.last().copied().unwrap_or(ThisSite::Module)
+    }
+
+    /// Records a write through `this` where it is `site`, of a key of `this` itself when `keyed`.
+    fn wrote_this(&mut self, site: ThisSite, keyed: bool) {
+        if !self.this_writes.contains(&(site, keyed)) {
+            self.this_writes.push((site, keyed));
+        }
+    }
+
+    /// Records what `this` is in the function `function` of the scope `scope`, a method when one was found for it
+    /// ([`Self::method_sites`]), and the function as a [`Maker`], before it is visited.
+    fn enter_function(&mut self, scope: ScopeId, declared: Option<SymbolId>) -> ThisSite {
+        let binding = self.named_inits.get(&scope).copied().or(declared);
+        self.add_maker(scope, binding);
+        self.method_sites
+            .remove(&scope)
+            .unwrap_or(ThisSite::Plain(binding, scope))
+    }
+
+    /// Records the function or class of the scope `scope`, bound to `binding`, as a [`Maker`].
+    fn add_maker(&mut self, scope: ScopeId, binding: Option<SymbolId>) {
+        let root = self.scoping.root_scope_id();
+        let maker = Maker {
+            binding,
+            enclosing: self.functions.last().copied().unwrap_or(root),
+            default_export: self.default_exports.contains(&scope),
+        };
+        self.makers.insert(scope, maker);
+    }
+
+    /// Records what `call` tells of the `this` a function may be called with ([`Self::rebinds`], [`Self::rebound`]):
+    /// a `call`, `apply` or `bind` (or `Reflect.apply`) given an object as `this`, and a read of a prototype through
+    /// `Object.getPrototypeOf` or `Reflect.getPrototypeOf`.
+    fn note_rebinding(&mut self, call: &CallExpression<'_>) {
+        let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
+            return;
+        };
+        let method = member.property.name.as_str();
+        let global = |name: &str| {
+            matches!(member.object.get_inner_expression(), Expression::Identifier(id)
+                if id.name.as_str() == name && resolved(self.scoping, id).is_none())
+        };
+        if method == "getPrototypeOf" && (global("Object") || global("Reflect")) {
+            self.rebinds = true;
+            return;
+        }
+        let (target, this) = if method == "apply" && global("Reflect") {
+            (call.arguments.first().and_then(Argument::as_expression), call.arguments.get(1))
+        } else if matches!(method, "call" | "apply" | "bind") {
+            (Some(&member.object), call.arguments.first())
+        } else {
+            return;
+        };
+        let Some(this) = this.and_then(given) else {
+            return;
+        };
+        match this.get_inner_expression() {
+            Expression::NullLiteral(_) => return,
+            Expression::Identifier(id) if id.name.as_str() == "undefined" && resolved(self.scoping, id).is_none() => {
+                return;
+            }
+            _ => {}
+        }
+        let this_itself = matches!(this.get_inner_expression(), Expression::ThisExpression(_));
+        match target.map(Expression::get_inner_expression) {
+            // A global or an import is no function of the module.
+            Some(Expression::Identifier(id)) => self.rebound.extend(local_symbol(self.scoping, id)),
+            // A method of a global (`Object.prototype.hasOwnProperty.call(…)`) is no function of the module either.
+            Some(other) if reach(other).is_some_and(|(id, _, _)| resolved(self.scoping, id).is_none()) => {}
+            _ => self.rebinds |= !this_itself,
+        }
+    }
+
+    /// Whether a write through `this` in a function may change a value of the module, as what `this` is there says: the
+    /// `this` of the module, of a static method and `super` may be such a value; the instance a constructor or a field
+    /// initialiser makes is new, but for a write through a key of it (`this.list.push(x)`) or a call given it; what a
+    /// static block or a static field initialiser runs with is the class, when it is defined, not by a call; a function
+    /// that is no method has a `this` of a value only when it is handed out or bound to one ([`Self::handed_out`]);
+    /// and the object a method is in, or the instance whose method it is, is one only when code the module runs when
+    /// it is loaded makes it ([`Self::loaded_makers`]): one a call makes (the hooks of a plugin a factory returns) is
+    /// new. Where code may call a method on an object other than its own ([`Self::rebinds`]), every method may change
+    /// such a value.
+    fn this_changes_modules(&self) -> bool {
+        let rebinds = self.rebinds
+            || self.rebound.iter().any(|&symbol| {
+                !self
+                    .makers
+                    .values()
+                    .any(|maker| maker.binding == Some(symbol))
+            });
+        let loaded = self.loaded_makers();
+        self.this_writes.iter().any(|&(site, keyed)| match site {
+            ThisSite::Module | ThisSite::Class | ThisSite::Super => true,
+            ThisSite::Load => false,
+            ThisSite::Instance => !keyed,
+            ThisSite::Plain(binding, scope) => rebinds || self.handed_out(binding, scope),
+            ThisSite::Made(maker) => rebinds || loaded.contains(&maker),
+        })
+    }
+
+    /// Whether the function of the scope `scope`, bound to `binding`, may be called with a value of a module as `this`:
+    /// it is handed out (exported, given to a name or a value, read other than as what a call calls) or bound
+    /// (`add.bind(base)`); an anonymous one unless it is called where it is written.
+    fn handed_out(&self, binding: Option<SymbolId>, scope: ScopeId) -> bool {
+        let Some(symbol) = binding else {
+            return !self.iifes.contains(&scope);
+        };
+        self.exported.contains(&symbol)
+            || self.default_exports.contains(&scope)
+            || self.rebound.contains(&symbol)
+            || self.scoping.get_resolved_reference_ids(symbol).iter().any(|reference| {
+                self.scoping.get_reference(*reference).is_value() && !self.callee_refs.contains(reference)
+            })
+    }
+
+    /// The scopes of the module and of the functions and classes code it runs when it is loaded may run or construct
+    /// ([`Maker`]): one whose binding is read in such code, and one with no binding written in such code, but for the
+    /// default export, which a module importing it calls.
+    fn loaded_makers(&self) -> HashSet<ScopeId> {
+        let root = self.scoping.root_scope_id();
+        let mut loaded: HashSet<ScopeId> = HashSet::default();
+        loaded.insert(root);
+        loop {
+            let mut grew = false;
+            for (&scope, maker) in &self.makers {
+                if loaded.contains(&scope) {
+                    continue;
+                }
+                let made = match maker.binding {
+                    Some(symbol) => self
+                        .scoping
+                        .get_resolved_reference_ids(symbol)
+                        .iter()
+                        .any(|&reference| loaded.contains(&self.maker_of(self.scoping.get_reference(reference).scope_id()))),
+                    None => !maker.default_export && loaded.contains(&maker.enclosing),
+                };
+                if made {
+                    loaded.insert(scope);
+                    grew = true;
+                }
+            }
+            if !grew {
+                return loaded;
+            }
+        }
+    }
+
+    /// The scope of the innermost function, class or module that holds the scope `scope` ([`Self::makers`]).
+    fn maker_of(&self, scope: ScopeId) -> ScopeId {
+        let root = self.scoping.root_scope_id();
+        self.scoping
+            .scope_ancestors(scope)
+            .find(|ancestor| *ancestor == root || self.makers.contains_key(ancestor))
+            .unwrap_or(root)
     }
 
     /// Records a change of each object a call is given, of what a spread argument holds, and of each part of a local
     /// a literal argument holds ([`given_parts`]).
     fn mutate_arguments(&mut self, arguments: &[Argument<'_>]) {
         for argument in arguments.iter().filter_map(given) {
-            self.note_this(argument);
+            self.note_this(argument, false);
             for (id, keys) in given_parts(argument) {
                 if let Some(symbol) = self.symbol(id) {
                     self.changed(symbol, Write::contents(keys));
@@ -1532,11 +1762,12 @@ impl Sharing<'_> {
     /// the call that made it gave it ([`Self::suspending`]), nor for a change through the name of a function of the
     /// module (`f.cache.plugins.push(p)`), which is one of the function object itself: such a change, and one of a
     /// binding of an enclosing function, which a function made by an earlier call may make later, is followed through
-    /// every link ([`Self::closure_reaches_modules`]). A write through `this` or `super` in a function counts, as what
-    /// it is depends on how the function is called ([`Self::writes_this`]). In a module that calls `eval`, reads
-    /// `arguments` or has a `with` statement, any change in a function counts.
+    /// every link ([`Self::closure_reaches_modules`]). A write through `this` or `super` in a function counts where
+    /// `this` may be such a value ([`Self::this_changes_modules`]), as what it is depends on how the function is
+    /// called. In a module that calls `eval`, reads `arguments` or has a `with` statement, any change in a function
+    /// counts.
     fn writes_modules(&self, links_of: &HashMap<SymbolId, Vec<usize>>) -> bool {
-        if self.writes_this {
+        if self.this_changes_modules() {
             return true;
         }
         if self.function_writes.is_empty() {
@@ -1770,9 +2001,12 @@ impl<'a> Visit<'a> for Sharing<'_> {
         if it.generator || it.r#async {
             self.suspending.insert(scope);
         }
+        let site = self.enter_function(scope, it.id.as_ref().and_then(|id| id.symbol_id.get()));
+        self.this_sites.push(site);
         self.functions.push(scope);
         walk::walk_function(self, it, flags);
         self.functions.pop();
+        self.this_sites.pop();
     }
 
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
@@ -1780,6 +2014,8 @@ impl<'a> Visit<'a> for Sharing<'_> {
         if it.r#async {
             self.suspending.insert(scope);
         }
+        // An arrow function has the `this` of where it is.
+        self.add_maker(scope, self.named_inits.get(&scope).copied());
         self.functions.push(scope);
         walk::walk_arrow_function_expression(self, it);
         self.functions.pop();
@@ -1791,9 +2027,79 @@ impl<'a> Visit<'a> for Sharing<'_> {
         let Some(scope) = it.scope_id.get() else {
             return walk::walk_class(self, it);
         };
+        let binding = self
+            .named_inits
+            .get(&scope)
+            .copied()
+            .or_else(|| it.id.as_ref().and_then(|id| id.symbol_id.get()));
+        self.add_maker(scope, binding);
         self.functions.push(scope);
         walk::walk_class(self, it);
         self.functions.pop();
+    }
+
+    fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
+        if let Some(scope) = it.value.scope_id.get() {
+            let site = if matches!(it.kind, MethodDefinitionKind::Constructor) {
+                ThisSite::Instance
+            } else if it.r#static {
+                ThisSite::Class
+            } else {
+                ThisSite::Made(self.functions.last().copied().unwrap_or_else(|| self.scoping.root_scope_id()))
+            };
+            self.method_sites.insert(scope, site);
+        }
+        walk::walk_method_definition(self, it);
+    }
+
+    fn visit_property_definition(&mut self, it: &PropertyDefinition<'a>) {
+        self.this_sites
+            .push(if it.r#static { ThisSite::Load } else { ThisSite::Instance });
+        walk::walk_property_definition(self, it);
+        self.this_sites.pop();
+    }
+
+    fn visit_static_block(&mut self, it: &StaticBlock<'a>) {
+        self.this_sites.push(ThisSite::Load);
+        walk::walk_static_block(self, it);
+        self.this_sites.pop();
+    }
+
+    fn visit_object_property(&mut self, it: &ObjectProperty<'a>) {
+        // A method, a getter, a setter or a function value has the object as `this` when it is called on it.
+        if let Expression::FunctionExpression(function) = it.value.get_inner_expression()
+            && let Some(scope) = function.scope_id.get()
+        {
+            let maker = self.functions.last().copied().unwrap_or_else(|| self.scoping.root_scope_id());
+            self.method_sites.insert(scope, ThisSite::Made(maker));
+        }
+        walk::walk_object_property(self, it);
+    }
+
+    fn visit_export_default_declaration(&mut self, it: &ExportDefaultDeclaration<'a>) {
+        let scope = match &it.declaration {
+            ExportDefaultDeclarationKind::FunctionDeclaration(function) => function.scope_id.get(),
+            ExportDefaultDeclarationKind::ClassDeclaration(class) => class.scope_id.get(),
+            other => match other.as_expression().map(Expression::get_inner_expression) {
+                Some(Expression::FunctionExpression(function)) => function.scope_id.get(),
+                Some(Expression::ArrowFunctionExpression(function)) => function.scope_id.get(),
+                Some(Expression::ClassExpression(class)) => class.scope_id.get(),
+                _ => None,
+            },
+        };
+        self.default_exports.extend(scope);
+        walk::walk_export_default_declaration(self, it);
+    }
+
+    fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
+        // The methods of a prototype of the module's own (`Registry.prototype`) may be called on it.
+        let name = it.property.name.as_str();
+        if matches!(name, "prototype" | "__proto__")
+            && reach(&it.object).is_some_and(|(id, _, _)| resolved(self.scoping, id).is_some())
+        {
+            self.rebinds = true;
+        }
+        walk::walk_static_member_expression(self, it);
     }
 
     fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
@@ -1803,6 +2109,17 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+        if let (BindingPattern::BindingIdentifier(id), Some(init)) = (&it.id, &it.init) {
+            let scope = match init.get_inner_expression() {
+                Expression::ArrowFunctionExpression(function) => function.scope_id.get(),
+                Expression::FunctionExpression(function) => function.scope_id.get(),
+                Expression::ClassExpression(class) => class.scope_id.get(),
+                _ => None,
+            };
+            if let (Some(scope), Some(symbol)) = (scope, id.symbol_id.get()) {
+                self.named_inits.insert(scope, symbol);
+            }
+        }
         if let Some(init) = &it.init
             && let Some((names, root)) = self.alias(&it.id, init)
         {
@@ -1968,6 +2285,12 @@ impl<'a> Visit<'a> for Sharing<'_> {
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
         self.note_callee(&it.callee);
+        self.note_rebinding(it);
+        match it.callee.get_inner_expression() {
+            Expression::FunctionExpression(function) => self.iifes.extend(function.scope_id.get()),
+            Expression::ArrowFunctionExpression(function) => self.iifes.extend(function.scope_id.get()),
+            _ => {}
+        }
         if foreign(self.names(), &it.callee) {
             self.foreign_calls.insert(it.span);
         }
@@ -2711,17 +3034,21 @@ impl<'a> Visit<'a> for FindCallables<'_> {
     }
 }
 
-/// Whether the code visited reads `this` or `super` of the function it is in, outside the functions and classes it
-/// declares other than arrow functions, which have the `this` of where they are.
-struct MentionsThis(bool);
+/// Whether the code visited reads `this` (`this`) or `super` (`sup`) of the function it is in, outside the functions
+/// and classes it declares other than arrow functions, which have the `this` of where they are.
+#[derive(Default)]
+struct MentionsThis {
+    this: bool,
+    sup: bool,
+}
 
 impl<'a> Visit<'a> for MentionsThis {
     fn visit_this_expression(&mut self, _: &ThisExpression) {
-        self.0 = true;
+        self.this = true;
     }
 
     fn visit_super(&mut self, _: &Super) {
-        self.0 = true;
+        self.sup = true;
     }
 
     fn visit_function(&mut self, _: &Function<'a>, _: ScopeFlags) {}
