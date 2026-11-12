@@ -137,6 +137,7 @@ old one.
 | 0127 | [`skif migrate --merge` Unites List Entries by Name](0127-migrate-merge-unites-list-entries-by-name.md) | accepted |
 | 0128 | [A knip Plugin for Projects That Run knip Next to skif](0128-a-knip-plugin-for-projects-that-run-knip-next-to-skif.md) | accepted |
 | 0129 | [Directories Matched by ignore-workspaces Leave the Packages Above Them](0129-directories-matched-by-ignore-workspaces-leave-the-packages-above-them.md) | accepted |
+| 0130 | [Bazel Label Lists Built by a Format Comprehension](0130-bazel-label-lists-built-by-a-format-comprehension.md) | accepted |
 
 ## Effective statements
 
@@ -244,6 +245,7 @@ the lines below stay as written; this table says which record governs.
 | [0062](0062-custom-element-registrations-and-the-taskr-plugin.md), plugin count | the table holds 205 plugins | [0115](0115-bazel-build-files-and-output-trees-in-the-js-analysis.md): `bazel` is added; the table holds 206 plugins |
 | [0115](0115-bazel-build-files-and-output-trees-in-the-js-analysis.md), plugin count | the table holds 206 plugins | [0128](0128-a-knip-plugin-for-projects-that-run-knip-next-to-skif.md): `knip` is added; the table holds 207 plugins |
 | [0034](0034-js-configuration-parity-with-knip.md), `ignore-workspaces` paragraph | the packages in matched directories contribute no files, entries or dependency findings | [0129](0129-directories-matched-by-ignore-workspaces-leave-the-packages-above-them.md): a matched directory also leaves the packages above it, so their files below it are not analysed either |
+| [0115](0115-bazel-build-files-and-output-trees-in-the-js-analysis.md), labels paragraph | a string literal that is a `node_modules/<name>` label names `<name>`; Starlark is never evaluated | [0130](0130-bazel-label-lists-built-by-a-format-comprehension.md): a `"<template>" % v for v in [<literals>]` comprehension yields one label per item; templates and `glob` patterns name nothing; only valid npm names count |
 | [0059](0059-twenty-one-more-plugins-and-commands-run-from-source.md), line 45 | `lit` is not added: plugins cannot mark exports as used | [0062](0062-custom-element-registrations-and-the-taskr-plugin.md): a plugin names a custom element library whose registrations mark exports as used; `lit` is added |
 | [0060](0060-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md), line 52 | `stencil` does not mark custom elements as used | [0062](0062-custom-element-registrations-and-the-taskr-plugin.md): `@Component` classes from `@stencil/core` are used; component style URLs are still not marked |
 | [0061](0061-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md), line 41 | `catalyst` and `fast` are not added: skif does not mark custom elements | [0062](0062-custom-element-registrations-and-the-taskr-plugin.md): both are added and mark the classes they register |
