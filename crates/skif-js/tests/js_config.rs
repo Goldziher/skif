@@ -282,6 +282,29 @@ fn a_star_in_ignore_workspaces_does_not_cross_a_slash() {
 }
 
 #[test]
+fn ignore_workspaces_takes_the_matched_directories_out_of_the_packages_above() {
+    let files = vec![
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["app","playground/ws"]}"#,
+        ),
+        ("app/package.json", r#"{"name":"app","main":"src/main.js"}"#),
+        ("app/src/main.js", "export {};\n"),
+        ("app/demo/loose.js", "export {};\n"),
+        ("playground/ws/package.json", r#"{"name":"ws"}"#),
+        ("playground/demo/loose.js", "export {};\n"),
+        ("stray.js", "export {};\n"),
+    ];
+    assert_eq!(
+        paths(&lint(&files, ""), "unused-files"),
+        ["app/demo/loose.js", "playground/demo/loose.js", "stray.js"]
+    );
+    // As in knip, a matched directory leaves every package above it, so the root's loose files there are not analysed.
+    let ignored = lint(&files, "[js]\nignore-workspaces = [\"playground/**\", \"app/demo\"]\n");
+    assert_eq!(paths(&ignored, "unused-files"), ["stray.js"]);
+}
+
+#[test]
 fn a_star_in_a_workspace_key_does_not_select_nested_packages() {
     let files = nested_packages();
     let single = lint(&files, "[js.workspaces.\"packages/*\"]\nentry = [\"src/*.ts\"]\n");

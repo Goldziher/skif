@@ -64,6 +64,10 @@ All notable changes to this project are documented here. The format follows
 - **JS**: production mode keeps the `start` script of `package.json`, knip's production script, so the files it runs
   are production entries and no longer reported by `unused-files`
   ([#216](https://github.com/Goldziher/skif/issues/216)).
+- **JS**: a directory that an `[js] ignore-workspaces` glob matches also leaves the packages above it, as knip's
+  `ignoreWorkspaces` does: its files that belong to no skipped member are no longer analysed and reported in the root
+  ([ADR 0128](adrs/0128-directories-matched-by-ignore-workspaces-leave-the-packages-above-them.md),
+  [#218](https://github.com/Goldziher/skif/issues/218)).
 - **JS**: pattern keys of `exports` and `imports` maps are selected as Node.js orders them: of two patterns with the
   same prefix, the longer one wins (`./features/*.css` over `./features/*` for `./features/a.css`).
 - **Migrate**: `--merge --output <FILE>` writes the merge of the existing `skif.toml` and the migration to `FILE`
