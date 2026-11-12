@@ -187,6 +187,9 @@ pub(crate) struct Unstable {
     namespaces: HashSet<String>,
     /// Whether code of a module the evaluator follows may run unseen ([`Sharing::runs_modules`]).
     runs_modules: bool,
+    /// Whether a function of the module may change a value of the module when it is called
+    /// ([`Sharing::writes_modules`]).
+    writes_modules: bool,
     /// The references that are the only one of a binding no other module can read and that are read once per binding:
     /// not in a loop, nor in a function other than the binding's own, and not of an alias the evaluator follows. None
     /// when the module reads `arguments`, calls `eval` or has a `with` statement, which reach bindings without a
@@ -242,9 +245,11 @@ impl Unstable {
             ends: HashMap::default(),
             late: Vec::new(),
             runs_modules: false,
+            defining: false,
+            function_writes: Vec::new(),
         };
         sharing.visit_program(program);
-        let followed = sharing.share();
+        let (followed, writes_modules) = sharing.share();
         let sole = if sharing.dynamic {
             HashSet::default()
         } else {
@@ -266,6 +271,7 @@ impl Unstable {
                 .collect(),
             sole,
             runs_modules: sharing.runs_modules,
+            writes_modules,
             ..Self::default()
         };
         for (symbol, change) in std::mem::take(&mut sharing.changes) {
@@ -358,11 +364,13 @@ impl Unstable {
         matches!(object.get_inner_expression(), Expression::Identifier(id) if self.namespaces.contains(id.name.as_str()))
     }
 
-    /// Whether a function of the module may change a value of a module when it is called: code it does not follow
-    /// changes a top-level binding or an import of it ([`Self::of_top`]), or it calls a function of a module that may
-    /// ([`Imports::changes_modules`]), or imports one for its effects.
+    /// Whether a function of the module may change a value of a module when it is called: code in a function writes
+    /// to, or gives a call that may change it, a top-level binding, an import, or an object one of them may hold
+    /// ([`Sharing::writes_modules`]), or the module calls a function of a module that may ([`Imports::changes_modules`]),
+    /// or imports one for its effects. A function that builds and returns new objects changes none, whatever it does
+    /// to them or to what its parameters take, which a call gives it.
     pub(crate) fn changes_modules(&self) -> bool {
-        self.runs_modules || !self.top.is_empty()
+        self.runs_modules || self.writes_modules
     }
 
     /// Whether a change made through the argument `id` of a call may be read after the call: `id` is not the only
@@ -441,6 +449,10 @@ struct Link {
     a: Place,
     b: Place,
     join: Join,
+    /// Whether code the module runs once, when it is loaded, makes the link, outside the definition of a function
+    /// (`export const config = create()`): it joins what that run made, which a later call of a function of the module
+    /// does not make again ([`Sharing::writes_modules`]).
+    loading: bool,
 }
 
 /// A part of a binding that a value may hold or share: `symbol` at `keys` (`cfg.test`), found at `at` in the value.
@@ -513,6 +525,11 @@ struct Sharing<'s> {
     /// Whether code of a module the evaluator follows may run unseen and change what such a module exports
     /// ([`Self::runs_followed`]).
     runs_modules: bool,
+    /// Whether the links being made are those of the definition of a function: what it returns and what its
+    /// parameters take, which hold for every call of it.
+    defining: bool,
+    /// The changes code in a function makes of a binding, each with the scope of that function.
+    function_writes: Vec<(SymbolId, ScopeId, Change)>,
 }
 
 /// An alias the evaluator follows ([`Unstable::follows`]): the local it takes a part of, the keys of that part and where
@@ -657,9 +674,26 @@ impl Sharing<'_> {
 
     /// Records a write of `symbol`; one from a function other than its own may happen at any time.
     fn written(&mut self, symbol: SymbolId, change: Change) {
-        if self.functions.last() != Some(&self.function_of(symbol)) {
+        let root = self.scoping.root_scope_id();
+        let function = self.functions.last().copied().unwrap_or(root);
+        if function != root {
+            self.function_writes.push((symbol, function, change.clone()));
+        }
+        if function != self.function_of(symbol) {
             self.change(symbol, change);
         }
+    }
+
+    /// Whether a link made now is made by code the module runs when it is loaded ([`Link::loading`]).
+    fn loading(&self) -> bool {
+        !self.defining && self.functions.last() == Some(&self.scoping.root_scope_id())
+    }
+
+    /// Makes the links `visit` makes as those of the definition of a function when `defining` ([`Self::defining`]).
+    fn in_definition(&mut self, defining: bool, visit: impl FnOnce(&mut Self)) {
+        let saved = std::mem::replace(&mut self.defining, defining);
+        visit(self);
+        self.defining = saved;
     }
 
     /// Records a change of what the object `expr` holds, in each part of a local it may be ([`Self::parts`]).
@@ -747,10 +781,12 @@ impl Sharing<'_> {
             for (name, first) in names {
                 if let Some(list) = list {
                     if first {
+                        let loading = self.loading();
                         self.element_links.push(Link {
                             a: Place::of(name),
                             b: Place::of(list),
                             join: Join::Within,
+                            loading,
                         });
                     } else {
                         self.hold(&Place::of(name), false, of_receiver.clone());
@@ -960,6 +996,7 @@ impl Sharing<'_> {
     /// Links `hub` to each part a value it holds may hold: at the place in the value it is found, as it is found
     /// there, when `exact`, and anywhere at or below the hub otherwise.
     fn hold(&mut self, hub: &Place, exact: bool, held: Vec<Held>) {
+        let loading = self.loading();
         for item in held {
             let mut keys = hub.keys.clone();
             if exact {
@@ -975,12 +1012,14 @@ impl Sharing<'_> {
                     keys: item.keys,
                 },
                 join: if exact { item.join } else { Join::Within },
+                loading,
             });
         }
     }
 
     /// Links the parts that values with no binding to hold them may share among themselves (`f(a, b)`).
     fn link_among(&mut self, held: &[Held]) {
+        let loading = self.loading();
         for pair in held.windows(2) {
             self.links.push(Link {
                 a: Place {
@@ -992,6 +1031,7 @@ impl Sharing<'_> {
                     keys: pair[1].keys.clone(),
                 },
                 join: Join::Within,
+                loading,
             });
         }
     }
@@ -1134,6 +1174,7 @@ impl Sharing<'_> {
                     a: Place::of(alias),
                     b: Place::of(root),
                     join: Join::Within,
+                    loading: false,
                 });
             }
         }
@@ -1160,6 +1201,7 @@ impl Sharing<'_> {
                 a: Place::of(alias),
                 b: Place::of(root),
                 join: Join::Within,
+                loading: false,
             }));
             let links_of = self.links_of();
             let reached: HashSet<SymbolId> = self
@@ -1186,12 +1228,19 @@ impl Sharing<'_> {
             .retain(|link| !primitives.contains(&link.a.symbol) && !primitives.contains(&link.b.symbol));
         self.mutated.retain(|(symbol, _)| !primitives.contains(symbol));
         self.changes.retain(|symbol, _| !primitives.contains(symbol));
+        self.function_writes
+            .retain(|(symbol, _, _)| !primitives.contains(symbol));
     }
 
     /// The indices of the links of each binding.
     fn links_of(&self) -> HashMap<SymbolId, Vec<usize>> {
+        self.links_of_where(|_| true)
+    }
+
+    /// The indices of the links `keep` keeps of each binding.
+    fn links_of_where(&self, keep: impl Fn(&Link) -> bool) -> HashMap<SymbolId, Vec<usize>> {
         let mut out: HashMap<SymbolId, Vec<usize>> = HashMap::default();
-        for (index, link) in self.links.iter().enumerate() {
+        for (index, link) in self.links.iter().enumerate().filter(|(_, link)| keep(*link)) {
             out.entry(link.a.symbol).or_default().push(index);
             if link.b.symbol != link.a.symbol {
                 out.entry(link.b.symbol).or_default().push(index);
@@ -1257,8 +1306,9 @@ impl Sharing<'_> {
     /// the change is made through, which the evaluator changes itself, and returns the aliases the evaluator follows.
     /// A change through one of those reaches the part of the local it takes, which the evaluator changes too and which
     /// is not marked, and through it what else may share an object with that part; a local of the alias's function is
-    /// marked from the alias's declaration on ([`Self::late`]).
-    fn share(&mut self) -> HashSet<SymbolId> {
+    /// marked from the alias's declaration on ([`Self::late`]). Returns with them whether a function of the module may
+    /// change a value of the module ([`Self::writes_modules`]).
+    fn share(&mut self) -> (HashSet<SymbolId>, bool) {
         self.link_imports();
         self.drop_primitives();
         self.link_elements();
@@ -1272,6 +1322,7 @@ impl Sharing<'_> {
                     keys: alias.keys.clone(),
                 },
                 join: Join::Same,
+                loading: false,
             });
         }
         let mut origins: Vec<(SymbolId, Write)> = Vec::new();
@@ -1299,10 +1350,94 @@ impl Sharing<'_> {
                 }
             }
         }
+        let writes_modules = self.writes_modules(&links_of);
         if self.runs_modules {
             self.affect_imports(&links_of);
         }
-        followed
+        (followed, writes_modules)
+    }
+
+    /// Whether code in a function of the module, run by a call of it, may change a value of the module: a top-level
+    /// binding or an import, or an object one of them may hold. A change counts when it is made in a function
+    /// ([`Self::function_writes`]) and is one of such a binding, or reaches one through the links (see
+    /// [`Self::reached`]). A change of a binding of the function it is made in (a local, a parameter) or of what a
+    /// function of the module returns is one of an object made or given anew by each call, so it is followed only
+    /// through the links that hold for every call ([`Self::fresh_reach_modules`]), not those code run when the module
+    /// is loaded made of what one call made (`export const config = create()`): a factory that builds and returns new
+    /// objects changes none, and a change of what a parameter takes is one of what a call gives it, which the call
+    /// accounts for. A change of a binding of an enclosing function, which a function made by an earlier call may make
+    /// later, is followed through every link ([`Self::closure_reaches_modules`]). In a module that calls `eval`, reads
+    /// `arguments` or has a `with` statement, any change in a function counts.
+    fn writes_modules(&self, links_of: &HashMap<SymbolId, Vec<usize>>) -> bool {
+        if self.function_writes.is_empty() {
+            return false;
+        }
+        if self.dynamic {
+            return true;
+        }
+        let fresh_links_of = self.links_of_where(|link| !link.loading);
+        let root = self.scoping.root_scope_id();
+        self.function_writes.iter().any(|(symbol, function, change)| {
+            let home = self.function_of(*symbol);
+            let fresh = home == *function || (home == root && self.callables.contains(*symbol));
+            match change {
+                Change::Any => home != *function,
+                Change::Contents(writes) => writes.iter().any(|write| {
+                    if fresh {
+                        self.fresh_reach_modules(links_of, &fresh_links_of, *symbol, *function, write)
+                    } else {
+                        self.closure_reaches_modules(links_of, *symbol, write)
+                    }
+                }),
+            }
+        })
+    }
+
+    /// Whether the change `write` of `symbol`, an object a call of the function of the scope `function` makes or is
+    /// given anew, reaches through the links that hold for every call (`fresh_links_of`) a value of the module
+    /// ([`Self::is_module_value`]), or a binding of a function enclosing that one whose change does
+    /// ([`Self::closure_reaches_modules`], through every link, `links_of`).
+    fn fresh_reach_modules(
+        &self,
+        links_of: &HashMap<SymbolId, Vec<usize>>,
+        fresh_links_of: &HashMap<SymbolId, Vec<usize>>,
+        symbol: SymbolId,
+        function: ScopeId,
+        write: &Write,
+    ) -> bool {
+        self.reached(fresh_links_of, symbol, write)
+            .iter()
+            .any(|(other, change)| {
+                self.is_module_value(*other)
+                    || (self.encloses(*other, function) && self.closure_reaches_modules(links_of, *other, change))
+            })
+    }
+
+    /// Whether the change `write` of `symbol` reaches through every link (`links_of`) a value of the module
+    /// ([`Self::is_module_value`]).
+    fn closure_reaches_modules(
+        &self,
+        links_of: &HashMap<SymbolId, Vec<usize>>,
+        symbol: SymbolId,
+        write: &Write,
+    ) -> bool {
+        self.reached(links_of, symbol, write)
+            .iter()
+            .any(|(other, _)| self.is_module_value(*other))
+    }
+
+    /// Whether `symbol` is a value of the module a change may reach from a call: a top-level binding or an import, but
+    /// a function the module declares, which stands for what a call of it returns and what its parameters take.
+    fn is_module_value(&self, symbol: SymbolId) -> bool {
+        self.function_of(symbol) == self.scoping.root_scope_id() && !self.callables.contains(symbol)
+    }
+
+    /// Whether `symbol` is a binding of a function that encloses the function of the scope `function`.
+    fn encloses(&self, symbol: SymbolId, function: ScopeId) -> bool {
+        let home = self.function_of(symbol);
+        home != function
+            && home != self.scoping.root_scope_id()
+            && self.scoping.scope_ancestors(function).any(|scope| scope == home)
     }
 
     /// Links every binding of a module the evaluator follows to the others, as two exports, of one module or of two,
@@ -1317,12 +1452,18 @@ impl Sharing<'_> {
                 a: Place::of(pair[0]),
                 b: Place::of(pair[1]),
                 join: Join::Within,
+                loading: false,
             });
         }
         for (index, &a) in imports.iter().enumerate() {
             for &b in &imports[index + 1..] {
                 if let Some((a, b)) = self.export_part(a, b).or_else(|| self.export_part(b, a)) {
-                    self.links.push(Link { a, b, join: Join::Same });
+                    self.links.push(Link {
+                        a,
+                        b,
+                        join: Join::Same,
+                        loading: false,
+                    });
                 }
             }
         }
@@ -1413,7 +1554,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
         if let Some(symbol) = it.id.as_ref().and_then(|id| id.symbol_id.get()) {
             let part = self.function_part(Some(symbol));
             let held = self.refs(part, |refs| refs.visit_function(it, flags));
-            self.hold(&Place::of(symbol), true, held);
+            self.in_definition(true, |sharing| sharing.hold(&Place::of(symbol), true, held));
         }
         self.functions
             .push(it.scope_id.get().unwrap_or_else(|| self.scoping.root_scope_id()));
@@ -1481,12 +1622,14 @@ impl<'a> Visit<'a> for Sharing<'_> {
             {
                 self.primitive_lists.extend(names.iter().copied());
             }
-            if names.is_empty() {
-                self.link_among(&held);
-            }
-            for name in names {
-                self.hold(&Place::of(name), whole, held.clone());
-            }
+            self.in_definition(function, |sharing| {
+                if names.is_empty() {
+                    sharing.link_among(&held);
+                }
+                for name in names {
+                    sharing.hold(&Place::of(name), whole, held.clone());
+                }
+            });
         }
         walk::walk_variable_declarator(self, it);
     }
@@ -1518,9 +1661,12 @@ impl<'a> Visit<'a> for Sharing<'_> {
                         .map(|member| self.member_places(member))
                         .unwrap_or_default(),
                 };
-                for (place, exact) in hubs {
-                    self.hold(&place, exact, held.clone());
-                }
+                let function = matches!(part, Part::Function { .. });
+                self.in_definition(function, |sharing| {
+                    for (place, exact) in hubs {
+                        sharing.hold(&place, exact, held.clone());
+                    }
+                });
             }
             None => self.destructure(&it.left, held),
         }
@@ -1537,11 +1683,15 @@ impl<'a> Visit<'a> for Sharing<'_> {
                 for declarator in &declaration.declarations {
                     for name in bound_symbols(&declarator.id) {
                         match source {
-                            Some(list) => self.element_links.push(Link {
-                                a: Place::of(name),
-                                b: Place::of(list),
-                                join: Join::Within,
-                            }),
+                            Some(list) => {
+                                let loading = self.loading();
+                                self.element_links.push(Link {
+                                    a: Place::of(name),
+                                    b: Place::of(list),
+                                    join: Join::Within,
+                                    loading,
+                                });
+                            }
                             None => self.hold(&Place::of(name), false, held.clone()),
                         }
                     }
