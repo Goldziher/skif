@@ -3110,3 +3110,29 @@ fn a_change_through_a_resolved_promise_reaches_what_it_resolves_to() {
         }
     }
 }
+
+/// A `define…` helper is taken to change nothing it is given only when it comes from a package: one the project
+/// declares in a module of its own (`require('./tools')`, an alias such as `@/tools` or `#tools`) may change it.
+#[test]
+fn a_define_helper_of_a_project_module_may_change_what_it_is_given() {
+    for binding in [
+        "const { defineEntries } = require('./tools');",
+        "import { defineEntries } from './tools';",
+        "import { defineEntries } from '@/tools';",
+        "import { defineEntries } from '#tools';",
+    ] {
+        let source = format!(
+            "{binding}\nconst config = {{ entry: {{ main: './src/main.js' }} }};\ndefineEntries(config);\nmodule.exports = config;"
+        );
+        let value = extract("webpack.config.mjs", &source);
+        assert!(open(&value), "{source}: {value:?}");
+    }
+    let kept = extract(
+        "vite.config.mjs",
+        "import { defineConfig } from 'vite';\n\
+         const config = { root: 'src' };\n\
+         defineConfig(config);\n\
+         export default config;",
+    );
+    assert!(!open(&kept), "{kept:?}");
+}

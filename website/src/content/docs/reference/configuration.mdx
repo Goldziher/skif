@@ -1133,7 +1133,8 @@ object with what it is given to. These are known only where the name resolves to
 it, never a local of the same name. Any other call, a library's function or a `new` of a class other than a builtin one,
 may change every object it is given, in any position and through a spread, and every local an object or array literal
 it is given holds, at any depth (`kit.fill({ cfg: config })`, `foo([config])`, all of `options` for
-`foo({ ...options })`), unless it is a `define…` helper of a library,
+`foo({ ...options })`), unless it is a `define…` helper of a package (one of a module of the project, `./tools`,
+`#tools` or `@/tools`, may change what it is given),
 a merge that copies (`webpack-merge`, `deepmerge`, `defu`, the `mergeConfig` of Vite and Vitest), `createRequire`, or
 `Object.assign`, `Object.defineProperties` or `Object.defineProperty` and `Reflect.defineProperty`, which change only
 their first argument, the last two only the key they name when it is a string; these are no `define…` helpers. A `define…` helper and a merge that copies keep none of their

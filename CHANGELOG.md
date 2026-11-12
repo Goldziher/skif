@@ -148,6 +148,8 @@ All notable changes to this project are documented here. The format follows
   parameters of a callback after the element (`forEach((name, index, list) => list.push(…))`) share the list it is
   called over, a `const` list of strings included. An imported value the config changes (`base.build.outDir = 'out'`,
   `withPlugins(base)`, a write through a local holding it) is read as changed instead of as its module computes it.
+  A `define…` helper changes nothing it is given only when it comes from a package, not from a module of the
+  project (`require('./tools')`, `#tools`, `@/tools`).
 - **Config evaluation**: `.map`, `.flatMap` and `.filter` of a known array call their callback (an inline function,
   or one the config declares) with each element and its index, so Vitest projects spread from
   `` ['light', 'dark'].map((theme) => ({ test: { name: `browser-${theme}` } })) `` are known instead of leaving the
