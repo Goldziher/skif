@@ -343,6 +343,15 @@ the globs of the narrowed ones under `narrowed_packages`. See
 [ADR 0068](../../adrs/0068-what-the-knip-comparison-sets-apart.md) and
 [ADR 0099](../../adrs/0099-knip-comparison-narrowed-scopes-rush-installs-and-dependencies-of-unused-files.md).
 
+**Counted, explained.** Some differences have a known cause but no mechanical test the harness can run cheaply, so they
+stay counted as differences. knip reports the members of an enum used as a whole value (passed or returned,
+`@IsEnum(E)`, `Object.values(E)`, `keyof typeof E`), which makes every member reachable: telling that use apart from
+`E.member` needs a reference analysis per enum. knip has no esbuild plugin, so the `entryPoints` of an esbuild script
+and the files they reach are unused files and exports for knip only. skif's Bazel plugin makes the `srcs` of
+`BUILD.bazel` targets entries; the harness credits the dependencies those files name but not the files and exports
+they reach, which would need skif's rule-call scanner. Exports of a nested root's plugin entries (a next.js page's
+`getStaticProps`) stay compared too: only the default entries of a nested root are set apart.
+
 ## Policy diff against syncpack
 
 `skif-bench syncpack-diff` compares skif's policy rules (`version-mismatch`, `semver-range-mismatch`,
