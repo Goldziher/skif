@@ -137,7 +137,9 @@ All notable changes to this project are documented here. The format follows
   named in `typeof ns`, and `require("./m")` or `import("./m")`) uses every value export of the module and none of its
   interfaces and type aliases, which it cannot reach; such a type stays used when read by name (`ns.Type`) or when the
   importer exports the namespace itself (`export default ns`), and is otherwise reported by `unused-types`.
-  `explain-usage` no longer lists a whole use as a user of a type export
+  `explain-usage` no longer lists a whole use as a user of a type export. A file loaded with
+  `new URL("./x", import.meta.url)` runs as a program of its own and keeps using every export, types included, as an
+  entry does; `explain-usage` lists that import with the kind `url` instead of `require`
   ([ADR 0124](adrs/0124-a-whole-use-of-a-module-object-uses-its-values-only.md)).
 - `DepRef` of `skif-js-plugins` gains `dir`, the directory a command loads the package in after `cd`, and `BinaryRef`
   gains `judged`, false for a binary that is only a credit; a struct literal of `DepRef` needs the new field.

@@ -31,6 +31,9 @@ pub enum ImportKind {
     /// `vi.mock("x")`, `jest.mock("x")` and the other test-runner calls that name a module: the test loads or
     /// replaces the module, which keeps a local file reachable but is not an import of a dependency.
     Mock,
+    /// `new URL("./x", import.meta.url)`, which the parser does not report: the file is loaded as a program of its own
+    /// (a worker, an asset), so every export of it counts as used, as for an entry.
+    Url,
 }
 
 /// A test-runner call that names a module, recorded on an [`ImportKind::Mock`] import. It serializes as the call is
