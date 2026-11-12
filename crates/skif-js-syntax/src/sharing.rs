@@ -2325,9 +2325,15 @@ fn first_argument_setter<'b, 'a>(callee: &'b Expression<'a>) -> Option<&'b Ident
         .then_some(&**object)
 }
 
-/// Whether `call` is one of [`FIRST_ARGUMENT_SETTERS`] of the global object, which changes its first argument only.
+/// Whether `call` is one of [`FIRST_ARGUMENT_SETTERS`] of the global object, which changes its first argument only,
+/// given a first argument that is not a spread: what a spread gives is not known to be its first argument
+/// (`Object.assign(...[config, extra])`), so the call may change any object it spreads.
 fn assigns(names: Names<'_>, call: &CallExpression<'_>) -> bool {
     first_argument_setter(&call.callee).is_some_and(|object| resolved(names.scoping, object).is_none())
+        && call
+            .arguments
+            .first()
+            .is_some_and(|first| first.as_expression().is_some())
 }
 
 /// The key `Object.defineProperty(object, key, …)` or `Reflect.defineProperty(object, key, …)` defines on its first

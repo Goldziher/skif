@@ -3331,3 +3331,24 @@ fn a_define_helper_or_merge_the_evaluator_cannot_follow_is_unknown() {
         assert_eq!(extract("vite.config.mjs", source), expected, "{source}");
     }
 }
+
+/// `Object.assign`, `Object.defineProperty` and `Reflect.defineProperty` given their first argument through a spread
+/// may change any object the spread gives, as it is not known which is first.
+#[test]
+fn a_setter_given_its_first_argument_through_a_spread_may_change_what_it_spreads() {
+    for call in [
+        "Object.assign(...[config, { plugins: ['x'] }]);",
+        "const args = [config, { plugins: ['x'] }];\nObject.assign(...args);",
+        "Object.defineProperty(...[config, 'plugins', { value: ['x'] }]);",
+        "Reflect.defineProperty(...[config, 'plugins', { value: ['x'] }]);",
+        "const copy = Object.assign(...[config, { plugins: ['x'] }]);",
+    ] {
+        for source in [
+            format!("const config = {{ plugins: [] }};\n{call}\nmodule.exports = config;"),
+            format!("module.exports = () => {{\nconst config = {{ plugins: [] }};\n{call}\nreturn config;\n}};"),
+        ] {
+            let value = extract("webpack.config.js", &source);
+            assert_eq!(at(&value, &["plugins"]), &UNKNOWN, "{source}: {value:?}");
+        }
+    }
+}
