@@ -1966,7 +1966,8 @@ fn a_value_computed_from_one_of_several_is_one_of_the_results() {
 /// `.map`, `.flatMap` and `.filter` of a known array call the callback, an inline function or one the module declares,
 /// with each element and its index; an unknown element (which may stand for a spread of any length) stays unknown and
 /// makes the indexes after it unknown. A predicate whose result is not known keeps the element and leaves the length
-/// unknown. Anything but a known array, or a callback the module does not declare, is unknown.
+/// unknown. Anything but a known array, or a callback the module does not declare, is unknown; such a callback is
+/// given a list of its own, as it may change the list it is called over.
 #[test]
 fn array_callbacks_run_over_a_known_array() {
     let value = extract(
@@ -1988,7 +1989,7 @@ fn array_callbacks_run_over_a_known_array() {
            undecidedLength: THEMES.filter((theme) => pick(theme)).length,\n\
            spread: [...list, 'a'].map((item, index) => `${index}-${item}`),\n\
            opaque: list.map((item) => item),\n\
-           imported: THEMES.map(helper),\n\
+           imported: ['light', 'dark'].map(helper),\n\
          };",
     );
     let theme = |name: &str| {
@@ -2927,5 +2928,469 @@ fn a_change_through_a_value_spread_from_an_object_literal_reaches_its_key() {
             plugins.is_none_or(|plugins| *plugins != ConfigValue::Array(Vec::new())),
             "{source}: {value:?}"
         );
+    }
+}
+
+/// A call given only an alias the evaluator follows (`const { build } = config; applyDefaults(build)`) may change the
+/// part of the local the alias takes, though the alias is not read after the call: the local is read after it.
+#[test]
+fn a_call_given_a_followed_alias_once_changes_its_local() {
+    let value = extract(
+        "vite.config.ts",
+        "import { defineConfig } from 'vite';\n\
+         export default defineConfig(() => {\n\
+           const config = { build: { outDir: 'dist' } };\n\
+           const { build } = config;\n\
+           applyDefaults(build);\n\
+           return config;\n\
+         });",
+    );
+    assert!(open(get(&value, &["build"])), "{value:?}");
+}
+
+/// An alias of a local that is assigned again (`config = { ...config, test: { ...config.test } }`) may take an object
+/// the local no longer holds, though an equal one: a change through the alias is not applied to the local.
+#[test]
+fn an_alias_of_a_local_assigned_again_is_not_followed() {
+    let value = extract(
+        "vitest.config.ts",
+        "import { defineConfig } from 'vitest/config';\n\
+         export default defineConfig(() => {\n\
+           let config = { test: { include: ['a.test.ts'] } };\n\
+           const test = config.test;\n\
+           config = { ...config, test: { ...config.test } };\n\
+           test.include = ['b.test.ts'];\n\
+           return config;\n\
+         });",
+    );
+    assert_ne!(at(&value, &["test", "include"]), &strings(&["b.test.ts"]), "{value:?}");
+}
+
+/// `Object.defineProperty`, `Reflect.defineProperty` and `Object.defineProperties` are no `define…` helpers: they
+/// change the object they are given first, at the key they name when it is static, and leave the rest of it known.
+#[test]
+fn a_property_defined_on_a_config_is_unknown() {
+    let config = "const config = { entry: './a.js', output: { path: 'dist' } };";
+    for (body, keyed) in [
+        ("Object.defineProperty(config, 'entry', { value: './b.js' });", true),
+        ("Reflect.defineProperty(config, 'entry', { value: './b.js' });", true),
+        (
+            "Object.defineProperties(config, { entry: { value: './b.js' } });",
+            false,
+        ),
+    ] {
+        for source in [
+            format!("{config}\n{body}\nmodule.exports = config;"),
+            format!("module.exports = () => {{\n{config}\n{body}\nreturn config;\n}};"),
+        ] {
+            let value = extract("webpack.config.js", &source);
+            assert_eq!(at(&value, &["entry"]), &UNKNOWN, "{source}: {value:?}");
+            if keyed {
+                assert_eq!(get(&value, &["output", "path"]), &s("dist"), "{source}: {value:?}");
+                assert!(!open(&value), "{source}: {value:?}");
+            }
+        }
+    }
+}
+
+/// A write through an object that is not a name or a member chain (what a method returns, a condition between two
+/// parts of a local) reaches each part of a local it may be, as a new value of a key, a `delete` or a change by
+/// `Object.assign` does, and leaves the rest of the config known.
+#[test]
+fn a_write_through_an_object_that_is_not_a_chain_reaches_what_it_may_be() {
+    let config = "const config = { entry: './src/main.js', module: { rules: [{ loader: 'babel-loader' }] }, \
+                  prod: { devtool: 'source-map' }, dev: { devtool: 'eval' } };";
+    let cases: [(&str, &[&str]); 5] = [
+        (
+            "config.module.rules.find((r) => r.loader === 'babel-loader').loader = 'swc-loader';",
+            &["module", "rules", "0", "loader"],
+        ),
+        (
+            "(process.env.PROD ? config.prod : config.dev).devtool = false;",
+            &["prod", "devtool"],
+        ),
+        (
+            "(process.env.PROD ? config.prod : config.dev).devtool = false;",
+            &["dev", "devtool"],
+        ),
+        (
+            "delete (process.env.PROD ? config.prod : config.dev).devtool;",
+            &["dev", "devtool"],
+        ),
+        (
+            "Object.assign(process.env.PROD ? config.prod : config.dev, { devtool: false });",
+            &["prod", "devtool"],
+        ),
+    ];
+    for (body, path) in cases {
+        for source in [
+            format!("{config}\n{body}\nmodule.exports = config;"),
+            format!("module.exports = () => {{\n{config}\n{body}\nreturn config;\n}};"),
+        ] {
+            let value = extract("webpack.config.js", &source);
+            assert_eq!(at(&value, path), &UNKNOWN, "{source}: {value:?}");
+            assert_eq!(get(&value, &["entry"]), &s("./src/main.js"), "{source}: {value:?}");
+            assert!(!open(&value), "{source}: {value:?}");
+        }
+    }
+}
+
+/// A list method that calls a function it is given with the list's elements (`forEach`, `map`) changes nothing only
+/// when that function is written in place or declared by the config and no object is given as its `this`: an imported
+/// callback, or a `this` argument, may change the elements and that object.
+#[test]
+fn a_list_method_calling_code_that_is_not_followed_may_change_the_elements() {
+    let config = "const web = { entry: './web.js' };\nconst worker = { entry: './worker.js' };";
+    for body in [
+        "const configs = [web, worker];\nconfigs.forEach(withSentry);",
+        "[web, worker].map(withSentry);",
+        "const list = [1];\nlist.forEach(function () { this.entry = './x.js'; }, web);",
+    ] {
+        for source in [
+            format!("import withSentry from 'sentry-wrap';\n{config}\n{body}\nexport default web;"),
+            format!(
+                "import withSentry from 'sentry-wrap';\nexport default () => {{\n{config}\n{body}\nreturn web;\n}};"
+            ),
+        ] {
+            let value = extract("webpack.config.mjs", &source);
+            assert!(open_or_unknown(&value), "{source}: {value:?}");
+        }
+    }
+    let kept = extract(
+        "webpack.config.mjs",
+        "const web = { entry: './web.js' };\n\
+         const named = (config) => config.entry;\n\
+         [web].forEach((config) => console.log(config.entry));\n\
+         [web].map(named);\n\
+         export default web;",
+    );
+    assert!(!open(&kept), "{kept:?}");
+}
+
+/// A function that a call the evaluator cannot follow made (`const addAlias = aliaser(config)`) may change what it was
+/// made from when it is called, also after the evaluator set a key of it.
+#[test]
+fn a_function_an_unknown_call_made_may_change_what_it_was_made_from() {
+    let value = extract(
+        "vite.config.ts",
+        "import { defineConfig } from 'vite';\n\
+         import aliaser from 'aliaser';\n\
+         export default defineConfig(() => {\n\
+           const config = { root: 'src' };\n\
+           const addAlias = aliaser(config);\n\
+           config.resolve = { alias: { '@': './src' } };\n\
+           addAlias('~', './lib');\n\
+           return config;\n\
+         });",
+    );
+    assert!(open_or_unknown(at(&value, &["resolve", "alias"])), "{value:?}");
+}
+
+/// The parameters of a callback after the element (the index, and the list itself for `forEach`, `map`, `reduce`)
+/// may take the list a method is called on, so a change through them (`list.push(…)`) reaches a `const` list of
+/// strings too.
+#[test]
+fn a_change_through_the_list_a_callback_is_given_reaches_the_list() {
+    for callback in [
+        "include.forEach((name, index, list) => { if (index === 0) list.push('b.test.ts'); });",
+        "include.reduce((all, name, index, list) => { list.push('b.test.ts'); return all; }, []);",
+        "include.map((...args) => args[2].push('b.test.ts'));",
+    ] {
+        let source = format!("const include = ['a.test.ts'];\n{callback}\nexport default {{ test: {{ include }} }};");
+        let value = extract("vitest.config.mjs", &source);
+        assert_ne!(
+            get(&value, &["test", "include"]),
+            &strings(&["a.test.ts"]),
+            "{source}: {value:?}"
+        );
+    }
+}
+
+/// What `Promise.resolve(config)` resolves to, awaited or given to a `then` callback, is the config itself, so a change
+/// through it reaches the config.
+#[test]
+fn a_change_through_a_resolved_promise_reaches_what_it_resolves_to() {
+    let config = "const config = { entry: './src/main.js', build: { outDir: 'dist' } };";
+    for body in [
+        "const resolved = await Promise.resolve(config);\nresolved.build.outDir = 'out';",
+        "await Promise.resolve(config).then((c) => { c.build.outDir = 'out'; });",
+        "const pending = Promise.resolve(config);\nawait pending.finally(() => {}).then((c) => { c.build.outDir = 'out'; });",
+    ] {
+        for source in [
+            format!("{config}\n{body}\nexport default config;"),
+            format!("export default async () => {{\n{config}\n{body}\nreturn config;\n}};"),
+        ] {
+            let value = extract("vite.config.mjs", &source);
+            assert_ne!(at(&value, &["build", "outDir"]), &s("dist"), "{source}: {value:?}");
+        }
+    }
+}
+
+/// A `define…` helper is taken to change nothing it is given only when it comes from a package: one the project
+/// declares in a module of its own (`require('./tools')`, an alias such as `@/tools` or `#tools`) may change it.
+#[test]
+fn a_define_helper_of_a_project_module_may_change_what_it_is_given() {
+    for binding in [
+        "const { defineEntries } = require('./tools');",
+        "import { defineEntries } from './tools';",
+        "import { defineEntries } from '@/tools';",
+        "import { defineEntries } from '#tools';",
+    ] {
+        let source = format!(
+            "{binding}\nconst config = {{ entry: {{ main: './src/main.js' }} }};\ndefineEntries(config);\nmodule.exports = config;"
+        );
+        let value = extract("webpack.config.mjs", &source);
+        assert!(open(&value), "{source}: {value:?}");
+    }
+    let kept = extract(
+        "vite.config.mjs",
+        "import { defineConfig } from 'vite';\n\
+         const config = { root: 'src' };\n\
+         defineConfig(config);\n\
+         export default config;",
+    );
+    assert!(!open(&kept), "{kept:?}");
+}
+
+/// A merge that copies calls the functions its options hold (`deepmerge`'s `arrayMerge` and `customMerge`) with the
+/// objects it is given, so it may change them and build any value; an export of such a package that is no copying
+/// merge (`deepmergeInto`, `mergeWithCustomize`, `defuFn`) may change what it is given too.
+#[test]
+fn a_merge_calling_functions_it_is_given_may_change_its_arguments() {
+    let config = "const base = { plugins: ['a'] };\nconst extra = { plugins: ['b'] };";
+    for merge in [
+        "const deepmerge = require('deepmerge');\n\
+         const merged = deepmerge(base, extra, { arrayMerge: (target, source) => { target.push(...source); return target; } });",
+        "const deepmerge = require('deepmerge');\nconst options = { customMerge: () => grow };\nconst merged = deepmerge(base, extra, options);",
+        "const { deepmergeInto } = require('deepmerge-ts');\ndeepmergeInto(base, extra);",
+        "const { defuFn } = require('defu');\nconst merged = defuFn(base, extra);",
+        "const { mergeWithCustomize } = require('webpack-merge');\nconst merged = mergeWithCustomize(base)(extra);",
+    ] {
+        let source = format!("{config}\n{merge}\nmodule.exports = base;");
+        let value = extract("webpack.config.js", &source);
+        assert!(open(&value), "{source}: {value:?}");
+    }
+    let merged = extract(
+        "webpack.config.js",
+        "const deepmerge = require('deepmerge');\n\
+         module.exports = deepmerge({ plugins: ['a'] }, { plugins: ['b'] }, { arrayMerge: (target, source) => source });",
+    );
+    assert_ne!(get(&merged, &["plugins"]), &strings(&["a", "b"]), "{merged:?}");
+    assert!(merged.get("arrayMerge").is_none(), "{merged:?}");
+    let kept = extract(
+        "webpack.config.js",
+        "const deepmerge = require('deepmerge');\n\
+         const base = { plugins: ['a'] };\n\
+         const merged = deepmerge(base, { plugins: ['b'] }, { clone: true });\n\
+         module.exports = base;",
+    );
+    assert!(!open(&kept), "{kept:?}");
+}
+
+/// A name a `with` statement's body writes may be a key of its object, so the object is partly unknown after it.
+#[test]
+fn a_with_statement_may_change_its_object() {
+    let config = "const config = { entry: './a.js' };";
+    let body = "with (config) { entry = './b.js'; }";
+    for source in [
+        format!("{config}\n{body}\nmodule.exports = config;"),
+        format!("module.exports = function () {{\n{config}\n{body}\nreturn config;\n}};"),
+    ] {
+        let value = extract("webpack.config.cjs", &source);
+        assert_eq!(at(&value, &["entry"]), &UNKNOWN, "{source}: {value:?}");
+    }
+}
+
+/// The values of a `const` object of strings are no objects a callback over its entries could change, unless code
+/// changes the object: a multi-page webpack config that builds a plugin per entry keeps its `entry` known, and one
+/// whose entries object may hold an object is changed through the callback's parameter.
+#[test]
+fn a_callback_over_the_entries_of_an_object_of_strings_keeps_the_object_known() {
+    let value = extract(
+        "webpack.config.js",
+        "const HtmlWebpackPlugin = require('html-webpack-plugin');\n\
+         const pages = { index: './src/index.js', about: './src/about.js' };\n\
+         module.exports = {\n\
+           entry: pages,\n\
+           plugins: Object.entries(pages).map(([name, template]) => new HtmlWebpackPlugin({ chunks: [name], template })),\n\
+         };",
+    );
+    assert_eq!(
+        get(&value, &["entry"]),
+        &ConfigValue::Object(vec![
+            ("index".to_owned(), s("./src/index.js")),
+            ("about".to_owned(), s("./src/about.js")),
+        ]),
+        "{value:?}"
+    );
+    let changed = extract(
+        "webpack.config.js",
+        "const pages = { index: './src/index.js' };\n\
+         pages.admin = { import: './src/admin.js' };\n\
+         Object.values(pages).forEach((page) => change(page));\n\
+         module.exports = { entry: pages };",
+    );
+    assert!(open(get(&changed, &["entry"])), "{changed:?}");
+}
+
+/// Calls on a package's binding itself (`path.format(…)`, `_.merge(…)`) share nothing through the package: a change
+/// of what one call is given does not reach what another call on the same package is given.
+#[test]
+fn calls_on_a_package_share_nothing_through_it() {
+    for binding in ["import path from 'path';", "const path = require('path');"] {
+        let source = format!(
+            "{binding}\n\
+             const out = {{ dir: 'dist' }};\n\
+             const src = {{ dir: 'src' }};\n\
+             path.format(out);\n\
+             path.format(src);\n\
+             out.dir = 'build';\n\
+             export default {{ src }};"
+        );
+        let value = extract("vite.config.mjs", &source);
+        assert_eq!(
+            get(&value, &["src"]),
+            &ConfigValue::Object(vec![("dir".to_owned(), s("src"))]),
+            "{binding}: {value:?}"
+        );
+    }
+}
+
+/// What a method of a package is given may be changed by any later call, however else the module uses the package,
+/// and a value the module stores in the package may be what another of its methods returns.
+#[test]
+fn a_value_given_to_a_package_method_is_unknown_however_the_package_is_used() {
+    for binding in ["import pkg from 'some-pkg';", "const pkg = require('some-pkg');"] {
+        for use_ in [
+            "",
+            "pkg.config = { mode: 'dev' };",
+            "const settings = pkg.settings;",
+            "register(pkg);",
+        ] {
+            let source = format!(
+                "{binding}\n\
+                 const out = {{ dir: 'dist' }};\n\
+                 {use_}\n\
+                 pkg.register(out);\n\
+                 out.dir = 'build';\n\
+                 const keep = {{ dir: 'k' }};\n\
+                 pkg.apply();\n\
+                 export default {{ root: 'src', build: out, keep }};"
+            );
+            let value = extract("vite.config.mjs", &source);
+            assert_eq!(at(&value, &["build", "dir"]), &UNKNOWN, "{source}: {value:?}");
+            assert_eq!(get(&value, &["keep", "dir"]), &s("k"), "{source}: {value:?}");
+            assert_eq!(get(&value, &["root"]), &s("src"), "{source}: {value:?}");
+        }
+    }
+    let stored = extract(
+        "vite.config.mjs",
+        "import pkg from 'some-pkg';\n\
+         const local = { plugins: [] };\n\
+         pkg.config = local;\n\
+         const c = pkg.getConfig();\n\
+         c.plugins.push('x');\n\
+         export default local;",
+    );
+    assert_eq!(at(&stored, &["plugins"]), &UNKNOWN, "{stored:?}");
+}
+
+/// A `define…` helper or a merge is the value it is given, or the merge of what it is given, only when its name is a
+/// global or comes from a package: one of a module of the project that is not followed, and a `define…` function taken
+/// from an object the config declares or reaches through another object, may return anything.
+#[test]
+fn a_define_helper_or_merge_the_evaluator_cannot_follow_is_unknown() {
+    for source in [
+        "import { defineConfig } from './define';\nexport default defineConfig({ a: 1 });",
+        "const { defineConfig } = require('./define');\nmodule.exports = defineConfig({ a: 1 });",
+        "import { mergeConfig } from './merge';\nexport default mergeConfig({ a: 1 }, { b: 2 });",
+        "export default globalThis.Object.defineProperty({}, 'x', { value: 1, enumerable: true });",
+        "const { defineProperty } = Object;\nexport default defineProperty({}, 'x', { value: 1, enumerable: true });",
+    ] {
+        assert_eq!(extract("vite.config.mjs", source), ConfigValue::Unknown, "{source}");
+    }
+    let number = |n: f64| ConfigValue::Number(n);
+    for (source, expected) in [
+        (
+            "import { defineConfig, mergeConfig } from 'vite';\n\
+             export default mergeConfig(defineConfig({ a: 1 }), { b: 2 });",
+            ConfigValue::Object(vec![("a".to_owned(), number(1.0)), ("b".to_owned(), number(2.0))]),
+        ),
+        (
+            "import * as vitest from 'vitest/config';\nexport default vitest.defineProject({ a: 1 });",
+            ConfigValue::Object(vec![("a".to_owned(), number(1.0))]),
+        ),
+        (
+            "export default defineNuxtConfig({ a: 1 });",
+            ConfigValue::Object(vec![("a".to_owned(), number(1.0))]),
+        ),
+        (
+            "export default Object.assign({ a: 1 }, { b: 2 });",
+            ConfigValue::Object(vec![("a".to_owned(), number(1.0)), ("b".to_owned(), number(2.0))]),
+        ),
+    ] {
+        assert_eq!(extract("vite.config.mjs", source), expected, "{source}");
+    }
+}
+
+/// `Object.assign`, `Object.defineProperty` and `Reflect.defineProperty` given their first argument through a spread
+/// may change any object the spread gives, as it is not known which is first.
+#[test]
+fn a_setter_given_its_first_argument_through_a_spread_may_change_what_it_spreads() {
+    for call in [
+        "Object.assign(...[config, { plugins: ['x'] }]);",
+        "const args = [config, { plugins: ['x'] }];\nObject.assign(...args);",
+        "Object.defineProperty(...[config, 'plugins', { value: ['x'] }]);",
+        "Reflect.defineProperty(...[config, 'plugins', { value: ['x'] }]);",
+        "const copy = Object.assign(...[config, { plugins: ['x'] }]);",
+    ] {
+        for source in [
+            format!("const config = {{ plugins: [] }};\n{call}\nmodule.exports = config;"),
+            format!("module.exports = () => {{\nconst config = {{ plugins: [] }};\n{call}\nreturn config;\n}};"),
+        ] {
+            let value = extract("webpack.config.js", &source);
+            assert_eq!(at(&value, &["plugins"]), &UNKNOWN, "{source}: {value:?}");
+        }
+    }
+}
+
+/// `JSON.stringify` given a replacer that is not a literal calls it with every value of what it is given, which it may
+/// change, so the config is partly unknown after it; given `null`, `undefined`, a list of keys or a number of spaces,
+/// it changes nothing.
+#[test]
+fn json_stringify_with_a_replacer_function_may_change_what_it_is_given() {
+    let config = "const config = { plugins: [] };";
+    for (call, changes) in [
+        (
+            "function r(k, v) { if (Array.isArray(v)) v.push('x'); return v; }\nconst banner = JSON.stringify(config, r);",
+            true,
+        ),
+        (
+            "const r = (k, v) => { if (Array.isArray(v)) v.push('x'); return v; };\nconst banner = JSON.stringify(config, r);",
+            true,
+        ),
+        (
+            "import { r } from 'replacer';\nconst banner = JSON.stringify(config, r);",
+            true,
+        ),
+        (
+            "const banner = JSON.stringify(config, (k, v) => { if (Array.isArray(v)) v.push('x'); return v; });",
+            true,
+        ),
+        ("const banner = JSON.stringify(config, null, 2);", false),
+        ("const banner = JSON.stringify(config, undefined, 2);", false),
+        ("const banner = JSON.stringify(config, ['plugins']);", false),
+    ] {
+        let source = format!("{config}\n{call}\nexport default config;");
+        let value = extract("vite.config.mjs", &source);
+        if changes {
+            assert_eq!(at(&value, &["plugins"]), &UNKNOWN, "{source}: {value:?}");
+        } else {
+            assert_eq!(
+                value,
+                ConfigValue::Object(vec![("plugins".to_owned(), strings(&[]))]),
+                "{source}: {value:?}"
+            );
+        }
     }
 }

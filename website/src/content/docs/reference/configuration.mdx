@@ -557,7 +557,9 @@ Add such files to `entry`.
 **`ignore-workspaces`** lists workspace directories (globs) the JavaScript analysis skips. Unlike `[workspace]
 ignore-packages`, the packages stay in the workspace, so manifest and policy rules still check them. The root is never
 skipped. Entries match directories, so `*` stops at `/`: `packages/*` skips `packages/a` but not `packages/a/nested`
-(use `packages/**` for both), as in knip.
+(use `packages/**` for both), as in knip. A matched directory also leaves the packages above it: the files below it
+that belong to no skipped member (`playground/demo/loose.js` with `playground/**`) are not analysed in the root or any
+other package, as in knip.
 
 **`[js.compilers]`** reads the files of an extension skif has no reader for, keyed by the extension without its dot.
 It is the static counterpart of knip's `compilers`: knip runs a function that turns the file into JavaScript, skif runs
@@ -593,7 +595,8 @@ tw = { as = "css" }
 **`entry` and `project`.** As in knip, a pattern ending in `!` is a normal pattern in a normal run. In a production run
 only the patterns ending in `!` count and the others are excluded; when none ends in `!`, the defaults apply. The
 entries that do not end in `!` are also removed from the project, so a file only they reach (`scripts/*.ts` next to
-`src/index.ts!`) is not reported as unused, and the files that tools add to the project are removed as well.
+`src/index.ts!`) is not reported as unused, and the files that tools add to the project are removed as well, as are
+the development entries of plugins (stories, test files, Vitest `setupFiles`): they are no production code.
 
 **Incomplete entries.** When skif cannot know all the entry files of a package (a tool configuration it cannot read
 statically, or a published `main`, `exports` or `bin` that maps to no source file), a file no known entry reaches may
@@ -664,7 +667,12 @@ built or not; the `BUILD` files decide, so an import that none declares is unres
 dependencies of the generated code are those its target names (see the `bazel` plugin below).
 
 **`paths`** is a `tsconfig`-style map for one workspace, `{ "alias/*" = ["./target/*"] }`, targets relative to the
-workspace directory. Each target is tried as a module alias ahead of the aliases tools declare.
+workspace directory, matched as TypeScript matches `compilerOptions.paths`. A key without `*` matches only that
+specifier; a key may hold one `*` anywhere (`"*"`, `"serv*"`, `"*.svg"`, `"alias/*"`), which matches any text, and the
+target's `*` takes the text it matched. The keys that match are tried by the length of the text before their `*`,
+longest first, and a key without `*` before every wildcard, each with its targets in order. Relative and absolute
+specifiers are never mapped. A key or target with more than one `*` is a configuration error. The patterns are tried
+ahead of the aliases tools declare.
 
 **`tsconfig`** names the TypeScript configuration of the root package, relative to the workspace root, which is read
 in place of its `tsconfig.json`: its `paths`, `baseUrl` and `rootDirs` resolve the imports of the root package's
@@ -685,8 +693,13 @@ The command line warns on stderr about a `tsconfig` that selects no file of its 
 without project files.
 
 **`ignore-exports-used-in-file`** is `true`, or a table of the kinds `variable`, `function`, `class`, `enum`,
-`namespace`, `type` and `interface`: an export that the same file references is then not reported. skif does not tell
-type aliases from interfaces, so `type` and `interface` are the same switch. `member` is accepted; members read in
+`namespace`, `type` and `interface`: an export that the same file references is then not reported. The export
+clause itself (`export { x }`, `export { x as y }`) and the object of `module.exports = { x }` are no reference; a
+read of `x` anywhere else is, whether `x` is a local declaration or an import binding the file re-exports
+(`import a from "./a"; export { a }; export default { a }`). An import binding counts only where it is read as a
+value, not in a type position. Only `true` exempts a re-exported import binding: it has no kind of its own. An export
+initialised from a used binding (`export const b = a`) is not referenced itself. skif does not tell type aliases from
+interfaces, so `type` and `interface` are the same switch. `member` is accepted; members read in
 their own file always count as used. **`ignore-members`** lists enum and namespace member names never reported by
 `unused-enum-members` and `unused-namespace-members`. A member is also exempt when its own JSDoc carries a tag that
 exempts an export (`@public`, `@beta`, `@alpha`, `@alias`, `@internal` with `production`, or an `ignore-tags` name).
@@ -947,7 +960,7 @@ its imports are neither unlisted there nor uses of the root's dependencies. The 
 its own manifest when it is analysed as a root of its own. In the other direction, a file of the
 analysed root that a script of a `package.json` above it runs (up to the git repository root) is an entry, so
 `node build/npm/postinstall.ts` in the outer project keeps `build/npm/postinstall.ts` used in the nested root at
-`build` (except in production mode, where scripts give no entries).
+`build` (except in production mode, where only the `start` script of the package's own manifest gives entries).
 
 In a multi-root run (`skif -r`) the files of a nested root that an enclosing root of the same run imports, runs from
 a script or names in a tool configuration are entries of the nested root: `import { x } from "../build/lib/x"` in
@@ -994,7 +1007,10 @@ that binds them. A member that such a local of the same name as a namespace impo
 `v-for="item in items"`) is no use of that namespace's export; a named import keeps its export used either way, as in
 knip. An expression that does not
 parse is read token by token, which can only make an import look more used. Nothing in a template is type-checked.
-Imports of one script block count as used when another block reads them.
+Imports of one script block count as used when another block reads them. In a `.svelte` file only the module script
+(`<script context="module">` in Svelte 4, `<script module>` in Svelte 5) declares exports: `export let` and the other
+exports of the instance `<script>` are props and instance accessors, which `unused-exports` does not judge. A reached
+`.svelte` file uses the `svelte` package its package lists.
 
 `.mdx` files are read without an MDX compiler: their top-level `import` and `export` statements (at the first column,
 outside frontmatter and fenced code, as MDX delimits them) are analysed as JavaScript with JSX, and the prose is
@@ -1077,14 +1093,28 @@ script `src` or build input HTML file starts at `src`; a `root` that is not a st
 package's entries incomplete. The build input is read from `build.rolldownOptions.input` (Vite 8), else from
 `build.rollupOptions.input`, as knip reads it.
 
-The table holds 206 built-in plugins:
+The table holds 207 built-in plugins:
 
-`typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`, `tsdown`, `oxlint`, `angular`, `karma`, `esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`, `cypress`, `mocha`, `sveltekit`, `prisma`, `graphql-codegen`, `docusaurus`, `vitepress`, `wrangler`, `expo`, `react-native`, `metro`, `release-it`, `semantic-release`, `lefthook`, `simple-git-hooks`, `stylelint`, `markdownlint`, `cspell`, `nodemon`, `pm2`, `pnpm`, `yarn`, `syncpack`, `node`, `expo-router`, `tanstack-router`, `ava`, `biome`, `c8`, `dotenv`, `electron-vite`, `gatsby`, `i18next-parser`, `jasmine`, `knex`, `lingui`, `msw`, `nest`, `netlify`, `nitro`, `nyc`, `oclif`, `panda-css`, `plop`, `preconstruct`, `react-router`, `remark`, `remix`, `rolldown`, `rsbuild`, `rslib`, `sanity`, `sentry`, `size-limit`, `stryker`, `svgo`, `svgr`, `swc`, `tsd`, `typedoc`, `unbuild`, `unocss`, `vercel`, `vike`, `tap`, `oxfmt`, `bun`, `unplugin-icons`, `webdriver-io`, `pre-commit`, `parcel`, `next-intl`, `dependency-cruiser`, `commitizen`, `electron-forge`, `serverless-framework`, `github-action`, `vue`, `unplugin-auto-import`, `unplugin-vue-components`, `unplugin-vue-router`, `mdx`, `next-mdx`, `starlight`, `pino`, `execa`, `zx`, `nano-spawn`, `azure-pipelines`, `sapper`, `tauri`, `capacitor`, `convex`, `payload`, `wxt`, `hardhat`, `temporal`, `react-email`, `openapi-ts`, `danger`, `changelogen`, `purgecss`, `fumadocs`, `nuxtjs-i18n`, `playwright-ct`, `sst`, `qwik`, `quasar`, `stencil`, `eleventy`, `cucumber`, `relay`, `orval`, `vite-plugin-pwa`, `xo`, `textlint`, `rstest`, `sveltejs-package`, `taskfile`, `mise`, `moonrepo`, `wireit`, `travis`, `buf`, `nano-staged`, `astro-db`, `astro-og-canvas`, `bumpp`, `changelogithub`, `create-typescript-app`, `eve`, `expressive-code`, `kysely-codegen`, `lockfile-lint`, `lost-pixel`, `node-modules-inspector`, `vercel-og`, `vite-pwa-assets-generator`, `astro-markdoc`, `borp`, `ladle`, `linthtml`, `lunaria`, `marko`, `mcp`, `mdxlint`, `npm-package-json-lint`, `osls`, `playwright-test`, `raycast`, `react-cosmos`, `tsrs`, `varlock`, `yorkie`, `filesystem-routing`, `flue`, `laravel-vite-plugin`, `railway`, `solidjs-vite-plugin`, `vite-plugin-pages`, `vite-plugin-vue-layouts-next`, `vite-plus`, `openclaw`, `typescript-content-mapper`, `lit`, `catalyst`, `fast`, `taskr` and `bazel`.
+`typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`, `tsdown`, `oxlint`, `angular`, `karma`, `esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`, `cypress`, `mocha`, `sveltekit`, `prisma`, `graphql-codegen`, `docusaurus`, `vitepress`, `wrangler`, `expo`, `react-native`, `metro`, `release-it`, `semantic-release`, `lefthook`, `simple-git-hooks`, `stylelint`, `markdownlint`, `cspell`, `nodemon`, `pm2`, `pnpm`, `yarn`, `syncpack`, `node`, `expo-router`, `tanstack-router`, `ava`, `biome`, `c8`, `dotenv`, `electron-vite`, `gatsby`, `i18next-parser`, `jasmine`, `knex`, `lingui`, `msw`, `nest`, `netlify`, `nitro`, `nyc`, `oclif`, `panda-css`, `plop`, `preconstruct`, `react-router`, `remark`, `remix`, `rolldown`, `rsbuild`, `rslib`, `sanity`, `sentry`, `size-limit`, `stryker`, `svgo`, `svgr`, `swc`, `tsd`, `typedoc`, `unbuild`, `unocss`, `vercel`, `vike`, `tap`, `oxfmt`, `bun`, `unplugin-icons`, `webdriver-io`, `pre-commit`, `parcel`, `next-intl`, `dependency-cruiser`, `commitizen`, `electron-forge`, `serverless-framework`, `github-action`, `vue`, `unplugin-auto-import`, `unplugin-vue-components`, `unplugin-vue-router`, `mdx`, `next-mdx`, `starlight`, `pino`, `execa`, `zx`, `nano-spawn`, `azure-pipelines`, `sapper`, `tauri`, `capacitor`, `convex`, `payload`, `wxt`, `hardhat`, `temporal`, `react-email`, `openapi-ts`, `danger`, `changelogen`, `purgecss`, `fumadocs`, `nuxtjs-i18n`, `playwright-ct`, `sst`, `qwik`, `quasar`, `stencil`, `eleventy`, `cucumber`, `relay`, `orval`, `vite-plugin-pwa`, `xo`, `textlint`, `rstest`, `sveltejs-package`, `taskfile`, `mise`, `moonrepo`, `wireit`, `travis`, `buf`, `nano-staged`, `astro-db`, `astro-og-canvas`, `bumpp`, `changelogithub`, `create-typescript-app`, `eve`, `expressive-code`, `kysely-codegen`, `lockfile-lint`, `lost-pixel`, `node-modules-inspector`, `vercel-og`, `vite-pwa-assets-generator`, `astro-markdoc`, `borp`, `ladle`, `linthtml`, `lunaria`, `marko`, `mcp`, `mdxlint`, `npm-package-json-lint`, `osls`, `playwright-test`, `raycast`, `react-cosmos`, `tsrs`, `varlock`, `yorkie`, `filesystem-routing`, `flue`, `laravel-vite-plugin`, `railway`, `solidjs-vite-plugin`, `vite-plugin-pages`, `vite-plugin-vue-layouts-next`, `vite-plus`, `openclaw`, `typescript-content-mapper`, `lit`, `catalyst`, `fast`, `taskr`, `bazel` and `knip`.
 
 A JavaScript or TypeScript config is evaluated statically. A value it imports from another file of the project, or from
 a workspace package (through its `exports` or `main`, mapped back to the source file), is evaluated in that module too:
 a base config merged with `mergeConfig`, spread into an object, or listed in an ESLint `defineConfig`. A value imported
 from an installed package stays unknown, and an imported value that depends on itself through imports is unknown there.
+An imported value the config changes (`base.build.outDir = "out"`, `withPlugins(base)`, a write through a local holding
+it, at the top level or in a function) is read as changed, as a local is; a method called on a namespace import
+(`shared.make()`) is taken to change nothing of it. A change through one import of a module reaches its other
+imports (`ns.default` and the default import, two exports that may be one object), and imported values of other
+modules too, as one may hold another. Calling a function of a project module or a workspace package that changes a
+value of a module (an import of its own, a binding it exports, also through a function of another module it calls),
+and importing or requiring a module for its effects only (`import "./setup"`), leaves every value imported from such
+modules partly unknown; a module whose functions change no such value (a factory that builds and returns a new
+config) leaves them known. What a module imported for
+its values does when it is loaded is not followed. A `define…` call (`defineConfig({ … })`) is the value it is
+given, and a merge (`mergeConfig`, `merge`, `Object.assign`) the merge of what it is given, only when its name is a
+global or comes from a package the evaluator does not follow; one from a module or a workspace package of the project
+it cannot follow, or a function the config takes from an object it declares (`const { defineProperty } = Object`), is
+unknown.
 A member of a known object is the value of its key: `{ ...base, plugins: [...base.plugins, "x"] }` keeps the plugins of
 the imported `base`, which are judged against the package that owns the module naming them, while `"x"` belongs to the
 importing config. An optional member (`base?.plugins`, `undefined` when `base` is `null` or `undefined`) and a computed
@@ -1134,35 +1164,58 @@ has nor inherits (`config.plugins.push(…)` without `plugins`) changes nothing,
 below a key an unknown spread may set or the object may inherit (`__proto__`, `constructor`), the object is partly
 unknown. An object changed through another name for it
 (`const a = cfg`, `{ test: t }`, `{ ...base }`, a function given `cfg`), by a function that writes what it captures, by
-`delete` or inside an expression is partly unknown wherever it is read, in the part the change reaches. A call of a
+`delete` or inside an expression is partly unknown wherever it is read, in the part the change reaches; a write
+through an object that is not a name or a member chain (`config.module.rules.find(…).loader = …`,
+`(prod ? config.prod : config.dev).devtool = false`) reaches each part of a local that object may be. A call of a
 function the config declares shares with what it is given only what the function may return of it: a fresh object
 it builds shares nothing with its arguments, unless the function is used other than by calling it by name, calls
 itself or reads `arguments`; a getter, method or callback in what it returns shares what that returns, and a
 parameter shares its default (`b = a`). What a method returns (`config.plugins.find(…)`, `list.slice()`) may be a part of the
 object it is called on. A `const` of a function that takes a local of that function,
 or a static part of it (`const { coverage } = config.test`), is followed instead when it is the only such name for the
-local and no other function shares either: a change through it is applied to that part of the local, so
+local, no other function shares either and the local is never assigned again: a change through it is applied to that part of the local, so
 `coverage.enabled = true` in a branch with an unknown test leaves `enabled` one of both values and the rest of `config`
 known. What else may hold that object (a list or object holding `config`, the options spread into it, another key of
 `config` given the same object) is partly unknown where it is read after the alias is declared. A `resolve` call (`require.resolve`, `createRequire(...).resolve`) changes nothing, and neither do the functions
 of `path`, `url`, `JSON` and `Math`, `fs.readFileSync` and the other reading functions of `fs`, `Object.keys` and
 `console`, so a config holding `fs.readFileSync(CERT)` stays known; a `const` holding a string or a number shares no
-object with what it is given to. These are known only where the name resolves to the module or global that declares
-it, never a local of the same name. Any other call, a library's function or a `new` of a class other than a builtin one,
+object with what it is given to. `JSON.stringify` and `JSON.parse` count only when what follows their first argument
+is a literal that holds no function or `undefined` (`JSON.stringify(config, null, 2)`): a replacer or reviver
+function is called with what they are given. These are known only where the name resolves to the module or global that
+declares it, never a local of the same name. Any other call, a library's function or a `new` of a class other than a builtin one,
 may change every object it is given, in any position and through a spread, and every local an object or array literal
 it is given holds, at any depth (`kit.fill({ cfg: config })`, `foo([config])`, all of `options` for
-`foo({ ...options })`), unless it is a `define…` helper of a library,
-a merge that copies (`webpack-merge`, `deepmerge`, `defu`, the `mergeConfig` of Vite and Vitest), `createRequire`, or
-`Object.assign`, which changes only its first argument. A `define…` helper and a merge that copies keep none of their
+`foo({ ...options })`), unless it is a `define…` helper of a package the evaluator does not follow (one of a module
+of the project, `./tools`, `#tools` or `@/tools`, or of a workspace package may change what it is given),
+a merge that copies (`merge` of `webpack-merge`, `deepmerge` given no options or options without a function, `defu`,
+the `mergeConfig` of Vite and Vitest), `createRequire`, or
+`Object.assign`, `Object.defineProperties` or `Object.defineProperty` and `Reflect.defineProperty`, which change only
+their first argument, the last two only the key they name when it is a string, unless that argument is given through a
+spread (`Object.assign(...[config, extra])`); these are no `define…` helpers. A `define…` helper and a merge that copies keep none of their
 arguments in another, so a change of one argument leaves the others known. A list or string
-method (`push`, `slice`, `concat`) changes at most its object only when that object is known to be a list or string. A
+method (`push`, `slice`, `concat`) changes at most its object only when that object is known to be a list or string,
+and one that calls a function it is given with the list's elements (`forEach`, `map`, `reduce`) only when that
+function is written in place or declared by the config and no `this` object follows it (`list.forEach(fn, thisArg)`);
+an imported callback (`configs.forEach(withSentry)`) may change each element and that object. A local holding a
+function the evaluator does not follow (`const addAlias = aliaser(config)`) may change what it was made from each time
+it is called; one bound to an import or a `require` is taken to change none of the config's locals. A method of a
+package the config only calls methods on (`_.merge(…)`) is taken to keep nothing it is given in the package; once
+the config stores a value in it, reads a member of it otherwise or gives it to a call, and for a workspace package
+the evaluator follows, what its methods return may hold what it holds. A
 change through an element of a list leaves every element open; a loop name, a callback parameter, a name a destructuring
-assignment sets and a function assigned with `=` share with what they take, except a callback over a `const` list of
-strings or numbers that no change reaches; a value spread from an object literal (`...(ci ? { plugins: list } : {})`)
+assignment sets and a function assigned with `=` share with what they take, except the element a callback or a loop
+over a `const` list or object of strings or numbers takes when no change reaches it, also through `Object.entries`,
+`Object.values` and `Object.keys` (a later parameter, such as the list `forEach` passes, still shares it), so
+`Object.entries(pages).map(([name, template]) => new HtmlWebpackPlugin({ chunks: [name], template }))` leaves
+`entry: pages` known; a value spread from an object literal (`...(ci ? { plugins: list } : {})`)
 is shared at the key it is spread at only; a write through one key reaches another key of the same local that holds
 the same object (`config.b = config.a`); a spread of a local (`{ ...options }`) copies its keys, so a change below
 one of them (`options.coverage.enabled = true`) reaches the copy at that key only, and a new value of a key of either
-leaves the other as it was; and a write in a class body leaves what it reaches unknown. A key a plugin reads files from that is unknown below
+leaves the other as it was; a write in a class body leaves what it reaches unknown; and the object of a `with`
+statement is partly unknown after it. Code a value runs implicitly is not followed and may change what it reaches
+unseen: a getter, the `toString` or `valueOf` a template literal or `String(x)` calls, the `toJSON` of
+`JSON.stringify` and the `then` of an awaited object; so is a change an imported function makes later to an object an
+earlier call gave it (`register(config)`, then `apply()`). A key a plugin reads files from that is unknown below
 the top level, such as vitest's `setupFiles: isPostgres ? [...] : []` or a `test` object an unknown spread may replace,
 leaves the plugin's entries incomplete instead of being read as empty.
 
@@ -1290,6 +1343,9 @@ counterpart. These differences are deliberate:
   `customElements` that does not hold the registry is not detected.
 - `taskr` has no knip counterpart: `taskfile.js` and the local plugins of `package.json#taskr.requires` are entries,
   and `@taskr/*` and `taskr-*` dependencies count as used, as taskr loads them by name.
+- `knip` has no knip counterpart: in a project that runs knip next to skif, with `knip` as a dependency, knip's
+  config files (`knip.json`, `knip.jsonc`, `.knip.json`, `.knip.jsonc`, `knip.*`, `knip.config.*` and the `knip`
+  key of `package.json`) are configs, and the JavaScript and TypeScript ones are entries, so what they import is used.
 - `bazel` has no knip counterpart. It is enabled by a `BUILD.bazel` or `BUILD` file at the top of a package and reads
   the `BUILD` files below the package as Starlark text, never evaluated, in a Bazel repository whose `MODULE.bazel`,
   `REPO.bazel`, `WORKSPACE.bazel` or `WORKSPACE` names `aspect_rules_js` (the nearest one at or above the package,

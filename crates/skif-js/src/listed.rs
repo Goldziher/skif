@@ -248,6 +248,11 @@ impl Listed {
         Self { entries }
     }
 
+    /// Whether the list has no entry for the run mode.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     /// Whether `name` matches an entry. Every entry that matches is recorded, not only the first.
     pub(crate) fn is_match(&self, name: &str) -> bool {
         let mut found = false;
