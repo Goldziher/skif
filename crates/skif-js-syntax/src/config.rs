@@ -15,7 +15,7 @@ use oxc_ast::ast::{
     ForStatement, Function, IdentifierReference, IfStatement, ImportDeclarationSpecifier, ImportOrExportKind,
     LogicalExpression, LogicalOperator, MemberExpression, NewExpression, ObjectProperty, ObjectPropertyKind, Program,
     ReturnStatement, SimpleAssignmentTarget, Statement, StaticMemberExpression, TaggedTemplateExpression,
-    TemplateLiteral, UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind,
+    TemplateLiteral, UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_parser::{ParseOptions as OxcParseOptions, Parser};
@@ -23,7 +23,7 @@ use oxc_span::{SourceType, Span};
 use serde::{Deserialize, Serialize};
 
 use crate::finder::static_string;
-use crate::sharing::{Change, Unstable, changed_by_call, statement_call};
+use crate::sharing::{Change, Unstable, alias_names, alias_source, changed_by_call, statement_call};
 
 const MAX_DEPTH: u32 = 32;
 
@@ -859,6 +859,34 @@ impl<'p, 'a> Callable<'p, 'a> {
 enum Binding<'p, 'a> {
     Value(Value),
     Callable(Callable<'p, 'a>),
+    /// A `const` that takes a part of a local of its function (`const { coverage } = config.test`), whose changes the
+    /// evaluator applies to that local too ([`Unstable::follows`]).
+    Alias(Alias),
+}
+
+/// The value of an alias binding, and the part of a local it takes: the local `root`, bound in the frame at index
+/// `frame`, at `keys` below it.
+#[derive(Clone)]
+struct Alias {
+    value: Value,
+    root: String,
+    frame: usize,
+    keys: Vec<String>,
+}
+
+impl Alias {
+    /// Whether `other` takes the same part of the same local.
+    fn same_part(&self, other: &Self) -> bool {
+        self.root == other.root && self.frame == other.frame && self.keys == other.keys
+    }
+}
+
+/// A change the evaluator applies to a local object.
+enum Edit {
+    /// `name.key = value`.
+    Set(String, Value),
+    /// A change it does not follow, which leaves the object partly unknown.
+    Taint,
 }
 
 type Frame<'p, 'a> = HashMap<String, Binding<'p, 'a>>;
@@ -2102,7 +2130,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     fn identifier(&self, name: &str, depth: u32) -> Value {
         if let Some(binding) = self.lookup(name) {
             return match binding {
-                Binding::Value(value) => value,
+                Binding::Value(value) | Binding::Alias(Alias { value, .. }) => value,
                 Binding::Callable(_) => Value::Unknown,
             };
         }
@@ -2790,7 +2818,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         let local = self.frames.borrow().iter().rev().find_map(|frame| {
             frame.get(name).map(|binding| match binding {
                 Binding::Callable(callable) => Some(*callable),
-                Binding::Value(_) => None,
+                Binding::Value(_) | Binding::Alias(_) => None,
             })
         });
         let (callable, isolate) = match local {
@@ -3343,6 +3371,10 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             for name in names {
                 let joined = match (frame.get(&name), other.get(&name)) {
                     (Some(Binding::Value(a)), Some(Binding::Value(b))) => Binding::Value(join(a, b)),
+                    (Some(Binding::Alias(a)), Some(Binding::Alias(b))) if a.same_part(b) => Binding::Alias(Alias {
+                        value: join(&a.value, &b.value),
+                        ..a.clone()
+                    }),
                     (Some(Binding::Callable(a)), Some(Binding::Callable(b))) if a.same(*b) => Binding::Callable(*a),
                     _ => Binding::Value(Value::Unknown),
                 };
@@ -3397,6 +3429,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// Binds the names a `const`/`let`/`var` declaration declares in the innermost frame: a name to the value, as
     /// definite as it is, and a destructured name to the part of the value it takes, or to [`ConfigValue::Unknown`].
+    /// A name that is an alias the evaluator follows is bound as one ([`Binding::Alias`]).
     fn declare(&self, declaration: &'p VariableDeclaration<'a>, depth: u32) {
         for declarator in &declaration.declarations {
             if let BindingPattern::BindingIdentifier(id) = &declarator.id
@@ -3414,7 +3447,53 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             } else {
                 value
             };
+            let aliases = self.aliases(declaration.kind, declarator);
             self.bind_pattern(&declarator.id, value, depth);
+            for (name, alias) in aliases {
+                self.bind_alias(&name, alias);
+            }
+        }
+    }
+
+    /// The aliases a declaration makes that the evaluator follows ([`Unstable::follows`]), by name, before they are
+    /// bound: each takes the part of the local the declaration reads ([`alias_source`]) at the key it destructures.
+    fn aliases(&self, kind: VariableDeclarationKind, declarator: &'p VariableDeclarator<'a>) -> Vec<(String, Alias)> {
+        if kind != VariableDeclarationKind::Const {
+            return Vec::new();
+        }
+        let Some((root, keys)) = declarator.init.as_ref().and_then(|init| alias_source(init)) else {
+            return Vec::new();
+        };
+        let root = root.name.as_str();
+        let Some(frame) = self.frames.borrow().iter().rposition(|frame| frame.contains_key(root)) else {
+            return Vec::new();
+        };
+        alias_names(&declarator.id)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(id, _)| self.unstable.follows(id))
+            .map(|(id, key)| {
+                let mut keys = keys.clone();
+                keys.extend(key);
+                let alias = Alias {
+                    value: Value::Unknown,
+                    root: root.to_owned(),
+                    frame,
+                    keys,
+                };
+                (id.name.as_str().to_owned(), alias)
+            })
+            .collect()
+    }
+
+    /// Makes the binding `name` of the innermost frame `alias`, holding the value it is bound to.
+    fn bind_alias(&self, name: &str, mut alias: Alias) {
+        let mut frames = self.frames.borrow_mut();
+        if let Some(binding) = frames.last_mut().and_then(|frame| frame.get_mut(name))
+            && let Binding::Value(value) = &mut *binding
+        {
+            alias.value = std::mem::replace(value, Value::Unknown);
+            *binding = Binding::Alias(alias);
         }
     }
 
@@ -3474,31 +3553,19 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// Sets `key` of the local object `name`, which then holds `value` there.
     fn set_key(&self, name: &str, key: &str, value: Value) {
-        let mut frames = self.frames.borrow_mut();
-        let Some(Binding::Value(held)) = frames.iter_mut().rev().find_map(|frame| frame.get_mut(name)) else {
-            return;
-        };
-        match held.definite_mut() {
-            Value::Object(entries) => match entries.iter_mut().find(|(existing, _)| existing == key) {
-                Some((_, slot)) => *slot = value,
-                None => entries.push((key.to_owned(), value)),
-            },
-            // `list.length = 0` on an array.
-            Value::Array(items) => items.push(Value::Unknown),
-            _ => {}
-        }
+        self.edit(name, &Edit::Set(key.to_owned(), value));
     }
 
     /// Records that the local `name` was changed in a way the evaluator does not follow.
     fn taint(&self, name: &str) {
+        self.edit(name, &Edit::Taint);
+    }
+
+    /// Applies `edit` to the innermost local `name`, and through it when it is an alias ([`edit_binding`]).
+    fn edit(&self, name: &str, edit: &Edit) {
         let mut frames = self.frames.borrow_mut();
-        let Some(Binding::Value(held)) = frames.iter_mut().rev().find_map(|frame| frame.get_mut(name)) else {
-            return;
-        };
-        match held.definite_mut() {
-            Value::Object(entries) => entries.push((UNKNOWN_SPREAD.to_owned(), Value::Unknown)),
-            Value::Array(items) => items.push(Value::Unknown),
-            _ => {}
+        if let Some(index) = frames.iter().rposition(|frame| frame.contains_key(name)) {
+            edit_binding(&mut frames, index, name, &[], edit);
         }
     }
 
@@ -3571,6 +3638,101 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         }
         Value::Object(out)
     }
+}
+
+/// Applies `edit` at `keys` below the binding `name` of the frame at `index`. Through an alias it applies to the part
+/// of the local the alias takes as well, when that part still holds what the alias held, and leaves the part partly
+/// unknown when it does not (the local was given another object there).
+fn edit_binding(frames: &mut [Frame<'_, '_>], index: usize, name: &str, keys: &[String], edit: &Edit) {
+    let Some(binding) = frames.get_mut(index).and_then(|frame| frame.get_mut(name)) else {
+        return;
+    };
+    let (root, frame, part, before) = match binding {
+        Binding::Value(value) => return edit_at(value, keys, edit),
+        Binding::Callable(_) => return,
+        Binding::Alias(alias) => {
+            let before = alias.value.clone();
+            edit_at(&mut alias.value, keys, edit);
+            (alias.root.clone(), alias.frame, alias.keys.clone(), before)
+        }
+    };
+    let held = frames
+        .get(frame)
+        .and_then(|bindings| bindings.get(&root))
+        .and_then(|binding| match binding {
+            Binding::Value(value) | Binding::Alias(Alias { value, .. }) => value_at(value, &part),
+            Binding::Callable(_) => None,
+        });
+    if held == Some(&before) {
+        let mut path = part;
+        path.extend_from_slice(keys);
+        edit_binding(frames, frame, &root, &path, edit);
+    } else {
+        edit_binding(frames, frame, &root, &part, &Edit::Taint);
+    }
+}
+
+/// Applies `edit` to the object at `keys` below `value`. A key on the way that the object does not have, or that an
+/// unknown spread may set, leaves the object above it partly unknown instead.
+fn edit_at(value: &mut Value, keys: &[String], edit: &Edit) {
+    let target = value.definite_mut();
+    let Some((key, rest)) = keys.split_first() else {
+        return match edit {
+            Edit::Set(key, field) => set_entry(target, key, field.clone()),
+            Edit::Taint => taint_value(target),
+        };
+    };
+    match target {
+        Value::Object(entries) => {
+            let found = entries
+                .iter()
+                .rposition(|(name, _)| name == key || ConfigValue::is_spread_key(name))
+                .filter(|&at| entries[at].0 == *key);
+            match found {
+                Some(at) => edit_at(&mut entries[at].1, rest, edit),
+                None => entries.push((UNKNOWN_SPREAD.to_owned(), Value::Unknown)),
+            }
+        }
+        other => taint_value(other),
+    }
+}
+
+/// Sets `key` of an object to `field`; on an array (`list.length = 0`) the elements are no longer known.
+fn set_entry(value: &mut Value, key: &str, field: Value) {
+    match value.definite_mut() {
+        Value::Object(entries) => match entries.iter_mut().find(|(existing, _)| existing == key) {
+            Some((_, slot)) => *slot = field,
+            None => entries.push((key.to_owned(), field)),
+        },
+        Value::Array(items) => items.push(Value::Unknown),
+        _ => {}
+    }
+}
+
+/// Leaves an object or array partly unknown: an object may have any other key and an array any other element.
+fn taint_value(value: &mut Value) {
+    match value.definite_mut() {
+        Value::Object(entries) => entries.push((UNKNOWN_SPREAD.to_owned(), Value::Unknown)),
+        Value::Array(items) => items.push(Value::Unknown),
+        _ => {}
+    }
+}
+
+/// The value at `keys` below `value`, as member reads find it; `None` where a key is missing or an unknown spread may
+/// set it.
+fn value_at<'v>(value: &'v Value, keys: &[String]) -> Option<&'v Value> {
+    let Some((key, rest)) = keys.split_first() else {
+        return Some(value);
+    };
+    let Value::Object(entries) = value else {
+        return None;
+    };
+    entries
+        .iter()
+        .rev()
+        .find(|(name, _)| name == key || ConfigValue::is_spread_key(name))
+        .filter(|(name, _)| name == key)
+        .and_then(|(_, child)| value_at(child, rest))
 }
 
 /// The first argument of a call of a function named `define*` (`defineConfig`, `vitest.defineProject`), which
@@ -3710,24 +3872,42 @@ fn returns(statement: &Statement<'_>) -> bool {
 }
 
 /// The locals a statement or expression may write, outside the functions it declares: the names it assigns
-/// (`x = …`, `x++`, `[x] = …`) and the objects it may change (`x.a = …`, `x.list.push(…)`, `Object.assign(x, …)`).
+/// (`x = …`, `x++`, `[x] = …`) and the objects it may change (`x.a = …`, `x.list.push(…)`, `Object.assign(x, …)`),
+/// among them the local an alias declared there takes a part of when the alias is changed.
 #[derive(Default)]
 struct Writes {
     assigned: Vec<String>,
     changed: Vec<String>,
+    /// The aliases declared ([`alias_source`]), each with the local it takes a part of.
+    aliases: Vec<(String, String)>,
 }
 
 impl Writes {
     fn of_statement(statement: &Statement<'_>) -> Self {
         let mut writes = Self::default();
         writes.visit_statement(statement);
-        writes
+        writes.through_aliases()
     }
 
     fn of_expression(expression: &Expression<'_>) -> Self {
         let mut writes = Self::default();
         writes.visit_expression(expression);
-        writes
+        writes.through_aliases()
+    }
+
+    /// The writes with the local each changed alias takes a part of changed too, as the evaluator, which does not run
+    /// the code, cannot apply them to it.
+    fn through_aliases(mut self) -> Self {
+        let mut index = 0;
+        while let Some(name) = self.changed.get(index).cloned() {
+            for (alias, root) in &self.aliases {
+                if *alias == name && !self.changed.contains(root) {
+                    self.changed.push(root.clone());
+                }
+            }
+            index += 1;
+        }
+        self
     }
 
     /// What an expression statement writes itself, as [`Evaluator::mutation`] reads it: the target of an assignment
@@ -3758,6 +3938,16 @@ impl Writes {
 }
 
 impl<'a> Visit<'a> for Writes {
+    fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+        if let Some((root, _)) = it.init.as_ref().and_then(|init| alias_source(init)) {
+            for (id, _) in alias_names(&it.id).unwrap_or_default() {
+                self.aliases
+                    .push((id.name.as_str().to_owned(), root.name.as_str().to_owned()));
+            }
+        }
+        walk::walk_variable_declarator(self, it);
+    }
+
     fn visit_simple_assignment_target(&mut self, it: &SimpleAssignmentTarget<'a>) {
         match it {
             SimpleAssignmentTarget::AssignmentTargetIdentifier(id) => self.assigned.push(id.name.as_str().to_owned()),
