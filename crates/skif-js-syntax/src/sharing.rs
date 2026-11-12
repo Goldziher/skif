@@ -376,9 +376,10 @@ impl Unstable {
 
     /// Whether a function of the module may change a value of a module when it is called: code in a function writes
     /// to, or gives a call that may change it, a top-level binding, an import, an object one of them may hold or what
-    /// `this` or `super` is there ([`Sharing::writes_modules`]), or the module calls a function of a module that may ([`Imports::changes_modules`]),
-    /// or imports one for its effects. A function that builds and returns new objects changes none, whatever it does
-    /// to them or to what its parameters take, which a call gives it.
+    /// `this` or `super` is there ([`Sharing::writes_modules`]), or the module calls a function of a module that may ([`Imports::changes_modules`])
+    /// or whose code is not known (a bare import neither followed nor installed), or imports one for its effects. A
+    /// function that builds and returns new objects changes none, whatever it does to them or to what its parameters
+    /// take, which a call gives it.
     pub(crate) fn changes_modules(&self) -> bool {
         self.runs_modules || self.writes_modules
     }
@@ -1009,20 +1010,32 @@ impl Sharing<'_> {
         (defined(call).is_some() && foreign(names, &call.callee)) || copies(names, call)
     }
 
-    /// Whether `expr` is a name or a member chain that starts from a binding of a module the evaluator follows whose
-    /// functions may change a value of a module ([`Imports::changes_modules`]): `tweak`, `shared.tweak`,
-    /// `base.plugins`.
+    /// Whether `expr` is a name or a member chain that starts from a binding of a module that may change a value of a
+    /// module ([`Self::changing_binding`]): `tweak`, `shared.tweak`, `base.plugins`.
     fn of_changing_module(&self, expr: &Expression<'_>) -> bool {
         reach(expr)
             .and_then(|(id, _, _)| self.symbol(id))
-            .filter(|symbol| self.known.followed.contains(symbol))
-            .and_then(|symbol| self.known.modules.get(&symbol))
-            .is_some_and(|(module, _)| self.imports.changes_modules(module))
+            .is_some_and(|symbol| self.changing_binding(symbol))
     }
 
-    /// Whether `call` may run code of a module the evaluator follows that changes a value of a module: it calls a
-    /// function of one (`tweak()`, `shared.tweak()`, a method of an imported value), or its effect is not known and
-    /// it is given a binding of one, which may be a function it calls.
+    /// Whether `symbol` is a binding of a module whose functions may change a value of a module: one the evaluator
+    /// follows that may ([`Imports::changes_modules`]), or a package that is neither followed nor installed
+    /// ([`Imports::is_installed`]), an alias of a project directory whose code is not known.
+    fn changing_binding(&self, symbol: SymbolId) -> bool {
+        let Some((module, _)) = self.known.modules.get(&symbol) else {
+            return false;
+        };
+        if self.known.followed.contains(&symbol) {
+            self.imports.changes_modules(module)
+        } else {
+            is_package(module) && !self.imports.is_installed(module)
+        }
+    }
+
+    /// Whether `call` may run code of a module that changes a value of a module ([`Self::changing_binding`]): of a
+    /// module the evaluator follows that may, or of a package neither followed nor installed, whose code is not known.
+    /// It calls a function of one (`tweak()`, `shared.tweak()`, a method of an imported value), or its effect is not
+    /// known and it is given a binding of one, which may be a function it calls.
     fn runs_followed(&self, call: &CallExpression<'_>) -> bool {
         let given_function = || {
             self.effect(call).is_none()

@@ -1117,3 +1117,33 @@ fn a_reexport_of_a_file_that_holds_no_code_changes_nothing() {
         }
     }
 }
+
+/// A call of a binding of a bare import the loader neither follows nor knows as installed (an alias of a project
+/// directory) runs code of the project, which may change every value the config imports from a followed module; one
+/// of an installed package does not.
+#[test]
+fn a_call_of_an_alias_the_loader_does_not_follow_changes_the_imported_values() {
+    for (specifier, out_dir) in [("@app/setup", ConfigValue::Unknown), ("vite-setup", s("dist"))] {
+        for (import, call) in [
+            ("import { setup } from", "setup();"),
+            ("import * as tools from", "tools.setup();"),
+            ("import { Setup } from", "new Setup();"),
+        ] {
+            let config =
+                format!("import base from './base';\n{import} '{specifier}';\n{call}\nexport default base;");
+            let loader = files(&[
+                ("/ws/app/config.ts", &*Box::leak(config.into_boxed_str())),
+                (
+                    "/ws/app/base.ts",
+                    "export default { root: 'src', build: { outDir: 'dist' } };",
+                ),
+            ]);
+            let value = eval(&loader);
+            assert_eq!(
+                read_at(&value, &["build", "outDir"]),
+                &out_dir,
+                "{specifier}: {call}: {value:?}"
+            );
+        }
+    }
+}
