@@ -1255,9 +1255,16 @@ impl ModuleResolver {
                 return self.package_target(&package, specifier);
             }
             let root_dirs = self.another_root_dir(importer, specifier, &path);
+            // A `tsconfig` mapping (`src/*` to `./src/*`) can lead a specifier named like a workspace member into the
+            // importer's own sources: only a file in the member's directory is an import of the member.
+            let package = member_name.filter(|member| {
+                self.members
+                    .get(member.as_str())
+                    .is_some_and(|known| path.starts_with(&known.dir))
+            });
             return Outcome {
                 target: self.classify(path),
-                package: member_name,
+                package,
                 root_dirs,
             };
         }
@@ -1946,6 +1953,34 @@ mod tests {
             types.package, None,
             "generated code outside the member is not the member"
         );
+    }
+
+    #[test]
+    fn a_tsconfig_mapping_into_own_sources_is_not_the_member_of_that_name() {
+        let r = resolver(&[
+            ("package.json", ROOT),
+            ("tsconfig.json", r#"{"compilerOptions":{"strict":true}}"#),
+            ("packages/app/package.json", r#"{"name":"app","private":true}"#),
+            (
+                "packages/app/tsconfig.json",
+                r#"{"extends":"../../tsconfig.json","compilerOptions":{"paths":{"src/*":["./src/*"]}}}"#,
+            ),
+            ("packages/app/src/main.ts", ""),
+            ("packages/app/src/Feature/X.ts", ""),
+            ("packages/other/package.json", r#"{"name":"src","private":true}"#),
+            ("packages/other/index.ts", ""),
+        ]);
+        let mapped = r.resolve(Path::new("/ws/packages/app/src/main.ts"), "src/Feature/X");
+        assert_eq!(
+            mapped.target,
+            Resolved::File(PathBuf::from("/ws/packages/app/src/Feature/X.ts"))
+        );
+        assert_eq!(
+            mapped.package, None,
+            "a mapping into the importer's own sources is not the member `src`"
+        );
+        let member = r.resolve(Path::new("/ws/packages/app/src/main.ts"), "src");
+        assert_eq!(member.package, Some("src".to_owned()));
     }
 
     #[test]

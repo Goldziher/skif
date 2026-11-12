@@ -52,6 +52,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **JS**: an import that a package's own tsconfig `paths` map into its sources (`src/*` to `./src/*`) is no longer an
+  import of the workspace package whose name it starts with (a member named `src`). Strict mode reported it as that
+  package unlisted, and the other modes counted it as a use of the member
+  ([#215](https://github.com/Goldziher/skif/issues/215)).
 - **JS**: pattern keys of `exports` and `imports` maps are selected as Node.js orders them: of two patterns with the
   same prefix, the longer one wins (`./features/*.css` over `./features/*` for `./features/a.css`).
 - **Migrate**: `--merge --output <FILE>` writes the merge of the existing `skif.toml` and the migration to `FILE`
