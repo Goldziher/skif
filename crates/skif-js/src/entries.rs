@@ -461,8 +461,8 @@ pub(crate) fn map_published(fs: &dyn FileSystem, package_setup: &PackageSetup, t
 /// Whether the published path `target` of the package with `manifest` names no file: neither the path nor a source
 /// file behind it exists, git does not ignore it and it is not build output not built yet. A path in a build output
 /// directory (`dist`, `lib`, ...), a gitignored path (by an ignore file of the repository above or below the analysed
-/// root, or its `info/exclude`) and a path in `bin` of a package with a build step ([`may_build_bin`]) are build
-/// output. A path outside the package is never judged. Such a path is no entry, so it neither makes the package's
+/// root, or its `info/exclude`) and a path in `bin` a build step of the package may write ([`may_build_bin`]) are
+/// build output. A path outside the package is never judged. Such a path is no entry, so it neither makes the package's
 /// entries unknown nor uses anything (ADR 0069); `stale-js-config` reports it (`package-entry`).
 pub(crate) fn names_no_file(
     disk: Disk<'_>,
@@ -481,7 +481,7 @@ pub(crate) fn names_no_file(
     if first.is_some_and(is_out_dir) {
         return false;
     }
-    if first == Some("bin") && may_build_bin(disk.fs, package_setup, manifest) {
+    if first == Some("bin") && may_build_bin(disk.fs, package_setup, manifest, rel) {
         return false;
     }
     let dir = &package_setup.dir;
@@ -571,26 +571,71 @@ const BUNDLER_CONFIGS: &[&str] = &[
     "webpack.config.",
 ];
 
-/// Whether a build step of the package may write its `bin` directory, so that a missing file there is build output
-/// not built yet rather than a path into nothing: a build script ([`BUILD_SCRIPTS`]), a script that runs a compiler
-/// or bundler ([`BUILDERS`]) or a compiling subcommand, or writes into `bin` ([`script_builds_bin`]), a bundler
-/// configuration a plugin reads ([`BUNDLER_CONFIGS`]), or a build directory (`tsconfig` `outDir`) at or inside `bin`.
-fn may_build_bin(fs: &dyn FileSystem, package_setup: &PackageSetup, manifest: &Value) -> bool {
-    let build_script = manifest
+/// The TypeScript compilers, which name each file they write after a source file.
+const TS_COMPILERS: &[&str] = &["tsc", "tsgo"];
+
+/// The options with which the TypeScript compiler writes its whole output to one file the option names.
+const TS_OUT_FILE_FLAGS: &[&str] = &["--outFile", "--out"];
+
+/// Whether the script `text` runs nothing but the TypeScript compiler ([`TS_COMPILERS`]), and never into one named
+/// file ([`TS_OUT_FILE_FLAGS`]).
+fn only_compiles_typescript(text: &str) -> bool {
+    let mut commands = text
+        .split(['&', '|', ';'])
+        .map(str::trim)
+        .filter(|command| !command.is_empty())
+        .peekable();
+    commands.peek().is_some()
+        && commands.all(|command| {
+            let mut words = command.split_whitespace().map(|word| word.trim_matches(['"', '\'']));
+            words
+                .next()
+                .is_some_and(|program| TS_COMPILERS.contains(&program.rsplit('/').next().unwrap_or(program)))
+                && words.all(|word| !TS_OUT_FILE_FLAGS.contains(&word.split_once('=').map_or(word, |(flag, _)| flag)))
+        })
+}
+
+/// Whether the TypeScript compiler may write the package-relative path `rel`: it exists, or a file of the package has
+/// its name, with a source extension for a JavaScript output (`stack.ts` for `bin/stack.js`). The compiler names each
+/// output after its source file wherever its `rootDir` and `outDir` put it, so without such a file it writes nothing
+/// at `rel`.
+fn compiler_may_write(fs: &dyn FileSystem, package_dir: &Path, rel: &str) -> bool {
+    let name = rel.rsplit('/').next().unwrap_or(rel);
+    let pattern = match name.rsplit_once('.') {
+        Some((stem, "js" | "jsx" | "mjs" | "cjs")) if !stem.is_empty() => {
+            format!("**/{stem}.{{ts,tsx,mts,cts,js,jsx,mjs,cjs}}")
+        }
+        _ => format!("**/{name}"),
+    };
+    fs.is_file(&package_dir.join(rel)) || on_disk(fs, package_dir, &pattern)
+}
+
+/// Whether a build step of the package may write the path `rel` in its `bin` directory, so that a missing file there
+/// is build output not built yet rather than a path into nothing. A build step is a build script ([`BUILD_SCRIPTS`]),
+/// a script that runs a compiler or bundler ([`BUILDERS`]) or a compiling subcommand, or writes into `bin`
+/// ([`script_builds_bin`]), a bundler configuration a plugin reads ([`BUNDLER_CONFIGS`]), or a build directory
+/// (`tsconfig` `outDir`) at or inside `bin`. When the only build steps run the TypeScript compiler
+/// ([`only_compiles_typescript`]), they may write `rel` only when a source file has its name ([`compiler_may_write`]).
+fn may_build_bin(fs: &dyn FileSystem, package_setup: &PackageSetup, manifest: &Value, rel: &str) -> bool {
+    let build_scripts: Vec<Option<&str>> = manifest
         .get("scripts")
         .and_then(Value::as_object)
-        .is_some_and(|scripts| {
-            scripts.iter().any(|(name, script)| {
-                BUILD_SCRIPTS.contains(&name.as_str())
-                    || name.starts_with("build:")
-                    || script.as_str().is_some_and(script_builds_bin)
-            })
-        });
-    let builder = package_setup
+        .into_iter()
+        .flatten()
+        .filter(|(name, script)| {
+            BUILD_SCRIPTS.contains(&name.as_str())
+                || name.starts_with("build:")
+                || script.as_str().is_some_and(script_builds_bin)
+        })
+        .map(|(_, script)| script.as_str())
+        .collect();
+    let builders: Vec<&str> = package_setup
         .scripts
         .binaries
         .iter()
-        .any(|binary| BUILDERS.contains(&binary.name.as_str()));
+        .map(|binary| binary.name.as_str())
+        .filter(|name| BUILDERS.contains(name))
+        .collect();
     let bundler_config = package_setup.config_files.iter().any(|path| {
         path.file_name()
             .and_then(|name| name.to_str())
@@ -601,7 +646,17 @@ fn may_build_bin(fs: &dyn FileSystem, package_setup: &PackageSetup, manifest: &V
         .build_dirs
         .iter()
         .any(|build| build.out_dir == "bin" || build.out_dir.starts_with("bin/"));
-    build_script || builder || bundler_config || bin_build_dir
+    if bundler_config || bin_build_dir {
+        return true;
+    }
+    if build_scripts.is_empty() && builders.is_empty() {
+        return false;
+    }
+    let only_typescript = builders.iter().all(|name| TS_COMPILERS.contains(name))
+        && build_scripts
+            .iter()
+            .all(|script| script.is_some_and(only_compiles_typescript));
+    !only_typescript || compiler_may_write(fs, &package_setup.dir, rel)
 }
 
 /// The source paths behind `rel`, a package-relative path inside the output directory of one of the package's build
