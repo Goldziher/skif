@@ -1086,8 +1086,8 @@ fn an_alias_sharing_an_object_only_with_unchanged_bindings_is_followed() {
 }
 
 /// A `resolve` call (`require.resolve`, the function `createRequire` returns) a callback makes does not change the
-/// object it is called on, so options merged next to the result of the function that makes it stay known; a method that
-/// may change it still leaves them partly unknown.
+/// object it is called on, so options it shares with that object stay known; a method that may change it leaves them
+/// partly unknown, and options it does not share stay known.
 #[test]
 fn a_resolve_call_in_a_callback_changes_nothing_it_shares() {
     let value = extract(
@@ -1095,19 +1095,23 @@ fn a_resolve_call_in_a_callback_changes_nothing_it_shares() {
         "import { createRequire } from 'node:module';\n\
          const pin = (deps) => { const req = createRequire(deps); return deps.map((dep) => req.resolve(dep)); };\n\
          const hook = (deps) => { const req = createRequire(deps); return deps.map((dep) => req.register(dep)); };\n\
-         const make = (options = {}) => ({ test: { globals: true, ...options }, alias: pin([]) });\n\
-         const hooked = (options = {}) => ({ test: { globals: true, ...options }, alias: hook([]) });\n\
-         export default [make({ setupFiles: ['./setup.ts'] }), hooked({ setupFiles: ['./setup.ts'] })];",
+         const make = (options = {}) => ({ test: { globals: true, ...options }, alias: pin([options]) });\n\
+         const hooked = (options = {}) => ({ test: { globals: true, ...options }, alias: hook([options]) });\n\
+         const apart = (options = {}) => ({ test: { globals: true, ...options }, alias: hook([]) });\n\
+         export default [\n\
+           make({ setupFiles: ['./setup.ts'] }),\n\
+           hooked({ setupFiles: ['./setup.ts'] }),\n\
+           apart({ setupFiles: ['./setup.ts'] }),\n\
+         ];",
     );
     let configs = value.as_array().unwrap();
-    assert_eq!(
-        get(&configs[0], &["test"]),
-        &ConfigValue::Object(vec![
-            ("globals".to_owned(), ConfigValue::Bool(true)),
-            ("setupFiles".to_owned(), strings(&["./setup.ts"])),
-        ])
-    );
+    let known = ConfigValue::Object(vec![
+        ("globals".to_owned(), ConfigValue::Bool(true)),
+        ("setupFiles".to_owned(), strings(&["./setup.ts"])),
+    ]);
+    assert_eq!(get(&configs[0], &["test"]), &known, "{:?}", configs[0]);
     assert!(open(get(&configs[1], &["test"])), "{:?}", configs[1]);
+    assert_eq!(get(&configs[2], &["test"]), &known, "{:?}", configs[2]);
 }
 
 #[test]
