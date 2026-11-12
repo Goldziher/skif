@@ -3106,8 +3106,15 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// A call of a config combinator (`mergeConfig`, `defu`, `Object.assign`, `deepmerge`, `merge`): the merge of the
     /// object arguments. An argument that cannot be known contributes a `...` entry, so the known part still applies.
+    /// A merge given options that may say how it merges (`deepmerge`'s third argument, `mergeWith`'s customizer) is
+    /// unknown.
     fn merge_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
         let style = merge_style(&call.callee, self.bindings)?;
+        if takes_options(&call.callee, call.arguments.len()) {
+            // The arguments are still recorded, for the files they name ([`Self::unknown_call_arguments`]).
+            self.arguments(call, depth);
+            return Some(Value::Unknown);
+        }
         let mut merged: Option<Vec<(String, Value)>> = None;
         let expressions = call.arguments.iter().map(Argument::as_expression);
         let mut values: Vec<_> = self.arguments(call, depth).into_iter().zip(expressions).collect();
@@ -4189,6 +4196,21 @@ fn merge_style(callee: &Expression<'_>, bindings: &ModuleBindings) -> Option<Mer
             }
         }
         _ => None,
+    }
+}
+
+/// Whether a merge called with `count` arguments is given options that may say how it merges: a third argument of
+/// `deepmerge`, and any argument of `mergeWith`, whose last one may be a function that merges each key.
+fn takes_options(callee: &Expression<'_>, count: usize) -> bool {
+    let name = match callee.get_inner_expression() {
+        Expression::Identifier(id) => id.name.as_str(),
+        Expression::StaticMemberExpression(member) => member.property.name.as_str(),
+        _ => return false,
+    };
+    match name {
+        "deepmerge" | "deepMerge" => count > 2,
+        "mergeWith" => true,
+        _ => false,
     }
 }
 

@@ -149,7 +149,10 @@ All notable changes to this project are documented here. The format follows
   called over, a `const` list of strings included. An imported value the config changes (`base.build.outDir = 'out'`,
   `withPlugins(base)`, a write through a local holding it) is read as changed instead of as its module computes it.
   A `define…` helper changes nothing it is given only when it comes from a package, not from a module of the
-  project (`require('./tools')`, `#tools`, `@/tools`).
+  project (`require('./tools')`, `#tools`, `@/tools`). A merge given options that may hold a function
+  (`deepmerge(a, b, { arrayMerge })`), and an export of a merge package that is no copying merge (`deepmergeInto`,
+  `defuFn`, `mergeWithCustomize`), may change what it is given; the value of `deepmerge` given options and of
+  `mergeWith` is unknown, as they may merge any way.
 - **Config evaluation**: `.map`, `.flatMap` and `.filter` of a known array call their callback (an inline function,
   or one the config declares) with each element and its index, so Vitest projects spread from
   `` ['light', 'dark'].map((theme) => ({ test: { name: `browser-${theme}` } })) `` are known instead of leaving the

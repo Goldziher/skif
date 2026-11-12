@@ -3136,3 +3136,38 @@ fn a_define_helper_of_a_project_module_may_change_what_it_is_given() {
     );
     assert!(!open(&kept), "{kept:?}");
 }
+
+/// A merge that copies calls the functions its options hold (`deepmerge`'s `arrayMerge` and `customMerge`) with the
+/// objects it is given, so it may change them and build any value; an export of such a package that is no copying
+/// merge (`deepmergeInto`, `mergeWithCustomize`, `defuFn`) may change what it is given too.
+#[test]
+fn a_merge_calling_functions_it_is_given_may_change_its_arguments() {
+    let config = "const base = { plugins: ['a'] };\nconst extra = { plugins: ['b'] };";
+    for merge in [
+        "const deepmerge = require('deepmerge');\n\
+         const merged = deepmerge(base, extra, { arrayMerge: (target, source) => { target.push(...source); return target; } });",
+        "const deepmerge = require('deepmerge');\nconst options = { customMerge: () => grow };\nconst merged = deepmerge(base, extra, options);",
+        "const { deepmergeInto } = require('deepmerge-ts');\ndeepmergeInto(base, extra);",
+        "const { defuFn } = require('defu');\nconst merged = defuFn(base, extra);",
+        "const { mergeWithCustomize } = require('webpack-merge');\nconst merged = mergeWithCustomize(base)(extra);",
+    ] {
+        let source = format!("{config}\n{merge}\nmodule.exports = base;");
+        let value = extract("webpack.config.js", &source);
+        assert!(open(&value), "{source}: {value:?}");
+    }
+    let merged = extract(
+        "webpack.config.js",
+        "const deepmerge = require('deepmerge');\n\
+         module.exports = deepmerge({ plugins: ['a'] }, { plugins: ['b'] }, { arrayMerge: (target, source) => source });",
+    );
+    assert_ne!(get(&merged, &["plugins"]), &strings(&["a", "b"]), "{merged:?}");
+    assert!(merged.get("arrayMerge").is_none(), "{merged:?}");
+    let kept = extract(
+        "webpack.config.js",
+        "const deepmerge = require('deepmerge');\n\
+         const base = { plugins: ['a'] };\n\
+         const merged = deepmerge(base, { plugins: ['b'] }, { clone: true });\n\
+         module.exports = base;",
+    );
+    assert!(!open(&kept), "{kept:?}");
+}
