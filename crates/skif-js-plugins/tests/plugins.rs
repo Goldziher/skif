@@ -3596,6 +3596,30 @@ fn bun_reads_the_commands_and_entry_points_source_files_hand_to_its_api() {
     assert_absent(output(&results, "bun"), &["@types/bun", "bun-types"]);
 }
 
+/// An entry point of `Bun.build` that the calling file's location computes is relative to that file, not to the
+/// package.
+#[test]
+fn bun_build_entry_points_from_import_meta_dir_are_relative_to_the_file() {
+    let files = [
+        ("bun.lock", ""),
+        (
+            "scripts/build.ts",
+            r#"import path from "node:path";
+            await Bun.build({
+                entrypoints: [
+                    path.join(import.meta.dir, "worker.ts"),
+                    path.resolve(import.meta.dir, "../src/cli.ts"),
+                    "./src/app.ts",
+                ],
+            });"#,
+        ),
+    ];
+    let results = resolve(&files, &[]);
+    let mut production = output(&results, "bun").production_entries.clone();
+    production.sort();
+    assert_eq!(production, ["scripts/worker.ts", "src/app.ts", "src/cli.ts"]);
+}
+
 /// The sources of a member below a workspace root are the member's: the root reads none of its commands or entry
 /// points, and the member resolves a `bun run` of its own script against its own scripts.
 #[test]
