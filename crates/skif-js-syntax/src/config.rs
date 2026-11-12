@@ -3807,7 +3807,7 @@ fn edit_at(value: &mut Value, keys: &[String], edit: &Edit) {
                 .filter(|&at| entries[at].0 == *key);
             match found {
                 Some(at) => edit_at(&mut entries[at].1, rest, edit),
-                None => entries.push((UNKNOWN_SPREAD.to_owned(), Value::Unknown)),
+                None => open_entries(entries),
             }
         }
         other => taint_value(other),
@@ -3840,9 +3840,16 @@ fn insert_items(value: &mut Value, front: bool, items: &[Value]) {
 /// Leaves an object or array partly unknown: an object may have any other key and an array any other element.
 fn taint_value(value: &mut Value) {
     match value.definite_mut() {
-        Value::Object(entries) => entries.push((UNKNOWN_SPREAD.to_owned(), Value::Unknown)),
+        Value::Object(entries) => open_entries(entries),
         Value::Array(items) => items.push(Value::Unknown),
         _ => {}
+    }
+}
+
+/// Leaves the entries of an object open to any other key, once: a marker that already ends them says as much.
+fn open_entries(entries: &mut Vec<(String, Value)>) {
+    if entries.last().is_none_or(|(key, _)| key != UNKNOWN_SPREAD) {
+        entries.push((UNKNOWN_SPREAD.to_owned(), Value::Unknown));
     }
 }
 
@@ -4181,7 +4188,7 @@ impl<'a> Visit<'a> for Vars {
 fn changed(value: Value) -> Value {
     match value {
         Value::Object(mut entries) => {
-            entries.push((UNKNOWN_SPREAD.to_owned(), Value::Unknown));
+            open_entries(&mut entries);
             Value::Object(entries)
         }
         Value::Array(mut items) => {
