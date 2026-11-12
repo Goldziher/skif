@@ -88,7 +88,7 @@ expression: redact_version(&json.stdout)
       "category": "workspace",
       "default": "warning",
       "fixable": "none",
-      "summary": "A workspace member holds a `pnpm-workspace.yaml` of its own, so installs in that directory leave the workspace, or in a Bun workspace a `package.json` that declares `workspaces`, which Bun never installs."
+      "summary": "A workspace member holds a `pnpm-workspace.yaml` of its own, so installs in that directory leave the workspace, or in a Bun workspace a `package.json` that declares `workspaces`, which Bun never installs; or a member is a Bazel convenience link (`bazel-<name>`) a workspace pattern follows."
     },
     {
       "id": "local-path-dependency",
@@ -117,6 +117,20 @@ expression: redact_version(&json.stdout)
       "default": "error",
       "fixable": "none",
       "summary": "A member `package.json`, a workspace pattern or `.yarnrc.yml` cannot be read, so part of the workspace is not linted."
+    },
+    {
+      "id": "stale-lerna-config",
+      "category": "workspace",
+      "default": "warning",
+      "fixable": "none",
+      "summary": "`lerna.json` sets `useWorkspaces` or lacks `version`, which Lerna 7 and later reject, or a script runs `lerna bootstrap`, `lerna add` or `lerna link`, which Lerna 9 removed."
+    },
+    {
+      "id": "lerna-packages-mismatch",
+      "category": "workspace",
+      "default": "warning",
+      "fixable": "none",
+      "summary": "The `packages` of `lerna.json`, which Lerna reads before the package manager's workspaces, select other packages than the workspace declaration."
     },
     {
       "id": "version-mismatch",
@@ -214,7 +228,7 @@ expression: redact_version(&json.stdout)
       "category": "workspace",
       "default": "warning",
       "fixable": "none",
-      "summary": "Node and package-manager versions pinned in version files, Dockerfiles and CI workflows must match the root's."
+      "summary": "Node and package-manager versions pinned in version files, Dockerfiles, CI workflows and Bazel module files must match the root's."
     },
     {
       "id": "foreign-package-manager-command",

@@ -5,6 +5,49 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
 {
   "diagnostics": [
     {
+      "rule": "stale-lerna-config",
+      "severity": "warning",
+      "message": "`lerna.json` has no `version`, which Lerna 8 requires (`ENOVERSION`)",
+      "help": "set `version` to the release version of the packages, or to `\"independent\"`",
+      "location": {
+        "path": "lerna.json"
+      }
+    },
+    {
+      "rule": "lerna-packages-mismatch",
+      "severity": "warning",
+      "message": "`lerna.json` lists packages [`packages/a`], but the `workspaces` of `package.json` are [`packages/*`, `apps/*`, `docs`]: Lerna skips `packages/b`, `packages/broken`",
+      "help": "delete `packages` from `lerna.json` so Lerna follows the package manager's workspaces, or make both lists select the same packages",
+      "location": {
+        "path": "lerna.json",
+        "span": {
+          "start": 4,
+          "end": 30,
+          "start-line": 2,
+          "start-col": 3,
+          "end-line": 2,
+          "end-col": 29
+        }
+      }
+    },
+    {
+      "rule": "stale-lerna-config",
+      "severity": "warning",
+      "message": "`lerna.json` sets `useWorkspaces`, which Lerna 8 rejects (`ECONFIGWORKSPACES`)",
+      "help": "delete the key, as `lerna repair` does: Lerna 7 and later use the package manager's workspaces unless `packages` is set",
+      "location": {
+        "path": "lerna.json",
+        "span": {
+          "start": 34,
+          "end": 56,
+          "start-line": 3,
+          "start-col": 3,
+          "end-line": 3,
+          "end-col": 25
+        }
+      }
+    },
+    {
       "rule": "stale-patched-dependencies",
       "severity": "warning",
       "message": "skif reads `pnpm-lock.yaml` only; `package-lock.json` is not checked for the `patchedDependencies` entries",
@@ -265,11 +308,11 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
       "location": {
         "path": "package.json",
         "span": {
-          "start": 245,
-          "end": 261,
-          "start-line": 13,
+          "start": 268,
+          "end": 284,
+          "start-line": 14,
           "start-col": 7,
-          "end-line": 13,
+          "end-line": 14,
           "end-col": 23
         }
       },
@@ -604,7 +647,7 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
   ],
   "summary": {
     "errors": 8,
-    "warnings": 10,
+    "warnings": 13,
     "infos": 0,
     "fixable": 12,
     "packages": 3

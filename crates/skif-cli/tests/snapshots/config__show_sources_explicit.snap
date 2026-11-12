@@ -1,0 +1,7 @@
+---
+source: crates/skif-cli/tests/config.rs
+expression: "header.join(\"\\n\")"
+---
+# root: .
+# sources, in the order applied:
+#   1. ci.toml (explicit)

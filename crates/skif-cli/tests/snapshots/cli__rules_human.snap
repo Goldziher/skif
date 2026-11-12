@@ -14,11 +14,13 @@ unsorted-dependencies              manifest   error    safe       The entries of
 unmatched-workspace-patterns       workspace  warning  unsafe     A workspace pattern does not match any directory.
 missing-package-manifest           workspace  warning  unsafe     A directory matched by the workspace patterns has no `package.json`.
 stray-lockfile                     workspace  warning  unsafe     A lockfile other than the root lockfile of the package manager: one in a workspace member, another manager's at the root, or one its manager ignores next to the one it reads (Bun's `bun.lockb` beside `bun.lock`, npm's `package-lock.json` beside `npm-shrinkwrap.json`).
-nested-workspace-root              workspace  warning  none       A workspace member holds a `pnpm-workspace.yaml` of its own, so installs in that directory leave the workspace, or in a Bun workspace a `package.json` that declares `workspaces`, which Bun never installs.
+nested-workspace-root              workspace  warning  none       A workspace member holds a `pnpm-workspace.yaml` of its own, so installs in that directory leave the workspace, or in a Bun workspace a `package.json` that declares `workspaces`, which Bun never installs; or a member is a Bazel convenience link (`bazel-<name>`) a workspace pattern follows.
 local-path-dependency              manifest   error    sometimes  A dependency points at a path on disk (`link:`, `file:`, `portal:` or a relative path) instead of a registry or workspace version.
 package-json-format                manifest   off      sometimes  A `package.json` is not formatted as `[format]` describes: key order, sorted fields, `exports` conditions, shorthand `bugs` and `repository`, and the indent. The fix is unsafe when `sort-exports` reorders conditions other than `types` and `default`.
 stale-patched-dependencies         workspace  warning  none       A `patchedDependencies` entry no longer applies, names a missing file or lies outside the allowed paths, or a patch file is left over.
 invalid-workspace-file             workspace  error    none       A member `package.json`, a workspace pattern or `.yarnrc.yml` cannot be read, so part of the workspace is not linted.
+stale-lerna-config                 workspace  warning  none       `lerna.json` sets `useWorkspaces` or lacks `version`, which Lerna 7 and later reject, or a script runs `lerna bootstrap`, `lerna add` or `lerna link`, which Lerna 9 removed.
+lerna-packages-mismatch            workspace  warning  none       The `packages` of `lerna.json`, which Lerna reads before the package manager's workspaces, select other packages than the workspace declaration.
 version-mismatch                   policy     error    sometimes  A dependency instance differs from the version its version group requires (highest, lowest, pinned, local or snapped).
 banned-dependency                  policy     error    unsafe     A dependency is declared, or resolved by the lockfile, although a banned version group forbids it.
 semver-range-mismatch              policy     error    unsafe     A dependency uses a semver range other than the one its semver group requires.
@@ -32,7 +34,7 @@ unresolved-catalog-references      catalog    error    none       A `catalog:` s
 unused-catalog-entries             catalog    warning  unsafe     A catalog entry that no manifest references; reported only when `[catalog] report-unused-entries` is `true`.
 workspace-protocol                 policy     error    none       A dependency on a workspace package does not use the `workspace:` protocol.
 unsynced-dependency-family         policy     error    none       Members of a dependency family are on different versions in one package, or as resolved by the lockfile.
-toolchain-pin-drift                workspace  warning  none       Node and package-manager versions pinned in version files, Dockerfiles and CI workflows must match the root's.
+toolchain-pin-drift                workspace  warning  none       Node and package-manager versions pinned in version files, Dockerfiles, CI workflows and Bazel module files must match the root's.
 foreign-package-manager-command    workspace  warning  none       Dockerfiles, CI workflows and shell scripts must not run a package manager other than the workspace's.
 unused-dependencies                js         error    unsafe     A package in `dependencies` is never imported, required or run by a script; `optionalDependencies` are not checked.
 unused-dev-dependencies            js         warning  unsafe     A package in `devDependencies` is never imported, required or run by a script.

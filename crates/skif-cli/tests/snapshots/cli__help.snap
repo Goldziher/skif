@@ -12,7 +12,7 @@ Commands:
   schema         Print the JSON Schema of `skif.toml`
   init           Write a starter `skif.toml`; refuses to overwrite an existing configuration
   config         Show the configuration files a root is built from, the merged result, and where each key was set
-  explain-usage  Explain why the JavaScript analysis counts a file, or one export of it, as used
+  explain-usage  Explain why the JavaScript analysis counts a file, one export of it, or a dependency as used
   migrate        Translate the configuration of sherif, syncpack and knip into a `skif.toml`; never deletes a file
   baseline       Record the current findings as `[[ignore]]` entries in a baseline file, prune it, or fail when it grew
   update         Update dependencies to newer published versions from the npm registry; the only command that uses the network
@@ -151,7 +151,7 @@ Options:
           Keep the parse results of source files between runs, so a run parses only the files that changed. The cache never changes the report
 
       --cache-location <DIR>
-          The directory of the --cache store (default: `node_modules/.cache/skif` below the workspace root, or below the invocation directory of a multi-root run)
+          The directory of the --cache store (default: `node_modules/.cache/skif` below the workspace root, or below the invocation directory of a multi-root run; `$TEST_TMPDIR/skif` under `bazel test`)
 
       --trace-dependency <NAME>
           Instead of linting, print where this dependency is listed, every import of it and the packages that count it as used
