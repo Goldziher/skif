@@ -327,7 +327,7 @@ fn package_entries(inputs: &HintInputs<'_>) -> Vec<ConfigHint> {
                 continue;
             }
             if !path.starts_with(['.', '/'])
-                && package_name(&path).is_some_and(|name| package.dependencies.iter().any(|dep| dep.name == name))
+                && package_name(&path).is_some_and(|name| package.dependencies.iter().any(|dep| &*dep.name == name))
             {
                 continue;
             }

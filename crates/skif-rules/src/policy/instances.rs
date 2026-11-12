@@ -93,7 +93,7 @@ impl<'w> Instance<'w> {
             package,
             origin: Origin::Dependency(entry),
             ty: DependencyType::Section(entry.kind),
-            name: Cow::Borrowed(&entry.name),
+            name: Cow::Borrowed(&*entry.name),
             specifier: Arc::clone(&entry.parsed),
             is_local,
             catalog_owned,
@@ -231,8 +231,8 @@ impl<'w> Instances<'w> {
                 items.push(Instance::of_entry(
                     package,
                     entry,
-                    local_names.contains(entry.name.as_str()),
-                    owned.contains(entry.name.as_str()) && owned_by_catalog(entry),
+                    local_names.contains(&*entry.name),
+                    owned.contains(&*entry.name) && owned_by_catalog(entry),
                 ));
             }
             for found in fields::collect(workspace, package, custom, reading) {
@@ -277,7 +277,7 @@ impl<'w> Instances<'w> {
         }
         for item in &mut self.items {
             if let Origin::Dependency(entry) = item.origin {
-                item.catalog_owned = owned.contains(entry.name.as_str()) && owned_by_catalog(entry);
+                item.catalog_owned = owned.contains(&*entry.name) && owned_by_catalog(entry);
             }
         }
     }

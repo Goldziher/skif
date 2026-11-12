@@ -397,7 +397,7 @@ impl JsAnalysis<'_> {
                 package
                     .dependencies
                     .iter()
-                    .filter(|entry| entry.name == name)
+                    .filter(|entry| &*entry.name == name)
                     .map(move |entry| listing(package, entry))
             })
             .collect();
@@ -438,7 +438,7 @@ impl JsAnalysis<'_> {
             .filter(|(id, candidate)| match package {
                 Some(asked) => *id == asked,
                 None => {
-                    candidate.dependencies.iter().any(|entry| entry.name == name)
+                    candidate.dependencies.iter().any(|entry| &*entry.name == name)
                         || self.dependencies.uses(*id, name).is_some()
                 }
             })
@@ -460,7 +460,7 @@ impl JsAnalysis<'_> {
         imports: &[(ModuleId, DependencyImport)],
         counted: &BTreeSet<ModuleId>,
     ) -> PackageDependencyUsage {
-        let entry = package.dependencies.iter().find(|entry| entry.name == name);
+        let entry = package.dependencies.iter().find(|entry| &*entry.name == name);
         let credit = self.dependencies.credit(id, name);
         let verdict = match (&credit, entry) {
             (Some(_), _) => DependencyVerdict::Used,
@@ -574,7 +574,7 @@ fn listing(package: &Package, entry: &DependencyEntry) -> DependencyListing {
         package: label(package),
         manifest: slashed(&package.dir.join("package.json")),
         section: entry.kind.field(),
-        specifier: entry.specifier.clone(),
+        specifier: entry.specifier.to_string(),
     }
 }
 

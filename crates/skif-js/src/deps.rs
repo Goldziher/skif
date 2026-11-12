@@ -828,7 +828,9 @@ fn declared_typescript_major(workspace: &Workspace, package: &Package) -> Option
         package
             .dependencies
             .iter()
-            .filter(move |entry| entry.name == "typescript" && (entry.kind == DependencyKind::PeerDependencies) == peer)
+            .filter(move |entry| {
+                &*entry.name == "typescript" && (entry.kind == DependencyKind::PeerDependencies) == peer
+            })
     };
     let peer = typescript(false).next().is_none();
     typescript(peer)
@@ -1195,12 +1197,12 @@ impl DependencyUsage {
         let members: Vec<(PackageId, &Package)> = workspace.iter().collect();
         for &(id, package) in &members {
             for entry in &package.dependencies {
-                self.listed[id.index()].insert(entry.name.clone());
+                self.listed[id.index()].insert(entry.name.to_string());
                 if matches!(
                     entry.kind,
                     DependencyKind::Dependencies | DependencyKind::PeerDependencies
                 ) {
-                    self.production_listed[id.index()].insert(entry.name.clone());
+                    self.production_listed[id.index()].insert(entry.name.to_string());
                 }
             }
         }

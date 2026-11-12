@@ -65,7 +65,7 @@ fn lerna_major(cx: &LintContext<'_>) -> Option<u64> {
             .root_package()
             .dependencies
             .iter()
-            .find(|entry| entry.name == "lerna")
+            .find(|entry| &*entry.name == "lerna")
             .filter(|entry| !matches!(*entry.parsed, Specifier::Latest(_)))
             .and_then(|entry| entry.parsed.get_node_version())
             .map(|version| version.major())

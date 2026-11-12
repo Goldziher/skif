@@ -42,7 +42,7 @@ impl JsRule for UnusedOptionalPeerDependencies {
                     continue;
                 }
                 let installed = package.dependencies.iter().any(|entry| {
-                    entry.name == *name
+                    &*entry.name == name.as_str()
                         && matches!(
                             entry.kind,
                             DependencyKind::Dependencies
@@ -53,7 +53,7 @@ impl JsRule for UnusedOptionalPeerDependencies {
                 let Some(peer) = package
                     .dependencies
                     .iter()
-                    .find(|entry| entry.name == *name && entry.kind == DependencyKind::PeerDependencies)
+                    .find(|entry| &*entry.name == name.as_str() && entry.kind == DependencyKind::PeerDependencies)
                 else {
                     continue;
                 };

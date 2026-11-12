@@ -220,7 +220,7 @@ fn dev_engines_object_array_and_missing() {
 fn dependency_spans_in_fixture() {
     let workspace = discover("catalogs");
     let a = workspace.package_by_name("a").unwrap();
-    let entry = a.dependencies.iter().find(|d| d.name == "typescript").unwrap();
+    let entry = a.dependencies.iter().find(|d| &*d.name == "typescript").unwrap();
     let source = a.manifest.source();
     assert_eq!(
         &source[entry.value_span.start as usize..entry.value_span.end as usize],
