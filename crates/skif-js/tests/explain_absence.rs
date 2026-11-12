@@ -102,24 +102,29 @@ fn a_file_in_an_excluded_package() {
     assert_eq!(absence(&files, config, "packages/a/orphan.ts"), "package-excluded");
 }
 
-/// A discovered declaration file is an ambient entry, so it is in the graph and `declaration-file` is not reached
-/// for it; a declaration file Git ignores is not discovered.
+/// A discovered declaration file (`.d.ts`, `.d.mts`, `.d.cts`) is an ambient entry, so it is in the graph and
+/// `declaration-file` is not reached for it; a declaration file Git ignores is not discovered.
 #[test]
 fn a_declaration_file() {
-    let files = [
-        PACKAGE,
-        ("index.ts", "export const main = 1;\n"),
-        ("lib/types.d.ts", "export declare const x: number;\n"),
-        ("lib/generated.d.ts", "export declare const y: number;\n"),
-        (".gitignore", "lib/generated.d.ts\n"),
-    ];
-    let types = report(&files, "", "lib/types.d.ts");
-    assert_eq!(
-        (&types["in-graph"], &types["entry"]),
-        (&json!(true), &json!("entry-glob")),
-        "{types}"
-    );
-    assert_eq!(absence(&files, "", "lib/generated.d.ts"), "not-discovered");
+    for extension in ["d.ts", "d.mts", "d.cts"] {
+        let types_file = format!("lib/types.{extension}");
+        let generated_file = format!("lib/generated.{extension}");
+        let gitignore = format!("{generated_file}\n");
+        let files = [
+            PACKAGE,
+            ("index.ts", "export const main = 1;\n"),
+            (types_file.as_str(), "export declare const x: number;\n"),
+            (generated_file.as_str(), "export declare const y: number;\n"),
+            (".gitignore", gitignore.as_str()),
+        ];
+        let types = report(&files, "", &types_file);
+        assert_eq!(
+            (&types["in-graph"], &types["entry"]),
+            (&json!(true), &json!("entry-glob")),
+            "{types}"
+        );
+        assert_eq!(absence(&files, "", &generated_file), "not-discovered", "{extension}");
+    }
 }
 
 /// A root Playwright config whose `testDir` lies in a member package makes that member's tests entries; the reason

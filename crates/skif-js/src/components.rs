@@ -14,10 +14,11 @@
 use std::path::{Path, PathBuf};
 
 use skif_core::{FileSystem, Span};
-use skif_js_syntax::{ConfigValue, Import, ImportKind, ImportedKind, ImportedName, extract_imported_calls};
+use skif_js_syntax::{
+    ConfigValue, Import, ImportKind, ImportedKind, ImportedName, extract_imported_calls, is_declaration_file,
+};
 
 use crate::discover::{Candidate, relative};
-use crate::resolve::DECLARATION_SUFFIXES;
 use crate::setup::PackageSetup;
 
 /// The header `unplugin-vue-components` writes into the declaration files it generates.
@@ -49,7 +50,7 @@ pub(crate) struct Registered {
 /// header in the first 300 characters.
 pub(crate) fn is_generated(path: &Path, source: &str) -> bool {
     let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
-    if !DECLARATION_SUFFIXES.iter().any(|suffix| name.ends_with(suffix)) {
+    if !is_declaration_file(name) {
         return false;
     }
     let head = source.char_indices().nth(300).map_or(source, |(at, _)| &source[..at]);

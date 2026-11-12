@@ -120,6 +120,11 @@ All notable changes to this project are documented here. The format follows
   an unlisted import of it, because the package manager does not install an optional peer for its host. A required
   peer still does; crediting a listed dependency as a peer of a used one is unchanged
   ([#96](https://github.com/Goldziher/skif/issues/96)).
+- **JS**: `.d.mts` and `.d.cts` files are declaration files wherever `.d.ts` files are: a declaration file outside
+  the module graph is left out of `unused-files` and its `declare module` blocks name ambient modules, `explain-usage`
+  gives it the `declaration-file` absence, and the AWS CDK and Knex plugins skip it when scanning sources. Before,
+  those checks named `.d.ts` only. `skif-js-syntax` gains `is_declaration_file` and `DECLARATION_SUFFIXES`
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
 
 ### Changed
 

@@ -5,6 +5,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use skif_core::FileSystem;
+use skif_js_syntax::DECLARATION_SUFFIXES;
 
 /// The files that mark the root of a Bazel repository.
 pub const ROOT_FILES: [&str; 4] = ["MODULE.bazel", "REPO.bazel", "WORKSPACE.bazel", "WORKSPACE"];
@@ -114,7 +115,7 @@ impl DeclaredOutputs {
 
 /// `path` without the extension of its last segment; a declaration file loses `.d.ts` (`.d.mts`, `.d.cts`) whole.
 fn stem(path: &str) -> &str {
-    for declaration in [".d.ts", ".d.mts", ".d.cts"] {
+    for declaration in DECLARATION_SUFFIXES {
         if let Some(stem) = path.strip_suffix(declaration) {
             return stem;
         }

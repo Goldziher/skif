@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use serde_json::Value;
 use skif_core::{DependencyKind, FileSystem, Span};
 use skif_js_plugins::scripts::{ScriptContext, is_ignored_binary, parse_script};
-use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object, place_file_dir};
+use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object, is_declaration_file, place_file_dir};
 use skif_specifier::Specifier;
 use skif_workspace::{Package, PackageId, PackageManager, Workspace, map_ordered, npmrc_entries};
 
@@ -21,7 +21,7 @@ use crate::graph::{ModuleGraph, ModuleId, Target};
 use crate::hoisting::PublicHoisting;
 use crate::input::ConfigDependency;
 use crate::lockfile;
-use crate::resolve::{DECLARATION_SUFFIXES, is_installed};
+use crate::resolve::is_installed;
 use crate::scripts::{ScriptBinary, script_context};
 use crate::setup::{Setup, package_dirs, package_in_dir, placed_dir};
 use crate::specifier::{RUNTIME_PACKAGES, bin_link, package_name, typed_package, types_package};
@@ -318,13 +318,6 @@ struct ImportSite<'s> {
     type_only: bool,
     /// The importing file is a declaration file (`.d.ts`, `.d.mts`, `.d.cts`).
     declaration: bool,
-}
-
-/// Whether `path` is a TypeScript declaration file.
-fn is_declaration_file(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| DECLARATION_SUFFIXES.iter().any(|suffix| name.ends_with(suffix)))
 }
 
 /// An import of a package the manifest does not list.
@@ -1418,7 +1411,7 @@ impl DependencyUsage {
             if module.foreign || setup.package(module.owner).is_none() {
                 continue;
             }
-            let declaration = is_declaration_file(&module.abs);
+            let declaration = module.abs.to_str().is_some_and(is_declaration_file);
             self.via = Use::Import(module.id);
             for resolved in &module.imports {
                 if let Some(name) = &resolved.package {
