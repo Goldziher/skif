@@ -2429,9 +2429,10 @@ fn known(program: &Program<'_>, scoping: &Scoping, follows: &dyn Fn(&str) -> boo
         .iter()
         .copied()
         .filter(|&symbol| {
-            scoping.get_resolved_reference_ids(symbol).iter().all(|reference| {
-                !scoping.get_reference(*reference).is_value() || receivers.0.contains(reference)
-            })
+            scoping
+                .get_resolved_reference_ids(symbol)
+                .iter()
+                .all(|reference| !scoping.get_reference(*reference).is_value() || receivers.0.contains(reference))
         })
         .collect();
     known
@@ -2992,10 +2993,11 @@ fn pure_function(names: Names<'_>, call: &CallExpression<'_>) -> Option<Returns>
         .map(|&(_, _, returns)| returns)?;
     let calls_back = CALLING_PURE_FUNCTIONS.contains(&(object, name));
     let given_no_function = || {
-        call.arguments
-            .iter()
-            .skip(1)
-            .all(|argument| argument.as_expression().is_some_and(|value| holds_no_function(names, value)))
+        call.arguments.iter().skip(1).all(|argument| {
+            argument
+                .as_expression()
+                .is_some_and(|value| holds_no_function(names, value))
+        })
     };
     (!calls_back || given_no_function()).then_some(returns)
 }
