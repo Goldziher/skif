@@ -87,8 +87,10 @@ All notable changes to this project are documented here. The format follows
   options it is given known ([#166](https://github.com/Goldziher/skif/issues/166)).
 - **Config factories**: a change made through a `const` that takes a part of a local of the same function
   (`const { coverage } = config.test; coverage.enabled = true`) is applied to that part of the local, so the rest of
-  the config, and the options spread into it, stay known; a local with more than one such alias, or one shared with
-  another function, is still left partly unknown ([#166](https://github.com/Goldziher/skif/issues/166)).
+  the config, and the options spread into it, stay known; what else may hold that part (a list or object holding the
+  local, the options when they are read after the change, another key given the same object) is partly unknown where it
+  is read after the alias is declared, and a local with more than one such alias, or one shared with another function,
+  is still left partly unknown ([#166](https://github.com/Goldziher/skif/issues/166)).
 - **Config evaluation**: a call of a well-known function that changes nothing it is given (`path.join`,
   `fs.readFileSync`, `JSON.stringify`, `console.log`) no longer makes the config holding its result partly unknown,
   and a `const` holding a string or number shares no object with what it is given to; a literal `entry` next to
@@ -97,6 +99,37 @@ All notable changes to this project are documented here. The format follows
   `config.output.path = …`, `foo(config.module)`) leaves only that part unknown, also in what shares it (a local a
   function returns); `push` and `unshift` of a local list add their elements, and under a condition the evaluator
   cannot decide the part is one of its values before and after. A call that may change the whole config still leaves
+  all of it partly unknown. A write through one key also reaches another key of the same local that holds the same
+  object (`config.b = config.a; config.a.x = 1`). A spread of a local (`{ ...options }`) copies its keys: a change
+  below one of them reaches the copy at that key only, and a new value of a key of either leaves the other as it was.
+  A call of a function the config declares (`const r = set(config)`) shares with the config only what the function
+  may return of it, and a change through what a method returns (`config.plugins.find(…)`) reaches the object it is
+  called on. A function the config only calls by name takes each argument as its parameter,
+  apart from what it returns, so a value a call may change (`_.defaults({}, env)`) passed to a function that builds a
+  fresh config no longer leaves that config's `entry` unknown; one that returns its parameter, or stores it in what it
+  returns (`{ e: env }`, `config.x = env`), still shares it there, as do a getter, method or callback in what it
+  returns and a parameter's default (`b = a`). Configs exported side by side (`module.exports = [a(), b()]`) no
+  longer leave each other partly unknown.
+- **Config evaluation**: values code may change are no longer read as known. A call whose effect is not known (a
+  function the config or a library declares, a `new` of a class other than a builtin one) may change every object it
+  is given, in any position and through a spread, also when the call's result is used, and every local an object or
+  array literal it is given holds, at any depth (`kit.fill({ cfg: config })`, `foo([config])`); a spread of a local
+  there (`foo({ ...options })`) leaves all of the local partly unknown. A list or string method
+  (`push`, `concat`, `slice`) counts as changing only its object when that object is known to be a list or string, and
+  a well-known function (`path.join`, `JSON.stringify`) is known only where its name resolves to the module or global
+  that declares it, not a local of the same name. A change through an element of a list leaves every element open.
+  A loop name (`for (const rule of config.module.rules)`), a callback parameter (`rules.forEach((r) => …)`), a name a
+  destructuring assignment sets and a function assigned with `=` share with what they take, an alias of a local that
+  shares an object with a changed one is no longer applied to it, and a write in a class body leaves what it reaches
+  unknown. `define…` helpers of a library, copying merges (`webpack-merge`, `deepmerge`, `defu`, the `mergeConfig`
+  of Vite and Vitest), `createRequire` and the sources of `Object.assign` still change nothing they are given, the
+  helpers and merges keep none of their arguments in another, so a change of one argument
+  (`defineConfig({ test: { ...options }, resolve: { alias: aliases(pinCjs) } })`) leaves the others known, and a
+  callback over a `const` list of strings that no change reaches changes nothing in the list. A change through a value
+  spread from an object literal (`...(ci ? { plugins: list } : {})`) reaches only the key it is spread at, and a change
+  below a key the config neither has nor inherits leaves the config as it is; below an inherited key (`__proto__`,
+  `constructor`) it leaves the config partly unknown, and one below a key inherited from `{ __proto__: base }` reaches
+  `base`.
   all of it partly unknown. A call of a function the config declares (`const r = set(config)`) shares with the config
   only what the function may return of it, and a change through what a method returns (`config.plugins.find(…)`)
   reaches the object it is called on.
