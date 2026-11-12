@@ -1386,15 +1386,16 @@ impl<'a> Visit<'a> for Refs<'_> {
         for property in &it.properties {
             match property {
                 ObjectPropertyKind::ObjectProperty(p) => {
-                    match p
+                    // `__proto__: base` makes `base` the object's prototype, so a change of a key the object inherits
+                    // changes `base`, wherever the key is.
+                    let key = p
                         .key
                         .static_name()
                         .filter(|_| !p.method && p.kind == PropertyKind::Init)
-                    {
-                        Some(key) => {
-                            let key = crate::js_string(key.as_js_str());
-                            self.at_key(key, |refs| refs.visit_expression(&p.value));
-                        }
+                        .map(|key| crate::js_string(key.as_js_str()))
+                        .filter(|key| key != "__proto__");
+                    match key {
+                        Some(key) => self.at_key(key, |refs| refs.visit_expression(&p.value)),
                         None => self.opaque(|refs| {
                             refs.visit_property_key(&p.key);
                             refs.visit_expression(&p.value);

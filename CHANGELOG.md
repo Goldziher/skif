@@ -83,7 +83,9 @@ All notable changes to this project are documented here. The format follows
   of Vite and Vitest), `createRequire` and the sources of `Object.assign` still change nothing they are given, and a
   callback over a `const` list of strings that no change reaches changes nothing in the list. A change through a value
   spread from an object literal (`...(ci ? { plugins: list } : {})`) reaches only the key it is spread at, and a change
-  below a key the config does not have leaves the config as it is.
+  below a key the config neither has nor inherits leaves the config as it is; below an inherited key (`__proto__`,
+  `constructor`) it leaves the config partly unknown, and one below a key inherited from `{ __proto__: base }` reaches
+  `base`.
 
 ### Changed
 

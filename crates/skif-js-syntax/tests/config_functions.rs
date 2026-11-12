@@ -242,6 +242,9 @@ fn only_functions_imported_from_glob_packages_are_glob_calls() {
     assert_eq!(get(&value, &["entry"]), &ConfigValue::Unknown);
 }
 
+/// Member assignments to a local object are applied to it. A change below a key the object neither has nor inherits
+/// changes nothing, as the key is `undefined` and reaching below it throws; below a key an unknown spread may set, or
+/// one the object inherits (`__proto__`, `constructor`), it leaves the object partly unknown.
 #[test]
 fn member_assignments_to_a_local_object() {
     let value = extract(
@@ -249,12 +252,25 @@ fn member_assignments_to_a_local_object() {
         "module.exports = () => {\n  const config = { a: 1 };\n  config.b = 'x';\n  config.a = 2;\n  \
          config.plugins.push(1);\n  return config;\n};",
     );
-    assert_eq!(get(&value, &["a"]), &ConfigValue::Number(2.0));
-    assert_eq!(get(&value, &["b"]), &s("x"));
-    assert!(
-        value.has_unknown(),
-        "an unfollowed mutation leaves the object partly unknown"
+    assert_eq!(
+        value,
+        ConfigValue::Object(vec![
+            ("a".to_owned(), ConfigValue::Number(2.0)),
+            ("b".to_owned(), s("x")),
+        ])
     );
+    for (spread, change) in [
+        ("...libEntries()", "config.plugins.push(1)"),
+        ("", "config.__proto__.plugins = ['p']"),
+        ("", "config.constructor.prototype.plugins = ['p']"),
+    ] {
+        let source = format!(
+            "function libEntries() {{ return JSON.parse(process.env.ENTRIES ?? '{{}}'); }}\n\
+             module.exports = () => {{\n  const config = {{ a: 1, {spread} }};\n  {change};\n  return config;\n}};"
+        );
+        let value = extract("c.js", &source);
+        assert!(open(&value), "{source}: {value:?}");
+    }
 }
 
 #[test]
@@ -1379,6 +1395,19 @@ fn an_inherited_key_is_unknown_rather_than_undefined() {
         assert_eq!(value.get(key), Some(&ConfigValue::Unknown), "{key}: {value:?}");
     }
     assert_eq!(get(&value, &["missing"]), &s("fallback"));
+}
+
+/// An object literal's `__proto__` is its prototype, so a change of a key it inherits changes the object it inherits
+/// from, wherever that object is read.
+#[test]
+fn a_change_of_an_inherited_key_reaches_the_prototype() {
+    let value = extract(
+        "vite.config.ts",
+        "const base = { plugins: [] };\n\
+         const make = () => { const config = { __proto__: base }; config.plugins.push('p'); return base; };\n\
+         export default make();",
+    );
+    assert!(open(&value), "{value:?}");
 }
 
 /// A key merged from the branches of a spread whose test is unknown may be absent or hold any one of the values its
