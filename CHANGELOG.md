@@ -36,6 +36,13 @@ All notable changes to this project are documented here. The format follows
   `UnlistedBinary` gains `runs_in` (a `RunsIn`, exported); a struct literal of `UnlistedBinary` needs the new field.
 - `Report::ancestor_dependency_uses` also lists the dependencies of a project of its own below the root (a nested root)
   that provide a binary a command runs after `cd` into it, so `skif -r` counts them as used by that root.
+- **Performance**: the linters of a run read through the cache of root discovery, `yarn.lock` is read only as far
+  as its header, the claimed directories of an ancestor workspace are found without loading its members, and several
+  lookups use an index instead of a scan; the output is unchanged
+  ([#206](https://github.com/Goldziher/skif/issues/206)). The public API gains `FileSystem::read_prefix` (with a
+  default), `Workspace::claimed_dirs_with_fs`, `Selector::only_literals`, `Selector::literal_key`,
+  `Override::literal_packages` and `resolve_plugins_in` of `skif-js-plugins`; `RenderOptions::with_source` takes
+  `impl Into<Arc<str>>`.
 
 ### Fixed
 
