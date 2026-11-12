@@ -2480,7 +2480,10 @@ fn a_followed_alias_takes_the_local_as_it_is_where_it_is_declared() {
         &ConfigValue::Object(vec![("enabled".to_owned(), ConfigValue::Bool(true))]),
         "{value:?}"
     );
-    assert!(may_be_enabled(at(&value, &["list", "0", "test", "coverage"])), "{value:?}");
+    assert!(
+        may_be_enabled(at(&value, &["list", "0", "test", "coverage"])),
+        "{value:?}"
+    );
 }
 
 /// A spread of a local (`{ ...options }`) copies its own keys: a change below one of them reaches the copy at that key
