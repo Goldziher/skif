@@ -129,7 +129,7 @@ All notable changes to this project are documented here. The format follows
   spread, `for (k in E)`, passing, storing or returning `E`, `typeof E`, `keyof typeof E`, `` `${E}` `` in a template
   literal type) uses every member, as a whole use in another file does; `unused-enum-members` reported them all. A
   type annotation `x: E` still uses no member. skif now reports fewer enum members than knip in such files
-  ([ADR 0125](adrs/0125-a-whole-use-of-an-enum-in-its-own-file-uses-every-member.md)). `skif_js_syntax::Export` gains
+  ([ADR 0126](adrs/0126-a-whole-use-of-an-enum-in-its-own-file-uses-every-member.md)). `skif_js_syntax::Export` gains
   `used_whole_in_file`; the parse cache schema is raised.
 - **Bazel plugin**: a label of an enclosing package's `node_modules` (`"//adev:node_modules/diff"`) in a `BUILD` file of
   a nested package counts only for the package it names; the nested package's own listing of the dependency was used
@@ -146,7 +146,7 @@ All notable changes to this project are documented here. The format follows
   `explain-usage` no longer lists a whole use as a user of a type export. A file loaded with
   `new URL("./x", import.meta.url)` runs as a program of its own and keeps using every export, types included, as an
   entry does; `explain-usage` lists that import with the kind `url` instead of `require`
-  ([ADR 0124](adrs/0124-a-whole-use-of-a-module-object-uses-its-values-only.md)).
+  ([ADR 0125](adrs/0125-a-whole-use-of-a-module-object-uses-its-values-only.md)).
 - `DepRef` of `skif-js-plugins` gains `dir`, the directory a command loads the package in after `cd`, and `BinaryRef`
   gains `judged`, false for a binary that is only a credit; a struct literal of `DepRef` needs the new field.
   `PluginOutput::referenced_binaries` leaves out the binaries a command runs in another directory, which

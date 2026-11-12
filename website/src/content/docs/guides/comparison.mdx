@@ -293,7 +293,7 @@ export and none of the module's interfaces and type aliases: those stay used whe
 when the importer exports the namespace itself (`export default ns`, `export = ns`), and are reported by
 `unused-types` otherwise. A file loaded with `new URL("./x", import.meta.url)` is no module object but a program of its
 own, so it keeps every export used, as an entry does
-([ADR 0124](https://github.com/Goldziher/skif/blob/main/adrs/0124-a-whole-use-of-a-module-object-uses-its-values-only.md)).
+([ADR 0125](https://github.com/Goldziher/skif/blob/main/adrs/0125-a-whole-use-of-a-module-object-uses-its-values-only.md)).
 knip reports such types only under `nsTypes`, which is off by default, and not at all for a spread or an `import()`.
 
 knip merges the tsconfig `paths` of every workspace, so an import that only another package's `paths` map resolves
