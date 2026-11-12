@@ -30,6 +30,15 @@ pub(crate) fn syncpack_rules(condition: &str) -> Vec<&'static str> {
         .collect()
 }
 
+/// The skif rules knip only runs with its option `option` (`include-subpath-exports`), beyond those of its issue
+/// types.
+pub(crate) fn knip_option_rules(option: &str) -> Vec<&'static str> {
+    rows(TOOL_RULES)
+        .filter(|row| row[1] == "knip" && row[2] == option)
+        .map(|row| row[0])
+        .collect()
+}
+
 /// A knip issue type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct KnipType {
@@ -116,7 +125,7 @@ mod tests {
         covered.extend(knip_types().into_iter().flat_map(|knip| knip.rules));
         covered.extend(
             rows(TOOL_RULES)
-                .filter(|row| matches!(row[1], "syncpack" | "sherif"))
+                .filter(|row| matches!(row[1], "syncpack" | "sherif" | "knip"))
                 .map(|row| row[0]),
         );
         covered
@@ -163,6 +172,14 @@ mod tests {
         assert!(sherif_rules().contains(&"invalid-workspace-file"));
         assert_eq!(sherif_rule("unordered-dependencies"), Some("unsorted-dependencies"));
         assert_eq!(sherif_rule("nope"), None);
+    }
+
+    #[test]
+    fn knip_runs_the_subpath_export_rule_only_with_include_subpath_exports() {
+        assert_eq!(knip_option_rules("include-subpath-exports"), ["unused-subpath-exports"]);
+        let subpaths = knip_types().into_iter().find(|knip| knip.name == "subpaths").unwrap();
+        assert_eq!(subpaths.rules, ["unused-subpath-imports"]);
+        assert!(subpaths.default);
     }
 
     #[test]
