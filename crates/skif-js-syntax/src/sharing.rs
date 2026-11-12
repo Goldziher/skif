@@ -28,12 +28,12 @@ use oxc_ast::ast::{
     Argument, ArrayExpression, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator, AssignmentPattern,
     AssignmentTarget, AssignmentTargetMaybeDefault, AssignmentTargetPattern, AssignmentTargetProperty,
     AssignmentTargetPropertyIdentifier, BindingIdentifier, BindingPattern, CallExpression, ChainExpression, Class,
-    ComputedMemberExpression, Declaration, ExportDeclaration, Expression, ExpressionStatement, ForOfStatement,
-    ForStatementLeft, FormalParameter, FormalParameters, Function,
+    ComputedMemberExpression, Declaration, DoWhileStatement, ExportDeclaration, Expression, ExpressionStatement,
+    ForInStatement, ForOfStatement, ForStatement, ForStatementLeft, FormalParameter, FormalParameters, Function,
     IdentifierReference, ImportDeclaration, ImportDeclarationSpecifier, MemberExpression, NewExpression,
     ObjectExpression, ObjectPropertyKind, PrivateFieldExpression, Program, PropertyKind, ReturnStatement,
     SimpleAssignmentTarget, StaticMemberExpression, TaggedTemplateExpression, UnaryExpression, UnaryOperator,
-    VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
+    VariableDeclaration, VariableDeclarationKind, VariableDeclarator, WhileStatement,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::{ReferenceId, ScopeFlags, ScopeId, Scoping, SemanticBuilder, SymbolId};
@@ -125,8 +125,9 @@ pub(crate) struct Unstable {
     pure: HashSet<Span>,
     /// What the calls the pass knows do to the objects they are given, by span; any other may change them.
     effects: HashMap<Span, Effect>,
-    /// The references that are the only one of a binding no other module can read, unless the module reads
-    /// `arguments` or calls `eval`, which reach bindings without one.
+    /// The references that are the only one of a binding no other module can read and that are read once per binding:
+    /// not in a loop, nor in a function other than the binding's own. None when the module reads `arguments` or calls
+    /// `eval`, which reach bindings without a reference.
     sole: HashSet<ReferenceId>,
 }
 
@@ -154,6 +155,8 @@ impl Unstable {
             effects: HashMap::default(),
             exported: HashSet::default(),
             dynamic: false,
+            loops: 0,
+            repeated: HashSet::default(),
             functions: vec![scoping.root_scope_id()],
             links: Vec::new(),
             mutated: Vec::new(),
@@ -168,7 +171,7 @@ impl Unstable {
         let sole = if sharing.dynamic {
             HashSet::default()
         } else {
-            sole_references(scoping, &sharing.exported)
+            sole_references(scoping, &sharing.exported, &sharing.repeated)
         };
         let mut unstable = Self {
             followed,
@@ -235,13 +238,18 @@ impl Unstable {
 }
 
 /// The references that are the only one of their binding, other than of a binding a module exports by declaring it
-/// (`export const config = …`), which another module may read.
-fn sole_references(scoping: &Scoping, exported: &HashSet<SymbolId>) -> HashSet<ReferenceId> {
+/// (`export const config = …`), which another module may read, and other than those of `repeated`, which may be read
+/// more than once.
+fn sole_references(
+    scoping: &Scoping,
+    exported: &HashSet<SymbolId>,
+    repeated: &HashSet<ReferenceId>,
+) -> HashSet<ReferenceId> {
     scoping
         .symbol_ids()
         .filter(|symbol| !exported.contains(symbol))
         .filter_map(|symbol| match scoping.get_resolved_reference_ids(symbol) {
-            [only] => Some(*only),
+            [only] if !repeated.contains(only) => Some(*only),
             _ => None,
         })
         .collect()
@@ -293,6 +301,11 @@ struct Sharing<'s> {
     exported: HashSet<SymbolId>,
     /// Whether the module reads `arguments` or calls `eval`.
     dynamic: bool,
+    /// How many loops the code being visited is in.
+    loops: usize,
+    /// The references that may be read more than once for one binding: in a loop, or in a function other than the
+    /// binding's own.
+    repeated: HashSet<ReferenceId>,
     /// The scopes of the functions being visited, the module's first.
     functions: Vec<ScopeId>,
     /// Places that may hold the same object.
@@ -395,6 +408,13 @@ impl Sharing<'_> {
         if let Some((place, _)) = self.place(expr) {
             self.changed(place.symbol, Write::contents(place.keys));
         }
+    }
+
+    /// Visits what `visit` visits as code in a loop.
+    fn in_loop(&mut self, visit: impl FnOnce(&mut Self)) {
+        self.loops += 1;
+        visit(self);
+        self.loops -= 1;
     }
 
     /// Records a change of each object a call is given, and of what a spread argument holds.
@@ -958,7 +978,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
                 }
             }
         }
-        walk::walk_for_of_statement(self, it);
+        self.in_loop(|sharing| walk::walk_for_of_statement(sharing, it));
     }
 
     fn visit_formal_parameter(&mut self, it: &FormalParameter<'a>) {
@@ -1105,6 +1125,30 @@ impl<'a> Visit<'a> for Sharing<'_> {
 
     fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
         self.dynamic |= matches!(it.name.as_str(), "arguments" | "eval");
+        let elsewhere = self
+            .symbol(it)
+            .is_some_and(|symbol| self.functions.last() != Some(&self.function_of(symbol)));
+        if (self.loops > 0 || elsewhere)
+            && let Some(reference) = it.reference_id.get()
+        {
+            self.repeated.insert(reference);
+        }
+    }
+
+    fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
+        self.in_loop(|sharing| walk::walk_for_statement(sharing, it));
+    }
+
+    fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
+        self.in_loop(|sharing| walk::walk_for_in_statement(sharing, it));
+    }
+
+    fn visit_while_statement(&mut self, it: &WhileStatement<'a>) {
+        self.in_loop(|sharing| walk::walk_while_statement(sharing, it));
+    }
+
+    fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
+        self.in_loop(|sharing| walk::walk_do_while_statement(sharing, it));
     }
 }
 
