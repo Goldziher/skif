@@ -36,6 +36,17 @@ All notable changes to this project are documented here. The format follows
   `UnlistedBinary` gains `runs_in` (a `RunsIn`, exported); a struct literal of `UnlistedBinary` needs the new field.
 - `Report::ancestor_dependency_uses` also lists the dependencies of a project of its own below the root (a nested root)
   that provide a binary a command runs after `cd` into it, so `skif -r` counts them as used by that root.
+- Under `[js] discovery = "git"` the toolchain scan (version files, Dockerfiles, shell scripts, workflows and the
+  `files` globs) and the search of `stray-lockfile` for Bazel `BUILD` files and Dockerfiles beside a lockfile list
+  directories from the git index, as the JS discovery does, instead of walking them; `auto` and `walk` walk as before
+  ([ADR 0121](adrs/0121-one-git-index-listing-for-every-provider.md),
+  [#200](https://github.com/Goldziher/skif/issues/200)).
+- The git index reader moves from `skif-js` to `skif-workspace`, which exports `TrackedFiles` (with `read` and
+  `for_discovery`), `IndexedFs<F>` (generic over the wrapped file system), `IndexCache`, `git_dirs` and
+  `git_common_dir`. `skif-lint` gains `LintContext::tracked_files`, `LintContext::listing_fs`,
+  `LintContext::index_cache` and `RunOptions::with_index_cache`; the JS provider reads the index through the run's
+  cache when the host passes one, and the `skif` facade's `Linter` does, so a run parses the index once
+  ([ADR 0121](adrs/0121-one-git-index-listing-for-every-provider.md)).
 
 ### Fixed
 
