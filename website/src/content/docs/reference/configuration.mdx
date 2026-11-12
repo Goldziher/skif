@@ -1063,7 +1063,8 @@ stays known; `push` and `unshift` of a local list add their elements. An object 
 function the config declares shares with what it is given only what the function may return of it: a fresh object
 it builds shares nothing with its arguments, unless the function is used other than by calling it by name, calls
 itself or reads `arguments`; a getter, method or callback in what it returns shares what that returns, and a
-parameter shares its default (`b = a`). What a method returns (`config.plugins.find(…)`, `list.slice()`) may be a part of the
+parameter shares its default (`b = a`); a key set on what a function that calls itself returns (`last(config).b = 2`)
+is unknown in the config, and the rest of it stays known. What a method returns (`config.plugins.find(…)`, `list.slice()`) may be a part of the
 object it is called on. A `const` of a function that takes a local of that function,
 or a static part of it (`const { coverage } = config.test`), is followed instead when it is the only such name for the
 local and no other function shares either: a change through it is applied to that part of the local, so
