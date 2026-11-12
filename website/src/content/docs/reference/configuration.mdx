@@ -1153,7 +1153,8 @@ assignment sets and a function assigned with `=` share with what they take, exce
 is shared at the key it is spread at only; a write through one key reaches another key of the same local that holds
 the same object (`config.b = config.a`); a spread of a local (`{ ...options }`) copies its keys, so a change below
 one of them (`options.coverage.enabled = true`) reaches the copy at that key only, and a new value of a key of either
-leaves the other as it was; and a write in a class body leaves what it reaches unknown. A key a plugin reads files from that is unknown below
+leaves the other as it was; a write in a class body leaves what it reaches unknown; and the object of a `with`
+statement is partly unknown after it. A key a plugin reads files from that is unknown below
 the top level, such as vitest's `setupFiles: isPostgres ? [...] : []` or a `test` object an unknown spread may replace,
 leaves the plugin's entries incomplete instead of being read as empty.
 

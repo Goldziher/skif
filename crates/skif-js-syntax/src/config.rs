@@ -950,6 +950,7 @@ fn top_level<'p, 'a>(program: &'p Program<'a>) -> TopLevel<'p, 'a> {
             | Statement::SwitchStatement(_)
             | Statement::TryStatement(_)
             | Statement::LabeledStatement(_)
+            | Statement::WithStatement(_)
             | Statement::VariableDeclaration(_)
             | Statement::ExportNamedDeclaration(_)
             | Statement::ExportDefaultDeclaration(_) => Some(Writes::of_statement(stmt, &unstable)),
@@ -4497,6 +4498,12 @@ impl<'a> Visit<'a> for Writes<'_> {
             self.arguments(call.span, &call.arguments, true);
         }
         walk::walk_expression_statement(self, it);
+    }
+
+    fn visit_with_statement(&mut self, it: &oxc_ast::ast::WithStatement<'a>) {
+        // A name the body writes may be a key of the object.
+        self.object(&it.object);
+        walk::walk_with_statement(self, it);
     }
 
     fn visit_function(&mut self, _: &Function<'a>, _: oxc_semantic::ScopeFlags) {}

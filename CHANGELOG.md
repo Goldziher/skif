@@ -152,7 +152,7 @@ All notable changes to this project are documented here. The format follows
   project (`require('./tools')`, `#tools`, `@/tools`). A merge given options that may hold a function
   (`deepmerge(a, b, { arrayMerge })`), and an export of a merge package that is no copying merge (`deepmergeInto`,
   `defuFn`, `mergeWithCustomize`), may change what it is given; the value of `deepmerge` given options and of
-  `mergeWith` is unknown, as they may merge any way.
+  `mergeWith` is unknown, as they may merge any way. The object of a `with` statement is partly unknown after it.
 - **Config evaluation**: `.map`, `.flatMap` and `.filter` of a known array call their callback (an inline function,
   or one the config declares) with each element and its index, so Vitest projects spread from
   `` ['light', 'dark'].map((theme) => ({ test: { name: `browser-${theme}` } })) `` are known instead of leaving the

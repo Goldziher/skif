@@ -55,6 +55,7 @@ use oxc_ast::ast::{
     MemberExpression, NewExpression, ObjectExpression, ObjectPropertyKind, PrivateFieldExpression, Program,
     PropertyKind, ReturnStatement, SimpleAssignmentTarget, StaticMemberExpression, TaggedTemplateExpression,
     UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind, VariableDeclarator, WhileStatement,
+    WithStatement,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::{ReferenceId, ScopeFlags, ScopeId, Scoping, SemanticBuilder, SymbolId};
@@ -162,7 +163,8 @@ pub(crate) struct Unstable {
     namespaces: HashSet<String>,
     /// The references that are the only one of a binding no other module can read and that are read once per binding:
     /// not in a loop, nor in a function other than the binding's own, and not of an alias the evaluator follows. None
-    /// when the module reads `arguments` or calls `eval`, which reach bindings without a reference.
+    /// when the module reads `arguments`, calls `eval` or has a `with` statement, which reach bindings without a
+    /// reference.
     sole: HashSet<ReferenceId>,
 }
 
@@ -421,7 +423,8 @@ struct Sharing<'s> {
     called_values: HashSet<Span>,
     /// The bindings the module exports by declaring them.
     exported: HashSet<SymbolId>,
-    /// Whether the module reads `arguments` or calls `eval`.
+    /// Whether the module reads `arguments`, calls `eval` or has a `with` statement, which reach bindings without a
+    /// reference.
     dynamic: bool,
     /// How many loops the code being visited is in.
     loops: usize,
@@ -1042,7 +1045,7 @@ impl Sharing<'_> {
     /// Links the parameters of the callbacks given to a method of one of [`Self::primitive_lists`] to that list when a
     /// change may reach it, until no more is linked: its elements may then be objects that a change of a parameter
     /// changes. Each alias counts as linked to the local it takes a part of, as which the evaluator follows is not
-    /// known yet. In a module that calls `eval` or reads `arguments`, every such link is made.
+    /// known yet. In a module that calls `eval`, reads `arguments` or has a `with` statement, every such link is made.
     fn link_elements(&mut self) {
         let mut pending = std::mem::take(&mut self.element_links);
         if self.dynamic {
@@ -1561,6 +1564,13 @@ impl<'a> Visit<'a> for Sharing<'_> {
 
     fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
         self.in_loop(|sharing| walk::walk_for_statement(sharing, it));
+    }
+
+    fn visit_with_statement(&mut self, it: &WithStatement<'a>) {
+        // A name the body reads or writes may be a key of the object.
+        self.dynamic = true;
+        self.mutate(&it.object);
+        walk::walk_with_statement(self, it);
     }
 
     fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
