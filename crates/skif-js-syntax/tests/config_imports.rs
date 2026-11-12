@@ -1147,3 +1147,70 @@ fn a_call_of_an_alias_the_loader_does_not_follow_changes_the_imported_values() {
         }
     }
 }
+
+/// A module that hands out a function of a followed module that changes a value of a module, or of a bare import
+/// neither followed nor installed (exporting it, as its default or inside an exported value), changes them when the
+/// config calls that function through it; one that hands out a function changing nothing, and imports such a function
+/// without using it, leaves them known.
+#[test]
+fn a_barrel_that_exports_an_imported_changing_function_changes_the_imported_values() {
+    let tweaking = "import base from './base';\nexport function tweak() { base.build.outDir = 'out'; }";
+    for (import, barrel, call) in [
+        (
+            "import { tweak } from './barrel';",
+            "import { tweak } from './tweak';\nexport { tweak };",
+            "tweak();",
+        ),
+        (
+            "import tweak from './barrel';",
+            "import { tweak } from './tweak';\nexport default tweak;",
+            "tweak();",
+        ),
+        (
+            "import { tools } from './barrel';",
+            "import { tweak } from './tweak';\nexport const tools = { tweak };",
+            "tools.tweak();",
+        ),
+        (
+            "import { tweak } from './barrel';",
+            "import { tweak } from '@app/tweak';\nexport { tweak };",
+            "tweak();",
+        ),
+    ] {
+        let config = format!("import base from './base';\n{import}\n{call}\nexport default base;");
+        let loader = files(&[
+            ("/ws/app/config.ts", &*Box::leak(config.into_boxed_str())),
+            (
+                "/ws/app/base.ts",
+                "export default { root: 'src', build: { outDir: 'dist' } };",
+            ),
+            ("/ws/app/tweak.ts", tweaking),
+            ("/ws/app/barrel.ts", barrel),
+        ]);
+        let value = eval(&loader);
+        assert_eq!(
+            read_at(&value, &["build", "outDir"]),
+            &ConfigValue::Unknown,
+            "{barrel}: {value:?}"
+        );
+    }
+    let loader = files(&[
+        (
+            "/ws/app/config.ts",
+            "import base from './base';\nimport { name } from './barrel';\nexport default { ...base, name: name() };",
+        ),
+        (
+            "/ws/app/base.ts",
+            "export default { root: 'src', build: { outDir: 'dist' } };",
+        ),
+        ("/ws/app/name.ts", "export function name() { return 'app'; }"),
+        (
+            "/ws/app/barrel.ts",
+            "import { name } from './name';\nimport { tweak } from './tweak';\nexport { name };",
+        ),
+        ("/ws/app/tweak.ts", tweaking),
+    ]);
+    let value = eval(&loader);
+    assert_eq!(read_at(&value, &["build", "outDir"]), &s("dist"), "{value:?}");
+    assert_eq!(read_at(&value, &["name"]), &s("app"), "{value:?}");
+}
