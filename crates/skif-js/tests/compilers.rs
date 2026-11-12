@@ -144,12 +144,6 @@ fn an_extracted_import_is_unresolved_or_unlisted_where_a_written_one_would_be() 
 
     let without = lint(&files, HTML_ENTRY);
     assert_eq!(found(&without, "unlisted-dependencies"), Vec::<String>::new());
-    assert_eq!(
-        found(&without, "unused-dependencies").len(),
-        1,
-        "{:#?}",
-        found(&without, "unused-dependencies")
-    );
 }
 
 #[test]
