@@ -1086,21 +1086,35 @@ it, at the top level or in a function) is read as changed, as a local is; a meth
 (`shared.make()`) is taken to change nothing of it. A change through one import of a module reaches its other
 imports (`ns.default` and the default import, two exports that may be one object), and imported values of other
 modules too, as one may hold another, and so may what a function imported from such a module returns
-(`getBase()`). Calling a function of a project module or a workspace package that changes a value of a module (an
-import of its own, a binding it exports, also through a function of another module it calls, through what the
-function keeps for every call, such as `f.cache = base`, `add.bind(null, base)` or what a generator or `async`
-function made when the module is loaded was given, and through `this` or `super`), or that the module re-exports
-from such a module or from one that is neither followed nor installed (`export { tweak } from "./tweak"`,
-`export * from "./tools"`), and importing or requiring a module for its effects only (`import "./setup"`), leaves
-every value imported from such modules partly unknown; a module whose functions change no such value (a factory that
-builds and returns a new config) leaves them known. What a module imported for
-its values does when it is loaded is not followed. A `define…` call (`defineConfig({ … })`) is the value it is
+(`getBase()`), unless the function builds and returns new objects: a change of what such a factory returns
+(`config.test.setupFiles.push("./setup.ts")` after `const config = createVitestConfig(options)`) leaves only that part
+partly unknown, and reaches a value of the factory's module only at a place of the result that may hold one. Calling a
+function of a project module or a workspace package that changes a value of a module (an import of its own, a binding
+it exports, also through a function of another module it calls, through what the function keeps for every call, such
+as `f.cache = base`, `add.bind(null, base)` or what a generator or `async` function made when the module is loaded was
+given, and through `this` or `super` where that may be such a value, a binding taking what `this` holds included), or
+that the module re-exports or hands out from such a module or from one that is neither followed nor installed
+(`export { tweak } from "./tweak"`, `export * from "./tools"`, `import { tweak } from "./tweak"; export { tweak }`,
+`export const tools = { tweak }`), calling a function of a bare import that is neither followed nor installed (a
+`tsconfig` alias such as `@app/setup`), and importing or requiring a module for its effects only (`import "./setup"`),
+leaves every value imported from such modules partly unknown; a module whose functions change no such value (a
+factory that builds and returns a new config) leaves them known, as does a re-export of a file that holds no code (a
+declaration file, JSON, a stylesheet, an asset). `this` is no value of a module in a constructor or a field
+initialiser giving the new instance a key (`this.options = options`), in a method of a class no code the module runs
+when it is loaded constructs, and in a method of an object a call makes, such as the hooks of a Vite or Rollup plugin
+a factory returns (`load(id) { this.addWatchFile(id); }`); it may be one in a method of an object the module makes
+when it is loaded, in a static method, in a function the module hands out or binds (`add.bind(base)`), and in any
+method of a module that calls one on another object (`call`, `apply`, `bind` given an object, a read of a
+prototype). What a module imported for its values does when it is loaded is not followed. A `define…` call (`defineConfig({ … })`) is the value it is
 given, and a merge (`mergeConfig`, `merge`, `Object.assign`) the merge of what it is given, only when its name is a
 global or comes from an installed package the evaluator does not follow; one from a module, a workspace package or a
 `tsconfig` alias of the project (`@app/tools`) it cannot follow, or a function the config takes from an object it
 declares (`const { defineProperty } = Object`), is unknown. A bare specifier counts as an installed package when it
-names no workspace package and a `node_modules` directory at or above the config holds it, or, in a project with no
-`node_modules` directory there at all, whenever it names no workspace package.
+names no workspace package and a `node_modules` directory at or above the config holds it, or, in a project whose
+`node_modules` directories from the config up to the workspace root hold no package (none at all, or only the caches
+of tools such as `.vite` and `.cache`), whenever it names no workspace package. Under Yarn Plug'n'Play (a `.pnp.cjs`
+or `.pnp.loader.mjs` at the workspace root), a dependency the package holding the config or the root declares from a
+registry is installed, and no other name is.
 A member of a known object is the value of its key: `{ ...base, plugins: [...base.plugins, "x"] }` keeps the plugins of
 the imported `base`, which are judged against the package that owns the module naming them, while `"x"` belongs to the
 importing config. An optional member (`base?.plugins`, `undefined` when `base` is `null` or `undefined`) and a computed

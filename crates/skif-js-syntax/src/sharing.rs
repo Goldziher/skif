@@ -409,8 +409,9 @@ impl Unstable {
 
     /// Whether a function of the module may change a value of a module when it is called: code in a function writes
     /// to, or gives a call that may change it, a top-level binding, an import, an object one of them may hold or what
-    /// `this` or `super` is there ([`Sharing::writes_modules`]), or the module calls a function of a module that may ([`Imports::changes_modules`])
-    /// or whose code is not known (a bare import neither followed nor installed), imports one for its effects, or hands
+    /// `this` or `super` is there where that may be such a value, unlike the instance a constructor makes or the hooks
+    /// object a plugin factory returns ([`Sharing::writes_modules`]), or the module calls a function of a module that
+    /// may ([`Imports::changes_modules`]) or whose code is not known (a bare import neither followed nor installed), imports one for its effects, or hands
     /// out a binding of a package whose code is not known other than by calling it ([`Sharing::exposed`]). A function
     /// that builds and returns new objects changes none, whatever it does to them or to what its parameters take,
     /// which a call gives it. A binding of a followed module the module hands out so changes modules when that module
