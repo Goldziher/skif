@@ -221,7 +221,11 @@ compared: their key names the member, not the export an import reads.
 
 **Labels.** `exports`, `types`, `nsExports` and `nsTypes` key the same `<file>|<name>`, and the tools label some
 differently: knip calls a `const enum` a type and files an export under `nsExports` when any importer uses a namespace,
-skif when all do. A skif finding knip has under another of these labels counts as shared, under knip's label.
+skif when all do. A skif finding knip has under another of these labels counts as shared, under knip's label. In the
+same way an import only skif reports in `unlisted` that knip reports in `unresolved` on the same file, or the
+reverse, counts as shared under knip's category and key: a tsconfig `types` entry or `importHelpers` is a package no
+manifest lists for skif and a module knip cannot resolve. The two keys pair when they name the same package, a
+specifier with a subpath (`vite/client`) pairing with its package (`vite`).
 
 **Known deviations.** Findings on one side below a path in a repository's `knip-unread` list are the `knip-unread`
 deviation: knip reads no files there, as npm's deny-all `.gitignore` hides its workspaces, so it reports every

@@ -483,6 +483,47 @@ fn align_export_labels(skif: &mut Keys, knip: &Keys) {
     }
 }
 
+/// Moves each finding only skif reports in `unlisted` or `unresolved` that knip reports in the other of the two, on the
+/// same file and package, to knip's category and key, so it counts as agreement: both tools report the import (a
+/// tsconfig `types` entry, `importHelpers`), skif as a package no manifest lists and knip as a module it cannot
+/// resolve, or the reverse. A specifier with a subpath (`vite/client`) pairs with its package (`vite`); each knip
+/// finding pairs with one skif finding at most.
+fn align_unlisted_unresolved(skif: &mut Keys, knip: &Keys) {
+    let empty = BTreeSet::new();
+    let mut paired: BTreeSet<(&str, String)> = BTreeSet::new();
+    let mut moves: Vec<(&str, String, &str, String)> = Vec::new();
+    for (own, other) in [("unlisted", "unresolved"), ("unresolved", "unlisted")] {
+        let knip_own = knip.get(own).unwrap_or(&empty);
+        let knip_other = knip.get(other).unwrap_or(&empty);
+        let skif_other = skif.get(other).unwrap_or(&empty);
+        for key in skif.get(own).unwrap_or(&empty).difference(knip_own) {
+            let Some((path, name)) = key.split_once('|') else {
+                continue;
+            };
+            let Some(package) = bare_package(name) else {
+                continue;
+            };
+            let found = knip_other.iter().find(|candidate| {
+                !skif_other.contains(*candidate)
+                    && !paired.contains(&(other, (*candidate).clone()))
+                    && candidate
+                        .split_once('|')
+                        .is_some_and(|(file, theirs)| file == path && bare_package(theirs) == Some(package))
+            });
+            if let Some(found) = found {
+                paired.insert((other, found.clone()));
+                moves.push((own, key.clone(), other, found.clone()));
+            }
+        }
+    }
+    for (own, key, other, found) in moves {
+        if let Some(keys) = skif.get_mut(own) {
+            keys.remove(&key);
+        }
+        skif.entry(other.to_owned()).or_default().insert(found);
+    }
+}
+
 /// What skif left unjudged in a package it lists under `incomplete-packages`, from the entry's `scope`.
 #[derive(Debug, Clone)]
 pub enum NotJudgedScope {
@@ -2051,6 +2092,7 @@ fn parity_repo(
     let mut skif_found = skif_keys(&skif_run.doc, &root);
     let knip_found = knip_keys(&knip_run.doc, &root);
     align_export_labels(&mut skif_found, &knip_found);
+    align_unlisted_unresolved(&mut skif_found, &knip_found);
     let manifest = manifest_reader(&root);
     let is_file = |file: &str| root.join(file).is_file();
     let build_dirs = build_dir_reader(&root);
@@ -2729,6 +2771,67 @@ mod tests {
             }
         );
         assert_eq!(counts["types"].both, 1);
+    }
+
+    #[test]
+    fn an_import_one_tool_reports_unlisted_and_the_other_unresolved_is_agreement() {
+        let mut skif = Keys::from([
+            (
+                "unlisted".to_owned(),
+                strings(&[
+                    "packages/a/tsconfig.json|tslib",
+                    "packages/b/tsconfig.json|vite",
+                    "packages/c/src/a.ts|left-pad",
+                    "packages/d/tsconfig.json|vitest",
+                    "packages/f/src/a.ts|shared",
+                ]),
+            ),
+            (
+                "unresolved".to_owned(),
+                strings(&["packages/e/src/a.ts|@scope/x/sub", "packages/e/src/b.ts|./gone"]),
+            ),
+        ]);
+        let knip = Keys::from([
+            (
+                "unresolved".to_owned(),
+                strings(&[
+                    "packages/a/tsconfig.json|tslib",
+                    "packages/b/tsconfig.json|vite/client",
+                    "packages/c/src/b.ts|left-pad",
+                    "packages/d/tsconfig.json|vitest/globals",
+                ]),
+            ),
+            (
+                "unlisted".to_owned(),
+                strings(&[
+                    "packages/d/tsconfig.json|vitest",
+                    "packages/e/src/a.ts|@scope/x",
+                    "packages/e/src/b.ts|gone",
+                ]),
+            ),
+        ]);
+        align_unlisted_unresolved(&mut skif, &knip);
+        assert_eq!(
+            set(&skif, "unresolved"),
+            [
+                "packages/a/tsconfig.json|tslib",
+                "packages/b/tsconfig.json|vite/client",
+                "packages/e/src/b.ts|./gone",
+            ]
+        );
+        assert_eq!(
+            set(&skif, "unlisted"),
+            [
+                "packages/c/src/a.ts|left-pad",
+                "packages/d/tsconfig.json|vitest",
+                "packages/e/src/a.ts|@scope/x",
+                "packages/f/src/a.ts|shared",
+            ],
+            "another file, a finding knip shares already and a relative specifier stay where they are"
+        );
+        let (counts, _) = diff::compare(&skif, &knip);
+        assert_eq!(counts["unresolved"].both, 2);
+        assert_eq!(counts["unlisted"].both, 2);
     }
 
     #[test]
