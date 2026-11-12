@@ -511,6 +511,8 @@ pub fn extract_config(source: &str, path: &Path, loader: Option<&dyn ModuleLoade
         values: RefCell::new(HashMap::default()),
         loaded: RefCell::new(HashMap::default()),
         changing: RefCell::new(HashMap::default()),
+        pending: RefCell::new(Vec::new()),
+        shallowest_cut: Cell::new(usize::MAX),
         installed: RefCell::new(HashMap::default()),
     };
     evaluate_config(source, path, Some(&modules))
@@ -694,9 +696,13 @@ struct Modules<'l> {
     values: RefCell<HashMap<(PathBuf, Imported), Option<Value>>>,
     /// What the loader returned for each importing directory and specifier.
     loaded: RefCell<HashMap<(PathBuf, String), Option<LoadedModule>>>,
-    /// Whether a function of each module may change a value of a module ([`Modules::changes_modules`]), by path:
-    /// `None` while that is being found.
-    changing: RefCell<HashMap<PathBuf, Option<bool>>>,
+    /// What the analysis of each module found ([`Modules::facts`]), by path: `None` while that is being found.
+    changing: RefCell<HashMap<PathBuf, Option<Rc<ModuleFacts>>>>,
+    /// The modules being analysed, outermost first.
+    pending: RefCell<Vec<PathBuf>>,
+    /// The index in [`Self::pending`] of the outermost module an analysis under way found pending, or past a limit
+    /// (`0`): what it finds then depends on that module, so it is not kept for a module inside it.
+    shallowest_cut: Cell<usize>,
     /// What the loader said of each importing directory and specifier ([`ModuleLoader::is_installed`]).
     installed: RefCell<HashMap<(PathBuf, String), bool>>,
 }
@@ -734,39 +740,100 @@ impl Modules<'_> {
     }
 
     /// Whether a function of the followed module `specifier` names from `from` may change a value of a module when it
-    /// is called ([`Unstable::changes_modules`]), one it re-exports included ([`Self::reexports_change_modules`]): so
-    /// it may when the module does not parse, when finding out would reach past [`MAX_IMPORT_DEPTH`] or
-    /// [`MAX_MODULE_LOADS`] modules, and in a cycle of modules whose functions call each other's. Not one of a module
-    /// that is not followed, whose functions the config's analysis does not reach.
+    /// is called ([`Unstable::changes_modules`]), one it re-exports or hands out included
+    /// ([`Self::reexports_change_modules`], [`Unstable::exposed_modules`]): so it may when the module does not parse,
+    /// when finding out would reach past [`MAX_IMPORT_DEPTH`] or [`MAX_MODULE_LOADS`] modules, and in a cycle of modules
+    /// whose functions call each other's. Not one of a module that is not followed, whose functions the config's
+    /// analysis does not reach.
     fn changes_modules(&self, from: &Path, specifier: &str) -> bool {
-        let Some((path, source)) = self.load(from, specifier) else {
-            return false;
-        };
-        {
-            let changing = self.changing.borrow();
-            if let Some(known) = changing.get(&path) {
-                return known.unwrap_or(true);
-            }
-            let pending = changing.values().filter(|known| known.is_none()).count();
-            if pending >= MAX_IMPORT_DEPTH || changing.len() >= MAX_MODULE_LOADS {
-                return true;
-            }
-        }
-        self.changing.borrow_mut().insert(path.clone(), None);
-        let changes = self.module_changes_modules(&path, &source);
-        self.changing.borrow_mut().insert(path, Some(changes));
-        changes
+        self.facts(from, specifier).is_some_and(|(_, facts)| facts.changes)
     }
 
-    /// [`Self::changes_modules`] of the module at `path` with the text `source`.
-    fn module_changes_modules(&self, path: &Path, source: &str) -> bool {
+    /// The places in what a call of the export `export` of the followed module `specifier` names from `from` returns
+    /// that may hold an object of a value of a module ([`Unstable::result_places`]), the export followed through
+    /// re-exports; `None` when that is not known, as for an export that is not a function the module declares.
+    fn result_places(&self, from: &Path, specifier: &str, export: &str) -> Option<Vec<Write>> {
+        self.export_result_places(from, specifier, export, 0).flatten()
+    }
+
+    /// [`Self::result_places`], `depth` re-exports deep: `None` when the module is not followed or has no such
+    /// export, and `Some(None)` when it has it and its result is not known.
+    fn export_result_places(
+        &self,
+        from: &Path,
+        specifier: &str,
+        export: &str,
+        depth: usize,
+    ) -> Option<Option<Vec<Write>>> {
+        if depth >= MAX_IMPORT_DEPTH {
+            return Some(None);
+        }
+        let (path, facts) = self.facts(from, specifier)?;
+        let local = match facts.exports.get(export) {
+            Some(ExportSource::Local(local)) => Some(local.as_str()),
+            Some(ExportSource::From(next, imported)) => {
+                let name = match imported {
+                    Imported::Default => "default",
+                    Imported::Named(name) => name.as_str(),
+                    Imported::Namespace => return Some(None),
+                };
+                return Some(self.export_result_places(&path, next, name, depth + 1).flatten());
+            }
+            None if export == "default" => facts.default.as_deref(),
+            None => {
+                return facts
+                    .stars
+                    .iter()
+                    .find_map(|next| self.export_result_places(&path, next, export, depth + 1));
+            }
+        };
+        Some(local.and_then(|local| facts.results.get(local).cloned()))
+    }
+
+    /// What the analysis of the followed module `specifier` names from `from` finds, with its path; what may hold for
+    /// any module ([`ModuleFacts::unknown`]) while the module is being analysed, past [`MAX_IMPORT_DEPTH`] modules being
+    /// analysed or [`MAX_MODULE_LOADS`] analysed, and when the module does not parse. What one finds while a module that
+    /// encloses it is pending is not kept, as it depends on that module.
+    fn facts(&self, from: &Path, specifier: &str) -> Option<(PathBuf, Rc<ModuleFacts>)> {
+        let (path, source) = self.load(from, specifier)?;
+        if let Some(known) = self.changing.borrow().get(&path) {
+            let facts = known.clone().unwrap_or_else(|| {
+                let at = self.pending.borrow().iter().position(|pending| *pending == path);
+                self.shallowest_cut.set(self.shallowest_cut.get().min(at.unwrap_or(0)));
+                Rc::new(ModuleFacts::unknown())
+            });
+            return Some((path, facts));
+        }
+        let depth = self.pending.borrow().len();
+        if depth >= MAX_IMPORT_DEPTH || self.changing.borrow().len() >= MAX_MODULE_LOADS {
+            self.shallowest_cut.set(0);
+            return Some((path, Rc::new(ModuleFacts::unknown())));
+        }
+        self.changing.borrow_mut().insert(path.clone(), None);
+        self.pending.borrow_mut().push(path.clone());
+        let outer = self.shallowest_cut.replace(usize::MAX);
+        let facts = Rc::new(self.module_facts(&path, &source));
+        self.pending.borrow_mut().pop();
+        let cut = self.shallowest_cut.get();
+        if cut < depth {
+            self.changing.borrow_mut().remove(&path);
+            self.shallowest_cut.set(outer.min(cut));
+        } else {
+            self.changing.borrow_mut().insert(path.clone(), Some(Rc::clone(&facts)));
+            self.shallowest_cut.set(outer);
+        }
+        Some((path, facts))
+    }
+
+    /// [`Self::facts`] of the module at `path` with the text `source`.
+    fn module_facts(&self, path: &Path, source: &str) -> ModuleFacts {
         let Ok(source_type) = SourceType::from_path(path) else {
-            return true;
+            return ModuleFacts::unknown();
         };
         let allocator = Allocator::default();
         let ret = Parser::new(&allocator, source, source_type).parse();
         if ret.diagnostics.errors().next().is_some() {
-            return true;
+            return ModuleFacts::unknown();
         }
         let unstable = Unstable::of(
             &ret.program,
@@ -775,12 +842,27 @@ impl Modules<'_> {
                 from: path,
             },
         );
-        unstable.changes_modules()
+        let changes = unstable.changes_modules()
             || unstable
                 .exposed_modules()
                 .iter()
                 .any(|specifier| self.changes_modules(path, specifier))
-            || self.reexports_change_modules(path, &ret.program)
+            || self.reexports_change_modules(path, &ret.program);
+        let (exports, stars) = export_table(&ret.program);
+        let default = exported(&ret.program).and_then(|exported| match exported {
+            Exported::Function(function) => function.id.as_ref().map(|id| id.name.as_str().to_owned()),
+            Exported::Expression(expr) => match expr.get_inner_expression() {
+                Expression::Identifier(id) => Some(id.name.as_str().to_owned()),
+                _ => None,
+            },
+        });
+        ModuleFacts {
+            changes,
+            results: unstable.result_places().clone(),
+            exports,
+            stars,
+            default,
+        }
     }
 
     /// Whether a function the module at `path` re-exports (`export { tweak } from './tweak'`, `export * from './tools'`)
@@ -899,6 +981,35 @@ impl Modules<'_> {
                     None => stars.iter().find_map(|from| self.evaluate(path, from, imported, args)),
                 }
             }
+        }
+    }
+}
+
+/// What the analysis of a followed module finds ([`Modules::facts`]).
+struct ModuleFacts {
+    /// Whether a function of the module may change a value of a module when it is called ([`Modules::changes_modules`]).
+    changes: bool,
+    /// The places in what a call of each top-level function of the module returns that may hold an object of a value
+    /// of a module, by name ([`Unstable::result_places`]).
+    results: HashMap<String, Vec<Write>>,
+    /// The named exports of the module ([`export_table`]).
+    exports: HashMap<String, ExportSource>,
+    /// The modules it re-exports everything of.
+    stars: Vec<String>,
+    /// The name of the binding it exports as its default, when it exports one.
+    default: Option<String>,
+}
+
+impl ModuleFacts {
+    /// What may hold for any module: its functions may change a value of a module, and nothing is known of what they
+    /// return.
+    fn unknown() -> Self {
+        Self {
+            changes: true,
+            results: HashMap::default(),
+            exports: HashMap::default(),
+            stars: Vec::new(),
+            default: None,
         }
     }
 }
@@ -1076,6 +1187,10 @@ impl Imports for FollowedImports<'_, '_> {
 
     fn changes_modules(&self, specifier: &str) -> bool {
         self.modules.changes_modules(self.from, specifier)
+    }
+
+    fn result_places(&self, specifier: &str, export: &str) -> Option<Vec<Write>> {
+        self.modules.result_places(self.from, specifier, export)
     }
 
     fn is_installed(&self, specifier: &str) -> bool {

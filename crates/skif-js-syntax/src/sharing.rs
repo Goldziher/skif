@@ -169,6 +169,14 @@ pub(crate) trait Imports {
     fn is_installed(&self, _specifier: &str) -> bool {
         false
     }
+
+    /// The places in what a call of the export `export` (`default` for the default one) of the followed module
+    /// `specifier` returns that may hold an object of a value of a module ([`Unstable::result_places`]): none for a
+    /// factory that builds and returns new objects, whose result shares nothing with the module's values. `None` when
+    /// that is not known, and what a call returns may then be any value of such a module.
+    fn result_places(&self, _specifier: &str, _export: &str) -> Option<Vec<Write>> {
+        None
+    }
 }
 
 /// The bindings of a module that code the evaluator does not follow may change.
@@ -204,6 +212,9 @@ pub(crate) struct Unstable {
     exposed: Vec<String>,
     /// Whether the module hands out so a binding of a package neither followed nor installed, whose code is not known.
     exposes_unknown: bool,
+    /// The places in what a call of each top-level function of the module returns that may hold an object of a value
+    /// of the module ([`Sharing::result_places`]), by name.
+    results: HashMap<String, Vec<Write>>,
     /// The references that are the only one of a binding no other module can read and that are read once per binding:
     /// not in a loop, nor in a function other than the binding's own, and not of an alias the evaluator follows. None
     /// when the module reads `arguments`, calls `eval` or has a `with` statement, which reach bindings without a
@@ -266,6 +277,7 @@ impl Unstable {
         };
         sharing.visit_program(program);
         let (followed, writes_modules) = sharing.share();
+        let results = sharing.result_places();
         let (exposed, exposes_unknown) = sharing.exposed();
         let sole = if sharing.dynamic {
             HashSet::default()
@@ -291,6 +303,7 @@ impl Unstable {
             writes_modules,
             exposed,
             exposes_unknown,
+            results,
             ..Self::default()
         };
         for (symbol, change) in std::mem::take(&mut sharing.changes) {
@@ -393,6 +406,16 @@ impl Unstable {
     /// does ([`Self::exposed_modules`]).
     pub(crate) fn changes_modules(&self) -> bool {
         self.runs_modules || self.writes_modules || self.exposes_unknown
+    }
+
+    /// The places in what a call of each top-level function the module declares returns that may hold an object of a
+    /// value of the module (a top-level binding or an import), by name: each place is where such an object may be, at
+    /// or below it, through the links that hold for every call. A function missing is one that is not known, and one
+    /// with no place is a factory that builds and returns new objects, whose result shares nothing with the module's
+    /// values, so a change of it changes none of them. None is known in a module that calls `eval`, reads `arguments`
+    /// or has a `with` statement.
+    pub(crate) fn result_places(&self) -> &HashMap<String, Vec<Write>> {
+        &self.results
     }
 
     /// The modules the evaluator follows, by specifier, that the module hands out a binding of other than by calling
@@ -1574,6 +1597,45 @@ impl Sharing<'_> {
             .any(|(other, _)| self.is_module_value(*other))
     }
 
+    /// [`Unstable::result_places`]: the change each value of the module may undergo reaches, through the links that
+    /// hold for every call, a part of each top-level function the module declares, which then stands for what a call
+    /// of it returns; that part may hold an object of the value, as a change of either reaches the other.
+    fn result_places(&self) -> HashMap<String, Vec<Write>> {
+        if self.dynamic {
+            return HashMap::default();
+        }
+        let root = self.scoping.root_scope_id();
+        let mut places: HashMap<SymbolId, Vec<Write>> = self
+            .callables
+            .joined
+            .iter()
+            .chain(self.callables.apart.keys())
+            .filter(|&&symbol| self.scoping.symbol_scope_id(symbol) == root)
+            .map(|&symbol| (symbol, Vec::new()))
+            .collect();
+        let fresh_links_of = self.links_of_where(|link| !link.loading);
+        let mut values: Vec<SymbolId> = fresh_links_of
+            .keys()
+            .copied()
+            .filter(|&symbol| self.is_module_value(symbol))
+            .collect();
+        values.sort_unstable();
+        for value in values {
+            for (other, write) in self.reached(&fresh_links_of, value, &Write::default()) {
+                if let Some(writes) = places.get_mut(&other) {
+                    add_write(writes, write);
+                }
+            }
+        }
+        places
+            .into_iter()
+            .map(|(symbol, mut writes)| {
+                writes.sort();
+                (self.scoping.symbol_name(symbol).to_owned(), writes)
+            })
+            .collect()
+    }
+
     /// Whether `symbol` is a value of the module a change may reach from a call: a top-level binding or an import, but
     /// a function the module declares, which stands for what a call of it returns and what its parameters take.
     fn is_module_value(&self, symbol: SymbolId) -> bool {
@@ -2370,10 +2432,23 @@ impl<'a> Visit<'a> for Refs<'_> {
             }
             // Any other local function called by name stands for what it returns, which may hold what it is given. One
             // imported from a module the evaluator follows may return anything that module holds, such as one of its
-            // exports (`getBase()`), which is linked to the other imports of such modules ([`Sharing::link_imports`]);
-            // one imported from any other module holds none of the module's locals.
+            // exports (`getBase()`), which is linked to the other imports of such modules ([`Sharing::link_imports`]),
+            // or, when what it returns is known, such a value at the places it says only, none for a factory that
+            // builds new objects ([`Known::results`]); one imported from any other module holds none of the module's
+            // locals.
             Expression::Identifier(id) => {
-                if is_followed_import(self.scoping, self.known, id) {
+                let known = self.known;
+                let places = resolved(self.scoping, id).and_then(|symbol| known.results.get(&symbol));
+                if let Some(places) = places {
+                    for place in places {
+                        let depth = self.at.len();
+                        if !self.frozen {
+                            self.at.extend(place.keys.iter().cloned());
+                        }
+                        self.opaque(|refs| refs.hold(id, Vec::new(), true));
+                        self.at.truncate(depth);
+                    }
+                } else if is_followed_import(self.scoping, self.known, id) {
                     self.opaque(|refs| refs.hold(id, Vec::new(), true));
                 } else if local_symbol(self.scoping, id).is_some() {
                     self.hold(id, Vec::new(), true);
@@ -2958,6 +3033,9 @@ struct Known {
     foreign: HashSet<SymbolId>,
     /// Those of [`Self::modules`] whose module the evaluator follows, which code of such a module may change.
     followed: HashSet<SymbolId>,
+    /// Those of [`Self::followed`] the module calls by name, with the places in what a call of the export they take
+    /// returns that may hold an object of a value of a module, when that is known ([`Imports::result_places`]).
+    results: HashMap<SymbolId, Vec<Write>>,
     /// The export of its module each import of [`Self::modules`] takes, as keys of the module's namespace: none for a
     /// namespace import, `default` for a default import and the name for a named one. A `require` takes no such part.
     import_paths: HashMap<SymbolId, Vec<String>>,
@@ -2974,14 +3052,33 @@ fn known(program: &Program<'_>, scoping: &Scoping, imports: &dyn Imports) -> Kno
         scoping,
         known: Known::default(),
         in_const: false,
+        called: HashSet::default(),
     };
     finder.visit_program(program);
+    let called = finder.called;
     let mut known = finder.known;
     known.followed = known
         .modules
         .iter()
         .filter(|(_, (module, _))| imports.follows(module))
         .map(|(&symbol, _)| symbol)
+        .collect();
+    known.results = known
+        .followed
+        .iter()
+        .filter(|&&symbol| {
+            scoping
+                .get_resolved_reference_ids(symbol)
+                .iter()
+                .any(|reference| called.contains(reference))
+        })
+        .filter_map(|&symbol| {
+            let (module, _) = known.modules.get(&symbol)?;
+            let [export] = known.import_paths.get(&symbol)?.as_slice() else {
+                return None;
+            };
+            Some((symbol, imports.result_places(module, export)?))
+        })
         .collect();
     known.foreign = known
         .modules
@@ -3029,6 +3126,8 @@ struct FindKnown<'s> {
     known: Known,
     /// Whether the declarations being visited are `const`.
     in_const: bool,
+    /// The names that are what a call calls.
+    called: HashSet<ReferenceId>,
 }
 
 impl FindKnown<'_> {
@@ -3078,6 +3177,13 @@ impl FindKnown<'_> {
 }
 
 impl<'a> Visit<'a> for FindKnown<'_> {
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        if let Expression::Identifier(id) = it.callee.get_inner_expression() {
+            self.called.extend(id.reference_id.get());
+        }
+        walk::walk_call_expression(self, it);
+    }
+
     fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
         let saved = std::mem::replace(&mut self.in_const, it.kind == VariableDeclarationKind::Const);
         walk::walk_variable_declaration(self, it);

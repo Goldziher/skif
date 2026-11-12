@@ -1214,3 +1214,49 @@ fn a_barrel_that_exports_an_imported_changing_function_changes_the_imported_valu
     assert_eq!(read_at(&value, &["build", "outDir"]), &s("dist"), "{value:?}");
     assert_eq!(read_at(&value, &["name"]), &s("app"), "{value:?}");
 }
+
+/// A change of what a factory of a followed module returns, when the factory builds new objects, changes that part of
+/// the result only: the rest of the config and the values imported from the module stay exact. One whose result holds
+/// a value of its module at the place changed changes that value too.
+#[test]
+fn a_change_of_what_a_factory_that_builds_new_objects_returns_changes_that_part_only() {
+    let factory = "import { defineConfig } from 'vitest/config';\n\
+         export const shared = { environment: 'node' };\n\
+         export const sharedFiles = ['./shared.ts'];\n\
+         export function createVitestConfig(options = {}) {\n\
+           return defineConfig({ test: { globals: true, setupFiles: [...(options.setupFiles ?? []), './base.ts'], \
+         include: options.include ?? ['src/**/*.test.ts'] } });\n\
+         }\n\
+         export const createShared = () => ({ test: { setupFiles: sharedFiles, globals: true } });";
+    let config = |create: &str| {
+        let source = format!(
+            "import {{ {create}, shared, sharedFiles }} from '@fx/base';\n\
+             const config = {create}({{ setupFiles: ['./setup.ts'] }});\n\
+             config.test.setupFiles.push('./extra.ts');\n\
+             export default {{ ...config, shared, sharedFiles }};"
+        );
+        let loader = files(&[
+            ("/ws/app/config.ts", &*Box::leak(source.into_boxed_str())),
+            ("/ws/base/index.ts", factory),
+        ]);
+        eval(&loader)
+    };
+    let value = config("createVitestConfig");
+    assert!(read_at(&value, &["test", "setupFiles"]).has_unknown(), "{value:?}");
+    assert_eq!(read_at(&value, &["test", "globals"]), &ConfigValue::Bool(true), "{value:?}");
+    assert_eq!(
+        read_at(&value, &["test", "include"]),
+        &strings(&["src/**/*.test.ts"]),
+        "{value:?}"
+    );
+    assert_eq!(
+        read_at(&value, &["shared"]),
+        &obj(vec![("environment", s("node"))]),
+        "{value:?}"
+    );
+    assert_eq!(read_at(&value, &["sharedFiles"]), &strings(&["./shared.ts"]), "{value:?}");
+    let value = config("createShared");
+    assert!(read_at(&value, &["test", "setupFiles"]).has_unknown(), "{value:?}");
+    assert_eq!(read_at(&value, &["test", "globals"]), &ConfigValue::Bool(true), "{value:?}");
+    assert!(read_at(&value, &["sharedFiles"]).has_unknown(), "{value:?}");
+}
