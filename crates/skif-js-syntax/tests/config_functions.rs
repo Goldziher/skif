@@ -3185,3 +3185,35 @@ fn a_with_statement_may_change_its_object() {
         assert_eq!(at(&value, &["entry"]), &UNKNOWN, "{source}: {value:?}");
     }
 }
+
+/// The values of a `const` object of strings are no objects a callback over its entries could change, unless code
+/// changes the object: a multi-page webpack config that builds a plugin per entry keeps its `entry` known, and one
+/// whose entries object may hold an object is changed through the callback's parameter.
+#[test]
+fn a_callback_over_the_entries_of_an_object_of_strings_keeps_the_object_known() {
+    let value = extract(
+        "webpack.config.js",
+        "const HtmlWebpackPlugin = require('html-webpack-plugin');\n\
+         const pages = { index: './src/index.js', about: './src/about.js' };\n\
+         module.exports = {\n\
+           entry: pages,\n\
+           plugins: Object.entries(pages).map(([name, template]) => new HtmlWebpackPlugin({ chunks: [name], template })),\n\
+         };",
+    );
+    assert_eq!(
+        get(&value, &["entry"]),
+        &ConfigValue::Object(vec![
+            ("index".to_owned(), s("./src/index.js")),
+            ("about".to_owned(), s("./src/about.js")),
+        ]),
+        "{value:?}"
+    );
+    let changed = extract(
+        "webpack.config.js",
+        "const pages = { index: './src/index.js' };\n\
+         pages.admin = { import: './src/admin.js' };\n\
+         Object.values(pages).forEach((page) => change(page));\n\
+         module.exports = { entry: pages };",
+    );
+    assert!(open(get(&changed, &["entry"])), "{changed:?}");
+}
