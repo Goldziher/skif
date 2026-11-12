@@ -246,6 +246,7 @@ impl Unstable {
             late: Vec::new(),
             runs_modules: false,
             function_writes: Vec::new(),
+            suspending: HashSet::default(),
         };
         sharing.visit_program(program);
         let (followed, writes_modules) = sharing.share();
@@ -450,7 +451,8 @@ struct Link {
     join: Join,
     /// Whether code the module runs once, when it is loaded, makes the link, outside the definition of a function
     /// (`export const config = create()`): it joins what that run made, which a later call of a function of the module
-    /// does not make again ([`Sharing::writes_modules`]).
+    /// does not make again ([`Sharing::writes_modules`]). A link of what the name of a function the module declares
+    /// holds (`f.cache = base`, `add.bind(null, base)`) is no such link, as the function keeps it for every call.
     loading: bool,
 }
 
@@ -463,6 +465,9 @@ struct Held {
     keys: Vec<String>,
     at: Vec<String>,
     join: Join,
+    /// Whether `symbol` is a function the module declares that the value holds what a call of it returns of
+    /// (`create()`), not the function itself.
+    result: bool,
 }
 
 /// Where the visitor of [`Sharing`] is.
@@ -534,8 +539,12 @@ struct Sharing<'s> {
     /// Whether code of a module the evaluator follows may run unseen and change what such a module exports
     /// ([`Self::runs_followed`]).
     runs_modules: bool,
-    /// The changes code in a function makes of a binding, each with the scope of that function.
-    function_writes: Vec<(SymbolId, ScopeId, Change)>,
+    /// The changes code in a function makes of a binding, each with the scope of that function and whether it is a
+    /// change of what a call of a function the module declares returns ([`Held::result`]).
+    function_writes: Vec<(SymbolId, ScopeId, Change, bool)>,
+    /// The scopes of the generators and `async` functions, whose code runs after the call that made them returns,
+    /// with what that call gave them.
+    suspending: HashSet<ScopeId>,
 }
 
 /// An alias the evaluator follows ([`Unstable::follows`]): the local it takes a part of, the keys of that part and where
@@ -598,15 +607,20 @@ impl Sharing<'_> {
         }
     }
 
-    /// The parts of locals the object `expr` may be, each with whether it is that part exactly: the part a name or a
-    /// member chain is ([`Self::place`]), or each part what any other expression evaluates to may hold ([`Refs`]), as
-    /// the object a method returns (`list.find(…)`) or a condition chooses; those are recorded for the evaluator
+    /// The parts of locals the object `expr` may be, each with whether it is that part exactly and whether it is what a
+    /// call of a function the module declares returns ([`Held::result`]): the part a name or a member chain is
+    /// ([`Self::place`]), or each part what any other expression evaluates to may hold ([`Refs`]), as the object a
+    /// method returns (`list.find(…)`) or a condition chooses; those are recorded for the evaluator
     /// ([`Unstable::parts_of`]).
-    fn parts(&mut self, expr: &Expression<'_>) -> Vec<(Place, bool)> {
+    fn parts(&mut self, expr: &Expression<'_>) -> Vec<(Place, bool, bool)> {
         if reach(expr).is_some() {
-            return self.place(expr).into_iter().collect();
+            return self
+                .place(expr)
+                .into_iter()
+                .map(|(place, exact)| (place, exact, false))
+                .collect();
         }
-        let parts: Vec<(Place, bool)> = self
+        let parts: Vec<(Place, bool, bool)> = self
             .refs(Part::Value, |refs| refs.visit_expression(expr))
             .into_iter()
             .map(|held| {
@@ -615,12 +629,12 @@ impl Sharing<'_> {
                     symbol: held.symbol,
                     keys: held.keys,
                 };
-                (place, exact)
+                (place, exact, held.result)
             })
             .collect();
         let named = parts
             .iter()
-            .map(|(place, exact)| {
+            .map(|(place, exact, _)| {
                 let name = self.scoping.symbol_name(place.symbol).to_owned();
                 (name, place.keys.clone(), *exact)
             })
@@ -634,7 +648,7 @@ impl Sharing<'_> {
     /// is not exactly a part of a local.
     fn set(&mut self, member: &MemberExpression<'_>) {
         let key = member.static_property_name().map(crate::js_string);
-        for (place, exact) in self.parts(member.object()) {
+        for (place, exact, result) in self.parts(member.object()) {
             let write = match &key {
                 Some(key) if exact => Write {
                     keys: place.keys,
@@ -642,7 +656,7 @@ impl Sharing<'_> {
                 },
                 _ => Write::contents(place.keys),
             };
-            self.changed(place.symbol, write);
+            self.changed_as(place.symbol, write, result);
         }
     }
 
@@ -654,7 +668,7 @@ impl Sharing<'_> {
         }
         self.parts(member.object())
             .into_iter()
-            .map(|(place, _)| (place, false))
+            .map(|(place, _, _)| (place, false))
             .collect()
     }
 
@@ -678,12 +692,13 @@ impl Sharing<'_> {
         self.changes.insert(symbol, merged);
     }
 
-    /// Records a write of `symbol`; one from a function other than its own may happen at any time.
-    fn written(&mut self, symbol: SymbolId, change: Change) {
+    /// Records a write of `symbol`, of what a call of it returns when `result` ([`Held::result`]); one from a function
+    /// other than its own may happen at any time.
+    fn written(&mut self, symbol: SymbolId, change: Change, result: bool) {
         let root = self.scoping.root_scope_id();
         let function = self.functions.last().copied().unwrap_or(root);
         if function != root {
-            self.function_writes.push((symbol, function, change.clone()));
+            self.function_writes.push((symbol, function, change.clone(), result));
         }
         if function != self.function_of(symbol) {
             self.change(symbol, change);
@@ -704,8 +719,8 @@ impl Sharing<'_> {
 
     /// Records a change of what the object `expr` holds, in each part of a local it may be ([`Self::parts`]).
     fn mutate(&mut self, expr: &Expression<'_>) {
-        for (place, _) in self.parts(expr) {
-            self.changed(place.symbol, Write::contents(place.keys));
+        for (place, _, result) in self.parts(expr) {
+            self.changed_as(place.symbol, Write::contents(place.keys), result);
         }
     }
 
@@ -993,16 +1008,34 @@ impl Sharing<'_> {
         self.of_changing_module(&call.callee) || given_function()
     }
 
-    /// Records the change `write` of the object `symbol` holds.
+    /// Records the change `write` of the object `symbol` holds, reached through its name.
     fn changed(&mut self, symbol: SymbolId, write: Write) {
-        self.written(symbol, Change::Contents(vec![write.clone()]));
+        self.changed_as(symbol, write, false);
+    }
+
+    /// Records the change `write` of the object `symbol` holds, or of what a call of it returns when `result`
+    /// ([`Held::result`]).
+    fn changed_as(&mut self, symbol: SymbolId, write: Write, result: bool) {
+        self.written(symbol, Change::Contents(vec![write.clone()]), result);
         self.mutated.push((symbol, write));
     }
 
+    /// Whether `item` is a function the module declares, held as itself rather than as what a call of it returns.
+    fn holds_function(&self, item: &Held) -> bool {
+        !item.result && self.callables.contains(item.symbol)
+    }
+
     /// Links `hub` to each part a value it holds may hold: at the place in the value it is found, as it is found
-    /// there, when `exact`, and anywhere at or below the hub otherwise.
+    /// there, when `exact`, and anywhere at or below the hub otherwise. What a name of a function the module declares
+    /// holds (`f.cache = base`, `add.bind(null, base)`) is held by the function itself, for every call of it, also
+    /// when code the module runs when it is loaded links it ([`Link::loading`]).
     fn hold(&mut self, hub: &Place, exact: bool, held: Vec<Held>) {
-        let loading = self.loading();
+        let loading = self.loading() && !self.callables.contains(hub.symbol);
+        self.link_held(hub, exact, held, loading);
+    }
+
+    /// [`Self::hold`], the links made as `loading` says ([`Link::loading`]).
+    fn link_held(&mut self, hub: &Place, exact: bool, held: Vec<Held>, loading: bool) {
         for item in held {
             let mut keys = hub.keys.clone();
             if exact {
@@ -1023,9 +1056,10 @@ impl Sharing<'_> {
         }
     }
 
-    /// Links the parts that values with no binding to hold them may share among themselves (`f(a, b)`).
+    /// Links the parts that values with no binding to hold them may share among themselves (`f(a, b)`); a function
+    /// the module declares among them may keep the others for every call of it (`bind(add, base)`).
     fn link_among(&mut self, held: &[Held]) {
-        let loading = self.loading();
+        let loading = self.loading() && !held.iter().any(|item| self.holds_function(item));
         for pair in held.windows(2) {
             self.links.push(Link {
                 a: Place {
@@ -1042,9 +1076,15 @@ impl Sharing<'_> {
         }
     }
 
-    /// Links `hub`, when there is one, to what `held` holds, and what `held` holds among itself otherwise.
-    fn hold_or_link(&mut self, hub: Option<(Place, bool)>, held: Vec<Held>) {
+    /// Links `hub`, when there is one, to what `held` holds, and what `held` holds among itself otherwise. A hub that
+    /// is the function a call calls (`callee`) stands for what its parameters take of the call, which holds for that
+    /// call only.
+    fn hold_or_link(&mut self, hub: Option<(Place, bool)>, held: Vec<Held>, callee: bool) {
         match hub {
+            Some((place, exact)) if callee => {
+                let loading = self.loading();
+                self.link_held(&place, exact, held, loading);
+            }
             Some((place, exact)) => self.hold(&place, exact, held),
             None => self.link_among(&held),
         }
@@ -1235,7 +1275,7 @@ impl Sharing<'_> {
         self.mutated.retain(|(symbol, _)| !primitives.contains(symbol));
         self.changes.retain(|symbol, _| !primitives.contains(symbol));
         self.function_writes
-            .retain(|(symbol, _, _)| !primitives.contains(symbol));
+            .retain(|(symbol, _, _, _)| !primitives.contains(symbol));
     }
 
     /// The indices of the links of each binding.
@@ -1367,13 +1407,16 @@ impl Sharing<'_> {
     /// binding or an import, or an object one of them may hold. A change counts when it is made in a function
     /// ([`Self::function_writes`]) and is one of such a binding, or reaches one through the links (see
     /// [`Self::reached`]). A change of a binding of the function it is made in (a local, a parameter) or of what a
-    /// function of the module returns is one of an object made or given anew by each call, so it is followed only
-    /// through the links that hold for every call ([`Self::fresh_reach_modules`]), not those code run when the module
-    /// is loaded made of what one call made (`export const config = create()`): a factory that builds and returns new
-    /// objects changes none, and a change of what a parameter takes is one of what a call gives it, which the call
-    /// accounts for. A change of a binding of an enclosing function, which a function made by an earlier call may make
-    /// later, is followed through every link ([`Self::closure_reaches_modules`]). In a module that calls `eval`, reads
-    /// `arguments` or has a `with` statement, any change in a function counts.
+    /// call of a function of the module returns is one of an object made or given anew by each call, so it is followed
+    /// only through the links that hold for every call ([`Self::fresh_reach_modules`]), not those code run when the
+    /// module is loaded made of what one call made (`export const config = create()`): a factory that builds and
+    /// returns new objects changes none, and a change of what a parameter takes is one of what a call gives it, which
+    /// the call accounts for. That is not so in a generator or an `async` function, whose code runs later with what
+    /// the call that made it gave it ([`Self::suspending`]), nor for a change through the name of a function of the
+    /// module (`f.cache.plugins.push(p)`), which is one of the function object itself: such a change, and one of a
+    /// binding of an enclosing function, which a function made by an earlier call may make later, is followed through
+    /// every link ([`Self::closure_reaches_modules`]). In a module that calls `eval`, reads `arguments` or has a `with`
+    /// statement, any change in a function counts.
     fn writes_modules(&self, links_of: &HashMap<SymbolId, Vec<usize>>) -> bool {
         if self.function_writes.is_empty() {
             return false;
@@ -1383,9 +1426,10 @@ impl Sharing<'_> {
         }
         let fresh_links_of = self.links_of_where(|link| !link.loading);
         let root = self.scoping.root_scope_id();
-        self.function_writes.iter().any(|(symbol, function, change)| {
+        self.function_writes.iter().any(|(symbol, function, change, result)| {
             let home = self.function_of(*symbol);
-            let fresh = home == *function || (home == root && self.callables.contains(*symbol));
+            let fresh = (home == *function && !self.suspending.contains(function))
+                || (home == root && *result && self.callables.contains(*symbol));
             match change {
                 Change::Any => home != *function,
                 Change::Contents(writes) => writes.iter().any(|write| {
@@ -1562,15 +1606,21 @@ impl<'a> Visit<'a> for Sharing<'_> {
             let held = self.refs(part, |refs| refs.visit_function(it, flags));
             self.in_definition(true, |sharing| sharing.hold(&Place::of(symbol), true, held));
         }
-        self.functions
-            .push(it.scope_id.get().unwrap_or_else(|| self.scoping.root_scope_id()));
+        let scope = it.scope_id.get().unwrap_or_else(|| self.scoping.root_scope_id());
+        if it.generator || it.r#async {
+            self.suspending.insert(scope);
+        }
+        self.functions.push(scope);
         walk::walk_function(self, it, flags);
         self.functions.pop();
     }
 
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
-        self.functions
-            .push(it.scope_id.get().unwrap_or_else(|| self.scoping.root_scope_id()));
+        let scope = it.scope_id.get().unwrap_or_else(|| self.scoping.root_scope_id());
+        if it.r#async {
+            self.suspending.insert(scope);
+        }
+        self.functions.push(scope);
         walk::walk_arrow_function_expression(self, it);
         self.functions.pop();
     }
@@ -1728,7 +1778,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
         match it {
             SimpleAssignmentTarget::AssignmentTargetIdentifier(id) => {
                 if let Some(symbol) = self.symbol(id) {
-                    self.written(symbol, Change::Any);
+                    self.written(symbol, Change::Any, false);
                 }
             }
             other => {
@@ -1742,7 +1792,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
 
     fn visit_assignment_target_property_identifier(&mut self, it: &AssignmentTargetPropertyIdentifier<'a>) {
         if let Some(symbol) = self.symbol(&it.binding) {
-            self.written(symbol, Change::Any);
+            self.written(symbol, Change::Any, false);
         }
         walk::walk_assignment_target_property_identifier(self, it);
     }
@@ -1790,6 +1840,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
         // A function the module declares passes each argument to the parameter that takes it when they are kept apart,
         // and stands for its parameters otherwise; any other function, and a method in its object, may keep what it
         // is given anywhere.
+        let callee_hub = matches!(it.callee.get_inner_expression(), Expression::Identifier(_));
         let hub = match it.callee.get_inner_expression() {
             Expression::Identifier(id) => {
                 let symbol = local_symbol(self.scoping, id);
@@ -1833,7 +1884,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
         {
             held.extend(self.receiver_refs(receiver));
         }
-        self.hold_or_link(hub, held);
+        self.hold_or_link(hub, held, callee_hub);
         walk::walk_call_expression(self, it);
     }
 
@@ -1992,6 +2043,7 @@ impl Refs<'_> {
                 keys: Vec::new(),
                 at: Vec::new(),
                 join: Join::of(exact),
+                result: false,
             }));
     }
 
@@ -2002,6 +2054,17 @@ impl Refs<'_> {
 
     /// Records the part of the local `id` at `keys`, held here as `join` says.
     fn hold_as(&mut self, id: &IdentifierReference<'_>, keys: Vec<String>, join: Join) {
+        self.push(id, keys, join, false);
+    }
+
+    /// Records what a call of the function the module declares that `id` names returns, which is the value here.
+    fn hold_result(&mut self, id: &IdentifierReference<'_>) {
+        self.push(id, Vec::new(), Join::of(self.exact), true);
+    }
+
+    /// Records the part of the local `id` at `keys`, held here as `join` says, as what a call of it returns when
+    /// `result` ([`Held::result`]).
+    fn push(&mut self, id: &IdentifierReference<'_>, keys: Vec<String>, join: Join, result: bool) {
         if self.part == Part::Body {
             return;
         }
@@ -2011,6 +2074,7 @@ impl Refs<'_> {
                 keys,
                 at: self.at.clone(),
                 join,
+                result,
             });
         }
     }
@@ -2186,7 +2250,7 @@ impl<'a> Visit<'a> for Refs<'_> {
             // A function the module declares stands for what it returns, which holds what it is given only as its
             // parameters do, and the call links those to the arguments ([`Callables`]).
             Expression::Identifier(id) if calls_callable(self.scoping, self.callables, it) => {
-                return self.hold(id, Vec::new(), true);
+                return self.hold_result(id);
             }
             // Any other local function called by name stands for what it returns, which may hold what it is given. One
             // imported from a module the evaluator follows may return anything that module holds, such as one of its
