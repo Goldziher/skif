@@ -1258,8 +1258,8 @@ fn invalid_js_compilers_are_configuration_errors_naming_the_entry() {
             "js.compilers.html: unknown reader `md`; did you mean \"mdx\"? (expected one of astro, cjs,",
         ),
         (
-            "[js.compilers]\nhtml = { as = \"html\" }\n",
-            "js.compilers.html: unknown reader `html` (expected one of",
+            "[js.compilers]\nhtml = { as = \"handlebars\" }\n",
+            "js.compilers.html: unknown reader `handlebars` (expected one of",
         ),
         (
             "[js.compilers]\nhtml = { imports = [] }\n",
