@@ -12,7 +12,8 @@
 //! call, an element of an array, a spread), anything at or below that place may change. A value that holds no object
 //! shares none: a `const` initialised to a string, a number or a template, and the result of a well-known function
 //! that changes nothing it is given and returns a value of its own ([`PURE_FUNCTIONS`], such as `path.join` and
-//! `fs.readFileSync`).
+//! `fs.readFileSync`). A call of a function the module declares is followed through what its parameters take and what
+//! it returns, so `const r = set(cfg)` shares with `cfg` only what `set` may return of it.
 //!
 //! A `const` that takes a part of a local of its own function (`const { coverage } = config.test`) is the exception
 //! when the evaluator can follow it ([`Unstable::follows`]): it then applies the changes made through the alias to the
@@ -127,6 +128,7 @@ impl Unstable {
             aliases: Vec::new(),
             primitives: HashSet::default(),
             in_const: false,
+            callables: callables(program, scoping),
         };
         sharing.visit_program(program);
         let followed = sharing.share();
@@ -217,6 +219,8 @@ struct Sharing<'s> {
     primitives: HashSet<SymbolId>,
     /// Whether the declarations being visited are `const`.
     in_const: bool,
+    /// The functions the module declares ([`callables`]).
+    callables: HashSet<SymbolId>,
 }
 
 impl Sharing<'_> {
@@ -357,6 +361,7 @@ impl Sharing<'_> {
     fn refs(&self, function: bool, visit: impl FnOnce(&mut Refs<'_>)) -> Vec<Held> {
         let mut refs = Refs {
             scoping: self.scoping,
+            callables: &self.callables,
             part: if function { Part::Function } else { Part::Value },
             at: Vec::new(),
             exact: true,
@@ -667,10 +672,13 @@ impl<'a> Visit<'a> for Sharing<'_> {
         if pure_function(it).is_some() {
             return walk::walk_call_expression(self, it);
         }
-        // A function called by name stands for its parameters; a method may keep what it is given anywhere in its
-        // object.
+        // A function the module declares, given its arguments one by one, stands for its parameters; any other
+        // function, and a method in its object, may keep what it is given anywhere.
         let hub = match it.callee.get_inner_expression() {
-            Expression::Identifier(id) => self.symbol(id).map(|symbol| (Place::of(symbol), true)),
+            Expression::Identifier(id) => {
+                let exact = calls_callable(self.scoping, &self.callables, it);
+                self.symbol(id).map(|symbol| (Place::of(symbol), exact))
+            }
             callee => {
                 if let Some(target) = changed_by_call(it) {
                     self.mutate(target);
@@ -708,6 +716,8 @@ impl<'a> Visit<'a> for Sharing<'_> {
 /// result of one of [`PURE_FUNCTIONS`] or of [`OWN_RESULT_METHODS`]).
 struct Refs<'s> {
     scoping: &'s Scoping,
+    /// The functions the module declares ([`callables`]).
+    callables: &'s HashSet<SymbolId>,
     /// What part of the value the code being visited is.
     part: Part,
     /// Where in the value the expression being visited is.
@@ -732,25 +742,34 @@ enum Part {
 }
 
 impl Refs<'_> {
+    /// Records what the parameters of the function take: a parameter that is a name, with a default or not, is the
+    /// argument, and a name a destructuring or a rest parameter binds is somewhere at or below the arguments.
     fn parameters(&mut self, params: &FormalParameters<'_>) {
-        let patterns = params
-            .items
-            .iter()
-            .map(|param| &param.pattern)
-            .chain(params.rest.iter().map(|rest| &rest.rest.argument));
-        for pattern in patterns {
-            self.out.extend(
-                BindingPattern::get_binding_identifiers(pattern)
-                    .iter()
-                    .filter_map(|id| id.symbol_id.get())
-                    .map(|symbol| Held {
-                        symbol,
-                        keys: Vec::new(),
-                        at: Vec::new(),
-                        exact: true,
-                    }),
-            );
+        for param in &params.items {
+            let exact = match &param.pattern {
+                BindingPattern::BindingIdentifier(_) => true,
+                BindingPattern::AssignmentPattern(p) => matches!(p.left, BindingPattern::BindingIdentifier(_)),
+                _ => false,
+            };
+            self.parameter(&param.pattern, exact);
         }
+        if let Some(rest) = &params.rest {
+            self.parameter(&rest.rest.argument, false);
+        }
+    }
+
+    fn parameter(&mut self, pattern: &BindingPattern<'_>, exact: bool) {
+        self.out.extend(
+            BindingPattern::get_binding_identifiers(pattern)
+                .iter()
+                .filter_map(|id| id.symbol_id.get())
+                .map(|symbol| Held {
+                    symbol,
+                    keys: Vec::new(),
+                    at: Vec::new(),
+                    exact,
+                }),
+        );
     }
 
     /// Records the part of the local `id` at `keys`, which is the value here when `exact`.
@@ -859,7 +878,12 @@ impl<'a> Visit<'a> for Refs<'_> {
             None => {}
         }
         match it.callee.get_inner_expression() {
-            // A local function stands for what it returns.
+            // A function the module declares stands for what it returns, which holds what it is given only as its
+            // parameters do, and the call links those to the arguments ([`calls_callable`]).
+            Expression::Identifier(id) if calls_callable(self.scoping, self.callables, it) => {
+                return self.hold(id, Vec::new(), true);
+            }
+            // Any other function called by name stands for what it returns, which may hold what it is given.
             Expression::Identifier(id) => self.hold(id, Vec::new(), true),
             // A method may return a part of the object it is called on (`list.find(…)`, `list.slice()`, `list.sort()`)
             // unless it returns a value of its own.
@@ -946,6 +970,80 @@ impl<'a> Visit<'a> for Refs<'_> {
         walk::walk_arrow_function_expression(self, it);
         self.part = Part::Value;
     }
+}
+
+/// The bindings a module binds to a function it declares and never assigns again, which does not read `arguments`: the
+/// name of a function and a name declared with a function as its initialiser. Such a binding stands for what the
+/// function's parameters take and what it returns ([`Refs`]), so a call of it is followed through them.
+fn callables(program: &Program<'_>, scoping: &Scoping) -> HashSet<SymbolId> {
+    let mut finder = Callables {
+        scoping,
+        out: HashSet::default(),
+    };
+    finder.visit_program(program);
+    finder.out
+}
+
+/// Finds the bindings of [`callables`].
+struct Callables<'s> {
+    scoping: &'s Scoping,
+    out: HashSet<SymbolId>,
+}
+
+impl Callables<'_> {
+    /// Adds `symbol` unless it is assigned again or the function it is bound to reads `arguments`.
+    fn add(&mut self, symbol: Option<SymbolId>, reads_arguments: bool) {
+        if let Some(symbol) = symbol.filter(|&symbol| !reads_arguments && !self.scoping.symbol_is_mutated(symbol)) {
+            self.out.insert(symbol);
+        }
+    }
+}
+
+impl<'a> Visit<'a> for Callables<'_> {
+    fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
+        if it.is_function_declaration() {
+            let mut reads = ReadsArguments(false);
+            reads.visit_function(it, flags);
+            self.add(it.id.as_ref().and_then(|id| id.symbol_id.get()), reads.0);
+        }
+        walk::walk_function(self, it, flags);
+    }
+
+    fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+        if let (BindingPattern::BindingIdentifier(id), Some(init)) = (&it.id, &it.init)
+            && matches!(
+                init.get_inner_expression(),
+                Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+            )
+        {
+            let mut reads = ReadsArguments(false);
+            reads.visit_expression(init);
+            self.add(id.symbol_id.get(), reads.0);
+        }
+        walk::walk_variable_declarator(self, it);
+    }
+}
+
+/// Whether the code visited reads `arguments`, which takes the arguments of a call whatever its parameters.
+struct ReadsArguments(bool);
+
+impl<'a> Visit<'a> for ReadsArguments {
+    fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
+        self.0 |= it.name.as_str() == "arguments";
+    }
+}
+
+/// Whether `call` calls one of `callables` by name and gives it no spread argument, so that each parameter takes the
+/// argument at its place.
+fn calls_callable(scoping: &Scoping, callables: &HashSet<SymbolId>, call: &CallExpression<'_>) -> bool {
+    let Expression::Identifier(id) = call.callee.get_inner_expression() else {
+        return false;
+    };
+    local_symbol(scoping, id).is_some_and(|symbol| callables.contains(&symbol))
+        && !call
+            .arguments
+            .iter()
+            .any(|argument| matches!(argument, Argument::SpreadElement(_)))
 }
 
 /// The union-find forest of the sets of bindings `links` joins.

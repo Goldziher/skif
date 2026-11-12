@@ -841,6 +841,43 @@ fn a_change_through_what_a_method_returns_reaches_its_object() {
     assert!(open(&configs[1]), "{:?}", configs[1]);
 }
 
+/// A call of a function the module declares is followed through its parameters only where they take what it is given:
+/// a function that reads `arguments`, or a name later given another function, may return any part of its argument, so
+/// a change through what it returns leaves all of the argument partly unknown, and so does a change through a name a
+/// parameter destructures, which is a part of the argument.
+#[test]
+fn a_call_not_followed_through_its_parameters_may_reach_all_of_its_argument() {
+    let value = extract(
+        "vite.config.ts",
+        "const read = () => {\n\
+           const cfg = { a: 1, inner: { b: 1 } };\n\
+           const first = function () { return arguments[0].inner; };\n\
+           const r = first(cfg);\n\
+           r.b = 2;\n\
+           return cfg;\n\
+         };\n\
+         const assigned = () => {\n\
+           const cfg = { a: 1, inner: { b: 1 } };\n\
+           let pick = (c) => c;\n\
+           pick = (c) => c.inner;\n\
+           const r = pick(cfg);\n\
+           r.b = 2;\n\
+           return cfg;\n\
+         };\n\
+         const destructured = () => {\n\
+           const cfg = { a: 1, inner: { b: 1 } };\n\
+           const set = ({ inner }) => { inner.b = 2; return inner; };\n\
+           const r = set(cfg);\n\
+           return cfg;\n\
+         };\n\
+         export default [read(), assigned(), destructured()];",
+    );
+    let configs = value.as_array().unwrap();
+    for (index, config) in configs.iter().enumerate() {
+        assert!(open(config), "{index}: {config:?}");
+    }
+}
+
 /// A change made through a `const` that takes a part of a local of its function (`const { coverage } = config.test`)
 /// is applied to that part of the local, in a branch with an unknown test as in the branch, and a change the evaluator
 /// does not follow there (`Object.assign`) leaves only that part partly unknown. Two aliases of one local, and an alias
