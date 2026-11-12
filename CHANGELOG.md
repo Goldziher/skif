@@ -14,6 +14,9 @@ All notable changes to this project are documented here. The format follows
 - `skif config` accepts `--config <FILE>` and `--no-config`, so `--show` and `--explain` report the configuration a
   lint run with the same flag uses; with `-r` and `--config` each root below the start names the directory the file's
   `[js.workspaces]` keys select it by ([#149](https://github.com/Goldziher/skif/issues/149)).
+- `skif explain-usage` finds a file below a linked directory (Bazel's `bazel-bin`) by its path through the link, as
+  the lint report names it, instead of failing with the canonical path as outside the workspace
+  ([#176](https://github.com/Goldziher/skif/issues/176)).
 
 ## [0.3.0] - 2026-11-11
 

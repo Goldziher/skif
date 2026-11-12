@@ -225,3 +225,43 @@ fn an_export_in_a_package_with_incomplete_entries_is_not_judged() {
     assert_eq!(human.code, 0, "{}{}", human.stdout, human.stderr);
     assert!(human.stdout.contains("=> not judged"), "{}", human.stdout);
 }
+
+/// A file below a link to a directory outside the root (Bazel's `bazel-bin`) is named by its path through the link,
+/// as the lint report names it, not by the canonical path the link points to.
+#[cfg(unix)]
+#[test]
+fn a_file_below_a_linked_directory_is_found_by_its_path_through_the_link() {
+    let base = tempfile::tempdir().unwrap();
+    let root = base.path().canonicalize().unwrap().join("project");
+    fs::create_dir_all(root.join(".git")).unwrap();
+    put(
+        &root,
+        "package.json",
+        r#"{"name":"app","version":"1.0.0","private":true,"main":"index.ts"}"#,
+    );
+    put(&root, "index.ts", "import { schema } from './out/gen/schema';\nexport const main = schema;\n");
+    put(
+        &base.path().canonicalize().unwrap(),
+        "execroot/bin/gen/schema.ts",
+        "export const schema = 1;\n",
+    );
+    std::os::unix::fs::symlink(base.path().canonicalize().unwrap().join("execroot/bin"), root.join("out")).unwrap();
+
+    let relative = run(skif()
+        .current_dir(&root)
+        .args(["explain-usage", "out/gen/schema.ts", "--format", "json"]));
+    assert_eq!(relative.code, 0, "{}{}", relative.stdout, relative.stderr);
+    let document = relative.json();
+    assert_eq!(document["report"]["file"], "out/gen/schema.ts", "{document}");
+    assert_eq!(document["report"]["in-graph"], true, "{document}");
+    assert_eq!(document["report"]["imported-by"][0]["file"], "index.ts", "{document}");
+
+    let absolute = run(skif()
+        .current_dir(base.path())
+        .arg("explain-usage")
+        .arg(root.join("out/gen/schema.ts"))
+        .arg(&root)
+        .args(["--format", "json"]));
+    assert_eq!(absolute.code, 0, "{}{}", absolute.stdout, absolute.stderr);
+    assert_eq!(absolute.json()["report"]["file"], "out/gen/schema.ts");
+}

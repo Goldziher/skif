@@ -1,6 +1,6 @@
 //! `skif explain-usage`: why the JavaScript analysis counts a file, or one export of it, as used.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
@@ -44,15 +44,29 @@ fn split_target(target: &str) -> (&str, Option<&str>) {
     }
 }
 
-/// The canonical absolute path of `file`, which is relative to the current directory when it is not absolute.
-pub fn resolve_file(cwd: &Path, file: &str) -> Result<PathBuf, CliError> {
+/// A file to explain, by the path it was given as and by its canonical path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetFile {
+    /// The path as written, made absolute but with its links kept: a file below a linked directory (Bazel's
+    /// `bazel-bin`) is reached by the analysis, and named in the lint report, through the link. `None` when it climbs
+    /// with `..`, which only the canonical path resolves reliably.
+    written: Option<PathBuf>,
+    /// The canonical absolute path.
+    canonical: PathBuf,
+}
+
+/// `file`, which is relative to `cwd` when it is not absolute; an error when it does not exist.
+pub fn resolve_file(cwd: &Path, file: &str) -> Result<TargetFile, CliError> {
     let path = Path::new(file);
     let absolute = if path.is_absolute() {
         path.to_path_buf()
     } else {
         cwd.join(path)
     };
-    canonical(&absolute)
+    let canonical = canonical(&absolute)?;
+    let written = (!absolute.components().any(|component| component == Component::ParentDir))
+        .then(|| crate::lint::absolute_file(&absolute));
+    Ok(TargetFile { written, canonical })
 }
 
 /// The target whose root is the deepest ancestor of `file`.
@@ -63,6 +77,15 @@ fn owning_target<'a>(targets: &'a [Target], file: &Path) -> Option<&'a Target> {
         .max_by_key(|target| target.root.components().count())
 }
 
+/// The target that owns `file` with the file's path in it: by the path as written first, as the lint report names a
+/// file below a linked directory, then by the canonical path.
+fn locate<'a>(targets: &'a [Target], file: &'a TargetFile) -> Option<(&'a Target, &'a Path)> {
+    file.written
+        .iter()
+        .chain(std::iter::once(&file.canonical))
+        .find_map(|path| owning_target(targets, path).map(|target| (target, path.as_path())))
+}
+
 fn overrides(args: &ExplainUsageArgs) -> ConfigOverrides {
     ConfigOverrides::default()
         .with_production(args.production.then_some(true))
@@ -70,28 +93,28 @@ fn overrides(args: &ExplainUsageArgs) -> ConfigOverrides {
         .with_no_config(args.no_config)
 }
 
-/// Explains `file` (canonical and absolute), or its `export`, in the root found from `start` (also canonical).
+/// Explains `file`, or its `export`, in the root found from `start` (canonical).
 ///
 /// A file outside the module graph is a failure that carries the report, so the reason reaches the user.
 pub fn explain(
     start: &Path,
-    file: &Path,
+    file: &TargetFile,
     export: Option<&str>,
     overrides: &ConfigOverrides,
 ) -> Result<UsageReport, Failure> {
     let Resolved { targets, .. } =
         roots::resolve(start, false, &CachedFs::new(OsFs), overrides).map_err(|error| Box::new((error, Map::new())))?;
-    let target = owning_target(&targets, file).ok_or_else(|| {
+    let (target, path) = locate(&targets, file).ok_or_else(|| {
         fail(
             Kind::Usage,
             format!(
                 "{} is not inside a workspace or package found at {}",
-                file.display(),
+                file.canonical.display(),
                 start.display()
             ),
         )
     })?;
-    let relative = file.strip_prefix(&target.root).unwrap_or(file);
+    let relative = path.strip_prefix(&target.root).unwrap_or(path);
     let fs: Arc<dyn FileSystem> = Arc::new(OsFs);
     let report = skif::explain_usage(&target.config, &fs, &target.workspace, relative, export);
     if !report.in_graph {
