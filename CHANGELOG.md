@@ -178,6 +178,8 @@ All notable changes to this project are documented here. The format follows
   of a dependency a `BUILD` file credits, as skif credits the peers of a used package.
 - The n8n parity corpus entry also generates `@n8n/db`'s gitignored migration indexes after its build, so knip no
   longer reports the migrations they list as unused files.
+- The `knip-config-error` description in `parity.md` says that files of other packages only a failed configuration's
+  entries reach stay compared (next-js's root `jest.config.js`).
 
 ### Fixed
 
