@@ -149,7 +149,10 @@ All notable changes to this project are documented here. The format follows
   called over, a `const` list of strings included. An imported value the config changes (`base.build.outDir = 'out'`,
   `withPlugins(base)`, a write through a local holding it) is read as changed instead of as its module computes it.
   A `define…` helper changes nothing it is given only when it comes from a package the evaluator does not follow,
-  not from a module of the project (`require('./tools')`, `#tools`, `@/tools`) or a workspace package. A merge given options that may hold a function
+  not from a module of the project (`require('./tools')`, `#tools`, `@/tools`) or a workspace package. Such a
+  helper or merge the evaluator cannot follow (`import { defineConfig } from './define'`), and a `define…` function
+  taken from an object the config declares (`const { defineProperty } = Object`,
+  `globalThis.Object.defineProperty(…)`), is unknown instead of the value it is given or the merge of it. A merge given options that may hold a function
   (`deepmerge(a, b, { arrayMerge })`), and an export of a merge package that is no copying merge (`deepmergeInto`,
   `defuFn`, `mergeWithCustomize`), may change what it is given; the value of `deepmerge` given options and of
   `mergeWith` is unknown, as they may merge any way. The object of a `with` statement is partly unknown after it.

@@ -3293,3 +3293,41 @@ fn calls_on_a_package_share_through_it_once_it_is_used_otherwise() {
     );
     assert_eq!(at(&stored, &["plugins"]), &UNKNOWN, "{stored:?}");
 }
+
+/// A `define…` helper or a merge is the value it is given, or the merge of what it is given, only when its name is a
+/// global or comes from a package: one of a module of the project that is not followed, and a `define…` function taken
+/// from an object the config declares or reaches through another object, may return anything.
+#[test]
+fn a_define_helper_or_merge_the_evaluator_cannot_follow_is_unknown() {
+    for source in [
+        "import { defineConfig } from './define';\nexport default defineConfig({ a: 1 });",
+        "const { defineConfig } = require('./define');\nmodule.exports = defineConfig({ a: 1 });",
+        "import { mergeConfig } from './merge';\nexport default mergeConfig({ a: 1 }, { b: 2 });",
+        "export default globalThis.Object.defineProperty({}, 'x', { value: 1, enumerable: true });",
+        "const { defineProperty } = Object;\nexport default defineProperty({}, 'x', { value: 1, enumerable: true });",
+    ] {
+        assert_eq!(extract("vite.config.mjs", source), ConfigValue::Unknown, "{source}");
+    }
+    let number = |n: f64| ConfigValue::Number(n);
+    for (source, expected) in [
+        (
+            "import { defineConfig, mergeConfig } from 'vite';\n\
+             export default mergeConfig(defineConfig({ a: 1 }), { b: 2 });",
+            ConfigValue::Object(vec![("a".to_owned(), number(1.0)), ("b".to_owned(), number(2.0))]),
+        ),
+        (
+            "import * as vitest from 'vitest/config';\nexport default vitest.defineProject({ a: 1 });",
+            ConfigValue::Object(vec![("a".to_owned(), number(1.0))]),
+        ),
+        (
+            "export default defineNuxtConfig({ a: 1 });",
+            ConfigValue::Object(vec![("a".to_owned(), number(1.0))]),
+        ),
+        (
+            "export default Object.assign({ a: 1 }, { b: 2 });",
+            ConfigValue::Object(vec![("a".to_owned(), number(1.0)), ("b".to_owned(), number(2.0))]),
+        ),
+    ] {
+        assert_eq!(extract("vite.config.mjs", source), expected, "{source}");
+    }
+}
