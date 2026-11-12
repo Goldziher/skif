@@ -6,8 +6,8 @@
 //! defines (calling one runs no binary), the directory `cd`, `pushd` and `popd` move the commands after them to,
 //! environment assignments and the argument conventions of the common package
 //! managers (`npm`, `npx`, `pnpm`, `yarn`, `bun`), process wrappers (`cross-env`, `dotenv`, ...),
-//! task runners (`concurrently`, `npm-run-all`, `turbo`) and script runners (`node`, `tsx`,
-//! `ts-node`, ...). Nothing is executed and the file system is never consulted.
+//! task runners (`concurrently`, `npm-run-all`, `turbo`), the member commands of `lerna exec` and `nx exec`, and script
+//! runners (`node`, `tsx`, `ts-node`, ...). Nothing is executed and the file system is never consulted.
 
 mod args;
 mod tables;

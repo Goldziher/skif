@@ -9,6 +9,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Scripts**: the command of `lerna exec [flags] [--] <cmd>` and `nx exec [flags] -- <cmd>` is walked as a command
+  of the package, as `pnpm -r exec` is: `lerna exec -- rimraf dist` uses `rimraf`, and an unlisted binary there is
+  reported. `lerna run` and `nx run` keep reading task names
+  ([#187](https://github.com/Goldziher/skif/issues/187)).
+
 ## [0.3.0] - 2026-11-11
 
 ### Added

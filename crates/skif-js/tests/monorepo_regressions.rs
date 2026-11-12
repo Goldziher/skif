@@ -927,3 +927,29 @@ fn bun_links_member_binaries_as_its_linker_says() {
 }
 
 type BunCase<'a> = (Vec<(&'a str, &'a str)>, &'a [&'a str]);
+
+/// `lerna exec` and `nx exec` run the command after their flags in each member with the root's binaries on the
+/// `PATH`: a listed provider is used and an unlisted binary is reported at the root, as for `pnpm -r exec`.
+#[test]
+fn lerna_exec_and_nx_exec_commands_are_walked() {
+    let root = r#"{"name":"root","private":true,"packageManager":"npm@10.0.0","workspaces":["packages/*"],"scripts":{"clean":"lerna exec -- rimraf dist","x":"lerna exec --scope @fx/b --parallel -- unlistedbin --x","ex2":"nx exec -- bazbin build","build":"lerna run build --stream"},"devDependencies":{"lerna":"10.1.1","nx":"23.1.0","rimraf":"6.0.0"}}"#;
+    let files = [
+        ("package.json", root),
+        (
+            "packages/b/package.json",
+            r#"{"name":"@fx/b","version":"1.0.0","main":"index.js"}"#,
+        ),
+        ("packages/b/index.js", "module.exports = 1;\n"),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(
+        found(&diagnostics, "unlisted-binaries"),
+        ["package.json: bazbin", "package.json: unlistedbin"],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        none(),
+        "{diagnostics:#?}"
+    );
+}
