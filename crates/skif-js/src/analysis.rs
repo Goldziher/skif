@@ -1034,6 +1034,7 @@ impl<'a> JsAnalysis<'a> {
     pub(crate) fn member_in_use(&self, module: &Module, export: &Export, member: &Member) -> bool {
         self.ignores_member(module.owner, &member.name)
             || export.members_read_in_file.contains(&member.name)
+            || export.used_whole_in_file
             || self.exports.is_member_used(module.id, &export.name, &member.name)
     }
 

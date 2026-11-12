@@ -367,6 +367,11 @@ pub struct Export {
     /// namespace member's bare name inside the namespace body); sorted.
     #[serde(default)]
     pub members_read_in_file: Vec<String>,
+    /// An enum export used as a whole in this file, which may read any member: as a value (`Object.values(E)`,
+    /// `E[key]`, a spread, `for (k in E)`, passed, stored or returned) or in a type through `typeof E` or a template
+    /// literal type (`${E}`). A type annotation `x: E` names the enum type and reads no member.
+    #[serde(default)]
+    pub used_whole_in_file: bool,
     /// `export const b = a`: the identifier the exported constant is initialised with.
     #[serde(default)]
     pub alias_of: Option<String>,
