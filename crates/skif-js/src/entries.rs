@@ -461,8 +461,9 @@ pub(crate) fn map_published(fs: &dyn FileSystem, package_setup: &PackageSetup, t
 /// Whether the published path `target` of the package with `manifest` names no file: neither the path nor a source
 /// file behind it exists, git does not ignore it and it is not build output not built yet. A path in a build output
 /// directory (`dist`, `lib`, ...), a gitignored path (by an ignore file of the repository above or below the analysed
-/// root, or its `info/exclude`) and a path in `bin` a build step of the package may write ([`may_build_bin`]) are
-/// build output. A path outside the package is never judged. Such a path is no entry, so it neither makes the package's
+/// root, or its `info/exclude`) and a path in `bin` a build step of the package may write ([`bin_build`]) are build
+/// output, but a path in `bin` the package's build cannot write ([`BinBuild::CannotWrite`]) is not, gitignored or
+/// not. A path outside the package is never judged. Such a path is no entry, so it neither makes the package's
 /// entries unknown nor uses anything (ADR 0069); `stale-js-config` reports it (`package-entry`).
 pub(crate) fn names_no_file(
     disk: Disk<'_>,
@@ -481,11 +482,12 @@ pub(crate) fn names_no_file(
     if first.is_some_and(is_out_dir) {
         return false;
     }
-    if first == Some("bin") && may_build_bin(disk.fs, package_setup, manifest, rel) {
+    let bin = (first == Some("bin")).then(|| bin_build(disk.fs, package_setup, manifest, rel));
+    if bin == Some(BinBuild::MayWrite) {
         return false;
     }
     let dir = &package_setup.dir;
-    if disk.gitignore && is_ignored_in_repository(disk.fs, root, &dir.join(rel)) {
+    if bin != Some(BinBuild::CannotWrite) && disk.gitignore && is_ignored_in_repository(disk.fs, root, &dir.join(rel)) {
         return false;
     }
     if rel.contains('*') {
@@ -610,13 +612,25 @@ fn compiler_may_write(fs: &dyn FileSystem, package_dir: &Path, rel: &str) -> boo
     fs.is_file(&package_dir.join(rel)) || on_disk(fs, package_dir, &pattern)
 }
 
+/// What the build steps of a package may write at a path in its `bin` directory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BinBuild {
+    /// No build step: the path is build output only when git ignores it.
+    NoBuildStep,
+    /// A build step may write the path, so a missing file there is build output not built yet.
+    MayWrite,
+    /// The only build steps run the TypeScript compiler and no file of the package has the path's name, so nothing
+    /// writes it, whether git ignores it or not.
+    CannotWrite,
+}
+
 /// Whether a build step of the package may write the path `rel` in its `bin` directory, so that a missing file there
 /// is build output not built yet rather than a path into nothing. A build step is a build script ([`BUILD_SCRIPTS`]),
 /// a script that runs a compiler or bundler ([`BUILDERS`]) or a compiling subcommand, or writes into `bin`
 /// ([`script_builds_bin`]), a bundler configuration a plugin reads ([`BUNDLER_CONFIGS`]), or a build directory
 /// (`tsconfig` `outDir`) at or inside `bin`. When the only build steps run the TypeScript compiler
 /// ([`only_compiles_typescript`]), they may write `rel` only when a source file has its name ([`compiler_may_write`]).
-fn may_build_bin(fs: &dyn FileSystem, package_setup: &PackageSetup, manifest: &Value, rel: &str) -> bool {
+fn bin_build(fs: &dyn FileSystem, package_setup: &PackageSetup, manifest: &Value, rel: &str) -> BinBuild {
     let build_scripts: Vec<Option<&str>> = manifest
         .get("scripts")
         .and_then(Value::as_object)
@@ -647,16 +661,20 @@ fn may_build_bin(fs: &dyn FileSystem, package_setup: &PackageSetup, manifest: &V
         .iter()
         .any(|build| build.out_dir == "bin" || build.out_dir.starts_with("bin/"));
     if bundler_config || bin_build_dir {
-        return true;
+        return BinBuild::MayWrite;
     }
     if build_scripts.is_empty() && builders.is_empty() {
-        return false;
+        return BinBuild::NoBuildStep;
     }
     let only_typescript = builders.iter().all(|name| TS_COMPILERS.contains(name))
         && build_scripts
             .iter()
             .all(|script| script.is_some_and(only_compiles_typescript));
-    !only_typescript || compiler_may_write(fs, &package_setup.dir, rel)
+    if !only_typescript || compiler_may_write(fs, &package_setup.dir, rel) {
+        BinBuild::MayWrite
+    } else {
+        BinBuild::CannotWrite
+    }
 }
 
 /// The source paths behind `rel`, a package-relative path inside the output directory of one of the package's build

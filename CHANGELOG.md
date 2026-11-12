@@ -37,9 +37,10 @@ All notable changes to this project are documented here. The format follows
 ### Fixed
 
 - `stale-js-config` (`package-entry`) reports a `bin` path that a build running only the TypeScript compiler
-  (`"build": "tsc"`) cannot write, because no file of the package is named after it, and the package is judged from
-  its other entries instead of being listed in `incomplete-packages` with `unmapped-published`. A `bin` path a source
-  file is named after, or that another build step may write, keeps the package unjudged as before.
+  (`"build": "tsc"`) cannot write, because no file of the package is named after it, also when a `.gitignore` hides it
+  (`*.js`, as CDK templates ship), and the package is judged from its other entries instead of being listed in
+  `incomplete-packages` with `unmapped-published`. A `bin` path a source file is named after, or that another build
+  step may write, keeps the package unjudged as before, gitignored or not.
 - **Bun**: the members claimed for a workspace whose root cannot be discovered keep a directory a positive pattern
   names by its literal path despite a negation, as discovery does ([#158](https://github.com/Goldziher/skif/issues/158)).
 
