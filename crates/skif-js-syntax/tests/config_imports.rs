@@ -634,7 +634,7 @@ fn a_change_of_an_imported_value_is_applied_where_it_is_read() {
         ),
         (
             "import base from './base';\nconst local = base;\nlocal.build.outDir = 'out';\nexport default base;",
-            false,
+            true,
         ),
         (
             "import * as shared from './base';\nshared.default.build.outDir = 'out';\nexport default shared.default;",
