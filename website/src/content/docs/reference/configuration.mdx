@@ -1138,7 +1138,9 @@ arguments in another, so a change of one argument leaves the others known. A lis
 method (`push`, `slice`, `concat`) changes at most its object only when that object is known to be a list or string,
 and one that calls a function it is given with the list's elements (`forEach`, `map`, `reduce`) only when that
 function is written in place or declared by the config and no `this` object follows it (`list.forEach(fn, thisArg)`);
-an imported callback (`configs.forEach(withSentry)`) may change each element and that object. A
+an imported callback (`configs.forEach(withSentry)`) may change each element and that object. A local holding a
+function the evaluator does not follow (`const addAlias = aliaser(config)`) may change what it was made from each time
+it is called; one bound to an import or a `require` is taken to change none of the config's locals. A
 change through an element of a list leaves every element open; a loop name, a callback parameter, a name a destructuring
 assignment sets and a function assigned with `=` share with what they take, except a callback over a `const` list of
 strings or numbers that no change reaches; a value spread from an object literal (`...(ci ? { plugins: list } : {})`)

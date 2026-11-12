@@ -4430,6 +4430,11 @@ impl<'a> Visit<'a> for Writes<'_> {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        if let Expression::Identifier(callee) = it.callee.get_inner_expression()
+            && self.unstable.calls_value(it)
+        {
+            self.change(callee.name.as_str(), Write::default());
+        }
         if let Some(target) = changed_by_call(it, self.unstable.is_pure(it), self.unstable.calls_back(it)) {
             match (property_defined(it), reach(target)) {
                 (Some(key), Some((root, keys, true))) => self.change(root.name.as_str(), Write { keys, key: Some(key) }),

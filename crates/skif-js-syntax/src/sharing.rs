@@ -153,6 +153,8 @@ pub(crate) struct Unstable {
     objects: HashMap<Span, Vec<ObjectPart>>,
     /// The calls of one of [`CALLBACK_METHODS`] that may call code the pass does not follow, by span.
     calls_back: HashSet<Span>,
+    /// The calls of a local by name that holds a function the pass does not follow, by span.
+    called_values: HashSet<Span>,
     /// The references that are the only one of a binding no other module can read and that are read once per binding:
     /// not in a loop, nor in a function other than the binding's own, and not of an alias the evaluator follows. None
     /// when the module reads `arguments` or calls `eval`, which reach bindings without a reference.
@@ -184,6 +186,7 @@ impl Unstable {
             effects: HashMap::default(),
             objects: HashMap::default(),
             calls_back: HashSet::default(),
+            called_values: HashSet::default(),
             exported: HashSet::default(),
             dynamic: false,
             loops: 0,
@@ -215,6 +218,7 @@ impl Unstable {
             effects: std::mem::take(&mut sharing.effects),
             objects: std::mem::take(&mut sharing.objects),
             calls_back: std::mem::take(&mut sharing.calls_back),
+            called_values: std::mem::take(&mut sharing.called_values),
             sole,
             ..Self::default()
         };
@@ -288,6 +292,12 @@ impl Unstable {
     /// object it is called on holds ([`changed_by_call`]).
     pub(crate) fn calls_back(&self, call: &CallExpression<'_>) -> bool {
         self.calls_back.contains(&call.span)
+    }
+
+    /// Whether `call` calls a local by name that holds a function the pass does not follow (`addAlias` after
+    /// `const addAlias = aliaser(config)`), which may change what the local holds and was made from.
+    pub(crate) fn calls_value(&self, call: &CallExpression<'_>) -> bool {
+        self.called_values.contains(&call.span)
     }
 
     /// Whether a change made through the argument `id` of a call may be read after the call: `id` is not the only
@@ -391,6 +401,8 @@ struct Sharing<'s> {
     objects: HashMap<Span, Vec<ObjectPart>>,
     /// The calls found that may call code the pass does not follow with what a list holds ([`Self::calls_back`]).
     calls_back: HashSet<Span>,
+    /// The calls found of a local by name that holds a function the pass does not follow ([`Unstable::calls_value`]).
+    called_values: HashSet<Span>,
     /// The bindings the module exports by declaring them.
     exported: HashSet<SymbolId>,
     /// Whether the module reads `arguments` or calls `eval`.
@@ -1404,12 +1416,21 @@ impl<'a> Visit<'a> for Sharing<'_> {
         // is given anywhere.
         let hub = match it.callee.get_inner_expression() {
             Expression::Identifier(id) => {
-                let symbol = self.symbol(id);
+                let symbol = local_symbol(self.scoping, id);
                 if let Some(parameters) = symbol.and_then(|symbol| self.callables.apart.get(&symbol)).cloned() {
                     self.pass(&parameters, it);
                     return walk::walk_call_expression(self, it);
                 }
                 let exact = calls_callable(self.scoping, &self.callables, it);
+                // A function value the pass does not follow (one a call made, `aliaser(config)`) may change what it
+                // holds or captures, which it shares with what it was made from. One a module exports is taken to
+                // change none of the module's locals.
+                if !exact
+                    && let Some(symbol) = symbol.filter(|symbol| !self.known.modules.contains_key(symbol))
+                {
+                    self.called_values.insert(it.span);
+                    self.changed(symbol, Write::default());
+                }
                 symbol.map(|symbol| (Place::of(symbol), exact))
             }
             callee => {
