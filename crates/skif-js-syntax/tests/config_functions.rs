@@ -3021,3 +3021,35 @@ fn a_write_through_an_object_that_is_not_a_chain_reaches_what_it_may_be() {
         }
     }
 }
+
+/// A list method that calls a function it is given with the list's elements (`forEach`, `map`) changes nothing only
+/// when that function is written in place or declared by the config and no object is given as its `this`: an imported
+/// callback, or a `this` argument, may change the elements and that object.
+#[test]
+fn a_list_method_calling_code_that_is_not_followed_may_change_the_elements() {
+    let config = "const web = { entry: './web.js' };\nconst worker = { entry: './worker.js' };";
+    for body in [
+        "const configs = [web, worker];\nconfigs.forEach(withSentry);",
+        "[web, worker].map(withSentry);",
+        "const list = [1];\nlist.forEach(function () { this.entry = './x.js'; }, web);",
+    ] {
+        for source in [
+            format!("import withSentry from 'sentry-wrap';\n{config}\n{body}\nexport default web;"),
+            format!(
+                "import withSentry from 'sentry-wrap';\nexport default () => {{\n{config}\n{body}\nreturn web;\n}};"
+            ),
+        ] {
+            let value = extract("webpack.config.mjs", &source);
+            assert!(open_or_unknown(&value), "{source}: {value:?}");
+        }
+    }
+    let kept = extract(
+        "webpack.config.mjs",
+        "const web = { entry: './web.js' };\n\
+         const named = (config) => config.entry;\n\
+         [web].forEach((config) => console.log(config.entry));\n\
+         [web].map(named);\n\
+         export default web;",
+    );
+    assert!(!open(&kept), "{kept:?}");
+}
