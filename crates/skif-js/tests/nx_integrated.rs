@@ -214,3 +214,34 @@ fn a_members_project_json_names_its_files_from_the_workspace_root() {
         "{diagnostics:#?}"
     );
 }
+
+/// A local Nx plugin named in `nx.json` through a `tsconfig.base.json` alias is no unlisted package: its module is an
+/// entry, so it is not unused and what it imports is used, while an unused dependency is still reported.
+#[test]
+fn a_local_nx_plugin_named_by_an_alias_is_followed() {
+    let manifest = r#"{ "name": "root", "private": true, "devDependencies": { "nx": "20.0.0", "@nx/devkit": "20.0.0", "left-pad": "1.0.0" } }"#;
+    let files = [
+        ("package.json", manifest),
+        ("nx.json", r#"{ "plugins": ["@fx/nxp"] }"#),
+        (
+            "tsconfig.base.json",
+            r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@fx/nxp": ["tools/nxp/index.ts"] } } }"#,
+        ),
+        ("apps/a/project.json", r#"{ "name": "a" }"#),
+        (
+            "tools/nxp/index.ts",
+            "import { createNodesFromFiles } from '@nx/devkit';\nexport const createNodesV2 = ['**/x.json', createNodesFromFiles];\n",
+        ),
+    ];
+    let diagnostics = lint(&files);
+    let rules = ["unlisted-dependencies", "unused-dependencies", "unused-dev-dependencies"];
+    let judged: Vec<String> = dependencies(&diagnostics, &rules)
+        .into_iter()
+        .filter(|name| ["@fx/nxp", "@nx/devkit", "left-pad"].contains(&name.as_str()))
+        .collect();
+    assert_eq!(judged, ["left-pad"], "{diagnostics:#?}");
+    assert!(
+        !unused_files(&diagnostics).contains(&PathBuf::from("tools/nxp/index.ts")),
+        "{diagnostics:#?}"
+    );
+}

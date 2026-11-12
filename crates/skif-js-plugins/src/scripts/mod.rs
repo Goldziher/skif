@@ -6,8 +6,8 @@
 //! defines (calling one runs no binary), the directory `cd`, `pushd` and `popd` move the commands after them to,
 //! environment assignments and the argument conventions of the common package
 //! managers (`npm`, `npx`, `pnpm`, `yarn`, `bun`), process wrappers (`cross-env`, `dotenv`, ...),
-//! task runners (`concurrently`, `npm-run-all`, `turbo`) and script runners (`node`, `tsx`,
-//! `ts-node`, ...). Nothing is executed and the file system is never consulted.
+//! task runners (`concurrently`, `npm-run-all`, `turbo`), the member commands of `lerna exec` and `nx exec`, and script
+//! runners (`node`, `tsx`, `ts-node`, ...). Nothing is executed and the file system is never consulted.
 
 mod args;
 mod tables;
@@ -192,8 +192,6 @@ pub struct ScriptInfo {
     /// Names of the package's scripts this script runs, in order of first reference. Names that
     /// are not in [`ScriptContext::scripts`] are included so callers can report them.
     pub run_scripts: Vec<String>,
-    /// Task names passed to `turbo`; they refer to scripts of other workspaces.
-    pub turbo_tasks: Vec<String>,
     /// Package managers (`npm`, `pnpm`, `yarn`) the script invokes, which a manifest may list as a dependency.
     pub package_managers: Vec<String>,
     /// The script runs the Node.js test runner (`node --test`), which finds test files by convention.

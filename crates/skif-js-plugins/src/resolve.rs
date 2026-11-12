@@ -111,7 +111,8 @@ enum ScopeEnablement {
 ///
 /// Each scope's files are listed once and searched for every plugin's config files and file enablers. A plugin
 /// that gives no default entry, production, project or ignore globs and finds no config file in a scope is not run
-/// there, its config-less and workspace conventions included.
+/// there, its config-less and workspace conventions included, unless a target of the scope's `project.json` runs the
+/// tool's Nx executor (`@nx/vite:build`), which runs it with its defaults.
 fn run_in_scopes(
     ctx: &PluginContext<'_>,
     scopes: &[String],
@@ -145,13 +146,14 @@ fn run_in_scopes(
         let scope_ctx = shared.context(ctx, &dir);
         let files = list_files(ctx.fs, &dir);
         let listing = Listing::new(&files);
+        let executors = nx::executor_plugins(&scope_ctx);
         for &(index, enablement) in &candidates {
             let plugin = plugins[index];
             let spec = plugin.spec();
             if enablement == ScopeEnablement::ByFile && !has_enabling_file(spec, &listing) {
                 continue;
             }
-            if !gives_defaults(spec) && !listing.any_matching(spec.config) {
+            if !gives_defaults(spec) && !listing.any_matching(spec.config) && !nx::runs_tool_of(&executors, spec.id) {
                 continue;
             }
             let setting = scope_ctx.plugins.get(spec.id);

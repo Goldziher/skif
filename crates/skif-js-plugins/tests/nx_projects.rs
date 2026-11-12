@@ -364,3 +364,29 @@ fn a_scope_runs_only_the_plugins_its_files_call_for() {
     assert_eq!(vercel.config_files, paths(&["apps/api/vercel.json"]));
     assert_eq!(vercel.entries, ["apps/api/vercel.{js,mjs,cjs,ts,mts}"]);
 }
+
+/// A scope whose targets run a tool's Nx executor (`@nx/vite:build`) applies that tool's config-less conventions
+/// without a config file, as the executor runs the tool with its defaults: Vite's `index.html` names `src/main.tsx`.
+/// A project whose executors are another tool's still does not.
+#[test]
+fn a_scope_whose_targets_run_a_tools_executor_applies_its_conventions() {
+    let html = |main: &str| format!(r#"<html><body><script type="module" src="/src/{main}"></script></body></html>"#);
+    let (web, api) = (html("main.tsx"), html("main.ts"));
+    let files = [
+        ("nx.json", "{}"),
+        (
+            "apps/web/project.json",
+            r#"{ "targets": { "build": { "executor": "@nx/vite:build", "options": { "outputPath": "dist/web" } } } }"#,
+        ),
+        ("apps/web/index.html", web.as_str()),
+        (
+            "apps/api/project.json",
+            r#"{ "targets": { "build": { "executor": "@nx/js:tsc" } } }"#,
+        ),
+        ("apps/api/index.html", api.as_str()),
+    ];
+    let results = resolve(&files, &["nx", "vite", "@nx/vite"]);
+    let vite = output(&results, "vite");
+    assert!(vite.config_files.is_empty(), "{:?}", vite.config_files);
+    assert_eq!(vite.production_entries, ["apps/web/src/main.tsx"]);
+}

@@ -522,6 +522,23 @@ fn table() {
             &[],
             &[],
         ),
+        // `lerna exec` and `nx exec` run their command in each member; `lerna run` and `nx run` take task names.
+        bins("lerna exec -- rimraf dist", &["lerna", "rimraf"]),
+        bins(
+            "lerna exec --scope @fx/b --parallel -- unlistedbin --x",
+            &["lerna", "unlistedbin"],
+        ),
+        bins("lerna exec --concurrency 2 --stream rimraf dist", &["lerna", "rimraf"]),
+        bins("lerna exec -- \"rimraf dist && tsc\"", &["lerna", "rimraf", "tsc"]),
+        bins("npx lerna exec -- rimraf dist", &["lerna:npx", "rimraf"]),
+        bins("nx exec -- bazbin build", &["nx", "bazbin"]),
+        bins("nx exec --projects a,b --parallel 2 -- tsc -b", &["nx", "tsc"]),
+        bins("pnpm nx exec -- tsc", &["nx:pnpm-exec", "tsc"]),
+        bins("lerna exec", &["lerna"]),
+        bins("lerna run build --scope=@fx/a --stream", &["lerna"]),
+        bins("lerna run test --since main --concurrency 2", &["lerna"]),
+        bins("nx run web:build", &["nx"]),
+        bins("nx run-many -t build lint", &["nx"]),
     ];
     for case in cases {
         let info = parse_script(case.script, &context(case.scripts));
@@ -554,19 +571,19 @@ fn table_is_broad() {
 }
 
 #[test]
-fn turbo_tasks() {
-    let cases: [(&str, &[&str]); 6] = [
-        ("turbo run build --filter=web", &["build"]),
-        ("turbo run build lint --filter web", &["build", "lint"]),
-        ("turbo build", &["build"]),
-        ("turbo run test -- --coverage", &["test"]),
-        ("turbo prune web", &[]),
-        ("turbo watch dev", &["dev"]),
-    ];
-    for (script, tasks) in cases {
-        let info = parse(script);
-        assert_eq!(info.turbo_tasks, tasks, "{script}");
+fn turbo_task_names_are_not_commands() {
+    let ctx = context(&[("build", "tsc"), ("dev", "vite")]);
+    for script in [
+        "turbo run build --filter=web",
+        "turbo run build lint --filter web",
+        "turbo build",
+        "turbo run test -- --coverage",
+        "turbo prune web",
+        "turbo watch dev",
+    ] {
+        let info = parse_script(script, &ctx);
         assert_eq!(binaries_of(&info), vec!["turbo".to_owned()], "{script}");
+        assert!(info.files.is_empty() && info.dependencies.is_empty(), "{script}: {info:?}");
         assert!(info.run_scripts.is_empty(), "{script}");
     }
 }
@@ -798,6 +815,22 @@ fn recursive_without_filter_still_runs_here() {
     let info = parse("pnpm -r exec vite");
     assert_eq!(binaries_of(&info), vec!["vite:pnpm-exec".to_owned()]);
     assert!(!info.binaries[0].filtered);
+}
+
+#[test]
+fn member_exec_commands_run_here() {
+    for script in [
+        "lerna exec -- rimraf dist",
+        "lerna exec --scope @fx/b -- rimraf dist",
+        "nx exec -- rimraf dist",
+    ] {
+        let info = parse(script);
+        let rimraf = info.binaries.iter().find(|b| b.name == "rimraf");
+        assert!(
+            rimraf.is_some_and(|b| !b.filtered && b.via == BinaryVia::Direct && b.dir.is_none()),
+            "{script}: {info:?}"
+        );
+    }
 }
 
 #[test]

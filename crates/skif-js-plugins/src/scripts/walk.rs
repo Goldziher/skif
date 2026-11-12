@@ -582,10 +582,8 @@ impl<'c> Walker<'c> {
                 self.bin(name, span, st, bin_path);
                 self.run_all(args, frame);
             }
-            "turbo" => {
-                self.bin(name, span, st, bin_path);
-                self.turbo(args);
-            }
+            // Its arguments are task names and filters, which name scripts of the workspaces, not commands.
+            "turbo" => self.bin(name, span, st, bin_path),
             "command"
                 if args
                     .iter()
@@ -608,6 +606,8 @@ impl<'c> Walker<'c> {
                     self.wrapper(wrapper, args, frame, st);
                 } else if let Some(runner) = tables::runner(n) {
                     self.runner(runner, args, frame, st);
+                } else if let Some(value_flags) = tables::member_exec(n) {
+                    self.member_exec(value_flags, args, frame, st);
                 }
             }
         }
@@ -1152,22 +1152,22 @@ impl<'c> Walker<'c> {
         }
     }
 
-    fn turbo(&mut self, args: &[Word]) {
-        let parsed = args::parse(args, tables::TURBO_VALUE_FLAGS, false);
-        let mut names: Vec<&str> = parsed.positionals.iter().map(|&i| args[i].text.as_str()).collect();
-        match names.first().copied() {
-            None => return,
-            Some("run" | "watch") => {
-                names.remove(0);
-            }
-            Some(first) if tables::TURBO_SUBCOMMANDS.contains(&first) => return,
-            Some(_) => {}
-        }
-        for name in names {
-            if !self.info.turbo_tasks.iter().any(|t| t == name) {
-                self.info.turbo_tasks.push(name.to_owned());
-            }
-        }
+    /// `lerna exec [flags] [--] <cmd>` and `nx exec [flags] -- <cmd>` run `<cmd>` in each member with the root's
+    /// binaries on the `PATH`, so it is walked as a command of this package, as `pnpm -r exec` is.
+    fn member_exec(&mut self, value_flags: &[&str], args: &[Word], frame: &Frame, st: St) {
+        let Some(("exec", rest)) = args.split_first().map(|(first, rest)| (first.text.as_str(), rest)) else {
+            return;
+        };
+        let parsed = args::parse(rest, value_flags, true);
+        let command = command_words(rest, &parsed);
+        self.command_or_string(
+            command,
+            frame,
+            St {
+                via: BinaryVia::Direct,
+                ..st
+            },
+        );
     }
 
     fn runner(&mut self, runner: &Runner, args: &[Word], frame: &Frame, st: St) {
