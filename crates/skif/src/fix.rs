@@ -1,5 +1,6 @@
 //! Turning the fixes attached to a report into a plan of file changes, without touching the file system.
 
+use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -9,7 +10,7 @@ use skif_core::{
     Diagnostic, FileChange, FileSystem, Fix, FixOp, FixPreference, FixSafety, Report, RuleId, TextEdit,
     apply_text_edits, slash,
 };
-use skif_edit::{EditPlanError, FileKind, plan_edits};
+use skif_edit::{Document, EditPlanError, FileKind};
 use skif_workspace::Workspace;
 
 /// What to do when a diagnostic has several alternative fixes and `choices` holds no pick for it.
@@ -305,10 +306,75 @@ enum Staged<'a> {
     Nothing,
 }
 
+/// The files the fixes of a report touch, each read at most once however many fixes and planning passes look at it.
+struct Sources<'a> {
+    root: &'a Path,
+    fs: &'a dyn FileSystem,
+    texts: BTreeMap<&'a Path, OnceCell<Result<Arc<str>, String>>>,
+}
+
+impl<'a> Sources<'a> {
+    fn new(root: &'a Path, fs: &'a dyn FileSystem, report: &'a Report) -> Self {
+        let texts = report
+            .diagnostics
+            .iter()
+            .flat_map(|diagnostic| &diagnostic.fixes)
+            .flat_map(|fix| &fix.ops)
+            .filter_map(op_path)
+            .map(|path| (path, OnceCell::new()))
+            .collect();
+        Self { root, fs, texts }
+    }
+
+    /// The contents of `path`, a file an operation of the report names.
+    fn text(&self, path: &Path) -> Result<&Arc<str>, String> {
+        let cell = self
+            .texts
+            .get(path)
+            .ok_or_else(|| format!("cannot read {}: no fix of the report names it", slash(path)))?;
+        cell.get_or_init(|| {
+            self.fs
+                .read_to_string(&self.root.join(path))
+                .map_err(|error| format!("cannot read {}: {error}", slash(path)))
+        })
+        .as_ref()
+        .map_err(String::clone)
+    }
+}
+
+/// The JSON and YAML files of [`Sources`], each parsed at most once: every fix of a file is planned against one
+/// [`Document`].
+struct Documents<'a> {
+    sources: &'a Sources<'a>,
+    parsed: BTreeMap<&'a Path, OnceCell<Result<Document<'a>, String>>>,
+}
+
+impl<'a> Documents<'a> {
+    fn new(sources: &'a Sources<'a>) -> Self {
+        let parsed = sources.texts.keys().map(|&path| (path, OnceCell::new())).collect();
+        Self { sources, parsed }
+    }
+
+    /// The document of `path`, a file of `kind`; the message of a file that cannot be read or does not parse.
+    fn document(&self, path: &Path, kind: FileKind) -> Result<&Document<'a>, String> {
+        let cell = self
+            .parsed
+            .get(path)
+            .ok_or_else(|| format!("cannot read {}: no fix of the report names it", slash(path)))?;
+        let sources = self.sources;
+        cell.get_or_init(|| {
+            let source = sources.text(path)?;
+            Document::parse(source, kind).map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .map_err(String::clone)
+    }
+}
+
 struct Planner<'a> {
     root: &'a Path,
     fs: &'a dyn FileSystem,
-    sources: BTreeMap<PathBuf, Arc<str>>,
+    documents: &'a Documents<'a>,
     entries: BTreeMap<PathBuf, Entry<'a>>,
     /// The diagnostics whose accepted fixes touch each path, in the order they were accepted.
     contributors: BTreeMap<PathBuf, Vec<usize>>,
@@ -363,18 +429,6 @@ fn extend_sorted(accepted: &mut Vec<TextEdit>, edits: Vec<TextEdit>) {
 }
 
 impl<'a> Planner<'a> {
-    fn source(&mut self, path: &Path) -> Result<Arc<str>, String> {
-        if let Some(source) = self.sources.get(path) {
-            return Ok(Arc::clone(source));
-        }
-        let source = self
-            .fs
-            .read_to_string(&self.root.join(path))
-            .map_err(|error| format!("cannot read {}: {error}", slash(path)))?;
-        self.sources.insert(path.to_path_buf(), Arc::clone(&source));
-        Ok(source)
-    }
-
     /// Adds every op of `fix` or none: the plan is only extended once all of the fix's files check out.
     fn try_add(&mut self, index: usize, fix: &'a Fix) -> Result<(), SkipReason> {
         let mut by_file: BTreeMap<&Path, Vec<&'a FixOp>> = BTreeMap::new();
@@ -462,15 +516,15 @@ impl<'a> Planner<'a> {
     /// theirs. `skif-edit` combines a sort of an object with changes inside the members it moves, so a value fix and
     /// the `unsorted-dependencies` fix of one object both apply in one run; `None` when the joint plan still has
     /// overlapping edits or does not apply.
-    fn stage_jointly(&mut self, path: &Path, fresh: Vec<&'a FixOp>) -> Option<Staged<'a>> {
+    fn stage_jointly(&self, path: &Path, fresh: Vec<&'a FixOp>) -> Option<Staged<'a>> {
         let kind = FileKind::from_path(path)?;
         let Some(Entry::Edit { ops: earlier, .. }) = self.entries.get(path) else {
             return None;
         };
         let all: Vec<&'a FixOp> = earlier.iter().copied().chain(fresh.iter().copied()).collect();
-        let source = self.source(path).ok()?;
-        let edits = plan_edits(&source, kind, &all).ok()?;
-        apply_text_edits(&source, &edits).ok()?;
+        let document = self.documents.document(path, kind).ok()?;
+        let edits = document.plan(&all).ok()?;
+        apply_text_edits(document.source(), &edits).ok()?;
         Some(Staged::Joint { ops: fresh, edits })
     }
 
@@ -515,11 +569,13 @@ impl<'a> Planner<'a> {
     }
 
     /// The text edits `ops` amount to over the current contents of `path`.
-    fn plan(&mut self, path: &Path, ops: &[&FixOp]) -> Result<Vec<TextEdit>, PlanFailure> {
-        let source = self.source(path).map_err(PlanFailure::Other)?;
+    fn plan(&self, path: &Path, ops: &[&FixOp]) -> Result<Vec<TextEdit>, PlanFailure> {
         match FileKind::from_path(path) {
-            Some(kind) => plan_edits(&source, kind, ops).map_err(|error| plan_failure(&error)),
-            None => text_edits(&source, ops),
+            Some(kind) => {
+                let document = self.documents.document(path, kind).map_err(PlanFailure::Other)?;
+                document.plan(ops).map_err(|error| plan_failure(&error))
+            }
+            None => text_edits(self.documents.sources.text(path).map_err(PlanFailure::Other)?, ops),
         }
     }
 
@@ -551,17 +607,20 @@ impl<'a> Planner<'a> {
                     FileChange::Delete { path: path.clone() }
                 }
                 Entry::Edit { ops, edits } => {
-                    let source = self.source(&path).map_err(invalid)?;
+                    let source = self.documents.sources.text(&path).map_err(invalid)?;
                     // Per-fix plans decide which fixes are accepted; the file is written from one joint plan of
                     // every accepted op, because independent removals of neighbouring members need the joint
                     // view to place separators (two tail removals planned alone leave a dangling comma).
                     let edits = match FileKind::from_path(&path) {
-                        Some(kind) => {
-                            skif_edit::plan_edits(&source, kind, &ops).map_err(|error| invalid(error.to_string()))?
-                        }
+                        Some(kind) => self
+                            .documents
+                            .document(&path, kind)
+                            .map_err(invalid)?
+                            .plan(&ops)
+                            .map_err(|error| invalid(error.to_string()))?,
                         None => edits,
                     };
-                    let new_contents = apply_text_edits(&source, &edits).map_err(|error| invalid(error.to_string()))?;
+                    let new_contents = apply_text_edits(source, &edits).map_err(|error| invalid(error.to_string()))?;
                     bases.insert(path.clone(), content_hash(source.as_bytes()));
                     FileChange::Modify {
                         path: path.clone(),
@@ -672,9 +731,11 @@ pub fn apply_fixes(
     selection: &FixSelection,
     fs: &dyn FileSystem,
 ) -> Result<FixPlan, FixError> {
+    let sources = Sources::new(&workspace.root, fs, report);
+    let documents = Documents::new(&sources);
     let mut dropped: BTreeMap<usize, SkipReason> = BTreeMap::new();
     loop {
-        match plan_once(workspace, report, selection, fs, &dropped) {
+        match plan_once(&documents, report, selection, &dropped) {
             Ok(plan) => return Ok(plan),
             Err(Invalid {
                 path,
@@ -695,17 +756,17 @@ pub fn apply_fixes(
 }
 
 /// One planning pass; the diagnostics in `dropped` are skipped with the reason given instead of being planned.
-fn plan_once(
-    workspace: &Workspace,
-    report: &Report,
+fn plan_once<'a>(
+    documents: &'a Documents<'a>,
+    report: &'a Report,
     selection: &FixSelection,
-    fs: &dyn FileSystem,
     dropped: &BTreeMap<usize, SkipReason>,
 ) -> Result<FixPlan, Invalid> {
+    let sources = documents.sources;
     let mut planner = Planner {
-        root: &workspace.root,
-        fs,
-        sources: BTreeMap::new(),
+        root: sources.root,
+        fs: sources.fs,
+        documents,
         entries: BTreeMap::new(),
         contributors: BTreeMap::new(),
     };
