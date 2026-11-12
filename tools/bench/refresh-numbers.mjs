@@ -1,13 +1,14 @@
 // Rewrites the generated number blocks of the docs from the committed results:
 //   --bench   tools/bench/results/summary.json (a bench workflow run's, which `mise run bench:import` downloads) into
-//             tools/bench/README.md, README.md and the comparison guide;
-//   --parity  tools/bench/baselines/parity.json (written by `skif-bench parity --write-baseline`) into README.md and
-//             the comparison guide.
-// Without either flag both are refreshed, and the speed tables are left as they are while no run has been imported
+//             the speed tables of the benchmarks page and the headline claims of README.md and the comparison guide;
+//   --parity  tools/bench/baselines/parity.json (written by `skif-bench parity --write-baseline`) into the agreement
+//             table of the benchmarks page.
+// Without either flag both are refreshed, and the speed blocks are left as they are while no run has been imported
 // (tools/bench/results/summary.json does not exist and no --summary is given). It fails, and writes nothing, when the
 // input does not hold every number the blocks show: a tool that was not timed, a corpus repository without a knip row,
 // a tool error that corpus.toml does not declare, an invalid ADR 0001 check, a stale baseline. A knip failure that
-// corpus.toml declares and the run matched is published as `fails: <reason>`, without a ratio.
+// corpus.toml declares and the run matched is published as `fails: <reason>`, without a ratio, and left out of the
+// claims.
 // Usage: node tools/bench/refresh-numbers.mjs [--bench] [--parity] [--summary FILE] [--baseline FILE]
 
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -41,6 +42,16 @@ export function replaceBlock(text, name, body, { mdx = false, file = "the file" 
     throw new Error(`${file}: the ${start} marker appears more than once`);
   }
   return `${text.slice(0, from + start.length)}\n${body.trimEnd()}\n${text.slice(to)}`;
+}
+
+/** `text` with the characters MDX reads as JSX or expressions (`<`, `{`, `}`) escaped, outside code spans. */
+export function mdxText(text) {
+  return text
+    .split(/(`[^`\n]*`)/)
+    .map((part, index) =>
+      index % 2 === 1 ? part : part.replaceAll("<", "&lt;").replaceAll("{", "&#123;").replaceAll("}", "&#125;"),
+    )
+    .join("");
 }
 
 const ms = (value) => (value >= 100 ? value.toFixed(0) : value.toFixed(1));
@@ -142,11 +153,15 @@ export function summaryProblems(summary) {
   return problems;
 }
 
-/** One sentence that says what was measured, built with what, on what machine and runner, when, and in which run. */
-export function provenance(summary) {
-  const tools = Object.entries(summary.tool_versions)
+/** The comparison tools with their versions: `knip 6.44.1, sherif 1.13.0, syncpack 15.3.3`. */
+const toolVersions = (summary) =>
+  Object.entries(summary.tool_versions)
     .map(([tool, version]) => (version.startsWith(`${tool} `) ? version : `${tool} ${version}`))
     .join(", ");
+
+/** One sentence that says what was measured, built with what, on what machine and runner, when, and in which run. */
+export function provenance(summary) {
+  const tools = toolVersions(summary);
   const { github } = summary.machine;
   const rustc = summary.toolchain.rustc == null ? "" : ` built with ${summary.toolchain.rustc}`;
   const harness =
@@ -161,9 +176,9 @@ export function provenance(summary) {
   );
 }
 
-/** The full tables of tools/bench/README.md. */
+/** The full tables of the benchmarks page, below the compact ones that carry the provenance sentence. */
 export function benchDetail(summary) {
-  const lines = [provenance(summary), ""];
+  const lines = [];
   for (const target of summary.targets) {
     lines.push(`**${target.target}**`, "");
     if (target.installed_with != null) lines.push(`Installed with \`${target.installed_with}\`.`, "");
@@ -194,7 +209,7 @@ const median = (target, tool) => find(target, tool)?.median_ms;
 const repoName = (target) => target.target.replace(/^corpus: (\S+).*$/, "$1");
 const generatedName = (target) => `Generated, ${target.packages} packages`;
 
-/** The compact tables of README.md and the comparison guide: medians, and knip's over skif's or why knip fails. */
+/** The compact tables of the benchmarks page: medians, and knip's over skif's or why knip fails. */
 export function benchSummary(summary) {
   const corpus = summary.targets.filter((target) => target.kind === "corpus");
   const generated = summary.targets.filter((target) => target.kind === "generated");
@@ -215,6 +230,70 @@ export function benchSummary(summary) {
       `| ${name} | ${duration(median(target, SKIF_MANIFEST))} | ${duration(median(target, SHERIF))} | ${duration(median(target, SYNCPACK))} |`,
     );
   }
+  return lines.join("\n");
+}
+
+/** `ratio` rounded down to one decimal, so a claim never states more than was measured. */
+const down = (ratio) => (Math.floor(ratio * 10 + 1e-9) / 10).toFixed(1);
+
+function middle(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const half = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[half] : (sorted[half - 1] + sorted[half]) / 2;
+}
+
+/**
+ * How much faster skif is than `tool`, from the ratios of the tool's median over skif's on each target: the range, and
+ * the median ratio from three targets on, each rounded down. Where skif was slower on some target it says so.
+ */
+export function speedClaim(tool, ratios) {
+  const low = Math.min(...ratios);
+  const high = Math.max(...ratios);
+  const median = ratios.length >= 3 ? ` (median ${down(middle(ratios))}x)` : "";
+  if (low >= 1) {
+    const range = down(low) === down(high) ? `${down(high)}x` : `${down(low)}–${down(high)}x`;
+    return `**${range} faster than ${tool}**${median}`;
+  }
+  const slower = ratios.filter((ratio) => ratio < 1).length;
+  if (high < 1) return `**slower than ${tool}** on every target (${down(high)}x its speed at best)`;
+  return `**up to ${down(high)}x faster than ${tool}**${median}, and slower on ${slower} of ${ratios.length} targets`;
+}
+
+const names = (items) =>
+  items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+const repositories = (n) => `${n} pinned public ${n === 1 ? "repository" : "repositories"}`;
+const workspaces = (n) => `${n} generated ${n === 1 ? "workspace" : "workspaces"}`;
+
+/** The headline claims of README.md and the comparison guide, from the same medians as the compact tables. */
+export function benchClaims(summary) {
+  const corpus = summary.targets.filter((target) => target.kind === "corpus");
+  const generated = summary.targets.filter((target) => target.kind === "generated");
+  const lines = [];
+  const completed = corpus.filter((target) => find(target, KNIP).failure == null);
+  if (completed.length > 0) {
+    const failed = corpus.filter((target) => find(target, KNIP).failure != null).map(repoName);
+    const where = failed.length === 0 ? "" : ` where knip completes; it fails on ${names(failed)}`;
+    const ratios = completed.map((target) => median(target, KNIP) / median(target, SKIF));
+    lines.push(`- ${speedClaim("knip", ratios)} for dead-code analysis, on ${repositories(completed.length)}${where}.`);
+  }
+  const manifest = [...corpus, ...generated];
+  const sizes = generated.map((target) => target.packages);
+  const scope =
+    `on ${repositories(corpus.length)}` +
+    (generated.length === 0 ? "" : ` and ${workspaces(generated.length)} of ${names(sizes.map(String))} packages`);
+  for (const [label, tool, job] of [
+    ["sherif", SHERIF, "manifest and workspace checks"],
+    ["syncpack", SYNCPACK, "version-policy checks"],
+  ]) {
+    const ratios = manifest.map((target) => median(target, tool) / median(target, SKIF_MANIFEST));
+    lines.push(`- ${speedClaim(label, ratios)} for ${job} (\`skif --no-js\`), ${scope}.`);
+  }
+  const environment = RUNNER_ENVIRONMENTS[summary.machine.github?.runner_environment] ?? "GitHub Actions";
+  lines.push(
+    "",
+    `${summary.skif} against ${toolVersions(summary)}: medians of ${summary.runs} runs on a ${environment} runner, ` +
+      `measured on ${date(summary.measured_at)}.`,
+  );
   return lines.join("\n");
 }
 
@@ -250,7 +329,7 @@ export function baselineProblems(baseline) {
     .map(([name]) => `${name}: the baseline entry predates the current harness; re-record it with --write-baseline`);
 }
 
-/** The agreement table of README.md and the comparison guide, from the parity baseline. */
+/** The agreement table of the benchmarks page, from the parity baseline. */
 export function parityAgreement(baseline) {
   const entries = Object.entries(baseline.entries);
   const counted = entries.filter(([, entry]) => entry.status === "compared" && !entry.invalid);
@@ -324,24 +403,26 @@ const readJson = (file) => JSON.parse(readFileSync(file, "utf8"));
 
 function main() {
   const options = parseArgs(process.argv.slice(2));
-  const benchReadme = join(here, "README.md");
   const readme = join(repo, "README.md");
-  const guide = join(repo, "website", "src", "content", "docs", "guides", "comparison.mdx");
-  const files = new Map([benchReadme, readme, guide].map((file) => [file, readFileSync(file, "utf8")]));
+  const guides = join(repo, "website", "src", "content", "docs", "guides");
+  const comparison = join(guides, "comparison.mdx");
+  const benchmarks = join(guides, "benchmarks.mdx");
+  const files = new Map([readme, comparison, benchmarks].map((file) => [file, readFileSync(file, "utf8")]));
   const update = (file, name, body, mdx = false) => {
-    files.set(file, replaceBlock(files.get(file), name, body, { mdx, file }));
+    files.set(file, replaceBlock(files.get(file), name, mdx ? mdxText(body) : body, { mdx, file }));
   };
   const problems = [];
   if (options.bench && options.benchOptional && !existsSync(options.summary)) {
-    console.log(`refresh-numbers: no ${options.summary}, so the speed tables are left as they are`);
+    console.log(`refresh-numbers: no ${options.summary}, so the speed blocks are left as they are`);
   } else if (options.bench) {
     const summary = readJson(options.summary);
     const found = summaryProblems(summary);
     problems.push(...found.map((problem) => `${options.summary}: ${problem}`));
     if (found.length === 0) {
-      update(benchReadme, "bench:numbers", benchDetail(summary));
-      update(readme, "bench:summary", benchSummary(summary));
-      update(guide, "bench:summary", benchSummary(summary), true);
+      update(readme, "bench:claims", benchClaims(summary));
+      update(comparison, "bench:claims", benchClaims(summary), true);
+      update(benchmarks, "bench:summary", benchSummary(summary), true);
+      update(benchmarks, "bench:numbers", benchDetail(summary), true);
     }
   }
   if (options.parity) {
@@ -349,8 +430,7 @@ function main() {
     const found = baselineProblems(baseline);
     problems.push(...found.map((problem) => `${options.baseline}: ${problem}`));
     if (found.length === 0) {
-      update(readme, "parity:agreement", parityAgreement(baseline));
-      update(guide, "parity:agreement", parityAgreement(baseline), true);
+      update(benchmarks, "parity:agreement", parityAgreement(baseline), true);
     }
   }
   if (problems.length > 0) {

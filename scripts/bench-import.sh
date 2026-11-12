@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Imports the results of a run of the bench workflow (.github/workflows/bench.yml, ADR 0113): downloads its artifact,
-# refreshes the speed tables of tools/bench/README.md, README.md and the comparison guide from its summary, and puts
-# summary.json, summary.md and the raw hyperfine exports (raw/) into tools/bench/results, ready to be committed.
+# refreshes the speed tables of the benchmarks page and the speed claims of README.md and the comparison guide from its
+# summary, and puts summary.json, summary.md and the raw hyperfine exports (raw/) into tools/bench/results, ready to be
+# committed.
 #
 # Only a successful, dispatched run of the bench workflow whose commit is on main is imported: the commit is checked
 # against origin/main after `git fetch origin main` (which updates that remote-tracking branch), and the summary's

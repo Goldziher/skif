@@ -79,8 +79,8 @@ their dependencies installed.
 mise run bench            # build release skif, fetch the corpus, run everything
 mise run bench:micro      # all criterion benchmarks (see "In-process benchmarks")
 mise run bench:corpus     # only fetch the timed corpus repositories
-mise run bench:import -- <run-id>  # import a bench workflow run into tools/bench/results and refresh the speed tables
-mise run parity:publish   # refresh the generated agreement tables from baselines/parity.json
+mise run bench:import -- <run-id>  # import a bench workflow run into tools/bench/results and refresh the speed numbers
+mise run parity:publish   # refresh the generated agreement table from baselines/parity.json
 mise run corpus:fetch     # fetch the parity corpus (all pinned repositories)
 mise run parity           # findings parity with knip (see "Parity with knip")
 mise run diff:syncpack    # policy diff against syncpack (see "Policy diff against syncpack")
@@ -348,8 +348,10 @@ runs both checks and writes the parity table and any drift to the job summary. T
 
 ## Measured numbers
 
-The published numbers come from the `bench` workflow (`.github/workflows/bench.yml`), which runs only when dispatched,
-on a pinned GitHub-hosted runner image ([ADR 0113](../../adrs/0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md)):
+The published numbers are on the [benchmarks page](https://goldziher.github.io/skif/guides/benchmarks/), with the
+methodology; the README and the comparison guide carry headline claims generated from the same run. They come from the
+`bench` workflow (`.github/workflows/bench.yml`), which runs only when dispatched, on a pinned GitHub-hosted runner
+image ([ADR 0113](../../adrs/0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md)):
 
 ```sh
 gh workflow run bench.yml -f ref=v0.3.0 -f runner=ubuntu-24.04   # also: -f runs=15 -f warmup=3 -f only=babel
@@ -374,19 +376,22 @@ commit SHA or a comparison tool not to an exact version.
 `mise run bench:import -- <run-id>` (`scripts/bench-import.sh`, needs `gh`, `git`, `jq` and Node) imports only a
 successful `workflow_dispatch` run of `bench` whose commit is on `origin/main` (it runs `git fetch origin main` first)
 and whose summary names that commit as the harness's; it refuses any other run, naming its branch. It downloads that
-artifact, refreshes the block below, and the speed tables of the root `README.md` and of the comparison guide, with
-`refresh-numbers.mjs --bench`, then puts the summary into `tools/bench/results` for a commit made locally. The first
-line of each block names the skif version, source commit and the `rustc` that built it, the comparison tool versions,
-the harness commit when it differs, the runner image and the machine, its load, the date and the workflow run attempt.
+artifact, refreshes the speed tables of the benchmarks page (`website/src/content/docs/guides/benchmarks.mdx`) and the
+speed claims (`bench:claims`) of the root `README.md` and of the comparison guide, with `refresh-numbers.mjs --bench`,
+then puts the summary into `tools/bench/results` for a commit made locally. The claims give, for each tool, the range of
+the ratios of its median to skif's over the targets it was timed on without a failure, with the median ratio from three
+targets on, each rounded down to one decimal; a knip that fails as declared is left out and named. The first line of the
+speed tables names the skif version, source commit and the `rustc` that built it, the comparison tool versions, the
+harness commit when it differs, the runner image and the machine, its load, the date and the workflow run attempt.
 `refresh-numbers.mjs` writes nothing and exits non-zero when a comparison tool was not timed, a corpus repository has no
 row for one of the tools, the run was narrowed with `only`, a tool exited with an error in a measured run that is not a
 declared knip failure the run matched, an ADR 0001 check is `invalid`, the summary is of an older schema, it records no
 GitHub-hosted runner or no workflow run, or the measured or the harness checkout had local changes (`-dirty`); the
 import then changes nothing either. `mise run parity:publish` (`refresh-numbers.mjs --parity`) writes the agreement
-tables from `baselines/parity.json` the same way, and refuses a baseline recorded by an older harness. `node --test
-tools/bench/refresh-numbers.test.mjs` tests both. Measure the release commit after `release-bump`, or the skif version
-names the previous release. Without flags, `refresh-numbers.mjs` refreshes both and leaves the speed tables as they are
-while `tools/bench/results` holds no imported summary.
+table of the benchmarks page from `baselines/parity.json` the same way, and refuses a baseline recorded by an older
+harness. `node --test tools/bench/refresh-numbers.test.mjs` tests both. Measure the release commit after `release-bump`,
+or the skif version names the previous release. Without flags, `refresh-numbers.mjs` refreshes both and leaves the speed
+blocks as they are while `tools/bench/results` holds no imported summary.
 
 GitHub-hosted runners are shared virtual machines: a neighbour's load moves the times of a run by several percent, and
 two runs of the same image may land on different CPU models (the summary names the one it got). The tables show
@@ -400,110 +405,6 @@ the repository's tool configurations do not load, and its time is then that of a
 `error_output` name the cause, which is fixed or declared in `corpus.toml` before measuring again. On npm-cli knip runs
 with `--no-gitignore` (the repository's `bench-knip-args` in `corpus.toml`): npm's deny-all `.gitignore` otherwise hides
 the workspaces from knip, which then analyses only the root package.
-
-<!-- bench:numbers:start -->
-Medians of 15 runs after 3 warmup runs (hyperfine 1.20.0), skif 0.3.0 at `150634614dea` built with rustc 1.99.1 (58cf8f9c3 2026-10-13) against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3, measured on 2026-11-12 on a GitHub-hosted runner, image ubuntu24 20261101.360.1, Ubuntu 24.04.5 LTS, Linux 7.0.0-1017-azure, x86_64, AMD EPYC 9V45 96-Core Processor, 4 logical CPUs (2 physical cores), 15.6 GiB memory, hypervisor Microsoft, load average 3.76 / 2.39 / 1.02 before and 1.72 / 1.95 / 1.12 after the run ([workflow run, attempt 1](https://github.com/Goldziher/skif/actions/runs/43136971156/attempts/1)).
-
-**generated: 50 packages (pnpm)**
-
-| Tool | Mean (ms) | Median (ms) | vs skif |
-| --- | ---: | ---: | ---: |
-| skif --no-js | 3.6 | 3.6 | - |
-| sherif | 23.0 | 22.4 | 6.5x |
-| syncpack lint | 30.1 | 29.8 | 8.4x |
-
-**generated: 500 packages (pnpm)**
-
-| Tool | Mean (ms) | Median (ms) | vs skif |
-| --- | ---: | ---: | ---: |
-| skif --no-js | 18.5 | 18.3 | - |
-| sherif | 37.8 | 38.0 | 2.0x |
-| syncpack lint | 110 | 109 | 6.0x |
-
-**generated: 2000 packages (pnpm)**
-
-| Tool | Mean (ms) | Median (ms) | vs skif |
-| --- | ---: | ---: | ---: |
-| skif --no-js | 81.5 | 81.3 | - |
-| sherif | 94.0 | 93.9 | 1.2x |
-| syncpack lint | 498 | 495 | 6.1x |
-
-**graph: 10000 files in 100 packages**
-
-| Tool | Mean (ms) | Median (ms) | vs skif |
-| --- | ---: | ---: | ---: |
-| skif | 156 | 156 | - |
-
-**corpus: create-t3-turbo (pnpm)**
-
-Installed with `pnpm 10.19.0`.
-
-| Tool | Mean (ms) | Median (ms) | vs skif |
-| --- | ---: | ---: | ---: |
-| skif | 25.1 | 23.0 | - |
-| skif --no-js | 2.9 | 3.0 | - |
-| sherif | 25.6 | 22.3 | 8.7x |
-| syncpack lint | 26.3 | 26.1 | 8.9x |
-| knip --reporter json | fails: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide | - | - |
-
-**corpus: vue-core (pnpm)**
-
-Installed with `pnpm 12.11.2`.
-
-| Tool | Mean (ms) | Median (ms) | vs skif |
-| --- | ---: | ---: | ---: |
-| skif | 43.1 | 42.9 | - |
-| skif --no-js | 3.1 | 3.1 | - |
-| sherif | 22.7 | 22.6 | 7.3x |
-| syncpack lint | 28.1 | 27.7 | 9.0x |
-| knip --reporter json | fails: its SFC playground Vite config reads a build-time global that only the repository's own build defines | - | - |
-
-**corpus: tanstack-query (pnpm)**
-
-Installed with `pnpm 12.4.2`.
-
-| Tool | Mean (ms) | Median (ms) | vs skif |
-| --- | ---: | ---: | ---: |
-| skif | 281 | 280 | - |
-| skif --no-js | 8.9 | 8.9 | - |
-| sherif | 33.6 | 34.6 | 3.8x |
-| syncpack lint | 85.7 | 85.6 | 9.7x |
-| knip --reporter json | 2541 | 2533 | 9.0x |
-
-**corpus: babel (yarn)**
-
-Installed with `yarn 4.17.0`.
-
-| Tool | Mean (ms) | Median (ms) | vs skif |
-| --- | ---: | ---: | ---: |
-| skif | 604 | 603 | - |
-| skif --no-js | 12.2 | 12.1 | - |
-| sherif | 25.3 | 24.8 | 2.1x |
-| syncpack lint | 251 | 251 | 20.6x |
-| knip --reporter json | 3677 | 3675 | 6.1x |
-
-**corpus: npm-cli (npm)**
-
-Installed with `npx --yes npm@11.6.2 ci --ignore-scripts`.
-
-| Tool | Mean (ms) | Median (ms) | vs skif |
-| --- | ---: | ---: | ---: |
-| skif | 63.2 | 64.0 | - |
-| skif --no-js | 4.6 | 4.6 | - |
-| sherif | 21.8 | 21.6 | 4.7x |
-| syncpack lint | 55.9 | 55.8 | 12.1x |
-| knip --reporter json | 483 | 481 | 7.6x |
-
-| ADR 0001 target | Check | Result |
-| --- | --- | --- |
-| generated: 500 packages (pnpm) | manifest and policy rules < 50 ms (measured 18.5 ms) | pass |
-| graph: 10000 files in 100 packages | parse and module graph of 10000 files < 2000 ms, whole run including every JS rule (measured 155.7 ms) | pass |
-| corpus: create-t3-turbo (pnpm) | JS analysis >= 5x faster than knip (not measured: knip fails here: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide) | not measured |
-| corpus: vue-core (pnpm) | JS analysis >= 5x faster than knip (not measured: knip fails here: its SFC playground Vite config reads a build-time global that only the repository's own build defines) | not measured |
-| corpus: tanstack-query (pnpm) | JS analysis >= 5x faster than knip (measured 9.0x) | pass |
-| corpus: babel (yarn) | JS analysis >= 5x faster than knip (measured 6.1x) | pass |
-| corpus: npm-cli (npm) | JS analysis >= 5x faster than knip (measured 7.6x) | pass |
-<!-- bench:numbers:end -->
 
 ## Seeded defects
 
