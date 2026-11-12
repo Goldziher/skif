@@ -13,8 +13,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use oxc_ast::ast::{
-    Argument, BindingPattern, CallExpression, ComputedMemberExpression, Expression, IdentifierReference,
-    ImportDeclaration, StaticMemberExpression, TSQualifiedName, TSTypeName, VariableDeclarator,
+    Argument, BindingPattern, CallExpression, ComputedMemberExpression, ExportSpecifier, Expression,
+    IdentifierReference, ImportDeclaration, StaticMemberExpression, TSQualifiedName, TSTemplateLiteralType, TSType,
+    TSTypeName, TSTypeQuery, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::{Scoping, SymbolId};
@@ -503,10 +504,14 @@ fn union(list: &[String], more: &BTreeSet<String>) -> Vec<String> {
         .collect()
 }
 
-/// The members of the enums and namespaces declared in a program that the program itself reads by name.
+/// The members of the enums and namespaces declared in a program that the program itself reads by name, and the enums
+/// it uses as a whole.
 struct LocalReads<'w> {
     wanted: &'w HashSet<String>,
+    /// The enums of `wanted`: only an enum used as a whole uses every member.
+    enums: &'w HashSet<String>,
     reads: HashMap<String, BTreeSet<String>>,
+    whole: HashSet<String>,
 }
 
 impl LocalReads<'_> {
@@ -523,9 +528,44 @@ impl LocalReads<'_> {
         }
         true
     }
+
+    /// Records a use of `local` as a whole when it is one of the enums.
+    fn whole_use(&mut self, local: &str) {
+        if self.enums.contains(local) && !self.whole.contains(local) {
+            self.whole.insert(local.to_owned());
+        }
+    }
 }
 
 impl<'a> Visit<'a> for LocalReads<'_> {
+    // A reference that is no member read below (`Object.values(E)`, `E[key]`, `...E`, `for (k in E)`, `f(E)`).
+    fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
+        self.whole_use(it.name.as_str());
+    }
+
+    // `export { E }` publishes the declaration; it reads none of it.
+    fn visit_export_specifier(&mut self, _: &ExportSpecifier<'a>) {}
+
+    // `typeof E` (also in `keyof typeof E`) is the type of the enum object, every member of it; `typeof E.A` reads `A`.
+    fn visit_ts_type_query(&mut self, it: &TSTypeQuery<'a>) {
+        if let Some(TSTypeName::IdentifierReference(id)) = it.expr_name.as_ts_type_name() {
+            self.whole_use(id.name.as_str());
+        }
+        walk::walk_ts_type_query(self, it);
+    }
+
+    // `${E}` spells out the value of every member; `${E.A}` reads `A`.
+    fn visit_ts_template_literal_type(&mut self, it: &TSTemplateLiteralType<'a>) {
+        for part in &it.types {
+            if let TSType::TSTypeReference(reference) = part
+                && let TSTypeName::IdentifierReference(id) = &reference.type_name
+            {
+                self.whole_use(id.name.as_str());
+            }
+        }
+        walk::walk_ts_template_literal_type(self, it);
+    }
+
     fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
         if let Expression::Identifier(id) = &it.object
             && self.read(id.name.as_str(), it.property.name.as_str())
@@ -583,7 +623,8 @@ impl<'a> Visit<'a> for LocalReads<'_> {
 }
 
 /// Fills [`crate::model::Export::members_read_in_file`] of every enum and namespace export from the uses in `program`:
-/// `E.A` anywhere in the file, and a namespace member read by its bare name inside the namespace body.
+/// `E.A` anywhere in the file, and a namespace member read by its bare name inside the namespace body. Fills
+/// [`crate::model::Export::used_whole_in_file`] of every enum export the file uses as a whole.
 pub(crate) fn mark_local_reads(program: &oxc_ast::ast::Program<'_>, analysis: &Analysis<'_>, info: &mut ModuleInfo) {
     let wanted: HashSet<String> = info
         .exports
@@ -594,9 +635,17 @@ pub(crate) fn mark_local_reads(program: &oxc_ast::ast::Program<'_>, analysis: &A
     if wanted.is_empty() {
         return;
     }
+    let enums: HashSet<String> = info
+        .exports
+        .iter()
+        .filter(|export| !export.enum_members.is_empty())
+        .filter_map(|export| export.local_name.clone())
+        .collect();
     let mut tracker = LocalReads {
         wanted: &wanted,
+        enums: &enums,
         reads: HashMap::default(),
+        whole: HashSet::default(),
     };
     tracker.visit_program(program);
     let mut namespaces: HashMap<String, BTreeSet<String>> = HashMap::default();
@@ -627,5 +676,6 @@ pub(crate) fn mark_local_reads(program: &oxc_ast::ast::Program<'_>, analysis: &A
             .map(|members| members.iter().cloned().collect())
             .unwrap_or_default();
         export.members_read_in_file = reads;
+        export.used_whole_in_file = !export.enum_members.is_empty() && tracker.whole.contains(local);
     }
 }

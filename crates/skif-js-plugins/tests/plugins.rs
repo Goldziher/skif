@@ -6678,8 +6678,9 @@ fn bazel_app(module: (&'static str, &'static str)) -> Vec<(&'static str, &'stati
     ]
 }
 
-/// The `node_modules` labels and `package_json.bzl` loads of a package's `BUILD` files use its dependencies, and the
-/// files its `rules_js` rules build from are entries, tests' files outside production.
+/// The `node_modules` labels and `package_json.bzl` loads of a package's `BUILD` files use its dependencies, which only
+/// it may list. The `entry_point` of a `rules_js` rule is an entry and its `srcs` and `data` are build sources, which
+/// are used but no entries; those of a test count outside production only.
 #[test]
 fn bazel_build_files_credit_linked_dependencies_and_add_entries() {
     let results = resolve_in_tree(&bazel_app(RULES_JS_MODULE), "/ws/packages/app", false);
@@ -6691,28 +6692,30 @@ fn bazel_build_files_credit_linked_dependencies_and_add_entries() {
         .find(|dependency| dependency.name == "esbuild")
         .unwrap();
     assert_eq!(esbuild.from, PathBuf::from("/ws/packages/app/BUILD.bazel"));
-    assert!(esbuild.named_by_config && !esbuild.optional);
+    assert!(esbuild.named_by_config && !esbuild.optional && esbuild.reader_lists);
     let chalk = out
         .referenced_dependencies
         .iter()
         .find(|dependency| dependency.name == "chalk")
         .unwrap();
     assert_eq!(chalk.from, PathBuf::from("/ws/packages/app/nested/BUILD.bazel"));
-    let production: BTreeSet<&str> = out.production_entries.iter().map(String::as_str).collect();
-    assert_eq!(
-        production,
-        BTreeSet::from(["src/index.js", "tools/codegen.mjs", "tools/template.hbs"])
+    assert!(
+        chalk.reader_lists,
+        "the label names the install of packages/app, not of the nested package holding the file"
     );
+    let production: BTreeSet<&str> = out.production_entries.iter().map(String::as_str).collect();
+    assert_eq!(production, BTreeSet::from(["tools/codegen.mjs"]));
     let entries: BTreeSet<&str> = out.entries.iter().map(String::as_str).collect();
+    assert_eq!(entries, BTreeSet::from(["tools/check.test.mjs", "tools/codegen.mjs"]));
+    let production_sources: BTreeSet<&str> = out.production_build_sources.iter().map(String::as_str).collect();
     assert_eq!(
-        entries,
-        BTreeSet::from([
-            "src/index.js",
-            "tools/check.test.mjs",
-            "tools/codegen.mjs",
-            "tools/fixture.json",
-            "tools/template.hbs",
-        ])
+        production_sources,
+        BTreeSet::from(["src/index.js", "tools/template.hbs"])
+    );
+    let sources: BTreeSet<&str> = out.build_sources.iter().map(String::as_str).collect();
+    assert_eq!(
+        sources,
+        BTreeSet::from(["src/index.js", "tools/fixture.json", "tools/template.hbs"])
     );
     let configs: BTreeSet<PathBuf> = out.config_files.iter().cloned().collect();
     assert!(
@@ -6735,6 +6738,7 @@ fn bazel_build_files_name_nothing_without_rules_js() {
         let out = output(&results, "bazel");
         assert_eq!(deps(out), BTreeSet::new(), "{module:?}");
         assert_eq!(out.entries, Vec::<String>::new(), "{module:?}");
+        assert_eq!(out.build_sources, Vec::<String>::new(), "{module:?}");
     }
 }
 
@@ -6782,4 +6786,5 @@ fn bazel_root_labels_from_nested_packages_count_and_output_trees_do_not() {
     assert_eq!(deps(out), BTreeSet::from(["prettier", "typescript"]));
     let entries: BTreeSet<&str> = out.entries.iter().map(String::as_str).collect();
     assert_eq!(entries, BTreeSet::from(["scripts/x.js"]));
+    assert_eq!(out.build_sources, Vec::<String>::new());
 }

@@ -525,3 +525,185 @@ fn a_registered_component_a_template_uses_is_listed_without_a_line() {
     assert_eq!(from_app.len(), 1, "{usage}");
     assert_eq!(from_app[0]["line"], 0, "{usage}");
 }
+
+/// A `rules_js` package whose `ts_project` builds from `a.ts` and `b.ts`, which imports `c.ts`, and whose `js_binary`
+/// runs `tool.mjs`.
+const BAZEL_SOURCES: &[(&str, &str)] = &[
+    (
+        "MODULE.bazel",
+        "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n",
+    ),
+    ("package.json", r#"{"name":"app","version":"1.0.0","private":true}"#),
+    (
+        "BUILD.bazel",
+        "ts_project(name = \"lib\", srcs = [\"a.ts\", \"b.ts\"])\n\njs_binary(name = \"tool\", entry_point = \"tool.mjs\")\n",
+    ),
+    ("a.ts", "export const unusedInA = 1;\n"),
+    ("b.ts", "import { helper } from './c';\nhelper();\n"),
+    ("c.ts", "export function helper(): void {}\n"),
+    ("tool.mjs", "export const toolOption = 1;\n"),
+];
+
+/// A file a Bazel rule builds from is a build source: in the graph and the start of the chains to what it imports, but
+/// no entry, so its exports are judged. The `entry_point` of a `js_binary` stays an entry with public exports.
+#[test]
+fn a_bazel_source_is_a_build_source_whose_exports_are_judged() {
+    let a = report(BAZEL_SOURCES, "", "a.ts");
+    assert_eq!(
+        (&a["in-graph"], &a["entry"], &a["build-source"], &a["chain-from-entry"]),
+        (&json!(true), &Value::Null, &json!(true), &json!(["a.ts"])),
+        "{a}"
+    );
+    let c = report(BAZEL_SOURCES, "", "c.ts");
+    assert_eq!(
+        (
+            &c["chain-from-entry"],
+            &c["chain-from-build-source"],
+            c.get("build-source")
+        ),
+        (&json!(["b.ts", "c.ts"]), &json!(true), None),
+        "{c}"
+    );
+    let tool = report(BAZEL_SOURCES, "", "tool.mjs");
+    assert_eq!(
+        (
+            &tool["entry"],
+            tool.get("build-source"),
+            tool.get("chain-from-build-source")
+        ),
+        (&json!("entry-glob"), None, None),
+        "{tool}"
+    );
+    let unused = export_report(BAZEL_SOURCES, "", "a.ts", "unusedInA");
+    assert_eq!(
+        (&unused["verdict"], &unused["entry-public"]),
+        (&json!("unused"), &json!(false)),
+        "{unused}"
+    );
+    let public = export_report(BAZEL_SOURCES, "", "tool.mjs", "toolOption");
+    assert_eq!(
+        (&public["verdict"], &public["entry-public"]),
+        (&json!("public"), &json!(true)),
+        "{public}"
+    );
+}
+
+/// The text of `explain-usage` names a build source and the chain that starts at one.
+#[test]
+fn the_text_report_names_build_sources() {
+    let memory = memory(BAZEL_SOURCES);
+    let config = Config::from_toml_str("").unwrap();
+    let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
+    let fs: Arc<dyn FileSystem> = Arc::new(memory);
+    let sources: Vec<Arc<dyn InputSource>> = vec![Arc::new(PluginSource::new(config.js.plugins.clone()))];
+    let analysis = JsAnalysis::build(&workspace, &config, &fs, &sources, true);
+    let a = analysis.explain_usage(Path::new("a.ts"), None).render();
+    assert!(
+        a.contains("  build source: a plugin names it as a file a tool builds from"),
+        "{a}"
+    );
+    let c = analysis.explain_usage(Path::new("c.ts"), None).render();
+    assert!(c.contains("  reached from a build source through: b.ts -> c.ts"), "{c}");
+}
+
+/// A file that a `ts_project` builds from and that `package.json` publishes as its `main` is an entry, not a build
+/// source, and its export is public.
+#[test]
+fn a_published_bazel_source_is_an_entry_not_a_build_source() {
+    let files = [
+        (
+            "MODULE.bazel",
+            "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n",
+        ),
+        (
+            "package.json",
+            r#"{"name":"app","version":"1.0.0","private":true,"main":"app.ts"}"#,
+        ),
+        ("BUILD.bazel", "ts_project(name = \"lib\", srcs = [\"app.ts\"])\n"),
+        ("app.ts", "export const api = 1;\n"),
+    ];
+    let app = report(&files, "", "app.ts");
+    assert_eq!(
+        (
+            &app["entry"],
+            app.get("build-source"),
+            &app["chain-from-entry"],
+            app.get("chain-from-build-source")
+        ),
+        (&json!("published"), None, &json!(["app.ts"]), None),
+        "{app}"
+    );
+    let api = export_report(&files, "", "app.ts", "api");
+    assert_eq!(
+        (&api["verdict"], &api["entry-public"]),
+        (&json!("public"), &json!(true)),
+        "{api}"
+    );
+}
+
+/// A use of a namespace as a whole is listed as a user of a value export and not of a type export, which it cannot
+/// read: the type's verdict and its evidence agree.
+#[test]
+fn a_whole_namespace_use_is_listed_for_values_and_not_for_types() {
+    let files = [
+        PACKAGE,
+        (
+            "index.ts",
+            "import * as shapes from './shapes';\nexport const all = Object.keys(shapes);\n",
+        ),
+        ("shapes.ts", "export const circle = 1;\nexport type Id = string;\n"),
+    ];
+    let value = export_report(&files, "", "shapes.ts", "circle");
+    assert_eq!(value["verdict"], "used", "{value}");
+    assert_eq!(value["users"][0]["file"], "index.ts", "{value}");
+    assert_eq!(value["users"][0]["how"], "the namespace, used as a whole", "{value}");
+    let type_export = export_report(&files, "", "shapes.ts", "Id");
+    assert_eq!(type_export["verdict"], "unused", "{type_export}");
+    assert_eq!(type_export["users"], json!([]), "{type_export}");
+}
+
+/// A file another loads with `new URL("./x", import.meta.url)` runs as a program of its own, so its type exports are
+/// used as a whole, as the verdict of a lint run says, and not only its values.
+#[test]
+fn a_new_url_target_lists_the_loader_as_a_user_of_a_type_export() {
+    let files = [
+        PACKAGE,
+        (
+            "index.ts",
+            "export const asset = new URL('./generated.ts', import.meta.url);\n",
+        ),
+        ("generated.ts", "export type A = { a: 1 };\nexport const c = 1;\n"),
+    ];
+    let type_export = export_report(&files, "", "generated.ts", "A");
+    assert_eq!(type_export["verdict"], "used", "{type_export}");
+    assert_eq!(type_export["users"][0]["file"], "index.ts", "{type_export}");
+    assert_eq!(type_export["users"][0]["how"], "the whole module", "{type_export}");
+}
+
+/// The source of the build output a script runs and a file an extensionless `bin` stub loads are entries for those
+/// reasons, which the report names instead of `unknown`. The `typescript` plugin reads the build directory from
+/// `tsconfig.json`, so the fixture depends on it.
+#[test]
+fn a_built_script_source_and_a_file_a_bin_stub_loads_name_their_entry_rule() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"app","version":"1.0.0","private":true,"bin":{"tool":"bin/tool"},"scripts":{"cov":"node dist/report.js"},"devDependencies":{"typescript":"5.6.0"}}"#,
+        ),
+        (
+            "tsconfig.json",
+            r#"{"compilerOptions":{"outDir":"dist","rootDir":"src"}}"#,
+        ),
+        ("src/report.ts", "export const report = 1;\n"),
+        ("bin/tool", "#!/usr/bin/env node\nrequire('./common.js');\n"),
+        ("bin/common.js", "module.exports = 1;\n"),
+    ];
+    for (file, entry) in [("src/report.ts", "script"), ("bin/common.js", "bin-stub")] {
+        let usage = report(&files, "", file);
+        assert_eq!(
+            (&usage["in-graph"], &usage["entry"]),
+            (&json!(true), &json!(entry)),
+            "{file}: {usage}"
+        );
+    }
+}

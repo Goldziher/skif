@@ -13,8 +13,8 @@ use crate::analysis::JsAnalysis;
 /// (`@public`, `@beta`, `@alpha`, `@alias`, `@internal` in production mode and the `ignore-tags` of `unused-exports`)
 /// exempt the whole enum or namespace when on the export, and one member when on the member. A member read in the
 /// declaring file (`E.A`, `E["A"]`, `const { A } = E`, a namespace member's unshadowed bare name inside the namespace)
-/// counts as a use. Using the whole enum there (`Object.values(E)`, `E[key]`, a spread, a bare reference) does not count
-/// any member.
+/// counts as a use. Using the whole enum there (`Object.values(E)`, `E[key]`, a spread, a bare reference, `typeof E`,
+/// `${E}` in a template literal type) uses every member of it (ADR 0126); a type annotation `x: E` uses none.
 ///
 /// The fix deletes the member ([`Member::removal`]); a member whose name another member mentions gets none.
 pub(super) fn report(

@@ -10,7 +10,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use serde::Serialize;
-use skif_js_syntax::{ExportKind, Import, ImportKind, ImportedKind, ImportedName, is_declaration_file};
+use skif_js_syntax::{ExportKind, Import, ImportKind, ImportedKind, ImportedName, ModuleInfo, is_declaration_file};
 use skif_workspace::PackageId;
 
 use crate::analysis::JsAnalysis;
@@ -22,6 +22,7 @@ use crate::manifest_paths::{crossing_stars, manifest_targets, source_candidates,
 use crate::resolve::join_normalized;
 use crate::setup::PackageSetup;
 use crate::trace::dir_of;
+use crate::usage;
 
 /// Re-export hops followed when explaining an export.
 const MAX_DEPTH: usize = 8;
@@ -41,6 +42,8 @@ pub enum EntryReason {
     Script,
     /// Published by `package.json` (`main`, `module`, `types`, `bin`, `exports`, n8n `nodes` and `credentials`).
     Published,
+    /// Loaded by a `bin` file of `package.json` that is no module (an extensionless `#!/usr/bin/env node` stub).
+    BinStub,
     /// Matched by an entry glob of another package that points outside that package.
     ExternalEntryGlob,
     /// Matched by an entry glob a plugin gives a package that contains this one, such as a root
@@ -67,6 +70,7 @@ impl EntryReason {
             Self::Published => {
                 "published by package.json (main, module, types, bin, exports, n8n nodes and credentials)"
             }
+            Self::BinStub => "loaded by a bin file of package.json that is no module (an extensionless node stub)",
             Self::ExternalEntryGlob => "matches an entry glob of another package that points outside it",
             Self::EnclosingEntryGlob => "matches an entry glob a plugin gives a package that contains its package",
             Self::IncompleteScope => {
@@ -242,10 +246,17 @@ pub struct UsageReport {
     pub widened_by: Option<String>,
     /// Which rule makes it an entry file, when it is one.
     pub entry: Option<EntryReason>,
+    /// The file is a build source that is no entry, a file a plugin names as one a tool builds from (the `srcs` and
+    /// `data` of a Bazel rule): used, and the graph starts from it, but its exports are judged.
+    #[serde(skip_serializing_if = "is_false")]
+    pub build_source: bool,
     /// Every import of the module.
     pub imported_by: Vec<Importer>,
-    /// The shortest chain of imports from an entry file to the module, entry first.
+    /// The shortest chain of imports from an entry file or a build source to the module, that file first.
     pub chain_from_entry: Option<Vec<String>>,
+    /// The chain of [`UsageReport::chain_from_entry`] starts at a build source, not at an entry.
+    #[serde(skip_serializing_if = "is_false")]
+    pub chain_from_build_source: bool,
     /// The explanation of the requested export.
     pub export: Option<ExportReport>,
 }
@@ -347,6 +358,13 @@ impl UsageReport {
                 self.render_incomplete(&mut out);
             }
         }
+        if self.build_source {
+            let _ = writeln!(
+                out,
+                "  build source: a plugin names it as a file a tool builds from (such as a Bazel rule's srcs or data), \
+                 so it is used, but it is no entry and its exports are judged"
+            );
+        }
         if self.imported_by.is_empty() {
             let _ = writeln!(out, "  imported by no module");
         } else {
@@ -370,6 +388,9 @@ impl UsageReport {
             }
         }
         match &self.chain_from_entry {
+            Some(chain) if self.chain_from_build_source => {
+                let _ = writeln!(out, "  reached from a build source through: {}", chain.join(" -> "));
+            }
             Some(chain) => {
                 let _ = writeln!(out, "  reached from an entry through: {}", chain.join(" -> "));
             }
@@ -405,6 +426,7 @@ const fn kind_label(kind: ImportKind) -> &'static str {
         ImportKind::SourceGlob => "source-glob",
         ImportKind::ExportFrom => "export-from",
         ImportKind::Mock => "mock",
+        ImportKind::Url => "url",
     }
 }
 
@@ -519,8 +541,9 @@ fn reached(target: &Target) -> &[ModuleId] {
     }
 }
 
-/// Whether `import` uses export `export` of the module it points at, or the module as a whole.
-fn uses_export(import: &Import, export: &str) -> Option<String> {
+/// Whether `import`, of the module `importer`, uses export `export` of the module it points at, or the module as a
+/// whole. A use of the module object as a whole uses no type export (`is_type`), as in [`usage::ExportUsage`].
+fn uses_export(importer: &ModuleInfo, import: &Import, export: &str, is_type: bool) -> Option<String> {
     if matches!(
         import.kind,
         ImportKind::ExportFrom | ImportKind::SideEffect | ImportKind::Mock
@@ -528,13 +551,17 @@ fn uses_export(import: &Import, export: &str) -> Option<String> {
         return None;
     }
     if import.names.is_empty() {
-        return Some("the whole module".to_owned());
+        let reads = !is_type || !usage::loads_module_value(import.kind);
+        return reads.then(|| "the whole module".to_owned());
     }
     import.names.iter().find_map(|name| {
         let hit = match &name.kind {
             ImportedKind::Default => export == "default",
-            ImportedKind::Named(imported) => imported == export,
-            ImportedKind::Namespace => name.escapes || name.accessed_members.iter().any(|member| member == export),
+            ImportedKind::Named(named) => named == export,
+            ImportedKind::Namespace => {
+                let whole = name.escapes && (!is_type || usage::exports_binding(importer, name));
+                whole || name.accessed_members.iter().any(|member| member == export)
+            }
         };
         hit.then(|| describe_name(name))
     })
@@ -586,8 +613,10 @@ impl JsAnalysis<'_> {
                 scope_package: None,
                 widened_by,
                 entry: None,
+                build_source: false,
                 imported_by: Vec::new(),
                 chain_from_entry: None,
+                chain_from_build_source: false,
                 export: None,
             };
         };
@@ -595,9 +624,12 @@ impl JsAnalysis<'_> {
             reachable: self.reachable_from_entries(),
             seen: HashSet::default(),
         };
-        let chain = self
-            .chain_to_entry(module.id)
-            .map(|chain| chain.iter().map(|id| slashed(&self.graph.module(*id).path)).collect());
+        let chain = self.chain_to_entry(module.id);
+        let chain_from_build_source = chain
+            .as_ref()
+            .and_then(|chain| chain.first())
+            .is_some_and(|first| self.graph.module(*first).is_build_source);
+        let chain = chain.map(|chain| chain.iter().map(|id| slashed(&self.graph.module(*id).path)).collect());
         let entry = module.is_entry.then(|| self.entry_reason(module));
         let scope_owner = match entry {
             Some(EntryReason::IncompleteScope) => Some(module.owner),
@@ -621,8 +653,10 @@ impl JsAnalysis<'_> {
             scope_package,
             widened_by: None,
             entry,
+            build_source: module.is_build_source,
             imported_by: self.importers(module, &walk),
             chain_from_entry: chain,
+            chain_from_build_source,
             export: export.map(|name| self.explain_export(module, name, 0, &mut walk, false)),
         }
     }
@@ -631,7 +665,7 @@ impl JsAnalysis<'_> {
         let modules = self.graph.modules();
         let mut queue: VecDeque<ModuleId> = modules
             .iter()
-            .filter(|module| module.is_entry)
+            .filter(|module| module.is_entry || module.is_build_source)
             .map(|module| module.id)
             .collect();
         let mut seen: HashSet<ModuleId> = queue.iter().copied().collect();
@@ -663,6 +697,9 @@ impl JsAnalysis<'_> {
             }
             if self.is_published(module, &package.dir, &rel) {
                 return EntryReason::Published;
+            }
+            if let Some(&reason) = self.entry_origins.get(&module.abs) {
+                return reason;
             }
             if package.in_incomplete_scope(&rel) {
                 return EntryReason::IncompleteScope;
@@ -870,13 +907,13 @@ impl JsAnalysis<'_> {
         found
     }
 
-    /// The shortest chain of imports from an entry file to `id`, entry first.
+    /// The shortest chain of imports from an entry file or a build source to `id`, that file first.
     fn chain_to_entry(&self, id: ModuleId) -> Option<Vec<ModuleId>> {
         let modules = self.graph.modules();
         let mut previous: HashMap<ModuleId, ModuleId> = HashMap::default();
         let mut queue: VecDeque<ModuleId> = modules
             .iter()
-            .filter(|module| module.is_entry)
+            .filter(|module| module.is_entry || module.is_build_source)
             .map(|module| module.id)
             .collect();
         let mut seen: HashSet<ModuleId> = queue.iter().copied().collect();
@@ -942,6 +979,7 @@ impl JsAnalysis<'_> {
         report.is_re_export =
             export.is_none_or(|export| matches!(export.kind, ExportKind::ReExport | ExportKind::StarReExport));
         report.entries_incomplete = !self.judges_exports_of(module);
+        let is_type = export.is_some_and(|export| export.is_type);
         for importer_id in self.graph.imported_by(module.id) {
             let importer = self.graph.module(*importer_id);
             for resolved in &importer.imports {
@@ -951,7 +989,7 @@ impl JsAnalysis<'_> {
                 let Some(import) = importer.info.imports.get(resolved.import) else {
                     continue;
                 };
-                if let Some(how) = uses_export(import, name) {
+                if let Some(how) = uses_export(&importer.info, import, name, is_type) {
                     report.users.push(ExportUser {
                         file: slashed(&importer.path),
                         line: import_line(resolved, import),

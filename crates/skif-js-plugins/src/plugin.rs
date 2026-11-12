@@ -119,6 +119,12 @@ pub enum PluginInput {
     Entry(String),
     /// An entry that is also part of a production build.
     ProductionEntry(String),
+    /// A file the config builds from that is no entry point (such as a Bazel rule's `srcs`): the file is used and
+    /// what it imports is followed, but its exports are not public, so they, its types, members and duplicates are
+    /// judged as any module's.
+    BuildSource(String),
+    /// A [`PluginInput::BuildSource`] that is also part of a production build.
+    ProductionBuildSource(String),
     /// Test files given as a regular expression (Jest's `testRegex`) in the syntax of the `regex` crate, matched
     /// against `/` followed by the path relative to the package directory ([`PluginContext::dir`]); unanchored, it
     /// matches anywhere in the path. It adds entries: the plugin's default entry globs stay.
@@ -127,6 +133,11 @@ pub enum PluginInput {
     Dependency(String),
     /// A package the config references that may legitimately be absent.
     OptionalDependency(String),
+    /// A package the config names as a dependency of the package the plugin runs for, whichever package owns the
+    /// config file: that package must list it, and a nested package whose file names it does not use its own listing
+    /// (a Bazel label of the package's `node_modules` in a nested package's `BUILD` file;
+    /// [`DepRef::reader_lists`]).
+    ReaderDependency(String),
     /// A binary the config invokes.
     Binary(String),
     /// A further config file of the same plugin (`extends`, project references).
@@ -408,6 +419,9 @@ pub struct DepRef {
     /// The package reading the config may list the package the config reference names instead of the package that
     /// owns `from`: a compiler option of a shared base `tsconfig` applies to each package extending it.
     pub reader_may_list: bool,
+    /// Only the package reading the config may list the package the config reference names, never the package that
+    /// owns `from`: the reference names the reader's install itself ([`PluginInput::ReaderDependency`]).
+    pub reader_lists: bool,
     /// The directory the command that loads the package runs in after `cd` or `pushd`, or that a step's
     /// `working-directory` names, relative to the directory of the package the plugin runs for, `/`-separated: the
     /// package is needed by the package in that directory. `None` where the command starts.
@@ -427,6 +441,7 @@ impl DepRef {
             named_by_config: named_by_config && !optional,
             type_only: false,
             reader_may_list: false,
+            reader_lists: false,
             dir: None,
         }
     }
@@ -442,10 +457,12 @@ impl DepRef {
         if self.named_by_config {
             self.type_only &= other.type_only;
             self.reader_may_list &= other.reader_may_list;
+            self.reader_lists &= other.reader_lists;
         } else {
             self.named_by_config = true;
             self.type_only = other.type_only;
             self.reader_may_list = other.reader_may_list;
+            self.reader_lists = other.reader_lists;
         }
     }
 }
@@ -506,6 +523,10 @@ pub struct PluginOutput {
     pub project: Vec<String>,
     /// Entries that belong to a production build; a subset of `entries`.
     pub production_entries: Vec<String>,
+    /// Files the configs build from that are no entries ([`PluginInput::BuildSource`]), including the production ones.
+    pub build_sources: Vec<String>,
+    /// Build sources that belong to a production build; a subset of `build_sources`.
+    pub production_build_sources: Vec<String>,
     /// Entry files given as regular expressions, besides `entries`; see [`PluginInput::EntryRegex`]. Not used in
     /// production mode.
     pub entry_regexes: Vec<String>,

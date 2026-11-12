@@ -267,8 +267,8 @@ The remaining differences each have an open issue, and their size is in the
 ([#100](https://github.com/Goldziher/skif/issues/100)).
 
 Two differences are knip's and stay counted, as the comparison cannot tell them apart from its data: knip reports the
-members of an enum used as a whole value (passed or returned, `@IsEnum(E)`, `Object.values(E)`, `keyof typeof E`),
-which makes every member reachable, and knip has no esbuild plugin, so it reports the `entryPoints` of an esbuild
+members of an enum used as a whole value (passed or returned, `@IsEnum(E)`, `Object.values(E)`, `keyof typeof E`,
+`` `${E}` ``), also in the file that declares it, which makes every member reachable, and knip has no esbuild plugin, so it reports the `entryPoints` of an esbuild
 script, and the files they reach, as unused.
 
 knip does not read the specifiers of test-runner mocks. skif does: a `vi.mock`, `jest.mock` or `jest.requireActual`
@@ -286,6 +286,15 @@ reads member `a` only, as `ns.a` does
 ([ADR 0079](https://github.com/Goldziher/skif/blob/main/adrs/0079-namespace-reads-through-spies-and-imports-awaited-together.md)).
 knip counts such a spy as a use of every export, so skif reports the exports that nothing else reads and knip does
 not.
+
+A use of a module object as a whole (a namespace passed around, spread, indexed with a computed key or named in
+`typeof ns`, and `require("./m")` or `import("./m")`) reaches the values of the module only. In skif it uses every value
+export and none of the module's interfaces and type aliases: those stay used when they are read by name (`ns.Type`) or
+when the importer exports the namespace itself (`export default ns`, `export = ns`), and are reported by
+`unused-types` otherwise. A file loaded with `new URL("./x", import.meta.url)` is no module object but a program of its
+own, so it keeps every export used, as an entry does
+([ADR 0125](https://github.com/Goldziher/skif/blob/main/adrs/0125-a-whole-use-of-a-module-object-uses-its-values-only.md)).
+knip reports such types only under `nsTypes`, which is off by default, and not at all for a spread or an `import()`.
 
 knip merges the tsconfig `paths` of every workspace, so an import that only another package's `paths` map resolves
 for it. skif resolves an import with the configuration the importing file follows, as TypeScript does: such an import
