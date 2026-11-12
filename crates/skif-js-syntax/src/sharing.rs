@@ -163,6 +163,8 @@ pub(crate) struct Unstable {
     calls_back: HashSet<Span>,
     /// The calls of a local by name that holds a function the pass does not follow, by span.
     called_values: HashSet<Span>,
+    /// The calls of a function no code of the project is behind ([`foreign`]), by span.
+    foreign_calls: HashSet<Span>,
     /// The names of the module's namespace imports.
     namespaces: HashSet<String>,
     /// The references that are the only one of a binding no other module can read and that are read once per binding:
@@ -200,6 +202,7 @@ impl Unstable {
             objects: HashMap::default(),
             calls_back: HashSet::default(),
             called_values: HashSet::default(),
+            foreign_calls: HashSet::default(),
             exported: HashSet::default(),
             dynamic: false,
             loops: 0,
@@ -232,6 +235,7 @@ impl Unstable {
             objects: std::mem::take(&mut sharing.objects),
             calls_back: std::mem::take(&mut sharing.calls_back),
             called_values: std::mem::take(&mut sharing.called_values),
+            foreign_calls: std::mem::take(&mut sharing.foreign_calls),
             namespaces: sharing
                 .known
                 .namespaces
@@ -317,6 +321,13 @@ impl Unstable {
     /// `const addAlias = aliaser(config)`), which may change what the local holds and was made from.
     pub(crate) fn calls_value(&self, call: &CallExpression<'_>) -> bool {
         self.called_values.contains(&call.span)
+    }
+
+    /// Whether `call` calls a function no code of the project is behind: one whose callee (`defineConfig`,
+    /// `vitest.defineProject`, `Object.assign`) starts from a global or from a binding of a package the evaluator does
+    /// not follow, so that what a `define…` helper or a merge of that name does is what such a library's does.
+    pub(crate) fn calls_foreign(&self, call: &CallExpression<'_>) -> bool {
+        self.foreign_calls.contains(&call.span)
     }
 
     /// Whether `object` is the binding of a namespace import, whose methods are taken to change nothing of it.
@@ -427,6 +438,8 @@ struct Sharing<'s> {
     calls_back: HashSet<Span>,
     /// The calls found of a local by name that holds a function the pass does not follow ([`Unstable::calls_value`]).
     called_values: HashSet<Span>,
+    /// The calls found of a function no code of the project is behind ([`Unstable::calls_foreign`]).
+    foreign_calls: HashSet<Span>,
     /// The bindings the module exports by declaring them.
     exported: HashSet<SymbolId>,
     /// Whether the module reads `arguments`, calls `eval` or has a `with` statement, which reach bindings without a
@@ -1466,6 +1479,9 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        if foreign(self.names(), &it.callee) {
+            self.foreign_calls.insert(it.span);
+        }
         let calls_back = self.calls_back_unknown(it);
         if calls_back {
             self.calls_back.insert(it.span);
@@ -2240,7 +2256,8 @@ const MERGE_CONFIG_MODULES: &[&str] = &["vite", "vitest", "vitest/config"];
 const COPYING_GLOBALS: &[&str] = &["defu", "mergeConfig"];
 
 /// Whether `call` calls a merge that builds a new object and changes none of the objects it is given: a function of
-/// [`COPYING_EXPORTS`], the `mergeConfig` of Vite or Vitest, or one of [`COPYING_GLOBALS`]. The options `deepmerge`
+/// [`COPYING_EXPORTS`], the `mergeConfig` of Vite or Vitest, or one of [`COPYING_GLOBALS`], imported from a package
+/// the evaluator does not follow ([`Known::foreign`]) or a global. The options `deepmerge`
 /// takes after the objects it merges may hold functions it calls with them (`arrayMerge`, `customMerge`), so a call
 /// given options counts only when they are an object literal of values that hold no function ([`function_free`]).
 fn copies(names: Names<'_>, call: &CallExpression<'_>) -> bool {
@@ -2249,6 +2266,7 @@ fn copies(names: Names<'_>, call: &CallExpression<'_>) -> bool {
     };
     match resolved(names.scoping, id) {
         None => COPYING_GLOBALS.contains(&id.name.as_str()),
+        Some(symbol) if !names.known.foreign.contains(&symbol) => false,
         Some(symbol) => names.known.modules.get(&symbol).is_some_and(|(module, imported)| {
             let export = imported.as_deref().unwrap_or_default();
             let copying = COPYING_EXPORTS

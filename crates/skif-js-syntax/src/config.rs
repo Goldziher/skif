@@ -381,9 +381,9 @@ pub trait ModuleLoader {
 ///
 /// Understood: object, array, string, number, boolean and `null` literals; template literals whose substitutions are
 /// known strings, numbers or booleans, and `+` of such values with a string (or of two numbers);
-/// `as`/`satisfies`/`!`/parenthesised wrappers; calls named `define*` (such as `defineConfig`), which evaluate to
-/// their first argument; arrow and function expressions that return a single expression; spreads of static values; and
-/// identifiers that name a top-level `const` initialised with something static; and paths computed from the config
+/// `as`/`satisfies`/`!`/parenthesised wrappers; calls named `define*` (such as `defineConfig`) of a global or of a
+/// package that is not followed, which evaluate to their first argument; arrow and function expressions that return a
+/// single expression; spreads of static values; and identifiers that name a top-level `const` initialised with something static; and paths computed from the config
 /// file's own location (`__dirname`, `import.meta.dirname`, `new URL('./x', import.meta.url)`, `path.resolve`,
 /// `path.join`, `path.dirname` and `fileURLToPath`, however `path` was imported), which evaluate to strings relative to
 /// the config file's directory (`"."`, `"./src"`, `"../shared"`).
@@ -3119,7 +3119,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// A merge given options that may say how it merges (`deepmerge`'s third argument, `mergeWith`'s customizer) is
     /// unknown.
     fn merge_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
-        let style = merge_style(&call.callee, self.bindings)?;
+        let style = self.merge_style(call)?;
         if takes_options(&call.callee, call.arguments.len()) {
             // The arguments are still recorded, for the files they name ([`Self::unknown_call_arguments`]).
             self.arguments(call, depth);
@@ -3261,7 +3261,21 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         if let Some(value) = special {
             return value;
         }
-        defined(call).map_or(Value::Unknown, |first| self.expr(first, depth))
+        self.defined(call)
+            .map_or(Value::Unknown, |first| self.expr(first, depth))
+    }
+
+    /// What a `define…` helper is given ([`defined`]) when no code of the project is behind it
+    /// ([`Unstable::calls_foreign`]): a helper of a module of the project or of a workspace package, or a method of
+    /// an object the module declares (`const { defineProperty } = Object`), may return anything.
+    fn defined(&self, call: &'p CallExpression<'a>) -> Option<&'p Expression<'a>> {
+        defined(call).filter(|_| self.unstable.calls_foreign(call))
+    }
+
+    /// How `call` merges its arguments ([`merge_style`]) when no code of the project is behind it
+    /// ([`Unstable::calls_foreign`]): a `merge` of a module of the project may merge any way.
+    fn merge_style(&self, call: &CallExpression<'_>) -> Option<MergeStyle> {
+        merge_style(&call.callee, self.bindings).filter(|_| self.unstable.calls_foreign(call))
     }
 
     /// The arguments of the calls the evaluator cannot follow whose results `expr`, which evaluated to `value`, is or
@@ -3362,11 +3376,11 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// [`Self::unknown_call_arguments`] of `call`.
     fn unknown_arguments_of_call(&self, call: &'p CallExpression<'a>, value: &Value, depth: u32) -> Vec<Value> {
-        if let Some(first) = defined(call) {
+        if let Some(first) = self.defined(call) {
             return self.unknown_call_arguments(first, value, depth);
         }
         let recorded = self.arguments_of.borrow().get(&call.span).cloned();
-        if merge_style(&call.callee, self.bindings).is_some() {
+        if self.merge_style(call).is_some() {
             let values = recorded.unwrap_or_default();
             return call
                 .arguments
