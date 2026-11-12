@@ -17,6 +17,12 @@ All notable changes to this project are documented here. The format follows
   findings are no longer repeated under `bazel-<name>/`
   ([ADR 0116](adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
   [#174](https://github.com/Goldziher/skif/issues/174)).
+- `toolchain-pin-drift` reads the root's `MODULE.bazel`, `WORKSPACE.bazel` and `WORKSPACE`, a new `bazel` kind read by
+  default: the `pnpm_version` of `pnpm.pnpm(...)` and `npm_translate_lock(...)` (rules_js) and the `node_version` of
+  `node.toolchain(...)` and `nodejs_register_toolchains(...)` (rules_nodejs) are checked against `packageManager` and
+  the root's Node version, statically. A `files` glob also reads `.bzl` and `*.MODULE.bazel` files
+  ([ADR 0116](adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
+  [#175](https://github.com/Goldziher/skif/issues/175)).
 
 ## [0.3.0] - 2026-11-11
 
