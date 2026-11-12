@@ -734,7 +734,8 @@ fn a_change_of_an_imported_value_is_applied_where_it_is_read() {
 #[test]
 fn a_write_through_what_a_method_of_a_followed_package_returns_reaches_it() {
     for (write, out_dir) in [("same.build.outDir = 'out';", ConfigValue::Unknown), ("", s("dist"))] {
-        let config = format!("import base from '@fx/base';\nconst same = (0, base.self)();\n{write}\nexport default base;");
+        let config =
+            format!("import base from '@fx/base';\nconst same = (0, base.self)();\n{write}\nexport default base;");
         let loader = files(&[
             ("/ws/app/config.ts", &*Box::leak(config.into_boxed_str())),
             (
@@ -787,7 +788,11 @@ fn a_change_through_what_an_imported_function_returns_reaches_the_imported_value
             &ConfigValue::Unknown,
             "{shared}\n{statement}: {value:?}"
         );
-        assert_eq!(read_at(&value, &["name"]), &s("app"), "{shared}\n{statement}: {value:?}");
+        assert_eq!(
+            read_at(&value, &["name"]),
+            &s("app"),
+            "{shared}\n{statement}: {value:?}"
+        );
     }
     let value = shared_config(getter, "getBase", "const seen = getBase();");
     assert_eq!(read_at(&value, &["plugins"]), &strings(&[]), "{value:?}");
@@ -831,7 +836,11 @@ fn a_function_of_a_followed_module_that_changes_what_it_keeps_changes_the_import
             &ConfigValue::Unknown,
             "{shared}\n{statement}: {value:?}"
         );
-        assert_eq!(read_at(&value, &["name"]), &s("app"), "{shared}\n{statement}: {value:?}");
+        assert_eq!(
+            read_at(&value, &["name"]),
+            &s("app"),
+            "{shared}\n{statement}: {value:?}"
+        );
     }
     for shared in [
         "import { base } from './base';\nfunction f() {}\nf.cache = base;\n\
@@ -857,7 +866,11 @@ fn a_write_through_this_in_a_function_of_a_followed_module_changes_the_imported_
          export const addPlugin = child.add.bind(child);",
     ] {
         let value = shared_config(shared, "addPlugin", "addPlugin('x');");
-        assert_eq!(read_at(&value, &["plugins"]), &ConfigValue::Unknown, "{shared}: {value:?}");
+        assert_eq!(
+            read_at(&value, &["plugins"]),
+            &ConfigValue::Unknown,
+            "{shared}: {value:?}"
+        );
         assert_eq!(read_at(&value, &["name"]), &s("app"), "{shared}: {value:?}");
     }
     let reading = "import { base } from './base';\nfunction copy() { return [...this.plugins]; }\n\
@@ -897,7 +910,10 @@ fn a_define_helper_of_an_alias_the_loader_does_not_follow_is_unknown() {
     let number = |n: f64| ConfigValue::Number(n);
     for (call, known) in [
         ("defineConfig({ a: 1 })", obj(vec![("a", number(1.0))])),
-        ("mergeConfig({ a: 1 }, { b: 2 })", obj(vec![("a", number(1.0)), ("b", number(2.0))])),
+        (
+            "mergeConfig({ a: 1 }, { b: 2 })",
+            obj(vec![("a", number(1.0)), ("b", number(2.0))]),
+        ),
     ] {
         for (specifier, expected) in [("@app/tools", ConfigValue::Unknown), ("vite", known)] {
             let helper = call.split('(').next().unwrap();
@@ -1025,7 +1041,10 @@ fn a_followed_module_that_changes_an_import_reaches_the_values_the_config_import
             ("/ws/app/config.ts", config),
             ("/ws/app/base.ts", base),
             ("/ws/app/name.ts", "export function name() { return 'app'; }"),
-            ("/ws/app/names.ts", "export { name } from './name';\nexport * from 'some-package';"),
+            (
+                "/ws/app/names.ts",
+                "export { name } from './name';\nexport * from 'some-package';",
+            ),
         ]);
         let value = eval(&pure);
         assert_eq!(read_at(&value, &["build", "outDir"]), &s("dist"), "{config}: {value:?}");

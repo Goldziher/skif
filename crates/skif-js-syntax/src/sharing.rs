@@ -3260,7 +3260,9 @@ fn given_in_full(expr: &Expression<'_>) -> bool {
         | Expression::BinaryExpression(_)
         | Expression::UnaryExpression(_) => true,
         Expression::ObjectExpression(object) => object.properties.iter().all(|property| match property {
-            ObjectPropertyKind::ObjectProperty(p) => !p.method && p.kind == PropertyKind::Init && given_in_full(&p.value),
+            ObjectPropertyKind::ObjectProperty(p) => {
+                !p.method && p.kind == PropertyKind::Init && given_in_full(&p.value)
+            }
             ObjectPropertyKind::SpreadProperty(s) => given_in_full(&s.argument),
         }),
         Expression::ArrayExpression(array) => array.elements.iter().all(|element| match element {
