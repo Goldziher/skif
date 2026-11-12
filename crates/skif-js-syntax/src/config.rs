@@ -407,10 +407,13 @@ pub trait ModuleLoader {
 /// every branch (a string counting as a list of one), a nested object merges the same way, any other value every
 /// branch sets is one of them and one only some branches set is unknown; only a branch that is not an object (or
 /// `null`, a boolean, a number or an empty string) leaves the spread unknown. A spread of a value that is one of
-/// several adds the keys of each the same way. Spread into an array, such a condition or value adds the elements of
-/// every branch (`[...(ci ? ['a'] : [])]`), a branch of `null`, `undefined` or a boolean none. `.filter(Boolean)` of a
-/// known array drops the falsy elements and keeps one that may be falsy as the values it has when it is not
-/// (`[ci ? 'github' : null, ci && 'blob'].filter(Boolean)` keeps `'github'` and `'blob'`).
+/// several adds the keys of each the same way. A path function, a template literal or a `+` over a value that is one
+/// of several is one of the results of each combination (`path.join(ci ? 'a' : 'b', 'setup.ts')` is one of two
+/// paths), unknown when a result is unknown or there would be more than eight. Spread into an array, such a condition
+/// or value adds the elements of every branch (`[...(ci ? ['a'] : [])]`), a branch of `null`, `undefined` or a
+/// boolean none. `.filter(Boolean)` of a known array drops the falsy elements and keeps one that may be falsy as the
+/// values it has when it is not (`[ci ? 'github' : null, ci && 'blob'].filter(Boolean)` keeps `'github'` and
+/// `'blob'`).
 /// `.map`, `.flatMap` and `.filter` of a known array call an inline callback, or one the module declares, with each
 /// element and its index (`` ['light', 'dark'].map((theme) => ({ name: `browser-${theme}` })) ``); an unknown element,
 /// which may stand for a spread of any length, stays unknown, and a predicate whose result is not known keeps the
@@ -2400,29 +2403,43 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         };
         let (left, right) = (self.expr(&binary.left, depth), self.expr(&binary.right, depth));
         match equal {
-            None => add(&left, &right),
+            None => each_combination(&[left, right], |pair| match pair {
+                [left, right] => add(left, right),
+                _ => Value::Unknown,
+            }),
             Some(equal) => strictly_equal(&left, &right).map_or(Value::Unknown, |same| Value::Bool(same == equal)),
         }
     }
 
-    /// A template literal whose substitutions are known strings, numbers or booleans ([`primitive_text`]).
+    /// A template literal whose substitutions are known strings, numbers or booleans ([`primitive_text`]), or one of
+    /// several of them ([`each_combination`]).
     fn template(&self, template: &'p TemplateLiteral<'a>, depth: u32) -> Value {
-        let mut out = String::new();
-        for (index, quasi) in template.quasis.iter().enumerate() {
-            out.push_str(
-                &quasi
-                    .value
-                    .cooked
-                    .map_or_else(|| quasi.value.raw.as_str().to_owned(), crate::js_string),
-            );
-            if let Some(expression) = template.expressions.get(index) {
-                let Some(text) = primitive_text(&self.expr(expression, depth)) else {
-                    return Value::Unknown;
-                };
-                out.push_str(&text);
+        let mut substitutions = Vec::with_capacity(template.expressions.len());
+        for expression in &template.expressions {
+            let value = self.expr(expression, depth);
+            if !matches!(value, Value::OneOf(_)) && primitive_text(&value).is_none() {
+                return Value::Unknown;
             }
+            substitutions.push(value);
         }
-        Value::String(out)
+        each_combination(&substitutions, |texts| {
+            let mut out = String::new();
+            for (index, quasi) in template.quasis.iter().enumerate() {
+                out.push_str(
+                    &quasi
+                        .value
+                        .cooked
+                        .map_or_else(|| quasi.value.raw.as_str().to_owned(), crate::js_string),
+                );
+                if let Some(value) = texts.get(index) {
+                    let Some(text) = primitive_text(value) else {
+                        return Value::Unknown;
+                    };
+                    out.push_str(&text);
+                }
+            }
+            Value::String(out)
+        })
     }
 
     /// The value of `expr` without its [`Value::Maybe`], and whether it is definite.
@@ -2725,7 +2742,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             }
             _ => return None,
         };
-        Some(apply_path_function(function, &self.arguments(call, depth)))
+        Some(each_combination(&self.arguments(call, depth), |args| {
+            apply_path_function(function, args)
+        }))
     }
 
     /// The values of a call's arguments, a spread argument unknown, recorded for [`Self::unknown_call_arguments`].
@@ -4546,6 +4565,32 @@ fn one_of(values: impl IntoIterator<Item = Value>) -> Value {
         1 => out.pop().unwrap_or(Value::Unknown),
         _ => Value::OneOf(out),
     }
+}
+
+/// `apply` of every combination of the values `args` may be ([`alternatives`]), as [`one_of`] the results: a file
+/// joined to a directory that is one of two is one of two paths. Unknown when a result is, or when there are more
+/// combinations than [`MAX_ALTERNATIVES`].
+fn each_combination(args: &[Value], apply: impl Fn(&[Value]) -> Value) -> Value {
+    if !args.iter().any(|arg| matches!(arg, Value::OneOf(_))) {
+        return apply(args);
+    }
+    let mut combinations: Vec<Vec<Value>> = vec![Vec::new()];
+    for arg in args {
+        let choices = alternatives(arg.clone());
+        if combinations.len().saturating_mul(choices.len()) > MAX_ALTERNATIVES {
+            return Value::Unknown;
+        }
+        let mut next = Vec::with_capacity(combinations.len() * choices.len());
+        for combination in &combinations {
+            for choice in &choices {
+                let mut extended = combination.clone();
+                extended.push(choice.clone());
+                next.push(extended);
+            }
+        }
+        combinations = next;
+    }
+    one_of(combinations.iter().map(|combination| apply(combination.as_slice())))
 }
 
 /// The values `value` may be: the alternatives of a [`Value::OneOf`], or the value itself.
