@@ -33,7 +33,7 @@ pub enum Command {
     Init(InitArgs),
     /// Show the configuration files a root is built from, the merged result, and where each key was set.
     Config(ConfigArgs),
-    /// Explain why the JavaScript analysis counts a file, or one export of it, as used.
+    /// Explain why the JavaScript analysis counts a file, one export of it, or a dependency as used.
     ExplainUsage(ExplainUsageArgs),
     /// Translate the configuration of sherif, syncpack and knip into a `skif.toml`; never deletes a file.
     Migrate(MigrateArgs),
@@ -260,12 +260,23 @@ pub struct InitArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct ExplainUsageArgs {
-    /// A file, or `FILE#EXPORT` for one of its exports, relative to the current directory (or absolute).
-    pub target: String,
+    /// A file, or `FILE#EXPORT` for one of its exports, relative to the current directory (or absolute). With
+    /// --dependency there is no file, and a single path is PATH.
+    #[arg(required_unless_present = "dependency")]
+    pub target: Option<String>,
 
-    /// A path inside a project, resolved to its workspace root as for linting.
-    #[arg(default_value = ".")]
-    pub path: PathBuf,
+    /// A path inside a project, resolved to its workspace root as for linting (default: `.`).
+    pub path: Option<PathBuf>,
+
+    /// Explain this dependency instead of a file: per package, whether it is used and the files, scripts, plugins
+    /// and configs that use it, or the imports that count for nothing.
+    #[arg(long, value_name = "NAME")]
+    pub dependency: Option<String>,
+
+    /// With --dependency, explain it in this package only: its name, or its directory relative to the current
+    /// directory.
+    #[arg(long, value_name = "NAME|DIR", requires = "dependency")]
+    pub package: Option<String>,
 
     /// Explain the production-only analysis, as `--production` does for a lint run.
     #[arg(long)]
@@ -594,6 +605,15 @@ pub struct ConfigArgs {
     #[arg(long, value_name = "NAME", requires = "explain", conflicts_with = "show")]
     pub package: Option<String>,
 
+    /// Use this configuration file (and the files it extends) instead of discovering `skif.toml` files, as a lint run
+    /// with `--config` does.
+    #[arg(long, value_name = "FILE", conflicts_with = "no_config")]
+    pub config: Option<PathBuf>,
+
+    /// Read no configuration file: the defaults.
+    #[arg(long)]
+    pub no_config: bool,
+
     /// Output format.
     #[arg(long, value_enum, default_value_t = RulesFormat::Human)]
     pub format: RulesFormat,
@@ -789,7 +809,7 @@ pub struct LintArgs {
     pub cache: bool,
 
     /// The directory of the --cache store (default: `node_modules/.cache/skif` below the workspace root, or below the
-    /// invocation directory of a multi-root run).
+    /// invocation directory of a multi-root run; `$TEST_TMPDIR/skif` under `bazel test`).
     #[arg(long, value_name = "DIR", requires = "cache")]
     pub cache_location: Option<PathBuf>,
 

@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use skif_config::Config;
 use skif_core::FileSystem;
-use skif_js::{DependencyTrace, InputSource, JsAnalysis, JsProvider, PluginSource, UsageReport};
-use skif_workspace::Workspace;
+use skif_js::{DependencyExplanation, DependencyTrace, InputSource, JsAnalysis, JsProvider, PluginSource, UsageReport};
+use skif_workspace::{PackageId, Workspace};
 
 /// Builds the JS provider that reads through `fs` and takes its tool knowledge from the plugin table; a module cache
 /// is added by the caller.
@@ -60,4 +60,26 @@ pub fn trace_dependency(
             .with_overrides(&config.overrides),
     );
     JsAnalysis::build(workspace, config, fs, &[source], false).trace_dependency(name)
+}
+
+/// Explains why the dependency `name` is used or unused in every package that lists it or that something credits it
+/// to, or with `package` in that package alone: the verdict `unused-dependencies` reaches, the files, scripts,
+/// plugins and configs that credit it, and the imports of it that credit nothing.
+///
+/// It builds the whole analysis, so it costs as much as the JS part of a lint run.
+#[must_use]
+pub fn explain_dependency(
+    config: &Config,
+    fs: &Arc<dyn FileSystem>,
+    workspace: &Workspace,
+    name: &str,
+    package: Option<PackageId>,
+) -> DependencyExplanation {
+    let source: Arc<dyn InputSource> = Arc::new(
+        PluginSource::new(config.js.plugins.clone())
+            .with_workspaces(&config.js.workspaces)
+            .with_root_tsconfig(config.js.tsconfig.as_deref())
+            .with_overrides(&config.overrides),
+    );
+    JsAnalysis::build(workspace, config, fs, &[source], false).explain_dependency(name, package)
 }
