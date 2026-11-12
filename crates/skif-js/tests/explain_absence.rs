@@ -639,6 +639,8 @@ fn a_published_bazel_source_is_an_entry_not_a_build_source() {
         (&json!("public"), &json!(true)),
         "{api}"
     );
+}
+
 /// A use of a namespace as a whole is listed as a user of a value export and not of a type export, which it cannot
 /// read: the type's verdict and its evidence agree.
 #[test]
