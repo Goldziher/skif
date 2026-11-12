@@ -28,8 +28,11 @@ const EXTENSION_ALIASES: &[(&str, &[&str])] = &[
 /// installed package ([`ModuleLoader::is_installed`]) when it is a Node.js builtin or has a scheme (`npm:vite`,
 /// `virtual:pwa`), which names a module of a runtime or a tool, or names no workspace package and
 /// a `node_modules` directory at or above the importing file holds it; one that none holds is an alias of a project
-/// directory or a package that is not installed, unless there is no `node_modules` directory there at all (a project
-/// not installed yet), where nothing tells the two apart and every name of no workspace package counts.
+/// directory or a package that is not installed, unless no `node_modules` directory at or above the file, up to the
+/// workspace root, holds a package at all (a project not installed yet, or one holding only the caches of tools such as
+/// `.vite`), where nothing tells the two apart and every name of no workspace package counts. Under Yarn Plug'n'Play
+/// (a `.pnp.cjs` at the workspace root), the dependencies the importing package or the root declares from a registry
+/// are installed, and no other name is.
 pub(crate) struct ConfigModules<'a> {
     fs: &'a dyn FileSystem,
     workspace: &'a Workspace,
@@ -38,6 +41,36 @@ pub(crate) struct ConfigModules<'a> {
 impl<'a> ConfigModules<'a> {
     pub(crate) fn new(fs: &'a dyn FileSystem, workspace: &'a Workspace) -> Self {
         Self { fs, workspace }
+    }
+
+    /// Whether the `node_modules` directory `modules` holds a package: an entry whose name does not start with a dot,
+    /// unlike the caches tools keep there (`.vite`, `.cache`) and the package manager's own files (`.bin`, `.pnpm`).
+    fn holds_packages(&self, modules: &Path) -> bool {
+        self.fs.read_dir_shared(modules).is_ok_and(|entries| {
+            entries.iter().any(|entry| {
+                entry
+                    .path
+                    .file_name()
+                    .is_some_and(|name| !name.to_string_lossy().starts_with('.'))
+            })
+        })
+    }
+
+    /// Whether the package that holds the file `from`, or the root package, declares the dependency `name` with a
+    /// specifier of a registry rather than one of a directory of the project (`link:`, `file:`, `portal:`,
+    /// `workspace:`, a path).
+    fn declares(&self, from: &Path, name: &str) -> bool {
+        let root = &self.workspace.root;
+        let owner = self
+            .workspace
+            .all_packages()
+            .filter(|package| from.starts_with(root.join(&package.dir)))
+            .max_by_key(|package| package.dir.components().count());
+        owner
+            .into_iter()
+            .chain(self.workspace.all_packages().take(1))
+            .flat_map(|package| &package.dependencies)
+            .any(|entry| &*entry.name == name && !names_project_directory(&entry.specifier))
     }
 
     /// The source file of a workspace package's export named by `specifier`.
@@ -101,16 +134,21 @@ impl ModuleLoader for ConfigModules<'_> {
         {
             return false;
         }
+        let root = &self.workspace.root;
+        if PNP_FILES.iter().any(|file| self.fs.is_file(&root.join(file))) {
+            return self.declares(from, &name);
+        }
         let mut installs = false;
+        let mut inside = true;
         for dir in from.ancestors().skip(1) {
             let modules = dir.join("node_modules");
-            if !self.fs.is_dir(&modules) {
-                continue;
+            if self.fs.is_dir(&modules) {
+                if self.fs.is_dir(&modules.join(&name)) {
+                    return true;
+                }
+                installs |= inside && self.holds_packages(&modules);
             }
-            if self.fs.is_dir(&modules.join(&name)) {
-                return true;
-            }
-            installs = true;
+            inside &= dir != root.as_path();
         }
         !installs
     }
@@ -126,6 +164,16 @@ impl ModuleLoader for ConfigModules<'_> {
             .or_else(|| declaration_module(self.fs, &base))
             .is_some_and(|path| !is_code_file(&path) || is_declaration_file(&path))
     }
+}
+
+/// The files at a workspace root that say Yarn Plug'n'Play installs its packages, with no `node_modules` directory.
+const PNP_FILES: &[&str] = &[".pnp.cjs", ".pnp.loader.mjs", ".pnp.js"];
+
+/// Whether a dependency specifier names a directory of the project rather than a published package.
+fn names_project_directory(specifier: &str) -> bool {
+    ["link:", "file:", "portal:", "workspace:", "./", "../", "/"]
+        .iter()
+        .any(|prefix| specifier.starts_with(prefix))
 }
 
 /// Whether `specifier` is a relative import.
@@ -245,6 +293,74 @@ mod tests {
             ("@app/alias", false),
             ("lodash", false),
             ("./local", false),
+        ] {
+            assert_eq!(modules.is_installed(from, specifier), installed, "{specifier}");
+        }
+    }
+
+    /// A `node_modules` directory that holds only the caches of tools (`.vite`, `.cache`) holds no package, and one
+    /// above the workspace root says nothing of what the workspace installs: as with none, every name of no workspace
+    /// package is installed, and a package such a directory holds still is.
+    #[test]
+    fn caches_and_node_modules_above_the_root_hold_no_install_of_the_workspace() {
+        let fs = project()
+            .with_file("/ws/node_modules/.vite/deps/_metadata.json", "{}")
+            .with_file("/ws/packages/app/node_modules/.cache/babel/x.json", "{}")
+            .with_file("/node_modules/left-pad/package.json", "{}");
+        let discovered = workspace(&fs);
+        let modules = ConfigModules::new(&fs, &discovered);
+        let from = Path::new(CONFIG);
+        for (specifier, installed) in [
+            ("vite", true),
+            ("vitest/config", true),
+            ("astro/config", true),
+            ("left-pad", true),
+            ("@app/alias", true),
+            ("@app/tools", false),
+        ] {
+            assert_eq!(modules.is_installed(from, specifier), installed, "{specifier}");
+        }
+        let with_vite = fs.with_file("/ws/node_modules/vite/package.json", "{}");
+        let discovered = workspace(&with_vite);
+        let modules = ConfigModules::new(&with_vite, &discovered);
+        for (specifier, installed) in [("vite", true), ("@app/alias", false), ("left-pad", true)] {
+            assert_eq!(modules.is_installed(from, specifier), installed, "{specifier}");
+        }
+    }
+
+    /// Under Yarn Plug'n'Play, a dependency the importing package or the root declares from a registry is installed;
+    /// one linked from a directory of the project and an undeclared name (an alias) are not.
+    #[test]
+    fn under_plug_n_play_a_declared_dependency_is_installed() {
+        let fs = MemoryFs::new()
+            .with_file(
+                "/ws/package.json",
+                r#"{"name":"root","workspaces":["packages/*"],"devDependencies":{"vite":"^5.0.0"}}"#,
+            )
+            .with_file(
+                "/ws/packages/app/package.json",
+                r#"{"name":"app","dependencies":{"@vitejs/plugin-react":"^4.0.0","@app/linked":"link:../linked"}}"#,
+            )
+            .with_file(CONFIG, "export default {};")
+            .with_file(
+                "/ws/packages/tools/package.json",
+                r#"{"name":"@app/tools","main":"dist/index.js"}"#,
+            )
+            .with_file("/ws/packages/other/package.json", r#"{"name":"other","dependencies":{"lodash":"^4.0.0"}}"#)
+            .with_file("/ws/.pnp.cjs", "")
+            .with_file("/ws/node_modules/.cache/x.json", "{}");
+        let workspace = workspace(&fs);
+        let modules = ConfigModules::new(&fs, &workspace);
+        let from = Path::new(CONFIG);
+        for (specifier, installed) in [
+            ("vite", true),
+            ("vite/client", true),
+            ("@vitejs/plugin-react", true),
+            ("node:path", true),
+            ("lodash", false),
+            ("@app/alias", false),
+            ("@app/linked", false),
+            ("@app/tools", false),
         ] {
             assert_eq!(modules.is_installed(from, specifier), installed, "{specifier}");
         }
