@@ -1060,7 +1060,11 @@ with each element and its index, so `` ["light", "dark"].map((theme) => ({ test:
 is two known projects; an element that is not known (a spread of an unknown list) stays unknown, and a predicate whose
 result is not known keeps the element. `Object.fromEntries` of a known list of `[key, value]` pairs is their object,
 template literals and `+` write known strings, numbers and booleans, and `===` and `!==` compare known primitives. A
-Vite or Vitest `root` that is one of several directories reads the HTML entries of each.
+Vite or Vitest `root` that is one of several directories reads the HTML entries of each. A path function, a template
+literal or `+` over a value that is one of several is one of the results of each, unknown when one is unknown or there
+would be more than eight, so `path.join(dir, 'vitest.setup.ts')` with such a `dir` is one of two paths. A list of
+files or patterns (setup files, test globs, bundler entries) whose value or element is one of several known strings
+makes each an entry candidate; one that names no file is dropped without a hint.
 A local assigned or changed in code that may or may not run (a branch with an unknown test, a loop, `cond && (x = 1)`),
 and a top-level constant changed after its declaration (`if (process.env.A) config.plugins.push(…)`), is unknown or
 partly unknown afterwards rather than keeping its earlier value; a branch with an unknown test that changes a local

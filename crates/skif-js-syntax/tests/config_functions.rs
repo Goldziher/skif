@@ -1510,7 +1510,6 @@ fn an_undecided_condition_between_known_values_is_one_of_them() {
         ("nullish", ConfigValue::Null),
         ("fallback", ConfigValue::OneOf(vec![s("github"), s("list"), s("dot")])),
         ("reassigned", ConfigValue::OneOf(vec![s("dev"), s("ci")])),
-        ("opaque", ConfigValue::Unknown),
         ("many", ConfigValue::Unknown),
     ];
     for (key, expected) in pairs {
@@ -1634,6 +1633,55 @@ fn the_config_directory_is_one_value_however_it_is_written() {
         get(&value, &["different"]),
         &ConfigValue::OneOf(vec![s("./ui"), s(".")])
     );
+}
+
+/// A path function, a template literal or a concatenation of a value that is one of several is one of the results of
+/// each: a file joined to a directory that is one of two is one of two paths. A combination whose result is unknown
+/// leaves the value unknown, and so do more combinations than a value keeps alternatives.
+#[test]
+fn a_value_computed_from_one_of_several_is_one_of_the_results() {
+    let value = extract(
+        "ui/vitest.config.ts",
+        "import path from 'node:path';\nimport { fileURLToPath } from 'node:url';\n\
+         const dir = process.env.FLAG ? path.resolve('ui') : path.dirname(fileURLToPath(import.meta.url));\n\
+         const theme = process.env.DARK ? 'dark' : 'light';\n\
+         const four = process.env.A ? (process.env.B ? 'a' : 'b') : (process.env.C ? 'c' : 'd');\n\
+         export default {\n\
+           joined: path.join(dir, 'vitest.setup.ts'),\n\
+           nested: path.join(dir, `.storybook/setup.${theme}.ts`),\n\
+           template: `${dir}/setup.ts`,\n\
+           added: dir + '/setup.ts',\n\
+           same: path.join(process.env.FLAG ? 'a/../b' : 'b', 'x.ts'),\n\
+           absolute: path.join(process.env.FLAG ? '/abs' : 'rel', 'x.ts'),\n\
+           many: `${four}-${four}-${theme}`,\n\
+         };",
+    );
+    let cases = [
+        (
+            "joined",
+            ConfigValue::OneOf(vec![s("./ui/vitest.setup.ts"), s("./vitest.setup.ts")]),
+        ),
+        (
+            "nested",
+            ConfigValue::OneOf(vec![
+                s("./ui/.storybook/setup.dark.ts"),
+                s("./ui/.storybook/setup.light.ts"),
+                s("./.storybook/setup.dark.ts"),
+                s("./.storybook/setup.light.ts"),
+            ]),
+        ),
+        (
+            "template",
+            ConfigValue::OneOf(vec![s("./ui/setup.ts"), s("./setup.ts")]),
+        ),
+        ("added", ConfigValue::OneOf(vec![s("./ui/setup.ts"), s("./setup.ts")])),
+        ("same", s("./b/x.ts")),
+        ("absolute", ConfigValue::Unknown),
+        ("many", ConfigValue::Unknown),
+    ];
+    for (key, expected) in cases {
+        assert_eq!(get(&value, &[key]), &expected, "{key}");
+    }
 }
 
 /// `.map`, `.flatMap` and `.filter` of a known array call the callback, an inline function or one the module declares,
