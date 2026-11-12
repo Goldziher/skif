@@ -4,7 +4,8 @@
 //! A label of the `node_modules` that `npm_link_all_packages` links for a package (`":node_modules/esbuild"`,
 //! `"//packages/app:node_modules/@types/node"`) and the load of a package's `package_json.bzl` from the npm repository
 //! (`"@npm//packages/app:esbuild/package_json.bzl"`) name a dependency of the package whose directory the label's
-//! Bazel package is, and the package uses it. The files the rules build from are entries: the `entry_point` and `data`
+//! Bazel package is, and the package uses it; only that package may list it, whichever package's `BUILD` file holds
+//! the label. The files the rules build from are entries: the `entry_point` and `data`
 //! of `js_binary`, `js_run_devserver` and `js_test`, and the `srcs` and `data` of `js_library` and `ts_project`, each a
 //! file of the package named by its path or by a label of the `BUILD` file's own package (`":src/index.ts"`).
 //! A computed value (`glob([...])`, `select({...})`, a variable) names nothing.
@@ -70,7 +71,7 @@ impl Plugin for Bazel {
             .iter()
             .filter_map(|literal| linked_dependency(literal, &bazel_package))
             .filter(|(owner, _)| *owner == package)
-            .map(|(_, name)| PluginInput::Dependency(name))
+            .map(|(_, name)| PluginInput::ReaderDependency(name))
             .collect();
         if in_nested_package(cx, config.base) {
             return out;
