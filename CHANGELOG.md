@@ -99,6 +99,14 @@ All notable changes to this project are documented here. The format follows
   after the namespace, as `S.Button` does, instead of using the module as a whole; a nested tag
   (`<S.Ctx.Provider />`) reads `Ctx`. The other exports of the module are reported by `unused-namespace-exports`
   ([#213](https://github.com/Goldziher/skif/issues/213)).
+- **Bazel plugin**: a `BUILD` file comprehension that formats each string of a list literal
+  (`[":node_modules/%s" % name for name in ["typescript", "vite"]]`) names the formatted packages instead of the
+  dependency `%s`, and the patterns of a `glob(...)` (`"node_modules/**"`), any other format template and a
+  `node_modules` target that is no valid npm package name name no dependency. A dependency a `BUILD` file names is
+  reported at the line of the label, and `explain-usage --dependency` lists the config files and lines that name a
+  dependency the package does not list (`unlisted-references` in its JSON)
+  ([ADR 0130](adrs/0130-bazel-label-lists-built-by-a-format-comprehension.md),
+  [#220](https://github.com/Goldziher/skif/issues/220)).
 - **JS**: pattern keys of `exports` and `imports` maps are selected as Node.js orders them: of two patterns with the
   same prefix, the longer one wins (`./features/*.css` over `./features/*` for `./features/a.css`).
 - **Migrate**: `--merge --output <FILE>` writes the merge of the existing `skif.toml` and the migration to `FILE`

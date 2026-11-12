@@ -29,7 +29,8 @@ expression: "redact(&json.stdout, dir.path())"
             "file": "packages/app/src/index.ts"
           }
         ],
-        "not-counted": []
+        "not-counted": [],
+        "unlisted-references": []
       }
     ]
   }

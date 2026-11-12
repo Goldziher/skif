@@ -186,13 +186,15 @@ package alone) it prints the manifest entry, the verdict and the uses that credi
 `binary` a script, command or plugin runs, a `script-or-plugin` of the package, a tool `config` that names it, and
 `ambient-types` for a globals-only `@types` package a `tsconfig.json` includes. The uses of a package's manifest can
 come from the files of packages inside it, such as the root's. Imports of it by files of the package that credit no
-manifest (a type-only import in strict mode) are listed as not counted. The verdict and the uses come from the same
-record of uses the rule judges. The command exits `0` whatever the verdict.
+manifest (a type-only import in strict mode) are listed as not counted. For a package that does not list it, the tool
+config files that name it are listed with the line of the reference when the config gives one (a Bazel `BUILD`
+label), as `unlisted-dependencies` reports them. The verdict and the uses come from the same record of uses the rule
+judges. The command exits `0` whatever the verdict.
 
 | `--format json` member | Meaning |
 | --- | --- |
 | `report.dependency`, `report.production`, `report.strict` | The dependency, and whether production or strict mode narrowed what counts. |
-| `report.packages[]` | `package`, `dir` (`.` for the root), `listed` (`manifest`, `section`, `specifier`, or `null`), `verdict`, `credit`, `uses` and `not-counted` (each `file`, `line`, `specifier`, `kind`, `type-only`, `package`, `reachable`). |
+| `report.packages[]` | `package`, `dir` (`.` for the root), `listed` (`manifest`, `section`, `specifier`, or `null`), `verdict`, `credit`, `uses`, `not-counted` (each `file`, `line`, `specifier`, `kind`, `type-only`, `package`, `reachable`) and `unlisted-references` (each `file`, and `line` when known). |
 | `verdict` | `used`, `unused` (what the rule reports when it is on), `ignored` (an `ignore-dependencies` entry or a plugin covers it), `optional-peer`, `package-excluded`, `entries-incomplete` (not judged) or `not-listed`. |
 | `credit` | With `used`, how: `{"kind": "uses"}` (the `uses` list it), `always-used` (a tool used without an import, such as `typescript`), `runtime-types` (`@types/node`), `types-of` with the typed `package`, or `peer-of` with the `host` that needs it as a peer. |
 | `uses[]` | `kind`, and `file` (relative to the root) or `binary` when the use has one. |
