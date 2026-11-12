@@ -22,9 +22,10 @@
 //!
 //! A call whose effect is not known (a function the module or a library declares, a `new` of a class other than a
 //! builtin one, a list or string method on an object not known to be a list or string) may change every object it is
-//! given, in any position and through a spread ([`Effect`]). The pass knows the effect of a well-known function only
-//! where its name resolves to the module that declares it, and treats a `define…` helper of a library and a merge
-//! that copies ([`copies`]) and `Object.assign`, beyond its first argument, as changing nothing. A loop name, a
+//! given, in any position and through a spread ([`Effect`]). The pass knows the effect of a
+//! well-known function only where its name resolves to the module that declares it, and treats a `define…` helper of
+//! a library and a merge that copies ([`copies`]) and `Object.assign`, beyond its first argument, as changing nothing;
+//! the first two keep nothing they are given in another argument either. A loop name, a
 //! callback parameter and a name a destructuring assigns share with what they take, but for a callback over a `const`
 //! list of primitive values that no change reaches, and a write in a class body is one the evaluator does not follow.
 //!
@@ -650,8 +651,7 @@ impl Sharing<'_> {
         }
         let names = self.names();
         let keeps = pure_function(names, call).is_some()
-            || (defined(call).is_some() && foreign(names, &call.callee))
-            || copies(names, call)
+            || self.keeps_apart(call)
             || assigns(names, call)
             || matches!(
                 call.callee.get_inner_expression(),
@@ -662,6 +662,14 @@ impl Sharing<'_> {
                         && builtin(names, &m.object)
             );
         keeps.then_some(Effect::Keeps)
+    }
+
+    /// Whether `call` changes none of the objects it is given and keeps none of them in another or in what it is called
+    /// on: a `define…` helper of a library, which returns what it is given, or a merge that builds a new object
+    /// ([`copies`]).
+    fn keeps_apart(&self, call: &CallExpression<'_>) -> bool {
+        let names = self.names();
+        (defined(call).is_some() && foreign(names, &call.callee)) || copies(names, call)
     }
 
     /// Records the change `write` of the object `symbol` holds.
@@ -1253,6 +1261,11 @@ impl<'a> Visit<'a> for Sharing<'_> {
             .map(MemberExpression::object);
         if pure_function(self.names(), it).is_some() {
             self.pure.insert(it.span);
+            return walk::walk_call_expression(self, it);
+        }
+        // A call that keeps what it is given apart shares none of it with its callee, nor its arguments among
+        // themselves: what it returns holds them only as the value holding the call says.
+        if self.keeps_apart(it) {
             return walk::walk_call_expression(self, it);
         }
         // A function the module declares passes each argument to the parameter that takes it when they are kept apart,
