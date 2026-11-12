@@ -132,8 +132,9 @@ impl Rule for StalePatchedDependencies {
         } else if let Some(first) = entries.first() {
             let loaded = lockfile::load(cx);
             match loaded.get(cx, &META, "the `patchedDependencies` entries", first.location.clone()) {
+                // A Bun workspace takes the branch above, so the lockfile read here is pnpm's.
                 Ok(lock) => {
-                    for entry in &entries {
+                    for (entry, lock) in entries.iter().filter_map(|entry| Some((entry, lock.pnpm()?))) {
                         if let Some(message) = unapplied(lock, &entry.key) {
                             out.emit(
                                 subject(diagnostic(&META, message, entry.location.clone()), &entry.key)
