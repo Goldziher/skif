@@ -1,5 +1,5 @@
-//! Members read through imported bindings (`ns.a`, `Enum.A`, `const { a } = ns`, `ns.Type`, and the member a test
-//! runner spies on, `vi.spyOn(ns, "a")`), and the members read one level further down (`ns.Enum.A`).
+//! Members read through imported bindings (`ns.a`, `Enum.A`, `const { a } = ns`, `ns.Type`, the tag `<ns.A />`, and
+//! the member a test runner spies on, `vi.spyOn(ns, "a")`), and the members read one level further down (`ns.Enum.A`).
 //!
 //! A reference counts for the binding semantic analysis resolves it to. The binding of an `import` declaration is
 //! matched by scope only: a parameter or local of an inner scope with the same name shadows it and reads nothing of
@@ -14,8 +14,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use oxc_ast::ast::{
     Argument, BindingPattern, CallExpression, ComputedMemberExpression, ExportSpecifier, Expression,
-    IdentifierReference, ImportDeclaration, StaticMemberExpression, TSQualifiedName, TSTemplateLiteralType, TSType,
-    TSTypeName, TSTypeQuery, VariableDeclarator,
+    IdentifierReference, ImportDeclaration, JSXMemberExpression, JSXMemberExpressionObject, StaticMemberExpression,
+    TSQualifiedName, TSTemplateLiteralType, TSType, TSTypeName, TSTypeQuery, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::{Scoping, SymbolId};
@@ -214,6 +214,20 @@ impl<'a> Visit<'a> for Tracker<'_> {
             }
         }
         walk::walk_computed_member_expression(self, it);
+    }
+
+    fn visit_jsx_member_expression(&mut self, it: &JSXMemberExpression<'a>) {
+        // A tag `<S.Button>` reads `Button` of `S`, like `S.Button`; `<S.Ctx.Provider>` reads `Provider` of `S.Ctx`.
+        match &it.object {
+            JSXMemberExpressionObject::IdentifierReference(id) => self.member(id, it.property.name.as_str()),
+            JSXMemberExpressionObject::MemberExpression(inner) => {
+                if let JSXMemberExpressionObject::IdentifierReference(id) = &inner.object {
+                    self.nested_member(id, inner.property.name.as_str(), it.property.name.as_str());
+                }
+            }
+            JSXMemberExpressionObject::ThisExpression(_) => {}
+        }
+        walk::walk_jsx_member_expression(self, it);
     }
 
     fn visit_ts_qualified_name(&mut self, it: &TSQualifiedName<'a>) {

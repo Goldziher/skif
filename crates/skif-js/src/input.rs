@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use skif_core::FileSystem;
+use skif_core::{FileSystem, Span};
 pub use skif_core::{IncompleteCause, IncompleteEntries, IncompleteScope};
 use skif_js_plugins::GlobCache;
 use skif_workspace::{Package, Workspace};
@@ -73,6 +73,8 @@ pub struct ConfigDependency {
     pub name: String,
     /// The file that names it, absolute.
     pub file: PathBuf,
+    /// Where in `file` it is named, when the plugin knows.
+    pub span: Option<Span>,
     /// The reference loads only the package's types (`compilerOptions.types`): its `DefinitelyTyped` package
     /// (`@types/…`) satisfies it as well.
     pub type_only: bool,

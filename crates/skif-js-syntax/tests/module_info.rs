@@ -584,6 +584,80 @@ fn export_clauses_are_no_in_file_references_but_other_mentions_are() {
     }
 }
 
+/// An import binding the file re-exports (`export { a }`, `export { b as c }`) is referenced in the file when the file
+/// reads it as a value elsewhere, as a local declaration is; the clause itself and a type position are no read.
+#[test]
+fn a_re_exported_import_binding_read_by_the_file_is_referenced_in_file() {
+    type Case<'a> = (&'a str, &'a str, &'a str, &'a [(&'a str, bool)]);
+    let cases: &[Case<'_>] = &[
+        (
+            "barrel read by its default object",
+            "barrel.js",
+            "import a from './a.js';\nimport bMod from './b.js';\nexport { a, bMod as b };\nexport default { a, b: bMod };\n",
+            &[("a", true), ("b", true), ("default", false)],
+        ),
+        (
+            "clause only",
+            "barrel.js",
+            "import a from './a.js';\nimport { x } from './x.js';\nexport { a, x as y };\n",
+            &[("a", false), ("y", false)],
+        ),
+        (
+            "namespace read through a member",
+            "barrel.js",
+            "import * as ns from './n.js';\nexport { ns };\nexport const f = () => ns.run();\n",
+            &[("ns", true), ("f", false)],
+        ),
+        (
+            "read only as a type",
+            "barrel.ts",
+            "import { T } from './t';\nexport { T };\nexport const v: T = 1;\nexport type K = typeof T;\n",
+            &[("T", false), ("v", false), ("K", false)],
+        ),
+        (
+            "re-export from another module",
+            "barrel.js",
+            "export { a } from './a.js';\nconst a = 1;\nconsole.log(a);\n",
+            &[("a", false)],
+        ),
+        (
+            "local declaration and an export initialised from it",
+            "c.js",
+            "const local = 1;\nexport { local };\nexport const viaLocal = local;\n",
+            &[("local", true), ("viaLocal", false)],
+        ),
+    ];
+    for (label, path, source, expected) in cases {
+        let info = parse(path, source);
+        let flags: Vec<(&str, bool)> = info
+            .exports
+            .iter()
+            .map(|e| (e.name.as_str(), e.referenced_in_file))
+            .collect();
+        assert_eq!(flags, *expected, "{label}");
+    }
+}
+
+/// The binding a `module.exports = { a }` property names is referenced in the file when the file reads it outside
+/// that object, which only exports it.
+#[test]
+fn a_commonjs_shorthand_export_read_by_the_file_is_referenced_in_file() {
+    let source = "const { helper } = require('./h');\nconst X = 1;\nconst Y = 2;\nfunction f() { return X + helper(); }\nmodule.exports = { X, Y, f, helper };\n";
+    let info = parse("m.js", source);
+    let flags: Vec<(&str, bool)> = info
+        .exports
+        .iter()
+        .map(|e| (e.name.as_str(), e.referenced_in_file))
+        .collect();
+    assert_eq!(flags, [("X", true), ("Y", false), ("f", false), ("helper", true)]);
+    let assigned = parse("n.js", "const Z = 1;\nconsole.log(Z);\nexports.Z = 2;\n");
+    assert!(
+        !assigned.exports[0].referenced_in_file,
+        "`exports.Z = …` names no binding: {:?}",
+        assigned.exports
+    );
+}
+
 #[test]
 fn in_file_references_can_be_disabled() {
     let options = ParseOptions {
@@ -722,6 +796,49 @@ fn member_accesses_through_imports() {
     let def = &info.imports[2].names[0];
     assert_eq!(def.accessed_members, [] as [std::string::String; 0]);
     assert!(def.escapes);
+}
+
+/// A JSX case: name, markup, members read on the namespace, and nested member reads.
+type JsxCase<'a> = (&'a str, &'a str, &'a [&'a str], &'a [(&'a str, &'a [&'a str])]);
+
+#[test]
+fn jsx_member_tags_read_the_first_member_of_a_namespace() {
+    let cases: [JsxCase; 5] = [
+        ("self-closing", "<S.Used />", &["Used"], &[]),
+        ("opening and closing", "<S.Used>text</S.Used>", &["Used"], &[]),
+        (
+            "nested",
+            "<S.Ctx.Provider value={1} />",
+            &["Ctx"],
+            &[("Ctx", &["Provider"])],
+        ),
+        (
+            "nested with closing tag",
+            "<S.Ctx.Provider>x</S.Ctx.Provider>",
+            &["Ctx"],
+            &[("Ctx", &["Provider"])],
+        ),
+        ("two tags", "<S.Used><S.Other /></S.Used>", &["Other", "Used"], &[]),
+    ];
+    for (case, jsx, members, nested_members) in cases {
+        let source = format!("import * as S from './styles';\nexport default () => {jsx};\n");
+        let info = parse("a.jsx", &source);
+        let s = &info.imports[0].names[0];
+        assert_eq!(s.accessed_members, members, "{case}");
+        assert!(!s.escapes, "{case}: a member tag does not use the namespace as a whole");
+        assert_eq!(s.nested_members, nested(nested_members), "{case}");
+    }
+}
+
+#[test]
+fn a_namespace_rendered_as_a_tag_or_passed_around_in_jsx_is_used_as_a_whole() {
+    for jsx in ["<S />", "<C value={S} />"] {
+        let source = format!("import * as S from './styles';\nexport default () => <S.A>{jsx}</S.A>;\n");
+        let info = parse("a.jsx", &source);
+        let s = &info.imports[0].names[0];
+        assert_eq!(s.accessed_members, ["A"], "{jsx}");
+        assert!(s.escapes, "{jsx}");
+    }
 }
 
 #[test]
@@ -1623,6 +1740,50 @@ fn is_attributes_and_resolve_component_calls_name_components() {
         parse("plain.ts", "export const a = 1;\n").template_tags,
         Vec::<String>::new()
     );
+}
+
+/// The instance `<script>` of a Svelte component declares props with `export let` (and instance accessors with
+/// `export const` and `export function`); only the module script (`context="module"` in Svelte 4, `module` in Svelte
+/// 5) declares exports of the module.
+#[test]
+fn svelte_instance_script_exports_are_props_and_module_script_exports_are_exports() {
+    let instance = "  export let label;\n  export const size = 1;\n  export function focus() {}\n";
+    for (case, module_tag) in [
+        ("svelte 4", "<script context=\"module\">"),
+        (
+            "svelte 4, single quotes and lang",
+            "<script lang=\"ts\" context='module'>",
+        ),
+        ("svelte 5", "<script module>"),
+        ("svelte 5 with lang", "<script module lang=\"ts\">"),
+    ] {
+        let source = format!(
+            "{module_tag}\n  export const preload = () => {{}};\n</script>\n<script>\n{instance}</script>\n<button>{{label}}</button>\n"
+        );
+        let info = parse("Button.svelte", &source);
+        let names: Vec<&str> = info.exports.iter().map(|export| export.name.as_str()).collect();
+        assert_eq!(names, ["preload"], "{case}");
+    }
+    for instance_tag in [
+        "<script>",
+        "<script lang=\"ts\">",
+        "<script data-module=\"x\" title=\"module\">",
+    ] {
+        let source = format!("{instance_tag}\n{instance}</script>\n<button>{{label}}</button>\n");
+        let info = parse("Button.svelte", &source);
+        assert!(info.exports.is_empty(), "{instance_tag}: {:?}", info.exports);
+    }
+}
+
+#[test]
+fn a_vue_script_without_setup_keeps_its_exports() {
+    let info = parse(
+        "A.vue",
+        "<script>\nexport const helper = 1;\nexport default {};\n</script>\n",
+    );
+    let mut names: Vec<&str> = info.exports.iter().map(|export| export.name.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["default", "helper"]);
 }
 
 #[test]

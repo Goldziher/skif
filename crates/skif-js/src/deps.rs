@@ -43,6 +43,7 @@ const ALWAYS_USED: &[&str] = &["typescript", "knip", "skif"];
 
 /// The packages that compile a file type skif extracts imports from without running a compiler (ADR 0001): a file
 /// of that type in the graph uses those of them its package lists, the way knip's built-in compilers mark them.
+/// `svelte` compiles every `.svelte` component, though no file need import it.
 const COMPILER_DEPENDENCIES: &[(&str, &[&str])] = &[
     ("marko", &["marko"]),
     (
@@ -72,6 +73,7 @@ const COMPILER_DEPENDENCIES: &[(&str, &[&str])] = &[
         ],
     ),
     ("stylus", &["stylus"]),
+    ("svelte", &["svelte"]),
 ];
 
 /// Packages whose `@types` twin does not need the package itself.
@@ -391,6 +393,8 @@ pub struct UnlistedConfigDependency {
     pub name: String,
     /// The config file, relative to the workspace root with `/` separators.
     pub file: PathBuf,
+    /// Where in `file` the first reference that gives its position names it; `None` when none does.
+    pub span: Option<Span>,
     /// The packages reading the config that could have listed the package in place of `package` and do not: those a
     /// compiler option of a shared base `tsconfig` applies to. Empty for any other reference, which only `package`
     /// can satisfy.
@@ -1100,14 +1104,16 @@ struct UnlistedConfigIndex {
 }
 
 impl UnlistedConfigIndex {
-    /// Records that config `file` of `package` names the unlisted `name`, read by `reader`: a new entry at the end of
-    /// `list` the first time, after which `reader` joins the readers of that entry once, in the order first seen.
+    /// Records that config `file` of `package` names the unlisted `name` at `span`, read by `reader`: a new entry at
+    /// the end of `list` the first time, after which `reader` joins the readers of that entry once, in the order first
+    /// seen, and the entry takes `span` when it has no position yet.
     fn record(
         &mut self,
         list: &mut Vec<UnlistedConfigDependency>,
         package: PackageId,
         name: &str,
         file: PathBuf,
+        span: Option<Span>,
         reader: Option<PackageId>,
     ) {
         let position = *self
@@ -1118,14 +1124,17 @@ impl UnlistedConfigIndex {
                     package: *package,
                     name: name.clone(),
                     file: file.clone(),
+                    span: None,
                     readers: Vec::new(),
                 });
                 list.len() - 1
             });
+        let entry = &mut list[position];
+        entry.span = entry.span.or(span);
         if let Some(reader) = reader
             && self.readers.insert((position, reader))
         {
-            list[position].readers.push(reader);
+            entry.readers.push(reader);
         }
     }
 }
@@ -1700,8 +1709,14 @@ impl DependencyUsage {
         if by_owner || by_reader {
             return;
         }
-        self.unlisted_config_index
-            .record(&mut self.unlisted_config, owner, name, PathBuf::from(file), reader);
+        self.unlisted_config_index.record(
+            &mut self.unlisted_config,
+            owner,
+            name,
+            PathBuf::from(file),
+            dependency.span,
+            reader,
+        );
     }
 
     fn collect_scripts(&mut self, workspace: &Workspace, setup: &Setup, fs: &dyn FileSystem) {
@@ -2128,7 +2143,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use skif_config::Config;
-    use skif_core::MemoryFs;
+    use skif_core::{MemoryFs, Span};
     use skif_workspace::{PackageId, Workspace};
 
     use super::{SharedInstalled, UnlistedConfigDependency, UnlistedConfigIndex, package_ancestors};
@@ -2208,31 +2223,33 @@ mod tests {
             PackageId::from_index(2),
             PackageId::from_index(3),
         );
+        let (first, second) = (Span::new(10, 15, 2, 3, 2, 8), Span::new(40, 45, 5, 1, 5, 6));
         let mut list = Vec::new();
         let mut index = UnlistedConfigIndex::default();
-        let mut record = |package, name, file: &str, reader| {
-            index.record(&mut list, package, name, PathBuf::from(file), reader);
+        let mut record = |package, name, file: &str, span, reader| {
+            index.record(&mut list, package, name, PathBuf::from(file), span, reader);
         };
-        record(a, "x", "tsconfig.base.json", Some(b));
-        record(a, "y", "tsconfig.base.json", None);
-        record(a, "x", "tsconfig.base.json", Some(c));
-        record(a, "x", "tsconfig.base.json", Some(b));
-        record(a, "x", "other.json", None);
-        record(b, "x", "tsconfig.base.json", None);
-        record(a, "x", "tsconfig.base.json", None);
-        let entry = |package, name: &str, file: &str, readers: Vec<PackageId>| UnlistedConfigDependency {
+        record(a, "x", "tsconfig.base.json", None, Some(b));
+        record(a, "y", "tsconfig.base.json", None, None);
+        record(a, "x", "tsconfig.base.json", Some(first), Some(c));
+        record(a, "x", "tsconfig.base.json", Some(second), Some(b));
+        record(a, "x", "other.json", None, None);
+        record(b, "x", "tsconfig.base.json", Some(second), None);
+        record(a, "x", "tsconfig.base.json", None, None);
+        let entry = |package, name: &str, file: &str, span, readers: Vec<PackageId>| UnlistedConfigDependency {
             package,
             name: name.to_owned(),
             file: PathBuf::from(file),
+            span,
             readers,
         };
         assert_eq!(
             list,
             [
-                entry(a, "x", "tsconfig.base.json", vec![b, c]),
-                entry(a, "y", "tsconfig.base.json", vec![]),
-                entry(a, "x", "other.json", vec![]),
-                entry(b, "x", "tsconfig.base.json", vec![]),
+                entry(a, "x", "tsconfig.base.json", Some(first), vec![b, c]),
+                entry(a, "y", "tsconfig.base.json", None, vec![]),
+                entry(a, "x", "other.json", None, vec![]),
+                entry(b, "x", "tsconfig.base.json", Some(second), vec![]),
             ]
         );
     }

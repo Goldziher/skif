@@ -146,7 +146,7 @@ impl JsRule for UnlistedDependencies {
                         "`{file}` references `{}`, which is not listed in `package.json`",
                         unlisted.name
                     ),
-                    Location::new(unlisted.file.clone(), None),
+                    Location::new(unlisted.file.clone(), unlisted.span),
                 )
                 .package(package.display_name())
                 .dependency(unlisted.name.clone())

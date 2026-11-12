@@ -578,8 +578,17 @@ impl<'a> JsAnalysis<'a> {
             )
         });
         let task_only_members = task_only_members(workspace, &candidates);
-        if !setup.js_ignored.is_empty() {
-            candidates.retain(|candidate| !setup.js_ignored.contains(&candidate.owner));
+        if !setup.ignore_workspaces.is_empty() {
+            let mut verdicts = HashMap::default();
+            candidates.retain(|candidate| {
+                let owner_dir = workspace
+                    .package(candidate.owner)
+                    .filter(|package| !package.is_root)
+                    .map(|package| package.dir.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_default();
+                !setup.js_ignored.contains(&candidate.owner)
+                    && !setup.in_ignored_directory(&candidate.rel, &owner_dir, &mut verdicts)
+            });
         }
         let links = take_file_links(fs.as_ref(), &workspace.root, &mut candidates);
         let found = timing::phase(phase("entries"), || {

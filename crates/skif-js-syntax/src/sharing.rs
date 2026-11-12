@@ -1,7 +1,9 @@
 //! The bindings of a config module whose value code the evaluator does not follow may change.
 //!
 //! The evaluator copies values: `const a = cfg; a.x = 1` changes its copy of `a`, not `cfg`, and a function it does not
-//! call, or calls for its value only, does not change what it captures. This pass finds, by symbol, the bindings such
+//! call, or calls for its value only, does not change what it captures. An import counts as a binding of the module
+//! here, as the evaluator reads it as its module computes it, but for an imported function or class called, whose
+//! result holds none of the module's locals. This pass finds, by symbol, the bindings such
 //! code may change: one a nested function assigns or changes, and one that may share an object with a binding that is
 //! changed (`const a = cfg`, `{ test: t }`, `{ ...base }`, `f(cfg)`). Reading one of them yields a value that says it
 //! may hold more than the evaluator saw.
@@ -28,10 +30,22 @@
 //! at any depth ([`given_parts`]); a spread of a local there (`{ ...options }`) leaves all of the local open, as a
 //! change of only what its keys hold is not one the pass can say ([`Effect`]). The pass knows the effect of a
 //! well-known function only where its name resolves to the module that declares it, and treats a `define…` helper of
-//! a library and a merge that copies ([`copies`]) and `Object.assign`, beyond its first argument, as changing nothing;
-//! the first two keep nothing they are given in another argument either. A loop name, a
-//! callback parameter and a name a destructuring assigns share with what they take, but for a callback over a `const`
-//! list of primitive values that no change reaches, and a write in a class body is one the evaluator does not follow.
+//! a package it does not follow (not one of the workspace) and a merge that copies ([`copies`]) and `Object.assign`,
+//! beyond its first argument, as changing nothing; the first two keep nothing they are given in another argument
+//! either. A loop name, a callback parameter and a name a destructuring assigns share with what they take, but for the element a callback
+//! or a loop over a `const` list or object of primitive values (or its `Object.entries`) takes when no change reaches
+//! it, and a write in a class body is one the evaluator does not follow.
+//!
+//! The bindings of the modules the evaluator follows are linked to each other, as two exports, of one module or of two,
+//! may be the same object or hold one another; one that is a part of another (`default` of a namespace import and the
+//! default import) is linked at that part. A call of a function of such a module that may change a value of a module
+//! ([`Imports::changes_modules`]), and an import of one for its effects only (`import './setup'`), may change every
+//! such binding in full, wherever it is read, as what a read before the call gives may be the object it changes. What a
+//! module imported for its bindings does when it is loaded is not followed.
+//!
+//! Code a value runs implicitly is not followed: a getter, a `toString` or `valueOf` a template literal or `String(x)`
+//! calls, a `toJSON` of `JSON.stringify`, a `then` of a value awaited. Neither is a change an imported function makes
+//! to what it was given by an earlier call (`register(config)`, later `apply()`).
 //!
 //! A `const` that takes a part of a local of its own function (`const { coverage } = config.test`) is the exception
 //! when the evaluator can follow it ([`Unstable::follows`]): it then applies the changes made through the alias to that
@@ -52,10 +66,11 @@ use oxc_ast::ast::{
     MemberExpression, NewExpression, ObjectExpression, ObjectPropertyKind, PrivateFieldExpression, Program,
     PropertyKind, ReturnStatement, SimpleAssignmentTarget, StaticMemberExpression, TaggedTemplateExpression,
     UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind, VariableDeclarator, WhileStatement,
+    WithStatement,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::{ReferenceId, ScopeFlags, ScopeId, Scoping, SemanticBuilder, SymbolId};
-use oxc_span::Span;
+use oxc_span::{GetSpan, Span};
 use skif_core::{HashMap, HashSet};
 
 use crate::config::defined;
@@ -63,6 +78,10 @@ use crate::finder::static_string;
 
 /// An alias a declaration declares, with the keys of the part of its local it takes.
 type AliasPart = (SymbolId, Vec<String>);
+
+/// A part of a local that an object which is not a name or a member chain may be (`list.find(…)`, `a ? b : c`): the
+/// local's name, the keys of the part and whether the object is that part itself ([`Unstable::parts_of`]).
+pub(crate) type ObjectPart = (String, Vec<String>, bool);
 /// The most keys a path below a binding keeps; a longer one is cut to this many, standing for all that is below it.
 const MAX_KEYS: usize = 8;
 
@@ -132,6 +151,17 @@ impl Write {
     }
 }
 
+/// What the evaluator knows of the modules a module imports, by specifier.
+pub(crate) trait Imports {
+    /// Whether the evaluator follows the module `specifier` names.
+    fn follows(&self, specifier: &str) -> bool;
+
+    /// Whether a function of the module `specifier` names, which the evaluator follows, may change a value of a
+    /// module when it is called: it changes a binding of its own module or calls such a function of another one
+    /// ([`Unstable::changes_modules`]).
+    fn changes_modules(&self, specifier: &str) -> bool;
+}
+
 /// The bindings of a module that code the evaluator does not follow may change.
 #[derive(Default)]
 pub(crate) struct Unstable {
@@ -145,9 +175,25 @@ pub(crate) struct Unstable {
     pure: HashSet<Span>,
     /// What the calls the pass knows do to the objects they are given, by span; any other may change them.
     effects: HashMap<Span, Effect>,
+    /// The parts of locals each object written through that is not a name or a member chain may be, by span.
+    objects: HashMap<Span, Vec<ObjectPart>>,
+    /// The calls of one of [`CALLBACK_METHODS`] that may call code the pass does not follow, by span.
+    calls_back: HashSet<Span>,
+    /// The calls of a local by name that holds a function the pass does not follow, by span.
+    called_values: HashSet<Span>,
+    /// The calls of a function no code of the project is behind ([`foreign`]), by span.
+    foreign_calls: HashSet<Span>,
+    /// The names of the module's namespace imports.
+    namespaces: HashSet<String>,
+    /// Whether code of a module the evaluator follows may run unseen ([`Sharing::runs_modules`]).
+    runs_modules: bool,
+    /// Whether a function of the module may change a value of the module when it is called
+    /// ([`Sharing::writes_modules`]).
+    writes_modules: bool,
     /// The references that are the only one of a binding no other module can read and that are read once per binding:
-    /// not in a loop, nor in a function other than the binding's own. None when the module reads `arguments` or calls
-    /// `eval`, which reach bindings without a reference.
+    /// not in a loop, nor in a function other than the binding's own, and not of an alias the evaluator follows. None
+    /// when the module reads `arguments`, calls `eval` or has a `with` statement, which reach bindings without a
+    /// reference.
     sole: HashSet<ReferenceId>,
 }
 
@@ -156,9 +202,9 @@ pub(crate) struct Unstable {
 enum Effect {
     /// It changes none of them: one of [`PURE_FUNCTIONS`], a method that changes at most the object it is called on
     /// ([`PURE_METHODS`], [`LIST_ADDERS`], [`OWN_RESULT_METHODS`]) called on an object that is known to have it
-    /// ([`builtin`]), a `define*` call of a function the module does not declare, which returns what it is given, a
-    /// merge that builds a new object ([`copies`]), or `Object.assign`, which changes only its first argument
-    /// ([`changed_by_call`]).
+    /// ([`builtin`]), a `define*` call of a global or of a package the evaluator does not follow ([`foreign`]), which
+    /// returns what it is given, a merge that builds a new object ([`copies`]), or `Object.assign` given its first
+    /// argument other than through a spread, which changes only that argument ([`assigns`]).
     Keeps,
     /// It calls a function the module declares, whose changes of what its parameters take reach the arguments through
     /// the links of the call ([`Callables`]).
@@ -166,14 +212,21 @@ enum Effect {
 }
 
 impl Unstable {
-    pub(crate) fn of(program: &Program<'_>) -> Self {
+    /// The bindings of `program` code the evaluator does not follow may change, where `imports` says what the
+    /// evaluator knows of the modules it imports.
+    pub(crate) fn of(program: &Program<'_>, imports: &dyn Imports) -> Self {
         let semantic = SemanticBuilder::new().build(program).semantic;
         let scoping = semantic.scoping();
         let mut sharing = Sharing {
             scoping,
-            known: known(program, scoping),
+            imports,
+            known: known(program, scoping, imports),
             pure: HashSet::default(),
             effects: HashMap::default(),
+            objects: HashMap::default(),
+            calls_back: HashSet::default(),
+            called_values: HashSet::default(),
+            foreign_calls: HashSet::default(),
             exported: HashSet::default(),
             dynamic: false,
             loops: 0,
@@ -186,24 +239,38 @@ impl Unstable {
             primitives: HashSet::default(),
             primitive_lists: HashSet::default(),
             element_links: Vec::new(),
-            in_const: false,
+            context: Context::default(),
             callables: callables(program, scoping),
             alias_parts: HashMap::default(),
             ends: HashMap::default(),
             late: Vec::new(),
+            runs_modules: false,
+            function_writes: Vec::new(),
         };
         sharing.visit_program(program);
-        let followed = sharing.share();
+        let (followed, writes_modules) = sharing.share();
         let sole = if sharing.dynamic {
             HashSet::default()
         } else {
-            sole_references(scoping, &sharing.exported, &sharing.repeated)
+            sole_references(scoping, &sharing.exported, &followed, &sharing.repeated)
         };
         let mut unstable = Self {
             followed,
             pure: std::mem::take(&mut sharing.pure),
             effects: std::mem::take(&mut sharing.effects),
+            objects: std::mem::take(&mut sharing.objects),
+            calls_back: std::mem::take(&mut sharing.calls_back),
+            called_values: std::mem::take(&mut sharing.called_values),
+            foreign_calls: std::mem::take(&mut sharing.foreign_calls),
+            namespaces: sharing
+                .known
+                .namespaces
+                .iter()
+                .map(|&symbol| scoping.symbol_name(symbol).to_owned())
+                .collect(),
             sole,
+            runs_modules: sharing.runs_modules,
+            writes_modules,
             ..Self::default()
         };
         for (symbol, change) in std::mem::take(&mut sharing.changes) {
@@ -245,7 +312,8 @@ impl Unstable {
     /// it to the part of the local it takes, which this pass then leaves unmarked there, marking only what else may
     /// share an object with that part. One is followed when it is the only alias of that local, only its own function
     /// changes it, no other binding it or the local may share an object with is changed, and the local is not changed
-    /// directly nor by another function.
+    /// directly nor by another function, nor ever assigned again, which may leave the alias an object the local no
+    /// longer holds.
     pub(crate) fn follows(&self, id: &BindingIdentifier<'_>) -> bool {
         id.symbol_id.get().is_some_and(|symbol| self.followed.contains(&symbol))
     }
@@ -263,6 +331,45 @@ impl Unstable {
             Some(Effect::Followed) => statement,
             None => true,
         }
+    }
+
+    /// The parts of locals the object `object` may be, when it is written through and is not a name or a member chain
+    /// (`config.module.rules.find(…).loader = …`, `(prod ? config.prod : config.dev).devtool = …`).
+    pub(crate) fn parts_of(&self, object: &Expression<'_>) -> &[ObjectPart] {
+        self.objects.get(&object.span()).map_or(&[], Vec::as_slice)
+    }
+
+    /// Whether `call` is a method of [`CALLBACK_METHODS`] that may call code the pass does not follow with what the
+    /// object it is called on holds ([`changed_by_call`]).
+    pub(crate) fn calls_back(&self, call: &CallExpression<'_>) -> bool {
+        self.calls_back.contains(&call.span)
+    }
+
+    /// Whether `call` calls a local by name that holds a function the pass does not follow (`addAlias` after
+    /// `const addAlias = aliaser(config)`), which may change what the local holds and was made from.
+    pub(crate) fn calls_value(&self, call: &CallExpression<'_>) -> bool {
+        self.called_values.contains(&call.span)
+    }
+
+    /// Whether `call` calls a function no code of the project is behind: one whose callee (`defineConfig`,
+    /// `vitest.defineProject`, `Object.assign`) starts from a global or from a binding of a package the evaluator does
+    /// not follow, so that what a `define…` helper or a merge of that name does is what such a library's does.
+    pub(crate) fn calls_foreign(&self, call: &CallExpression<'_>) -> bool {
+        self.foreign_calls.contains(&call.span)
+    }
+
+    /// Whether `object` is the binding of a namespace import, whose methods are taken to change nothing of it.
+    pub(crate) fn is_namespace(&self, object: &Expression<'_>) -> bool {
+        matches!(object.get_inner_expression(), Expression::Identifier(id) if self.namespaces.contains(id.name.as_str()))
+    }
+
+    /// Whether a function of the module may change a value of a module when it is called: code in a function writes
+    /// to, or gives a call that may change it, a top-level binding, an import, or an object one of them may hold
+    /// ([`Sharing::writes_modules`]), or the module calls a function of a module that may ([`Imports::changes_modules`]),
+    /// or imports one for its effects. A function that builds and returns new objects changes none, whatever it does
+    /// to them or to what its parameters take, which a call gives it.
+    pub(crate) fn changes_modules(&self) -> bool {
+        self.runs_modules || self.writes_modules
     }
 
     /// Whether a change made through the argument `id` of a call may be read after the call: `id` is not the only
@@ -283,16 +390,17 @@ fn sorted(mut change: Change) -> Change {
 }
 
 /// The references that are the only one of their binding, other than of a binding a module exports by declaring it
-/// (`export const config = …`), which another module may read, and other than those of `repeated`, which may be read
-/// more than once.
+/// (`export const config = …`), which another module may read, of an alias the evaluator follows, whose changes are
+/// read through the local it takes a part of, and other than those of `repeated`, which may be read more than once.
 fn sole_references(
     scoping: &Scoping,
     exported: &HashSet<SymbolId>,
+    followed: &HashSet<SymbolId>,
     repeated: &HashSet<ReferenceId>,
 ) -> HashSet<ReferenceId> {
     scoping
         .symbol_ids()
-        .filter(|symbol| !exported.contains(symbol))
+        .filter(|symbol| !exported.contains(symbol) && !followed.contains(symbol))
         .filter_map(|symbol| match scoping.get_resolved_reference_ids(symbol) {
             [only] if !repeated.contains(only) => Some(*only),
             _ => None,
@@ -340,6 +448,10 @@ struct Link {
     a: Place,
     b: Place,
     join: Join,
+    /// Whether code the module runs once, when it is loaded, makes the link, outside the definition of a function
+    /// (`export const config = create()`): it joins what that run made, which a later call of a function of the module
+    /// does not make again ([`Sharing::writes_modules`]).
+    loading: bool,
 }
 
 /// A part of a binding that a value may hold or share: `symbol` at `keys` (`cfg.test`), found at `at` in the value.
@@ -353,17 +465,38 @@ struct Held {
     join: Join,
 }
 
+/// Where the visitor of [`Sharing`] is.
+#[derive(Debug, Default, Clone, Copy)]
+struct Context {
+    /// Whether the declarations being visited are `const`.
+    in_const: bool,
+    /// Whether the links being made are those of the definition of a function: what it returns and what its
+    /// parameters take, which hold for every call of it.
+    defining: bool,
+}
+
 struct Sharing<'s> {
     scoping: &'s Scoping,
+    /// What the evaluator knows of the modules the module imports.
+    imports: &'s dyn Imports,
     /// What the module binds names to that the pass knows ([`known`]).
     known: Known,
     /// The calls of one of [`PURE_FUNCTIONS`] found, by span.
     pure: HashSet<Span>,
     /// The [`Effect`] of each call found whose effect the pass knows, by span.
     effects: HashMap<Span, Effect>,
+    /// The parts of locals each object written through that is not a name or a member chain may be ([`Self::parts`]).
+    objects: HashMap<Span, Vec<ObjectPart>>,
+    /// The calls found that may call code the pass does not follow with what a list holds ([`Self::calls_back`]).
+    calls_back: HashSet<Span>,
+    /// The calls found of a local by name that holds a function the pass does not follow ([`Unstable::calls_value`]).
+    called_values: HashSet<Span>,
+    /// The calls found of a function no code of the project is behind ([`Unstable::calls_foreign`]).
+    foreign_calls: HashSet<Span>,
     /// The bindings the module exports by declaring them.
     exported: HashSet<SymbolId>,
-    /// Whether the module reads `arguments` or calls `eval`.
+    /// Whether the module reads `arguments`, calls `eval` or has a `with` statement, which reach bindings without a
+    /// reference.
     dynamic: bool,
     /// How many loops the code being visited is in.
     loops: usize,
@@ -381,14 +514,14 @@ struct Sharing<'s> {
     aliases: Vec<(SymbolId, SymbolId)>,
     /// The `const` bindings that hold a primitive value ([`is_primitive`]), which shares no object.
     primitives: HashSet<SymbolId>,
-    /// The `const` bindings of a list of primitive values ([`is_primitive_list`]), whose elements are objects only
-    /// once code changes the list.
+    /// The `const` bindings of a list or an object of primitive values ([`is_primitive_list`],
+    /// [`is_primitive_record`]), whose elements and values are objects only once code changes it.
     primitive_lists: HashSet<SymbolId>,
-    /// The links of the parameters of each callback given to a method of one of [`Self::primitive_lists`] to that
-    /// list, made only when a change may reach the list ([`Self::link_elements`]).
+    /// The links of the first parameter of each callback given to a method of one of [`Self::primitive_lists`] to
+    /// that list, made only when a change may reach the list ([`Self::link_elements`]).
     element_links: Vec<Link>,
-    /// Whether the declarations being visited are `const`.
-    in_const: bool,
+    /// Where the visitor is: the kind of declaration and whether it is in a function definition.
+    context: Context,
     /// The functions the module declares ([`callables`]).
     callables: Callables,
     /// The part of the local each alias takes ([`alias_source`]), and where its declaration ends.
@@ -398,6 +531,11 @@ struct Sharing<'s> {
     /// The changes of a local made through an alias the evaluator follows that a read of it sees only after the
     /// declaration of the alias, which ends at the offset given ([`Self::read_before`]).
     late: Vec<(SymbolId, u32, Change)>,
+    /// Whether code of a module the evaluator follows may run unseen and change what such a module exports
+    /// ([`Self::runs_followed`]).
+    runs_modules: bool,
+    /// The changes code in a function makes of a binding, each with the scope of that function.
+    function_writes: Vec<(SymbolId, ScopeId, Change)>,
 }
 
 /// An alias the evaluator follows ([`Unstable::follows`]): the local it takes a part of, the keys of that part and where
@@ -422,8 +560,10 @@ impl AppliedAlias {
 }
 
 impl Sharing<'_> {
+    /// The binding a reference reads or writes, an import included: a change of what an import holds is read where the
+    /// import is ([`Unstable::of_top`]).
     fn symbol(&self, id: &IdentifierReference<'_>) -> Option<SymbolId> {
-        local_symbol(self.scoping, id)
+        resolved(self.scoping, id)
     }
 
     fn names(&self) -> Names<'_> {
@@ -458,20 +598,64 @@ impl Sharing<'_> {
         }
     }
 
-    /// Records the write of the member target of an assignment: a new value of its key in the object at its path, or
-    /// a change of what that object holds when the key is not static.
+    /// The parts of locals the object `expr` may be, each with whether it is that part exactly: the part a name or a
+    /// member chain is ([`Self::place`]), or each part what any other expression evaluates to may hold ([`Refs`]), as
+    /// the object a method returns (`list.find(…)`) or a condition chooses; those are recorded for the evaluator
+    /// ([`Unstable::parts_of`]).
+    fn parts(&mut self, expr: &Expression<'_>) -> Vec<(Place, bool)> {
+        if reach(expr).is_some() {
+            return self.place(expr).into_iter().collect();
+        }
+        let parts: Vec<(Place, bool)> = self
+            .refs(Part::Value, |refs| refs.visit_expression(expr))
+            .into_iter()
+            .map(|held| {
+                let exact = held.join == Join::Same && held.at.is_empty();
+                let place = Place {
+                    symbol: held.symbol,
+                    keys: held.keys,
+                };
+                (place, exact)
+            })
+            .collect();
+        let named = parts
+            .iter()
+            .map(|(place, exact)| {
+                let name = self.scoping.symbol_name(place.symbol).to_owned();
+                (name, place.keys.clone(), *exact)
+            })
+            .collect();
+        self.objects.insert(expr.span(), named);
+        parts
+    }
+
+    /// Records the write of the member target of an assignment: a new value of its key in each object it may be
+    /// written in ([`Self::parts`]), or a change of what that object holds when the key is not static or the object
+    /// is not exactly a part of a local.
     fn set(&mut self, member: &MemberExpression<'_>) {
-        let Some((place, exact)) = self.place(member.object()) else {
-            return;
-        };
-        let write = match member.static_property_name() {
-            Some(key) if exact => Write {
-                keys: place.keys,
-                key: Some(crate::js_string(key)),
-            },
-            _ => Write::contents(place.keys),
-        };
-        self.changed(place.symbol, write);
+        let key = member.static_property_name().map(crate::js_string);
+        for (place, exact) in self.parts(member.object()) {
+            let write = match &key {
+                Some(key) if exact => Write {
+                    keys: place.keys,
+                    key: Some(key.clone()),
+                },
+                _ => Write::contents(place.keys),
+            };
+            self.changed(place.symbol, write);
+        }
+    }
+
+    /// The parts of locals the member target of an assignment writes to and whether each is the target exactly: the
+    /// target of a member chain ([`Self::member_place`]), or somewhere at or below each part its object may be.
+    fn member_places(&mut self, member: &MemberExpression<'_>) -> Vec<(Place, bool)> {
+        if reach(member.object()).is_some() {
+            return self.member_place(member).into_iter().collect();
+        }
+        self.parts(member.object())
+            .into_iter()
+            .map(|(place, _)| (place, false))
+            .collect()
     }
 
     /// The function (or module) whose binding `symbol` is.
@@ -496,15 +680,50 @@ impl Sharing<'_> {
 
     /// Records a write of `symbol`; one from a function other than its own may happen at any time.
     fn written(&mut self, symbol: SymbolId, change: Change) {
-        if self.functions.last() != Some(&self.function_of(symbol)) {
+        let root = self.scoping.root_scope_id();
+        let function = self.functions.last().copied().unwrap_or(root);
+        if function != root {
+            self.function_writes.push((symbol, function, change.clone()));
+        }
+        if function != self.function_of(symbol) {
             self.change(symbol, change);
         }
     }
 
-    /// Records a change of the object `expr` (a name or a member chain) holds.
+    /// Whether a link made now is made by code the module runs when it is loaded ([`Link::loading`]).
+    fn loading(&self) -> bool {
+        !self.context.defining && self.functions.last() == Some(&self.scoping.root_scope_id())
+    }
+
+    /// Makes the links `visit` makes as those of the definition of a function when `defining` ([`Context::defining`]).
+    fn in_definition(&mut self, defining: bool, visit: impl FnOnce(&mut Self)) {
+        let saved = std::mem::replace(&mut self.context.defining, defining);
+        visit(self);
+        self.context.defining = saved;
+    }
+
+    /// Records a change of what the object `expr` holds, in each part of a local it may be ([`Self::parts`]).
     fn mutate(&mut self, expr: &Expression<'_>) {
-        if let Some((place, _)) = self.place(expr) {
+        for (place, _) in self.parts(expr) {
             self.changed(place.symbol, Write::contents(place.keys));
+        }
+    }
+
+    /// Records the change `call` makes of the object `target` it is given or called on ([`changed_by_call`]): a new
+    /// value of the key it defines on a part of a local ([`property_defined`]), or a change of what that object holds.
+    fn change_target(&mut self, call: &CallExpression<'_>, target: &Expression<'_>) {
+        if is_namespace(self.names(), target) {
+            return;
+        }
+        match (property_defined(call), self.place(target)) {
+            (Some(key), Some((place, true))) => self.changed(
+                place.symbol,
+                Write {
+                    keys: place.keys,
+                    key: Some(key),
+                },
+            ),
+            _ => self.mutate(target),
         }
     }
 
@@ -528,9 +747,12 @@ impl Sharing<'_> {
     }
 
     /// Links the parameters of each function given inline to a call (`list.forEach((item) => …)`) to what the object
-    /// the call is made on and its arguments hold, which the function may be called with.
+    /// the call is made on and its arguments hold, which the function may be called with. Over one of
+    /// [`Self::primitive_lists`], the first parameter takes an element, linked only once a change may reach the list,
+    /// and those after it and a rest parameter (the index, and the list itself for `forEach`, `map` or `reduce`) may
+    /// take the list.
     fn callbacks(&mut self, callee: &Expression<'_>, arguments: &[Argument<'_>]) {
-        let parameters: Vec<SymbolId> = arguments
+        let functions: Vec<Parameters> = arguments
             .iter()
             .filter_map(Argument::as_expression)
             .filter_map(|argument| match argument.get_inner_expression() {
@@ -538,35 +760,73 @@ impl Sharing<'_> {
                 Expression::FunctionExpression(f) => Some(Parameters::of(&f.params)),
                 _ => None,
             })
-            .flat_map(|parameters| parameters.names().map(|(name, _)| name).collect::<Vec<_>>())
             .collect();
-        if parameters.is_empty() {
+        if functions.iter().all(|parameters| parameters.names().next().is_none()) {
             return;
         }
         let receiver = callee.as_member_expression().map(MemberExpression::object);
         // The elements of a list of primitive values share no object unless code changes the list.
-        let list = receiver
-            .and_then(|receiver| match receiver.get_inner_expression() {
-                Expression::Identifier(id) => self.symbol(id),
-                _ => None,
-            })
-            .filter(|list| self.primitive_lists.contains(list));
-        let mut held = match (receiver, list) {
-            (Some(receiver), None) => self.refs(Part::Value, |refs| refs.visit_expression(receiver)),
-            _ => Vec::new(),
+        let list = receiver.and_then(|receiver| self.primitive_source(receiver));
+        let of_receiver = receiver.map_or_else(Vec::new, |receiver| self.receiver_refs(receiver));
+        let mut held = if list.is_some() {
+            Vec::new()
+        } else {
+            of_receiver.clone()
         };
         for argument in arguments {
             held.extend(self.refs(Part::Value, |refs| refs.visit_argument(argument)));
         }
-        for parameter in parameters {
-            if let Some(list) = list {
-                self.element_links.push(Link {
-                    a: Place::of(parameter),
-                    b: Place::of(list),
-                    join: Join::Within,
-                });
+        for parameters in functions {
+            let positions = parameters
+                .items
+                .iter()
+                .enumerate()
+                .flat_map(|(position, (names, _))| names.iter().map(move |&name| (name, position == 0)))
+                .chain(parameters.rest.iter().map(|&name| (name, false)));
+            let names: Vec<(SymbolId, bool)> = positions.collect();
+            for (name, first) in names {
+                if let Some(list) = list {
+                    if first {
+                        let loading = self.loading();
+                        self.element_links.push(Link {
+                            a: Place::of(name),
+                            b: Place::of(list),
+                            join: Join::Within,
+                            loading,
+                        });
+                    } else {
+                        self.hold(&Place::of(name), false, of_receiver.clone());
+                    }
+                }
+                self.hold(&Place::of(name), false, held.clone());
             }
-            self.hold(&Place::of(parameter), false, held.clone());
+        }
+    }
+
+    /// The parts of locals the object a method is called on may hold, which the method may keep what it is given in or
+    /// return: none for the binding of a package the module only calls methods on ([`Known::inert`]: `_.merge(…)`,
+    /// `vitest.defineConfig(…)`), whose methods are taken to keep nothing of what they are given in the package, so
+    /// that calls of them share nothing through it.
+    fn receiver_refs(&self, receiver: &Expression<'_>) -> Vec<Held> {
+        if is_inert_package(self.scoping, &self.known, receiver) {
+            return Vec::new();
+        }
+        self.refs(Part::Value, |refs| refs.visit_expression(receiver))
+    }
+
+    /// The one of [`Self::primitive_lists`] whose elements or values the elements of `expr` are: the list or object
+    /// itself, or what `Object.entries`, `Object.values` or `Object.keys` makes of it, whose elements are its keys and
+    /// values or pairs of them.
+    fn primitive_source(&self, expr: &Expression<'_>) -> Option<SymbolId> {
+        let source = match expr.get_inner_expression() {
+            Expression::CallExpression(call) if lists_entries(self.names(), call) => {
+                call.arguments.first()?.as_expression()?
+            }
+            other => other,
+        };
+        match source.get_inner_expression() {
+            Expression::Identifier(id) => self.symbol(id).filter(|symbol| self.primitive_lists.contains(symbol)),
+            _ => None,
         }
     }
 
@@ -664,23 +924,73 @@ impl Sharing<'_> {
         let keeps = pure_function(names, call).is_some()
             || self.keeps_apart(call)
             || assigns(names, call)
-            || matches!(
-                call.callee.get_inner_expression(),
-                Expression::StaticMemberExpression(m)
-                    if (PURE_METHODS.contains(&m.property.name.as_str())
-                        || LIST_ADDERS.contains(&m.property.name.as_str())
-                        || OWN_RESULT_METHODS.contains(&m.property.name.as_str()))
-                        && builtin(names, &m.object)
-            );
+            || (!self.calls_back_unknown(call)
+                && matches!(
+                    call.callee.get_inner_expression(),
+                    Expression::StaticMemberExpression(m)
+                        if (PURE_METHODS.contains(&m.property.name.as_str())
+                            || LIST_ADDERS.contains(&m.property.name.as_str())
+                            || OWN_RESULT_METHODS.contains(&m.property.name.as_str()))
+                            && builtin(names, &m.object)
+                ));
         keeps.then_some(Effect::Keeps)
     }
 
+    /// Whether `call` is a method of [`CALLBACK_METHODS`] that may call code the pass does not follow with what the
+    /// object it is called on holds, or with an object it is given as `this`: its callback is neither a function
+    /// written in place nor one the module declares, whose changes of its parameters are followed, or an argument
+    /// after the callback is the callback's `this`.
+    fn calls_back_unknown(&self, call: &CallExpression<'_>) -> bool {
+        let Expression::StaticMemberExpression(m) = call.callee.get_inner_expression() else {
+            return false;
+        };
+        let method = m.property.name.as_str();
+        if !CALLBACK_METHODS.contains(&method) {
+            return false;
+        }
+        let followed = call.arguments.first().is_none_or(|argument| {
+            is_inline_function(argument)
+                || matches!(
+                    argument,
+                    Argument::Identifier(id)
+                        if local_symbol(self.scoping, id).is_some_and(|symbol| self.callables.contains(symbol))
+                )
+        });
+        let with_this = !matches!(method, "reduce" | "reduceRight" | "toSorted") && call.arguments.len() > 1;
+        !followed || with_this
+    }
+
     /// Whether `call` changes none of the objects it is given and keeps none of them in another or in what it is called
-    /// on: a `define…` helper of a library, which returns what it is given, or a merge that builds a new object
-    /// ([`copies`]).
+    /// on: a `define…` helper of a package the evaluator does not follow ([`foreign`]), which returns what it is given,
+    /// or a merge that builds a new object ([`copies`]).
     fn keeps_apart(&self, call: &CallExpression<'_>) -> bool {
         let names = self.names();
         (defined(call).is_some() && foreign(names, &call.callee)) || copies(names, call)
+    }
+
+    /// Whether `expr` is a name or a member chain that starts from a binding of a module the evaluator follows whose
+    /// functions may change a value of a module ([`Imports::changes_modules`]): `tweak`, `shared.tweak`,
+    /// `base.plugins`.
+    fn of_changing_module(&self, expr: &Expression<'_>) -> bool {
+        reach(expr)
+            .and_then(|(id, _, _)| self.symbol(id))
+            .filter(|symbol| self.known.followed.contains(symbol))
+            .and_then(|symbol| self.known.modules.get(&symbol))
+            .is_some_and(|(module, _)| self.imports.changes_modules(module))
+    }
+
+    /// Whether `call` may run code of a module the evaluator follows that changes a value of a module: it calls a
+    /// function of one (`tweak()`, `shared.tweak()`, a method of an imported value), or its effect is not known and
+    /// it is given a binding of one, which may be a function it calls.
+    fn runs_followed(&self, call: &CallExpression<'_>) -> bool {
+        let given_function = || {
+            self.effect(call).is_none()
+                && call.arguments.iter().filter_map(given).any(|argument| {
+                    matches!(argument.get_inner_expression(), Expression::Identifier(_))
+                        && self.of_changing_module(argument)
+                })
+        };
+        self.of_changing_module(&call.callee) || given_function()
     }
 
     /// Records the change `write` of the object `symbol` holds.
@@ -692,6 +1002,7 @@ impl Sharing<'_> {
     /// Links `hub` to each part a value it holds may hold: at the place in the value it is found, as it is found
     /// there, when `exact`, and anywhere at or below the hub otherwise.
     fn hold(&mut self, hub: &Place, exact: bool, held: Vec<Held>) {
+        let loading = self.loading();
         for item in held {
             let mut keys = hub.keys.clone();
             if exact {
@@ -707,12 +1018,14 @@ impl Sharing<'_> {
                     keys: item.keys,
                 },
                 join: if exact { item.join } else { Join::Within },
+                loading,
             });
         }
     }
 
     /// Links the parts that values with no binding to hold them may share among themselves (`f(a, b)`).
     fn link_among(&mut self, held: &[Held]) {
+        let loading = self.loading();
         for pair in held.windows(2) {
             self.links.push(Link {
                 a: Place {
@@ -724,6 +1037,7 @@ impl Sharing<'_> {
                     keys: pair[1].keys.clone(),
                 },
                 join: Join::Within,
+                loading,
             });
         }
     }
@@ -785,7 +1099,7 @@ impl Sharing<'_> {
     /// and the local they take a part of: `None` unless the local is one of the function being visited
     /// ([`alias_source`], [`alias_names`]).
     fn alias(&self, pattern: &BindingPattern<'_>, init: &Expression<'_>) -> Option<(Vec<AliasPart>, SymbolId)> {
-        if !self.in_const {
+        if !self.context.in_const {
             return None;
         }
         let (source, keys) = alias_source(init)?;
@@ -824,6 +1138,7 @@ impl Sharing<'_> {
     fn follows(&self, index: usize, parent: &mut HashMap<SymbolId, SymbolId>) -> bool {
         let (alias, root) = self.aliases[index];
         self.aliases.iter().filter(|(_, other)| *other == root).count() == 1
+            && !self.scoping.symbol_is_mutated(root)
             && !self.changes.contains_key(&alias)
             && !self.changes.contains_key(&root)
             && !self.mutated.iter().any(|(symbol, _)| *symbol == root)
@@ -865,6 +1180,7 @@ impl Sharing<'_> {
                     a: Place::of(alias),
                     b: Place::of(root),
                     join: Join::Within,
+                    loading: false,
                 });
             }
         }
@@ -879,7 +1195,7 @@ impl Sharing<'_> {
     /// Links the parameters of the callbacks given to a method of one of [`Self::primitive_lists`] to that list when a
     /// change may reach it, until no more is linked: its elements may then be objects that a change of a parameter
     /// changes. Each alias counts as linked to the local it takes a part of, as which the evaluator follows is not
-    /// known yet. In a module that calls `eval` or reads `arguments`, every such link is made.
+    /// known yet. In a module that calls `eval`, reads `arguments` or has a `with` statement, every such link is made.
     fn link_elements(&mut self) {
         let mut pending = std::mem::take(&mut self.element_links);
         if self.dynamic {
@@ -891,6 +1207,7 @@ impl Sharing<'_> {
                 a: Place::of(alias),
                 b: Place::of(root),
                 join: Join::Within,
+                loading: false,
             }));
             let links_of = self.links_of();
             let reached: HashSet<SymbolId> = self
@@ -917,12 +1234,19 @@ impl Sharing<'_> {
             .retain(|link| !primitives.contains(&link.a.symbol) && !primitives.contains(&link.b.symbol));
         self.mutated.retain(|(symbol, _)| !primitives.contains(symbol));
         self.changes.retain(|symbol, _| !primitives.contains(symbol));
+        self.function_writes
+            .retain(|(symbol, _, _)| !primitives.contains(symbol));
     }
 
     /// The indices of the links of each binding.
     fn links_of(&self) -> HashMap<SymbolId, Vec<usize>> {
+        self.links_of_where(|_| true)
+    }
+
+    /// The indices of the links `keep` keeps of each binding.
+    fn links_of_where(&self, keep: impl Fn(&Link) -> bool) -> HashMap<SymbolId, Vec<usize>> {
         let mut out: HashMap<SymbolId, Vec<usize>> = HashMap::default();
-        for (index, link) in self.links.iter().enumerate() {
+        for (index, link) in self.links.iter().enumerate().filter(|(_, link)| keep(link)) {
             out.entry(link.a.symbol).or_default().push(index);
             if link.b.symbol != link.a.symbol {
                 out.entry(link.b.symbol).or_default().push(index);
@@ -988,8 +1312,10 @@ impl Sharing<'_> {
     /// the change is made through, which the evaluator changes itself, and returns the aliases the evaluator follows.
     /// A change through one of those reaches the part of the local it takes, which the evaluator changes too and which
     /// is not marked, and through it what else may share an object with that part; a local of the alias's function is
-    /// marked from the alias's declaration on ([`Self::late`]).
-    fn share(&mut self) -> HashSet<SymbolId> {
+    /// marked from the alias's declaration on ([`Self::late`]). Returns with them whether a function of the module may
+    /// change a value of the module ([`Self::writes_modules`]).
+    fn share(&mut self) -> (HashSet<SymbolId>, bool) {
+        self.link_imports();
         self.drop_primitives();
         self.link_elements();
         let followed = self.link_aliases();
@@ -1002,6 +1328,7 @@ impl Sharing<'_> {
                     keys: alias.keys.clone(),
                 },
                 join: Join::Same,
+                loading: false,
             });
         }
         let mut origins: Vec<(SymbolId, Write)> = Vec::new();
@@ -1029,7 +1356,158 @@ impl Sharing<'_> {
                 }
             }
         }
-        followed
+        let writes_modules = self.writes_modules(&links_of);
+        if self.runs_modules {
+            self.affect_imports(&links_of);
+        }
+        (followed, writes_modules)
+    }
+
+    /// Whether code in a function of the module, run by a call of it, may change a value of the module: a top-level
+    /// binding or an import, or an object one of them may hold. A change counts when it is made in a function
+    /// ([`Self::function_writes`]) and is one of such a binding, or reaches one through the links (see
+    /// [`Self::reached`]). A change of a binding of the function it is made in (a local, a parameter) or of what a
+    /// function of the module returns is one of an object made or given anew by each call, so it is followed only
+    /// through the links that hold for every call ([`Self::fresh_reach_modules`]), not those code run when the module
+    /// is loaded made of what one call made (`export const config = create()`): a factory that builds and returns new
+    /// objects changes none, and a change of what a parameter takes is one of what a call gives it, which the call
+    /// accounts for. A change of a binding of an enclosing function, which a function made by an earlier call may make
+    /// later, is followed through every link ([`Self::closure_reaches_modules`]). In a module that calls `eval`, reads
+    /// `arguments` or has a `with` statement, any change in a function counts.
+    fn writes_modules(&self, links_of: &HashMap<SymbolId, Vec<usize>>) -> bool {
+        if self.function_writes.is_empty() {
+            return false;
+        }
+        if self.dynamic {
+            return true;
+        }
+        let fresh_links_of = self.links_of_where(|link| !link.loading);
+        let root = self.scoping.root_scope_id();
+        self.function_writes.iter().any(|(symbol, function, change)| {
+            let home = self.function_of(*symbol);
+            let fresh = home == *function || (home == root && self.callables.contains(*symbol));
+            match change {
+                Change::Any => home != *function,
+                Change::Contents(writes) => writes.iter().any(|write| {
+                    if fresh {
+                        self.fresh_reach_modules(links_of, &fresh_links_of, *symbol, *function, write)
+                    } else {
+                        self.closure_reaches_modules(links_of, *symbol, write)
+                    }
+                }),
+            }
+        })
+    }
+
+    /// Whether the change `write` of `symbol`, an object a call of the function of the scope `function` makes or is
+    /// given anew, reaches through the links that hold for every call (`fresh_links_of`) a value of the module
+    /// ([`Self::is_module_value`]), or a binding of a function enclosing that one whose change does
+    /// ([`Self::closure_reaches_modules`], through every link, `links_of`).
+    fn fresh_reach_modules(
+        &self,
+        links_of: &HashMap<SymbolId, Vec<usize>>,
+        fresh_links_of: &HashMap<SymbolId, Vec<usize>>,
+        symbol: SymbolId,
+        function: ScopeId,
+        write: &Write,
+    ) -> bool {
+        self.reached(fresh_links_of, symbol, write)
+            .iter()
+            .any(|(other, change)| {
+                self.is_module_value(*other)
+                    || (self.encloses(*other, function) && self.closure_reaches_modules(links_of, *other, change))
+            })
+    }
+
+    /// Whether the change `write` of `symbol` reaches through every link (`links_of`) a value of the module
+    /// ([`Self::is_module_value`]).
+    fn closure_reaches_modules(
+        &self,
+        links_of: &HashMap<SymbolId, Vec<usize>>,
+        symbol: SymbolId,
+        write: &Write,
+    ) -> bool {
+        self.reached(links_of, symbol, write)
+            .iter()
+            .any(|(other, _)| self.is_module_value(*other))
+    }
+
+    /// Whether `symbol` is a value of the module a change may reach from a call: a top-level binding or an import, but
+    /// a function the module declares, which stands for what a call of it returns and what its parameters take.
+    fn is_module_value(&self, symbol: SymbolId) -> bool {
+        self.function_of(symbol) == self.scoping.root_scope_id() && !self.callables.contains(symbol)
+    }
+
+    /// Whether `symbol` is a binding of a function that encloses the function of the scope `function`.
+    fn encloses(&self, symbol: SymbolId, function: ScopeId) -> bool {
+        let home = self.function_of(symbol);
+        home != function
+            && home != self.scoping.root_scope_id()
+            && self.scoping.scope_ancestors(function).any(|scope| scope == home)
+    }
+
+    /// Links every binding of a module the evaluator follows to the others, as two exports, of one module or of two,
+    /// may be the same object or hold one another: one that is a part of another (the default import and `default` of
+    /// a namespace import of the same module, two imports of one export) at that part, any other anywhere at or below
+    /// it.
+    fn link_imports(&mut self) {
+        let mut imports: Vec<SymbolId> = self.known.followed.iter().copied().collect();
+        imports.sort_unstable();
+        for pair in imports.windows(2) {
+            self.links.push(Link {
+                a: Place::of(pair[0]),
+                b: Place::of(pair[1]),
+                join: Join::Within,
+                loading: false,
+            });
+        }
+        for (index, &a) in imports.iter().enumerate() {
+            for &b in &imports[index + 1..] {
+                if let Some((a, b)) = self.export_part(a, b).or_else(|| self.export_part(b, a)) {
+                    self.links.push(Link {
+                        a,
+                        b,
+                        join: Join::Same,
+                        loading: false,
+                    });
+                }
+            }
+        }
+    }
+
+    /// The place in the import `whole` that the import `part` of the same module is, with `part` itself, when the
+    /// export `part` takes is `whole`'s or below it (`default` of a namespace import is the default import).
+    fn export_part(&self, whole: SymbolId, part: SymbolId) -> Option<(Place, Place)> {
+        let (whole_module, _) = self.known.modules.get(&whole)?;
+        let (part_module, _) = self.known.modules.get(&part)?;
+        let whole_path = self.known.import_paths.get(&whole)?;
+        let below = self
+            .known
+            .import_paths
+            .get(&part)?
+            .strip_prefix(whole_path.as_slice())?;
+        (whole_module == part_module).then(|| {
+            (
+                Place {
+                    symbol: whole,
+                    keys: below.to_vec(),
+                },
+                Place::of(part),
+            )
+        })
+    }
+
+    /// Marks every binding of a module the evaluator follows, and what may share an object with one, as changed in
+    /// full, as code of such a module may run unseen. Where it runs is not taken to bound what it changes: what a read
+    /// before it gives the config may be the object it changes.
+    fn affect_imports(&mut self, links_of: &HashMap<SymbolId, Vec<usize>>) {
+        let mut imports: Vec<SymbolId> = self.known.followed.iter().copied().collect();
+        imports.sort_unstable();
+        for import in imports {
+            for (other, write) in self.reached(links_of, import, &Write::default()) {
+                self.change(other, Change::Contents(vec![write]));
+            }
+        }
     }
 
     /// The aliases of `followed`, in the order they are declared.
@@ -1082,7 +1560,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
         if let Some(symbol) = it.id.as_ref().and_then(|id| id.symbol_id.get()) {
             let part = self.function_part(Some(symbol));
             let held = self.refs(part, |refs| refs.visit_function(it, flags));
-            self.hold(&Place::of(symbol), true, held);
+            self.in_definition(true, |sharing| sharing.hold(&Place::of(symbol), true, held));
         }
         self.functions
             .push(it.scope_id.get().unwrap_or_else(|| self.scoping.root_scope_id()));
@@ -1109,9 +1587,9 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
-        let saved = std::mem::replace(&mut self.in_const, it.kind == VariableDeclarationKind::Const);
+        let saved = std::mem::replace(&mut self.context.in_const, it.kind == VariableDeclarationKind::Const);
         walk::walk_variable_declaration(self, it);
-        self.in_const = saved;
+        self.context.in_const = saved;
     }
 
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
@@ -1141,18 +1619,23 @@ impl<'a> Visit<'a> for Sharing<'_> {
                 .iter()
                 .filter_map(|id| id.symbol_id.get())
                 .collect();
-            if whole && self.in_const && is_primitive(self.names(), init) {
+            if whole && self.context.in_const && is_primitive(self.names(), init) {
                 self.primitives.extend(names.iter().copied());
             }
-            if whole && self.in_const && is_primitive_list(self.names(), init) {
+            if whole
+                && self.context.in_const
+                && (is_primitive_list(self.names(), init) || is_primitive_record(self.names(), init))
+            {
                 self.primitive_lists.extend(names.iter().copied());
             }
-            if names.is_empty() {
-                self.link_among(&held);
-            }
-            for name in names {
-                self.hold(&Place::of(name), whole, held.clone());
-            }
+            self.in_definition(function, |sharing| {
+                if names.is_empty() {
+                    sharing.link_among(&held);
+                }
+                for name in names {
+                    sharing.hold(&Place::of(name), whole, held.clone());
+                }
+            });
         }
         walk::walk_variable_declarator(self, it);
     }
@@ -1173,17 +1656,23 @@ impl<'a> Visit<'a> for Sharing<'_> {
         // no change through that place is followed, so its parts share nothing among themselves there.
         match it.left.as_simple_assignment_target() {
             Some(target) => {
-                let hub = match target {
-                    SimpleAssignmentTarget::AssignmentTargetIdentifier(id) => {
-                        self.symbol(id).map(|symbol| (Place::of(symbol), true))
-                    }
+                let hubs: Vec<(Place, bool)> = match target {
+                    SimpleAssignmentTarget::AssignmentTargetIdentifier(id) => self
+                        .symbol(id)
+                        .map(|symbol| (Place::of(symbol), true))
+                        .into_iter()
+                        .collect(),
                     other => other
                         .as_member_expression()
-                        .and_then(|member| self.member_place(member)),
+                        .map(|member| self.member_places(member))
+                        .unwrap_or_default(),
                 };
-                if let Some((place, exact)) = hub {
-                    self.hold(&place, exact, held);
-                }
+                let function = matches!(part, Part::Function { .. });
+                self.in_definition(function, |sharing| {
+                    for (place, exact) in hubs {
+                        sharing.hold(&place, exact, held.clone());
+                    }
+                });
             }
             None => self.destructure(&it.left, held),
         }
@@ -1191,13 +1680,26 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
-        // The loop's names take the elements of what it iterates, somewhere at or below it.
+        // The loop's names take the elements of what it iterates, somewhere at or below it; over a list or object of
+        // primitive values, only once a change may reach it ([`Self::link_elements`]).
         let held = self.refs(Part::Value, |refs| refs.visit_expression(&it.right));
+        let source = self.primitive_source(&it.right);
         match &it.left {
             ForStatementLeft::VariableDeclaration(declaration) => {
                 for declarator in &declaration.declarations {
                     for name in bound_symbols(&declarator.id) {
-                        self.hold(&Place::of(name), false, held.clone());
+                        match source {
+                            Some(list) => {
+                                let loading = self.loading();
+                                self.element_links.push(Link {
+                                    a: Place::of(name),
+                                    b: Place::of(list),
+                                    join: Join::Within,
+                                    loading,
+                                });
+                            }
+                            None => self.hold(&Place::of(name), false, held.clone()),
+                        }
                     }
                 }
             }
@@ -1255,6 +1757,14 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        if foreign(self.names(), &it.callee) {
+            self.foreign_calls.insert(it.span);
+        }
+        self.runs_modules |= self.runs_followed(it);
+        let calls_back = self.calls_back_unknown(it);
+        if calls_back {
+            self.calls_back.insert(it.span);
+        }
         // A call whose effect the pass does not know may change what it is given, wherever it is made.
         match self.effect(it) {
             Some(effect) => {
@@ -1282,20 +1792,28 @@ impl<'a> Visit<'a> for Sharing<'_> {
         // is given anywhere.
         let hub = match it.callee.get_inner_expression() {
             Expression::Identifier(id) => {
-                let symbol = self.symbol(id);
+                let symbol = local_symbol(self.scoping, id);
                 if let Some(parameters) = symbol.and_then(|symbol| self.callables.apart.get(&symbol)).cloned() {
                     self.pass(&parameters, it);
                     return walk::walk_call_expression(self, it);
                 }
                 let exact = calls_callable(self.scoping, &self.callables, it);
+                // A function value the pass does not follow (one a call made, `aliaser(config)`) may change what it
+                // holds or captures, which it shares with what it was made from. One a module exports is taken to
+                // change none of the module's locals.
+                if !exact && let Some(symbol) = symbol.filter(|symbol| !self.known.modules.contains_key(symbol)) {
+                    self.called_values.insert(it.span);
+                    self.changed(symbol, Write::default());
+                }
                 symbol.map(|symbol| (Place::of(symbol), exact))
             }
             callee => {
-                if let Some(target) = changed_by_call(it, false) {
-                    self.mutate(target);
+                if let Some(target) = changed_by_call(it, false, calls_back) {
+                    self.change_target(it, target);
                 }
                 callee
                     .as_member_expression()
+                    .filter(|member| !is_inert_package(self.scoping, &self.known, member.object()))
                     .and_then(|member| self.place(member.object()))
                     .map(|(place, _)| (place, false))
             }
@@ -1313,13 +1831,14 @@ impl<'a> Visit<'a> for Sharing<'_> {
         if hub.is_none()
             && let Some(receiver) = receiver
         {
-            held.extend(self.refs(Part::Value, |refs| refs.visit_expression(receiver)));
+            held.extend(self.receiver_refs(receiver));
         }
         self.hold_or_link(hub, held);
         walk::walk_call_expression(self, it);
     }
 
     fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
+        self.runs_modules |= self.of_changing_module(&it.callee);
         // A class the pass does not know may change what it is given, and keep it in another argument.
         if constructs_builtin(self.scoping, it) {
             self.effects.insert(it.span, Effect::Keeps);
@@ -1342,7 +1861,35 @@ impl<'a> Visit<'a> for Sharing<'_> {
         {
             self.mutate_arguments(&call.arguments);
         }
+        // A module the evaluator follows required for its effects (`require('./setup')`) runs its code there.
+        if let Some(call) = statement_call(&it.expression)
+            && let Expression::Identifier(callee) = call.callee.get_inner_expression()
+            && callee.name.as_str() == "require"
+            && resolved(self.scoping, callee).is_none()
+            && call
+                .arguments
+                .first()
+                .and_then(Argument::as_expression)
+                .and_then(static_string)
+                .is_some_and(|specifier| self.imports.follows(&specifier))
+        {
+            self.runs_modules = true;
+        }
         walk::walk_expression_statement(self, it);
+    }
+
+    fn visit_tagged_template_expression(&mut self, it: &TaggedTemplateExpression<'a>) {
+        self.runs_modules |= self.of_changing_module(&it.tag);
+        walk::walk_tagged_template_expression(self, it);
+    }
+
+    fn visit_import_declaration(&mut self, it: &ImportDeclaration<'a>) {
+        // A module imported for its effects only (`import './setup'`) runs before the module that imports it.
+        let effects_only = it.specifiers.as_ref().is_none_or(|specifiers| specifiers.is_empty());
+        if effects_only && !it.import_kind.is_type() && self.imports.follows(&crate::js_string(it.source.value)) {
+            self.runs_modules = true;
+        }
+        walk::walk_import_declaration(self, it);
     }
 
     fn visit_export_declaration(&mut self, it: &ExportDeclaration<'a>) {
@@ -1382,6 +1929,13 @@ impl<'a> Visit<'a> for Sharing<'_> {
 
     fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
         self.in_loop(|sharing| walk::walk_for_statement(sharing, it));
+    }
+
+    fn visit_with_statement(&mut self, it: &WithStatement<'a>) {
+        // A name the body reads or writes may be a key of the object.
+        self.dynamic = true;
+        self.mutate(&it.object);
+        walk::walk_with_statement(self, it);
     }
 
     fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
@@ -1451,7 +2005,7 @@ impl Refs<'_> {
         if self.part == Part::Body {
             return;
         }
-        if let Some(symbol) = local_symbol(self.scoping, id) {
+        if let Some(symbol) = resolved(self.scoping, id) {
             self.out.push(Held {
                 symbol,
                 keys,
@@ -1607,22 +2161,29 @@ impl<'a> Visit<'a> for Refs<'_> {
             Expression::Identifier(id) if calls_callable(self.scoping, self.callables, it) => {
                 return self.hold(id, Vec::new(), true);
             }
-            // Any other function called by name stands for what it returns, which may hold what it is given.
-            Expression::Identifier(id) => self.hold(id, Vec::new(), true),
+            // Any other local function called by name stands for what it returns, which may hold what it is given; an
+            // imported one holds none of the module's locals.
+            Expression::Identifier(id) => {
+                if local_symbol(self.scoping, id).is_some() {
+                    self.hold(id, Vec::new(), true);
+                }
+            }
             // A method may return a part of the object it is called on (`list.find(…)`, `list.slice()`, `list.sort()`)
             // unless it returns a value of its own.
             Expression::StaticMemberExpression(member)
                 if OWN_RESULT_METHODS.contains(&member.property.name.as_str()) && builtin(names, &member.object) => {}
             callee if callee.is_member_expression() => {
-                if let Some(member) = callee.as_member_expression() {
+                if let Some(member) = callee.as_member_expression()
+                    && !is_inert_package(self.scoping, self.known, member.object())
+                {
                     let object = member.object();
                     self.opaque(|refs| refs.visit_expression(object));
                 }
             }
             _ => self.opaque(|refs| refs.visit_expression(&it.callee)),
         }
-        // A `define*` call is the value it is given.
-        let defined = defined(it).is_some();
+        // A `define*` call of a package is the value it is given.
+        let defined = defined(it).is_some() && foreign(names, &it.callee);
         for (index, argument) in it.arguments.iter().enumerate() {
             if defined && index == 0 {
                 self.visit_argument(argument);
@@ -1633,7 +2194,21 @@ impl<'a> Visit<'a> for Refs<'_> {
     }
 
     fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
-        self.opaque(|refs| walk::walk_new_expression(refs, it));
+        // An object of a class holds what it is given and what a local class holds; an imported class holds none of
+        // the module's locals.
+        self.opaque(|refs| {
+            match it.callee.get_inner_expression() {
+                Expression::Identifier(id) => {
+                    if local_symbol(refs.scoping, id).is_some() {
+                        refs.hold(id, Vec::new(), true);
+                    }
+                }
+                callee => refs.visit_expression(callee),
+            }
+            for argument in &it.arguments {
+                refs.visit_argument(argument);
+            }
+        });
     }
 
     fn visit_tagged_template_expression(&mut self, it: &TaggedTemplateExpression<'a>) {
@@ -1917,6 +2492,40 @@ fn is_primitive_list(names: Names<'_>, expr: &Expression<'_>) -> bool {
     })
 }
 
+/// Whether `expr` is an object literal of values that hold no object ([`is_primitive`]), with static keys other than
+/// `__proto__` and no spread, method or accessor.
+fn is_primitive_record(names: Names<'_>, expr: &Expression<'_>) -> bool {
+    let Expression::ObjectExpression(object) = expr.get_inner_expression() else {
+        return false;
+    };
+    object.properties.iter().all(|property| match property {
+        ObjectPropertyKind::ObjectProperty(p) => {
+            !p.method
+                && p.kind == PropertyKind::Init
+                && p.key
+                    .static_name()
+                    .is_some_and(|key| crate::js_string(key.as_js_str()) != "__proto__")
+                && is_primitive(names, &p.value)
+        }
+        ObjectPropertyKind::SpreadProperty(_) => false,
+    })
+}
+
+/// Whether `call` is `Object.entries`, `Object.values` or `Object.keys` of the global `Object`, whose result lists the
+/// keys and values of the object it is given.
+fn lists_entries(names: Names<'_>, call: &CallExpression<'_>) -> bool {
+    matches!(
+        call.callee.get_inner_expression(),
+        Expression::StaticMemberExpression(m)
+            if matches!(m.property.name.as_str(), "entries" | "values" | "keys")
+                && matches!(
+                    m.object.get_inner_expression(),
+                    Expression::Identifier(object)
+                        if object.name.as_str() == "Object" && resolved(names.scoping, object).is_none()
+                )
+    )
+}
+
 /// Whether `argument` is a function written in place (`(item) => …`, `function (item) { … }`).
 fn is_inline_function(argument: &Argument<'_>) -> bool {
     argument.as_expression().is_some_and(|argument| {
@@ -1937,8 +2546,16 @@ fn pure_method(names: Names<'_>, call: &CallExpression<'_>) -> bool {
     )
 }
 
-/// Packages whose functions build a new object and change none of the objects they are given.
-const COPYING_PACKAGES: &[&str] = &["deepmerge", "deepmerge-ts", "defu", "ts-deepmerge", "webpack-merge"];
+/// The functions of packages that build a new object and change none of the objects they are given, by package: `""`
+/// for the module itself or its default export. Their other exports may change what they are given (`deepmergeInto`)
+/// or call functions it holds (`defuFn`, `mergeWithCustomize`).
+const COPYING_EXPORTS: &[(&str, &[&str])] = &[
+    ("deepmerge", &[""]),
+    ("deepmerge-ts", &["deepmerge"]),
+    ("defu", &["", "defu"]),
+    ("ts-deepmerge", &["", "merge"]),
+    ("webpack-merge", &["", "merge"]),
+];
 
 /// Modules whose `mergeConfig` builds a new config and changes none of those it is given.
 const MERGE_CONFIG_MODULES: &[&str] = &["vite", "vitest", "vitest/config"];
@@ -1947,36 +2564,104 @@ const MERGE_CONFIG_MODULES: &[&str] = &["vite", "vitest", "vitest/config"];
 const COPYING_GLOBALS: &[&str] = &["defu", "mergeConfig"];
 
 /// Whether `call` calls a merge that builds a new object and changes none of the objects it is given: a function of
-/// one of [`COPYING_PACKAGES`], the `mergeConfig` of Vite or Vitest, or one of [`COPYING_GLOBALS`].
+/// [`COPYING_EXPORTS`], the `mergeConfig` of Vite or Vitest, or one of [`COPYING_GLOBALS`], imported from a package
+/// the evaluator does not follow ([`Known::foreign`]) or a global. The options `deepmerge`
+/// takes after the objects it merges may hold functions it calls with them (`arrayMerge`, `customMerge`), so a call
+/// given options counts only when they are an object literal of values that hold no function ([`function_free`]).
 fn copies(names: Names<'_>, call: &CallExpression<'_>) -> bool {
     let Expression::Identifier(id) = call.callee.get_inner_expression() else {
         return false;
     };
     match resolved(names.scoping, id) {
         None => COPYING_GLOBALS.contains(&id.name.as_str()),
+        Some(symbol) if !names.known.foreign.contains(&symbol) => false,
         Some(symbol) => names.known.modules.get(&symbol).is_some_and(|(module, imported)| {
-            COPYING_PACKAGES.contains(&module.as_str())
-                || (imported.as_deref() == Some("mergeConfig") && MERGE_CONFIG_MODULES.contains(&module.as_str()))
+            let export = imported.as_deref().unwrap_or_default();
+            let copying = COPYING_EXPORTS
+                .iter()
+                .any(|(package, exports)| *package == module.as_str() && exports.contains(&export));
+            let options_free = module != "deepmerge"
+                || call.arguments.iter().skip(2).all(|argument| {
+                    argument
+                        .as_expression()
+                        .is_some_and(|options| function_free(names, options))
+                });
+            (copying && options_free) || (export == "mergeConfig" && MERGE_CONFIG_MODULES.contains(&module.as_str()))
         }),
     }
 }
 
-/// Whether `call` is `Object.assign` of the global `Object`, which changes its first argument only.
-fn assigns(names: Names<'_>, call: &CallExpression<'_>) -> bool {
-    matches!(
-        call.callee.get_inner_expression(),
-        Expression::StaticMemberExpression(m)
-            if m.property.name.as_str() == "assign"
-                && matches!(
-                    m.object.get_inner_expression(),
-                    Expression::Identifier(object)
-                        if object.name.as_str() == "Object" && resolved(names.scoping, object).is_none()
-                )
-    )
+/// Whether `expr` is a literal that holds no function: a value that holds no object ([`is_primitive`]), or an object
+/// or array literal of such values, with no spread, method or accessor.
+fn function_free(names: Names<'_>, expr: &Expression<'_>) -> bool {
+    match expr.get_inner_expression() {
+        Expression::ObjectExpression(object) => object.properties.iter().all(|property| match property {
+            ObjectPropertyKind::ObjectProperty(p) => {
+                !p.method && p.kind == PropertyKind::Init && function_free(names, &p.value)
+            }
+            ObjectPropertyKind::SpreadProperty(_) => false,
+        }),
+        Expression::ArrayExpression(array) => array.elements.iter().all(|element| match element {
+            ArrayExpressionElement::SpreadElement(_) => false,
+            ArrayExpressionElement::Elision(_) => true,
+            other => other.as_expression().is_some_and(|value| function_free(names, value)),
+        }),
+        other => is_primitive(names, other),
+    }
 }
 
-/// Whether the name a callee (`defineConfig`, `vitest.defineProject`) starts from is not one the module declares a
-/// value for: a global, an import, or a binding of a `require`.
+/// Methods of the global `Object` or `Reflect` that change their first argument only ([`changed_by_call`]), with the
+/// object they are methods of.
+const FIRST_ARGUMENT_SETTERS: &[(&str, &str)] = &[
+    ("Object", "assign"),
+    ("Object", "defineProperties"),
+    ("Object", "defineProperty"),
+    ("Reflect", "defineProperty"),
+];
+
+/// The setter of [`FIRST_ARGUMENT_SETTERS`] `callee` names by the name of the object it is called on, which may be
+/// one the module declares.
+fn first_argument_setter<'b, 'a>(callee: &'b Expression<'a>) -> Option<&'b IdentifierReference<'a>> {
+    let Expression::StaticMemberExpression(m) = callee.get_inner_expression() else {
+        return None;
+    };
+    let Expression::Identifier(object) = m.object.get_inner_expression() else {
+        return None;
+    };
+    FIRST_ARGUMENT_SETTERS
+        .contains(&(object.name.as_str(), m.property.name.as_str()))
+        .then_some(&**object)
+}
+
+/// Whether `call` is one of [`FIRST_ARGUMENT_SETTERS`] of the global object, which changes its first argument only,
+/// given a first argument that is not a spread: what a spread gives is not known to be its first argument
+/// (`Object.assign(...[config, extra])`), so the call may change any object it spreads.
+fn assigns(names: Names<'_>, call: &CallExpression<'_>) -> bool {
+    first_argument_setter(&call.callee).is_some_and(|object| resolved(names.scoping, object).is_none())
+        && call
+            .arguments
+            .first()
+            .is_some_and(|first| first.as_expression().is_some())
+}
+
+/// The key `Object.defineProperty(object, key, …)` or `Reflect.defineProperty(object, key, …)` defines on its first
+/// argument, when it is a static string.
+pub(crate) fn property_defined(call: &CallExpression<'_>) -> Option<String> {
+    let Expression::StaticMemberExpression(m) = call.callee.get_inner_expression() else {
+        return None;
+    };
+    if m.property.name.as_str() != "defineProperty" || first_argument_setter(&call.callee).is_none() {
+        return None;
+    }
+    call.arguments
+        .get(1)
+        .and_then(Argument::as_expression)
+        .and_then(static_string)
+}
+
+/// Whether the name a callee (`defineConfig`, `vitest.defineProject`) starts from is not one the project declares a
+/// value for: a global, or an import or a binding of a `require` of a package the evaluator does not follow
+/// ([`Known::foreign`]), not of a module or a workspace package of the project.
 fn foreign(names: Names<'_>, callee: &Expression<'_>) -> bool {
     let root = match callee.get_inner_expression() {
         Expression::StaticMemberExpression(member) => member.object.get_inner_expression(),
@@ -1985,9 +2670,22 @@ fn foreign(names: Names<'_>, callee: &Expression<'_>) -> bool {
     let Expression::Identifier(id) = root else {
         return false;
     };
-    resolved(names.scoping, id).is_none_or(|symbol| {
-        names.scoping.symbol_flags(symbol).is_import() || names.known.modules.contains_key(&symbol)
-    })
+    resolved(names.scoping, id).is_none_or(|symbol| names.known.foreign.contains(&symbol))
+}
+
+/// Whether a module specifier names a package (`vite`, `@vitest/config`, `node:path`) rather than a file of the
+/// project: a relative or absolute path, a subpath import (`#tools`) or an alias that is no package name (`@/tools`,
+/// `~/tools`).
+fn is_package(specifier: &str) -> bool {
+    match specifier.strip_prefix('@') {
+        Some(scoped) => scoped
+            .split_once('/')
+            .is_some_and(|(scope, name)| !scope.is_empty() && !name.is_empty()),
+        None => specifier
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_ascii_alphanumeric()),
+    }
 }
 
 /// What the pass knows of the names of a module: how they resolve, and what the module binds them to.
@@ -2006,17 +2704,71 @@ struct Known {
     /// The `const` bindings of an object whose methods the pass knows ([`creates_builtin`]), or of what
     /// `createRequire` returns, whose `resolve` changes nothing.
     builtins: HashSet<SymbolId>,
+    /// The bindings of a namespace import (`import * as shared from './shared'`).
+    namespaces: HashSet<SymbolId>,
+    /// Those of [`Self::modules`] of a package ([`is_package`]) whose module the evaluator does not follow, so that
+    /// none of the project's code is behind them.
+    foreign: HashSet<SymbolId>,
+    /// Those of [`Self::modules`] whose module the evaluator follows, which code of such a module may change.
+    followed: HashSet<SymbolId>,
+    /// The export of its module each import of [`Self::modules`] takes, as keys of the module's namespace: none for a
+    /// namespace import, `default` for a default import and the name for a named one. A `require` takes no such part.
+    import_paths: HashMap<SymbolId, Vec<String>>,
+    /// Those of [`Self::foreign`] that the module only calls methods on (`path.format(…)`, `_.merge(…)`): it does not
+    /// write through them, store a value in them, give them to a call or read a member of them otherwise.
+    inert: HashSet<SymbolId>,
 }
 
-/// The bindings of `program` [`Known`] holds.
-fn known(program: &Program<'_>, scoping: &Scoping) -> Known {
+/// The bindings of `program` [`Known`] holds, where `imports` says which modules the evaluator follows.
+fn known(program: &Program<'_>, scoping: &Scoping, imports: &dyn Imports) -> Known {
     let mut finder = FindKnown {
         scoping,
         known: Known::default(),
         in_const: false,
     };
     finder.visit_program(program);
-    finder.known
+    let mut known = finder.known;
+    known.followed = known
+        .modules
+        .iter()
+        .filter(|(_, (module, _))| imports.follows(module))
+        .map(|(&symbol, _)| symbol)
+        .collect();
+    known.foreign = known
+        .modules
+        .iter()
+        .filter(|(_, (module, _))| is_package(module) && !imports.follows(module))
+        .map(|(&symbol, _)| symbol)
+        .collect();
+    let mut receivers = MethodReceivers::default();
+    receivers.visit_program(program);
+    known.inert = known
+        .foreign
+        .iter()
+        .copied()
+        .filter(|&symbol| {
+            scoping
+                .get_resolved_reference_ids(symbol)
+                .iter()
+                .all(|reference| !scoping.get_reference(*reference).is_value() || receivers.0.contains(reference))
+        })
+        .collect();
+    known
+}
+
+/// The references to a name that are the object of a method called on it (`path` in `path.format(…)`).
+#[derive(Default)]
+struct MethodReceivers(HashSet<ReferenceId>);
+
+impl<'a> Visit<'a> for MethodReceivers {
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        if let Expression::StaticMemberExpression(member) = it.callee.get_inner_expression()
+            && let Expression::Identifier(id) = member.object.get_inner_expression()
+        {
+            self.0.extend(id.reference_id.get());
+        }
+        walk::walk_call_expression(self, it);
+    }
 }
 
 /// Finds the bindings of [`known`].
@@ -2032,6 +2784,13 @@ impl FindKnown<'_> {
         if let Some(symbol) = symbol {
             let imported = imported.filter(|name| name != "default");
             self.known.modules.insert(symbol, (specifier.to_owned(), imported));
+        }
+    }
+
+    /// Records the export the import `symbol` takes ([`Known::import_paths`]).
+    fn path(&mut self, symbol: Option<SymbolId>, path: Vec<String>) {
+        if let Some(symbol) = symbol {
+            self.known.import_paths.insert(symbol, path);
         }
     }
 
@@ -2079,13 +2838,17 @@ impl<'a> Visit<'a> for FindKnown<'_> {
             match item {
                 ImportDeclarationSpecifier::ImportSpecifier(s) => {
                     let imported = crate::collect::module_export_name(&s.imported);
+                    self.path(s.local.symbol_id.get(), vec![imported.clone()]);
                     self.bind(s.local.symbol_id.get(), &specifier, Some(imported));
                 }
                 ImportDeclarationSpecifier::ImportDefaultSpecifier(s) => {
+                    self.path(s.local.symbol_id.get(), vec!["default".to_owned()]);
                     self.bind(s.local.symbol_id.get(), &specifier, None);
                 }
                 ImportDeclarationSpecifier::ImportNamespaceSpecifier(s) => {
+                    self.path(s.local.symbol_id.get(), Vec::new());
                     self.bind(s.local.symbol_id.get(), &specifier, None);
+                    self.known.namespaces.extend(s.local.symbol_id.get());
                 }
             }
         }
@@ -2157,6 +2920,15 @@ fn creates_builtin(scoping: &Scoping, expr: &Expression<'_>) -> bool {
     }
 }
 
+/// Whether `expr` is the binding of a namespace import, an object whose keys no code can change: a method called on
+/// it is taken to change nothing of it.
+fn is_namespace(names: Names<'_>, expr: &Expression<'_>) -> bool {
+    matches!(
+        expr.get_inner_expression(),
+        Expression::Identifier(id) if resolved(names.scoping, id).is_some_and(|symbol| names.known.namespaces.contains(&symbol))
+    )
+}
+
 /// The symbol a reference resolves to, an import included; `None` for a global the module does not declare.
 fn resolved(scoping: &Scoping, id: &IdentifierReference<'_>) -> Option<SymbolId> {
     scoping.get_reference(id.reference_id.get()?).symbol_id()
@@ -2182,6 +2954,14 @@ fn find(parent: &mut HashMap<SymbolId, SymbolId>, symbol: SymbolId) -> SymbolId 
     }
     parent.insert(symbol, root);
     root
+}
+
+/// Whether `expr` is itself one of [`Known::inert`], not a member of one.
+fn is_inert_package(scoping: &Scoping, known: &Known, expr: &Expression<'_>) -> bool {
+    let Expression::Identifier(id) = expr.get_inner_expression() else {
+        return false;
+    };
+    resolved(scoping, id).is_some_and(|symbol| known.inert.contains(&symbol))
 }
 
 /// The symbol a reference resolves to, unless it is unresolved or an import.
@@ -2415,6 +3195,24 @@ const OWN_RESULT_METHODS: &[&str] = &[
     "unshift",
 ];
 
+/// Methods of [`PURE_METHODS`] that call a function they are given with what the list they are called on holds, and,
+/// but for `reduce`, `reduceRight` and `toSorted`, with the argument after it as its `this`.
+const CALLBACK_METHODS: &[&str] = &[
+    "every",
+    "filter",
+    "find",
+    "findIndex",
+    "findLast",
+    "findLastIndex",
+    "flatMap",
+    "forEach",
+    "map",
+    "reduce",
+    "reduceRight",
+    "some",
+    "toSorted",
+];
+
 /// Methods that change the list they are called on but never what they are given, when it is known to be a list
 /// ([`builtin`]).
 const LIST_ADDERS: &[&str] = &["push", "unshift"];
@@ -2495,8 +3293,14 @@ const GLOBAL_OBJECTS: &[&str] = &[
     "Array", "JSON", "Math", "Number", "Object", "String", "console", "process",
 ];
 
+/// The functions of [`PURE_FUNCTIONS`] that call a function given after their first argument (a replacer, a reviver),
+/// by the name of the object they are called on and their own.
+const CALLING_PURE_FUNCTIONS: &[(&str, &str)] = &[("JSON", "parse"), ("JSON", "stringify")];
+
 /// What `call` returns when it calls one of [`PURE_FUNCTIONS`] (`path.posix` and `path.win32` count as `path`); `None`
-/// for any other call, such as one of a function the module declares under such a name.
+/// for any other call, such as one of a function the module declares under such a name, and for one of
+/// [`CALLING_PURE_FUNCTIONS`] given after its first argument anything but a literal that holds no function or
+/// `undefined` (`JSON.stringify(config, replacer)`), as the function it may be given may change what it is called with.
 fn pure_function(names: Names<'_>, call: &CallExpression<'_>) -> Option<Returns> {
     let (object, name) = match call.callee.get_inner_expression() {
         Expression::Identifier(id) => match resolved(names.scoping, id) {
@@ -2511,10 +3315,28 @@ fn pure_function(names: Names<'_>, call: &CallExpression<'_>) -> Option<Returns>
         }
         _ => return None,
     };
-    PURE_FUNCTIONS
+    let returns = PURE_FUNCTIONS
         .iter()
         .find(|(module, functions, _)| *module == object && (functions.is_empty() || functions.contains(&name)))
-        .map(|&(_, _, returns)| returns)
+        .map(|&(_, _, returns)| returns)?;
+    let calls_back = CALLING_PURE_FUNCTIONS.contains(&(object, name));
+    let given_no_function = || {
+        call.arguments.iter().skip(1).all(|argument| {
+            argument
+                .as_expression()
+                .is_some_and(|value| holds_no_function(names, value))
+        })
+    };
+    (!calls_back || given_no_function()).then_some(returns)
+}
+
+/// Whether `expr` is a literal that holds no function ([`function_free`]) or the global `undefined`.
+fn holds_no_function(names: Names<'_>, expr: &Expression<'_>) -> bool {
+    function_free(names, expr)
+        || matches!(
+            expr.get_inner_expression(),
+            Expression::Identifier(id) if id.name.as_str() == "undefined" && resolved(names.scoping, id).is_none()
+        )
 }
 
 /// The name in [`PURE_FUNCTIONS`] of the object a function is called on: a global of [`GLOBAL_OBJECTS`] the module
@@ -2571,20 +3393,25 @@ fn is_primitive(names: Names<'_>, expr: &Expression<'_>) -> bool {
     }
 }
 
-/// The object a call may change: the first argument of `Object.assign`, or the object a method other than one of
-/// [`PURE_METHODS`] is called on, unless the call is one of [`PURE_FUNCTIONS`] (`pure`).
-pub(crate) fn changed_by_call<'p, 'a>(call: &'p CallExpression<'a>, pure: bool) -> Option<&'p Expression<'a>> {
+/// The object a call may change: the first argument of one of [`FIRST_ARGUMENT_SETTERS`] (`Object.assign`,
+/// `Object.defineProperty`), or the object a method is called on, other than one of [`PURE_METHODS`] unless it calls
+/// code the pass does not follow with what the object holds (`calls_back`, [`Unstable::calls_back`]), and unless the
+/// call is one of [`PURE_FUNCTIONS`] (`pure`).
+pub(crate) fn changed_by_call<'p, 'a>(
+    call: &'p CallExpression<'a>,
+    pure: bool,
+    calls_back: bool,
+) -> Option<&'p Expression<'a>> {
     if pure {
         return None;
     }
+    if first_argument_setter(&call.callee).is_some() {
+        return call.arguments.first().and_then(Argument::as_expression);
+    }
     match call.callee.get_inner_expression() {
-        Expression::StaticMemberExpression(m)
-            if m.property.name.as_str() == "assign"
-                && matches!(m.object.get_inner_expression(), Expression::Identifier(o) if o.name.as_str() == "Object") =>
-        {
-            call.arguments.first().and_then(Argument::as_expression)
+        Expression::StaticMemberExpression(m) if PURE_METHODS.contains(&m.property.name.as_str()) && !calls_back => {
+            None
         }
-        Expression::StaticMemberExpression(m) if PURE_METHODS.contains(&m.property.name.as_str()) => None,
         callee => callee.as_member_expression().map(MemberExpression::object),
     }
 }

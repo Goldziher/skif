@@ -187,13 +187,15 @@ package alone) it prints the manifest entry, the verdict and the uses that credi
 `binary` a script, command or plugin runs, a `script-or-plugin` of the package, a tool `config` that names it, and
 `ambient-types` for a globals-only `@types` package a `tsconfig.json` includes. The uses of a package's manifest can
 come from the files of packages inside it, such as the root's. Imports of it by files of the package that credit no
-manifest (a type-only import in strict mode) are listed as not counted. The verdict and the uses come from the same
-record of uses the rule judges. The command exits `0` whatever the verdict.
+manifest (a type-only import in strict mode) are listed as not counted. For a package that does not list it, the tool
+config files that name it are listed with the line of the reference when the config gives one (a Bazel `BUILD`
+label), as `unlisted-dependencies` reports them. The verdict and the uses come from the same record of uses the rule
+judges. The command exits `0` whatever the verdict.
 
 | `--format json` member | Meaning |
 | --- | --- |
 | `report.dependency`, `report.production`, `report.strict` | The dependency, and whether production or strict mode narrowed what counts. |
-| `report.packages[]` | `package`, `dir` (`.` for the root), `listed` (`manifest`, `section`, `specifier`, or `null`), `verdict`, `credit`, `uses` and `not-counted` (each `file`, `line`, `specifier`, `kind`, `type-only`, `package`, `reachable`). |
+| `report.packages[]` | `package`, `dir` (`.` for the root), `listed` (`manifest`, `section`, `specifier`, or `null`), `verdict`, `credit`, `uses`, `not-counted` (each `file`, `line`, `specifier`, `kind`, `type-only`, `package`, `reachable`) and `unlisted-references` (each `file`, and `line` when known). |
 | `verdict` | `used`, `unused` (what the rule reports when it is on), `ignored` (an `ignore-dependencies` entry or a plugin covers it), `optional-peer`, `package-excluded`, `entries-incomplete` (not judged) or `not-listed`. |
 | `credit` | With `used`, how: `{"kind": "uses"}` (the `uses` list it), `always-used` (a tool used without an import, such as `typescript`), `runtime-types` (`@types/node`), `types-of` with the typed `package`, or `peer-of` with the `host` that needs it as a peer. |
 | `uses[]` | `kind`, and `file` (relative to the root) or `binary` when the use has one. |
@@ -213,7 +215,7 @@ the old tools stays where it is. The [migration guide](../../guides/migrating/) 
 | `--merge` | Combine with the existing configuration file (`skif.toml` or `.skif.toml`), which is edited in place: its comments and order stay, tables it lacks are appended under a banner, and in a table both define the existing value wins and lists are united. Values the `exact` profile added (marked with a `# skif migrate: not checked by ...` comment) do not count as existing values, so migrating tools in several steps ends with the same checks as one `--from sherif,syncpack,knip` run. The `exact` profile writes no `off` value into a file that has content: a rule it does not name keeps running. Migrating knip sets `[js] enabled = false` to `true`. |
 | `--force` | Replace the existing configuration file (`skif.toml` or `.skif.toml`, whichever exists). Without `--merge` or `--force` the command refuses to overwrite one. When the replaced file had an `extends` (a `skif baseline` file, a shared preset), a warning names the files, which the new file no longer extends. |
 | `--dry-run` | Print the configuration to stdout and the report to stderr; write nothing. |
-| `--format <human\|json>` | `json` prints one document on stdout with `version`, `skif`, `profile`, `tools`, `translated`, `default`, `needs-human`, `extra-checks`, `notes`, `written`, `kept-existing`, `left-as-existing` (the `off` values `--merge` did not write, as `rules.<id>` paths), `replaced-existing` (`js.enabled` when migrating knip turned it on) and, when nothing is written, `toml`. |
+| `--format <human\|json>` | `json` prints one document on stdout with `version`, `skif`, `profile`, `tools`, `translated`, `default`, `needs-human`, `extra-checks`, `notes`, `written`, `kept-existing`, `left-as-existing` (the `off` values `--merge` did not write, as `rules.<id>` paths), `replaced-existing` (`js.enabled` when migrating knip turned it on, and each `entry` or `project` list whose plain pattern took the migrated `!` marker) and, when nothing is written, `toml`. |
 | `--strict` | Exit `1` when any construct needs a human. |
 | `--strict-hints` | Write knip's `treatConfigHintsAsErrors` as `stale-js-config = "error"`; by default it is written as `warn`. |
 

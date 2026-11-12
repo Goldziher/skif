@@ -1904,6 +1904,28 @@ fn a_knip_comment_above_an_ignore_entry_becomes_its_reason() {
 }
 
 #[test]
+fn merging_knip_keeps_its_production_entries_and_reasons_over_the_plain_existing_ones() {
+    let migration = knip_file(
+        "knip.ts",
+        "export default {\n    // test suites\n    ignoreWorkspaces: ['playground/**'],\n    workspaces: { app: { entry: ['src/main.js!'] } },\n};\n",
+    );
+    let existing = "[js]\nenabled = true\nignore-workspaces = [\"playground/**\"]\n\n[js.workspaces.app]\nentry = [\"src/main.js\"]\n";
+    let merged = migration.merge_into(existing).unwrap();
+    assert!(
+        merged.toml.starts_with(
+            "[js]\nenabled = true\nignore-workspaces = [{ name = \"playground/**\", reason = \"test suites\" }]\n\n\
+             [js.workspaces.app]\nentry = [\"src/main.js!\"]\n"
+        ),
+        "{}",
+        merged.toml
+    );
+    assert_eq!(merged.replaced_existing, ["js.workspaces.app.entry"]);
+    assert_eq!(merged.kept_existing, [] as [String; 0]);
+    let again = migration.merge_into(&merged.toml).unwrap();
+    assert_eq!(again.toml, merged.toml, "a second merge changes nothing");
+}
+
+#[test]
 fn a_knip_comment_on_a_list_behind_a_constant_becomes_its_reason() {
     let migration = knip_file(
         "knip.ts",

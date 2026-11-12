@@ -402,6 +402,69 @@ fn a_conditional_spread_with_a_destructured_default_is_known() {
     assert!(configs[1].get("...").is_none());
 }
 
+/// A factory of a followed module that builds and returns new objects (a `define…` helper of a package given a
+/// literal, a spread of a constant, an undeclared global given a parameter) changes no value of a module when the
+/// config calls it: what the call returns and a constant the module computes with it when it is loaded stay exact.
+#[test]
+fn a_factory_that_builds_new_objects_leaves_the_imported_values_known() {
+    let loader = files(&[
+        (
+            "/ws/app/config.ts",
+            "import { config, createConfig } from '@fx/base';\n\
+             export default [config, createConfig(['a.test.ts'])];",
+        ),
+        (
+            "/ws/base/index.ts",
+            "import { defineConfig } from 'vitest/config';\n\
+             const shared = { environment: 'node' };\n\
+             export const createConfig = (include = ['src/**/*.test.ts']) =>\n\
+               defineConfig({ test: { globals: true, include: normalize(include) }, resolve: { ...shared } });\n\
+             export const config = createConfig();",
+        ),
+    ]);
+    let expected = obj(vec![
+        (
+            "test",
+            obj(vec![
+                ("globals", ConfigValue::Bool(true)),
+                ("include", ConfigValue::Unknown),
+            ]),
+        ),
+        ("resolve", obj(vec![("environment", s("node"))])),
+    ]);
+    assert_eq!(eval(&loader), ConfigValue::Array(vec![expected.clone(), expected]));
+}
+
+/// A factory of a followed module that changes an object the module binds (directly, through a local holding it,
+/// by giving it to an unknown call or to a function of the module that changes its parameter) may change every value
+/// the config imports from a followed module, a constant the factory does not touch included.
+#[test]
+fn a_factory_that_changes_a_binding_of_its_module_leaves_the_imported_values_open() {
+    for factory in [
+        "export const createConfig = () => { registry.count += 1; return { test: { globals: true } }; };",
+        "export const createConfig = () => {\n\
+           const seen = registry;\n  seen.count = 1;\n  return { test: { globals: true } };\n};",
+        "export const createConfig = () => { register(registry); return { test: { globals: true } }; };",
+        "const touch = (target) => { target.count += 1; return target.count; };\n\
+         export const createConfig = () => ({ test: { globals: true }, count: touch(registry) });",
+    ] {
+        let base = format!("const registry = {{ count: 0 }};\n{factory}\nexport const config = {{ name: 'base' }};");
+        let loader = files(&[
+            (
+                "/ws/app/config.ts",
+                "import { config, createConfig } from '@fx/base';\nexport default [config, createConfig()];",
+            ),
+            ("/ws/base/index.ts", &*Box::leak(base.into_boxed_str())),
+        ]);
+        let value = eval(&loader);
+        assert_eq!(
+            value.as_array().unwrap()[0],
+            obj(vec![("name", s("base")), (UNKNOWN_SPREAD, ConfigValue::Unknown)]),
+            "{factory}"
+        );
+    }
+}
+
 /// What an imported module computes itself is, to the config importing it, a value taken from elsewhere: its spreads
 /// come back as unknown spreads of an imported value.
 #[test]
@@ -589,4 +652,223 @@ fn an_exported_read_that_is_not_definite_stays_so() {
             "{specifier}"
         );
     }
+}
+
+/// The value at `path` below `value`, an unknown spread after a key standing for any value of it.
+fn read_at<'a>(value: &'a ConfigValue, path: &[&str]) -> &'a ConfigValue {
+    static UNKNOWN: ConfigValue = ConfigValue::Unknown;
+    path.iter().fold(value, |current, key| match current {
+        ConfigValue::Object(entries) => entries
+            .iter()
+            .rev()
+            .find(|(name, _)| name == key || ConfigValue::is_spread_key(name))
+            .map_or(&UNKNOWN, |(name, field)| {
+                if ConfigValue::is_spread_key(name) {
+                    &UNKNOWN
+                } else {
+                    field
+                }
+            }),
+        _ => &UNKNOWN,
+    })
+}
+
+/// An imported config the module changes (a write through it, a call given it, a write through a local holding it, in
+/// a function or at the top level) is read as changed, not as the imported module computes it: the key written is
+/// unknown, and the rest of the config stays known where the change reaches that key only.
+#[test]
+fn a_change_of_an_imported_value_is_applied_where_it_is_read() {
+    for (config, only_the_key) in [
+        (
+            "import base from './base';\nbase.build.outDir = 'out';\nexport default base;",
+            true,
+        ),
+        (
+            "import base from './base';\nwithPlugins(base);\nexport default base;",
+            false,
+        ),
+        (
+            "import base from './base';\nexport default () => { base.build.outDir = 'out'; return base; };",
+            true,
+        ),
+        (
+            "import base from './base';\nexport default () => { withPlugins(base); return base; };",
+            false,
+        ),
+        (
+            "import base from './base';\nconst local = base;\nlocal.build.outDir = 'out';\nexport default base;",
+            true,
+        ),
+        (
+            "import * as shared from './base';\nshared.default.build.outDir = 'out';\nexport default shared.default;",
+            true,
+        ),
+    ] {
+        let loader = files(&[
+            ("/ws/app/config.ts", config),
+            (
+                "/ws/app/base.ts",
+                "export default { root: 'src', build: { outDir: 'dist' } };",
+            ),
+        ]);
+        let value = eval(&loader);
+        assert_eq!(
+            read_at(&value, &["build", "outDir"]),
+            &ConfigValue::Unknown,
+            "{config}: {value:?}"
+        );
+        let root = if only_the_key { s("src") } else { ConfigValue::Unknown };
+        assert_eq!(read_at(&value, &["root"]), &root, "{config}: {value:?}");
+    }
+}
+
+/// A method of a workspace package the loader follows may return the package's own object (`self() { return this }`),
+/// so a write through what it returns reaches the imported value.
+#[test]
+fn a_write_through_what_a_method_of_a_followed_package_returns_reaches_it() {
+    let loader = files(&[
+        (
+            "/ws/app/config.ts",
+            "import base from '@fx/base';\nconst same = base.self();\nsame.build.outDir = 'out';\nexport default base;",
+        ),
+        (
+            "/ws/base/index.ts",
+            "export default { build: { outDir: 'dist' }, self() { return this; } };",
+        ),
+    ]);
+    let value = eval(&loader);
+    assert_eq!(
+        read_at(&value, &["build", "outDir"]),
+        &ConfigValue::Unknown,
+        "{value:?}"
+    );
+}
+
+/// A `define…` helper of a workspace package the loader follows is code of the project, which may change what it is
+/// given: the config it was given is partly unknown after the call.
+#[test]
+fn a_define_helper_of_a_followed_package_may_change_what_it_is_given() {
+    let loader = files(&[
+        (
+            "/ws/app/config.ts",
+            "import { defineConfig } from '@fx/base';\nconst base = { build: { outDir: 'dist' } };\n\
+             defineConfig(base);\nexport default base;",
+        ),
+        (
+            "/ws/base/index.ts",
+            "export function defineConfig(c) { c.build.outDir = 'out'; return c; }",
+        ),
+    ]);
+    let value = eval(&loader);
+    assert_eq!(
+        read_at(&value, &["build", "outDir"]),
+        &ConfigValue::Unknown,
+        "{value:?}"
+    );
+}
+
+/// Bindings of one module, through a default, a named or a namespace import, are the same exports: a change through
+/// one reaches the others.
+#[test]
+fn a_change_through_one_import_of_a_module_reaches_its_other_imports() {
+    for (config, base) in [
+        (
+            "import base from './base';\nimport * as ns from './base';\n\
+             ns.default.build.outDir = 'out';\nexport default base;",
+            "export default { build: { outDir: 'dist' } };",
+        ),
+        (
+            "import base from './base';\nimport * as ns from './base';\n\
+             base.build.outDir = 'out';\nexport default ns.default;",
+            "export default { build: { outDir: 'dist' } };",
+        ),
+        (
+            "import { config } from './base';\nimport * as ns from './base';\n\
+             ns.config.build.outDir = 'out';\nexport default config;",
+            "export const config = { build: { outDir: 'dist' } };",
+        ),
+        (
+            "import base, { config } from './base';\nconfig.build.outDir = 'out';\nexport default base;",
+            "export const config = { build: { outDir: 'dist' } };\nexport default config;",
+        ),
+    ] {
+        let loader = files(&[("/ws/app/config.ts", config), ("/ws/app/base.ts", base)]);
+        let value = eval(&loader);
+        assert_eq!(
+            read_at(&value, &["build", "outDir"]),
+            &ConfigValue::Unknown,
+            "{config}: {value:?}"
+        );
+    }
+}
+
+/// Calling a function of a followed module that changes a value of a module (an import of its own, a binding it
+/// exports), or importing one for its effects, may change every value the config imports from a followed module; a
+/// module whose functions change nothing of a module leaves them known.
+#[test]
+fn a_followed_module_that_changes_an_import_reaches_the_values_the_config_imports() {
+    let base = "export default { root: 'src', build: { outDir: 'dist' } };";
+    let tweaking = "import base from './base';\nexport function tweak() { base.build.outDir = 'out'; }";
+    for (config, tweak) in [
+        (
+            "import base from './base';\nimport { tweak } from './tweak';\ntweak();\nexport default base;",
+            tweaking,
+        ),
+        (
+            "import base from './base';\nimport * as tools from './tweak';\ntools.tweak();\nexport default base;",
+            tweaking,
+        ),
+        (
+            "import base from './base';\nimport { tweak } from './tweak';\n\
+             export default () => { tweak(); return base; };",
+            tweaking,
+        ),
+        (
+            "import base from './base';\nimport { tweak } from './tweak';\nexport default { ...base, x: tweak() };",
+            tweaking,
+        ),
+        (
+            "import base from './base';\nimport { tweak } from './tweak';\nexport default { x: tweak(), ...base };",
+            tweaking,
+        ),
+        (
+            "import base from './base';\nimport { tweak } from './tweak';\ntweak();\nexport default base;",
+            "import { apply } from './apply';\nexport function tweak() { apply(); }",
+        ),
+        (
+            "import base from './base';\nimport './tweak';\nexport default base;",
+            "import base from './base';\nbase.build.outDir = 'out';",
+        ),
+        (
+            "const base = require('./base');\nrequire('./tweak');\nmodule.exports = base;",
+            "const base = require('./base');\nbase.build.outDir = 'out';",
+        ),
+    ] {
+        let loader = files(&[
+            ("/ws/app/config.ts", config),
+            ("/ws/app/base.ts", base),
+            ("/ws/app/tweak.ts", tweak),
+            (
+                "/ws/app/apply.ts",
+                "import base from './base';\nexport function apply() { base.build.outDir = 'out'; }",
+            ),
+        ]);
+        let value = eval(&loader);
+        assert_eq!(
+            read_at(&value, &["build", "outDir"]),
+            &ConfigValue::Unknown,
+            "{config}\n{tweak}: {value:?}"
+        );
+    }
+    let pure = files(&[
+        (
+            "/ws/app/config.ts",
+            "import base from './base';\nimport { name } from './name';\nexport default { ...base, name: name() };",
+        ),
+        ("/ws/app/base.ts", base),
+        ("/ws/app/name.ts", "export function name() { return 'app'; }"),
+    ]);
+    let value = eval(&pure);
+    assert_eq!(read_at(&value, &["build", "outDir"]), &s("dist"), "{value:?}");
+    assert_eq!(read_at(&value, &["name"]), &s("app"), "{value:?}");
 }

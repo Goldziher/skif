@@ -37,6 +37,8 @@ pub(crate) struct Finder<'c, 's> {
     mocked_imports: HashSet<u32>,
     /// The names of `info.exports`, gathered at the first `CommonJS` export, which keeps them up to date.
     export_names: Option<HashSet<String>>,
+    /// The properties of `module.exports = { a, b }`: the binding each names and the span of its identifier.
+    cjs_shorthand: Vec<(String, oxc_span::Span)>,
 }
 
 impl Finder<'_, '_> {
@@ -51,14 +53,17 @@ impl Finder<'_, '_> {
                 .properties
                 .iter()
                 .map(|property| match property {
-                    ObjectPropertyKind::ObjectProperty(p) if p.shorthand => {
-                        Some((crate::js_string(p.key.static_name()?.as_js_str()), p.key.span()))
-                    }
+                    ObjectPropertyKind::ObjectProperty(p) if p.shorthand => Some((
+                        crate::js_string(p.key.static_name()?.as_js_str()),
+                        p.key.span(),
+                        p.value.span(),
+                    )),
                     _ => None,
                 })
                 .collect();
-            for (name, span) in shorthand.filter(|names| !names.is_empty()).unwrap_or_default() {
-                self.cjs_export(&name, span);
+            for (name, key, value) in shorthand.filter(|names| !names.is_empty()).unwrap_or_default() {
+                self.cjs_export(&name, key);
+                self.cjs_shorthand.push((name, value));
             }
         } else {
             self.cjs_export(target.property.name.as_str(), target.property.span);
@@ -89,9 +94,16 @@ impl<'c, 's> Finder<'c, 's> {
             component_decorators: component_decorator_names(info),
             mocked_imports: HashSet::default(),
             export_names: None,
+            cjs_shorthand: Vec::new(),
             ctx,
             info,
         }
+    }
+
+    /// The properties of the `module.exports = { a, b }` objects the walk found: the binding each names and the span
+    /// of its identifier, which exports the binding without reading it.
+    pub(crate) fn into_cjs_shorthand(self) -> Vec<(String, oxc_span::Span)> {
+        self.cjs_shorthand
     }
 }
 

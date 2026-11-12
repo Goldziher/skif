@@ -1,4 +1,4 @@
-//! The dependency sections of a `package.json`.
+//! The dependency sections of a `package.json` and the names of the packages they list.
 
 use serde::{Deserialize, Serialize};
 
@@ -64,6 +64,33 @@ impl DependencyKind {
         Self::ALL
             .into_iter()
             .find(|kind| kind.token() == token || kind.field() == token)
+    }
+}
+
+/// The longest package name npm accepts, scope included (`validate-npm-package-name`).
+const MAX_PACKAGE_NAME_LEN: usize = 214;
+
+/// Whether `name` is a name the npm registry can hold: `^(@[a-z0-9-~][a-z0-9-._~]*/)?[a-z0-9-~][a-z0-9-._~]*$`,
+/// ignoring case because the registry still serves legacy names with capitals. Only such a name is put in a registry
+/// URL, so a name from a manifest cannot add a path segment, a query or a fragment to it. npm also caps a name at 214
+/// characters, scope included.
+#[must_use]
+pub fn is_valid_package_name(name: &str) -> bool {
+    fn segment(text: &str) -> bool {
+        let mut bytes = text.bytes();
+        bytes
+            .next()
+            .is_some_and(|first| first.is_ascii_alphanumeric() || matches!(first, b'-' | b'~'))
+            && bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~'))
+    }
+    if name.len() > MAX_PACKAGE_NAME_LEN {
+        return false;
+    }
+    match name.strip_prefix('@') {
+        Some(scoped) => scoped
+            .split_once('/')
+            .is_some_and(|(scope, rest)| segment(scope) && segment(rest)),
+        None => segment(name),
     }
 }
 

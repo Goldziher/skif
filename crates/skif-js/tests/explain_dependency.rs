@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use skif_config::Config;
-use skif_core::{FileSystem, MemoryFs};
+use skif_core::{Diagnostic, FileSystem, MemoryFs};
 use skif_js::{
     DependencyCredit, DependencyExplanation, DependencyUse, DependencyVerdict, InputSource, JsAnalysis, JsProvider,
     PackageDependencyUsage, PluginSource,
@@ -66,15 +66,19 @@ fn explain(name: &str) -> DependencyExplanation {
     explain_with(&Config::from_toml_str("").unwrap(), &[], name, None)
 }
 
-/// The names `unused-dependencies` reports, as `package dependency`, sorted.
-fn reported_unused(config: &Config, extra: &[(&str, &str)]) -> Vec<String> {
+/// The diagnostics of the workspace with `extra`, unsorted.
+fn diagnostics(config: &Config, extra: &[(&str, &str)]) -> Vec<Diagnostic> {
     let memory = memory(extra);
     let workspace = Workspace::discover_with_fs(Path::new("/ws"), config, &memory).unwrap();
     let fs: Arc<dyn FileSystem> = Arc::new(memory);
     let provider = JsProvider::new(fs).with_input_source(Arc::new(PluginSource::new(config.js.plugins.clone())));
     let registry = Registry::new(vec![Box::new(provider)]).unwrap();
-    let mut found: Vec<String> = run_unsorted(&registry, &workspace, config, &RunOptions::default())
-        .unwrap()
+    run_unsorted(&registry, &workspace, config, &RunOptions::default()).unwrap()
+}
+
+/// The names `unused-dependencies` reports, as `package dependency`, sorted.
+fn reported_unused(config: &Config, extra: &[(&str, &str)]) -> Vec<String> {
+    let mut found: Vec<String> = diagnostics(config, extra)
         .into_iter()
         .filter(|diagnostic| diagnostic.rule.as_str() == "unused-dependencies")
         .map(|diagnostic| {
@@ -233,4 +237,103 @@ fn an_unlisted_peer_of_a_used_dependency_is_not_listed_rather_than_used() {
         "{}",
         explanation.render()
     );
+}
+
+/// A Bazel `rules_js` repository whose `packages/app` builds its labels with a format comprehension and globs its
+/// files, beside a `package_json.bzl` load, and whose `packages/tool` extends a shared `tsconfig`; neither lists what
+/// its config names.
+const BAZEL: &[(&str, &str)] = &[
+    (
+        "MODULE.bazel",
+        "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n",
+    ),
+    (
+        "packages/app/BUILD",
+        concat!(
+            "load(\"@npm//packages/app:vite/package_json.bzl\", vite_bin = \"bin\")\n",
+            "\n",
+            "npm_link_all_packages(name = \"node_modules\")\n",
+            "\n",
+            "VITE_BUILD_DEPS = [\":node_modules/%s\" % node_module for node_module in [\n",
+            "    \"typescript\",\n",
+            "    \"vite\",\n",
+            "]]\n",
+            "\n",
+            "js_library(\n",
+            "    name = \"test_files\",\n",
+            "    data = glob([\"**/*\"], exclude = [\".*/**\", \"coverage/**\", \"dist/**\", \"node_modules/**\"]),\n",
+            ")\n",
+        ),
+    ),
+    (
+        "packages/tool/package.json",
+        r#"{"name":"tool","version":"1.0.0","main":"src/index.ts","devDependencies":{"typescript":"5.0.0"}}"#,
+    ),
+    (
+        "packages/tool/tsconfig.json",
+        r#"{"extends":"@acme/tsconfig/base.json"}"#,
+    ),
+    ("packages/tool/src/index.ts", "export const tool = 1;\n"),
+];
+
+/// The format comprehension names each formatted package, at the line of its item, and neither the template nor a
+/// glob pattern names one; a package named twice is reported at its first reference.
+#[test]
+fn a_bazel_format_comprehension_names_its_packages_and_glob_patterns_name_none() {
+    let mut unlisted: Vec<(String, String, Option<u32>)> = diagnostics(&Config::from_toml_str("").unwrap(), BAZEL)
+        .into_iter()
+        .filter(|diagnostic| diagnostic.rule.as_str() == "unlisted-dependencies")
+        .map(|diagnostic| {
+            (
+                diagnostic.dependency.clone().unwrap_or_default(),
+                diagnostic.location.path.to_string_lossy().replace('\\', "/"),
+                diagnostic.location.span.map(|span| span.start_line),
+            )
+        })
+        .collect();
+    unlisted.sort();
+    let at = |name: &str, file: &str, line: Option<u32>| (name.to_owned(), file.to_owned(), line);
+    assert_eq!(
+        unlisted,
+        [
+            at("@acme/tsconfig", "packages/tool/tsconfig.json", None),
+            at("typescript", "packages/app/BUILD", Some(6)),
+            at("vite", "packages/app/BUILD", Some(1)),
+        ]
+    );
+}
+
+/// `explain-usage --dependency` names the config file and line of each reference that no manifest lists, and the file
+/// alone when the config gives no position.
+#[test]
+fn an_unlisted_config_reference_is_explained_with_its_file_and_line() {
+    let config = Config::from_toml_str("").unwrap();
+    let references = |name: &str, package: &str| {
+        let explanation = explain_with(&config, BAZEL, name, Some(package));
+        let found: Vec<(String, Option<u32>)> = explanation.packages[0]
+            .unlisted_references
+            .iter()
+            .map(|reference| (reference.file.clone(), reference.line))
+            .collect();
+        (explanation.packages[0].verdict, found, explanation.render())
+    };
+    let (verdict, found, text) = references("typescript", "app");
+    assert_eq!(verdict, DependencyVerdict::NotListed);
+    assert_eq!(found, [("packages/app/BUILD".to_owned(), Some(6))]);
+    assert!(
+        text.contains(
+            "  packages/app (app): not listed\n    named without a listing by:\n      packages/app/BUILD:6\n"
+        ),
+        "{text}"
+    );
+    let (_, found, text) = references("@acme/tsconfig", "tool");
+    assert_eq!(found, [("packages/tool/tsconfig.json".to_owned(), None)]);
+    assert!(
+        text.contains("    named without a listing by:\n      packages/tool/tsconfig.json\n"),
+        "{text}"
+    );
+    let (verdict, found, text) = references("%s", "app");
+    assert_eq!(verdict, DependencyVerdict::NotListed);
+    assert!(found.is_empty(), "{found:?}");
+    assert!(!text.contains("named without a listing"), "{text}");
 }

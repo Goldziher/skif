@@ -565,6 +565,46 @@ fn merge_with_the_exact_profile_turns_off_no_rule_the_existing_file_runs() {
 }
 
 #[test]
+fn merge_keeps_one_entry_per_name_with_the_production_marker_and_the_reason() {
+    let dir = project(
+        r#"{"name":"root","private":true,"packageManager":"pnpm@10.0.0","devDependencies":{"knip":"6.45.1"},"scripts":{"knip":"knip --production"}}"#,
+    );
+    fs::write(dir.path().join("pnpm-workspace.yaml"), "packages:\n  - app\n").unwrap();
+    fs::create_dir_all(dir.path().join("app/src")).unwrap();
+    fs::write(
+        dir.path().join("app/package.json"),
+        r#"{"name":"app","private":true,"type":"module"}"#,
+    )
+    .unwrap();
+    fs::write(dir.path().join("app/src/main.js"), "export {};\n").unwrap();
+    fs::write(
+        dir.path().join("knip.ts"),
+        "export default {\n    // test suites\n    ignoreWorkspaces: ['playground/**'],\n    workspaces: { app: { entry: ['src/main.js!'] } },\n};\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("skif.toml"),
+        "[js]\nenabled = true\nignore-workspaces = [\"playground/**\"]\n\n[js.workspaces.app]\nentry = [\"src/main.js\"]\n",
+    )
+    .unwrap();
+
+    let result = run(migrate(dir.path()).args(["--from", "knip", "--merge", "--format", "json"]));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    let text = fs::read_to_string(dir.path().join("skif.toml")).unwrap();
+    assert!(
+        text.starts_with(
+            "[js]\nenabled = true\nignore-workspaces = [{ name = \"playground/**\", reason = \"test suites\" }]\n\
+             production = true\n\n[js.workspaces.app]\nentry = [\"src/main.js!\"]\n"
+        ),
+        "{text}"
+    );
+    assert_eq!(
+        result.json()["replaced-existing"],
+        serde_json::json!(["js.workspaces.app.entry"])
+    );
+}
+
+#[test]
 fn the_merge_summary_says_which_checks_stay_and_that_the_javascript_analysis_is_on() {
     let dir = knip_project_with_config();
     let result = run(migrate(dir.path()).args(["--from", "knip", "--merge", "--dry-run"]));

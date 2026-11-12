@@ -25,7 +25,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::finder::static_string;
 use crate::sharing::{
-    Change, Unstable, Write, alias_names, alias_source, changed_by_call, given, given_parts, reach, statement_call,
+    Change, Imports, Unstable, Write, alias_names, alias_source, changed_by_call, given, given_parts, property_defined,
+    reach, statement_call,
 };
 
 const MAX_DEPTH: u32 = 32;
@@ -380,9 +381,9 @@ pub trait ModuleLoader {
 ///
 /// Understood: object, array, string, number, boolean and `null` literals; template literals whose substitutions are
 /// known strings, numbers or booleans, and `+` of such values with a string (or of two numbers);
-/// `as`/`satisfies`/`!`/parenthesised wrappers; calls named `define*` (such as `defineConfig`), which evaluate to
-/// their first argument; arrow and function expressions that return a single expression; spreads of static values; and
-/// identifiers that name a top-level `const` initialised with something static; and paths computed from the config
+/// `as`/`satisfies`/`!`/parenthesised wrappers; calls named `define*` (such as `defineConfig`) of a global or of a
+/// package that is not followed, which evaluate to their first argument; arrow and function expressions that return a
+/// single expression; spreads of static values; and identifiers that name a top-level `const` initialised with something static; and paths computed from the config
 /// file's own location (`__dirname`, `import.meta.dirname`, `new URL('./x', import.meta.url)`, `path.resolve`,
 /// `path.join`, `path.dirname` and `fileURLToPath`, however `path` was imported), which evaluate to strings relative to
 /// the config file's directory (`"."`, `"./src"`, `"../shared"`).
@@ -490,6 +491,7 @@ pub fn extract_config(source: &str, path: &Path, loader: Option<&dyn ModuleLoade
         cuts: Cell::new(0),
         values: RefCell::new(HashMap::default()),
         loaded: RefCell::new(HashMap::default()),
+        changing: RefCell::new(HashMap::default()),
     };
     evaluate_config(source, path, Some(&modules))
 }
@@ -503,7 +505,12 @@ pub fn extract_config_object_with(source: &str, path: &Path, loader: &dyn Module
 fn evaluate_config(source: &str, path: &Path, modules: Option<&Modules<'_>>) -> Option<ExtractedConfig> {
     crate::with_arena(|allocator| {
         let program = parse_program(allocator, source, path)?;
-        let top = top_level(&program);
+        let followed = modules.map(|modules| FollowedImports { modules, from: path });
+        let module_imports: &dyn Imports = match &followed {
+            Some(followed) => followed,
+            None => &NoImports,
+        };
+        let top = top_level(&program, module_imports);
         let bindings = module_bindings(&program);
         let imports = import_bindings(&program);
         let file = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
@@ -667,6 +674,9 @@ struct Modules<'l> {
     values: RefCell<HashMap<(PathBuf, Imported), Option<Value>>>,
     /// What the loader returned for each importing directory and specifier.
     loaded: RefCell<HashMap<(PathBuf, String), Option<LoadedModule>>>,
+    /// Whether a function of each module may change a value of a module ([`Modules::changes_modules`]), by path:
+    /// `None` while that is being found.
+    changing: RefCell<HashMap<PathBuf, Option<bool>>>,
 }
 
 impl Modules<'_> {
@@ -687,6 +697,50 @@ impl Modules<'_> {
     /// Whether the module `specifier` names from `from` is followed.
     fn follows(&self, from: &Path, specifier: &str) -> bool {
         self.load(from, specifier).is_some()
+    }
+
+    /// Whether a function of the followed module `specifier` names from `from` may change a value of a module when it
+    /// is called ([`Unstable::changes_modules`]): so it may when the module does not parse, when finding out would
+    /// reach past [`MAX_IMPORT_DEPTH`] or [`MAX_MODULE_LOADS`] modules, and in a cycle of modules whose functions call
+    /// each other's. Not one of a module that is not followed, whose functions the config's analysis does not reach.
+    fn changes_modules(&self, from: &Path, specifier: &str) -> bool {
+        let Some((path, source)) = self.load(from, specifier) else {
+            return false;
+        };
+        {
+            let changing = self.changing.borrow();
+            if let Some(known) = changing.get(&path) {
+                return known.unwrap_or(true);
+            }
+            let pending = changing.values().filter(|known| known.is_none()).count();
+            if pending >= MAX_IMPORT_DEPTH || changing.len() >= MAX_MODULE_LOADS {
+                return true;
+            }
+        }
+        self.changing.borrow_mut().insert(path.clone(), None);
+        let changes = self.module_changes_modules(&path, &source);
+        self.changing.borrow_mut().insert(path, Some(changes));
+        changes
+    }
+
+    /// [`Self::changes_modules`] of the module at `path` with the text `source`.
+    fn module_changes_modules(&self, path: &Path, source: &str) -> bool {
+        let Ok(source_type) = SourceType::from_path(path) else {
+            return true;
+        };
+        let allocator = Allocator::default();
+        let ret = Parser::new(&allocator, source, source_type).parse();
+        if ret.diagnostics.errors().next().is_some() {
+            return true;
+        }
+        Unstable::of(
+            &ret.program,
+            &FollowedImports {
+                modules: self,
+                from: path,
+            },
+        )
+        .changes_modules()
     }
 
     /// The value `imported` names in the module `specifier` resolves to from `from`, called with `args` when given.
@@ -739,7 +793,13 @@ impl Modules<'_> {
             return Some(Value::Unknown);
         }
         let program = &ret.program;
-        let top = top_level(program);
+        let top = top_level(
+            program,
+            &FollowedImports {
+                modules: self,
+                from: path,
+            },
+        );
         let bindings = module_bindings(program);
         let imports = import_bindings(program);
         let dir = relative_dir(&self.root, path.parent().unwrap_or(path));
@@ -922,8 +982,38 @@ enum TopChange {
 
 type Frame<'p, 'a> = HashMap<String, Binding<'p, 'a>>;
 
-fn top_level<'p, 'a>(program: &'p Program<'a>) -> TopLevel<'p, 'a> {
-    let unstable = Unstable::of(program);
+/// The imports of a module whose imports the evaluator does not follow.
+struct NoImports;
+
+impl Imports for NoImports {
+    fn follows(&self, _: &str) -> bool {
+        false
+    }
+
+    fn changes_modules(&self, _: &str) -> bool {
+        false
+    }
+}
+
+/// The imports of the module at `from`, as `modules` follows them.
+struct FollowedImports<'m, 'l> {
+    modules: &'m Modules<'l>,
+    from: &'m Path,
+}
+
+impl Imports for FollowedImports<'_, '_> {
+    fn follows(&self, specifier: &str) -> bool {
+        self.modules.follows(self.from, specifier)
+    }
+
+    fn changes_modules(&self, specifier: &str) -> bool {
+        self.modules.changes_modules(self.from, specifier)
+    }
+}
+
+/// The top-level bindings of `program`, where `imports` says what the evaluator knows of the modules it imports.
+fn top_level<'p, 'a>(program: &'p Program<'a>, imports: &dyn Imports) -> TopLevel<'p, 'a> {
+    let unstable = Unstable::of(program, imports);
     let mut top = TopLevel {
         consts: HashMap::default(),
         functions: HashMap::default(),
@@ -949,6 +1039,7 @@ fn top_level<'p, 'a>(program: &'p Program<'a>) -> TopLevel<'p, 'a> {
             | Statement::SwitchStatement(_)
             | Statement::TryStatement(_)
             | Statement::LabeledStatement(_)
+            | Statement::WithStatement(_)
             | Statement::VariableDeclaration(_)
             | Statement::ExportNamedDeclaration(_)
             | Statement::ExportDefaultDeclaration(_) => Some(Writes::of_statement(stmt, &unstable)),
@@ -1195,7 +1286,7 @@ pub fn extract_constructor_options(source: &str, path: &Path, constructor: &str,
             return Vec::new();
         }
         let program = &ret.program;
-        let top = top_level(program);
+        let top = top_level(program, &NoImports);
         let bindings = module_bindings(program);
         let mut finder = OptionFinder {
             top: &top,
@@ -1237,7 +1328,7 @@ fn find_properties(source: &str, path: &Path, key: &str, call_with: Option<&Conf
         let Some(program) = parse_program(allocator, source, path) else {
             return Vec::new();
         };
-        let top = top_level(&program);
+        let top = top_level(&program, &NoImports);
         let bindings = module_bindings(&program);
         let mut finder = PropertyFinder {
             top: &top,
@@ -1264,7 +1355,7 @@ pub fn extract_method_calls(source: &str, path: &Path, method: &str) -> Vec<Vec<
         let Some(program) = parse_program(allocator, source, path) else {
             return Vec::new();
         };
-        let top = top_level(&program);
+        let top = top_level(&program, &NoImports);
         let bindings = module_bindings(&program);
         let mut finder = MethodCallFinder {
             top: &top,
@@ -1400,7 +1491,7 @@ pub(crate) fn imported_calls_in(
     if imported.is_empty() {
         return Vec::new();
     }
-    let top = top_level(program);
+    let top = top_level(program, &NoImports);
     let bindings = module_bindings(program);
     let mut finder = CallFinder {
         top: &top,
@@ -2225,7 +2316,13 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         let Some(&init) = self.consts.get(name) else {
             return match self.functions.get(name) {
                 Some(callable) => self.invoke(*callable, None, true, depth),
-                None => self.import_value(name, None).unwrap_or_else(|| self.global(name)),
+                None => match self.import_value(name, None) {
+                    Some(value) => {
+                        let (value, definite) = value.split();
+                        Value::doubtful(self.changed_top(name, value), definite)
+                    }
+                    None => self.global(name),
+                },
             };
         };
         if let Some(known) = self.evaluated.borrow().get(name) {
@@ -2245,8 +2342,23 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         let (value, definite) = self.expr(init, 0).split();
         *self.frames.borrow_mut() = saved;
         self.chain.borrow_mut().pop();
-        let value = match self.changed.get(name) {
-            _ if node_count(&value) > MAX_CONST_NODES => Value::Unknown,
+        let value = if node_count(&value) > MAX_CONST_NODES {
+            Value::Unknown
+        } else {
+            self.changed_top(name, value)
+        };
+        let value = Value::doubtful(value, definite);
+        // A value an import cycle or budget cut short depends on the order of evaluation; it is computed again.
+        if self.modules.map(|modules| modules.cuts.get()) == cuts {
+            self.evaluated.borrow_mut().insert(name.to_owned(), value.clone());
+        }
+        value
+    }
+
+    /// `value` of the top-level binding `name`, a constant or an import, as the top-level statements the evaluator does
+    /// not run ([`TopLevel::changed`]) and code it does not follow ([`Unstable::of_top`]) may leave it.
+    fn changed_top(&self, name: &str, value: Value) -> Value {
+        match self.changed.get(name) {
             Some(TopChange::Assigned) => changed(value),
             written => {
                 let mut value = value;
@@ -2260,13 +2372,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     None => value,
                 }
             }
-        };
-        let value = Value::doubtful(value, definite);
-        // A value an import cycle or budget cut short depends on the order of evaluation; it is computed again.
-        if self.modules.map(|modules| modules.cuts.get()) == cuts {
-            self.evaluated.borrow_mut().insert(name.to_owned(), value.clone());
         }
-        value
     }
 
     /// The innermost binding of `name` in the functions being evaluated.
@@ -2533,7 +2639,16 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             (Expression::ImportMeta(_), "file") => Value::String(self.file.to_owned()),
             (url @ Expression::NewExpression(_), "pathname") => self.expr(url, depth),
             (Expression::Identifier(namespace), _) if self.is_namespace(namespace.name.as_str()) => {
-                self.namespace_member(namespace.name.as_str(), property)
+                // What the module changes below the namespace, at the export read, applies to it, as does what code
+                // the evaluator does not follow may change where it is read.
+                let name = namespace.name.as_str();
+                let exports = Value::Object(vec![(property.to_owned(), self.namespace_member(name, property))]);
+                let exports = self.changed_top(name, exports);
+                let exports = match self.unstable.of_reference(namespace) {
+                    Some(change) => unstable(exports, change),
+                    None => exports,
+                };
+                property_of(&exports, property)
             }
             _ => return None,
         })
@@ -3087,8 +3202,15 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// A call of a config combinator (`mergeConfig`, `defu`, `Object.assign`, `deepmerge`, `merge`): the merge of the
     /// object arguments. An argument that cannot be known contributes a `...` entry, so the known part still applies.
+    /// A merge given options that may say how it merges (`deepmerge`'s third argument, `mergeWith`'s customizer) is
+    /// unknown.
     fn merge_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
-        let style = merge_style(&call.callee, self.bindings)?;
+        let style = self.merge_style(call)?;
+        if takes_options(&call.callee, call.arguments.len()) {
+            // The arguments are still recorded, for the files they name ([`Self::unknown_call_arguments`]).
+            self.arguments(call, depth);
+            return Some(Value::Unknown);
+        }
         let mut merged: Option<Vec<(String, Value)>> = None;
         let expressions = call.arguments.iter().map(Argument::as_expression);
         let mut values: Vec<_> = self.arguments(call, depth).into_iter().zip(expressions).collect();
@@ -3225,7 +3347,21 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         if let Some(value) = special {
             return value;
         }
-        defined(call).map_or(Value::Unknown, |first| self.expr(first, depth))
+        self.defined(call)
+            .map_or(Value::Unknown, |first| self.expr(first, depth))
+    }
+
+    /// What a `define…` helper is given ([`defined`]) when no code of the project is behind it
+    /// ([`Unstable::calls_foreign`]): a helper of a module of the project or of a workspace package, or a method of
+    /// an object the module declares (`const { defineProperty } = Object`), may return anything.
+    fn defined(&self, call: &'p CallExpression<'a>) -> Option<&'p Expression<'a>> {
+        defined(call).filter(|_| self.unstable.calls_foreign(call))
+    }
+
+    /// How `call` merges its arguments ([`merge_style`]) when no code of the project is behind it
+    /// ([`Unstable::calls_foreign`]): a `merge` of a module of the project may merge any way.
+    fn merge_style(&self, call: &CallExpression<'_>) -> Option<MergeStyle> {
+        merge_style(&call.callee, self.bindings).filter(|_| self.unstable.calls_foreign(call))
     }
 
     /// The arguments of the calls the evaluator cannot follow whose results `expr`, which evaluated to `value`, is or
@@ -3326,11 +3462,11 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// [`Self::unknown_call_arguments`] of `call`.
     fn unknown_arguments_of_call(&self, call: &'p CallExpression<'a>, value: &Value, depth: u32) -> Vec<Value> {
-        if let Some(first) = defined(call) {
+        if let Some(first) = self.defined(call) {
             return self.unknown_call_arguments(first, value, depth);
         }
         let recorded = self.arguments_of.borrow().get(&call.span).cloned();
-        if merge_style(&call.callee, self.bindings).is_some() {
+        if self.merge_style(call).is_some() {
             let values = recorded.unwrap_or_default();
             return call
                 .arguments
@@ -3799,7 +3935,13 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                             self.edit(root.name.as_str(), &keys, &edit);
                         }
                         Some((root, keys, false)) => self.edit(root.name.as_str(), &keys, &Edit::Taint),
-                        None => {}
+                        // An object that is not a name or a member chain (`list.find(…).loader = …`) may be any part
+                        // of a local it may hold.
+                        None => {
+                            let mut writes = Writes::new(self.unstable);
+                            writes.visit_assignment_target(&a.left);
+                            self.havoc(writes.through_aliases());
+                        }
                     },
                     _ => self.havoc(Writes::of_expression(expr, self.unstable)),
                 }
@@ -4053,7 +4195,9 @@ fn taint_value(value: &mut Value) {
         Value::Object(entries) => open_entries(entries),
         Value::Array(items) => {
             items.iter_mut().for_each(open_below);
-            items.push(Value::Unknown);
+            if !matches!(items.last(), Some(Value::Unknown)) {
+                items.push(Value::Unknown);
+            }
         }
         _ => {}
     }
@@ -4105,11 +4249,12 @@ fn value_at<'v>(value: &'v Value, keys: &[String]) -> Option<&'v Value> {
 }
 
 /// The first argument of a call of a function named `define*` (`defineConfig`, `vitest.defineProject`), which
-/// evaluates to that argument; `None` for any other call.
+/// evaluates to that argument; `None` for any other call, among them a method of `Object` or `Reflect`
+/// (`Object.defineProperty`), which changes that argument.
 pub(crate) fn defined<'p, 'a>(call: &'p CallExpression<'a>) -> Option<&'p Expression<'a>> {
     let callee = match call.callee.get_inner_expression() {
         Expression::Identifier(id) => id.name.as_str(),
-        Expression::StaticMemberExpression(m) => m.property.name.as_str(),
+        Expression::StaticMemberExpression(m) if !on_reflection(&m.object) => m.property.name.as_str(),
         _ => return None,
     };
     let is_define = callee.starts_with("define") && callee.len() > "define".len();
@@ -4117,6 +4262,14 @@ pub(crate) fn defined<'p, 'a>(call: &'p CallExpression<'a>) -> Option<&'p Expres
         .first()
         .and_then(Argument::as_expression)
         .filter(|_| is_define)
+}
+
+/// Whether a method is called on `Object` or `Reflect`, whose `define…` methods change what they are given.
+fn on_reflection(object: &Expression<'_>) -> bool {
+    matches!(
+        object.get_inner_expression(),
+        Expression::Identifier(id) if matches!(id.name.as_str(), "Object" | "Reflect")
+    )
 }
 
 /// How a config combinator merges its arguments.
@@ -4155,6 +4308,21 @@ fn merge_style(callee: &Expression<'_>, bindings: &ModuleBindings) -> Option<Mer
             }
         }
         _ => None,
+    }
+}
+
+/// Whether a merge called with `count` arguments is given options that may say how it merges: a third argument of
+/// `deepmerge`, and any argument of `mergeWith`, whose last one may be a function that merges each key.
+fn takes_options(callee: &Expression<'_>, count: usize) -> bool {
+    let name = match callee.get_inner_expression() {
+        Expression::Identifier(id) => id.name.as_str(),
+        Expression::StaticMemberExpression(member) => member.property.name.as_str(),
+        _ => return false,
+    };
+    match name {
+        "deepmerge" | "deepMerge" => count > 2,
+        "mergeWith" => true,
+        _ => false,
     }
 }
 
@@ -4323,10 +4491,21 @@ impl<'u> Writes<'u> {
         writes
     }
 
-    /// Records a change of what the object `expr` (a name or a member chain) holds.
+    /// Records a change of what the object `expr` holds: the part of a local a name or a member chain is, or each part
+    /// any other object may be ([`Unstable::parts_of`]).
     fn object(&mut self, expr: &Expression<'_>) {
         if let Some((root, keys, _)) = reach(expr) {
-            self.change(root.name.as_str(), Write { keys, key: None });
+            return self.change(root.name.as_str(), Write { keys, key: None });
+        }
+        let unstable = self.unstable;
+        for (name, keys, _) in unstable.parts_of(expr) {
+            self.change(
+                name,
+                Write {
+                    keys: keys.clone(),
+                    key: None,
+                },
+            );
         }
     }
 
@@ -4375,7 +4554,21 @@ impl<'a> Visit<'a> for Writes<'_> {
                     let key = Some(m.property.name.as_str().to_owned());
                     self.change(root.name.as_str(), Write { keys, key });
                 }
-                _ => self.object(&m.object),
+                Some(_) => self.object(&m.object),
+                // `(a ? x.a : x.b).key = …` sets the key of each part of a local the object is.
+                None => {
+                    let unstable = self.unstable;
+                    for (name, keys, exact) in unstable.parts_of(&m.object) {
+                        let key = exact.then(|| m.property.name.as_str().to_owned());
+                        self.change(
+                            name,
+                            Write {
+                                keys: keys.clone(),
+                                key,
+                            },
+                        );
+                    }
+                }
             },
             other => {
                 if let Some(member) = other.as_member_expression() {
@@ -4401,8 +4594,20 @@ impl<'a> Visit<'a> for Writes<'_> {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
-        if let Some(target) = changed_by_call(it, self.unstable.is_pure(it)) {
-            self.object(target);
+        if let Expression::Identifier(callee) = it.callee.get_inner_expression()
+            && self.unstable.calls_value(it)
+        {
+            self.change(callee.name.as_str(), Write::default());
+        }
+        if let Some(target) = changed_by_call(it, self.unstable.is_pure(it), self.unstable.calls_back(it))
+            && !self.unstable.is_namespace(target)
+        {
+            match (property_defined(it), reach(target)) {
+                (Some(key), Some((root, keys, true))) => {
+                    self.change(root.name.as_str(), Write { keys, key: Some(key) });
+                }
+                _ => self.object(target),
+            }
         }
         self.arguments(it.span, &it.arguments, false);
         walk::walk_call_expression(self, it);
@@ -4418,6 +4623,12 @@ impl<'a> Visit<'a> for Writes<'_> {
             self.arguments(call.span, &call.arguments, true);
         }
         walk::walk_expression_statement(self, it);
+    }
+
+    fn visit_with_statement(&mut self, it: &oxc_ast::ast::WithStatement<'a>) {
+        // A name the body writes may be a key of the object.
+        self.object(&it.object);
+        walk::walk_with_statement(self, it);
     }
 
     fn visit_function(&mut self, _: &Function<'a>, _: oxc_semantic::ScopeFlags) {}

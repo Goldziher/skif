@@ -44,7 +44,7 @@ All notable changes to this project are documented here. The format follows
   is the configuration counterpart of `--strict` (production mode, isolation and knip's direct-dependency rules), so
   CI no longer needs the flag. Setting the mode in the file gives every run, `skif baseline write` and `prune`
   included, the same mode, and `stale-js-config` judges `ignore-dependencies` entries against that one run
-  ([ADR 0127](adrs/0127-workspace-isolation-without-production-mode.md),
+  ([ADR 0131](adrs/0131-workspace-isolation-without-production-mode.md),
   [#221](https://github.com/Goldziher/skif/issues/221)).
 - `YamlSource` of `skif-workspace` gains `public_hoist_pattern` and `shamefully_hoist`, and `skif-js-plugins` exports
   `bazel::public_hoist_packages`.
@@ -57,9 +57,64 @@ All notable changes to this project are documented here. The format follows
   because test files may be the only importers. `--include subpaths` and `--fix-type subpaths` select the imports
   rule, and `skif migrate --from knip` maps `subpaths`, `includeSubpathExports` and `--include-subpath-exports`
   ([#208](https://github.com/Goldziher/skif/issues/208)).
+- **`knip` plugin**: in a project that runs knip next to skif, with `knip` as a dependency, knip's config files
+  (`knip.json`, `knip.jsonc`, `.knip.json`, `.knip.jsonc`, `knip.*`, `knip.config.*`, the `knip` key of
+  `package.json`) are configs and the JavaScript and TypeScript ones are entries, so `unused-files` no longer reports
+  them and what they import is used; the table holds 207 plugins
+  ([ADR 0128](adrs/0128-a-knip-plugin-for-projects-that-run-knip-next-to-skif.md),
+  [#217](https://github.com/Goldziher/skif/issues/217)).
 
 ### Fixed
 
+- **Migrate**: `--merge` unites lists by entry name. A string and a `{ name, reason }` table with that name are one
+  entry, which keeps the existing reason or takes the migrated one, instead of both staying in the list. In `[js]`
+  `entry` and `project`, a migrated `x!` replaces the existing plain `x`, which in production mode excluded the file
+  the `!` pattern makes an entry; the report names the list (`replaced-existing`). In the `[js]` ignore lists, `x`
+  covers `x!`. Elsewhere a trailing `!` is part of the entry
+  ([ADR 0127](adrs/0127-migrate-merge-unites-list-entries-by-name.md),
+  [#219](https://github.com/Goldziher/skif/issues/219)).
+- **JS**: `[js.workspaces.<dir>.paths]` keys are matched as `tsconfig` `paths` are: one `*` anywhere in the key
+  matches any text, so the catch-all `"*"` and keys such as `"serv*"` or `"*.svg"` map imports instead of being
+  dropped, and the matching keys are tried longest prefix first, an exact key before every wildcard. A key without
+  `*` maps only that specifier and `"alias/*"` no longer maps the bare `alias`, as in TypeScript; relative and
+  absolute specifiers are never mapped. A key or target with more than one `*` is a configuration error
+  ([#214](https://github.com/Goldziher/skif/issues/214)).
+- **JS**: an import that a package's own tsconfig `paths` map into its sources (`src/*` to `./src/*`) is no longer an
+  import of the workspace package whose name it starts with (a member named `src`). Strict mode reported it as that
+  package unlisted, and the other modes counted it as a use of the member
+  ([#215](https://github.com/Goldziher/skif/issues/215)).
+- **JS**: production mode leaves the development entries of plugins (Storybook stories, test files, Vitest
+  `setupFiles`) out of the project, as knip does, so they are no longer reported by `unused-files`
+  ([#210](https://github.com/Goldziher/skif/issues/210)).
+- **JS**: production mode keeps the `start` script of `package.json`, knip's production script, so the files it runs
+  are production entries and no longer reported by `unused-files`
+  ([#216](https://github.com/Goldziher/skif/issues/216)).
+- **JS**: a directory that an `[js] ignore-workspaces` glob matches also leaves the packages above it, as knip's
+  `ignoreWorkspaces` does: its files that belong to no skipped member are no longer analysed and reported in the root
+  ([ADR 0129](adrs/0129-directories-matched-by-ignore-workspaces-leave-the-packages-above-them.md),
+  [#218](https://github.com/Goldziher/skif/issues/218)).
+- **JS**: `ignore-exports-used-in-file` exempts an import binding the file re-exports and reads as a value
+  (`import a from "./a"; export { a, bMod as b }; export default { a, b: bMod }`), as it exempts a local declaration,
+  and a `module.exports = { X }` member whose binding the file reads outside that object, also under
+  `unused-namespace-exports`. A barrel that exports every module by name and again through its default object is no
+  longer reported in full ([#211](https://github.com/Goldziher/skif/issues/211)).
+- **JS**: the exports of a Svelte component's instance `<script>` (`export let label`, `export const`, `export
+  function`) are props and instance accessors, so `unused-exports` no longer reports them; the exports of the module
+  script (`<script context="module">` in Svelte 4, `<script module>` in Svelte 5) are still judged. A package with a
+  reached `.svelte` file uses `svelte`, which is no longer reported by `unused-dependencies`
+  ([#212](https://github.com/Goldziher/skif/issues/212)).
+- **JS**: a namespace import read through JSX member tags (`<S.Button />`, `<S.Button></S.Button>`) reads the member
+  after the namespace, as `S.Button` does, instead of using the module as a whole; a nested tag
+  (`<S.Ctx.Provider />`) reads `Ctx`. The other exports of the module are reported by `unused-namespace-exports`
+  ([#213](https://github.com/Goldziher/skif/issues/213)).
+- **Bazel plugin**: a `BUILD` file comprehension that formats each string of a list literal
+  (`[":node_modules/%s" % name for name in ["typescript", "vite"]]`) names the formatted packages instead of the
+  dependency `%s`, and the patterns of a `glob(...)` (`"node_modules/**"`), any other format template and a
+  `node_modules` target that is no valid npm package name name no dependency. A dependency a `BUILD` file names is
+  reported at the line of the label, and `explain-usage --dependency` lists the config files and lines that name a
+  dependency the package does not list (`unlisted-references` in its JSON)
+  ([ADR 0130](adrs/0130-bazel-label-lists-built-by-a-format-comprehension.md),
+  [#220](https://github.com/Goldziher/skif/issues/220)).
 - **JS**: pattern keys of `exports` and `imports` maps are selected as Node.js orders them: of two patterns with the
   same prefix, the longer one wins (`./features/*.css` over `./features/*` for `./features/a.css`).
 - **Migrate**: `--merge --output <FILE>` writes the merge of the existing `skif.toml` and the migration to `FILE`
@@ -141,6 +196,49 @@ All notable changes to this project are documented here. The format follows
   all of it partly unknown. A call of a function the config declares (`const r = set(config)`) shares with the config
   only what the function may return of it, and a change through what a method returns (`config.plugins.find(…)`)
   reaches the object it is called on.
+- **Config evaluation**: more changes the evaluator does not run reach what they change. A call given only an alias
+  the evaluator follows (`const { build } = config; applyDefaults(build)`) leaves that part of the local partly
+  unknown, and an alias of a local that is assigned again is not followed, as it may hold an object the local no
+  longer does. `Object.defineProperty`, `Reflect.defineProperty` and `Object.defineProperties` are no `define…`
+  helpers: they change their first argument, the first two only at the key they name when it is a string. A write,
+  `delete`, `push` or `Object.assign` through an object that is not a name or a member chain
+  (`config.module.rules.find(…).loader = …`, `(prod ? config.prod : config.dev).devtool = false`) reaches each part
+  of a local that object may be instead of being dropped. A list method that calls a function it is given with the
+  list's elements (`configs.forEach(withSentry)`, `list.forEach(fn, thisArg)`) changes nothing only when that
+  function is written in place or declared by the config and no `this` object follows it; otherwise the elements
+  and that object are partly unknown. Calling a local that holds a function the evaluator does not follow
+  (`const addAlias = aliaser(config); …; addAlias('~', './lib')`) leaves what it was made from partly unknown. The
+  parameters of a callback after the element (`forEach((name, index, list) => list.push(…))`) share the list it is
+  called over, a `const` list of strings included. An imported value the config changes (`base.build.outDir = 'out'`,
+  `withPlugins(base)`, a write through a local holding it) is read as changed instead of as its module computes it.
+  A `define…` helper changes nothing it is given only when it comes from a package the evaluator does not follow,
+  not from a module of the project (`require('./tools')`, `#tools`, `@/tools`) or a workspace package. Such a
+  helper or merge the evaluator cannot follow (`import { defineConfig } from './define'`), and a `define…` function
+  taken from an object the config declares (`const { defineProperty } = Object`,
+  `globalThis.Object.defineProperty(…)`), is unknown instead of the value it is given or the merge of it.
+  `Object.assign`, `Object.defineProperty` and `Reflect.defineProperty` given their first argument through a spread
+  (`Object.assign(...[config, extra])`) may change every object the spread gives. `JSON.stringify` and `JSON.parse`
+  given a replacer or reviver other than a literal holding no function (`JSON.stringify(config, replacer)`) may
+  change what they are given, as that function is called with it. A change through one import of a module reaches
+  its other imports (`ns.default` and the default import, two exports that may be one object), and a change of a
+  value of another module the config imports reaches it too. A call of a function of a project module or a
+  workspace package that changes a value of a module (an import of its own, a binding it exports, directly or through
+  a function of another module it calls), and a module imported or required only for its effects
+  (`import './setup'`), leave every value the config imports from such modules partly unknown; a module whose
+  functions change no such value (`name()` returning a string, a factory that builds and returns a new config, also
+  one the module calls when it is loaded) leaves them known. What a module imported for its
+  values does when it is loaded is still not followed. A merge given options that may hold a function
+  (`deepmerge(a, b, { arrayMerge })`), and an export of a merge package that is no copying merge (`deepmergeInto`,
+  `defuFn`, `mergeWithCustomize`), may change what it is given; the value of `deepmerge` given options and of
+  `mergeWith` is unknown, as they may merge any way. The object of a `with` statement is partly unknown after it.
+  A callback or loop over the entries or values of a `const` object of strings that no change reaches
+  (`Object.entries(pages).map(([name, template]) => new HtmlWebpackPlugin({ chunks: [name], template }))`) no longer
+  leaves the object partly unknown, so a multi-page webpack config keeps its `entry` known. Code a value runs
+  implicitly (a getter, `toString` through a template literal or `String(x)`, `toJSON` through `JSON.stringify`)
+  is still not followed, as is a later change an imported function makes to an object an earlier call gave it.
+  A method of a package is taken to keep nothing it is given in the package only when the config does nothing else
+  with the package (`_.merge(…)`) and the evaluator does not follow it: what a method of a workspace package returns
+  (`base.self()`), or of one the config stores a value in (`pkg.config = local`), may hold what the package holds.
 - **Config evaluation**: `.map`, `.flatMap` and `.filter` of a known array call their callback (an inline function,
   or one the config declares) with each element and its index, so Vitest projects spread from
   `` ['light', 'dark'].map((theme) => ({ test: { name: `browser-${theme}` } })) `` are known instead of leaving the
