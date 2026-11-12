@@ -190,6 +190,29 @@ fn a_production_run_keeps_unmarked_entries_out_of_the_project() {
 }
 
 #[test]
+fn a_production_run_keeps_test_setup_files_out_of_the_project() {
+    let files = vec![
+        MANIFEST,
+        (
+            "packages/a/package.json",
+            r#"{"name":"@x/a","main":"src/index.ts","devDependencies":{"vitest":"3.0.0"}}"#,
+        ),
+        (
+            "packages/a/vitest.config.ts",
+            "import { defineConfig } from \"vitest/config\";\nexport default defineConfig({ test: { setupFiles: [\"./test-setup.ts\"] } });\n",
+        ),
+        ("packages/a/test-setup.ts", "export {};\n"),
+        ("packages/a/src/index.ts", "export {};\n"),
+        ("packages/a/src/orphan.ts", "export {};\n"),
+    ];
+    let normal = lint(&files, "");
+    assert_eq!(paths(&normal, "unused-files"), ["packages/a/src/orphan.ts"]);
+    // The setup file is a development entry of the `vitest` plugin: no production code, so no project file either.
+    let production = lint(&files, "[js]\nproduction = true\n");
+    assert_eq!(paths(&production, "unused-files"), ["packages/a/src/orphan.ts"]);
+}
+
+#[test]
 fn ignore_workspaces_skips_the_analysis_of_matching_packages() {
     let files = two_packages("export {};\n");
     assert_eq!(found(&lint(&files, ""), "unused-dependencies").len(), 2);

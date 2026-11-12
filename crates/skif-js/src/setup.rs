@@ -896,6 +896,13 @@ impl Setup {
                 .filter(|pattern| is_shared_pattern(pattern))
                 .cloned()
                 .collect();
+            // A tool's development entries (stories, tests, their setup files) are no production code: production
+            // mode leaves them out of the project, as knip does.
+            let development_entry = if production {
+                listed::non_production_entries(&plugin.entry)
+            } else {
+                Vec::new()
+            };
             let mut plugin_entry: Vec<String> = plugin.production_entry.clone();
             if !production {
                 plugin_entry.extend(plugin.entry.iter().cloned());
@@ -941,6 +948,7 @@ impl Setup {
             if production {
                 let mut exclusions = listed::production_exclusions(&plugin.project);
                 exclusions.extend(listed::non_production_entries(&user.entry));
+                exclusions.extend(development_entry);
                 exclusions.extend(
                     test_files()
                         .into_iter()
