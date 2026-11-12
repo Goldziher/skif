@@ -53,11 +53,18 @@ All notable changes to this project are documented here. The format follows
   (`knip.json`, `knip.jsonc`, `.knip.json`, `.knip.jsonc`, `knip.*`, `knip.config.*`, the `knip` key of
   `package.json`) are configs and the JavaScript and TypeScript ones are entries, so `unused-files` no longer reports
   them and what they import is used; the table holds 207 plugins
-  ([ADR 0127](adrs/0127-a-knip-plugin-for-projects-that-run-knip-next-to-skif.md),
+  ([ADR 0128](adrs/0128-a-knip-plugin-for-projects-that-run-knip-next-to-skif.md),
   [#217](https://github.com/Goldziher/skif/issues/217)).
 
 ### Fixed
 
+- **Migrate**: `--merge` unites lists by entry name. A string and a `{ name, reason }` table with that name are one
+  entry, which keeps the existing reason or takes the migrated one, instead of both staying in the list. In `[js]`
+  `entry` and `project`, a migrated `x!` replaces the existing plain `x`, which in production mode excluded the file
+  the `!` pattern makes an entry; the report names the list (`replaced-existing`). In the `[js]` ignore lists, `x`
+  covers `x!`. Elsewhere a trailing `!` is part of the entry
+  ([ADR 0127](adrs/0127-migrate-merge-unites-list-entries-by-name.md),
+  [#219](https://github.com/Goldziher/skif/issues/219)).
 - **JS**: production mode leaves the development entries of plugins (Storybook stories, test files, Vitest
   `setupFiles`) out of the project, as knip does, so they are no longer reported by `unused-files`
   ([#210](https://github.com/Goldziher/skif/issues/210)).
@@ -66,7 +73,7 @@ All notable changes to this project are documented here. The format follows
   ([#216](https://github.com/Goldziher/skif/issues/216)).
 - **JS**: a directory that an `[js] ignore-workspaces` glob matches also leaves the packages above it, as knip's
   `ignoreWorkspaces` does: its files that belong to no skipped member are no longer analysed and reported in the root
-  ([ADR 0128](adrs/0128-directories-matched-by-ignore-workspaces-leave-the-packages-above-them.md),
+  ([ADR 0129](adrs/0129-directories-matched-by-ignore-workspaces-leave-the-packages-above-them.md),
   [#218](https://github.com/Goldziher/skif/issues/218)).
 - **JS**: pattern keys of `exports` and `imports` maps are selected as Node.js orders them: of two patterns with the
   same prefix, the longer one wins (`./features/*.css` over `./features/*` for `./features/a.css`).
