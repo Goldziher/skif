@@ -4203,6 +4203,11 @@ impl<'a> Visit<'a> for Writes<'_> {
         walk::walk_call_expression(self, it);
     }
 
+    fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
+        self.arguments(it.span, &it.arguments, false);
+        walk::walk_new_expression(self, it);
+    }
+
     fn visit_expression_statement(&mut self, it: &ExpressionStatement<'a>) {
         if let Some(call) = statement_call(&it.expression) {
             self.arguments(call.span, &call.arguments, true);

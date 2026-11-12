@@ -885,6 +885,22 @@ impl<'a> Visit<'a> for Sharing<'_> {
         walk::walk_call_expression(self, it);
     }
 
+    fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
+        // A class the pass does not know may change what it is given, and keep it in another argument.
+        if constructs_builtin(self.scoping, it) {
+            self.effects.insert(it.span, Effect::Keeps);
+        } else {
+            self.mutate_arguments(&it.arguments);
+            let held: Vec<Held> = it
+                .arguments
+                .iter()
+                .flat_map(|argument| self.refs(Part::Value, |refs| refs.visit_argument(argument)))
+                .collect();
+            self.link_among(&held);
+        }
+        walk::walk_new_expression(self, it);
+    }
+
     fn visit_expression_statement(&mut self, it: &ExpressionStatement<'a>) {
         // A function the module declares, called for what it does, is taken to change what it is given too.
         if let Some(call) = statement_call(&it.expression)
@@ -1367,6 +1383,29 @@ fn calls_callable(scoping: &Scoping, callables: &Callables, call: &CallExpressio
         return false;
     };
     local_symbol(scoping, id).is_some_and(|symbol| callables.contains(symbol)) && !has_spread(call)
+}
+
+/// Built-in classes whose constructors change none of the objects they are given.
+const BUILTIN_CLASSES: &[&str] = &[
+    "Array",
+    "Date",
+    "Error",
+    "Map",
+    "Promise",
+    "RegExp",
+    "Set",
+    "URL",
+    "URLSearchParams",
+    "WeakMap",
+    "WeakSet",
+];
+
+/// Whether `new` constructs one of [`BUILTIN_CLASSES`], a global the module does not declare.
+fn constructs_builtin(scoping: &Scoping, new: &NewExpression<'_>) -> bool {
+    matches!(
+        new.callee.get_inner_expression(),
+        Expression::Identifier(id) if resolved(scoping, id).is_none() && BUILTIN_CLASSES.contains(&id.name.as_str())
+    )
 }
 
 /// Packages whose functions build a new object and change none of the objects they are given.

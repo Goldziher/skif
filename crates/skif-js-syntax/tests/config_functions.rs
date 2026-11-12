@@ -2079,3 +2079,29 @@ fn a_call_that_is_not_known_may_change_its_argument_in_any_position() {
     let configs = exported.as_array().unwrap();
     assert!(open(&configs[1]), "{exported:?}");
 }
+
+/// A `new` of a class the module does not know may change what it is given, as a statement or in a value; a built-in
+/// class (`new Map(…)`, `new URL(…)`) changes nothing.
+#[test]
+fn a_new_object_of_an_unknown_class_may_change_its_argument() {
+    for body in [
+        "new Plugin(config);",
+        "const plugin = new Plugin(config);",
+        "const plugins = [new Plugin(config)];",
+    ] {
+        let source = format!(
+            "const Plugin = require('plugin');\n\
+             const config = {{ entry: './src/main.js', module: {{ rules: [] }} }};\n{body}\nmodule.exports = config;"
+        );
+        let value = extract("rspack.config.js", &source);
+        assert!(open(&value), "{body}: {value:?}");
+    }
+    let kept = extract(
+        "rspack.config.js",
+        "const config = { entry: './src/main.js', alias: [['a', './a.js']] };\n\
+         const aliases = new Map(config.alias);\n\
+         const root = new URL('./src/', 'file:///repo/');\n\
+         module.exports = config;",
+    );
+    assert!(!open(&kept), "{kept:?}");
+}
