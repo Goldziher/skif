@@ -186,7 +186,7 @@ impl Selector {
             && self.exclude.is_empty()
             && !self.include_local
             && !self.exclude_local;
-        only_literals.then(|| self.include_literals.iter().map(AsRef::as_ref))
+        only_literals.then(|| self.include_literals.iter().map(|literal| &**literal))
     }
 
     /// `name` as a pattern without glob syntax is compared with it: unchanged on Unix, and with every `\` turned into
