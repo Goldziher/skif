@@ -3482,6 +3482,77 @@ fn bun_reads_the_lint_plugins_from_bunfig() {
     assert!(!deps(out).contains("./lint/local-rules.ts"));
 }
 
+/// `[test] root` moves the test globs of `bun test` below that directory, relative to `bunfig.toml`.
+#[test]
+fn bun_test_root_replaces_the_default_test_globs() {
+    let config = "[test]\nroot = \"./tests\"\n";
+    let results = resolve(&[("bunfig.toml", config)], &[]);
+    let out = output(&results, "bun");
+    assert_entries(
+        &out.entries,
+        &[
+            "tests/**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "tests/**/*_{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        ],
+    );
+    assert!(
+        !out.entries.iter().any(|entry| entry.starts_with("**/")),
+        "{:?}",
+        out.entries
+    );
+}
+
+/// `pathIgnorePatterns` leaves files and whole directories out of what `bun test` runs; its globs are relative to
+/// `bunfig.toml`, not to `[test] root`.
+#[test]
+fn bun_test_path_ignore_patterns_leave_test_files_out() {
+    let test = "import { test } from \"bun:test\";\ntest(\"x\", () => {});\n";
+    let files = |config: &'static str| {
+        vec![
+            ("bunfig.toml", config),
+            ("src/a.test.ts", test),
+            ("tests/d.test.ts", test),
+            ("tests/keep/b_spec.ts", test),
+            ("tests/skip/c.test.ts", test),
+            ("tests/skip/deep/e.test.ts", test),
+            ("tests/f.test.ts", test),
+        ]
+    };
+    let narrowed = files("[test]\nroot = \"tests\"\npathIgnorePatterns = [\"tests/skip\", \"tests/f.test.ts\"]\n");
+    let results = resolve(&narrowed, &[]);
+    let mut entries = output(&results, "bun").entries.clone();
+    entries.sort();
+    assert_eq!(entries, ["tests/d.test.ts", "tests/keep/b_spec.ts"]);
+    // Without a root, the whole package is searched; a pattern relative to the root instead of the config matches
+    // nothing.
+    let anywhere = files("[test]\npathIgnorePatterns = [\"skip/**\", \"src/**\"]\n");
+    let results = resolve(&anywhere, &[]);
+    let mut entries = output(&results, "bun").entries.clone();
+    entries.sort();
+    assert_eq!(
+        entries,
+        [
+            "tests/d.test.ts",
+            "tests/f.test.ts",
+            "tests/keep/b_spec.ts",
+            "tests/skip/c.test.ts",
+            "tests/skip/deep/e.test.ts"
+        ]
+    );
+}
+
+/// Entries configured for the plugin in `[js.plugins]` win over what `bunfig.toml` says.
+#[test]
+fn bun_configured_entries_are_kept_over_the_test_root() {
+    let mut plugins = IndexMap::new();
+    plugins.insert(
+        "bun".to_string(),
+        PluginConfig::Options(PluginOptions::new().with_entry(["checks/**/*.ts"])),
+    );
+    let results = resolve_with(&[("bunfig.toml", "[test]\nroot = \"tests\"\n")], &[], true, &plugins);
+    assert_eq!(output(&results, "bun").entries, ["checks/**/*.ts"]);
+}
+
 /// Bun Shell and `Bun.spawn` run commands, `Bun.build` bundles its `entrypoints` from the package directory, and the
 /// `Bun` global uses the type package that declares it.
 #[test]
