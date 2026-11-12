@@ -61,6 +61,8 @@ use skif_core::{HashMap, HashSet};
 use crate::config::defined;
 use crate::finder::static_string;
 
+/// An alias a declaration declares, with the keys of the part of its local it takes.
+type AliasPart = (SymbolId, Vec<String>);
 /// The most keys a path below a binding keeps; a longer one is cut to this many, standing for all that is below it.
 const MAX_KEYS: usize = 8;
 
@@ -782,11 +784,7 @@ impl Sharing<'_> {
     /// The aliases a `const` declaration of `pattern` with `init` declares, each with the keys of the part it takes,
     /// and the local they take a part of: `None` unless the local is one of the function being visited
     /// ([`alias_source`], [`alias_names`]).
-    fn alias(
-        &self,
-        pattern: &BindingPattern<'_>,
-        init: &Expression<'_>,
-    ) -> Option<(Vec<(SymbolId, Vec<String>)>, SymbolId)> {
+    fn alias(&self, pattern: &BindingPattern<'_>, init: &Expression<'_>) -> Option<(Vec<AliasPart>, SymbolId)> {
         if !self.in_const {
             return None;
         }
@@ -1023,12 +1021,11 @@ impl Sharing<'_> {
                 }
                 let change = Change::Contents(vec![write.clone()]);
                 match through_alias {
-                    None => self.change(other, change),
                     Some(alias) if other == alias.root && alias.applied(&origin).covers(&write) => {}
                     Some(alias) if self.function_of(other) == self.function_of(symbol) => {
                         self.late.push((other, alias.from, change));
                     }
-                    Some(_) => self.change(other, change),
+                    None | Some(_) => self.change(other, change),
                 }
             }
         }
