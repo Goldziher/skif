@@ -3390,6 +3390,35 @@ fn a_setter_given_its_first_argument_through_a_spread_may_change_what_it_spreads
     }
 }
 
+/// `Object.assign` of an object literal copies the own keys of what follows into it, as a spread does: a new value of a
+/// key of the copy leaves the original known, and a change below a key it copied reaches the original there only.
+#[test]
+fn object_assign_onto_a_literal_copies_the_keys_of_what_it_is_given() {
+    let source = "const base = { plugins: [], resolve: { alias: {} } };\n\
+                  const merged = Object.assign({}, base);\n\
+                  merged.test = { globals: true };\n\
+                  export default { base, merged };";
+    let value = extract("vite.config.mjs", source);
+    assert_eq!(
+        get(&value, &["base"]),
+        &ConfigValue::Object(vec![
+            ("plugins".to_owned(), strings(&[])),
+            (
+                "resolve".to_owned(),
+                ConfigValue::Object(vec![("alias".to_owned(), ConfigValue::Object(Vec::new()))])
+            ),
+        ]),
+        "{value:?}"
+    );
+    let below = "const base = { plugins: [], resolve: { alias: {} } };\n\
+                 const merged = Object.assign({}, base);\n\
+                 merged.resolve.alias.x = 1;\n\
+                 export default { base };";
+    let value = extract("vite.config.mjs", below);
+    assert_eq!(at(&value, &["base", "resolve", "alias", "x"]), &UNKNOWN, "{value:?}");
+    assert_eq!(get(&value, &["base", "plugins"]), &strings(&[]), "{value:?}");
+}
+
 /// `JSON.stringify` given a replacer that is not a literal calls it with every value of what it is given, which it may
 /// change, so the config is partly unknown after it, as it is when its arguments come through a spread, which may hold
 /// such a replacer; given `null`, `undefined`, a list of keys or a number of spaces, it changes nothing.
