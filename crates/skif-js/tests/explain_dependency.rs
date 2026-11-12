@@ -42,7 +42,9 @@ fn memory(extra: &[(&str, &str)]) -> MemoryFs {
     WORKSPACE
         .iter()
         .chain(extra)
-        .fold(MemoryFs::new(), |memory, (path, text)| memory.with_file(format!("/ws/{path}"), text))
+        .fold(MemoryFs::new(), |memory, (path, text)| {
+            memory.with_file(format!("/ws/{path}"), text)
+        })
 }
 
 fn explain_with(config: &Config, extra: &[(&str, &str)], name: &str, package: Option<&str>) -> DependencyExplanation {
@@ -102,7 +104,11 @@ fn import(file: &str) -> serde_json::Value {
 #[test]
 fn an_imported_dependency_is_used_with_the_importing_files_as_evidence() {
     let explanation = explain("zod");
-    let names: Vec<&str> = explanation.packages.iter().map(|package| package.package.as_str()).collect();
+    let names: Vec<&str> = explanation
+        .packages
+        .iter()
+        .map(|package| package.package.as_str())
+        .collect();
     assert_eq!(names, ["app", "web"], "{explanation:#?}");
     let app = package(&explanation, "app");
     assert_eq!(app.verdict, DependencyVerdict::Used);

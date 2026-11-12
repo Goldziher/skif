@@ -182,7 +182,11 @@ fn pnpm_hoisted(workspace: &Workspace, fs: &dyn FileSystem) -> bool {
         .pnpm_workspace
         .as_ref()
         .and_then(|yaml| yaml.node_linker.clone())
-        .or_else(|| reads_npmrc.then(|| npmrc_setting(fs, &workspace.root, "node-linker")).flatten());
+        .or_else(|| {
+            reads_npmrc
+                .then(|| npmrc_setting(fs, &workspace.root, "node-linker"))
+                .flatten()
+        });
     linker.as_deref() == Some("hoisted")
 }
 
@@ -1770,7 +1774,10 @@ impl DependencyUsage {
                     .strip_prefix(&workspace.root)
                     .map_or_else(|_| abs.to_string_lossy(), |rel| rel.to_string_lossy())
                     .replace('\\', "/");
-                let name = manifest.get("name").and_then(Value::as_str).map_or_else(|| dir.clone(), str::to_owned);
+                let name = manifest
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map_or_else(|| dir.clone(), str::to_owned);
                 RunsIn { dir, name }
             }
             None => RunsIn {
@@ -1854,7 +1861,11 @@ impl DependencyUsage {
     fn provide_project_binary(&mut self, fs: &dyn FileSystem, dir: &Path, manifest: &Value, bin: &str) -> bool {
         let mut cache = HashMap::default();
         let providers: Vec<String> = listed_names(manifest)
-            .filter(|name| listed_bins(fs, dir, name, &mut cache).iter().any(|provided| provided == bin))
+            .filter(|name| {
+                listed_bins(fs, dir, name, &mut cache)
+                    .iter()
+                    .any(|provided| provided == bin)
+            })
             .map(str::to_owned)
             .collect();
         for provider in &providers {

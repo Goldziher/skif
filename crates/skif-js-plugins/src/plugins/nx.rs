@@ -42,7 +42,10 @@ impl Plugin for Nx {
         let local = Local::new(cx, &roots);
         if config.file_name() == "nx.json" {
             if let Some(ConfigValue::Object(defaults)) = config.value.get("targetDefaults") {
-                for (key, _) in defaults.iter().filter(|(key, _)| key.starts_with('@') && key.contains(':')) {
+                for (key, _) in defaults
+                    .iter()
+                    .filter(|(key, _)| key.starts_with('@') && key.contains(':'))
+                {
                     out.extend(local.executor(key));
                 }
             }
@@ -122,7 +125,10 @@ impl<'c, 'a> Local<'c, 'a> {
     /// What a `plugins` entry of `nx.json` names: a local plugin's module and its collections, or a package.
     fn plugin(&self, specifier: &str) -> Vec<PluginInput> {
         let Some(target) = self.target(specifier) else {
-            return package_name(specifier).map(PluginInput::Dependency).into_iter().collect();
+            return package_name(specifier)
+                .map(PluginInput::Dependency)
+                .into_iter()
+                .collect();
         };
         let mut out: Vec<PluginInput> = self
             .module_file(&target)
@@ -231,7 +237,11 @@ impl<'c, 'a> Local<'c, 'a> {
                     _ => None,
                 })
                 .flatten()
-                .flat_map(|(_, member)| IMPLEMENTATION_KEYS.iter().filter_map(move |key| member.get(key)?.as_str()));
+                .flat_map(|(_, member)| {
+                    IMPLEMENTATION_KEYS
+                        .iter()
+                        .filter_map(move |key| member.get(key)?.as_str())
+                });
             for module in modules {
                 let path = module.split('#').next().unwrap_or_default();
                 let entry = self

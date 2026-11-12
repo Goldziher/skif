@@ -102,10 +102,12 @@ pub(crate) fn parse(path: PathBuf, source: Arc<str>) -> Result<Lerna, WorkspaceE
         _ => None,
     };
     let key = |name: &str| [PathSeg::Key(name.into())];
-    let use_workspaces = manifest
-        .value
-        .get("useWorkspaces")
-        .map(|value| (value.as_bool() == Some(true), manifest.field_span(&key("useWorkspaces"))));
+    let use_workspaces = manifest.value.get("useWorkspaces").map(|value| {
+        (
+            value.as_bool() == Some(true),
+            manifest.field_span(&key("useWorkspaces")),
+        )
+    });
     Ok(Lerna {
         packages,
         package_manager,
@@ -148,7 +150,10 @@ mod tests {
         let (value, span) = lerna.use_workspaces.unwrap();
         assert!(value);
         let span = span.unwrap();
-        assert_eq!(&source[span.start as usize..span.end as usize], r#""useWorkspaces": true"#);
+        assert_eq!(
+            &source[span.start as usize..span.end as usize],
+            r#""useWorkspaces": true"#
+        );
         assert!(!lerna.has_version);
         let facts = LernaFacts::new(&lerna);
         assert_eq!(facts.use_workspaces, Some(true));

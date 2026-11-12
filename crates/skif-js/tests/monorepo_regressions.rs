@@ -669,7 +669,10 @@ fn npm_links_member_binaries_as_its_install_strategy_says() {
         (&[(".npmrc", "install-strategy = \"linked\" # isolated\n")], isolated),
         (&[(".npmrc", "install-strategy=hoisted\n")], hoisted),
         (&[(".npmrc", "install-strategy=nested\n")], hoisted),
-        (&[(".npmrc", "install-strategy=linked\ninstall-strategy=shallow\n")], hoisted),
+        (
+            &[(".npmrc", "install-strategy=linked\ninstall-strategy=shallow\n")],
+            hoisted,
+        ),
         (&[(".npmrc", "# install-strategy=linked\n")], hoisted),
         (&[(".npmrc", "[section]\ninstall-strategy=linked\n")], hoisted),
         (&[("packages/app/.npmrc", "install-strategy=linked\n")], hoisted),

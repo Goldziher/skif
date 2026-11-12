@@ -1079,7 +1079,10 @@ mod tests {
 
     #[test]
     fn json_and_full_directories_without_a_lockfile_beside_them_are_searched() {
-        assert_eq!(discover(&pruned_tree(None)), ["ws:/r", "ws:/r/out/full", "ws:/r/out/json"]);
+        assert_eq!(
+            discover(&pruned_tree(None)),
+            ["ws:/r", "ws:/r/out/full", "ws:/r/out/json"]
+        );
     }
 
     #[test]

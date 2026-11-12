@@ -2015,13 +2015,22 @@ const LOCAL_NX_PLUGIN: &[(&str, &str)] = &[
         r#"{ "generators": { "lib": { "factory": "./src/lib/generator#libGenerator" } } }"#,
     ),
     ("tools/nxp/src/lib/generator.ts", "export function libGenerator() {}\n"),
-    ("tools/executors/echo/package.json", r#"{ "executors": "./executors.json" }"#),
+    (
+        "tools/executors/echo/package.json",
+        r#"{ "executors": "./executors.json" }"#,
+    ),
     (
         "tools/executors/echo/executors.json",
         r#"{ "executors": { "echo": { "implementation": "./impl", "batchImplementation": "./batch.js" } } }"#,
     ),
-    ("tools/executors/echo/impl.ts", "export default async function echo() {}\n"),
-    ("tools/executors/echo/batch.js", "module.exports = async function batch() {};\n"),
+    (
+        "tools/executors/echo/impl.ts",
+        "export default async function echo() {}\n",
+    ),
+    (
+        "tools/executors/echo/batch.js",
+        "module.exports = async function batch() {};\n",
+    ),
     ("tools/gen/src/index.ts", "export const createNodes = [];\n"),
 ];
 
@@ -2047,7 +2056,9 @@ fn nx_local_plugins_executors_and_generators_are_followed() {
     let deps = deps(out);
     assert!(deps.contains("@nx/vite") && deps.contains("@fx/missing"), "{deps:?}");
     assert!(
-        !deps.iter().any(|name| name.starts_with("@fx/n") || name.starts_with("@fx/tools") || name.starts_with('.')),
+        !deps
+            .iter()
+            .any(|name| name.starts_with("@fx/n") || name.starts_with("@fx/tools") || name.starts_with('.')),
         "{deps:?}"
     );
     assert_entries(
@@ -2062,7 +2073,9 @@ fn nx_local_plugins_executors_and_generators_are_followed() {
         ],
     );
     assert!(
-        !out.entries.iter().any(|entry| entry.ends_with(".json")),
+        !out.entries.iter().any(|entry| Path::new(entry)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))),
         "{:?}",
         out.entries
     );
@@ -2077,8 +2090,15 @@ fn nx_executors_name_collections_not_modules() {
     files.extend([("nx.json", "{}"), ("apps/a/project.json", project)]);
     let results = resolve(&files, &["nx"]);
     let out = output(&results, "nx");
-    assert_entries(&out.entries, &["tools/nxp/src/run/impl.ts", "tools/nxp/src/lib/generator.ts"]);
-    assert!(!out.entries.contains(&"tools/nxp/index.ts".to_owned()), "{:?}", out.entries);
+    assert_entries(
+        &out.entries,
+        &["tools/nxp/src/run/impl.ts", "tools/nxp/src/lib/generator.ts"],
+    );
+    assert!(
+        !out.entries.contains(&"tools/nxp/index.ts".to_owned()),
+        "{:?}",
+        out.entries
+    );
     let unaliased: Vec<(&str, &str)> = files
         .iter()
         .copied()
@@ -2087,7 +2107,11 @@ fn nx_executors_name_collections_not_modules() {
     let results = resolve(&unaliased, &["nx"]);
     let out = output(&results, "nx");
     assert!(deps(out).contains("@fx/nxp"), "{:?}", deps(out));
-    assert!(!out.entries.contains(&"tools/nxp/src/run/impl.ts".to_owned()), "{:?}", out.entries);
+    assert!(
+        !out.entries.contains(&"tools/nxp/src/run/impl.ts".to_owned()),
+        "{:?}",
+        out.entries
+    );
 }
 
 /// A workspace package that is a local Nx plugin names its collections in its own `package.json`.
@@ -2259,7 +2283,10 @@ fn cypress_nx_e2e_preset() {
     ));
     assert_entries(&preset, &["src/support/e2e.{js,ts}", "src/**/*.cy.{js,jsx,ts,tsx}"]);
     let dir = entries(&config("{ ...nxE2EPreset(__dirname, { cypressDir: 'cypress' }) }"));
-    assert_entries(&dir, &["cypress/support/e2e.{js,ts}", "cypress/**/*.cy.{js,jsx,ts,tsx}"]);
+    assert_entries(
+        &dir,
+        &["cypress/support/e2e.{js,ts}", "cypress/**/*.cy.{js,jsx,ts,tsx}"],
+    );
     assert!(!dir.iter().any(|entry| entry.starts_with("src/")), "{dir:?}");
     let overridden = entries(&config(
         "{ specPattern: 'early/**/*.cy.ts', ...nxE2EPreset(__filename), supportFile: 'e2e/support.ts' }",
@@ -2272,9 +2299,7 @@ fn cypress_nx_e2e_preset() {
         "{overridden:?}"
     );
     // A spread of something else is not the preset.
-    let other = entries(
-        "import { base } from './base';\nexport default { e2e: { ...base() } };\n",
-    );
+    let other = entries("import { base } from './base';\nexport default { e2e: { ...base() } };\n");
     assert!(!other.iter().any(|entry| entry.starts_with("src/")), "{other:?}");
 }
 
@@ -4371,7 +4396,10 @@ fn working_directory_steps_carry_the_directory_like_cd() {
         .collect();
     assert_eq!(
         loaded,
-        [("@x/loaded", Some("packages/web")), ("@x/job-hook", Some("packages/app"))]
+        [
+            ("@x/loaded", Some("packages/web")),
+            ("@x/job-hook", Some("packages/app"))
+        ]
     );
     assert_entries(&out.entries, &["packages/web/x.js", "packages/app/x.js"]);
 }

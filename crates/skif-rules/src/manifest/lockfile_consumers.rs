@@ -421,7 +421,10 @@ impl<'a> Search<'a> {
             self.consumed.extend(repository.labelled_in_workspace(&file.literals));
             if build {
                 if let Some(dir) = repository.in_workspace(dir.to_owned()) {
-                    let listed = file.literals.iter().filter_map(|literal| listed_lockfile(&dir, literal));
+                    let listed = file
+                        .literals
+                        .iter()
+                        .filter_map(|literal| listed_lockfile(&dir, literal));
                     self.consumed.extend(listed);
                 }
                 self.globs.entry(dir.to_owned()).or_default().extend(file.globs);
@@ -448,7 +451,11 @@ impl<'a> Search<'a> {
             .into_iter()
             .find_map(|dir| self.globs.get(dir).map(|globs| (dir, globs)))
             .is_some_and(|(dir, globs)| {
-                let relative = if dir.is_empty() { path.as_str() } else { &path[dir.len() + 1..] };
+                let relative = if dir.is_empty() {
+                    path.as_str()
+                } else {
+                    &path[dir.len() + 1..]
+                };
                 globs.iter().any(|glob| glob.selects(relative))
             })
     }
@@ -553,9 +560,8 @@ fn names(context: &str, source: &str, lockfile: &str) -> bool {
 fn copies(dockerfile: &DockerfileCopies, lockfile: &str) -> bool {
     let dir = parent(&dockerfile.path);
     let named_from = |context: &str| dockerfile.sources.iter().any(|source| names(context, source, lockfile));
-    let installs = || {
-        manager_of(lockfile).is_some_and(|manager| dockerfile.installs_after_context_copy.contains(&manager))
-    };
+    let installs =
+        || manager_of(lockfile).is_some_and(|manager| dockerfile.installs_after_context_copy.contains(&manager));
     let from_context = |context: &str| named_from(context) || (parent(lockfile) == context && installs());
     named_from("")
         || (parent(lockfile) == dir && from_context(dir))
@@ -670,7 +676,15 @@ x = {\"key\": \"value\"}
 ";
         assert_eq!(
             string_literals(source),
-            ["//tools:deps.bzl", "deps", "k", "v", "//libs/c:pnpm-lock.yaml", "key", "value"]
+            [
+                "//tools:deps.bzl",
+                "deps",
+                "k",
+                "v",
+                "//libs/c:pnpm-lock.yaml",
+                "key",
+                "value"
+            ]
         );
     }
 
@@ -679,7 +693,10 @@ x = {\"key\": \"value\"}
         let source = "genrule(cmd = \"cp $(location //libs/a:pnpm-lock.yaml) $@ && cat $(execpath  :yarn.lock)\", \
                       args = [\"$(rlocationpath @npm//:x)\", \"$(PWD) $(locations\"])\n";
         let literals = string_literals(source);
-        assert_eq!(&literals[literals.len() - 3..], ["//libs/a:pnpm-lock.yaml", ":yarn.lock", "@npm//:x"]);
+        assert_eq!(
+            &literals[literals.len() - 3..],
+            ["//libs/a:pnpm-lock.yaml", ":yarn.lock", "@npm//:x"]
+        );
     }
 
     #[test]
@@ -865,7 +882,10 @@ d = glob(SRCS)
             .with_file("/ws/tools/more.bzl", "LOCK = \"//libs/b:pnpm-lock.yaml\"\n")
             .with_file("/ws/tools/unloaded.bzl", "LOCK = \"//libs/c:pnpm-lock.yaml\"\n")
             .with_file("/ws/apps/x/BUILD", "LOCK = \"//libs/d:pnpm-lock.yaml\"\n")
-            .with_file("/ws/apps/y/BUILD.bazel", "load(\"//apps/y:lock.bzl\", \"lock\")\nlock()\n")
+            .with_file(
+                "/ws/apps/y/BUILD.bazel",
+                "load(\"//apps/y:lock.bzl\", \"lock\")\nlock()\n",
+            )
             .with_file(
                 "/ws/apps/y/lock.bzl",
                 "def lock():\n    native.filegroup(srcs = [\"//libs/f:pnpm-lock.yaml\"])\n",
@@ -873,12 +893,18 @@ d = glob(SRCS)
             .with_file("/ws/examples/z/BUILD", "LOCK = \"//libs/g:pnpm-lock.yaml\"\n")
             .with_file("/ws/libs/e/BUILD.bazel", "load(\"//libs:macros.bzl\", \"m\")\n")
             .with_file("/ws/libs/macros.bzl", "LOCK = \"//libs/e:pnpm-lock.yaml\"\n")
-            .with_file("/ws/libs/h/BUILD.bazel", "filegroup(name = \"all\", srcs = glob([\"**/*.yaml\"]))\n")
+            .with_file(
+                "/ws/libs/h/BUILD.bazel",
+                "filegroup(name = \"all\", srcs = glob([\"**/*.yaml\"]))\n",
+            )
             .with_file("/ws/libs/h/sub/BUILD", "filegroup(name = \"sub\")\n")
     }
 
     fn lockfiles(names: &str) -> Vec<String> {
-        names.chars().map(|name| format!("libs/{name}/pnpm-lock.yaml")).collect()
+        names
+            .chars()
+            .map(|name| format!("libs/{name}/pnpm-lock.yaml"))
+            .collect()
     }
 
     #[test]

@@ -7,11 +7,14 @@ use skif_js_syntax::ConfigValue;
 /// The `expo-router` plugin.
 pub struct ExpoRouter;
 
+/// The plugin id.
+pub const ID: crate::plugin::PluginId = "expo-router";
+
 /// Where the routes are when the `expo-router` config plugin names no `root`.
 const DEFAULT_ROUTES: [&str; 2] = ["app/**/*.{js,jsx,ts,tsx}", "src/app/**/*.{js,jsx,ts,tsx}"];
 
 static SPEC: PluginSpec = PluginSpec {
-    id: "expo-router",
+    id: ID,
     enablers: &[Enabler::Dependency("expo-router")],
     config: &["app.json", "app.config.{json,ts,js,mts,cts,mjs,cjs}"],
     ..PluginSpec::DEFAULT

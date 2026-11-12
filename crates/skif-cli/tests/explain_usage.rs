@@ -239,13 +239,21 @@ fn a_file_below_a_linked_directory_is_found_by_its_path_through_the_link() {
         "package.json",
         r#"{"name":"app","version":"1.0.0","private":true,"main":"index.ts"}"#,
     );
-    put(&root, "index.ts", "import { schema } from './out/gen/schema';\nexport const main = schema;\n");
+    put(
+        &root,
+        "index.ts",
+        "import { schema } from './out/gen/schema';\nexport const main = schema;\n",
+    );
     put(
         &base.path().canonicalize().unwrap(),
         "execroot/bin/gen/schema.ts",
         "export const schema = 1;\n",
     );
-    std::os::unix::fs::symlink(base.path().canonicalize().unwrap().join("execroot/bin"), root.join("out")).unwrap();
+    std::os::unix::fs::symlink(
+        base.path().canonicalize().unwrap().join("execroot/bin"),
+        root.join("out"),
+    )
+    .unwrap();
 
     let relative = run(skif()
         .current_dir(&root)
@@ -317,9 +325,10 @@ fn a_used_dependency_is_explained_with_the_importing_files() {
 #[test]
 fn an_unused_dependency_says_nothing_uses_it() {
     let dir = dependency_project();
-    let json = run(skif()
-        .current_dir(dir.path())
-        .args(["explain-usage", "--dependency", "left-pad", "--format", "json"]));
+    let json =
+        run(skif()
+            .current_dir(dir.path())
+            .args(["explain-usage", "--dependency", "left-pad", "--format", "json"]));
     assert_eq!(json.code, 0, "{}{}", json.stdout, json.stderr);
     let report = &json.json()["report"];
     assert_eq!(report["packages"][0]["verdict"], "unused", "{report}");
@@ -338,9 +347,10 @@ fn an_unused_dependency_says_nothing_uses_it() {
 #[test]
 fn a_dependency_a_script_runs_names_the_binary() {
     let dir = dependency_project();
-    let json = run(skif()
-        .current_dir(dir.path())
-        .args(["explain-usage", "--dependency", "vitest", "--format", "json"]));
+    let json =
+        run(skif()
+            .current_dir(dir.path())
+            .args(["explain-usage", "--dependency", "vitest", "--format", "json"]));
     assert_eq!(json.code, 0, "{}{}", json.stdout, json.stderr);
     let report = &json.json()["report"];
     assert_eq!(report["packages"][0]["dir"], ".", "{report}");
@@ -358,39 +368,66 @@ fn a_dependency_a_script_runs_names_the_binary() {
 fn the_package_is_found_by_name_or_directory() {
     let dir = dependency_project();
     for package in ["mono", "."] {
-        let json = run(skif()
-            .current_dir(dir.path())
-            .args(["explain-usage", "--dependency", "zod", "--package", package, "--format", "json"]));
+        let json = run(skif().current_dir(dir.path()).args([
+            "explain-usage",
+            "--dependency",
+            "zod",
+            "--package",
+            package,
+            "--format",
+            "json",
+        ]));
         assert_eq!(json.code, 0, "{}{}", json.stdout, json.stderr);
         let packages = json.json()["report"]["packages"].clone();
         assert_eq!(packages.as_array().unwrap().len(), 1, "{packages}");
         assert_eq!(packages[0]["package"], "mono");
         assert_eq!(packages[0]["verdict"], "not-listed");
     }
-    let nested = run(skif()
-        .current_dir(dir.path().join("packages"))
-        .args(["explain-usage", "--dependency", "zod", "--package", "app", "--format", "json", ".."]));
+    let nested = run(skif().current_dir(dir.path().join("packages")).args([
+        "explain-usage",
+        "--dependency",
+        "zod",
+        "--package",
+        "app",
+        "--format",
+        "json",
+        "..",
+    ]));
     assert_eq!(nested.code, 0, "{}{}", nested.stdout, nested.stderr);
     assert_eq!(nested.json()["report"]["packages"][0]["verdict"], "used");
 
-    let unknown = run(skif()
-        .current_dir(dir.path())
-        .args(["explain-usage", "--dependency", "zod", "--package", "nope"]));
+    let unknown =
+        run(skif()
+            .current_dir(dir.path())
+            .args(["explain-usage", "--dependency", "zod", "--package", "nope"]));
     assert_eq!(unknown.code, 2, "{}{}", unknown.stdout, unknown.stderr);
-    assert!(unknown.stderr.contains("no package is named `nope`"), "{}", unknown.stderr);
+    assert!(
+        unknown.stderr.contains("no package is named `nope`"),
+        "{}",
+        unknown.stderr
+    );
 }
 
 #[test]
 fn dependency_and_file_targets_do_not_mix() {
     let dir = dependency_project();
-    let both = run(skif()
-        .current_dir(dir.path())
-        .args(["explain-usage", "--dependency", "zod", "packages/app/src/index.ts", "."]));
+    let both = run(skif().current_dir(dir.path()).args([
+        "explain-usage",
+        "--dependency",
+        "zod",
+        "packages/app/src/index.ts",
+        ".",
+    ]));
     assert_eq!(both.code, 2, "{}{}", both.stdout, both.stderr);
     let neither = run(skif().current_dir(dir.path()).arg("explain-usage"));
     assert_eq!(neither.code, 2, "{}{}", neither.stdout, neither.stderr);
-    let package_alone = run(skif()
-        .current_dir(dir.path())
-        .args(["explain-usage", "packages/app/src/index.ts", "--package", "app"]));
-    assert_eq!(package_alone.code, 2, "{}{}", package_alone.stdout, package_alone.stderr);
+    let package_alone =
+        run(skif()
+            .current_dir(dir.path())
+            .args(["explain-usage", "packages/app/src/index.ts", "--package", "app"]));
+    assert_eq!(
+        package_alone.code, 2,
+        "{}{}",
+        package_alone.stdout, package_alone.stderr
+    );
 }

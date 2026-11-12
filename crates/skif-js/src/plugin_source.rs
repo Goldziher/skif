@@ -243,11 +243,7 @@ fn inputs(output: PluginOutput) -> WorkspaceInputs {
             .into_iter()
             .map(|run| {
                 let binary = RunBinary::new(run.name, run.from, run.dir, run.filtered);
-                if run.judged {
-                    binary
-                } else {
-                    binary.credit_only()
-                }
+                if run.judged { binary } else { binary.credit_only() }
             })
             .collect(),
         config_files: output.config_files,

@@ -234,7 +234,11 @@ fn a_local_nx_plugin_named_by_an_alias_is_followed() {
         ),
     ];
     let diagnostics = lint(&files);
-    let rules = ["unlisted-dependencies", "unused-dependencies", "unused-dev-dependencies"];
+    let rules = [
+        "unlisted-dependencies",
+        "unused-dependencies",
+        "unused-dev-dependencies",
+    ];
     let judged: Vec<String> = dependencies(&diagnostics, &rules)
         .into_iter()
         .filter(|name| ["@fx/nxp", "@nx/devkit", "left-pad"].contains(&name.as_str()))

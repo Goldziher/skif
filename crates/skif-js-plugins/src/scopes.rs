@@ -236,13 +236,9 @@ pub(crate) fn merge(into: &mut PluginOutput, from: PluginOutput) {
     extend_unique(&mut into.build_dirs, from.build_dirs);
     extend_unique(&mut into.incomplete_reasons, from.incomplete_reasons);
     for reference in from.referenced_dependencies {
-        match into
-            .referenced_dependencies
-            .iter_mut()
-            .find(|existing| {
-                existing.name == reference.name && existing.from == reference.from && existing.dir == reference.dir
-            })
-        {
+        match into.referenced_dependencies.iter_mut().find(|existing| {
+            existing.name == reference.name && existing.from == reference.from && existing.dir == reference.dir
+        }) {
             Some(existing) => existing.merge(&reference),
             None => into.referenced_dependencies.push(reference),
         }

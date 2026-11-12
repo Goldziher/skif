@@ -65,9 +65,15 @@ fn dependencies_on_members_without_a_module_entry_or_source_are_not_reported() {
             "packages/tooling-config/package.json",
             r#"{"name":"tooling-config","private":true,"scripts":{"build":"echo building tooling-config"}}"#,
         ),
-        ("packages/shared-assets/package.json", r#"{"name":"shared-assets","private":true}"#),
+        (
+            "packages/shared-assets/package.json",
+            r#"{"name":"shared-assets","private":true}"#,
+        ),
         ("packages/shared-assets/logo.svg", "<svg/>"),
-        ("packages/shared-styles/package.json", r#"{"name":"shared-styles","private":true}"#),
+        (
+            "packages/shared-styles/package.json",
+            r#"{"name":"shared-styles","private":true}"#,
+        ),
         ("packages/shared-styles/theme.scss", "$primary: red;\n"),
         // A module entry with no source: something may import its build output.
         (

@@ -18,12 +18,22 @@ pub const BUILD_FILES: [&str; 2] = ["BUILD.bazel", "BUILD"];
 /// test's runfiles below `bazel-out`), where every file would be output.
 #[must_use]
 pub fn repository_root(fs: &dyn FileSystem, dir: &Path) -> Option<PathBuf> {
+    let git_root = dir.ancestors().find(|candidate| {
+        let kind = fs.kind(&candidate.join(".git"));
+        kind.is_dir || kind.is_file
+    });
+    repository_root_within(fs, dir, git_root)
+}
+
+/// [`repository_root`] for a caller that already knows the git repository root `git_root` (`None` when `dir` is in
+/// none): the nearest directory from `dir` up to `git_root` with one of [`ROOT_FILES`], probing no `.git`.
+#[must_use]
+pub fn repository_root_within(fs: &dyn FileSystem, dir: &Path, git_root: Option<&Path>) -> Option<PathBuf> {
     for candidate in dir.ancestors() {
         if ROOT_FILES.iter().any(|name| fs.is_file(&candidate.join(name))) {
             return (!is_output_path(candidate, dir)).then(|| candidate.to_path_buf());
         }
-        let git = candidate.join(".git");
-        if fs.is_dir(&git) || fs.is_file(&git) {
+        if Some(candidate) == git_root {
             return None;
         }
     }
@@ -405,7 +415,7 @@ NAME = "x".format(1)
         );
         assert_eq!(binary.values("env").count(), 0);
         assert_eq!(binary.values("visibility").collect::<Vec<_>>(), ["//visibility:public"]);
-        assert!(found[0].attributes.is_empty());
+        assert_eq!(found[0].attributes, []);
     }
 
     #[test]
