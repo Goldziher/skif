@@ -1,6 +1,7 @@
 # Which skif rules the migrated tools run, beyond the rules sherif (rule-renames.txt) and knip (knip-types.txt) map.
-# Columns: skif rule id, `syncpack`, `sherif` or `none`, then the condition (syncpack), `always` (sherif: a check it
-# runs under no rule name, such as stopping on an invalid manifest) or the reason (none).
+# Columns: skif rule id, `syncpack`, `sherif`, `knip` or `none`, then the condition (syncpack), `always` (sherif: a
+# check it runs under no rule name, such as stopping on an invalid manifest), the option that turns the rule on (knip:
+# a rule beyond those of its issue types) or the reason (none).
 # syncpack conditions: `always`; `catalog-policy` (a version group with `policy: catalog`);
 # `sort-az` (a script runs `syncpack format` and `sortAz` names a dependency map); `format` (a script runs
 # `syncpack format`: `syncpack lint` never checks the layout).
@@ -28,6 +29,7 @@ stale-patched-dependencies none no tool checks patchedDependencies against the l
 stray-lockfile none no tool reports a lockfile other than the root one
 nested-workspace-root none no tool reports a pnpm-workspace.yaml in a member
 invalid-workspace-file sherif always
+unused-subpath-exports knip include-subpath-exports
 toolchain-pin-drift none no tool compares Node and package-manager pins outside package.json with the root
 foreign-package-manager-command none no tool reads package-manager commands in Dockerfiles, CI or shell scripts
 stale-lerna-config none no tool checks lerna.json settings and lerna commands against the installed Lerna

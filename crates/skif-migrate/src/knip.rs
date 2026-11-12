@@ -110,6 +110,7 @@ const HANDLED_FLAGS: &[&str] = &[
     "--strict",
     "-s",
     "--include-entry-exports",
+    "--include-subpath-exports",
     "--treat-config-hints-as-errors",
     "--treat-tag-hints-as-errors",
     "--no-config-hints",
@@ -236,6 +237,8 @@ struct Plan {
     include_tags: Vec<String>,
     hints: Option<Level>,
     include_entry_exports: bool,
+    /// `includeSubpathExports` or `--include-subpath-exports`: the `subpaths` issue type covers `exports` too.
+    include_subpath_exports: bool,
     /// `--tsConfig` of a script.
     tsconfig: Option<String>,
     use_tsconfig_files: bool,
@@ -469,9 +472,32 @@ fn read_root(state: &mut State<'_>, src: &Src, root: &str, config: &ConfigValue,
                 }
             }
             "cycles" => cycles(state, src, &path, item),
+            "includeSubpathExports" => {
+                if boolean(state, src, &path, item) == Some(true) {
+                    include_subpath_exports(state, src, path, plan);
+                }
+            }
             _ => workspace_key(state, src, &target, key, &path, item),
         }
     }
+}
+
+/// knip's option that makes the `subpaths` issue type cover `exports` subpaths as well as `imports` entries.
+const INCLUDE_SUBPATH_EXPORTS: &str = "include-subpath-exports";
+
+/// `includeSubpathExports: true` or `--include-subpath-exports`: the rules that report unused `exports` subpaths run
+/// with the `subpaths` issue type.
+fn include_subpath_exports(state: &mut State<'_>, src: &Src, path: String, plan: &mut Plan) {
+    plan.include_subpath_exports = true;
+    state.note(
+        src,
+        NoteClass::Exact,
+        path,
+        format!(
+            "{} is turned on with the `subpaths` issue type",
+            tables::knip_option_rules(INCLUDE_SUBPATH_EXPORTS).join(", ")
+        ),
+    );
 }
 
 /// `cycles`: `allow` and `dynamicImports` go to `[js.cycles]`.
@@ -766,6 +792,20 @@ fn workspace_key(state: &mut State<'_>, src: &Src, target: &Target, key: &str, p
             }
         }
         "paths" => paths(state, src, target, path, item),
+        "includeSubpathExports" => {
+            if boolean(state, src, path, item) == Some(true) {
+                state.note_with(
+                    src,
+                    NoteClass::Human,
+                    path,
+                    format!(
+                        "skif turns {} on in [rules] for every package, not for one workspace",
+                        tables::knip_option_rules(INCLUDE_SUBPATH_EXPORTS).join(", ")
+                    ),
+                    "turn the rule on in [rules], or for these packages in [[overrides]]",
+                );
+            }
+        }
         "ignoreMembers" => {
             let list = reasoned(src, target, key, pattern_items(state, src, path, item, false));
             write_list(state, src, &js, keys::JS_IGNORE_MEMBERS, path, list, "");
@@ -1061,6 +1101,9 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, plan: &
             "written to [js] include-entry-exports",
         );
     }
+    if invocation.has("include-subpath-exports", None) {
+        include_subpath_exports(state, src, flag_path("--include-subpath-exports"), plan);
+    }
     if let Some(path) = invocation.values("tsConfig", Some("t")).pop() {
         plan.tsconfig = Some(path);
         state.note(
@@ -1110,6 +1153,7 @@ fn note_differing_flags(state: &mut State<'_>, src: &Src, invocations: &[Invocat
     }
     for flag in [
         "include-entry-exports",
+        "include-subpath-exports",
         "use-tsconfig-files",
         "treat-config-hints-as-errors",
         "no-config-hints",
@@ -1197,6 +1241,35 @@ fn other_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation) {
     }
 }
 
+/// The skif rules that report the findings of `known` in this configuration: those of its row, and for `subpaths`
+/// with `includeSubpathExports` the rules of unused `exports` subpaths.
+fn rules_of(known: &KnipType, plan: &Plan) -> Vec<&'static str> {
+    let mut rules = known.rules.clone();
+    if known.name == SUBPATHS && plan.include_subpath_exports {
+        rules.extend(tables::knip_option_rules(INCLUDE_SUBPATH_EXPORTS));
+    }
+    rules
+}
+
+/// knip's issue type of unused `imports` entries, and of unused `exports` subpaths with `includeSubpathExports`.
+const SUBPATHS: &str = "subpaths";
+
+/// knip reports unused subpaths in production mode too; skif reports none there, so a migration that writes
+/// `[js] production` says so.
+fn note_production_subpaths(state: &mut State<'_>, src: &Src, plan: &Plan) {
+    if plan.runs.is_empty() || !plan.runs.iter().all(|run| run.production) {
+        return;
+    }
+    state.note_with(
+        src,
+        NoteClass::Approximate,
+        SUBPATHS,
+        "knip reports unused subpaths in production mode; skif reports none there, because the test files that may be \
+         their only importers are not analysed",
+        "run skif without `[js] production` as well to check them",
+    );
+}
+
 fn knip_level(plan: &Plan, name: &str) -> Level {
     plan.rules
         .iter()
@@ -1273,7 +1346,7 @@ fn apply(state: &mut State<'_>, src: &Src, plan: &Plan) {
     };
     for known in &types {
         if removed(known) {
-            for rule in &known.rules {
+            for rule in rules_of(known, plan) {
                 state.set_level(rule, Level::Off);
             }
         }
@@ -1286,11 +1359,14 @@ fn apply(state: &mut State<'_>, src: &Src, plan: &Plan) {
         if removed(known) || !reported {
             continue;
         }
-        for rule in &known.rules {
-            state.keep(Tool::Knip, [*rule]);
+        if known.name == SUBPATHS {
+            note_production_subpaths(state, src, plan);
+        }
+        for rule in rules_of(known, plan) {
+            state.keep(Tool::Knip, [rule]);
             state.set_level(rule, knip_level(plan, known.name));
-            if !written.contains(rule) {
-                written.push(*rule);
+            if !written.contains(&rule) {
+                written.push(rule);
             }
         }
     }
