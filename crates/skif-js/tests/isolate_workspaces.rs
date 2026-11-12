@@ -45,7 +45,11 @@ const WORKSPACE: &[(&str, &str)] = &[
 ];
 
 fn lint(toml: &str) -> Vec<Diagnostic> {
-    let memory = WORKSPACE.iter().fold(MemoryFs::new(), |memory, (path, text)| {
+    lint_files(WORKSPACE, toml)
+}
+
+fn lint_files(files: &[(&str, &str)], toml: &str) -> Vec<Diagnostic> {
+    let memory = files.iter().fold(MemoryFs::new(), |memory, (path, text)| {
         memory.with_file(Path::new(ROOT).join(path), text)
     });
     let config = Config::from_toml_str(toml).unwrap();
@@ -126,5 +130,45 @@ fn isolation_without_production_mode_reports_an_ancestor_development_dependency_
     assert_eq!(
         found(&lint("[js]\nstrict = true\n"), "unused-dev-dependencies"),
         Vec::<String>::new()
+    );
+}
+
+/// Isolation keeps a package's own development dependencies available to its tests, its tool configs and its
+/// `tsconfig.json`: only what an ancestor lists stops counting.
+#[test]
+fn isolation_lets_tests_and_configs_use_the_packages_own_development_dependencies() {
+    let files: &[(&str, &str)] = &[
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*"],"devDependencies":{"typescript":"5.0.0","root-kit":"1.0.0"}}"#,
+        ),
+        (
+            "packages/app/package.json",
+            r#"{"name":"app","version":"1.0.0","private":true,"main":"src/index.ts","devDependencies":{"vitest":"3.0.0","own-plugin":"1.0.0","own-dev":"1.0.0","@tsconfig/node22":"22.0.0"}}"#,
+        ),
+        (
+            "packages/app/tsconfig.json",
+            r#"{"extends":"@tsconfig/node22/tsconfig.json"}"#,
+        ),
+        (
+            "packages/app/vitest.config.ts",
+            "import plugin from 'own-plugin';\nexport default { plugins: [plugin()] };\n",
+        ),
+        ("packages/app/src/index.ts", "export const one = 1;\n"),
+        (
+            "packages/app/src/index.test.ts",
+            "import dev from 'own-dev';\nimport kit from 'root-kit';\nimport { one } from './index';\nexport const all = [dev, kit, one];\n",
+        ),
+    ];
+    assert_eq!(
+        found(&lint_files(files, ""), "unlisted-dependencies"),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        found(
+            &lint_files(files, "[js]\nisolate-workspaces = true\n"),
+            "unlisted-dependencies"
+        ),
+        ["packages/app/src/index.test.ts: root-kit"]
     );
 }
