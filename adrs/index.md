@@ -128,6 +128,7 @@ old one.
 | 0118 | [Local Nx Plugins and Executor-Run Conventions in Nx Projects](0118-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md) | accepted |
 | 0119 | [Lerna Configuration, Task-Ordering Dependencies, Grouping Directories and Prune Output](0119-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md) | accepted |
 | 0120 | [Working Directories, Binaries Missing Where a Command Runs, and npm's Linked Strategy](0120-working-directories-binaries-missing-where-a-command-runs-and-npm-s-linked-strategy.md) | accepted |
+| 0121 | [One Git Index Listing for Every Provider](0121-one-git-index-listing-for-every-provider.md) | accepted |
 
 ## Effective statements
 
@@ -337,3 +338,5 @@ the lines below stay as written; this table says which record governs.
 | [0089](0089-stray-lockfiles-and-nested-workspace-roots.md), `nested-workspace-root` | only a `pnpm-workspace.yaml` in a selected directory is reported | [0116](0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md): a member inside a Bazel convenience link is reported once, with the detail `BazelConvenienceLink`, and is excluded from analysis |
 | [0107](0107-stray-lockfiles-a-build-installs-from-and-a-dependency-in-none-of-several-catalogs.md), "Cost" | in a Bazel repository no directory is listed, and a label counts only as a whole string literal | [0116](0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md): the repository is listed for its `BUILD` files when a lockfile is left unnamed; labels inside `$(location ...)`, `glob()`s of the lockfile's package and Dockerfiles built from the member count; docstrings do not |
 | [0110](0110-files-reached-through-rootdirs-belong-to-the-importing-package.md), decision outcome | a file reached through `rootDirs` that lies in no workspace package is adopted by the importing package | [0115](0115-bazel-build-files-and-output-trees-in-the-js-analysis.md): in a Bazel repository a file below a `bazel-*` output tree is generated code and never followed |
+| [0038](0038-git-index-file-discovery-and-resolver-probe-avoidance.md), decision outcome | the index reader is a small reader in `skif-js` | [0121](0121-one-git-index-listing-for-every-provider.md): it lives in `skif-workspace`, and the rules reach its listing through `LintContext::listing_fs` |
+| [0095](0095-untracked-files-member-manifest-errors-and-converging-fixes.md), "Discovery" paragraph | `discovery = "git"` lists the source files of the JS analysis from the index | [0121](0121-one-git-index-listing-for-every-provider.md): the toolchain scan and the `BUILD` file search of the lockfile consumers list through the same index listing under `git` |

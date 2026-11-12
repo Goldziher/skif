@@ -793,6 +793,10 @@ the walk when there is no usable index: a repository outside git, a split or spa
 which `feature.manyFiles` sets, is read without the check, so a torn read of an index that is being rewritten is then only
 caught by the reader's bounds checks). A file the index lists but that is missing on disk is never
 reported. The `.gitignore` rules, hidden directories and `[js] ignore` apply to the listing as they apply to the walk.
+The rules that list directories for files workspace discovery does not read, the toolchain scan (version files,
+Dockerfiles, shell scripts, workflows and the `files` globs) and the search for the Bazel `BUILD` files of
+`stray-lockfile`, list through the same index listing under `git`, so they share its speed and its blind spot
+([ADR 0121](https://github.com/Goldziher/skif/blob/main/adrs/0121-one-git-index-listing-for-every-provider.md)).
 
 A dependency counts as listed when the package's own `package.json`, the `package.json` of a package that contains
 it, or any `package.json` above the analysed root up to the git repository root lists it; the same manifests enable
