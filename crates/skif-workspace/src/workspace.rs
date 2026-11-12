@@ -458,6 +458,8 @@ impl Workspace {
                     overrides: parsed.overrides.clone(),
                     minimum_release_age: parsed.minimum_release_age,
                     node_linker: parsed.node_linker.clone(),
+                    public_hoist_pattern: parsed.public_hoist_pattern.clone(),
+                    shamefully_hoist: parsed.shamefully_hoist,
                 }),
                 Some(parsed),
             )
@@ -572,6 +574,8 @@ impl Workspace {
                 overrides: Vec::new(),
                 minimum_release_age: None,
                 node_linker: None,
+                public_hoist_pattern: None,
+                shamefully_hoist: None,
             });
             (source, catalogs)
         } else {

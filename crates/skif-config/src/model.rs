@@ -2081,6 +2081,11 @@ pub struct Js {
     /// Report files in `fixtures` and `__fixtures__` directories as unused, and their unused exports, types and
     /// members, like any other file. Off by default: those directories hold test data that tests load by path.
     pub include_fixtures: bool,
+    /// Count a package that the install hoists publicly into a `node_modules` above a package as available to it,
+    /// so importing it without listing it is not an unlisted dependency: pnpm's `public-hoist-pattern` and
+    /// `shamefully-hoist` (from `pnpm-workspace.yaml`, or the root `.npmrc` before pnpm 11), and rules_js's
+    /// `public_hoist_packages`. Off by default, as in knip; strict mode ignores it.
+    pub use_public_hoisting: bool,
     /// How source files are found: `auto` (the default) and `walk` walk the directories; `git` lists them from the
     /// git index and re-lists from disk every directory modified since the index was written (faster, blind to an
     /// untracked file older than the last write of the index). `git` falls back to the walk when the workspace is not
@@ -2192,6 +2197,14 @@ impl Js {
         self
     }
 
+    /// Counts packages the install hoists publicly as available to every package below the hoist
+    /// (`use-public-hoisting`).
+    #[must_use]
+    pub const fn with_use_public_hoisting(mut self, enabled: bool) -> Self {
+        self.use_public_hoisting = enabled;
+        self
+    }
+
     /// Switches a plugin on or off, or configures it.
     #[must_use]
     pub fn with_plugin(mut self, name: impl Into<String>, plugin: PluginConfig) -> Self {
@@ -2222,6 +2235,7 @@ impl Default for Js {
             tsconfig: None,
             use_tsconfig_files: false,
             include_fixtures: false,
+            use_public_hoisting: false,
             discovery: JsDiscovery::Auto,
             cycles: JsCycles::default(),
             workspaces: IndexMap::new(),

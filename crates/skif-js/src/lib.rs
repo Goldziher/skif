@@ -32,6 +32,7 @@ mod explain;
 mod fixture;
 mod globs;
 mod graph;
+mod hoisting;
 mod input;
 mod listed;
 mod lockfile;

@@ -37,7 +37,7 @@ const ROOT_SCOPED: [&str; 16] = [
 ];
 
 /// `[js]` keys that cannot appear in an override.
-pub(crate) const ROOT_SCOPED_JS: [&str; 12] = [
+pub(crate) const ROOT_SCOPED_JS: [&str; 13] = [
     "enabled",
     "ignore-global-binaries",
     "cycles",
@@ -46,6 +46,7 @@ pub(crate) const ROOT_SCOPED_JS: [&str; 12] = [
     "tsconfig",
     "use-tsconfig-files",
     "include-fixtures",
+    "use-public-hoisting",
     "workspaces",
     "ignore-workspaces",
     "ignore-exports-used-in-file",

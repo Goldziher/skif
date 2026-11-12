@@ -82,6 +82,7 @@ ignore-binaries = ["tsc"]
 production = true
 include-entry-exports = true
 include-fixtures = true
+use-public-hoisting = true
 
 [js.workspaces."packages/app"]
 entry = ["src/main.tsx"]
