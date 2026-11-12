@@ -90,6 +90,7 @@ pub const RUSH_ROOT_FILE: &str = "rush-root-file";
 pub const IMPORTED_BY_KNIP_UNUSED_FILE: &str = "imported-by-knip-unused-file";
 pub const IMPORTED_BY_SKIF_UNUSED_FILE: &str = "imported-by-skif-unused-file";
 pub const ENTRY_MODULE_DUPLICATE: &str = "entry-module-duplicate";
+pub const BAZEL_BUILD_FILE: &str = "bazel-build-file";
 
 /// The dependency categories skif does not judge anywhere in a package whose entry files are not all known (ADR 0053),
 /// whatever the package's `scope`.
@@ -150,6 +151,15 @@ const WHOLE_MODULE: &str = "*";
 /// skif run lints the project with and knip does not read there.
 const NON_MEMBER_SKIF_CATEGORIES: [&str; 3] = ["files", "unlisted", "binaries"];
 
+/// The files that declare a Bazel package (`BUILD_FILES` of `skif_js_plugins::bazel`).
+const BUILD_FILES: [&str; 2] = ["BUILD.bazel", "BUILD"];
+
+/// The files that mark the root of a Bazel repository (`ROOT_FILES` of `skif_js_plugins::bazel`).
+const BAZEL_ROOT_FILES: [&str; 4] = ["MODULE.bazel", "REPO.bazel", "WORKSPACE.bazel", "WORKSPACE"];
+
+/// What a root file of a Bazel repository that uses `rules_js` holds; skif's Bazel plugin reads no other repository.
+const RULES_JS: &str = "aspect_rules_js";
+
 /// The manifest categories of a listed package that an import makes used.
 const IMPORTED_CATEGORIES: [&str; 3] = ["dependencies", "devDependencies", "optionalPeerDependencies"];
 
@@ -174,7 +184,7 @@ const DEPENDENCY_FIELDS: [&str; 4] = [
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 19] = [
+pub const KNIP_DEVIATIONS: [Deviation; 20] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
@@ -222,6 +232,10 @@ pub const KNIP_DEVIATIONS: [Deviation; 19] = [
     Deviation {
         id: ENTRY_MODULE_DUPLICATE,
         reason: "knip reports these duplicate exports (one value exported under several names, `export const x …; export default x`) in a file skif makes an entry from the manifest and the defaults alone: a default entry file of its project (`index`, `cli` or `main` at the top or in `src`) or the source of a path its manifest publishes (as in `published-source`). skif's `duplicate-exports` skips entry modules, whose names are all public API; knip reports them. Entries that only skif's plugins or the configuration make are not known to the harness, so duplicates there stay compared",
+    },
+    Deviation {
+        id: BAZEL_BUILD_FILE,
+        reason: "skif's Bazel plugin reads the `BUILD.bazel` and `BUILD` files of a repository that uses `rules_js`, which knip has no plugin for: skif reports these unlisted dependencies at a `BUILD` file that names a package by label, and credits these dependencies knip reports as unused through a label of a `BUILD` file in the package's directory: a `node_modules` target of the package's Bazel package (`\":node_modules/zod\"`, `\"//:node_modules/typescript\"`) or the `package_json.bzl` of another repository (`\"@npm//packages/app:esbuild/package_json.bzl\"`), the harness scanning the string literals of every `BUILD` file below a Bazel root that names `aspect_rules_js` as skif does. The files skif makes entries from the `srcs`, `data` and `entry_point` of the rules, and their exports, stay compared",
     },
     Deviation {
         id: IN_KNIP_UNUSED_FILE,
@@ -662,14 +676,23 @@ fn not_judged(
     own || (in_files && in_enclosing_scope(&dir, path, packages))
 }
 
-/// `path` relative to the directory `dir` above it (`""` is the root).
+/// `path` relative to the directory `dir` at or above it (`""` is the root, and `dir` itself).
 fn below<'p>(dir: &str, path: &'p str) -> &'p str {
     if dir.is_empty() {
         return path;
     }
     path.strip_prefix(dir)
-        .and_then(|rest| rest.strip_prefix('/'))
+        .and_then(|rest| if rest.is_empty() { Some(rest) } else { rest.strip_prefix('/') })
         .unwrap_or(path)
+}
+
+/// `name` joined to the directory `dir`, both relative to the checkout; either may be empty.
+fn joined(dir: &str, name: &str) -> String {
+    match (dir, name) {
+        ("", name) => name.to_owned(),
+        (dir, "") => dir.to_owned(),
+        (dir, name) => format!("{dir}/{name}"),
+    }
 }
 
 /// Whether the narrowed scope of an incomplete package above the package directory `dir` matches `path`, relative to
@@ -1427,6 +1450,8 @@ struct Classifier<'a> {
     knip_unused_credits: &'a BTreeSet<String>,
     /// The same for the files only skif reports as unused.
     skif_unused_credits: &'a BTreeSet<String>,
+    /// `<manifest>|<package>` for every dependency a `BUILD` file credits (`bazel_credits`).
+    bazel_credits: &'a BTreeSet<String>,
     /// knip ran with the scratch root manifest of a Rush repository (`knip-root = "rush"`).
     rush_root: bool,
     layout: &'a Layout<'a>,
@@ -1449,6 +1474,7 @@ impl Classifier<'_> {
             return skif_only_deviation(category, key, self.foreign_paths)
                 .or_else(|| self.unjudged_manifest(category, path).then_some(KNIP_UNJUDGED_MANIFEST))
                 .or_else(|| self.skif_non_member_project(category, path).then_some(NON_MEMBER_PROJECT))
+                .or_else(|| (category == "unlisted" && is_build_file(path)).then_some(BAZEL_BUILD_FILE))
                 .or_else(|| in_unused_file(category, path, self.knip_unused_files).then_some(IN_KNIP_UNUSED_FILE))
                 .or_else(|| {
                     used_in_unused_file(self.skif_unused_imports, category, key).then_some(USED_IN_SKIF_UNUSED_FILE)
@@ -1477,6 +1503,9 @@ impl Classifier<'_> {
             .or_else(|| in_unused_file(category, path, self.skif_unused_files).then_some(IN_SKIF_UNUSED_FILE))
             .or_else(|| {
                 used_in_unused_file(self.knip_unused_imports, category, key).then_some(USED_IN_KNIP_UNUSED_FILE)
+            })
+            .or_else(|| {
+                (IMPORTED_CATEGORIES.contains(&category) && self.bazel_credits.contains(key)).then_some(BAZEL_BUILD_FILE)
             })
             .or_else(|| {
                 imported_by_unused_file(self.knip_unused_credits, category, key).then_some(IMPORTED_BY_KNIP_UNUSED_FILE)
@@ -1624,6 +1653,195 @@ fn unused_file_imports(
         );
     }
     keys
+}
+
+/// Whether `path` is a `BUILD.bazel` or `BUILD` file.
+fn is_build_file(path: &str) -> bool {
+    BUILD_FILES.contains(&path.rsplit('/').next().unwrap_or(path))
+}
+
+/// The contents of the string literals of Starlark `source`, in order, without those of `#` comments: single, double
+/// and triple quoted, an escaped character taken as itself; a literal that is not closed ends with its line.
+fn starlark_strings(source: &str) -> Vec<String> {
+    let chars: Vec<char> = source.chars().collect();
+    let mut found = Vec::new();
+    let mut at = 0;
+    while let Some(&character) = chars.get(at) {
+        match character {
+            '#' => {
+                while chars.get(at).is_some_and(|&next| next != '\n') {
+                    at += 1;
+                }
+            }
+            '"' | '\'' => {
+                let quote = character;
+                let triple = chars.get(at + 1) == Some(&quote) && chars.get(at + 2) == Some(&quote);
+                let width = if triple { 3 } else { 1 };
+                at += width;
+                let mut text = String::new();
+                while let Some(&next) = chars.get(at) {
+                    if next == quote
+                        && (!triple || (chars.get(at + 1) == Some(&quote) && chars.get(at + 2) == Some(&quote)))
+                    {
+                        at += width;
+                        break;
+                    }
+                    if next == '\n' && !triple {
+                        break;
+                    }
+                    if next == '\\'
+                        && let Some(&escaped) = chars.get(at + 1)
+                    {
+                        text.push(escaped);
+                        at += 2;
+                        continue;
+                    }
+                    text.push(next);
+                    at += 1;
+                }
+                found.push(text);
+            }
+            _ => at += 1,
+        }
+    }
+    found
+}
+
+/// The npm package a path below `node_modules` starts with (`@scope/name` or `name`); `None` for an empty name or a
+/// scope without one.
+fn npm_package_name(path: &str) -> Option<&str> {
+    let name = package_name(path);
+    let valid = match name.strip_prefix('@') {
+        Some(scoped) => scoped
+            .split_once('/')
+            .is_some_and(|(scope, rest)| !scope.is_empty() && !rest.is_empty()),
+        None => !name.is_empty(),
+    };
+    valid.then_some(name)
+}
+
+/// The Bazel package, relative to its repository root, and the npm package that `label` names as a linked dependency
+/// when a `BUILD` file of the Bazel package `bazel_package` holds it (`linked_dependency` of skif's Bazel plugin): a
+/// `node_modules/<name>` target of the main repository (`":node_modules/x"`, `"//pkg:node_modules/@scope/x"`,
+/// `"@//pkg:node_modules/x"`) or the `<name>/package_json.bzl` of another repository (`"@npm//pkg:x/package_json.bzl"`).
+fn linked_dependency(label: &str, bazel_package: &str) -> Option<(String, String)> {
+    let (repository, rest) = match label.strip_prefix('@') {
+        Some(after) => {
+            let at = after.find("//")?;
+            (after[..at].trim_start_matches('@'), &after[at..])
+        }
+        None => ("", label),
+    };
+    let (package, target) = match rest.strip_prefix("//") {
+        Some(absolute) => absolute.split_once(':')?,
+        None => (bazel_package, rest.strip_prefix(':').unwrap_or(rest)),
+    };
+    if let Some(name) = target.strip_suffix("/package_json.bzl") {
+        let named = !repository.is_empty() && npm_package_name(name) == Some(name);
+        return named.then(|| (package.to_owned(), name.to_owned()));
+    }
+    let linked = target.strip_prefix("node_modules/")?;
+    if !repository.is_empty() {
+        return None;
+    }
+    npm_package_name(linked).map(|name| (package.to_owned(), name.to_owned()))
+}
+
+/// The root of the Bazel repository that holds the directory `dir`: the nearest directory at or above it with one of
+/// [`BAZEL_ROOT_FILES`], up to the checkout root.
+fn bazel_root<'p>(dir: &'p str, is_file: &FileProbe<'_>) -> Option<&'p str> {
+    let mut candidate = dir;
+    loop {
+        if BAZEL_ROOT_FILES
+            .iter()
+            .any(|name| is_file(&joined(candidate, name)))
+        {
+            return Some(candidate);
+        }
+        if candidate.is_empty() {
+            return None;
+        }
+        candidate = parent_dir(candidate);
+    }
+}
+
+/// `<manifest>|<package>` for every dependency a `BUILD.bazel` or `BUILD` file credits, as skif's Bazel plugin reads
+/// it: a string literal that is a linked-dependency label ([`linked_dependency`]) names a dependency of the package
+/// whose directory is the label's Bazel package, below the file's Bazel repository root ([`bazel_root`], one whose
+/// root files name [`RULES_JS`]), when that directory holds a `package.json` and the `BUILD` file lies in it.
+/// `build_files` holds each file's path and source; `read` gives the source of a root file.
+fn bazel_credits(
+    build_files: &[(String, String)],
+    is_file: &FileProbe<'_>,
+    read: &dyn Fn(&str) -> Option<String>,
+) -> BTreeSet<String> {
+    let mut uses_rules_js: BTreeMap<String, bool> = BTreeMap::new();
+    let mut credits = BTreeSet::new();
+    for (path, source) in build_files {
+        let dir = parent_dir(path);
+        let Some(root) = bazel_root(dir, is_file) else {
+            continue;
+        };
+        let named = *uses_rules_js.entry(root.to_owned()).or_insert_with(|| {
+            BAZEL_ROOT_FILES
+                .iter()
+                .any(|name| read(&joined(root, name)).is_some_and(|text| text.contains(RULES_JS)))
+        });
+        if !named {
+            continue;
+        }
+        let bazel_package = below(root, dir);
+        for literal in starlark_strings(source) {
+            let Some((package, name)) = linked_dependency(&literal, bazel_package) else {
+                continue;
+            };
+            let package_dir = joined(root, &package);
+            let manifest = joined(&package_dir, "package.json");
+            let inside = package_dir.is_empty() || dir == package_dir || dir.starts_with(&format!("{package_dir}/"));
+            if inside && is_file(&manifest) {
+                credits.insert(format!("{manifest}|{name}"));
+            }
+        }
+    }
+    credits
+}
+
+/// The `BUILD.bazel` and `BUILD` files of a checkout whose root holds one of [`BAZEL_ROOT_FILES`], with their sources,
+/// by path relative to the checkout with `/` separators, sorted: in the directories skif's file discovery enters (none
+/// of [`SKIPPED_DIRECTORIES`], no hidden directory but [`TOOL_DIRECTORIES`]), never through a symbolic link or into
+/// Bazel's `bazel-*` output trees. Empty for a checkout that is no Bazel repository.
+fn read_build_files(root: &Path) -> Vec<(String, String)> {
+    if !BAZEL_ROOT_FILES.iter().any(|name| root.join(name).is_file()) {
+        return Vec::new();
+    }
+    let mut found = Vec::new();
+    let mut pending = vec![String::new()];
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = fs::read_dir(root.join(&dir)) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let (Ok(name), Ok(kind)) = (entry.file_name().into_string(), entry.file_type()) else {
+                continue;
+            };
+            let path = joined(&dir, &name);
+            if kind.is_dir() {
+                let skipped = SKIPPED_DIRECTORIES.contains(&name.as_str())
+                    || (name.starts_with('.') && !TOOL_DIRECTORIES.contains(&name.as_str()))
+                    || (dir.is_empty() && name.starts_with("bazel-"));
+                if !skipped {
+                    pending.push(path);
+                }
+            } else if kind.is_file()
+                && BUILD_FILES.contains(&name.as_str())
+                && let Ok(source) = fs::read_to_string(root.join(&path))
+            {
+                found.push((path, source));
+            }
+        }
+    }
+    found.sort();
+    found
 }
 
 /// The `package.json` files knip reports a finding on.
@@ -2003,6 +2221,7 @@ struct Facts {
     published_reach: BTreeSet<String>,
     knip_unused_credits: BTreeSet<String>,
     skif_unused_credits: BTreeSet<String>,
+    bazel_credits: BTreeSet<String>,
 }
 
 impl Facts {
@@ -2027,6 +2246,7 @@ impl Facts {
             published_reach: published_reach(knip_unused, skif_unused, layout, &read_source),
             knip_unused_credits: unused_file_credits(knip_unused, skif_unused, layout.is_file, &read_source),
             skif_unused_credits: unused_file_credits(skif_unused, knip_unused, layout.is_file, &read_source),
+            bazel_credits: bazel_credits(&read_build_files(root), layout.is_file, &read_source),
         }
     }
 
@@ -2054,6 +2274,7 @@ impl Facts {
             published_reach: &self.published_reach,
             knip_unused_credits: &self.knip_unused_credits,
             skif_unused_credits: &self.skif_unused_credits,
+            bazel_credits: &self.bazel_credits,
             rush_root,
             layout,
         }
@@ -3216,6 +3437,7 @@ mod tests {
             IMPORTED_BY_KNIP_UNUSED_FILE,
             IMPORTED_BY_SKIF_UNUSED_FILE,
             ENTRY_MODULE_DUPLICATE,
+            BAZEL_BUILD_FILE,
             KNIP_CONFIG_ERROR,
             NOT_JUDGED,
         ] {
@@ -3334,6 +3556,7 @@ mod tests {
             published_reach: &NO_KEYS,
             knip_unused_credits: &NO_KEYS,
             skif_unused_credits: &NO_KEYS,
+            bazel_credits: &NO_KEYS,
             rush_root: false,
             layout,
         }
@@ -4490,6 +4713,155 @@ vi.mock("mocked-package");
                 "{category} {key}"
             );
         }
+    }
+
+    #[test]
+    fn starlark_strings_and_linked_dependency_labels_read_as_skif_reads_them() {
+        assert_eq!(
+            starlark_strings("x = ['a', \"b\"] # \"comment\"\ny = \"\"\"c \"quoted\" d\"\"\" + 'e\\'f' + \"\""),
+            ["a", "b", "c \"quoted\" d", "e'f", ""]
+        );
+        for (label, found) in [
+            (":node_modules/esbuild", Some(("packages/app", "esbuild"))),
+            ("node_modules/esbuild", Some(("packages/app", "esbuild"))),
+            (":node_modules/@types/node", Some(("packages/app", "@types/node"))),
+            (":node_modules/typescript/bin/tsc", Some(("packages/app", "typescript"))),
+            ("//:node_modules/typescript", Some(("", "typescript"))),
+            ("//packages/lib:node_modules/zod", Some(("packages/lib", "zod"))),
+            ("@//packages/lib:node_modules/zod", Some(("packages/lib", "zod"))),
+            ("@@//packages/lib:node_modules/zod", Some(("packages/lib", "zod"))),
+            (
+                "@npm//packages/app:esbuild/package_json.bzl",
+                Some(("packages/app", "esbuild")),
+            ),
+            ("@npm//:@babel/cli/package_json.bzl", Some(("", "@babel/cli"))),
+            ("@npm//packages/app:node_modules/esbuild", None),
+            ("//packages/app:esbuild/package_json.bzl", None),
+            ("@npm//:defs.bzl", None),
+            ("@npm//:esbuild/dir/package_json.bzl", None),
+            (":node_modules", None),
+            (":node_modules/@scope", None),
+            ("//packages/app/node_modules/esbuild", None),
+            ("src/index.ts", None),
+            ("@types/node", None),
+        ] {
+            let expected = found.map(|(package, name)| (package.to_owned(), name.to_owned()));
+            assert_eq!(linked_dependency(label, "packages/app"), expected, "{label}");
+        }
+    }
+
+    #[test]
+    fn dependencies_bazel_build_files_credit_and_unlisted_findings_at_them_split_off() {
+        let rules_js = "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n";
+        let root_files: BTreeMap<&str, &str> = [
+            ("MODULE.bazel", rules_js),
+            ("e2e/js/MODULE.bazel", rules_js),
+            ("e2e/plain/MODULE.bazel", "module(name = \"plain\")\n"),
+        ]
+        .into_iter()
+        .collect();
+        let manifests = strings(&[
+            "package.json",
+            "packages/app/package.json",
+            "e2e/js/package.json",
+            "e2e/plain/package.json",
+        ]);
+        let is_file = |file: &str| root_files.contains_key(file) || manifests.contains(file);
+        let read = |file: &str| root_files.get(file).map(|source| (*source).to_owned());
+        let build_files: Vec<(String, String)> = [
+            (
+                "packages/app/BUILD.bazel",
+                "load(\"@npm//packages/app:esbuild/package_json.bzl\", esbuild = \"bin\")\n\
+                 # \":node_modules/commented\" is no label\n\
+                 js_library(name = \"lib\", srcs = [\"src/index.ts\"], deps = [\":node_modules/zod\", \
+                 \"//:node_modules/typescript\", '//packages/other:node_modules/left-pad'])\n",
+            ),
+            ("packages/app/src/BUILD", "deps = [\"//packages/app:node_modules/@types/node\"]\n"),
+            (
+                "tools/BUILD.bazel",
+                "deps = [\"//packages/app:node_modules/react\", \"//:node_modules/prettier\"]\n",
+            ),
+            ("e2e/js/BUILD.bazel", "deps = [\":node_modules/uvu\"]\n"),
+            ("e2e/plain/BUILD.bazel", "deps = [\":node_modules/jasmine\"]\n"),
+        ]
+        .into_iter()
+        .map(|(path, source)| (path.to_owned(), source.to_owned()))
+        .collect();
+        let credits = bazel_credits(&build_files, &is_file, &read);
+        assert_eq!(
+            credits,
+            strings(&[
+                "e2e/js/package.json|uvu",
+                "package.json|prettier",
+                "package.json|typescript",
+                "packages/app/package.json|@types/node",
+                "packages/app/package.json|esbuild",
+                "packages/app/package.json|zod",
+            ]),
+            "a label of another package's directory, a package without a manifest, a comment and a Bazel root \
+             without rules_js credit nothing"
+        );
+
+        let manifest = |dir: &str| {
+            manifests
+                .contains(&joined(dir, "package.json"))
+                .then(|| Rc::new(json!({ "name": dir })))
+        };
+        let layout = Layout::new(strings(&["packages/app"]), &manifest, &is_file);
+        let classifier = Classifier {
+            bazel_credits: &credits,
+            ..bare(&layout)
+        };
+        for (side, category, key) in [
+            (Side::Tool, "devDependencies", "packages/app/package.json|zod"),
+            (Side::Tool, "dependencies", "package.json|typescript"),
+            (Side::Tool, "optionalPeerDependencies", "packages/app/package.json|esbuild"),
+            (Side::Skif, "unlisted", "packages/app/BUILD.bazel|lodash"),
+            (Side::Skif, "unlisted", "packages/app/src/BUILD|lodash"),
+        ] {
+            assert_eq!(
+                classifier.classify(side, category, key),
+                Some(BAZEL_BUILD_FILE),
+                "{side:?} {category} {key}"
+            );
+        }
+        for (side, category, key) in [
+            (Side::Tool, "dependencies", "packages/app/package.json|react"),
+            (Side::Skif, "dependencies", "packages/app/package.json|zod"),
+            (Side::Tool, "unlisted", "packages/app/BUILD.bazel|lodash"),
+            (Side::Skif, "unlisted", "packages/app/src/index.ts|lodash"),
+            (Side::Skif, "unlisted", "packages/app/BUILD.bazel.bak|lodash"),
+        ] {
+            assert_eq!(classifier.classify(side, category, key), None, "{side:?} {category} {key}");
+        }
+    }
+
+    #[test]
+    fn the_harness_reads_the_build_files_of_a_bazel_checkout_where_skif_discovery_looks() {
+        let root = std::env::temp_dir().join(format!("skif-bench-parity-bazel-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        for dir in ["packages/a/src", "node_modules/x", ".cache", "docs/build"] {
+            fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        for file in [
+            "BUILD.bazel",
+            "packages/a/BUILD",
+            "packages/a/src/BUILD.bazel",
+            "node_modules/x/BUILD.bazel",
+            ".cache/BUILD",
+            "docs/build/notes.md",
+        ] {
+            fs::write(root.join(file), format!("# {file}\n")).unwrap();
+        }
+        assert!(read_build_files(&root).is_empty(), "no Bazel root file");
+        fs::write(root.join("MODULE.bazel"), "bazel_dep(name = \"aspect_rules_js\")\n").unwrap();
+        let found = read_build_files(&root);
+        assert_eq!(
+            found.iter().map(|(path, _)| path.as_str()).collect::<Vec<_>>(),
+            ["BUILD.bazel", "packages/a/BUILD", "packages/a/src/BUILD.bazel"]
+        );
+        assert_eq!(found[1].1, "# packages/a/BUILD\n");
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
