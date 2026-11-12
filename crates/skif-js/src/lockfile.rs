@@ -31,10 +31,11 @@ pub(crate) struct Locked {
 
 /// Reads the lockfile at `root`.
 ///
-/// The packages come from `pnpm-lock.yaml`, else `package-lock.json`, `bun.lock`, `yarn.lock` (Berry, which records
-/// peers and binaries); none when no lockfile exists or is understood. A classic (v1) `yarn.lock` records no binaries,
-/// so reading it would make every locked package look like one without binaries; it is skipped. `bun.lock` is parsed
-/// once, for its packages and for its `configVersion`, which is read whichever lockfile the packages come from.
+/// The packages come from `pnpm-lock.yaml` (its project's document, not the package manager's environment), else
+/// `package-lock.json`, `bun.lock`, `yarn.lock` (Berry, which records peers and binaries); none when no lockfile exists
+/// or is understood. A classic (v1) `yarn.lock` records no binaries, so reading it would make every locked package look
+/// like one without binaries; it is skipped. `bun.lock` is parsed once, for its packages and for its `configVersion`,
+/// which is read whichever lockfile the packages come from.
 pub(crate) fn read(fs: &dyn FileSystem, root: &Path) -> Locked {
     let bun_lock = fs
         .read_to_string(&root.join("bun.lock"))
@@ -42,7 +43,7 @@ pub(crate) fn read(fs: &dyn FileSystem, root: &Path) -> Locked {
         .map(|text| parse_bun(&text));
     let bun_config_version = bun_lock.as_ref().and_then(|lock| lock.get("configVersion")?.as_u64());
     let entries = if let Ok(text) = fs.read_to_string(&root.join("pnpm-lock.yaml")) {
-        pnpm(&text)
+        pnpm(skif_workspace::pnpm_project_document(&text))
     } else if let Ok(text) = fs.read_to_string(&root.join("package-lock.json")) {
         npm(&text)
     } else if let Some(lock) = &bun_lock {
@@ -331,6 +332,26 @@ mod tests {
         );
         assert_eq!(entries["oxlint"].bins.iter().next().map(String::as_str), Some("oxlint"));
         assert!(!entries.contains_key("other"));
+    }
+
+    #[test]
+    fn a_two_document_pnpm_lock_is_read_from_the_project_document() {
+        // pnpm 11 and later: the package manager's environment, pnpm with its binary, then the project's lockfile.
+        let text = "---\nlockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    configDependencies: {}\n    \
+                    packageManagerDependencies:\n      pnpm:\n        specifier: 12.9.1\n        version: 12.9.1\n\n\
+                    packages:\n\n  pnpm@12.9.1:\n    resolution: {integrity: sha512-pnpm}\n    hasBin: true\n\n\
+                    snapshots:\n\n  pnpm@12.9.1: {}\n\n---\nlockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    \
+                    devDependencies:\n      oxlint:\n        specifier: 1.0.0\n        version: 1.0.0\n\n\
+                    packages:\n\n  oxlint@1.0.0:\n    resolution: {integrity: sha512-oxlint}\n    hasBin: true\n    \
+                    peerDependencies:\n      typescript: ^5.0.0\n\nsnapshots:\n\n  oxlint@1.0.0: {}\n";
+        let fs = skif_core::MemoryFs::new().with_file("/r/pnpm-lock.yaml", text);
+        let packages = read(&fs, Path::new("/r")).packages;
+        assert_eq!(
+            packages.keys().map(String::as_str).collect::<BTreeSet<_>>(),
+            BTreeSet::from(["oxlint"])
+        );
+        assert_eq!(packages["oxlint"].bins, ["oxlint"]);
+        assert_eq!(packages["oxlint"].peers, ["typescript"]);
     }
 
     #[test]
