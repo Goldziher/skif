@@ -4348,7 +4348,11 @@ fn array_index(key: &str) -> Option<usize> {
 /// The element at `index` of a known array: unknown at or after an unknown element, which may stand for a spread of any
 /// length, and `undefined` past the end.
 fn element_at(items: &[Value], index: usize) -> Value {
-    if items.iter().take(index.saturating_add(1)).any(|item| *item == Value::Unknown) {
+    if items
+        .iter()
+        .take(index.saturating_add(1))
+        .any(|item| *item == Value::Unknown)
+    {
         return Value::Unknown;
     }
     items.get(index).cloned().unwrap_or(Value::Undefined)
@@ -4386,9 +4390,7 @@ fn number_text(number: f64) -> Option<String> {
         // `-0` is written `0` too.
         return Some("0".to_owned());
     }
-    (1e-6..1e21)
-        .contains(&number.abs())
-        .then(|| format!("{number}"))
+    (1e-6..1e21).contains(&number.abs()).then(|| format!("{number}"))
 }
 
 /// `left + right` of known values: the sum of two numbers, or the text of both ([`primitive_text`]) when one is a
