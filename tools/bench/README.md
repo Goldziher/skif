@@ -260,7 +260,9 @@ manifest, not by listing findings:
   not one of knip's workspaces. knip counts those files to an enclosing workspace without their own manifest's entries
   and dependencies; skif's analysis of the enclosing workspace skips the directory. When a recursive skif run lints
   the project as a package of one of its roots (the `packages` of the JSON `roots`), its exports, types, members and
-  duplicates stay compared, since skif judges them there. On skif's side, an unused file, an unlisted dependency or an
+  duplicates stay compared, since skif judges them there, except the exports and types of the project's default entry
+  files (`index`, `cli` or `main` at the top or in `src`): they are public in skif's run of the project, and knip
+  reads them without the project's entries. On skif's side, an unused file, an unlisted dependency or an
   unlisted binary only skif reports below such a project is `non-member-project` too: the recursive run lints the
   project with its own entry files, plugins, configs and manifest (a package its `.eslintrc.json` or `project.json`
   names), which knip does not read there. A binary on a `package.json` that knip reports anything on stays compared.
