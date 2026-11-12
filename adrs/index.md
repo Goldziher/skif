@@ -122,6 +122,7 @@ old one.
 | 0112 | [Paths Under bazel run](0112-paths-under-bazel-run.md) | accepted |
 | 0113 | [Speed Benchmarks on a Pinned GitHub-Hosted Runner](0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md) | accepted |
 | 0114 | [Windows npm Packages Deferred Until Their Names Exist](0114-windows-npm-packages-deferred.md) | accepted |
+| 0120 | [Lerna Configuration, Task-Ordering Dependencies, Grouping Directories and Prune Output](0120-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md) | accepted |
 | 0119 | [Local Nx Plugins and Executor-Run Conventions in Nx Projects](0119-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md) | accepted |
 | 0117 | [The `--cache` Default Under bazel test](0117-the-cache-default-under-bazel-test.md) | accepted |
 | 0116 | [Bazel Convenience Links, Module Pins and More Lockfile Consumers](0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md) | accepted |

@@ -11,6 +11,31 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `stale-lerna-config` (`warn`): `useWorkspaces` in `lerna.json` and a `lerna.json` without `version`, which Lerna 7
+  and later reject, and scripts that run `lerna bootstrap`, `lerna add` or `lerna link`, which Lerna 9 removed. The
+  Lerna release is read from `node_modules/lerna`, else from the root `package.json`; without one nothing is reported
+  ([ADR 0120](adrs/0120-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#189](https://github.com/Goldziher/skif/issues/189)).
+- `lerna-packages-mismatch` (`warn`): the `packages` of `lerna.json`, which Lerna reads before the package manager's
+  workspaces, select other packages than the workspace declaration skif follows; the finding names both lists and the
+  packages only one selects ([ADR 0120](adrs/0120-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#190](https://github.com/Goldziher/skif/issues/190)).
+- `DiscoveryFacts::lerna` records a valid root `lerna.json` (`LernaFacts`) also when another file declares the
+  members.
+
+### Changed
+
+- `unused-dependencies` and `unused-dev-dependencies` no longer report a dependency on a workspace member that has no
+  `main`, `module`, `exports`, `bin`, `browser`, `types` or `typings` and no source file (a tooling, asset or style
+  package): such a dependency only orders tasks, as Turborepo's `^build` and Nx's task dependencies do
+  ([ADR 0120](adrs/0120-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#191](https://github.com/Goldziher/skif/issues/191)).
+
+### Fixed
+
+- A recursive run no longer lints the output of `turbo prune --docker` as two extra roots: below the start path, the
+  `json` and `full` trees of a directory without a `package.json` that holds a lockfile next to them are skipped
+  ([ADR 0120](adrs/0120-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#194](https://github.com/Goldziher/skif/issues/194)).
+- `missing-package-manifest` no longer reports an Nx project (a directory with a `project.json`) or a grouping
+  directory whose content is only directories the patterns select too, such as `libs/cart` under
+  `["libs/*", "libs/*/*"]` ([ADR 0120](adrs/0120-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#192](https://github.com/Goldziher/skif/issues/192)).
 - **Scripts**: the command of `lerna exec [flags] [--] <cmd>` and `nx exec [flags] -- <cmd>` is walked as a command
   of the package, as `pnpm -r exec` is: `lerna exec -- rimraf dist` uses `rimraf`, and an unlisted binary there is
   reported. `lerna run` and `nx run` keep reading task names

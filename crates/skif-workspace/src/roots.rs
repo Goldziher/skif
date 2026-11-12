@@ -15,8 +15,9 @@ use skif_core::{DirEntry, FileSystem};
 
 use crate::detect;
 use crate::manifest::parse_value;
-use crate::pattern::{self, Expander, Pattern};
+use crate::pattern::{self, Expander};
 use crate::pnpm;
+use crate::workspace::LOCKFILES;
 #[cfg(test)]
 use crate::workspace::Workspace;
 use crate::{lerna, rush};
@@ -24,6 +25,9 @@ use crate::{lerna, rush};
 const MANIFEST: &str = "package.json";
 const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
 const IGNORE_FILES: [&str; 2] = [".gitignore", ".ignore"];
+/// The trees `turbo prune --docker` writes next to the pruned lockfile: `json` holds the manifests, `full` the whole
+/// pruned workspace.
+const PRUNE_TREES: [&str; 2] = ["json", "full"];
 
 /// A project root decided by [`claim_roots`].
 ///
@@ -256,6 +260,25 @@ fn descends(entry: &DirEntry) -> bool {
             .is_some_and(|name| name != "node_modules" && !name.to_string_lossy().starts_with('.'))
 }
 
+/// Whether a directory listing, with `files` the names of its files, is the output of `turbo prune --docker`: a
+/// lockfile next to a `json` and a `full` directory. Both trees copy packages of the workspace the output was pruned
+/// from, so linting them as roots would report those packages again.
+fn is_prune_output(files: &[&str], entries: &[DirEntry]) -> bool {
+    files.iter().any(|name| LOCKFILES.contains(name))
+        && PRUNE_TREES
+            .iter()
+            .all(|tree| entries.iter().any(|entry| entry.is_dir && is_named(entry, tree)))
+}
+
+/// Whether `entry` is one of the [`PRUNE_TREES`].
+fn is_prune_tree(entry: &DirEntry) -> bool {
+    PRUNE_TREES.iter().any(|tree| is_named(entry, tree))
+}
+
+fn is_named(entry: &DirEntry, name: &str) -> bool {
+    entry.path.file_name().is_some_and(|file_name| file_name == name)
+}
+
 /// What the walk found below a start directory, before deciding which of it is a root.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -278,7 +301,9 @@ pub struct Candidates {
 /// What a directory holds is decided from its listing, so a directory without a manifest costs one read. The walk
 /// skips `node_modules`, hidden directories, symbolic links and directories excluded by a `.gitignore` or `.ignore`
 /// at or below `start`, directories matching `options.ignore` and, when `start` lies in a git repository, by the
-/// `.gitignore` and `.ignore` files between the repository root and `start` and by `.git/info/exclude`.
+/// `.gitignore` and `.ignore` files between the repository root and `start` and by `.git/info/exclude`. Below `start`
+/// it also skips the `json` and `full` trees of `turbo prune --docker` output: a directory without a `package.json`
+/// that holds a lockfile next to them.
 #[must_use]
 pub fn scan_candidates(start: &Path, fs: &dyn FileSystem, options: &DiscoverOptions) -> Candidates {
     let skip = skip_matcher(start, options);
@@ -338,9 +363,11 @@ fn visit(fs: &dyn FileSystem, walk: &Walk<'_>, dir: PathBuf, depth: usize, ignor
         .filter(|name| names.contains(name))
         .map(|name| dir.join(name));
     let ignores = pushed(ignores, matcher_from(fs, &dir, files));
+    let pruned = depth > 0 && !manifest && is_prune_output(&names, &entries);
     let children: Vec<PathBuf> = entries
         .iter()
         .filter(|entry| descends(entry) && !is_ignored(&ignores, &entry.path) && !is_skipped(walk.skip, &entry.path))
+        .filter(|entry| !(pruned && is_prune_tree(entry)))
         .map(|entry| entry.path.clone())
         .collect();
     if depth >= walk.max_depth {
@@ -434,19 +461,9 @@ fn declared_patterns(fs: &dyn FileSystem, root: &Path) -> Vec<String> {
 /// patterns cannot be read.
 #[must_use]
 pub fn declared_member_dirs(fs: &dyn FileSystem, root: &Path) -> BTreeSet<PathBuf> {
-    let expander = Expander { fs, root };
-    let mut selected = BTreeSet::new();
-    let mut negations = Vec::new();
-    for raw in declared_patterns(fs, root) {
-        if raw.trim_start().starts_with('!') {
-            negations.extend(pattern::negation(&raw).ok());
-        } else if let Ok(pattern) = Pattern::new(&raw) {
-            selected.extend(expander.expand(&pattern));
-        }
-    }
-    selected
+    let patterns = declared_patterns(fs, root);
+    pattern::selected_with_manifest(&Expander { fs, root }, patterns.iter().map(String::as_str))
         .into_iter()
-        .filter(|dir| expander.has_manifest(dir) && !negations.iter().any(|negation| negation.is_match(dir)))
         .map(|dir| root.join(dir))
         .collect()
 }
@@ -1032,6 +1049,62 @@ mod tests {
         );
         assert_eq!(found(&options(&["fixtures"])).len(), 6);
         assert!(found(&options(&["fixtures", "!real/fixtures"])).contains(&"pkg:/r/real/fixtures/x".to_owned()));
+    }
+
+    /// A Turborepo workspace with the output of `turbo prune web --docker` in `out/`, with `lockfile` (if any) next to
+    /// its `json` and `full` trees.
+    fn pruned_tree(lockfile: Option<&str>) -> MemoryFs {
+        let workspace = r#"{"name": "turbo", "workspaces": ["apps/*"]}"#;
+        let web = r#"{"name": "web"}"#;
+        let fs = MemoryFs::new()
+            .with_file("/r/package.json", workspace)
+            .with_file("/r/apps/web/package.json", web)
+            .with_file("/r/out/json/package.json", workspace)
+            .with_file("/r/out/json/apps/web/package.json", web)
+            .with_file("/r/out/full/package.json", workspace)
+            .with_file("/r/out/full/apps/web/package.json", web)
+            .with_file("/r/out/full/apps/web/src/index.ts", "");
+        match lockfile {
+            Some(name) => fs.with_file(format!("/r/out/{name}"), "lockfileVersion: '9.0'\n"),
+            None => fs,
+        }
+    }
+
+    #[test]
+    fn the_trees_of_turbo_prune_output_are_not_searched_for_roots() {
+        for lockfile in ["pnpm-lock.yaml", "yarn.lock", "package-lock.json", "bun.lock"] {
+            assert_eq!(discover(&pruned_tree(Some(lockfile))), ["ws:/r"], "{lockfile}");
+        }
+    }
+
+    #[test]
+    fn json_and_full_directories_without_a_lockfile_beside_them_are_searched() {
+        assert_eq!(discover(&pruned_tree(None)), ["ws:/r", "ws:/r/out/full", "ws:/r/out/json"]);
+    }
+
+    #[test]
+    fn a_package_with_a_lockfile_and_json_and_full_directories_is_no_prune_output() {
+        let fs = MemoryFs::new()
+            .with_file("/r/package.json", r#"{"name": "app"}"#)
+            .with_file("/r/pnpm-lock.yaml", "lockfileVersion: '9.0'\n")
+            .with_file("/r/tools/package.json", r#"{"name": "tools"}"#)
+            .with_file("/r/tools/yarn.lock", "")
+            .with_file("/r/tools/json/package.json", r#"{"name": "json"}"#)
+            .with_file("/r/tools/full/package.json", r#"{"name": "full"}"#);
+        assert_eq!(
+            discover(&fs),
+            ["pkg:/r", "pkg:/r/tools", "pkg:/r/tools/full", "pkg:/r/tools/json"]
+        );
+    }
+
+    #[test]
+    fn prune_output_given_as_the_start_directory_is_searched() {
+        let roots = discover_roots(
+            Path::new("/r/out"),
+            &pruned_tree(Some("pnpm-lock.yaml")),
+            &DiscoverOptions::default(),
+        );
+        assert_eq!(paths(&roots), ["ws:/r/out/full", "ws:/r/out/json"]);
     }
 
     #[test]
