@@ -2122,3 +2122,28 @@ fn a_spread_argument_may_have_what_it_holds_changed() {
         assert!(open(&value), "{body}: {value:?}");
     }
 }
+
+/// A function that reads `arguments` may change any argument of a call of it whatever its parameters, so it is not
+/// followed through them and a call of it may change all of what it is given, wherever the call is made.
+#[test]
+fn a_function_reading_arguments_may_change_every_argument() {
+    for source in [
+        "function touch() { arguments[0].entry = './changed.js'; return 1; }\n\
+         const config = { entry: './src/main.js' };\n\
+         const r = touch(config);\n\
+         module.exports = config;",
+        "const touch = function (a) { arguments[1].entry = './changed.js'; return a; };\n\
+         const config = { entry: './src/main.js' };\n\
+         const r = [touch({}, config)];\n\
+         module.exports = config;",
+        "module.exports = () => {\n\
+           function touch() { arguments[0].entry = './changed.js'; }\n\
+           const config = { entry: './src/main.js' };\n\
+           const r = touch(config);\n\
+           return config;\n\
+         };",
+    ] {
+        let value = extract("rspack.config.js", source);
+        assert!(open(&value), "{source}: {value:?}");
+    }
+}
