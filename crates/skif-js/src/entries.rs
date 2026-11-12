@@ -257,11 +257,15 @@ impl EntryContext<'_> {
             .filter(|path| is_code_file(path) && fs.is_file(path))
             .cloned()
             .collect();
-        if !setup.production {
-            let run = script_files(fs, package_setup, mine);
-            origins.extend(run.iter().map(|path| (path.clone(), EntryReason::Script)));
-            tool_entries.extend(run);
-        }
+        let facts = &package_setup.scripts;
+        let run_files = if setup.production {
+            &facts.production_files
+        } else {
+            &facts.files
+        };
+        let run = script_files(fs, package_setup, run_files, mine);
+        origins.extend(run.iter().map(|path| (path.clone(), EntryReason::Script)));
+        tool_entries.extend(run);
         if !package_setup.include_entry_exports {
             provided.extend(tool_entries.iter().cloned());
         }
@@ -412,13 +416,18 @@ fn is_empty_object(value: &serde_json::Value) -> bool {
     value.as_object().is_some_and(serde_json::Map::is_empty)
 }
 
-/// The files the package's scripts run. A path inside a build output directory (`outDir` of a `tsconfig`) stands for
-/// its source below the matching `rootDir`, even when the build output is on disk, and a directory a test runner reads
-/// (`mocha build/compiled/test`) for the code files the runner reads in it.
-fn script_files(fs: &dyn FileSystem, package_setup: &PackageSetup, mine: &[&Candidate]) -> Vec<PathBuf> {
+/// The entries for `files`, paths the package's scripts run. A path inside a build output directory (`outDir` of a
+/// `tsconfig`) stands for its source below the matching `rootDir`, even when the build output is on disk, and a
+/// directory a test runner reads (`mocha build/compiled/test`) for the code files the runner reads in it.
+fn script_files(
+    fs: &dyn FileSystem,
+    package_setup: &PackageSetup,
+    files: &[String],
+    mine: &[&Candidate],
+) -> Vec<PathBuf> {
     let dir = &package_setup.dir;
     let mut found = Vec::new();
-    for file in &package_setup.scripts.files {
+    for file in files {
         let path = join_normalized(dir, file);
         let rel = relative(&path, dir);
         let sources = rel
