@@ -36,6 +36,13 @@
 //! or a loop over a `const` list or object of primitive values (or its `Object.entries`) takes when no change reaches
 //! it, and a write in a class body is one the evaluator does not follow.
 //!
+//! The bindings of the modules the evaluator follows are linked to each other, as two exports, of one module or of two,
+//! may be the same object or hold one another; one that is a part of another (`default` of a namespace import and the
+//! default import) is linked at that part. A call of a function of such a module that may change a value of a module
+//! ([`Imports::changes_modules`]), and an import of one for its effects only (`import './setup'`), may change every
+//! such binding in full, wherever it is read, as what a read before the call gives may be the object it changes. What a
+//! module imported for its bindings does when it is loaded is not followed.
+//!
 //! Code a value runs implicitly is not followed: a getter, a `toString` or `valueOf` a template literal or `String(x)`
 //! calls, a `toJSON` of `JSON.stringify`, a `then` of a value awaited. Neither is a change an imported function makes
 //! to what it was given by an earlier call (`register(config)`, later `apply()`).
@@ -144,6 +151,17 @@ impl Write {
     }
 }
 
+/// What the evaluator knows of the modules a module imports, by specifier.
+pub(crate) trait Imports {
+    /// Whether the evaluator follows the module `specifier` names.
+    fn follows(&self, specifier: &str) -> bool;
+
+    /// Whether a function of the module `specifier` names, which the evaluator follows, may change a value of a
+    /// module when it is called: it changes a binding of its own module or calls such a function of another one
+    /// ([`Unstable::changes_modules`]).
+    fn changes_modules(&self, specifier: &str) -> bool;
+}
+
 /// The bindings of a module that code the evaluator does not follow may change.
 #[derive(Default)]
 pub(crate) struct Unstable {
@@ -167,6 +185,8 @@ pub(crate) struct Unstable {
     foreign_calls: HashSet<Span>,
     /// The names of the module's namespace imports.
     namespaces: HashSet<String>,
+    /// Whether code of a module the evaluator follows may run unseen ([`Sharing::runs_modules`]).
+    runs_modules: bool,
     /// The references that are the only one of a binding no other module can read and that are read once per binding:
     /// not in a loop, nor in a function other than the binding's own, and not of an alias the evaluator follows. None
     /// when the module reads `arguments`, calls `eval` or has a `with` statement, which reach bindings without a
@@ -189,14 +209,15 @@ enum Effect {
 }
 
 impl Unstable {
-    /// The bindings of `program` code the evaluator does not follow may change, where `follows` says whether the
-    /// evaluator follows the module a specifier names.
-    pub(crate) fn of(program: &Program<'_>, follows: &dyn Fn(&str) -> bool) -> Self {
+    /// The bindings of `program` code the evaluator does not follow may change, where `imports` says what the
+    /// evaluator knows of the modules it imports.
+    pub(crate) fn of(program: &Program<'_>, imports: &dyn Imports) -> Self {
         let semantic = SemanticBuilder::new().build(program).semantic;
         let scoping = semantic.scoping();
         let mut sharing = Sharing {
             scoping,
-            known: known(program, scoping, follows),
+            imports,
+            known: known(program, scoping, imports),
             pure: HashSet::default(),
             effects: HashMap::default(),
             objects: HashMap::default(),
@@ -220,6 +241,7 @@ impl Unstable {
             alias_parts: HashMap::default(),
             ends: HashMap::default(),
             late: Vec::new(),
+            runs_modules: false,
         };
         sharing.visit_program(program);
         let followed = sharing.share();
@@ -243,6 +265,7 @@ impl Unstable {
                 .map(|&symbol| scoping.symbol_name(symbol).to_owned())
                 .collect(),
             sole,
+            runs_modules: sharing.runs_modules,
             ..Self::default()
         };
         for (symbol, change) in std::mem::take(&mut sharing.changes) {
@@ -333,6 +356,13 @@ impl Unstable {
     /// Whether `object` is the binding of a namespace import, whose methods are taken to change nothing of it.
     pub(crate) fn is_namespace(&self, object: &Expression<'_>) -> bool {
         matches!(object.get_inner_expression(), Expression::Identifier(id) if self.namespaces.contains(id.name.as_str()))
+    }
+
+    /// Whether a function of the module may change a value of a module when it is called: code it does not follow
+    /// changes a top-level binding or an import of it ([`Self::of_top`]), or it calls a function of a module that may
+    /// ([`Imports::changes_modules`]), or imports one for its effects.
+    pub(crate) fn changes_modules(&self) -> bool {
+        self.runs_modules || !self.top.is_empty()
     }
 
     /// Whether a change made through the argument `id` of a call may be read after the call: `id` is not the only
@@ -426,6 +456,8 @@ struct Held {
 
 struct Sharing<'s> {
     scoping: &'s Scoping,
+    /// What the evaluator knows of the modules the module imports.
+    imports: &'s dyn Imports,
     /// What the module binds names to that the pass knows ([`known`]).
     known: Known,
     /// The calls of one of [`PURE_FUNCTIONS`] found, by span.
@@ -478,6 +510,9 @@ struct Sharing<'s> {
     /// The changes of a local made through an alias the evaluator follows that a read of it sees only after the
     /// declaration of the alias, which ends at the offset given ([`Self::read_before`]).
     late: Vec<(SymbolId, u32, Change)>,
+    /// Whether code of a module the evaluator follows may run unseen and change what such a module exports
+    /// ([`Self::runs_followed`]).
+    runs_modules: bool,
 }
 
 /// An alias the evaluator follows ([`Unstable::follows`]): the local it takes a part of, the keys of that part and where
@@ -891,6 +926,31 @@ impl Sharing<'_> {
         (defined(call).is_some() && foreign(names, &call.callee)) || copies(names, call)
     }
 
+    /// Whether `expr` is a name or a member chain that starts from a binding of a module the evaluator follows whose
+    /// functions may change a value of a module ([`Imports::changes_modules`]): `tweak`, `shared.tweak`,
+    /// `base.plugins`.
+    fn of_changing_module(&self, expr: &Expression<'_>) -> bool {
+        reach(expr)
+            .and_then(|(id, _, _)| self.symbol(id))
+            .filter(|symbol| self.known.followed.contains(symbol))
+            .and_then(|symbol| self.known.modules.get(&symbol))
+            .is_some_and(|(module, _)| self.imports.changes_modules(module))
+    }
+
+    /// Whether `call` may run code of a module the evaluator follows that changes a value of a module: it calls a
+    /// function of one (`tweak()`, `shared.tweak()`, a method of an imported value), or its effect is not known and
+    /// it is given a binding of one, which may be a function it calls.
+    fn runs_followed(&self, call: &CallExpression<'_>) -> bool {
+        let given_function = || {
+            self.effect(call).is_none()
+                && call.arguments.iter().filter_map(given).any(|argument| {
+                    matches!(argument.get_inner_expression(), Expression::Identifier(_))
+                        && self.of_changing_module(argument)
+                })
+        };
+        self.of_changing_module(&call.callee) || given_function()
+    }
+
     /// Records the change `write` of the object `symbol` holds.
     fn changed(&mut self, symbol: SymbolId, write: Write) {
         self.written(symbol, Change::Contents(vec![write.clone()]));
@@ -1199,6 +1259,7 @@ impl Sharing<'_> {
     /// is not marked, and through it what else may share an object with that part; a local of the alias's function is
     /// marked from the alias's declaration on ([`Self::late`]).
     fn share(&mut self) -> HashSet<SymbolId> {
+        self.link_imports();
         self.drop_primitives();
         self.link_elements();
         let followed = self.link_aliases();
@@ -1238,7 +1299,68 @@ impl Sharing<'_> {
                 }
             }
         }
+        if self.runs_modules {
+            self.affect_imports(&links_of);
+        }
         followed
+    }
+
+    /// Links every binding of a module the evaluator follows to the others, as two exports, of one module or of two,
+    /// may be the same object or hold one another: one that is a part of another (the default import and `default` of
+    /// a namespace import of the same module, two imports of one export) at that part, any other anywhere at or below
+    /// it.
+    fn link_imports(&mut self) {
+        let mut imports: Vec<SymbolId> = self.known.followed.iter().copied().collect();
+        imports.sort_unstable();
+        for pair in imports.windows(2) {
+            self.links.push(Link {
+                a: Place::of(pair[0]),
+                b: Place::of(pair[1]),
+                join: Join::Within,
+            });
+        }
+        for (index, &a) in imports.iter().enumerate() {
+            for &b in &imports[index + 1..] {
+                if let Some((a, b)) = self.export_part(a, b).or_else(|| self.export_part(b, a)) {
+                    self.links.push(Link { a, b, join: Join::Same });
+                }
+            }
+        }
+    }
+
+    /// The place in the import `whole` that the import `part` of the same module is, with `part` itself, when the
+    /// export `part` takes is `whole`'s or below it (`default` of a namespace import is the default import).
+    fn export_part(&self, whole: SymbolId, part: SymbolId) -> Option<(Place, Place)> {
+        let (whole_module, _) = self.known.modules.get(&whole)?;
+        let (part_module, _) = self.known.modules.get(&part)?;
+        let whole_path = self.known.import_paths.get(&whole)?;
+        let below = self
+            .known
+            .import_paths
+            .get(&part)?
+            .strip_prefix(whole_path.as_slice())?;
+        (whole_module == part_module).then(|| {
+            (
+                Place {
+                    symbol: whole,
+                    keys: below.to_vec(),
+                },
+                Place::of(part),
+            )
+        })
+    }
+
+    /// Marks every binding of a module the evaluator follows, and what may share an object with one, as changed in
+    /// full, as code of such a module may run unseen. Where it runs is not taken to bound what it changes: what a read
+    /// before it gives the config may be the object it changes.
+    fn affect_imports(&mut self, links_of: &HashMap<SymbolId, Vec<usize>>) {
+        let mut imports: Vec<SymbolId> = self.known.followed.iter().copied().collect();
+        imports.sort_unstable();
+        for import in imports {
+            for (other, write) in self.reached(links_of, import, &Write::default()) {
+                self.change(other, Change::Contents(vec![write]));
+            }
+        }
     }
 
     /// The aliases of `followed`, in the order they are declared.
@@ -1482,6 +1604,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
         if foreign(self.names(), &it.callee) {
             self.foreign_calls.insert(it.span);
         }
+        self.runs_modules |= self.runs_followed(it);
         let calls_back = self.calls_back_unknown(it);
         if calls_back {
             self.calls_back.insert(it.span);
@@ -1559,6 +1682,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
+        self.runs_modules |= self.of_changing_module(&it.callee);
         // A class the pass does not know may change what it is given, and keep it in another argument.
         if constructs_builtin(self.scoping, it) {
             self.effects.insert(it.span, Effect::Keeps);
@@ -1581,7 +1705,35 @@ impl<'a> Visit<'a> for Sharing<'_> {
         {
             self.mutate_arguments(&call.arguments);
         }
+        // A module the evaluator follows required for its effects (`require('./setup')`) runs its code there.
+        if let Some(call) = statement_call(&it.expression)
+            && let Expression::Identifier(callee) = call.callee.get_inner_expression()
+            && callee.name.as_str() == "require"
+            && resolved(self.scoping, callee).is_none()
+            && call
+                .arguments
+                .first()
+                .and_then(Argument::as_expression)
+                .and_then(static_string)
+                .is_some_and(|specifier| self.imports.follows(&specifier))
+        {
+            self.runs_modules = true;
+        }
         walk::walk_expression_statement(self, it);
+    }
+
+    fn visit_tagged_template_expression(&mut self, it: &TaggedTemplateExpression<'a>) {
+        self.runs_modules |= self.of_changing_module(&it.tag);
+        walk::walk_tagged_template_expression(self, it);
+    }
+
+    fn visit_import_declaration(&mut self, it: &ImportDeclaration<'a>) {
+        // A module imported for its effects only (`import './setup'`) runs before the module that imports it.
+        let effects_only = it.specifiers.as_ref().is_none_or(|specifiers| specifiers.is_empty());
+        if effects_only && !it.import_kind.is_type() && self.imports.follows(&crate::js_string(it.source.value)) {
+            self.runs_modules = true;
+        }
+        walk::walk_import_declaration(self, it);
     }
 
     fn visit_export_declaration(&mut self, it: &ExportDeclaration<'a>) {
@@ -2401,14 +2553,18 @@ struct Known {
     /// Those of [`Self::modules`] of a package ([`is_package`]) whose module the evaluator does not follow, so that
     /// none of the project's code is behind them.
     foreign: HashSet<SymbolId>,
+    /// Those of [`Self::modules`] whose module the evaluator follows, which code of such a module may change.
+    followed: HashSet<SymbolId>,
+    /// The export of its module each import of [`Self::modules`] takes, as keys of the module's namespace: none for a
+    /// namespace import, `default` for a default import and the name for a named one. A `require` takes no such part.
+    import_paths: HashMap<SymbolId, Vec<String>>,
     /// Those of [`Self::foreign`] that the module only calls methods on (`path.format(…)`, `_.merge(…)`): it does not
     /// write through them, store a value in them, give them to a call or read a member of them otherwise.
     inert: HashSet<SymbolId>,
 }
 
-/// The bindings of `program` [`Known`] holds, where `follows` says whether the evaluator follows the module a
-/// specifier names.
-fn known(program: &Program<'_>, scoping: &Scoping, follows: &dyn Fn(&str) -> bool) -> Known {
+/// The bindings of `program` [`Known`] holds, where `imports` says which modules the evaluator follows.
+fn known(program: &Program<'_>, scoping: &Scoping, imports: &dyn Imports) -> Known {
     let mut finder = FindKnown {
         scoping,
         known: Known::default(),
@@ -2416,10 +2572,16 @@ fn known(program: &Program<'_>, scoping: &Scoping, follows: &dyn Fn(&str) -> boo
     };
     finder.visit_program(program);
     let mut known = finder.known;
+    known.followed = known
+        .modules
+        .iter()
+        .filter(|(_, (module, _))| imports.follows(module))
+        .map(|(&symbol, _)| symbol)
+        .collect();
     known.foreign = known
         .modules
         .iter()
-        .filter(|(_, (module, _))| is_package(module) && !follows(module.as_str()))
+        .filter(|(_, (module, _))| is_package(module) && !imports.follows(module))
         .map(|(&symbol, _)| symbol)
         .collect();
     let mut receivers = MethodReceivers::default();
@@ -2469,6 +2631,13 @@ impl FindKnown<'_> {
         }
     }
 
+    /// Records the export the import `symbol` takes ([`Known::import_paths`]).
+    fn path(&mut self, symbol: Option<SymbolId>, path: Vec<String>) {
+        if let Some(symbol) = symbol {
+            self.known.import_paths.insert(symbol, path);
+        }
+    }
+
     /// The module a `require('module')` of the global `require` loads.
     fn required(&self, init: &Expression<'_>) -> Option<String> {
         let Expression::CallExpression(call) = init.get_inner_expression() else {
@@ -2513,12 +2682,15 @@ impl<'a> Visit<'a> for FindKnown<'_> {
             match item {
                 ImportDeclarationSpecifier::ImportSpecifier(s) => {
                     let imported = crate::collect::module_export_name(&s.imported);
+                    self.path(s.local.symbol_id.get(), vec![imported.clone()]);
                     self.bind(s.local.symbol_id.get(), &specifier, Some(imported));
                 }
                 ImportDeclarationSpecifier::ImportDefaultSpecifier(s) => {
+                    self.path(s.local.symbol_id.get(), vec!["default".to_owned()]);
                     self.bind(s.local.symbol_id.get(), &specifier, None);
                 }
                 ImportDeclarationSpecifier::ImportNamespaceSpecifier(s) => {
+                    self.path(s.local.symbol_id.get(), Vec::new());
                     self.bind(s.local.symbol_id.get(), &specifier, None);
                     self.known.namespaces.extend(s.local.symbol_id.get());
                 }

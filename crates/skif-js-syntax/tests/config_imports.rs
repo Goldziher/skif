@@ -678,3 +678,109 @@ fn a_define_helper_of_a_followed_package_may_change_what_it_is_given() {
         "{value:?}"
     );
 }
+
+/// Bindings of one module, through a default, a named or a namespace import, are the same exports: a change through
+/// one reaches the others.
+#[test]
+fn a_change_through_one_import_of_a_module_reaches_its_other_imports() {
+    for (config, base) in [
+        (
+            "import base from './base';\nimport * as ns from './base';\n\
+             ns.default.build.outDir = 'out';\nexport default base;",
+            "export default { build: { outDir: 'dist' } };",
+        ),
+        (
+            "import base from './base';\nimport * as ns from './base';\n\
+             base.build.outDir = 'out';\nexport default ns.default;",
+            "export default { build: { outDir: 'dist' } };",
+        ),
+        (
+            "import { config } from './base';\nimport * as ns from './base';\n\
+             ns.config.build.outDir = 'out';\nexport default config;",
+            "export const config = { build: { outDir: 'dist' } };",
+        ),
+        (
+            "import base, { config } from './base';\nconfig.build.outDir = 'out';\nexport default base;",
+            "export const config = { build: { outDir: 'dist' } };\nexport default config;",
+        ),
+    ] {
+        let loader = files(&[("/ws/app/config.ts", config), ("/ws/app/base.ts", base)]);
+        let value = eval(&loader);
+        assert_eq!(
+            read_at(&value, &["build", "outDir"]),
+            &ConfigValue::Unknown,
+            "{config}: {value:?}"
+        );
+    }
+}
+
+/// Calling a function of a followed module that changes a value of a module (an import of its own, a binding it
+/// exports), or importing one for its effects, may change every value the config imports from a followed module; a
+/// module whose functions change nothing of a module leaves them known.
+#[test]
+fn a_followed_module_that_changes_an_import_reaches_the_values_the_config_imports() {
+    let base = "export default { root: 'src', build: { outDir: 'dist' } };";
+    let tweaking = "import base from './base';\nexport function tweak() { base.build.outDir = 'out'; }";
+    for (config, tweak) in [
+        (
+            "import base from './base';\nimport { tweak } from './tweak';\ntweak();\nexport default base;",
+            tweaking,
+        ),
+        (
+            "import base from './base';\nimport * as tools from './tweak';\ntools.tweak();\nexport default base;",
+            tweaking,
+        ),
+        (
+            "import base from './base';\nimport { tweak } from './tweak';\n\
+             export default () => { tweak(); return base; };",
+            tweaking,
+        ),
+        (
+            "import base from './base';\nimport { tweak } from './tweak';\nexport default { ...base, x: tweak() };",
+            tweaking,
+        ),
+        (
+            "import base from './base';\nimport { tweak } from './tweak';\nexport default { x: tweak(), ...base };",
+            tweaking,
+        ),
+        (
+            "import base from './base';\nimport { tweak } from './tweak';\ntweak();\nexport default base;",
+            "import { apply } from './apply';\nexport function tweak() { apply(); }",
+        ),
+        (
+            "import base from './base';\nimport './tweak';\nexport default base;",
+            "import base from './base';\nbase.build.outDir = 'out';",
+        ),
+        (
+            "const base = require('./base');\nrequire('./tweak');\nmodule.exports = base;",
+            "const base = require('./base');\nbase.build.outDir = 'out';",
+        ),
+    ] {
+        let loader = files(&[
+            ("/ws/app/config.ts", config),
+            ("/ws/app/base.ts", base),
+            ("/ws/app/tweak.ts", tweak),
+            (
+                "/ws/app/apply.ts",
+                "import base from './base';\nexport function apply() { base.build.outDir = 'out'; }",
+            ),
+        ]);
+        let value = eval(&loader);
+        assert_eq!(
+            read_at(&value, &["build", "outDir"]),
+            &ConfigValue::Unknown,
+            "{config}\n{tweak}: {value:?}"
+        );
+    }
+    let pure = files(&[
+        (
+            "/ws/app/config.ts",
+            "import base from './base';\nimport { name } from './name';\nexport default { ...base, name: name() };",
+        ),
+        ("/ws/app/base.ts", base),
+        ("/ws/app/name.ts", "export function name() { return 'app'; }"),
+    ]);
+    let value = eval(&pure);
+    assert_eq!(read_at(&value, &["build", "outDir"]), &s("dist"), "{value:?}");
+    assert_eq!(read_at(&value, &["name"]), &s("app"), "{value:?}");
+}

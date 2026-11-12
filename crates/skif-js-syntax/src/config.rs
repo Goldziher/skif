@@ -25,8 +25,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::finder::static_string;
 use crate::sharing::{
-    Change, Unstable, Write, alias_names, alias_source, changed_by_call, given, given_parts, property_defined, reach,
-    statement_call,
+    Change, Imports, Unstable, Write, alias_names, alias_source, changed_by_call, given, given_parts, property_defined,
+    reach, statement_call,
 };
 
 const MAX_DEPTH: u32 = 32;
@@ -491,6 +491,7 @@ pub fn extract_config(source: &str, path: &Path, loader: Option<&dyn ModuleLoade
         cuts: Cell::new(0),
         values: RefCell::new(HashMap::default()),
         loaded: RefCell::new(HashMap::default()),
+        changing: RefCell::new(HashMap::default()),
     };
     evaluate_config(source, path, Some(&modules))
 }
@@ -504,9 +505,12 @@ pub fn extract_config_object_with(source: &str, path: &Path, loader: &dyn Module
 fn evaluate_config(source: &str, path: &Path, modules: Option<&Modules<'_>>) -> Option<ExtractedConfig> {
     crate::with_arena(|allocator| {
         let program = parse_program(allocator, source, path)?;
-        let top = top_level(&program, &|specifier| {
-            modules.is_some_and(|modules| modules.follows(path, specifier))
-        });
+        let followed = modules.map(|modules| FollowedImports { modules, from: path });
+        let module_imports: &dyn Imports = match &followed {
+            Some(followed) => followed,
+            None => &NoImports,
+        };
+        let top = top_level(&program, module_imports);
         let bindings = module_bindings(&program);
         let imports = import_bindings(&program);
         let file = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
@@ -670,6 +674,9 @@ struct Modules<'l> {
     values: RefCell<HashMap<(PathBuf, Imported), Option<Value>>>,
     /// What the loader returned for each importing directory and specifier.
     loaded: RefCell<HashMap<(PathBuf, String), Option<LoadedModule>>>,
+    /// Whether a function of each module may change a value of a module ([`Modules::changes_modules`]), by path:
+    /// `None` while that is being found.
+    changing: RefCell<HashMap<PathBuf, Option<bool>>>,
 }
 
 impl Modules<'_> {
@@ -690,6 +697,50 @@ impl Modules<'_> {
     /// Whether the module `specifier` names from `from` is followed.
     fn follows(&self, from: &Path, specifier: &str) -> bool {
         self.load(from, specifier).is_some()
+    }
+
+    /// Whether a function of the followed module `specifier` names from `from` may change a value of a module when it
+    /// is called ([`Unstable::changes_modules`]): so it may when the module does not parse, when finding out would
+    /// reach past [`MAX_IMPORT_DEPTH`] or [`MAX_MODULE_LOADS`] modules, and in a cycle of modules whose functions call
+    /// each other's. Not one of a module that is not followed, whose functions the config's analysis does not reach.
+    fn changes_modules(&self, from: &Path, specifier: &str) -> bool {
+        let Some((path, source)) = self.load(from, specifier) else {
+            return false;
+        };
+        {
+            let changing = self.changing.borrow();
+            if let Some(known) = changing.get(&path) {
+                return known.unwrap_or(true);
+            }
+            let pending = changing.values().filter(|known| known.is_none()).count();
+            if pending >= MAX_IMPORT_DEPTH || changing.len() >= MAX_MODULE_LOADS {
+                return true;
+            }
+        }
+        self.changing.borrow_mut().insert(path.clone(), None);
+        let changes = self.module_changes_modules(&path, &source);
+        self.changing.borrow_mut().insert(path, Some(changes));
+        changes
+    }
+
+    /// [`Self::changes_modules`] of the module at `path` with the text `source`.
+    fn module_changes_modules(&self, path: &Path, source: &str) -> bool {
+        let Ok(source_type) = SourceType::from_path(path) else {
+            return true;
+        };
+        let allocator = Allocator::default();
+        let ret = Parser::new(&allocator, source, source_type).parse();
+        if ret.diagnostics.errors().next().is_some() {
+            return true;
+        }
+        Unstable::of(
+            &ret.program,
+            &FollowedImports {
+                modules: self,
+                from: path,
+            },
+        )
+        .changes_modules()
     }
 
     /// The value `imported` names in the module `specifier` resolves to from `from`, called with `args` when given.
@@ -742,7 +793,13 @@ impl Modules<'_> {
             return Some(Value::Unknown);
         }
         let program = &ret.program;
-        let top = top_level(program, &|specifier| self.follows(path, specifier));
+        let top = top_level(
+            program,
+            &FollowedImports {
+                modules: self,
+                from: path,
+            },
+        );
         let bindings = module_bindings(program);
         let imports = import_bindings(program);
         let dir = relative_dir(&self.root, path.parent().unwrap_or(path));
@@ -925,15 +982,38 @@ enum TopChange {
 
 type Frame<'p, 'a> = HashMap<String, Binding<'p, 'a>>;
 
-/// Whether the evaluator follows the module a specifier names, when it follows none.
-fn follows_none(_: &str) -> bool {
-    false
+/// The imports of a module whose imports the evaluator does not follow.
+struct NoImports;
+
+impl Imports for NoImports {
+    fn follows(&self, _: &str) -> bool {
+        false
+    }
+
+    fn changes_modules(&self, _: &str) -> bool {
+        false
+    }
 }
 
-/// The top-level bindings of `program`, where `follows` says whether the evaluator follows the module a specifier
-/// names.
-fn top_level<'p, 'a>(program: &'p Program<'a>, follows: &dyn Fn(&str) -> bool) -> TopLevel<'p, 'a> {
-    let unstable = Unstable::of(program, follows);
+/// The imports of the module at `from`, as `modules` follows them.
+struct FollowedImports<'m, 'l> {
+    modules: &'m Modules<'l>,
+    from: &'m Path,
+}
+
+impl Imports for FollowedImports<'_, '_> {
+    fn follows(&self, specifier: &str) -> bool {
+        self.modules.follows(self.from, specifier)
+    }
+
+    fn changes_modules(&self, specifier: &str) -> bool {
+        self.modules.changes_modules(self.from, specifier)
+    }
+}
+
+/// The top-level bindings of `program`, where `imports` says what the evaluator knows of the modules it imports.
+fn top_level<'p, 'a>(program: &'p Program<'a>, imports: &dyn Imports) -> TopLevel<'p, 'a> {
+    let unstable = Unstable::of(program, imports);
     let mut top = TopLevel {
         consts: HashMap::default(),
         functions: HashMap::default(),
@@ -1206,7 +1286,7 @@ pub fn extract_constructor_options(source: &str, path: &Path, constructor: &str,
             return Vec::new();
         }
         let program = &ret.program;
-        let top = top_level(program, &follows_none);
+        let top = top_level(program, &NoImports);
         let bindings = module_bindings(program);
         let mut finder = OptionFinder {
             top: &top,
@@ -1248,7 +1328,7 @@ fn find_properties(source: &str, path: &Path, key: &str, call_with: Option<&Conf
         let Some(program) = parse_program(allocator, source, path) else {
             return Vec::new();
         };
-        let top = top_level(&program, &follows_none);
+        let top = top_level(&program, &NoImports);
         let bindings = module_bindings(&program);
         let mut finder = PropertyFinder {
             top: &top,
@@ -1275,7 +1355,7 @@ pub fn extract_method_calls(source: &str, path: &Path, method: &str) -> Vec<Vec<
         let Some(program) = parse_program(allocator, source, path) else {
             return Vec::new();
         };
-        let top = top_level(&program, &follows_none);
+        let top = top_level(&program, &NoImports);
         let bindings = module_bindings(&program);
         let mut finder = MethodCallFinder {
             top: &top,
@@ -1411,7 +1491,7 @@ pub(crate) fn imported_calls_in(
     if imported.is_empty() {
         return Vec::new();
     }
-    let top = top_level(program, &follows_none);
+    let top = top_level(program, &NoImports);
     let bindings = module_bindings(program);
     let mut finder = CallFinder {
         top: &top,
@@ -2559,10 +2639,16 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             (Expression::ImportMeta(_), "file") => Value::String(self.file.to_owned()),
             (url @ Expression::NewExpression(_), "pathname") => self.expr(url, depth),
             (Expression::Identifier(namespace), _) if self.is_namespace(namespace.name.as_str()) => {
-                // What the module changes below the namespace, at the export read, applies to it.
+                // What the module changes below the namespace, at the export read, applies to it, as does what code
+                // the evaluator does not follow may change where it is read.
                 let name = namespace.name.as_str();
                 let exports = Value::Object(vec![(property.to_owned(), self.namespace_member(name, property))]);
-                property_of(&self.changed_top(name, exports), property)
+                let exports = self.changed_top(name, exports);
+                let exports = match self.unstable.of_reference(namespace) {
+                    Some(change) => unstable(exports, change),
+                    None => exports,
+                };
+                property_of(&exports, property)
             }
             _ => return None,
         })

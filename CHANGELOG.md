@@ -156,7 +156,14 @@ All notable changes to this project are documented here. The format follows
   `Object.assign`, `Object.defineProperty` and `Reflect.defineProperty` given their first argument through a spread
   (`Object.assign(...[config, extra])`) may change every object the spread gives. `JSON.stringify` and `JSON.parse`
   given a replacer or reviver other than a literal holding no function (`JSON.stringify(config, replacer)`) may
-  change what they are given, as that function is called with it. A merge given options that may hold a function
+  change what they are given, as that function is called with it. A change through one import of a module reaches
+  its other imports (`ns.default` and the default import, two exports that may be one object), and a change of a
+  value of another module the config imports reaches it too. A call of a function of a project module or a
+  workspace package that changes a value of a module (an import of its own, a binding it exports, directly or through
+  a function of another module it calls), and a module imported or required only for its effects
+  (`import './setup'`), leave every value the config imports from such modules partly unknown; a module whose
+  functions change no such value (`name()` returning a string) leaves them known. What a module imported for its
+  values does when it is loaded is still not followed. A merge given options that may hold a function
   (`deepmerge(a, b, { arrayMerge })`), and an export of a merge package that is no copying merge (`deepmergeInto`,
   `defuFn`, `mergeWithCustomize`), may change what it is given; the value of `deepmerge` given options and of
   `mergeWith` is unknown, as they may merge any way. The object of a `with` statement is partly unknown after it.
