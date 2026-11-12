@@ -337,23 +337,51 @@ pub(crate) fn resolve_imports(imports: &Value, specifier: &str, custom: &[String
     }
 }
 
-/// The target of `key` in an `exports` or `imports` map: an exact entry, else the pattern entry (`./x/*`) with the
-/// longest prefix.
+/// The target of `key` in an `exports` or `imports` map, through the entry [`select_key`] picks.
 fn match_key(map: &serde_json::Map<String, Value>, key: &str, custom: &[String]) -> Option<String> {
-    if let Some(value) = map.get(key) {
-        return resolve_target(value, None, custom);
+    let selected = select_key(map, key)?;
+    resolve_target(selected.value, selected.matched, custom)
+}
+
+/// The entry of an `exports` or `imports` map that a subpath or `#` specifier selects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SelectedKey<'m, 'k> {
+    /// The key as the map spells it: the specifier itself, or the pattern (`./x/*`, `#x/*`) that matched it.
+    pub(crate) key: &'m str,
+    pub(crate) value: &'m Value,
+    /// What the `*` of a pattern key stands for; `None` for an exact key.
+    pub(crate) matched: Option<&'k str>,
+}
+
+/// The entry of an `exports` or `imports` map that `key` selects, as Node.js picks it: the exact entry, else the
+/// pattern entry with the longest prefix before its `*`, the longer pattern of two with the same prefix.
+pub(crate) fn select_key<'m, 'k>(map: &'m serde_json::Map<String, Value>, key: &'k str) -> Option<SelectedKey<'m, 'k>> {
+    if let Some((name, value)) = map.get_key_value(key) {
+        return Some(SelectedKey {
+            key: name.as_str(),
+            value,
+            matched: None,
+        });
     }
-    let mut best: Option<(usize, &Value, &str)> = None;
+    let mut best: Option<(usize, SelectedKey<'m, 'k>)> = None;
     for (pattern, value) in map {
         let Some((prefix, suffix)) = pattern.split_once('*') else {
             continue;
         };
         let fits = key.len() >= prefix.len() + suffix.len() && key.starts_with(prefix) && key.ends_with(suffix);
-        if fits && best.is_none_or(|(length, _, _)| prefix.len() > length) {
-            best = Some((prefix.len(), value, &key[prefix.len()..key.len() - suffix.len()]));
+        let better = best.is_none_or(|(length, current)| {
+            prefix.len() > length || (prefix.len() == length && pattern.len() > current.key.len())
+        });
+        if fits && better {
+            let selected = SelectedKey {
+                key: pattern.as_str(),
+                value,
+                matched: Some(&key[prefix.len()..key.len() - suffix.len()]),
+            };
+            best = Some((prefix.len(), selected));
         }
     }
-    best.and_then(|(_, value, matched)| resolve_target(value, Some(matched), custom))
+    best.map(|(_, selected)| selected)
 }
 
 #[cfg(test)]
@@ -459,6 +487,40 @@ mod tests {
         assert_eq!(
             resolve_exports(&json!({"import": "./i.js"}), ".", &[]).as_deref(),
             Some("./i.js")
+        );
+    }
+
+    fn selected(map: &Value, key: &str) -> Option<(String, Option<String>)> {
+        let selected = select_key(map.as_object().unwrap(), key)?;
+        Some((selected.key.to_owned(), selected.matched.map(str::to_owned)))
+    }
+
+    #[test]
+    fn an_exact_key_wins_over_a_pattern_that_matches_too() {
+        let imports = json!({ "#utils/*": "./src/utils/*.ts", "#utils/log": "./src/log.ts" });
+        assert_eq!(selected(&imports, "#utils/log"), Some(("#utils/log".to_owned(), None)));
+        assert_eq!(
+            selected(&imports, "#utils/date"),
+            Some(("#utils/*".to_owned(), Some("date".to_owned())))
+        );
+        assert_eq!(selected(&imports, "#other"), None);
+    }
+
+    #[test]
+    fn the_pattern_with_the_longest_prefix_then_the_longest_key_is_selected() {
+        let exports =
+            json!({ "./*": "./dist/*.js", "./features/*": "./dist/f/*.js", "./features/*.css": "./css/*.css" });
+        assert_eq!(
+            selected(&exports, "./features/a"),
+            Some(("./features/*".to_owned(), Some("a".to_owned())))
+        );
+        assert_eq!(
+            selected(&exports, "./features/a.css"),
+            Some(("./features/*.css".to_owned(), Some("a".to_owned())))
+        );
+        assert_eq!(
+            selected(&exports, "./other"),
+            Some(("./*".to_owned(), Some("other".to_owned())))
         );
     }
 
