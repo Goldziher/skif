@@ -79,6 +79,11 @@ and catalogs at the top level of the root `package.json` are both read. Wildcard
 analysis, which skips hidden directories other than tool configuration ones, then walks such a directory for the
 members below it, and only for those.
 
+`missing-package-manifest` reports a directory the patterns select that has content but no `package.json`. It leaves
+out an Nx project, a directory with a `project.json`, and a grouping directory whose content is only directories the
+patterns select too: with `["libs/*", "libs/*/*"]`, `libs/cart` holding the members `libs/cart/feature` and
+`libs/cart/ui` is not reported, while a `libs/cart/README.md` next to them makes it a finding.
+
 What discovery cannot read does not stop the run, but it is not silent either: `invalid-workspace-file` (`error`)
 reports a member `package.json` that is not valid JSON or cannot be read, at the syntax error, a pattern that cannot
 be used (one that climbs out of the root with `..`, or has too many brace alternatives), where it is written, and a
