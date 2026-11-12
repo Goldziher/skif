@@ -157,6 +157,17 @@ All notable changes to this project are documented here. The format follows
   `LintContext::index_cache` and `RunOptions::with_index_cache`; the JS provider reads the index through the run's
   cache when the host passes one, and the `skif` facade's `Linter` does, so a run parses the index once
   ([ADR 0121](adrs/0121-one-git-index-listing-for-every-provider.md)).
+- `skif-bench parity` sets apart six more known deviations, so the parity baseline is recorded again:
+  `imported-by-knip-unused-file` and `imported-by-skif-unused-file` (an export or member only one tool reports that
+  only files that tool lists as unused import, through re-exports), `entry-module-duplicate` (a duplicate only knip
+  reports in a default entry or published source, which `duplicate-exports` skips), `bazel-build-file` (a dependency a
+  Bazel `BUILD` file names, and an unlisted finding at such a file), `declaration-file` (a `.d.ts` file only knip
+  reports unused) and `signature-type` (a type or export a used export's signature names, ADR 0029).
+  `published-source` maps published paths through the tsconfig `outDir` and `rootDir` of the package and covers the
+  exports, types and members of the published sources; `not-judged-by-skif` applies the narrowed scope of an
+  enclosing incomplete package to the members below it; `non-member-project` covers skif-only unused files, unlisted
+  dependencies and binaries, and the exports of a nested root's default entries. An import one tool reports as
+  unlisted and the other as unresolved counts as shared.
 
 ### Fixed
 

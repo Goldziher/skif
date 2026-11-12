@@ -266,6 +266,11 @@ The remaining differences each have an open issue, and their size is in the
 ([#99](https://github.com/Goldziher/skif/issues/99)) and `unused-files`
 ([#100](https://github.com/Goldziher/skif/issues/100)).
 
+Two differences are knip's and stay counted, as the comparison cannot tell them apart from its data: knip reports the
+members of an enum used as a whole value (passed or returned, `@IsEnum(E)`, `Object.values(E)`, `keyof typeof E`),
+which makes every member reachable, and knip has no esbuild plugin, so it reports the `entryPoints` of an esbuild
+script, and the files they reach, as unused.
+
 knip does not read the specifiers of test-runner mocks. skif does: a `vi.mock`, `jest.mock` or `jest.requireActual`
 keeps the file it names in use, and a relative or aliased mock of a file that does not exist is reported by
 `stale-mocks`, an error that knip has no counterpart for (`skif migrate --profile exact` turns it off). Such a mock
