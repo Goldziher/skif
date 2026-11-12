@@ -154,7 +154,9 @@ All notable changes to this project are documented here. The format follows
   taken from an object the config declares (`const { defineProperty } = Object`,
   `globalThis.Object.defineProperty(…)`), is unknown instead of the value it is given or the merge of it.
   `Object.assign`, `Object.defineProperty` and `Reflect.defineProperty` given their first argument through a spread
-  (`Object.assign(...[config, extra])`) may change every object the spread gives. A merge given options that may hold a function
+  (`Object.assign(...[config, extra])`) may change every object the spread gives. `JSON.stringify` and `JSON.parse`
+  given a replacer or reviver other than a literal holding no function (`JSON.stringify(config, replacer)`) may
+  change what they are given, as that function is called with it. A merge given options that may hold a function
   (`deepmerge(a, b, { arrayMerge })`), and an export of a merge package that is no copying merge (`deepmergeInto`,
   `defuFn`, `mergeWithCustomize`), may change what it is given; the value of `deepmerge` given options and of
   `mergeWith` is unknown, as they may merge any way. The object of a `with` statement is partly unknown after it.

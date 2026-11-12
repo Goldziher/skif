@@ -2964,8 +2964,14 @@ const GLOBAL_OBJECTS: &[&str] = &[
     "Array", "JSON", "Math", "Number", "Object", "String", "console", "process",
 ];
 
+/// The functions of [`PURE_FUNCTIONS`] that call a function given after their first argument (a replacer, a reviver),
+/// by the name of the object they are called on and their own.
+const CALLING_PURE_FUNCTIONS: &[(&str, &str)] = &[("JSON", "parse"), ("JSON", "stringify")];
+
 /// What `call` returns when it calls one of [`PURE_FUNCTIONS`] (`path.posix` and `path.win32` count as `path`); `None`
-/// for any other call, such as one of a function the module declares under such a name.
+/// for any other call, such as one of a function the module declares under such a name, and for one of
+/// [`CALLING_PURE_FUNCTIONS`] given after its first argument anything but a literal that holds no function or
+/// `undefined` (`JSON.stringify(config, replacer)`), as the function it may be given may change what it is called with.
 fn pure_function(names: Names<'_>, call: &CallExpression<'_>) -> Option<Returns> {
     let (object, name) = match call.callee.get_inner_expression() {
         Expression::Identifier(id) => match resolved(names.scoping, id) {
@@ -2980,10 +2986,27 @@ fn pure_function(names: Names<'_>, call: &CallExpression<'_>) -> Option<Returns>
         }
         _ => return None,
     };
-    PURE_FUNCTIONS
+    let returns = PURE_FUNCTIONS
         .iter()
         .find(|(module, functions, _)| *module == object && (functions.is_empty() || functions.contains(&name)))
-        .map(|&(_, _, returns)| returns)
+        .map(|&(_, _, returns)| returns)?;
+    let calls_back = CALLING_PURE_FUNCTIONS.contains(&(object, name));
+    let given_no_function = || {
+        call.arguments
+            .iter()
+            .skip(1)
+            .all(|argument| argument.as_expression().is_some_and(|value| holds_no_function(names, value)))
+    };
+    (!calls_back || given_no_function()).then_some(returns)
+}
+
+/// Whether `expr` is a literal that holds no function ([`function_free`]) or the global `undefined`.
+fn holds_no_function(names: Names<'_>, expr: &Expression<'_>) -> bool {
+    function_free(names, expr)
+        || matches!(
+            expr.get_inner_expression(),
+            Expression::Identifier(id) if id.name.as_str() == "undefined" && resolved(names.scoping, id).is_none()
+        )
 }
 
 /// The name in [`PURE_FUNCTIONS`] of the object a function is called on: a global of [`GLOBAL_OBJECTS`] the module
