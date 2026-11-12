@@ -2426,6 +2426,39 @@ fn a_change_through_a_followed_alias_reaches_what_shares_the_local() {
     );
 }
 
+/// A change through an alias the evaluator does not follow (one of two aliases of the local, one held by a list that
+/// is changed) is not applied to the local, so the local is partly unknown where it is read after the change rather
+/// than keeping the value from before it.
+#[test]
+fn a_change_through_an_alias_that_is_not_followed_is_not_lost() {
+    let value = extract(
+        "vitest.config.ts",
+        "const twice = () => {\n\
+           const config = { test: { coverage: { enabled: false } } };\n\
+           const other = config.test;\n\
+           if (process.env.COVERAGE) {\n\
+             const { coverage } = config.test;\n\
+             coverage.enabled = true;\n\
+           }\n\
+           return config;\n\
+         };\n\
+         const pushed = () => {\n\
+           const config = { test: { coverage: { enabled: false } } };\n\
+           const list = [];\n\
+           const { coverage } = config.test;\n\
+           list.push(coverage);\n\
+           coverage.enabled = true;\n\
+           return config;\n\
+         };\n\
+         export default [twice(), pushed()];",
+    );
+    let configs = value.as_array().unwrap();
+    assert_eq!(configs.len(), 2, "{value:?}");
+    for (name, config) in ["twice", "pushed"].iter().zip(configs) {
+        assert!(may_be_enabled(at(config, &["test", "coverage"])), "{name}: {config:?}");
+    }
+}
+
 /// An alias the evaluator follows takes the part of the local as it is where the alias is declared: a change made
 /// through the alias later reaches a read of the local after it, not the read the alias is declared with, so the
 /// change is applied to the local even where what shares the local (a list holding it) leaves it partly unknown.
