@@ -11,6 +11,36 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Scripts**: the command of `lerna exec [flags] [--] <cmd>` and `nx exec [flags] -- <cmd>` is walked as a command
+  of the package, as `pnpm -r exec` is: `lerna exec -- rimraf dist` uses `rimraf`, and an unlisted binary there is
+  reported. `lerna run` and `nx run` keep reading task names
+  ([#187](https://github.com/Goldziher/skif/issues/187)).
+- **Cypress**: an `e2e` config that spreads Nx's `nxE2EPreset()` has the preset's `supportFile` and `specPattern`
+  (`src/support/e2e.{js,ts}` and `src/**/*.cy.{js,jsx,ts,tsx}`, below `cypressDir`), so the support files of Nx e2e
+  projects are no longer unused
+  ([ADR 0119](adrs/0119-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md),
+  [#188](https://github.com/Goldziher/skif/issues/188)).
+- **Nx**: local plugins, executors and generators are followed. A `plugins` entry, `executor` or generator that is a
+  path relative to the workspace root or a `paths` alias of the root `tsconfig.base.json` is no longer an unlisted
+  package; a local plugin's module is an entry, and the `implementation`, `batchImplementation` and `factory` files
+  of the `executors`, `builders`, `generators` and `schematics` collections its `package.json` names (or a workspace
+  package's own) are entries
+  ([ADR 0119](adrs/0119-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md),
+  [#185](https://github.com/Goldziher/skif/issues/185)).
+
+### Removed
+
+- `skif_js_plugins::scripts::ScriptInfo::turbo_tasks`: the task names passed to `turbo` were collected but never
+  read; `turbo` arguments are still never taken for binaries or files
+  ([#193](https://github.com/Goldziher/skif/issues/193)).
+
+### Fixed
+
+- **Nx**: in a project scope (ADR 0109) whose `project.json` targets run a tool's Nx executor (`@nx/vite:build`,
+  `@nrwl/vite:*`), the tool's plugin runs without a config file and applies its config-less conventions: Vite's
+  `index.html` makes `src/main.tsx` an entry
+  ([ADR 0119](adrs/0119-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md),
+  [#202](https://github.com/Goldziher/skif/issues/202)).
 - `skif explain-usage --dependency <NAME> [--package <NAME|DIR>]` explains why a dependency is used or unused in each
   package that lists it: the verdict `unused-dependencies` reaches and the importing files, mocks, commands, binaries,
   scripts, plugins and tool configs that credit it, or the imports that count for nothing; `--format json` prints the

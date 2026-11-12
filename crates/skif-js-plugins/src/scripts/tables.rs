@@ -592,49 +592,6 @@ pub(super) const CONCURRENTLY_VALUE_FLAGS: &[&str] = &[
     "group-by",
 ];
 pub(super) const RUN_ALL_VALUE_FLAGS: &[&str] = &["max-parallel", "npm-path"];
-pub(super) const TURBO_VALUE_FLAGS: &[&str] = &[
-    "filter",
-    "F",
-    "concurrency",
-    "cache-dir",
-    "cache-workers",
-    "env-mode",
-    "log-order",
-    "log-prefix",
-    "output-logs",
-    "profile",
-    "remote-cache-timeout",
-    "token",
-    "team",
-    "api",
-    "login",
-    "cwd",
-    "root-turbo-json",
-    "affected-base",
-];
-pub(super) const TURBO_SUBCOMMANDS: &[&str] = &[
-    "bin",
-    "boundaries",
-    "daemon",
-    "devtools",
-    "docs",
-    "gen",
-    "generate",
-    "info",
-    "link",
-    "login",
-    "logout",
-    "ls",
-    "prune",
-    "query",
-    "scan",
-    "telemetry",
-    "unlink",
-    "completion",
-    "help",
-    "init",
-];
-
 pub(super) const PNPM_COMMANDS: &[&str] = &[
     "add",
     "approve-builds",
@@ -1035,6 +992,44 @@ pub(super) static RUNNERS: &[Runner] = &[
 
 pub(super) fn runner(name: &str) -> Option<&'static Runner> {
     RUNNERS.iter().find(|r| r.names.contains(&name))
+}
+
+/// Monorepo tools whose `exec` subcommand runs the command after its flags (or after `--`) in each workspace member,
+/// with the value-taking flags of that subcommand. Their other subcommands (`lerna run`, `nx run-many`) take task
+/// names, not commands.
+pub(super) const MEMBER_EXEC: &[(&str, &[&str])] = &[
+    (
+        "lerna",
+        &[
+            "scope",
+            "ignore",
+            "since",
+            "concurrency",
+            "loglevel",
+            "profile-location",
+        ],
+    ),
+    (
+        "nx",
+        &[
+            "projects",
+            "p",
+            "exclude",
+            "configuration",
+            "c",
+            "parallel",
+            "output-style",
+            "outputStyle",
+            "runner",
+        ],
+    ),
+];
+
+pub(super) fn member_exec(name: &str) -> Option<&'static [&'static str]> {
+    MEMBER_EXEC
+        .iter()
+        .find(|(known, _)| *known == name)
+        .map(|&(_, flags)| flags)
 }
 
 /// A tool that runs another command given in its arguments.
