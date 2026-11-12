@@ -9,6 +9,7 @@ use skif_config::PluginConfig;
 use skif_core::FileSystem;
 use skif_js_syntax::{ConfigValue, ModuleLoader};
 
+use crate::files::GlobCache;
 use crate::scopes::NxProjects;
 
 /// The knip commit every plugin row was last checked against.
@@ -289,6 +290,8 @@ pub struct PluginContext<'a> {
     /// paths of a `project.json` as relative to the workspace directory, and has the `jest` plugin look for the
     /// projects of `getJestProjects()` itself.
     pub nx: Option<&'a NxProjects>,
+    /// The globs the plugins of the run compiled, kept for every package of the run.
+    pub globs: &'a GlobCache,
 }
 
 impl PluginContext<'_> {

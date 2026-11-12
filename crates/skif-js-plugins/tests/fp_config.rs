@@ -8,7 +8,9 @@ use std::path::Path;
 
 use indexmap::IndexMap;
 use skif_core::MemoryFs;
-use skif_js_plugins::{IncompleteCause, IncompleteScope, PluginContext, PluginId, PluginOutput, resolve_plugins};
+use skif_js_plugins::{
+    GlobCache, IncompleteCause, IncompleteScope, PluginContext, PluginId, PluginOutput, resolve_plugins,
+};
 
 const DIR: &str = "/ws";
 
@@ -35,6 +37,7 @@ fn run(files: &[(&str, &str)], dependencies: &[&str], scripts: &[(&str, &str)]) 
         plugins: &plugins,
         modules: None,
         nx: None,
+        globs: &GlobCache::new(),
     };
     resolve_plugins(&ctx)
 }

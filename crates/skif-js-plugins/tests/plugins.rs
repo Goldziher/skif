@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 use skif_config::{PluginConfig, PluginOptions};
 use skif_core::MemoryFs;
 use skif_js_plugins::registry;
-use skif_js_plugins::{DepRef, IncompleteCause, PluginContext, PluginId, PluginOutput, resolve_plugins};
+use skif_js_plugins::{DepRef, GlobCache, IncompleteCause, PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
@@ -265,6 +265,7 @@ fn resolve_inheriting(
         plugins,
         modules: None,
         nx: None,
+        globs: &GlobCache::new(),
     };
     resolve_plugins(&ctx)
 }
@@ -292,6 +293,7 @@ fn resolve_with_scripts(
         plugins: &plugins,
         modules: None,
         nx: None,
+        globs: &GlobCache::new(),
     };
     resolve_plugins(&ctx)
 }
@@ -3967,6 +3969,7 @@ fn biome_root_reference_is_the_config_of_the_farthest_ancestor() {
         plugins: &plugins,
         modules: None,
         nx: None,
+        globs: &GlobCache::new(),
     };
     let results = resolve_plugins(&ctx);
     let out = output(&results, "biome");
@@ -4812,6 +4815,7 @@ fn react_email_looks_for_the_installed_version_up_to_the_workspace_root() {
             plugins: &plugins,
             modules: None,
             nx: None,
+            globs: &GlobCache::new(),
         };
         resolve_plugins(&ctx)
     };
@@ -6536,6 +6540,7 @@ fn resolve_in_tree(files: &[(&str, &str)], dir: &str, is_root: bool) -> Vec<(Plu
         plugins: &plugins,
         modules: None,
         nx: None,
+        globs: &GlobCache::new(),
     };
     resolve_plugins(&ctx)
 }

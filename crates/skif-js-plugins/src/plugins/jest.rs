@@ -149,7 +149,7 @@ fn nx_project_configs(cx: &PluginContext<'_>, config: &ConfigAst<'_>) -> Vec<Plu
     let mut files: Vec<String> = Vec::new();
     for dir in dirs {
         files.extend(nx::target_option_paths(cx, dir, "jestConfig"));
-        files.extend(find_files(cx.fs, cx.dir, &[join_rel(dir, PROJECT_CONFIGS)]));
+        files.extend(find_files(cx.fs, cx.globs, cx.dir, &[join_rel(dir, PROJECT_CONFIGS)]));
     }
     files.sort();
     files.dedup();

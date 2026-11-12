@@ -5,11 +5,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 use indexmap::IndexMap;
 use skif_core::MemoryFs;
 use skif_js_plugins::{
-    IncompleteScope, NxProjects, PluginContext, PluginId, PluginOutput, ScopedEntryRegex, resolve_plugins,
+    GlobCache, IncompleteScope, NxProjects, PluginContext, PluginId, PluginOutput, ScopedEntryRegex, resolve_plugins,
     resolve_plugins_in, resolve_plugins_with,
 };
 
@@ -42,6 +43,7 @@ fn context<'a>(
     empty: &'a IndexMap<String, String>,
     plugins: &'a IndexMap<String, skif_config::PluginConfig>,
 ) -> PluginContext<'a> {
+    static GLOBS: LazyLock<GlobCache> = LazyLock::new(GlobCache::new);
     PluginContext {
         dir: Path::new(dir),
         is_root: dir == DIR,
@@ -53,6 +55,7 @@ fn context<'a>(
         plugins,
         modules: None,
         nx: None,
+        globs: &GLOBS,
     }
 }
 

@@ -9,6 +9,7 @@ use std::sync::OnceLock;
 
 use skif_core::FileSystem;
 pub use skif_core::{IncompleteCause, IncompleteEntries, IncompleteScope};
+use skif_js_plugins::GlobCache;
 use skif_workspace::{Package, Workspace};
 
 /// A module alias a tool configuration declares: imports of `find` (and `find/…`) point at `target`.
@@ -234,6 +235,7 @@ pub struct WorkspaceListing {
     gitignore: bool,
     sequential: bool,
     nx_projects: OnceLock<Vec<(String, String)>>,
+    globs: GlobCache,
 }
 
 impl WorkspaceListing {
@@ -245,7 +247,14 @@ impl WorkspaceListing {
             gitignore,
             sequential,
             nx_projects: OnceLock::new(),
+            globs: GlobCache::new(),
         }
+    }
+
+    /// The globs the plugins of the run compiled, which every package of the run searches for again.
+    #[must_use]
+    pub const fn globs(&self) -> &GlobCache {
+        &self.globs
     }
 
     /// The directories of the `project.json` files that the source walk reaches in `workspace`, relative to its root

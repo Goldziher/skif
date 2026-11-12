@@ -101,7 +101,7 @@ impl Plugin for Mise {
 /// Whether a config sets `task_config.includes`, which replaces the default file task directories.
 fn sets_includes(cx: &PluginContext<'_>) -> bool {
     let patterns: Vec<String> = SPEC.config.iter().map(|pattern| (*pattern).to_owned()).collect();
-    find_files(cx.fs, cx.dir, &patterns).into_iter().any(|file| {
+    find_files(cx.fs, cx.globs, cx.dir, &patterns).into_iter().any(|file| {
         let path = cx.dir.join(file);
         cx.fs
             .read_to_string(&path)
@@ -132,7 +132,7 @@ fn file_tasks(cx: &PluginContext<'_>, dirs: &[String]) -> Vec<PluginInput> {
     if patterns.is_empty() {
         return Vec::new();
     }
-    find_files(cx.fs, cx.dir, &patterns)
+    find_files(cx.fs, cx.globs, cx.dir, &patterns)
         .into_iter()
         .flat_map(|file| file_task(cx, file))
         .collect()

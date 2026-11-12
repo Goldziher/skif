@@ -58,7 +58,7 @@ impl Plugin for Gatsby {
     /// `gatsby-node` files export hooks rather than a config object, so they are read as text.
     fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let patterns = ["gatsby-node.{js,jsx,ts,tsx}", "plugins/**/gatsby-node.{js,jsx,ts,tsx}"].map(str::to_owned);
-        find_files(cx.fs, cx.dir, &patterns)
+        find_files(cx.fs, cx.globs, cx.dir, &patterns)
             .iter()
             .filter_map(|file| cx.fs.read_to_string(&cx.dir.join(file)).ok())
             .flat_map(|source| babel_plugins(&source))

@@ -138,7 +138,7 @@ fn test_entries(config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Option<Plugin
         })
         .map(|glob| glob.compile_matcher())
         .collect();
-    let files = find_files_within(cx.fs, cx.dir, &globs, TEST_DEPTH)
+    let files = find_files_within(cx.fs, cx.globs, cx.dir, &globs, TEST_DEPTH)
         .into_iter()
         .filter(|file| !is_ignored_test(file, config.base, &matchers))
         .collect();

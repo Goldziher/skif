@@ -186,7 +186,7 @@ pub(crate) fn project_files(cx: &PluginContext<'_>, base: &str, project: &str, n
     } else {
         join_rel(&relative, names)
     };
-    crate::files::find_files(cx.fs, cx.dir, &[pattern])
+    crate::files::find_files(cx.fs, cx.globs, cx.dir, &[pattern])
 }
 
 /// The entry for a glob or path written in a config. Negated patterns yield nothing.
@@ -897,7 +897,7 @@ pub(crate) fn own_sources_where(
 /// The JavaScript and TypeScript files below the workspace directory, declaration files left out.
 fn source_files(cx: &PluginContext<'_>) -> impl Iterator<Item = String> {
     let patterns = ["**/*.{ts,mts,cts,tsx,js,mjs,cjs,jsx}".to_owned()];
-    crate::files::find_files(cx.fs, cx.dir, &patterns)
+    crate::files::find_files(cx.fs, cx.globs, cx.dir, &patterns)
         .into_iter()
         .filter(|source| !source.ends_with(".d.ts") && !source.ends_with(".d.mts") && !source.ends_with(".d.cts"))
 }

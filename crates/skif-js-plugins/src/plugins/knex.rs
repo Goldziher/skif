@@ -46,7 +46,7 @@ impl Plugin for Knex {
     fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let patterns = ["**/*.{ts,mts,cts,tsx,js,mjs,cjs,jsx}".to_owned()];
         let mut out = Vec::new();
-        for source in find_files(cx.fs, cx.dir, &patterns) {
+        for source in find_files(cx.fs, cx.globs, cx.dir, &patterns) {
             if source.ends_with(".d.ts") {
                 continue;
             }
