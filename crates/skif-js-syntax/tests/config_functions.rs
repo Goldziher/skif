@@ -2323,3 +2323,25 @@ fn a_callback_over_a_list_that_may_hold_an_object_changes_that_object() {
     );
     assert!(open(&value), "{value:?}");
 }
+
+/// A spread of an object literal adds its values at their keys, also under a condition or `&&`, so a change of what
+/// one of them holds reaches the config at that key.
+#[test]
+fn a_change_through_a_value_spread_from_an_object_literal_reaches_its_key() {
+    for spread in [
+        "...{ plugins: list }",
+        "...(process.env.CI ? { plugins: list } : {})",
+        "...(process.env.CI && { plugins: list })",
+    ] {
+        let source = format!(
+            "const list = [];\nconst config = {{ entry: './src/main.js', {spread} }};\ngrow(list);\nmodule.exports = config;"
+        );
+        let value = extract("webpack.config.js", &source);
+        assert_eq!(get(&value, &["entry"]), &s("./src/main.js"), "{source}: {value:?}");
+        let plugins = value.get("plugins");
+        assert!(
+            plugins.is_none_or(|plugins| *plugins != ConfigValue::Array(Vec::new())),
+            "{source}: {value:?}"
+        );
+    }
+}
