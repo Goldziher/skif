@@ -55,7 +55,7 @@ use oxc_ast::ast::{
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::{ReferenceId, ScopeFlags, ScopeId, Scoping, SemanticBuilder, SymbolId};
-use oxc_span::Span;
+use oxc_span::{GetSpan, Span};
 use skif_core::{HashMap, HashSet};
 
 use crate::config::defined;
@@ -63,6 +63,10 @@ use crate::finder::static_string;
 
 /// An alias a declaration declares, with the keys of the part of its local it takes.
 type AliasPart = (SymbolId, Vec<String>);
+
+/// A part of a local that an object which is not a name or a member chain may be (`list.find(…)`, `a ? b : c`): the
+/// local's name, the keys of the part and whether the object is that part itself ([`Unstable::parts_of`]).
+pub(crate) type ObjectPart = (String, Vec<String>, bool);
 /// The most keys a path below a binding keeps; a longer one is cut to this many, standing for all that is below it.
 const MAX_KEYS: usize = 8;
 
@@ -145,6 +149,8 @@ pub(crate) struct Unstable {
     pure: HashSet<Span>,
     /// What the calls the pass knows do to the objects they are given, by span; any other may change them.
     effects: HashMap<Span, Effect>,
+    /// The parts of locals each object written through that is not a name or a member chain may be, by span.
+    objects: HashMap<Span, Vec<ObjectPart>>,
     /// The references that are the only one of a binding no other module can read and that are read once per binding:
     /// not in a loop, nor in a function other than the binding's own, and not of an alias the evaluator follows. None
     /// when the module reads `arguments` or calls `eval`, which reach bindings without a reference.
@@ -174,6 +180,7 @@ impl Unstable {
             known: known(program, scoping),
             pure: HashSet::default(),
             effects: HashMap::default(),
+            objects: HashMap::default(),
             exported: HashSet::default(),
             dynamic: false,
             loops: 0,
@@ -203,6 +210,7 @@ impl Unstable {
             followed,
             pure: std::mem::take(&mut sharing.pure),
             effects: std::mem::take(&mut sharing.effects),
+            objects: std::mem::take(&mut sharing.objects),
             sole,
             ..Self::default()
         };
@@ -264,6 +272,12 @@ impl Unstable {
             Some(Effect::Followed) => statement,
             None => true,
         }
+    }
+
+    /// The parts of locals the object `object` may be, when it is written through and is not a name or a member chain
+    /// (`config.module.rules.find(…).loader = …`, `(prod ? config.prod : config.dev).devtool = …`).
+    pub(crate) fn parts_of(&self, object: &Expression<'_>) -> &[ObjectPart] {
+        self.objects.get(&object.span()).map_or(&[], Vec::as_slice)
     }
 
     /// Whether a change made through the argument `id` of a call may be read after the call: `id` is not the only
@@ -363,6 +377,8 @@ struct Sharing<'s> {
     pure: HashSet<Span>,
     /// The [`Effect`] of each call found whose effect the pass knows, by span.
     effects: HashMap<Span, Effect>,
+    /// The parts of locals each object written through that is not a name or a member chain may be ([`Self::parts`]).
+    objects: HashMap<Span, Vec<ObjectPart>>,
     /// The bindings the module exports by declaring them.
     exported: HashSet<SymbolId>,
     /// Whether the module reads `arguments` or calls `eval`.
@@ -460,20 +476,64 @@ impl Sharing<'_> {
         }
     }
 
-    /// Records the write of the member target of an assignment: a new value of its key in the object at its path, or
-    /// a change of what that object holds when the key is not static.
+    /// The parts of locals the object `expr` may be, each with whether it is that part exactly: the part a name or a
+    /// member chain is ([`Self::place`]), or each part what any other expression evaluates to may hold ([`Refs`]), as
+    /// the object a method returns (`list.find(…)`) or a condition chooses; those are recorded for the evaluator
+    /// ([`Unstable::parts_of`]).
+    fn parts(&mut self, expr: &Expression<'_>) -> Vec<(Place, bool)> {
+        if reach(expr).is_some() {
+            return self.place(expr).into_iter().collect();
+        }
+        let parts: Vec<(Place, bool)> = self
+            .refs(Part::Value, |refs| refs.visit_expression(expr))
+            .into_iter()
+            .map(|held| {
+                let exact = held.join == Join::Same && held.at.is_empty();
+                let place = Place {
+                    symbol: held.symbol,
+                    keys: held.keys,
+                };
+                (place, exact)
+            })
+            .collect();
+        let named = parts
+            .iter()
+            .map(|(place, exact)| {
+                let name = self.scoping.symbol_name(place.symbol).to_owned();
+                (name, place.keys.clone(), *exact)
+            })
+            .collect();
+        self.objects.insert(expr.span(), named);
+        parts
+    }
+
+    /// Records the write of the member target of an assignment: a new value of its key in each object it may be
+    /// written in ([`Self::parts`]), or a change of what that object holds when the key is not static or the object
+    /// is not exactly a part of a local.
     fn set(&mut self, member: &MemberExpression<'_>) {
-        let Some((place, exact)) = self.place(member.object()) else {
-            return;
-        };
-        let write = match member.static_property_name() {
-            Some(key) if exact => Write {
-                keys: place.keys,
-                key: Some(crate::js_string(key)),
-            },
-            _ => Write::contents(place.keys),
-        };
-        self.changed(place.symbol, write);
+        let key = member.static_property_name().map(crate::js_string);
+        for (place, exact) in self.parts(member.object()) {
+            let write = match &key {
+                Some(key) if exact => Write {
+                    keys: place.keys,
+                    key: Some(key.clone()),
+                },
+                _ => Write::contents(place.keys),
+            };
+            self.changed(place.symbol, write);
+        }
+    }
+
+    /// The parts of locals the member target of an assignment writes to and whether each is the target exactly: the
+    /// target of a member chain ([`Self::member_place`]), or somewhere at or below each part its object may be.
+    fn member_places(&mut self, member: &MemberExpression<'_>) -> Vec<(Place, bool)> {
+        if reach(member.object()).is_some() {
+            return self.member_place(member).into_iter().collect();
+        }
+        self.parts(member.object())
+            .into_iter()
+            .map(|(place, _)| (place, false))
+            .collect()
     }
 
     /// The function (or module) whose binding `symbol` is.
@@ -503,9 +563,9 @@ impl Sharing<'_> {
         }
     }
 
-    /// Records a change of the object `expr` (a name or a member chain) holds.
+    /// Records a change of what the object `expr` holds, in each part of a local it may be ([`Self::parts`]).
     fn mutate(&mut self, expr: &Expression<'_>) {
-        if let Some((place, _)) = self.place(expr) {
+        for (place, _) in self.parts(expr) {
             self.changed(place.symbol, Write::contents(place.keys));
         }
     }
@@ -1191,16 +1251,19 @@ impl<'a> Visit<'a> for Sharing<'_> {
         // no change through that place is followed, so its parts share nothing among themselves there.
         match it.left.as_simple_assignment_target() {
             Some(target) => {
-                let hub = match target {
-                    SimpleAssignmentTarget::AssignmentTargetIdentifier(id) => {
-                        self.symbol(id).map(|symbol| (Place::of(symbol), true))
-                    }
+                let hubs: Vec<(Place, bool)> = match target {
+                    SimpleAssignmentTarget::AssignmentTargetIdentifier(id) => self
+                        .symbol(id)
+                        .map(|symbol| (Place::of(symbol), true))
+                        .into_iter()
+                        .collect(),
                     other => other
                         .as_member_expression()
-                        .and_then(|member| self.member_place(member)),
+                        .map(|member| self.member_places(member))
+                        .unwrap_or_default(),
                 };
-                if let Some((place, exact)) = hub {
-                    self.hold(&place, exact, held);
+                for (place, exact) in hubs {
+                    self.hold(&place, exact, held.clone());
                 }
             }
             None => self.destructure(&it.left, held),

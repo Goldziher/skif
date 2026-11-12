@@ -1111,7 +1111,9 @@ has nor inherits (`config.plugins.push(…)` without `plugins`) changes nothing,
 below a key an unknown spread may set or the object may inherit (`__proto__`, `constructor`), the object is partly
 unknown. An object changed through another name for it
 (`const a = cfg`, `{ test: t }`, `{ ...base }`, a function given `cfg`), by a function that writes what it captures, by
-`delete` or inside an expression is partly unknown wherever it is read, in the part the change reaches. A call of a
+`delete` or inside an expression is partly unknown wherever it is read, in the part the change reaches; a write
+through an object that is not a name or a member chain (`config.module.rules.find(…).loader = …`,
+`(prod ? config.prod : config.dev).devtool = false`) reaches each part of a local that object may be. A call of a
 function the config declares shares with what it is given only what the function may return of it: a fresh object
 it builds shares nothing with its arguments, unless the function is used other than by calling it by name, calls
 itself or reads `arguments`; a getter, method or callback in what it returns shares what that returns, and a

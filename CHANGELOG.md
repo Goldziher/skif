@@ -137,7 +137,10 @@ All notable changes to this project are documented here. The format follows
   the evaluator follows (`const { build } = config; applyDefaults(build)`) leaves that part of the local partly
   unknown, and an alias of a local that is assigned again is not followed, as it may hold an object the local no
   longer does. `Object.defineProperty`, `Reflect.defineProperty` and `Object.defineProperties` are no `define…`
-  helpers: they change their first argument, the first two only at the key they name when it is a string.
+  helpers: they change their first argument, the first two only at the key they name when it is a string. A write,
+  `delete`, `push` or `Object.assign` through an object that is not a name or a member chain
+  (`config.module.rules.find(…).loader = …`, `(prod ? config.prod : config.dev).devtool = false`) reaches each part
+  of a local that object may be instead of being dropped.
 - **Config evaluation**: `.map`, `.flatMap` and `.filter` of a known array call their callback (an inline function,
   or one the config declares) with each element and its index, so Vitest projects spread from
   `` ['light', 'dark'].map((theme) => ({ test: { name: `browser-${theme}` } })) `` are known instead of leaving the
