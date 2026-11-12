@@ -395,7 +395,8 @@ pub(crate) fn statement_call<'b, 'a>(expr: &'b Expression<'a>) -> Option<&'b Cal
     }
 }
 
-/// Methods that never change the object they are called on.
+/// Methods that never change the object they are called on. `resolve` is that of `require`, `path`, `Promise`,
+/// `import.meta` and the function `createRequire` returns.
 const PURE_METHODS: &[&str] = &[
     "at",
     "charAt",
@@ -427,6 +428,7 @@ const PURE_METHODS: &[&str] = &[
     "reduceRight",
     "replace",
     "replaceAll",
+    "resolve",
     "slice",
     "some",
     "split",
