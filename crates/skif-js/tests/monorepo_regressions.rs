@@ -1235,3 +1235,60 @@ fn binaries_run_in_another_package_that_does_not_provide_them_are_reported() {
         ]
     );
 }
+
+/// An rspack package with a direct dependency its entry imports and one nothing imports, and `config` as its
+/// `rspack.config.js`.
+fn rspack_package(config: &'static str) -> Vec<(&'static str, String)> {
+    let package = manifest(&format!(
+        r#""name":"@x/site","version":"1.0.0","private":true,{PNPM},"scripts":{{"build":"rspack build"}},"dependencies":{{"pad-start":"1.0.0","never-imported":"1.0.0"}},"devDependencies":{{"@rspack/cli":"1.0.0","@rspack/core":"1.0.0","swirl-loader":"1.0.0"}}"#
+    ));
+    vec![
+        ("package.json", package),
+        ("rspack.config.js", config.to_owned()),
+        (
+            "src/app.js",
+            "import padStart from 'pad-start';\npadStart('a', 2);\n".to_owned(),
+        ),
+    ]
+}
+
+#[test]
+fn a_bundler_config_reading_files_with_pure_calls_keeps_its_entries() {
+    // `fs.readFileSync(TLS)` and `path.dirname(TLS)` change nothing, so the literal `entry` stays known: the package is
+    // complete and its unused dependency is reported.
+    let diagnostics = lint_owned(&rspack_package(
+        "const fs = require('fs');\n\
+         const path = require('path');\n\
+         const TLS = path.join(__dirname, 'tls.pem');\n\
+         const config = {\n\
+           entry: { app: './src/app.js' },\n\
+           devServer: { server: { options: { cert: fs.readFileSync(TLS), ca: path.dirname(TLS) } } },\n\
+         };\n\
+         module.exports = config;\n",
+    ));
+    assert_eq!(
+        found(&diagnostics, "unused-dependencies"),
+        ["package.json: never-imported"],
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn a_bundler_config_adding_a_rule_under_a_condition_keeps_its_entries() {
+    // Adding a rule under a condition changes only `module.rules`, so the literal `entry` stays known.
+    let diagnostics = lint_owned(&rspack_package(
+        "function makeConfig() {\n\
+           const config = { entry: { app: './src/app.js' }, module: { rules: [] } };\n\
+           if (process.env.LEGACY) {\n\
+             config.module.rules.unshift({ test: /\\.js$/, loader: 'swirl-loader' });\n\
+           }\n\
+           return config;\n\
+         }\n\
+         module.exports = makeConfig;\n",
+    ));
+    assert_eq!(
+        found(&diagnostics, "unused-dependencies"),
+        ["package.json: never-imported"],
+        "{diagnostics:#?}"
+    );
+}

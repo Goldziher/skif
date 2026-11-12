@@ -89,6 +89,17 @@ All notable changes to this project are documented here. The format follows
   (`const { coverage } = config.test; coverage.enabled = true`) is applied to that part of the local, so the rest of
   the config, and the options spread into it, stay known; a local with more than one such alias, or one shared with
   another function, is still left partly unknown ([#166](https://github.com/Goldziher/skif/issues/166)).
+- **Config evaluation**: a call of a well-known function that changes nothing it is given (`path.join`,
+  `fs.readFileSync`, `JSON.stringify`, `console.log`) no longer makes the config holding its result partly unknown,
+  and a `const` holding a string or number shares no object with what it is given to; a literal `entry` next to
+  `cert: fs.readFileSync(CERT)` now stays known.
+- **Config evaluation**: a change through a part of a config (`config.module.rules.unshift(…)`,
+  `config.output.path = …`, `foo(config.module)`) leaves only that part unknown, also in what shares it (a local a
+  function returns); `push` and `unshift` of a local list add their elements, and under a condition the evaluator
+  cannot decide the part is one of its values before and after. A call that may change the whole config still leaves
+  all of it partly unknown. A call of a function the config declares (`const r = set(config)`) shares with the config
+  only what the function may return of it, and a change through what a method returns (`config.plugins.find(…)`)
+  reaches the object it is called on.
 - **Config evaluation**: `.map`, `.flatMap` and `.filter` of a known array call their callback (an inline function,
   or one the config declares) with each element and its index, so Vitest projects spread from
   `` ['light', 'dark'].map((theme) => ({ test: { name: `browser-${theme}` } })) `` are known instead of leaving the
