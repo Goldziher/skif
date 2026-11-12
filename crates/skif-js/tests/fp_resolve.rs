@@ -1450,7 +1450,10 @@ fn duplicates_and_members_of_a_bazel_source_are_reported() {
     let diagnostics = lint(&[
         RULES_JS_MODULE,
         ("package.json", r#"{"name":"app","version":"1.0.0","private":true}"#),
-        ("BUILD.bazel", "ts_project(name = \"lib\", srcs = [\"a.ts\", \"b.ts\"])\n"),
+        (
+            "BUILD.bazel",
+            "ts_project(name = \"lib\", srcs = [\"a.ts\", \"b.ts\"])\n",
+        ),
         (
             "a.ts",
             concat!(
@@ -1472,8 +1475,16 @@ fn duplicates_and_members_of_a_bazel_source_are_reported() {
         ("unused-enum-members", "Color.Blue"),
         ("unused-namespace-members", "Shapes.line"),
     ] {
-        assert_eq!(names(&diagnostics, rule), strings(&[expected]), "{rule}: {diagnostics:#?}");
-        assert_eq!(paths(&diagnostics, rule), strings(&["a.ts"]), "{rule}: {diagnostics:#?}");
+        assert_eq!(
+            names(&diagnostics, rule),
+            strings(&[expected]),
+            "{rule}: {diagnostics:#?}"
+        );
+        assert_eq!(
+            paths(&diagnostics, rule),
+            strings(&["a.ts"]),
+            "{rule}: {diagnostics:#?}"
+        );
     }
 }
 
@@ -1492,7 +1503,10 @@ fn a_root_bazel_source_in_a_member_is_a_build_source() {
             "BUILD.bazel",
             "ts_project(name = \"foo\", srcs = [\"packages/foo/src/x.ts\"])\n",
         ),
-        ("packages/foo/package.json", r#"{"name":"foo","version":"1.0.0","private":true}"#),
+        (
+            "packages/foo/package.json",
+            r#"{"name":"foo","version":"1.0.0","private":true}"#,
+        ),
         (
             "packages/foo/src/x.ts",
             "import { help } from './y';\nhelp();\nexport const spare = 1;\n",
