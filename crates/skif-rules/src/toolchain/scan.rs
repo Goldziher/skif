@@ -1,5 +1,6 @@
-//! Finding the toolchain files of a workspace through the run's [`FileSystem`] ([`LintContext::fs`]) and reading
-//! them, once per run for every toolchain rule.
+//! Finding the toolchain files of a workspace through the run's [`FileSystem`] and reading them, once per run for every
+//! toolchain rule. Directories are listed through [`LintContext::listing_fs`], so under `[js] discovery = "git"` a
+//! tracked directory unchanged since the index was written is listed from the git index.
 //!
 //! The usual places are the root and every package directory that is not ignored (version files, Dockerfiles and
 //! `*.sh`), their `docker` and `scripts` subdirectories (Dockerfiles and `*.sh`), the root's `.github/workflows` and
@@ -80,7 +81,7 @@ impl Scan {
     pub fn of(cx: &LintContext<'_>, rules: &[&str]) -> Arc<Self> {
         cx.shared(|| {
             let globs: Vec<String> = rules.iter().flat_map(|id| ToolchainOptions::of(cx, id).files).collect();
-            Self::build(cx, cx.fs(), &globs)
+            Self::build(cx, &*cx.listing_fs(), &globs)
         })
     }
 

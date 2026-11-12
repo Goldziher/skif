@@ -185,7 +185,9 @@ fn candidates(workspace: &Workspace) -> Vec<Stray<'_>> {
 /// `BUILD` file that selects it; when those leave it unnamed, a label of it in any `BUILD` file of the Bazel repository
 /// or a `.bzl` file one loads. Docstrings name nothing. Also a `COPY` or `ADD` of it in a Dockerfile of its own
 /// directory or one that builds from the workspace root, or a `COPY . .` followed by an install with its package
-/// manager in a Dockerfile of its own directory.
+/// manager in a Dockerfile of its own directory. Under `[js] discovery = "git"` the `BUILD` files and Dockerfiles are
+/// found in the listing from the git index, so an untracked one in a directory unchanged since the index was written
+/// is not read.
 ///
 /// Options (`[rules.stray-lockfile] allow`): paths, matched literally first, or globs (`packages/*/package-lock.json`),
 /// relative to the workspace root, of lockfiles kept on purpose, each a string or `{ name, reason }`. An entry that

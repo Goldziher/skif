@@ -28,7 +28,8 @@ pub struct JsProvider {
     fs: Arc<dyn FileSystem>,
     sources: Vec<Arc<dyn InputSource>>,
     rules: Vec<Box<dyn JsRule>>,
-    /// The parsed git indexes, shared by every root this provider analyses.
+    /// The parsed git indexes, shared by every root this provider analyses when the run brings none
+    /// ([`LintContext::index_cache`]).
     indexes: IndexCache,
     /// The cache of parse results this provider's runs parse through: the host's, or the one of a multi-root run.
     modules: Option<SharedModules>,
@@ -134,7 +135,7 @@ impl RuleProvider for JsProvider {
             &self.sources,
             cx.sequential,
             &Caches {
-                indexes: &self.indexes,
+                indexes: cx.index_cache().unwrap_or(&self.indexes),
                 modules: parser.as_ref(),
                 extra_entries: cx.extra_entries,
             },

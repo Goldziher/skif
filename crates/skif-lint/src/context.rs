@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use skif_config::Config;
 use skif_core::{Diagnostic, FileSystem, OsFs, RuleMeta, Severity};
-use skif_workspace::Workspace;
+use skif_workspace::{IndexCache, IndexedFs, TrackedFiles, Workspace};
 
 /// One shared value, stored by the first rule that finishes computing it.
 type Slot = Arc<OnceLock<Arc<dyn Any + Send + Sync>>>;
@@ -58,8 +58,13 @@ pub struct LintContext<'a> {
     /// those it owns entries. Empty for a run of one root.
     pub extra_entries: &'a [PathBuf],
     fs: FsRef<'a>,
+    index_cache: Option<&'a IndexCache>,
     shared: &'a SharedCache,
 }
+
+/// The files git tracks below the workspace root, shared by the rules and providers of a run through
+/// [`LintContext::shared`].
+struct SharedTrackedFiles(Option<Arc<TrackedFiles>>);
 
 /// The file system of a run; a newtype so [`LintContext`] and [`RunOptions`](crate::RunOptions) stay `Debug` and
 /// `Copy` while holding a trait object.
@@ -95,7 +100,49 @@ impl<'a> LintContext<'a> {
             sequential,
             extra_entries: &[],
             fs: FsRef(&OsFs),
+            index_cache: None,
             shared,
+        }
+    }
+
+    pub(crate) const fn with_index_cache(mut self, index_cache: Option<&'a IndexCache>) -> Self {
+        self.index_cache = index_cache;
+        self
+    }
+
+    /// The cache of parsed git indexes the host passed with
+    /// [`RunOptions::with_index_cache`](crate::RunOptions::with_index_cache), for a provider that reads an index
+    /// itself.
+    #[must_use]
+    pub const fn index_cache(&self) -> Option<&'a IndexCache> {
+        self.index_cache
+    }
+
+    /// The files git tracks below the workspace root when the configuration lists files from the git index
+    /// (`[js] discovery = "git"`, see [`TrackedFiles::for_discovery`]), read once per run through [`fs`](Self::fs);
+    /// `None` when the directories are walked: another discovery, no git work tree or no usable index.
+    #[must_use]
+    pub fn tracked_files(&self) -> Option<Arc<TrackedFiles>> {
+        let shared = self.shared(|| {
+            let fresh = IndexCache::default();
+            let cache = self.index_cache.unwrap_or(&fresh);
+            SharedTrackedFiles(
+                TrackedFiles::for_discovery(self.fs(), &self.workspace.root, self.config, cache).map(Arc::new),
+            )
+        });
+        shared.0.clone()
+    }
+
+    /// The file system to list directories through: [`fs`](Self::fs) with the directories of
+    /// [`tracked_files`](Self::tracked_files) listed from the git index when there are any, `fs` itself otherwise.
+    /// Every read and existence check still goes to `fs`. A rule that walks directories for files discovery does not
+    /// find (toolchain files, Bazel `BUILD` files) lists them through it, so that `[js] discovery = "git"` spares the
+    /// walk there too.
+    #[must_use]
+    pub fn listing_fs(&self) -> Box<dyn FileSystem + 'a> {
+        match self.tracked_files() {
+            Some(tracked) => Box::new(IndexedFs::new(self.fs(), tracked)),
+            None => Box::new(self.fs()),
         }
     }
 
