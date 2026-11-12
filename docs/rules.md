@@ -47,8 +47,10 @@
 | [`workspace-protocol`](#workspace-protocol) | policy | error | none |
 | [`foreign-package-manager-command`](#foreign-package-manager-command) | workspace | warning | none |
 | [`invalid-workspace-file`](#invalid-workspace-file) | workspace | error | none |
+| [`lerna-packages-mismatch`](#lerna-packages-mismatch) | workspace | warning | none |
 | [`missing-package-manifest`](#missing-package-manifest) | workspace | warning | unsafe |
 | [`nested-workspace-root`](#nested-workspace-root) | workspace | warning | none |
+| [`stale-lerna-config`](#stale-lerna-config) | workspace | warning | none |
 | [`stale-patched-dependencies`](#stale-patched-dependencies) | workspace | warning | none |
 | [`stray-lockfile`](#stray-lockfile) | workspace | warning | unsafe |
 | [`toolchain-pin-drift`](#toolchain-pin-drift) | workspace | warning | none |
@@ -402,6 +404,14 @@ A member `package.json`, a workspace pattern or `.yarnrc.yml` cannot be read, so
 - Default severity: error
 - Fixable: none
 
+## lerna-packages-mismatch
+
+The `packages` of `lerna.json`, which Lerna reads before the package manager's workspaces, select other packages than the workspace declaration.
+
+- Category: workspace
+- Default severity: warning
+- Fixable: none
+
 ## missing-package-manifest
 
 A directory matched by the workspace patterns has no `package.json`.
@@ -413,7 +423,15 @@ A directory matched by the workspace patterns has no `package.json`.
 
 ## nested-workspace-root
 
-A workspace member holds a `pnpm-workspace.yaml` of its own, so installs in that directory leave the workspace, or in a Bun workspace a `package.json` that declares `workspaces`, which Bun never installs.
+A workspace member holds a `pnpm-workspace.yaml` of its own, so installs in that directory leave the workspace, or in a Bun workspace a `package.json` that declares `workspaces`, which Bun never installs; or a member is a Bazel convenience link (`bazel-<name>`) a workspace pattern follows.
+
+- Category: workspace
+- Default severity: warning
+- Fixable: none
+
+## stale-lerna-config
+
+`lerna.json` sets `useWorkspaces` or lacks `version`, which Lerna 7 and later reject, or a script runs `lerna bootstrap`, `lerna add` or `lerna link`, which Lerna 9 removed.
 
 - Category: workspace
 - Default severity: warning
@@ -437,7 +455,7 @@ A lockfile other than the root lockfile of the package manager: one in a workspa
 
 ## toolchain-pin-drift
 
-Node and package-manager versions pinned in version files, Dockerfiles and CI workflows must match the root's.
+Node and package-manager versions pinned in version files, Dockerfiles, CI workflows and Bazel module files must match the root's.
 
 - Category: workspace
 - Default severity: warning

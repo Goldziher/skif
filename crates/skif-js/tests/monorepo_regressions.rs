@@ -663,7 +663,7 @@ fn npm_links_member_binaries_as_its_install_strategy_says() {
     let root = r#"{"name":"root","private":true,"packageManager":"npm@11.6.0","workspaces":["packages/*"]}"#;
     let isolated: &[&str] = &["packages/app/package.json: mytool"];
     let hoisted: &[&str] = &[];
-    let cases: [(&[(&str, &str)], &[&str]); 9] = [
+    let cases: [StrategyCase<'_>; 9] = [
         (&[], hoisted),
         (&[(".npmrc", "install-strategy=linked\n")], isolated),
         (&[(".npmrc", "install-strategy = \"linked\" # isolated\n")], isolated),
@@ -956,6 +956,9 @@ fn bun_links_member_binaries_as_its_linker_says() {
 }
 
 type BunCase<'a> = (Vec<(&'a str, &'a str)>, &'a [&'a str]);
+
+/// Extra files of a case, and the binaries the case expects unlisted.
+type StrategyCase<'a> = (&'a [(&'a str, &'a str)], &'a [&'a str]);
 
 /// `lerna exec` and `nx exec` run the command after their flags in each member with the root's binaries on the
 /// `PATH`: a listed provider is used and an unlisted binary is reported at the root, as for `pnpm -r exec`.

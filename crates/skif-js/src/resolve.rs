@@ -19,7 +19,6 @@ use skif_js_plugins::bazel::{DeclaredOutputs, build_file, is_output_path, reposi
 use skif_js_syntax::is_stylesheet;
 use skif_workspace::Workspace;
 
-use crate::ancestors::is_repository_root;
 use crate::manifest_paths::{ENTRY_FIELDS, map_to_source, resolve_exports, resolve_imports};
 use crate::setup::Setup;
 use crate::specifier::{
@@ -783,11 +782,7 @@ impl ModuleResolver {
                 .collect(),
         )
         .with_root_config(setup.root_tsconfig.clone());
-        let git_root = workspace
-            .root
-            .ancestors()
-            .find(|dir| is_repository_root(fs.as_ref(), dir))
-            .map(Path::to_path_buf);
+        let git_root = setup.git_root.clone();
         let ignore_ceiling = git_root.clone().unwrap_or_else(|| workspace.root.clone());
         Self {
             script,
