@@ -1006,15 +1006,21 @@ fn jest_module_name_mapper_prefixes_are_aliases() {
     assert_eq!(aliases, [("@core".to_owned(), Some("src".to_owned()))]);
 }
 
-/// A key a plugin reads files from that the config computes (`setupFiles: isPostgres ? [...] : []`) is not read as
-/// empty: the entries are incomplete. Other unknown options leave them complete.
+/// A key a plugin reads files from that the config computes (`setupFiles: isPostgres ? [...] : files()`) is not read
+/// as empty: the entries are incomplete. A key that is one of several known lists (`isPostgres ? [...] : []`) names
+/// the files of each, and other unknown options leave the entries complete.
 #[test]
 fn an_unknown_entry_key_below_the_top_level_is_incomplete() {
     let cases = [
         (
             "vitest.config.ts",
             "vitest",
-            "export default { test: { setupFiles: isPostgres ? ['./pg.ts'] : [] } };",
+            "export default { test: { setupFiles: isPostgres ? ['./pg.ts'] : files() } };",
+        ),
+        (
+            "vitest.config.ts",
+            "vitest",
+            "export default { test: { setupFiles: [isPostgres ? './pg.ts' : files()] } };",
         ),
         (
             "vitest.config.ts",
@@ -1043,6 +1049,16 @@ fn an_unknown_entry_key_below_the_top_level_is_incomplete() {
             "vitest.config.ts",
             "vitest",
             "export default { test: { setupFiles: ['./a.ts'], retry: env() } };",
+        ),
+        (
+            "vitest.config.ts",
+            "vitest",
+            "export default { test: { setupFiles: isPostgres ? ['./pg.ts'] : [] } };",
+        ),
+        (
+            "vitest.config.ts",
+            "vitest",
+            "export default { test: { setupFiles: [isPostgres ? './pg.ts' : './sqlite.ts'] } };",
         ),
         (
             "jest.config.js",
@@ -1188,7 +1204,7 @@ fn computed_unparsable_and_unscoped_configs_stay_package_wide() {
         (
             "vitest",
             "vitest.config.ts",
-            "export default { test: { include: process.env.CI ? ['src/**/*.check.ts'] : ['src/**/*.unit.ts'] } };",
+            "export default { test: { include: process.env.CI ? ['src/**/*.check.ts'] : pick() } };",
         ),
         (
             "vitest",

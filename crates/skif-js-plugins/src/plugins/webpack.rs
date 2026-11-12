@@ -7,7 +7,7 @@ use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, Plug
 use crate::plugins::babel;
 use crate::plugins::swc::plugin_packages;
 use crate::support::{
-    alias_inputs, config_unknown, extension_inputs, get_in, html_script_sources, key_unknown, local_script_path,
+    alias_inputs, config_unknown, extension_inputs, files_key_unknown, get_in, html_script_sources, local_script_path,
     looks_like_file, module_input, objects, strings,
 };
 
@@ -46,7 +46,7 @@ pub(crate) fn bundler_inputs(config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> 
         if let Some(entry) = object.get("entry") {
             entries(entry, config, &mut out);
         }
-        if key_unknown(object, "entry") {
+        if files_key_unknown(object, "entry") {
             out.push(PluginInput::EntriesIncomplete);
         }
         if let Some(rules) = object.get("module").and_then(|m| m.get("rules")) {
@@ -90,11 +90,16 @@ fn html_template_entries(cx: &PluginContext<'_>) -> Vec<PluginInput> {
     out
 }
 
-/// `entry` is a path, a list of paths, or an object whose values are either of those or `{ import }`.
+/// `entry` is a path, a list of paths, or an object whose values are either of those or `{ import }`; a value that is
+/// one of several is each of them.
 fn entries(entry: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<PluginInput>) {
     match entry {
         ConfigValue::String(path) => out.push(PluginInput::ProductionEntry(config.join(path))),
-        ConfigValue::Array(items) => items.iter().for_each(|item| entries(item, config, out)),
+        ConfigValue::Array(items) | ConfigValue::OneOf(items) => {
+            for item in items {
+                entries(item, config, out);
+            }
+        }
         ConfigValue::Object(properties) => match entry.get("import") {
             Some(import) => entries(import, config, out),
             None => properties.iter().for_each(|(_, value)| entries(value, config, out)),
