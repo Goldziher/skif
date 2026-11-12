@@ -2714,8 +2714,10 @@ struct Known {
     /// The export of its module each import of [`Self::modules`] takes, as keys of the module's namespace: none for a
     /// namespace import, `default` for a default import and the name for a named one. A `require` takes no such part.
     import_paths: HashMap<SymbolId, Vec<String>>,
-    /// Those of [`Self::foreign`] that the module only calls methods on (`path.format(…)`, `_.merge(…)`): it does not
-    /// write through them, store a value in them, give them to a call or read a member of them otherwise.
+    /// Those of [`Self::foreign`] that the module only calls methods on (`path.format(…)`, `_.merge(…)`), given only
+    /// what [`given_parts`] finds in full ([`given_in_full`]): it does not write through them, store a value in them,
+    /// give them to a call, read a member of them otherwise, or give a method a function or what a call returns, which
+    /// the package may keep and give back (`store.set(() => config)`).
     inert: HashSet<SymbolId>,
 }
 
@@ -2756,7 +2758,9 @@ fn known(program: &Program<'_>, scoping: &Scoping, imports: &dyn Imports) -> Kno
     known
 }
 
-/// The references to a name that are the object of a method called on it (`path` in `path.format(…)`).
+/// The references to a name that are the object of a method called on it given only what [`given_parts`] finds in full
+/// ([`given_in_full`]): `path` in `path.format(…)`, not `store` in `store.set(() => config)`, whose function the package
+/// may keep and give back.
 #[derive(Default)]
 struct MethodReceivers(HashSet<ReferenceId>);
 
@@ -2764,6 +2768,7 @@ impl<'a> Visit<'a> for MethodReceivers {
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
         if let Expression::StaticMemberExpression(member) = it.callee.get_inner_expression()
             && let Expression::Identifier(id) = member.object.get_inner_expression()
+            && it.arguments.iter().filter_map(given).all(given_in_full)
         {
             self.0.extend(id.reference_id.get());
         }
@@ -3052,6 +3057,41 @@ fn add_given_parts<'b, 'a>(expr: &'b Expression<'a>, parts: &mut Vec<(&'b Identi
             add_given_parts(&a.right, parts);
         }
         _ => {}
+    }
+}
+
+/// Whether [`given_parts`] finds every part of a local `expr` may hold: it is a name or a member chain, a value that
+/// holds no object (a literal, a template, an operator's result), or an object or array literal, a condition, a logical
+/// operator, a sequence or an assignment of such values. A function, a call, a `new` or a method there may hold a local
+/// where [`given_parts`] does not look.
+fn given_in_full(expr: &Expression<'_>) -> bool {
+    if reach(expr).is_some() {
+        return true;
+    }
+    match expr.get_inner_expression() {
+        Expression::StringLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BooleanLiteral(_)
+        | Expression::NullLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::RegExpLiteral(_)
+        | Expression::TemplateLiteral(_)
+        | Expression::BinaryExpression(_)
+        | Expression::UnaryExpression(_) => true,
+        Expression::ObjectExpression(object) => object.properties.iter().all(|property| match property {
+            ObjectPropertyKind::ObjectProperty(p) => !p.method && p.kind == PropertyKind::Init && given_in_full(&p.value),
+            ObjectPropertyKind::SpreadProperty(s) => given_in_full(&s.argument),
+        }),
+        Expression::ArrayExpression(array) => array.elements.iter().all(|element| match element {
+            ArrayExpressionElement::SpreadElement(s) => given_in_full(&s.argument),
+            ArrayExpressionElement::Elision(_) => true,
+            other => other.as_expression().is_some_and(given_in_full),
+        }),
+        Expression::ConditionalExpression(c) => given_in_full(&c.consequent) && given_in_full(&c.alternate),
+        Expression::LogicalExpression(l) => given_in_full(&l.left) && given_in_full(&l.right),
+        Expression::SequenceExpression(sequence) => sequence.expressions.last().is_some_and(given_in_full),
+        Expression::AssignmentExpression(a) => a.operator == AssignmentOperator::Assign && given_in_full(&a.right),
+        _ => false,
     }
 }
 
