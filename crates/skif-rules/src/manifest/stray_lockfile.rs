@@ -852,6 +852,40 @@ mod tests {
     }
 
     #[test]
+    fn a_dockerfile_elsewhere_built_from_the_members_directory_names_its_lockfile() {
+        let dockerfile = ("docker/b.Dockerfile", "FROM node:22\nCOPY package.json pnpm-lock.yaml ./\nRUN pnpm i\n");
+        let compose = "\
+services:
+  b:
+    build:
+      context: libs/b
+      dockerfile: ../../docker/b.Dockerfile
+";
+        let workflow = "\
+jobs:
+  images:
+    steps:
+      - run: docker buildx build --file docker/b.Dockerfile ./libs/b
+";
+        for build in [
+            ("scripts/images.sh", "docker build -t b -f docker/b.Dockerfile libs/b\n"),
+            ("compose.yaml", compose),
+            (".github/workflows/images.yml", workflow),
+        ] {
+            let files = bazel_and_docker_files(&[dockerfile, build]);
+            assert_eq!(paths(&lint(META.id, &files, &config(""))), [] as [&str; 0], "{}", build.0);
+        }
+        let other_context = bazel_and_docker_files(&[
+            dockerfile,
+            ("scripts/images.sh", "docker build -f docker/b.Dockerfile libs/a\n"),
+        ]);
+        assert_eq!(
+            paths(&lint(META.id, &other_context, &config(""))),
+            ["libs/b/pnpm-lock.yaml"]
+        );
+    }
+
+    #[test]
     fn an_allow_entry_for_a_lockfile_a_build_names_is_stale() {
         let files = bazel_and_docker_files(&[]);
         let allowing =

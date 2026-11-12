@@ -19,7 +19,9 @@
 //! A Dockerfile names a lockfile when a `COPY` or `ADD` from the build context copies it, by name or by a glob
 //! (`pnpm-lock.yaml*`), with the build context taken as the Dockerfile's directory or the workspace root; and when a
 //! Dockerfile of the lockfile's directory copies the whole context (`COPY . .`) and then installs with the lockfile's
-//! package manager. The Dockerfiles are those the toolchain scan reads and those of the lockfiles' directories.
+//! package manager. A build command in a script or workflow (`docker build -f docker/web.Dockerfile apps/web`) or a
+//! Compose file at the root (`build.context`) also gives a Dockerfile elsewhere the member's directory as its context.
+//! The Dockerfiles are those the toolchain scan reads, those of the lockfiles' directories and those such builds name.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -544,17 +546,20 @@ fn names(context: &str, source: &str, lockfile: &str) -> bool {
         || (source.contains(['*', '?', '[']) && Selector::new([path]).is_ok_and(|glob| glob.matches(lockfile, false)))
 }
 
-/// Whether a Dockerfile copies `lockfile` (workspace-relative): a source names it from the Dockerfile's directory or
-/// from the workspace root, or the Dockerfile sits in the lockfile's directory, copies the whole context and then
-/// installs with the lockfile's package manager.
+/// Whether a Dockerfile copies `lockfile` (workspace-relative): a source names it from the Dockerfile's directory,
+/// from the workspace root or from a context a build gives the Dockerfile, or the Dockerfile copies the whole context
+/// of the lockfile's directory (its own, or one a build gives it) and then installs with the lockfile's package
+/// manager.
 fn copies(dockerfile: &DockerfileCopies, lockfile: &str) -> bool {
     let dir = parent(&dockerfile.path);
     let named_from = |context: &str| dockerfile.sources.iter().any(|source| names(context, source, lockfile));
+    let installs = || {
+        manager_of(lockfile).is_some_and(|manager| dockerfile.installs_after_context_copy.contains(&manager))
+    };
+    let from_context = |context: &str| named_from(context) || (parent(lockfile) == context && installs());
     named_from("")
-        || (parent(lockfile) == dir
-            && (named_from(dir)
-                || manager_of(lockfile)
-                    .is_some_and(|manager| dockerfile.installs_after_context_copy.contains(&manager))))
+        || (parent(lockfile) == dir && from_context(dir))
+        || dockerfile.contexts.iter().any(|context| from_context(context))
 }
 
 /// Which of `lockfiles` (workspace-relative, `/`-separated) a Dockerfile or a Bazel file of the workspace names; the
@@ -922,6 +927,7 @@ d = glob(SRCS)
             path: path.to_owned(),
             sources: sources.iter().map(|source| (*source).to_owned()).collect(),
             installs_after_context_copy: installs.to_vec(),
+            contexts: Vec::new(),
         };
         let lockfile = "apps/web/pnpm-lock.yaml";
         let cases = [
@@ -942,6 +948,20 @@ d = glob(SRCS)
             (dockerfile("Dockerfile", &["."], &[PackageManager::Pnpm]), false),
             (dockerfile("apps/web/Dockerfile", &["package.json"], &[]), false),
             (dockerfile("apps/Dockerfile", &["web/pnpm-lock.yaml"], &[]), false),
+        ];
+        for (copying, expected) in cases {
+            assert_eq!(copies(&copying, lockfile), expected, "{copying:?}");
+        }
+        let built = |sources: &[&str], installs: &[PackageManager], context: &str| DockerfileCopies {
+            contexts: vec![context.to_owned()],
+            ..dockerfile("docker/web.Dockerfile", sources, installs)
+        };
+        let cases = [
+            (built(&["package.json", "pnpm-lock.yaml"], &[], "apps/web"), true),
+            (built(&["."], &[PackageManager::Pnpm], "apps/web"), true),
+            (built(&["."], &[PackageManager::Npm], "apps/web"), false),
+            (built(&["pnpm-lock.yaml"], &[], "apps/api"), false),
+            (built(&["."], &[PackageManager::Pnpm], "apps"), false),
         ];
         for (copying, expected) in cases {
             assert_eq!(copies(&copying, lockfile), expected, "{copying:?}");
