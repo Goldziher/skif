@@ -52,13 +52,15 @@ Discovery does not read the lockfile. Three checks do, on the first run that nee
 `[[version-groups]]` entry with `scope = "lockfile"`, `unsynced-dependency-family` for a `[[dependency-families]]`
 entry with `scope = "importer"` or `"lockfile"`, and `stale-patched-dependencies` when the root `pnpm-workspace.yaml` or
 `package.json` (`pnpm.patchedDependencies`) declares patches. They read `pnpm-lock.yaml` of the root in lockfile format
-9 (pnpm 9 and 10), and `bun.lock` in a Bun workspace. There `stale-patched-dependencies` reads the top-level
+9 (pnpm 9 to 12), and `bun.lock` in a Bun workspace. There `stale-patched-dependencies` reads the top-level
 `patchedDependencies` of the root `package.json`, the only ones Bun applies, and checks them against `bun.lock`; the
 two other checks walk the graph `bun.lock` records, following each dependency to the copy Bun installs for it (nested
 below the package or the workspace package that gets its own copy, else the one at the top), so an importer reaches
 what `bun install` puts in its `node_modules`. `yarn.lock`, `package-lock.json`, the binary `bun.lockb` and older pnpm
 formats are not read; such a check then reports that nothing was checked, as it does when there is no lockfile or it
-does not parse.
+does not parse. From pnpm 11 on, `pnpm-lock.yaml` can hold two YAML documents: the package manager's environment
+(`configDependencies`, `packageManagerDependencies`) and then the project's lockfile. skif reads the project's
+document and requires lockfile format 9 in both.
 
 `stale-patched-dependencies` reports a patch whose `name@version` the lockfile no longer resolves (the patch stopped
 applying after a bump) or resolves without a patch hash (in `bun.lock`: without the entry Bun records in its own

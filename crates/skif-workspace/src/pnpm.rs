@@ -1,6 +1,6 @@
 //! `pnpm-workspace.yaml`: workspace patterns and catalogs.
 
-use std::ops::ControlFlow;
+use std::ops::{ControlFlow, Range};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -66,14 +66,21 @@ fn entry_span(source: &str, line_index: &LineIndex, section: &str, key: &str) ->
     span
 }
 
-/// The span of every entry [`entry_span`] finds under `section`, by key; a key written twice keeps its first entry,
-/// the one [`entry_span`] returns. One pass over the text answers any number of lookups.
-pub(crate) fn section_index(source: &str, line_index: &LineIndex, section: &str) -> HashMap<Box<str>, Span> {
+/// The span of every entry [`entry_span`] finds under `section` within the `document` byte range of `source`, by
+/// key; a key written twice keeps its first entry, the one [`entry_span`] returns. One pass over the text answers any
+/// number of lookups.
+pub(crate) fn section_index(
+    source: &str,
+    document: Range<usize>,
+    line_index: &LineIndex,
+    section: &str,
+) -> HashMap<Box<str>, Span> {
+    let base = document.start;
     let mut index = HashMap::default();
-    section_entries(source, section, |name, start, end| {
+    section_entries(&source[document], section, |name, start, end| {
         index
             .entry(Box::from(name))
-            .or_insert_with(|| line_index.span(to_u32(start), to_u32(end)));
+            .or_insert_with(|| line_index.span(to_u32(base + start), to_u32(base + end)));
         ControlFlow::Continue(())
     });
     index
@@ -396,7 +403,7 @@ mod tests {
             "missing",
         ];
         for section in ["snapshots", "packages", "importers"] {
-            let index = section_index(text, &line_index, section);
+            let index = section_index(text, 0..text.len(), &line_index, section);
             for key in keys {
                 assert_eq!(
                     index.get(key).copied(),
@@ -407,7 +414,7 @@ mod tests {
         }
         // Not vacuous: the first of a duplicate wins, the second section sets its own indentation, deeper lines and
         // comments are not entries.
-        let snapshots = section_index(text, &line_index, "snapshots");
+        let snapshots = section_index(text, 0..text.len(), &line_index, "snapshots");
         let found = |key: &str| {
             snapshots
                 .get(key)
