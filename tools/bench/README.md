@@ -230,8 +230,9 @@ specifier with a subpath (`vite/client`) pairing with its package (`vite`).
 **Known deviations.** Findings on one side below a path in a repository's `knip-unread` list are the `knip-unread`
 deviation: knip reads no files there, as npm's deny-all `.gitignore` hides its workspaces, so it reports every
 dependency there as unused and says nothing about the files. In `files`, a file only knip reports is not counted as a
-difference when it is outside skif's project set (`non-code-file`) or a test file or any file below a test directory
-(`test-file`). A finding only knip reports below a `fixtures` or `__fixtures__` directory is `fixture-file` in the
+difference when it is outside skif's project set (`non-code-file`), a declaration file `.d.ts`, which skif never
+reports unused (`declaration-file`; a `.d.mts` or `.d.cts` file stays compared), or a test file or any file below a
+test directory (`test-file`). A finding only knip reports below a `fixtures` or `__fixtures__` directory is `fixture-file` in the
 issue types skif does not report there: files, exports, types and members unless `[js] include-fixtures` is set, and
 unresolved imports and unlisted dependencies at all (other test-data names such as `testdata` or `*-fixtures` are
 judged by skif and not counted here). Those are reported in their own column and section, with the reason, and
