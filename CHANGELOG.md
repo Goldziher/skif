@@ -65,6 +65,16 @@ All notable changes to this project are documented here. The format follows
   covers `x!`. Elsewhere a trailing `!` is part of the entry
   ([ADR 0127](adrs/0127-migrate-merge-unites-list-entries-by-name.md),
   [#219](https://github.com/Goldziher/skif/issues/219)).
+- **JS**: `[js.workspaces.<dir>.paths]` keys are matched as `tsconfig` `paths` are: one `*` anywhere in the key
+  matches any text, so the catch-all `"*"` and keys such as `"serv*"` or `"*.svg"` map imports instead of being
+  dropped, and the matching keys are tried longest prefix first, an exact key before every wildcard. A key without
+  `*` maps only that specifier and `"alias/*"` no longer maps the bare `alias`, as in TypeScript; relative and
+  absolute specifiers are never mapped. A key or target with more than one `*` is a configuration error
+  ([#214](https://github.com/Goldziher/skif/issues/214)).
+- **JS**: an import that a package's own tsconfig `paths` map into its sources (`src/*` to `./src/*`) is no longer an
+  import of the workspace package whose name it starts with (a member named `src`). Strict mode reported it as that
+  package unlisted, and the other modes counted it as a use of the member
+  ([#215](https://github.com/Goldziher/skif/issues/215)).
 - **JS**: production mode leaves the development entries of plugins (Storybook stories, test files, Vitest
   `setupFiles`) out of the project, as knip does, so they are no longer reported by `unused-files`
   ([#210](https://github.com/Goldziher/skif/issues/210)).
