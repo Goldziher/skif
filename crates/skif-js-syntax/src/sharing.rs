@@ -703,9 +703,9 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 }
 
-/// The parts of locals an expression's value may hold or share: the names and member chains it reads, other than the
-/// object a method is called on, an imported function, what a function in it reads and what holds no object (a
-/// template, an operator's result, the result of one of [`PURE_FUNCTIONS`]).
+/// The parts of locals an expression's value may hold or share: the names and member chains it reads, other than an
+/// imported function, what a function in it reads and what holds no object (a template, an operator's result, the
+/// result of one of [`PURE_FUNCTIONS`] or of [`OWN_RESULT_METHODS`]).
 struct Refs<'s> {
     scoping: &'s Scoping,
     /// What part of the value the code being visited is.
@@ -861,8 +861,16 @@ impl<'a> Visit<'a> for Refs<'_> {
         match it.callee.get_inner_expression() {
             // A local function stands for what it returns.
             Expression::Identifier(id) => self.hold(id, Vec::new(), true),
-            // The object a method is called on is not what it returns.
-            callee if callee.is_member_expression() => {}
+            // A method may return a part of the object it is called on (`list.find(…)`, `list.slice()`, `list.sort()`)
+            // unless it returns a value of its own.
+            Expression::StaticMemberExpression(member)
+                if OWN_RESULT_METHODS.contains(&member.property.name.as_str()) => {}
+            callee if callee.is_member_expression() => {
+                if let Some(member) = callee.as_member_expression() {
+                    let object = member.object();
+                    self.opaque(|refs| refs.visit_expression(object));
+                }
+            }
             _ => self.opaque(|refs| refs.visit_expression(&it.callee)),
         }
         // A `define*` call is the value it is given.
@@ -1098,6 +1106,41 @@ const PURE_METHODS: &[&str] = &[
     "trimStart",
     "values",
     "with",
+];
+
+/// Methods whose result holds nothing of the object they are called on: a boolean, a number, a string, `undefined` or a
+/// new list of strings (`split`, `match`).
+const OWN_RESULT_METHODS: &[&str] = &[
+    "charAt",
+    "endsWith",
+    "every",
+    "findIndex",
+    "findLastIndex",
+    "forEach",
+    "has",
+    "hasOwnProperty",
+    "includes",
+    "indexOf",
+    "join",
+    "lastIndexOf",
+    "match",
+    "padEnd",
+    "padStart",
+    "push",
+    "replace",
+    "replaceAll",
+    "resolve",
+    "some",
+    "split",
+    "startsWith",
+    "test",
+    "toLowerCase",
+    "toString",
+    "toUpperCase",
+    "trim",
+    "trimEnd",
+    "trimStart",
+    "unshift",
 ];
 
 /// Methods that change the list they are called on but never what they are given.
