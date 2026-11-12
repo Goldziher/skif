@@ -668,7 +668,12 @@ impl<'a> Visit<'a> for Sharing<'_> {
         // A name with a default (`b = a`) may take it.
         let held = self.refs(Part::Value, |refs| refs.visit_expression(&it.right));
         let whole = matches!(it.left, BindingPattern::BindingIdentifier(_));
-        for name in it.left.get_binding_identifiers().iter().filter_map(|id| id.symbol_id.get()) {
+        for name in it
+            .left
+            .get_binding_identifiers()
+            .iter()
+            .filter_map(|id| id.symbol_id.get())
+        {
             self.hold(&Place::of(name), whole, held.clone());
         }
         walk::walk_assignment_pattern(self, it);
@@ -788,12 +793,13 @@ enum Part {
 impl Refs<'_> {
     /// Records what the parameters of the function take ([`Parameters`]).
     fn parameters(&mut self, params: &FormalParameters<'_>) {
-        self.out.extend(Parameters::of(params).names().map(|(symbol, exact)| Held {
-            symbol,
-            keys: Vec::new(),
-            at: Vec::new(),
-            exact,
-        }));
+        self.out
+            .extend(Parameters::of(params).names().map(|(symbol, exact)| Held {
+                symbol,
+                keys: Vec::new(),
+                at: Vec::new(),
+                exact,
+            }));
     }
 
     /// Records the part of the local `id` at `keys`, which is the value here when `exact`.
@@ -1049,7 +1055,9 @@ impl Parameters {
     fn taking(&self, index: usize) -> (&[SymbolId], bool) {
         self.items
             .get(index)
-            .map_or((self.rest.as_slice(), false), |(names, exact)| (names.as_slice(), *exact))
+            .map_or((self.rest.as_slice(), false), |(names, exact)| {
+                (names.as_slice(), *exact)
+            })
     }
 
     /// Every name the parameters bind, with whether it is an argument.
