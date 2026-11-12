@@ -1,0 +1,36 @@
+---
+source: crates/skif-cli/tests/explain_usage.rs
+expression: "redact(&json.stdout, dir.path())"
+---
+{
+  "version": 1,
+  "skif": "[VERSION]",
+  "report": {
+    "dependency": "zod",
+    "production": false,
+    "strict": false,
+    "packages": [
+      {
+        "package": "app",
+        "dir": "packages/app",
+        "listed": {
+          "package": "app",
+          "manifest": "packages/app/package.json",
+          "section": "dependencies",
+          "specifier": "3.0.0"
+        },
+        "verdict": "used",
+        "credit": {
+          "kind": "uses"
+        },
+        "uses": [
+          {
+            "kind": "import",
+            "file": "packages/app/src/index.ts"
+          }
+        ],
+        "not-counted": []
+      }
+    ]
+  }
+}

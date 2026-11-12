@@ -1,0 +1,9 @@
+---
+source: crates/skif-cli/tests/explain_usage.rs
+expression: "redact(&human.stdout, dir.path())"
+---
+zod
+  packages/app (app): used
+    listed in packages/app/package.json dependencies "3.0.0"
+    used by:
+      import in packages/app/src/index.ts
