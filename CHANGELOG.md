@@ -222,7 +222,21 @@ All notable changes to this project are documented here. The format follows
   is still not followed, as is a later change an imported function makes to an object an earlier call gave it.
   A method of a package is taken to keep nothing it is given in the package only when the config does nothing else
   with the package (`_.merge(…)`) and the evaluator does not follow it: what a method of a workspace package returns
-  (`base.self()`), or of one the config stores a value in (`pkg.config = local`), may hold what the package holds.
+  (`base.self()`), or of one the config stores a value in (`pkg.config = local`), may hold what the package holds,
+  as may what a method of a package returns once the config gives a method a function, a call's result or an object
+  holding one (`store.set(() => config)`), which the package may keep and give back. What a function imported from a
+  followed module returns (`getBase()`), and what a function read other than by name or as a method returns
+  (`(0, base.self)()`), may hold any value the config imports from such modules. A function of a followed module
+  changes a value of a module also through what it keeps for every call (`f.cache = base`, `add.bind(null, base)`,
+  what a generator or an `async` function made when the module is loaded was given), through `this` or `super`, and
+  through a function it re-exports (`export { tweak } from './tweak'`, `export * from './tools'`), also from a module
+  that is neither followed nor installed. `JSON.stringify` and `JSON.parse` given their arguments through a spread
+  may change them. A `define…` helper, a copying merge and a package whose methods keep nothing are trusted only for
+  an installed package: a bare specifier the evaluator does not follow that names a workspace package or that no
+  `node_modules` directory above the config holds (a `tsconfig` alias such as `@app/tools`) is code of the project,
+  but in a project with no `node_modules` directory at all, where every name of no workspace package counts as
+  installed. `Object.assign` onto an object literal (`Object.assign({}, base)`) copies the keys of what it is given,
+  as a spread does, so a new key of the copy leaves the original known.
 - **Config evaluation**: `.map`, `.flatMap` and `.filter` of a known array call their callback (an inline function,
   or one the config declares) with each element and its index, so Vitest projects spread from
   `` ['light', 'dark'].map((theme) => ({ test: { name: `browser-${theme}` } })) `` are known instead of leaving the
