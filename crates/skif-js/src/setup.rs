@@ -488,6 +488,8 @@ pub(crate) struct UserPatterns {
 pub(crate) struct Setup {
     /// Indexed by package; `None` for packages excluded with `ignore-packages`.
     pub packages: Vec<Option<PackageSetup>>,
+    /// The repository root at or above the workspace root (the nearest directory holding `.git`).
+    pub git_root: Option<PathBuf>,
     /// `[js] ignore`, relative to the workspace root.
     pub global_ignore: Globs,
     /// `[js] ignore-files`, relative to the workspace root.
@@ -771,7 +773,8 @@ impl Setup {
     ) -> Self {
         let js = &config.js;
         let production = js.production;
-        let ancestor_dependencies = ancestors::external_dependencies(fs.as_ref(), &workspace.root);
+        let git_root = ancestors::repository_root(fs.as_ref(), &workspace.root);
+        let ancestor_dependencies = ancestors::external_dependencies(fs.as_ref(), &workspace.root, git_root.as_deref());
         let UnusedExportsOptions {
             ignore_tags,
             include_tags,
@@ -999,6 +1002,7 @@ impl Setup {
         relocate_script_commands(&mut packages, workspace);
         Self {
             packages,
+            git_root,
             global_ignore: Globs::new(&js.ignore),
             global_ignore_files: Globs::new(&js.ignore_files),
             global_ignore_dependencies: Listed::new(&js.ignore_dependencies, production),

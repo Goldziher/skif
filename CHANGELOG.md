@@ -43,7 +43,7 @@ All notable changes to this project are documented here. The format follows
   the package where the command starts. A step's `working-directory` (its own, or the `defaults.run` of its job or
   workflow), an Azure Pipelines `workingDirectory` and the `cwd` of a tool's command are read as a leading `cd`, so the
   binaries and packages of such a step are credited to the package there
-  ([ADR 0121](adrs/0121-working-directories-binaries-missing-where-a-command-runs-and-npm-s-linked-strategy.md),
+  ([ADR 0120](adrs/0120-working-directories-binaries-missing-where-a-command-runs-and-npm-s-linked-strategy.md),
   [#147](https://github.com/Goldziher/skif/issues/147)).
 - `unlisted-binaries` reports a binary that a script, a workflow step or a source file runs after `cd` into another
   workspace package that does not provide it, at the command and naming the package
@@ -51,21 +51,21 @@ All notable changes to this project are documented here. The format follows
   package manager runs there is not a binary. After `cd` into a project of its own below the workspace (a directory
   with a `package.json` that is no workspace member, such as a nested root of `skif -r`), the binary is judged against
   that project's manifest
-  ([ADR 0121](adrs/0121-working-directories-binaries-missing-where-a-command-runs-and-npm-s-linked-strategy.md),
+  ([ADR 0120](adrs/0120-working-directories-binaries-missing-where-a-command-runs-and-npm-s-linked-strategy.md),
   [#163](https://github.com/Goldziher/skif/issues/163)).
 - Under npm with `install-strategy=linked` in the root `.npmrc`, a member's binary satisfies only the packages that
   list the member, as under pnpm's isolated linker
-  ([ADR 0121](adrs/0121-working-directories-binaries-missing-where-a-command-runs-and-npm-s-linked-strategy.md),
+  ([ADR 0120](adrs/0120-working-directories-binaries-missing-where-a-command-runs-and-npm-s-linked-strategy.md),
   [#162](https://github.com/Goldziher/skif/issues/162)).
 ### Added
 
 - `stale-lerna-config` (`warn`): `useWorkspaces` in `lerna.json` and a `lerna.json` without `version`, which Lerna 7
   and later reject, and scripts that run `lerna bootstrap`, `lerna add` or `lerna link`, which Lerna 9 removed. The
   Lerna release is read from `node_modules/lerna`, else from the root `package.json`; without one nothing is reported
-  ([ADR 0120](adrs/0120-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#189](https://github.com/Goldziher/skif/issues/189)).
+  ([ADR 0119](adrs/0119-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#189](https://github.com/Goldziher/skif/issues/189)).
 - `lerna-packages-mismatch` (`warn`): the `packages` of `lerna.json`, which Lerna reads before the package manager's
   workspaces, select other packages than the workspace declaration skif follows; the finding names both lists and the
-  packages only one selects ([ADR 0120](adrs/0120-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#190](https://github.com/Goldziher/skif/issues/190)).
+  packages only one selects ([ADR 0119](adrs/0119-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#190](https://github.com/Goldziher/skif/issues/190)).
 - `DiscoveryFacts::lerna` records a valid root `lerna.json` (`LernaFacts`) also when another file declares the
   members.
 
@@ -74,16 +74,16 @@ All notable changes to this project are documented here. The format follows
 - `unused-dependencies` and `unused-dev-dependencies` no longer report a dependency on a workspace member that has no
   `main`, `module`, `exports`, `bin`, `browser`, `types` or `typings` and no source file (a tooling, asset or style
   package): such a dependency only orders tasks, as Turborepo's `^build` and Nx's task dependencies do
-  ([ADR 0120](adrs/0120-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#191](https://github.com/Goldziher/skif/issues/191)).
+  ([ADR 0119](adrs/0119-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#191](https://github.com/Goldziher/skif/issues/191)).
 
 ### Fixed
 
 - A recursive run no longer lints the output of `turbo prune --docker` as two extra roots: below the start path, the
   `json` and `full` trees of a directory without a `package.json` that holds a lockfile next to them are skipped
-  ([ADR 0120](adrs/0120-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#194](https://github.com/Goldziher/skif/issues/194)).
+  ([ADR 0119](adrs/0119-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#194](https://github.com/Goldziher/skif/issues/194)).
 - `missing-package-manifest` no longer reports an Nx project (a directory with a `project.json`) or a grouping
   directory whose content is only directories the patterns select too, such as `libs/cart` under
-  `["libs/*", "libs/*/*"]` ([ADR 0120](adrs/0120-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#192](https://github.com/Goldziher/skif/issues/192)).
+  `["libs/*", "libs/*/*"]` ([ADR 0119](adrs/0119-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#192](https://github.com/Goldziher/skif/issues/192)).
 - **Scripts**: the command of `lerna exec [flags] [--] <cmd>` and `nx exec [flags] -- <cmd>` is walked as a command
   of the package, as `pnpm -r exec` is: `lerna exec -- rimraf dist` uses `rimraf`, and an unlisted binary there is
   reported. `lerna run` and `nx run` keep reading task names
@@ -91,14 +91,14 @@ All notable changes to this project are documented here. The format follows
 - **Cypress**: an `e2e` config that spreads Nx's `nxE2EPreset()` has the preset's `supportFile` and `specPattern`
   (`src/support/e2e.{js,ts}` and `src/**/*.cy.{js,jsx,ts,tsx}`, below `cypressDir`), so the support files of Nx e2e
   projects are no longer unused
-  ([ADR 0119](adrs/0119-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md),
+  ([ADR 0118](adrs/0118-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md),
   [#188](https://github.com/Goldziher/skif/issues/188)).
 - **Nx**: local plugins, executors and generators are followed. A `plugins` entry, `executor` or generator that is a
   path relative to the workspace root or a `paths` alias of the root `tsconfig.base.json` is no longer an unlisted
   package; a local plugin's module is an entry, and the `implementation`, `batchImplementation` and `factory` files
   of the `executors`, `builders`, `generators` and `schematics` collections its `package.json` names (or a workspace
   package's own) are entries
-  ([ADR 0119](adrs/0119-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md),
+  ([ADR 0118](adrs/0118-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md),
   [#185](https://github.com/Goldziher/skif/issues/185)).
 
 ### Removed
@@ -112,7 +112,7 @@ All notable changes to this project are documented here. The format follows
 - **Nx**: in a project scope (ADR 0109) whose `project.json` targets run a tool's Nx executor (`@nx/vite:build`,
   `@nrwl/vite:*`), the tool's plugin runs without a config file and applies its config-less conventions: Vite's
   `index.html` makes `src/main.tsx` an entry
-  ([ADR 0119](adrs/0119-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md),
+  ([ADR 0118](adrs/0118-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md),
   [#202](https://github.com/Goldziher/skif/issues/202)).
 - `skif explain-usage --dependency <NAME> [--package <NAME|DIR>]` explains why a dependency is used or unused in each
   package that lists it: the verdict `unused-dependencies` reaches and the importing files, mocks, commands, binaries,

@@ -122,7 +122,7 @@ fn sherif_exact_profile_turns_off_everything_sherif_did_not_check() {
     assert_eq!(rules["unused-files"].as_str(), Some("off"));
     assert_eq!(rules["unsorted-dependencies"].as_str(), Some("off"));
     assert_eq!(parsed["js"]["enabled"].as_bool(), Some(false));
-    assert_eq!(migration.extra_checks.len(), 36);
+    assert_eq!(migration.extra_checks.len(), 38);
     assert!(migration.extra_checks.iter().any(|id| id == "unused-files"));
 }
 
