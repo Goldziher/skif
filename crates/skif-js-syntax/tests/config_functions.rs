@@ -3278,14 +3278,18 @@ fn calls_on_a_package_share_nothing_through_it() {
 /// method: what that function returns may be changed through what the package returns.
 #[test]
 fn a_function_given_to_a_package_method_may_be_what_another_returns() {
-    for binding in ["import store from 'some-store';", "const store = require('some-store');"] {
+    for binding in [
+        "import store from 'some-store';",
+        "const store = require('some-store');",
+    ] {
         for (given, read) in [
             ("store.set(() => cfg);", "store.get()().plugins.push('x');"),
-            ("store.set({ load: () => cfg });", "store.get().load().plugins.push('x');"),
+            (
+                "store.set({ load: () => cfg });",
+                "store.get().load().plugins.push('x');",
+            ),
         ] {
-            let source = format!(
-                "{binding}\nconst cfg = {{ plugins: [] }};\n{given}\n{read}\nexport default cfg;"
-            );
+            let source = format!("{binding}\nconst cfg = {{ plugins: [] }};\n{given}\n{read}\nexport default cfg;");
             let value = extract("vite.config.mjs", &source);
             assert_eq!(at(&value, &["plugins"]), &UNKNOWN, "{source}: {value:?}");
         }

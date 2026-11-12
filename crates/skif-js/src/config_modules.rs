@@ -170,7 +170,10 @@ mod tests {
             .with_file("/ws/package.json", r#"{"name":"root","workspaces":["packages/*"]}"#)
             .with_file("/ws/packages/app/package.json", r#"{"name":"app"}"#)
             .with_file(CONFIG, "export default {};")
-            .with_file("/ws/packages/tools/package.json", r#"{"name":"@app/tools","main":"dist/index.js"}"#)
+            .with_file(
+                "/ws/packages/tools/package.json",
+                r#"{"name":"@app/tools","main":"dist/index.js"}"#,
+            )
     }
 
     /// A package a `node_modules` directory above the config holds is installed, as is a Node.js builtin; a workspace
