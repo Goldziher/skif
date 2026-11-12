@@ -239,13 +239,12 @@ impl Unstable {
             primitives: HashSet::default(),
             primitive_lists: HashSet::default(),
             element_links: Vec::new(),
-            in_const: false,
+            context: Context::default(),
             callables: callables(program, scoping),
             alias_parts: HashMap::default(),
             ends: HashMap::default(),
             late: Vec::new(),
             runs_modules: false,
-            defining: false,
             function_writes: Vec::new(),
         };
         sharing.visit_program(program);
@@ -466,6 +465,16 @@ struct Held {
     join: Join,
 }
 
+/// Where the visitor of [`Sharing`] is.
+#[derive(Debug, Default, Clone, Copy)]
+struct Context {
+    /// Whether the declarations being visited are `const`.
+    in_const: bool,
+    /// Whether the links being made are those of the definition of a function: what it returns and what its
+    /// parameters take, which hold for every call of it.
+    defining: bool,
+}
+
 struct Sharing<'s> {
     scoping: &'s Scoping,
     /// What the evaluator knows of the modules the module imports.
@@ -511,8 +520,8 @@ struct Sharing<'s> {
     /// The links of the first parameter of each callback given to a method of one of [`Self::primitive_lists`] to
     /// that list, made only when a change may reach the list ([`Self::link_elements`]).
     element_links: Vec<Link>,
-    /// Whether the declarations being visited are `const`.
-    in_const: bool,
+    /// Where the visitor is: the kind of declaration and whether it is in a function definition.
+    context: Context,
     /// The functions the module declares ([`callables`]).
     callables: Callables,
     /// The part of the local each alias takes ([`alias_source`]), and where its declaration ends.
@@ -525,9 +534,6 @@ struct Sharing<'s> {
     /// Whether code of a module the evaluator follows may run unseen and change what such a module exports
     /// ([`Self::runs_followed`]).
     runs_modules: bool,
-    /// Whether the links being made are those of the definition of a function: what it returns and what its
-    /// parameters take, which hold for every call of it.
-    defining: bool,
     /// The changes code in a function makes of a binding, each with the scope of that function.
     function_writes: Vec<(SymbolId, ScopeId, Change)>,
 }
@@ -686,14 +692,14 @@ impl Sharing<'_> {
 
     /// Whether a link made now is made by code the module runs when it is loaded ([`Link::loading`]).
     fn loading(&self) -> bool {
-        !self.defining && self.functions.last() == Some(&self.scoping.root_scope_id())
+        !self.context.defining && self.functions.last() == Some(&self.scoping.root_scope_id())
     }
 
-    /// Makes the links `visit` makes as those of the definition of a function when `defining` ([`Self::defining`]).
+    /// Makes the links `visit` makes as those of the definition of a function when `defining` ([`Context::defining`]).
     fn in_definition(&mut self, defining: bool, visit: impl FnOnce(&mut Self)) {
-        let saved = std::mem::replace(&mut self.defining, defining);
+        let saved = std::mem::replace(&mut self.context.defining, defining);
         visit(self);
-        self.defining = saved;
+        self.context.defining = saved;
     }
 
     /// Records a change of what the object `expr` holds, in each part of a local it may be ([`Self::parts`]).
@@ -1093,7 +1099,7 @@ impl Sharing<'_> {
     /// and the local they take a part of: `None` unless the local is one of the function being visited
     /// ([`alias_source`], [`alias_names`]).
     fn alias(&self, pattern: &BindingPattern<'_>, init: &Expression<'_>) -> Option<(Vec<AliasPart>, SymbolId)> {
-        if !self.in_const {
+        if !self.context.in_const {
             return None;
         }
         let (source, keys) = alias_source(init)?;
@@ -1240,7 +1246,7 @@ impl Sharing<'_> {
     /// The indices of the links `keep` keeps of each binding.
     fn links_of_where(&self, keep: impl Fn(&Link) -> bool) -> HashMap<SymbolId, Vec<usize>> {
         let mut out: HashMap<SymbolId, Vec<usize>> = HashMap::default();
-        for (index, link) in self.links.iter().enumerate().filter(|(_, link)| keep(*link)) {
+        for (index, link) in self.links.iter().enumerate().filter(|(_, link)| keep(link)) {
             out.entry(link.a.symbol).or_default().push(index);
             if link.b.symbol != link.a.symbol {
                 out.entry(link.b.symbol).or_default().push(index);
@@ -1581,9 +1587,9 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
-        let saved = std::mem::replace(&mut self.in_const, it.kind == VariableDeclarationKind::Const);
+        let saved = std::mem::replace(&mut self.context.in_const, it.kind == VariableDeclarationKind::Const);
         walk::walk_variable_declaration(self, it);
-        self.in_const = saved;
+        self.context.in_const = saved;
     }
 
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
@@ -1613,11 +1619,11 @@ impl<'a> Visit<'a> for Sharing<'_> {
                 .iter()
                 .filter_map(|id| id.symbol_id.get())
                 .collect();
-            if whole && self.in_const && is_primitive(self.names(), init) {
+            if whole && self.context.in_const && is_primitive(self.names(), init) {
                 self.primitives.extend(names.iter().copied());
             }
             if whole
-                && self.in_const
+                && self.context.in_const
                 && (is_primitive_list(self.names(), init) || is_primitive_record(self.names(), init))
             {
                 self.primitive_lists.extend(names.iter().copied());
