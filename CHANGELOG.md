@@ -64,7 +64,11 @@ All notable changes to this project are documented here. The format follows
   and `!==` compare known primitives, and a constant index reads a known array (`LIST[0]`).
 - **Vite and Vitest plugins**: a `root` that is one of several relative directories (a condition the evaluator cannot
   decide, such as `process.env.X ? path.resolve('ui') : __dirname`) reads the HTML entries of each instead of
-  leaving the package incomplete.
+  leaving the package incomplete. A path function, a template literal or `+` over such a value is one of the results
+  of each (`path.join(dir, 'vitest.setup.ts')` is one of two paths), and a list of files or patterns whose value or
+  element is one of several known strings (Vitest and Jest setup files and test globs, Vite, Rollup, tsup and webpack
+  entries) makes each an entry candidate: one that names no file is what another branch would give and is dropped,
+  and the package is judged. An alternative that is not a known string still leaves it incomplete.
 
 ### Changed
 

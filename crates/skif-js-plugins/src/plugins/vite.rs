@@ -9,13 +9,13 @@ use crate::plugin::{
 };
 use crate::plugins::postcss;
 use crate::support::{
-    Spreads, alias_inputs, convention_scope, extension_inputs, get_in, html_entries, html_entries_at, join_rel,
-    package_name, path_unknown, strings, values_of,
+    Spreads, alias_inputs, convention_scope, extension_inputs, file_strings, files_path_unknown, get_in, html_entries,
+    html_entries_at, join_rel, package_name, path_unknown, strings, values_of,
 };
 
-/// The keys Vite takes entry files from: the project root holding `index.html`, the build inputs and the library
-/// entries.
-const ENTRY_KEYS: &[&[&str]] = &[&["root"], BUILD_INPUTS[0], BUILD_INPUTS[1], &["build", "lib", "entry"]];
+/// The keys Vite takes entry files from besides the project root holding `index.html`: the build inputs and the library
+/// entries. A value that is one of several known ones names the files of each ([`files_path_unknown`]).
+const ENTRY_KEYS: &[&[&str]] = &[BUILD_INPUTS[0], BUILD_INPUTS[1], &["build", "lib", "entry"]];
 
 /// Where a config sets the build input: Vite 8 bundles with Rolldown and reads `build.rolldownOptions`, earlier
 /// versions `build.rollupOptions`, which Vite 8 still takes as an alias.
@@ -59,13 +59,13 @@ impl Plugin for Vite {
 
     fn resolve_config(&self, config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut out = html_and_build_inputs(config, cx);
-        if path_unknown(config.value, build_input_key(config.value), Spreads::Any)
-            || path_unknown(config.value, &["build", "lib", "entry"], Spreads::Any)
+        if files_path_unknown(config.value, build_input_key(config.value), Spreads::Any)
+            || files_path_unknown(config.value, &["build", "lib", "entry"], Spreads::Any)
         {
             out.push(PluginInput::EntriesIncomplete);
         }
         if let Some(entry) = get_in(config.value, &["build", "lib", "entry"]) {
-            for path in values_of(entry).into_iter().flat_map(strings) {
+            for path in values_of(entry).into_iter().flat_map(file_strings) {
                 out.push(PluginInput::ProductionEntry(config.join(path)));
             }
         }
@@ -97,9 +97,10 @@ impl Plugin for Vite {
     /// itself (`entry: pick()`, a spread inside it, or a spread above it of a value the config computes,
     /// `build: { ...makeLib() }`), or a config that is unknown as a whole, may name any file.
     fn incomplete_scope(&self, _cause: IncompleteCause, config: &ConfigAst<'_>) -> IncompleteScope {
-        if ENTRY_KEYS
-            .iter()
-            .any(|path| path_unknown(config.value, path, Spreads::Own))
+        if path_unknown(config.value, &["root"], Spreads::Own)
+            || ENTRY_KEYS
+                .iter()
+                .any(|path| files_path_unknown(config.value, path, Spreads::Own))
         {
             return IncompleteScope::Package;
         }
@@ -127,7 +128,7 @@ pub(crate) fn html_and_build_inputs(config: &ConfigAst<'_>, cx: &PluginContext<'
         out.extend(html_entries(cx, root, "index.html"));
     }
     let inputs = get_in(config.value, build_input_key(config.value));
-    for input in inputs.into_iter().flat_map(values_of).flat_map(strings) {
+    for input in inputs.into_iter().flat_map(values_of).flat_map(file_strings) {
         if std::path::Path::new(input)
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("html"))

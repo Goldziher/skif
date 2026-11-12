@@ -233,6 +233,75 @@ fn vitest_projects_mapped_from_a_list_keep_the_package_complete() {
     );
 }
 
+/// The start of a Vitest config in `ui/` whose `dir` is one of two directories, `ui/ui` or `ui`, as a condition the
+/// evaluator cannot decide makes it.
+const VITEST_CONDITIONAL_DIR: &str = "import path from 'node:path';\nimport { fileURLToPath } from 'node:url';\n\
+                                      import { defineConfig } from 'vitest/config';\n\
+                                      const dir = process.env.SOME_FLAG\n\
+                                        ? path.resolve('ui')\n\
+                                        : path.dirname(fileURLToPath(import.meta.url));\n";
+
+/// A test file of the package that imports only Vitest.
+const TEST_USING_VITEST: (&str, &str) = (
+    "ui/src/a.test.ts",
+    "import { test } from 'vitest';\ntest('a', () => {});\n",
+);
+
+/// A setup file joined to a directory that is one of two is one of two files: the one that exists is an entry, and
+/// the one that names no file is what the other branch of the condition gives, so the package's dependencies are
+/// judged.
+#[test]
+fn a_vitest_setup_file_in_one_of_two_directories_keeps_the_package_complete() {
+    let config = format!(
+        "{VITEST_CONDITIONAL_DIR}export default defineConfig({{ root: dir, test: {{ include: ['src/**/*.test.ts'], \
+         setupFiles: [path.join(dir, 'vitest.setup.ts')] }} }});\n"
+    );
+    let files = [
+        ("ui/vitest.config.ts", config.as_str()),
+        ("ui/vitest.setup.ts", "import pad from 'lib-a';\npad('a');\n"),
+        TEST_USING_VITEST,
+    ];
+    assert_eq!(
+        unused_dependencies_with(VITEST_IN_UI, &files),
+        ["package.json: lib-unused"]
+    );
+}
+
+/// Each project a `.map` makes reads the setup file its template literal names below a directory that is one of two,
+/// so the package's dependencies are judged.
+#[test]
+fn vitest_setup_files_of_mapped_projects_in_one_of_two_directories_keep_the_package_complete() {
+    let config = format!(
+        "{VITEST_CONDITIONAL_DIR}export default defineConfig({{\n\
+           test: {{\n\
+             projects: [\n\
+               ...(['light', 'dark'] as const).map((theme) => ({{\n\
+                 extends: true,\n\
+                 test: {{\n\
+                   name: `browser-${{theme}}`,\n\
+                   include: ['src/**/*.test.ts'],\n\
+                   setupFiles: [path.join(dir, `.storybook/vitest.setup.${{theme}}.ts`)],\n\
+                 }},\n\
+               }})),\n\
+             ],\n\
+           }},\n\
+         }});\n"
+    );
+    let files = [
+        ("ui/vitest.config.ts", config.as_str()),
+        (
+            "ui/.storybook/vitest.setup.light.ts",
+            "import pad from 'lib-a';\npad('a');\n",
+        ),
+        ("ui/.storybook/vitest.setup.dark.ts", "export const dark = true;\n"),
+        TEST_USING_VITEST,
+    ];
+    assert_eq!(
+        unused_dependencies_with(VITEST_IN_UI, &files),
+        ["package.json: lib-unused"]
+    );
+}
+
 /// A Vite build input made with `Object.fromEntries` over a list of pages is the pages' HTML files, whose scripts are
 /// entries, so the package's dependencies are judged.
 #[test]

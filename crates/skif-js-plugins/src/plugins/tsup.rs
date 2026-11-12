@@ -3,7 +3,7 @@
 use skif_js_syntax::ConfigValue;
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::support::{config_unknown, entry_glob, key_unknown, objects, strings, values_of};
+use crate::support::{config_unknown, entry_glob, file_strings, files_key_unknown, objects, values_of};
 
 /// The `tsup` plugin.
 pub struct Tsup;
@@ -43,15 +43,15 @@ pub(crate) fn entry_inputs(config: &ConfigAst<'_>, keys: &[&str]) -> Vec<PluginI
             .unwrap_or("entry");
         if let Some(entry) = build.get(key) {
             let paths: Vec<&str> = match entry {
-                ConfigValue::Object(_) => values_of(entry).into_iter().flat_map(strings).collect(),
+                ConfigValue::Object(_) => values_of(entry).into_iter().flat_map(file_strings).collect(),
                 ConfigValue::Array(items) => items
                     .iter()
                     .flat_map(|item| match item {
-                        ConfigValue::Object(_) => item.get("in").map(strings).unwrap_or_default(),
-                        other => strings(other),
+                        ConfigValue::Object(_) => item.get("in").map(file_strings).unwrap_or_default(),
+                        other => file_strings(other),
                     })
                     .collect(),
-                other => strings(other),
+                other => file_strings(other),
             };
             out.extend(
                 paths
@@ -60,7 +60,7 @@ pub(crate) fn entry_inputs(config: &ConfigAst<'_>, keys: &[&str]) -> Vec<PluginI
                     .map(PluginInput::ProductionEntry),
             );
         }
-        if key_unknown(build, key) {
+        if files_key_unknown(build, key) {
             out.push(PluginInput::EntriesIncomplete);
         }
     }
