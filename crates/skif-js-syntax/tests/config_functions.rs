@@ -3218,3 +3218,26 @@ fn a_callback_over_the_entries_of_an_object_of_strings_keeps_the_object_known() 
     );
     assert!(open(get(&changed, &["entry"])), "{changed:?}");
 }
+
+/// Calls on a package's binding itself (`path.format(…)`, `_.merge(…)`) share nothing through the package: a change
+/// of what one call is given does not reach what another call on the same package is given.
+#[test]
+fn calls_on_a_package_share_nothing_through_it() {
+    for binding in ["import path from 'path';", "const path = require('path');"] {
+        let source = format!(
+            "{binding}\n\
+             const out = {{ dir: 'dist' }};\n\
+             const src = {{ dir: 'src' }};\n\
+             path.format(out);\n\
+             path.format(src);\n\
+             out.dir = 'build';\n\
+             export default {{ src }};"
+        );
+        let value = extract("vite.config.mjs", &source);
+        assert_eq!(
+            get(&value, &["src"]),
+            &ConfigValue::Object(vec![("dir".to_owned(), s("src"))]),
+            "{binding}: {value:?}"
+        );
+    }
+}

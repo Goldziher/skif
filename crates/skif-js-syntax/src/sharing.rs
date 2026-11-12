@@ -677,9 +677,7 @@ impl Sharing<'_> {
         let receiver = callee.as_member_expression().map(MemberExpression::object);
         // The elements of a list of primitive values share no object unless code changes the list.
         let list = receiver.and_then(|receiver| self.primitive_source(receiver));
-        let of_receiver = receiver.map_or_else(Vec::new, |receiver| {
-            self.refs(Part::Value, |refs| refs.visit_expression(receiver))
-        });
+        let of_receiver = receiver.map_or_else(Vec::new, |receiver| self.receiver_refs(receiver));
         let mut held = if list.is_some() { Vec::new() } else { of_receiver.clone() };
         for argument in arguments {
             held.extend(self.refs(Part::Value, |refs| refs.visit_argument(argument)));
@@ -707,6 +705,16 @@ impl Sharing<'_> {
                 self.hold(&Place::of(name), false, held.clone());
             }
         }
+    }
+
+    /// The parts of locals the object a method is called on may hold, which the method may keep what it is given in or
+    /// return: none for a package's binding itself (`_.merge(…)`, `vitest.defineConfig(…)`), whose methods are taken to
+    /// keep nothing of what they are given in the package, so that calls of them share nothing through it.
+    fn receiver_refs(&self, receiver: &Expression<'_>) -> Vec<Held> {
+        if is_package_binding(self.scoping, &self.known, receiver) {
+            return Vec::new();
+        }
+        self.refs(Part::Value, |refs| refs.visit_expression(receiver))
     }
 
     /// The one of [`Self::primitive_lists`] whose elements or values the elements of `expr` are: the list or object
@@ -1505,6 +1513,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
                 }
                 callee
                     .as_member_expression()
+                    .filter(|member| !is_package_binding(self.scoping, &self.known, member.object()))
                     .and_then(|member| self.place(member.object()))
                     .map(|(place, _)| (place, false))
             }
@@ -1522,7 +1531,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
         if hub.is_none()
             && let Some(receiver) = receiver
         {
-            held.extend(self.refs(Part::Value, |refs| refs.visit_expression(receiver)));
+            held.extend(self.receiver_refs(receiver));
         }
         self.hold_or_link(hub, held);
         walk::walk_call_expression(self, it);
@@ -1835,7 +1844,9 @@ impl<'a> Visit<'a> for Refs<'_> {
             Expression::StaticMemberExpression(member)
                 if OWN_RESULT_METHODS.contains(&member.property.name.as_str()) && builtin(names, &member.object) => {}
             callee if callee.is_member_expression() => {
-                if let Some(member) = callee.as_member_expression() {
+                if let Some(member) = callee.as_member_expression()
+                    && !is_package_binding(self.scoping, self.known, member.object())
+                {
                     let object = member.object();
                     self.opaque(|refs| refs.visit_expression(object));
                 }
@@ -2548,6 +2559,16 @@ fn find(parent: &mut HashMap<SymbolId, SymbolId>, symbol: SymbolId) -> SymbolId 
     }
     parent.insert(symbol, root);
     root
+}
+
+/// Whether `expr` is itself a binding of an import or a `require` of a package ([`is_package`]), not a member of one.
+fn is_package_binding(scoping: &Scoping, known: &Known, expr: &Expression<'_>) -> bool {
+    let Expression::Identifier(id) = expr.get_inner_expression() else {
+        return false;
+    };
+    resolved(scoping, id)
+        .and_then(|symbol| known.modules.get(&symbol))
+        .is_some_and(|(module, _)| is_package(module))
 }
 
 /// The symbol a reference resolves to, unless it is unresolved or an import.
