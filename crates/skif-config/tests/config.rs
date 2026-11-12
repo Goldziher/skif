@@ -316,6 +316,7 @@ fn full_fixture_sections() {
     let js = &config.js;
     assert!(js.enabled && js.production && js.include_entry_exports && js.include_fixtures);
     assert!(js.use_public_hoisting);
+    assert!(js.isolate_workspaces && js.strict);
     assert_eq!(js.entry, ["src/index.ts"]);
     assert_eq!(js.project, ["src/**/*.ts"]);
     assert_eq!(js.ignore, ["**/generated/**"]);
@@ -338,6 +339,23 @@ fn full_fixture_sections() {
     assert_eq!(eslint.entry, ["lint/*.js"]);
 }
 
+/// `strict` implies production mode and workspace isolation; `isolate-workspaces` is independent of production mode.
+#[test]
+fn strict_implies_production_and_isolation_and_isolation_implies_neither() {
+    let modes = |source: &str| {
+        let js = Config::from_toml_str(source).unwrap().js;
+        (js.production_mode(), js.isolated())
+    };
+    assert_eq!(modes(""), (false, false));
+    assert_eq!(modes("[js]\nisolate-workspaces = true\n"), (false, true));
+    assert_eq!(modes("[js]\nproduction = true\n"), (true, false));
+    assert_eq!(modes("[js]\nstrict = true\n"), (true, true));
+    assert_eq!(
+        modes("[js]\nstrict = true\nproduction = false\nisolate-workspaces = false\n"),
+        (true, true)
+    );
+}
+
 #[test]
 fn full_fixture_round_trips() {
     let config = full();
@@ -351,6 +369,7 @@ fn defaults_are_sensible() {
     assert_eq!(Config::from_toml_str("").unwrap(), config);
     assert!(config.js.enabled && !config.js.production && !config.js.include_fixtures);
     assert!(!config.js.use_public_hoisting);
+    assert!(!config.js.isolate_workspaces && !config.js.strict);
     assert_eq!(config.catalog.mode, CatalogMode::Off);
     assert_eq!(config.catalog.min_packages, 2);
     assert_eq!(config.policy.prefer, Prefer::Highest);
@@ -834,6 +853,8 @@ fn root_only_js_keys_are_rejected_in_an_override() {
         "ignore-exports-used-in-file = true",
         "include-fixtures = true",
         "use-public-hoisting = true",
+        "isolate-workspaces = true",
+        "strict = true",
     ] {
         let source = format!("[[overrides]]\npackages = [\"a\"]\n[overrides.js]\n{key}\n");
         assert!(Config::from_toml_str(&source).is_err(), "{key}");

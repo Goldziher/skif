@@ -222,6 +222,8 @@ struct Run {
     production: bool,
     /// The run passed `--production` itself.
     explicit_production: bool,
+    /// `--strict`: production mode, each workspace isolated and only direct dependencies.
+    strict: bool,
 }
 
 /// What the configuration and the flags say about the issue types.
@@ -1082,17 +1084,8 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, plan: &
         plan.origin(flag_path("--exclude"));
     }
     run.explicit_production = invocation.has("production", Some("p"));
-    let strict = invocation.has("strict", Some("s"));
-    run.production = run.explicit_production || strict;
-    if strict {
-        state.note_with(
-            src,
-            NoteClass::Unsupported,
-            flag_path("--strict"),
-            "knip's strict mode also reports only direct dependencies and checks no other workspace",
-            "the configuration only has the production half of it, which is written to [js] production; run `skif --strict` for the rest",
-        );
-    }
+    run.strict = invocation.has("strict", Some("s"));
+    run.production = run.explicit_production || run.strict;
     if invocation.has("include-entry-exports", None) {
         plan.include_entry_exports = true;
         state.note(
@@ -1486,6 +1479,7 @@ fn js_settings(state: &mut State<'_>, src: &Src, plan: &Plan) {
     }
     let js = Target::Root.js();
     production(state, src, plan);
+    strict(state, src, plan);
     if plan.include_entry_exports {
         table(&mut state.doc, &js).set(keys::JS_INCLUDE_ENTRY_EXPORTS, Val::Bool(true));
     }
@@ -1498,21 +1492,29 @@ fn js_settings(state: &mut State<'_>, src: &Src, plan: &Plan) {
 }
 
 /// `[js] production` is one setting for the project: it is written when every run of knip used production mode, and
-/// left to a human when only some did.
+/// left to a human when only some did. When every run is strict, `[js] strict` implies it and it is not written.
 fn production(state: &mut State<'_>, src: &Src, plan: &Plan) {
     let production: Vec<&Run> = plan.runs.iter().filter(|run| run.production).collect();
     if production.is_empty() {
         return;
     }
     if production.len() == plan.runs.len() {
-        table(&mut state.doc, &Target::Root.js()).set(keys::JS_PRODUCTION, Val::Bool(true));
+        let all_strict = plan.runs.iter().all(|run| run.strict);
+        if !all_strict {
+            table(&mut state.doc, &Target::Root.js()).set(keys::JS_PRODUCTION, Val::Bool(true));
+        }
         let explicit: Vec<String> = production
             .iter()
             .filter(|run| run.explicit_production)
             .map(|run| format!("{}: --production", run.script))
             .collect();
         if !explicit.is_empty() {
-            state.note(src, NoteClass::Exact, explicit.join(", "), "written to [js] production");
+            let message = if all_strict {
+                "implied by [js] strict"
+            } else {
+                "written to [js] production"
+            };
+            state.note(src, NoteClass::Exact, explicit.join(", "), message);
         }
     } else {
         let with: Vec<&str> = production.iter().map(|run| run.script.as_str()).collect();
@@ -1534,6 +1536,42 @@ fn production(state: &mut State<'_>, src: &Src, plan: &Plan) {
             "set [js] production = true if every check should skip dev dependencies and test files",
         );
     }
+}
+
+/// `[js] strict` is one setting for the project, as `[js] production` is: it is written when every run of knip used
+/// `--strict`, and left to a human when only some did; those runs keep the production half through `production`.
+fn strict(state: &mut State<'_>, src: &Src, plan: &Plan) {
+    let (with, without): (Vec<&Run>, Vec<&Run>) = plan.runs.iter().partition(|run| run.strict);
+    if with.is_empty() {
+        return;
+    }
+    let flags = script_list(&with, ": --strict");
+    if without.is_empty() {
+        table(&mut state.doc, &Target::Root.js()).set(keys::JS_STRICT, Val::Bool(true));
+        state.note(src, NoteClass::Exact, flags, "written to [js] strict");
+        return;
+    }
+    state.note_with(
+        src,
+        NoteClass::Human,
+        flags,
+        format!(
+            "{} ran knip in strict mode and {} did not; skif has one [js] strict setting, so it was not written",
+            script_list(&with, ""),
+            script_list(&without, "")
+        ),
+        "set [js] strict = true if every check should be strict, or [js] isolate-workspaces = true to check each \
+         package against its own manifest without production mode",
+    );
+}
+
+/// The scripts of `selected`, each followed by `suffix`, comma separated.
+fn script_list(selected: &[&Run], suffix: &str) -> String {
+    selected
+        .iter()
+        .map(|run| format!("{}{suffix}", run.script))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[cfg(test)]

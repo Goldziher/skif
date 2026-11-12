@@ -448,6 +448,8 @@ ignore-workspaces = ["tools/*"]
 ignore-members = ["/^_/"]
 ignore-exports-used-in-file = { type = true, interface = true }
 production = false
+isolate-workspaces = false
+strict = false
 include-entry-exports = false
 tsconfig = "tsconfig.app.json"
 use-tsconfig-files = false
@@ -835,6 +837,23 @@ platform tools scripts run (`rm`, `curl`, `git`, `docker`), which are installed 
 that no dependency provides, unless `ignore-binaries` lists it. Shell builtins (`cd`, `echo`, `export`), shells, pass-through commands (`env`, `sudo`, `xargs`), the package
 managers and `node` are never reported.
 
+**`isolate-workspaces`** (default `false`, top level only) is workspace isolation: each workspace package uses only
+the dependencies its own `package.json` lists. An import, a binary a script runs, or a package a tool config names is
+no longer satisfied by a containing package or the root, so it is reported as unlisted in the package that uses it,
+and a root dependency only members use is unused. A private package's import of a workspace member it does not list
+is reported too, and `use-public-hoisting` is ignored. Manifests above the analysed root still count. Isolation is
+independent of `production`: in the default mode tests, test setup, scripts and tool configs are checked against their
+own package's manifest, development dependencies included, so one run checks every package against its own manifest.
+What counts as listed is unchanged: a type-only import still needs a listing (a listed `@types` package stands in),
+and a package's own `devDependencies` satisfy any of its files. `skif --isolate-workspaces` sets it.
+
+**`strict`** (default `false`, top level only) is knip's strict mode, the configuration counterpart of `skif --strict`:
+`production` and `isolate-workspaces`, and only direct dependencies count. Production code must import from
+`dependencies` or `peerDependencies`, a peer dependency of a listed package no longer stands in for a listing,
+type-only imports use no package, and `unused-dependencies` also reports required peer dependencies nothing imports
+(see `--strict` in the [CLI reference](../cli/#flags)). With `strict = true`, `production = false` and `isolate-workspaces = false`
+have no effect.
+
 **`use-public-hoisting`** (default `false`, top level only) counts a package that the install hoists publicly into
 a `node_modules` above a package as available to it, so a file that imports it without listing it is not reported by
 `unlisted-dependencies`. Off, skif reports such an import as knip does; `ignore-dependencies` (or
@@ -858,8 +877,8 @@ use-public-hoisting = true
 with `public-hoist-pattern[]=hoisted-only` in the root `.npmrc`, or
 `npm_translate_lock(..., public_hoist_packages = {"hoisted-only": [""]})`, makes `import 'hoisted-only'` in any
 package no unlisted dependency. The setting changes no `unused-dependencies` finding: a package a manifest lists is
-used or unused as before, whether it is hoisted or not. Strict mode (`--strict`) ignores it, since every package
-there uses only its own manifest. `node-linker=hoisted` and the flat layouts of npm, Yarn Classic and Bun are not
+used or unused as before, whether it is hoisted or not. Workspace isolation (`isolate-workspaces`, and `strict`,
+which implies it) ignores it, since every package there uses only its own manifest. `node-linker=hoisted` and the flat layouts of npm, Yarn Classic and Bun are not
 counted: they make every installed package resolvable everywhere, so counting them would amount to turning
 `unlisted-dependencies` off. Binaries are not affected: a hoisted package's binary is still credited only to a
 package that lists it.
@@ -886,7 +905,7 @@ Dockerfiles, shell scripts, workflows and the `files` globs) and the search for 
 
 A dependency counts as listed when the package's own `package.json`, the `package.json` of a package that contains
 it, or any `package.json` above the analysed root up to the git repository root lists it; the same manifests enable
-plugins.
+plugins. With `isolate-workspaces` (or `strict`), a containing package no longer counts.
 
 **Packages tool configs name.** A package that a tool config names itself is a dependency of the package whose
 directory holds the config: a `tsconfig` `extends`, `compilerOptions.types` or `compilerOptions.plugins` entry, an
@@ -921,7 +940,8 @@ every `@types` package stays visible.
 
 `ignore-dependencies` silences a package; a config below `node_modules`, that git ignores (generated, such as
 `.nuxt/tsconfig.json`), in a fixture directory (unless `include-fixtures`) or matched by `ignore` is not judged.
-Production mode judges no config, and so `--strict`, which implies it, judges none either.
+Production mode judges no config, and so `strict`, which implies it, judges none either. With `isolate-workspaces`
+outside production mode, a config is judged against the manifest of its own package only.
 
 `declare module 'pkg'` declares the package, so its imports need no dependency, and so does a pattern with a literal
 start (`declare module 'pkg/*'`) for the imports it matches. A declared subpath (`declare module 'pkg/data.json'`)
