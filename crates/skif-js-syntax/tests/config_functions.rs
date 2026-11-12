@@ -2335,7 +2335,13 @@ fn at<'a>(value: &'a ConfigValue, path: &[&str]) -> &'a ConfigValue {
                 .iter()
                 .rev()
                 .find(|(name, _)| name == key || ConfigValue::is_spread_key(name))
-                .map(|(name, field)| if ConfigValue::is_spread_key(name) { &UNKNOWN } else { field }),
+                .map(|(name, field)| {
+                    if ConfigValue::is_spread_key(name) {
+                        &UNKNOWN
+                    } else {
+                        field
+                    }
+                }),
             _ => None,
         };
         current = next.unwrap_or_else(|| panic!("{key} is missing from {current:?}"));
