@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 use skif_core::MemoryFs;
 use skif_js_plugins::{
     IncompleteScope, NxProjects, PluginContext, PluginId, PluginOutput, ScopedEntryRegex, resolve_plugins,
-    resolve_plugins_with,
+    resolve_plugins_in, resolve_plugins_with,
 };
 
 const DIR: &str = "/ws";
@@ -178,6 +178,25 @@ fn the_tool_configs_of_an_integrated_project_are_read_for_the_root() {
 }
 
 /// Without the `nx` plugin a `project.json` makes no scope, and the root reads no config below it.
+#[test]
+fn resolving_with_listed_projects_matches_finding_them_first() {
+    let fs = memory(WEB_FILES);
+    let (scripts, plugins) = (IndexMap::new(), IndexMap::new());
+    let listed = || vec![("".to_owned(), true), ("apps/web".to_owned(), true)];
+    for dependencies in [owned(ROOT_DEPENDENCIES), owned(&["vite", "jest"])] {
+        let ctx = context(&fs, DIR, &dependencies, &scripts, &plugins);
+        let found = NxProjects::from_dirs(&ctx, "", listed);
+        let mut asked = false;
+        let resolved = resolve_plugins_in(&ctx, "", || {
+            asked = true;
+            listed()
+        });
+        assert_eq!(resolved, resolve_plugins_with(&ctx, &found), "{dependencies:?}");
+        assert_eq!(asked, dependencies.iter().any(|name| name == "nx"), "{dependencies:?}");
+        assert!(!resolved.is_empty(), "{dependencies:?}");
+    }
+}
+
 #[test]
 fn projects_are_scopes_only_with_nx() {
     let dependencies: Vec<&str> = ROOT_DEPENDENCIES.iter().copied().filter(|name| *name != "nx").collect();

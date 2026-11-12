@@ -42,15 +42,19 @@ impl NxProjects {
     /// files or as build output: [`NxProjects::from_dirs`] takes the projects a file walk with those rules found.
     #[must_use]
     pub fn find(ctx: &PluginContext<'_>) -> Self {
-        Self::from_dirs(ctx, "", || {
-            project_dirs(ctx)
-                .into_iter()
-                .map(|dir| {
-                    let owned = !has_own_manifest(ctx, &dir);
-                    (dir, owned)
-                })
-                .collect()
-        })
+        Self::from_dirs(ctx, "", || Self::found_dirs(ctx))
+    }
+
+    /// The projects [`Self::find`] lists, each with whether the package of `ctx` owns it, as
+    /// [`from_dirs`](Self::from_dirs) takes them.
+    pub(crate) fn found_dirs(ctx: &PluginContext<'_>) -> Vec<(String, bool)> {
+        project_dirs(ctx)
+            .into_iter()
+            .map(|dir| {
+                let owned = !has_own_manifest(ctx, &dir);
+                (dir, owned)
+            })
+            .collect()
     }
 
     /// The projects of the package of `ctx`, which lies at `path` in the Nx workspace, when the `nx` plugin is enabled
@@ -62,7 +66,12 @@ impl NxProjects {
         if !crate::resolve::is_plugin_enabled(ctx, crate::plugins::nx::ID) {
             return Self::default();
         }
-        let mut projects = projects();
+        Self::listed(path, projects())
+    }
+
+    /// The projects `projects` of a package at `path` in which the `nx` plugin is enabled; see
+    /// [`from_dirs`](Self::from_dirs).
+    pub(crate) fn listed(path: &str, mut projects: Vec<(String, bool)>) -> Self {
         projects.sort();
         projects.dedup();
         let dirs: Vec<String> = projects
