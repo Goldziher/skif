@@ -19,6 +19,7 @@ use skif_js_plugins::bazel::{DeclaredOutputs, build_file, is_output_path, reposi
 use skif_js_syntax::is_stylesheet;
 use skif_workspace::Workspace;
 
+use crate::compilers::Compilers;
 use crate::manifest_paths::{ENTRY_FIELDS, map_to_source, resolve_exports, resolve_imports};
 use crate::setup::Setup;
 use crate::specifier::{
@@ -34,7 +35,7 @@ pub(crate) const CODE_EXTENSIONS: &[&str] = &[
 
 /// Files whose imports are extracted without a compiler and followed (MDX documents, TSRX and Marko components). They
 /// are not in the default project and are never probed as the source of a published file.
-const EXTRACTED_EXTENSIONS: &[&str] = &["marko", "mdx", "tsrx"];
+pub(crate) const EXTRACTED_EXTENSIONS: &[&str] = &["marko", "mdx", "tsrx"];
 
 /// Whether a path has an extension that is parsed and followed.
 pub(crate) fn is_code_file(path: &Path) -> bool {
@@ -396,6 +397,8 @@ pub(crate) struct ModuleResolver {
     ignore_ceiling: PathBuf,
     /// The `.gitignore` of any other directory up to `ignore_ceiling`, read when a missing module is looked up there.
     dir_ignores: Memo<PathBuf, Option<Arc<Gitignore>>>,
+    /// `[js.compilers]`: the files of their extensions are modules too.
+    compilers: Arc<Compilers>,
 }
 
 /// Which language a specifier is written in.
@@ -820,6 +823,7 @@ impl ModuleResolver {
             declared_imports: Memo::new(),
             ignore_ceiling,
             dir_ignores: Memo::new(),
+            compilers: Arc::clone(&setup.compilers),
         }
     }
 
@@ -831,7 +835,8 @@ impl ModuleResolver {
         if self.in_bazel_output(&path) {
             return Resolved::Ignored;
         }
-        if is_read_file(&path) && (is_below(&path, &self.root) || !is_installed(&path)) {
+        let module = is_read_file(&path) || self.compilers.handles(&path);
+        if module && (is_below(&path, &self.root) || !is_installed(&path)) {
             Resolved::File(path)
         } else {
             Resolved::Asset

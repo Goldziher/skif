@@ -384,6 +384,11 @@ impl Config {
                 return invalid(format!("{key}[{index}]: `reason` is empty; say why or remove it"));
             }
         }
+        if let Some(message) = self.js.compilers.iter().find_map(|(extension, compiler)| {
+            compiler.problem(&crate::provenance::join_key("js.compilers", extension), extension)
+        }) {
+            return invalid(message);
+        }
         if let Some(message) = self.format.inconsistency() {
             return invalid(format!("format.{message}"));
         }
@@ -2098,6 +2103,11 @@ pub struct Js {
     pub workspaces: IndexMap<String, JsWorkspace>,
     /// Plugin switches keyed by plugin name.
     pub plugins: IndexMap<String, PluginConfig>,
+    /// How to read the files of extensions skif has no reader for, keyed by the extension without its dot (`html`):
+    /// the static counterpart of knip's `compilers`, which never runs project code. Such files join the default
+    /// project, and the imports read from them count as usage.
+    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    pub compilers: IndexMap<String, JsCompiler>,
     /// Appended to `ignore` instead of replacing it. Folded away when the configuration is resolved.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extend_ignore: Vec<String>,
@@ -2240,10 +2250,103 @@ impl Default for Js {
             cycles: JsCycles::default(),
             workspaces: IndexMap::new(),
             plugins: IndexMap::new(),
+            compilers: IndexMap::new(),
             extend_ignore: Vec::new(),
             extend_ignore_dependencies: Vec::new(),
             extend_ignore_binaries: Vec::new(),
             extend_ignore_unresolved: Vec::new(),
+        }
+    }
+}
+
+/// One `[js.compilers]` entry: how the files of one extension are read. Exactly one of `as` and `imports` is set.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
+pub struct JsCompiler {
+    /// Read the files as if they had this extension, with the reader skif has for it (`as = "mdx"`): one of
+    /// [`JsCompiler::READERS`].
+    #[serde(rename = "as", skip_serializing_if = "Option::is_none")]
+    pub reader: Option<String>,
+    /// Regular expressions with exactly one capture group, matched against the whole text of a file: every match
+    /// captures an import specifier, resolved as an import written in that file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imports: Option<Vec<String>>,
+}
+
+impl JsCompiler {
+    /// The extensions skif reads itself, sorted: the possible values of `as`, and the extensions a compiler cannot be
+    /// declared for.
+    pub const READERS: &'static [&'static str] = &[
+        "astro", "cjs", "css", "cts", "js", "jsx", "less", "marko", "mdx", "mjs", "mts", "pcss", "sass", "scss",
+        "styl", "stylus", "svelte", "ts", "tsrx", "tsx", "vue",
+    ];
+
+    /// Reads the files with the reader of `extension` (`as`).
+    #[must_use]
+    pub fn reading(extension: impl Into<String>) -> Self {
+        Self {
+            reader: Some(extension.into()),
+            imports: None,
+        }
+    }
+
+    /// Takes the imports of the files from the captures of `patterns` (`imports`).
+    #[must_use]
+    pub fn matching<I, S>(patterns: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            reader: None,
+            imports: Some(patterns.into_iter().map(Into::into).collect()),
+        }
+    }
+
+    /// The first problem of the entry `key` declares for `extension`, as a message naming its key.
+    fn problem(&self, key: &str, extension: &str) -> Option<String> {
+        let written = !extension.is_empty()
+            && extension
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-' || byte == b'_');
+        if !written {
+            return Some(format!(
+                "{key}: write the extension in lowercase without the leading dot (`html`, not `.html`)"
+            ));
+        }
+        if Self::READERS.contains(&extension) {
+            return Some(format!(
+                "{key}: skif reads `.{extension}` files itself; remove the entry"
+            ));
+        }
+        match (self.reader.as_deref(), self.imports.as_deref()) {
+            (Some(reader), None) => (!Self::READERS.contains(&reader)).then(|| {
+                let hint =
+                    closest(reader, Self::READERS).map_or_else(String::new, |s| format!("; did you mean \"{s}\"?"));
+                format!(
+                    "{key}: unknown reader `{reader}`{hint} (expected one of {})",
+                    Self::READERS.join(", ")
+                )
+            }),
+            (None, Some([])) => Some(format!("{key}.imports: list at least one regular expression")),
+            (None, Some(patterns)) => patterns.iter().enumerate().find_map(|(index, pattern)| {
+                pattern_problem(pattern).map(|message| format!("{key}.imports[{index}]: {message}"))
+            }),
+            _ => Some(format!("{key}: set exactly one of `as` and `imports`")),
+        }
+    }
+}
+
+/// Why `pattern` cannot be an `imports` pattern: it does not compile, or it has not exactly one capture group.
+fn pattern_problem(pattern: &str) -> Option<String> {
+    match regex::Regex::new(pattern) {
+        Err(error) => Some(format!("not a valid regular expression: {error}")),
+        Ok(regex) => {
+            let groups = regex.captures_len().saturating_sub(1);
+            (groups != 1)
+                .then(|| format!("has {groups} capture groups; it needs exactly one, which captures the specifier"))
         }
     }
 }

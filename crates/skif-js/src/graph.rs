@@ -1,5 +1,6 @@
 //! The module graph: a worklist from the entry files over resolved imports.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use skif_core::HashMap;
@@ -16,6 +17,7 @@ use skif_js_syntax::{
 };
 use skif_workspace::{PackageId, map_ordered};
 
+use crate::compilers::{self, Compiler, reader_path};
 use crate::components::{self, Registered};
 use crate::discover::{Candidate, is_package_manifest, relative};
 use crate::resolve::{EXTENSION_ALIASES, ModuleResolver, Resolved};
@@ -374,12 +376,22 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Parsed::default(),
         Err(error) => return failed(error.to_string()),
     };
-    let style = is_stylesheet(path);
-    let component = path
+    // A file `[js.compilers]` maps onto a reader is read as a file of that reader's extension, and resolves from
+    // where it is; one read by patterns has only the imports they capture.
+    let compiler = inputs.setup.compilers.of(path);
+    let read_as = match compiler {
+        Some(Compiler::Reader(reader)) => Cow::Owned(reader_path(path, reader)),
+        _ => Cow::Borrowed(path),
+    };
+    let style = is_stylesheet(&read_as);
+    let component = read_as
         .extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| matches!(extension, "vue" | "svelte" | "astro"));
-    let parsed = parse_source(inputs.modules, path, &source);
+    let parsed = match compiler {
+        Some(Compiler::Patterns(patterns)) => Ok(compilers::extract(patterns, &source)),
+        _ => parse_source(inputs.modules, &read_as, &source),
+    };
     let mut info = match parsed {
         Ok(info) => info,
         Err(error) => return failed(error.to_string()),
@@ -391,10 +403,10 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
     });
     let parsed_imports = info.imports.len();
     // The prose and code samples of a document are not code: only its ESM, which the parser already read, counts.
-    let document = path
+    let document = read_as
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("mdx"));
-    if !style && !document {
+    if !style && !document && !matches!(compiler, Some(Compiler::Patterns(_))) {
         add_textual_imports(&mut info, &source);
     }
     let imports: Vec<RawImport> = info
