@@ -14,7 +14,8 @@ use oxc_resolver::{
     FileMetadata, ResolveError, ResolveOptions, ResolverGeneric, TsconfigDiscovery, TsconfigOptions, TsconfigReferences,
 };
 use serde_json::Value;
-use skif_core::{FileSystem, HashMap, HashState, OsFs};
+use skif_core::{FileSystem, HashMap, HashState, OsFs, slash};
+use skif_js_plugins::bazel::{DeclaredOutputs, build_file, is_output_path, repository_root};
 use skif_js_syntax::is_stylesheet;
 use skif_workspace::Workspace;
 
@@ -351,6 +352,11 @@ pub(crate) struct ModuleResolver {
     root: PathBuf,
     /// The name the repository's Bazel `MODULE.bazel` or `WORKSPACE` gives it, which prefixes root-relative requires.
     workspace_name: Option<String>,
+    /// The root of the Bazel repository the workspace is in, whose `bazel-*` output trees are never followed.
+    bazel_root: Option<PathBuf>,
+    /// The directory of the nearest `BUILD` file at or above a directory, with the outputs it declares, by the
+    /// directory of a missing file; `None` when no `BUILD` file up to the Bazel root is readable.
+    bazel_outputs: Memo<PathBuf, Option<Arc<(PathBuf, DeclaredOutputs)>>>,
     /// The `.gitignore` files of the root and of the packages, with the directory each applies to.
     ignores: Vec<(PathBuf, Gitignore)>,
     /// The directories of the root and of every package, deepest first.
@@ -783,6 +789,8 @@ impl ModuleResolver {
             root_script,
             style,
             workspace_name: skif_workspace::bazel_workspace_name(fs.as_ref(), &workspace.root),
+            bazel_root: repository_root(fs.as_ref(), &workspace.root),
+            bazel_outputs: Memo::new(),
             ignores,
             package_dirs,
             fs,
@@ -809,13 +817,50 @@ impl ModuleResolver {
 
     /// A source file is followed wherever it lies, also outside the workspace root (a sibling project's file, a file
     /// of an enclosing root): the graph takes it for a file of another project, which does not judge it. Outside the
-    /// root, files below a `node_modules` directory are installed code and are not followed.
+    /// root, files below a `node_modules` directory are installed code and are not followed. A file in a Bazel output
+    /// tree ([`Self::in_bazel_output`]) is generated code, never followed.
     fn classify(&self, path: PathBuf) -> Resolved {
+        if self.in_bazel_output(&path) {
+            return Resolved::Ignored;
+        }
         if is_read_file(&path) && (is_below(&path, &self.root) || !is_installed(&path)) {
             Resolved::File(path)
         } else {
             Resolved::Asset
         }
+    }
+
+    /// Whether `path` lies in an output tree of the Bazel repository (`bazel-bin`, `bazel-out`), whose contents are
+    /// whatever was built last.
+    fn in_bazel_output(&self, path: &Path) -> bool {
+        self.bazel_root
+            .as_deref()
+            .is_some_and(|root| is_output_path(root, path))
+    }
+
+    /// Whether `path`, a file missing from the source tree, is an output that the nearest `BUILD` file at or above its
+    /// directory, up to the Bazel root, declares: Bazel writes it into `bazel-bin`, which is never read, so an import
+    /// of it is one of generated code whatever was built.
+    fn declared_bazel_output(&self, path: &Path) -> bool {
+        let (Some(root), Some(directory)) = (self.bazel_root.as_deref(), path.parent()) else {
+            return false;
+        };
+        if !directory.starts_with(root) || self.in_bazel_output(path) {
+            return false;
+        }
+        let nearest = self.bazel_outputs.get_or_compute(directory, || {
+            let (dir, file) = directory
+                .ancestors()
+                .take_while(|dir| dir.starts_with(root))
+                .find_map(|dir| build_file(self.fs.as_ref(), dir).map(|file| (dir, file)))?;
+            let source = self.fs.read_to_string(&file).ok()?;
+            Some(Arc::new((dir.to_path_buf(), DeclaredOutputs::read(&source))))
+        });
+        nearest.is_some_and(|found| {
+            let (dir, outputs) = &*found;
+            path.strip_prefix(dir)
+                .is_ok_and(|relative| outputs.declares(&slash(relative)))
+        })
     }
 
     /// The script resolvers for files below `within`: those with the `resolve.extensions` of the innermost package
@@ -952,7 +997,8 @@ impl ModuleResolver {
     /// What a specifier that names nothing is. A relative one is unknown when it points at an ignored path (also
     /// through the source extensions its extension stands for, or, without a code extension, the files and directory
     /// index it can name, or below an ignored `rootDirs` directory not generated yet, or SvelteKit's `./$types` while
-    /// the config that maps it is not generated) or, in a script, at a JSON or foreign file. A root-relative one
+    /// the config that maps it is not generated) or, in a script, at a JSON or foreign file, or at an output a Bazel
+    /// `BUILD` file declares ([`Self::declared_bazel_output`]). A root-relative one
     /// (`/vite.svg`, served from a bundler's public directory) is unknown when it names a JSON or foreign file in a
     /// script. A `#` specifier is unknown when its package declares no `imports` and no `paths` pattern maps it: a
     /// tool, not Node.js, resolves it. (A configured alias that maps it never gets here.) Anything else is unresolved.
@@ -1011,7 +1057,9 @@ impl ModuleResolver {
             Some(_) if kind == Kind::Style => Resolved::Ignored,
             Some(file) => self.generated_scope(importer, &candidate, &file),
             None if kind == Kind::Script
-                && (self.generated_in_root_dir(dir, specifier) || self.ungenerated_route_types(dir, specifier)) =>
+                && (self.generated_in_root_dir(dir, specifier)
+                    || self.ungenerated_route_types(dir, specifier)
+                    || self.declared_bazel_output(&candidate)) =>
             {
                 Resolved::Ignored
             }
@@ -1022,12 +1070,17 @@ impl ModuleResolver {
     /// Whether `specifier`, written in `directory`, names an ignored path below another of the `rootDirs` of the
     /// nearest `tsconfig.json` that does not exist yet: the types a tool generates into a virtual directory
     /// (`./+types/root` of a React Router route, from `.react-router/types`) before the code is type-checked. Once
-    /// the directory is generated, what it lacks is unresolved like any other missing file.
+    /// the directory is generated, what it lacks is unresolved like any other missing file. A Bazel output tree
+    /// (`bazel-bin`) never decides, whether or not it was built: the `BUILD` files do
+    /// ([`Self::declared_bazel_output`]).
     fn generated_in_root_dir(&self, directory: &Path, specifier: &str) -> bool {
         self.nearest_paths
             .get_or_compute(directory, || self.tsconfigs.nearest(directory).map(Arc::new))
             .is_some_and(|config| {
                 config.root_dir_candidates(directory, specifier).iter().any(|path| {
+                    if self.in_bazel_output(path) {
+                        return false;
+                    }
                     let absent_root = config
                         .root_dirs()
                         .iter()

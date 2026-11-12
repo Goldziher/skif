@@ -11,6 +11,7 @@
 
 #![warn(missing_docs)]
 
+pub mod bazel;
 mod config_load;
 mod files;
 pub mod glob;
