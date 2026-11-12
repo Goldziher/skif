@@ -9,6 +9,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `unlisted-binaries` no longer reports `bazel`, `bazelisk` and `ibazel`: they are build tools of the machine, as
+  `docker` and `make` are, unless `ignore-global-binaries` is off. A listed `@bazel/bazelisk` or `@bazel/ibazel` is
+  still used by the scripts that run them ([#172](https://github.com/Goldziher/skif/issues/172)).
+
 ## [0.3.0] - 2026-11-11
 
 ### Added

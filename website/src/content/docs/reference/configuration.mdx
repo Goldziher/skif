@@ -752,8 +752,9 @@ the file. knip judges these commands at the script's own package.
 
 **`ignore-global-binaries`** (default `true`, top level only) keeps `unlisted-binaries` quiet about the system and
 platform tools scripts run (`rm`, `curl`, `git`, `docker`), which are installed globally, like knip's
-`ignoreGlobalBinaries`. Set it to `false` to report each one that no dependency provides, unless `ignore-binaries`
-lists it. Shell builtins (`cd`, `echo`, `export`), shells, pass-through commands (`env`, `sudo`, `xargs`), the package
+`ignoreGlobalBinaries`. The Bazel launchers `bazel`, `bazelisk` and `ibazel` count as such tools too, while a listed
+`@bazel/bazelisk` or `@bazel/ibazel` is still used by the scripts that run them. Set it to `false` to report each one
+that no dependency provides, unless `ignore-binaries` lists it. Shell builtins (`cd`, `echo`, `export`), shells, pass-through commands (`env`, `sudo`, `xargs`), the package
 managers and `node` are never reported.
 
 `discovery` chooses how source files are found. `auto` (the default) and `walk` walk the directories, which finds

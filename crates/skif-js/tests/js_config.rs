@@ -794,3 +794,43 @@ fn ignore_global_binaries_false_reports_system_binaries() {
     );
     insta::assert_snapshot!(reported.join("\n"));
 }
+
+/// `bazel`, `bazelisk` and `ibazel` are build tools of the machine, as `docker` is: unlisted only with
+/// `ignore-global-binaries` off.
+#[test]
+fn bazel_launchers_are_machine_binaries() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"app","scripts":{"build":"bazel build //...","watch":"ibazel test //...","lint":"bazelisk run //:lint"}}"#,
+        ),
+        ("index.ts", "export {};\n"),
+    ];
+    assert_eq!(found(&lint(&files, ""), "unlisted-binaries"), none());
+    assert_eq!(
+        found(
+            &lint(&files, "[js]\nignore-global-binaries = false\n"),
+            "unlisted-binaries"
+        ),
+        [
+            "package.json: script `build` runs `bazel`, which no dependency provides",
+            "package.json: script `lint` runs `bazelisk`, which no dependency provides",
+            "package.json: script `watch` runs `ibazel`, which no dependency provides",
+        ]
+    );
+}
+
+/// A listed `@bazel/bazelisk` or `@bazel/ibazel` still provides the launcher a script runs, so it is used.
+#[test]
+fn listed_bazel_launchers_are_used_by_the_scripts_that_run_them() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"app","scripts":{"lint":"bazelisk run //:lint","watch":"ibazel test //..."},"devDependencies":{"@bazel/bazelisk":"1.0.0","@bazel/ibazel":"0.16.0"}}"#,
+        ),
+        ("index.ts", "export {};\n"),
+    ];
+    let diagnostics = lint(&files, "");
+    assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none());
+    assert_eq!(found(&diagnostics, "unlisted-binaries"), none());
+}
