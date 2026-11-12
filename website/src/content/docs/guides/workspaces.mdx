@@ -52,10 +52,13 @@ Discovery does not read the lockfile. Three checks do, on the first run that nee
 `[[version-groups]]` entry with `scope = "lockfile"`, `unsynced-dependency-family` for a `[[dependency-families]]`
 entry with `scope = "importer"` or `"lockfile"`, and `stale-patched-dependencies` when the root `pnpm-workspace.yaml` or
 `package.json` (`pnpm.patchedDependencies`) declares patches. They read `pnpm-lock.yaml` of the root in lockfile format
-9 (pnpm 9 and 10). In a Bun workspace `stale-patched-dependencies` reads the top-level `patchedDependencies` of the root
-`package.json`, the only ones Bun applies, and checks them against `bun.lock`; the two other checks do not read
-`bun.lock`. `yarn.lock`, `package-lock.json`, the binary `bun.lockb` and older pnpm formats are not read; such a check
-then reports that nothing was checked, as it does when there is no lockfile or it does not parse.
+9 (pnpm 9 and 10), and `bun.lock` in a Bun workspace. There `stale-patched-dependencies` reads the top-level
+`patchedDependencies` of the root `package.json`, the only ones Bun applies, and checks them against `bun.lock`; the
+two other checks walk the graph `bun.lock` records, following each dependency to the copy Bun installs for it (nested
+below the package or the workspace package that gets its own copy, else the one at the top), so an importer reaches
+what `bun install` puts in its `node_modules`. `yarn.lock`, `package-lock.json`, the binary `bun.lockb` and older pnpm
+formats are not read; such a check then reports that nothing was checked, as it does when there is no lockfile or it
+does not parse.
 
 `stale-patched-dependencies` reports a patch whose `name@version` the lockfile no longer resolves (the patch stopped
 applying after a bump) or resolves without a patch hash (in `bun.lock`: without the entry Bun records in its own
@@ -73,7 +76,9 @@ it). `lerna.json` is read only when nothing before it declares members; an inval
 Patterns follow pnpm semantics for every package manager: `dir/*` for direct children that contain a `package.json`,
 `dir/**` for nested packages, and `!pattern` to remove matches. One exception follows Bun: in a Bun workspace a
 negation does not remove a directory that a pattern names by its literal path (`packages/tool`), as `bun install`
-keeps it. Bun's object form (`"workspaces": { "packages": [...], "catalog": {...}, "catalogs": {...} }`)
+keeps it. Bun also installs members outside the root: in a Bun workspace a pattern may start with `..` segments
+(`../shared`, `../libs/*`). skif counts what such a pattern selects, so it is neither invalid nor unmatched, but does not
+lint those members; lint their directory as a root of its own. Bun's object form (`"workspaces": { "packages": [...], "catalog": {...}, "catalogs": {...} }`)
 and catalogs at the top level of the root `package.json` are both read. Wildcards never enter
 `node_modules` or dot-directories, but a pattern that names a dot-directory (`.vscode/extensions/*`) does. The JS
 analysis, which skips hidden directories other than tool configuration ones, then walks such a directory for the
@@ -82,11 +87,15 @@ members below it, and only for those.
 `missing-package-manifest` reports a directory the patterns select that has content but no `package.json`. It leaves
 out an Nx project, a directory with a `project.json`, and a grouping directory whose content is only directories the
 patterns select too: with `["libs/*", "libs/*/*"]`, `libs/cart` holding the members `libs/cart/feature` and
-`libs/cart/ui` is not reported, while a `libs/cart/README.md` next to them makes it a finding.
+`libs/cart/ui` is not reported, while a `libs/cart/README.md` next to them makes it a finding. In a Bun workspace it
+also reports a member whose `package.json` has no `name` (or an empty one), with the detail `NamelessBunMember`: Bun
+skips such a member without a warning, so none of its dependencies are installed. skif excludes the member from
+analysis, as `[workspace] ignore-packages` would, and the unsafe fix names it after its directory.
 
 What discovery cannot read does not stop the run, but it is not silent either: `invalid-workspace-file` (`error`)
 reports a member `package.json` that is not valid JSON or cannot be read, at the syntax error, a pattern that cannot
-be used (one that climbs out of the root with `..`, or has too many brace alternatives), where it is written, and a
+be used (one that climbs out of the root with `..`, outside a Bun workspace, or has too many brace alternatives), where
+it is written, and a
 `.yarnrc.yml` that is not valid YAML. The package, the pattern's matches or the Yarn catalogs are left out of the
 run, so the run fails until the file is fixed, as sherif does.
 

@@ -11,6 +11,20 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Bun**: a workspace pattern with leading `..` segments (`../shared`, `../libs/*`) selects members outside the root,
+  as `bun install` does: it is no longer an `invalid-workspace-file` error, and counts as matched; the members it
+  selects are listed in `DiscoveryFacts::outside_root_members` and are not linted
+  ([#158](https://github.com/Goldziher/skif/issues/158)).
+- **Bun**: `missing-package-manifest` reports a member whose `package.json` has no `name`, which Bun skips without a
+  warning (detail `NamelessBunMember`, an unsafe fix that names it after its directory); discovery excludes such a
+  member from analysis (`DiscoveryFacts::nameless_members`) ([#158](https://github.com/Goldziher/skif/issues/158)).
+- **Bun**: `banned-dependency` and `unsynced-dependency-family` read `bun.lock` for their lockfile scopes in a Bun
+  workspace, following each dependency to the copy Bun installs for it; a `bun.lockb` alone is reported as not read
+  ([#158](https://github.com/Goldziher/skif/issues/158)).
+- **Bun plugin**: `[test] root` and `pathIgnorePatterns` of `bunfig.toml` replace the default test entries with the
+  files `bun test` runs, `[lint] plugins` names packages and files that are used, and a `Bun.build` entry point
+  computed from `import.meta.dir` is resolved from the calling file, not the package
+  ([#158](https://github.com/Goldziher/skif/issues/158)).
 - `[js] use-public-hoisting` (default `false`): a package that pnpm's `public-hoist-pattern` or `shamefully-hoist`
   (`pnpm-workspace.yaml`, else the root `.npmrc` before pnpm 11) or rules_js's `public_hoist_packages` hoists into a
   `node_modules` above a package is available to it, so importing it unlisted is no `unlisted-dependencies` finding.
@@ -21,6 +35,9 @@ All notable changes to this project are documented here. The format follows
   `bazel::public_hoist_packages`.
 
 ### Fixed
+
+- **Bun**: the members claimed for a workspace whose root cannot be discovered keep a directory a positive pattern
+  names by its literal path despite a negation, as discovery does ([#158](https://github.com/Goldziher/skif/issues/158)).
 
 - **Config evaluation**: an optional member (`base?.setupFiles`, `undefined` when `base` is `null` or `undefined`) and
   a computed member whose key evaluates to a string (`base['setupFiles']`, `base[KEY]`) read a known object as

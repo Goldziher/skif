@@ -135,6 +135,46 @@ fn the_cwd_option_is_read_as_a_directory_only_for_command_calls() {
     );
 }
 
+/// `Bun.build` resolves a literal entry point from the working directory, and one the file's own location computes
+/// from the file: a command call marks the latter with [`FILE_DIR`].
+#[test]
+fn entry_points_the_file_location_computes_are_marked_for_command_calls() {
+    let source = r#"
+        import path from "node:path";
+        const ROOT = path.join(import.meta.dir, "..");
+        await Bun.build({
+            entrypoints: [
+                "./src/cli.ts",
+                path.join(import.meta.dir, "worker.ts"),
+                path.resolve(ROOT, "src/server.ts"),
+            ],
+        });
+    "#;
+    let entries = |found: &[ImportedCall]| -> Vec<String> {
+        found[0].arguments[0]
+            .get("entrypoints")
+            .map(|value| match value {
+                ConfigValue::Array(items) => items
+                    .iter()
+                    .map(|item| item.as_str().unwrap_or("<unknown>").to_owned())
+                    .collect(),
+                _ => Vec::new(),
+            })
+            .unwrap_or_default()
+    };
+    let commands = extract_command_calls(source, Path::new("scripts/build.ts"), &["bun"], &[("Bun.*", "bun")]);
+    let marked = entries(&commands);
+    assert_eq!(marked.len(), 3);
+    assert_eq!(marked[0], "./src/cli.ts");
+    for (entry, expected) in marked[1..].iter().zip(["worker.ts", "../src/server.ts"]) {
+        let rest = entry.strip_prefix(&format!("{FILE_DIR}/")).unwrap_or_else(|| panic!("{entry} is not marked"));
+        assert_eq!(rest.trim_start_matches("./"), expected);
+    }
+    // A call that runs no command keeps the entries as the source evaluates them.
+    let plain = calls(source, &["bun"], &[("Bun.*", "bun")]);
+    assert!(entries(&plain).iter().all(|entry| !entry.starts_with(FILE_DIR)), "{:?}", entries(&plain));
+}
+
 /// Bun Shell's `` $`…`.cwd(dir) `` runs the template in `dir`: a command template carries it as its `cwd` option,
 /// marked as the `cwd` option of a command call is, wherever the chain sets it.
 #[test]

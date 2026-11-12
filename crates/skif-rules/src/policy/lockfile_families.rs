@@ -1,6 +1,6 @@
 //! `unsynced-dependency-family` over the lockfile: a family with `scope = "importer"` or `scope = "lockfile"` must
-//! resolve to one version in what each importer reaches or across `pnpm-lock.yaml`; with an `anchor`, each member may
-//! resolve once per major of the anchor.
+//! resolve to one version in what each importer reaches or across `pnpm-lock.yaml` (or `bun.lock` in a Bun
+//! workspace); with an `anchor`, each member may resolve once per major of the anchor.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -8,11 +8,11 @@ use skif_config::FamilyScope;
 use skif_core::{Diagnostic, Location, diagnostic};
 use skif_lint::{Emitter, LintContext};
 use skif_specifier::Specifier;
-use skif_workspace::{Package, PnpmLockfile, map_ordered};
+use skif_workspace::{Package, map_ordered};
 
 use super::families::{Family, META};
 use super::specifiers::{floor_version, major};
-use crate::lockfile::{self, ImporterPackages, snapshot_location};
+use crate::lockfile::{self, ImporterPackages, Lock};
 
 /// Reports the members of the lockfile-scoped `families` that resolve to more versions than the family allows.
 pub(super) fn emit(cx: &LintContext<'_>, families: &[Family], out: &mut Emitter<'_>) {
@@ -42,7 +42,7 @@ pub(super) fn emit(cx: &LintContext<'_>, families: &[Family], out: &mut Emitter<
     let importers: Vec<&str> = if by_importer.is_empty() {
         Vec::new()
     } else {
-        lock.importers.keys().map(String::as_str).collect()
+        lock.importers()
     };
     let mut per_importer: Vec<Vec<Vec<Diagnostic>>> = map_ordered(&importers, cx.sequential, |&importer| {
         let resolutions = lock.resolutions(importer);
@@ -61,7 +61,9 @@ pub(super) fn emit(cx: &LintContext<'_>, families: &[Family], out: &mut Emitter<
                 }
                 importer_scoped += 1;
             }
-            FamilyScope::Lockfile => out.emit_all(check(lock, family, None, lock.snapshots.keys().map(String::as_str))),
+            FamilyScope::Lockfile => {
+                out.emit_all(check(lock, family, None, lock.snapshots().keys().map(String::as_str)));
+            }
             _ => {}
         }
     }
@@ -70,7 +72,7 @@ pub(super) fn emit(cx: &LintContext<'_>, families: &[Family], out: &mut Emitter<
 /// The findings of `family` over the snapshots `keys`: the resolutions of `importer` (with its workspace package, if
 /// known) or, without one, of the whole lockfile.
 fn check<'l>(
-    lock: &'l PnpmLockfile,
+    lock: &'l Lock,
     family: &Family,
     importer: Option<(&str, Option<&Package>)>,
     keys: impl Iterator<Item = &'l str>,
@@ -79,7 +81,7 @@ fn check<'l>(
     let mut releases: BTreeMap<(&str, &str), &str> = BTreeMap::new();
     let mut anchor_majors = BTreeSet::new();
     for key in keys {
-        let snapshot = &lock.snapshots[key];
+        let snapshot = &lock.snapshots()[key];
         if family.anchor.as_deref() == Some(snapshot.name.as_str())
             && let Some(anchor_major) = major(&Specifier::new(&snapshot.version))
         {
@@ -112,7 +114,7 @@ fn check<'l>(
     let scope = importer.map_or_else(String::new, |(importer, _)| format!(" in importer `{importer}`"));
     let package = importer.and_then(|(_, package)| package);
     let report = |found: &mut Vec<Diagnostic>, name: &str, version: &str, key: &str, message: String| {
-        let mut builder = diagnostic(&META, message, snapshot_location(lock, key))
+        let mut builder = diagnostic(&META, message, lock.location(key))
             .dependency(name)
             .specifier(version)
             .help(format!(
@@ -321,6 +323,73 @@ snapshots:
         let declared = unsynced(Some(PLAYWRIGHT), &family("manifests"));
         assert_eq!(declared.len(), 1, "{declared:#?}");
         assert_eq!(declared[0].0.location.path, Path::new("packages/app/package.json"));
+    }
+
+    /// The `PLAYWRIGHT` graph as `bun.lock` records it: `docs` gets its own `playwright-core`, nested below its name.
+    const BUN_PLAYWRIGHT: &str = r#"{
+  "lockfileVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "root",
+    },
+    "packages/app": {
+      "name": "app",
+      "devDependencies": {
+        "@playwright/test": "1.45.0",
+        "playwright-core": "1.44.0",
+      },
+    },
+    "packages/docs": {
+      "name": "docs",
+      "devDependencies": {
+        "playwright-core": "1.45.0",
+      },
+    },
+  },
+  "packages": {
+    "@playwright/test": ["@playwright/test@1.45.0", "", { "dependencies": { "playwright": "1.45.0" } }, "sha512-a"],
+
+    "playwright": ["playwright@1.45.0", "", { "dependencies": { "playwright-core": "1.44.0" } }, "sha512-b"],
+
+    "playwright-core": ["playwright-core@1.44.0", "", {}, "sha512-c"],
+
+    "docs/playwright-core": ["playwright-core@1.45.0", "", {}, "sha512-d"],
+  }
+}
+"#;
+
+    #[test]
+    fn a_bun_workspace_is_judged_on_bun_lock() {
+        let bun_root = r#"{"name":"root","private":true,"packageManager":"bun@1.4.4","workspaces":["packages/*"]}"#;
+        let files = [
+            ("package.json", bun_root),
+            ("packages/app/package.json", APP),
+            ("packages/docs/package.json", DOCS),
+            ("bun.lock", BUN_PLAYWRIGHT),
+        ];
+        let importer = lint(META.id, &files, &config(&family("importer")));
+        let found: Vec<(&str, &str, Option<&str>)> = importer
+            .iter()
+            .map(|d| (d.message.as_str(), located(&files, d), d.package.as_deref()))
+            .collect();
+        assert_eq!(
+            found,
+            [(
+                "`playwright-core@1.44.0` resolves next to `@playwright/test@1.45.0` of the `playwright` family in \
+                 importer `packages/app`",
+                r#""playwright-core""#,
+                Some("app")
+            )]
+        );
+        assert_eq!(importer[0].location.path, Path::new("bun.lock"));
+        let whole: Vec<String> = lint(META.id, &files, &config(&family("lockfile")))
+            .into_iter()
+            .map(|d| d.message)
+            .collect();
+        assert_eq!(
+            whole,
+            ["`playwright-core@1.44.0` resolves next to `@playwright/test@1.45.0` of the `playwright` family"]
+        );
     }
 
     #[test]

@@ -402,6 +402,8 @@ struct Collector<'a, 'b> {
     confine_to_package: bool,
     /// The modules, with their source, that the config being absorbed imports values from.
     imported: Vec<(PathBuf, String)>,
+    /// Whether `[js.plugins]` configures the plugin's entries, which then replace its default entry globs.
+    entries_configured: bool,
 }
 
 /// A [`ModuleLoader`] that records the modules it loads, so a package a config names can be traced to the module
@@ -569,7 +571,22 @@ impl Collector<'_, '_> {
                     let scope = config.map_or(IncompleteScope::Package, |config| scope_of(reader, cause, config));
                     self.mark_incomplete(reader, from, cause, scope);
                 }
+                PluginInput::ReplaceDefaultEntries(entries) => self.replace_default_entries(reader, entries),
             }
+        }
+    }
+
+    /// Replaces the default entry globs of `reader` with `entries`, unless `[js.plugins]` configures its entries.
+    fn replace_default_entries(&mut self, reader: PluginId, entries: Vec<String>) {
+        if self.entries_configured {
+            return;
+        }
+        if let Some(plugin) = registry::plugin(reader) {
+            let defaults = plugin.spec().entry;
+            self.out.entries.retain(|entry| !defaults.contains(&entry.as_str()));
+        }
+        for entry in entries {
+            push_unique(&mut self.out.entries, entry);
         }
     }
 
@@ -724,6 +741,7 @@ fn run_plugin(
         // reference may.
         confine_to_package: matches!(spec.id, "typescript" | "tsrs" | "nx"),
         imported: Vec::new(),
+        entries_configured: !options.entry.is_empty(),
     };
     for production in spec.production {
         push_unique(&mut collector.out.entries, (*production).to_string());
@@ -1120,6 +1138,7 @@ mod tests {
             queue: VecDeque::new(),
             confine_to_package: false,
             imported: Vec::new(),
+            entries_configured: false,
         };
         collector.absorb(
             "vite",

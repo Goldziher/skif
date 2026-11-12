@@ -1,6 +1,10 @@
-use serde_json::json;
-use skif_core::{Category, Fix, FixOp, FixSafety, Fixability, Location, RuleMeta, Severity, diagnostic, slash};
+use serde_json::{Value, json};
+use skif_core::{
+    Category, Fix, FixOp, FixSafety, Fixability, InsertPosition, JsonAction, Location, PathSeg, RuleMeta, Severity,
+    diagnostic, slash,
+};
 use skif_lint::{Emitter, LintContext, Rule};
+use skif_workspace::Package;
 
 /// Metadata of `missing-package-manifest`.
 pub static META: RuleMeta = RuleMeta::new(
@@ -8,16 +12,63 @@ pub static META: RuleMeta = RuleMeta::new(
     Category::Workspace,
     Some(Severity::Warning),
     Fixability::Unsafe,
-    "A directory matched by the workspace patterns has no `package.json`.",
+    "A directory matched by the workspace patterns has no `package.json`, or in a Bun workspace one without a `name`, which Bun does not install.",
 );
+
+/// The detail of a Bun member without a `name`.
+const NAMELESS_DETAIL: &str = "NamelessBunMember";
 
 /// Reports non-empty directories matched by the workspace patterns that lack a `package.json`.
 ///
 /// Empty directories (left behind by switching branches), hidden directories and `node_modules` are not reported, nor
 /// are an Nx project (a directory with a `project.json`) and a grouping directory whose content is only directories
 /// the patterns select too (`libs/cart` when `libs/*/*` selects `libs/cart/feature`).
+///
+/// In a Bun workspace, a member whose `package.json` has no `name` (or an empty one) is reported too, at the manifest
+/// with the detail `NamelessBunMember`: Bun skips such a member without a word, so none of its dependencies are
+/// installed. Discovery excludes it from analysis ([`DiscoveryFacts::nameless_members`]); the unsafe fix names it
+/// after its directory.
+///
+/// [`DiscoveryFacts::nameless_members`]: skif_workspace::DiscoveryFacts::nameless_members
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MissingPackageManifest;
+
+/// The finding for `package`, a Bun member without a `name`.
+fn nameless(package: &Package, out: &mut Emitter<'_>) {
+    let manifest = &package.manifest;
+    let name_key = [PathSeg::Key("name".to_owned())];
+    let has_key = manifest.value().get("name").is_some();
+    let mut builder = diagnostic(
+        &META,
+        format!(
+            "`{}` has no `name`, so Bun does not install it as a workspace package",
+            slash(&manifest.path)
+        ),
+        Location::new(
+            manifest.path.clone(),
+            has_key.then(|| manifest.field_span(&name_key)).flatten(),
+        ),
+    )
+    .detail(NAMELESS_DETAIL)
+    .help("give the package a `name`, or narrow the workspace patterns so the directory is not matched");
+    if let Some(name) = package.dir.file_name().and_then(|name| name.to_str()) {
+        let op = if has_key {
+            FixOp::json(manifest.path.clone(), name_key.to_vec(), JsonAction::Set(Value::from(name)))
+        } else {
+            FixOp::json(
+                manifest.path.clone(),
+                Vec::new(),
+                JsonAction::insert("name".to_owned(), Value::from(name), InsertPosition::Start),
+            )
+        };
+        builder = builder.fix(Fix::new(
+            format!("Name the package `{name}`"),
+            FixSafety::Unsafe,
+            vec![op],
+        ));
+    }
+    out.emit(builder.build());
+}
 
 impl Rule for MissingPackageManifest {
     fn meta(&self) -> &'static RuleMeta {
@@ -48,6 +99,12 @@ impl Rule for MissingPackageManifest {
                 }
             }
             out.emit(builder.build());
+        }
+        let workspace = cx.workspace;
+        for dir in &workspace.facts.nameless_members {
+            if let Some(package) = workspace.packages().iter().find(|package| package.dir == *dir) {
+                nameless(package, out);
+            }
         }
     }
 }
@@ -178,6 +235,60 @@ mod tests {
                 .collect();
             assert_eq!(found, expected, "{name}");
         }
+    }
+
+    #[test]
+    fn a_bun_member_without_a_name_is_reported_and_named_by_the_fix() {
+        let bun_root = r#"{"name":"root","private":true,"packageManager":"bun@1.4.4","workspaces":["packages/*"]}"#;
+        let npm_root = r#"{"name":"root","private":true,"packageManager":"npm@11.0.0","workspaces":["packages/*"]}"#;
+        let members = [
+            ("packages/a/package.json", MEMBER),
+            ("packages/blank/package.json", "{\n  \"name\": \"\",\n  \"version\": \"1.0.0\"\n}\n"),
+            ("packages/none/package.json", "{\n  \"version\": \"1.0.0\"\n}\n"),
+        ];
+        let mut files = vec![("package.json", bun_root)];
+        files.extend(members);
+        let diagnostics = lint(META.id, &files, &config(""));
+        let found: Vec<(&str, Option<&str>, &str)> = diagnostics
+            .iter()
+            .map(|d| {
+                (
+                    d.location.path.to_str().unwrap(),
+                    d.location.span.map(|span| testing::slice(&files, d.location.path.to_str().unwrap(), span)),
+                    d.message.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (
+                    "packages/blank/package.json",
+                    Some(r#""name": """#),
+                    "`packages/blank/package.json` has no `name`, so Bun does not install it as a workspace package"
+                ),
+                (
+                    "packages/none/package.json",
+                    None,
+                    "`packages/none/package.json` has no `name`, so Bun does not install it as a workspace package"
+                ),
+            ]
+        );
+        assert!(diagnostics.iter().all(|d| d.detail.as_deref() == Some(NAMELESS_DETAIL)));
+        assert_fixes_clear(META.id, &files, &config(""));
+        let fixed = testing::apply_fixes(&files, &diagnostics);
+        let names: Vec<serde_json::Value> = ["packages/blank/package.json", "packages/none/package.json"]
+            .iter()
+            .map(|wanted| {
+                let (_, text) = fixed.iter().find(|(path, _)| path == wanted).unwrap();
+                serde_json::from_str::<serde_json::Value>(text).unwrap()["name"].clone()
+            })
+            .collect();
+        assert_eq!(names, [serde_json::json!("blank"), serde_json::json!("none")]);
+        // npm installs a member without a name.
+        let mut npm = vec![("package.json", npm_root)];
+        npm.extend(members);
+        assert_eq!(lint(META.id, &npm, &config("")), [] as [skif_core::Diagnostic; 0]);
     }
 
     #[test]
