@@ -386,6 +386,14 @@ pub trait ModuleLoader {
     fn is_installed(&self, _from: &Path, _specifier: &str) -> bool {
         false
     }
+
+    /// Whether `specifier`, a relative import from the file `from` that [`Self::load`] does not load, names a file of
+    /// the project that holds no code: a declaration file (`./types` beside `types.d.ts`), JSON, a stylesheet or an
+    /// asset. A re-export of one changes nothing; one of any other module the loader does not load may run code of the
+    /// project. `false` unless the loader says otherwise.
+    fn holds_no_code(&self, _from: &Path, _specifier: &str) -> bool {
+        false
+    }
 }
 
 /// Statically evaluates what `source` exports: `export default …`, `module.exports = …` or `export = …`.
@@ -773,8 +781,8 @@ impl Modules<'_> {
 
     /// Whether a function the module at `path` re-exports (`export { tweak } from './tweak'`, `export * from './tools'`)
     /// may change a value of a module when it is called: one of a followed module that may ([`Self::changes_modules`]),
-    /// or of a module that is neither followed nor an installed package ([`ModuleLoader::is_installed`]), whose code is
-    /// not known.
+    /// or of a module that is neither followed, nor an installed package ([`ModuleLoader::is_installed`]), nor a file
+    /// that holds no code ([`ModuleLoader::holds_no_code`]), whose code is not known.
     fn reexports_change_modules(&self, path: &Path, program: &Program<'_>) -> bool {
         program
             .body
@@ -789,7 +797,7 @@ impl Modules<'_> {
                 if self.follows(path, &specifier) {
                     self.changes_modules(path, &specifier)
                 } else {
-                    !self.is_installed(path, &specifier)
+                    !self.is_installed(path, &specifier) && !self.loader.holds_no_code(path, &specifier)
                 }
             })
     }

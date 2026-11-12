@@ -73,7 +73,7 @@ impl<'a> ConfigModules<'a> {
 
 impl ModuleLoader for ConfigModules<'_> {
     fn load(&self, from: &Path, specifier: &str) -> Option<(PathBuf, String)> {
-        let path = if specifier.starts_with("./") || specifier.starts_with("../") {
+        let path = if is_relative(specifier) {
             relative_module(self.fs, &join_normalized(from.parent()?, specifier))?
         } else {
             self.package_module(specifier)?
@@ -114,6 +114,53 @@ impl ModuleLoader for ConfigModules<'_> {
         }
         !installs
     }
+
+    /// A relative import of a file that is there and is not code, or of a declaration file standing for a module that
+    /// is not there ([`declaration_module`]).
+    fn holds_no_code(&self, from: &Path, specifier: &str) -> bool {
+        let Some(dir) = from.parent().filter(|_| is_relative(specifier)) else {
+            return false;
+        };
+        let base = join_normalized(dir, specifier);
+        relative_module(self.fs, &base)
+            .or_else(|| declaration_module(self.fs, &base))
+            .is_some_and(|path| !is_code_file(&path) || is_declaration_file(&path))
+    }
+}
+
+/// Whether `specifier` is a relative import.
+fn is_relative(specifier: &str) -> bool {
+    specifier.starts_with("./") || specifier.starts_with("../")
+}
+
+/// The suffixes of a declaration file.
+const DECLARATION_SUFFIXES: &[&str] = &["d.ts", "d.mts", "d.cts"];
+
+/// Whether `path` is a declaration file (`types.d.ts`), which holds types only.
+fn is_declaration_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| DECLARATION_SUFFIXES.iter().any(|suffix| name.ends_with(&format!(".{suffix}"))))
+}
+
+/// The declaration file a relative import of `base` names when no module is there: `base.d.ts` (`./types`), the
+/// declaration file of a script extension written (`./types.js` for `types.d.ts`), or the directory's `index.d.ts`.
+fn declaration_module(fs: &dyn FileSystem, base: &Path) -> Option<PathBuf> {
+    let name = base.file_name()?.to_string_lossy().into_owned();
+    let script = base
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| SCRIPT_EXTENSIONS.contains(&extension));
+    let stem = base.file_stem()?.to_string_lossy().into_owned();
+    let mut candidates = Vec::new();
+    for suffix in DECLARATION_SUFFIXES {
+        if script {
+            candidates.push(base.with_file_name(format!("{stem}.{suffix}")));
+        }
+        candidates.push(base.with_file_name(format!("{name}.{suffix}")));
+        candidates.push(base.join(format!("index.{suffix}")));
+    }
+    candidates.into_iter().find(|candidate| fs.is_file(candidate))
 }
 
 /// The file a relative import of `base` loads: the file itself, its TypeScript source, the file with an extension
@@ -200,6 +247,34 @@ mod tests {
             ("./local", false),
         ] {
             assert_eq!(modules.is_installed(from, specifier), installed, "{specifier}");
+        }
+    }
+
+    /// A relative import of a declaration file, JSON, a stylesheet or an asset holds no code; one of a code file, of
+    /// nothing, or a bare specifier is not known to.
+    #[test]
+    fn a_relative_import_of_a_file_that_is_not_code_holds_no_code() {
+        let fs = project()
+            .with_file("/ws/packages/app/types.d.ts", "export interface A {}")
+            .with_file("/ws/packages/app/decl/index.d.ts", "export interface B {}")
+            .with_file("/ws/packages/app/x.css", ".a {}")
+            .with_file("/ws/packages/app/logo.svg", "<svg></svg>")
+            .with_file("/ws/packages/app/code.ts", "export const a = 1;");
+        let workspace = workspace(&fs);
+        let modules = ConfigModules::new(&fs, &workspace);
+        let from = Path::new(CONFIG);
+        for (specifier, holds_none) in [
+            ("./types", true),
+            ("./types.js", true),
+            ("./decl", true),
+            ("./package.json", true),
+            ("./x.css", true),
+            ("./logo.svg", true),
+            ("./code", false),
+            ("./missing", false),
+            ("vite", false),
+        ] {
+            assert_eq!(modules.holds_no_code(from, specifier), holds_none, "{specifier}");
         }
     }
 
