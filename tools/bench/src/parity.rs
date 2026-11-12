@@ -211,7 +211,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 18] = [
     },
     Deviation {
         id: PUBLISHED_SOURCE,
-        reason: "knip reports these files as unused, and each is either a TypeScript file whose package publishes its path with a built extension (`.js`, `.mjs`, `.cjs`, `.jsx` or a `.d.ts` variant) or without one in `main`, `module`, `source`, `types`, `typings`, `browser`, `bin`, an `exports` leaf or, in an n8n node package, `n8n.nodes` and `n8n.credentials`, where `*` matches any part of the path and a path below a build directory (`dist`, `lib`, `out`, `esm` and the like, also `lib-commonjs`) is also the path below `src` (for the n8n fields, the path without the build directory), or a file such a source imports by relative path, directly or through other files only knip reports unused. skif makes the source of a published path an entry and uses what it imports; knip maps a published path to source only through a tsconfig `outDir` and does not read the n8n fields. The harness checks the published path and the relative imports, not why skif has no finding for each file; exports, types and members of these files stay compared",
+        reason: "knip reports these files as unused, and each is either a TypeScript file whose package publishes its path with a built extension (`.js`, `.mjs`, `.cjs`, `.jsx` or a `.d.ts` variant) or without one in `main`, `module`, `source`, `types`, `typings`, `browser`, `bin`, an `exports` leaf or, in an n8n node package, `n8n.nodes` and `n8n.credentials`, where `*` matches any part of the path and a path below a build directory (`dist`, `lib`, `out`, `esm` and the like, also `lib-commonjs`) is also the path below `src` (for the n8n fields, the path without the build directory), or a file such a source imports by relative path, directly or through other files only knip reports unused. A published path without `*` is first mapped through the build directories of the package, as skif's TypeScript plugin reads them: below the `outDir` of a `tsconfig.json`, `tsconfig.*.json` or `jsconfig.json` of the package directory is the same path below its `rootDir` (without one, the directory its `include` and `files` share). The exports and types (also as namespace exports and types) only knip reports in a published source are `published-source` too: skif makes the source an entry, whose exports are public. skif makes the source of a published path an entry and uses what it imports; knip maps a published path to source only through a tsconfig `outDir` it resolves itself and does not read the n8n fields. The harness checks the published path and the relative imports, not why skif has no finding for each file; enum and namespace members and duplicates of these files, and the exports of the files they reach, stay compared",
     },
     Deviation {
         id: IN_KNIP_UNUSED_FILE,
@@ -730,11 +730,7 @@ const TYPESCRIPT_EXTENSIONS: &[&str] = &["ts", "tsx", "mts", "cts"];
 
 /// The stem and extension of a TypeScript source file (`.ts`, `.tsx`, `.mts`, `.cts`, not a declaration file).
 fn typescript_source(path: &str) -> Option<(&str, &str)> {
-    let name = path.rsplit('/').next().unwrap_or(path);
-    if [".d.ts", ".d.mts", ".d.cts"]
-        .iter()
-        .any(|suffix| name.ends_with(suffix))
-    {
+    if is_declaration(path) {
         return None;
     }
     let (stem, extension) = path.rsplit_once('.')?;
@@ -1050,22 +1046,38 @@ type ManifestReader<'a> = dyn Fn(&str) -> Option<Rc<Value>> + 'a;
 /// Whether a file exists, by its path relative to the checkout with `/` separators.
 type FileProbe<'a> = dyn Fn(&str) -> bool + 'a;
 
-/// What the classification reads of a checkout besides the two reports: knip's workspaces, the manifests and which
-/// files exist.
+/// The build directories of a package directory of the checkout (`""` is the root), `(out_dir, root_dir)` relative to
+/// it, in the order skif reads them ([`build_dir_reader`]).
+type BuildDirReader<'a> = dyn Fn(&str) -> Vec<(String, String)> + 'a;
+
+/// A [`BuildDirReader`] for a checkout whose packages declare no build directory.
+fn no_build_dirs(_: &str) -> Vec<(String, String)> {
+    Vec::new()
+}
+
+/// What the classification reads of a checkout besides the two reports: knip's workspaces, the manifests, the build
+/// directories and which files exist.
 struct Layout<'a> {
     /// The workspace member directories, relative with `/` separators; the root is a workspace without being listed.
     members: BTreeSet<String>,
     manifest: &'a ManifestReader<'a>,
     is_file: &'a FileProbe<'a>,
+    build_dirs: &'a BuildDirReader<'a>,
 }
 
 impl<'a> Layout<'a> {
-    const fn new(members: BTreeSet<String>, manifest: &'a ManifestReader<'a>, is_file: &'a FileProbe<'a>) -> Self {
+    fn new(members: BTreeSet<String>, manifest: &'a ManifestReader<'a>, is_file: &'a FileProbe<'a>) -> Self {
         Self {
             members,
             manifest,
             is_file,
+            build_dirs: &no_build_dirs,
         }
+    }
+
+    /// The same layout, with the build directories of each package from `build_dirs`.
+    fn with_build_dirs(self, build_dirs: &'a BuildDirReader<'a>) -> Self {
+        Self { build_dirs, ..self }
     }
 
     /// Whether `dir` holds a project manifest, as skif's file discovery decides it: an unreadable manifest or one with
@@ -1168,16 +1180,139 @@ impl<'a> Layout<'a> {
     }
 
     /// The source, relative to the package directory `dir`, that skif maps the published path `target` (without `*`)
-    /// to: the first of `skif_js::source_candidates` that exists, as `map_to_source` in `skif-js` picks it.
+    /// to, as `map_published` in `skif-js` picks it: through the package's build directories first (a path below an
+    /// `outDir` names the same path below its `rootDir`, [`build_source`]), then by the `dist` to `src` convention,
+    /// each time the first of `skif_js::source_candidates` that exists.
     fn source_of(&self, dir: &str, target: &str) -> Option<String> {
-        source_candidates(target).into_iter().find(|candidate| {
-            let path = if dir.is_empty() {
-                candidate.clone()
-            } else {
-                format!("{dir}/{candidate}")
-            };
-            (self.is_file)(&path)
-        })
+        let first = |published: &str| {
+            source_candidates(published).into_iter().find(|candidate| {
+                let path = if dir.is_empty() {
+                    candidate.clone()
+                } else {
+                    format!("{dir}/{candidate}")
+                };
+                (self.is_file)(&path)
+            })
+        };
+        let clean = join_relative("", target).unwrap_or_default();
+        (self.build_dirs)(dir)
+            .iter()
+            .filter_map(|(out_dir, root_dir)| build_source(out_dir, root_dir, &clean))
+            .find_map(|source| first(&source))
+            .or_else(|| first(target))
+    }
+}
+
+/// The source path behind `rel`, a package-relative path inside the build output directory `out_dir`, below its
+/// `root_dir` (`source_paths` in `skif-js`); `None` for a path outside `out_dir`.
+fn build_source(out_dir: &str, root_dir: &str, rel: &str) -> Option<String> {
+    if out_dir.is_empty() {
+        return None;
+    }
+    let rest = rel.strip_prefix(out_dir)?;
+    if !rest.is_empty() && !rest.starts_with('/') {
+        return None;
+    }
+    Some(match (root_dir, rest.trim_start_matches('/')) {
+        ("", rest) => rest.to_owned(),
+        (root, "") => root.to_owned(),
+        (root, rest) => format!("{root}/{rest}"),
+    })
+}
+
+/// Whether `path` names a declaration file (`.d.ts`, `.d.mts`, `.d.cts`).
+fn is_declaration(path: &str) -> bool {
+    [".d.ts", ".d.mts", ".d.cts"]
+        .iter()
+        .any(|suffix| path.ends_with(suffix))
+}
+
+/// Whether the last segment of an `include` pattern names a file: it has a stem and a code extension.
+fn has_input_extension(segment: &str) -> bool {
+    segment.rsplit_once('.').is_some_and(|(stem, extension)| {
+        !stem.is_empty() && CODE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
+    })
+}
+
+/// The `rootDir` TypeScript uses when a `tsconfig` sets none, as skif's TypeScript plugin approximates it: the longest
+/// common directory of the `include` patterns (each up to its first wildcard, a file pattern without its name) and the
+/// directories of the `files`, declaration files left out. `None` without either, or when one leaves the directory.
+fn inferred_root_dir(config: &Value) -> Option<String> {
+    let strings = |field: &str| {
+        let mut found = Vec::new();
+        if let Some(value) = config.get(field) {
+            collect_strings(value, &mut found);
+        }
+        found
+    };
+    let mut roots = Vec::new();
+    for pattern in strings("include").iter().filter(|pattern| !is_declaration(pattern)) {
+        let segments: Vec<&str> = pattern.split('/').collect();
+        let directory = match segments
+            .iter()
+            .position(|segment| segment.contains(['*', '?', '{', '[']))
+        {
+            Some(at) => &segments[..at],
+            None if segments.last().is_some_and(|last| has_input_extension(last)) => &segments[..segments.len() - 1],
+            None => &segments[..],
+        };
+        roots.push(join_relative("", &directory.join("/"))?);
+    }
+    for file in strings("files").iter().filter(|file| !is_declaration(file)) {
+        roots.push(join_relative("", parent_dir(file))?);
+    }
+    let (first, rest) = roots.split_first()?;
+    let mut common: Vec<&str> = first.split('/').filter(|segment| !segment.is_empty()).collect();
+    for root in rest {
+        let shared = common
+            .iter()
+            .zip(root.split('/').filter(|segment| !segment.is_empty()))
+            .take_while(|&(ours, theirs)| *ours == theirs)
+            .count();
+        common.truncate(shared);
+    }
+    Some(common.join("/"))
+}
+
+/// The build directory a `tsconfig` declares, `(out_dir, root_dir)` relative to its directory, as skif's TypeScript
+/// plugin reads it: `compilerOptions.outDir` with `rootDir`, or without one the root [`inferred_root_dir`] gives.
+/// `None` without `outDir`, without a root, for a path that leaves the directory, or for a file that is not JSON with
+/// comments.
+fn tsconfig_build_dir(text: &str) -> Option<(String, String)> {
+    let config: Value = serde_json::from_str(&strip_jsonc(text)).ok()?;
+    let options = config.get("compilerOptions")?;
+    let out_dir = join_relative("", options.get("outDir")?.as_str()?)?;
+    let root_dir = match options.get("rootDir").and_then(Value::as_str) {
+        Some(root_dir) => join_relative("", root_dir)?,
+        None => inferred_root_dir(&config)?,
+    };
+    (!out_dir.is_empty()).then_some((out_dir, root_dir))
+}
+
+/// Reads the build directories of the package directories of a checkout, each once: those of the `tsconfig.json`,
+/// `tsconfig.*.json` and `jsconfig.json` files directly in the directory ([`tsconfig_build_dir`]), in file name order.
+/// A configuration another one extends from elsewhere is not read.
+fn build_dir_reader(root: &Path) -> impl Fn(&str) -> Vec<(String, String)> + '_ {
+    let cache: RefCell<BTreeMap<String, Vec<(String, String)>>> = RefCell::default();
+    move |dir: &str| {
+        if let Some(known) = cache.borrow().get(dir) {
+            return known.clone();
+        }
+        let package = root.join(dir);
+        let names: BTreeSet<String> = fs::read_dir(&package)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .filter(|name| name == "jsconfig.json" || (name.starts_with("tsconfig.") && name.ends_with(".json")))
+            .collect();
+        let found: Vec<(String, String)> = names
+            .iter()
+            .filter_map(|name| fs::read_to_string(package.join(name)).ok())
+            .filter_map(|text| tsconfig_build_dir(&text))
+            .collect();
+        cache.borrow_mut().insert(dir.to_owned(), found.clone());
+        found
     }
 }
 
@@ -1252,7 +1387,7 @@ impl Classifier<'_> {
             .or_else(|| not_judged(category, key, self.not_judged, &is_package).then_some(NOT_JUDGED))
             .or_else(|| self.layout.in_skipped_directory(path).then_some(SKIPPED_DIRECTORY))
             .or_else(|| self.non_member_project(category, key).then_some(NON_MEMBER_PROJECT))
-            .or_else(|| (category == "files" && self.is_published_source(path)).then_some(PUBLISHED_SOURCE))
+            .or_else(|| self.published_source(category, path).then_some(PUBLISHED_SOURCE))
             .or_else(|| in_unused_file(category, path, self.skif_unused_files).then_some(IN_SKIF_UNUSED_FILE))
             .or_else(|| {
                 used_in_unused_file(self.knip_unused_imports, category, key).then_some(USED_IN_KNIP_UNUSED_FILE)
@@ -1263,9 +1398,14 @@ impl Classifier<'_> {
             .or_else(config_error)
     }
 
-    /// Whether a file only knip reports as unused is a published source or one that a published source reaches.
-    fn is_published_source(&self, path: &str) -> bool {
-        self.layout.publishes_source_of(path) || self.published_reach.contains(path)
+    /// Whether a finding only knip reports follows from a published source being an entry of skif: an unused file that
+    /// is a published source or one a published source reaches, or an export or type ([`EXPORT_LABELS`]) of a
+    /// published source, which is public as an entry's export.
+    fn published_source(&self, category: &str, path: &str) -> bool {
+        if category == "files" {
+            return self.layout.publishes_source_of(path) || self.published_reach.contains(path);
+        }
+        EXPORT_LABELS.contains(&category) && self.layout.publishes_source_of(path)
     }
 
     /// Whether a finding only skif reports sits on a `package.json` that is not one of knip's workspaces.
@@ -1858,7 +1998,8 @@ fn parity_repo(
     align_export_labels(&mut skif_found, &knip_found);
     let manifest = manifest_reader(&root);
     let is_file = |file: &str| root.join(file).is_file();
-    let layout = Layout::new(knip_run.members, &manifest, &is_file);
+    let build_dirs = build_dir_reader(&root);
+    let layout = Layout::new(knip_run.members, &manifest, &is_file).with_build_dirs(&build_dirs);
     let facts = Facts::read(
         &skif_run.doc,
         &knip_run.run.stderr,
@@ -3313,12 +3454,144 @@ mod tests {
             ] {
                 assert_eq!(classifier.classify(Side::Tool, "files", key), None, "{key}");
             }
-            assert_eq!(
-                classifier.classify(Side::Tool, "exports", "packages/core/index.ts|unused"),
-                None,
-                "only unused files"
-            );
+            for category in ["exports", "types", "nsExports", "nsTypes"] {
+                assert_eq!(
+                    classifier.classify(Side::Tool, category, "packages/core/index.ts|unused"),
+                    Some(PUBLISHED_SOURCE),
+                    "the exports of an entry are public: {category}"
+                );
+                assert_eq!(
+                    classifier.classify(Side::Tool, category, "packages/core/src/other.ts|unused"),
+                    None,
+                    "{category}"
+                );
+                assert_eq!(
+                    classifier.classify(Side::Skif, category, "packages/core/index.ts|unused"),
+                    None,
+                    "{category}"
+                );
+            }
+            for category in ["enumMembers", "namespaceMembers"] {
+                assert_eq!(
+                    classifier.classify(Side::Tool, category, "packages/core/index.ts|Red"),
+                    None,
+                    "skif judges the members of a used export: {category}"
+                );
+            }
         });
+    }
+
+    #[test]
+    fn published_paths_map_to_their_sources_through_the_build_directories_of_the_package() {
+        assert_eq!(build_source("dist", "src", "dist/a/b.js").as_deref(), Some("src/a/b.js"));
+        assert_eq!(build_source("dist/esm", "", "dist/esm/a.js").as_deref(), Some("a.js"));
+        assert_eq!(build_source("dist", "src", "dist").as_deref(), Some("src"));
+        assert_eq!(build_source("dist", "src", "distant/a.js"), None);
+        assert_eq!(build_source("", "src", "a.js"), None);
+
+        for (config, found) in [
+            (
+                "{ // the ESM build\n \"compilerOptions\": { \"outDir\": \"./dist/esm\", \"rootDir\": \"./src\", }, }",
+                Some(("dist/esm", "src")),
+            ),
+            (
+                r#"{ "compilerOptions": { "outDir": "dist" }, "include": ["src/**/*.ts", "src/types.d.ts"] }"#,
+                Some(("dist", "src")),
+            ),
+            (
+                r#"{ "compilerOptions": { "outDir": "lib" }, "include": ["src/**/*", "scripts/build.ts"] }"#,
+                Some(("lib", "")),
+            ),
+            (
+                r#"{ "compilerOptions": { "outDir": "dist" }, "files": ["src/a/index.ts", "src/b.ts"] }"#,
+                Some(("dist", "src")),
+            ),
+            (r#"{ "compilerOptions": { "outDir": "dist" } }"#, None),
+            (r#"{ "compilerOptions": { "rootDir": "src" } }"#, None),
+            (r#"{ "compilerOptions": { "outDir": "../out", "rootDir": "src" } }"#, None),
+            ("{ not json", None),
+        ] {
+            assert_eq!(
+                tsconfig_build_dir(config),
+                found.map(|(out_dir, root_dir)| (out_dir.to_owned(), root_dir.to_owned())),
+                "{config}"
+            );
+        }
+
+        let read: BTreeMap<String, Rc<Value>> = [
+            ("", json!({ "name": "root" })),
+            (
+                "packages/ai",
+                json!({ "name": "ai", "exports": {
+                    ".": { "import": "./dist/esm/index.js", "require": "./dist/cjs/index.js" },
+                    "./tools": "./dist/esm/tools/index.js",
+                } }),
+            ),
+        ]
+        .into_iter()
+        .map(|(dir, manifest)| (dir.to_owned(), Rc::new(manifest)))
+        .collect();
+        let manifest = move |dir: &str| read.get(dir).cloned();
+        let files = strings(&["packages/ai/src/index.ts", "packages/ai/src/tools/index.ts"]);
+        let is_file = |file: &str| files.contains(file);
+        let build_dirs = |dir: &str| {
+            if dir == "packages/ai" {
+                vec![
+                    ("dist/esm".to_owned(), "src".to_owned()),
+                    ("dist/cjs".to_owned(), "src".to_owned()),
+                ]
+            } else {
+                Vec::new()
+            }
+        };
+        let without = Layout::new(strings(&["packages/ai"]), &manifest, &is_file);
+        assert!(
+            !without.publishes_source_of("packages/ai/src/index.ts"),
+            "`dist/esm` maps to `src/esm` by convention alone"
+        );
+        let layout = Layout::new(strings(&["packages/ai"]), &manifest, &is_file).with_build_dirs(&build_dirs);
+        assert!(layout.publishes_source_of("packages/ai/src/index.ts"));
+        assert!(layout.publishes_source_of("packages/ai/src/tools/index.ts"));
+        let classifier = bare(&layout);
+        assert_eq!(
+            classifier.classify(Side::Tool, "files", "packages/ai/src/index.ts"),
+            Some(PUBLISHED_SOURCE)
+        );
+        assert_eq!(
+            classifier.classify(Side::Tool, "types", "packages/ai/src/tools/index.ts|ToolOptions"),
+            Some(PUBLISHED_SOURCE)
+        );
+    }
+
+    #[test]
+    fn the_harness_reads_the_build_directories_of_a_package_from_its_tsconfig_files() {
+        let root = std::env::temp_dir().join(format!("skif-bench-parity-build-dirs-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let package = root.join("packages/ai");
+        fs::create_dir_all(&package).unwrap();
+        fs::write(package.join("tsconfig.json"), r#"{ "compilerOptions": { "strict": true } }"#).unwrap();
+        fs::write(
+            package.join("tsconfig.build.esm.json"),
+            r#"{ "extends": "./tsconfig.json", "compilerOptions": { "outDir": "dist/esm", "rootDir": "src" } }"#,
+        )
+        .unwrap();
+        fs::write(
+            package.join("tsconfig.build.cjs.json"),
+            r#"{ "compilerOptions": { "outDir": "dist/cjs" }, "include": ["src"] }"#,
+        )
+        .unwrap();
+        fs::write(package.join("base.json"), r#"{ "compilerOptions": { "outDir": "out", "rootDir": "." } }"#).unwrap();
+        let read = build_dir_reader(&root);
+        assert_eq!(
+            read("packages/ai"),
+            vec![
+                ("dist/cjs".to_owned(), "src".to_owned()),
+                ("dist/esm".to_owned(), "src".to_owned()),
+            ],
+            "in file name order; a file that is no tsconfig is not read"
+        );
+        assert!(read("packages/missing").is_empty());
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
