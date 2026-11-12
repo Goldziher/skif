@@ -2964,3 +2964,27 @@ fn an_alias_of_a_local_assigned_again_is_not_followed() {
     );
     assert_ne!(at(&value, &["test", "include"]), &strings(&["b.test.ts"]), "{value:?}");
 }
+
+/// `Object.defineProperty`, `Reflect.defineProperty` and `Object.defineProperties` are no `define…` helpers: they
+/// change the object they are given first, at the key they name when it is static, and leave the rest of it known.
+#[test]
+fn a_property_defined_on_a_config_is_unknown() {
+    let config = "const config = { entry: './a.js', output: { path: 'dist' } };";
+    for (body, keyed) in [
+        ("Object.defineProperty(config, 'entry', { value: './b.js' });", true),
+        ("Reflect.defineProperty(config, 'entry', { value: './b.js' });", true),
+        ("Object.defineProperties(config, { entry: { value: './b.js' } });", false),
+    ] {
+        for source in [
+            format!("{config}\n{body}\nmodule.exports = config;"),
+            format!("module.exports = () => {{\n{config}\n{body}\nreturn config;\n}};"),
+        ] {
+            let value = extract("webpack.config.js", &source);
+            assert_eq!(at(&value, &["entry"]), &UNKNOWN, "{source}: {value:?}");
+            if keyed {
+                assert_eq!(get(&value, &["output", "path"]), &s("dist"), "{source}: {value:?}");
+                assert!(!open(&value), "{source}: {value:?}");
+            }
+        }
+    }
+}

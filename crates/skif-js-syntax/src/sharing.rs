@@ -510,6 +510,21 @@ impl Sharing<'_> {
         }
     }
 
+    /// Records the change `call` makes of the object `target` it is given or called on ([`changed_by_call`]): a new
+    /// value of the key it defines on a part of a local ([`property_defined`]), or a change of what that object holds.
+    fn change_target(&mut self, call: &CallExpression<'_>, target: &Expression<'_>) {
+        match (property_defined(call), self.place(target)) {
+            (Some(key), Some((place, true))) => self.changed(
+                place.symbol,
+                Write {
+                    keys: place.keys,
+                    key: Some(key),
+                },
+            ),
+            _ => self.mutate(target),
+        }
+    }
+
     /// Visits what `visit` visits as code in a loop.
     fn in_loop(&mut self, visit: impl FnOnce(&mut Self)) {
         self.loops += 1;
@@ -1295,7 +1310,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
             }
             callee => {
                 if let Some(target) = changed_by_call(it, false) {
-                    self.mutate(target);
+                    self.change_target(it, target);
                 }
                 callee
                     .as_member_expression()
@@ -1964,18 +1979,44 @@ fn copies(names: Names<'_>, call: &CallExpression<'_>) -> bool {
     }
 }
 
-/// Whether `call` is `Object.assign` of the global `Object`, which changes its first argument only.
+/// Methods of the global `Object` or `Reflect` that change their first argument only ([`changed_by_call`]), with the
+/// object they are methods of.
+const FIRST_ARGUMENT_SETTERS: &[(&str, &str)] = &[
+    ("Object", "assign"),
+    ("Object", "defineProperties"),
+    ("Object", "defineProperty"),
+    ("Reflect", "defineProperty"),
+];
+
+/// The setter of [`FIRST_ARGUMENT_SETTERS`] `callee` names by the name of the object it is called on, which may be
+/// one the module declares.
+fn first_argument_setter<'b, 'a>(callee: &'b Expression<'a>) -> Option<&'b IdentifierReference<'a>> {
+    let Expression::StaticMemberExpression(m) = callee.get_inner_expression() else {
+        return None;
+    };
+    let Expression::Identifier(object) = m.object.get_inner_expression() else {
+        return None;
+    };
+    FIRST_ARGUMENT_SETTERS
+        .contains(&(object.name.as_str(), m.property.name.as_str()))
+        .then_some(&**object)
+}
+
+/// Whether `call` is one of [`FIRST_ARGUMENT_SETTERS`] of the global object, which changes its first argument only.
 fn assigns(names: Names<'_>, call: &CallExpression<'_>) -> bool {
-    matches!(
-        call.callee.get_inner_expression(),
-        Expression::StaticMemberExpression(m)
-            if m.property.name.as_str() == "assign"
-                && matches!(
-                    m.object.get_inner_expression(),
-                    Expression::Identifier(object)
-                        if object.name.as_str() == "Object" && resolved(names.scoping, object).is_none()
-                )
-    )
+    first_argument_setter(&call.callee).is_some_and(|object| resolved(names.scoping, object).is_none())
+}
+
+/// The key `Object.defineProperty(object, key, …)` or `Reflect.defineProperty(object, key, …)` defines on its first
+/// argument, when it is a static string.
+pub(crate) fn property_defined(call: &CallExpression<'_>) -> Option<String> {
+    let Expression::StaticMemberExpression(m) = call.callee.get_inner_expression() else {
+        return None;
+    };
+    if m.property.name.as_str() != "defineProperty" || first_argument_setter(&call.callee).is_none() {
+        return None;
+    }
+    call.arguments.get(1).and_then(Argument::as_expression).and_then(static_string)
 }
 
 /// Whether the name a callee (`defineConfig`, `vitest.defineProject`) starts from is not one the module declares a
@@ -2574,19 +2615,17 @@ fn is_primitive(names: Names<'_>, expr: &Expression<'_>) -> bool {
     }
 }
 
-/// The object a call may change: the first argument of `Object.assign`, or the object a method other than one of
-/// [`PURE_METHODS`] is called on, unless the call is one of [`PURE_FUNCTIONS`] (`pure`).
+/// The object a call may change: the first argument of one of [`FIRST_ARGUMENT_SETTERS`] (`Object.assign`,
+/// `Object.defineProperty`), or the object a method other than one of [`PURE_METHODS`] is called on, unless the call
+/// is one of [`PURE_FUNCTIONS`] (`pure`).
 pub(crate) fn changed_by_call<'p, 'a>(call: &'p CallExpression<'a>, pure: bool) -> Option<&'p Expression<'a>> {
     if pure {
         return None;
     }
+    if first_argument_setter(&call.callee).is_some() {
+        return call.arguments.first().and_then(Argument::as_expression);
+    }
     match call.callee.get_inner_expression() {
-        Expression::StaticMemberExpression(m)
-            if m.property.name.as_str() == "assign"
-                && matches!(m.object.get_inner_expression(), Expression::Identifier(o) if o.name.as_str() == "Object") =>
-        {
-            call.arguments.first().and_then(Argument::as_expression)
-        }
         Expression::StaticMemberExpression(m) if PURE_METHODS.contains(&m.property.name.as_str()) => None,
         callee => callee.as_member_expression().map(MemberExpression::object),
     }

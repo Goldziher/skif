@@ -25,7 +25,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::finder::static_string;
 use crate::sharing::{
-    Change, Unstable, Write, alias_names, alias_source, changed_by_call, given, given_parts, reach, statement_call,
+    Change, Unstable, Write, alias_names, alias_source, changed_by_call, given, given_parts, property_defined, reach,
+    statement_call,
 };
 
 const MAX_DEPTH: u32 = 32;
@@ -4105,11 +4106,12 @@ fn value_at<'v>(value: &'v Value, keys: &[String]) -> Option<&'v Value> {
 }
 
 /// The first argument of a call of a function named `define*` (`defineConfig`, `vitest.defineProject`), which
-/// evaluates to that argument; `None` for any other call.
+/// evaluates to that argument; `None` for any other call, among them a method of `Object` or `Reflect`
+/// (`Object.defineProperty`), which changes that argument.
 pub(crate) fn defined<'p, 'a>(call: &'p CallExpression<'a>) -> Option<&'p Expression<'a>> {
     let callee = match call.callee.get_inner_expression() {
         Expression::Identifier(id) => id.name.as_str(),
-        Expression::StaticMemberExpression(m) => m.property.name.as_str(),
+        Expression::StaticMemberExpression(m) if !on_reflection(&m.object) => m.property.name.as_str(),
         _ => return None,
     };
     let is_define = callee.starts_with("define") && callee.len() > "define".len();
@@ -4117,6 +4119,14 @@ pub(crate) fn defined<'p, 'a>(call: &'p CallExpression<'a>) -> Option<&'p Expres
         .first()
         .and_then(Argument::as_expression)
         .filter(|_| is_define)
+}
+
+/// Whether a method is called on `Object` or `Reflect`, whose `define…` methods change what they are given.
+fn on_reflection(object: &Expression<'_>) -> bool {
+    matches!(
+        object.get_inner_expression(),
+        Expression::Identifier(id) if matches!(id.name.as_str(), "Object" | "Reflect")
+    )
 }
 
 /// How a config combinator merges its arguments.
@@ -4402,7 +4412,10 @@ impl<'a> Visit<'a> for Writes<'_> {
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
         if let Some(target) = changed_by_call(it, self.unstable.is_pure(it)) {
-            self.object(target);
+            match (property_defined(it), reach(target)) {
+                (Some(key), Some((root, keys, true))) => self.change(root.name.as_str(), Write { keys, key: Some(key) }),
+                _ => self.object(target),
+            }
         }
         self.arguments(it.span, &it.arguments, false);
         walk::walk_call_expression(self, it);
