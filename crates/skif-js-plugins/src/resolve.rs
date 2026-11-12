@@ -552,6 +552,11 @@ impl Collector<'_, '_> {
                     push_unique(&mut self.out.entries, path.clone());
                     push_unique(&mut self.out.production_entries, path);
                 }
+                PluginInput::BuildSource(path) => push_unique(&mut self.out.build_sources, path),
+                PluginInput::ProductionBuildSource(path) => {
+                    push_unique(&mut self.out.build_sources, path.clone());
+                    push_unique(&mut self.out.production_build_sources, path);
+                }
                 PluginInput::EntryRegex(pattern) => push_unique(&mut self.out.entry_regexes, pattern),
                 PluginInput::Dependency(name) => {
                     let named_by = self.named_by(from, config, &name);

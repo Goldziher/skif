@@ -525,3 +525,75 @@ fn a_registered_component_a_template_uses_is_listed_without_a_line() {
     assert_eq!(from_app.len(), 1, "{usage}");
     assert_eq!(from_app[0]["line"], 0, "{usage}");
 }
+
+/// A `rules_js` package whose `ts_project` builds from `a.ts` and `b.ts`, which imports `c.ts`, and whose `js_binary`
+/// runs `tool.mjs`.
+const BAZEL_SOURCES: &[(&str, &str)] = &[
+    (
+        "MODULE.bazel",
+        "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n",
+    ),
+    ("package.json", r#"{"name":"app","version":"1.0.0","private":true}"#),
+    (
+        "BUILD.bazel",
+        "ts_project(name = \"lib\", srcs = [\"a.ts\", \"b.ts\"])\n\njs_binary(name = \"tool\", entry_point = \"tool.mjs\")\n",
+    ),
+    ("a.ts", "export const unusedInA = 1;\n"),
+    ("b.ts", "import { helper } from './c';\nhelper();\n"),
+    ("c.ts", "export function helper(): void {}\n"),
+    ("tool.mjs", "export const toolOption = 1;\n"),
+];
+
+/// A file a Bazel rule builds from is a build source: in the graph and the start of the chains to what it imports, but
+/// no entry, so its exports are judged. The `entry_point` of a `js_binary` stays an entry with public exports.
+#[test]
+fn a_bazel_source_is_a_build_source_whose_exports_are_judged() {
+    let a = report(BAZEL_SOURCES, "", "a.ts");
+    assert_eq!(
+        (&a["in-graph"], &a["entry"], &a["build-source"], &a["chain-from-entry"]),
+        (&json!(true), &Value::Null, &json!(true), &json!(["a.ts"])),
+        "{a}"
+    );
+    let c = report(BAZEL_SOURCES, "", "c.ts");
+    assert_eq!(
+        (&c["chain-from-entry"], &c["chain-from-build-source"], c.get("build-source")),
+        (&json!(["b.ts", "c.ts"]), &json!(true), None),
+        "{c}"
+    );
+    let tool = report(BAZEL_SOURCES, "", "tool.mjs");
+    assert_eq!(
+        (&tool["entry"], tool.get("build-source"), tool.get("chain-from-build-source")),
+        (&json!("entry-glob"), None, None),
+        "{tool}"
+    );
+    let unused = export_report(BAZEL_SOURCES, "", "a.ts", "unusedInA");
+    assert_eq!(
+        (&unused["verdict"], &unused["entry-public"]),
+        (&json!("unused"), &json!(false)),
+        "{unused}"
+    );
+    let public = export_report(BAZEL_SOURCES, "", "tool.mjs", "toolOption");
+    assert_eq!(
+        (&public["verdict"], &public["entry-public"]),
+        (&json!("public"), &json!(true)),
+        "{public}"
+    );
+}
+
+/// The text of `explain-usage` names a build source and the chain that starts at one.
+#[test]
+fn the_text_report_names_build_sources() {
+    let memory = memory(BAZEL_SOURCES);
+    let config = Config::from_toml_str("").unwrap();
+    let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
+    let fs: Arc<dyn FileSystem> = Arc::new(memory);
+    let sources: Vec<Arc<dyn InputSource>> = vec![Arc::new(PluginSource::new(config.js.plugins.clone()))];
+    let analysis = JsAnalysis::build(&workspace, &config, &fs, &sources, true);
+    let a = analysis.explain_usage(Path::new("a.ts"), None).render();
+    assert!(a.contains("  build source: a tool builds from it"), "{a}");
+    let c = analysis.explain_usage(Path::new("c.ts"), None).render();
+    assert!(
+        c.contains("  reached from a build source through: b.ts -> c.ts"),
+        "{c}"
+    );
+}

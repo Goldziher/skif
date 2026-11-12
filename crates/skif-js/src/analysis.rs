@@ -622,7 +622,7 @@ impl<'a> JsAnalysis<'a> {
             modules,
         };
         let graph = timing::phase(phase("graph (read, parse, resolve)"), || {
-            graph::build(&inputs, &entries)
+            graph::build(&inputs, &entries, &found.build_sources)
         });
         graph::report_timings(&workspace.root);
         setup.widen_incomplete_scopes(&graph);

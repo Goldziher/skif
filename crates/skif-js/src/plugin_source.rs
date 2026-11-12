@@ -199,12 +199,20 @@ fn inputs(output: PluginOutput) -> WorkspaceInputs {
         .filter(|glob| !output.production_entries.contains(glob))
         .cloned()
         .collect();
+    let build_source = output
+        .build_sources
+        .iter()
+        .filter(|glob| !output.production_build_sources.contains(glob))
+        .cloned()
+        .collect();
     let mut ignore_binaries = output.provided_binaries;
     ignore_binaries.sort();
     ignore_binaries.dedup();
     WorkspaceInputs {
         entry,
         production_entry: output.production_entries,
+        build_source,
+        production_build_source: output.production_build_sources,
         entry_regex: output.entry_regexes,
         scoped_entry_regex: output
             .scoped_entry_regexes

@@ -1279,6 +1279,61 @@ fn bazel_outputs_are_generated_whatever_was_built() {
     }
 }
 
+/// A `rules_js` package whose `ts_project` builds from `a.ts` and `b.ts`, which imports `c.ts`, and whose `js_binary`
+/// runs `tool.mjs`; `orphan.ts` is named by nothing.
+const BAZEL_SOURCES: &[(&str, &str)] = &[
+    (
+        "MODULE.bazel",
+        "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n",
+    ),
+    ("package.json", r#"{"name":"app","version":"1.0.0","private":true}"#),
+    (
+        "BUILD.bazel",
+        concat!(
+            "load(\"@aspect_rules_js//js:defs.bzl\", \"js_binary\")\n",
+            "load(\"@aspect_rules_ts//ts:defs.bzl\", \"ts_project\")\n\n",
+            "ts_project(name = \"lib\", srcs = [\"a.ts\", \"b.ts\"])\n\n",
+            "js_binary(name = \"tool\", entry_point = \"tool.mjs\")\n",
+        ),
+    ),
+    (
+        "a.ts",
+        "export const unusedInA = 1;\nexport type UnusedInA = string;\n",
+    ),
+    ("b.ts", "import { helper } from './c';\nhelper();\n"),
+    ("c.ts", "export function helper(): void {}\n"),
+    ("tool.mjs", "export const toolOption = 1;\n"),
+    ("orphan.ts", "export const lonely = 1;\n"),
+];
+
+/// The `srcs` of a `ts_project` are used files, and so is what they import, but they are no entries: their unused
+/// exports and types are reported as any module's. The `entry_point` of a `js_binary` is an entry, whose exports are
+/// public.
+#[test]
+fn bazel_sources_are_used_and_their_exports_judged() {
+    let diagnostics = lint(BAZEL_SOURCES);
+    assert_eq!(
+        paths(&diagnostics, "unused-files"),
+        strings(&["orphan.ts"]),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        names(&diagnostics, "unused-exports"),
+        strings(&["unusedInA"]),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        paths(&diagnostics, "unused-exports"),
+        strings(&["a.ts"]),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        names(&diagnostics, "unused-types"),
+        strings(&["UnusedInA"]),
+        "{diagnostics:#?}"
+    );
+}
+
 /// Outside a Bazel repository nothing changes: the output a `BUILD` file declares is unresolved like any missing file.
 #[test]
 fn build_files_declare_nothing_outside_a_bazel_repository() {
