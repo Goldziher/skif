@@ -3,7 +3,7 @@
 use skif_js_syntax::ConfigValue;
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::support::{config_unknown, key_unknown, objects, strings, values_of};
+use crate::support::{config_unknown, file_strings, files_key_unknown, objects, values_of};
 
 /// The `rollup` plugin.
 pub struct Rollup;
@@ -29,8 +29,8 @@ impl Plugin for Rollup {
         for build in objects(config.value) {
             if let Some(input) = build.get("input") {
                 let paths = match input {
-                    ConfigValue::Object(_) => values_of(input).into_iter().flat_map(strings).collect(),
-                    other => strings(other),
+                    ConfigValue::Object(_) => values_of(input).into_iter().flat_map(file_strings).collect(),
+                    other => file_strings(other),
                 };
                 out.extend(
                     paths
@@ -38,7 +38,7 @@ impl Plugin for Rollup {
                         .map(|path| PluginInput::ProductionEntry(config.join(path))),
                 );
             }
-            if key_unknown(build, "input") {
+            if files_key_unknown(build, "input") {
                 out.push(PluginInput::EntriesIncomplete);
             }
         }

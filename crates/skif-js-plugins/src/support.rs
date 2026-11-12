@@ -355,6 +355,52 @@ pub(crate) fn strings(value: &ConfigValue) -> Vec<&str> {
     }
 }
 
+/// The files or patterns a string, or an array of strings, names: each alternative of the value, or of an element,
+/// that is one of several ([`ConfigValue::alternatives`]) counts once, as every file a branch of a condition names is
+/// a candidate. A file only another branch names is missing on disk, which leaves it out of the entries.
+pub(crate) fn file_strings(value: &ConfigValue) -> Vec<&str> {
+    let mut out: Vec<&str> = Vec::new();
+    for listed in value.alternatives() {
+        let items = match listed {
+            ConfigValue::Array(items) => items.as_slice(),
+            single => std::slice::from_ref(single),
+        };
+        for alternative in items.iter().flat_map(ConfigValue::alternatives) {
+            if let ConfigValue::String(text) = alternative
+                && !out.contains(&text.as_str())
+            {
+                out.push(text);
+            }
+        }
+    }
+    out
+}
+
+/// Whether the files or patterns a value names are not all known: it has an unknown part
+/// ([`ConfigValue::has_unknown`]) other than a value, an element or an object value that is one of several known
+/// strings or lists of them, whose files [`file_strings`] reads.
+pub(crate) fn files_unknown(value: &ConfigValue) -> bool {
+    match value {
+        ConfigValue::OneOf(alternatives) => alternatives.iter().any(|alternative| match alternative {
+            ConfigValue::String(_) => false,
+            ConfigValue::Array(items) => items.iter().any(file_element_unknown),
+            _ => true,
+        }),
+        ConfigValue::Array(items) => items.iter().any(file_element_unknown),
+        ConfigValue::Object(entries) => entries.iter().any(|(_, value)| files_unknown(value)),
+        other => other.has_unknown(),
+    }
+}
+
+/// Whether an element of a list of files or patterns is not known: one of several values that are not all strings, or
+/// a value with an unknown part.
+fn file_element_unknown(item: &ConfigValue) -> bool {
+    match item {
+        ConfigValue::OneOf(alternatives) => !alternatives.iter().all(|alternative| alternative.as_str().is_some()),
+        other => other.has_unknown(),
+    }
+}
+
 /// The `resolve.extensions` list of a bundler config: extensions with a leading dot, webpack's `'...'` placeholder and
 /// entries that are not extensions left out.
 pub(crate) fn extension_inputs(value: &ConfigValue) -> Vec<PluginInput> {
@@ -410,12 +456,23 @@ pub(crate) enum Spreads {
 /// kind inside it included), or an object on the way is unknown or has an unknown spread `spreads` counts after the
 /// key (or without it) that could provide the key.
 pub(crate) fn path_unknown(value: &ConfigValue, path: &[&str], spreads: Spreads) -> bool {
+    path_unknown_by(value, path, spreads, ConfigValue::has_unknown)
+}
+
+/// Like [`path_unknown`], for a key that names files or patterns: a value at `path` that is one of several known ones is
+/// known ([`files_unknown`]), as [`file_strings`] reads each.
+pub(crate) fn files_path_unknown(value: &ConfigValue, path: &[&str], spreads: Spreads) -> bool {
+    path_unknown_by(value, path, spreads, files_unknown)
+}
+
+/// [`path_unknown`] with `leaf` telling whether the value at the end of the path is unknown.
+fn path_unknown_by(value: &ConfigValue, path: &[&str], spreads: Spreads, leaf: fn(&ConfigValue) -> bool) -> bool {
     let Some((key, rest)) = path.split_first() else {
-        return value.has_unknown();
+        return leaf(value);
     };
     match value {
         ConfigValue::Object(_) => match last_entry(value, key, spreads) {
-            Some(Entry::Value(child)) => path_unknown(child, rest, spreads),
+            Some(Entry::Value(child)) => path_unknown_by(child, rest, spreads, leaf),
             Some(Entry::Spread) => true,
             None => false,
         },
@@ -525,14 +582,19 @@ pub(crate) fn shallow_key_unknown(object: &ConfigValue, key: &str) -> bool {
     }
 }
 
-/// The strings of `key` in `object`, the files or patterns a plugin takes entries from. When the key is not fully
-/// known (see [`key_unknown`]), the files it names are not all known, so [`PluginInput::EntriesIncomplete`] is added to
-/// `out`.
+/// The strings of `key` in `object`, the files or patterns a plugin takes entries from, every alternative of a value
+/// that is one of several included ([`file_strings`]). When the key is not fully known (see [`files_key_unknown`]),
+/// the files it names are not all known, so [`PluginInput::EntriesIncomplete`] is added to `out`.
 pub(crate) fn entry_strings<'v>(object: &'v ConfigValue, key: &str, out: &mut Vec<PluginInput>) -> Vec<&'v str> {
-    if key_unknown(object, key) {
+    if files_key_unknown(object, key) {
         out.push(PluginInput::EntriesIncomplete);
     }
-    object.get(key).map(strings).unwrap_or_default()
+    object.get(key).map(file_strings).unwrap_or_default()
+}
+
+/// Whether the files or patterns `key` of a config object names are not all known; see [`files_path_unknown`].
+pub(crate) fn files_key_unknown(object: &ConfigValue, key: &str) -> bool {
+    files_path_unknown(object, &[key], Spreads::Any)
 }
 
 /// Whether the value of `key` in a config object is not fully known statically; see [`path_unknown`].
@@ -1002,6 +1064,45 @@ mod tests {
         assert_eq!(below_node_modules("tools/node_modules/pkg"), Some("pkg"));
         assert_eq!(below_node_modules("my_node_modules/pkg"), None);
         assert_eq!(below_node_modules("src/pkg"), None);
+    }
+
+    #[test]
+    fn entry_strings_take_every_alternative_of_a_value_that_is_one_of_several_known_ones() {
+        let s = |text: &str| ConfigValue::String(text.to_owned());
+        let one_of = ConfigValue::OneOf;
+        let cases = [
+            (ConfigValue::Array(vec![s("./a.ts"), s("./b.ts")]), vec!["./a.ts", "./b.ts"], false),
+            (
+                ConfigValue::Array(vec![one_of(vec![s("./ui/setup.ts"), s("./setup.ts")]), s("./c.ts")]),
+                vec!["./ui/setup.ts", "./setup.ts", "./c.ts"],
+                false,
+            ),
+            (one_of(vec![s("./a.ts"), s("./b.ts")]), vec!["./a.ts", "./b.ts"], false),
+            (
+                one_of(vec![ConfigValue::Array(vec![s("./a.ts")]), ConfigValue::Array(vec![s("./b.ts"), s("./a.ts")])]),
+                vec!["./a.ts", "./b.ts"],
+                false,
+            ),
+            (
+                ConfigValue::Array(vec![one_of(vec![s("./a.ts"), ConfigValue::Unknown])]),
+                vec!["./a.ts"],
+                true,
+            ),
+            (
+                one_of(vec![s("./a.ts"), ConfigValue::Array(vec![s("./b.ts"), ConfigValue::Unknown])]),
+                vec!["./a.ts", "./b.ts"],
+                true,
+            ),
+            (ConfigValue::Array(vec![one_of(vec![s("./a.ts"), ConfigValue::Null])]), vec!["./a.ts"], true),
+            (ConfigValue::Array(vec![s("./a.ts"), ConfigValue::Unknown]), vec!["./a.ts"], true),
+            (ConfigValue::Unknown, vec![], true),
+        ];
+        for (listed, expected, incomplete) in cases {
+            let object = ConfigValue::Object(vec![("setupFiles".to_owned(), listed.clone())]);
+            let mut out = Vec::new();
+            assert_eq!(entry_strings(&object, "setupFiles", &mut out), expected, "{listed:?}");
+            assert_eq!(out.contains(&PluginInput::EntriesIncomplete), incomplete, "{listed:?}");
+        }
     }
 
     #[test]
