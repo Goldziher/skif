@@ -158,6 +158,9 @@ All notable changes to this project are documented here. The format follows
   leaves the object partly unknown, so a multi-page webpack config keeps its `entry` known. Code a value runs
   implicitly (a getter, `toString` through a template literal or `String(x)`, `toJSON` through `JSON.stringify`)
   is still not followed, as is a later change an imported function makes to an object an earlier call gave it.
+  A method of a package is taken to keep nothing it is given in the package only when the config does nothing else
+  with the package (`_.merge(…)`) and the evaluator does not follow it: what a method of a workspace package returns
+  (`base.self()`), or of one the config stores a value in (`pkg.config = local`), may hold what the package holds.
 - **Config evaluation**: `.map`, `.flatMap` and `.filter` of a known array call their callback (an inline function,
   or one the config declares) with each element and its index, so Vitest projects spread from
   `` ['light', 'dark'].map((theme) => ({ test: { name: `browser-${theme}` } })) `` are known instead of leaving the

@@ -633,3 +633,21 @@ fn a_change_of_an_imported_value_is_applied_where_it_is_read() {
         assert_ne!(read_at(&value, &["build", "outDir"]), &s("dist"), "{config}: {value:?}");
     }
 }
+
+/// A method of a workspace package the loader follows may return the package's own object (`self() { return this }`),
+/// so a write through what it returns reaches the imported value.
+#[test]
+fn a_write_through_what_a_method_of_a_followed_package_returns_reaches_it() {
+    let loader = files(&[
+        (
+            "/ws/app/config.ts",
+            "import base from '@fx/base';\nconst same = base.self();\nsame.build.outDir = 'out';\nexport default base;",
+        ),
+        (
+            "/ws/base/index.ts",
+            "export default { build: { outDir: 'dist' }, self() { return this; } };",
+        ),
+    ]);
+    let value = eval(&loader);
+    assert_eq!(read_at(&value, &["build", "outDir"]), &ConfigValue::Unknown, "{value:?}");
+}

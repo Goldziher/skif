@@ -3255,3 +3255,41 @@ fn calls_on_a_package_share_nothing_through_it() {
         );
     }
 }
+
+/// Calls on the binding of a package the module only calls methods on share nothing through it, but once the module
+/// stores a value in it, reads a member of it otherwise or gives it to a call, what a method of it is given may be
+/// what another one returns.
+#[test]
+fn calls_on_a_package_share_through_it_once_it_is_used_otherwise() {
+    for binding in ["import pkg from 'some-pkg';", "const pkg = require('some-pkg');"] {
+        for (use_, shared) in [
+            ("", false),
+            ("pkg.config = { mode: 'dev' };", true),
+            ("const settings = pkg.settings;", true),
+            ("register(pkg);", true),
+        ] {
+            let source = format!(
+                "{binding}\n\
+                 const out = {{ dir: 'dist' }};\n\
+                 {use_}\n\
+                 pkg.register(out);\n\
+                 out.dir = 'build';\n\
+                 const config = {{ root: 'src', plugins: [pkg.plugin()] }};\n\
+                 export default config;"
+            );
+            let value = extract("vite.config.mjs", &source);
+            assert_eq!(open(&value), shared, "{source}: {value:?}");
+            assert_eq!(get(&value, &["root"]), &s("src"), "{source}: {value:?}");
+        }
+    }
+    let stored = extract(
+        "vite.config.mjs",
+        "import pkg from 'some-pkg';\n\
+         const local = { plugins: [] };\n\
+         pkg.config = local;\n\
+         const c = pkg.getConfig();\n\
+         c.plugins.push('x');\n\
+         export default local;",
+    );
+    assert_eq!(at(&stored, &["plugins"]), &UNKNOWN, "{stored:?}");
+}
