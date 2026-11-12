@@ -525,3 +525,24 @@ fn a_registered_component_a_template_uses_is_listed_without_a_line() {
     assert_eq!(from_app.len(), 1, "{usage}");
     assert_eq!(from_app[0]["line"], 0, "{usage}");
 }
+
+/// A use of a namespace as a whole is listed as a user of a value export and not of a type export, which it cannot
+/// read: the type's verdict and its evidence agree.
+#[test]
+fn a_whole_namespace_use_is_listed_for_values_and_not_for_types() {
+    let files = [
+        PACKAGE,
+        (
+            "index.ts",
+            "import * as shapes from './shapes';\nexport const all = Object.keys(shapes);\n",
+        ),
+        ("shapes.ts", "export const circle = 1;\nexport type Id = string;\n"),
+    ];
+    let value = export_report(&files, "", "shapes.ts", "circle");
+    assert_eq!(value["verdict"], "used", "{value}");
+    assert_eq!(value["users"][0]["file"], "index.ts", "{value}");
+    assert_eq!(value["users"][0]["how"], "the namespace, used as a whole", "{value}");
+    let type_export = export_report(&files, "", "shapes.ts", "Id");
+    assert_eq!(type_export["verdict"], "unused", "{type_export}");
+    assert_eq!(type_export["users"], json!([]), "{type_export}");
+}
