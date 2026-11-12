@@ -19,6 +19,8 @@ mod unused_namespace_exports;
 mod unused_namespace_members;
 mod unused_namespace_types;
 mod unused_optional_peer_dependencies;
+mod unused_subpath_exports;
+mod unused_subpath_imports;
 mod unused_types;
 
 use skif_core::RuleMeta;
@@ -41,6 +43,8 @@ pub use unused_namespace_exports::UnusedNamespaceExports;
 pub use unused_namespace_members::UnusedNamespaceMembers;
 pub use unused_namespace_types::UnusedNamespaceTypes;
 pub use unused_optional_peer_dependencies::UnusedOptionalPeerDependencies;
+pub use unused_subpath_exports::UnusedSubpathExports;
+pub use unused_subpath_imports::UnusedSubpathImports;
 pub use unused_types::UnusedTypes;
 
 use crate::analysis::JsAnalysis;
@@ -72,6 +76,8 @@ pub fn rules() -> Vec<Box<dyn JsRule>> {
         Box::new(UnlistedBinaries),
         Box::new(UnusedOptionalPeerDependencies),
         Box::new(UnusedFiles),
+        Box::new(UnusedSubpathImports),
+        Box::new(UnusedSubpathExports),
         Box::new(UnusedExports),
         Box::new(UnusedTypes),
         Box::new(UnusedNamespaceExports),

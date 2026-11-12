@@ -10,10 +10,10 @@
 //! 4. propagates usage through re-export chains and compares referenced packages and binaries with each manifest.
 //!
 //! The rules are `unused-dependencies`, `unused-dev-dependencies`, `unlisted-dependencies`, `unresolved-imports`,
-//! `stale-mocks`, `unlisted-binaries`, `unused-optional-peer-dependencies`, `unused-files`, `unused-exports`,
-//! `unused-types`, `unused-namespace-exports`, `unused-namespace-types`, `unused-enum-members`,
-//! `unused-namespace-members`, `duplicate-exports`, `unparseable-files`, `stale-js-config` and `circular-imports`
-//! (off by default).
+//! `stale-mocks`, `unlisted-binaries`, `unused-optional-peer-dependencies`, `unused-files`, `unused-subpath-imports`,
+//! `unused-exports`, `unused-types`, `unused-namespace-exports`, `unused-namespace-types`, `unused-enum-members`,
+//! `unused-namespace-members`, `duplicate-exports`, `unparseable-files`, `stale-js-config`, `circular-imports` and
+//! `unused-subpath-exports`; the last two are off by default.
 //!
 //! No oxc type appears in the public API.
 
@@ -46,6 +46,7 @@ mod setup;
 mod shared_modules;
 mod source_scan;
 mod specifier;
+mod subpaths;
 mod trace;
 mod tsconfig_files;
 mod tsconfig_paths;
@@ -74,7 +75,7 @@ pub use rules::{
     CircularImports, DuplicateExports, JsRule, StaleJsConfig, StaleMocks, UnlistedBinaries, UnlistedDependencies,
     UnparseableFiles, UnresolvedImports, UnusedDependencies, UnusedDevDependencies, UnusedEnumMembers, UnusedExports,
     UnusedFiles, UnusedNamespaceExports, UnusedNamespaceMembers, UnusedNamespaceTypes, UnusedOptionalPeerDependencies,
-    UnusedTypes, rules,
+    UnusedSubpathExports, UnusedSubpathImports, UnusedTypes, rules,
 };
 pub use shared_modules::SharedModules;
 /// The module cache of ADR 0066, re-exported for hosts that keep one.

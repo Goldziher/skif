@@ -199,7 +199,8 @@ pub(crate) fn should_have_source(target: &str) -> bool {
             .is_some_and(|(first, _)| is_out_dir(first) || first == "bin")
 }
 
-fn collect_strings(value: &Value, out: &mut Vec<String>) {
+/// Every non-empty string of `value`, through arrays and the values of objects, in document order.
+pub(crate) fn collect_strings(value: &Value, out: &mut Vec<String>) {
     match value {
         Value::String(text) if !text.is_empty() => out.push(text.clone()),
         Value::Array(items) => items.iter().for_each(|item| collect_strings(item, out)),

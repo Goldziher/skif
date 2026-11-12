@@ -644,7 +644,9 @@ fn rule_metadata_is_stable() {
     assert!(defaults.contains(&("circular-imports", false)));
     assert!(defaults.contains(&("stale-js-config", true)));
     assert!(defaults.contains(&("stale-mocks", true)));
-    assert_eq!(defaults.len(), 18);
+    assert!(defaults.contains(&("unused-subpath-imports", true)));
+    assert!(defaults.contains(&("unused-subpath-exports", false)));
+    assert_eq!(defaults.len(), 20);
 }
 
 #[test]
