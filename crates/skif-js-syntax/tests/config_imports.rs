@@ -402,6 +402,69 @@ fn a_conditional_spread_with_a_destructured_default_is_known() {
     assert!(configs[1].get("...").is_none());
 }
 
+/// A factory of a followed module that builds and returns new objects (a `define…` helper of a package given a
+/// literal, a spread of a constant, an undeclared global given a parameter) changes no value of a module when the
+/// config calls it: what the call returns and a constant the module computes with it when it is loaded stay exact.
+#[test]
+fn a_factory_that_builds_new_objects_leaves_the_imported_values_known() {
+    let loader = files(&[
+        (
+            "/ws/app/config.ts",
+            "import { config, createConfig } from '@fx/base';\n\
+             export default [config, createConfig(['a.test.ts'])];",
+        ),
+        (
+            "/ws/base/index.ts",
+            "import { defineConfig } from 'vitest/config';\n\
+             const shared = { environment: 'node' };\n\
+             export const createConfig = (include = ['src/**/*.test.ts']) =>\n\
+               defineConfig({ test: { globals: true, include: normalize(include) }, resolve: { ...shared } });\n\
+             export const config = createConfig();",
+        ),
+    ]);
+    let expected = obj(vec![
+        (
+            "test",
+            obj(vec![
+                ("globals", ConfigValue::Bool(true)),
+                ("include", ConfigValue::Unknown),
+            ]),
+        ),
+        ("resolve", obj(vec![("environment", s("node"))])),
+    ]);
+    assert_eq!(eval(&loader), ConfigValue::Array(vec![expected.clone(), expected]));
+}
+
+/// A factory of a followed module that changes an object the module binds (directly, through a local holding it,
+/// by giving it to an unknown call or to a function of the module that changes its parameter) may change every value
+/// the config imports from a followed module, a constant the factory does not touch included.
+#[test]
+fn a_factory_that_changes_a_binding_of_its_module_leaves_the_imported_values_open() {
+    for factory in [
+        "export const createConfig = () => { registry.count += 1; return { test: { globals: true } }; };",
+        "export const createConfig = () => {\n\
+           const seen = registry;\n  seen.count = 1;\n  return { test: { globals: true } };\n};",
+        "export const createConfig = () => { register(registry); return { test: { globals: true } }; };",
+        "const touch = (target) => { target.count += 1; return target.count; };\n\
+         export const createConfig = () => ({ test: { globals: true }, count: touch(registry) });",
+    ] {
+        let base = format!("const registry = {{ count: 0 }};\n{factory}\nexport const config = {{ name: 'base' }};");
+        let loader = files(&[
+            (
+                "/ws/app/config.ts",
+                "import { config, createConfig } from '@fx/base';\nexport default [config, createConfig()];",
+            ),
+            ("/ws/base/index.ts", &*Box::leak(base.into_boxed_str())),
+        ]);
+        let value = eval(&loader);
+        assert_eq!(
+            value.as_array().unwrap()[0],
+            obj(vec![("name", s("base")), (UNKNOWN_SPREAD, ConfigValue::Unknown)]),
+            "{factory}"
+        );
+    }
+}
+
 /// What an imported module computes itself is, to the config importing it, a value taken from elsewhere: its spreads
 /// come back as unknown spreads of an imported value.
 #[test]
