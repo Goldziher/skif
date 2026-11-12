@@ -23,6 +23,8 @@ use crate::{lerna, roots, rush};
 const MANIFEST: &str = "package.json";
 const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
 const YARNRC: &str = ".yarnrc.yml";
+/// The file of an Nx project, which needs no `package.json`.
+const NX_PROJECT: &str = "project.json";
 
 /// Where the workspace patterns were declared.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,7 +74,10 @@ pub struct DiscoveryFacts {
     pub source: WorkspaceSource,
     /// One entry per declared pattern, in declaration order.
     pub patterns: Vec<PatternFact>,
-    /// Matched directories with real content (not only hidden entries, `node_modules` or build output) without a `package.json`, sorted.
+    /// Matched directories with real content (not only hidden entries, `node_modules` or build output) without a
+    /// `package.json`, sorted. Left out are a directory that holds a `project.json` (an Nx project, which needs no
+    /// `package.json`) and a grouping directory, whose content is only directories the patterns also selected
+    /// (`libs/cart` when `libs/*/*` selects `libs/cart/feature`).
     pub dirs_without_manifest: Vec<PathBuf>,
     /// Whether `patterns` are pnpm's defaults rather than written down: a `pnpm-workspace.yaml` without `packages:`
     /// makes pnpm take the root and every package below it (except `test` and `tests` directories).
@@ -169,7 +174,8 @@ enum Member {
     Loaded(Box<Package>),
     /// A directory with real content (not only `node_modules`, build output or hidden entries) and no `package.json`.
     NoManifest(PathBuf),
-    /// A directory without real content; those linger after switching git branches and are not worth reporting.
+    /// A directory without real content; those linger after switching git branches and are not worth reporting. Also
+    /// an Nx project and a grouping directory (see [`DiscoveryFacts::dirs_without_manifest`]), which need no manifest.
     Empty,
     Failed(PathBuf, WorkspaceError),
 }
@@ -185,6 +191,25 @@ fn has_content(entry: &DirEntry) -> bool {
     })
 }
 
+/// Whether a selected directory without a `package.json` is meant to have none: it holds an Nx `project.json`, or
+/// everything in it is a directory the patterns selected too. `selected` holds every selected directory, sorted.
+fn needs_no_manifest(root: &Path, entries: &[DirEntry], selected: &[&str]) -> bool {
+    let is_selected = |entry: &DirEntry| {
+        entry.is_dir
+            && entry
+                .path
+                .strip_prefix(root)
+                .ok()
+                .and_then(Path::to_str)
+                .is_some_and(|dir| selected.binary_search(&dir.replace('\\', "/").as_str()).is_ok())
+    };
+    let content: Vec<&DirEntry> = entries.iter().filter(|entry| has_content(entry)).collect();
+    content
+        .iter()
+        .any(|entry| entry.is_file && entry.path.file_name().is_some_and(|name| name == NX_PROJECT))
+        || content.iter().copied().all(is_selected)
+}
+
 /// What loading one selected directory found: the member, and its lockfiles and `pnpm-workspace.yaml` files (see
 /// [`DiscoveryFacts::package_manager_files`]).
 struct Loaded {
@@ -192,13 +217,14 @@ struct Loaded {
     package_manager_files: Vec<PathBuf>,
 }
 
-/// Loads the selected directory `dir`. The directory is listed first, once: the listing names its package-manager
-/// files, and a caching file system answers the manifest probe from it instead of with a `stat`.
+/// Loads the selected directory `dir`, one of the sorted `selected`. The directory is listed first, once: the listing
+/// names its package-manager files, and a caching file system answers the manifest probe from it instead of with a
+/// `stat`.
 fn load_member(
     fs: &dyn FileSystem,
     root: &Path,
     files: &ManagerFiles<'_>,
-    dir: &str,
+    (dir, selected): (&str, &[&str]),
     cache: &SpecifierCache,
 ) -> Loaded {
     let absolute = root.join(dir);
@@ -216,7 +242,9 @@ fn load_member(
             },
             Err(error) => Member::Failed(PathBuf::from(dir), io_error(&manifest, error)),
         }
-    } else if entries.is_some_and(|entries| entries.iter().any(has_content)) {
+    } else if entries.is_some_and(|entries| {
+        entries.iter().any(has_content) && !needs_no_manifest(root, &entries, selected)
+    }) {
         Member::NoManifest(PathBuf::from(dir))
     } else {
         Member::Empty
@@ -608,7 +636,7 @@ impl Workspace {
             inherited: OnceLock::new(),
         };
         let loaded: Vec<Loaded> = map_ordered(&dirs, sequential, |dir| {
-            load_member(fs, &root, &manager_files, dir, &specifiers)
+            load_member(fs, &root, &manager_files, (*dir, dirs.as_slice()), &specifiers)
         });
         let mut package_manager_files = manager_files.in_root();
         let mut packages = Vec::new();

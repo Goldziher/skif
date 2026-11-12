@@ -14,6 +14,9 @@ All notable changes to this project are documented here. The format follows
 - A recursive run no longer lints the output of `turbo prune --docker` as two extra roots: below the start path, the
   `json` and `full` trees of a directory without a `package.json` that holds a lockfile next to them are skipped
   ([#194](https://github.com/Goldziher/skif/issues/194)).
+- `missing-package-manifest` no longer reports an Nx project (a directory with a `project.json`) or a grouping
+  directory whose content is only directories the patterns select too, such as `libs/cart` under
+  `["libs/*", "libs/*/*"]` ([#192](https://github.com/Goldziher/skif/issues/192)).
 
 ## [0.3.0] - 2026-11-11
 
