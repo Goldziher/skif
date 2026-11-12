@@ -15,6 +15,10 @@ All notable changes to this project are documented here. The format follows
   a computed member whose key evaluates to a string (`base['setupFiles']`, `base[KEY]`) read a known object as
   `base.setupFiles` does, instead of leaving the package incomplete
   ([#148](https://github.com/Goldziher/skif/issues/148)).
+- **Config factories**: the existing files given to a call the evaluator cannot follow are entries wherever the call
+  sits in the exported config (`{ test: createTest({ setupFiles: ['./setup.ts'] }) }`), not only when the config is
+  the call's result; a file under an exclusion key is still left out
+  ([#148](https://github.com/Goldziher/skif/issues/148)).
 
 ## [0.3.0] - 2026-11-11
 

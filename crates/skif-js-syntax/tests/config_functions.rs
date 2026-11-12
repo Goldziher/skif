@@ -1274,6 +1274,57 @@ fn the_arguments_of_an_unknown_call_returned_or_merged_are_kept() {
     assert_eq!(extract(&known).1, Vec::new());
 }
 
+/// A call that cannot be followed nested in an object or array literal of the exported config keeps its arguments, each
+/// in an object under the keys it is found at, so a key that excludes files still holds what it names. A spread keeps
+/// them when the object has an unknown spread; a call the evaluator follows, and one after a spread into an array, keep
+/// none.
+#[test]
+fn the_arguments_of_an_unknown_call_nested_in_the_config_are_kept_under_their_keys() {
+    let arguments = |source: &str| {
+        let source = format!(
+            "import {{ defineConfig }} from 'vitest/config';\n\
+             import {{ createTest, makeList, plugin, base }} from '@acme/vitest-preset';\n{source}"
+        );
+        extract_config(&source, Path::new("vitest.config.ts"), None)
+            .expect("config is understood")
+            .call_arguments
+    };
+    let under = |key: &str, value: ConfigValue| ConfigValue::Object(vec![(key.to_owned(), value)]);
+    let setup = under("setupFiles", strings(&["./setup.ts"]));
+    let cases = [
+        (
+            "export default { test: createTest({ setupFiles: ['./setup.ts'] }) };",
+            vec![under("test", setup.clone())],
+        ),
+        (
+            "export default defineConfig({ test: { coverage: { exclude: makeList(['./skip.ts']) } } });",
+            vec![under(
+                "test",
+                under("coverage", under("exclude", strings(&["./skip.ts"]))),
+            )],
+        ),
+        (
+            "export default { plugins: ['a', plugin({ config: './plugin.config.ts' })] };",
+            vec![under("plugins", under("config", s("./plugin.config.ts")))],
+        ),
+        (
+            "export default { ...createTest({ setupFiles: ['./setup.ts'] }) };",
+            vec![setup],
+        ),
+        (
+            "const files = () => ['./setup.ts'];\nexport default { test: { setupFiles: files() } };",
+            Vec::new(),
+        ),
+        (
+            "export default { plugins: [...base(), plugin('./after.ts')] };",
+            Vec::new(),
+        ),
+    ];
+    for (source, expected) in cases {
+        assert_eq!(arguments(source), expected, "{source}");
+    }
+}
+
 /// A condition the evaluator cannot decide between values it knows is one of them: a ternary, a fallback over a read
 /// that is not definite and a binding one branch reassigns. A branch it does not know leaves the value unknown, and so
 /// do more alternatives than it keeps.
