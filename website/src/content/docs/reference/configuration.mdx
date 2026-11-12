@@ -1062,7 +1062,8 @@ stays known; `push` and `unshift` of a local list add their elements. An object 
 `delete` or inside an expression is partly unknown wherever it is read, in the part the change reaches. A call of a
 function the config declares shares with what it is given only what the function may return of it: a fresh object
 it builds shares nothing with its arguments, unless the function is used other than by calling it by name, calls
-itself or reads `arguments`. What a method returns (`config.plugins.find(…)`, `list.slice()`) may be a part of the
+itself or reads `arguments`; a getter, method or callback in what it returns shares what that returns, and a
+parameter shares its default (`b = a`). What a method returns (`config.plugins.find(…)`, `list.slice()`) may be a part of the
 object it is called on. A `const` of a function that takes a local of that function,
 or a static part of it (`const { coverage } = config.test`), is followed instead when it is the only such name for the
 local and no other function shares either: a change through it is applied to that part of the local, so

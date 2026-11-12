@@ -67,7 +67,9 @@ All notable changes to this project are documented here. The format follows
   reaches the object it is called on. A function the config only calls by name takes each argument as its parameter,
   apart from what it returns, so a value a call may change (`_.defaults({}, env)`) passed to a function that builds a
   fresh config no longer leaves that config's `entry` unknown; one that returns its parameter, or stores it in what it
-  returns (`{ e: env }`, `config.x = env`), still shares it there.
+  returns (`{ e: env }`, `config.x = env`), still shares it there, as do a getter, method or callback in what it
+  returns and a parameter's default (`b = a`). Configs exported side by side (`module.exports = [a(), b()]`) no
+  longer leave each other partly unknown.
 
 ### Changed
 
