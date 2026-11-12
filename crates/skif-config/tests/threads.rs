@@ -110,7 +110,11 @@ fn a_sequential_loader_probes_package_files_on_the_calling_thread() {
 
     let (sequential, threads, max_count) = observe(true);
     assert_eq!(sequential.len(), MEMBERS / 8);
-    assert_eq!(threads, HashSet::from([caller]), "probing ran off the calling thread");
+    assert_eq!(
+        threads,
+        [caller].into_iter().collect::<HashSet<_>>(),
+        "probing ran off the calling thread"
+    );
     assert!(
         max_count <= before,
         "{max_count} threads during the run, {before} before"

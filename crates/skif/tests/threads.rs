@@ -116,7 +116,11 @@ fn one_thread_runs_discovery_and_graph_building_on_the_calling_thread() {
 
     let (sequential_diagnostics, threads, max_count) = observe(&fs, NonZeroUsize::MIN);
     assert!(fs.seen.lock().unwrap().calls > 20, "the run must reach the file system");
-    assert_eq!(threads, HashSet::from([caller]), "work ran off the calling thread");
+    assert_eq!(
+        threads,
+        [caller].into_iter().collect::<HashSet<_>>(),
+        "work ran off the calling thread"
+    );
     assert!(
         max_count <= before,
         "{max_count} threads during the run, {before} before"
