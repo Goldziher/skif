@@ -517,7 +517,7 @@ fn dependency_entry_spans() {
     let source = root.manifest.source();
     let text = |span: skif_core::Span| source[span.start as usize..span.end as usize].to_owned();
 
-    let entries: Vec<(DependencyKind, &str)> = root.dependencies.iter().map(|d| (d.kind, d.name.as_str())).collect();
+    let entries: Vec<(DependencyKind, &str)> = root.dependencies.iter().map(|d| (d.kind, &*d.name)).collect();
     assert_eq!(
         entries,
         [
@@ -529,7 +529,7 @@ fn dependency_entry_spans() {
     assert_eq!(text(first.key_span), "\"is-number\"");
     assert_eq!(text(first.value_span), "\"^7.0.0\"");
     assert_eq!((first.key_span.start_line, first.key_span.start_col), (4, 24));
-    assert_eq!(first.specifier, "^7.0.0");
+    assert_eq!(&*first.specifier, "^7.0.0");
     assert_eq!(root.dependency_map(DependencyKind::DevDependencies).unwrap().len(), 2);
     assert!(root.dependency_map(DependencyKind::PeerDependencies).is_none());
 }
@@ -1122,7 +1122,7 @@ fn a_dependency_declared_twice_in_a_section_is_collected_once_with_the_last_valu
         .root_package()
         .dependencies
         .iter()
-        .map(|entry| (entry.kind, entry.name.as_str(), entry.specifier.as_str()))
+        .map(|entry| (entry.kind, &*entry.name, &*entry.specifier))
         .collect();
     assert_eq!(
         entries,
@@ -1349,7 +1349,7 @@ fn equal_specifiers_are_parsed_once_per_workspace() {
         workspace
             .all_packages()
             .flat_map(|package| package.dependencies.iter())
-            .filter(|entry| entry.specifier == spec)
+            .filter(|entry| &*entry.specifier == spec)
             .map(|entry| std::sync::Arc::clone(&entry.parsed))
             .collect()
     };
@@ -1378,7 +1378,7 @@ fn a_section_written_twice_keeps_only_the_last_occurrence_like_the_json_value() 
         .dependencies
         .iter()
         .filter(|entry| entry.kind == DependencyKind::Dependencies)
-        .map(|entry| entry.name.as_str())
+        .map(|entry| &*entry.name)
         .collect();
     assert_eq!(production, ["c"]);
     assert_eq!(

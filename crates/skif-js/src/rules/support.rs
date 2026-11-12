@@ -81,7 +81,7 @@ pub(super) fn remove_dependency_fix(package: &Package, entry: &DependencyEntry) 
             package.manifest.path.clone(),
             vec![
                 PathSeg::Key(entry.kind.field().to_owned()),
-                PathSeg::Key(entry.name.clone()),
+                PathSeg::Key(entry.name.to_string()),
             ],
             JsonAction::Remove,
         )],
@@ -123,7 +123,7 @@ fn unused_dependency(meta: &'static RuleMeta, package: &Package, entry: &Depende
         entry_location(package, entry),
     )
     .package(package.display_name())
-    .dependency(entry.name.clone())
+    .dependency(&*entry.name)
     .help("remove it, or add it to `ignore-dependencies` when a tool uses it without importing it")
     .fix(remove_dependency_fix(package, entry))
     .build()

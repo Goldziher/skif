@@ -63,7 +63,7 @@ impl JsRule for UnlistedDependencies {
             let listed_as = package
                 .dependencies
                 .iter()
-                .find(|entry| entry.name == unlisted.name)
+                .find(|entry| *entry.name == *unlisted.name)
                 .map(|entry| entry.kind.field());
             if listed_as.is_none()
                 && let Some(foreign) = &unlisted.foreign_paths

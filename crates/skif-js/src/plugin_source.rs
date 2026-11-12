@@ -304,7 +304,7 @@ fn inherited_dependencies(request: &InputRequest<'_>) -> Vec<String> {
         .workspace
         .iter()
         .filter(|(_, other)| other.dir != *dir && (other.is_root || dir.starts_with(&other.dir)))
-        .flat_map(|(_, other)| other.dependencies.iter().map(|entry| entry.name.clone()))
+        .flat_map(|(_, other)| other.dependencies.iter().map(|entry| entry.name.to_string()))
         .chain(request.ancestor_dependencies.iter().cloned())
         .collect();
     names.sort();
@@ -326,7 +326,7 @@ fn dir_below(dir: &str, package_dir: &str) -> Option<String> {
 impl InputSource for PluginSource {
     fn inputs(&self, request: &InputRequest<'_>) -> WorkspaceInputs {
         let package = request.package;
-        let dependencies: Vec<String> = package.dependencies.iter().map(|entry| entry.name.clone()).collect();
+        let dependencies: Vec<String> = package.dependencies.iter().map(|entry| entry.name.to_string()).collect();
         let inherited = inherited_dependencies(request);
         let scripts = scripts(request);
         let dir = request.workspace.root.join(Path::new(&package.dir));

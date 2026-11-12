@@ -83,7 +83,7 @@ impl Rule for CatalogVersionDivergence {
                     .package(package.display_name())
                     .package_id(package.id)
                     .dependency(name.to_owned())
-                    .specifier(entry.specifier.clone())
+                    .specifier(&*entry.specifier)
                     .detail(DETAIL)
                     .help(HELP)
                     .build(),

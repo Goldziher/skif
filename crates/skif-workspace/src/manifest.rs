@@ -27,10 +27,10 @@ const SPAN_DEPTH: usize = 3;
 pub struct DependencyEntry {
     /// Which section the entry is in.
     pub kind: DependencyKind,
-    /// The dependency name.
-    pub name: String,
-    /// The specifier exactly as written.
-    pub specifier: String,
+    /// The dependency name, shared: a consumer that keeps it clones the `Arc` instead of the text.
+    pub name: Arc<str>,
+    /// The specifier exactly as written, shared like [`name`](Self::name).
+    pub specifier: Arc<str>,
     /// The specifier parsed once during discovery.
     pub parsed: Arc<Specifier>,
     /// Span of the key string, quotes included.
@@ -196,12 +196,12 @@ fn keep_last_duplicates(entries: &mut Vec<DependencyEntry>, from: usize) {
     let last: HashMap<&str, usize> = entries[from..]
         .iter()
         .enumerate()
-        .map(|(index, entry)| (entry.name.as_str(), index))
+        .map(|(index, entry)| (&*entry.name, index))
         .collect();
     let keep: Vec<bool> = entries[from..]
         .iter()
         .enumerate()
-        .map(|(index, entry)| last.get(entry.name.as_str()) == Some(&index))
+        .map(|(index, entry)| last.get(&*entry.name) == Some(&index))
         .collect();
     if keep.iter().all(|&kept| kept) {
         return;
@@ -249,8 +249,8 @@ impl<'c> Collector<'c> {
     fn entry(&mut self, kind: DependencyKind, name: &str, key: Range, specifier: &str, value: Range) {
         self.entries.push(DependencyEntry {
             kind,
-            name: name.to_owned(),
-            specifier: specifier.to_owned(),
+            name: name.into(),
+            specifier: specifier.into(),
             parsed: self.cache.get_or_parse(specifier),
             key_span: shift(key, self.bom, self.line_index),
             value_span: shift(value, self.bom, self.line_index),

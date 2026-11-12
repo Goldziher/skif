@@ -131,8 +131,8 @@ impl Rule for LocalPathDependency {
                 )
                 .package(package.display_name())
                 .package_id(package.id)
-                .dependency(entry.name.clone())
-                .specifier(entry.specifier.clone());
+                .dependency(&*entry.name)
+                .specifier(&*entry.specifier);
                 let link = member.and_then(|member| Some((member, link_specifier(workspace, member)?)));
                 builder = match link {
                     Some((member, replacement)) => builder

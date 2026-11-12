@@ -31,7 +31,7 @@ impl Rule for TypesInDependencies {
             let Some((first, rest)) = entries.split_first() else {
                 continue;
             };
-            let names: Vec<&str> = entries.iter().map(|entry| entry.name.as_str()).collect();
+            let names: Vec<&str> = entries.iter().map(|entry| &*entry.name).collect();
             let mut builder = diagnostic(
                 &META,
                 format!(
@@ -46,8 +46,8 @@ impl Rule for TypesInDependencies {
             )
             .package(package.display_name())
             .package_id(package.id)
-            .dependency(first.name.clone())
-            .specifier(first.specifier.clone())
+            .dependency(&*first.name)
+            .specifier(&*first.specifier)
             .help(
                 "move `@types/*` packages to `devDependencies`; a private package is never installed as a dependency",
             );

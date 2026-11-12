@@ -51,7 +51,7 @@ impl JsRule for UnusedSubpathExports {
             let listed_by_unknown = package.name.as_deref().is_some_and(|name| {
                 unknown_importers
                     .iter()
-                    .any(|importer| importer.dependencies.iter().any(|entry| entry.name == name))
+                    .any(|importer| importer.dependencies.iter().any(|entry| &*entry.name == name))
             });
             if unknown_imports(analysis, id) || listed_by_unknown || analysis.imported_by_other_roots.contains(&id) {
                 continue;

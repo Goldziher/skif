@@ -46,8 +46,8 @@ impl Rule for UnresolvedCatalogReferences {
                     )
                     .package(package.display_name())
                     .package_id(package.id)
-                    .dependency(entry.name.clone())
-                    .specifier(entry.specifier.clone())
+                    .dependency(&*entry.name)
+                    .specifier(&*entry.specifier)
                     .detail(DETAIL)
                     .help(HELP)
                     .build(),

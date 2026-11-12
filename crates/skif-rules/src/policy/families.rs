@@ -247,7 +247,7 @@ impl Rule for UnsyncedDependencyFamily {
             for entry in package.dependencies.iter().filter(|entry| {
                 entry.kind != DependencyKind::PeerDependencies && (scope.is_empty() || scope.matches_kind(entry.kind))
             }) {
-                let of = memberships.entry(entry.name.as_str()).or_insert_with(|| {
+                let of = memberships.entry(&*entry.name).or_insert_with(|| {
                     families
                         .iter()
                         .enumerate()
@@ -290,8 +290,8 @@ impl Rule for UnsyncedDependencyFamily {
                         )
                         .package(package.display_name())
                         .package_id(package.id)
-                        .dependency(entry.name.clone())
-                        .specifier(entry.specifier.clone())
+                        .dependency(&*entry.name)
+                        .specifier(&*entry.specifier)
                         .help(format!(
                             "align `{}` with the other `{}` packages",
                             entry.name, family.name

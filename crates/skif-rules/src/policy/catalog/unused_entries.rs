@@ -43,7 +43,7 @@ impl Rule for UnusedCatalogEntries {
         let used: BTreeSet<(CatalogName, &str)> = workspace
             .all_packages()
             .flat_map(|package| &package.dependencies)
-            .filter_map(|entry| Some((referenced(&entry.specifier)?, entry.name.as_str())))
+            .filter_map(|entry| Some((referenced(&entry.specifier)?, &*entry.name)))
             .chain(
                 overrides
                     .iter()

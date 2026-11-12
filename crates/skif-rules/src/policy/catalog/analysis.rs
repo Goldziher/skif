@@ -165,7 +165,7 @@ impl UsageIndex {
                 .filter(|(_, entry)| workspace.package_by_name(&entry.name).is_none())
                 .filter(|(_, entry)| !claims.claims(package, entry))
             {
-                let usage = by_name.entry(entry.name.as_str()).or_default();
+                let usage = by_name.entry(&*entry.name).or_default();
                 usage.packages.insert(package.id);
                 if entry.parsed.is_catalog() {
                     usage.references.push((package.id, position));
@@ -238,7 +238,7 @@ fn entry_version(plain: &[Instance<'_>]) -> Option<String> {
         .iter()
         .all(|instance| instance.entry.specifier == first.entry.specifier)
     {
-        return Some(first.entry.specifier.clone());
+        return Some(first.entry.specifier.to_string());
     }
     if plain
         .iter()
@@ -255,7 +255,7 @@ fn entry_version(plain: &[Instance<'_>]) -> Option<String> {
                 .cmp(&floor_version(&b.entry.parsed))
                 .then_with(|| a.entry.parsed.cmp(&b.entry.parsed))
         })
-        .map(|best| best.entry.specifier.clone())
+        .map(|best| best.entry.specifier.to_string())
 }
 
 enum Placement {
@@ -459,8 +459,8 @@ pub(super) fn emit(
     let mut builder = diagnostic(meta, message, value_location(package, entry))
         .package(package.display_name())
         .package_id(package.id)
-        .dependency(entry.name.clone())
-        .specifier(entry.specifier.clone())
+        .dependency(&*entry.name)
+        .specifier(&*entry.specifier)
         .detail(finding.kind.state());
     if let Some(severity) = severity {
         builder = builder.default_severity(severity);
@@ -530,7 +530,7 @@ mod tests {
                 package
                     .dependencies
                     .iter()
-                    .filter(|entry| entry.name == "react")
+                    .filter(|entry| &*entry.name == "react")
                     .map(move |entry| Instance { package, entry })
             })
             .collect();

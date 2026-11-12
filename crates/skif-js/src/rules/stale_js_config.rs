@@ -289,7 +289,7 @@ fn top_level_ignore_lists<'a>(analysis: &'a JsAnalysis<'_>, ran: ListsRan) -> Ve
         .workspace
         .iter()
         .filter(|(id, _)| !analysis.is_skipped(*id) && analysis.entries_incomplete(*id))
-        .flat_map(|(_, package)| package.dependencies.iter().map(|entry| entry.name.as_str()))
+        .flat_map(|(_, package)| package.dependencies.iter().map(|entry| &*entry.name))
         .collect::<Vec<_>>();
     let mut keyed: Vec<JudgedList<'_>> = Vec::new();
     if ran.dependencies {
