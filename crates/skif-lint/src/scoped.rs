@@ -2,7 +2,7 @@ use skif_core::HashMap;
 use std::borrow::Cow;
 use std::path::PathBuf;
 
-use skif_config::{Config, Level, Override};
+use skif_config::{Config, Level, Override, Selector};
 use skif_core::{Diagnostic, Severity};
 use skif_workspace::Workspace;
 
@@ -34,6 +34,46 @@ pub struct Scopes {
     file_scoped: Vec<usize>,
     max_level: Option<Level>,
     cli_levels: HashMap<String, Level>,
+}
+
+/// For each of `packages`, the overrides of `package_scoped` (indices into `overrides`, ascending) that cover it, in
+/// configuration order.
+///
+/// An override that selects by literal names and directories only (every package file's `packages = ["./"]`) is
+/// found through an index of those literals, so the packages are not each matched against every override.
+fn covering_overrides(packages: &[PackageFacts], overrides: &[Override], package_scoped: &[usize]) -> Vec<Vec<usize>> {
+    let mut by_literal: HashMap<&str, Vec<usize>> = HashMap::default();
+    let mut matched = Vec::new();
+    for &index in package_scoped {
+        match overrides[index].literal_packages() {
+            Some(literals) => {
+                for literal in literals {
+                    by_literal.entry(literal).or_default().push(index);
+                }
+            }
+            None => matched.push(index),
+        }
+    }
+    packages
+        .iter()
+        .map(|facts| {
+            let package = Some((facts.name.as_str(), facts.dir.as_path()));
+            let dir = skif_core::slash(&facts.dir);
+            let mut covering: Vec<usize> = matched
+                .iter()
+                .copied()
+                .filter(|index| overrides[*index].applies_to(package, None))
+                .collect();
+            for key in [facts.name.as_str(), dir.as_str()] {
+                if let Some(indices) = by_literal.get(Selector::literal_key(key).as_ref()) {
+                    covering.extend_from_slice(indices);
+                }
+            }
+            covering.sort_unstable();
+            covering.dedup();
+            covering
+        })
+        .collect()
 }
 
 #[derive(Debug)]
@@ -74,17 +114,7 @@ impl Scopes {
         let (file_scoped, package_scoped): (Vec<usize>, Vec<usize>) = (0..config.overrides.len())
             .filter(|index| relevant[*index])
             .partition(|index| !config.overrides[*index].files.is_empty());
-        let covering: Vec<Vec<usize>> = packages
-            .iter()
-            .map(|facts| {
-                let package = Some((facts.name.as_str(), facts.dir.as_path()));
-                package_scoped
-                    .iter()
-                    .copied()
-                    .filter(|index| config.overrides[*index].applies_to(package, None))
-                    .collect::<Vec<usize>>()
-            })
-            .collect();
+        let covering = covering_overrides(&packages, &config.overrides, &package_scoped);
         let covering_unowned: Vec<usize> = package_scoped
             .iter()
             .copied()
@@ -187,5 +217,47 @@ impl Scopes {
             severity = severity.min(cap.severity()?);
         }
         Some(severity)
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use skif_config::{Ceiling, ConfigCache, ConfigLoader};
+    use skif_core::MemoryFs;
+
+    use super::{PackageFacts, covering_overrides};
+
+    #[test]
+    fn literal_and_glob_overrides_cover_packages_once_each_in_configuration_order() {
+        let fs = MemoryFs::new().with_file(
+            "/ws/skif.toml",
+            "[[overrides]]\npackages = [\"a\", \"./packages/a\"]\n[overrides.rules]\ndemo = \"error\"\n\
+             [[overrides]]\npackages = [\"*\"]\n[overrides.rules]\ndemo = \"info\"\n\
+             [[overrides]]\npackages = [\"./packages/b\"]\n[overrides.rules]\ndemo = \"error\"\n\
+             [[overrides]]\npackages = [\"b\", \"!root\"]\n[overrides.rules]\ndemo = \"off\"\n",
+        );
+        let config = ConfigLoader::new(&fs, &ConfigCache::new())
+            .resolve(Path::new("/ws"), &Ceiling::RootOnly)
+            .unwrap()
+            .config;
+        let facts = |name: &str, dir: &str| PackageFacts {
+            name: name.to_owned(),
+            dir: PathBuf::from(dir),
+        };
+        let packages = [
+            facts("root", "/ws"),
+            facts("a", "/ws/packages/a"),
+            facts("b", "/ws/packages/b"),
+            facts("c", "/ws/packages/c"),
+        ];
+        assert!(config.overrides[0].literal_packages().is_some());
+        assert!(config.overrides[1].literal_packages().is_none());
+        assert_eq!(
+            covering_overrides(&packages, &config.overrides, &[0, 1, 2, 3]),
+            [vec![1], vec![0, 1], vec![1, 2, 3], vec![1]]
+        );
     }
 }
