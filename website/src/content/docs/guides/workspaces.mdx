@@ -198,6 +198,9 @@ skif -r --format json    # one document with a "roots" array
   excludes, and the directories named by `[workspace] discover-ignore` (by default `__fixtures__`, `fixtures`,
   `__mocks__` and `__snapshots__`). It goes at most 32 directories deep; the directories it did not enter below that
   limit are named on stderr and in the `truncated` array of the JSON document.
+- Below the start path the search also skips the output of `turbo prune --docker`: the `json` and `full` trees of a
+  directory without a `package.json` that holds a lockfile next to them (`out/` by default). Both trees copy packages
+  of the workspace they were pruned from. Start the run in that directory to lint them.
 - A root that cannot be loaded does not stop the others: it is listed in the `errors` array of the JSON document and
   the exit code is `2`.
 - `--config <FILE>` makes that file the configuration of every root. Its `[js.workspaces]` keys and
