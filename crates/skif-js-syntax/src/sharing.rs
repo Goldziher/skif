@@ -6,15 +6,6 @@
 //! changed (`const a = cfg`, `{ test: t }`, `{ ...base }`, `f(cfg)`). Reading one of them yields a value that says it
 //! may hold more than the evaluator saw.
 //!
-//! A change is tracked to the part of a binding it reaches: a write through `cfg.module.rules` changes what the list
-//! there holds, and a binding that holds `t` under `test` changes under `test` when `t` does, so the rest of the
-//! binding stays known. Where a value holds a binding at a place the pass cannot follow (an argument of an unknown
-//! call, an element of an array, a spread), anything at or below that place may change. A value that holds no object
-//! shares none: a `const` initialised to a string, a number or a template, and the result of a well-known function
-//! that changes nothing it is given and returns a value of its own ([`PURE_FUNCTIONS`], such as `path.join` and
-//! `fs.readFileSync`). A call of a function the module declares is followed through what its parameters take and what
-//! it returns, so `const r = set(cfg)` shares with `cfg` only what `set` may return of it.
-//!
 //! A `const` that takes a part of a local of its own function (`const { coverage } = config.test`) is the exception
 //! when the evaluator can follow it ([`Unstable::follows`]): it then applies the changes made through the alias to the
 //! local itself, so they do not mark the local, nor what may share an object with it.
@@ -22,86 +13,22 @@
 use std::collections::BTreeMap;
 
 use oxc_ast::ast::{
-    Argument, ArrayExpression, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator,
-    AssignmentTargetPropertyIdentifier, BindingIdentifier, BindingPattern, CallExpression, ChainExpression,
-    ComputedMemberExpression, Expression, ExpressionStatement, FormalParameters, Function, IdentifierReference,
-    MemberExpression, NewExpression, ObjectExpression, ObjectPropertyKind, PrivateFieldExpression, Program,
-    PropertyKind, ReturnStatement, SimpleAssignmentTarget, StaticMemberExpression, TaggedTemplateExpression,
-    UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
+    Argument, ArrowFunctionExpression, AssignmentExpression, AssignmentTargetPropertyIdentifier, BindingIdentifier,
+    BindingPattern, CallExpression, Expression, ExpressionStatement, FormalParameters, Function, IdentifierReference,
+    MemberExpression, Program, ReturnStatement, SimpleAssignmentTarget, UnaryExpression, UnaryOperator,
+    VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::{ReferenceId, ScopeFlags, ScopeId, Scoping, SemanticBuilder, SymbolId};
 use skif_core::{HashMap, HashSet};
 
-use crate::config::defined;
-
-/// The most keys a path below a binding keeps; a longer one is cut to this many, standing for all that is below it.
-const MAX_KEYS: usize = 8;
-
-/// The most places one change is followed to; past it, every binding linked to the changed one counts as changed in
-/// full, as when changes were not tracked to a part.
-const MAX_PLACES: usize = 256;
-
 /// How code the evaluator does not follow may change a binding.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Change {
-    /// The parts of the objects or arrays it holds that these change, none covering another ([`Write::covers`]).
-    Contents(Vec<Write>),
+    /// What the object or array it holds contains.
+    Contents,
     /// The binding itself: it may hold any value.
     Any,
-}
-
-impl Change {
-    /// The change that is both this one and `other`.
-    fn with(self, other: Self) -> Self {
-        match (self, other) {
-            (Self::Contents(mut writes), Self::Contents(more)) => {
-                for write in more {
-                    add_write(&mut writes, write);
-                }
-                Self::Contents(writes)
-            }
-            _ => Self::Any,
-        }
-    }
-}
-
-/// Adds `write` to `writes` unless one of them covers it, dropping those it covers.
-fn add_write(writes: &mut Vec<Write>, write: Write) {
-    if writes.iter().any(|known| known.covers(&write)) {
-        return;
-    }
-    writes.retain(|known| !write.covers(known));
-    writes.push(write);
-}
-
-/// A change below a binding: of what the object or array at `keys` holds, anything below it included, or with `key`,
-/// of the value of that key of the object there (`cfg.output.path = …` is `["output"]` and `path`). The empty path is
-/// the object or array the binding holds itself.
-#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct Write {
-    pub(crate) keys: Vec<String>,
-    pub(crate) key: Option<String>,
-}
-
-impl Write {
-    fn contents(keys: Vec<String>) -> Self {
-        Self { keys, key: None }
-    }
-
-    /// The path of what the change replaces or changes: `keys`, and `key` after them.
-    fn path(&self) -> Vec<String> {
-        self.keys.iter().chain(&self.key).cloned().collect()
-    }
-
-    /// Whether this change changes all that `other` does: a change of what an object holds covers every change at or
-    /// below it, and a new value of a key every change at or below that key.
-    fn covers(&self, other: &Self) -> bool {
-        match self.key {
-            None => other.keys.starts_with(&self.keys),
-            Some(_) => other.path().starts_with(&self.path()),
-        }
-    }
 }
 
 /// The bindings of a module that code the evaluator does not follow may change.
@@ -126,9 +53,7 @@ impl Unstable {
             mutated: Vec::new(),
             changes: BTreeMap::new(),
             aliases: Vec::new(),
-            primitives: HashSet::default(),
             in_const: false,
-            callables: callables(program, scoping),
         };
         sharing.visit_program(program);
         let followed = sharing.share();
@@ -136,15 +61,12 @@ impl Unstable {
             followed,
             ..Self::default()
         };
-        for (symbol, mut change) in sharing.changes {
-            if let Change::Contents(writes) = &mut change {
-                writes.sort();
-            }
+        for (symbol, change) in sharing.changes {
             if scoping.symbol_scope_id(symbol) == scoping.root_scope_id() {
                 unstable.top.insert(scoping.symbol_name(symbol).to_owned(), change);
             } else {
                 for &reference in scoping.get_resolved_reference_ids(symbol) {
-                    unstable.reads.insert(reference, change.clone());
+                    unstable.reads.insert(reference, change);
                 }
             }
         }
@@ -152,13 +74,13 @@ impl Unstable {
     }
 
     /// How the binding a reference to a function's local reads may have changed.
-    pub(crate) fn of_reference(&self, id: &IdentifierReference<'_>) -> Option<&Change> {
-        self.reads.get(&id.reference_id.get()?)
+    pub(crate) fn of_reference(&self, id: &IdentifierReference<'_>) -> Option<Change> {
+        self.reads.get(&id.reference_id.get()?).copied()
     }
 
     /// How the top-level binding `name` may have changed.
-    pub(crate) fn of_top(&self, name: &str) -> Option<&Change> {
-        self.top.get(name)
+    pub(crate) fn of_top(&self, name: &str) -> Option<Change> {
+        self.top.get(name).copied()
     }
 
     /// Whether the evaluator follows the alias `id` declares ([`alias_source`]): it applies the changes made through
@@ -170,103 +92,24 @@ impl Unstable {
     }
 }
 
-/// A part of a binding: what it holds at `keys` below it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Place {
-    symbol: SymbolId,
-    keys: Vec<String>,
-}
-
-impl Place {
-    fn of(symbol: SymbolId) -> Self {
-        Self {
-            symbol,
-            keys: Vec::new(),
-        }
-    }
-}
-
-/// Two places that may hold the same object: with `exact`, each is the other (`cfg.test` is `t`); otherwise one may
-/// hold an object of the other anywhere at or below it (`cfg.list` after `cfg.list.push(t)`).
-struct Link {
-    a: Place,
-    b: Place,
-    exact: bool,
-}
-
-/// A part of a binding that a value may hold or share: `symbol` at `keys` (`cfg.test`), found at `at` in the value.
-/// With `exact`, that part is the value there; otherwise it is somewhere at or below `at`.
-#[derive(Clone)]
-struct Held {
-    symbol: SymbolId,
-    keys: Vec<String>,
-    at: Vec<String>,
-    exact: bool,
-}
-
 struct Sharing<'s> {
     scoping: &'s Scoping,
     /// The scopes of the functions being visited, the module's first.
     functions: Vec<ScopeId>,
-    /// Places that may hold the same object.
-    links: Vec<Link>,
-    /// The bindings whose object or array code changes, with the part it changes.
-    mutated: Vec<(SymbolId, Write)>,
+    /// Pairs of bindings that may hold the same object.
+    links: Vec<(SymbolId, SymbolId)>,
+    /// Bindings whose object or array code changes.
+    mutated: Vec<SymbolId>,
     changes: BTreeMap<SymbolId, Change>,
     /// The aliases declared, each with the local it takes a part of; linked only when it is not followed.
     aliases: Vec<(SymbolId, SymbolId)>,
-    /// The `const` bindings that hold a primitive value ([`is_primitive`]), which shares no object.
-    primitives: HashSet<SymbolId>,
     /// Whether the declarations being visited are `const`.
     in_const: bool,
-    /// The functions the module declares ([`callables`]).
-    callables: HashSet<SymbolId>,
 }
 
 impl Sharing<'_> {
     fn symbol(&self, id: &IdentifierReference<'_>) -> Option<SymbolId> {
         local_symbol(self.scoping, id)
-    }
-
-    /// The part of a local that `expr` (a name or a member chain) is, and whether it is that part exactly; see [`reach`].
-    fn place(&self, expr: &Expression<'_>) -> Option<(Place, bool)> {
-        let (id, keys, exact) = reach(expr)?;
-        Some((
-            Place {
-                symbol: self.symbol(id)?,
-                keys,
-            },
-            exact,
-        ))
-    }
-
-    /// The part of a local that the member target of an assignment (`cfg.a.b`) is, and whether it is that part
-    /// exactly.
-    fn member_place(&self, member: &MemberExpression<'_>) -> Option<(Place, bool)> {
-        let (mut place, exact) = self.place(member.object())?;
-        match member.static_property_name() {
-            Some(key) if exact => {
-                place.keys.push(crate::js_string(key));
-                Some((place, true))
-            }
-            _ => Some((place, false)),
-        }
-    }
-
-    /// Records the write of the member target of an assignment: a new value of its key in the object at its path, or
-    /// a change of what that object holds when the key is not static.
-    fn set(&mut self, member: &MemberExpression<'_>) {
-        let Some((place, exact)) = self.place(member.object()) else {
-            return;
-        };
-        let write = match member.static_property_name() {
-            Some(key) if exact => Write {
-                keys: place.keys,
-                key: Some(crate::js_string(key)),
-            },
-            _ => Write::contents(place.keys),
-        };
-        self.changed(place.symbol, write);
     }
 
     /// The function (or module) whose binding `symbol` is.
@@ -282,11 +125,8 @@ impl Sharing<'_> {
     }
 
     fn change(&mut self, symbol: SymbolId, change: Change) {
-        let merged = match self.changes.remove(&symbol) {
-            Some(existing) => existing.with(change),
-            None => change,
-        };
-        self.changes.insert(symbol, merged);
+        let entry = self.changes.entry(symbol).or_insert(change);
+        *entry = (*entry).max(change);
     }
 
     /// Records a write of `symbol`; one from a function other than its own may happen at any time.
@@ -298,74 +138,25 @@ impl Sharing<'_> {
 
     /// Records a change of the object `expr` (a name or a member chain) holds.
     fn mutate(&mut self, expr: &Expression<'_>) {
-        if let Some((place, _)) = self.place(expr) {
-            self.changed(place.symbol, Write::contents(place.keys));
+        if let Some(symbol) = root_reference(expr).and_then(|id| self.symbol(id)) {
+            self.mutated.push(symbol);
+            self.written(symbol, Change::Contents);
         }
     }
 
-    /// Records the change `write` of the object `symbol` holds.
-    fn changed(&mut self, symbol: SymbolId, write: Write) {
-        self.written(symbol, Change::Contents(vec![write.clone()]));
-        self.mutated.push((symbol, write));
-    }
-
-    /// Links `hub` to each part a value it holds may hold: at the place in the value it is found when `exact`, and
-    /// anywhere at or below the hub otherwise.
-    fn hold(&mut self, hub: &Place, exact: bool, held: Vec<Held>) {
-        for item in held {
-            let mut keys = hub.keys.clone();
-            if exact {
-                keys.extend(item.at);
-            }
-            self.links.push(Link {
-                a: Place {
-                    symbol: hub.symbol,
-                    keys,
-                },
-                b: Place {
-                    symbol: item.symbol,
-                    keys: item.keys,
-                },
-                exact: exact && item.exact,
-            });
+    fn link(&mut self, symbols: &[SymbolId]) {
+        for pair in symbols.windows(2) {
+            self.links.push((pair[0], pair[1]));
         }
     }
 
-    /// Links the parts that values with no binding to hold them may share among themselves (`f(a, b)`).
-    fn link_among(&mut self, held: &[Held]) {
-        for pair in held.windows(2) {
-            self.links.push(Link {
-                a: Place {
-                    symbol: pair[0].symbol,
-                    keys: pair[0].keys.clone(),
-                },
-                b: Place {
-                    symbol: pair[1].symbol,
-                    keys: pair[1].keys.clone(),
-                },
-                exact: false,
-            });
-        }
-    }
-
-    /// Links `hub`, when there is one, to what `held` holds, and what `held` holds among itself otherwise.
-    fn hold_or_link(&mut self, hub: Option<(Place, bool)>, held: Vec<Held>) {
-        match hub {
-            Some((place, exact)) => self.hold(&place, exact, held),
-            None => self.link_among(&held),
-        }
-    }
-
-    /// The parts of locals the value `visit` visits may hold; with `function`, the value is a function, which stands
-    /// for its parameters and what it returns.
-    fn refs(&self, function: bool, visit: impl FnOnce(&mut Refs<'_>)) -> Vec<Held> {
+    /// The symbols the value `visit` visits may hold; with `function`, the value is a function, which stands for its
+    /// parameters and what it returns.
+    fn refs(&self, function: bool, visit: impl FnOnce(&mut Refs<'_>)) -> Vec<SymbolId> {
         let mut refs = Refs {
             scoping: self.scoping,
-            callables: &self.callables,
-            part: if function { Part::Function } else { Part::Value },
-            at: Vec::new(),
-            exact: true,
-            frozen: false,
+            function,
+            in_body: false,
             out: Vec::new(),
         };
         visit(&mut refs);
@@ -390,34 +181,28 @@ impl Sharing<'_> {
         Some((names, root))
     }
 
-    /// The pairs of bindings the links join, whatever the parts.
-    fn pairs(&self) -> Vec<(SymbolId, SymbolId)> {
-        self.links.iter().map(|link| (link.a.symbol, link.b.symbol)).collect()
-    }
-
     /// Whether the evaluator follows the alias at `index` of [`Self::aliases`]; see [`Unstable::follows`].
     fn follows(&self, index: usize) -> bool {
         let (alias, root) = self.aliases[index];
         self.aliases.iter().filter(|(_, other)| *other == root).count() == 1
             && !self.changes.contains_key(&alias)
             && !self.changes.contains_key(&root)
-            && !self.mutated.iter().any(|(symbol, _)| *symbol == root)
+            && !self.mutated.contains(&root)
             && !self.shares_with_changed(alias)
     }
 
     /// Whether `symbol` may share an object, through the links made so far, with another binding whose object or
     /// array code changes.
     fn shares_with_changed(&self, symbol: SymbolId) -> bool {
-        let mut parent = forest(&self.pairs());
+        let mut parent = forest(&self.links);
         let class = find(&mut parent, symbol);
         self.mutated
             .iter()
-            .any(|&(other, _)| other != symbol && find(&mut parent, other) == class)
+            .any(|&other| other != symbol && find(&mut parent, other) == class)
     }
 
     /// Links every alias the evaluator does not follow to the local it takes a part of, until no more is linked (a
-    /// link may make another alias one that shares an object), and returns the followed ones. Such a link stands for
-    /// the whole local, as it is not tracked which part the alias takes.
+    /// link may make another alias one that shares an object), and returns the followed ones.
     fn link_aliases(&mut self) -> HashSet<SymbolId> {
         let mut linked = vec![false; self.aliases.len()];
         loop {
@@ -429,12 +214,7 @@ impl Sharing<'_> {
             }
             for index in unfollowed {
                 linked[index] = true;
-                let (alias, root) = self.aliases[index];
-                self.links.push(Link {
-                    a: Place::of(alias),
-                    b: Place::of(root),
-                    exact: false,
-                });
+                self.links.push(self.aliases[index]);
             }
         }
         self.aliases
@@ -445,129 +225,39 @@ impl Sharing<'_> {
             .collect()
     }
 
-    /// Drops the links and changes of bindings that hold a primitive value, which share no object.
-    fn drop_primitives(&mut self) {
-        let primitives = &self.primitives;
-        self.links
-            .retain(|link| !primitives.contains(&link.a.symbol) && !primitives.contains(&link.b.symbol));
-        self.mutated.retain(|(symbol, _)| !primitives.contains(symbol));
-        self.changes.retain(|symbol, _| !primitives.contains(symbol));
-    }
-
-    /// The indices of the links of each binding.
-    fn links_of(&self) -> HashMap<SymbolId, Vec<usize>> {
-        let mut out: HashMap<SymbolId, Vec<usize>> = HashMap::default();
-        for (index, link) in self.links.iter().enumerate() {
-            out.entry(link.a.symbol).or_default().push(index);
-            if link.b.symbol != link.a.symbol {
-                out.entry(link.b.symbol).or_default().push(index);
-            }
-        }
-        out
-    }
-
-    /// The bindings a change `origin` of `symbol` reaches through the links (`links_of`, by binding), with the part it
-    /// changes there, `symbol` among them; see [`through`].
-    fn reached(
-        &self,
-        links_of: &HashMap<SymbolId, Vec<usize>>,
-        symbol: SymbolId,
-        origin: &Write,
-    ) -> Vec<(SymbolId, Write)> {
-        let mut seen = vec![(symbol, origin.clone())];
-        let mut queue = seen.clone();
-        while let Some((at, write)) = queue.pop() {
-            for &index in links_of.get(&at).map_or(&[][..], Vec::as_slice) {
-                let link = &self.links[index];
-                for (from, to) in [(&link.a, &link.b), (&link.b, &link.a)] {
-                    if from.symbol != at {
-                        continue;
-                    }
-                    let Some(mut next) = through(from, to, link.exact, &write) else {
-                        continue;
-                    };
-                    if next.keys.len() > MAX_KEYS {
-                        next = Write::contents(next.keys[..MAX_KEYS].to_vec());
-                    }
-                    if seen
-                        .iter()
-                        .any(|(known, change)| *known == to.symbol && change.covers(&next))
-                    {
-                        continue;
-                    }
-                    if seen.len() >= MAX_PLACES {
-                        return self.linked_in_full(symbol);
-                    }
-                    seen.push((to.symbol, next.clone()));
-                    queue.push((to.symbol, next));
-                }
-            }
-        }
-        seen
-    }
-
-    /// Every binding linked to `symbol`, whatever the parts, changed in full.
-    fn linked_in_full(&self, symbol: SymbolId) -> Vec<(SymbolId, Write)> {
-        let mut parent = forest(&self.pairs());
-        let class = find(&mut parent, symbol);
-        let mut symbols: Vec<SymbolId> = parent.keys().copied().collect();
-        symbols.sort_unstable();
-        symbols
-            .into_iter()
-            .filter(|&other| find(&mut parent, other) == class)
-            .map(|other| (other, Write::default()))
-            .collect()
-    }
-
-    /// Marks every part of a binding that may share an object with a changed one, other than of the binding changed,
-    /// and returns the aliases the evaluator follows, which mark nothing.
+    /// Marks every binding that may share an object with a changed one, other than a binding changed on its own, and
+    /// returns the aliases the evaluator follows, which mark nothing.
     fn share(&mut self) -> HashSet<SymbolId> {
-        self.drop_primitives();
         let followed = self.link_aliases();
-        let mut origins: Vec<(SymbolId, Write)> = Vec::new();
-        for origin in &self.mutated {
-            if !origins.contains(origin) {
-                origins.push(origin.clone());
+        let mut parent = forest(&self.links);
+        let mut changed: HashMap<SymbolId, Vec<SymbolId>> = HashMap::default();
+        for &symbol in &self.mutated {
+            let class = changed.entry(find(&mut parent, symbol)).or_default();
+            if !class.contains(&symbol) {
+                class.push(symbol);
             }
         }
-        let links_of = self.links_of();
-        for (symbol, origin) in origins {
-            for (other, write) in self.reached(&links_of, symbol, &origin) {
-                if other != symbol {
-                    self.change(other, Change::Contents(vec![write]));
-                }
+        let symbols: Vec<SymbolId> = parent.keys().copied().collect();
+        for symbol in symbols {
+            let root = find(&mut parent, symbol);
+            if changed
+                .get(&root)
+                .is_some_and(|class| class.len() > 1 || class[0] != symbol)
+            {
+                self.change(symbol, Change::Contents);
             }
         }
         followed
     }
 }
 
-/// The change of `to` that the change `write` of the binding of `from` makes through a link of `from` to `to`: as far
-/// below `to` as `write` is below `from`, when the link is exact and `write` is at or below `from`; of all of `to` when
-/// the link is not exact and `write` is at or below `from`, or when `write` changes what an object above `from` holds;
-/// none when they are apart, or when `from` is below a key `write` gives a new value, which leaves the value it held
-/// as it was.
-fn through(from: &Place, to: &Place, exact: bool, write: &Write) -> Option<Write> {
-    if write.keys.starts_with(&from.keys) {
-        if !exact {
-            return Some(Write::contents(to.keys.clone()));
-        }
-        let mut keys = to.keys.clone();
-        keys.extend_from_slice(&write.keys[from.keys.len()..]);
-        return Some(Write {
-            keys,
-            key: write.key.clone(),
-        });
-    }
-    (from.keys.starts_with(&write.keys) && write.key.is_none()).then(|| Write::contents(to.keys.clone()))
-}
-
 impl<'a> Visit<'a> for Sharing<'_> {
     fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
         // A declared function's name stands for what its parameters take and what it returns.
         if let Some(symbol) = it.id.as_ref().and_then(|id| id.symbol_id.get()) {
-            let held = self.refs(true, |refs| refs.visit_function(it, flags));
-            self.hold(&Place::of(symbol), true, held);
+            let mut held = vec![symbol];
+            held.extend(self.refs(true, |refs| refs.visit_function(it, flags)));
+            self.link(&held);
         }
         self.functions
             .push(it.scope_id.get().unwrap_or_else(|| self.scoping.root_scope_id()));
@@ -594,45 +284,37 @@ impl<'a> Visit<'a> for Sharing<'_> {
         {
             self.aliases.extend(names.into_iter().map(|name| (name, root)));
         } else if let Some(init) = &it.init {
-            let function = matches!(
-                init.get_inner_expression(),
-                Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
-            );
-            let held = self.refs(function, |refs| refs.visit_expression(init));
-            // A name of a destructuring takes a part of the value that is not tracked.
-            let whole = matches!(it.id, BindingPattern::BindingIdentifier(_));
-            let names: Vec<SymbolId> = it
+            let mut held: Vec<SymbolId> = it
                 .id
                 .get_binding_identifiers()
                 .iter()
                 .filter_map(|id| id.symbol_id.get())
                 .collect();
-            if whole && self.in_const && is_primitive(init) {
-                self.primitives.extend(names.iter().copied());
-            }
-            if names.is_empty() {
-                self.link_among(&held);
-            }
-            for name in names {
-                self.hold(&Place::of(name), whole, held.clone());
-            }
+            let function = matches!(
+                init.get_inner_expression(),
+                Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+            );
+            held.extend(self.refs(function, |refs| refs.visit_expression(init)));
+            self.link(&held);
         }
         walk::walk_variable_declarator(self, it);
     }
 
     fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
         // What the target is written with may be shared with it; the target itself is visited by the walk.
-        let hub = match it.left.as_simple_assignment_target() {
-            Some(SimpleAssignmentTarget::AssignmentTargetIdentifier(id)) => {
-                self.symbol(id).map(|symbol| (Place::of(symbol), true))
-            }
-            Some(target) => target
-                .as_member_expression()
-                .and_then(|member| self.member_place(member)),
-            None => None,
-        };
-        let held = self.refs(false, |refs| refs.visit_expression(&it.right));
-        self.hold_or_link(hub, held);
+        let mut held = Vec::new();
+        match it.left.as_simple_assignment_target() {
+            Some(SimpleAssignmentTarget::AssignmentTargetIdentifier(id)) => held.extend(self.symbol(id)),
+            Some(target) => held.extend(
+                target
+                    .as_member_expression()
+                    .and_then(|member| root_reference(member.object()))
+                    .and_then(|id| self.symbol(id)),
+            ),
+            None => {}
+        }
+        held.extend(self.refs(false, |refs| refs.visit_expression(&it.right)));
+        self.link(&held);
         walk::walk_assignment_expression(self, it);
     }
 
@@ -645,7 +327,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
             }
             other => {
                 if let Some(member) = other.as_member_expression() {
-                    self.set(member);
+                    self.mutate(member.object());
                 }
             }
         }
@@ -669,40 +351,28 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
-        if pure_function(it).is_some() {
-            return walk::walk_call_expression(self, it);
-        }
-        // A function the module declares, given its arguments one by one, stands for its parameters; any other
-        // function, and a method in its object, may keep what it is given anywhere.
-        let hub = match it.callee.get_inner_expression() {
-            Expression::Identifier(id) => {
-                let exact = calls_callable(self.scoping, &self.callables, it);
-                self.symbol(id).map(|symbol| (Place::of(symbol), exact))
-            }
+        let mut held = Vec::new();
+        match it.callee.get_inner_expression() {
+            Expression::Identifier(id) => held.extend(self.symbol(id)),
             callee => {
                 if let Some(target) = changed_by_call(it) {
                     self.mutate(target);
                 }
-                callee
-                    .as_member_expression()
-                    .and_then(|member| self.place(member.object()))
-                    .map(|(place, _)| (place, false))
+                if let Some(member) = callee.as_member_expression() {
+                    held.extend(root_reference(member.object()).and_then(|id| self.symbol(id)));
+                }
             }
-        };
-        let held: Vec<Held> = it
-            .arguments
-            .iter()
-            .flat_map(|argument| self.refs(false, |refs| refs.visit_argument(argument)))
-            .collect();
-        self.hold_or_link(hub, held);
+        }
+        for argument in &it.arguments {
+            held.extend(self.refs(false, |refs| refs.visit_argument(argument)));
+        }
+        self.link(&held);
         walk::walk_call_expression(self, it);
     }
 
     fn visit_expression_statement(&mut self, it: &ExpressionStatement<'a>) {
         // A call made for what it does may change the objects it is given.
-        if let Some(call) = statement_call(&it.expression)
-            && changes_arguments(call)
-        {
+        if let Some(call) = statement_call(&it.expression) {
             for argument in call.arguments.iter().filter_map(Argument::as_expression) {
                 self.mutate(argument);
             }
@@ -711,339 +381,76 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 }
 
-/// The parts of locals an expression's value may hold or share: the names and member chains it reads, other than an
-/// imported function, what a function in it reads and what holds no object (a template, an operator's result, the
-/// result of one of [`PURE_FUNCTIONS`] or of [`OWN_RESULT_METHODS`]).
+/// The local symbols an expression's value may hold or share: the names it reads, other than the object a method is
+/// called on, an imported function and what a function in it reads.
 struct Refs<'s> {
     scoping: &'s Scoping,
-    /// The functions the module declares ([`callables`]).
-    callables: &'s HashSet<SymbolId>,
-    /// What part of the value the code being visited is.
-    part: Part,
-    /// Where in the value the expression being visited is.
-    at: Vec<String>,
-    /// Whether the expression being visited is the value at `at`, rather than somewhere at or below it.
-    exact: bool,
-    /// Inside what the value does not show where it holds (an argument of an unknown call, an array element, a
-    /// spread): `at` stays where that is.
-    frozen: bool,
-    out: Vec<Held>,
-}
-
-/// What part of a value [`Refs`] visits.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Part {
-    /// A function not entered yet, which stands for its parameters and what it returns.
-    Function,
-    /// The body of that function, outside a `return`: what is read there is not the function's value.
-    Body,
-    /// The value itself.
-    Value,
+    /// The value is a function: it stands for its parameters and what it returns.
+    function: bool,
+    /// Inside the body of a function, outside a `return`: what is read there is not the function's value.
+    in_body: bool,
+    out: Vec<SymbolId>,
 }
 
 impl Refs<'_> {
-    /// Records what the parameters of the function take: a parameter that is a name, with a default or not, is the
-    /// argument, and a name a destructuring or a rest parameter binds is somewhere at or below the arguments.
     fn parameters(&mut self, params: &FormalParameters<'_>) {
-        for param in &params.items {
-            let exact = match &param.pattern {
-                BindingPattern::BindingIdentifier(_) => true,
-                BindingPattern::AssignmentPattern(p) => matches!(p.left, BindingPattern::BindingIdentifier(_)),
-                _ => false,
-            };
-            self.parameter(&param.pattern, exact);
-        }
-        if let Some(rest) = &params.rest {
-            self.parameter(&rest.rest.argument, false);
-        }
-    }
-
-    fn parameter(&mut self, pattern: &BindingPattern<'_>, exact: bool) {
-        self.out.extend(
-            BindingPattern::get_binding_identifiers(pattern)
-                .iter()
-                .filter_map(|id| id.symbol_id.get())
-                .map(|symbol| Held {
-                    symbol,
-                    keys: Vec::new(),
-                    at: Vec::new(),
-                    exact,
-                }),
-        );
-    }
-
-    /// Records the part of the local `id` at `keys`, which is the value here when `exact`.
-    fn hold(&mut self, id: &IdentifierReference<'_>, keys: Vec<String>, exact: bool) {
-        if self.part == Part::Body {
-            return;
-        }
-        if let Some(symbol) = local_symbol(self.scoping, id) {
-            self.out.push(Held {
-                symbol,
-                keys,
-                at: self.at.clone(),
-                exact: self.exact && exact,
-            });
-        }
-    }
-
-    /// Visits what `visit` visits as held somewhere at or below where it is.
-    fn opaque(&mut self, visit: impl FnOnce(&mut Self)) {
-        let saved = (self.exact, self.frozen);
-        self.exact = false;
-        self.frozen = true;
-        visit(self);
-        (self.exact, self.frozen) = saved;
-    }
-
-    /// Visits what `visit` visits as the value at `key` of where it is.
-    fn at_key(&mut self, key: String, visit: impl FnOnce(&mut Self)) {
-        if self.frozen {
-            return visit(self);
-        }
-        self.at.push(key);
-        visit(self);
-        self.at.pop();
-    }
-
-    /// A member read: the part of the local its chain names ([`reach`]), or what an object that is not a local
-    /// holds, somewhere below.
-    fn member(&mut self, expr: &Expression<'_>) {
-        match reach(expr) {
-            Some((id, keys, exact)) => self.hold(id, keys, exact),
-            None => self.opaque(|refs| walk::walk_expression(refs, expr)),
+        let patterns = params
+            .items
+            .iter()
+            .map(|param| &param.pattern)
+            .chain(params.rest.iter().map(|rest| &rest.rest.argument));
+        for pattern in patterns {
+            self.out.extend(
+                BindingPattern::get_binding_identifiers(pattern)
+                    .iter()
+                    .filter_map(|id| id.symbol_id.get()),
+            );
         }
     }
 }
 
 impl<'a> Visit<'a> for Refs<'_> {
-    fn visit_expression(&mut self, it: &Expression<'a>) {
-        match it {
-            Expression::StaticMemberExpression(_)
-            | Expression::ComputedMemberExpression(_)
-            | Expression::PrivateFieldExpression(_) => self.member(it),
-            // These hold no object.
-            Expression::TemplateLiteral(_) | Expression::BinaryExpression(_) | Expression::UnaryExpression(_) => {}
-            // The test is not the value.
-            Expression::ConditionalExpression(c) => {
-                self.visit_expression(&c.consequent);
-                self.visit_expression(&c.alternate);
-            }
-            _ => walk::walk_expression(self, it),
-        }
-    }
-
     fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
-        self.hold(it, Vec::new(), true);
-    }
-
-    fn visit_object_expression(&mut self, it: &ObjectExpression<'a>) {
-        for property in &it.properties {
-            match property {
-                ObjectPropertyKind::ObjectProperty(p) => {
-                    match p
-                        .key
-                        .static_name()
-                        .filter(|_| !p.method && p.kind == PropertyKind::Init)
-                    {
-                        Some(key) => {
-                            let key = crate::js_string(key.as_js_str());
-                            self.at_key(key, |refs| refs.visit_expression(&p.value));
-                        }
-                        None => self.opaque(|refs| {
-                            refs.visit_property_key(&p.key);
-                            refs.visit_expression(&p.value);
-                        }),
-                    }
-                }
-                ObjectPropertyKind::SpreadProperty(s) => self.opaque(|refs| refs.visit_expression(&s.argument)),
-            }
+        if !self.in_body {
+            self.out.extend(local_symbol(self.scoping, it));
         }
-    }
-
-    fn visit_array_expression(&mut self, it: &ArrayExpression<'a>) {
-        self.opaque(|refs| walk::walk_array_expression(refs, it));
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
-        match pure_function(it) {
-            Some(Returns::Shared) => {
-                return self.opaque(|refs| {
-                    for argument in &it.arguments {
-                        refs.visit_argument(argument);
-                    }
-                });
-            }
-            Some(_) => return,
-            None => {}
-        }
-        match it.callee.get_inner_expression() {
-            // A function the module declares stands for what it returns, which holds what it is given only as its
-            // parameters do, and the call links those to the arguments ([`calls_callable`]).
-            Expression::Identifier(id) if calls_callable(self.scoping, self.callables, it) => {
-                return self.hold(id, Vec::new(), true);
-            }
-            // Any other function called by name stands for what it returns, which may hold what it is given.
-            Expression::Identifier(id) => self.hold(id, Vec::new(), true),
-            // A method may return a part of the object it is called on (`list.find(…)`, `list.slice()`, `list.sort()`)
-            // unless it returns a value of its own.
-            Expression::StaticMemberExpression(member)
-                if OWN_RESULT_METHODS.contains(&member.property.name.as_str()) => {}
-            callee if callee.is_member_expression() => {
-                if let Some(member) = callee.as_member_expression() {
-                    let object = member.object();
-                    self.opaque(|refs| refs.visit_expression(object));
-                }
-            }
-            _ => self.opaque(|refs| refs.visit_expression(&it.callee)),
-        }
-        // A `define*` call is the value it is given.
-        let defined = defined(it).is_some();
-        for (index, argument) in it.arguments.iter().enumerate() {
-            if defined && index == 0 {
+        if it.callee.get_inner_expression().is_member_expression() {
+            for argument in &it.arguments {
                 self.visit_argument(argument);
-            } else {
-                self.opaque(|refs| refs.visit_argument(argument));
             }
-        }
-    }
-
-    fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
-        self.opaque(|refs| walk::walk_new_expression(refs, it));
-    }
-
-    fn visit_tagged_template_expression(&mut self, it: &TaggedTemplateExpression<'a>) {
-        self.opaque(|refs| walk::walk_tagged_template_expression(refs, it));
-    }
-
-    fn visit_chain_expression(&mut self, it: &ChainExpression<'a>) {
-        self.opaque(|refs| walk::walk_chain_expression(refs, it));
-    }
-
-    fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
-        self.opaque(|refs| walk::walk_static_member_expression(refs, it));
-    }
-
-    fn visit_computed_member_expression(&mut self, it: &ComputedMemberExpression<'a>) {
-        self.opaque(|refs| walk::walk_computed_member_expression(refs, it));
-    }
-
-    fn visit_private_field_expression(&mut self, it: &PrivateFieldExpression<'a>) {
-        self.opaque(|refs| walk::walk_private_field_expression(refs, it));
-    }
-
-    fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
-        // `x = v` is `v`; a logical assignment may also be what the target held.
-        if it.operator == AssignmentOperator::Assign {
-            self.visit_expression(&it.right);
         } else {
-            self.opaque(|refs| walk::walk_assignment_expression(refs, it));
+            walk::walk_call_expression(self, it);
         }
     }
 
     fn visit_return_statement(&mut self, it: &ReturnStatement<'a>) {
-        let saved = std::mem::replace(&mut self.part, Part::Value);
+        let saved = std::mem::replace(&mut self.in_body, false);
         walk::walk_return_statement(self, it);
-        self.part = saved;
+        self.in_body = saved;
     }
 
     fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
-        if self.part != Part::Function {
+        if !std::mem::take(&mut self.function) {
             return;
         }
         self.parameters(&it.params);
-        self.part = Part::Body;
+        self.in_body = true;
         walk::walk_function(self, it, flags);
-        self.part = Part::Value;
+        self.in_body = false;
     }
 
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
-        if self.part != Part::Function {
+        if !std::mem::take(&mut self.function) {
             return;
         }
         self.parameters(&it.params);
-        self.part = if it.get_expression().is_some() {
-            Part::Value
-        } else {
-            Part::Body
-        };
+        self.in_body = it.get_expression().is_none();
         walk::walk_arrow_function_expression(self, it);
-        self.part = Part::Value;
+        self.in_body = false;
     }
-}
-
-/// The bindings a module binds to a function it declares and never assigns again, which does not read `arguments`: the
-/// name of a function and a name declared with a function as its initialiser. Such a binding stands for what the
-/// function's parameters take and what it returns ([`Refs`]), so a call of it is followed through them.
-fn callables(program: &Program<'_>, scoping: &Scoping) -> HashSet<SymbolId> {
-    let mut finder = Callables {
-        scoping,
-        out: HashSet::default(),
-    };
-    finder.visit_program(program);
-    finder.out
-}
-
-/// Finds the bindings of [`callables`].
-struct Callables<'s> {
-    scoping: &'s Scoping,
-    out: HashSet<SymbolId>,
-}
-
-impl Callables<'_> {
-    /// Adds `symbol` unless it is assigned again or the function it is bound to reads `arguments`.
-    fn add(&mut self, symbol: Option<SymbolId>, reads_arguments: bool) {
-        if let Some(symbol) = symbol.filter(|&symbol| !reads_arguments && !self.scoping.symbol_is_mutated(symbol)) {
-            self.out.insert(symbol);
-        }
-    }
-}
-
-impl<'a> Visit<'a> for Callables<'_> {
-    fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
-        if it.is_function_declaration() {
-            let mut reads = ReadsArguments(false);
-            reads.visit_function(it, flags);
-            self.add(it.id.as_ref().and_then(|id| id.symbol_id.get()), reads.0);
-        }
-        walk::walk_function(self, it, flags);
-    }
-
-    fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
-        if let (BindingPattern::BindingIdentifier(id), Some(init)) = (&it.id, &it.init)
-            && matches!(
-                init.get_inner_expression(),
-                Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
-            )
-        {
-            let mut reads = ReadsArguments(false);
-            reads.visit_expression(init);
-            self.add(id.symbol_id.get(), reads.0);
-        }
-        walk::walk_variable_declarator(self, it);
-    }
-}
-
-/// Whether the code visited reads `arguments`, which takes the arguments of a call whatever its parameters.
-struct ReadsArguments(bool);
-
-impl<'a> Visit<'a> for ReadsArguments {
-    fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
-        self.0 |= it.name.as_str() == "arguments";
-    }
-}
-
-/// Whether `call` calls one of `callables` by name and gives it no spread argument, so that each parameter takes the
-/// argument at its place.
-fn calls_callable(scoping: &Scoping, callables: &HashSet<SymbolId>, call: &CallExpression<'_>) -> bool {
-    let Expression::Identifier(id) = call.callee.get_inner_expression() else {
-        return false;
-    };
-    local_symbol(scoping, id).is_some_and(|symbol| callables.contains(&symbol))
-        && !call
-            .arguments
-            .iter()
-            .any(|argument| matches!(argument, Argument::SpreadElement(_)))
 }
 
 /// The union-find forest of the sets of bindings `links` joins.
@@ -1074,31 +481,13 @@ fn local_symbol(scoping: &Scoping, id: &IdentifierReference<'_>) -> Option<Symbo
     (!scoping.symbol_flags(symbol).is_import()).then_some(symbol)
 }
 
-/// The name a member chain starts from, the static keys below it and whether the chain is that part exactly: `config`
-/// and `["module", "rules"]` for `config.module.rules`, and the name alone for a name. A computed or private member
-/// cuts the keys before it (`config.list[i].x` is somewhere below `config.list`). `None` when the chain does not
-/// start from a name.
-pub(crate) fn reach<'b, 'a>(expr: &'b Expression<'a>) -> Option<(&'b IdentifierReference<'a>, Vec<String>, bool)> {
-    let mut keys = Vec::new();
-    let mut exact = true;
-    let mut expr = expr.get_inner_expression();
-    loop {
-        match expr {
-            Expression::Identifier(id) => {
-                keys.reverse();
-                return Some((id, keys, exact));
-            }
-            Expression::StaticMemberExpression(member) => {
-                keys.push(member.property.name.as_str().to_owned());
-                expr = member.object.get_inner_expression();
-            }
-            other => {
-                let member = other.as_member_expression()?;
-                keys.clear();
-                exact = false;
-                expr = member.object().get_inner_expression();
-            }
-        }
+/// The name at the start of a member chain (`config` in `config.a[b]`), or the name itself.
+fn root_reference<'b, 'a>(expr: &'b Expression<'a>) -> Option<&'b IdentifierReference<'a>> {
+    match expr.get_inner_expression() {
+        Expression::Identifier(id) => Some(id),
+        other => other
+            .as_member_expression()
+            .and_then(|member| root_reference(member.object())),
     }
 }
 
@@ -1206,179 +595,9 @@ const PURE_METHODS: &[&str] = &[
     "with",
 ];
 
-/// Methods whose result holds nothing of the object they are called on: a boolean, a number, a string, `undefined` or a
-/// new list of strings (`split`, `match`).
-const OWN_RESULT_METHODS: &[&str] = &[
-    "charAt",
-    "endsWith",
-    "every",
-    "findIndex",
-    "findLastIndex",
-    "forEach",
-    "has",
-    "hasOwnProperty",
-    "includes",
-    "indexOf",
-    "join",
-    "lastIndexOf",
-    "match",
-    "padEnd",
-    "padStart",
-    "push",
-    "replace",
-    "replaceAll",
-    "resolve",
-    "some",
-    "split",
-    "startsWith",
-    "test",
-    "toLowerCase",
-    "toString",
-    "toUpperCase",
-    "trim",
-    "trimEnd",
-    "trimStart",
-    "unshift",
-];
-
-/// Methods that change the list they are called on but never what they are given.
-const LIST_ADDERS: &[&str] = &["push", "unshift"];
-
-/// What one of [`PURE_FUNCTIONS`] returns.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Returns {
-    /// A string, a number or a boolean.
-    Primitive,
-    /// An object or array of its own, sharing nothing with its arguments.
-    Fresh,
-    /// A new object or array that holds parts of its arguments (`Object.entries`).
-    Shared,
-}
-
-/// Functions of a well-known module or global, by the name of the object they are called on (`path` in `path.join`;
-/// empty for a function called by name), that change neither that object nor any argument: each object with the
-/// functions (all of them when none is listed) and what they return. The object is known by name only, as a config
-/// names these modules by their own names.
-const PURE_FUNCTIONS: &[(&str, &[&str], Returns)] = &[
-    (
-        "path",
-        &[
-            "basename",
-            "dirname",
-            "extname",
-            "format",
-            "isAbsolute",
-            "join",
-            "normalize",
-            "relative",
-            "resolve",
-            "toNamespacedPath",
-        ],
-        Returns::Primitive,
-    ),
-    ("path", &["parse"], Returns::Fresh),
-    ("fs", &["existsSync"], Returns::Primitive),
-    (
-        "fs",
-        &["readFileSync", "readdirSync", "realpathSync", "statSync", "lstatSync"],
-        Returns::Fresh,
-    ),
-    ("url", &["fileURLToPath"], Returns::Primitive),
-    ("url", &["pathToFileURL"], Returns::Fresh),
-    ("JSON", &["stringify"], Returns::Primitive),
-    ("JSON", &["parse"], Returns::Fresh),
-    ("Object", &["keys", "getOwnPropertyNames"], Returns::Fresh),
-    ("Object", &["entries", "values"], Returns::Shared),
-    ("Array", &["isArray"], Returns::Primitive),
-    ("Math", &[], Returns::Primitive),
-    ("Number", &[], Returns::Primitive),
-    ("String", &[], Returns::Primitive),
-    ("console", &[], Returns::Primitive),
-    ("process", &["cwd"], Returns::Primitive),
-    (
-        "",
-        &[
-            "Boolean",
-            "Number",
-            "String",
-            "decodeURIComponent",
-            "encodeURIComponent",
-            "existsSync",
-            "fileURLToPath",
-            "parseFloat",
-            "parseInt",
-        ],
-        Returns::Primitive,
-    ),
-    ("", &["readFileSync", "readdirSync"], Returns::Fresh),
-];
-
-/// What `call` returns when it calls one of [`PURE_FUNCTIONS`] (`path.posix` and `path.win32` count as `path`); `None`
-/// for any other call.
-fn pure_function(call: &CallExpression<'_>) -> Option<Returns> {
-    let (object, name) = match call.callee.get_inner_expression() {
-        Expression::Identifier(id) => ("", id.name.as_str()),
-        Expression::StaticMemberExpression(member) => (module_name(&member.object)?, member.property.name.as_str()),
-        _ => return None,
-    };
-    PURE_FUNCTIONS
-        .iter()
-        .find(|(module, names, _)| *module == object && (names.is_empty() || names.contains(&name)))
-        .map(|&(_, _, returns)| returns)
-}
-
-/// The name of the object a function of [`PURE_FUNCTIONS`] is called on.
-fn module_name<'b>(object: &'b Expression<'_>) -> Option<&'b str> {
-    match object.get_inner_expression() {
-        Expression::Identifier(id) => Some(id.name.as_str()),
-        Expression::StaticMemberExpression(member)
-            if matches!(member.property.name.as_str(), "posix" | "win32")
-                && matches!(member.object.get_inner_expression(), Expression::Identifier(id) if id.name.as_str() == "path") =>
-        {
-            Some("path")
-        }
-        _ => None,
-    }
-}
-
-/// Whether a call made for what it does may change the objects it is given: not one of [`PURE_FUNCTIONS`], nor a
-/// method that changes at most the object it is called on ([`PURE_METHODS`], `push`, `unshift`).
-pub(crate) fn changes_arguments(call: &CallExpression<'_>) -> bool {
-    if pure_function(call).is_some() {
-        return false;
-    }
-    !matches!(
-        call.callee.get_inner_expression(),
-        Expression::StaticMemberExpression(m)
-            if PURE_METHODS.contains(&m.property.name.as_str()) || LIST_ADDERS.contains(&m.property.name.as_str())
-    )
-}
-
-/// Whether `expr` is a value that holds no object: a string, number, boolean, `null` or bigint literal, a template, the
-/// result of an operator, of one of [`PURE_FUNCTIONS`] that returns one, or a choice between such values.
-fn is_primitive(expr: &Expression<'_>) -> bool {
-    match expr.get_inner_expression() {
-        Expression::StringLiteral(_)
-        | Expression::NumericLiteral(_)
-        | Expression::BooleanLiteral(_)
-        | Expression::NullLiteral(_)
-        | Expression::BigIntLiteral(_)
-        | Expression::TemplateLiteral(_)
-        | Expression::BinaryExpression(_)
-        | Expression::UnaryExpression(_) => true,
-        Expression::ConditionalExpression(c) => is_primitive(&c.consequent) && is_primitive(&c.alternate),
-        Expression::LogicalExpression(l) => is_primitive(&l.left) && is_primitive(&l.right),
-        Expression::CallExpression(call) => pure_function(call) == Some(Returns::Primitive),
-        _ => false,
-    }
-}
-
 /// The object a call may change: the first argument of `Object.assign`, or the object a method other than one of
-/// [`PURE_METHODS`] or [`PURE_FUNCTIONS`] is called on.
+/// [`PURE_METHODS`] is called on.
 pub(crate) fn changed_by_call<'p, 'a>(call: &'p CallExpression<'a>) -> Option<&'p Expression<'a>> {
-    if pure_function(call).is_some() {
-        return None;
-    }
     match call.callee.get_inner_expression() {
         Expression::StaticMemberExpression(m)
             if m.property.name.as_str() == "assign"
