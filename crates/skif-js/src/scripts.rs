@@ -34,7 +34,8 @@ pub(crate) struct RelocatedBinary {
     pub filtered: bool,
 }
 
-/// A package a script needs for a command run in another directory, as [`RelocatedBinary`].
+/// A package a script, or a command of a tool's file, needs for a command run in another directory, as
+/// [`RelocatedBinary`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct RelocatedDependency {
     /// The directory, relative to the package directory.
@@ -53,8 +54,8 @@ pub(crate) struct ScriptFacts {
     pub ephemeral_binaries: Vec<ScriptBinary>,
     /// Binaries run in named workspaces; the package they belong to is only known with the whole workspace.
     pub forwarded: Vec<ForwardedBinary>,
-    /// Binaries run in another directory: they belong to the package that directory is in, known only with the whole
-    /// workspace.
+    /// Binaries run in another directory: they belong to the package or project that directory is in, known only with
+    /// the whole workspace. Once the setup has credited the ones fetched on demand, the rest are judged there.
     pub relocated_binaries: Vec<RelocatedBinary>,
     /// Packages needed by commands run in another directory, as [`Self::relocated_binaries`].
     pub relocated_dependencies: Vec<RelocatedDependency>,

@@ -37,11 +37,14 @@ pub struct RunBinary {
     /// The command runs the binary in `dir` without naming a workspace (`pnpm -C sub exec rspack`): it is credited to
     /// the package there and never judged where the command starts.
     pub filtered: bool,
+    /// A binary nothing provides is unlisted; otherwise it is only a credit (fetched on demand, or run by name in a
+    /// file whose binaries are optional).
+    pub judged: bool,
 }
 
 impl RunBinary {
     /// The binary `name` that a command read from `file` runs, in `dir` (see [`RunBinary::dir`] and
-    /// [`RunBinary::filtered`]).
+    /// [`RunBinary::filtered`]), judged.
     #[must_use]
     pub fn new(name: String, file: PathBuf, dir: Option<String>, filtered: bool) -> Self {
         Self {
@@ -49,7 +52,15 @@ impl RunBinary {
             file,
             dir,
             filtered,
+            judged: true,
         }
+    }
+
+    /// The binary as a credit only, never unlisted (see [`RunBinary::judged`]).
+    #[must_use]
+    pub fn credit_only(mut self) -> Self {
+        self.judged = false;
+        self
     }
 }
 
@@ -131,6 +142,10 @@ pub struct WorkspaceInputs {
     pub virtual_modules: Vec<String>,
     /// Packages the tool uses without importing them, such as an `ESLint` parser named in a config.
     pub dependencies: Vec<String>,
+    /// Packages that a command read from a file loads in another directory (after `cd`, or in a workflow step's
+    /// `working-directory`): the directory relative to the package directory, `/`-separated, and the package name.
+    /// They are needed by the workspace package that directory is in.
+    pub relocated_dependencies: Vec<(String, String)>,
     /// The packages of `dependencies` that a config file names itself and needs installed, with that file:
     /// `unlisted-dependencies` reports the ones no manifest lists at the file. Packages that a command in a config
     /// names, optional ones and those a tool assumes without a config are not among them.
@@ -179,6 +194,7 @@ impl WorkspaceInputs {
         self.ignore_binaries.extend(other.ignore_binaries);
         self.virtual_modules.extend(other.virtual_modules);
         self.dependencies.extend(other.dependencies);
+        self.relocated_dependencies.extend(other.relocated_dependencies);
         self.config_dependencies.extend(other.config_dependencies);
         self.binaries.extend(other.binaries);
         self.run_binaries.extend(other.run_binaries);

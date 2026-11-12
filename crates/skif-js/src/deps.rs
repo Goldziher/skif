@@ -15,14 +15,14 @@ use skif_specifier::Specifier;
 use skif_workspace::{Package, PackageId, PackageManager, Workspace, map_ordered, npmrc_entries};
 
 use crate::ancestors::{external_manifests, is_repository_root, listed_names, read_manifest};
-use crate::discover::{is_ignored_in_repository, relative};
+use crate::discover::{is_ignored_in_repository, is_package_manifest, relative};
 use crate::fixture::in_fixture_directory;
 use crate::graph::{ModuleGraph, ModuleId, Target};
 use crate::input::ConfigDependency;
 use crate::lockfile;
 use crate::resolve::{DECLARATION_SUFFIXES, is_installed};
 use crate::scripts::{ScriptBinary, script_context};
-use crate::setup::{Setup, package_dirs, package_in_dir};
+use crate::setup::{Setup, package_dirs, package_in_dir, placed_dir};
 use crate::specifier::{RUNTIME_PACKAGES, bin_link, package_name, typed_package, types_package};
 use crate::tsconfig_files::{reference, references_of};
 use crate::tsconfig_paths::resolve_extends;
@@ -122,15 +122,17 @@ const RUSH_COMMANDS: &[&str] = &["rush", "rushx", "rush-pnpm"];
 
 /// Whether the binaries of a workspace member are on the `PATH` of every package: npm, Yarn Classic and the hoisted
 /// linkers of pnpm ([`pnpm_hoisted`]) and Bun hoist the members into the root `node_modules` and link their binaries
-/// into its `.bin`, while pnpm's isolated linker, Yarn Berry, Rush and Bun's isolated linker ([`bun_isolated`]) link a
-/// member's binaries only into the packages that depend on it. An unknown package manager counts as hoisting, so it
-/// reports nothing new, and so does a Yarn whose version the repository does not tell ([`yarn_berry`]).
+/// into its `.bin`, while pnpm's isolated linker, npm's linked strategy ([`npm_linked`]), Yarn Berry, Rush and Bun's
+/// isolated linker ([`bun_isolated`]) link a member's binaries only into the packages that depend on it. An unknown
+/// package manager counts as hoisting, so it reports nothing new, and so does a Yarn whose version the repository does
+/// not tell ([`yarn_berry`]).
 /// `bun_config_version` is the `configVersion` of `bun.lock`.
 fn hoists_member_bins(workspace: &Workspace, rush: bool, bun_config_version: Option<u64>, fs: &dyn FileSystem) -> bool {
     if rush {
         return false;
     }
     match workspace.package_manager {
+        Some(PackageManager::Npm) => !npm_linked(workspace, fs),
         Some(PackageManager::Pnpm) => pnpm_hoisted(workspace, fs),
         Some(PackageManager::Yarn) => !yarn_berry(workspace, fs),
         Some(PackageManager::Bun) => !bun_isolated(fs, &workspace.root, bun_config_version),
@@ -180,17 +182,24 @@ fn pnpm_hoisted(workspace: &Workspace, fs: &dyn FileSystem) -> bool {
         .pnpm_workspace
         .as_ref()
         .and_then(|yaml| yaml.node_linker.clone())
-        .or_else(|| {
-            if !reads_npmrc {
-                return None;
-            }
-            let npmrc = fs.read_to_string(&workspace.root.join(".npmrc")).ok()?;
-            npmrc_entries(&npmrc)
-                .filter(|(key, _)| *key == "node-linker")
-                .last()
-                .map(|(_, value)| value.to_owned())
-        });
+        .or_else(|| reads_npmrc.then(|| npmrc_setting(fs, &workspace.root, "node-linker")).flatten());
     linker.as_deref() == Some("hoisted")
+}
+
+/// Whether npm installs the workspace with its linked strategy, which installs isolated, as pnpm does: the last
+/// top-level `install-strategy` of the root `.npmrc` is `linked`. Without one, npm hoists. A member's `.npmrc`, the
+/// user's `.npmrc`, the environment and `npm install --install-strategy` are not read.
+fn npm_linked(workspace: &Workspace, fs: &dyn FileSystem) -> bool {
+    npmrc_setting(fs, &workspace.root, "install-strategy").as_deref() == Some("linked")
+}
+
+/// The value of the last top-level entry `key` of the `.npmrc` in `root`, as npm's `ini` parser reads it.
+fn npmrc_setting(fs: &dyn FileSystem, root: &Path, key: &str) -> Option<String> {
+    let npmrc = fs.read_to_string(&root.join(".npmrc")).ok()?;
+    npmrc_entries(&npmrc)
+        .filter(|(entry, _)| *entry == key)
+        .last()
+        .map(|(_, value)| value.to_owned())
 }
 
 /// Whether Bun installs the workspace at `root` with its isolated linker. `linker` in the `[install]` table of the
@@ -352,6 +361,19 @@ pub struct UnlistedBinary {
     /// `package.json` script: a workflow, hook or tool config a plugin reads, or a source file that runs it through
     /// `node:child_process`, `execa` or `zx`.
     pub file: Option<PathBuf>,
+    /// Where the command runs the binary after `cd`, when that is another workspace package or a project of its own,
+    /// which does not provide it either.
+    pub runs_in: Option<RunsIn>,
+}
+
+/// The workspace package or project of its own that a command runs an unlisted binary in after `cd`; see
+/// [`UnlistedBinary::runs_in`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunsIn {
+    /// Its directory, relative to the workspace root with `/` separators; `.` for the root.
+    pub dir: String,
+    /// The package's display name, or the project's `name`, else its directory.
+    pub name: String,
 }
 
 /// A package that a tool's config file names and no manifest lists; see [`DependencyUsage::unlisted_config`].
@@ -417,6 +439,91 @@ fn resembles(dependency: &str, bin: &str) -> bool {
 
 fn unscoped(name: &str) -> &str {
     name.rsplit('/').next().unwrap_or(name)
+}
+
+/// The binaries that dependency `name` of the manifest in `dir`, a project other than the workspace packages,
+/// provides: one named like it, those [`BINARY_PACKAGES`] gives it and those of its manifest installed in `dir`.
+fn listed_bins(
+    fs: &dyn FileSystem,
+    dir: &Path,
+    name: &str,
+    cache: &mut HashMap<PathBuf, Option<Arc<Installed>>>,
+) -> Vec<String> {
+    let mut bins = vec![unscoped(name).to_owned()];
+    bins.extend(
+        BINARY_PACKAGES
+            .iter()
+            .filter(|(_, package)| *package == name)
+            .map(|(bin, _)| (*bin).to_owned()),
+    );
+    if let Some(installed) = read_installed(fs, dir, dir, name, cache) {
+        bins.extend(installed.bins.iter().cloned());
+    }
+    bins
+}
+
+/// The innermost project of its own that holds `target` below the workspace package directory `package` (both relative
+/// to `root`, `/`-separated): a directory, `target` or one above it, with a real `package.json`
+/// ([`is_package_manifest`]), such as a nested root of a recursive run. Its absolute directory and manifest; `None`
+/// without one and below a `node_modules` directory, whose packages are installed code.
+fn project_between(fs: &dyn FileSystem, root: &Path, package: &str, target: &str) -> Option<(PathBuf, Value)> {
+    let package = root.join(package);
+    let target = root.join(target);
+    let between: Vec<&Path> = target.ancestors().take_while(|dir| *dir != package).collect();
+    if !target.starts_with(&package) || between.iter().any(|dir| dir.ends_with("node_modules")) {
+        return None;
+    }
+    let dir = between
+        .into_iter()
+        .find(|dir| fs.is_file(&dir.join("package.json")) && is_package_manifest(fs, dir))?;
+    Some((dir.to_path_buf(), read_manifest(fs, dir).unwrap_or(Value::Null)))
+}
+
+/// Where a command that runs a binary is written.
+#[derive(Clone, Copy)]
+enum Origin<'a> {
+    /// The `package.json` script of that name.
+    Script(&'a str),
+    /// A file, relative to the workspace root: a workflow, a tool config or a source file.
+    File(&'a Path),
+}
+
+/// A binary that a command of a package runs.
+#[derive(Clone, Copy)]
+struct CommandBinary<'a> {
+    name: &'a str,
+    /// The directory it runs in after `cd`, relative to the package directory; `None` where the command starts.
+    dir: Option<&'a str>,
+    /// The command runs it in another workspace (`pnpm -C dir exec`), so the package itself does not.
+    filtered: bool,
+    /// A binary nothing provides is unlisted; otherwise it is only a credit.
+    judged: bool,
+    origin: Origin<'a>,
+}
+
+/// The workspace package or the project of its own that a command of another package runs a binary in after `cd`.
+struct Host {
+    /// The innermost workspace package whose directory holds the directory.
+    package: PackageId,
+    /// The project of its own below that package that holds the directory ([`project_between`]): its absolute
+    /// directory and manifest.
+    project: Option<(PathBuf, Value)>,
+    runs_in: RunsIn,
+}
+
+impl Host {
+    /// Whether the package or project has a script `name`, which a package manager run there runs instead of a
+    /// binary (`cd web && pnpm bundle`).
+    fn has_script(&self, workspace: &Workspace, name: &str) -> bool {
+        let manifest = match &self.project {
+            Some((_, manifest)) => Some(manifest),
+            None => workspace.package(self.package).map(|package| package.manifest.value()),
+        };
+        manifest
+            .and_then(|manifest| manifest.get("scripts"))
+            .and_then(|scripts| scripts.get(name))
+            .is_some()
+    }
 }
 
 fn read_installed(
@@ -922,8 +1029,9 @@ pub struct DependencyUsage {
     external_listed: HashMap<String, PathBuf>,
     /// The names of `external_listed` that this workspace uses.
     external_used: BTreeSet<String>,
-    /// The packages files outside the workspace root import, with the directory of the manifest that lists each; see
-    /// [`Self::collect_outside_imports`].
+    /// The packages files outside the workspace root import, with the directory of the manifest that lists each (see
+    /// [`Self::collect_outside_imports`]), and those providing a binary that a command runs after `cd` into a project
+    /// of its own below the root, with that project's directory (see [`Self::provide_project_binary`]).
     outside_used: BTreeSet<(PathBuf, String)>,
     hosts: Vec<HashMap<String, Vec<String>>>,
     bins: Vec<HashMap<String, Vec<String>>>,
@@ -979,9 +1087,9 @@ impl DependencyUsage {
         usage.collect_jsx_runtimes(workspace, setup, &tsconfigs);
         usage.collect_ancestor_bins(workspace, fs);
         usage.collect_member_bins(workspace);
-        usage.collect_imports(workspace, setup, graph);
+        usage.collect_imports(workspace, setup, graph, fs);
         usage.collect_outside_imports(workspace, graph, fs);
-        usage.collect_scripts(workspace, setup);
+        usage.collect_scripts(workspace, setup, fs);
         usage.collect_config_dependencies(workspace, setup, fs);
         usage
     }
@@ -1110,17 +1218,7 @@ impl DependencyUsage {
                 self.external_listed
                     .entry(name.to_owned())
                     .or_insert_with(|| dir.clone());
-                let mut bins = vec![unscoped(name).to_owned()];
-                bins.extend(
-                    BINARY_PACKAGES
-                        .iter()
-                        .filter(|(_, package)| *package == name)
-                        .map(|(bin, _)| (*bin).to_owned()),
-                );
-                if let Some(installed) = read_installed(fs, &dir, &dir, name, &mut cache) {
-                    bins.extend(installed.bins.iter().cloned());
-                }
-                for bin in bins {
+                for bin in listed_bins(fs, &dir, name, &mut cache) {
                     let providers = self.ancestor_bins.entry(bin).or_default();
                     if !providers.iter().any(|provider| provider == name) {
                         providers.push(name.to_owned());
@@ -1230,7 +1328,7 @@ impl DependencyUsage {
         result
     }
 
-    fn collect_imports(&mut self, workspace: &Workspace, setup: &Setup, graph: &ModuleGraph) {
+    fn collect_imports(&mut self, workspace: &Workspace, setup: &Setup, graph: &ModuleGraph, fs: &dyn FileSystem) {
         for module in graph.modules() {
             // A file of another project uses that project's dependencies, not those of the package that reaches it.
             if module.foreign || setup.package(module.owner).is_none() {
@@ -1311,7 +1409,13 @@ impl DependencyUsage {
                     .package(module.owner)
                     .map_or_else(ScriptContext::new, |package| script_context(package.manifest.value()));
                 self.with_via(Use::Command(module.path.clone()), |usage| {
-                    usage.collect_commands(setup, module.owner, &module.path, &module.info.commands, &context);
+                    usage.collect_commands(
+                        (workspace, setup, fs),
+                        module.owner,
+                        &module.path,
+                        &module.info.commands,
+                        &context,
+                    );
                 });
             }
             // `declare module 'pkg'` augments the package, which has to be installed for that to compile. It stays
@@ -1520,7 +1624,7 @@ impl DependencyUsage {
         }
     }
 
-    fn collect_scripts(&mut self, workspace: &Workspace, setup: &Setup) {
+    fn collect_scripts(&mut self, workspace: &Workspace, setup: &Setup, fs: &dyn FileSystem) {
         self.via = Use::Tooling;
         for (id, _) in workspace.iter() {
             let Some(package_setup) = setup.package(id) else {
@@ -1554,25 +1658,41 @@ impl DependencyUsage {
                         name: binary.name.clone(),
                         script: binary.script.clone(),
                         file: None,
+                        runs_in: None,
                     });
                 }
             }
+            for relocated in &package_setup.scripts.relocated_binaries {
+                let binary = CommandBinary {
+                    name: &relocated.binary.name,
+                    dir: Some(relocated.dir.as_str()),
+                    filtered: relocated.filtered,
+                    judged: true,
+                    origin: Origin::Script(&relocated.binary.script),
+                };
+                self.command_binary((workspace, setup, fs), id, binary);
+            }
             for run in &package_setup.run_binaries {
-                if self.judged_elsewhere(id, &run.name, run.dir.as_deref(), run.filtered) {
-                    continue;
-                }
                 let file = relative(&run.file, &workspace.root).map_or_else(|| run.file.clone(), PathBuf::from);
-                self.run_binary(setup, id, &run.name, &file);
+                let binary = CommandBinary {
+                    name: &run.name,
+                    dir: run.dir.as_deref(),
+                    filtered: run.filtered,
+                    judged: run.judged,
+                    origin: Origin::File(&file),
+                };
+                self.command_binary((workspace, setup, fs), id, binary);
             }
         }
     }
 
-    /// The binaries the `node:child_process` commands of the source file `file` (relative to the root) run, owned by
-    /// package `id` whose scripts `context` holds: a binary fetched on demand credits the dependency that provides it,
-    /// any other is a use of one or unlisted at the file.
+    /// The binaries and packages the `node:child_process` commands of the source file `file` (relative to the root)
+    /// run and load, owned by package `id` whose scripts `context` holds: a binary fetched on demand credits the
+    /// dependency that provides it, any other is a use of one or unlisted at the file ([`Self::command_binary`]), and
+    /// a package is a use of the package where the command loads it.
     fn collect_commands(
         &mut self,
-        setup: &Setup,
+        cx: (&Workspace, &Setup, &dyn FileSystem),
         id: PackageId,
         file: &Path,
         commands: &[String],
@@ -1586,12 +1706,17 @@ impl DependencyUsage {
                 .map_or_else(|| command.clone(), |path| place_file_dir(command, path));
             let info = parse_script(&command, context);
             for dependency in &info.dependencies {
-                if let Some(found) = self.find_listed(id, &dependency.name) {
+                // A package loaded after `cd` into another workspace package is needed by that package.
+                let owner = dependency
+                    .dir
+                    .as_deref()
+                    .map_or(id, |dir| package_in_dir(&self.dirs, id, dir));
+                if let Some(found) = self.find_listed(owner, &dependency.name) {
                     self.reference(found, &dependency.name);
                 }
             }
             // As for the scripts of `package.json`: the system binaries count only with `ignore-global-binaries` off.
-            let global_binaries = if setup.ignore_global_binaries {
+            let global_binaries = if cx.1.ignore_global_binaries {
                 Vec::new()
             } else {
                 info.global_binaries
@@ -1601,14 +1726,14 @@ impl DependencyUsage {
                 .into_iter()
                 .filter(|binary| !is_ignored_binary(&binary.name));
             for binary in binaries.chain(global_binaries) {
-                if self.judged_elsewhere(id, &binary.name, binary.relocation_dir(), binary.filtered) {
-                    continue;
-                }
-                if binary.via.is_ephemeral() {
-                    self.provide_binary(id, &binary.name);
-                } else {
-                    self.run_binary(setup, id, &binary.name, file);
-                }
+                let run = CommandBinary {
+                    name: &binary.name,
+                    dir: binary.relocation_dir(),
+                    filtered: binary.filtered,
+                    judged: !binary.via.is_ephemeral(),
+                    origin: Origin::File(file),
+                };
+                self.command_binary(cx, id, run);
             }
         }
     }
@@ -1624,24 +1749,118 @@ impl DependencyUsage {
         path.strip_prefix(base)?.strip_prefix('/').map(str::to_owned)
     }
 
-    /// The other workspace package whose directory holds `dir`, where a command of package `id` runs a binary after
-    /// `cd` (relative to the package directory). A workflow step or a source file that runs `cd sub && rspack` runs it
-    /// in that package, as a script of `package.json` does: a listed provider there is used and nothing is unlisted.
-    /// `None` without a directory or when it is in `id` itself.
-    fn relocated(&self, id: PackageId, dir: Option<&str>) -> Option<PackageId> {
-        let target = package_in_dir(&self.dirs, id, dir?);
-        (target != id).then_some(target)
+    /// The other workspace package, or the project of its own, whose directory holds `dir`, where a command of package
+    /// `id` runs a binary after `cd` (relative to the package directory); `None` when it is in `id` itself, outside
+    /// the workspace root, or in no project of its own below `id`.
+    fn host(&self, workspace: &Workspace, fs: &dyn FileSystem, id: PackageId, dir: &str) -> Option<Host> {
+        let (package, target) = placed_dir(&self.dirs, id, dir)?;
+        let package_dir = self
+            .dirs
+            .iter()
+            .find(|(candidate, _)| *candidate == package)
+            .map_or("", |(_, dir)| dir.as_str());
+        let project = project_between(fs, &workspace.root, package_dir, &target);
+        if package == id && project.is_none() {
+            return None;
+        }
+        let shown = |dir: &str| if dir.is_empty() { ".".to_owned() } else { dir.to_owned() };
+        let runs_in = match &project {
+            Some((abs, manifest)) => {
+                let dir = abs
+                    .strip_prefix(&workspace.root)
+                    .map_or_else(|_| abs.to_string_lossy(), |rel| rel.to_string_lossy())
+                    .replace('\\', "/");
+                let name = manifest.get("name").and_then(Value::as_str).map_or_else(|| dir.clone(), str::to_owned);
+                RunsIn { dir, name }
+            }
+            None => RunsIn {
+                dir: shown(package_dir),
+                name: workspace
+                    .package(package)
+                    .map_or_else(|| shown(package_dir), |found| found.display_name().to_owned()),
+            },
+        };
+        Some(Host {
+            package,
+            project,
+            runs_in,
+        })
     }
 
-    /// Whether binary `name`, which a command of package `id` runs in `dir` or `filtered` to other workspaces, is no
-    /// binary of `id`: in another package's directory ([`Self::relocated`]) it is credited to that package, and a
-    /// filtered one belongs to the workspaces the filter names.
-    fn judged_elsewhere(&mut self, id: PackageId, name: &str, dir: Option<&str>, filtered: bool) -> bool {
-        if let Some(target) = self.relocated(id, dir) {
-            self.provide_binary(target, name);
-            return true;
+    /// A binary that a command of package `id` runs. Where the command starts, or after `cd` into another directory of
+    /// `id`, it is a use of a dependency of `id` that provides it, else unlisted at the command, unless the command
+    /// runs it in another workspace (`filtered`). After `cd` into another workspace package or a project of its own
+    /// ([`Self::host`]) it is a use of a dependency there that provides it, which for a project its multi-root host
+    /// credits to the root that owns it, or of the package holding the project; else it is unlisted at the command,
+    /// naming where it runs, unless a package manager runs a script of that name there.
+    fn command_binary(
+        &mut self,
+        (workspace, setup, fs): (&Workspace, &Setup, &dyn FileSystem),
+        id: PackageId,
+        binary: CommandBinary<'_>,
+    ) {
+        let name = binary.name;
+        let Some(host) = binary.dir.and_then(|dir| self.host(workspace, fs, id, dir)) else {
+            if binary.filtered {
+                return;
+            }
+            match binary.origin {
+                _ if !binary.judged => {
+                    self.provide_binary_or_ancestor(id, name);
+                }
+                Origin::File(file) => self.run_binary(setup, id, name, file),
+                Origin::Script(script) => {
+                    if !self.provide_binary_or_ancestor(id, name) && !setup.ignores_binary(id, name) {
+                        self.push_unlisted(UnlistedBinary {
+                            package: id,
+                            name: name.to_owned(),
+                            script: script.to_owned(),
+                            file: None,
+                            runs_in: None,
+                        });
+                    }
+                }
+            }
+            return;
+        };
+        let provided = host
+            .project
+            .as_ref()
+            .is_some_and(|(dir, manifest)| self.provide_project_binary(fs, dir, manifest, name))
+            || self.provide_binary_or_ancestor(host.package, name);
+        if provided
+            || !binary.judged
+            || setup.ignores_binary(id, name)
+            || setup.ignores_binary(host.package, name)
+            || host.has_script(workspace, name)
+        {
+            return;
         }
-        filtered
+        let (script, file) = match binary.origin {
+            Origin::Script(script) => (script.to_owned(), None),
+            Origin::File(file) => (String::new(), Some(file.to_path_buf())),
+        };
+        self.push_unlisted(UnlistedBinary {
+            package: id,
+            name: name.to_owned(),
+            script,
+            file,
+            runs_in: Some(host.runs_in),
+        });
+    }
+
+    /// Marks the dependencies that `manifest`, the manifest of the project of its own in `dir`, lists and that provide
+    /// binary `bin` as used through that manifest ([`Self::ancestor_uses`]). False when none does.
+    fn provide_project_binary(&mut self, fs: &dyn FileSystem, dir: &Path, manifest: &Value, bin: &str) -> bool {
+        let mut cache = HashMap::default();
+        let providers: Vec<String> = listed_names(manifest)
+            .filter(|name| listed_bins(fs, dir, name, &mut cache).iter().any(|provided| provided == bin))
+            .map(str::to_owned)
+            .collect();
+        for provider in &providers {
+            self.outside_used.insert((dir.to_path_buf(), provider.clone()));
+        }
+        !providers.is_empty()
     }
 
     /// A binary that a command read from `file` (relative to the root) runs in package `id`: a use of the dependency
@@ -1655,12 +1874,17 @@ impl DependencyUsage {
 
     /// Reports binary `name`, which `file` (relative to the root) runs in package `id`, as unlisted, once.
     fn push_unlisted_binary(&mut self, id: PackageId, name: &str, file: &Path) {
-        let binary = UnlistedBinary {
+        self.push_unlisted(UnlistedBinary {
             package: id,
             name: name.to_owned(),
             script: String::new(),
             file: Some(file.to_path_buf()),
-        };
+            runs_in: None,
+        });
+    }
+
+    /// Reports `binary` as unlisted, once.
+    fn push_unlisted(&mut self, binary: UnlistedBinary) {
         if !self.unlisted_binaries.contains(&binary) {
             self.unlisted_binaries.push(binary);
         }
@@ -1793,11 +2017,12 @@ impl DependencyUsage {
         self.listed[id.index()].contains(name)
     }
 
-    /// The dependencies this workspace uses through a `package.json` outside its root, each with the directory of
-    /// that manifest: those its own code uses that only a manifest above its root lists (the innermost one), and those
+    /// The dependencies this workspace uses through the `package.json` of another project, each with the directory of
+    /// that manifest: those its own code uses that only a manifest above its root lists (the innermost one), those
     /// the files outside its root that the graph reached import (the innermost manifest at or above the file that
-    /// lists them). Node.js resolves them from that project's `node_modules`, so they are used dependencies of that
-    /// project, which cannot see this code.
+    /// lists them), and those that provide a binary a command runs after `cd` into a project of its own below the root,
+    /// with that project's manifest. Node.js resolves them from that project's `node_modules`, so they are used
+    /// dependencies of that project, which cannot see this code.
     #[must_use]
     pub fn ancestor_uses(&self) -> Vec<(PathBuf, String)> {
         self.external_used
