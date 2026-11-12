@@ -1131,3 +1131,28 @@ fn a_bundler_config_adding_a_rule_under_a_condition_keeps_its_entries() {
         "{diagnostics:#?}"
     );
 }
+
+#[test]
+fn a_bundler_config_passing_a_changed_value_to_a_builder_keeps_its_entries() {
+    // `kit.fill` may change what it is given, but `build` returns a fresh config that holds nothing of its parameter,
+    // so the literal `entry` stays known.
+    let mut files = rspack_package(
+        "const kit = require('./kit.js');\n\
+         function build(env) {\n\
+           const config = { entry: { app: './src/app.js' }, module: { rules: [] } };\n\
+           return config;\n\
+         }\n\
+         module.exports = async function config(env) {\n\
+           let options = kit.fill({ v: 1 }, env);\n\
+           let cfg = build(options);\n\
+           return cfg;\n\
+         };\n",
+    );
+    files.push(("kit.js", "module.exports = { fill: Object.assign };\n".to_owned()));
+    let diagnostics = lint_owned(&files);
+    assert_eq!(
+        found(&diagnostics, "unused-dependencies"),
+        ["package.json: never-imported"],
+        "{diagnostics:#?}"
+    );
+}
