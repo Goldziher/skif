@@ -191,6 +191,10 @@ All notable changes to this project are documented here. The format follows
   run, and the methodology. The README and the comparison guide show generated headline claims instead (`bench:claims`:
   each tool's range of median ratios to skif, rounded down), and `mise run bench:import` and `mise run parity:publish`
   write the tables to the new page.
+- The docs gain a [Bazel guide](https://goldziher.github.io/skif/guides/bazel/) (what skif reads from `BUILD` and
+  `MODULE.bazel` files, fetching the release archives, `bazel run`, `bazel test` inputs, CI and the limits;
+  [#173](https://github.com/Goldziher/skif/issues/173)). The npm and Bun section no longer says that `run()` changes
+  directory under `bazel run`: only the package's `skif` bin does.
 
 ## [0.3.0] - 2026-11-11
 

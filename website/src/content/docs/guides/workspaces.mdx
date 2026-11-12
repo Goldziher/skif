@@ -167,7 +167,8 @@ After a Bazel build the root holds convenience links (`bazel-bin`, `bazel-out`, 
 the last a link to the execroot, which mirrors the root). A `*` or glob segment of a workspace pattern follows links to
 directories, as pnpm's does, so `packages: ['*']` makes such a link a member. skif keeps it a member, excludes it from
 analysis so the root's findings are not repeated under it, and `nested-workspace-root` reports it once, at its
-`package.json`, with the detail `BazelConvenienceLink`. Add `!bazel-*` to the patterns to drop it.
+`package.json`, with the detail `BazelConvenienceLink`. Add `!bazel-*` to the patterns to drop it. The
+[Bazel guide](../bazel/) covers the rest of a Bazel repository.
 
 Both rules look at the root and the directories the workspace patterns select, not deeper, and skip files a
 `.gitignore`, an `.ignore` or `.git/info/exclude` excludes and members `[workspace] ignore-packages` excludes. A

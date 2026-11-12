@@ -75,6 +75,7 @@ export default defineConfig({
             { label: "Single packages and monorepos", slug: "guides/workspaces" },
             { label: "Sharing configuration", slug: "guides/sharing-configuration" },
             { label: "Integrations", slug: "guides/integrations" },
+            { label: "Bazel", slug: "guides/bazel" },
             { label: "Editors and agents", slug: "guides/editors-and-agents" },
             { label: "Library usage", slug: "guides/library" },
             { label: "Migrating", slug: "guides/migrating" },
