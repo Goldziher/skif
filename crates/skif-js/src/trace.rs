@@ -447,7 +447,7 @@ impl JsAnalysis<'_> {
         DependencyExplanation {
             dependency: name.to_owned(),
             production: self.setup.production,
-            strict: self.setup.isolate_workspaces,
+            strict: self.setup.strict,
             packages,
         }
     }

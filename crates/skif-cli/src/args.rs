@@ -474,6 +474,10 @@ pub struct BaselineLintArgs {
     #[arg(long)]
     pub production: bool,
 
+    /// Each workspace package uses only its own manifest, as for a lint run.
+    #[arg(long)]
+    pub isolate_workspaces: bool,
+
     /// knip's strict mode, as for a lint run.
     #[arg(long)]
     pub strict: bool,
@@ -552,6 +556,7 @@ impl BaselineLintArgs {
             include_entry_exports: self.include_entry_exports,
             tsconfig: self.tsconfig.clone(),
             use_tsconfig_files: self.use_tsconfig_files,
+            isolate_workspaces: self.isolate_workspaces,
             strict: self.strict,
             select: self.select,
             workspace: self.workspace.clone(),
@@ -790,9 +795,15 @@ pub struct LintArgs {
     #[arg(long)]
     pub use_tsconfig_files: bool,
 
-    /// knip's strict mode: --production, and each workspace package uses only the dependencies its own manifest
-    /// lists, not those of a containing package or the root. Production code must import from `dependencies` or
-    /// `peerDependencies`, type-only imports use no package, and unused required peer dependencies are reported.
+    /// Each workspace package uses only the dependencies its own manifest lists, not those of a containing package or
+    /// the root, without production mode: tests and tool configs are checked against their own package's manifest,
+    /// development dependencies included. Same as `[js] isolate-workspaces = true`.
+    #[arg(long)]
+    pub isolate_workspaces: bool,
+
+    /// knip's strict mode: --production and --isolate-workspaces, and only direct dependencies count. Production code
+    /// must import from `dependencies` or `peerDependencies`, type-only imports use no package, and unused required
+    /// peer dependencies are reported. Same as `[js] strict = true`.
     #[arg(long)]
     pub strict: bool,
 
@@ -917,6 +928,7 @@ impl Default for LintArgs {
             include_entry_exports: false,
             tsconfig: None,
             use_tsconfig_files: false,
+            isolate_workspaces: false,
             strict: false,
             color: ColorChoice::Auto,
             watch: false,
