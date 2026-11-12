@@ -891,7 +891,7 @@ snapshots:
         }
         // A lone document is the project's whatever its shape: the environment alone is read as it is.
         let alone = parse(ENVIRONMENT).unwrap();
-        assert!(alone.importers["."].is_empty());
+        assert_eq!(alone.importers["."].len(), 0);
         assert!(alone.packages.contains("pnpm@12.9.1"));
     }
 
@@ -968,12 +968,9 @@ snapshots:
 
     #[test]
     fn documents_are_split_at_their_marker_lines() {
-        let ranges = |text: &str| {
-            document_ranges(text)
-                .into_iter()
-                .map(|range| &text[range])
-                .collect::<Vec<_>>()
-        };
+        fn ranges(text: &str) -> Vec<&str> {
+            document_ranges(text).into_iter().map(|range| &text[range]).collect()
+        }
         assert_eq!(ranges("a: 1\n"), ["a: 1\n"]);
         assert_eq!(ranges("\u{feff}---\na: 1\n---\nb: 2\n"), ["a: 1\n", "b: 2\n"]);
         assert_eq!(
