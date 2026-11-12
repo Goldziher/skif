@@ -15,6 +15,7 @@ use crate::catalogs::{self, Catalogs};
 use crate::detect;
 use crate::error::WorkspaceError;
 use crate::lerna::LernaFacts;
+use crate::manifest::parse_value;
 use crate::package::{Package, PackageId};
 use crate::parallel::map_ordered;
 use crate::pattern::{self, Expander, Pattern};
@@ -102,8 +103,14 @@ pub struct DiscoveryFacts {
     /// Members outside the root that a Bun workspace's patterns select with leading `..` segments (`../shared`):
     /// directories with a `package.json`, relative to the root (`../shared`) and sorted. Bun installs them as
     /// workspace packages; skif does not load or lint them, so they are not [`Workspace::packages`]. Under every other
-    /// manager such a pattern cannot be used ([`Workspace::manifest_errors`]).
+    /// manager such a pattern cannot be used ([`Workspace::manifest_errors`]). A directory whose `package.json` has no
+    /// `name` is left out, as Bun leaves it out.
     pub outside_root_members: Vec<PathBuf>,
+    /// Members of a Bun workspace whose `package.json` has no `name` (or an empty one), relative to the root and
+    /// sorted. Bun silently installs no such member, so none of its dependencies; the members stay in
+    /// [`Workspace::packages`] and are excluded from analysis as `[workspace] ignore-packages` would. A member
+    /// `ignore-packages` or a Bazel convenience link already excludes is not listed.
+    pub nameless_members: Vec<PathBuf>,
 }
 
 /// The lockfiles every supported package manager writes, by file name.
@@ -146,8 +153,9 @@ pub struct Workspace {
     failed_dirs: Vec<PathBuf>,
     /// Package name to id, the root first: with a name declared twice the first package wins.
     by_name: HashMap<Box<str>, PackageId>,
-    /// Indexed by [`PackageId`]: whether `[workspace] ignore-packages` excludes the package, or it lies inside a Bazel
-    /// convenience link ([`DiscoveryFacts::bazel_links`]).
+    /// Indexed by [`PackageId`]: whether `[workspace] ignore-packages` excludes the package, it lies inside a Bazel
+    /// convenience link ([`DiscoveryFacts::bazel_links`]), or Bun does not install it
+    /// ([`DiscoveryFacts::nameless_members`]).
     ignored: Vec<bool>,
     /// Whether this is a standalone package found below another root of a recursive run.
     nested: bool,
@@ -321,6 +329,14 @@ fn diverge_from_lerna(facts: &mut LernaFacts, expander: &Expander<'_>, members: 
     let selected = pattern::selected_with_manifest(expander, globs.iter().map(String::as_str), false);
     facts.only_in_lerna = selected.difference(members).map(PathBuf::from).collect();
     facts.only_in_workspace = members.difference(&selected).map(PathBuf::from).collect();
+}
+
+/// Whether the `package.json` at `manifest` exists and has a non-empty `name`.
+fn has_name(fs: &dyn FileSystem, manifest: &Path) -> bool {
+    fs.read_to_string(manifest)
+        .ok()
+        .and_then(|text| parse_value(&text))
+        .is_some_and(|value| value.get("name").and_then(Value::as_str).is_some_and(|name| !name.is_empty()))
 }
 
 fn json_patterns(root_package: &Package) -> Option<Declared> {
@@ -664,7 +680,7 @@ impl Workspace {
             .partition(|dir| pattern::is_outside_root(dir));
         let outside_root_members: Vec<PathBuf> = outside
             .into_iter()
-            .filter(|dir| expander.has_manifest(dir))
+            .filter(|dir| has_name(fs, &root.join(dir).join(MANIFEST)))
             .map(PathBuf::from)
             .collect();
         let manager_files = ManagerFiles {
@@ -725,6 +741,15 @@ impl Workspace {
                 *slot = true;
             }
         }
+        let mut nameless_members = Vec::new();
+        if is_bun {
+            for (slot, package) in ignored.iter_mut().skip(1).zip(&packages) {
+                if !*slot && package.name.as_deref().is_none_or(str::is_empty) {
+                    *slot = true;
+                    nameless_members.push(package.dir.clone());
+                }
+            }
+        }
 
         // A `pnpm-workspace.yaml` that only holds settings selects pnpm's default patterns; when those find no
         // package besides the root, the directory is a single package, not a monorepo.
@@ -757,6 +782,7 @@ impl Workspace {
                 bazel_links: bazel_links.into_iter().collect(),
                 lerna: lerna_facts,
                 outside_root_members,
+                nameless_members,
             },
             pnpm_workspace,
             yarnrc,
@@ -820,8 +846,8 @@ impl Workspace {
         self.by_name.get(name).and_then(|&id| self.package(id))
     }
 
-    /// Whether `[workspace] ignore-packages` excludes the package with `id`, or it lies inside a Bazel convenience link
-    /// ([`DiscoveryFacts::bazel_links`]).
+    /// Whether `[workspace] ignore-packages` excludes the package with `id`, it lies inside a Bazel convenience link
+    /// ([`DiscoveryFacts::bazel_links`]), or it is a member Bun does not install ([`DiscoveryFacts::nameless_members`]).
     #[must_use]
     pub fn is_ignored(&self, id: PackageId) -> bool {
         self.ignored.get(id.index()).copied().unwrap_or(false)
