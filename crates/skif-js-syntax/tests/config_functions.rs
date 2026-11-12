@@ -1966,7 +1966,8 @@ fn a_value_computed_from_one_of_several_is_one_of_the_results() {
 /// `.map`, `.flatMap` and `.filter` of a known array call the callback, an inline function or one the module declares,
 /// with each element and its index; an unknown element (which may stand for a spread of any length) stays unknown and
 /// makes the indexes after it unknown. A predicate whose result is not known keeps the element and leaves the length
-/// unknown. Anything but a known array, or a callback the module does not declare, is unknown.
+/// unknown. Anything but a known array, or a callback the module does not declare, is unknown; such a callback is
+/// given a list of its own, as it may change the list it is called over.
 #[test]
 fn array_callbacks_run_over_a_known_array() {
     let value = extract(
@@ -1988,7 +1989,7 @@ fn array_callbacks_run_over_a_known_array() {
            undecidedLength: THEMES.filter((theme) => pick(theme)).length,\n\
            spread: [...list, 'a'].map((item, index) => `${index}-${item}`),\n\
            opaque: list.map((item) => item),\n\
-           imported: THEMES.map(helper),\n\
+           imported: ['light', 'dark'].map(helper),\n\
          };",
     );
     let theme = |name: &str| {
