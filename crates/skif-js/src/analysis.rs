@@ -10,7 +10,7 @@ use std::sync::{Arc, OnceLock};
 use indexmap::IndexMap;
 use skif_config::Config;
 use skif_core::{FileSystem, IncompletePackage, IncompleteScope, Span, timing};
-use skif_js_syntax::{Export, ExportKind, Member, ParseOptions, parse_cached};
+use skif_js_syntax::{Export, ExportKind, Member, ParseOptions, is_declaration_file, parse_cached};
 use skif_workspace::{IndexCache, IndexedFs, PackageId, TrackedFiles, Workspace, map_ordered};
 
 use crate::config_hints::{ConfigHint, HintInputs, config_hints};
@@ -164,7 +164,7 @@ fn collect_ambient_modules(
         .collect();
     let declaration_files: Vec<&Path> = candidates
         .iter()
-        .filter(|candidate| candidate.rel.ends_with(".d.ts") && graph.id_of(&candidate.abs).is_none())
+        .filter(|candidate| is_declaration_file(&candidate.rel) && graph.id_of(&candidate.abs).is_none())
         .map(|candidate| candidate.abs.as_path())
         .collect();
     let options = ParseOptions {
@@ -643,7 +643,7 @@ impl<'a> JsAnalysis<'a> {
         let unreached: Vec<&Candidate> = candidates
             .iter()
             .filter(|candidate| graph.id_of(&candidate.abs).is_none())
-            .filter(|candidate| !candidate.rel.ends_with(".d.ts"))
+            .filter(|candidate| !is_declaration_file(&candidate.rel))
             .filter(|candidate| {
                 let Some(package) = setup.package(candidate.owner) else {
                     return false;

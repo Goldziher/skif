@@ -4,7 +4,7 @@
 use skif_core::HashMap;
 use std::path::{Path, PathBuf};
 
-use skif_js_syntax::{ConfigValue, OWN_SPREAD};
+use skif_js_syntax::{ConfigValue, OWN_SPREAD, is_declaration_file};
 
 use crate::plugin::{ConfigAst, IncompleteScope, PluginContext, PluginInput, PluginSpec};
 use crate::sources::PackageSources;
@@ -909,7 +909,7 @@ fn source_files(cx: &PluginContext<'_>) -> impl Iterator<Item = String> {
     let patterns = ["**/*.{ts,mts,cts,tsx,js,mjs,cjs,jsx}".to_owned()];
     crate::files::find_files(cx.fs, cx.globs, cx.dir, &patterns)
         .into_iter()
-        .filter(|source| !source.ends_with(".d.ts") && !source.ends_with(".d.mts") && !source.ends_with(".d.cts"))
+        .filter(|source| !is_declaration_file(source))
 }
 
 /// Whether `path`, relative to the workspace directory, lies below a directory of the workspace that holds a

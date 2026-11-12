@@ -7,11 +7,12 @@
 //! appears in the public API, every public type is `Send + Sync`, and no oxc value outlives the call that parsed it:
 //! each thread parses into one arena it resets before every parse.
 //!
-//! Supported inputs are `.js .mjs .cjs .jsx .ts .mts .cts .tsx` and `.d.ts` files, plus the `<script>` blocks (and
-//! Astro frontmatter), the `<style>` imports and the markup identifiers of `.vue`, `.svelte` and `.astro` files:
-//! component tags and the expressions of the template count as uses of the imports they name, unless a template local
-//! of the same name (`v-for`, `{#each}`, an arrow parameter) shadows the import. `.mdx` files yield the
-//! facts of their top-level `import` and `export` statements, and the components their markup names count as uses.
+//! Supported inputs are `.js .mjs .cjs .jsx .ts .mts .cts .tsx` and declaration files ([`is_declaration_file`]),
+//! plus the `<script>` blocks (and Astro frontmatter), the `<style>` imports and the markup identifiers of `.vue`,
+//! `.svelte` and `.astro` files: component tags and the expressions of the template count as uses of the imports they
+//! name, unless a template local of the same name (`v-for`, `{#each}`, an arrow parameter) shadows the import.
+//! `.mdx` files yield the facts of their top-level `import` and `export` statements, and the components their markup
+//! names count as uses.
 //! `.tsrx` files yield their imports only, since their templates are no JavaScript, and `.marko` files their imports and
 //! the imports of their style blocks. Stylesheets go through
 //! [`parse_stylesheet`]. Other extensions yield [`SyntaxError::Unsupported`]. [`registered_components`] reads the
@@ -30,6 +31,7 @@ mod comments;
 mod components;
 mod config;
 mod custom_elements;
+mod declaration;
 mod error;
 mod finder;
 mod jsdoc;
@@ -72,6 +74,7 @@ pub use config::{
     extract_method_calls, extract_property_calls, extract_property_values, file_call_options, literal_command,
     place_file_dir,
 };
+pub use declaration::{DECLARATION_SUFFIXES, is_declaration_file};
 pub use error::SyntaxError;
 pub use model::{
     Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, Member, MockCall, ModuleInfo, ParseIssue,

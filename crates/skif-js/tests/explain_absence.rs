@@ -102,24 +102,29 @@ fn a_file_in_an_excluded_package() {
     assert_eq!(absence(&files, config, "packages/a/orphan.ts"), "package-excluded");
 }
 
-/// A discovered declaration file is an ambient entry, so it is in the graph and `declaration-file` is not reached
-/// for it; a declaration file Git ignores is not discovered.
+/// A discovered declaration file (`.d.ts`, `.d.mts`, `.d.cts`) is an ambient entry, so it is in the graph and
+/// `declaration-file` is not reached for it; a declaration file Git ignores is not discovered.
 #[test]
 fn a_declaration_file() {
-    let files = [
-        PACKAGE,
-        ("index.ts", "export const main = 1;\n"),
-        ("lib/types.d.ts", "export declare const x: number;\n"),
-        ("lib/generated.d.ts", "export declare const y: number;\n"),
-        (".gitignore", "lib/generated.d.ts\n"),
-    ];
-    let types = report(&files, "", "lib/types.d.ts");
-    assert_eq!(
-        (&types["in-graph"], &types["entry"]),
-        (&json!(true), &json!("entry-glob")),
-        "{types}"
-    );
-    assert_eq!(absence(&files, "", "lib/generated.d.ts"), "not-discovered");
+    for extension in ["d.ts", "d.mts", "d.cts"] {
+        let types_file = format!("lib/types.{extension}");
+        let generated_file = format!("lib/generated.{extension}");
+        let gitignore = format!("{generated_file}\n");
+        let files = [
+            PACKAGE,
+            ("index.ts", "export const main = 1;\n"),
+            (types_file.as_str(), "export declare const x: number;\n"),
+            (generated_file.as_str(), "export declare const y: number;\n"),
+            (".gitignore", gitignore.as_str()),
+        ];
+        let types = report(&files, "", &types_file);
+        assert_eq!(
+            (&types["in-graph"], &types["entry"]),
+            (&json!(true), &json!("entry-glob")),
+            "{types}"
+        );
+        assert_eq!(absence(&files, "", &generated_file), "not-discovered", "{extension}");
+    }
 }
 
 /// A root Playwright config whose `testDir` lies in a member package makes that member's tests entries; the reason
@@ -310,6 +315,48 @@ fn a_file_in_the_narrowed_scope_is_an_entry() {
         helper["chain-from-entry"],
         json!(["test/db-setup.ts", "src/helper.ts"]),
         "{helper}"
+    );
+}
+
+/// The narrowed scope of an incomplete root reaches the files of the members below it (ADR 0081); the reason names
+/// that enclosing scope and its package rather than none.
+#[test]
+fn a_member_file_in_the_narrowed_scope_of_the_root_is_an_entry_of_that_scope() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*"],"devDependencies":{"vitest":"3.0.0"}}"#,
+        ),
+        (
+            "vitest.config.ts",
+            "import base from './vitest.base';\nexport default { ...base };\n",
+        ),
+        (
+            "packages/core/package.json",
+            r#"{"name":"core","version":"1.0.0","main":"src/index.ts"}"#,
+        ),
+        ("packages/core/src/index.ts", "export const main = 1;\n"),
+        ("packages/core/src/test-utils/mock.ts", "export const mock = 1;\n"),
+    ];
+    let mock = report(&files, "", "packages/core/src/test-utils/mock.ts");
+    assert_eq!(
+        (&mock["in-graph"], &mock["entry"], &mock["scope-package"]),
+        (&json!(true), &json!("enclosing-incomplete-scope"), &json!(".")),
+        "{mock}"
+    );
+    assert_eq!(mock["incomplete"][0]["plugin"], "vitest", "{mock}");
+    assert!(
+        mock["incomplete-scope"].as_array().is_some_and(|globs| globs
+            .iter()
+            .any(|glob| glob.as_str().is_some_and(|glob| glob.contains("test-utils")))),
+        "{mock}"
+    );
+    // A file of the member's own scope-less package keeps its own reason, without a scope package.
+    let index = report(&files, "", "packages/core/src/index.ts");
+    assert_eq!(
+        (&index["entry"], index.get("scope-package")),
+        (&json!("entry-glob"), None),
+        "{index}"
     );
 }
 
