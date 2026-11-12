@@ -571,19 +571,19 @@ fn table_is_broad() {
 }
 
 #[test]
-fn turbo_tasks() {
-    let cases: [(&str, &[&str]); 6] = [
-        ("turbo run build --filter=web", &["build"]),
-        ("turbo run build lint --filter web", &["build", "lint"]),
-        ("turbo build", &["build"]),
-        ("turbo run test -- --coverage", &["test"]),
-        ("turbo prune web", &[]),
-        ("turbo watch dev", &["dev"]),
-    ];
-    for (script, tasks) in cases {
-        let info = parse(script);
-        assert_eq!(info.turbo_tasks, tasks, "{script}");
+fn turbo_task_names_are_not_commands() {
+    let ctx = context(&[("build", "tsc"), ("dev", "vite")]);
+    for script in [
+        "turbo run build --filter=web",
+        "turbo run build lint --filter web",
+        "turbo build",
+        "turbo run test -- --coverage",
+        "turbo prune web",
+        "turbo watch dev",
+    ] {
+        let info = parse_script(script, &ctx);
         assert_eq!(binaries_of(&info), vec!["turbo".to_owned()], "{script}");
+        assert!(info.files.is_empty() && info.dependencies.is_empty(), "{script}: {info:?}");
         assert!(info.run_scripts.is_empty(), "{script}");
     }
 }
