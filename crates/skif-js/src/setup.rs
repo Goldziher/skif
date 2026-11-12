@@ -14,6 +14,7 @@ use skif_js_syntax::{Export, ExportKind, Registration};
 use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 
 use crate::ancestors;
+use crate::compilers::Compilers;
 use crate::config_check::relative_tsconfig;
 use crate::deps::member_dirs;
 use crate::globs::{EntryRegexes, GlobCache, Globs, IncompleteScopeGlobs, Names};
@@ -54,8 +55,11 @@ fn test_directories() -> Vec<String> {
     ]
 }
 
-fn default_project() -> Vec<String> {
-    vec![format!("**/*.{PROJECT_EXTENSIONS}")]
+/// The default `project`: the [`PROJECT_EXTENSIONS`] and the extensions of `[js.compilers]`.
+fn default_project(compilers: &Compilers) -> Vec<String> {
+    std::iter::once(format!("**/*.{PROJECT_EXTENSIONS}"))
+        .chain(compilers.extensions().map(|extension| format!("**/*.{extension}")))
+        .collect()
 }
 
 /// Test file names, excluded from the project in production mode.
@@ -531,6 +535,8 @@ pub(crate) struct Setup {
     pub use_public_hoisting: bool,
     /// `.gitignore` files apply: not `--no-gitignore`.
     pub gitignore: bool,
+    /// `[js.compilers]`: how the files of the extensions skif has no reader for are read.
+    pub compilers: Arc<Compilers>,
 }
 
 /// The TypeScript configuration of the package in `dir`: `root_tsconfig` (`[js] tsconfig`) for the root package,
@@ -818,6 +824,8 @@ impl Setup {
         } else {
             Vec::new()
         };
+        let compilers = Arc::new(Compilers::new(&js.compilers));
+        let project_defaults = default_project(&compilers);
         let listing = WorkspaceListing::new(!js.no_gitignore, sequential);
         let members: Vec<(PackageId, &Package)> = workspace.iter().collect();
         let globs = GlobCache::default();
@@ -903,7 +911,7 @@ impl Setup {
             let (mut project, mut named_files) = match tsconfig_project {
                 Some(selected) => (selected.patterns, selected.files),
                 None => (
-                    listed::user_globs(&user.project, production, &default_project()),
+                    listed::user_globs(&user.project, production, &project_defaults),
                     Vec::new(),
                 ),
             };
@@ -1027,6 +1035,7 @@ impl Setup {
             ignore_global_binaries: js.ignore_global_binaries,
             use_public_hoisting: js.use_public_hoisting,
             gitignore: !js.no_gitignore,
+            compilers,
         }
     }
 

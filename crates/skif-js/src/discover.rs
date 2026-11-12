@@ -9,6 +9,7 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use skif_core::{DirEntry, FileSystem};
 use skif_workspace::{PackageId, Workspace, git_common_dir, git_dirs, map_ordered};
 
+use crate::compilers::Compilers;
 use crate::resolve::is_code_file;
 
 /// Directories that never hold analysed sources: dependencies, VCS data and common build output.
@@ -209,7 +210,7 @@ struct Walk<'a> {
     /// Honour `.gitignore` files; `.ignore` files are honoured either way.
     gitignore: bool,
     /// Whether a file is one the walk collects.
-    wanted: fn(&Path) -> bool,
+    wanted: &'a (dyn Fn(&Path) -> bool + Sync),
 }
 
 impl Walk<'_> {
@@ -299,18 +300,20 @@ impl Walk<'_> {
 /// independent of scheduling.
 #[cfg(test)]
 pub(crate) fn discover(fs: &dyn FileSystem, workspace: &Workspace, sequential: bool) -> Vec<Candidate> {
-    discover_with(fs, workspace, sequential, true)
+    discover_with(fs, workspace, sequential, true, &Compilers::default())
 }
 
-/// Like [`discover`]; without `gitignore` the `.gitignore` files are not read, so the files they hide are found too
-/// (`skif --no-gitignore`).
+/// Like [`discover`], also listing the files of the extensions of `compilers`; without `gitignore` the `.gitignore`
+/// files are not read, so the files they hide are found too (`skif --no-gitignore`).
 pub(crate) fn discover_with(
     fs: &dyn FileSystem,
     workspace: &Workspace,
     sequential: bool,
     gitignore: bool,
+    compilers: &Compilers,
 ) -> Vec<Candidate> {
-    walk_files(fs, workspace, (sequential, gitignore), is_code_file)
+    let wanted = |path: &Path| is_code_file(path) || compilers.handles(path);
+    walk_files(fs, workspace, (sequential, gitignore), &wanted)
 }
 
 /// The directories, relative to the workspace root and sorted, of the `project.json` files that the walk of
@@ -323,7 +326,7 @@ pub(crate) fn nx_project_dirs(
     sequential: bool,
     gitignore: bool,
 ) -> Vec<(String, String)> {
-    let mut found: Vec<(String, String)> = walk_files(fs, workspace, (sequential, gitignore), is_project_json)
+    let mut found: Vec<(String, String)> = walk_files(fs, workspace, (sequential, gitignore), &is_project_json)
         .into_iter()
         .filter_map(|candidate| {
             let dir = candidate.rel.rsplit_once('/').map_or("", |(dir, _)| dir).to_owned();
@@ -344,7 +347,7 @@ fn walk_files(
     fs: &dyn FileSystem,
     workspace: &Workspace,
     (sequential, gitignore): (bool, bool),
-    wanted: fn(&Path) -> bool,
+    wanted: &(dyn Fn(&Path) -> bool + Sync),
 ) -> Vec<Candidate> {
     let mut owners: HashMap<PathBuf, PackageId> = HashMap::default();
     let mut skipped: HashSet<PathBuf> = HashSet::default();

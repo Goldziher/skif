@@ -563,7 +563,13 @@ impl<'a> JsAnalysis<'a> {
             Setup::new(workspace, config, fs, sources, sequential)
         });
         let mut candidates = timing::phase(phase("discover"), || {
-            discover_with(fs.as_ref(), workspace, sequential, !config.js.no_gitignore)
+            discover_with(
+                fs.as_ref(),
+                workspace,
+                sequential,
+                !config.js.no_gitignore,
+                &setup.compilers,
+            )
         });
         let task_only_members = task_only_members(workspace, &candidates);
         if !setup.js_ignored.is_empty() {
