@@ -5,9 +5,6 @@
 
 **One fast binary for the dependency checks your monorepo spreads across three tools.**
 
-skif lints manifests, enforces version and catalog policies, and finds unused dependencies and dead code,
-with one config file and one report. It never runs your project's code.
-
 npm · pnpm · yarn · bun · **53 rules** · **207 plugins** · format-preserving fixes
 
 [![crates.io](https://img.shields.io/crates/v/skif?style=flat-square)](https://crates.io/crates/skif)
@@ -16,93 +13,20 @@ npm · pnpm · yarn · bun · **53 rules** · **207 plugins** · format-preservi
 [![Docs](https://img.shields.io/badge/docs-goldziher.github.io%2Fskif-f07a1a?style=flat-square)](https://goldziher.github.io/skif/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 
-[Docs](https://goldziher.github.io/skif/) · [Quick start](#quick-start) · [Compare](#how-it-compares) · [Benchmarks](https://goldziher.github.io/skif/guides/benchmarks/) · [Install](#installation) · [Rules](docs/rules.md)
+[Docs](https://goldziher.github.io/skif/) · [Benchmarks](https://goldziher.github.io/skif/guides/benchmarks/) · [Comparison](https://goldziher.github.io/skif/guides/comparison/) · [Install](#installation) · [Quick start](#quick-start) · [Rules](docs/rules.md)
 
 </div>
 
 ---
 
-## What you get
-
-| | |
-| --- | --- |
-| **One tool** | Manifest hygiene, version policy and dead-code analysis in one run, one `skif.toml` and one report. |
-| **Fast** | Timed against knip, sherif and syncpack on pinned public repositories and generated workspaces. [See the numbers.](#performance) |
-| **Safe** | Analysis is static: skif reads your code and configs without running them. Fixes keep key order, indentation and comments. |
-| **Easy to adopt** | `skif migrate` translates your sherif, syncpack and knip configuration in one step, and `skif baseline` records the findings you cannot fix yet so CI only accepts fewer. |
-| **Built for CI** | Human, JSON, SARIF, GitHub annotation, GitLab Code Quality, compact, Markdown and CODEOWNERS output, stable rule ids and a GitHub Action. |
-| **Embeddable** | The [`skif`](crates/skif/README.md) crate is a library that does no I/O of its own. |
-
-## Quick start
-
-```bash
-npx skif-cli              # lint the workspace or package you are in
-npx skif-cli --fix        # apply safe fixes
-npx skif-cli migrate      # turn sherif, syncpack and knip config into a skif.toml
-npx skif-cli update --check  # list newer published versions; the only command that uses the network
-```
-
-With skif installed, the command is `skif`. See the [CLI reference](https://goldziher.github.io/skif/reference/cli/).
-
-## How it compares
-
-skif builds on [sherif](https://github.com/QuiiBz/sherif), [syncpack](https://github.com/JamieMason/syncpack) and
-[knip](https://github.com/webpro-nl/knip), which remain excellent, focused tools. It started as a fork of sherif and
-follows knip's issue types. The difference is that one tool covers all three jobs.
-
-The tables compare skif with sherif 1.13.0, syncpack 15.3.3 and knip 6.45.1, checked against their source code at
-those tags. The [comparison guide](https://goldziher.github.io/skif/guides/comparison/#capabilities) has the full
-matrix, explains each "Partial" and lists the sources.
-
-| Capability | skif | sherif | syncpack | knip |
-| --- | --- | --- | --- | --- |
-| Manifest and workspace rules | Yes | Yes | Partial: sorts dependency maps | No |
-| Version mismatches | Yes | Yes | Yes | No |
-| Version and semver-range groups, banned dependencies | Yes | No | Yes | No |
-| Related dependencies on one version (`react`, `react-dom`) | Yes | Partial: a fixed list | Yes | No |
-| Catalog policy | Yes: pnpm, Bun, Yarn 4.10+ | No | Partial: pnpm, Bun | No |
-| Unused catalog entries, unresolved `catalog:` references | Yes | No | Partial: unresolved references | Yes |
-| `workspace:` protocol | Yes | No | Partial: a pinned version group | No |
-| Toolchain pins (`packageManager`, `engines`, `.nvmrc`, Dockerfiles, workflows) | Yes | Partial: `packageManager` present | Partial: `package.json` fields | No |
-| Lockfile checks (stray lockfiles, bans over the lockfile, stale patches) | Partial: `pnpm-lock.yaml`, `bun.lock` | No | No | No |
-| Registry updates | Yes: `skif update`, `--check` | No | Yes: `syncpack update`, `--check` | No |
-| Unused and unlisted dependencies, unlisted binaries, unresolved imports | Yes | No | No | Yes |
-| Unused files, exports, types, enum and namespace members; duplicate exports | Yes | No | No | Yes |
-| Circular imports | Yes, off by default | No | No | Yes, off by default |
-| Unused `package.json` subpath imports and exports | No | No | No | Yes |
-| Vue, Svelte, Astro, MDX, Marko | Yes | No | No | Yes |
-| Custom compilers for other file types | No | No | No | Yes |
-| Built-in plugins | 207 | No | No | 207 |
-| Runs no project code while linting | Yes | Yes | Partial: imports its own JS config | No |
-| Autofix | Yes | Yes | Yes | Yes |
-| Safe and unsafe fix levels | Yes | No | No | Partial: file deletion opt-in |
-| Baseline that can only shrink | Yes | No | No | No |
-| Translates the other tools' configuration | Yes: `skif migrate` | No | No | No |
-| Configuration | `skif.toml`, layered | `package.json` key | `.syncpackrc` (JSON, YAML, JS, TS) | `knip.json`, `knip.ts` |
-| JSON, SARIF, GitHub, Code Climate output | Yes | No | Partial: JSON from some commands | Yes |
-| Watch mode, language server | Yes | No | No | Yes |
-| Editor extension | No | No | No | Yes |
-| MCP server | Yes | No | No | Yes: runs knip, serves its docs |
-| GitHub Action | Yes | Yes | No | No |
-| Git hooks (pre-commit, prek, Poly) | Yes | No | No | No |
-| Library API | Yes: Rust crate, npm package | No | No | Partial: undocumented |
-
-| Support | skif | sherif | syncpack | knip |
-| --- | --- | --- | --- | --- |
-| Package managers | npm, pnpm, Yarn 2+, Yarn Classic, Bun | npm, pnpm, Yarn, Bun | npm, pnpm, Yarn, Bun, Lerna | npm, pnpm, Yarn, Bun |
-| Linkers tested end to end in CI | npm (hoisted); pnpm (isolated, `nodeLinker: hoisted`); Yarn 2+ (Plug'n'Play, `nodeLinker: node-modules`, `nodeLinker: pnpm`); Yarn Classic (hoisted); Bun (default, `linker = "hoisted"`, `linker = "isolated"`) | None | None | No linker matrix |
-| Runtime | Native binary, or through npm on Node.js 22, 24, 26 and Bun 1.x | Native binary | Native binary | Node.js 20.19+ or 22.12+, or Bun |
-| Platforms | macOS, Linux (glibc, musl), Windows; x64, arm64 (Windows not yet on npm) | macOS, Linux (glibc, musl), Windows; x64, arm64 | macOS, Linux (glibc, musl), Windows; x64, arm64 | Where `oxc-parser` has a native binding |
-| Distribution | npm, crates.io, cargo-binstall, release archives, Homebrew, Scoop | npm, release archives, Homebrew | npm; crates.io up to 14.0.0 | npm |
-
-Versions per package manager and operating system are under
-[supported versions](https://goldziher.github.io/skif/start/installation/#supported-versions). skif is younger than
-all three. The JS analysis is close to knip but not identical, and
-[the differences are published](https://goldziher.github.io/skif/guides/benchmarks/#agreement-with-knip).
+skif is a dependency linter for JavaScript and TypeScript repositories, written in Rust. It does the jobs of
+[sherif](https://github.com/QuiiBz/sherif) (manifest and workspace rules), [syncpack](https://github.com/JamieMason/syncpack)
+(version and catalog policies) and [knip](https://github.com/webpro-nl/knip) (unused files, exports and
+dependencies) in one run, with one `skif.toml` and one report. It reads tool configurations statically and runs no
+project code while linting, and its fixes keep key order, indentation and comments. `skif migrate` translates an
+existing sherif, syncpack and knip setup in one step.
 
 ## Performance
-
-Generated from the latest imported run of the `bench` workflow, with the dependencies of the repositories installed:
 
 <!-- bench:claims:start -->
 - **6.0–9.0x faster than knip** (median 7.5x) for dead-code analysis, on 3 pinned public repositories where knip completes; it fails on create-t3-turbo and vue-core.
@@ -112,60 +36,28 @@ Generated from the latest imported run of the `bench` workflow, with the depende
 skif 0.3.0 against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3: medians of 15 runs on a GitHub-hosted runner, measured on 2026-11-12.
 <!-- bench:claims:end -->
 
-The [benchmarks page](https://goldziher.github.io/skif/guides/benchmarks/) has every table, the workflow run the
-numbers come from, the methodology, and skif's accuracy on seeded defects and its agreement with knip.
+The claims are generated from the latest imported run of the `bench` workflow. The
+[benchmarks page](https://goldziher.github.io/skif/guides/benchmarks/) has every table, the workflow run the numbers
+come from, the methodology, the accuracy on seeded defects and the agreement with knip on real repositories.
 
 ## Installation
 
-<details open>
-<summary><strong>npm, pnpm, yarn or bun</strong></summary>
-
-The package is `skif-cli`; the command it installs is `skif`.
-
 ```bash
-pnpm add -D skif-cli     # or npm install -D, yarn add -D, bun add -D
-pnpm dlx skif-cli        # or npx skif-cli, yarn dlx skif-cli, bunx -p skif-cli skif
+pnpm add -D skif-cli                  # or npm install -D, yarn add -D, bun add -D; the command is `skif`
+cargo binstall skif-cli               # prebuilt binary; or cargo install skif-cli
+brew install goldziher/tap/skif       # Homebrew
 ```
-
-Needs Node.js 22, 24 or 26, or Bun 1.x, on macOS or Linux (x64 or arm64). Tested end to end with the latest two
-majors of npm, pnpm and Yarn 2+, the newest Yarn Classic 1.x and the newest Bun 1.x. Windows is not on npm in 0.3.0
-([ADR 0114](adrs/0114-windows-npm-packages-deferred.md)): on Windows, use the release archives, cargo-binstall or
-Scoop.
-
-</details>
-
-<details>
-<summary><strong>Homebrew</strong></summary>
-
-```bash
-brew install goldziher/tap/skif
-```
-
-</details>
-
-<details>
-<summary><strong>Scoop</strong></summary>
 
 ```powershell
 scoop bucket add goldziher https://github.com/Goldziher/scoop-bucket
 scoop install skif
 ```
 
-</details>
+The npm package needs Node.js 22, 24 or 26, or Bun 1.x, on macOS or Linux. Windows has no npm package
+([ADR 0114](adrs/0114-windows-npm-packages-deferred.md)): on Windows, use cargo-binstall, Scoop or the
+[release archives](https://goldziher.github.io/skif/start/installation/#prebuilt-binaries).
 
-<details>
-<summary><strong>Cargo</strong></summary>
-
-```bash
-cargo install skif-cli    # or cargo binstall skif-cli
-```
-
-The `skif` crate is the library; `skif-cli` is the command-line tool.
-
-</details>
-
-<details>
-<summary><strong>GitHub Action</strong></summary>
+GitHub Action:
 
 ```yaml
 - uses: actions/checkout@v7
@@ -174,12 +66,7 @@ The `skif` crate is the library; `skif-cli` is the command-line tool.
     fail-on-warnings: true
 ```
 
-See the [Action guide](https://goldziher.github.io/skif/guides/integrations/) for inputs and version pinning.
-
-</details>
-
-<details>
-<summary><strong>pre-commit or prek</strong></summary>
+pre-commit or prek (needs neither Rust nor Node):
 
 ```yaml
 repos:
@@ -190,59 +77,73 @@ repos:
       - id: skif-fix   # optional: also applies safe fixes
 ```
 
-Needs neither Rust nor Node. See the [hooks guide](https://goldziher.github.io/skif/guides/integrations/) for Poly and
-Lefthook.
+The [installation guide](https://goldziher.github.io/skif/start/installation/) lists every channel, the prebuilt
+archives and the supported versions; the [integrations guide](https://goldziher.github.io/skif/guides/integrations/)
+covers the Action inputs, Poly, Lefthook, GitLab CI and the npm API.
 
-</details>
-
-<details>
-<summary><strong>Agent skill for coding agents</strong></summary>
-
-The [`skif` skill](skills/skif/SKILL.md) teaches an agent to lint, triage and fix with skif. It needs skif itself
-(any channel above, or `npx skif-cli`). Installed as a plugin, it also registers skif's MCP server, run with
-`npx -y skif-cli@<release> mcp`, so the plugin needs Node.js but no separate install.
+## Quick start
 
 ```bash
-npx skills add Goldziher/skif                                 # any agent that reads Agent Skills
-codex plugin marketplace add Goldziher/skif && codex plugin add skif@skif
-droid plugin marketplace add https://github.com/Goldziher/skif && droid plugin install skif@skif
-copilot plugin marketplace add Goldziher/skif && copilot plugin install skif@skif
+npx skif-cli                  # lint the workspace or package you are in
+npx skif-cli --fix --dry-run  # show the safe fixes as a diff
+npx skif-cli --fix            # apply them, then run the package manager's install
+npx skif-cli migrate          # translate sherif, syncpack and knip config into a skif.toml
+npx skif-cli baseline write   # record the findings you cannot fix yet; CI then accepts only fewer
 ```
 
-In Claude Code, run `/plugin marketplace add Goldziher/skif`, then `/plugin install skif@skif` (or, from 2.1.275 on,
-`/plugin install skif --marketplace Goldziher/skif`). See the
-[agents guide](https://goldziher.github.io/skif/guides/editors-and-agents/#agent-skill).
+skif works without configuration. `skif init` writes a starter `skif.toml`, and files layer from a project up to the
+git root, so one organisation file applies to every project below it. See the
+[quickstart](https://goldziher.github.io/skif/start/quickstart/) and the
+[configuration reference](https://goldziher.github.io/skif/reference/configuration/).
 
-</details>
+## Features
 
-Prebuilt archives and supported versions are listed in the
-[installation guide](https://goldziher.github.io/skif/start/installation/).
+- **Manifest and workspace rules**: root `private` and `packageManager`, sorted and empty dependency maps, `@types`
+  in `dependencies`, unmatched workspace patterns, stray lockfiles, nested workspace roots, Lerna configuration.
+- **Version policy**: version and semver-range groups, banned dependencies, dependency families, the `workspace:`
+  protocol, catalogs (pnpm, Bun, Yarn 4.10+) and toolchain pins (`packageManager`, `engines`, `.nvmrc`, Dockerfiles,
+  workflows, `MODULE.bazel`). `skif update` finds newer published versions; it is the only command that uses the
+  network.
+- **Dead-code analysis on [oxc](https://oxc.rs)**: unused files, exports, types, enum and namespace members and
+  `package.json` subpaths; unused, unlisted and unresolved dependencies and binaries; duplicate exports; circular
+  imports. Vue, Svelte, Astro, MDX and Marko files are read, and 207 plugins read the configuration of common tools.
+  `skif explain-usage` says why a file, export or dependency counts as used.
+- **Monorepo layouts**: npm, pnpm, Yarn 2+, Yarn Classic and Bun workspaces, single packages, `skif -r` over many
+  roots, Rush, [Turborepo, Nx and Lerna](https://goldziher.github.io/skif/guides/turborepo-nx-lerna/), and
+  [Bazel with rules_js](https://goldziher.github.io/skif/guides/bazel/).
+- **Fixes**: safe and unsafe levels, `--fix-type` to fix some rules only, `--dry-run` diffs, and `skif format` for
+  `package.json` layout.
+- **CI output**: human, JSON, SARIF, GitHub annotations, GitLab Code Quality, compact, Markdown and CODEOWNERS
+  reports, several in one run, with stable rule ids and documented exit codes.
+- **Editors and agents**: watch mode, a language server, an MCP server and an
+  [agent skill](https://goldziher.github.io/skif/guides/editors-and-agents/#agent-skill).
+- **Library**: the [`skif`](crates/skif/README.md) crate does no I/O of its own, and the npm package exports `lint`,
+  `lintAsync` and `run`. See the [library guide](https://goldziher.github.io/skif/guides/library/).
 
-## Configuration
+## Support
 
-skif works with no configuration. To adjust it, add a `skif.toml`:
+| | skif |
+| --- | --- |
+| Package managers | npm, pnpm, Yarn 2+, Yarn Classic, Bun |
+| Linkers tested end to end in CI | npm (hoisted); pnpm (isolated, `nodeLinker: hoisted`); Yarn 2+ (Plug'n'Play, `nodeLinker: node-modules`, `nodeLinker: pnpm`); Yarn Classic (hoisted); Bun (default, `linker = "hoisted"`, `linker = "isolated"`) |
+| Runtime | Native binary, or through npm on Node.js 22, 24, 26 and Bun 1.x |
+| Platforms | macOS, Linux (glibc, musl), Windows; x64, arm64 (Windows not on npm) |
 
-```toml
-[rules]
-unsorted-dependencies = "warn"
+Versions per package manager and operating system are under
+[supported versions](https://goldziher.github.io/skif/start/installation/#supported-versions). The
+[comparison guide](https://goldziher.github.io/skif/guides/comparison/) compares skif with sherif, syncpack and knip
+capability by capability, with sources.
 
-[[ignore]]
-rules = ["version-mismatch"]
-dependencies = ["wrangler"]
-reason = "workers still on the v2 runtime"
-```
+## Documentation
 
-`skif init` writes a starter file. Files layer from your project up to the git root, so an organisation file applies to
-every project below it. See the [configuration reference](https://goldziher.github.io/skif/reference/configuration/).
-
-## Library
-
-```bash
-cargo add skif
-```
-
-The `skif` crate never prints, exits or writes files, so a host can embed the rules. Poly is the first host. See the
-[library guide](https://goldziher.github.io/skif/guides/library/).
+- [Introduction](https://goldziher.github.io/skif/start/introduction/) and
+  [quickstart](https://goldziher.github.io/skif/start/quickstart/)
+- [Rules](https://goldziher.github.io/skif/rules/) ([`docs/rules.md`](docs/rules.md))
+- [CLI reference](https://goldziher.github.io/skif/reference/cli/) and
+  [configuration reference](https://goldziher.github.io/skif/reference/configuration/)
+- [Migrating from sherif, syncpack and knip](https://goldziher.github.io/skif/guides/migrating/)
+- [Benchmarks](https://goldziher.github.io/skif/guides/benchmarks/) and
+  [comparison](https://goldziher.github.io/skif/guides/comparison/)
 
 ## Contributing
 
