@@ -787,6 +787,57 @@ fn a_change_through_what_an_imported_function_returns_reaches_the_imported_value
     assert_eq!(read_at(&value, &["plugins"]), &strings(&[]), "{value:?}");
 }
 
+/// A function of a followed module may change a value of a module through what it keeps for every call: a key of the
+/// function object (`f.cache = base`), what `bind` gives it (`add.bind(null, base)`), and what a generator or an
+/// `async` function was given by the call that made it, whose code runs later. Calling it leaves the imported values
+/// partly unknown; one that only reads what it keeps leaves them known.
+#[test]
+fn a_function_of_a_followed_module_that_changes_what_it_keeps_changes_the_imported_values() {
+    for (shared, name, statement) in [
+        (
+            "import { base } from './base';\nfunction f() {}\nf.cache = base;\n\
+             export function addPlugin(p) { f.cache.plugins.push(p); }",
+            "addPlugin",
+            "addPlugin('x');",
+        ),
+        (
+            "import { base } from './base';\nfunction add(c, p) { c.plugins.push(p); }\n\
+             export const addPlugin = add.bind(null, base);",
+            "addPlugin",
+            "addPlugin('x');",
+        ),
+        (
+            "import { base } from './base';\nfunction* steps(c) { yield; c.plugins.push('x'); }\n\
+             const it = steps(base);\nexport const next = it.next.bind(it);",
+            "next",
+            "next();\nnext();",
+        ),
+        (
+            "import { base } from './base';\nasync function run(c) { await null; c.plugins.push('x'); }\n\
+             const pending = run(base);\nexport const settle = () => pending;",
+            "settle",
+            "await settle();",
+        ),
+    ] {
+        let value = shared_config(shared, name, statement);
+        assert_eq!(
+            read_at(&value, &["plugins"]),
+            &ConfigValue::Unknown,
+            "{shared}\n{statement}: {value:?}"
+        );
+        assert_eq!(read_at(&value, &["name"]), &s("app"), "{shared}\n{statement}: {value:?}");
+    }
+    for shared in [
+        "import { base } from './base';\nfunction f() {}\nf.cache = base;\n\
+         export function addPlugin(p) { return [...f.cache.plugins, p]; }",
+        "import { base } from './base';\nfunction add(c, p) { return [...c.plugins, p]; }\n\
+         export const addPlugin = add.bind(null, base);",
+    ] {
+        let value = shared_config(shared, "addPlugin", "addPlugin('x');");
+        assert_eq!(read_at(&value, &["plugins"]), &strings(&[]), "{shared}: {value:?}");
+    }
+}
+
 /// A `define…` helper of a workspace package the loader follows is code of the project, which may change what it is
 /// given: the config it was given is partly unknown after the call.
 #[test]
