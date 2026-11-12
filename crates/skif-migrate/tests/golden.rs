@@ -1355,6 +1355,48 @@ fn knip_runs_that_disagree_are_noted_and_production_is_not_written() {
     assert_eq!(table(&agreeing)["js"]["production"].as_bool(), Some(true));
 }
 
+/// `[js] strict` implies production mode, so a project whose every knip run is strict gets `strict` alone; one where
+/// only some runs are keeps `production` when every run is in production mode and leaves `strict` to a human.
+#[test]
+fn knip_strict_is_written_to_js_strict_when_every_run_is_strict() {
+    let strict = knip(None, &[("a", "knip --strict"), ("b", "knip -s --production")]);
+    let js = &table(&strict)["js"];
+    assert_eq!(js["strict"].as_bool(), Some(true), "{}", strict.toml);
+    assert!(js.get("production").is_none(), "{}", strict.toml);
+    assert_eq!(
+        class(&strict, "scripts.a: --strict, scripts.b: --strict"),
+        NoteClass::Exact
+    );
+    assert_eq!(class(&strict, "scripts.b: --production"), NoteClass::Exact);
+
+    let mixed = knip(None, &[("a", "knip --strict"), ("b", "knip --production")]);
+    let js = &table(&mixed)["js"];
+    assert!(js.get("strict").is_none(), "{}", mixed.toml);
+    assert_eq!(js["production"].as_bool(), Some(true), "{}", mixed.toml);
+    assert_eq!(class(&mixed, "scripts.a: --strict"), NoteClass::Human);
+}
+
+/// knip 5's `--isolate-workspaces` built a TypeScript program per workspace, which changes no finding (knip 6 always
+/// does it), so it is not `[js] isolate-workspaces` and needs no note.
+#[test]
+fn knip_isolate_workspaces_flag_is_not_workspace_isolation() {
+    let migration = knip(None, &[("a", "knip --isolate-workspaces")]);
+    let section = table(&migration).remove("js");
+    assert!(
+        section.is_none_or(|js| js.get("isolate-workspaces").is_none()),
+        "{}",
+        migration.toml
+    );
+    assert!(
+        !migration
+            .notes
+            .iter()
+            .any(|note| note.path.contains("--isolate-workspaces")),
+        "{:#?}",
+        migration.notes
+    );
+}
+
 #[test]
 fn knip_class_members_is_not_an_issue_type() {
     let migration = knip(Some(r#"{ "ignoreIssues": { "a.ts": ["classMembers"] } }"#), &[]);

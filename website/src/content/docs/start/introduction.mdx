@@ -23,8 +23,8 @@ Every check is a rule with a stable kebab-case id, a category (`manifest`, `work
 ## Principles
 
 - **Static only.** skif never executes project code. Analysis reads files; configuration is TOML.
-- **Format-preserving fixes.** `--fix` edits `package.json` and `pnpm-workspace.yaml` while keeping key order,
-  indentation and comments.
+- **Format-preserving fixes.** `--fix` edits `package.json`, `pnpm-workspace.yaml` and, for unsafe fixes, source
+  files, keeping key order, indentation and comments.
 - **One configuration format.** `skif.toml` or `.skif.toml`, read from the workspace root up to the git repository
   root and merged. There is no `package.json` key,
   and sherif, syncpack and knip configuration is not read while linting: `skif migrate` translates it once.
@@ -37,3 +37,7 @@ npm, pnpm, yarn and bun workspaces. skif detects the package manager from `[work
 the root `packageManager` or `devEngines.packageManager` field, `rush.json` or `lerna.json`, then lockfiles and
 other files (see [package manager detection](../../guides/workspaces/#package-manager-detection)). It does not guess
 when nothing indicates one.
+
+Turborepo, Nx and Lerna run on top of those workspaces and are read where they name dependencies and entry files
+([Turborepo, Nx and Lerna](../../guides/turborepo-nx-lerna/)); Bazel repositories with rules_js have a guide of their
+own ([Bazel](../../guides/bazel/)).

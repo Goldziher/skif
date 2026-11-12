@@ -40,8 +40,8 @@ the baseline file (`--file`, or `skif.baseline.toml`), since a baseline applies 
 extends it.
 
 A release moves a floating tag: `@vN` for a stable major N from 1 on, and `@v0.M` for a 0.x line. `@v0` itself never
-moves, because a 0.x minor release may break; pin `@v0.2` to take every 0.2.x patch and nothing else. Every release of the action installs the skif version it was
-published with, so a full tag such as `@v0.2.0` or a commit SHA never changes the installed version. The action
+moves, because a 0.x minor release may break; pin `@v0.4` to take every 0.4.x patch and nothing else. Every release of the action installs the skif version it was
+published with, so a full tag such as `@v0.4.0` or a commit SHA never changes the installed version. The action
 downloads the release archive for the runner and verifies it against the release's `checksums.txt` (again on every
 cache hit) and, where the `gh` CLI has the `attestation` command, against its build-provenance attestation.
 The attestation must come from the repository's `publish.yaml` workflow (`gh attestation verify --signer-workflow`), so an
@@ -176,10 +176,10 @@ Run skif once at the workspace root, as a root script or a root task, not as a t
 
 ## npm and Bun
 
-The `skif-cli` package is a native addon built with napi-rs for the Node.js lines that are not end-of-life (22, 24 and 26 today; see the [Node.js release schedule](https://nodejs.org/en/about/previous-releases)) and Bun 1.x; older versions may work but are not supported. It is ESM only (from CommonJS use `import()`, or `require()` on Node 22.12+), has no install script,
+The `skif-cli` package is a native addon built with napi-rs for the Node.js lines that are not end-of-life (22, 24 and 26; see the [Node.js release schedule](https://nodejs.org/en/about/previous-releases)) and Bun 1.x; older versions may work but are not supported. It is ESM only (from CommonJS use `import()`, or `require()` on Node 22.12+), has no install script,
 and downloads nothing at install time: one platform package per target is an optional dependency, so your package
 manager installs only the one that matches the machine: macOS and Linux (glibc and musl), each on x64 and arm64.
-Windows is not on npm in 0.3.0
+Windows has no npm package
 ([ADR 0114](https://github.com/Goldziher/skif/blob/main/adrs/0114-windows-npm-packages-deferred.md)); on Windows,
 use the release archives, cargo-binstall or Scoop.
 

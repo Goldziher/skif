@@ -157,7 +157,7 @@ Installed with `npx --yes npm@11.6.2 ci --ignore-scripts`.
 ## Accuracy on seeded defects
 
 A generated 500-package workspace with defects injected on purpose. `Actual` is counted from the files, so the right
-answer is known. Counted by hand on 2026-11-06 (skif 0.1.0), not re-counted for this release; the method is in the
+answer is known. Counted by hand on 2026-11-06 with skif 0.1.0 and not re-counted since; the method is in the
 [benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md#seeded-defects):
 
 | Defect | Actual | skif | sherif | syncpack |
@@ -175,7 +175,7 @@ nothing unique to either. `n/a` means the tool does not check for that defect.
 A generated 5-package workspace with seeded unused files, exports, types and dependencies, next to live code that is
 reached only through patterns that caused false findings on real repositories (namespace reads, `typeof import()`,
 `import.meta.glob`, tsconfig `paths`, `#` subpath imports, manual mocks, fixtures and more). The answer key lists all
-33 seeded findings. skif measured on 2026-11-08 and knip 6.44.1 on 2026-11-07, not re-measured for this release;
+33 seeded findings. skif measured on 2026-11-08 and knip 6.44.1 on 2026-11-07, not re-measured since;
 reproduce with `mise run bench:deadcode -- --knip`:
 
 | Tool | Precision | Recall |

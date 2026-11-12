@@ -145,6 +145,8 @@
         "ignore-exports-used-in-file": false,
         "ignore-members": [],
         "production": false,
+        "isolate-workspaces": false,
+        "strict": false,
         "include-entry-exports": false,
         "use-tsconfig-files": false,
         "include-fixtures": false,
@@ -1137,6 +1139,16 @@
         "production": {
           "type": "boolean",
           "description": "Analyse production code only.",
+          "default": false
+        },
+        "isolate-workspaces": {
+          "type": "boolean",
+          "description": "Workspace isolation: each workspace package uses only the dependencies its own manifest lists. An import, a\nbinary or a package a tool config names is not satisfied by a containing package or the root, a private\npackage's unlisted import of a workspace member is reported, and `use-public-hoisting` is ignored. Independent\nof `production`: outside production mode tests, test setup and tool configs are checked against their own\npackage's manifest, development dependencies included. `skif --isolate-workspaces` turns it on; `strict`\nimplies it.",
+          "default": false
+        },
+        "strict": {
+          "type": "boolean",
+          "description": "knip's strict mode (`skif --strict`): `production` and `isolate-workspaces`, and only direct dependencies\ncount. Production code must import from `dependencies` or `peerDependencies`, a peer dependency of a listed\npackage does not stand in for a listing, type-only imports use no package, and required peer dependencies are\nchecked like `dependencies`.",
           "default": false
         },
         "include-entry-exports": {

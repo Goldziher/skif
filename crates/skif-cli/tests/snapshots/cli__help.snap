@@ -135,8 +135,11 @@ Options:
       --use-tsconfig-files
           Take the project files of each package from its `tsconfig.json` (`files`, `include`, `exclude`) instead of the `project` globs
 
+      --isolate-workspaces
+          Each workspace package uses only the dependencies its own manifest lists, not those of a containing package or the root, without production mode: tests and tool configs are checked against their own package's manifest, development dependencies included. Same as `[js] isolate-workspaces = true`
+
       --strict
-          knip's strict mode: --production, and each workspace package uses only the dependencies its own manifest lists, not those of a containing package or the root. Production code must import from `dependencies` or `peerDependencies`, type-only imports use no package, and unused required peer dependencies are reported
+          knip's strict mode: --production and --isolate-workspaces, and only direct dependencies count. Production code must import from `dependencies` or `peerDependencies`, type-only imports use no package, and unused required peer dependencies are reported. Same as `[js] strict = true`
 
       --color <COLOR>
           When to colour human output

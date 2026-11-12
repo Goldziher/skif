@@ -507,9 +507,12 @@ pub(crate) struct Setup {
     pub production: bool,
     /// `[js] tsconfig`, absolute: the TypeScript configuration of the root package in place of its `tsconfig.json`.
     pub root_tsconfig: Option<PathBuf>,
-    /// knip's strict mode (`--strict`): each package uses only what its own manifest lists, production code only its
-    /// `dependencies` and `peerDependencies`, and type-only imports use no package.
+    /// `[js] isolate-workspaces`, or strict mode, which implies it: each package uses only what its own manifest
+    /// lists.
     pub isolate_workspaces: bool,
+    /// knip's strict mode (`[js] strict`, `--strict`): only direct dependencies count, so production code uses only
+    /// its `dependencies` and `peerDependencies`, and type-only imports use no package.
+    pub strict: bool,
     pub include_entry_exports: bool,
     /// `[js] include-fixtures`: files in fixture directories are reported as unused like any other.
     pub include_fixtures: bool,
@@ -772,7 +775,7 @@ impl Setup {
         sequential: bool,
     ) -> Self {
         let js = &config.js;
-        let production = js.production;
+        let production = js.production_mode();
         let git_root = ancestors::repository_root(fs.as_ref(), &workspace.root);
         let ancestor_dependencies = ancestors::external_dependencies(fs.as_ref(), &workspace.root, git_root.as_deref());
         let UnusedExportsOptions {
@@ -1041,7 +1044,8 @@ impl Setup {
             workspace_keys,
             production,
             root_tsconfig,
-            isolate_workspaces: js.isolate_workspaces,
+            isolate_workspaces: js.isolated(),
+            strict: js.strict,
             include_entry_exports: js.include_entry_exports,
             include_fixtures: js.include_fixtures,
             used_in_file: js.ignore_exports_used_in_file.clone(),

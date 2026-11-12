@@ -46,6 +46,7 @@ pub(crate) const JS_IGNORE_UNRESOLVED: &str = "ignore-unresolved";
 pub(crate) const JS_IGNORE_EXPORTS_USED_IN_FILE: &str = "ignore-exports-used-in-file";
 pub(crate) const JS_IGNORE_MEMBERS: &str = "ignore-members";
 pub(crate) const JS_PRODUCTION: &str = "production";
+pub(crate) const JS_STRICT: &str = "strict";
 pub(crate) const JS_INCLUDE_ENTRY_EXPORTS: &str = "include-entry-exports";
 pub(crate) const JS_TSCONFIG: &str = "tsconfig";
 pub(crate) const JS_USE_TSCONFIG_FILES: &str = "use-tsconfig-files";
