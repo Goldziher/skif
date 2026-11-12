@@ -856,10 +856,53 @@ fn package_ancestors(workspace: &Workspace, isolate: bool) -> Vec<Vec<PackageId>
     all
 }
 
+/// What counted a dependency as used: the evidence `skif explain-usage --dependency` lists, recorded with every use
+/// so the verdict and the evidence come from the same facts.
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Use {
+    /// A module imports it, re-exports it, declares or augments it as a module, or imports the package it types.
+    Import(ModuleId),
+    /// A test module mocks it.
+    Mock(ModuleId),
+    /// A module of a file type it compiles (`.mdx`, `.marko`).
+    Compiler(ModuleId),
+    /// A module with JSX, which the automatic runtime compiles to an import of it.
+    JsxRuntime(ModuleId),
+    /// A command a `node:child_process` call of this file (relative to the root) runs.
+    Command(PathBuf),
+    /// It provides this binary, which a script, a command or a plugin runs.
+    Binary(String),
+    /// A script of `package.json` or a plugin of the package names it.
+    #[default]
+    Tooling,
+    /// This tool configuration file (relative to the root) names it.
+    Config(PathBuf),
+    /// A `tsconfig.json` includes every visible `@types` package, and this one declares only globals.
+    AmbientTypes,
+}
+
+/// Why a package counts a dependency as used ([`DependencyUsage::credit`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Credit<'a> {
+    /// A tool that is used without an import (`typescript`).
+    AlwaysUsed,
+    /// The uses recorded against the package's manifest.
+    Uses(&'a BTreeSet<Use>),
+    /// The types of a runtime that needs no package of its own (`@types/node`).
+    UnpairedTypes,
+    /// The `@types` package of this used package.
+    TypesOf(String),
+    /// A peer dependency of this used package.
+    PeerOf(String),
+}
+
 /// Dependency and binary usage of every package.
 #[derive(Debug, Clone, Default)]
 pub struct DependencyUsage {
-    referenced: Vec<HashSet<String>>,
+    /// For every package, the dependencies its manifest is credited with, each with the uses that credited it.
+    referenced: Vec<HashMap<String, BTreeSet<Use>>>,
+    /// The use being collected, recorded with every reference.
+    via: Use,
     listed: Vec<HashSet<String>>,
     /// For every package, the names its manifest lists in `dependencies` and `peerDependencies`: what production
     /// code may import in strict mode.
@@ -914,7 +957,7 @@ impl DependencyUsage {
     ) -> Self {
         let count = workspace.package_ids().count();
         let mut usage = Self {
-            referenced: vec![HashSet::default(); count],
+            referenced: vec![HashMap::default(); count],
             listed: vec![HashSet::default(); count],
             production_listed: vec![HashSet::default(); count],
             strict: setup.isolate_workspaces,
@@ -1043,7 +1086,7 @@ impl DependencyUsage {
                     .cloned()
                     .collect();
                 for name in types {
-                    self.reference_in(scope, &name);
+                    self.with_via(Use::AmbientTypes, |usage| usage.reference_in(scope, &name));
                 }
             }
         }
@@ -1167,11 +1210,24 @@ impl DependencyUsage {
     }
 
     fn reference_in(&mut self, id: PackageId, name: &str) {
-        // Most uses repeat a name already recorded, which then costs no allocation.
+        // Most uses repeat a name and a use already recorded, which then cost no allocation.
         let referenced = &mut self.referenced[id.index()];
-        if !referenced.contains(name) {
-            referenced.insert(name.to_owned());
+        if !referenced.contains_key(name) {
+            referenced.insert(name.to_owned(), BTreeSet::new());
         }
+        if let Some(uses) = referenced.get_mut(name)
+            && !uses.contains(&self.via)
+        {
+            uses.insert(self.via.clone());
+        }
+    }
+
+    /// Runs `collect` with `via` as the use it records, then restores the use before it.
+    fn with_via<R>(&mut self, via: Use, collect: impl FnOnce(&mut Self) -> R) -> R {
+        let outer = std::mem::replace(&mut self.via, via);
+        let result = collect(self);
+        self.via = outer;
+        result
     }
 
     fn collect_imports(&mut self, workspace: &Workspace, setup: &Setup, graph: &ModuleGraph) {
@@ -1181,6 +1237,7 @@ impl DependencyUsage {
                 continue;
             }
             let declaration = is_declaration_file(&module.abs);
+            self.via = Use::Import(module.id);
             for resolved in &module.imports {
                 if let Some(name) = &resolved.package {
                     let kind = module.info.imports.get(resolved.import).map(|import| import.kind);
@@ -1188,7 +1245,7 @@ impl DependencyUsage {
                         // A test that mocks a package does not need it installed: a listed package is used, an
                         // unlisted one is not an unlisted import.
                         if let Some(found) = self.find_listed(module.owner, name) {
-                            self.reference(found, name);
+                            self.with_via(Use::Mock(module.id), |usage| usage.reference(found, name));
                         }
                         continue;
                     }
@@ -1245,7 +1302,7 @@ impl DependencyUsage {
             {
                 for compiler in *compilers {
                     if let Some(found) = self.find_listed(module.owner, compiler) {
-                        self.reference(found, compiler);
+                        self.with_via(Use::Compiler(module.id), |usage| usage.reference(found, compiler));
                     }
                 }
             }
@@ -1253,7 +1310,9 @@ impl DependencyUsage {
                 let context = workspace
                     .package(module.owner)
                     .map_or_else(ScriptContext::new, |package| script_context(package.manifest.value()));
-                self.collect_commands(setup, module.owner, &module.path, &module.info.commands, &context);
+                self.with_via(Use::Command(module.path.clone()), |usage| {
+                    usage.collect_commands(setup, module.owner, &module.path, &module.info.commands, &context);
+                });
             }
             // `declare module 'pkg'` augments the package, which has to be installed for that to compile. It stays
             // out of `imports`: declaring a module the project does not list is not an unlisted import.
@@ -1278,7 +1337,7 @@ impl DependencyUsage {
                 && let Some(found) = self.find_listed(module.owner, "react")
             {
                 // The automatic JSX runtime imports `react/jsx-runtime` on behalf of the file.
-                self.reference(found, "react");
+                self.with_via(Use::JsxRuntime(module.id), |usage| usage.reference(found, "react"));
             }
         }
     }
@@ -1411,7 +1470,9 @@ impl DependencyUsage {
                 };
                 let owner = owner.unwrap_or(reader);
                 let may_list = dependency.reader_may_list.then_some(reader);
-                self.config_dependency(workspace, (owner, may_list), dependency, &file);
+                self.with_via(Use::Config(PathBuf::from(&file)), |usage| {
+                    usage.config_dependency(workspace, (owner, may_list), dependency, &file);
+                });
             }
         }
     }
@@ -1460,6 +1521,7 @@ impl DependencyUsage {
     }
 
     fn collect_scripts(&mut self, workspace: &Workspace, setup: &Setup) {
+        self.via = Use::Tooling;
         for (id, _) in workspace.iter() {
             let Some(package_setup) = setup.package(id) else {
                 continue;
@@ -1663,49 +1725,66 @@ impl DependencyUsage {
         }
         // Rush runs its own commands (`rush`, `rushx`, `rush-pnpm`) from its install, whatever a manifest lists.
         let found = !provided.is_empty() || (self.rush && RUSH_COMMANDS.contains(&bin));
-        for (scope, dep) in provided {
-            if !dep.is_empty() {
-                self.reference(scope, &dep);
+        self.with_via(Use::Binary(bin.to_owned()), |usage| {
+            for (scope, dep) in provided {
+                if !dep.is_empty() {
+                    usage.reference(scope, &dep);
+                }
             }
-        }
+        });
         found
     }
 
     /// Whether package `id` uses dependency `name`, directly, through its `@types` twin, or as a peer of a used host.
     #[must_use]
     pub fn is_referenced(&self, id: PackageId, name: &str) -> bool {
-        if ALWAYS_USED.contains(&name) {
-            return true;
-        }
-        self.is_referenced_inner(id, name, &mut HashSet::default())
+        self.credit(id, name).is_some()
     }
 
-    fn is_referenced_inner(&self, id: PackageId, name: &str, visited: &mut HashSet<String>) -> bool {
+    /// Why package `id` uses dependency `name`; `None` when it does not. [`Self::is_referenced`] is this check.
+    pub(crate) fn credit(&self, id: PackageId, name: &str) -> Option<Credit<'_>> {
+        if ALWAYS_USED.contains(&name) {
+            return Some(Credit::AlwaysUsed);
+        }
+        self.credit_inner(id, name, &mut HashSet::default())
+    }
+
+    fn credit_inner(&self, id: PackageId, name: &str, visited: &mut HashSet<String>) -> Option<Credit<'_>> {
         let referenced = &self.referenced[id.index()];
-        if referenced.contains(name) {
-            return true;
+        if let Some(uses) = referenced.get(name) {
+            return Some(Credit::Uses(uses));
         }
         if !visited.insert(name.to_owned()) {
-            return false;
+            return None;
         }
         let typed = typed_package(name);
-        if let Some(typed) = &typed
-            && (UNPAIRED_TYPES.contains(&typed.as_str()) || referenced.contains(typed))
-        {
-            return true;
+        if let Some(typed) = &typed {
+            if UNPAIRED_TYPES.contains(&typed.as_str()) {
+                return Some(Credit::UnpairedTypes);
+            }
+            if referenced.contains_key(typed) {
+                return Some(Credit::TypesOf(typed.clone()));
+            }
         }
         let hosts = &self.hosts[id.index()];
         std::iter::once(name)
             .chain(typed.as_deref())
             .filter_map(|candidate| hosts.get(candidate))
             .flatten()
-            .any(|host| self.is_referenced_inner(id, host, visited))
+            .find(|host| self.credit_inner(id, host, visited).is_some())
+            .map(|host| Credit::PeerOf(host.clone()))
+    }
+
+    /// The uses recorded against the manifest of package `id` for dependency `name`, without the `@types` and peer
+    /// rules of [`Self::credit`].
+    pub(crate) fn uses(&self, id: PackageId, name: &str) -> Option<&BTreeSet<Use>> {
+        self.referenced[id.index()].get(name)
     }
 
     /// Whether anything used `name` through package `id`'s manifest, regardless of the `@types` and peer rules.
     #[must_use]
     pub fn was_imported(&self, id: PackageId, name: &str) -> bool {
-        self.referenced[id.index()].contains(name)
+        self.referenced[id.index()].contains_key(name)
     }
 
     /// Whether the manifest of `id` lists `name` in any section.
