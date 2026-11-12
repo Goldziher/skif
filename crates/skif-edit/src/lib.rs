@@ -73,12 +73,14 @@ pub(crate) struct Planned {
 /// the whole plan, naming both operations; resolving that (dropping the later fix) is the caller's decision.
 /// [`FixOp::Text`] edits are passed through unchanged.
 ///
+/// A caller planning several sets of operations against one file parses it once with [`Document::parse`] instead.
+///
 /// # Errors
 ///
 /// Returns [`EditPlanError`] when the source does not parse, a path does not exist, an action does not fit the
 /// target, or two operations conflict.
 pub fn plan_edits(source: &str, kind: FileKind, ops: &[&FixOp]) -> Result<Vec<TextEdit>, EditPlanError> {
-    plan_checked(source, kind, ops).map(|(edits, _)| edits)
+    Document::parse(source, kind)?.plan(ops)
 }
 
 /// Plans `ops` with [`plan_edits`] and applies them to `source`.
@@ -87,38 +89,92 @@ pub fn plan_edits(source: &str, kind: FileKind, ops: &[&FixOp]) -> Result<Vec<Te
 ///
 /// Returns the errors of [`plan_edits`], or [`EditPlanError::Apply`] if the edits cannot be applied.
 pub fn apply(source: &str, kind: FileKind, ops: &[&FixOp]) -> Result<String, EditPlanError> {
-    plan_checked(source, kind, ops).map(|(_, output)| output)
+    Document::parse(source, kind)?
+        .plan_checked(ops)
+        .map(|(_, output)| output)
 }
 
-/// Plans the edits, applies them and checks that the result still parses.
-fn plan_checked(source: &str, kind: FileKind, ops: &[&FixOp]) -> Result<(Vec<TextEdit>, String), EditPlanError> {
-    let mut planned = match kind {
-        FileKind::Json => json::plan(source, ops)?,
-        FileKind::Yaml => plan_yaml(source, ops)?,
-    };
-    planned.sort_by_key(|edit| (edit.start, edit.end, edit.op));
-    ensure_disjoint(&planned, ops)?;
-    let edits = planned
-        .into_iter()
-        .map(|edit| {
-            Ok(TextEdit::new(
-                u32::try_from(edit.start).map_err(|_| EditPlanError::SourceTooLarge)?,
-                u32::try_from(edit.end).map_err(|_| EditPlanError::SourceTooLarge)?,
-                edit.replacement,
-            ))
-        })
-        .collect::<Result<Vec<_>, EditPlanError>>()?;
-    let output = apply_text_edits(source, &edits)?;
-    if !edits.is_empty() {
-        validate(kind, source, &output)?;
+/// A JSON or YAML file parsed once, so several sets of operations are planned against it without parsing it again:
+/// [`Document::plan`] of each set gives what [`plan_edits`] gives for it.
+///
+/// A JSON document keeps its syntax tree. A YAML document keeps only its text, as `yamlpatch` applies each operation
+/// to a document of its own.
+pub struct Document<'s> {
+    source: &'s str,
+    parsed: Parsed<'s>,
+}
+
+enum Parsed<'s> {
+    Json(json::Parsed<'s>),
+    Yaml,
+}
+
+impl<'s> Document<'s> {
+    /// Parses `source`, a file of `kind`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EditPlanError::Parse`] when a JSON source does not parse. A YAML source is parsed by each
+    /// [`Document::plan`], which returns its errors.
+    pub fn parse(source: &'s str, kind: FileKind) -> Result<Self, EditPlanError> {
+        let parsed = match kind {
+            FileKind::Json => Parsed::Json(json::parse(source)?),
+            FileKind::Yaml => Parsed::Yaml,
+        };
+        Ok(Self { source, parsed })
     }
-    Ok((edits, output))
+
+    /// The text the document was parsed from.
+    #[must_use]
+    pub const fn source(&self) -> &'s str {
+        self.source
+    }
+
+    /// The text edits `ops` amount to over the source, as [`plan_edits`] gives them.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`plan_edits`].
+    pub fn plan(&self, ops: &[&FixOp]) -> Result<Vec<TextEdit>, EditPlanError> {
+        self.plan_checked(ops).map(|(edits, _)| edits)
+    }
+
+    /// Plans the edits, applies them and checks that the result still parses.
+    fn plan_checked(&self, ops: &[&FixOp]) -> Result<(Vec<TextEdit>, String), EditPlanError> {
+        let mut planned = match &self.parsed {
+            Parsed::Json(parsed) => parsed.plan(ops)?,
+            Parsed::Yaml => plan_yaml(self.source, ops)?,
+        };
+        planned.sort_by_key(|edit| (edit.start, edit.end, edit.op));
+        ensure_disjoint(&planned, ops)?;
+        let edits = planned
+            .into_iter()
+            .map(|edit| {
+                Ok(TextEdit::new(
+                    u32::try_from(edit.start).map_err(|_| EditPlanError::SourceTooLarge)?,
+                    u32::try_from(edit.end).map_err(|_| EditPlanError::SourceTooLarge)?,
+                    edit.replacement,
+                ))
+            })
+            .collect::<Result<Vec<_>, EditPlanError>>()?;
+        let output = apply_text_edits(self.source, &edits)?;
+        if !edits.is_empty() {
+            match &self.parsed {
+                Parsed::Json(parsed) => parsed.validate(&output)?,
+                Parsed::Yaml => validate_yaml(&output)?,
+            }
+        }
+        Ok((edits, output))
+    }
 }
 
-fn validate(kind: FileKind, before: &str, after: &str) -> Result<(), EditPlanError> {
-    match kind {
-        FileKind::Json => json::validate(before, after),
-        FileKind::Yaml => validate_yaml(after),
+impl fmt::Debug for Document<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let kind = match self.parsed {
+            Parsed::Json(_) => FileKind::Json,
+            Parsed::Yaml => FileKind::Yaml,
+        };
+        f.debug_struct("Document").field("kind", &kind).finish_non_exhaustive()
     }
 }
 

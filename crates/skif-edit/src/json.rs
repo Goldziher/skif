@@ -1,6 +1,7 @@
 //! JSON and JSONC edits, located with `jsonc-parser` byte ranges.
 
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 use skif_core::HashMap;
 use std::fmt::Write as _;
@@ -172,120 +173,141 @@ fn parse_error(error: &(impl ToString + ?Sized)) -> EditPlanError {
     }
 }
 
-/// Checks that `after` is a document as well formed as `before`.
-pub(crate) fn validate(before: &str, after: &str) -> Result<(), EditPlanError> {
-    fn body(text: &str) -> &str {
-        text.strip_prefix(BOM).unwrap_or(text)
-    }
-    let (before, after) = (body(before), body(after));
-    let strict = parse_to_ast(before, &CollectOptions::default(), &parse_options(true)).is_ok();
-    let parsed = parse_to_ast(after, &CollectOptions::default(), &parse_options(strict)).map_err(|error| {
-        EditPlanError::InvalidOutput {
-            kind: FileKind::Json,
-            message: error.to_string(),
-        }
-    })?;
-    if parsed.value.is_none() {
-        return Err(EditPlanError::InvalidOutput {
-            kind: FileKind::Json,
-            message: "document is empty".to_owned(),
-        });
-    }
-    Ok(())
+/// A JSON source parsed once, so several sets of operations are planned against it without parsing it again.
+pub(crate) struct Parsed<'s> {
+    /// The length of the byte order mark the source starts with, `0` without one.
+    bom: usize,
+    doc: Doc<'s, 's>,
+    /// Whether the source has every separator between members, which an edit result must keep; checked on the first
+    /// result.
+    strict: OnceLock<bool>,
 }
 
-pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPlanError> {
+/// Parses `source` for [`Parsed::plan`].
+pub(crate) fn parse(source: &str) -> Result<Parsed<'_>, EditPlanError> {
     let (bom, body) = source
         .strip_prefix(BOM)
         .map_or((0, source), |rest| (BOM.len_utf8(), rest));
     let parsed = parse_to_ast(body, &CollectOptions::default(), &ParseOptions::default())
         .map_err(|error| parse_error(&error))?;
     let root = parsed.value.ok_or_else(|| parse_error("document is empty"))?;
-    let doc = Doc {
-        source: body,
-        root,
-        style: Style::detect(body),
-    };
-    let mut planned = Vec::new();
-    let mut texts = Vec::new();
-    let mut removals: HashMap<usize, Removals<'_, '_>> = HashMap::default();
-    let mut insertions: HashMap<usize, Insertions<'_, '_>> = HashMap::default();
-    // Index in `planned` of each edit that moves a member, with the byte range of the member it moves.
-    let mut moves: Vec<(usize, (usize, usize))> = Vec::new();
-    for (index, op) in ops.iter().enumerate() {
-        let edits = match op {
-            FixOp::Json {
-                pointer,
-                action: JsonAction::Remove,
-                ..
-            } => {
-                doc.queue_removal(&mut removals, op, index, pointer)?;
-                Vec::new()
+    Ok(Parsed {
+        bom,
+        doc: Doc {
+            source: body,
+            root,
+            style: Style::detect(body),
+        },
+        strict: OnceLock::new(),
+    })
+}
+
+impl Parsed<'_> {
+    /// Checks that `after`, an edit result of the source, is a document as well formed as the source.
+    pub(crate) fn validate(&self, after: &str) -> Result<(), EditPlanError> {
+        let after = after.strip_prefix(BOM).unwrap_or(after);
+        let strict = *self
+            .strict
+            .get_or_init(|| parse_to_ast(self.doc.source, &CollectOptions::default(), &parse_options(true)).is_ok());
+        let parsed = parse_to_ast(after, &CollectOptions::default(), &parse_options(strict)).map_err(|error| {
+            EditPlanError::InvalidOutput {
+                kind: FileKind::Json,
+                message: error.to_string(),
             }
-            FixOp::Json {
-                pointer,
-                action: JsonAction::Insert {
-                    key, value, position, ..
-                },
-                ..
-            } => {
-                doc.queue_insertion(&mut insertions, op, index, pointer, (key.as_str(), value, *position))?;
-                Vec::new()
-            }
-            FixOp::Json {
-                pointer,
-                action: JsonAction::SortKeys,
-                ..
-            } => {
-                for (edit, from) in doc.sort_edits(op, pointer)? {
-                    moves.push((planned.len(), from));
-                    planned.push(Planned {
+        })?;
+        if parsed.value.is_none() {
+            return Err(EditPlanError::InvalidOutput {
+                kind: FileKind::Json,
+                message: "document is empty".to_owned(),
+            });
+        }
+        Ok(())
+    }
+
+    /// The edits `ops` amount to over the source.
+    pub(crate) fn plan(&self, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPlanError> {
+        let (bom, doc) = (self.bom, &self.doc);
+        let mut planned = Vec::new();
+        let mut texts = Vec::new();
+        let mut removals: HashMap<usize, Removals<'_, '_>> = HashMap::default();
+        let mut insertions: HashMap<usize, Insertions<'_, '_>> = HashMap::default();
+        // Index in `planned` of each edit that moves a member, with the byte range of the member it moves.
+        let mut moves: Vec<(usize, (usize, usize))> = Vec::new();
+        for (index, op) in ops.iter().enumerate() {
+            let edits = match op {
+                FixOp::Json {
+                    pointer,
+                    action: JsonAction::Remove,
+                    ..
+                } => {
+                    doc.queue_removal(&mut removals, op, index, pointer)?;
+                    Vec::new()
+                }
+                FixOp::Json {
+                    pointer,
+                    action: JsonAction::Insert {
+                        key, value, position, ..
+                    },
+                    ..
+                } => {
+                    doc.queue_insertion(&mut insertions, op, index, pointer, (key.as_str(), value, *position))?;
+                    Vec::new()
+                }
+                FixOp::Json {
+                    pointer,
+                    action: JsonAction::SortKeys,
+                    ..
+                } => {
+                    for (edit, from) in doc.sort_edits(op, pointer)? {
+                        moves.push((planned.len(), from));
+                        planned.push(Planned {
+                            op: index,
+                            start: edit.start,
+                            end: edit.end,
+                            replacement: edit.replacement,
+                        });
+                    }
+                    Vec::new()
+                }
+                FixOp::Json { pointer, action, .. } => doc.edits(op, pointer, action)?,
+                FixOp::Text { edit, .. } => {
+                    // Text edits address the whole source, byte order mark included.
+                    texts.push(Planned {
                         op: index,
-                        start: edit.start,
-                        end: edit.end,
-                        replacement: edit.replacement,
+                        start: edit.start as usize,
+                        end: edit.end as usize,
+                        replacement: edit.replacement.clone(),
+                    });
+                    Vec::new()
+                }
+                _ => {
+                    return Err(EditPlanError::Unsupported {
+                        op: describe::op(op),
+                        kind: FileKind::Json,
                     });
                 }
-                Vec::new()
-            }
-            FixOp::Json { pointer, action, .. } => doc.edits(op, pointer, action)?,
-            FixOp::Text { edit, .. } => {
-                // Text edits address the whole source, byte order mark included.
-                texts.push(Planned {
-                    op: index,
-                    start: edit.start as usize,
-                    end: edit.end as usize,
-                    replacement: edit.replacement.clone(),
-                });
-                Vec::new()
-            }
-            _ => {
-                return Err(EditPlanError::Unsupported {
-                    op: describe::op(op),
-                    kind: FileKind::Json,
-                });
-            }
-        };
-        planned.extend(edits.into_iter().map(|edit| Planned {
-            op: index,
-            start: edit.start,
-            end: edit.end,
-            replacement: edit.replacement,
-        }));
+            };
+            planned.extend(edits.into_iter().map(|edit| Planned {
+                op: index,
+                start: edit.start,
+                end: edit.end,
+                replacement: edit.replacement,
+            }));
+        }
+        for removal in removals.values() {
+            planned.extend(doc.removal_edits(removal));
+        }
+        for insertion in insertions.values() {
+            planned.extend(doc.insertion_edits(insertion, removals.get(&insertion.holder.open)));
+        }
+        rebase_moves(&mut planned, &moves);
+        for edit in &mut planned {
+            edit.start += bom;
+            edit.end += bom;
+        }
+        planned.extend(texts);
+        Ok(planned)
     }
-    for removal in removals.values() {
-        planned.extend(doc.removal_edits(removal));
-    }
-    for insertion in insertions.values() {
-        planned.extend(doc.insertion_edits(insertion, removals.get(&insertion.holder.open)));
-    }
-    rebase_moves(&mut planned, &moves);
-    for edit in &mut planned {
-        edit.start += bom;
-        edit.end += bom;
-    }
-    planned.extend(texts);
-    Ok(planned)
 }
 
 /// Members of one container queued for removal: member index to the operation that removes it.

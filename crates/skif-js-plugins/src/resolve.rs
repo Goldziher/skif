@@ -22,6 +22,7 @@ use crate::registry;
 use crate::scopes::{NxProjects, ScopeShared, merge, rebase, scope_dir, within_package};
 use crate::script_config::{config_flags, config_paths, flag_values};
 use crate::scripts::{BinaryVia, ScriptContext, is_ignored_binary, parse_script};
+use crate::sources::PackageSources;
 use crate::support::{is_relative, join_lexically, join_rel, looks_like_file};
 
 const MAX_CONFIG_DEPTH: u8 = 16;
@@ -99,8 +100,10 @@ fn resolve_detected(
     detection: &Detection<'_>,
     nx_enabled: bool,
 ) -> Vec<(PluginId, PluginOutput)> {
+    let package_sources = PackageSources::new(ctx.dir);
     let ctx = &PluginContext {
         nx: if nx_enabled { Some(projects) } else { ctx.nx },
+        sources: Some(PackageSources::of(ctx).unwrap_or(&package_sources)),
         ..*ctx
     };
     let project_files: Vec<String> = projects.dirs.iter().map(|dir| join_rel(dir, "project.json")).collect();
@@ -174,9 +177,13 @@ fn run_in_scopes(
     }
     for scope in scopes {
         let dir = scope_dir(ctx, scope);
-        let scope_ctx = shared.context(ctx, &dir);
+        let scope_sources = PackageSources::new(&dir);
+        let scope_ctx = PluginContext {
+            sources: Some(&scope_sources),
+            ..shared.context(ctx, &dir)
+        };
         let files = list_files(ctx.fs, &dir);
-        let listing = Listing::new(&files);
+        let listing = Listing::new(&files, ctx.globs);
         let executors = nx::executor_plugins(&scope_ctx);
         for &(index, enablement) in &candidates {
             let plugin = plugins[index];
@@ -344,8 +351,8 @@ impl<'a> Detection<'a> {
     fn has_file(&self, ctx: &PluginContext<'_>, glob: &str) -> bool {
         let files = self
             .enabling_files
-            .get_or_init(|| find_files(ctx.fs, ctx.dir, &FILE_ENABLERS));
-        !files.is_empty() && Listing::new(files).any_matching(&[glob])
+            .get_or_init(|| find_files(ctx.fs, ctx.globs, ctx.dir, &FILE_ENABLERS));
+        !files.is_empty() && Listing::new(files, ctx.globs).any_matching(&[glob])
     }
 }
 
@@ -642,7 +649,7 @@ impl Collector<'_, '_> {
             return;
         }
         let files = if path.contains(['*', '?', '{', '[']) {
-            find_files(self.ctx.fs, self.ctx.dir, &[path.to_owned()])
+            find_files(self.ctx.fs, self.ctx.globs, self.ctx.dir, &[path.to_owned()])
         } else if self.ctx.fs.is_file(&self.ctx.dir.join(path)) {
             vec![path.to_owned()]
         } else {
@@ -788,7 +795,7 @@ fn run_plugin(
         push_unique(&mut collector.out.project, project);
     }
     let found = listing.map_or_else(
-        || find_files(ctx.fs, ctx.dir, &patterns),
+        || find_files(ctx.fs, ctx.globs, ctx.dir, &patterns),
         |files| files.matching(&patterns),
     );
     collector.queue.extend(found.into_iter().map(|path| Queued {
@@ -1029,10 +1036,12 @@ mod tests {
     use skif_core::MemoryFs;
 
     use super::*;
+    use crate::files::GlobCache;
 
     fn context<'a>(fs: &'a MemoryFs, dependencies: &'a [String], inherited: &'a [String]) -> PluginContext<'a> {
         static SCRIPTS: LazyLock<IndexMap<String, String>> = LazyLock::new(IndexMap::new);
         static PLUGINS: LazyLock<IndexMap<String, PluginConfig>> = LazyLock::new(IndexMap::new);
+        static GLOBS: LazyLock<GlobCache> = LazyLock::new(GlobCache::new);
         PluginContext {
             dir: Path::new("/ws"),
             is_root: true,
@@ -1044,6 +1053,8 @@ mod tests {
             plugins: &PLUGINS,
             modules: None,
             nx: None,
+            globs: &GLOBS,
+            sources: None,
         }
     }
 
@@ -1134,7 +1145,7 @@ mod tests {
         let detection = Detection::new(&ctx);
         let mut found = 0;
         for glob in FILE_ENABLERS.iter() {
-            let walked = !find_files(&fs, ctx.dir, std::slice::from_ref(glob)).is_empty();
+            let walked = !find_files(&fs, ctx.globs, ctx.dir, std::slice::from_ref(glob)).is_empty();
             found += usize::from(walked);
             assert_eq!(detection.has_file(&ctx, glob), walked, "{glob}");
         }
@@ -1159,6 +1170,8 @@ mod tests {
             plugins: &plugins,
             modules: None,
             nx: None,
+            globs: &GlobCache::new(),
+            sources: None,
         };
         let configs = ConfigCache::default();
         let mut collector = Collector {
@@ -1212,6 +1225,8 @@ mod tests {
             plugins: &plugins,
             modules: None,
             nx: None,
+            globs: &GlobCache::new(),
+            sources: None,
         };
         let text = |value: &str| ConfigValue::String(value.to_owned());
         let arguments = [
@@ -1275,6 +1290,8 @@ mod tests {
             plugins: &plugins,
             modules: None,
             nx: None,
+            globs: &GlobCache::new(),
+            sources: None,
         };
         let text = |value: &str| ConfigValue::String(value.to_owned());
         for key in ["testIgnore", "watchExclude", "excludeFiles"] {

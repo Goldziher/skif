@@ -170,8 +170,8 @@ pub use skif_js::{
 #[cfg(feature = "manifest")]
 pub use skif_rules::policy::{GroupRef, InstanceStatus, StatusType};
 pub use targets::{
-    Discovery, RootFailure, Target, UnappliedConfig, UnappliedReason, discover_all, discover_targets, find_target,
-    load_target, unapplied_config_files, unapplied_config_files_all,
+    Discovery, RootFailure, Target, UnappliedConfig, UnappliedReason, discover_all, discover_targets,
+    discover_targets_below, find_target, load_target, unapplied_config_files, unapplied_config_files_all,
 };
 
 /// The `[format]` table of the configuration: what `package-json-format` checks.

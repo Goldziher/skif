@@ -3,7 +3,7 @@
 
 use skif_core::HashMap;
 use std::path::Path;
-use std::sync::{Arc, LazyLock, PoisonError, RwLock};
+use std::sync::{Arc, PoisonError, RwLock};
 
 use globset::{Glob, GlobMatcher};
 use skif_core::FileSystem;
@@ -53,23 +53,50 @@ fn compile(pattern: &str) -> Option<Pattern> {
     (!segments.is_empty()).then_some(Pattern { segments })
 }
 
-/// The compiled alternatives of a glob, by its text: the same config globs are looked for in every package, and
-/// expanding and compiling a glob costs more than matching a few hundred names with it.
-fn compiled(glob: &str) -> Arc<[Arc<Pattern>]> {
-    type Compiled = HashMap<String, Arc<[Arc<Pattern>]>>;
-    static CACHE: LazyLock<RwLock<Compiled>> = LazyLock::new(Default::default);
-    if let Some(hit) = CACHE.read().unwrap_or_else(PoisonError::into_inner).get(glob) {
-        return Arc::clone(hit);
+/// The compiled globs of one run, by their text: the same config globs are looked for in every package, and expanding
+/// and compiling a glob costs more than matching a few hundred names with it.
+///
+/// A run keeps one cache next to its other per-run state and drops it with them, so a long-lived host (a language
+/// server, a watch loop, the Node.js addon) does not keep the globs of every configuration it has read. A cache is
+/// safe to share between threads.
+#[derive(Default)]
+pub struct GlobCache {
+    compiled: RwLock<HashMap<String, Arc<[Arc<Pattern>]>>>,
+}
+
+impl GlobCache {
+    /// An empty cache.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
     }
-    let built: Arc<[Arc<Pattern>]> = crate::glob::expand_path_alternatives(glob)
-        .iter()
-        .filter_map(|alternative| compile(alternative).map(Arc::new))
-        .collect();
-    CACHE
-        .write()
-        .unwrap_or_else(PoisonError::into_inner)
-        .insert(glob.to_owned(), Arc::clone(&built));
-    built
+
+    /// The compiled alternatives of `glob`.
+    fn compiled(&self, glob: &str) -> Arc<[Arc<Pattern>]> {
+        if let Some(hit) = self.compiled.read().unwrap_or_else(PoisonError::into_inner).get(glob) {
+            return Arc::clone(hit);
+        }
+        let built: Arc<[Arc<Pattern>]> = crate::glob::expand_path_alternatives(glob)
+            .iter()
+            .filter_map(|alternative| compile(alternative).map(Arc::new))
+            .collect();
+        self.compiled
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(glob.to_owned(), Arc::clone(&built));
+        built
+    }
+
+    /// The number of distinct globs compiled.
+    fn len(&self) -> usize {
+        self.compiled.read().unwrap_or_else(PoisonError::into_inner).len()
+    }
+}
+
+impl std::fmt::Debug for GlobCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GlobCache").field("globs", &self.len()).finish()
+    }
 }
 
 fn matches_all<S: AsRef<str>>(segments: &[Segment], parts: &[S]) -> bool {
@@ -159,22 +186,29 @@ fn walk(fs: &dyn FileSystem, dir: &Path, parts: &mut Parts, search: &Search<'_>,
     }
 }
 
-fn patterns<S: AsRef<str>>(globs: &[S]) -> Vec<Arc<Pattern>> {
+fn patterns<S: AsRef<str>>(cache: &GlobCache, globs: &[S]) -> Vec<Arc<Pattern>> {
     let mut out = Vec::with_capacity(globs.len());
     for glob in globs {
-        out.extend(compiled(glob.as_ref()).iter().cloned());
+        out.extend(cache.compiled(glob.as_ref()).iter().cloned());
     }
     out
 }
 
-/// Files below `dir` matching any of `globs`, as sorted forward-slash paths relative to `dir`.
-pub(crate) fn find_files(fs: &dyn FileSystem, dir: &Path, globs: &[String]) -> Vec<String> {
-    find_files_within(fs, dir, globs, MAX_DEPTH)
+/// Files below `dir` matching any of `globs`, compiled through `cache`, as sorted forward-slash paths relative to
+/// `dir`.
+pub(crate) fn find_files(fs: &dyn FileSystem, cache: &GlobCache, dir: &Path, globs: &[String]) -> Vec<String> {
+    find_files_within(fs, cache, dir, globs, MAX_DEPTH)
 }
 
 /// Like [`find_files`], looking at most `max_depth` directories down instead of the config depth of 8.
-pub(crate) fn find_files_within(fs: &dyn FileSystem, dir: &Path, globs: &[String], max_depth: usize) -> Vec<String> {
-    let patterns = patterns(globs);
+pub(crate) fn find_files_within(
+    fs: &dyn FileSystem,
+    cache: &GlobCache,
+    dir: &Path,
+    globs: &[String],
+    max_depth: usize,
+) -> Vec<String> {
+    let patterns = patterns(cache, globs);
     let mut out = Vec::new();
     if !patterns.is_empty() {
         let search = Search {
@@ -205,7 +239,7 @@ pub(crate) fn list_files(fs: &dyn FileSystem, dir: &Path) -> Vec<String> {
 /// directory listed.
 #[cfg(test)]
 pub(crate) fn matching(files: &[String], globs: &[String]) -> Vec<String> {
-    Listing::new(files).matching(globs)
+    Listing::new(files, &GlobCache::new()).matching(globs)
 }
 
 /// A [`list_files`] listing with each file split into its path parts once, as it is searched for the globs of every
@@ -213,19 +247,22 @@ pub(crate) fn matching(files: &[String], globs: &[String]) -> Vec<String> {
 pub(crate) struct Listing<'a> {
     files: &'a [String],
     parts: Vec<Vec<&'a str>>,
+    cache: &'a GlobCache,
 }
 
 impl<'a> Listing<'a> {
-    pub(crate) fn new(files: &'a [String]) -> Self {
+    /// The listing `files`, searched for globs compiled through `cache`.
+    pub(crate) fn new(files: &'a [String], cache: &'a GlobCache) -> Self {
         Self {
             files,
             parts: files.iter().map(|file| file.split('/').collect()).collect(),
+            cache,
         }
     }
 
     /// The files that match any of `globs`: what [`find_files`] finds in the directory listed.
     pub(crate) fn matching<S: AsRef<str>>(&self, globs: &[S]) -> Vec<String> {
-        let patterns = patterns(globs);
+        let patterns = patterns(self.cache, globs);
         if patterns.is_empty() {
             return Vec::new();
         }
@@ -239,7 +276,7 @@ impl<'a> Listing<'a> {
 
     /// Whether any file matches any of `globs`.
     pub(crate) fn any_matching<S: AsRef<str>>(&self, globs: &[S]) -> bool {
-        let patterns = patterns(globs);
+        let patterns = patterns(self.cache, globs);
         !patterns.is_empty()
             && self
                 .parts
@@ -265,7 +302,12 @@ mod tests {
     #[test]
     fn brace_groups_containing_a_slash_match_across_segments() {
         let fs = fs_with(&["src/app/a.ts", "lib/b.ts", "other/c.ts", "src/app/a.js"]);
-        let found = find_files(&fs, Path::new("/ws"), &["{src/app,lib}/*.ts".to_owned()]);
+        let found = find_files(
+            &fs,
+            &GlobCache::new(),
+            Path::new("/ws"),
+            &["{src/app,lib}/*.ts".to_owned()],
+        );
         assert_eq!(found, ["lib/b.ts", "src/app/a.ts"]);
     }
 
@@ -280,6 +322,7 @@ mod tests {
             "a/b/c/d/e/f/g/h/project.json",
         ]);
         let dir = Path::new("/ws");
+        let cache = GlobCache::new();
         let listing = list_files(&fs, dir);
         assert_eq!(listing, ["jest.config.ts", "src/a.ts", "src/deep/b.spec.ts"]);
         for globs in [
@@ -287,12 +330,16 @@ mod tests {
             vec!["**/*.spec.ts".to_owned(), "src/*.ts".to_owned()],
             vec!["**/project.json".to_owned()],
         ] {
-            assert_eq!(matching(&listing, &globs), find_files(&fs, dir, &globs), "{globs:?}");
+            assert_eq!(
+                matching(&listing, &globs),
+                find_files(&fs, &cache, dir, &globs),
+                "{globs:?}"
+            );
         }
         let projects = ["**/project.json".to_owned()];
-        assert_eq!(find_files(&fs, dir, &projects), Vec::<String>::new());
+        assert_eq!(find_files(&fs, &cache, dir, &projects), Vec::<String>::new());
         assert_eq!(
-            find_files_within(&fs, dir, &projects, 9),
+            find_files_within(&fs, &cache, dir, &projects, 9),
             ["a/b/c/d/e/f/g/h/project.json"]
         );
     }
@@ -306,7 +353,8 @@ mod tests {
             "src/deep/b.spec.ts".to_owned(),
             "vite.config.ts".to_owned(),
         ];
-        let listing = Listing::new(&files);
+        let cache = GlobCache::new();
+        let listing = Listing::new(&files, &cache);
         for (globs, expected) in [
             (vec!["vite.config.{js,ts}"], vec!["vite.config.ts"]),
             (vec!["x.ts", "**/*.spec.ts"], vec!["src/deep/b.spec.ts"]),
@@ -332,7 +380,32 @@ mod tests {
     #[test]
     fn nested_and_empty_groups_match() {
         let fs = fs_with(&["a.ts", "src/a.ts", "src/lib/a.ts", "x/a.ts"]);
-        let found = find_files(&fs, Path::new("/ws"), &["{,src/{,lib/}}a.ts".to_owned()]);
+        let found = find_files(
+            &fs,
+            &GlobCache::new(),
+            Path::new("/ws"),
+            &["{,src/{,lib/}}a.ts".to_owned()],
+        );
         assert_eq!(found, ["a.ts", "src/a.ts", "src/lib/a.ts"]);
+    }
+
+    /// A cache compiles each glob once however often it is searched for, and holds only the globs of its own run: a
+    /// second cache starts empty and finds the same files.
+    #[test]
+    fn a_cache_compiles_each_glob_once_and_only_for_its_run() {
+        let fs = fs_with(&["src/a.ts", "src/b.js", "c.ts"]);
+        let dir = Path::new("/ws");
+        let globs = ["src/*.ts".to_owned(), "*.{ts,js}".to_owned()];
+        let first = GlobCache::new();
+        let found = find_files(&fs, &first, dir, &globs);
+        assert_eq!(found, ["c.ts", "src/a.ts"]);
+        assert_eq!(find_files(&fs, &first, dir, &globs), found);
+        let files = list_files(&fs, dir);
+        assert_eq!(Listing::new(&files, &first).matching(&globs), found);
+        assert_eq!(first.len(), 2);
+        let second = GlobCache::new();
+        assert_eq!(second.len(), 0);
+        assert_eq!(find_files(&fs, &second, dir, &globs[..1]), ["src/a.ts"]);
+        assert_eq!((first.len(), second.len()), (2, 1));
     }
 }

@@ -55,7 +55,7 @@ const APP_FLAGS: &[&str] = &["-a", "--app"];
 fn lambda_entries(cx: &PluginContext<'_>) -> Vec<PluginInput> {
     let patterns = ["**/*.{ts,mts,cts,tsx,js,mjs,cjs}".to_owned()];
     let mut out = Vec::new();
-    for source in find_files(cx.fs, cx.dir, &patterns) {
+    for source in find_files(cx.fs, cx.globs, cx.dir, &patterns) {
         let path = cx.dir.join(&source);
         let Ok(text) = cx.fs.read_to_string(&path) else {
             continue;

@@ -264,6 +264,31 @@ pub struct Discovery {
 /// # Errors
 /// [`Error::RelativePath`] for a relative `start`.
 pub fn discover_targets(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOverrides) -> Result<Discovery, Error> {
+    discover(start, fs, overrides, None)
+}
+
+/// The roots [`discover_targets`] finds below the root of `loaded`, which is not loaded again: what it claims are the
+/// directories `loaded` claims. `loaded` is the workspace [`find_target`] or [`discover_targets`] loaded for its root,
+/// so a host that has linted one root learns which other roots lie below it without discovering that root twice. The
+/// roots below it are loaded as [`discover_targets`] loads them.
+///
+/// # Errors
+/// [`Error::RelativePath`] for a relative root.
+pub fn discover_targets_below(
+    loaded: &Workspace,
+    fs: &dyn FileSystem,
+    overrides: &ConfigOverrides,
+) -> Result<Discovery, Error> {
+    discover(&loaded.root, fs, overrides, Some(loaded))
+}
+
+/// [`discover_targets`], with the root of `known` taken from it instead of loaded, and left out of the discovery.
+fn discover(
+    start: &Path,
+    fs: &dyn FileSystem,
+    overrides: &ConfigOverrides,
+    known: Option<&Workspace>,
+) -> Result<Discovery, Error> {
     let cached = crate::cache::per_call(fs);
     let fs: &dyn FileSystem = &cached;
     if !start.has_root() {
@@ -278,12 +303,14 @@ pub fn discover_targets(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOve
     let ceiling = Ceiling::VcsOr(dir.to_path_buf());
     let enclosing = |root: &Path| repository_ceiling(root, dir, fs);
     let candidates = scan_candidates(dir, fs, &discover_options(dir, fs, overrides, &cache));
+    let is_known = |root: &Path| known.is_some_and(|workspace| workspace.root.as_path() == root);
     let mut workspaces: BTreeMap<PathBuf, Result<Target, Error>> = candidates
         .workspaces
         .par_iter()
+        .filter(|root| !is_known(root.as_path()))
         .map(|root| (root.clone(), load_target(root, &ceiling, fs, overrides, &cache)))
         .collect();
-    let members: BTreeMap<PathBuf, BTreeSet<PathBuf>> = workspaces
+    let mut members: BTreeMap<PathBuf, BTreeSet<PathBuf>> = workspaces
         .iter()
         .map(|(root, loaded)| {
             let dirs = match loaded {
@@ -293,9 +320,13 @@ pub fn discover_targets(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOve
             (root.clone(), dirs)
         })
         .collect();
+    if let Some(workspace) = known.filter(|workspace| candidates.workspaces.contains(&workspace.root)) {
+        members.insert(workspace.root.clone(), workspace.claimed_dirs());
+    }
     let claimed = claim_roots(fs, &candidates, &members);
     let slots: Vec<(PathBuf, Option<Result<Target, Error>>)> = claimed
         .iter()
+        .filter(|root| !is_known(root.path()))
         .map(|root| (root.path().to_path_buf(), workspaces.remove(root.path())))
         .collect();
     let loaded: Vec<(PathBuf, Result<Target, Error>)> = slots
@@ -503,6 +534,48 @@ mod tests {
             .with_file("/r/a/package.json", r#"{"name": "a", "version": "1.0.0"}"#)
             .with_file("/r/b/skif.toml", "")
             .with_file("/r/b/package.json", r#"{"name": "b", "version": "1.0.0"}"#)
+    }
+
+    /// The roots below a loaded root are those a discovery of the root finds besides it, loaded and failed alike.
+    #[test]
+    fn the_roots_below_a_loaded_root_are_those_its_discovery_finds_besides_it() {
+        let fs = MemoryFs::new()
+            .with_file("/w/package.json", r#"{"name": "w", "workspaces": ["packages/*"]}"#)
+            .with_file("/w/packages/a/package.json", r#"{"name": "a"}"#)
+            .with_file("/w/packages/b/package.json", r#"{"name": "b"}"#)
+            .with_file("/w/tools/x/package.json", r#"{"name": "x"}"#)
+            .with_file("/w/apps/package.json", r#"{"name": "apps", "workspaces": ["y"]}"#)
+            .with_file("/w/apps/y/package.json", r#"{"name": "y"}"#)
+            .with_file("/w/broken/package.json", "{");
+        let overrides = ConfigOverrides::default();
+        let root = Path::new("/w");
+        let loaded = find_target(root, &fs, &overrides).unwrap();
+        let below = discover_targets_below(&loaded.workspace, &fs, &overrides).unwrap();
+        let all = discover_targets(root, &fs, &overrides).unwrap();
+        let roots = |discovery: &Discovery| -> Vec<PathBuf> {
+            discovery.targets.iter().map(|target| target.root.clone()).collect()
+        };
+        let failed = |discovery: &Discovery| -> Vec<PathBuf> {
+            discovery.failures.iter().map(|failure| failure.root.clone()).collect()
+        };
+        assert_eq!(roots(&below), [PathBuf::from("/w/apps"), PathBuf::from("/w/tools/x")]);
+        let mut expected = roots(&all);
+        expected.retain(|dir| dir.as_path() != root);
+        assert_eq!(roots(&below), expected);
+        assert_eq!(failed(&below), [PathBuf::from("/w/broken")]);
+        assert_eq!(failed(&below), failed(&all));
+        let nested: Vec<bool> = below
+            .targets
+            .iter()
+            .map(|target| target.workspace.is_nested())
+            .collect();
+        let nested_in_all: Vec<bool> = all
+            .targets
+            .iter()
+            .filter(|target| target.root.as_path() != root)
+            .map(|target| target.workspace.is_nested())
+            .collect();
+        assert_eq!(nested, nested_in_all);
     }
 
     #[test]

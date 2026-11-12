@@ -96,7 +96,7 @@ fn runs_lint(script: &str) -> bool {
 /// globals stand for, so they are entries.
 pub(crate) fn generated_declarations(cx: &PluginContext<'_>, signature: &str) -> Vec<String> {
     let patterns = ["*.d.ts".to_owned(), "src/**/*.d.ts".to_owned()];
-    find_files(cx.fs, cx.dir, &patterns)
+    find_files(cx.fs, cx.globs, cx.dir, &patterns)
         .into_iter()
         .filter(|file| {
             cx.fs.read_to_string(&cx.dir.join(file)).is_ok_and(|text| {

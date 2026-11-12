@@ -23,9 +23,11 @@ mod resolve;
 mod scopes;
 mod script_config;
 pub mod scripts;
+mod sources;
 mod support;
 
 pub use config_load::{load_config, load_config_with};
+pub use files::GlobCache;
 pub use plugin::{
     BinaryRef, BuildDir, ConfigAst, CustomElements, DepRef, Enabler, IncompleteCause, IncompleteEntries,
     IncompleteScope, KNIP_COMMIT, PathAlias, Plugin, PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec,
@@ -34,3 +36,4 @@ pub use plugin::{
 pub use resolve::{resolve_plugins, resolve_plugins_in, resolve_plugins_with};
 pub use scopes::NxProjects;
 pub use skif_js_syntax::ModuleLoader;
+pub use sources::PackageSources;

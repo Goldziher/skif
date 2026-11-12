@@ -56,7 +56,8 @@ impl Plugin for Marko {
     }
 
     fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
-        let has_templates = !crate::files::find_files(cx.fs, cx.dir, &["**/*.marko".to_owned()]).is_empty();
+        let templates = crate::files::find_files(cx.fs, cx.globs, cx.dir, &["**/*.marko".to_owned()]);
+        let has_templates = !templates.is_empty();
         has_templates
             .then(|| PluginInput::Dependency("marko".to_owned()))
             .into_iter()
