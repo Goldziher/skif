@@ -79,6 +79,7 @@ pub struct ResolvedImport {
 
 /// A parsed file of the graph.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 #[allow(clippy::struct_excessive_bools, reason = "independent facts about one file")]
 pub struct Module {
     /// Position in the graph.
@@ -101,6 +102,10 @@ pub struct Module {
     pub foreign: bool,
     /// Is an entry file; its exports are public.
     pub is_entry: bool,
+    /// Is a build source that is no entry, a file a plugin names as one a tool builds from (the `srcs` and `data` of a
+    /// Bazel rule): the graph starts from it as from an entry, so it and what it imports are used, but its exports are
+    /// judged as any module's.
+    pub is_build_source: bool,
     /// What the file declares and references.
     pub info: ModuleInfo,
     /// Why the file could not be parsed.
@@ -714,6 +719,7 @@ impl<'a> Builder<'a> {
             ignored,
             foreign,
             is_entry: false,
+            is_build_source: false,
             info: ModuleInfo::default(),
             parse_error: None,
             imports: Vec::new(),
@@ -833,15 +839,23 @@ impl<'a> Builder<'a> {
     }
 }
 
-/// Builds the graph by following imports from `entries` in rounds. Each round parses and resolves its files in
-/// parallel and merges the results in order, so ids and edges do not depend on scheduling.
-pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf]) -> ModuleGraph {
+/// Builds the graph by following imports from `entries` and `build_sources` in rounds. Each round parses and resolves
+/// its files in parallel and merges the results in order, so ids and edges do not depend on scheduling. Entries are
+/// interned first, so a build source that is also an entry stays an entry, whose exports are public.
+pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf], build_sources: &[PathBuf]) -> ModuleGraph {
     let mut builder = Builder::new(inputs);
     let mut frontier = Vec::new();
     for entry in entries {
         let (id, fresh) = builder.intern(entry);
         builder.modules[id.index()].is_entry = true;
         if fresh {
+            frontier.push(id);
+        }
+    }
+    for source in build_sources {
+        let (id, fresh) = builder.intern(source);
+        if fresh {
+            builder.modules[id.index()].is_build_source = true;
             frontier.push(id);
         }
     }
@@ -948,6 +962,7 @@ mod tests {
             ignored: false,
             foreign: false,
             is_entry: false,
+            is_build_source: false,
             info: ModuleInfo::default(),
             parse_error: None,
             imports: targets

@@ -615,3 +615,8 @@ blake3 = "42adb6fda13dc1c247d7845c3aac729c351934dbdf863dcc35004b8db828d6cc"
 number = 123
 status = "accepted"
 blake3 = "f2e8419626f266711a152b221e4f1b4b75234b4473b3e6167df0b37d8254f215"
+
+[adrs."adrs/0124-bazel-rule-sources-are-used-files-not-entries.md"]
+number = 124
+status = "accepted"
+blake3 = "d1aaf4261d230845b3bfe371f1b1cbafc1b975478affd312900719341ddbea9f"

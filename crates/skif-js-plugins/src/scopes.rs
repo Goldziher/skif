@@ -190,6 +190,8 @@ pub(crate) fn rebase(mut output: PluginOutput, scope: &str) -> PluginOutput {
     globs(&mut output.entries);
     globs(&mut output.project);
     globs(&mut output.production_entries);
+    globs(&mut output.build_sources);
+    globs(&mut output.production_build_sources);
     globs(&mut output.ignore);
     globs(&mut output.module_dirs);
     // An expression is matched against the path below the scope, which the regex crate cannot express in the
@@ -234,6 +236,8 @@ pub(crate) fn merge(into: &mut PluginOutput, from: PluginOutput) {
         (&mut into.entries, from.entries),
         (&mut into.project, from.project),
         (&mut into.production_entries, from.production_entries),
+        (&mut into.build_sources, from.build_sources),
+        (&mut into.production_build_sources, from.production_build_sources),
         (&mut into.entry_regexes, from.entry_regexes),
         (&mut into.referenced_binaries, from.referenced_binaries),
         (&mut into.provided_binaries, from.provided_binaries),

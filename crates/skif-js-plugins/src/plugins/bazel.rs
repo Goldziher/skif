@@ -4,10 +4,11 @@
 //! A label of the `node_modules` that `npm_link_all_packages` links for a package (`":node_modules/esbuild"`,
 //! `"//packages/app:node_modules/@types/node"`) and the load of a package's `package_json.bzl` from the npm repository
 //! (`"@npm//packages/app:esbuild/package_json.bzl"`) name a dependency of the package whose directory the label's
-//! Bazel package is, and the package uses it. The files the rules build from are entries: the `entry_point` and `data`
-//! of `js_binary`, `js_run_devserver` and `js_test`, and the `srcs` and `data` of `js_library` and `ts_project`, each a
-//! file of the package named by its path or by a label of the `BUILD` file's own package (`":src/index.ts"`).
-//! A computed value (`glob([...])`, `select({...})`, a variable) names nothing.
+//! Bazel package is, and the package uses it. The `entry_point` of `js_binary`, `js_run_devserver` and `js_test` is an
+//! entry. The `data` of those rules and the `srcs` and `data` of `js_library` and `ts_project` are build sources:
+//! used files whose imports are followed, but no entries, so their exports are judged. Each is a file of the package
+//! named by its path or by a label of the `BUILD` file's own package (`":src/index.ts"`). A computed value
+//! (`glob([...])`, `select({...})`, a variable) names nothing.
 //!
 //! The plugin reads nothing outside a Bazel repository that uses `rules_js`: the nearest directory at or above the
 //! package holding `MODULE.bazel`, `REPO.bazel`, `WORKSPACE.bazel` or `WORKSPACE` must name `aspect_rules_js` in
@@ -45,6 +46,10 @@ const RULES: &[(&str, &[&str], bool)] = &[
     ("ts_project", &["srcs", "data"], false),
 ];
 
+/// The attribute that names the file a rule runs, an entry whose exports are public. The files every other attribute
+/// of [`RULES`] names are build sources.
+const ENTRY_POINT: &str = "entry_point";
+
 impl Plugin for Bazel {
     fn spec(&self) -> &'static PluginSpec {
         &SPEC
@@ -81,18 +86,24 @@ impl Plugin for Bazel {
             };
             for attribute in *attributes {
                 for path in call.values(attribute).filter_map(package_path) {
-                    let entry = config.join(path);
-                    if cx.fs.is_file(&cx.dir.join(&entry)) {
-                        out.push(if *test {
-                            PluginInput::Entry(entry)
-                        } else {
-                            PluginInput::ProductionEntry(entry)
-                        });
+                    let file = config.join(path);
+                    if cx.fs.is_file(&cx.dir.join(&file)) {
+                        out.push(input(file, *attribute == ENTRY_POINT, *test));
                     }
                 }
             }
         }
         out
+    }
+}
+
+/// The input for `file`, which a rule names in its `entry_point` when `entry`, of a test rule when `test`.
+fn input(file: String, entry: bool, test: bool) -> PluginInput {
+    match (entry, test) {
+        (true, true) => PluginInput::Entry(file),
+        (true, false) => PluginInput::ProductionEntry(file),
+        (false, true) => PluginInput::BuildSource(file),
+        (false, false) => PluginInput::ProductionBuildSource(file),
     }
 }
 
