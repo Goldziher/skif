@@ -320,8 +320,9 @@ of a `BUILD` file in the package's directory names: a `node_modules` target of t
 repository (`"@npm//packages/app:esbuild/package_json.bzl"`). The harness scans the string literals of every `BUILD`
 file below a directory skif's file discovery enters, in a checkout whose root holds `MODULE.bazel`, `REPO.bazel`,
 `WORKSPACE.bazel` or `WORKSPACE`, resolving each label's Bazel package from the nearest of these root files that names
-`aspect_rules_js`, as skif does. The files skif makes entries from the `srcs`, `data` and `entry_point` of the
+`aspect_rules_js`, as skif does. The files skif counts as used from the `srcs`, `data` and `entry_point` of the
 `rules_js` rules, the files they reach and their exports stay compared: the harness does not read the rule calls.
+skif judges the exports of `srcs` and `data` files; only an `entry_point` is an entry whose exports are public.
 
 **Not judged by skif.** skif lists under `incomplete-packages` in its JSON report the packages whose entry files it
 cannot all know (a tool config it cannot read), and does not report their unused dependencies, exports, types and

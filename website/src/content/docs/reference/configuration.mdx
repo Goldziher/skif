@@ -1245,11 +1245,13 @@ counterpart. These differences are deliberate:
   (`":node_modules/esbuild"`, `"//packages/app:node_modules/@types/node"`) and a load of a package's
   `package_json.bzl` (`"@npm//packages/app:esbuild/package_json.bzl"`) use that dependency; a label of another
   package's `node_modules` belongs to that package, so `"//:node_modules/typescript"` in a member's `BUILD` file uses
-  the root's `typescript`. The `entry_point` and `data` of `js_binary`, `js_run_devserver` and `js_test` and the
-  `srcs` and `data` of `js_library` and `ts_project` are entries (production entries except for `js_test`) when they
-  name an existing file of the package, by path or as `":path"`; `glob()`, `select()` and variables name nothing, nor
-  does a macro of a `.bzl` file. The `BUILD` files of a nested package give no entries, and those below the `bazel-*`
-  links at the repository root are not read.
+  the root's `typescript`. The `entry_point` of `js_binary`, `js_run_devserver` and `js_test` is an entry, and the
+  `data` of those rules and the `srcs` and `data` of `js_library` and `ts_project` are build sources: used files whose
+  imports are followed but whose exports, types and members are judged, as they are no entries. A literal counts
+  when it names an existing file of the package, by path or as `":path"`, and those of `js_test` only outside
+  `--production`; `glob()`, `select()` and variables name nothing, nor does a macro of a `.bzl` file. The `BUILD`
+  files of a nested package give no entries or build sources, and those below the `bazel-*` links at the repository
+  root are not read.
 - A `tsconfig` with `outDir` maps build output back to source through its `rootDir`. Without one, skif takes the
   longest common directory of the `include` patterns (each up to its first wildcard) and the `files`, not counting
   declaration files; TypeScript computes it from the files it compiles. A config with neither keeps the `dist` to

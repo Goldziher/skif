@@ -131,6 +131,7 @@ old one.
 | 0122 | [Bun Members Outside the Root, Nameless Members, bun.lock in the Lockfile Scopes, and Bun Test Roots](0122-bun-members-outside-the-root-nameless-members-bun-lock-in-the-lockfile-scopes-and-bun-test-roots.md) | accepted |
 | 0123 | [Publicly Hoisted Packages as Available Dependencies](0123-publicly-hoisted-packages-as-available-dependencies.md) | accepted |
 | 0121 | [One Git Index Listing for Every Provider](0121-one-git-index-listing-for-every-provider.md) | accepted |
+| 0124 | [Bazel Rule Sources Are Used Files, Not Entries](0124-bazel-rule-sources-are-used-files-not-entries.md) | accepted |
 
 ## Effective statements
 
@@ -344,3 +345,4 @@ the lines below stay as written; this table says which record governs.
 | [0104](0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md), decision outcome | a Bun workspace keeps the pattern semantics of every other manager apart from literal members | [0122](0122-bun-members-outside-the-root-nameless-members-bun-lock-in-the-lockfile-scopes-and-bun-test-roots.md): leading `..` segments select members outside the root, which are counted but not linted, and a member without a `name` is reported and excluded from analysis |
 | [0038](0038-git-index-file-discovery-and-resolver-probe-avoidance.md), decision outcome | the index reader is a small reader in `skif-js` | [0121](0121-one-git-index-listing-for-every-provider.md): it lives in `skif-workspace`, and the rules reach its listing through `LintContext::listing_fs` |
 | [0095](0095-untracked-files-member-manifest-errors-and-converging-fixes.md), "Discovery" paragraph | `discovery = "git"` lists the source files of the JS analysis from the index | [0121](0121-one-git-index-listing-for-every-provider.md): the toolchain scan and the `BUILD` file search of the lockfile consumers list through the same index listing under `git` |
+| [0115](0115-bazel-build-files-and-output-trees-in-the-js-analysis.md), decision outcome, entries paragraph | the `entry_point` and `data` of `js_binary`, `js_run_devserver` and `js_test`, and the `srcs` and `data` of `js_library` and `ts_project`, are entries | [0124](0124-bazel-rule-sources-are-used-files-not-entries.md): only the `entry_point` is an entry; the `srcs` and `data` are build sources, used files whose exports are judged |
