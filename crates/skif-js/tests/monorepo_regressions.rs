@@ -249,12 +249,18 @@ fn a_vite_input_built_with_object_from_entries_keeps_the_package_complete() {
     let files = [
         ("vite.config.js", config),
         ("home.html", "<script type=\"module\" src=\"/src/home.js\"></script>\n"),
-        ("about.html", "<script type=\"module\" src=\"/src/about.js\"></script>\n"),
+        (
+            "about.html",
+            "<script type=\"module\" src=\"/src/about.js\"></script>\n",
+        ),
         ("src/home.js", "import pad from 'lib-a';\npad('a');\n"),
         ("src/about.js", "export const about = 1;\n"),
     ];
     assert_eq!(
-        unused_dependencies_with(r#""scripts":{"build":"vite build"},"devDependencies":{"vite":"8.0.0"}"#, &files),
+        unused_dependencies_with(
+            r#""scripts":{"build":"vite build"},"devDependencies":{"vite":"8.0.0"}"#,
+            &files
+        ),
         ["package.json: lib-unused"]
     );
 }

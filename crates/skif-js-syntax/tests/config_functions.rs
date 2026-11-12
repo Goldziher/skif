@@ -1104,7 +1104,8 @@ fn optional_and_computed_members_read_like_members() {
         ("base.absent?.setupFiles", ConfigValue::Null),
         ("missing?.setupFiles ?? ['./fallback.ts']", strings(&["./fallback.ts"])),
         ("base[process.env.KEY]", ConfigValue::Unknown),
-        ("base.test.include[0]", ConfigValue::Unknown),
+        ("base.test.include[0]", s("src/a.test.ts")),
+        ("base.test.include[1]", ConfigValue::Null),
         ("opaque()?.setupFiles", ConfigValue::Unknown),
     ];
     for (read, expected) in cases {
@@ -1698,7 +1699,10 @@ fn array_callbacks_run_over_a_known_array() {
         ("filtered", strings(&["light"])),
         ("undecided", strings(&["light", "dark"])),
         ("undecidedLength", ConfigValue::Unknown),
-        ("spread", ConfigValue::Array(vec![ConfigValue::Unknown, ConfigValue::Unknown])),
+        (
+            "spread",
+            ConfigValue::Array(vec![ConfigValue::Unknown, ConfigValue::Unknown]),
+        ),
         ("opaque", ConfigValue::Unknown),
         ("imported", ConfigValue::Unknown),
     ];
