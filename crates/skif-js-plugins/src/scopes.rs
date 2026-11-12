@@ -91,7 +91,7 @@ impl NxProjects {
 /// The directories, relative to the package directory and sorted, that hold a `project.json`; `""` for the package's
 /// own.
 pub(crate) fn project_dirs(ctx: &PluginContext<'_>) -> Vec<String> {
-    find_files_within(ctx.fs, ctx.dir, &["**/project.json".to_owned()], PROJECT_DEPTH)
+    find_files_within(ctx.fs, ctx.globs, ctx.dir, &["**/project.json".to_owned()], PROJECT_DEPTH)
         .iter()
         .map(|path| path.rsplit_once('/').map_or("", |(dir, _)| dir).to_owned())
         .collect()
@@ -147,6 +147,7 @@ impl ScopeShared {
             plugins: &self.plugins,
             modules: owner.modules,
             nx: None,
+            globs: owner.globs,
         }
     }
 }

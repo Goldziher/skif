@@ -176,7 +176,7 @@ fn css_postcss(value: &ConfigValue, config: &ConfigAst<'_>, cx: &PluginContext<'
         Some(target)
     } else {
         let patterns: Vec<String> = postcss::CONFIG.iter().map(|pattern| (*pattern).to_owned()).collect();
-        find_files(cx.fs, &cx.dir.join(&target), &patterns)
+        find_files(cx.fs, cx.globs, &cx.dir.join(&target), &patterns)
             .into_iter()
             .next()
             .map(|found| join_rel(&target, &found))

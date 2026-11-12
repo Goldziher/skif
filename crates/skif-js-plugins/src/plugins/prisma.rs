@@ -63,7 +63,7 @@ impl Plugin for Prisma {
 /// What the `generator` providers of the schema files matching `patterns` reference.
 fn generator_inputs(cx: &PluginContext<'_>, patterns: &[String]) -> Vec<PluginInput> {
     let mut out = Vec::new();
-    for file in find_files(cx.fs, cx.dir, patterns) {
+    for file in find_files(cx.fs, cx.globs, cx.dir, patterns) {
         let Ok(text) = cx.fs.read_to_string(&cx.dir.join(&file)) else {
             continue;
         };

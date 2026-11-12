@@ -29,7 +29,7 @@ impl Plugin for WebdriverIo {
 
     fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut out = Vec::new();
-        for file in find_files(cx.fs, cx.dir, &[CONFIG.to_owned()]) {
+        for file in find_files(cx.fs, cx.globs, cx.dir, &[CONFIG.to_owned()]) {
             let path = cx.dir.join(&file);
             let Ok(source) = cx.fs.read_to_string(&path) else {
                 continue;
