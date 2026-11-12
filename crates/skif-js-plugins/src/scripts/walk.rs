@@ -608,6 +608,8 @@ impl<'c> Walker<'c> {
                     self.wrapper(wrapper, args, frame, st);
                 } else if let Some(runner) = tables::runner(n) {
                     self.runner(runner, args, frame, st);
+                } else if let Some(value_flags) = tables::member_exec(n) {
+                    self.member_exec(value_flags, args, frame, st);
                 }
             }
         }
@@ -1168,6 +1170,24 @@ impl<'c> Walker<'c> {
                 self.info.turbo_tasks.push(name.to_owned());
             }
         }
+    }
+
+    /// `lerna exec [flags] [--] <cmd>` and `nx exec [flags] -- <cmd>` run `<cmd>` in each member with the root's
+    /// binaries on the `PATH`, so it is walked as a command of this package, as `pnpm -r exec` is.
+    fn member_exec(&mut self, value_flags: &[&str], args: &[Word], frame: &Frame, st: St) {
+        let Some(("exec", rest)) = args.split_first().map(|(first, rest)| (first.text.as_str(), rest)) else {
+            return;
+        };
+        let parsed = args::parse(rest, value_flags, true);
+        let command = command_words(rest, &parsed);
+        self.command_or_string(
+            command,
+            frame,
+            St {
+                via: BinaryVia::Direct,
+                ..st
+            },
+        );
     }
 
     fn runner(&mut self, runner: &Runner, args: &[Word], frame: &Frame, st: St) {

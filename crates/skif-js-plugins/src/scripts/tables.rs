@@ -1024,6 +1024,44 @@ pub(super) fn runner(name: &str) -> Option<&'static Runner> {
     RUNNERS.iter().find(|r| r.names.contains(&name))
 }
 
+/// Monorepo tools whose `exec` subcommand runs the command after its flags (or after `--`) in each workspace member,
+/// with the value-taking flags of that subcommand. Their other subcommands (`lerna run`, `nx run-many`) take task
+/// names, not commands.
+pub(super) const MEMBER_EXEC: &[(&str, &[&str])] = &[
+    (
+        "lerna",
+        &[
+            "scope",
+            "ignore",
+            "since",
+            "concurrency",
+            "loglevel",
+            "profile-location",
+        ],
+    ),
+    (
+        "nx",
+        &[
+            "projects",
+            "p",
+            "exclude",
+            "configuration",
+            "c",
+            "parallel",
+            "output-style",
+            "outputStyle",
+            "runner",
+        ],
+    ),
+];
+
+pub(super) fn member_exec(name: &str) -> Option<&'static [&'static str]> {
+    MEMBER_EXEC
+        .iter()
+        .find(|(known, _)| *known == name)
+        .map(|&(_, flags)| flags)
+}
+
 /// A tool that runs another command given in its arguments.
 pub(super) struct Wrapper {
     pub names: &'static [&'static str],

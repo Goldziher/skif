@@ -522,6 +522,23 @@ fn table() {
             &[],
             &[],
         ),
+        // `lerna exec` and `nx exec` run their command in each member; `lerna run` and `nx run` take task names.
+        bins("lerna exec -- rimraf dist", &["lerna", "rimraf"]),
+        bins(
+            "lerna exec --scope @fx/b --parallel -- unlistedbin --x",
+            &["lerna", "unlistedbin"],
+        ),
+        bins("lerna exec --concurrency 2 --stream rimraf dist", &["lerna", "rimraf"]),
+        bins("lerna exec -- \"rimraf dist && tsc\"", &["lerna", "rimraf", "tsc"]),
+        bins("npx lerna exec -- rimraf dist", &["lerna:npx", "rimraf"]),
+        bins("nx exec -- bazbin build", &["nx", "bazbin"]),
+        bins("nx exec --projects a,b --parallel 2 -- tsc -b", &["nx", "tsc"]),
+        bins("pnpm nx exec -- tsc", &["nx:pnpm-exec", "tsc"]),
+        bins("lerna exec", &["lerna"]),
+        bins("lerna run build --scope=@fx/a --stream", &["lerna"]),
+        bins("lerna run test --since main --concurrency 2", &["lerna"]),
+        bins("nx run web:build", &["nx"]),
+        bins("nx run-many -t build lint", &["nx"]),
     ];
     for case in cases {
         let info = parse_script(case.script, &context(case.scripts));
@@ -784,6 +801,22 @@ fn recursive_without_filter_still_runs_here() {
     let info = parse("pnpm -r exec vite");
     assert_eq!(binaries_of(&info), vec!["vite:pnpm-exec".to_owned()]);
     assert!(!info.binaries[0].filtered);
+}
+
+#[test]
+fn member_exec_commands_run_here() {
+    for script in [
+        "lerna exec -- rimraf dist",
+        "lerna exec --scope @fx/b -- rimraf dist",
+        "nx exec -- rimraf dist",
+    ] {
+        let info = parse(script);
+        let rimraf = info.binaries.iter().find(|b| b.name == "rimraf");
+        assert!(
+            rimraf.is_some_and(|b| !b.filtered && b.via == BinaryVia::Direct && b.dir.is_none()),
+            "{script}: {info:?}"
+        );
+    }
 }
 
 #[test]
