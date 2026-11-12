@@ -361,6 +361,8 @@ pub(crate) struct ModuleResolver {
     /// The directories of the root and of every package, deepest first.
     package_dirs: Vec<PathBuf>,
     members: BTreeMap<String, Member>,
+    /// The name of the member at each directory of `members`, the first by name where several share one.
+    member_dirs: HashMap<PathBuf, String>,
     scopes: Vec<AliasScope>,
     /// The position in `scopes` of the scope of each package directory.
     scope_index: HashMap<PathBuf, usize>,
@@ -709,6 +711,10 @@ impl ModuleResolver {
                 ))
             })
             .collect();
+        let mut member_dirs: HashMap<PathBuf, String> = HashMap::default();
+        for (name, member) in &members {
+            member_dirs.entry(member.dir.clone()).or_insert_with(|| name.clone());
+        }
         let mut scopes: Vec<AliasScope> = setup
             .packages
             .iter()
@@ -797,6 +803,7 @@ impl ModuleResolver {
             fs,
             root: workspace.root.clone(),
             members,
+            member_dirs,
             scopes,
             scope_index,
             module_dir_chains,
@@ -916,6 +923,11 @@ impl ModuleResolver {
             })
     }
 
+    /// The workspace member whose directory is `dir`, the first by name where several share it.
+    fn member_at(&self, dir: &Path) -> Option<&Member> {
+        self.member_dirs.get(dir).and_then(|name| self.members.get(name))
+    }
+
     /// Whether the nearest `package.json` above `importer` declares `imports`, the only place a `#` specifier can be
     /// resolved from. An unreadable manifest counts as declaring them.
     fn declares_imports(&self, importer: &Path) -> bool {
@@ -924,7 +936,7 @@ impl ModuleResolver {
         };
         self.declared_imports.get_or_compute(directory, || {
             for dir in directory.ancestors().take_while(|dir| dir.starts_with(&self.root)) {
-                if let Some(member) = self.members.values().find(|member| member.dir == dir) {
+                if let Some(member) = self.member_at(dir) {
                     return member.manifest.get("imports").is_some();
                 }
                 if let Ok(text) = self.fs.read_to_string(&dir.join("package.json")) {
@@ -1549,7 +1561,7 @@ impl ModuleResolver {
     /// `None` when `target` is not a package directory or `rest` names something inside it that does not exist.
     fn through_package_directory(&self, target: &Path, rest: &str) -> Option<Resolved> {
         let adhoc;
-        let member = if let Some(known) = self.members.values().find(|member| member.dir == target) {
+        let member = if let Some(known) = self.member_at(target) {
             known
         } else {
             adhoc = self.directory_package(target)?;
@@ -2382,6 +2394,30 @@ generated/index.ts
             Resolved::File(PathBuf::from("/ws/.svelte-kit/types/src/routes/todos/$types.d.ts"))
         );
         assert_eq!(r.resolve(about, "./$types").target, Resolved::Unresolved);
+    }
+
+    #[test]
+    fn members_are_found_by_their_directory_and_only_there() {
+        let r = resolver(&[
+            ("package.json", ROOT),
+            ("packages/a/package.json", r#"{"name":"@x/a","version":"1.0.0"}"#),
+            ("packages/b/package.json", r#"{"name":"@x/b","version":"2.0.0"}"#),
+        ]);
+        let version = |dir: &str| {
+            r.member_at(Path::new(dir))
+                .map(|member| (member.dir.clone(), member.manifest["version"].clone()))
+        };
+        assert_eq!(
+            version("/ws/packages/a"),
+            Some((PathBuf::from("/ws/packages/a"), Value::from("1.0.0")))
+        );
+        assert_eq!(
+            version("/ws/packages/b"),
+            Some((PathBuf::from("/ws/packages/b"), Value::from("2.0.0")))
+        );
+        assert_eq!(version("/ws/packages"), None);
+        assert_eq!(version("/ws/packages/a/src"), None);
+        assert!(r.member_at(Path::new("/ws")).is_some());
     }
 
     #[test]
