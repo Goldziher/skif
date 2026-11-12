@@ -27,9 +27,9 @@ use std::collections::BTreeMap;
 use oxc_ast::ast::{
     Argument, ArrayExpression, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator, AssignmentPattern,
     AssignmentTargetPropertyIdentifier, BindingIdentifier, BindingPattern, CallExpression, ChainExpression,
-    ComputedMemberExpression, Expression, ExpressionStatement, FormalParameters, Function, IdentifierReference,
-    MemberExpression, NewExpression, ObjectExpression, ObjectPropertyKind, PrivateFieldExpression, Program,
-    PropertyKind, ReturnStatement, SimpleAssignmentTarget, StaticMemberExpression, TaggedTemplateExpression,
+    ComputedMemberExpression, Expression, ExpressionStatement, FormalParameter, FormalParameters, Function,
+    IdentifierReference, MemberExpression, NewExpression, ObjectExpression, ObjectPropertyKind, PrivateFieldExpression,
+    Program, PropertyKind, ReturnStatement, SimpleAssignmentTarget, StaticMemberExpression, TaggedTemplateExpression,
     UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
@@ -393,6 +393,16 @@ impl Sharing<'_> {
         }
     }
 
+    /// Links the names `pattern` binds to `value`, the default of a parameter or of a destructured name (`b = a`),
+    /// which they may take: a name is the default itself, and a name a destructuring binds is somewhere in it.
+    fn default_of(&mut self, pattern: &BindingPattern<'_>, value: &Expression<'_>) {
+        let held = self.refs(Part::Value, |refs| refs.visit_expression(value));
+        let whole = matches!(pattern, BindingPattern::BindingIdentifier(_));
+        for name in bound_symbols(pattern) {
+            self.hold(&Place::of(name), whole, held.clone());
+        }
+    }
+
     /// The aliases a `const` declaration of `pattern` with `init` declares, with the local they take a part of: `None`
     /// unless the local is one of the function being visited ([`alias_source`], [`alias_names`]).
     fn alias(&self, pattern: &BindingPattern<'_>, init: &Expression<'_>) -> Option<(Vec<SymbolId>, SymbolId)> {
@@ -672,18 +682,15 @@ impl<'a> Visit<'a> for Sharing<'_> {
         walk::walk_assignment_expression(self, it);
     }
 
-    fn visit_assignment_pattern(&mut self, it: &AssignmentPattern<'a>) {
-        // A name with a default (`b = a`) may take it.
-        let held = self.refs(Part::Value, |refs| refs.visit_expression(&it.right));
-        let whole = matches!(it.left, BindingPattern::BindingIdentifier(_));
-        for name in it
-            .left
-            .get_binding_identifiers()
-            .iter()
-            .filter_map(|id| id.symbol_id.get())
-        {
-            self.hold(&Place::of(name), whole, held.clone());
+    fn visit_formal_parameter(&mut self, it: &FormalParameter<'a>) {
+        if let Some(initializer) = &it.initializer {
+            self.default_of(&it.pattern, initializer);
         }
+        walk::walk_formal_parameter(self, it);
+    }
+
+    fn visit_assignment_pattern(&mut self, it: &AssignmentPattern<'a>) {
+        self.default_of(&it.left, &it.right);
         walk::walk_assignment_pattern(self, it);
     }
 
