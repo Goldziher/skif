@@ -590,3 +590,46 @@ fn an_exported_read_that_is_not_definite_stays_so() {
         );
     }
 }
+
+/// The value at `path` below `value`, an unknown spread after a key standing for any value of it.
+fn read_at<'a>(value: &'a ConfigValue, path: &[&str]) -> &'a ConfigValue {
+    static UNKNOWN: ConfigValue = ConfigValue::Unknown;
+    path.iter().fold(value, |current, key| match current {
+        ConfigValue::Object(entries) => entries
+            .iter()
+            .rev()
+            .find(|(name, _)| name == key || ConfigValue::is_spread_key(name))
+            .map_or(&UNKNOWN, |(name, field)| {
+                if ConfigValue::is_spread_key(name) {
+                    &UNKNOWN
+                } else {
+                    field
+                }
+            }),
+        _ => &UNKNOWN,
+    })
+}
+
+/// An imported config the module changes (a write through it, a call given it, a write through a local holding it, in
+/// a function or at the top level) is read as changed, not as the imported module computes it.
+#[test]
+fn a_change_of_an_imported_value_is_applied_where_it_is_read() {
+    for config in [
+        "import base from './base';\nbase.build.outDir = 'out';\nexport default base;",
+        "import base from './base';\nwithPlugins(base);\nexport default base;",
+        "import base from './base';\nexport default () => { base.build.outDir = 'out'; return base; };",
+        "import base from './base';\nexport default () => { withPlugins(base); return base; };",
+        "import base from './base';\nconst local = base;\nlocal.build.outDir = 'out';\nexport default base;",
+        "import * as shared from './base';\nshared.default.build.outDir = 'out';\nexport default shared.default;",
+    ] {
+        let loader = files(&[
+            ("/ws/app/config.ts", config),
+            (
+                "/ws/app/base.ts",
+                "export default { root: 'src', build: { outDir: 'dist' } };",
+            ),
+        ]);
+        let value = eval(&loader);
+        assert_ne!(read_at(&value, &["build", "outDir"]), &s("dist"), "{config}: {value:?}");
+    }
+}

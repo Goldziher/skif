@@ -1062,6 +1062,9 @@ A JavaScript or TypeScript config is evaluated statically. A value it imports fr
 a workspace package (through its `exports` or `main`, mapped back to the source file), is evaluated in that module too:
 a base config merged with `mergeConfig`, spread into an object, or listed in an ESLint `defineConfig`. A value imported
 from an installed package stays unknown, and an imported value that depends on itself through imports is unknown there.
+An imported value the config changes (`base.build.outDir = "out"`, `withPlugins(base)`, a write through a local holding
+it, at the top level or in a function) is read as changed, as a local is; a method called on a namespace import
+(`shared.make()`) is taken to change nothing of it.
 A member of a known object is the value of its key: `{ ...base, plugins: [...base.plugins, "x"] }` keeps the plugins of
 the imported `base`, which are judged against the package that owns the module naming them, while `"x"` belongs to the
 importing config. An optional member (`base?.plugins`, `undefined` when `base` is `null` or `undefined`) and a computed
