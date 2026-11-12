@@ -2,6 +2,7 @@
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
+use std::hash::BuildHasher;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -11,7 +12,7 @@ use skif::{
     ConfigOverrides, Diagnostic, FileSystem, Linter, Location, ModuleCache, OsFs, Report, RuleMeta, RunOptions, Target,
     Workspace, join_lexical, slash,
 };
-use skif_core::HashMap;
+use skif_core::{HashMap, HashState};
 
 use crate::error::{CliError, Kind};
 
@@ -151,22 +152,19 @@ impl Linters {
         modules: Option<&Arc<dyn ModuleCache>>,
     ) -> Result<Self, CliError> {
         let shared = Linter::shared_modules(targets, modules.cloned());
-        let mut linters: Vec<Linter> = Vec::new();
-        let mut of_target = Vec::with_capacity(targets.len());
-        for target in targets {
-            let index = if let Some(index) = linters.iter().position(|linter| linter.config() == &target.config) {
-                index
-            } else {
+        let (firsts, of_target) = distinct_configs(targets.iter().map(|target| &target.config));
+        let linters = firsts
+            .into_iter()
+            .map(|first| {
+                let target = &targets[first];
                 let fs = fs.map_or_else(|| Arc::new(OsFs) as Arc<dyn FileSystem>, Arc::clone);
                 let linter = match &shared {
                     Some(modules) => Linter::with_shared_modules(&target.config, fs, modules),
                     None => Linter::with_fs(&target.config, fs),
                 };
-                linters.push(linter.map_err(|error| target.locate(error))?);
-                linters.len() - 1
-            };
-            of_target.push(index);
-        }
+                linter.map_err(|error| target.locate(error))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(Self { linters, of_target })
     }
 
@@ -182,6 +180,46 @@ impl Linters {
         }
         rules.into_values().collect()
     }
+}
+
+/// Groups `configs` by equality: the position of the first of each distinct configuration, in first-seen order, and
+/// for every configuration the index of its group. A configuration is compared only with the distinct ones sharing
+/// its [`config_key`], not with every one seen so far.
+fn distinct_configs<'a>(configs: impl IntoIterator<Item = &'a skif::Config>) -> (Vec<usize>, Vec<usize>) {
+    let mut firsts: Vec<(usize, &skif::Config)> = Vec::new();
+    let mut by_key: HashMap<u64, Vec<usize>> = HashMap::default();
+    let mut of_config = Vec::new();
+    for (position, config) in configs.into_iter().enumerate() {
+        let candidates = by_key.entry(config_key(config)).or_default();
+        let group = if let Some(&group) = candidates.iter().find(|&&group| firsts[group].1 == config) {
+            group
+        } else {
+            let group = firsts.len();
+            firsts.push((position, config));
+            candidates.push(group);
+            group
+        };
+        of_config.push(group);
+    }
+    (firsts.into_iter().map(|(position, _)| position).collect(), of_config)
+}
+
+/// A hash that equal configurations share, over the parts that are cheap to hash: the rule IDs, summed so their
+/// order does not count (`==` compares the rules as a map), what the configuration extends, and the lengths of its
+/// lists.
+fn config_key(config: &skif::Config) -> u64 {
+    let rules = config.rules.keys().fold(0_u64, |sum, id| sum.wrapping_add(HashState.hash_one(id)));
+    HashState.hash_one((
+        rules,
+        &config.extends,
+        config.ignore.len(),
+        config.overrides.len(),
+        config.version_groups.len(),
+        config.semver_groups.len(),
+        config.custom_types.len(),
+        config.dependency_families.len(),
+        config.update_groups.len(),
+    ))
 }
 
 /// One linted root. The report is relative to the root, which is what fixing needs.
@@ -519,6 +557,29 @@ pub fn root_json(run: &RootRun, report: &Report) -> Value {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn equal_configurations_share_a_linter_in_first_seen_order() {
+        let with_rules = |ids: &[&str]| {
+            let mut config = skif::Config::default();
+            for id in ids {
+                config.rules.insert((*id).to_owned(), skif::RuleConfig::level(skif::Level::Error));
+            }
+            config
+        };
+        let ab = with_rules(&["a", "b"]);
+        let ba = with_rules(&["b", "a"]);
+        let plain = skif::Config::default();
+        let mut root = plain.clone();
+        root.root = true;
+        assert_eq!(ab, ba);
+        assert_eq!(config_key(&ab), config_key(&ba));
+        assert_eq!(config_key(&root), config_key(&plain));
+        assert_ne!(root, plain);
+
+        let configs = [&root, &ab, &plain, &ba, &root, &plain];
+        assert_eq!(distinct_configs(configs), (vec![0, 1, 2], vec![0, 1, 2, 1, 0, 2]));
+    }
 
     #[test]
     fn display_names_the_base_as_a_dot() {
