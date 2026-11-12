@@ -1,10 +1,10 @@
-//! `skif explain-usage`: why the JavaScript analysis counts a file, or one export of it, as used.
+//! `skif explain-usage`: why the JavaScript analysis counts a file, one export of it, or a dependency as used.
 
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
-use skif::{CachedFs, ConfigOverrides, FileSystem, OsFs, Target, UsageReport};
+use skif::{CachedFs, ConfigOverrides, FileSystem, OsFs, PackageId, Target, UsageReport};
 use skif_report::escape_multiline;
 
 use crate::args::{ExplainUsageArgs, Format, LintArgs};
@@ -132,9 +132,17 @@ pub fn explain(
 fn execute(args: &ExplainUsageArgs, format: Format) -> Result<(), Failure> {
     let cwd = std::env::current_dir()
         .map_err(|error| fail(Kind::Io, format!("cannot read the current directory: {error}")))?;
-    let (file, export) = split_target(&args.target);
+    if let Some(name) = &args.dependency {
+        return explain_dependency(args, &cwd, name, format);
+    }
+    let target = args
+        .target
+        .as_deref()
+        .ok_or_else(|| fail(Kind::Usage, "give a FILE to explain, or --dependency NAME"))?;
+    let (file, export) = split_target(target);
     let file = resolve_file(&cwd, file).map_err(|error| Box::new((error, Map::new())))?;
-    let start = canonical(&args.path).map_err(|error| Box::new((error, Map::new())))?;
+    let start =
+        canonical(args.path.as_deref().unwrap_or(Path::new("."))).map_err(|error| Box::new((error, Map::new())))?;
     let report = explain(&start, &file, export, &overrides(args))?;
     match format {
         Format::Json => {
@@ -145,6 +153,70 @@ fn execute(args: &ExplainUsageArgs, format: Format) -> Result<(), Failure> {
             write_stdout(text.as_bytes()).map_err(|error| Box::new((error, Map::new())))
         }
         _ => write_stdout(report.render().as_bytes()).map_err(|error| Box::new((error, Map::new()))),
+    }
+}
+
+/// The project path of `explain-usage --dependency`, where the one positional argument is `PATH`: there is no file.
+fn dependency_path(args: &ExplainUsageArgs) -> Result<&Path, Failure> {
+    match (&args.target, &args.path) {
+        (None, None) => Ok(Path::new(".")),
+        (Some(target), None) => Ok(Path::new(target)),
+        (None, Some(path)) => Ok(path.as_path()),
+        (Some(_), Some(_)) => Err(fail(Kind::Usage, "--dependency explains no file: give PATH alone")),
+    }
+}
+
+/// The package of `target` named `value`, else the one whose directory `value` (relative to `cwd`) is.
+fn find_package(target: &Target, cwd: &Path, value: &str) -> Result<PackageId, Failure> {
+    let by_name = target
+        .workspace
+        .iter()
+        .find(|(_, package)| package.name.as_deref() == Some(value));
+    let by_dir = || {
+        let dir = canonical(&cwd.join(value)).ok()?;
+        let relative = dir.strip_prefix(&target.root).ok()?;
+        target
+            .workspace
+            .iter()
+            .find(|(_, package)| package.dir.as_path() == relative)
+    };
+    by_name.or_else(by_dir).map(|(id, _)| id).ok_or_else(|| {
+        fail(
+            Kind::Usage,
+            format!(
+                "no package is named `{value}` or lies in that directory in the workspace at {}",
+                target.root.display()
+            ),
+        )
+    })
+}
+
+/// `skif explain-usage --dependency NAME [--package NAME|DIR]`: why the dependency is used or unused in the packages
+/// of the root found from the path.
+fn explain_dependency(args: &ExplainUsageArgs, cwd: &Path, name: &str, format: Format) -> Result<(), Failure> {
+    let plain = |error: CliError| Box::new((error, Map::new()));
+    let start = canonical(dependency_path(args)?).map_err(plain)?;
+    let Resolved { targets, .. } =
+        roots::resolve(&start, false, &CachedFs::new(OsFs), &overrides(args)).map_err(plain)?;
+    let target = owning_target(&targets, &start)
+        .or_else(|| targets.first())
+        .ok_or_else(|| fail(Kind::Usage, format!("no workspace or package found at {}", start.display())))?;
+    let package = args
+        .package
+        .as_deref()
+        .map(|value| find_package(target, cwd, value))
+        .transpose()?;
+    let fs: Arc<dyn FileSystem> = Arc::new(OsFs);
+    let explanation = skif::explain_dependency(&target.config, &fs, &target.workspace, name, package);
+    match format {
+        Format::Json => {
+            let value = serde_json::to_value(&explanation).map_err(|error| fail(Kind::Internal, error.to_string()))?;
+            let mut members = Map::new();
+            members.insert("report".to_owned(), value);
+            let text = document(members).map_err(plain)?;
+            write_stdout(text.as_bytes()).map_err(plain)
+        }
+        _ => write_stdout(escape_multiline(&explanation.render()).as_bytes()).map_err(plain),
     }
 }
 

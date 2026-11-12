@@ -10,6 +10,7 @@ skif schema
 skif init [PATH]
 skif config [PATH] [-r] (--show | --explain <KEY> [--package <NAME>]) [--config <FILE> | --no-config] [--format human|json]
 skif explain-usage <FILE[#EXPORT]> [PATH]
+skif explain-usage --dependency <NAME> [--package <NAME|DIR>] [PATH]
 skif migrate [PATH] [--from sherif|syncpack|knip|auto,...] [--profile exact|full] [--merge | --force] [--dry-run]
 skif baseline write|prune [PATH] [-r | --file <FILE>] [LINT FLAGS] [--format human|json]
 skif baseline check [PATH] (--base <REF> | --base-file <FILE>) [-r | --file <FILE>] [--format human|json]
@@ -56,7 +57,7 @@ of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2
 | `skif schema` | Print the JSON Schema of `skif.toml`. |
 | `skif init [PATH]` | Write a starter `skif.toml` into `PATH` (default `.`). Refuses to overwrite an existing configuration. When configuration files above `PATH` already apply, prints a note naming the files the new one inherits from. |
 | `skif config [PATH]` | Show how the configuration of the root at `PATH` was built (see below). |
-| `skif explain-usage <FILE[#EXPORT]> [PATH]` | Explain why the JavaScript analysis counts a file, or one export of it, as used (see below). |
+| `skif explain-usage <FILE[#EXPORT]> [PATH]` | Explain why the JavaScript analysis counts a file, or one export of it, as used, or with `--dependency` a dependency (see below). |
 | `skif migrate [PATH]` | Translate the configuration of sherif, syncpack and knip into a `skif.toml` (see below). |
 | `skif baseline write\|prune\|check [PATH]` | Record the current findings as `[[ignore]]` entries in a baseline file the root's `skif.toml` extends, remove the entries that match nothing, or fail when the baseline gained entries (see below). |
 | `skif update [PATH]` | Update dependencies to newer published versions from the npm registry, or with `--check` only report them (see below). The only command that uses the network. |
@@ -154,6 +155,8 @@ as the JavaScript part of a lint run.
 | Flag | Meaning |
 | --- | --- |
 | `--production`, `--config <FILE>`, `--no-config` | Analyse as the lint run with the same flag does. |
+| `--dependency <NAME>` | Explain the dependency `NAME` instead of a file (see below); the one positional argument is then `PATH`. |
+| `--package <NAME\|DIR>` | With `--dependency`, explain it in this package only: its name, or its directory relative to the current directory. Exits `2` when no package of the workspace has that name or directory. |
 | `--format <human\|json>` | `json` prints one document with `version`, `skif` and a `report` member: `file`, `in-graph`, `entry` (the rule that makes the file an entry: `entry-glob`, `config-file`, `script`, `published`, `incomplete-scope`, `external-entry-glob` for a glob of another package that points outside it, `enclosing-entry-glob` for a plugin glob of a package that contains the file's package, or `unknown`), `imported-by` (`file`, `line`, `kind`, `names`, `reachable`; `line` is 0 for the use of a registered Vue component in a template, which has no location), `chain-from-entry` and, with `#EXPORT`, `export` (`verdict`, `users`, `re-exports`, `entry-public`, `tagged-public`, `in-used-signature`, `entries-incomplete` when it is true and, for a custom element, `registered`). |
 
 A file that is not part of the module graph exits `2` with the reason; in JSON mode the `error` document carries the
@@ -172,6 +175,25 @@ unjudged as a whole although its configs narrowed what they hide. When the confi
 `incomplete-scope`, and an unused file outside it has the absence `unused-file` with the scope's globs in
 `incomplete-scope` and the causes in `incomplete`. It also exits `2` when the root cannot be loaded or the file lies
 outside the workspace.
+
+`skif explain-usage --dependency <NAME> [PATH]` answers why `unused-dependencies` (or `unused-dev-dependencies`)
+reports a dependency or not. For every package that lists it or that something credits it to (with `--package`, that
+package alone) it prints the manifest entry, the verdict and the uses that credit the package's manifest: an
+`import` (also a re-export, a `declare module` or an import of the package an `@types` package types), a `mock`, a
+`compiler` of the file's type, the `jsx-runtime` of a file with JSX, a `command` a `node:child_process` call runs, a
+`binary` a script, command or plugin runs, a `script-or-plugin` of the package, a tool `config` that names it, and
+`ambient-types` for a globals-only `@types` package a `tsconfig.json` includes. The uses of a package's manifest can
+come from the files of packages inside it, such as the root's. Imports of it by files of the package that credit no
+manifest (a type-only import in strict mode) are listed as not counted. The verdict and the uses come from the same
+record of uses the rule judges. The command exits `0` whatever the verdict.
+
+| `--format json` member | Meaning |
+| --- | --- |
+| `report.dependency`, `report.production`, `report.strict` | The dependency, and whether production or strict mode narrowed what counts. |
+| `report.packages[]` | `package`, `dir` (`.` for the root), `listed` (`manifest`, `section`, `specifier`, or `null`), `verdict`, `credit`, `uses` and `not-counted` (each `file`, `line`, `specifier`, `kind`, `type-only`, `package`, `reachable`). |
+| `verdict` | `used`, `unused` (what the rule reports when it is on), `ignored` (an `ignore-dependencies` entry or a plugin covers it), `optional-peer`, `package-excluded`, `entries-incomplete` (not judged) or `not-listed`. |
+| `credit` | With `used`, how: `{"kind": "uses"}` (the `uses` list it), `always-used` (a tool used without an import, such as `typescript`), `runtime-types` (`@types/node`), `types-of` with the typed `package`, or `peer-of` with the `host` that needs it as a peer. |
+| `uses[]` | `kind`, and `file` (relative to the root) or `binary` when the use has one. |
 
 ## Migrating
 

@@ -9,6 +9,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `skif explain-usage --dependency <NAME> [--package <NAME|DIR>]` explains why a dependency is used or unused in each
+  package that lists it: the verdict `unused-dependencies` reaches and the importing files, mocks, commands, binaries,
+  scripts, plugins and tool configs that credit it, or the imports that count for nothing; `--format json` prints the
+  same `report` document as the file explanation. The verdict and the evidence come from one record of uses
+  ([#150](https://github.com/Goldziher/skif/issues/150)).
+
 ### Fixed
 
 - `skif config` accepts `--config <FILE>` and `--no-config`, so `--show` and `--explain` report the configuration a
