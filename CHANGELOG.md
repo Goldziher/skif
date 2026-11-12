@@ -70,6 +70,17 @@ All notable changes to this project are documented here. The format follows
   returns (`{ e: env }`, `config.x = env`), still shares it there, as do a getter, method or callback in what it
   returns and a parameter's default (`b = a`). Configs exported side by side (`module.exports = [a(), b()]`) no
   longer leave each other partly unknown.
+- **Config evaluation**: values code may change are no longer read as known. A call whose effect is not known (a
+  function the config or a library declares, a `new` of a class other than a builtin one) may change every object it
+  is given, in any position and through a spread, also when the call's result is used. A list or string method
+  (`push`, `concat`, `slice`) counts as changing only its object when that object is known to be a list or string, and
+  a well-known function (`path.join`, `JSON.stringify`) is known only where its name resolves to the module or global
+  that declares it, not a local of the same name. A change through an element of a list leaves every element open.
+  A loop name (`for (const rule of config.module.rules)`), a callback parameter (`rules.forEach((r) => …)`), a name a
+  destructuring assignment sets and a function assigned with `=` share with what they take, an alias of a local that
+  shares an object with a changed one is no longer applied to it, and a write in a class body leaves what it reaches
+  unknown. `define…` helpers of a library and copying merges (`webpack-merge`, `deepmerge`, `defu`, the `mergeConfig`
+  of Vite and Vitest) still change nothing they are given.
 
 ### Changed
 
