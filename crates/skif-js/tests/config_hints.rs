@@ -314,6 +314,100 @@ fn a_bin_path_a_compiling_command_may_write_keeps_the_package_unjudged() {
     );
 }
 
+/// A CDK app whose template-generated `bin` names a file nothing provides, with `scripts` completing the manifest:
+/// `cdk.json` runs the real entry, `app/main.ts`.
+fn cdk_app(scripts: &str) -> String {
+    format!(
+        r#"{{"name":"@acme/stack","version":"0.1.0","bin":{{"stack":"bin/stack.js"}},"scripts":{{"cdk":"cdk",{scripts}}},
+           "dependencies":{{"left-pad":"1.3.0","spare":"1.0.0"}},
+           "devDependencies":{{"aws-cdk":"2.0.0","ts-node":"10.9.2","typescript":"5.0.0"}}}}"#
+    )
+}
+
+/// The files of [`cdk_app`] besides its manifest and `tsconfig.json`.
+const CDK_APP_FILES: [(&str, &str); 2] = [
+    ("cdk.json", r#"{ "app": "pnpm exec ts-node --prefer-ts-exts app/main.ts" }"#),
+    ("app/main.ts", "import leftPad from 'left-pad';\nleftPad('a', 2);\n"),
+];
+
+/// The `tsconfig.json` of [`cdk_app`]: no build directory, so the compiler writes each output next to its source.
+const CDK_TSCONFIG: (&str, &str) = (
+    "tsconfig.json",
+    r#"{ "compilerOptions": { "module": "node16", "moduleResolution": "node16" } }"#,
+);
+
+/// A `bin` path the TypeScript compiler cannot write, since no file of the package has its name, is a path into
+/// nothing although a build script runs the compiler: reported, and the package is judged from the entry the
+/// `aws-cdk` plugin reads.
+#[test]
+fn a_bin_path_the_typescript_compiler_cannot_write_is_reported_and_the_package_is_judged() {
+    for build in [
+        r#""build":"tsc""#,
+        r#""build":"tsc -p tsconfig.build.json && tsc -p tsconfig.esm.json""#,
+        r#""build":"tsgo","watch":"tsc -w""#,
+    ] {
+        let manifest = cdk_app(build);
+        let mut files = vec![("package.json", manifest.as_str()), CDK_TSCONFIG];
+        files.extend(CDK_APP_FILES);
+        let diagnostics = lint(&files, "");
+        assert_eq!(
+            hints(&diagnostics),
+            "package.json: `bin/stack.js` in `bin` of `package.json` names no file",
+            "{build}"
+        );
+        assert_eq!(
+            found(&diagnostics, "unused-dependencies"),
+            ["package.json: `spare` is listed in `dependencies` but never used"],
+            "{build}"
+        );
+    }
+}
+
+/// A `bin` path the TypeScript compiler may write keeps the package unjudged as before: a source file of its name
+/// exists (`src/bin/stack.ts`, compiled into the package directory), the build runs more than the compiler, or the
+/// compiler writes one named file (`--outFile`).
+#[test]
+fn a_bin_path_the_typescript_compiler_may_write_keeps_the_package_unjudged() {
+    let tsc = cdk_app(r#""build":"tsc""#);
+    let copied = cdk_app(r#""build":"tsc && node scripts/copy-bin.js""#);
+    let out_file = cdk_app(r#""build":"tsc --outFile bin/stack.js""#);
+    let cases: [(&str, Vec<(&str, &str)>); 3] = [
+        (
+            "source of that name",
+            vec![
+                ("package.json", tsc.as_str()),
+                (
+                    "tsconfig.json",
+                    r#"{ "compilerOptions": { "outDir": ".", "rootDir": "src" }, "include": ["src"] }"#,
+                ),
+                ("src/bin/stack.ts", "console.log('stack');\n"),
+            ],
+        ),
+        (
+            "more than the compiler",
+            vec![
+                ("package.json", copied.as_str()),
+                CDK_TSCONFIG,
+                ("scripts/copy-bin.js", "console.log('copy');\n"),
+            ],
+        ),
+        (
+            "one output file",
+            vec![("package.json", out_file.as_str()), CDK_TSCONFIG],
+        ),
+    ];
+    for (case, mut files) in cases {
+        files.extend(CDK_APP_FILES);
+        let diagnostics = lint(&files, "");
+        assert_eq!(hints(&diagnostics), "", "{case}");
+        assert_eq!(
+            found(&diagnostics, "unused-dependencies"),
+            Vec::<String>::new(),
+            "{case}"
+        );
+    }
+}
+
 /// Build output is never a path into nothing: with its source present it maps, with neither the source nor the file
 /// present (built or not) the package stays unjudged, and so does a bin stub that loads output with no source behind
 /// it.
