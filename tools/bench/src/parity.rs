@@ -2821,6 +2821,32 @@ mod tests {
         items.iter().map(|item| (*item).to_owned()).collect()
     }
 
+    static NO_PATHS: [String; 0] = [];
+    static NO_KEYS: BTreeSet<String> = BTreeSet::new();
+    static ALL_JUDGED: BTreeMap<String, NotJudgedScope> = BTreeMap::new();
+
+    /// A classifier over `layout` that knows nothing of the two reports: no path knip does not read, no package skif
+    /// left unjudged or knip could not load a config of, no unused file and nothing one imports, no root of a
+    /// recursive run and no Rush root. A test sets the facts it needs with `..bare(&layout)`.
+    fn bare<'a>(layout: &'a Layout<'a>) -> Classifier<'a> {
+        Classifier {
+            knip_unread: &NO_PATHS,
+            include_test_files: false,
+            not_judged: &ALL_JUDGED,
+            knip_failed: &NO_KEYS,
+            knip_manifests: &NO_KEYS,
+            foreign_paths: &NO_KEYS,
+            knip_unused_files: &NO_KEYS,
+            skif_unused_files: &NO_KEYS,
+            knip_unused_imports: &NO_KEYS,
+            skif_unused_imports: &NO_KEYS,
+            skif_root_packages: &NO_KEYS,
+            published_reach: &NO_KEYS,
+            rush_root: false,
+            layout,
+        }
+    }
+
     /// Runs `check` with a classifier for a checkout with these workspace members, manifests (by directory) and
     /// `package.json` files knip reports on, and no other facts.
     fn with_classifier(
@@ -2836,23 +2862,10 @@ mod tests {
         let manifest = move |dir: &str| read.get(dir).cloned();
         let every_file = |_: &str| true;
         let layout = Layout::new(strings(members), &manifest, &every_file);
-        let none = BTreeSet::new();
         let judged = strings(judged_by_knip);
         check(&Classifier {
-            knip_unread: &[],
-            include_test_files: false,
-            not_judged: &BTreeMap::new(),
-            knip_failed: &none,
             knip_manifests: &judged,
-            foreign_paths: &BTreeSet::new(),
-            knip_unused_files: &none,
-            skif_unused_files: &none,
-            knip_unused_imports: &none,
-            skif_unused_imports: &none,
-            skif_root_packages: &none,
-            published_reach: &none,
-            rush_root: false,
-            layout: &layout,
+            ..bare(&layout)
         });
     }
 
@@ -3033,22 +3046,9 @@ mod tests {
         let manifest = move |dir: &str| read.get(dir).cloned();
         let every_file = |_: &str| true;
         let layout = Layout::new(strings(&["packages/a"]), &manifest, &every_file);
-        let none = BTreeSet::new();
         let classifier = Classifier {
-            knip_unread: &[],
-            include_test_files: false,
-            not_judged: &BTreeMap::new(),
-            knip_failed: &none,
-            knip_manifests: &none,
-            foreign_paths: &none,
-            knip_unused_files: &none,
-            skif_unused_files: &none,
-            knip_unused_imports: &none,
-            skif_unused_imports: &none,
             skif_root_packages: &roots,
-            published_reach: &none,
-            rush_root: false,
-            layout: &layout,
+            ..bare(&layout)
         };
         for (category, key) in [
             ("exports", "examples/app/src/a.ts|unused"),
@@ -3445,22 +3445,11 @@ mod tests {
         let knip_unused = strings(&["examples/a/src/dead.ts"]);
         let skif_unused = strings(&["packages/b/src/gone.ts"]);
         let failed = strings(&["packages/cfg"]);
-        let none = BTreeSet::new();
         let classifier = Classifier {
-            knip_unread: &[],
-            include_test_files: false,
-            not_judged: &BTreeMap::new(),
             knip_failed: &failed,
-            knip_manifests: &none,
-            foreign_paths: &none,
             knip_unused_files: &knip_unused,
             skif_unused_files: &skif_unused,
-            knip_unused_imports: &none,
-            skif_unused_imports: &none,
-            skif_root_packages: &none,
-            published_reach: &none,
-            rush_root: false,
-            layout: &layout,
+            ..bare(&layout)
         };
         for (category, key) in [
             ("exports", "examples/a/src/dead.ts|x"),
@@ -3587,22 +3576,10 @@ vi.mock("mocked-package");
         let manifest = move |dir: &str| read.get(dir).cloned();
         let every_file = |_: &str| true;
         let layout = Layout::new(strings(&workspaces), &manifest, &every_file);
-        let none = BTreeSet::new();
         let classifier = Classifier {
-            knip_unread: &[],
-            include_test_files: false,
-            not_judged: &BTreeMap::new(),
-            knip_failed: &none,
-            knip_manifests: &none,
-            foreign_paths: &none,
             knip_unused_files: &unused,
-            skif_unused_files: &none,
             knip_unused_imports: &imports,
-            skif_unused_imports: &none,
-            skif_root_packages: &none,
-            published_reach: &none,
-            rush_root: false,
-            layout: &layout,
+            ..bare(&layout)
         };
         for (category, key) in [
             ("dependencies", "libraries/a/package.json|left-pad"),
@@ -3681,22 +3658,11 @@ vi.mock("mocked-package");
         let manifest = move |dir: &str| read.get(dir).cloned();
         let every_file = |_: &str| true;
         let layout = Layout::new(strings(&["libraries/a"]), &manifest, &every_file);
-        let none = BTreeSet::new();
         let classifier = Classifier {
-            knip_unread: &[],
-            include_test_files: false,
-            not_judged: &BTreeMap::new(),
-            knip_failed: &none,
-            knip_manifests: &none,
-            foreign_paths: &none,
             knip_unused_files: &knip_unused,
             skif_unused_files: &skif_unused,
-            knip_unused_imports: &none,
             skif_unused_imports: &imports,
-            skif_root_packages: &none,
-            published_reach: &none,
-            rush_root: false,
-            layout: &layout,
+            ..bare(&layout)
         };
         for (category, key) in [
             ("dependencies", "libraries/a/package.json|left-pad"),
@@ -3738,23 +3704,9 @@ vi.mock("mocked-package");
         let manifest = move |dir: &str| read.get(dir).cloned();
         let every_file = |_: &str| true;
         let layout = Layout::new(strings(&["apps/heft"]), &manifest, &every_file);
-        let none = BTreeSet::new();
-        let complete = BTreeMap::new();
         let classifier = |rush_root: bool| Classifier {
-            knip_unread: &[],
-            include_test_files: false,
-            not_judged: &complete,
-            knip_failed: &none,
-            knip_manifests: &none,
-            foreign_paths: &none,
-            knip_unused_files: &none,
-            skif_unused_files: &none,
-            knip_unused_imports: &none,
-            skif_unused_imports: &none,
-            skif_root_packages: &none,
-            published_reach: &none,
             rush_root,
-            layout: &layout,
+            ..bare(&layout)
         };
         let rush = classifier(true);
         for (category, key) in [
@@ -3818,22 +3770,10 @@ vi.mock("mocked-package");
             NotJudgedScope::within(vec!["src/esm/*.stories.ts".to_owned()]),
         )]);
         let knip_failed = strings(&["packages/b"]);
-        let none = BTreeSet::new();
         let classifier = Classifier {
-            knip_unread: &[],
-            include_test_files: false,
             not_judged: &not_judged_dirs,
             knip_failed: &knip_failed,
-            knip_manifests: &none,
-            foreign_paths: &none,
-            knip_unused_files: &none,
-            skif_unused_files: &none,
-            knip_unused_imports: &none,
-            skif_unused_imports: &none,
-            skif_root_packages: &none,
-            published_reach: &none,
-            rush_root: false,
-            layout: &layout,
+            ..bare(&layout)
         };
         assert_eq!(
             classifier.classify(Side::Tool, "files", "packages/a/src/esm/button.stories.ts"),
@@ -3876,22 +3816,10 @@ vi.mock("mocked-package");
         let layout = Layout::new(BTreeSet::new(), &manifest, &every_file);
         let unread = ["examples/app/docs/".to_owned()];
         let not_judged_dirs = BTreeMap::from([("examples/app".to_owned(), NotJudgedScope::Package)]);
-        let none = BTreeSet::new();
         let classifier = Classifier {
             knip_unread: &unread,
-            include_test_files: false,
             not_judged: &not_judged_dirs,
-            knip_failed: &none,
-            knip_manifests: &none,
-            foreign_paths: &BTreeSet::new(),
-            knip_unused_files: &none,
-            skif_unused_files: &none,
-            knip_unused_imports: &none,
-            skif_unused_imports: &none,
-            skif_root_packages: &none,
-            published_reach: &none,
-            rush_root: false,
-            layout: &layout,
+            ..bare(&layout)
         };
         assert_eq!(
             classifier.classify(Side::Tool, "files", "examples/app/docs/a.ts"),
