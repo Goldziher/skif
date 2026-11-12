@@ -1,5 +1,6 @@
 //! Regressions found on a large pnpm monorepo: builtin-named packages, HTML entries of the vitest plugin, referenced
-//! `tsconfig` paths, extglob entries, shared config helpers, stylesheet lookups and per-package bundler extensions.
+//! `tsconfig` paths, extglob entries, shared config helpers, stylesheet lookups, per-package bundler extensions, and
+//! config values computed with a condition, an array callback or `Object.fromEntries`.
 //!
 //! Every case is a minimal synthetic workspace.
 
@@ -171,6 +172,91 @@ fn vitest_adds_index_html_scripts_without_the_vite_plugin() {
     let diagnostics = lint_files(&files, "[js.plugins]\nvite = false\n");
     assert_eq!(found(&diagnostics, "unused-dependencies"), none(), "{diagnostics:#?}");
     assert_eq!(found(&diagnostics, "unused-files"), none(), "{diagnostics:#?}");
+}
+
+/// The `unused-dependencies` findings of a package that lists `lib-a`, which `files` import, and `lib-unused`, which
+/// nothing imports, with the manifest keys `extra` (its scripts and `devDependencies`).
+fn unused_dependencies_with(extra: &str, files: &[(&str, &str)]) -> Vec<String> {
+    let package = manifest(&format!(
+        r#""name":"app","version":"1.0.0","private":true,{PNPM},"type":"module",{extra},"dependencies":{{"lib-a":"1.0.0","lib-unused":"1.0.0"}}"#
+    ));
+    let mut all = vec![("package.json", package.as_str())];
+    all.extend_from_slice(files);
+    found(&lint_files(&all, ""), "unused-dependencies")
+}
+
+/// The manifest keys of a package whose tests Vitest runs with the config `ui/vitest.config.ts`.
+const VITEST_IN_UI: &str =
+    r#""scripts":{"test":"vitest run --config ui/vitest.config.ts"},"devDependencies":{"vitest":"4.0.0"}"#;
+
+/// A test file of the package that imports `lib-a`.
+const TEST_USING_LIB_A: (&str, &str) = (
+    "ui/src/a.test.ts",
+    "import pad from 'lib-a';\nimport { test } from 'vitest';\ntest('a', () => { pad('a'); });\n",
+);
+
+/// A Vitest `root` that is one of two directories (a condition whose branches the evaluator cannot decide) may be
+/// either, so the entries of each count and the package's dependencies are judged.
+#[test]
+fn a_vitest_root_that_is_one_of_two_directories_keeps_the_package_complete() {
+    let config = "import path from 'node:path';\nimport { fileURLToPath } from 'node:url';\n\
+                  import { defineConfig } from 'vitest/config';\n\
+                  const dir = process.env.SOME_FLAG\n\
+                    ? path.resolve('ui')\n\
+                    : path.dirname(fileURLToPath(import.meta.url));\n\
+                  export default defineConfig({ root: dir, test: { include: ['src/**/*.test.ts'] } });\n";
+    assert_eq!(
+        unused_dependencies_with(VITEST_IN_UI, &[("ui/vitest.config.ts", config), TEST_USING_LIB_A]),
+        ["package.json: lib-unused"]
+    );
+}
+
+/// Vitest projects spread from `.map` over a literal list are evaluated, so the package's dependencies are judged.
+#[test]
+fn vitest_projects_mapped_from_a_list_keep_the_package_complete() {
+    let config = "import { defineConfig } from 'vitest/config';\n\
+                  export default defineConfig({\n\
+                    root: import.meta.dirname,\n\
+                    test: {\n\
+                      projects: [\n\
+                        { extends: true, test: { name: 'unit', include: ['src/**/*.test.ts'] } },\n\
+                        ...(['light', 'dark'] as const).map((theme) => ({\n\
+                          extends: true,\n\
+                          test: { name: `browser-${theme}`, include: ['src/**/*.browser.test.ts'] },\n\
+                        })),\n\
+                      ],\n\
+                    },\n\
+                  });\n";
+    assert_eq!(
+        unused_dependencies_with(VITEST_IN_UI, &[("ui/vitest.config.ts", config), TEST_USING_LIB_A]),
+        ["package.json: lib-unused"]
+    );
+}
+
+/// A Vite build input made with `Object.fromEntries` over a list of pages is the pages' HTML files, whose scripts are
+/// entries, so the package's dependencies are judged.
+#[test]
+fn a_vite_input_built_with_object_from_entries_keeps_the_package_complete() {
+    let config = "import path from 'node:path';\nimport { defineConfig } from 'vite';\n\
+                  const PAGES = ['home', 'about'];\n\
+                  export default defineConfig({\n\
+                    build: {\n\
+                      rollupOptions: {\n\
+                        input: Object.fromEntries(PAGES.map((page) => [page, path.resolve(__dirname, `${page}.html`)])),\n\
+                      },\n\
+                    },\n\
+                  });\n";
+    let files = [
+        ("vite.config.js", config),
+        ("home.html", "<script type=\"module\" src=\"/src/home.js\"></script>\n"),
+        ("about.html", "<script type=\"module\" src=\"/src/about.js\"></script>\n"),
+        ("src/home.js", "import pad from 'lib-a';\npad('a');\n"),
+        ("src/about.js", "export const about = 1;\n"),
+    ];
+    assert_eq!(
+        unused_dependencies_with(r#""scripts":{"build":"vite build"},"devDependencies":{"vite":"8.0.0"}"#, &files),
+        ["package.json: lib-unused"]
+    );
 }
 
 fn references_workspace(app_manifest: &str) -> Vec<(&'static str, String)> {
