@@ -9,7 +9,9 @@ use skif_js_syntax::{
     ConfigValue, ModuleLoader, UNKNOWN_SPREAD, extract_config, extract_config_object, extract_config_object_with,
 };
 
-/// Modules by absolute path; relative specifiers resolve with a `.ts` extension, `@fx/base` to `/ws/base/index.ts`.
+/// Modules by absolute path; relative specifiers resolve with a `.ts` extension, `@fx/base` to `/ws/base/index.ts`. Any
+/// other bare specifier names an installed package, but for the `@app/` scope, an alias of a project directory the
+/// loader does not resolve.
 struct Files(BTreeMap<PathBuf, &'static str>);
 
 impl ModuleLoader for Files {
@@ -29,6 +31,10 @@ impl ModuleLoader for Files {
             path.with_extension("ts")
         };
         self.0.get(&path).map(|source| (path, (*source).to_owned()))
+    }
+
+    fn is_installed(&self, _from: &Path, specifier: &str) -> bool {
+        !specifier.starts_with(['.', '/']) && !specifier.starts_with("@app/")
     }
 }
 
@@ -881,6 +887,25 @@ fn a_define_helper_of_a_followed_package_may_change_what_it_is_given() {
         &ConfigValue::Unknown,
         "{value:?}"
     );
+}
+
+/// A `define…` helper or a merge of a bare specifier the loader neither loads nor knows as an installed package (an alias
+/// of a project directory, `@app/tools`) may do anything, as one of a module of the project may: the config is unknown.
+/// One of an installed package (`vite`) is the value it is given, or the merge of what it is given.
+#[test]
+fn a_define_helper_of_an_alias_the_loader_does_not_follow_is_unknown() {
+    let number = |n: f64| ConfigValue::Number(n);
+    for (call, known) in [
+        ("defineConfig({ a: 1 })", obj(vec![("a", number(1.0))])),
+        ("mergeConfig({ a: 1 }, { b: 2 })", obj(vec![("a", number(1.0)), ("b", number(2.0))])),
+    ] {
+        for (specifier, expected) in [("@app/tools", ConfigValue::Unknown), ("vite", known)] {
+            let helper = call.split('(').next().unwrap();
+            let config = format!("import {{ {helper} }} from '{specifier}';\nexport default {call};");
+            let loader = files(&[("/ws/app/config.ts", &*Box::leak(config.into_boxed_str()))]);
+            assert_eq!(eval(&loader), expected, "{specifier}: {call}");
+        }
+    }
 }
 
 /// Bindings of one module, through a default, a named or a namespace import, are the same exports: a change through
