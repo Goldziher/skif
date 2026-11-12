@@ -9,6 +9,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `skif config` accepts `--config <FILE>` and `--no-config`, so `--show` and `--explain` report the configuration a
+  lint run with the same flag uses; with `-r` and `--config` each root below the start names the directory the file's
+  `[js.workspaces]` keys select it by ([#149](https://github.com/Goldziher/skif/issues/149)).
+
 ## [0.3.0] - 2026-11-11
 
 ### Added

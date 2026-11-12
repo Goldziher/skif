@@ -594,6 +594,15 @@ pub struct ConfigArgs {
     #[arg(long, value_name = "NAME", requires = "explain", conflicts_with = "show")]
     pub package: Option<String>,
 
+    /// Use this configuration file (and the files it extends) instead of discovering `skif.toml` files, as a lint run
+    /// with `--config` does.
+    #[arg(long, value_name = "FILE", conflicts_with = "no_config")]
+    pub config: Option<PathBuf>,
+
+    /// Read no configuration file: the defaults.
+    #[arg(long)]
+    pub no_config: bool,
+
     /// Output format.
     #[arg(long, value_enum, default_value_t = RulesFormat::Human)]
     pub format: RulesFormat,

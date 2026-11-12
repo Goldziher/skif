@@ -62,6 +62,13 @@ fn to_value<T: Serialize>(value: &T) -> Result<Value, CliError> {
     serde_json::to_value(value).map_err(|error| CliError::new(Kind::Io, error.to_string()))
 }
 
+/// The configuration files a run reads: those `--config` or `--no-config` choose, else the discovered ones.
+fn overrides(args: &ConfigArgs) -> ConfigOverrides {
+    ConfigOverrides::default()
+        .with_config_file(args.config.as_ref().map(|file| crate::lint::absolute_file(file)))
+        .with_no_config(args.no_config)
+}
+
 fn execute(args: &ConfigArgs) -> Result<u8, CliError> {
     let fs = CachedFs::new(OsFs);
     let start = canonical(&args.path)?;
@@ -71,7 +78,7 @@ fn execute(args: &ConfigArgs) -> Result<u8, CliError> {
         multi,
         failures,
         ..
-    } = roots::resolve(&start, args.recursive, &fs, &ConfigOverrides::default())?;
+    } = roots::resolve(&start, args.recursive, &fs, &overrides(args))?;
     let mut unapplied = if args.explain.is_none() {
         unapplied_config_files_all(&targets, &fs)
     } else {
@@ -220,6 +227,9 @@ fn show_human(views: &[RootView<'_>], base: &Path) -> Result<String, CliError> {
             out.push('\n');
         }
         let _ = writeln!(out, "# root: {}", view.path);
+        if let Some(anchor) = view.target.workspace.workspace_keys_anchor() {
+            let _ = writeln!(out, "# [js.workspaces] keys name this root \"{anchor}\"");
+        }
         out.push_str("# sources, in the order applied:\n");
         if view.target.sources.is_empty() {
             out.push_str("#   (none: the built-in defaults)\n");
@@ -284,7 +294,7 @@ fn show_json(views: &[RootView<'_>], base: &Path, failures: &[RootError]) -> Res
     let roots = views
         .iter()
         .map(|view| {
-            Ok(json!({
+            let mut root = json!({
                 "path": view.path,
                 "sources": view.target.sources.iter().map(|source| source_json(base, source)).collect::<Vec<_>>(),
                 "not-applied": view
@@ -294,7 +304,11 @@ fn show_json(views: &[RootView<'_>], base: &Path, failures: &[RootError]) -> Res
                     .collect::<Vec<_>>(),
                 "config": to_value(&view.target.config)?,
                 "origins": origins_json(view.target, base),
-            }))
+            });
+            if let Some(anchor) = view.target.workspace.workspace_keys_anchor() {
+                root["workspace-keys-anchor"] = json!(anchor);
+            }
+            Ok(root)
         })
         .collect::<Result<Vec<Value>, CliError>>()?;
     let mut members = Map::new();
