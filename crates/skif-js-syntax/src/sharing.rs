@@ -30,7 +30,8 @@
 //! at any depth ([`given_parts`]); a spread of a local there (`{ ...options }`) leaves all of the local open, as a
 //! change of only what its keys hold is not one the pass can say ([`Effect`]). The pass knows the effect of a
 //! well-known function only where its name resolves to the module that declares it, and treats a `define…` helper of
-//! a package it does not follow (not one of the workspace) and a merge that copies ([`copies`]) and `Object.assign`,
+//! an installed package it does not follow ([`Imports::is_installed`]: not one of the workspace nor an alias of a
+//! project directory) and a merge that copies ([`copies`]) and `Object.assign`,
 //! beyond its first argument, as changing nothing; the first two keep nothing they are given in another argument
 //! either. A loop name, a callback parameter and a name a destructuring assigns share with what they take, but for the element a callback
 //! or a loop over a `const` list or object of primitive values (or its `Object.entries`) takes when no change reaches
@@ -160,6 +161,13 @@ pub(crate) trait Imports {
     /// module when it is called: it changes a binding of its own module or calls such a function of another one
     /// ([`Unstable::changes_modules`]).
     fn changes_modules(&self, specifier: &str) -> bool;
+
+    /// Whether `specifier`, a package the evaluator does not follow ([`is_package`]), is installed, so that no code of
+    /// the project is behind it ([`Known::foreign`]): not a workspace package or an alias of a project directory
+    /// (`@app/tools`). None is unless the implementation says so.
+    fn is_installed(&self, _specifier: &str) -> bool {
+        false
+    }
 }
 
 /// The bindings of a module that code the evaluator does not follow may change.
@@ -2796,8 +2804,8 @@ pub(crate) fn property_defined(call: &CallExpression<'_>) -> Option<String> {
 }
 
 /// Whether the name a callee (`defineConfig`, `vitest.defineProject`) starts from is not one the project declares a
-/// value for: a global, or an import or a binding of a `require` of a package the evaluator does not follow
-/// ([`Known::foreign`]), not of a module or a workspace package of the project.
+/// value for: a global, or an import or a binding of a `require` of an installed package the evaluator does not
+/// follow ([`Known::foreign`]), not of a module, a workspace package or an alias of the project.
 fn foreign(names: Names<'_>, callee: &Expression<'_>) -> bool {
     let root = match callee.get_inner_expression() {
         Expression::StaticMemberExpression(member) => member.object.get_inner_expression(),
@@ -2842,8 +2850,8 @@ struct Known {
     builtins: HashSet<SymbolId>,
     /// The bindings of a namespace import (`import * as shared from './shared'`).
     namespaces: HashSet<SymbolId>,
-    /// Those of [`Self::modules`] of a package ([`is_package`]) whose module the evaluator does not follow, so that
-    /// none of the project's code is behind them.
+    /// Those of [`Self::modules`] of an installed package ([`is_package`], [`Imports::is_installed`]) whose module the
+    /// evaluator does not follow, so that none of the project's code is behind them.
     foreign: HashSet<SymbolId>,
     /// Those of [`Self::modules`] whose module the evaluator follows, which code of such a module may change.
     followed: HashSet<SymbolId>,
@@ -2875,7 +2883,7 @@ fn known(program: &Program<'_>, scoping: &Scoping, imports: &dyn Imports) -> Kno
     known.foreign = known
         .modules
         .iter()
-        .filter(|(_, (module, _))| is_package(module) && !imports.follows(module))
+        .filter(|(_, (module, _))| is_package(module) && !imports.follows(module) && imports.is_installed(module))
         .map(|(&symbol, _)| symbol)
         .collect();
     let mut receivers = MethodReceivers::default();

@@ -375,6 +375,17 @@ impl From<Value> for ConfigValue {
 pub trait ModuleLoader {
     /// The path and source of the module `specifier` names when imported from the file `from`.
     fn load(&self, from: &Path, specifier: &str) -> Option<(PathBuf, String)>;
+
+    /// Whether `specifier`, a bare specifier imported from the file `from` that [`Self::load`] does not load, names an
+    /// installed package rather than code of the project: not a workspace package the loader cannot map to a source
+    /// file, nor an alias of a project directory (a `tsconfig` path such as `@app/tools`). Only for an installed
+    /// package does the evaluator take a `define…` helper (`defineConfig`) to be the value it is given, a copying merge
+    /// (`mergeConfig`) the merge of what it is given, and the methods of a binding the config only calls methods on to
+    /// keep nothing they are given; code of the project may do anything. `false` unless the loader says otherwise, so
+    /// that nothing it does not vouch for is trusted. Without a loader, every bare specifier counts as one.
+    fn is_installed(&self, _from: &Path, _specifier: &str) -> bool {
+        false
+    }
 }
 
 /// Statically evaluates what `source` exports: `export default …`, `module.exports = …` or `export = …`.
@@ -492,6 +503,7 @@ pub fn extract_config(source: &str, path: &Path, loader: Option<&dyn ModuleLoade
         values: RefCell::new(HashMap::default()),
         loaded: RefCell::new(HashMap::default()),
         changing: RefCell::new(HashMap::default()),
+        installed: RefCell::new(HashMap::default()),
     };
     evaluate_config(source, path, Some(&modules))
 }
@@ -677,6 +689,8 @@ struct Modules<'l> {
     /// Whether a function of each module may change a value of a module ([`Modules::changes_modules`]), by path:
     /// `None` while that is being found.
     changing: RefCell<HashMap<PathBuf, Option<bool>>>,
+    /// What the loader said of each importing directory and specifier ([`ModuleLoader::is_installed`]).
+    installed: RefCell<HashMap<(PathBuf, String), bool>>,
 }
 
 impl Modules<'_> {
@@ -697,6 +711,18 @@ impl Modules<'_> {
     /// Whether the module `specifier` names from `from` is followed.
     fn follows(&self, from: &Path, specifier: &str) -> bool {
         self.load(from, specifier).is_some()
+    }
+
+    /// Whether `specifier` names an installed package from `from` ([`ModuleLoader::is_installed`]), asking the loader
+    /// once per directory and specifier.
+    fn is_installed(&self, from: &Path, specifier: &str) -> bool {
+        let key = (from.parent().unwrap_or(from).to_path_buf(), specifier.to_owned());
+        if let Some(&known) = self.installed.borrow().get(&key) {
+            return known;
+        }
+        let installed = self.loader.is_installed(from, specifier);
+        self.installed.borrow_mut().insert(key, installed);
+        installed
     }
 
     /// Whether a function of the followed module `specifier` names from `from` may change a value of a module when it
@@ -993,6 +1019,11 @@ impl Imports for NoImports {
     fn changes_modules(&self, _: &str) -> bool {
         false
     }
+
+    /// Every package is taken to be installed when no loader can tell.
+    fn is_installed(&self, _: &str) -> bool {
+        true
+    }
 }
 
 /// The imports of the module at `from`, as `modules` follows them.
@@ -1008,6 +1039,10 @@ impl Imports for FollowedImports<'_, '_> {
 
     fn changes_modules(&self, specifier: &str) -> bool {
         self.modules.changes_modules(self.from, specifier)
+    }
+
+    fn is_installed(&self, specifier: &str) -> bool {
+        self.modules.is_installed(self.from, specifier)
     }
 }
 
