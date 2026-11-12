@@ -731,15 +731,23 @@ the root), `rush`, `rushx` and `rush-pnpm` are Rush's own commands and never unl
 **Scripts that change directory.** A `package.json` script command after `cd <dir>` or `pushd <dir>` (until `popd`),
 and one that `npm --prefix <dir> exec`, `pnpm -C <dir> exec` (`--dir`) or `yarn --cwd <dir> exec` runs, runs in that
 directory: the files it names are relative to it, and when the directory is in another workspace package, the binaries
-it runs and the packages it loads are credited to that package, as for `pnpm --filter <name>`, and are never unlisted.
-In a directory of the package itself or of no workspace package, a command after `cd` stays a command of the script's
-package and one a directory flag runs is not judged, as before. The binaries that a workflow step, a tool config's
-command or a source file run after `cd <dir>` (`run: cd sub && pnpm exec rspack`) are credited the same way, with the
-directory relative to the package where the command starts (the workspace root for a workflow); their packages and
-files stay where the command starts. In a workflow step, `$GITHUB_WORKSPACE`, `${GITHUB_WORKSPACE}` and
-`${{ github.workspace }}` are the workspace root, so `cd $GITHUB_WORKSPACE/sub` and a `working-directory` of
-`${{ github.workspace }}/sub` are followed. A script that a package manager runs in another directory
-(`cd web && npm run build`) is the script of the package there, so the caller's script of that name is not followed.
+it runs and the packages it loads are credited to that package, as for `pnpm --filter <name>`. A binary that package
+does not provide either is reported at the script, naming the package it runs in (``script `a` runs `x` in
+`packages/web`, which no dependency of `web` provides``), unless a package manager runs a script of that name there
+(`cd web && pnpm bundle`). When the directory is in a project of its own instead (a directory below the package with a
+`package.json` that is no workspace member, such as a nested root of `skif -r`), a binary run there is judged against
+that project's manifest: a provider it lists is used, and `skif -r` credits it to that root; otherwise one of the
+package holding the project may provide it, else it is reported, naming the project. In a directory of the package
+itself or of no package or project, a command after `cd` stays a command of the script's package and one a directory
+flag runs is not judged, as before. The binaries and packages that a workflow step, a tool config's command or a
+source file run and load after `cd <dir>` (`run: cd sub && pnpm exec rspack`, `run: cd sub && node -r hook x.js`) are
+placed the same way, with the directory relative to the package where the command starts (the workspace root for a
+workflow), and are not credited where the command starts. A binary such a command runs by name where its tool
+does not judge one (a workflow step), or fetches on demand, is only a credit there. A step's `working-directory`, its
+own or the `defaults.run` of its job or workflow, is read as a `cd` before the step. In a workflow step,
+`$GITHUB_WORKSPACE`, `${GITHUB_WORKSPACE}` and `${{ github.workspace }}` are the workspace root, so
+`cd $GITHUB_WORKSPACE/sub` and a `working-directory` of `${{ github.workspace }}/sub` are followed. A script that a
+package manager runs in another directory (`cd web && npm run build`) is the script of the package there, so the caller's script of that name is not followed.
 A `cd` in a subshell
 (`(cd "$TMP" && tar xf a.tgz) && npm run build`) ends with it. A directory that is not a static relative path
 (`cd $DIR`, `cd /tmp`, `cd -`, `cd "$(dirname "$0")"`) is not followed: a binary run by name there is judged where the

@@ -1434,7 +1434,7 @@ fn github_actions() {
     assert!(out.referenced_binaries.contains(&"playwright".to_string()));
     assert!(
         !out.referenced_binaries.contains(&"other-tool".to_string()),
-        "steps in another directory are skipped"
+        "a step in another directory runs its binaries there, not where the workflow starts"
     );
     assert_entries(&out.entries, &[".github/actions/local/dist/index.js"]);
     assert_eq!(out.config_files.len(), 2);
@@ -4164,6 +4164,51 @@ fn cd_below_the_github_workspace_is_a_workspace_directory() {
             ("vitepress".to_owned(), Some("docs".to_owned())),
         ]
     );
+}
+
+/// A step's `working-directory`, its own or the `defaults.run` of its job, is a leading `cd`: the binaries the step
+/// runs and the packages it loads carry the directory, as after `cd` in the step, and are no binaries or packages of
+/// the workflow's package. A binary run there by name or fetched on demand is only a credit.
+#[test]
+fn working_directory_steps_carry_the_directory_like_cd() {
+    let workflow = "name: ci\non: [push]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      \
+                    - run: pnpm exec changeset\n        working-directory: packages/web\n      \
+                    - run: cd packages/web && node -r @x/loaded/register x.js\n  \
+                    b:\n    runs-on: ubuntu-latest\n    defaults:\n      run:\n        \
+                    working-directory: packages/app\n    steps:\n      \
+                    - run: node -r @x/job-hook x.js && wdtool && npx other-tool\n";
+    let results = resolve(&[(".github/workflows/ci.yml", workflow)], &[]);
+    let out = output(&results, "github-actions");
+    let runs: Vec<(&str, Option<&str>, bool)> = out
+        .run_binaries
+        .iter()
+        .map(|run| (run.name.as_str(), run.dir.as_deref(), run.judged))
+        .collect();
+    assert_eq!(
+        runs,
+        [
+            ("changeset", Some("packages/web"), true),
+            ("wdtool", Some("packages/app"), false),
+            ("other-tool", Some("packages/app"), false),
+        ]
+    );
+    for name in ["changeset", "wdtool", "other-tool"] {
+        assert!(
+            !out.referenced_binaries.iter().any(|binary| binary == name),
+            "{name}: {:?}",
+            out.referenced_binaries
+        );
+    }
+    let loaded: Vec<(&str, Option<&str>)> = out
+        .referenced_dependencies
+        .iter()
+        .map(|dependency| (dependency.name.as_str(), dependency.dir.as_deref()))
+        .collect();
+    assert_eq!(
+        loaded,
+        [("@x/loaded", Some("packages/web")), ("@x/job-hook", Some("packages/app"))]
+    );
+    assert_entries(&out.entries, &["packages/web/x.js", "packages/app/x.js"]);
 }
 
 #[test]

@@ -50,12 +50,13 @@ pub struct Report {
     /// counts them as used by the root that owns them. Not rendered.
     #[serde(skip)]
     pub other_project_files: Vec<PathBuf>,
-    /// Dependencies that the analysed code uses through a `package.json` outside the workspace root (Node.js resolves
-    /// them from that project's `node_modules`): the absolute directory of that manifest and the dependency name,
-    /// sorted. Those the code below the root uses come from a manifest above the root that lists them when this root
-    /// does not; those that files outside the root import (see `other_project_files`) from the innermost manifest at
-    /// or above each file that lists them. A multi-root host credits them to the root that owns the manifest, which
-    /// cannot see this code. Not rendered.
+    /// Dependencies that the analysed code uses through a `package.json` of another project (Node.js resolves them
+    /// from that project's `node_modules`): the absolute directory of that manifest and the dependency name, sorted.
+    /// Those the code below the root uses come from a manifest above the root that lists them when this root does not;
+    /// those that files outside the root import (see `other_project_files`) from the innermost manifest at or above
+    /// each file that lists them; and those that provide a binary a command runs after `cd` into a project of its own
+    /// below the root (a nested root) from that project's manifest. A multi-root host credits them to the root that
+    /// owns the manifest, which cannot see this code. Not rendered.
     #[serde(skip)]
     pub ancestor_dependency_uses: Vec<(PathBuf, String)>,
     /// The entries of configuration lists that `stale-js-config` judged, used or stale, sorted. A list it could not

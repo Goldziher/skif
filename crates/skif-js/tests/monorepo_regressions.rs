@@ -953,3 +953,92 @@ fn bun_links_member_binaries_as_its_linker_says() {
 }
 
 type BunCase<'a> = (Vec<(&'a str, &'a str)>, &'a [&'a str]);
+
+/// A package that a workflow step, a source file or a script loads after `cd` into a workspace package is needed by
+/// that package, and so is one that a step with a `working-directory` (its own, or the `defaults.run` of its job)
+/// loads; a binary such a step runs is credited there too.
+#[test]
+fn packages_loaded_and_binaries_run_in_another_directory_are_credited_to_the_package_there() {
+    let root = manifest(&format!(
+        r#""name":"root","private":true,{PNPM},"main":"scripts/run.mjs","scripts":{{"hook":"cd packages/web && node -r @x/script-hook x.js"}}"#
+    ));
+    let workflow = "name: ci\non: [push]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      \
+                    - run: cd packages/web && node -r @x/loaded/register x.js\n      \
+                    - run: pnpm exec wdtool\n        working-directory: packages/web\n  \
+                    b:\n    runs-on: ubuntu-latest\n    defaults:\n      run:\n        \
+                    working-directory: packages/web\n    steps:\n      - run: node -r @x/job-hook x.js\n";
+    let files = [
+        ("package.json", root.as_str()),
+        ("pnpm-workspace.yaml", "packages:\n  - packages/*\n"),
+        (
+            "packages/web/package.json",
+            r#"{"name":"web","private":true,"main":"index.js","devDependencies":{"@x/loaded":"1.0.0","@x/script-hook":"1.0.0","@x/job-hook":"1.0.0","@x/source-hook":"1.0.0","wdtool":"1.0.0"}}"#,
+        ),
+        ("packages/web/index.js", "module.exports = 1;\n"),
+        ("packages/web/x.js", "module.exports = 2;\n"),
+        (".github/workflows/ci.yml", workflow),
+        (
+            "scripts/run.mjs",
+            "import { execSync } from 'node:child_process';\n\
+             execSync('cd packages/web && node -r @x/source-hook x.js');\n",
+        ),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        none(),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(found(&diagnostics, "unlisted-binaries"), none(), "{diagnostics:#?}");
+}
+
+/// A binary that a script, a workflow step or a source file runs after `cd` into another workspace package that does
+/// not provide it is reported at the command, naming the package it runs in. A script of that package, which a package
+/// manager run there runs, is no binary.
+#[test]
+fn binaries_run_in_another_package_that_does_not_provide_them_are_reported() {
+    let root = manifest(&format!(
+        r#""name":"root","private":true,{PNPM},"main":"scripts/run.mjs","scripts":{{"a":"cd packages/web && mywdtool","b":"mywdtool2","c":"cd packages/web && pnpm bundle"}}"#
+    ));
+    let workflow = "name: ci\non: [push]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      \
+                    - run: cd packages/web && pnpm exec mywdtool3\n";
+    let files = [
+        ("package.json", root.as_str()),
+        ("pnpm-workspace.yaml", "packages:\n  - packages/*\n"),
+        (
+            "packages/web/package.json",
+            r#"{"name":"web","private":true,"main":"index.js","scripts":{"bundle":"node index.js"}}"#,
+        ),
+        ("packages/web/index.js", "module.exports = 1;\n"),
+        (".github/workflows/ci.yml", workflow),
+        (
+            "scripts/run.mjs",
+            "import { execSync } from 'node:child_process';\nexecSync('cd packages/web && mywdtool4');\n",
+        ),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(
+        found(&diagnostics, "unlisted-binaries"),
+        [
+            ".github/workflows/ci.yml: mywdtool3",
+            "package.json: mywdtool",
+            "package.json: mywdtool2",
+            "scripts/run.mjs: mywdtool4"
+        ],
+        "{diagnostics:#?}"
+    );
+    let messages: Vec<&str> = diagnostics
+        .iter()
+        .filter(|d| d.rule.as_str() == "unlisted-binaries")
+        .map(|d| d.message.as_str())
+        .collect();
+    assert_eq!(
+        messages,
+        [
+            "`.github/workflows/ci.yml` runs `mywdtool3` in `packages/web`, which no dependency of `web` provides",
+            "script `a` runs `mywdtool` in `packages/web`, which no dependency of `web` provides",
+            "script `b` runs `mywdtool2`, which no dependency provides",
+            "`scripts/run.mjs` runs `mywdtool4` in `packages/web`, which no dependency of `web` provides"
+        ]
+    );
+}
