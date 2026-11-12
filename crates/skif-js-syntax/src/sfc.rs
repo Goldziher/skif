@@ -14,9 +14,17 @@ pub(crate) struct ScriptBlock {
     /// The block is JavaScript or TypeScript. Other blocks (`type="application/json"`, `type="text/template"`) are
     /// data: they are neither parsed nor part of the template.
     pub parse: bool,
-    /// The block is the module script of a Svelte component (`context="module"` in Svelte 4, `module` in Svelte 5),
-    /// whose exports are exports of the module; the exports of the instance script are props.
-    pub module: bool,
+    pub context: ScriptContext,
+}
+
+/// Which script of a Svelte component a block is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScriptContext {
+    /// The instance script (and every script of other component kinds): in Svelte its exports are props.
+    Instance,
+    /// The module script (`context="module"` in Svelte 4, `module` in Svelte 5), whose exports are exports of the
+    /// module.
+    Module,
 }
 
 /// A `<style>` region of a component file.
@@ -117,7 +125,12 @@ pub(crate) fn blocks(source: &str, astro: bool) -> Blocks {
                 typescript: astro || matches!(lang.as_str(), "ts" | "tsx" | "typescript"),
                 jsx: lang == "tsx" || lang == "jsx",
                 parse: kind.is_empty() || SCRIPT_TYPES.contains(&kind.as_str()),
-                module: has_attribute(attrs, "module") || attribute(attrs, "context").is_some_and(|c| c == "module"),
+                context: if has_attribute(attrs, "module") || attribute(attrs, "context").is_some_and(|c| c == "module")
+                {
+                    ScriptContext::Module
+                } else {
+                    ScriptContext::Instance
+                },
             });
         } else {
             found.styles.push(StyleBlock {
@@ -251,13 +264,13 @@ fn astro_frontmatter(source: &str) -> Option<ScriptBlock> {
         typescript: true,
         jsx: false,
         parse: true,
-        module: false,
+        context: ScriptContext::Instance,
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::blocks;
+    use super::{ScriptContext, blocks};
 
     #[test]
     fn finds_script_bodies() {
@@ -312,7 +325,11 @@ mod tests {
         ];
         for (source, module) in cases {
             let found = blocks(source, false);
-            let modules: Vec<bool> = found.scripts.iter().map(|b| b.module).collect();
+            let modules: Vec<bool> = found
+                .scripts
+                .iter()
+                .map(|b| b.context == ScriptContext::Module)
+                .collect();
             assert_eq!(modules, [module], "{source}");
         }
     }

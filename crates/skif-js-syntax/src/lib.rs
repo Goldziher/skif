@@ -286,7 +286,7 @@ fn parse_component(
             options,
             Some(&mut uses),
         );
-        if extension == "svelte" && !block.module {
+        if extension == "svelte" && block.context == sfc::ScriptContext::Instance {
             // The exports of a Svelte instance script are props (`export let`) and accessors of the component
             // instance, which the parent sets as attributes or reads through `bind:this`, not module exports.
             part.exports.clear();
