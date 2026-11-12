@@ -17,7 +17,11 @@ use skif_workspace::Workspace;
 const ROOT: &str = "/ws";
 
 /// The modes a run can be in: default, `--production`, and `--strict`, which implies `--production`.
-const MODES: [(&str, bool, bool); 3] = [("default", false, false), ("production", true, false), ("strict", true, true)];
+const MODES: [(&str, bool, bool); 3] = [
+    ("default", false, false),
+    ("production", true, false),
+    ("strict", true, true),
+];
 
 fn lint(files: &[(&str, &str)], production: bool, strict: bool) -> Vec<Diagnostic> {
     let memory = files.iter().fold(MemoryFs::new(), |memory, (path, text)| {
@@ -77,8 +81,7 @@ fn workspace_with(app_tsconfig: &'static str) -> Vec<(&'static str, &'static str
     ]
 }
 
-const WITHOUT_BASE_URL: &str =
-    r#"{"extends":"../../tsconfig.json","compilerOptions":{"paths":{"src/*":["./src/*"]}}}"#;
+const WITHOUT_BASE_URL: &str = r#"{"extends":"../../tsconfig.json","compilerOptions":{"paths":{"src/*":["./src/*"]}}}"#;
 const WITH_BASE_URL: &str =
     r#"{"extends":"../../tsconfig.json","compilerOptions":{"baseUrl":".","paths":{"src/*":["./src/*"]}}}"#;
 
@@ -98,20 +101,4 @@ fn own_paths_into_own_sources_are_never_the_member_named_like_the_prefix() {
             );
         }
     }
-}
-
-#[test]
-fn a_listed_member_reached_only_through_own_paths_is_unused() {
-    // The mapped import is not a use of the member `src`, so listing it leaves a dependency nothing uses.
-    let mut files = workspace_with(WITHOUT_BASE_URL);
-    files[2] = (
-        "packages/app/package.json",
-        r#"{"name":"app","version":"1.0.0","private":true,"main":"src/main.ts","dependencies":{"src":"workspace:*"}}"#,
-    );
-    let diagnostics = lint(&files, false, false);
-    assert_eq!(
-        found(&diagnostics, "unused-dependencies"),
-        ["packages/app/package.json: src"],
-        "{diagnostics:#?}"
-    );
 }

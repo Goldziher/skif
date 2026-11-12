@@ -334,7 +334,10 @@ fn services_workspace(specifier: &str) -> Vec<(&'static str, String)> {
 fn lint_services(specifier: &str, paths_table: &str) -> Vec<Diagnostic> {
     let files = services_workspace(specifier);
     let files: Vec<(&str, &str)> = files.iter().map(|(path, text)| (*path, text.as_str())).collect();
-    lint(&files, &format!("[js.workspaces.\"packages/app\".paths]\n{paths_table}"))
+    lint(
+        &files,
+        &format!("[js.workspaces.\"packages/app\".paths]\n{paths_table}"),
+    )
 }
 
 #[test]
@@ -347,8 +350,16 @@ fn paths_keys_match_with_a_wildcard_anywhere_as_in_tsconfig() {
         ("services", "\"*\" = [\"./missing/*\", \"./src/*\"]\n"),
     ] {
         let diagnostics = lint_services(specifier, paths_table);
-        assert_eq!(found(&diagnostics, "unlisted-dependencies"), none(), "{paths_table}: {diagnostics:#?}");
-        assert_eq!(found(&diagnostics, "unresolved-imports"), none(), "{paths_table}: {diagnostics:#?}");
+        assert_eq!(
+            found(&diagnostics, "unlisted-dependencies"),
+            none(),
+            "{paths_table}: {diagnostics:#?}"
+        );
+        assert_eq!(
+            found(&diagnostics, "unresolved-imports"),
+            none(),
+            "{paths_table}: {diagnostics:#?}"
+        );
         assert_eq!(
             paths(&diagnostics, "unused-files"),
             ["packages/app/lib/services/index.js"],
