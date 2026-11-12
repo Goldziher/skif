@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::finder::static_string;
 use crate::sharing::{
-    Change, Unstable, Write, alias_names, alias_source, changed_by_call, given, reach, statement_call,
+    Change, Unstable, Write, alias_names, alias_source, changed_by_call, given, given_parts, reach, statement_call,
 };
 
 const MAX_DEPTH: u32 = 32;
@@ -4162,16 +4162,17 @@ impl<'u> Writes<'u> {
     }
 
     /// The objects the call at `span`, made as a statement or not (`statement`), is given, which it may change
-    /// ([`Unstable::changes_arguments`]), where the change may be read after the call ([`Unstable::seen_after`]).
+    /// ([`Unstable::changes_arguments`]): each part of a local an argument gives it, a literal's included
+    /// ([`given_parts`]), where the change may be read after the call ([`Unstable::seen_after`]).
     fn arguments(&mut self, span: Span, arguments: &[Argument<'_>], statement: bool) {
         if !self.unstable.changes_arguments(span, statement) {
             return;
         }
         for argument in arguments.iter().filter_map(given) {
-            if let Some((root, keys, _)) = reach(argument)
-                && self.unstable.seen_after(root)
-            {
-                self.change(root.name.as_str(), Write { keys, key: None });
+            for (root, keys) in given_parts(argument) {
+                if self.unstable.seen_after(root) {
+                    self.change(root.name.as_str(), Write { keys, key: None });
+                }
             }
         }
     }

@@ -75,7 +75,9 @@ All notable changes to this project are documented here. The format follows
   longer leave each other partly unknown.
 - **Config evaluation**: values code may change are no longer read as known. A call whose effect is not known (a
   function the config or a library declares, a `new` of a class other than a builtin one) may change every object it
-  is given, in any position and through a spread, also when the call's result is used. A list or string method
+  is given, in any position and through a spread, also when the call's result is used, and every local an object or
+  array literal it is given holds, at any depth (`kit.fill({ cfg: config })`, `foo([config])`); a spread of a local
+  there (`foo({ ...options })`) leaves all of the local partly unknown. A list or string method
   (`push`, `concat`, `slice`) counts as changing only its object when that object is known to be a list or string, and
   a well-known function (`path.join`, `JSON.stringify`) is known only where its name resolves to the module or global
   that declares it, not a local of the same name. A change through an element of a list leaves every element open.

@@ -22,7 +22,9 @@
 //!
 //! A call whose effect is not known (a function the module or a library declares, a `new` of a class other than a
 //! builtin one, a list or string method on an object not known to be a list or string) may change every object it is
-//! given, in any position and through a spread ([`Effect`]). The pass knows the effect of a
+//! given, in any position and through a spread, and every part of a local an object or array literal it is given holds,
+//! at any depth ([`given_parts`]); a spread of a local there (`{ ...options }`) leaves all of the local open, as a
+//! change of only what its keys hold is not one the pass can say ([`Effect`]). The pass knows the effect of a
 //! well-known function only where its name resolves to the module that declares it, and treats a `define…` helper of
 //! a library and a merge that copies ([`copies`]) and `Object.assign`, beyond its first argument, as changing nothing;
 //! the first two keep nothing they are given in another argument either. A loop name, a
@@ -509,10 +511,15 @@ impl Sharing<'_> {
         self.loops -= 1;
     }
 
-    /// Records a change of each object a call is given, and of what a spread argument holds.
+    /// Records a change of each object a call is given, of what a spread argument holds, and of each part of a local
+    /// a literal argument holds ([`given_parts`]).
     fn mutate_arguments(&mut self, arguments: &[Argument<'_>]) {
         for argument in arguments.iter().filter_map(given) {
-            self.mutate(argument);
+            for (id, keys) in given_parts(argument) {
+                if let Some(symbol) = self.symbol(id) {
+                    self.changed(symbol, Write::contents(keys));
+                }
+            }
         }
     }
 
@@ -2206,6 +2213,63 @@ pub(crate) fn reach<'b, 'a>(expr: &'b Expression<'a>) -> Option<(&'b IdentifierR
                 expr = member.object().get_inner_expression();
             }
         }
+    }
+}
+
+/// The parts of locals an argument gives a call, which the call may change: the name or member chain the argument is
+/// ([`reach`]), and those an object or array literal holds at any depth, in its values, elements and spreads, as does
+/// each value a condition, a logical operator, a sequence or an assignment may be. What a function or a call there
+/// returns is not followed.
+pub(crate) fn given_parts<'b, 'a>(expr: &'b Expression<'a>) -> Vec<(&'b IdentifierReference<'a>, Vec<String>)> {
+    let mut parts = Vec::new();
+    add_given_parts(expr, &mut parts);
+    parts
+}
+
+/// Adds the parts of locals `expr` gives a call to `parts` ([`given_parts`]).
+fn add_given_parts<'b, 'a>(expr: &'b Expression<'a>, parts: &mut Vec<(&'b IdentifierReference<'a>, Vec<String>)>) {
+    if let Some((id, keys, _)) = reach(expr) {
+        parts.push((id, keys));
+        return;
+    }
+    match expr.get_inner_expression() {
+        Expression::ObjectExpression(object) => {
+            for property in &object.properties {
+                match property {
+                    ObjectPropertyKind::ObjectProperty(p) => add_given_parts(&p.value, parts),
+                    ObjectPropertyKind::SpreadProperty(s) => add_given_parts(&s.argument, parts),
+                }
+            }
+        }
+        Expression::ArrayExpression(array) => {
+            for element in &array.elements {
+                match element {
+                    ArrayExpressionElement::SpreadElement(s) => add_given_parts(&s.argument, parts),
+                    other => {
+                        if let Some(value) = other.as_expression() {
+                            add_given_parts(value, parts);
+                        }
+                    }
+                }
+            }
+        }
+        Expression::ConditionalExpression(c) => {
+            add_given_parts(&c.consequent, parts);
+            add_given_parts(&c.alternate, parts);
+        }
+        Expression::LogicalExpression(l) => {
+            add_given_parts(&l.left, parts);
+            add_given_parts(&l.right, parts);
+        }
+        Expression::SequenceExpression(sequence) => {
+            if let Some(last) = sequence.expressions.last() {
+                add_given_parts(last, parts);
+            }
+        }
+        Expression::AssignmentExpression(a) if a.operator == AssignmentOperator::Assign => {
+            add_given_parts(&a.right, parts);
+        }
+        _ => {}
     }
 }
 
