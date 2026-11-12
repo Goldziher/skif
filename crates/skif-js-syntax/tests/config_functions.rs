@@ -934,7 +934,11 @@ fn a_changed_argument_reaches_what_the_function_returns_where_it_holds_it() {
     }
     assert!(open(get(&configs[0], &["e"])), "{:?}", configs[0]);
     // `cfg.x = env` is also a write of `cfg`, which reaches what shares it as an unknown `x`.
-    assert!(configs[2].get("x").is_some_and(ConfigValue::has_unknown), "{:?}", configs[2]);
+    assert!(
+        configs[2].get("x").is_some_and(ConfigValue::has_unknown),
+        "{:?}",
+        configs[2]
+    );
     assert!(open(&configs[1]), "{:?}", configs[1]);
 }
 
