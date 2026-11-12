@@ -2252,3 +2252,23 @@ fn a_change_through_a_name_a_destructuring_assigns_reaches_what_it_takes() {
         }
     }
 }
+
+/// An alias of a local (`const { coverage } = config.test`) is not followed when the local may share an object with
+/// one a call changes (`list.push(config)`, then `mutateAll(list)`), so what the alias reads is partly unknown after
+/// the call rather than only what the function set through it.
+#[test]
+fn an_alias_of_a_local_shared_with_a_changed_object_is_not_followed() {
+    let value = extract(
+        "vitest.config.ts",
+        "export default () => {\n\
+           const list = [];\n\
+           const config = { test: { coverage: { enabled: false } } };\n\
+           list.push(config);\n\
+           const { coverage } = config.test;\n\
+           coverage.enabled = true;\n\
+           mutateAll(list);\n\
+           return { coverage };\n\
+         };",
+    );
+    assert!(open(get(&value, &["coverage"])), "{value:?}");
+}
