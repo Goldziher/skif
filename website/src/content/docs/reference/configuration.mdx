@@ -665,7 +665,12 @@ built or not; the `BUILD` files decide, so an import that none declares is unres
 dependencies of the generated code are those its target names (see the `bazel` plugin below).
 
 **`paths`** is a `tsconfig`-style map for one workspace, `{ "alias/*" = ["./target/*"] }`, targets relative to the
-workspace directory. Each target is tried as a module alias ahead of the aliases tools declare.
+workspace directory, matched as TypeScript matches `compilerOptions.paths`. A key without `*` matches only that
+specifier; a key may hold one `*` anywhere (`"*"`, `"serv*"`, `"*.svg"`, `"alias/*"`), which matches any text, and the
+target's `*` takes the text it matched. The keys that match are tried by the length of the text before their `*`,
+longest first, and a key without `*` before every wildcard, each with its targets in order. Relative and absolute
+specifiers are never mapped. A key or target with more than one `*` is a configuration error. The patterns are tried
+ahead of the aliases tools declare.
 
 **`tsconfig`** names the TypeScript configuration of the root package, relative to the workspace root, which is read
 in place of its `tsconfig.json`: its `paths`, `baseUrl` and `rootDirs` resolve the imports of the root package's
