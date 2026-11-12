@@ -9,6 +9,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `stale-lerna-config` (`warn`): `useWorkspaces` in `lerna.json` and a `lerna.json` without `version`, which Lerna 7
+  and later reject, and scripts that run `lerna bootstrap`, `lerna add` or `lerna link`, which Lerna 9 removed. The
+  Lerna release is read from `node_modules/lerna`, else from the root `package.json`; without one nothing is reported
+  ([#189](https://github.com/Goldziher/skif/issues/189)).
+- `lerna-packages-mismatch` (`warn`): the `packages` of `lerna.json`, which Lerna reads before the package manager's
+  workspaces, select other packages than the workspace declaration skif follows; the finding names both lists and the
+  packages only one selects ([#190](https://github.com/Goldziher/skif/issues/190)).
+- `DiscoveryFacts::lerna` records a valid root `lerna.json` (`LernaFacts`) also when another file declares the
+  members.
+
 ### Changed
 
 - `unused-dependencies` and `unused-dev-dependencies` no longer report a dependency on a workspace member that has no

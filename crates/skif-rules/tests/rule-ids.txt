@@ -30,3 +30,5 @@ nested-workspace-root
 toolchain-pin-drift
 foreign-package-manager-command
 invalid-workspace-file
+stale-lerna-config
+lerna-packages-mismatch
