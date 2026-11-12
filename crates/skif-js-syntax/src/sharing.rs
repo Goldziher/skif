@@ -132,9 +132,10 @@ pub(crate) struct Unstable {
 /// What a call the pass knows does to the objects it is given.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Effect {
-    /// It changes none of them: one of [`PURE_FUNCTIONS`], a method of a list or string that changes at most the
-    /// list ([`PURE_METHODS`], [`LIST_ADDERS`]), a `define*` call of a function the module does not declare, which
-    /// returns what it is given, or a merge that builds a new object ([`copies`]).
+    /// It changes none of them: one of [`PURE_FUNCTIONS`], a method that changes at most the object it is called on
+    /// ([`PURE_METHODS`], [`LIST_ADDERS`], [`OWN_RESULT_METHODS`]) called on an object that is known to have it
+    /// ([`builtin`]), a `define*` call of a function the module does not declare, which returns what it is given, or a
+    /// merge that builds a new object ([`copies`]).
     Keeps,
     /// It calls a function the module declares, whose changes of what its parameters take reach the arguments through
     /// the links of the call ([`Callables`]).
@@ -414,8 +415,10 @@ impl Sharing<'_> {
             || matches!(
                 call.callee.get_inner_expression(),
                 Expression::StaticMemberExpression(m)
-                    if PURE_METHODS.contains(&m.property.name.as_str())
+                    if (PURE_METHODS.contains(&m.property.name.as_str())
                         || LIST_ADDERS.contains(&m.property.name.as_str())
+                        || OWN_RESULT_METHODS.contains(&m.property.name.as_str()))
+                        && builtin(names, &m.object)
             );
         keeps.then_some(Effect::Keeps)
     }
@@ -1124,7 +1127,7 @@ impl<'a> Visit<'a> for Refs<'_> {
             // A method may return a part of the object it is called on (`list.find(…)`, `list.slice()`, `list.sort()`)
             // unless it returns a value of its own.
             Expression::StaticMemberExpression(member)
-                if OWN_RESULT_METHODS.contains(&member.property.name.as_str()) => {}
+                if OWN_RESULT_METHODS.contains(&member.property.name.as_str()) && builtin(names, &member.object) => {}
             callee if callee.is_member_expression() => {
                 if let Some(member) = callee.as_member_expression() {
                     let object = member.object();
@@ -1469,6 +1472,9 @@ struct Known {
     /// The bindings of an import or a `require` of a module, with its specifier and the export they take: `None` for
     /// the module itself (a default or namespace import, `const fs = require('fs')`).
     modules: HashMap<SymbolId, (String, Option<String>)>,
+    /// The `const` bindings of an object whose methods the pass knows ([`creates_builtin`]), or of what
+    /// `createRequire` returns, whose `resolve` changes nothing.
+    builtins: HashSet<SymbolId>,
 }
 
 /// The bindings of `program` [`Known`] holds.
@@ -1476,6 +1482,7 @@ fn known(program: &Program<'_>, scoping: &Scoping) -> Known {
     let mut finder = FindKnown {
         scoping,
         known: Known::default(),
+        in_const: false,
     };
     finder.visit_program(program);
     finder.known
@@ -1485,6 +1492,8 @@ fn known(program: &Program<'_>, scoping: &Scoping) -> Known {
 struct FindKnown<'s> {
     scoping: &'s Scoping,
     known: Known,
+    /// Whether the declarations being visited are `const`.
+    in_const: bool,
 }
 
 impl FindKnown<'_> {
@@ -1507,9 +1516,30 @@ impl FindKnown<'_> {
             _ => None,
         }
     }
+
+    /// Whether `init` is a call of `createRequire` of the `module` module.
+    fn creates_require(&self, init: &Expression<'_>) -> bool {
+        let Expression::CallExpression(call) = init.get_inner_expression() else {
+            return false;
+        };
+        let Expression::Identifier(id) = call.callee.get_inner_expression() else {
+            return false;
+        };
+        resolved(self.scoping, id)
+            .and_then(|symbol| self.known.modules.get(&symbol))
+            .is_some_and(|(module, imported)| {
+                matches!(module.as_str(), "module" | "node:module") && imported.as_deref() == Some("createRequire")
+            })
+    }
 }
 
 impl<'a> Visit<'a> for FindKnown<'_> {
+    fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
+        let saved = std::mem::replace(&mut self.in_const, it.kind == VariableDeclarationKind::Const);
+        walk::walk_variable_declaration(self, it);
+        self.in_const = saved;
+    }
+
     fn visit_import_declaration(&mut self, it: &ImportDeclaration<'a>) {
         let specifier = crate::js_string(it.source.value);
         for item in it.specifiers.iter().flatten() {
@@ -1543,8 +1573,54 @@ impl<'a> Visit<'a> for FindKnown<'_> {
                 }
                 _ => {}
             }
+        } else if let (true, BindingPattern::BindingIdentifier(id), Some(init)) = (self.in_const, &it.id, &it.init)
+            && (creates_builtin(self.scoping, init) || self.creates_require(init))
+            && let Some(symbol) = id.symbol_id.get()
+        {
+            self.known.builtins.insert(symbol);
         }
         walk::walk_variable_declarator(self, it);
+    }
+}
+
+/// Globals whose methods the pass knows, by name: those of [`PURE_FUNCTIONS`], `Promise`, `Reflect` and `require`.
+const BUILTIN_OBJECTS: &[&str] = &[
+    "Array", "JSON", "Math", "Number", "Object", "Promise", "Reflect", "String", "console", "process", "require",
+];
+
+/// Whether the object a method is called on is one whose methods the pass knows: one `expr` creates
+/// ([`creates_builtin`]), the result of one of [`PURE_FUNCTIONS`] (a string, a list or plain data), a `const` holding
+/// one ([`Known::builtins`]), one of [`BUILTIN_OBJECTS`] the module does not declare, or the `path`, `fs` or `url`
+/// module itself.
+fn builtin(names: Names<'_>, receiver: &Expression<'_>) -> bool {
+    match receiver.get_inner_expression() {
+        Expression::Identifier(id) => match resolved(names.scoping, id) {
+            None => BUILTIN_OBJECTS.contains(&id.name.as_str()),
+            Some(symbol) => {
+                names.known.builtins.contains(&symbol)
+                    || names
+                        .known
+                        .modules
+                        .get(&symbol)
+                        .is_some_and(|(module, imported)| imported.is_none() && known_module(module).is_some())
+            }
+        },
+        Expression::CallExpression(call) => pure_function(names, call).is_some(),
+        other => creates_builtin(names.scoping, other),
+    }
+}
+
+/// Whether `expr` creates a list, a string, a regular expression, a `Map` or another of [`BUILTIN_CLASSES`], or is
+/// `import.meta`.
+fn creates_builtin(scoping: &Scoping, expr: &Expression<'_>) -> bool {
+    match expr.get_inner_expression() {
+        Expression::ArrayExpression(_)
+        | Expression::StringLiteral(_)
+        | Expression::TemplateLiteral(_)
+        | Expression::RegExpLiteral(_)
+        | Expression::MetaProperty(_) => true,
+        Expression::NewExpression(new) => constructs_builtin(scoping, new),
+        _ => false,
     }
 }
 
@@ -1661,8 +1737,9 @@ pub(crate) fn statement_call<'b, 'a>(expr: &'b Expression<'a>) -> Option<&'b Cal
     }
 }
 
-/// Methods that never change the object they are called on. `resolve` is that of `require`, `path`, `Promise`,
-/// `import.meta` and the function `createRequire` returns.
+/// Methods that never change the object they are called on, nor what they are given when that object is known to have
+/// them ([`builtin`]). `resolve` is that of `require`, `path`, `Promise`, `import.meta` and the function
+/// `createRequire` returns.
 const PURE_METHODS: &[&str] = &[
     "at",
     "charAt",
@@ -1748,7 +1825,8 @@ const OWN_RESULT_METHODS: &[&str] = &[
     "unshift",
 ];
 
-/// Methods that change the list they are called on but never what they are given.
+/// Methods that change the list they are called on but never what they are given, when it is known to be a list
+/// ([`builtin`]).
 const LIST_ADDERS: &[&str] = &["push", "unshift"];
 
 /// What one of [`PURE_FUNCTIONS`] returns.
