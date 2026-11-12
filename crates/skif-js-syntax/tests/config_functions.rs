@@ -1104,7 +1104,8 @@ fn optional_and_computed_members_read_like_members() {
         ("base.absent?.setupFiles", ConfigValue::Null),
         ("missing?.setupFiles ?? ['./fallback.ts']", strings(&["./fallback.ts"])),
         ("base[process.env.KEY]", ConfigValue::Unknown),
-        ("base.test.include[0]", ConfigValue::Unknown),
+        ("base.test.include[0]", s("src/a.test.ts")),
+        ("base.test.include[1]", ConfigValue::Null),
         ("opaque()?.setupFiles", ConfigValue::Unknown),
     ];
     for (read, expected) in cases {
@@ -1571,7 +1572,8 @@ fn an_array_spreads_the_elements_of_every_branch() {
 }
 
 /// `.filter(Boolean)` of a known array drops what is falsy and keeps an element that may be falsy as the values it
-/// has when it is not; its length is then unknown. A `Boolean` the module binds itself is not the global.
+/// has when it is not; its length is then unknown. A `Boolean` the module binds itself is not the global, but a
+/// predicate like any other.
 #[test]
 fn filter_boolean_keeps_what_may_be_truthy() {
     let value = extract(
@@ -1602,5 +1604,228 @@ fn filter_boolean_keeps_what_may_be_truthy() {
         "playwright.config.ts",
         "const Boolean = (value) => !value;\nexport default { reporter: [null, 'list'].filter(Boolean) };",
     );
-    assert_eq!(get(&shadowed, &["reporter"]), &ConfigValue::Unknown);
+    assert_eq!(
+        get(&shadowed, &["reporter"]),
+        &ConfigValue::Array(vec![ConfigValue::Null])
+    );
+}
+
+/// The config file's directory is `"."` however a config writes it, so a condition between two ways of writing it is
+/// that one value; a condition between two different directories is one of them.
+#[test]
+fn the_config_directory_is_one_value_however_it_is_written() {
+    let value = extract(
+        "ui/vitest.config.ts",
+        "import path, { dirname } from 'node:path';\nimport { fileURLToPath } from 'node:url';\n\
+         const flag = process.env.FLAG;\n\
+         export default {\n\
+           filename: flag ? __dirname : path.dirname(fileURLToPath(import.meta.url)),\n\
+           url: flag ? import.meta.dirname : fileURLToPath(new URL('.', import.meta.url)),\n\
+           resolved: flag ? path.resolve(__dirname) : dirname(fileURLToPath(import.meta.url)),\n\
+           cwd: flag ? process.cwd() : path.resolve('.'),\n\
+           pathname: flag ? new URL('./', import.meta.url).pathname : path.join(__dirname, 'src', '..'),\n\
+           different: flag ? path.resolve('ui') : path.dirname(fileURLToPath(import.meta.url)),\n\
+         };",
+    );
+    for key in ["filename", "url", "resolved", "cwd", "pathname"] {
+        assert_eq!(get(&value, &[key]), &s("."), "{key}");
+    }
+    assert_eq!(
+        get(&value, &["different"]),
+        &ConfigValue::OneOf(vec![s("./ui"), s(".")])
+    );
+}
+
+/// `.map`, `.flatMap` and `.filter` of a known array call the callback, an inline function or one the module declares,
+/// with each element and its index; an unknown element (which may stand for a spread of any length) stays unknown and
+/// makes the indexes after it unknown. A predicate whose result is not known keeps the element and leaves the length
+/// unknown. Anything but a known array, or a callback the module does not declare, is unknown.
+#[test]
+fn array_callbacks_run_over_a_known_array() {
+    let value = extract(
+        "vitest.config.ts",
+        "const THEMES = ['light', 'dark'];\n\
+         const named = (theme) => ({ name: `browser-${theme}` });\n\
+         export default {\n\
+           projects: [\n\
+             { test: { name: 'unit' } },\n\
+             ...(['light', 'dark'] as const).map((theme) => ({ extends: true, test: { name: `browser-${theme}` } })),\n\
+           ],\n\
+           indexed: THEMES.map((theme, index) => `${index}-${theme}`),\n\
+           block: THEMES.map(function (theme) { const dir = `src/${theme}`; return dir; }),\n\
+           named: THEMES.map(named),\n\
+           flat: THEMES.flatMap((theme) => [theme, `${theme}.css`]),\n\
+           flatValue: THEMES.flatMap((theme) => theme),\n\
+           filtered: THEMES.filter((theme) => theme !== 'dark'),\n\
+           undecided: THEMES.filter((theme) => pick(theme)),\n\
+           undecidedLength: THEMES.filter((theme) => pick(theme)).length,\n\
+           spread: [...list, 'a'].map((item, index) => `${index}-${item}`),\n\
+           opaque: list.map((item) => item),\n\
+           imported: THEMES.map(helper),\n\
+         };",
+    );
+    let theme = |name: &str| {
+        ConfigValue::Object(vec![
+            ("extends".to_owned(), ConfigValue::Bool(true)),
+            (
+                "test".to_owned(),
+                ConfigValue::Object(vec![("name".to_owned(), s(&format!("browser-{name}")))]),
+            ),
+        ])
+    };
+    assert_eq!(
+        get(&value, &["projects"]),
+        &ConfigValue::Array(vec![
+            ConfigValue::Object(vec![(
+                "test".to_owned(),
+                ConfigValue::Object(vec![("name".to_owned(), s("unit"))]),
+            )]),
+            theme("light"),
+            theme("dark"),
+        ])
+    );
+    let pairs = [
+        ("indexed", strings(&["0-light", "1-dark"])),
+        ("block", strings(&["src/light", "src/dark"])),
+        (
+            "named",
+            ConfigValue::Array(vec![
+                ConfigValue::Object(vec![("name".to_owned(), s("browser-light"))]),
+                ConfigValue::Object(vec![("name".to_owned(), s("browser-dark"))]),
+            ]),
+        ),
+        ("flat", strings(&["light", "light.css", "dark", "dark.css"])),
+        ("flatValue", strings(&["light", "dark"])),
+        ("filtered", strings(&["light"])),
+        ("undecided", strings(&["light", "dark"])),
+        ("undecidedLength", ConfigValue::Unknown),
+        (
+            "spread",
+            ConfigValue::Array(vec![ConfigValue::Unknown, ConfigValue::Unknown]),
+        ),
+        ("opaque", ConfigValue::Unknown),
+        ("imported", ConfigValue::Unknown),
+    ];
+    for (key, expected) in pairs {
+        assert_eq!(get(&value, &[key]), &expected, "{key}");
+    }
+}
+
+/// A callback runs once per element within the call budget, so a long array stays cheap: the elements past the budget
+/// are unknown.
+#[test]
+fn array_callbacks_stay_within_the_call_budget() {
+    let items: Vec<String> = (0..300).map(|index| format!("'{index}'")).collect();
+    let value = extract(
+        "vite.config.ts",
+        &format!("export default {{ list: [{}].map((item) => item) }};", items.join(", ")),
+    );
+    let list = get(&value, &["list"]).as_array().expect("an array");
+    assert_eq!(list.len(), 300);
+    assert_eq!(list[0], s("0"));
+    assert_eq!(list[299], ConfigValue::Unknown);
+}
+
+/// `Object.fromEntries` of a known list of `[key, value]` pairs is the object they make, a later pair replacing an
+/// earlier one and a number key written as JavaScript writes it; an element it does not know may add any key, before
+/// the pairs that follow it. Anything but a known list is unknown, and so is a module's own `Object`.
+#[test]
+fn object_from_entries_of_known_pairs_is_their_object() {
+    let value = extract(
+        "vite.config.js",
+        "import path from 'node:path';\n\
+         const PAGES = ['home', 'about'];\n\
+         export default {\n\
+           input: Object.fromEntries(PAGES.map((page) => [page, path.resolve(__dirname, `${page}.html`)])),\n\
+           literal: Object.fromEntries([['a', 1], ['b', 2], ['a', 3]]),\n\
+           numeric: Object.fromEntries([[1, 'x']]),\n\
+           partial: Object.fromEntries([...list, ['a', 'x']]),\n\
+           opaque: Object.fromEntries(helper()),\n\
+         };",
+    );
+    let pairs = [
+        (
+            "input",
+            ConfigValue::Object(vec![
+                ("home".to_owned(), s("./home.html")),
+                ("about".to_owned(), s("./about.html")),
+            ]),
+        ),
+        (
+            "literal",
+            ConfigValue::Object(vec![
+                ("a".to_owned(), ConfigValue::Number(3.0)),
+                ("b".to_owned(), ConfigValue::Number(2.0)),
+            ]),
+        ),
+        ("numeric", ConfigValue::Object(vec![("1".to_owned(), s("x"))])),
+        (
+            "partial",
+            ConfigValue::Object(vec![
+                (UNKNOWN_SPREAD.to_owned(), ConfigValue::Unknown),
+                ("a".to_owned(), s("x")),
+            ]),
+        ),
+        ("opaque", ConfigValue::Unknown),
+    ];
+    for (key, expected) in pairs {
+        assert_eq!(get(&value, &[key]), &expected, "{key}");
+    }
+
+    let shadowed = extract(
+        "vite.config.js",
+        "const Object = { fromEntries: (list) => list };\nexport default { input: Object.fromEntries([['a', 'x']]) };",
+    );
+    assert_eq!(get(&shadowed, &["input"]), &ConfigValue::Unknown);
+}
+
+/// A template literal and a `+` with a string write a known number or boolean as JavaScript does, `+` of two numbers
+/// adds them, `===` and `!==` compare known primitives, and a constant index reads a known array: an index past its end
+/// is `undefined`, and one at or after an unknown element (which may stand for a spread of any length) is unknown.
+#[test]
+fn templates_concatenation_comparisons_and_indexes_of_known_values() {
+    let value = extract(
+        "vite.config.js",
+        "const ARR = ['first', 'second'];\n\
+         const N = 2;\n\
+         export default {\n\
+           template: `${N}-${true}-${1.5}`,\n\
+           concatenated: 'v' + N + '.html',\n\
+           numberFirst: N + 'x',\n\
+           sum: 1 + N,\n\
+           nullText: `${null}`,\n\
+           same: 'a' === 'a',\n\
+           differ: N !== 2,\n\
+           mixed: '2' === N,\n\
+           objects: ARR === ARR,\n\
+           index: ARR[0],\n\
+           byConstant: ARR[N - 1],\n\
+           second: ARR['1'],\n\
+           past: ARR[2],\n\
+           beforeUnknown: ['a', ...list][0],\n\
+           afterUnknown: [...list, 'a'][1],\n\
+           numberKey: ({ 0: 'zero' })[0],\n\
+         };",
+    );
+    let pairs = [
+        ("template", s("2-true-1.5")),
+        ("concatenated", s("v2.html")),
+        ("numberFirst", s("2x")),
+        ("sum", ConfigValue::Number(3.0)),
+        ("nullText", ConfigValue::Unknown),
+        ("same", ConfigValue::Bool(true)),
+        ("differ", ConfigValue::Bool(false)),
+        ("mixed", ConfigValue::Bool(false)),
+        ("objects", ConfigValue::Unknown),
+        ("index", s("first")),
+        ("byConstant", ConfigValue::Unknown),
+        ("second", s("second")),
+        ("past", ConfigValue::Null),
+        ("beforeUnknown", s("a")),
+        ("afterUnknown", ConfigValue::Unknown),
+        ("numberKey", s("zero")),
+    ];
+    for (key, expected) in pairs {
+        assert_eq!(get(&value, &[key]), &expected, "{key}");
+    }
 }

@@ -57,6 +57,17 @@ All notable changes to this project are documented here. The format follows
   (`const { coverage } = config.test; coverage.enabled = true`) is applied to that part of the local, so the rest of
   the config, and the options spread into it, stay known; a local with more than one such alias, or one shared with
   another function, is still left partly unknown ([#166](https://github.com/Goldziher/skif/issues/166)).
+- **Config evaluation**: `.map`, `.flatMap` and `.filter` of a known array call their callback (an inline function,
+  or one the config declares) with each element and its index, so Vitest projects spread from
+  `` ['light', 'dark'].map((theme) => ({ test: { name: `browser-${theme}` } })) `` are known instead of leaving the
+  package incomplete; an unknown element stays unknown and a predicate whose result is not known keeps the element.
+- **Config evaluation**: `Object.fromEntries` of a known list of `[key, value]` pairs is their object, so a Vite input
+  built as `` Object.fromEntries(PAGES.map((p) => [p, path.resolve(__dirname, `${p}.html`)])) `` names its HTML
+  pages. Template literals and `+` with a string also write known numbers and booleans, `+` adds two numbers, `===`
+  and `!==` compare known primitives, and a constant index reads a known array (`LIST[0]`).
+- **Vite and Vitest plugins**: a `root` that is one of several relative directories (a condition the evaluator cannot
+  decide, such as `process.env.X ? path.resolve('ui') : __dirname`) reads the HTML entries of each instead of
+  leaving the package incomplete.
 
 ### Changed
 
