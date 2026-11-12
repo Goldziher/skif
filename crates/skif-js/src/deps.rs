@@ -960,7 +960,7 @@ fn judged_config(
 }
 
 /// For every package, the packages whose directory contains it, innermost first, and the root last. With `isolate`
-/// (`--strict`) none: each package uses only what its own manifest lists.
+/// (`[js] isolate-workspaces`, strict mode) none: each package uses only what its own manifest lists.
 fn package_ancestors(workspace: &Workspace, isolate: bool) -> Vec<Vec<PackageId>> {
     if isolate {
         return vec![Vec::new(); workspace.package_ids().count()];
@@ -1027,6 +1027,10 @@ pub(crate) enum Credit<'a> {
 
 /// Dependency and binary usage of every package.
 #[derive(Debug, Clone, Default)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent fact of the workspace or switch of the analysis"
+)]
 pub struct DependencyUsage {
     /// For every package, the dependencies its manifest is credited with, each with the uses that credited it.
     referenced: Vec<HashMap<String, BTreeSet<Use>>>,
@@ -1039,6 +1043,9 @@ pub struct DependencyUsage {
     /// knip's strict mode (`skif --strict`): type-only imports use nothing, and production code uses only the
     /// `dependencies` and `peerDependencies` of its own package.
     strict: bool,
+    /// Workspace isolation (`[js] isolate-workspaces`, implied by strict mode): a private package's unlisted import
+    /// of a workspace member is not satisfied.
+    isolated: bool,
     /// For every package, the packages whose directory contains it, innermost first and the root last.
     ancestors: Vec<Vec<PackageId>>,
     /// For every package, the listed dependencies whose binaries are known: they are installed or in the lockfile.
@@ -1067,7 +1074,7 @@ pub struct DependencyUsage {
     member_bins_hoisted: bool,
     /// Whether the workspace is a Rush repository (a `rush.json` at its root), whose scripts run Rush's own commands.
     rush: bool,
-    /// What the install hoists publicly, with `[js] use-public-hoisting` outside strict mode.
+    /// What the install hoists publicly, with `[js] use-public-hoisting` outside workspace isolation.
     public_hoisting: Option<PublicHoisting>,
     /// Every package with its workspace-relative directory, for the commands that change directory.
     dirs: Vec<(PackageId, String)>,
@@ -1136,7 +1143,8 @@ impl DependencyUsage {
             referenced: vec![HashMap::default(); count],
             listed: vec![HashSet::default(); count],
             production_listed: vec![HashSet::default(); count],
-            strict: setup.isolate_workspaces,
+            strict: setup.strict,
+            isolated: setup.isolate_workspaces,
             known_bins: vec![HashSet::default(); count],
             other_jsx_runtime: vec![false; count],
             ancestors: package_ancestors(workspace, setup.isolate_workspaces),
@@ -1627,7 +1635,7 @@ impl DependencyUsage {
     /// Whether `name` is a workspace member that the private `package` (`owner`) uses without listing it, which is
     /// then recorded as a use of it.
     fn use_unlisted_member(&mut self, package: &Package, owner: PackageId, name: &str) -> bool {
-        let member = !self.strict && package.private && self.members.contains(name);
+        let member = !self.isolated && package.private && self.members.contains(name);
         if member {
             self.reference_in(owner, name);
         }

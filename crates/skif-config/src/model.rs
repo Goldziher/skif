@@ -2061,13 +2061,18 @@ pub struct Js {
     pub ignore_members: Vec<IgnoreItem>,
     /// Analyse production code only.
     pub production: bool,
-    /// knip's strict mode. Each workspace package uses only the dependencies its own manifest lists: an import is
-    /// not satisfied by a containing package or the root. Production code must import from `dependencies` or
-    /// `peerDependencies`, type-only imports use no package, and required peer dependencies are checked like
-    /// `dependencies`. Set by `skif --strict`; not a configuration key, so a file never sets it.
-    #[serde(skip)]
-    #[cfg_attr(feature = "schema", schemars(skip))]
+    /// Workspace isolation: each workspace package uses only the dependencies its own manifest lists. An import, a
+    /// binary or a package a tool config names is not satisfied by a containing package or the root, a private
+    /// package's unlisted import of a workspace member is reported, and `use-public-hoisting` is ignored. Independent
+    /// of `production`: outside production mode tests, test setup and tool configs are checked against their own
+    /// package's manifest, development dependencies included. `skif --isolate-workspaces` turns it on; `strict`
+    /// implies it.
     pub isolate_workspaces: bool,
+    /// knip's strict mode (`skif --strict`): `production` and `isolate-workspaces`, and only direct dependencies
+    /// count. Production code must import from `dependencies` or `peerDependencies`, a peer dependency of a listed
+    /// package does not stand in for a listing, type-only imports use no package, and required peer dependencies are
+    /// checked like `dependencies`.
+    pub strict: bool,
     /// Find source files that `.gitignore` files hide (the git index is not used then). Set by
     /// `skif --no-gitignore`; not a configuration key.
     #[serde(skip)]
@@ -2185,11 +2190,30 @@ impl Js {
         self
     }
 
-    /// Makes each workspace package use only the dependencies its own manifest lists, as knip's `--strict` does.
+    /// Makes each workspace package use only the dependencies its own manifest lists (`isolate-workspaces`).
     #[must_use]
     pub const fn with_isolate_workspaces(mut self, isolate: bool) -> Self {
         self.isolate_workspaces = isolate;
         self
+    }
+
+    /// Turns on knip's strict mode (`strict`), which implies production mode and workspace isolation.
+    #[must_use]
+    pub const fn with_strict(mut self, strict: bool) -> Self {
+        self.strict = strict;
+        self
+    }
+
+    /// Whether production code only is analysed: `production`, or `strict`, which implies it.
+    #[must_use]
+    pub const fn production_mode(&self) -> bool {
+        self.production || self.strict
+    }
+
+    /// Whether each workspace package uses only its own manifest: `isolate-workspaces`, or `strict`, which implies it.
+    #[must_use]
+    pub const fn isolated(&self) -> bool {
+        self.isolate_workspaces || self.strict
     }
 
     /// Uses `path`, relative to the workspace root, as the TypeScript configuration of the root package.
@@ -2240,6 +2264,7 @@ impl Default for Js {
             ignore_members: Vec::new(),
             production: false,
             isolate_workspaces: false,
+            strict: false,
             no_gitignore: false,
             include_entry_exports: false,
             tsconfig: None,
