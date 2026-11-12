@@ -8,7 +8,9 @@
 //!
 //! A change is tracked to the part of a binding it reaches: a write through `cfg.module.rules` changes what the list
 //! there holds, and a binding that holds `t` under `test` changes under `test` when `t` does, so the rest of the
-//! binding stays known. A spread of a part of a local (`{ ...options }`) copies its own keys, so a change below one of
+//! binding stays known. A change through one part of a binding also reaches another part of it that may hold the same
+//! object (`config.b = config.a`), which the evaluator, changing only the part written, leaves as it was. A spread of a
+//! part of a local (`{ ...options }`) copies its own keys, so a change below one of
 //! them reaches the other at that key, and a new value of a key of either is not the other's. Where a value holds a
 //! binding at a place the pass cannot follow (an argument of an unknown call, an element of an array, a spread of
 //! anything else but an object literal), anything at or below that place may change. A value that holds no object
@@ -984,10 +986,11 @@ impl Sharing<'_> {
             .collect()
     }
 
-    /// Marks every part of a binding that may share an object with a changed one, other than of the binding changed,
-    /// and returns the aliases the evaluator follows. A change through one of those reaches the part of the local it
-    /// takes, which the evaluator changes too and which is not marked, and through it what else may share an object
-    /// with that part; a local of the alias's function is marked from the alias's declaration on ([`Self::late`]).
+    /// Marks every part of a binding that may share an object with a changed one, other than the part of the binding
+    /// the change is made through, which the evaluator changes itself, and returns the aliases the evaluator follows.
+    /// A change through one of those reaches the part of the local it takes, which the evaluator changes too and which
+    /// is not marked, and through it what else may share an object with that part; a local of the alias's function is
+    /// marked from the alias's declaration on ([`Self::late`]).
     fn share(&mut self) -> HashSet<SymbolId> {
         self.drop_primitives();
         self.link_elements();
@@ -1013,7 +1016,9 @@ impl Sharing<'_> {
         for (symbol, origin) in origins {
             let through_alias = applied.iter().find(|alias| alias.alias == symbol);
             for (other, write) in self.reached(&links_of, symbol, &origin) {
-                if other == symbol {
+                // The evaluator applies the change to the part of the binding it is made through, not to another part
+                // of it that may hold the same object (`config.b = config.a`).
+                if other == symbol && origin.covers(&write) {
                     continue;
                 }
                 let change = Change::Contents(vec![write.clone()]);
