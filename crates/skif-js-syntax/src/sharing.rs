@@ -68,9 +68,8 @@ use oxc_ast::ast::{
     ImportDeclaration, ImportDeclarationSpecifier, LogicalOperator, MemberExpression, MethodDefinition,
     MethodDefinitionKind, NewExpression, ObjectExpression, ObjectProperty, ObjectPropertyKind, PrivateFieldExpression,
     Program, PropertyDefinition, PropertyKind, ReturnStatement, SimpleAssignmentTarget, StaticBlock,
-    StaticMemberExpression, Super, TaggedTemplateExpression,
-    ThisExpression, UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
-    WhileStatement, WithStatement,
+    StaticMemberExpression, Super, TaggedTemplateExpression, ThisExpression, UnaryExpression, UnaryOperator,
+    VariableDeclaration, VariableDeclarationKind, VariableDeclarator, WhileStatement, WithStatement,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::{ReferenceId, ScopeFlags, ScopeId, Scoping, SemanticBuilder, SymbolId};
@@ -648,7 +647,7 @@ struct Sharing<'s> {
 /// What `this` is where code writes through it ([`Sharing::this_writes`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ThisSite {
-    /// The `this` of the module, outside every function but arrow functions (`module.exports` in a CommonJS module).
+    /// The `this` of the module, outside every function but arrow functions (`module.exports` in a `CommonJS` module).
     Module,
     /// The object `new` makes, in a constructor or an instance field initialiser.
     Instance,
@@ -966,7 +965,10 @@ impl Sharing<'_> {
             return;
         }
         let (target, this) = if method == "apply" && global("Reflect") {
-            (call.arguments.first().and_then(Argument::as_expression), call.arguments.get(1))
+            (
+                call.arguments.first().and_then(Argument::as_expression),
+                call.arguments.get(1),
+            )
         } else if matches!(method, "call" | "apply" | "bind") {
             (Some(&member.object), call.arguments.first())
         } else {
@@ -1003,12 +1005,10 @@ impl Sharing<'_> {
     /// such a value.
     fn this_changes_modules(&self) -> bool {
         let rebinds = self.rebinds
-            || self.rebound.iter().any(|&symbol| {
-                !self
-                    .makers
-                    .values()
-                    .any(|maker| maker.binding == Some(symbol))
-            });
+            || self
+                .rebound
+                .iter()
+                .any(|&symbol| !self.makers.values().any(|maker| maker.binding == Some(symbol)));
         let loaded = self.loaded_makers();
         self.this_writes.iter().any(|&(site, keyed)| match site {
             ThisSite::Module | ThisSite::Class | ThisSite::Super => true,
@@ -1052,7 +1052,9 @@ impl Sharing<'_> {
                         .scoping
                         .get_resolved_reference_ids(symbol)
                         .iter()
-                        .any(|&reference| loaded.contains(&self.maker_of(self.scoping.get_reference(reference).scope_id()))),
+                        .any(|&reference| {
+                            loaded.contains(&self.maker_of(self.scoping.get_reference(reference).scope_id()))
+                        }),
                     None => !maker.default_export && loaded.contains(&maker.enclosing),
                 };
                 if made {
@@ -2078,7 +2080,12 @@ impl<'a> Visit<'a> for Sharing<'_> {
             } else if it.r#static {
                 ThisSite::Class
             } else {
-                ThisSite::Made(self.functions.last().copied().unwrap_or_else(|| self.scoping.root_scope_id()))
+                ThisSite::Made(
+                    self.functions
+                        .last()
+                        .copied()
+                        .unwrap_or_else(|| self.scoping.root_scope_id()),
+                )
             };
             self.method_sites.insert(scope, site);
         }
@@ -2086,8 +2093,11 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_property_definition(&mut self, it: &PropertyDefinition<'a>) {
-        self.this_sites
-            .push(if it.r#static { ThisSite::Load } else { ThisSite::Instance });
+        self.this_sites.push(if it.r#static {
+            ThisSite::Load
+        } else {
+            ThisSite::Instance
+        });
         walk::walk_property_definition(self, it);
         self.this_sites.pop();
     }
@@ -2103,7 +2113,11 @@ impl<'a> Visit<'a> for Sharing<'_> {
         if let Expression::FunctionExpression(function) = it.value.get_inner_expression()
             && let Some(scope) = function.scope_id.get()
         {
-            let maker = self.functions.last().copied().unwrap_or_else(|| self.scoping.root_scope_id());
+            let maker = self
+                .functions
+                .last()
+                .copied()
+                .unwrap_or_else(|| self.scoping.root_scope_id());
             self.method_sites.insert(scope, ThisSite::Made(maker));
         }
         walk::walk_object_property(self, it);

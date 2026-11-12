@@ -753,41 +753,46 @@ impl Modules<'_> {
     /// that may hold an object of a value of a module ([`Unstable::result_places`]), the export followed through
     /// re-exports; `None` when that is not known, as for an export that is not a function the module declares.
     fn result_places(&self, from: &Path, specifier: &str, export: &str) -> Option<Vec<Write>> {
-        self.export_result_places(from, specifier, export, 0).flatten()
+        match self.export_result_places(from, specifier, export, 0) {
+            ExportResult::Places(places) => Some(places),
+            ExportResult::Missing | ExportResult::Unknown => None,
+        }
     }
 
-    /// [`Self::result_places`], `depth` re-exports deep: `None` when the module is not followed or has no such
-    /// export, and `Some(None)` when it has it and its result is not known.
-    fn export_result_places(
-        &self,
-        from: &Path,
-        specifier: &str,
-        export: &str,
-        depth: usize,
-    ) -> Option<Option<Vec<Write>>> {
+    /// [`Self::result_places`], `depth` re-exports deep.
+    fn export_result_places(&self, from: &Path, specifier: &str, export: &str, depth: usize) -> ExportResult {
         if depth >= MAX_IMPORT_DEPTH {
-            return Some(None);
+            return ExportResult::Unknown;
         }
-        let (path, facts) = self.facts(from, specifier)?;
+        let Some((path, facts)) = self.facts(from, specifier) else {
+            return ExportResult::Missing;
+        };
         let local = match facts.exports.get(export) {
             Some(ExportSource::Local(local)) => Some(local.as_str()),
             Some(ExportSource::From(next, imported)) => {
                 let name = match imported {
                     Imported::Default => "default",
                     Imported::Named(name) => name.as_str(),
-                    Imported::Namespace => return Some(None),
+                    Imported::Namespace => return ExportResult::Unknown,
                 };
-                return Some(self.export_result_places(&path, next, name, depth + 1).flatten());
+                return match self.export_result_places(&path, next, name, depth + 1) {
+                    ExportResult::Missing => ExportResult::Unknown,
+                    found => found,
+                };
             }
             None if export == "default" => facts.default.as_deref(),
             None => {
                 return facts
                     .stars
                     .iter()
-                    .find_map(|next| self.export_result_places(&path, next, export, depth + 1));
+                    .map(|next| self.export_result_places(&path, next, export, depth + 1))
+                    .find(|found| !matches!(found, ExportResult::Missing))
+                    .unwrap_or(ExportResult::Missing);
             }
         };
-        Some(local.and_then(|local| facts.results.get(local).cloned()))
+        local
+            .and_then(|local| facts.results.get(local).cloned())
+            .map_or(ExportResult::Unknown, ExportResult::Places)
     }
 
     /// What the analysis of the followed module `specifier` names from `from` finds, with its path; what may hold for
@@ -989,6 +994,16 @@ fn reexported(program: &Program<'_>) -> Vec<String> {
         })
         .map(|source| crate::js_string(source.value))
         .collect()
+}
+
+/// What a followed module's export returns, as far as [`Modules::export_result_places`] finds it.
+enum ExportResult {
+    /// The module is not followed or has no such export.
+    Missing,
+    /// The module has the export, and what it returns is not known.
+    Unknown,
+    /// The places of the module's values the export may return.
+    Places(Vec<Write>),
 }
 
 /// What the analysis of a followed module finds ([`Modules::facts`]).

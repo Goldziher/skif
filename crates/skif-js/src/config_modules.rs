@@ -186,9 +186,11 @@ const DECLARATION_SUFFIXES: &[&str] = &["d.ts", "d.mts", "d.cts"];
 
 /// Whether `path` is a declaration file (`types.d.ts`), which holds types only.
 fn is_declaration_file(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| DECLARATION_SUFFIXES.iter().any(|suffix| name.ends_with(&format!(".{suffix}"))))
+    path.file_name().and_then(|name| name.to_str()).is_some_and(|name| {
+        DECLARATION_SUFFIXES
+            .iter()
+            .any(|suffix| name.ends_with(&format!(".{suffix}")))
+    })
 }
 
 /// The declaration file a relative import of `base` names when no module is there: `base.d.ts` (`./types`), the
@@ -346,7 +348,10 @@ mod tests {
                 "/ws/packages/tools/package.json",
                 r#"{"name":"@app/tools","main":"dist/index.js"}"#,
             )
-            .with_file("/ws/packages/other/package.json", r#"{"name":"other","dependencies":{"lodash":"^4.0.0"}}"#)
+            .with_file(
+                "/ws/packages/other/package.json",
+                r#"{"name":"other","dependencies":{"lodash":"^4.0.0"}}"#,
+            )
             .with_file("/ws/.pnp.cjs", "")
             .with_file("/ws/node_modules/.cache/x.json", "{}");
         let workspace = workspace(&fs);

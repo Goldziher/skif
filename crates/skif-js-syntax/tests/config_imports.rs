@@ -27,7 +27,8 @@ fn relative(from: &Path, specifier: &str) -> Option<PathBuf> {
 
 /// Whether `path` has the extension of a module the loader follows.
 fn is_script(path: &Path) -> bool {
-    path.extension().is_some_and(|extension| extension == "ts" || extension == "js")
+    path.extension()
+        .is_some_and(|extension| extension == "ts" || extension == "js")
 }
 
 impl ModuleLoader for Files {
@@ -1106,11 +1107,7 @@ fn a_reexport_of_a_file_that_holds_no_code_changes_nothing() {
             ("/ws/app/logo.svg", "<svg></svg>"),
         ]);
         let value = eval(&loader);
-        assert_eq!(
-            read_at(&value, &["build", "outDir"]),
-            &out_dir,
-            "{reexport}: {value:?}"
-        );
+        assert_eq!(read_at(&value, &["build", "outDir"]), &out_dir, "{reexport}: {value:?}");
         if out_dir == s("dist") {
             assert_eq!(read_at(&value, &["root"]), &s("src"), "{reexport}: {value:?}");
             assert_eq!(read_at(&value, &["name"]), &s("app"), "{reexport}: {value:?}");
@@ -1129,8 +1126,7 @@ fn a_call_of_an_alias_the_loader_does_not_follow_changes_the_imported_values() {
             ("import * as tools from", "tools.setup();"),
             ("import { Setup } from", "new Setup();"),
         ] {
-            let config =
-                format!("import base from './base';\n{import} '{specifier}';\n{call}\nexport default base;");
+            let config = format!("import base from './base';\n{import} '{specifier}';\n{call}\nexport default base;");
             let loader = files(&[
                 ("/ws/app/config.ts", &*Box::leak(config.into_boxed_str())),
                 (
@@ -1243,7 +1239,11 @@ fn a_change_of_what_a_factory_that_builds_new_objects_returns_changes_that_part_
     };
     let value = config("createVitestConfig");
     assert!(read_at(&value, &["test", "setupFiles"]).has_unknown(), "{value:?}");
-    assert_eq!(read_at(&value, &["test", "globals"]), &ConfigValue::Bool(true), "{value:?}");
+    assert_eq!(
+        read_at(&value, &["test", "globals"]),
+        &ConfigValue::Bool(true),
+        "{value:?}"
+    );
     assert_eq!(
         read_at(&value, &["test", "include"]),
         &strings(&["src/**/*.test.ts"]),
@@ -1254,10 +1254,18 @@ fn a_change_of_what_a_factory_that_builds_new_objects_returns_changes_that_part_
         &obj(vec![("environment", s("node"))]),
         "{value:?}"
     );
-    assert_eq!(read_at(&value, &["sharedFiles"]), &strings(&["./shared.ts"]), "{value:?}");
+    assert_eq!(
+        read_at(&value, &["sharedFiles"]),
+        &strings(&["./shared.ts"]),
+        "{value:?}"
+    );
     let value = config("createShared");
     assert!(read_at(&value, &["test", "setupFiles"]).has_unknown(), "{value:?}");
-    assert_eq!(read_at(&value, &["test", "globals"]), &ConfigValue::Bool(true), "{value:?}");
+    assert_eq!(
+        read_at(&value, &["test", "globals"]),
+        &ConfigValue::Bool(true),
+        "{value:?}"
+    );
     assert!(read_at(&value, &["sharedFiles"]).has_unknown(), "{value:?}");
 }
 
