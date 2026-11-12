@@ -9,6 +9,7 @@ use globset::{Glob, GlobBuilder, GlobMatcher};
 use indexmap::IndexMap;
 use skif_config::{Config, IgnoreExportsUsedInFile, IgnoreItem, JsWorkspace, PackageJs};
 use skif_core::FileSystem;
+use skif_js_plugins::scripts::is_machine_binary;
 use skif_js_syntax::{Export, ExportKind, Registration};
 use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 
@@ -1069,14 +1070,15 @@ impl Setup {
         global || package
     }
 
-    /// Whether the binary `name` of package `id` is on an ignore list.
+    /// Whether the binary `name` of package `id` is on an ignore list, or is a build tool usually installed on the
+    /// machine ([`is_machine_binary`]) while `ignore-global-binaries` is on.
     pub(crate) fn ignores_binary(&self, id: PackageId, name: &str) -> bool {
         let global = self.global_ignore_binaries.is_match(name);
         let package = self.package(id).is_some_and(|setup| {
             let user = setup.user_ignore_binaries.is_match(name);
             setup.ignore_binaries.is_match(name) || user
         });
-        global || package
+        global || package || (self.ignore_global_binaries && is_machine_binary(name))
     }
 
     /// Whether the import specifier `specifier` in package `id` is on an `ignore-unresolved` list.
