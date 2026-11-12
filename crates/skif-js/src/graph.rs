@@ -79,6 +79,7 @@ pub struct ResolvedImport {
 
 /// A parsed file of the graph.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 #[allow(clippy::struct_excessive_bools, reason = "independent facts about one file")]
 pub struct Module {
     /// Position in the graph.
