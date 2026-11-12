@@ -998,7 +998,9 @@ fn a_default_parameter_and_a_recursive_function_reach_their_arguments() {
         ])
     );
     assert_eq!(configs[1].get("a"), Some(&ConfigValue::Number(1.0)), "{:?}", configs[1]);
-    assert_eq!(configs[1].get("b"), Some(&ConfigValue::Unknown), "{:?}", configs[1]);
+    // `r` may be `cfg` or any object below its `next` chain, so the write `r.b = 2` leaves `cfg` open, not only `b`.
+    assert!(open(&configs[1]), "{:?}", configs[1]);
+    assert_ne!(configs[1].get("b"), Some(&ConfigValue::Number(2.0)), "{:?}", configs[1]);
 }
 
 /// A change made through a `const` that takes a part of a local of its function (`const { coverage } = config.test`)
