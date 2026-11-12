@@ -11,7 +11,8 @@
 //! are never entered. A `pnpm-workspace.yaml` without `packages:` selects what pnpm selects then, the
 //! root and every package below it except `test` and `tests` directories (`@pnpm/find-packages` defaults to
 //! `['.', '**']`); [`DiscoveryFacts::implicit_patterns`] says so. A pattern that cannot be used is listed in
-//! [`Workspace::manifest_errors`] and does not stop discovery.
+//! [`Workspace::manifest_errors`] and does not stop discovery. A `..` segment cannot be used, except leading ones in
+//! a Bun workspace, which selects members outside the root ([`DiscoveryFacts::outside_root_members`], not linted).
 
 #![warn(missing_docs)]
 

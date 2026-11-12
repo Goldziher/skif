@@ -58,7 +58,8 @@ pub struct PatternFact {
     pub negated: bool,
     /// Directories the pattern selected. For a negation, the positively matched directories it removed.
     pub matched: usize,
-    /// Whether the pattern cannot be used (a `..` segment, too many brace alternatives), so it selects nothing;
+    /// Whether the pattern cannot be used (a `..` segment, other than the leading ones of a Bun workspace's member
+    /// outside the root, or too many brace alternatives), so it selects nothing;
     /// [`Workspace::manifest_errors`] holds why.
     pub invalid: bool,
     /// Where the pattern is written, when known.
@@ -98,6 +99,11 @@ pub struct DiscoveryFacts {
     /// The `lerna.json` next to the root `package.json`, when it is valid JSON, also when another file declares the
     /// members.
     pub lerna: Option<LernaFacts>,
+    /// Members outside the root that a Bun workspace's patterns select with leading `..` segments (`../shared`):
+    /// directories with a `package.json`, relative to the root (`../shared`) and sorted. Bun installs them as
+    /// workspace packages; skif does not load or lint them, so they are not [`Workspace::packages`]. Under every other
+    /// manager such a pattern cannot be used ([`Workspace::manifest_errors`]).
+    pub outside_root_members: Vec<PathBuf>,
 }
 
 /// The lockfiles every supported package manager writes, by file name.
@@ -591,6 +597,7 @@ impl Workspace {
         let mut facts = Vec::new();
         let mut candidates = BTreeSet::new();
         let mut negations = Vec::new();
+        let is_bun = package_manager == Some(PackageManager::Bun);
         // Bun keeps a directory a positive pattern names by its literal path, whatever a negation says.
         let mut literal_dirs = BTreeSet::new();
         for (index, raw, span) in &declared.patterns {
@@ -612,9 +619,10 @@ impl Workspace {
                     Err(message) => invalid(message),
                 }
             } else {
-                match Pattern::new(raw) {
+                // Bun installs members outside the root (`../shared`).
+                match Pattern::parse(raw, is_bun) {
                     Ok(pattern) => {
-                        if package_manager == Some(PackageManager::Bun) {
+                        if is_bun {
                             literal_dirs.extend(pattern::literal_dir(raw));
                         }
                         let found = expander.expand(&pattern);
@@ -649,10 +657,15 @@ impl Workspace {
             removed.extend(hits);
         }
 
-        let dirs: Vec<&str> = candidates
+        let (outside, dirs): (Vec<&str>, Vec<&str>) = candidates
             .iter()
             .map(String::as_str)
             .filter(|dir| !removed.contains(dir))
+            .partition(|dir| pattern::is_outside_root(dir));
+        let outside_root_members: Vec<PathBuf> = outside
+            .into_iter()
+            .filter(|dir| expander.has_manifest(dir))
+            .map(PathBuf::from)
             .collect();
         let manager_files = ManagerFiles {
             fs,
@@ -743,6 +756,7 @@ impl Workspace {
                 package_manager_files,
                 bazel_links: bazel_links.into_iter().collect(),
                 lerna: lerna_facts,
+                outside_root_members,
             },
             pnpm_workspace,
             yarnrc,
