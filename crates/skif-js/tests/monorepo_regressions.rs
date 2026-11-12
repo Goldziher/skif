@@ -655,6 +655,32 @@ fn pnpm_links_member_binaries_as_its_node_linker_says() {
     }
 }
 
+/// npm links a member's binary only into its dependents with `install-strategy=linked` at the top level of the root
+/// `.npmrc`; the last entry wins. No setting, `hoisted`, `nested`, `shallow`, a commented-out setting, one under a
+/// section and a member's `.npmrc` keep it on every package's `PATH`.
+#[test]
+fn npm_links_member_binaries_as_its_install_strategy_says() {
+    let root = r#"{"name":"root","private":true,"packageManager":"npm@11.6.0","workspaces":["packages/*"]}"#;
+    let isolated: &[&str] = &["packages/app/package.json: mytool"];
+    let hoisted: &[&str] = &[];
+    let cases: [(&[(&str, &str)], &[&str]); 9] = [
+        (&[], hoisted),
+        (&[(".npmrc", "install-strategy=linked\n")], isolated),
+        (&[(".npmrc", "install-strategy = \"linked\" # isolated\n")], isolated),
+        (&[(".npmrc", "install-strategy=hoisted\n")], hoisted),
+        (&[(".npmrc", "install-strategy=nested\n")], hoisted),
+        (&[(".npmrc", "install-strategy=linked\ninstall-strategy=shallow\n")], hoisted),
+        (&[(".npmrc", "# install-strategy=linked\n")], hoisted),
+        (&[(".npmrc", "[section]\ninstall-strategy=linked\n")], hoisted),
+        (&[("packages/app/.npmrc", "install-strategy=linked\n")], hoisted),
+    ];
+    for (files, expected) in cases {
+        let mut all = vec![("package.json", root)];
+        all.extend_from_slice(files);
+        assert_eq!(unlisted_member_binaries(&all), expected, "{all:?}");
+    }
+}
+
 /// A Yarn workspace is taken for Yarn Berry, which links a member's binary only for its dependents, on positive
 /// evidence only: a Berry `yarn.lock` (`__metadata`) or a `.yarnrc.yml`. A `yarn.lock` that tells neither version,
 /// without a `packageManager`, counts as hoisting, as an unknown package manager does.
