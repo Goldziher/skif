@@ -649,18 +649,26 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
-        // What the target is written with may be shared with it; the target itself is visited by the walk.
-        let hub = match it.left.as_simple_assignment_target() {
-            Some(SimpleAssignmentTarget::AssignmentTargetIdentifier(id)) => {
-                self.symbol(id).map(|symbol| (Place::of(symbol), true))
-            }
-            Some(target) => target
-                .as_member_expression()
-                .and_then(|member| self.member_place(member)),
-            None => None,
-        };
+        // What the target is written with may be shared with it; the target itself is visited by the walk. A value
+        // stored where no local holds it (`module.exports = [a(), b()]`, a global) is not changed by being stored, and
+        // no change through that place is followed, so its parts share nothing among themselves there.
         let held = self.refs(Part::Value, |refs| refs.visit_expression(&it.right));
-        self.hold_or_link(hub, held);
+        match it.left.as_simple_assignment_target() {
+            Some(target) => {
+                let hub = match target {
+                    SimpleAssignmentTarget::AssignmentTargetIdentifier(id) => {
+                        self.symbol(id).map(|symbol| (Place::of(symbol), true))
+                    }
+                    other => other
+                        .as_member_expression()
+                        .and_then(|member| self.member_place(member)),
+                };
+                if let Some((place, exact)) = hub {
+                    self.hold(&place, exact, held);
+                }
+            }
+            None => self.link_among(&held),
+        }
         walk::walk_assignment_expression(self, it);
     }
 
