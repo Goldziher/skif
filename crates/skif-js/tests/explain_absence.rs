@@ -639,4 +639,69 @@ fn a_published_bazel_source_is_an_entry_not_a_build_source() {
         (&json!("public"), &json!(true)),
         "{api}"
     );
+/// A use of a namespace as a whole is listed as a user of a value export and not of a type export, which it cannot
+/// read: the type's verdict and its evidence agree.
+#[test]
+fn a_whole_namespace_use_is_listed_for_values_and_not_for_types() {
+    let files = [
+        PACKAGE,
+        (
+            "index.ts",
+            "import * as shapes from './shapes';\nexport const all = Object.keys(shapes);\n",
+        ),
+        ("shapes.ts", "export const circle = 1;\nexport type Id = string;\n"),
+    ];
+    let value = export_report(&files, "", "shapes.ts", "circle");
+    assert_eq!(value["verdict"], "used", "{value}");
+    assert_eq!(value["users"][0]["file"], "index.ts", "{value}");
+    assert_eq!(value["users"][0]["how"], "the namespace, used as a whole", "{value}");
+    let type_export = export_report(&files, "", "shapes.ts", "Id");
+    assert_eq!(type_export["verdict"], "unused", "{type_export}");
+    assert_eq!(type_export["users"], json!([]), "{type_export}");
+}
+
+/// A file another loads with `new URL("./x", import.meta.url)` runs as a program of its own, so its type exports are
+/// used as a whole, as the verdict of a lint run says, and not only its values.
+#[test]
+fn a_new_url_target_lists_the_loader_as_a_user_of_a_type_export() {
+    let files = [
+        PACKAGE,
+        (
+            "index.ts",
+            "export const asset = new URL('./generated.ts', import.meta.url);\n",
+        ),
+        ("generated.ts", "export type A = { a: 1 };\nexport const c = 1;\n"),
+    ];
+    let type_export = export_report(&files, "", "generated.ts", "A");
+    assert_eq!(type_export["verdict"], "used", "{type_export}");
+    assert_eq!(type_export["users"][0]["file"], "index.ts", "{type_export}");
+    assert_eq!(type_export["users"][0]["how"], "the whole module", "{type_export}");
+}
+
+/// The source of the build output a script runs and a file an extensionless `bin` stub loads are entries for those
+/// reasons, which the report names instead of `unknown`. The `typescript` plugin reads the build directory from
+/// `tsconfig.json`, so the fixture depends on it.
+#[test]
+fn a_built_script_source_and_a_file_a_bin_stub_loads_name_their_entry_rule() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"app","version":"1.0.0","private":true,"bin":{"tool":"bin/tool"},"scripts":{"cov":"node dist/report.js"},"devDependencies":{"typescript":"5.6.0"}}"#,
+        ),
+        (
+            "tsconfig.json",
+            r#"{"compilerOptions":{"outDir":"dist","rootDir":"src"}}"#,
+        ),
+        ("src/report.ts", "export const report = 1;\n"),
+        ("bin/tool", "#!/usr/bin/env node\nrequire('./common.js');\n"),
+        ("bin/common.js", "module.exports = 1;\n"),
+    ];
+    for (file, entry) in [("src/report.ts", "script"), ("bin/common.js", "bin-stub")] {
+        let usage = report(&files, "", file);
+        assert_eq!(
+            (&usage["in-graph"], &usage["entry"]),
+            (&json!(true), &json!(entry)),
+            "{file}: {usage}"
+        );
+    }
 }

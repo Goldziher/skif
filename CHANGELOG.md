@@ -163,9 +163,34 @@ All notable changes to this project are documented here. The format follows
   `enclosing-incomplete-scope`, with that package's directory in `scope-package` and its scope and reasons in
   `incomplete-scope` and `incomplete`, instead of `unknown`. `skif_js::EntryReason` gains `EnclosingIncompleteScope`
   and `UsageReport` gains `scope_package` ([#165](https://github.com/Goldziher/skif/issues/165)).
+- `explain-usage`: the source of the build output a script runs (`node dist/cli.js` for `src/cli.ts`) has the entry
+  kind `script`, and a file an extensionless `bin` stub loads the new kind `bin-stub` (`skif_js::EntryReason` gains
+  `BinStub`), instead of `unknown`.
+- `explain-usage --dependency` no longer calls a dependency used by a package that does not list it because of the
+  `@types`, peer or always-used rules: such a package's verdict is `not listed`, without a credit, as for the unlisted
+  import it holds.
+- **JS**: a whole use of an enum in the file that declares it (`Object.values(E)`, `Object.keys(E)`, `E[key]`, a
+  spread, `for (k in E)`, passing, storing or returning `E`, `typeof E`, `keyof typeof E`, `` `${E}` `` in a template
+  literal type) uses every member, as a whole use in another file does; `unused-enum-members` reported them all. A
+  type annotation `x: E` still uses no member. skif now reports fewer enum members than knip in such files
+  ([ADR 0126](adrs/0126-a-whole-use-of-an-enum-in-its-own-file-uses-every-member.md)). `skif_js_syntax::Export` gains
+  `used_whole_in_file`; the parse cache schema is raised.
+- **Bazel plugin**: a label of an enclosing package's `node_modules` (`"//adev:node_modules/diff"`) in a `BUILD` file of
+  a nested package counts only for the package it names; the nested package's own listing of the dependency was used
+  by it as well, which hid an `unused-dependencies` finding. A dependency so named that the labelled package does not
+  list is unlisted at the `BUILD` file for that package. `skif_js_plugins::PluginInput` gains `ReaderDependency`,
+  `DepRef` and `skif_js::ConfigDependency` gain `reader_lists`.
 
 ### Changed
 
+- **JS**: a use of a module object as a whole (a namespace import passed around, spread, indexed with a computed key or
+  named in `typeof ns`, and `require("./m")` or `import("./m")`) uses every value export of the module and none of its
+  interfaces and type aliases, which it cannot reach; such a type stays used when read by name (`ns.Type`) or when the
+  importer exports the namespace itself (`export default ns`), and is otherwise reported by `unused-types`.
+  `explain-usage` no longer lists a whole use as a user of a type export. A file loaded with
+  `new URL("./x", import.meta.url)` runs as a program of its own and keeps using every export, types included, as an
+  entry does; `explain-usage` lists that import with the kind `url` instead of `require`
+  ([ADR 0125](adrs/0125-a-whole-use-of-a-module-object-uses-its-values-only.md)).
 - `Module` of `skif-js` gains `is_build_source`, true for a build source that is no entry, and is
   `#[non_exhaustive]`, as the other public structs of the crate are; a struct literal of `Module` outside the crate no
   longer compiles ([ADR 0124](adrs/0124-bazel-rule-sources-are-used-files-not-entries.md)).

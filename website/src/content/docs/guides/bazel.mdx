@@ -17,8 +17,9 @@ applies.
   `bazel` plugin reads the `BUILD.bazel` and `BUILD` files of each package that has one at its top:
   - A `node_modules` label (`":node_modules/esbuild"`, `"//packages/app:node_modules/zod"`) or a `package_json.bzl`
     load (`"@npm//packages/app:esbuild/package_json.bzl"`) uses that dependency in the package whose directory is the
-    label's Bazel package. A dependency named this way in the package's own `BUILD` file that its `package.json`
-    does not list is `unlisted-dependencies` at that file.
+    label's Bazel package, and in no other: a nested package whose `BUILD` file holds a label of an enclosing
+    package's `node_modules` does not use its own listing through it. A dependency named this way that the label's
+    package does not list is `unlisted-dependencies` at that `BUILD` file.
   - The `entry_point` of `js_binary`, `js_run_devserver` and `js_test` is an entry, whose exports are public, when a
     literal names an existing file of the package (`"src/main.ts"` or `":src/main.ts"`).
   - The `data` of those rules and the `srcs` and `data` of `js_library` and `ts_project` are build sources: the files

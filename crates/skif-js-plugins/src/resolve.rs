@@ -562,6 +562,10 @@ impl Collector<'_, '_> {
                     let named_by = self.named_by(from, config, &name);
                     self.dependency(DepRef::new(name, &named_by, false, config.is_some()));
                 }
+                PluginInput::ReaderDependency(name) => self.dependency(DepRef {
+                    reader_lists: true,
+                    ..DepRef::new(name, from, false, config.is_some())
+                }),
                 PluginInput::OptionalDependency(name) => {
                     self.dependency(DepRef::new(name, from, true, config.is_some()));
                 }

@@ -17,6 +17,7 @@ use crate::config_hints::{ConfigHint, HintInputs, config_hints};
 use crate::deps::{DependencyUsage, ForeignMapping};
 use crate::discover::{Candidate, discover_with, relative, take_file_links};
 use crate::entries::{Disk, entry_files};
+use crate::explain::EntryReason;
 use crate::fixture::in_fixture_directory;
 use crate::globs::Globs;
 use crate::graph::{self, Inputs, Module, ModuleGraph, Target};
@@ -87,6 +88,8 @@ pub struct JsAnalysis<'a> {
     pub(crate) config_hints: Vec<ConfigHint>,
     /// Files plugins name as entries that are no file of this analysis, absolute; see [`Self::other_project_files`].
     other_root_entries: Vec<PathBuf>,
+    /// Why a script or a bin stub makes a file an entry, for the entry files whose path does not tell it.
+    pub(crate) entry_origins: HashMap<PathBuf, EntryReason>,
     /// The packages that own a file another root of a multi-root run imports, which may import their `exports`
     /// subpaths: `unused-subpath-exports` does not judge them.
     pub(crate) imported_by_other_roots: HashSet<PackageId>,
@@ -596,6 +599,7 @@ impl<'a> JsAnalysis<'a> {
         setup.mark_entries_incomplete(&found.unknown);
         let entries = found.files;
         let other_root_entries = found.other_roots;
+        let entry_origins = found.origins;
         let config_hints = {
             let entry_set: HashSet<PathBuf> = entries.iter().cloned().collect();
             config_hints(&HintInputs {
@@ -697,6 +701,7 @@ impl<'a> JsAnalysis<'a> {
             judged_ignore_files,
             config_hints,
             other_root_entries,
+            entry_origins,
             imported_by_other_roots,
             listed_from_index,
             task_only_members,
@@ -1029,6 +1034,7 @@ impl<'a> JsAnalysis<'a> {
     pub(crate) fn member_in_use(&self, module: &Module, export: &Export, member: &Member) -> bool {
         self.ignores_member(module.owner, &member.name)
             || export.members_read_in_file.contains(&member.name)
+            || export.used_whole_in_file
             || self.exports.is_member_used(module.id, &export.name, &member.name)
     }
 

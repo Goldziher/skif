@@ -79,6 +79,9 @@ pub struct ConfigDependency {
     /// The package reading the config may list it instead of the package that owns `file`: a compiler option of a
     /// shared base `tsconfig` applies to each package extending it.
     pub reader_may_list: bool,
+    /// Only the package reading the config may list it, never the package that owns `file`: a Bazel label of the
+    /// reader's `node_modules` in a nested package's `BUILD` file names the reader's install.
+    pub reader_lists: bool,
 }
 
 /// Build output that maps back to source: `dist` to `src` for a `tsconfig` with `outDir` and `rootDir`.

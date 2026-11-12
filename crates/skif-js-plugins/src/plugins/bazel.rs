@@ -4,11 +4,12 @@
 //! A label of the `node_modules` that `npm_link_all_packages` links for a package (`":node_modules/esbuild"`,
 //! `"//packages/app:node_modules/@types/node"`) and the load of a package's `package_json.bzl` from the npm repository
 //! (`"@npm//packages/app:esbuild/package_json.bzl"`) name a dependency of the package whose directory the label's
-//! Bazel package is, and the package uses it. The `entry_point` of `js_binary`, `js_run_devserver` and `js_test` is an
-//! entry. The `data` of those rules and the `srcs` and `data` of `js_library` and `ts_project` are build sources:
-//! used files whose imports are followed, but no entries, so their exports are judged. Each is a file of the package
-//! named by its path or by a label of the `BUILD` file's own package (`":src/index.ts"`). A computed value
-//! (`glob([...])`, `select({...})`, a variable) names nothing.
+//! Bazel package is, and the package uses it; only that package may list it, whichever package's `BUILD` file holds
+//! the label. The `entry_point` of `js_binary`, `js_run_devserver` and `js_test` is an entry. The `data` of those rules
+//! and the `srcs` and `data` of `js_library` and `ts_project` are build sources: used files whose imports are
+//! followed, but no entries, so their exports are judged. Each is a file of the package named by its path or by a
+//! label of the `BUILD` file's own package (`":src/index.ts"`). A computed value (`glob([...])`, `select({...})`, a
+//! variable) names nothing.
 //!
 //! The plugin reads nothing outside a Bazel repository that uses `rules_js`: the nearest directory at or above the
 //! package holding `MODULE.bazel`, `REPO.bazel`, `WORKSPACE.bazel` or `WORKSPACE` must name `aspect_rules_js` in
@@ -75,7 +76,7 @@ impl Plugin for Bazel {
             .iter()
             .filter_map(|literal| linked_dependency(literal, &bazel_package))
             .filter(|(owner, _)| *owner == package)
-            .map(|(_, name)| PluginInput::Dependency(name))
+            .map(|(_, name)| PluginInput::ReaderDependency(name))
             .collect();
         if in_nested_package(cx, config.base) {
             return out;

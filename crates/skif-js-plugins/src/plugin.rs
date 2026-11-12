@@ -133,6 +133,11 @@ pub enum PluginInput {
     Dependency(String),
     /// A package the config references that may legitimately be absent.
     OptionalDependency(String),
+    /// A package the config names as a dependency of the package the plugin runs for, whichever package owns the
+    /// config file: that package must list it, and a nested package whose file names it does not use its own listing
+    /// (a Bazel label of the package's `node_modules` in a nested package's `BUILD` file;
+    /// [`DepRef::reader_lists`]).
+    ReaderDependency(String),
     /// A binary the config invokes.
     Binary(String),
     /// A further config file of the same plugin (`extends`, project references).
@@ -414,6 +419,9 @@ pub struct DepRef {
     /// The package reading the config may list the package the config reference names instead of the package that
     /// owns `from`: a compiler option of a shared base `tsconfig` applies to each package extending it.
     pub reader_may_list: bool,
+    /// Only the package reading the config may list the package the config reference names, never the package that
+    /// owns `from`: the reference names the reader's install itself ([`PluginInput::ReaderDependency`]).
+    pub reader_lists: bool,
     /// The directory the command that loads the package runs in after `cd` or `pushd`, or that a step's
     /// `working-directory` names, relative to the directory of the package the plugin runs for, `/`-separated: the
     /// package is needed by the package in that directory. `None` where the command starts.
@@ -433,6 +441,7 @@ impl DepRef {
             named_by_config: named_by_config && !optional,
             type_only: false,
             reader_may_list: false,
+            reader_lists: false,
             dir: None,
         }
     }
@@ -448,10 +457,12 @@ impl DepRef {
         if self.named_by_config {
             self.type_only &= other.type_only;
             self.reader_may_list &= other.reader_may_list;
+            self.reader_lists &= other.reader_lists;
         } else {
             self.named_by_config = true;
             self.type_only = other.type_only;
             self.reader_may_list = other.reader_may_list;
+            self.reader_lists = other.reader_lists;
         }
     }
 }

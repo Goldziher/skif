@@ -67,28 +67,56 @@ fn analysis_text(files: &[(&str, &str)], file: &str, export: Option<&str>) -> St
 }
 
 #[test]
-fn a_member_read_in_its_own_file_counts_but_the_enum_being_referenced_does_not_use_every_member() {
+fn a_member_read_in_its_own_file_counts_and_a_whole_use_there_uses_every_member() {
     let diagnostics = lint_files(&[
         PACKAGE,
         (
             "index.ts",
-            "import { Color, Mode, Flag, first, describe, modes, flags, flag, pick } from './enums';\n\
-             console.log(Color.Green, Mode.A, Flag.On, first, describe, modes, flags, flag, pick);\n",
+            "import { Color, Mode, Flag, Spread, Kind, Span, first, describe, modes, flags, flag, pick, copy } \
+             from './enums';\n\
+             console.log(Color.Green, Mode.A, Flag.On, Spread.X, Kind.P, Span.render, first, describe, modes, \
+             flags, flag, pick, copy);\n",
         ),
         (
             "enums.ts",
             "export enum Color { Red, Green, Blue }\nexport const first = Color.Red;\n\
              export function describe(c: Color): string { return String(c); }\n\
              export enum Mode { A, B }\nexport const modes = Object.values(Mode);\n\
-             export enum Flag { On, Off }\nexport const flags = { ...Flag };\nexport const flag = Flag;\n\
-             export const pick = (k: string) => Flag[k];\n",
+             export enum Flag { On, Off }\nexport const flags = Object.keys(Flag);\nexport const flag = Flag;\n\
+             export enum Spread { X, Y }\nexport const copy = { ...Spread };\n\
+             export const pick = (k: string) => Spread[k as keyof typeof Spread];\n\
+             export enum Kind { P, Q }\ntype Kinds = keyof typeof Kind;\nexport const kind: Kinds = 'P';\n\
+             export enum Span { render = 'render', route = 'route' }\ntype Label = `${Span}`;\n\
+             export const label: Label = 'render';\n",
         ),
     ]);
     assert_eq!(
         found(&diagnostics, "unused-enum-members"),
-        ["enums.ts: Color.Blue", "enums.ts: Flag.Off", "enums.ts: Mode.B"],
-        "Red is read in its file, Green by the importer; whole-enum uses in the file (`Object.values`, spread, bare, `E[k]`) credit no member"
+        ["enums.ts: Color.Blue"],
+        "Red is read in its file and Green by the importer; a type annotation (`c: Color`) reads no member, and a \
+         whole use in the file (`Object.values`, `Object.keys`, a bare reference, a spread, `E[k]`, \
+         `keyof typeof E`, `${{E}}`) uses every member"
     );
+}
+
+#[test]
+fn a_whole_use_of_an_imported_enum_uses_every_member() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        (
+            "index.ts",
+            "import { Values, Keys, Spelled } from './enums';\n\
+             export const all = Object.values(Values);\n\
+             export const keys: Array<keyof typeof Keys> = [];\n\
+             export const spelled: Array<`${Spelled}`> = [];\n",
+        ),
+        (
+            "enums.ts",
+            "export enum Values { A, B }\nexport enum Keys { C, D }\n\
+             export enum Spelled { E = 'e', F = 'f' }\n",
+        ),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-enum-members"), none());
 }
 
 #[test]

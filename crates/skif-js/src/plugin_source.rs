@@ -243,6 +243,7 @@ fn inputs(output: PluginOutput) -> WorkspaceInputs {
                 file: dependency.from.clone(),
                 type_only: dependency.type_only,
                 reader_may_list: dependency.reader_may_list,
+                reader_lists: dependency.reader_lists,
             })
             .collect(),
         binaries: output.referenced_binaries,
