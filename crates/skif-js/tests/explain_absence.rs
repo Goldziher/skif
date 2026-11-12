@@ -598,7 +598,10 @@ fn the_text_report_names_build_sources() {
     let sources: Vec<Arc<dyn InputSource>> = vec![Arc::new(PluginSource::new(config.js.plugins.clone()))];
     let analysis = JsAnalysis::build(&workspace, &config, &fs, &sources, true);
     let a = analysis.explain_usage(Path::new("a.ts"), None).render();
-    assert!(a.contains("  build source: a plugin names it as a file a tool builds from"), "{a}");
+    assert!(
+        a.contains("  build source: a plugin names it as a file a tool builds from"),
+        "{a}"
+    );
     let c = analysis.explain_usage(Path::new("c.ts"), None).render();
     assert!(c.contains("  reached from a build source through: b.ts -> c.ts"), "{c}");
 }
@@ -612,7 +615,10 @@ fn a_published_bazel_source_is_an_entry_not_a_build_source() {
             "MODULE.bazel",
             "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n",
         ),
-        ("package.json", r#"{"name":"app","version":"1.0.0","private":true,"main":"app.ts"}"#),
+        (
+            "package.json",
+            r#"{"name":"app","version":"1.0.0","private":true,"main":"app.ts"}"#,
+        ),
         ("BUILD.bazel", "ts_project(name = \"lib\", srcs = [\"app.ts\"])\n"),
         ("app.ts", "export const api = 1;\n"),
     ];
