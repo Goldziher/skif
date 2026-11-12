@@ -918,7 +918,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
                     self.hold(&place, exact, held);
                 }
             }
-            None => self.link_among(&held),
+            None => self.destructure(&it.left, held),
         }
         walk::walk_assignment_expression(self, it);
     }
