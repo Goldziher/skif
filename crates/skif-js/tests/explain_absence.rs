@@ -556,7 +556,10 @@ fn a_built_script_source_and_a_file_a_bin_stub_loads_name_their_entry_rule() {
             "package.json",
             r#"{"name":"app","version":"1.0.0","private":true,"bin":{"tool":"bin/tool"},"scripts":{"cov":"node dist/report.js"}}"#,
         ),
-        ("tsconfig.json", r#"{"compilerOptions":{"outDir":"dist","rootDir":"src"}}"#),
+        (
+            "tsconfig.json",
+            r#"{"compilerOptions":{"outDir":"dist","rootDir":"src"}}"#,
+        ),
         ("src/report.ts", "export const report = 1;\n"),
         ("bin/tool", "#!/usr/bin/env node\nrequire('./common.js');\n"),
         ("bin/common.js", "module.exports = 1;\n"),

@@ -150,7 +150,11 @@ fn a_namespace_used_as_a_whole_uses_every_value_export_and_no_type() {
         assert_eq!(found(&diagnostics, "unused-exports"), none(), "{source}");
         let mut types = found(&diagnostics, "unused-types");
         types.sort();
-        assert_eq!(types, ["shapes.ts: Id", "shapes.ts: Shape"], "{source}: {diagnostics:#?}");
+        assert_eq!(
+            types,
+            ["shapes.ts: Id", "shapes.ts: Shape"],
+            "{source}: {diagnostics:#?}"
+        );
     }
 }
 
@@ -163,13 +167,14 @@ fn a_whole_namespace_use_keeps_the_types_read_by_name_and_an_exported_namespace_
             "import * as shapes from './shapes';\nexport const all = Object.keys(shapes);\nexport const first: shapes.Shape = { sides: 1 };\n",
             &["shapes.ts: Id"][..],
         ),
-        (
-            "import * as shapes from './shapes';\nexport default shapes;\n",
-            &[][..],
-        ),
+        ("import * as shapes from './shapes';\nexport default shapes;\n", &[][..]),
     ] {
         let diagnostics = lint_files(&[PACKAGE, ("index.ts", source), SHAPES], "");
-        assert_eq!(found(&diagnostics, "unused-types"), unused, "{source}: {diagnostics:#?}");
+        assert_eq!(
+            found(&diagnostics, "unused-types"),
+            unused,
+            "{source}: {diagnostics:#?}"
+        );
         assert_eq!(found(&diagnostics, "unused-exports"), none(), "{source}");
         assert_eq!(found(&diagnostics, "unused-namespace-types"), none(), "{source}");
     }

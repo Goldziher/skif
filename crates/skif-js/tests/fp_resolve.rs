@@ -1350,7 +1350,10 @@ fn a_label_of_an_enclosing_packages_node_modules_credits_only_that_package() {
         ),
     ] {
         let files = bazel_foreign_label(label);
-        let borrowed: Vec<(&str, &str)> = files.iter().map(|(path, text)| (path.as_str(), text.as_str())).collect();
+        let borrowed: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str()))
+            .collect();
         let diagnostics = lint(&borrowed);
         assert_eq!(
             paths(&diagnostics, "unused-dependencies"),
