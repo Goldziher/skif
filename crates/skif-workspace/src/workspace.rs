@@ -150,6 +150,26 @@ pub struct Workspace {
     keys_anchor: Option<String>,
 }
 
+/// What [`Workspace::select`] read at a root: its own files and the member directories its patterns select, before
+/// any member is loaded.
+struct Selection {
+    root: PathBuf,
+    root_package: Package,
+    package_manager: Option<PackageManager>,
+    yarn_classic: bool,
+    specifiers: SpecifierCache,
+    pnpm_workspace: Option<YamlSource>,
+    yarnrc: Option<YamlSource>,
+    catalogs: Catalogs,
+    declared: Declared,
+    facts: Vec<PatternFact>,
+    lerna_facts: Option<LernaFacts>,
+    manifest_errors: Vec<WorkspaceError>,
+    has_root_manifest: bool,
+    /// The selected directories relative to the root, in path order.
+    dirs: Vec<String>,
+}
+
 struct Declared {
     source: WorkspaceSource,
     file: PathBuf,
@@ -413,7 +433,27 @@ impl Workspace {
         })
     }
 
-    fn load(root: &Path, config: &Config, fs: &dyn FileSystem, sequential: bool) -> Result<Self, WorkspaceError> {
+    /// The absolute directories [`claimed_dirs`](Self::claimed_dirs) lists for the workspace at `root`, found without
+    /// loading the members: the directories the workspace patterns select that hold a `package.json`.
+    ///
+    /// # Errors
+    /// As [`discover_with_fs`](Self::discover_with_fs), which fails exactly when this does.
+    pub fn claimed_dirs_with_fs(
+        root: &Path,
+        config: &Config,
+        fs: &dyn FileSystem,
+    ) -> Result<BTreeSet<PathBuf>, WorkspaceError> {
+        let selection = Self::select(root, config, fs)?;
+        Ok(selection
+            .dirs
+            .iter()
+            .map(|dir| selection.root.join(dir))
+            .filter(|dir| fs.is_file(&dir.join(MANIFEST)))
+            .collect())
+    }
+
+    /// Reads the root's files and expands the workspace patterns into the selected member directories.
+    fn select(root: &Path, config: &Config, fs: &dyn FileSystem) -> Result<Selection, WorkspaceError> {
         let root = root.to_path_buf();
         if !fs.is_dir(&root) {
             return Err(WorkspaceError::NotADirectory(root));
@@ -477,7 +517,7 @@ impl Workspace {
             .then(|| fs.read_to_string(&lerna_path).ok())
             .flatten()
             .and_then(|text| lerna::parse(lerna_path, text).ok());
-        let mut lerna_facts = lerna_file.as_ref().map(LernaFacts::new);
+        let lerna_facts = lerna_file.as_ref().map(LernaFacts::new);
         let lerna = lerna_file.filter(|_| !others_declare);
 
         let package_manager = detect::detect(
@@ -649,11 +689,45 @@ impl Workspace {
             removed.extend(hits);
         }
 
-        let dirs: Vec<&str> = candidates
-            .iter()
-            .map(String::as_str)
-            .filter(|dir| !removed.contains(dir))
-            .collect();
+        let removed: BTreeSet<String> = removed.into_iter().map(str::to_owned).collect();
+        let dirs = candidates.into_iter().filter(|dir| !removed.contains(dir)).collect();
+        Ok(Selection {
+            root,
+            root_package,
+            package_manager,
+            yarn_classic,
+            specifiers,
+            pnpm_workspace,
+            yarnrc,
+            catalogs,
+            declared,
+            facts,
+            lerna_facts,
+            manifest_errors,
+            has_root_manifest,
+            dirs,
+        })
+    }
+
+    fn load(root: &Path, config: &Config, fs: &dyn FileSystem, sequential: bool) -> Result<Self, WorkspaceError> {
+        let Selection {
+            root,
+            root_package,
+            package_manager,
+            yarn_classic,
+            specifiers,
+            pnpm_workspace,
+            yarnrc,
+            catalogs,
+            declared,
+            facts,
+            mut lerna_facts,
+            mut manifest_errors,
+            has_root_manifest,
+            dirs: selected,
+        } = Self::select(root, config, fs)?;
+        let expander = Expander { fs, root: &root };
+        let dirs: Vec<&str> = selected.iter().map(String::as_str).collect();
         let manager_files = ManagerFiles {
             fs,
             root: &root,
