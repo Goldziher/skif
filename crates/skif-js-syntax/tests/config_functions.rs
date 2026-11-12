@@ -838,7 +838,7 @@ fn a_change_through_what_a_method_returns_reaches_its_object() {
             ),
         ])
     );
-    assert!(open(&configs[1]), "{:?}", configs[1]);
+    assert_eq!(configs[1], configs[0]);
 }
 
 /// A call of a function the module declares is followed through its parameters only where they take what it is given:
@@ -876,6 +876,91 @@ fn a_call_not_followed_through_its_parameters_may_reach_all_of_its_argument() {
     for (index, config) in configs.iter().enumerate() {
         assert!(open(config), "{index}: {config:?}");
     }
+}
+
+/// A function the module declares and only calls by name takes each argument as its parameter, apart from what it
+/// returns: a value a call that may change it is given (`kit.fill({ v: 1 }, env)`), passed to a function that builds
+/// a fresh config, leaves that config known.
+#[test]
+fn a_changed_argument_does_not_reach_a_fresh_config_the_function_returns() {
+    let value = extract(
+        "rspack.config.js",
+        "const kit = require('kit');\n\
+         function build(env) {\n\
+           const config = { entry: { main: './src/main.js' }, module: { rules: [] } };\n\
+           return config;\n\
+         }\n\
+         module.exports = async function config(env) {\n\
+           let options = kit.fill({ v: 1 }, env);\n\
+           let cfg = build(options);\n\
+           return cfg;\n\
+         };",
+    );
+    assert_eq!(
+        value,
+        ConfigValue::Object(vec![
+            (
+                "entry".to_owned(),
+                ConfigValue::Object(vec![("main".to_owned(), s("./src/main.js"))])
+            ),
+            (
+                "module".to_owned(),
+                ConfigValue::Object(vec![("rules".to_owned(), ConfigValue::Array(Vec::new()))])
+            ),
+        ])
+    );
+}
+
+/// What a function returns shares its parameter where the function puts it: under a key (`{ e: env }`, `cfg.x = env`),
+/// a change of the argument after the call leaves only that key partly unknown, and a spread (`{ ...env }`) leaves the
+/// whole result partly unknown.
+#[test]
+fn a_changed_argument_reaches_what_the_function_returns_where_it_holds_it() {
+    let value = extract(
+        "rspack.config.js",
+        "const kit = require('kit');\n\
+         function wrap(env) { return { e: env, entry: './a.js' }; }\n\
+         function spread(env) { return { ...env, entry: './a.js' }; }\n\
+         function store(env) { const cfg = { entry: './a.js' }; cfg.x = env; return cfg; }\n\
+         const held = () => { const options = { mode: 'a' }; const r = wrap(options); kit.fill(options); return r; };\n\
+         const copied = () => { const options = { mode: 'a' }; const r = spread(options); kit.fill(options); return r; };\n\
+         const stored = () => { const options = { mode: 'a' }; const r = store(options); kit.fill(options); return r; };\n\
+         module.exports = [held(), copied(), stored()];",
+    );
+    let configs = value.as_array().unwrap();
+    for config in [&configs[0], &configs[2]] {
+        assert!(!open(config), "{config:?}");
+        assert_eq!(get(config, &["entry"]), &s("./a.js"), "{config:?}");
+    }
+    assert!(open(get(&configs[0], &["e"])), "{:?}", configs[0]);
+    // `cfg.x = env` is also a write of `cfg`, which reaches what shares it as an unknown `x`.
+    assert!(configs[2].get("x").is_some_and(ConfigValue::has_unknown), "{:?}", configs[2]);
+    assert!(open(&configs[1]), "{:?}", configs[1]);
+}
+
+/// A parameter with a default may take the default (`b = a`), so a change through it reaches what the other parameter
+/// takes; a function that calls itself is followed through its name, which stands for its parameters and what it
+/// returns, so a change through what it returns reaches its argument.
+#[test]
+fn a_default_parameter_and_a_recursive_function_reach_their_arguments() {
+    let value = extract(
+        "rspack.config.js",
+        "function set(a, b = a) { b.x = 1; return {}; }\n\
+         function last(c) { if (c.next) return last(c.next); return c; }\n\
+         const defaulted = () => { const cfg = { a: 1 }; const r = set(cfg); return cfg; };\n\
+         const recursive = () => { const cfg = { a: 1 }; const r = last(cfg); r.b = 2; return cfg; };\n\
+         module.exports = [defaulted(), recursive()];",
+    );
+    let configs = value.as_array().unwrap();
+    assert_eq!(
+        configs[0],
+        ConfigValue::Object(vec![
+            ("a".to_owned(), ConfigValue::Number(1.0)),
+            ("x".to_owned(), ConfigValue::Unknown),
+        ])
+    );
+    assert_eq!(configs[1].get("a"), Some(&ConfigValue::Number(1.0)), "{:?}", configs[1]);
+    assert_eq!(configs[1].get("b"), Some(&ConfigValue::Unknown), "{:?}", configs[1]);
 }
 
 /// A change made through a `const` that takes a part of a local of its function (`const { coverage } = config.test`)
