@@ -134,8 +134,7 @@ Tags with meaning: `assumption` and `ambiguous`
    and expect no diagnostic that is fixable, every fix being idempotent. If `expected-fixed/` is
    absent, no diagnostic may be fixable.
 6. Cross-checks worth running once over the whole tree: every `skif.toml` loads and validates, every
-   `rule` is registered, and every non-null `detail` is a state that ADR 0010 or ADR 0011
-   names.
+   `rule` is registered, and every non-null `detail` is a state of the table below.
 
 ## Conventions the fixtures assume
 

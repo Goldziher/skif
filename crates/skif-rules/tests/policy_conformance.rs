@@ -50,16 +50,10 @@ fn every_case_is_accounted_for() {
 }
 
 /// README step 6: every configuration loads and validates, every rule is registered and every `detail` is a state
-/// that ADR 0010 or ADR 0011 names.
+/// of the state table in `fixtures/policy/README.md`.
 #[test]
 fn every_fixture_is_well_formed() {
-    let adr = [
-        "0009-version-and-catalog-policies.md",
-        "0048-catalog-version-divergence-and-reasons-on-ignores.md",
-        "0107-stray-lockfiles-a-build-installs-from-and-a-dependency-in-none-of-several-catalogs.md",
-    ]
-    .map(|file| std::fs::read_to_string(fixtures_root().join("../../adrs").join(file)).unwrap())
-    .concat();
+    let states = std::fs::read_to_string(fixtures_root().join("README.md")).unwrap();
     let registry = Registry::new(skif_rules::providers()).unwrap();
     let mut problems = Vec::new();
     for case in discover_cases() {
@@ -72,7 +66,7 @@ fn every_fixture_is_well_formed() {
         for row in &expected {
             let known = row["detail"]
                 .as_str()
-                .is_none_or(|detail| detail == "UnusedGroup" || adr.contains(&format!("`{detail}`")));
+                .is_none_or(|detail| detail == "UnusedGroup" || states.contains(&format!("`{detail}`")));
             if !known {
                 problems.push(format!("{}: unknown detail {}", case.id(), row["detail"]));
             }
