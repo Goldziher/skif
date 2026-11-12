@@ -213,6 +213,25 @@ fn a_production_run_keeps_test_setup_files_out_of_the_project() {
 }
 
 #[test]
+fn a_production_run_keeps_the_files_of_the_start_script() {
+    let files = vec![
+        MANIFEST,
+        (
+            "packages/a/package.json",
+            r#"{"name":"@x/a","type":"module","scripts":{"start":"node build.mjs --watch"}}"#,
+        ),
+        ("packages/a/build.mjs", "import \"./src/x.js\";\n"),
+        ("packages/a/src/x.js", "export {};\n"),
+        ("packages/a/src/orphan.js", "export {};\n"),
+    ];
+    let normal = lint(&files, "");
+    assert_eq!(paths(&normal, "unused-files"), ["packages/a/src/orphan.js"]);
+    // `start` runs the app, so knip keeps it in production mode and what it runs are production entries.
+    let production = lint(&files, "[js]\nproduction = true\n");
+    assert_eq!(paths(&production, "unused-files"), ["packages/a/src/orphan.js"]);
+}
+
+#[test]
 fn ignore_workspaces_skips_the_analysis_of_matching_packages() {
     let files = two_packages("export {};\n");
     assert_eq!(found(&lint(&files, ""), "unused-dependencies").len(), 2);

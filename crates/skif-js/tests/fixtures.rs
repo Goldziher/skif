@@ -210,7 +210,7 @@ fn a_root_without_source_files_does_not_judge_its_dependencies() {
 
 #[test]
 fn production_mode_takes_no_entries_from_scripts_above_a_nested_root() {
-    // Scripts give no entries in production mode, those of the outer manifest included.
+    // In production mode only the `start` script gives entries, and the scripts of the outer manifest give none.
     let diagnostics = Run::at("nested-roots", "build", "[js]\nproduction = true").lint();
     assert_eq!(
         found(&diagnostics, "unused-files"),

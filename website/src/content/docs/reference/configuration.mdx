@@ -928,7 +928,7 @@ its imports are neither unlisted there nor uses of the root's dependencies. The 
 its own manifest when it is analysed as a root of its own. In the other direction, a file of the
 analysed root that a script of a `package.json` above it runs (up to the git repository root) is an entry, so
 `node build/npm/postinstall.ts` in the outer project keeps `build/npm/postinstall.ts` used in the nested root at
-`build` (except in production mode, where scripts give no entries).
+`build` (except in production mode, where only the `start` script of the package's own manifest gives entries).
 
 In a multi-root run (`skif -r`) the files of a nested root that an enclosing root of the same run imports, runs from
 a script or names in a tool configuration are entries of the nested root: `import { x } from "../build/lib/x"` in
