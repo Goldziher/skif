@@ -188,7 +188,7 @@ under [Parity with knip](#parity-with-knip).
 | Operating systems and architectures | macOS, Linux (glibc, musl), Windows; x64 and arm64 (1) | macOS, Linux (glibc, musl), Windows; x64 and arm64 | macOS, Linux (glibc, musl), Windows; x64 and arm64 | Where `oxc-parser` has a native binding (macOS, Linux glibc and musl, Windows, FreeBSD and more); CI runs macOS, Linux and Windows |
 | Distribution | npm, crates.io, cargo-binstall, GitHub release archives, Homebrew, Scoop, GitHub Action, pre-commit and prek, Poly | npm, GitHub release archives, GitHub Action; Homebrew (homebrew-core) | npm; crates.io up to 14.0.0 | npm |
 
-1. On Windows, use the release archives, cargo-binstall, Scoop or the GitHub Action. Windows is not on npm in 0.3.0:
+1. On Windows, use the release archives, cargo-binstall, Scoop or the GitHub Action. Windows has no npm package:
    `skif-cli` ships no Windows addon until the Windows platform package names exist on npm
    ([ADR 0114](https://github.com/Goldziher/skif/blob/main/adrs/0114-windows-npm-packages-deferred.md)).
 
@@ -239,9 +239,8 @@ skif's JS analysis covers the issue types of knip 6.45:
   [migration guide](../migrating/#which-tool-runs-which-rule)), and `skif migrate` translates a knip configuration.
   skif reads tool configurations statically and never runs project code.
 - **Speed.** Full skif runs are timed against knip on pinned public repositories; see [Performance](#performance).
-- **Precision.** On a generated 5-package workspace with 33 seeded findings, skif has a precision of 100% and knip
-  6.44.1 of 77%; both find every seeded finding (skif measured on 2026-11-08, knip on 2026-11-07, not re-measured
-  for this release; see [Accuracy](#accuracy)).
+- **Precision.** Precision and recall on a generated workspace with seeded dead code are on the
+  [benchmarks page](../benchmarks/#precision-on-seeded-dead-code).
 - **Agreement.** Real repositories have no answer key, so a weekly job runs both tools on pinned public repositories
   and compares the findings per issue type. The [agreement table](../benchmarks/#agreement-with-knip), generated from
   the committed baseline of that comparison, gives the share of each tool's findings the other reports too, and what
@@ -347,10 +346,6 @@ from, and how they are measured.
 
 ## Accuracy
 
-On a generated workspace with injected defects, where the answer is known, skif, sherif and syncpack found every
-defect they check for (counted by hand on 2026-11-06, skif 0.1.0). A generated workspace with seeded dead code and live
-code behind known traps has an answer key too: skif and knip both find every seeded finding, with a precision of 100%
-for skif and 77% for knip (6.44.1; skif measured on 2026-11-08, knip on 2026-11-07; knip reports exports read through
-`typeof import("./m")["name"]` and fixture files). The agreement with knip on real repositories is under
-[Parity with knip](#parity-with-knip). The full tables, and how to reproduce each, are on the
-[benchmarks page](../benchmarks/#accuracy-on-seeded-defects).
+The results on generated workspaces with a known answer (seeded manifest defects, seeded dead code), and how to
+reproduce each, are on the [benchmarks page](../benchmarks/#accuracy-on-seeded-defects). The agreement with knip on
+real repositories is under [Parity with knip](#parity-with-knip).

@@ -110,7 +110,7 @@ publishing; the steps around it are by hand.
      (`skif-darwin-arm64`, `skif-darwin-x64`, `skif-linux-arm64-gnu`, `skif-linux-arm64-musl`, `skif-linux-x64-gnu`,
      `skif-linux-x64-musl`). A real run stops before it creates the release when one is missing
      (`scripts/check-npm-packages-exist.sh`), so check with `bash scripts/check-npm-packages-exist.sh` before tagging.
-     Windows is not on npm in 0.3.0: `skif-win32-x64-msvc` and `skif-win32-arm64-msvc` do not exist yet, and their
+     Windows is not on npm: `skif-win32-x64-msvc` and `skif-win32-arm64-msvc` do not exist yet, and their
      targets return to `napi.targets` once both names exist and have the trusted publisher
      ([ADR 0114](adrs/0114-windows-npm-packages-deferred.md)).
    - crates.io: every crate in `scripts/publish-crates.sh`. `skif-node` and `skif-bench` are `publish = false`.

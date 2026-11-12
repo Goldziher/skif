@@ -22,7 +22,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
     ```
 
     The npm package is a napi-rs addon for non-EoL Node.js (22, 24, 26) and Bun 1.x on macOS and Linux, x64 and arm64.
-    Windows is not on npm in 0.3.0 (ADR 0114): on Windows, use the release archives, cargo-binstall or Scoop. See
+    Windows has no npm package (ADR 0114): on Windows, use the release archives, cargo-binstall or Scoop. See
     [npm and Bun](../../guides/integrations/#npm-and-bun).
   </TabItem>
   <TabItem label="Homebrew">
@@ -90,7 +90,7 @@ The binary is `target/release/skif`.
 ## Supported versions
 
 skif supports the versions of Node.js, Bun, Rust and the package managers its upstream still supports; where an
-upstream has no end-of-life policy, the latest two major versions. Today that is Node.js 22, 24 and 26, the newest
+upstream has no end-of-life policy, the latest two major versions. That is Node.js 22, 24 and 26, the newest
 Bun 1.x, the latest two majors of npm, pnpm and Yarn 2+, and the newest Yarn Classic 1.x.
 
 Every change is tested end to end against workspaces that the real package manager installs: the newest release of

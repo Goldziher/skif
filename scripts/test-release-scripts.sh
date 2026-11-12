@@ -309,6 +309,8 @@ grep -qF 'rev: v9.8.7' "${tree}/README.md" || fail "release-bump: README pre-com
 grep -qF 'revision = "v9.8.7"' "$integrations" || fail "release-bump: Poly revision"
 grep -qF 'Goldziher/skif@v9' "${tree}/website/src/content/docs/start/quickstart.mdx" || fail "release-bump: quickstart Action pin"
 grep -qF 'rev: v9.8.7' "${tree}/skills/skif/references/ci.md" || fail "release-bump: the agent skill's pre-commit rev"
+grep -qF 'skif/releases/download/v9.8.7/skif-aarch64-apple-darwin.tar.gz' "${tree}/website/src/content/docs/guides/bazel.mdx" ||
+  fail "release-bump: Bazel archive URL"
 expect "check-doc-pins after the bump" 0 bash "${tree}/scripts/check-doc-pins.sh" 9.8.7
 expect "release-bump to a pre-release" 0 env SKIP_CARGO_UPDATE=1 bash "${tree}/scripts/release-bump.sh" 9.9.0-rc.1
 expect_in_out "release-bump pre-release pins" "9.9.0-rc.1 is a pre-release, left unchanged"

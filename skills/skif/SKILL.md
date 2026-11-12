@@ -21,7 +21,7 @@ Docs: <https://goldziher.github.io/skif/>. Rules: <https://goldziher.github.io/s
 
 Use `skif` when it is on `PATH` (`skif --version`). Otherwise run the npm package, `skif-cli`, whose command is
 `skif`: `npx skif-cli`, `pnpm dlx skif-cli`, `yarn dlx skif-cli` or `bunx -p skif-cli skif`. The npm package has no
-Windows addon in 0.3.0, so on Windows use a release binary (archive, `cargo binstall skif-cli` or Scoop). If the repository
+Windows addon, so on Windows use a release binary (archive, `cargo binstall skif-cli` or Scoop). If the repository
 pins skif (a `skif-cli` dev dependency, the GitHub Action, a pre-commit hook), use that version. Other install
 channels are in [references/commands.md](references/commands.md#install).
 

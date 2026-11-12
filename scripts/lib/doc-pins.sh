@@ -7,6 +7,7 @@
 #   Goldziher/skif@v0.2.0          a full release tag (GitHub Action)
 #   rev: v0.2.0                    a pre-commit / prek hook revision, within two lines of the skif repository URL
 #   revision = "v0.2.0"            a Poly hook source revision, within two lines of the skif repository URL
+#   Goldziher/skif/releases/download/v0.2.0/   a release archive URL (Bazel http_archive)
 #
 # CHANGELOG.md and adrs/ record history and are never scanned.
 
@@ -59,6 +60,16 @@ skif_doc_pins_awk='
     }
     return out s
   }
+  function replace_download_pins(s,   out, pin) {
+    out = ""
+    while (match(s, /Goldziher\/skif\/releases\/download\/v[0-9]+(\.[0-9]+)*\//)) {
+      pin = substr(s, RSTART + 33, RLENGTH - 34)
+      if (mode == "list") print FILENAME ":" FNR ":" pin
+      out = out substr(s, 1, RSTART + 32) full "/"
+      s = substr(s, RSTART + RLENGTH)
+    }
+    return out s
+  }
   function replace_revision(s,   pin) {
     if (!match(s, /v[0-9]+(\.[0-9]+)*/)) return s
     pin = substr(s, RSTART, RLENGTH)
@@ -70,6 +81,7 @@ skif_doc_pins_awk='
     line = $0
     if (line ~ /github\.com\/Goldziher\/skif/) skif_at = FNR
     line = replace_action_pins(line)
+    line = replace_download_pins(line)
     if (FNR - skif_at <= 2 && (line ~ /^[[:space:]-]*rev:[[:space:]]*v[0-9]/ || line ~ /^[[:space:]]*revision[[:space:]]*=[[:space:]]*"v[0-9]/)) {
       line = replace_revision(line)
     }

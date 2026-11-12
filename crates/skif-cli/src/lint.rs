@@ -197,8 +197,11 @@ pub(crate) fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliErro
         );
     }
     crate::instances::apply_filter(&args.filter, config)?;
-    if args.strict {
+    if args.isolate_workspaces {
         config.js.isolate_workspaces = true;
+    }
+    if args.strict {
+        config.js.strict = true;
     }
     if args.no_gitignore {
         config.js.no_gitignore = true;

@@ -138,6 +138,7 @@ old one.
 | 0128 | [A knip Plugin for Projects That Run knip Next to skif](0128-a-knip-plugin-for-projects-that-run-knip-next-to-skif.md) | accepted |
 | 0129 | [Directories Matched by ignore-workspaces Leave the Packages Above Them](0129-directories-matched-by-ignore-workspaces-leave-the-packages-above-them.md) | accepted |
 | 0130 | [Bazel Label Lists Built by a Format Comprehension](0130-bazel-label-lists-built-by-a-format-comprehension.md) | accepted |
+| 0131 | [Workspace Isolation Without Production Mode](0131-workspace-isolation-without-production-mode.md) | accepted |
 
 ## Effective statements
 
@@ -357,3 +358,5 @@ the lines below stay as written; this table says which record governs.
 | [0115](0115-bazel-build-files-and-output-trees-in-the-js-analysis.md), decision outcome, entries paragraph | the `entry_point` and `data` of `js_binary`, `js_run_devserver` and `js_test`, and the `srcs` and `data` of `js_library` and `ts_project`, are entries | [0124](0124-bazel-rule-sources-are-used-files-not-entries.md): only the `entry_point` is an entry; the `srcs` and `data` are build sources, used files whose exports are judged |
 | [0029](0029-namespace-export-rules-virtual-modules-linked-configs-and-the-node-plugin.md), line 35 | whole uses mark every export of the module used | [0125](0125-a-whole-use-of-a-module-object-uses-its-values-only.md): a whole use of a module object uses its value exports only; a type is used when read by name or when the importer exports the namespace itself |
 | [0034](0034-js-configuration-parity-with-knip.md), `ignore-exports-used-in-file` paragraph | members of enums and namespaces read in their own file count as used | [0126](0126-a-whole-use-of-an-enum-in-its-own-file-uses-every-member.md): a whole use of an enum in its own file (as a value, `typeof E`, `` `${E}` ``) uses every member; a type annotation `x: E` uses none |
+| [0086](0086-packages-tool-configs-name-are-unlisted-at-the-config.md), "How a reference is judged" paragraph | only an embedder that sets `JsConfig::isolate_workspaces` without production mode has a config judged against its own package's manifest | [0131](0131-workspace-isolation-without-production-mode.md): `[js] isolate-workspaces` and `--isolate-workspaces` do so; strict mode is `Js::strict` |
+| [0123](0123-publicly-hoisted-packages-as-available-dependencies.md), decision outcome | the setting applies outside strict mode | [0131](0131-workspace-isolation-without-production-mode.md): it applies outside workspace isolation (`isolate-workspaces`, and strict mode, which implies it) |

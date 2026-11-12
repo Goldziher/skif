@@ -91,14 +91,14 @@ http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "ht
 
 http_archive(
     name = "skif_macos_arm64",
-    url = "https://github.com/Goldziher/skif/releases/download/v0.3.0/skif-aarch64-apple-darwin.tar.gz",
+    url = "https://github.com/Goldziher/skif/releases/download/v0.4.0/skif-aarch64-apple-darwin.tar.gz",
     sha256 = "<the archive's line in checksums.txt>",
     build_file_content = 'exports_files(["skif"])',
 )
 
 http_archive(
     name = "skif_linux_x86_64",
-    url = "https://github.com/Goldziher/skif/releases/download/v0.3.0/skif-x86_64-unknown-linux-musl.tar.gz",
+    url = "https://github.com/Goldziher/skif/releases/download/v0.4.0/skif-x86_64-unknown-linux-musl.tar.gz",
     sha256 = "<the archive's line in checksums.txt>",
     build_file_content = 'exports_files(["skif"])',
 )
@@ -278,8 +278,9 @@ bazel = false
 ## Known limits
 
 - Packages that rules_js hoists publicly (`public_hoist_packages`, `.npmrc` `public-hoist-pattern`) and that a package
-  imports without listing are `unlisted-dependencies`, as in knip. List them, or ignore them with
-  `ignore-dependencies` ([#178](https://github.com/Goldziher/skif/issues/178)).
+  imports without listing are `unlisted-dependencies`, as in knip, unless `[js] use-public-hoisting = true` counts
+  them as available ([`[js]`](../../reference/configuration/#js)). `public_hoist_packages` is read only as a dict
+  literal in the root `MODULE.bazel`, `WORKSPACE.bazel` or `WORKSPACE`.
 - Macros, `glob()`, `select()` and variables in `BUILD` files are not evaluated (above).
 - A Bazel repository with a member lockfile that nothing names lists its directories for `BUILD` files on every run,
   until the lockfile is removed or allowed.
@@ -299,5 +300,7 @@ bazel = false
 The decisions are in [ADR 0115](https://github.com/Goldziher/skif/blob/main/adrs/0115-bazel-build-files-and-output-trees-in-the-js-analysis.md),
 [ADR 0116](https://github.com/Goldziher/skif/blob/main/adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
 [ADR 0112](https://github.com/Goldziher/skif/blob/main/adrs/0112-paths-under-bazel-run.md),
-[ADR 0117](https://github.com/Goldziher/skif/blob/main/adrs/0117-the-cache-default-under-bazel-test.md) and
-[ADR 0124](https://github.com/Goldziher/skif/blob/main/adrs/0124-bazel-rule-sources-are-used-files-not-entries.md).
+[ADR 0117](https://github.com/Goldziher/skif/blob/main/adrs/0117-the-cache-default-under-bazel-test.md),
+[ADR 0123](https://github.com/Goldziher/skif/blob/main/adrs/0123-publicly-hoisted-packages-as-available-dependencies.md),
+[ADR 0124](https://github.com/Goldziher/skif/blob/main/adrs/0124-bazel-rule-sources-are-used-files-not-entries.md) and
+[ADR 0130](https://github.com/Goldziher/skif/blob/main/adrs/0130-bazel-label-lists-built-by-a-format-comprehension.md).

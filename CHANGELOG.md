@@ -38,6 +38,14 @@ All notable changes to this project are documented here. The format follows
   `unused-dependencies` and strict mode are unchanged
   ([ADR 0123](adrs/0123-publicly-hoisted-packages-as-available-dependencies.md),
   [#178](https://github.com/Goldziher/skif/issues/178)).
+- `[js] isolate-workspaces` and `--isolate-workspaces`: workspace isolation without production mode. Each workspace
+  package uses only the dependencies its own `package.json` lists, so one default run checks every package, its
+  tests, scripts and tool configs included, against its own manifest, development dependencies included. `[js] strict`
+  is the configuration counterpart of `--strict` (production mode, isolation and knip's direct-dependency rules), so
+  CI no longer needs the flag. Setting the mode in the file gives every run, `skif baseline write` and `prune`
+  included, the same mode, and `stale-js-config` judges `ignore-dependencies` entries against that one run
+  ([ADR 0131](adrs/0131-workspace-isolation-without-production-mode.md),
+  [#221](https://github.com/Goldziher/skif/issues/221)).
 - `YamlSource` of `skif-workspace` gains `public_hoist_pattern` and `shamefully_hoist`, and `skif-js-plugins` exports
   `bazel::public_hoist_packages`.
 - **JS rules** for knip's `subpaths` issue type: `unused-subpath-imports` (warning) reports a `package.json` `imports`
@@ -306,6 +314,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `Js::isolate_workspaces` of `skif-config` is workspace isolation only. An embedder that set it for knip's strict
+  mode sets `Js::strict` (`with_strict`), which implies production mode and isolation and adds the
+  direct-dependency rules; `JsAnalysis::strict` follows `strict`. `Js::production_mode` and `Js::isolated` give the
+  effective modes ([#221](https://github.com/Goldziher/skif/issues/221)).
+- **Migrate**: knip's `--strict` is written to `[js] strict = true` when every script runs knip with it, instead of
+  `[js] production` and a note that the file cannot hold the rest; when only some scripts do, a note leaves it to a
+  human. knip 5's `--isolate-workspaces`, which only split the TypeScript programs, stays without effect
+  ([#221](https://github.com/Goldziher/skif/issues/221)).
 - **JS**: a use of a module object as a whole (a namespace import passed around, spread, indexed with a computed key or
   named in `typeof ns`, and `require("./m")` or `import("./m")`) uses every value export of the module and none of its
   interfaces and type aliases, which it cannot reach; such a type stays used when read by name (`ns.Type`) or when the
