@@ -839,7 +839,8 @@ impl<'a> Builder<'a> {
 }
 
 /// Builds the graph by following imports from `entries` and `build_sources` in rounds. Each round parses and resolves
-/// its files in parallel and merges the results in order, so ids and edges do not depend on scheduling.
+/// its files in parallel and merges the results in order, so ids and edges do not depend on scheduling. Entries are
+/// interned first, so a build source that is also an entry stays an entry, whose exports are public.
 pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf], build_sources: &[PathBuf]) -> ModuleGraph {
     let mut builder = Builder::new(inputs);
     let mut frontier = Vec::new();

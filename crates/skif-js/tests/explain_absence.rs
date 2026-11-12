@@ -602,3 +602,35 @@ fn the_text_report_names_build_sources() {
     let c = analysis.explain_usage(Path::new("c.ts"), None).render();
     assert!(c.contains("  reached from a build source through: b.ts -> c.ts"), "{c}");
 }
+
+/// A file that a `ts_project` builds from and that `package.json` publishes as its `main` is an entry, not a build
+/// source, and its export is public.
+#[test]
+fn a_published_bazel_source_is_an_entry_not_a_build_source() {
+    let files = [
+        (
+            "MODULE.bazel",
+            "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n",
+        ),
+        ("package.json", r#"{"name":"app","version":"1.0.0","private":true,"main":"app.ts"}"#),
+        ("BUILD.bazel", "ts_project(name = \"lib\", srcs = [\"app.ts\"])\n"),
+        ("app.ts", "export const api = 1;\n"),
+    ];
+    let app = report(&files, "", "app.ts");
+    assert_eq!(
+        (
+            &app["entry"],
+            app.get("build-source"),
+            &app["chain-from-entry"],
+            app.get("chain-from-build-source")
+        ),
+        (&json!("published"), None, &json!(["app.ts"]), None),
+        "{app}"
+    );
+    let api = export_report(&files, "", "app.ts", "api");
+    assert_eq!(
+        (&api["verdict"], &api["entry-public"]),
+        (&json!("public"), &json!(true)),
+        "{api}"
+    );
+}

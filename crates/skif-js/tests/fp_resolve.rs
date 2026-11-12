@@ -13,10 +13,15 @@ use skif_lint::{Registry, RunOptions, run, run_unsorted};
 use skif_workspace::Workspace;
 
 fn lint_at(root: &str, files: &[(&str, &str)]) -> Vec<Diagnostic> {
+    lint_configured(root, files, "")
+}
+
+/// The diagnostics of the workspace at `root` with the `skif.toml` text `toml`.
+fn lint_configured(root: &str, files: &[(&str, &str)], toml: &str) -> Vec<Diagnostic> {
     let memory = files
         .iter()
         .fold(MemoryFs::new(), |memory, (path, text)| memory.with_file(path, text));
-    let config = Config::from_toml_str("").unwrap();
+    let config = Config::from_toml_str(toml).unwrap();
     let workspace = Workspace::discover_with_fs(Path::new(root), &config, &memory).unwrap();
     let fs: Arc<dyn FileSystem> = Arc::new(memory);
     let provider = JsProvider::new(fs).with_input_source(Arc::new(PluginSource::new(config.js.plugins.clone())));
@@ -38,12 +43,17 @@ fn report_at(root: &str, files: &[(&str, &str)]) -> Report {
 }
 
 fn lint(files: &[(&str, &str)]) -> Vec<Diagnostic> {
+    lint_with(files, "")
+}
+
+/// The diagnostics of the workspace at `/ws` holding `files`, relative to it, with the `skif.toml` text `toml`.
+fn lint_with(files: &[(&str, &str)], toml: &str) -> Vec<Diagnostic> {
     let rooted: Vec<(String, &str)> = files
         .iter()
         .map(|(path, text)| (format!("/ws/{path}"), *text))
         .collect();
     let borrowed: Vec<(&str, &str)> = rooted.iter().map(|(path, text)| (path.as_str(), *text)).collect();
-    lint_at("/ws", &borrowed)
+    lint_configured("/ws", &borrowed, toml)
 }
 
 /// The names the diagnostics of `rule` are about.
@@ -1327,6 +1337,182 @@ fn bazel_sources_are_used_and_their_exports_judged() {
     assert_eq!(
         names(&diagnostics, "unused-types"),
         strings(&["UnusedInA"]),
+        "{diagnostics:#?}"
+    );
+}
+
+/// The root file of a Bazel repository that uses `rules_js`.
+const RULES_JS_MODULE: (&str, &str) = (
+    "MODULE.bazel",
+    "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n",
+);
+
+/// A file that a `ts_project` builds from and that an entry rule also matches (the `main` of `package.json`, a default
+/// entry, an `entry` glob of the configuration) stays an entry, whose exports are public; the other source beside it,
+/// `spare.ts`, is a build source, whose export is judged.
+#[test]
+fn a_bazel_source_that_is_also_an_entry_keeps_public_exports() {
+    let without_main = r#"{"name":"app","version":"1.0.0","private":true}"#;
+    for (case, manifest, toml, entry, spare) in [
+        (
+            "main",
+            r#"{"name":"app","version":"1.0.0","private":true,"main":"app/main.ts"}"#,
+            "",
+            "app/main.ts",
+            "app/spare.ts",
+        ),
+        ("default entry", without_main, "", "src/index.ts", "src/spare.ts"),
+        (
+            "entry glob",
+            without_main,
+            "[js]\nentry = [\"app/cli.ts\"]\n",
+            "app/cli.ts",
+            "app/spare.ts",
+        ),
+    ] {
+        let build = format!("ts_project(name = \"lib\", srcs = [\"{entry}\", \"{spare}\"])\n");
+        let files = [
+            RULES_JS_MODULE,
+            ("package.json", manifest),
+            ("BUILD.bazel", build.as_str()),
+            (entry, "export const api = 1;\n"),
+            (spare, "export const spare = 1;\n"),
+        ];
+        let diagnostics = lint_with(&files, toml);
+        assert_eq!(
+            paths(&diagnostics, "unused-files"),
+            Vec::<String>::new(),
+            "{case}: {diagnostics:#?}"
+        );
+        assert_eq!(
+            names(&diagnostics, "unused-exports"),
+            strings(&["spare"]),
+            "{case}: {diagnostics:#?}"
+        );
+        assert_eq!(
+            paths(&diagnostics, "unused-exports"),
+            strings(&[spare]),
+            "{case}: {diagnostics:#?}"
+        );
+    }
+}
+
+/// A `rules_js` package whose `js_binary` runs `tool.mjs` with `assets.ts` and whose `js_test` runs `check.test.mjs`
+/// with `golden.ts`.
+const BAZEL_TEST_DATA: &[(&str, &str)] = &[
+    RULES_JS_MODULE,
+    ("package.json", r#"{"name":"app","version":"1.0.0","private":true}"#),
+    (
+        "BUILD.bazel",
+        concat!(
+            "js_binary(name = \"tool\", entry_point = \"tool.mjs\", data = [\"assets.ts\"])\n\n",
+            "js_test(name = \"check\", entry_point = \"check.test.mjs\", data = [\"golden.ts\"])\n",
+        ),
+    ),
+    ("tool.mjs", "console.log(1);\n"),
+    ("assets.ts", "export const asset = 1;\n"),
+    ("check.test.mjs", "console.log(2);\n"),
+    ("golden.ts", "export const golden = 1;\n"),
+];
+
+/// The `data` of a `js_test` is a build source of the tests only: a production run leaves it unused, while the `data`
+/// of a `js_binary` stays a used production build source whose export is judged.
+#[test]
+fn bazel_test_data_is_no_production_build_source() {
+    let development = lint(BAZEL_TEST_DATA);
+    assert_eq!(
+        paths(&development, "unused-files"),
+        Vec::<String>::new(),
+        "{development:#?}"
+    );
+    assert_eq!(
+        names(&development, "unused-exports"),
+        strings(&["asset", "golden"]),
+        "{development:#?}"
+    );
+    let production = lint_with(BAZEL_TEST_DATA, "[js]\nproduction = true\n");
+    assert_eq!(
+        paths(&production, "unused-files"),
+        strings(&["golden.ts"]),
+        "{production:#?}"
+    );
+    assert_eq!(
+        names(&production, "unused-exports"),
+        strings(&["asset"]),
+        "{production:#?}"
+    );
+}
+
+/// `duplicate-exports` and the enum and namespace member rules judge a build source, which an entry would exempt:
+/// `b.ts` reads `Color.Red`, `Shapes.circle`, `used` and `duplicate` of `a.ts`, both in the `srcs` of a `ts_project`.
+#[test]
+fn duplicates_and_members_of_a_bazel_source_are_reported() {
+    let diagnostics = lint(&[
+        RULES_JS_MODULE,
+        ("package.json", r#"{"name":"app","version":"1.0.0","private":true}"#),
+        ("BUILD.bazel", "ts_project(name = \"lib\", srcs = [\"a.ts\", \"b.ts\"])\n"),
+        (
+            "a.ts",
+            concat!(
+                "export enum Color {\n  Red,\n  Blue,\n}\n",
+                "export namespace Shapes {\n  export const circle = 1;\n  export const line = 2;\n}\n",
+                "export const used = 1;\nexport const duplicate = used;\n",
+            ),
+        ),
+        (
+            "b.ts",
+            concat!(
+                "import { Color, Shapes, used, duplicate } from './a';\n",
+                "console.log(Color.Red, Shapes.circle, used, duplicate);\n",
+            ),
+        ),
+    ]);
+    for (rule, expected) in [
+        ("duplicate-exports", "used"),
+        ("unused-enum-members", "Color.Blue"),
+        ("unused-namespace-members", "Shapes.line"),
+    ] {
+        assert_eq!(names(&diagnostics, rule), strings(&[expected]), "{rule}: {diagnostics:#?}");
+        assert_eq!(paths(&diagnostics, rule), strings(&["a.ts"]), "{rule}: {diagnostics:#?}");
+    }
+}
+
+/// A root `BUILD` file whose `ts_project` names a file of the workspace member `packages/foo`, which has no `BUILD`
+/// file of its own, makes it a build source of that member: it and what it imports are used and its export is judged,
+/// while `orphan.ts`, which nothing names, is unused.
+#[test]
+fn a_root_bazel_source_in_a_member_is_a_build_source() {
+    let diagnostics = lint(&[
+        RULES_JS_MODULE,
+        (
+            "package.json",
+            r#"{"name":"root","version":"1.0.0","private":true,"workspaces":["packages/*"]}"#,
+        ),
+        (
+            "BUILD.bazel",
+            "ts_project(name = \"foo\", srcs = [\"packages/foo/src/x.ts\"])\n",
+        ),
+        ("packages/foo/package.json", r#"{"name":"foo","version":"1.0.0","private":true}"#),
+        (
+            "packages/foo/src/x.ts",
+            "import { help } from './y';\nhelp();\nexport const spare = 1;\n",
+        ),
+        ("packages/foo/src/y.ts", "export function help(): void {}\n"),
+        ("packages/foo/src/orphan.ts", "export const lonely = 1;\n"),
+    ]);
+    assert_eq!(
+        paths(&diagnostics, "unused-files"),
+        strings(&["packages/foo/src/orphan.ts"]),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        names(&diagnostics, "unused-exports"),
+        strings(&["spare"]),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        paths(&diagnostics, "unused-exports"),
+        strings(&["packages/foo/src/x.ts"]),
         "{diagnostics:#?}"
     );
 }
