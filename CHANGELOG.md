@@ -18,6 +18,11 @@ All notable changes to this project are documented here. The format follows
 - **Cypress**: an `e2e` config that spreads Nx's `nxE2EPreset()` has the preset's `supportFile` and `specPattern`
   (`src/support/e2e.{js,ts}` and `src/**/*.cy.{js,jsx,ts,tsx}`, below `cypressDir`), so the support files of Nx e2e
   projects are no longer unused ([#188](https://github.com/Goldziher/skif/issues/188)).
+- **Nx**: local plugins, executors and generators are followed. A `plugins` entry, `executor` or generator that is a
+  path relative to the workspace root or a `paths` alias of the root `tsconfig.base.json` is no longer an unlisted
+  package; a local plugin's module is an entry, and the `implementation`, `batchImplementation` and `factory` files
+  of the `executors`, `builders`, `generators` and `schematics` collections its `package.json` names (or a workspace
+  package's own) are entries ([#185](https://github.com/Goldziher/skif/issues/185)).
 
 ### Removed
 
