@@ -776,8 +776,8 @@ impl<'a> Visit<'a> for Sharing<'_> {
 }
 
 /// The parts of locals an expression's value may hold or share: the names and member chains it reads, other than an
-/// imported function, what a function in it reads and what holds no object (a template, an operator's result, the
-/// result of one of [`PURE_FUNCTIONS`] or of [`OWN_RESULT_METHODS`]).
+/// imported function, what holds no object (a template, an operator's result, the result of one of [`PURE_FUNCTIONS`]
+/// or of [`OWN_RESULT_METHODS`]) and what a function in it reads other than what it returns.
 struct Refs<'s> {
     scoping: &'s Scoping,
     /// The functions the module declares ([`callables`]).
@@ -829,6 +829,30 @@ impl Refs<'_> {
                 at: self.at.clone(),
                 exact: self.exact && exact,
             });
+        }
+    }
+
+    /// Visits a function with `params`, whose body `visit` visits as `body` ([`Part::Body`], or [`Part::Value`] for an
+    /// arrow whose body is an expression). One not entered yet stands for what it returns and, as [`Part::Function`]
+    /// says, what its parameters take. One in the value (a getter, a method, a callback) stands for what it returns,
+    /// somewhere at or below where it is, as code that calls it gets that. One in the body of a function is not the
+    /// value.
+    fn function(&mut self, params: &FormalParameters<'_>, body: Part, visit: impl FnOnce(&mut Self)) {
+        match self.part {
+            Part::Body => {}
+            Part::Function { parameters } => {
+                if parameters {
+                    self.parameters(params);
+                }
+                self.part = body;
+                visit(self);
+                self.part = Part::Value;
+            }
+            Part::Value => self.opaque(|refs| {
+                refs.part = body;
+                visit(refs);
+                refs.part = Part::Value;
+            }),
         }
     }
 
@@ -993,31 +1017,16 @@ impl<'a> Visit<'a> for Refs<'_> {
     }
 
     fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
-        let Part::Function { parameters } = self.part else {
-            return;
-        };
-        if parameters {
-            self.parameters(&it.params);
-        }
-        self.part = Part::Body;
-        walk::walk_function(self, it, flags);
-        self.part = Part::Value;
+        self.function(&it.params, Part::Body, |refs| walk::walk_function(refs, it, flags));
     }
 
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
-        let Part::Function { parameters } = self.part else {
-            return;
-        };
-        if parameters {
-            self.parameters(&it.params);
-        }
-        self.part = if it.get_expression().is_some() {
+        let body = if it.get_expression().is_some() {
             Part::Value
         } else {
             Part::Body
         };
-        walk::walk_arrow_function_expression(self, it);
-        self.part = Part::Value;
+        self.function(&it.params, body, |refs| walk::walk_arrow_function_expression(refs, it));
     }
 }
 
