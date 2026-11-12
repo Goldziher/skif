@@ -1029,12 +1029,40 @@ pub(crate) enum Credit<'a> {
     PeerOf(String),
 }
 
+/// Which manifests and dependency fields satisfy an import.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum Mode {
+    /// Any field of the package's manifest or of the manifests above it.
+    #[default]
+    Default,
+    /// Workspace isolation (`[js] isolate-workspaces`): only the package's own manifest, and a private package's
+    /// unlisted import of a workspace member is not satisfied.
+    Isolated,
+    /// knip's strict mode (`skif --strict`), which isolates workspaces: type-only imports use nothing, and production
+    /// code uses only the `dependencies` and `peerDependencies` of its own package.
+    Strict,
+}
+
+impl Mode {
+    fn of(strict: bool, isolated: bool) -> Self {
+        match (strict, isolated) {
+            (true, _) => Self::Strict,
+            (false, true) => Self::Isolated,
+            (false, false) => Self::Default,
+        }
+    }
+
+    fn strict(self) -> bool {
+        self == Self::Strict
+    }
+
+    fn isolated(self) -> bool {
+        self != Self::Default
+    }
+}
+
 /// Dependency and binary usage of every package.
 #[derive(Debug, Clone, Default)]
-#[allow(
-    clippy::struct_excessive_bools,
-    reason = "each bool is an independent fact of the workspace or switch of the analysis"
-)]
 pub struct DependencyUsage {
     /// For every package, the dependencies its manifest is credited with, each with the uses that credited it.
     referenced: Vec<HashMap<String, BTreeSet<Use>>>,
@@ -1044,12 +1072,8 @@ pub struct DependencyUsage {
     /// For every package, the names its manifest lists in `dependencies` and `peerDependencies`: what production
     /// code may import in strict mode.
     production_listed: Vec<HashSet<Arc<str>>>,
-    /// knip's strict mode (`skif --strict`): type-only imports use nothing, and production code uses only the
-    /// `dependencies` and `peerDependencies` of its own package.
-    strict: bool,
-    /// Workspace isolation (`[js] isolate-workspaces`, implied by strict mode): a private package's unlisted import
-    /// of a workspace member is not satisfied.
-    isolated: bool,
+    /// Which manifests and dependency fields satisfy an import.
+    mode: Mode,
     /// For every package, the packages whose directory contains it, innermost first and the root last.
     ancestors: Vec<Vec<PackageId>>,
     /// For every package, the listed dependencies whose binaries are known: they are installed or in the lockfile.
@@ -1152,8 +1176,7 @@ impl DependencyUsage {
             referenced: vec![HashMap::default(); count],
             listed: vec![HashSet::default(); count],
             production_listed: vec![HashSet::default(); count],
-            strict: setup.strict,
-            isolated: setup.isolate_workspaces,
+            mode: Mode::of(setup.strict, setup.isolate_workspaces),
             known_bins: vec![HashSet::default(); count],
             other_jsx_runtime: vec![false; count],
             ancestors: package_ancestors(workspace, setup.isolate_workspaces),
@@ -1442,15 +1465,15 @@ impl DependencyUsage {
                         }
                         continue;
                     }
-                    if self.strict && resolved.type_only {
+                    if self.mode.strict() && resolved.type_only {
                         // knip's strict mode skips type-only imports of packages: they neither use a dependency
                         // nor need one listed.
                         continue;
                     }
                     // knip's strict mode counts every import of a declaration file as type-only, so a listed `@types`
                     // package stands in for the package.
-                    let type_only =
-                        (resolved.type_only && kind != Some(ImportKind::ExportFrom)) || (self.strict && declaration);
+                    let type_only = (resolved.type_only && kind != Some(ImportKind::ExportFrom))
+                        || (self.mode.strict() && declaration);
                     let import = module.info.imports.get(resolved.import);
                     let site = ImportSite {
                         owner: module.owner,
@@ -1545,7 +1568,7 @@ impl DependencyUsage {
     /// whose imports knip treats as type-only) may import only what its own package lists in `dependencies` or
     /// `peerDependencies`, as in knip's `DependencyDeputy.isInDependencies`.
     fn find_listed_for(&self, site: &ImportSite<'_>, name: &str) -> Option<Listed> {
-        if !self.strict || site.declaration {
+        if !self.mode.strict() || site.declaration {
             return self.find_listed(site.owner, name);
         }
         if self.production_listed[site.owner.index()].contains(name) {
@@ -1619,7 +1642,7 @@ impl DependencyUsage {
         // A peer dependency of a listed package is provided by whoever installs that package, unless it is optional,
         // which the package manager leaves out; strict mode, like knip's, does not count on that.
         let scopes = std::iter::once(owner).chain(self.ancestors[owner.index()].iter().copied());
-        if !self.strict
+        if !self.mode.strict()
             && scopes
                 .into_iter()
                 .any(|scope| self.required_peers[scope.index()].contains(name))
@@ -1644,7 +1667,7 @@ impl DependencyUsage {
     /// Whether `name` is a workspace member that the private `package` (`owner`) uses without listing it, which is
     /// then recorded as a use of it.
     fn use_unlisted_member(&mut self, package: &Package, owner: PackageId, name: &str) -> bool {
-        let member = !self.isolated && package.private && self.members.contains(name);
+        let member = !self.mode.isolated() && package.private && self.members.contains(name);
         if member {
             self.reference_in(owner, name);
         }

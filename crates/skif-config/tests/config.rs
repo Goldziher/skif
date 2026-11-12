@@ -350,7 +350,10 @@ fn strict_implies_production_and_isolation_and_isolation_implies_neither() {
     assert_eq!(modes("[js]\nisolate-workspaces = true\n"), (false, true));
     assert_eq!(modes("[js]\nproduction = true\n"), (true, false));
     assert_eq!(modes("[js]\nstrict = true\n"), (true, true));
-    assert_eq!(modes("[js]\nstrict = true\nproduction = false\nisolate-workspaces = false\n"), (true, true));
+    assert_eq!(
+        modes("[js]\nstrict = true\nproduction = false\nisolate-workspaces = false\n"),
+        (true, true)
+    );
 }
 
 #[test]
