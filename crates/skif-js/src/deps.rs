@@ -383,7 +383,9 @@ pub struct RunsIn {
 /// A package that a tool's config file names and no manifest lists; see [`DependencyUsage::unlisted_config`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnlistedConfigDependency {
-    /// The package that owns the config file: the innermost workspace package whose directory holds it.
+    /// The package that must list it: the one that owns the config file (the innermost workspace package whose
+    /// directory holds it), or the package reading the config when the reference names that package's install
+    /// ([`crate::ConfigDependency::reader_lists`]).
     pub package: PackageId,
     /// The package the config names.
     pub name: String,
@@ -1655,7 +1657,12 @@ impl DependencyUsage {
                 let Some((owner, file)) = verdict.clone() else {
                     continue;
                 };
-                let owner = owner.unwrap_or(reader);
+                // A reference to the reader's own install is the reader's, whichever package holds the file.
+                let owner = if dependency.reader_lists {
+                    reader
+                } else {
+                    owner.unwrap_or(reader)
+                };
                 let may_list = dependency.reader_may_list.then_some(reader);
                 self.with_via(Use::Config(PathBuf::from(&file)), |usage| {
                     usage.config_dependency(workspace, (owner, may_list), dependency, &file);
