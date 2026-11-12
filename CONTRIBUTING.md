@@ -133,7 +133,7 @@ publishing; the steps around it are by hand.
 5. **Tag.** Tag a commit that is on `main` and has a green `ci.yml` run as `v<version>` and push the tag; the workflow
    stops otherwise (`scripts/check-release-gate.sh`). It builds the release archives, publishes the crates and the
    npm packages, the Homebrew formula and the Scoop manifest, and moves the floating tag (`v0.M` for a 0.x release,
-   `vN` from 1.0.0; used as `Goldziher/skif@v0.3`) to the release.
+   `vN` from 1.0.0; used as `Goldziher/skif@v0.4`) to the release.
 6. **Watch the run.** crates.io is published only after every npm addon has loaded and installed, and the GitHub
    release stays a draft until crates.io is published and the published npm package has run under Node 22, 24 and
    26 and Bun; only then is it made public and `cargo binstall` verified against it. A failed run never leaves a

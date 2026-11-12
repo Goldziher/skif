@@ -87,7 +87,7 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
         ACTION_PATH: ${{ github.action_path }}
         # Written by scripts/release-bump.sh; 0.0.0 in a development checkout.
-        BAKED_VERSION: "0.3.0"
+        BAKED_VERSION: "0.4.0"
       run: bash "$ACTION_PATH/scripts/gh-action-resolve.sh"
 
     # The cache holds the verified archive next to the binary, so a cache hit can be checked against the release's

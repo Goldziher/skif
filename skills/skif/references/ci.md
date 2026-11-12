@@ -6,7 +6,7 @@ The full guide is <https://goldziher.github.io/skif/guides/integrations/>.
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: Goldziher/skif@v0.3
+- uses: Goldziher/skif@v0.4
   with:
     fail-on-warnings: true
 ```
@@ -22,7 +22,7 @@ SHA pins one version. On GitHub Actions, with no `--format`, skif prints the hum
 Code scanning:
 
 ```yaml
-- uses: Goldziher/skif@v0.3
+- uses: Goldziher/skif@v0.4
   with:
     args: --format sarif --output skif.sarif
 - uses: github/codeql-action/upload-sarif@v4
@@ -44,8 +44,8 @@ renders a pull request comment, and `--format codeowners` groups findings by COD
 
 ```yaml
 - run: git fetch origin main
-- uses: Goldziher/skif@v0.3
-- uses: Goldziher/skif@v0.3
+- uses: Goldziher/skif@v0.4
+- uses: Goldziher/skif@v0.4
   with:
     args: baseline check --base origin/main
 ```
@@ -58,7 +58,7 @@ The first step lints with the baseline applied; the second fails when the baseli
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/skif
-    rev: v0.3.0 # use the latest release tag
+    rev: v0.4.0 # use the latest release tag
     hooks:
       - id: skif       # skif --no-js
       - id: skif-fix   # skif --fix --no-install --no-prompt --no-js (opt-in, rewrites manifests)
@@ -76,7 +76,7 @@ Poly, in `poly.toml`:
 [[hooks.sources]]
 id = "skif"
 git = "https://github.com/Goldziher/skif.git"
-revision = "v0.3.0" # use the latest release tag
+revision = "v0.4.0" # use the latest release tag
 hooks = ["skif"]
 ```
 
