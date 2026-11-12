@@ -19,7 +19,7 @@
 //! Migrating knip into a file with `[js] enabled = false` sets it to `true` ([`Merged::replaced_existing`]): the knip
 //! settings the migration writes are `[js]` settings, which take effect only with the JavaScript analysis on.
 
-use toml_edit::{DocumentMut, Item, Table, TableLike, Value};
+use toml_edit::{DocumentMut, Item, Table, Value};
 
 use crate::notes::Tool;
 use crate::{MigrateError, Migration, Profile, keys};
@@ -322,7 +322,7 @@ impl Merge {
                 }
             }
             (Some(_), None) => *existing = added.clone(),
-            (None, Some(_)) => {}
+            (None, Some(_)) => self.left.push(path),
             (None, None) => {
                 if !same(existing, added) {
                     self.kept.push(path);

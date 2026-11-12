@@ -559,7 +559,8 @@ fn merge_with_the_exact_profile_turns_off_no_rule_the_existing_file_runs() {
     ] {
         assert!(left.contains(path), "{path}: {left:?}");
     }
-    assert!(!left.contains("rules.version-mismatch"), "{left:?}");
+    // The file sets version-mismatch itself, so the profile value is left out like the defaults.
+    assert!(left.contains("rules.version-mismatch"), "{left:?}");
     assert_eq!(report["replaced-existing"], serde_json::json!(["js.enabled"]));
 }
 
