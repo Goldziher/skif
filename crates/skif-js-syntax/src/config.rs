@@ -768,14 +768,18 @@ impl Modules<'_> {
         if ret.diagnostics.errors().next().is_some() {
             return true;
         }
-        Unstable::of(
+        let unstable = Unstable::of(
             &ret.program,
             &FollowedImports {
                 modules: self,
                 from: path,
             },
-        )
-        .changes_modules()
+        );
+        unstable.changes_modules()
+            || unstable
+                .exposed_modules()
+                .iter()
+                .any(|specifier| self.changes_modules(path, specifier))
             || self.reexports_change_modules(path, &ret.program)
     }
 
