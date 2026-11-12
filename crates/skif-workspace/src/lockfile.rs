@@ -371,7 +371,9 @@ fn format_9(document: &Map<String, Value>) -> Result<(), String> {
         return Ok(());
     }
     let written = if version.is_empty() { "none" } else { &*version };
-    Err(format!("lockfileVersion {written} is not supported; skif reads lockfile format 9 (pnpm 9 to 12)"))
+    Err(format!(
+        "lockfileVersion {written} is not supported; skif reads lockfile format 9 (pnpm 9 to 12)"
+    ))
 }
 
 /// Whether `document` is the document of the package manager's environment that pnpm 11 and later write ahead of the
@@ -930,19 +932,32 @@ snapshots:
     fn the_environment_document_is_told_by_the_fields_of_its_importers() {
         let cases = [
             (".:\n    configDependencies: {}\n", true),
-            (".:\n    packageManagerDependencies:\n      pnpm:\n        specifier: 12.9.1\n", true),
+            (
+                ".:\n    packageManagerDependencies:\n      pnpm:\n        specifier: 12.9.1\n",
+                true,
+            ),
             (
                 ".:\n    configDependencies: {}\n  packages/tool:\n    configDependencies:\n      a: 1.0.0\n",
                 true,
             ),
             (".: {}\n", false),
-            (".:\n    configDependencies: {}\n    dependencies:\n      a:\n        version: 1.0.0\n", false),
+            (
+                ".:\n    configDependencies: {}\n    dependencies:\n      a:\n        version: 1.0.0\n",
+                false,
+            ),
             (".:\n    configDependencies: {}\n  packages/app: {}\n", false),
-            ("packages/app:\n    devDependencies:\n      a:\n        version: 1.0.0\n", false),
+            (
+                "packages/app:\n    devDependencies:\n      a:\n        version: 1.0.0\n",
+                false,
+            ),
         ];
         for (importers, environment) in cases {
             let text = format!("lockfileVersion: '9.0'\nimporters:\n  {importers}packages: {{}}\n");
-            let document = serde_saphyr::from_str::<Value>(&text).unwrap().as_object().cloned().unwrap();
+            let document = serde_saphyr::from_str::<Value>(&text)
+                .unwrap()
+                .as_object()
+                .cloned()
+                .unwrap();
             assert_eq!(is_environment(&document), environment, "parsed: {text}");
             assert_eq!(is_environment_text(&text), environment, "lines: {text}");
         }
@@ -977,6 +992,9 @@ snapshots:
         assert_eq!(pnpm_project_document(&reversed), LOCK);
         assert_eq!(pnpm_project_document(LOCK), LOCK);
         assert_eq!(pnpm_project_document(ENVIRONMENT), ENVIRONMENT);
-        assert_eq!(pnpm_project_document(&format!("---\n{ENVIRONMENT}---\n{ENVIRONMENT}")), "");
+        assert_eq!(
+            pnpm_project_document(&format!("---\n{ENVIRONMENT}---\n{ENVIRONMENT}")),
+            ""
+        );
     }
 }
