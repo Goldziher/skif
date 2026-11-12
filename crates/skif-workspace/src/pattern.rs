@@ -303,22 +303,31 @@ impl Expander<'_> {
     }
 }
 
-/// The root-relative directories with a `package.json` that `patterns` select, negations applied. A pattern that
-/// cannot be used selects nothing.
+/// The root-relative directories with a `package.json` that `patterns` select, negations applied. With
+/// `literals_kept` (Bun), a negation does not remove a directory a positive pattern names by its literal path. A pattern
+/// that cannot be used selects nothing.
 pub(crate) fn selected_with_manifest<'p>(
     expander: &Expander<'_>,
     patterns: impl IntoIterator<Item = &'p str>,
+    literals_kept: bool,
 ) -> BTreeSet<String> {
     let mut selected = BTreeSet::new();
     let mut negations = Vec::new();
+    let mut literals = BTreeSet::new();
     for raw in patterns {
         if raw.trim_start().starts_with('!') {
             negations.extend(negation(raw).ok());
         } else if let Ok(pattern) = Pattern::new(raw) {
+            if literals_kept {
+                literals.extend(literal_dir(raw));
+            }
             selected.extend(expander.expand(&pattern));
         }
     }
-    selected.retain(|dir| expander.has_manifest(dir) && !negations.iter().any(|negation| negation.is_match(dir)));
+    selected.retain(|dir| {
+        expander.has_manifest(dir)
+            && (literals.contains(dir) || !negations.iter().any(|negation| negation.is_match(dir)))
+    });
     selected
 }
 

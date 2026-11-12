@@ -312,7 +312,7 @@ fn diverge_from_lerna(facts: &mut LernaFacts, expander: &Expander<'_>, members: 
     let Some(globs) = facts.packages.as_ref() else {
         return;
     };
-    let selected = pattern::selected_with_manifest(expander, globs.iter().map(String::as_str));
+    let selected = pattern::selected_with_manifest(expander, globs.iter().map(String::as_str), false);
     facts.only_in_lerna = selected.difference(members).map(PathBuf::from).collect();
     facts.only_in_workspace = members.difference(&selected).map(PathBuf::from).collect();
 }
