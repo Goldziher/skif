@@ -300,7 +300,10 @@ members, nor the files the config could make entries. A finding only knip report
 a file its globs match (relative to the package directory, matched as skif matches them) when the scope is
 `{"within": [...]}` ([ADR 0065](../../adrs/0065-narrowed-scope-for-incomplete-entries.md),
 [ADR 0081](../../adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md)); a package listed twice gets
-the union of its scopes. These are counted in their own column of `parity.md`, apart from the agreement counts and the
+the union of its scopes. A narrowed scope also covers the files of the packages nested below its package that its
+globs match relative to that package (a root scope of `packages/*/e2e/**` reaches `packages/web/e2e/run.ts`), as skif
+makes each of them an entry; the dependencies of a nested package are not judged only when skif lists that package
+itself. These are counted in their own column of `parity.md`, apart from the agreement counts and the
 other known deviations, and ignored by `--check`. `unlisted`, `unresolved`, `binaries` and `duplicates` are judged in
 every package and stay compared. `parity.json` lists the directories per repository under `not_judged_packages`, and
 the globs of the narrowed ones under `narrowed_packages`. See

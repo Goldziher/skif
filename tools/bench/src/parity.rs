@@ -187,7 +187,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 18] = [
     },
     Deviation {
         id: NOT_JUDGED,
-        reason: "skif lists the package under `incomplete-packages`: a tool config it cannot read leaves its entry files unknown, so it does not judge the package's dependencies, nor its files, exports, types and members where the config could make entries: the whole package for a `scope` of `\"package\"`, only the files its globs match (relative to the package) for a `scope` of `{\"within\": [...]}` (ADR 0065, ADR 0081)",
+        reason: "skif lists the package under `incomplete-packages`: a tool config it cannot read leaves its entry files unknown, so it does not judge the package's dependencies, nor its files, exports, types and members where the config could make entries: the whole package for a `scope` of `\"package\"`, only the files its globs match (relative to the package) for a `scope` of `{\"within\": [...]}`, among them the files of the packages nested below it, which skif makes entries (ADR 0065, ADR 0081)",
     },
     Deviation {
         id: KNIP_CONFIG_ERROR,
@@ -587,7 +587,8 @@ fn owner_dir(key: &str, is_package: &dyn Fn(&str) -> bool) -> String {
 
 /// Whether a one-sided finding is in a category skif does not judge where it lies: a dependency of a package skif
 /// lists as incomplete, or a file, export, type or member in its files, all of them or only those its narrowed scope
-/// matches.
+/// matches. A narrowed scope also reaches the files of the packages nested below the incomplete package, matched
+/// relative to the incomplete package, as skif makes every file it matches an entry (ADR 0081).
 fn not_judged(
     category: &str,
     key: &str,
@@ -599,26 +600,40 @@ fn not_judged(
         return false;
     }
     let dir = owner_dir(key, is_package);
-    let Some(scope) = packages.get(&dir) else {
-        return false;
-    };
-    if !in_files {
-        return true;
+    let path = key_path(key);
+    let own = packages.get(&dir).is_some_and(|scope| {
+        !in_files
+            || match scope {
+                NotJudgedScope::Package => true,
+                NotJudgedScope::Within(globs) => globs.is_match(below(&dir, path)),
+            }
+    });
+    own || (in_files && in_enclosing_scope(&dir, path, packages))
+}
+
+/// `path` relative to the directory `dir` above it (`""` is the root).
+fn below<'p>(dir: &str, path: &'p str) -> &'p str {
+    if dir.is_empty() {
+        return path;
     }
-    match scope {
-        NotJudgedScope::Package => true,
-        NotJudgedScope::Within(globs) => {
-            let path = key_path(key);
-            let relative = if dir.is_empty() {
-                path
-            } else {
-                path.strip_prefix(dir.as_str())
-                    .and_then(|rest| rest.strip_prefix('/'))
-                    .unwrap_or(path)
-            };
-            globs.is_match(relative)
+    path.strip_prefix(dir)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .unwrap_or(path)
+}
+
+/// Whether the narrowed scope of an incomplete package above the package directory `dir` matches `path`, relative to
+/// that package (`scope_entries` in `skif-js`).
+fn in_enclosing_scope(dir: &str, path: &str, packages: &BTreeMap<String, NotJudgedScope>) -> bool {
+    let mut above = dir;
+    while !above.is_empty() {
+        above = parent_dir(above);
+        if let Some(NotJudgedScope::Within(globs)) = packages.get(above)
+            && globs.is_match(below(above, path))
+        {
+            return true;
         }
     }
+    false
 }
 
 /// The known deviation a finding only skif reports belongs to: an unlisted import that only another package's tsconfig
@@ -2833,6 +2848,44 @@ mod tests {
             BTreeMap::from([("packages/web".to_owned(), NotJudgedScope::Package)]),
             "a whole-package entry wins over a narrowed one"
         );
+    }
+
+    #[test]
+    fn a_narrowed_scope_reaches_the_files_of_the_packages_below_its_package() {
+        let dirs = BTreeMap::from([
+            (String::new(), NotJudgedScope::within(vec!["packages/*/e2e/**".to_owned()])),
+            (
+                "packages/core".to_owned(),
+                NotJudgedScope::within(vec!["**/__tests__/**".to_owned()]),
+            ),
+            ("apps".to_owned(), NotJudgedScope::Package),
+        ]);
+        let packages = [
+            "packages/core",
+            "packages/core/nested",
+            "packages/web",
+            "apps",
+            "apps/site",
+        ];
+        let is_package = |dir: &str| packages.contains(&dir);
+        for (category, key) in [
+            ("files", "packages/core/nested/src/__tests__/helper.ts"),
+            ("exports", "packages/core/nested/src/__tests__/helper.ts|setup"),
+            ("types", "packages/web/e2e/run.ts|Options"),
+            ("files", "packages/web/e2e/fixtures/app.ts"),
+        ] {
+            assert!(not_judged(category, key, &dirs, &is_package), "{category} {key}");
+        }
+        for (category, key) in [
+            ("files", "packages/core/nested/src/helper.ts"),
+            ("files", "packages/web/src/e2e/run.ts"),
+            ("devDependencies", "packages/web/package.json|playwright"),
+            ("devDependencies", "packages/core/nested/package.json|vitest"),
+            ("unlisted", "packages/web/e2e/run.ts|react"),
+            ("files", "apps/site/src/orphan.ts"),
+        ] {
+            assert!(!not_judged(category, key, &dirs, &is_package), "{category} {key}");
+        }
     }
 
     #[test]
