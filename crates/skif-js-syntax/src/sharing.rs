@@ -357,8 +357,7 @@ impl Sharing<'_> {
     fn refs(&self, function: bool, visit: impl FnOnce(&mut Refs<'_>)) -> Vec<Held> {
         let mut refs = Refs {
             scoping: self.scoping,
-            function,
-            in_body: false,
+            part: if function { Part::Function } else { Part::Value },
             at: Vec::new(),
             exact: true,
             frozen: false,
@@ -709,10 +708,8 @@ impl<'a> Visit<'a> for Sharing<'_> {
 /// template, an operator's result, the result of one of [`PURE_FUNCTIONS`]).
 struct Refs<'s> {
     scoping: &'s Scoping,
-    /// The value is a function: it stands for its parameters and what it returns.
-    function: bool,
-    /// Inside the body of a function, outside a `return`: what is read there is not the function's value.
-    in_body: bool,
+    /// What part of the value the code being visited is.
+    part: Part,
     /// Where in the value the expression being visited is.
     at: Vec<String>,
     /// Whether the expression being visited is the value at `at`, rather than somewhere at or below it.
@@ -721,6 +718,17 @@ struct Refs<'s> {
     /// spread): `at` stays where that is.
     frozen: bool,
     out: Vec<Held>,
+}
+
+/// What part of a value [`Refs`] visits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Part {
+    /// A function not entered yet, which stands for its parameters and what it returns.
+    Function,
+    /// The body of that function, outside a `return`: what is read there is not the function's value.
+    Body,
+    /// The value itself.
+    Value,
 }
 
 impl Refs<'_> {
@@ -747,7 +755,7 @@ impl Refs<'_> {
 
     /// Records the part of the local `id` at `keys`, which is the value here when `exact`.
     fn hold(&mut self, id: &IdentifierReference<'_>, keys: Vec<String>, exact: bool) {
-        if self.in_body {
+        if self.part == Part::Body {
             return;
         }
         if let Some(symbol) = local_symbol(self.scoping, id) {
@@ -902,29 +910,33 @@ impl<'a> Visit<'a> for Refs<'_> {
     }
 
     fn visit_return_statement(&mut self, it: &ReturnStatement<'a>) {
-        let saved = std::mem::replace(&mut self.in_body, false);
+        let saved = std::mem::replace(&mut self.part, Part::Value);
         walk::walk_return_statement(self, it);
-        self.in_body = saved;
+        self.part = saved;
     }
 
     fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
-        if !std::mem::take(&mut self.function) {
+        if self.part != Part::Function {
             return;
         }
         self.parameters(&it.params);
-        self.in_body = true;
+        self.part = Part::Body;
         walk::walk_function(self, it, flags);
-        self.in_body = false;
+        self.part = Part::Value;
     }
 
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
-        if !std::mem::take(&mut self.function) {
+        if self.part != Part::Function {
             return;
         }
         self.parameters(&it.params);
-        self.in_body = it.get_expression().is_none();
+        self.part = if it.get_expression().is_some() {
+            Part::Value
+        } else {
+            Part::Body
+        };
         walk::walk_arrow_function_expression(self, it);
-        self.in_body = false;
+        self.part = Part::Value;
     }
 }
 
