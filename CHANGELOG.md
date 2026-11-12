@@ -146,9 +146,9 @@ All notable changes to this project are documented here. The format follows
   package), so a struct literal of `PluginContext` needs both; `WorkspaceListing` of `skif-js` gains `globs`.
   `skif-edit` exports `Document`, which parses a file once to plan several sets of operations against it, and `skif`
   exports `discover_targets_below`.
-- **Performance**: `DependencyEntry::name` and `DependencyEntry::specifier` of `skif-workspace` are `Arc<str>` instead
-  of `String`, so a consumer that keeps one clones the `Arc` instead of the text; read them as `&str` with
-  `&*entry.name`, which also compares with a string (`&*entry.name == "react"`). The output is unchanged
+- `DependencyEntry::name` and `DependencyEntry::specifier` of `skif-workspace` are `Arc<str>` instead of `String`, so
+  a consumer can keep a name without copying its text, as the dependency analysis of `skif-js` now does; read them as
+  `&str` with `&*entry.name`, which also compares with a string (`&*entry.name == "react"`). The output is unchanged
   ([#206](https://github.com/Goldziher/skif/issues/206)).
 - Under `[js] discovery = "git"` the toolchain scan (version files, Dockerfiles, shell scripts, workflows and the
   `files` globs) and the search of `stray-lockfile` for Bazel `BUILD` files and Dockerfiles beside a lockfile list
