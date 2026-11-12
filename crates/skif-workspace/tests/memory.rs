@@ -219,6 +219,42 @@ fn bun_selects_members_outside_the_root_without_loading_them() {
 }
 
 #[test]
+fn bun_excludes_a_member_without_a_name_from_analysis() {
+    let run = |package_manager: &str, ignore: &str| {
+        let manifest = format!(
+            r#"{{"name":"root","packageManager":"{package_manager}","workspaces":["packages/*","../outside","../named"]}}"#
+        );
+        let files = [
+            ("package.json", manifest.as_str()),
+            ("packages/a/package.json", r#"{"name":"a"}"#),
+            ("packages/blank/package.json", r#"{"name":"","version":"1.0.0"}"#),
+            ("packages/nameless/package.json", r#"{"version":"1.0.0"}"#),
+            ("../outside/package.json", r#"{"version":"1.0.0"}"#),
+            ("../named/package.json", r#"{"name":"named"}"#),
+        ];
+        let config = Config::from_toml_str(&format!("[workspace]\nignore-packages = [{ignore}]\n")).unwrap();
+        let workspace = discover(&files, &config).unwrap();
+        let ignored: Vec<bool> = workspace.package_ids().skip(1).map(|id| workspace.is_ignored(id)).collect();
+        (workspace, ignored)
+    };
+    let (bun, ignored) = run("bun@1.4.4", "");
+    assert_eq!(dirs(&bun), ["packages/a", "packages/blank", "packages/nameless"]);
+    assert_eq!(ignored, [false, true, true]);
+    assert_eq!(
+        bun.facts.nameless_members,
+        [PathBuf::from("packages/blank"), PathBuf::from("packages/nameless")]
+    );
+    assert_eq!(bun.facts.outside_root_members, [PathBuf::from("../named")]);
+    // A member the configuration already ignores is not listed again.
+    let (configured, _) = run("bun@1.4.4", r#""packages/nameless""#);
+    assert_eq!(configured.facts.nameless_members, [PathBuf::from("packages/blank")]);
+    // npm installs a member without a name.
+    let (npm, ignored) = run("npm@11.0.0", "");
+    assert!(npm.facts.nameless_members.is_empty());
+    assert_eq!(ignored, [false, false, false]);
+}
+
+#[test]
 fn pattern_spans_in_package_json() {
     let workspace = run(&["packages/a", "tool"]);
     let fact = &workspace.facts.patterns[1];
