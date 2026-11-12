@@ -1903,12 +1903,7 @@ fn a_fully_commented_knip_config_migrates_to_one_that_requires_reasons() {
     let commented = fixture.text.replace("    'unexplained',\n", "");
     assert_ne!(commented, fixture.text, "the fixture has the entry without a comment");
     let migration = knip_file("knip.ts", &commented);
-    assert_eq!(
-        migration.config.missing_ignore_reason(),
-        None,
-        "{}",
-        migration.toml
-    );
+    assert_eq!(migration.config.missing_ignore_reason(), None, "{}", migration.toml);
     let mut required = table(&migration);
     required
         .entry("lint")
