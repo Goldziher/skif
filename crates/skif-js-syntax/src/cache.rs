@@ -24,11 +24,11 @@ use crate::style::{is_stylesheet, parse_stylesheet};
 /// The version of the parse output. Raise it whenever [`ModuleInfo`] or what the parsers put in it changes, so a
 /// cache written by an older build at the same crate version is not trusted; the test
 /// `the_cache_schema_matches_the_parse_output` fails until [`CACHE_SCHEMA_DIGEST`] is updated with it.
-pub const CACHE_SCHEMA: u32 = 4;
+pub const CACHE_SCHEMA: u32 = 5;
 
 /// The digest of the serialized parse results of a fixed probe corpus at [`CACHE_SCHEMA`]. It is a test's guard,
 /// not part of any key: when the parse output changes, the test reports the new digest and both constants move.
-pub const CACHE_SCHEMA_DIGEST: u128 = 0x15aa_4bce_ff60_d1c1_3b3a_5181_cc4e_ef0f;
+pub const CACHE_SCHEMA_DIGEST: u128 = 0x5590_3ede_e8ea_3a95_93dd_202f_6d05_dbd5;
 
 /// The version a persisted cache records, `<crate version>+<CACHE_SCHEMA>`: a store written under another version
 /// is discarded as a whole.

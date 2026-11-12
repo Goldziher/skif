@@ -630,3 +630,18 @@ blake3 = "6336c71cd6285c49e7cbde435b4be1cad2f983245bfdd4684c03f2b3c611f520"
 number = 126
 status = "accepted"
 blake3 = "872a02e6f68fbe4290cf2c42cfe1f1ac658ef184efe79056963da69cea17a908"
+
+[adrs."adrs/0127-migrate-merge-unites-list-entries-by-name.md"]
+number = 127
+status = "accepted"
+blake3 = "8e319dd1a0a78a30408771583af28914f2aeb4b18af78b578c27efb40725dfd3"
+
+[adrs."adrs/0128-a-knip-plugin-for-projects-that-run-knip-next-to-skif.md"]
+number = 128
+status = "accepted"
+blake3 = "a11a02597648e7d9dfb03e4d5dd90c6231ddad20fb523026219e86b23fafcfe8"
+
+[adrs."adrs/0129-directories-matched-by-ignore-workspaces-leave-the-packages-above-them.md"]
+number = 129
+status = "accepted"
+blake3 = "6e25f19b9221ecb27249eff2418b2fe607c52ca06785c1007a9920983efcdbf7"

@@ -211,13 +211,14 @@ impl Migration {
     /// Combines the generated sections with the text of an existing `skif.toml`.
     ///
     /// The existing file is edited in place, so its comments and order stay. Tables it does not have are appended
-    /// after its text under a banner; in a table both files define, the keys it lacks are added, lists are united and
+    /// after its text under a banner; in a table both files define, the keys it lacks are added, lists are united by
+    /// entry name (a migrated `!` production marker replaces the plain `entry` or `project` pattern it repeats) and
     /// the existing value wins on a conflict. Values the `exact` profile added (marked with a comment) are not
     /// conflicts: a migration of another tool replaces them with the rule it does check, so migrating tools in
     /// several steps ends with the same checks as migrating them in one command. The profile adds no `off` value to
     /// a file that has content: a rule the file does not name keeps running ([`Merged::left_as_existing`]). Migrating
-    /// knip turns `[js] enabled = false` on ([`Merged::replaced_existing`]). Merging the output of a migration into
-    /// itself changes nothing.
+    /// knip turns `[js] enabled = false` on; both replacements are listed in [`Merged::replaced_existing`]. Merging
+    /// the output of a migration into itself changes nothing.
     ///
     /// # Errors
     /// [`MigrateError::Existing`] when `existing` is not valid TOML or the merged text is not a valid `skif.toml`.

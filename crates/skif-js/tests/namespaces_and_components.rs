@@ -128,6 +128,31 @@ fn a_module_that_is_also_imported_by_name_keeps_the_plain_rules() {
     assert_eq!(found(&diagnostics, "unused-namespace-types"), none());
 }
 
+/// A JSX member tag reads the first member after the namespace, as a member expression does: `<S.Used />` reads `Used`
+/// and `<S.Ctx.Provider />` reads `Ctx`, so the other exports of the module stay unused.
+#[test]
+fn a_namespace_read_through_jsx_member_tags_uses_only_the_members_it_reads() {
+    let styles = (
+        "styles.js",
+        "export const Used = () => null;\nexport const Unused = () => null;\nexport const Ctx = { Provider: () => null };\n",
+    );
+    let package = ("package.json", r#"{"name":"app","private":true,"main":"index.jsx"}"#);
+    for (tag, unused) in [
+        ("<S.Used />", ["styles.js: Ctx", "styles.js: Unused"]),
+        ("<S.Used>text</S.Used>", ["styles.js: Ctx", "styles.js: Unused"]),
+        ("<S.Ctx.Provider />", ["styles.js: Unused", "styles.js: Used"]),
+    ] {
+        let source = format!("import * as S from './styles.js';\nexport default () => {tag};\n");
+        let diagnostics = lint_files(&[package, ("index.jsx", source.as_str()), styles], "");
+        assert_eq!(
+            found(&diagnostics, "unused-namespace-exports"),
+            unused,
+            "{tag}: {diagnostics:#?}"
+        );
+        assert_eq!(found(&diagnostics, "unused-exports"), none(), "{tag}");
+    }
+}
+
 /// A use of the module object as a whole reads every value of the module and none of its types: `typeof ns` and
 /// `require` have only the values, so the interface and the type alias stay unused.
 #[test]
@@ -353,6 +378,43 @@ fn imports_of_one_script_block_read_by_another_count_as_used() {
         ["src/util.ts: triple"],
         "{diagnostics:#?}"
     );
+}
+
+/// The exports of a Svelte instance script are props; only the module script exports, and a package with components
+/// uses `svelte`, which compiles them.
+#[test]
+fn svelte_props_are_no_exports_and_components_use_svelte() {
+    let diagnostics = lint_files(
+        &[
+            (
+                "package.json",
+                r#"{"name":"app","private":true,"type":"module","main":"src/main.js","dependencies":{"svelte":"5.0.0"}}"#,
+            ),
+            (
+                "src/main.js",
+                "import App from './App.svelte';\nnew App({ target: document.body });\n",
+            ),
+            (
+                "src/App.svelte",
+                "<script>\n  import Button from './Button.svelte';\n  import Card, { used } from './Card.svelte';\n</script>\n<Button label=\"Go\" /><Card n={used} />\n",
+            ),
+            (
+                "src/Button.svelte",
+                "<script context=\"module\">\n  export const unusedV4 = 1;\n</script>\n<script>\n  export let label;\n  export function focus() {}\n</script>\n<button>{label}</button>\n",
+            ),
+            (
+                "src/Card.svelte",
+                "<script module>\n  export const used = 1;\n  export const unusedV5 = 2;\n</script>\n<script>\n  let { n } = $props();\n  export const reset = () => {};\n</script>\n<p>{n}</p>\n",
+            ),
+        ],
+        "",
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-exports"),
+        ["src/Button.svelte: unusedV4", "src/Card.svelte: unusedV5"],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none(), "{diagnostics:#?}");
 }
 
 #[test]

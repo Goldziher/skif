@@ -30,7 +30,8 @@ impl<'p> Analysis<'p> {
 }
 
 /// Names of top-level bindings in `wanted` that are referenced outside `excluded` spans, which are the spans of
-/// identifiers in top-level statements of `program`.
+/// identifiers in top-level statements of `program`. An import binding counts only where it is read as a value: a
+/// type position names what the imported module declares, not the binding.
 pub(crate) fn referenced_locals<'s>(
     program: &Program<'_>,
     analysis: &'s Analysis<'_>,
@@ -49,10 +50,10 @@ pub(crate) fn referenced_locals<'s>(
         if scoping.symbol_scope_id(symbol) != root || !wanted.contains(name) {
             continue;
         }
-        let used = scoping
-            .get_resolved_reference_ids(symbol)
-            .iter()
-            .any(|reference| !excluded.contains(reference));
+        let import = scoping.symbol_flags(symbol).is_import();
+        let used = scoping.get_resolved_reference_ids(symbol).iter().any(|&reference| {
+            !excluded.contains(&reference) && (!import || scoping.get_reference(reference).is_value())
+        });
         if used {
             referenced.insert(name);
         }

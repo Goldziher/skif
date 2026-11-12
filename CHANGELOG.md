@@ -49,9 +49,56 @@ All notable changes to this project are documented here. The format follows
   because test files may be the only importers. `--include subpaths` and `--fix-type subpaths` select the imports
   rule, and `skif migrate --from knip` maps `subpaths`, `includeSubpathExports` and `--include-subpath-exports`
   ([#208](https://github.com/Goldziher/skif/issues/208)).
+- **`knip` plugin**: in a project that runs knip next to skif, with `knip` as a dependency, knip's config files
+  (`knip.json`, `knip.jsonc`, `.knip.json`, `.knip.jsonc`, `knip.*`, `knip.config.*`, the `knip` key of
+  `package.json`) are configs and the JavaScript and TypeScript ones are entries, so `unused-files` no longer reports
+  them and what they import is used; the table holds 207 plugins
+  ([ADR 0128](adrs/0128-a-knip-plugin-for-projects-that-run-knip-next-to-skif.md),
+  [#217](https://github.com/Goldziher/skif/issues/217)).
 
 ### Fixed
 
+- **Migrate**: `--merge` unites lists by entry name. A string and a `{ name, reason }` table with that name are one
+  entry, which keeps the existing reason or takes the migrated one, instead of both staying in the list. In `[js]`
+  `entry` and `project`, a migrated `x!` replaces the existing plain `x`, which in production mode excluded the file
+  the `!` pattern makes an entry; the report names the list (`replaced-existing`). In the `[js]` ignore lists, `x`
+  covers `x!`. Elsewhere a trailing `!` is part of the entry
+  ([ADR 0127](adrs/0127-migrate-merge-unites-list-entries-by-name.md),
+  [#219](https://github.com/Goldziher/skif/issues/219)).
+- **JS**: `[js.workspaces.<dir>.paths]` keys are matched as `tsconfig` `paths` are: one `*` anywhere in the key
+  matches any text, so the catch-all `"*"` and keys such as `"serv*"` or `"*.svg"` map imports instead of being
+  dropped, and the matching keys are tried longest prefix first, an exact key before every wildcard. A key without
+  `*` maps only that specifier and `"alias/*"` no longer maps the bare `alias`, as in TypeScript; relative and
+  absolute specifiers are never mapped. A key or target with more than one `*` is a configuration error
+  ([#214](https://github.com/Goldziher/skif/issues/214)).
+- **JS**: an import that a package's own tsconfig `paths` map into its sources (`src/*` to `./src/*`) is no longer an
+  import of the workspace package whose name it starts with (a member named `src`). Strict mode reported it as that
+  package unlisted, and the other modes counted it as a use of the member
+  ([#215](https://github.com/Goldziher/skif/issues/215)).
+- **JS**: production mode leaves the development entries of plugins (Storybook stories, test files, Vitest
+  `setupFiles`) out of the project, as knip does, so they are no longer reported by `unused-files`
+  ([#210](https://github.com/Goldziher/skif/issues/210)).
+- **JS**: production mode keeps the `start` script of `package.json`, knip's production script, so the files it runs
+  are production entries and no longer reported by `unused-files`
+  ([#216](https://github.com/Goldziher/skif/issues/216)).
+- **JS**: a directory that an `[js] ignore-workspaces` glob matches also leaves the packages above it, as knip's
+  `ignoreWorkspaces` does: its files that belong to no skipped member are no longer analysed and reported in the root
+  ([ADR 0129](adrs/0129-directories-matched-by-ignore-workspaces-leave-the-packages-above-them.md),
+  [#218](https://github.com/Goldziher/skif/issues/218)).
+- **JS**: `ignore-exports-used-in-file` exempts an import binding the file re-exports and reads as a value
+  (`import a from "./a"; export { a, bMod as b }; export default { a, b: bMod }`), as it exempts a local declaration,
+  and a `module.exports = { X }` member whose binding the file reads outside that object, also under
+  `unused-namespace-exports`. A barrel that exports every module by name and again through its default object is no
+  longer reported in full ([#211](https://github.com/Goldziher/skif/issues/211)).
+- **JS**: the exports of a Svelte component's instance `<script>` (`export let label`, `export const`, `export
+  function`) are props and instance accessors, so `unused-exports` no longer reports them; the exports of the module
+  script (`<script context="module">` in Svelte 4, `<script module>` in Svelte 5) are still judged. A package with a
+  reached `.svelte` file uses `svelte`, which is no longer reported by `unused-dependencies`
+  ([#212](https://github.com/Goldziher/skif/issues/212)).
+- **JS**: a namespace import read through JSX member tags (`<S.Button />`, `<S.Button></S.Button>`) reads the member
+  after the namespace, as `S.Button` does, instead of using the module as a whole; a nested tag
+  (`<S.Ctx.Provider />`) reads `Ctx`. The other exports of the module are reported by `unused-namespace-exports`
+  ([#213](https://github.com/Goldziher/skif/issues/213)).
 - **JS**: pattern keys of `exports` and `imports` maps are selected as Node.js orders them: of two patterns with the
   same prefix, the longer one wins (`./features/*.css` over `./features/*` for `./features/a.css`).
 - **Migrate**: `--merge --output <FILE>` writes the merge of the existing `skif.toml` and the migration to `FILE`
