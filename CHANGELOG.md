@@ -66,6 +66,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **pnpm**: a `pnpm-lock.yaml` of pnpm 11 and later that holds two YAML documents, the package manager's environment
+  (`configDependencies`, `packageManagerDependencies`) and the project's lockfile, is read: the lockfile checks
+  (`banned-dependency` and `unsynced-dependency-family` with a lockfile scope, `stale-patched-dependencies`) judge the
+  project's document instead of reporting that the lockfile cannot be read, and the binaries and peers the JS analysis
+  takes from the lockfile no longer include pnpm's own packages. Both documents must be lockfile format 9
+  ([#223](https://github.com/Goldziher/skif/issues/223)).
 - **Migrate**: `--merge` unites lists by entry name. A string and a `{ name, reason }` table with that name are one
   entry, which keeps the existing reason or takes the migrated one, instead of both staying in the list. In `[js]`
   `entry` and `project`, a migrated `x!` replaces the existing plain `x`, which in production mode excluded the file

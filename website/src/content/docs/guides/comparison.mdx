@@ -68,7 +68,7 @@ under [Parity with knip](#parity-with-knip).
 11. `customTypes` bring `package.json` fields such as `packageManager` and `engines.node` into version groups; no other
     file is read.
 12. `stray-lockfile` reads no lockfile and works for every package manager. The lockfile scope of `banned-dependency`
-    and of dependency families reads only `pnpm-lock.yaml` format 9 (pnpm 9 and 10); `stale-patched-dependencies`
+    and of dependency families reads only `pnpm-lock.yaml` format 9 (pnpm 9 to 12); `stale-patched-dependencies`
     reads `pnpm-lock.yaml` and `bun.lock`. `yarn.lock`, `package-lock.json` and `bun.lockb` are not read (see
     [Lockfile](../workspaces/#lockfile)).
 13. `unordered-dependencies` sorts dependency maps; no other formatting.

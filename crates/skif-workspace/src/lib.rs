@@ -42,8 +42,8 @@ pub use error::WorkspaceError;
 pub use git_index::{IndexCache, IndexedFs, TrackedFiles, git_common_dir, git_dirs};
 pub use lerna::LernaFacts;
 pub use lockfile::{
-    LockedDependency, LockedPatch, OTHER_LOCKFILES, PNPM_LOCKFILE, PnpmLockfile, Resolutions, Snapshot, snapshot_key,
-    split_key,
+    LockedDependency, LockedPatch, OTHER_LOCKFILES, PNPM_LOCKFILE, PnpmLockfile, Resolutions, Snapshot,
+    pnpm_project_document, snapshot_key, split_key,
 };
 pub use manifest::{DependencyEntry, FieldSpans, Manifest};
 pub use npmrc::npmrc_entries;
