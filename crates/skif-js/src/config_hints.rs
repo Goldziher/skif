@@ -175,7 +175,8 @@ impl Scope<'_, '_> {
             .filter(|pattern| !pattern.starts_with('!'))
         {
             for extension in pattern_extensions(pattern) {
-                if !is_read_file(Path::new(&format!("x.{extension}"))) {
+                let file = format!("x.{extension}");
+                if !is_read_file(Path::new(&file)) && !self.inputs.setup.compilers.handles(Path::new(&file)) {
                     let identifier = format!(".{extension}");
                     hints.insert(self.hint(HintKind::ExtensionUnregistered, "project", Some(pattern), identifier));
                 }

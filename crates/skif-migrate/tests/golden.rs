@@ -1735,6 +1735,28 @@ fn knip_built_in_compilers_map_to_skif_extractors() {
     assert!(!all.needs_human());
 }
 
+#[test]
+fn a_knip_compiler_function_for_another_file_type_points_at_js_compilers() {
+    let migration = knip_file(
+        "knip.ts",
+        "export default {\n  compilers: {\n    html: (text: string) => text.replace(/<script[^>]+src=\"([^\"]+)\"/g, 'import \"$1\";'),\n  },\n};\n",
+    );
+    let compiler = note(&migration, "compilers.html");
+    assert_eq!(compiler.class, NoteClass::Unsupported);
+    assert_eq!(
+        compiler.message,
+        "custom compilers are functions, which skif never runs"
+    );
+    assert!(
+        compiler
+            .suggestion
+            .as_deref()
+            .is_some_and(|hint| hint.contains("`[js.compilers]`")),
+        "{compiler:#?}"
+    );
+    assert!(migration.config.js.compilers.is_empty(), "{}", migration.toml);
+}
+
 fn knip_file(name: &str, config: &str) -> Migration {
     let mut input = ToolInput::new(Tool::Knip);
     input.config = Some(text(name, config));

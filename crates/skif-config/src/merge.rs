@@ -85,6 +85,8 @@ impl Merger {
     ///   options; a non-empty options table replaces the options and keeps the level.
     /// - `[js.plugins]` merges per plugin: `true` / `false` sets `enabled` and keeps the options; a table replaces the
     ///   options and sets `enabled` only when it gives it.
+    /// - `[js.compilers]` merges per extension: an entry replaces the inherited one, since `as` and `imports` exclude
+    ///   each other.
     /// - `[[ignore]]` and `[[overrides]]` append; `[[version-groups]]`, `[[semver-groups]]` and `[[update-groups]]` are
     ///   put before the inherited ones, so the nearer file wins the first-match; `[[dependency-families]]` and `[[custom-types]]` replace the
     ///   entry of the same name and append the others.
@@ -224,7 +226,9 @@ fn merge_table(base: &mut Table, layer: &Table, path: &str, cx: &mut Cx<'_>) {
             let merged = merge_plugin(base.get(key), value);
             base.insert(key.clone(), merged);
             cx.record(&child, &child, Op::Set);
-        } else if let Value::Table(incoming) = value {
+        } else if let Value::Table(incoming) = value
+            && path != "js.compilers"
+        {
             merge_table(section(base, key), incoming, &child, cx);
         } else {
             base.insert(key.clone(), value.clone());

@@ -474,6 +474,10 @@ vite = { config = ["vite.web.config.ts"] }
 [js.plugins]
 vitest = true
 jest = { enabled = true, config = ["jest.config.cjs"] }
+
+[js.compilers]
+html = { imports = ['<script[^>]+src="([^"]+)"'] }
+page = { as = "mdx" }
 ```
 
 `enabled` defaults to `true`, so a plain `skif` run checks everything; the git hooks pass `--no-js`. Per-workspace
@@ -552,6 +556,37 @@ Add such files to `entry`.
 ignore-packages`, the packages stay in the workspace, so manifest and policy rules still check them. The root is never
 skipped. Entries match directories, so `*` stops at `/`: `packages/*` skips `packages/a` but not `packages/a/nested`
 (use `packages/**` for both), as in knip.
+
+**`[js.compilers]`** reads the files of an extension skif has no reader for, keyed by the extension without its dot.
+It is the static counterpart of knip's `compilers`: knip runs a function that turns the file into JavaScript, skif runs
+no project code and takes one of two declarations instead.
+
+- `imports`: regular expressions, each with exactly one capture group, matched against the whole text of the file.
+  Every capture is an import specifier, resolved as an import written in that file (`./src/main.ts` from the file's
+  directory, `lit` as a package), so a missing file is reported by `unresolved-imports` and a package the manifest does
+  not list by `unlisted-dependencies`. The imports bring in no names, like `import "./x"`. The patterns are compiled by
+  the Rust `regex` engine (no look-around or back-references); `(?:...)` groups do not count as capture groups.
+- `as`: read the files with the reader of one of skif's own extensions, as if they had it: `js`, `mjs`, `cjs`, `jsx`,
+  `ts`, `mts`, `cts`, `tsx`, `vue`, `svelte`, `astro`, `mdx`, `marko`, `tsrx`, or a stylesheet extension (`css`,
+  `scss`, `sass`, `less`, `pcss`, `styl`, `stylus`).
+
+The files of a declared extension join the default `project` (`**/*.html`), so one that no entry reaches is reported
+by `unused-files`; a `project` that leaves the extension out leaves them unjudged. They are modules for every other
+purpose too: an import of one (`import "./intro.page"`) follows it, and `project-extension-unregistered` does not
+report the extension. A file that only a tool loads, such as an `index.html` no bundler plugin reads, needs an `entry`
+pattern. A declaration for an extension skif reads itself (`vue`), an extension written with its dot or in upper case,
+an entry with both or neither of `as` and `imports`, an unknown reader, an empty `imports` list and a pattern that
+does not compile or has not exactly one capture group are configuration errors. The table applies to the whole root:
+it cannot be set per workspace or in an override, and a nearer configuration file replaces an extension's entry as a
+whole.
+
+```toml
+[js.compilers]
+# <script type="module" src="./src/main.ts"></script>
+html = { imports = ['<script[^>]+src="([^"]+)"'] }
+# Tailwind directives in a stylesheet extension skif does not know
+tw = { as = "css" }
+```
 
 **`entry` and `project`.** As in knip, a pattern ending in `!` is a normal pattern in a normal run. In a production run
 only the patterns ending in `!` count and the others are excluded; when none ends in `!`, the defaults apply. The
@@ -702,7 +737,8 @@ The rest of knip's configuration hints are part of `stale-js-config` too:
   where they apply to the root package only; move them to the `[js.workspaces]` table they are meant for.
 - `project-extension-unregistered`: a `project` pattern selecting an extension skif does not analyse (`*.json`).
   Stylesheets (`.css`, `.scss`, `.sass`, `.less`, `.pcss`, `.styl`, `.stylus`) are not reported: skif reads their
-  imports, so a knip `project` glob such as `src/**/*.{ts,css}` keeps working unchanged.
+  imports, so a knip `project` glob such as `src/**/*.{ts,css}` keeps working unchanged. Neither are the extensions
+  of `[js.compilers]`.
   `project-extension-excluded`: `project` patterns that name extensions but not `.vue`, `.svelte` or `.astro` while the
   package has such files, which then leave the project. knip ties both to its compilers; skif reads those component
   files without one, so the second is judged by the files present instead.
@@ -1266,6 +1302,7 @@ reset = ["version-groups"]
 | `extend-ignore-packages` (`[workspace]`), `extend-ignore`, `extend-ignore-dependencies`, `extend-ignore-binaries`, `extend-ignore-unresolved` (`[js]` and `[js.workspaces."<dir>"]`), `extend-exclude` (`[catalog]`) | Append to the inherited list, after the plain key of the same file |
 | `[rules]` | Per rule: a level keeps the inherited options; a table of options replaces the options and keeps the level |
 | `[js.plugins]` | Per plugin: `true` or `false` keeps the options; a table replaces them |
+| `[js.compilers]` | Per extension: an entry replaces the inherited one |
 | `[[ignore]]`, `[[overrides]]` | Append |
 | `[[version-groups]]`, `[[semver-groups]]`, `[[update-groups]]` | The nearer file's entries come first, so with first match wins the project beats the org |
 | `[[dependency-families]]`, `[[custom-types]]` | Replace the entry of the same `name`, append the others |
