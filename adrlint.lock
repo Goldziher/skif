@@ -600,3 +600,18 @@ blake3 = "6c6df647019e32814ce747977c510903b4db90cfbd97ecfa7b8ee36fa5f80877"
 number = 120
 status = "accepted"
 blake3 = "7a77c839806a05a3db642b46d443553ecdaf2ac6092170bdc49f4ca9ac35df13"
+
+[adrs."adrs/0121-one-git-index-listing-for-every-provider.md"]
+number = 121
+status = "accepted"
+blake3 = "a69c22732911ce8e7b485d1f6eb5383919ed95e2e8670ec61be7961e1527d3c0"
+
+[adrs."adrs/0122-bun-members-outside-the-root-nameless-members-bun-lock-in-the-lockfile-scopes-and-bun-test-roots.md"]
+number = 122
+status = "accepted"
+blake3 = "42adb6fda13dc1c247d7845c3aac729c351934dbdf863dcc35004b8db828d6cc"
+
+[adrs."adrs/0123-publicly-hoisted-packages-as-available-dependencies.md"]
+number = 123
+status = "accepted"
+blake3 = "f2e8419626f266711a152b221e4f1b4b75234b4473b3e6167df0b37d8254f215"
