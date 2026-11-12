@@ -3256,17 +3256,16 @@ fn calls_on_a_package_share_nothing_through_it() {
     }
 }
 
-/// Calls on the binding of a package the module only calls methods on share nothing through it, but once the module
-/// stores a value in it, reads a member of it otherwise or gives it to a call, what a method of it is given may be
-/// what another one returns.
+/// What a method of a package is given may be changed by any later call, however else the module uses the package,
+/// and a value the module stores in the package may be what another of its methods returns.
 #[test]
-fn calls_on_a_package_share_through_it_once_it_is_used_otherwise() {
+fn a_value_given_to_a_package_method_is_unknown_however_the_package_is_used() {
     for binding in ["import pkg from 'some-pkg';", "const pkg = require('some-pkg');"] {
-        for (use_, shared) in [
-            ("", false),
-            ("pkg.config = { mode: 'dev' };", true),
-            ("const settings = pkg.settings;", true),
-            ("register(pkg);", true),
+        for use_ in [
+            "",
+            "pkg.config = { mode: 'dev' };",
+            "const settings = pkg.settings;",
+            "register(pkg);",
         ] {
             let source = format!(
                 "{binding}\n\
@@ -3274,11 +3273,13 @@ fn calls_on_a_package_share_through_it_once_it_is_used_otherwise() {
                  {use_}\n\
                  pkg.register(out);\n\
                  out.dir = 'build';\n\
-                 const config = {{ root: 'src', plugins: [pkg.plugin()] }};\n\
-                 export default config;"
+                 const keep = {{ dir: 'k' }};\n\
+                 pkg.apply();\n\
+                 export default {{ root: 'src', build: out, keep }};"
             );
             let value = extract("vite.config.mjs", &source);
-            assert_eq!(open(&value), shared, "{source}: {value:?}");
+            assert_eq!(at(&value, &["build", "dir"]), &UNKNOWN, "{source}: {value:?}");
+            assert_eq!(get(&value, &["keep", "dir"]), &s("k"), "{source}: {value:?}");
             assert_eq!(get(&value, &["root"]), &s("src"), "{source}: {value:?}");
         }
     }
