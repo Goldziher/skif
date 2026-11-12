@@ -899,7 +899,7 @@ fn sources_where(
         .filter(|source| wanted(source.as_str()))
         .filter_map(|source| {
             let text = read(source.as_str())?;
-            keep(&*text).then_some((source, text))
+            keep(&text).then_some((source, text))
         })
         .collect()
 }

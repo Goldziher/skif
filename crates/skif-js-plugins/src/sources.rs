@@ -63,7 +63,7 @@ impl PackageSources {
             .filter(|file| wanted(file.path.as_str()))
             .filter_map(|file| {
                 let text = file.text.get_or_init(|| read(file.path.as_str())).as_ref()?;
-                keep(&**text).then(|| (file.path.clone(), Arc::clone(text)))
+                keep(text).then(|| (file.path.clone(), Arc::clone(text)))
             })
             .collect()
     }
@@ -132,7 +132,10 @@ mod tests {
             found(&sources_containing(&with, "pino")),
             found(&sources_containing(&without, "pino"))
         );
-        assert_eq!(found(&own_sources_where(&with, |_| true)), [("x.ts", "pino()"), ("z.js", "other()")]);
+        assert_eq!(
+            found(&own_sources_where(&with, |_| true)),
+            [("x.ts", "pino()"), ("z.js", "other()")]
+        );
         assert_eq!(
             found(&own_sources_where(&with, |_| true)),
             found(&own_sources_where(&without, |_| true))

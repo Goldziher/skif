@@ -89,7 +89,9 @@ pub fn plan_edits(source: &str, kind: FileKind, ops: &[&FixOp]) -> Result<Vec<Te
 ///
 /// Returns the errors of [`plan_edits`], or [`EditPlanError::Apply`] if the edits cannot be applied.
 pub fn apply(source: &str, kind: FileKind, ops: &[&FixOp]) -> Result<String, EditPlanError> {
-    Document::parse(source, kind)?.plan_checked(ops).map(|(_, output)| output)
+    Document::parse(source, kind)?
+        .plan_checked(ops)
+        .map(|(_, output)| output)
 }
 
 /// A JSON or YAML file parsed once, so several sets of operations are planned against it without parsing it again:

@@ -97,7 +97,12 @@ impl Plugin for Varlock {
 fn env_files(cx: &PluginContext<'_>, path: &str) -> Vec<String> {
     let absolute = cx.dir.join(path);
     if cx.fs.is_dir(&absolute) {
-        find_files(cx.fs, cx.globs, cx.dir, &[join_rel(path, ".env"), join_rel(path, ".env.*")])
+        find_files(
+            cx.fs,
+            cx.globs,
+            cx.dir,
+            &[join_rel(path, ".env"), join_rel(path, ".env.*")],
+        )
     } else if cx.fs.is_file(&absolute) {
         vec![path.to_owned()]
     } else {

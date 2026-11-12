@@ -886,9 +886,18 @@ fn a_document_parsed_once_plans_every_set_as_plan_edits_does() {
     let sets: Vec<Vec<FixOp>> = vec![
         vec![set(&["version"], json!("2.0.0"))],
         vec![remove(&["missing"])],
-        vec![FixOp::text("package.json", TextEdit::new(4, 4, "\"b\" \"c\",".to_owned()))],
-        vec![set(&["dependencies", "lodash"], json!("^4.17.21")), rename(&["dependencies", "zod"], "valibot")],
-        vec![remove(&["name"]), insert(&[], "private", json!(true), InsertPosition::End)],
+        vec![FixOp::text(
+            "package.json",
+            TextEdit::new(4, 4, "\"b\" \"c\",".to_owned()),
+        )],
+        vec![
+            set(&["dependencies", "lodash"], json!("^4.17.21")),
+            rename(&["dependencies", "zod"], "valibot"),
+        ],
+        vec![
+            remove(&["name"]),
+            insert(&[], "private", json!(true), InsertPosition::End),
+        ],
         vec![set(&["version"], json!("3.0.0"))],
     ];
     let document = Document::parse(source, FileKind::Json).unwrap();
