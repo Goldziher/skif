@@ -145,6 +145,11 @@ const IMPORTED_EXPORT_CATEGORIES: [&str; 5] = ["exports", "types", "nsExports", 
 /// namespace used as a whole, `import()` or `require` of the module, or a star re-export of it.
 const WHOLE_MODULE: &str = "*";
 
+/// The categories of a finding only skif reports that `non-member-project` sets apart below a project that is not one of
+/// knip's workspaces: they follow from the project's own entry files, plugins, configs and manifest, which a recursive
+/// skif run lints the project with and knip does not read there.
+const NON_MEMBER_SKIF_CATEGORIES: [&str; 3] = ["files", "unlisted", "binaries"];
+
 /// The manifest categories of a listed package that an import makes used.
 const IMPORTED_CATEGORIES: [&str; 3] = ["dependencies", "devDependencies", "optionalPeerDependencies"];
 
@@ -204,7 +209,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 19] = [
     },
     Deviation {
         id: NON_MEMBER_PROJECT,
-        reason: "knip reports these findings in a file (unused files, exports, types, members, duplicates and unresolved imports, and unlisted dependencies that the file's own `package.json` lists) below a directory with its own `package.json` (one with fields besides `type`, `sideEffects` and `imports`) that is not one of knip's workspaces (as in `knip-unjudged-manifest`). knip counts such files to an enclosing workspace, without the entry files, plugins and dependencies of their own manifest; skif's analysis of the enclosing workspace skips the directory, and a recursive run lints it as a root of its own when no workspace member encloses it (ADR 0022), where its exports, types, members and duplicates stay compared. The harness checks the manifests, not why skif has no finding for each one",
+        reason: "knip reports these findings in a file (unused files, exports, types, members, duplicates and unresolved imports, and unlisted dependencies that the file's own `package.json` lists) below a directory with its own `package.json` (one with fields besides `type`, `sideEffects` and `imports`) that is not one of knip's workspaces (as in `knip-unjudged-manifest`). knip counts such files to an enclosing workspace, without the entry files, plugins and dependencies of their own manifest; skif's analysis of the enclosing workspace skips the directory, and a recursive run lints it as a root of its own when no workspace member encloses it (ADR 0022), where its exports, types, members and duplicates stay compared. On skif's side, an unused file, unlisted dependency or unlisted binary only skif reports below such a project is set apart too: a recursive run lints the project with its own entry files, plugins, configs and manifest (a package its `.eslintrc.json` or `project.json` names), which knip does not read there; a binary on a `package.json` that knip reports anything on stays compared. The harness checks the manifests, not why skif has no finding for each one",
     },
     Deviation {
         id: SKIPPED_DIRECTORY,
@@ -1402,6 +1407,7 @@ impl Classifier<'_> {
         if side == Side::Skif {
             return skif_only_deviation(category, key, self.foreign_paths)
                 .or_else(|| self.unjudged_manifest(category, path).then_some(KNIP_UNJUDGED_MANIFEST))
+                .or_else(|| self.skif_non_member_project(category, path).then_some(NON_MEMBER_PROJECT))
                 .or_else(|| in_unused_file(category, path, self.knip_unused_files).then_some(IN_KNIP_UNUSED_FILE))
                 .or_else(|| {
                     used_in_unused_file(self.skif_unused_imports, category, key).then_some(USED_IN_SKIF_UNUSED_FILE)
@@ -1454,6 +1460,14 @@ impl Classifier<'_> {
                 .strip_suffix("/package.json")
                 .is_some_and(|dir| !self.layout.is_workspace(dir))
             && !self.knip_manifests.contains(path)
+    }
+
+    /// Whether a finding only skif reports in [`NON_MEMBER_SKIF_CATEGORIES`] lies below a project directory that is not
+    /// one of knip's workspaces; a binary on a `package.json` that knip reports anything on stays compared.
+    fn skif_non_member_project(&self, category: &str, path: &str) -> bool {
+        NON_MEMBER_SKIF_CATEGORIES.contains(&category)
+            && !self.knip_manifests.contains(path)
+            && self.layout.non_member_project(path).is_some()
     }
 
     /// Whether a finding only knip reports in a file (any category but the manifest ones) lies below a project
@@ -3311,13 +3325,28 @@ mod tests {
                 );
             }
             for (category, key) in [
+                ("unlisted", "examples/app/src/a.ts|react"),
+                ("unlisted", "examples/app/.eslintrc.json|@nrwl/eslint-plugin-nx"),
+                ("binaries", "examples/app/.github/workflows/ci.yml|turbo"),
+                ("files", "examples/app/src/orphan.ts"),
+            ] {
+                assert_eq!(
+                    classifier.classify(Side::Skif, category, key),
+                    Some(NON_MEMBER_PROJECT),
+                    "{category} {key}"
+                );
+            }
+            for (category, key) in [
                 ("dependencies", "packages/a/package.json|left-pad"),
                 ("dependencies", "package.json|left-pad"),
                 ("dependencies", "judged/package.json|left-pad"),
-                ("unlisted", "examples/app/src/a.ts|react"),
-                ("binaries", "examples/app/.github/workflows/ci.yml|turbo"),
+                ("binaries", "judged/package.json|turbo"),
+                ("exports", "examples/app/src/a.ts|unused"),
+                ("unresolved", "examples/app/src/a.ts|./gone"),
+                ("unlisted", "packages/a/src/a.ts|react"),
+                ("files", "packages/a/src/orphan.ts"),
             ] {
-                assert_eq!(classifier.classify(Side::Skif, category, key), None, "{key}");
+                assert_eq!(classifier.classify(Side::Skif, category, key), None, "{category} {key}");
             }
             assert_eq!(
                 classifier.classify(Side::Tool, "dependencies", "examples/app/package.json|left-pad"),
@@ -3386,7 +3415,13 @@ mod tests {
             }
             assert_eq!(
                 classifier.classify(Side::Skif, "files", "examples/app/src/index.ts"),
-                None
+                Some(NON_MEMBER_PROJECT),
+                "a recursive run lints the project with its own entry files"
+            );
+            assert_eq!(
+                classifier.classify(Side::Skif, "exports", "examples/app/src/a.ts|unused"),
+                None,
+                "knip judges the exports of the project from the enclosing workspace"
             );
         });
     }
