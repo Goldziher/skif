@@ -128,6 +128,7 @@ old one.
 | 0118 | [Local Nx Plugins and Executor-Run Conventions in Nx Projects](0118-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md) | accepted |
 | 0119 | [Lerna Configuration, Task-Ordering Dependencies, Grouping Directories and Prune Output](0119-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md) | accepted |
 | 0120 | [Working Directories, Binaries Missing Where a Command Runs, and npm's Linked Strategy](0120-working-directories-binaries-missing-where-a-command-runs-and-npm-s-linked-strategy.md) | accepted |
+| 0123 | [Publicly Hoisted Packages as Available Dependencies](0123-publicly-hoisted-packages-as-available-dependencies.md) | accepted |
 
 ## Effective statements
 
