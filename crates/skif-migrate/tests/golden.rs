@@ -1867,8 +1867,7 @@ fn merging_knip_keeps_its_production_entries_and_reasons_over_the_plain_existing
         "knip.ts",
         "export default {\n    // test suites\n    ignoreWorkspaces: ['playground/**'],\n    workspaces: { app: { entry: ['src/main.js!'] } },\n};\n",
     );
-    let existing =
-        "[js]\nenabled = true\nignore-workspaces = [\"playground/**\"]\n\n[js.workspaces.app]\nentry = [\"src/main.js\"]\n";
+    let existing = "[js]\nenabled = true\nignore-workspaces = [\"playground/**\"]\n\n[js.workspaces.app]\nentry = [\"src/main.js\"]\n";
     let merged = migration.merge_into(existing).unwrap();
     assert!(
         merged.toml.starts_with(

@@ -912,7 +912,9 @@ mod tests {
         )
         .unwrap();
         assert!(
-            merged.toml.starts_with("[workspace]\nignore-packages = [\"a\",\"a!\"]\n"),
+            merged
+                .toml
+                .starts_with("[workspace]\nignore-packages = [\"a\",\"a!\"]\n"),
             "{}",
             merged.toml
         );
