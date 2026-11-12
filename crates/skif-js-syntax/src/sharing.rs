@@ -1,7 +1,9 @@
 //! The bindings of a config module whose value code the evaluator does not follow may change.
 //!
 //! The evaluator copies values: `const a = cfg; a.x = 1` changes its copy of `a`, not `cfg`, and a function it does not
-//! call, or calls for its value only, does not change what it captures. This pass finds, by symbol, the bindings such
+//! call, or calls for its value only, does not change what it captures. An import counts as a binding of the module
+//! here, as the evaluator reads it as its module computes it, but for an imported function or class called, whose
+//! result holds none of the module's locals. This pass finds, by symbol, the bindings such
 //! code may change: one a nested function assigns or changes, and one that may share an object with a binding that is
 //! changed (`const a = cfg`, `{ test: t }`, `{ ...base }`, `f(cfg)`). Reading one of them yields a value that says it
 //! may hold more than the evaluator saw.
@@ -156,6 +158,8 @@ pub(crate) struct Unstable {
     calls_back: HashSet<Span>,
     /// The calls of a local by name that holds a function the pass does not follow, by span.
     called_values: HashSet<Span>,
+    /// The names of the module's namespace imports.
+    namespaces: HashSet<String>,
     /// The references that are the only one of a binding no other module can read and that are read once per binding:
     /// not in a loop, nor in a function other than the binding's own, and not of an alias the evaluator follows. None
     /// when the module reads `arguments` or calls `eval`, which reach bindings without a reference.
@@ -220,6 +224,12 @@ impl Unstable {
             objects: std::mem::take(&mut sharing.objects),
             calls_back: std::mem::take(&mut sharing.calls_back),
             called_values: std::mem::take(&mut sharing.called_values),
+            namespaces: sharing
+                .known
+                .namespaces
+                .iter()
+                .map(|&symbol| scoping.symbol_name(symbol).to_owned())
+                .collect(),
             sole,
             ..Self::default()
         };
@@ -299,6 +309,11 @@ impl Unstable {
     /// `const addAlias = aliaser(config)`), which may change what the local holds and was made from.
     pub(crate) fn calls_value(&self, call: &CallExpression<'_>) -> bool {
         self.called_values.contains(&call.span)
+    }
+
+    /// Whether `object` is the binding of a namespace import, whose methods are taken to change nothing of it.
+    pub(crate) fn is_namespace(&self, object: &Expression<'_>) -> bool {
+        matches!(object.get_inner_expression(), Expression::Identifier(id) if self.namespaces.contains(id.name.as_str()))
     }
 
     /// Whether a change made through the argument `id` of a call may be read after the call: `id` is not the only
@@ -465,8 +480,10 @@ impl AppliedAlias {
 }
 
 impl Sharing<'_> {
+    /// The binding a reference reads or writes, an import included: a change of what an import holds is read where the
+    /// import is ([`Unstable::of_top`]).
     fn symbol(&self, id: &IdentifierReference<'_>) -> Option<SymbolId> {
-        local_symbol(self.scoping, id)
+        resolved(self.scoping, id)
     }
 
     fn names(&self) -> Names<'_> {
@@ -598,6 +615,9 @@ impl Sharing<'_> {
     /// Records the change `call` makes of the object `target` it is given or called on ([`changed_by_call`]): a new
     /// value of the key it defines on a part of a local ([`property_defined`]), or a change of what that object holds.
     fn change_target(&mut self, call: &CallExpression<'_>, target: &Expression<'_>) {
+        if is_namespace(self.names(), target) {
+            return;
+        }
         match (property_defined(call), self.place(target)) {
             (Some(key), Some((place, true))) => self.changed(
                 place.symbol,
@@ -1610,7 +1630,7 @@ impl Refs<'_> {
         if self.part == Part::Body {
             return;
         }
-        if let Some(symbol) = local_symbol(self.scoping, id) {
+        if let Some(symbol) = resolved(self.scoping, id) {
             self.out.push(Held {
                 symbol,
                 keys,
@@ -1766,8 +1786,13 @@ impl<'a> Visit<'a> for Refs<'_> {
             Expression::Identifier(id) if calls_callable(self.scoping, self.callables, it) => {
                 return self.hold(id, Vec::new(), true);
             }
-            // Any other function called by name stands for what it returns, which may hold what it is given.
-            Expression::Identifier(id) => self.hold(id, Vec::new(), true),
+            // Any other local function called by name stands for what it returns, which may hold what it is given; an
+            // imported one holds none of the module's locals.
+            Expression::Identifier(id) => {
+                if local_symbol(self.scoping, id).is_some() {
+                    self.hold(id, Vec::new(), true);
+                }
+            }
             // A method may return a part of the object it is called on (`list.find(…)`, `list.slice()`, `list.sort()`)
             // unless it returns a value of its own.
             Expression::StaticMemberExpression(member)
@@ -1792,7 +1817,21 @@ impl<'a> Visit<'a> for Refs<'_> {
     }
 
     fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
-        self.opaque(|refs| walk::walk_new_expression(refs, it));
+        // An object of a class holds what it is given and what a local class holds; an imported class holds none of
+        // the module's locals.
+        self.opaque(|refs| {
+            match it.callee.get_inner_expression() {
+                Expression::Identifier(id) => {
+                    if local_symbol(refs.scoping, id).is_some() {
+                        refs.hold(id, Vec::new(), true);
+                    }
+                }
+                callee => refs.visit_expression(callee),
+            }
+            for argument in &it.arguments {
+                refs.visit_argument(argument);
+            }
+        });
     }
 
     fn visit_tagged_template_expression(&mut self, it: &TaggedTemplateExpression<'a>) {
@@ -2191,6 +2230,8 @@ struct Known {
     /// The `const` bindings of an object whose methods the pass knows ([`creates_builtin`]), or of what
     /// `createRequire` returns, whose `resolve` changes nothing.
     builtins: HashSet<SymbolId>,
+    /// The bindings of a namespace import (`import * as shared from './shared'`).
+    namespaces: HashSet<SymbolId>,
 }
 
 /// The bindings of `program` [`Known`] holds.
@@ -2271,6 +2312,7 @@ impl<'a> Visit<'a> for FindKnown<'_> {
                 }
                 ImportDeclarationSpecifier::ImportNamespaceSpecifier(s) => {
                     self.bind(s.local.symbol_id.get(), &specifier, None);
+                    self.known.namespaces.extend(s.local.symbol_id.get());
                 }
             }
         }
@@ -2340,6 +2382,15 @@ fn creates_builtin(scoping: &Scoping, expr: &Expression<'_>) -> bool {
         Expression::NewExpression(new) => constructs_builtin(scoping, new),
         _ => false,
     }
+}
+
+/// Whether `expr` is the binding of a namespace import, an object whose keys no code can change: a method called on
+/// it is taken to change nothing of it.
+fn is_namespace(names: Names<'_>, expr: &Expression<'_>) -> bool {
+    matches!(
+        expr.get_inner_expression(),
+        Expression::Identifier(id) if resolved(names.scoping, id).is_some_and(|symbol| names.known.namespaces.contains(&symbol))
+    )
 }
 
 /// The symbol a reference resolves to, an import included; `None` for a global the module does not declare.

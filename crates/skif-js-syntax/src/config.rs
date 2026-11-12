@@ -2226,7 +2226,13 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         let Some(&init) = self.consts.get(name) else {
             return match self.functions.get(name) {
                 Some(callable) => self.invoke(*callable, None, true, depth),
-                None => self.import_value(name, None).unwrap_or_else(|| self.global(name)),
+                None => match self.import_value(name, None) {
+                    Some(value) => {
+                        let (value, definite) = value.split();
+                        Value::doubtful(self.changed_top(name, value), definite)
+                    }
+                    None => self.global(name),
+                },
             };
         };
         if let Some(known) = self.evaluated.borrow().get(name) {
@@ -2246,8 +2252,23 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         let (value, definite) = self.expr(init, 0).split();
         *self.frames.borrow_mut() = saved;
         self.chain.borrow_mut().pop();
-        let value = match self.changed.get(name) {
-            _ if node_count(&value) > MAX_CONST_NODES => Value::Unknown,
+        let value = if node_count(&value) > MAX_CONST_NODES {
+            Value::Unknown
+        } else {
+            self.changed_top(name, value)
+        };
+        let value = Value::doubtful(value, definite);
+        // A value an import cycle or budget cut short depends on the order of evaluation; it is computed again.
+        if self.modules.map(|modules| modules.cuts.get()) == cuts {
+            self.evaluated.borrow_mut().insert(name.to_owned(), value.clone());
+        }
+        value
+    }
+
+    /// `value` of the top-level binding `name`, a constant or an import, as the top-level statements the evaluator does
+    /// not run ([`TopLevel::changed`]) and code it does not follow ([`Unstable::of_top`]) may leave it.
+    fn changed_top(&self, name: &str, value: Value) -> Value {
+        match self.changed.get(name) {
             Some(TopChange::Assigned) => changed(value),
             written => {
                 let mut value = value;
@@ -2261,13 +2282,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     None => value,
                 }
             }
-        };
-        let value = Value::doubtful(value, definite);
-        // A value an import cycle or budget cut short depends on the order of evaluation; it is computed again.
-        if self.modules.map(|modules| modules.cuts.get()) == cuts {
-            self.evaluated.borrow_mut().insert(name.to_owned(), value.clone());
         }
-        value
     }
 
     /// The innermost binding of `name` in the functions being evaluated.
@@ -2534,7 +2549,10 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             (Expression::ImportMeta(_), "file") => Value::String(self.file.to_owned()),
             (url @ Expression::NewExpression(_), "pathname") => self.expr(url, depth),
             (Expression::Identifier(namespace), _) if self.is_namespace(namespace.name.as_str()) => {
-                self.namespace_member(namespace.name.as_str(), property)
+                // What the module changes below the namespace, at the export read, applies to it.
+                let name = namespace.name.as_str();
+                let exports = Value::Object(vec![(property.to_owned(), self.namespace_member(name, property))]);
+                property_of(&self.changed_top(name, exports), property)
             }
             _ => return None,
         })
@@ -4435,7 +4453,9 @@ impl<'a> Visit<'a> for Writes<'_> {
         {
             self.change(callee.name.as_str(), Write::default());
         }
-        if let Some(target) = changed_by_call(it, self.unstable.is_pure(it), self.unstable.calls_back(it)) {
+        if let Some(target) = changed_by_call(it, self.unstable.is_pure(it), self.unstable.calls_back(it))
+            && !self.unstable.is_namespace(target)
+        {
             match (property_defined(it), reach(target)) {
                 (Some(key), Some((root, keys, true))) => self.change(root.name.as_str(), Write { keys, key: Some(key) }),
                 _ => self.object(target),
