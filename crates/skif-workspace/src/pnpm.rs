@@ -27,6 +27,10 @@ pub struct YamlSource {
     pub minimum_release_age: Option<u64>,
     /// pnpm's `nodeLinker` (`isolated`, `hoisted` or `pnp`) as written, when it is a string.
     pub node_linker: Option<String>,
+    /// pnpm's `publicHoistPattern`, in order, when it is a list of strings or one string.
+    pub public_hoist_pattern: Option<Vec<String>>,
+    /// pnpm's `shamefullyHoist`, when it is a boolean.
+    pub shamefully_hoist: Option<bool>,
 }
 
 impl YamlSource {
@@ -156,6 +160,8 @@ pub(crate) struct PnpmWorkspace {
     pub overrides: Vec<(String, String)>,
     pub minimum_release_age: Option<u64>,
     pub node_linker: Option<String>,
+    pub public_hoist_pattern: Option<Vec<String>>,
+    pub shamefully_hoist: Option<bool>,
 }
 
 pub(crate) fn parse(path: &Path, source: &str) -> Result<PnpmWorkspace, WorkspaceError> {
@@ -197,12 +203,23 @@ pub(crate) fn parse(path: &Path, source: &str) -> Result<PnpmWorkspace, Workspac
         .unwrap_or_default();
     let minimum_release_age = document.get("minimumReleaseAge").and_then(Value::as_u64);
     let node_linker = document.get("nodeLinker").and_then(Value::as_str).map(str::to_owned);
+    let public_hoist_pattern = match document.get("publicHoistPattern") {
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| item.as_str().map(str::to_owned))
+            .collect::<Option<Vec<_>>>(),
+        Some(Value::String(pattern)) => Some(vec![pattern.clone()]),
+        _ => None,
+    };
+    let shamefully_hoist = document.get("shamefullyHoist").and_then(Value::as_bool);
     Ok(PnpmWorkspace {
         packages,
         catalogs,
         overrides,
         minimum_release_age,
         node_linker,
+        public_hoist_pattern,
+        shamefully_hoist,
     })
 }
 
@@ -305,6 +322,8 @@ mod tests {
             overrides: Vec::new(),
             minimum_release_age: None,
             node_linker: None,
+            public_hoist_pattern: None,
+            shamefully_hoist: None,
         }
     }
 
@@ -421,5 +440,32 @@ mod tests {
         assert_eq!(read("nodeLinker: 'isolated'\n").ok(), Some(Some("isolated".to_owned())));
         assert_eq!(read("nodeLinker: 1\n").ok(), Some(None));
         assert_eq!(read("packages: []\n").ok(), Some(None));
+    }
+
+    #[test]
+    fn public_hoisting_settings_are_read_when_well_typed() {
+        let patterns = |text: &str| {
+            parse(Path::new("pnpm-workspace.yaml"), text)
+                .map(|parsed| parsed.public_hoist_pattern)
+                .ok()
+        };
+        let owned = |items: &[&str]| Some(Some(items.iter().map(|item| (*item).to_owned()).collect::<Vec<_>>()));
+        assert_eq!(
+            patterns("publicHoistPattern:\n  - '*eslint*'\n  - '!eslint-config-x'\n"),
+            owned(&["*eslint*", "!eslint-config-x"])
+        );
+        assert_eq!(patterns("publicHoistPattern: []\n"), owned(&[]));
+        assert_eq!(patterns("publicHoistPattern: '*types*'\n"), owned(&["*types*"]));
+        assert_eq!(patterns("publicHoistPattern: [a, 1]\n"), Some(None));
+        assert_eq!(patterns("packages: []\n"), Some(None));
+        let shamefully = |text: &str| {
+            parse(Path::new("pnpm-workspace.yaml"), text)
+                .map(|parsed| parsed.shamefully_hoist)
+                .ok()
+        };
+        assert_eq!(shamefully("shamefullyHoist: true\n"), Some(Some(true)));
+        assert_eq!(shamefully("shamefullyHoist: false\n"), Some(Some(false)));
+        assert_eq!(shamefully("shamefullyHoist: 'yes'\n"), Some(None));
+        assert_eq!(shamefully("packages: []\n"), Some(None));
     }
 }
