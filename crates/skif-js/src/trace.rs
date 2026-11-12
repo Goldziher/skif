@@ -461,7 +461,12 @@ impl JsAnalysis<'_> {
         counted: &BTreeSet<ModuleId>,
     ) -> PackageDependencyUsage {
         let entry = package.dependencies.iter().find(|entry| &*entry.name == name);
-        let credit = self.dependencies.credit(id, name);
+        // Without a listing only recorded uses credit the package: the `@types`, peer and always-used rules say why a
+        // listing would be used, and an import of an unlisted package uses none.
+        let credit = self
+            .dependencies
+            .credit(id, name)
+            .filter(|credit| entry.is_some() || matches!(credit, Credit::Uses(_)));
         let verdict = match (&credit, entry) {
             (Some(_), _) => DependencyVerdict::Used,
             (None, None) => DependencyVerdict::NotListed,

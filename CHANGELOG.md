@@ -122,6 +122,9 @@ All notable changes to this project are documented here. The format follows
 - `explain-usage`: the source of the build output a script runs (`node dist/cli.js` for `src/cli.ts`) has the entry
   kind `script`, and a file an extensionless `bin` stub loads the new kind `bin-stub` (`skif_js::EntryReason` gains
   `BinStub`), instead of `unknown`.
+- `explain-usage --dependency` no longer calls a dependency used by a package that does not list it because of the
+  `@types`, peer or always-used rules: such a package's verdict is `not listed`, without a credit, as for the unlisted
+  import it holds.
 - **Bazel plugin**: a label of an enclosing package's `node_modules` (`"//adev:node_modules/diff"`) in a `BUILD` file of
   a nested package counts only for the package it names; the nested package's own listing of the dependency was used
   by it as well, which hid an `unused-dependencies` finding. A dependency so named that the labelled package does not
