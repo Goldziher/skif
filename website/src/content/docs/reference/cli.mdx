@@ -8,7 +8,7 @@ skif [OPTIONS] [PATH]
 skif rules [--format human|json]
 skif schema
 skif init [PATH]
-skif config [PATH] [-r] (--show | --explain <KEY> [--package <NAME>]) [--format human|json]
+skif config [PATH] [-r] (--show | --explain <KEY> [--package <NAME>]) [--config <FILE> | --no-config] [--format human|json]
 skif explain-usage <FILE[#EXPORT]> [PATH]
 skif migrate [PATH] [--from sherif|syncpack|knip|auto,...] [--profile exact|full] [--merge | --force] [--dry-run]
 skif baseline write|prune [PATH] [-r | --file <FILE>] [LINT FLAGS] [--format human|json]
@@ -132,6 +132,7 @@ root at or below `PATH`. Paths are printed relative to the root (or, with `-r`, 
 | `--show` | Print the configuration files in the order they apply, each as `root`, `ancestor`, `extended by <file>` or `explicit`, then the effective merged configuration as TOML. |
 | `--explain <KEY>` | Print every assignment of `KEY` (`lint.fail-on-warnings`, `rules.ID.level`, `js.ignore-dependencies`, `version-groups[0]`), oldest first, as `file:line:column` with the operation `set`, `append`, `prepend` or `reset`, and the final value. A table or list key also lists the keys below it that a file set. |
 | `--package <NAME>` | With `--explain`, also list the `[[overrides]]` that apply to the workspace package `NAME`, with the file and line that declared each. |
+| `--config <FILE>`, `--no-config` | Report the configuration a lint run with the same flag uses: the explicit file and what it extends, or none. With `-r` and `--config`, a root below `PATH` names the directory its packages are selected by in the file's `[js.workspaces]` keys and `ignore-workspaces` globs (`# [js.workspaces] keys name this root "tools/sub"`, `workspace-keys-anchor` in JSON). |
 | `--format <human\|json>` | `json` prints one document with the same `version` and `skif` members as the other JSON outputs. |
 
 An unknown key exits `2` and names the closest keys.
