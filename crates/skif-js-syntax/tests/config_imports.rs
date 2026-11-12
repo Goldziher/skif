@@ -944,8 +944,9 @@ fn a_change_through_one_import_of_a_module_reaches_its_other_imports() {
 }
 
 /// Calling a function of a followed module that changes a value of a module (an import of its own, a binding it
-/// exports), or importing one for its effects, may change every value the config imports from a followed module; a
-/// module whose functions change nothing of a module leaves them known.
+/// exports, also one it re-exports from a followed module or from one that is neither followed nor installed), or
+/// importing one for its effects, may change every value the config imports from a followed module; a module whose
+/// functions change nothing of a module, its re-exports included, leaves them known.
 #[test]
 fn a_followed_module_that_changes_an_import_reaches_the_values_the_config_imports() {
     let base = "export default { root: 'src', build: { outDir: 'dist' } };";
@@ -984,6 +985,18 @@ fn a_followed_module_that_changes_an_import_reaches_the_values_the_config_import
             "const base = require('./base');\nrequire('./tweak');\nmodule.exports = base;",
             "const base = require('./base');\nbase.build.outDir = 'out';",
         ),
+        (
+            "import base from './base';\nimport { tweak } from './tools';\ntweak();\nexport default base;",
+            tweaking,
+        ),
+        (
+            "import base from './base';\nimport { tweak } from './barrel';\ntweak();\nexport default base;",
+            tweaking,
+        ),
+        (
+            "import base from './base';\nimport { tweak } from './aliased';\ntweak();\nexport default base;",
+            tweaking,
+        ),
     ] {
         let loader = files(&[
             ("/ws/app/config.ts", config),
@@ -993,6 +1006,9 @@ fn a_followed_module_that_changes_an_import_reaches_the_values_the_config_import
                 "/ws/app/apply.ts",
                 "import base from './base';\nexport function apply() { base.build.outDir = 'out'; }",
             ),
+            ("/ws/app/tools.ts", "export { tweak } from './tweak';"),
+            ("/ws/app/barrel.ts", "export * from './tools';"),
+            ("/ws/app/aliased.ts", "export { tweak } from '@app/tweak';"),
         ]);
         let value = eval(&loader);
         assert_eq!(
@@ -1001,15 +1017,18 @@ fn a_followed_module_that_changes_an_import_reaches_the_values_the_config_import
             "{config}\n{tweak}: {value:?}"
         );
     }
-    let pure = files(&[
-        (
-            "/ws/app/config.ts",
-            "import base from './base';\nimport { name } from './name';\nexport default { ...base, name: name() };",
-        ),
-        ("/ws/app/base.ts", base),
-        ("/ws/app/name.ts", "export function name() { return 'app'; }"),
-    ]);
-    let value = eval(&pure);
-    assert_eq!(read_at(&value, &["build", "outDir"]), &s("dist"), "{value:?}");
-    assert_eq!(read_at(&value, &["name"]), &s("app"), "{value:?}");
+    for config in [
+        "import base from './base';\nimport { name } from './name';\nexport default { ...base, name: name() };",
+        "import base from './base';\nimport { name } from './names';\nexport default { ...base, name: name() };",
+    ] {
+        let pure = files(&[
+            ("/ws/app/config.ts", config),
+            ("/ws/app/base.ts", base),
+            ("/ws/app/name.ts", "export function name() { return 'app'; }"),
+            ("/ws/app/names.ts", "export { name } from './name';\nexport * from 'some-package';"),
+        ]);
+        let value = eval(&pure);
+        assert_eq!(read_at(&value, &["build", "outDir"]), &s("dist"), "{config}: {value:?}");
+        assert_eq!(read_at(&value, &["name"]), &s("app"), "{config}: {value:?}");
+    }
 }

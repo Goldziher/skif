@@ -726,9 +726,10 @@ impl Modules<'_> {
     }
 
     /// Whether a function of the followed module `specifier` names from `from` may change a value of a module when it
-    /// is called ([`Unstable::changes_modules`]): so it may when the module does not parse, when finding out would
-    /// reach past [`MAX_IMPORT_DEPTH`] or [`MAX_MODULE_LOADS`] modules, and in a cycle of modules whose functions call
-    /// each other's. Not one of a module that is not followed, whose functions the config's analysis does not reach.
+    /// is called ([`Unstable::changes_modules`]), one it re-exports included ([`Self::reexports_change_modules`]): so
+    /// it may when the module does not parse, when finding out would reach past [`MAX_IMPORT_DEPTH`] or
+    /// [`MAX_MODULE_LOADS`] modules, and in a cycle of modules whose functions call each other's. Not one of a module
+    /// that is not followed, whose functions the config's analysis does not reach.
     fn changes_modules(&self, from: &Path, specifier: &str) -> bool {
         let Some((path, source)) = self.load(from, specifier) else {
             return false;
@@ -767,6 +768,30 @@ impl Modules<'_> {
             },
         )
         .changes_modules()
+            || self.reexports_change_modules(path, &ret.program)
+    }
+
+    /// Whether a function the module at `path` re-exports (`export { tweak } from './tweak'`, `export * from './tools'`)
+    /// may change a value of a module when it is called: one of a followed module that may ([`Self::changes_modules`]),
+    /// or of a module that is neither followed nor an installed package ([`ModuleLoader::is_installed`]), whose code is
+    /// not known.
+    fn reexports_change_modules(&self, path: &Path, program: &Program<'_>) -> bool {
+        program
+            .body
+            .iter()
+            .filter_map(|stmt| match stmt {
+                Statement::ExportFromDeclaration(e) if !e.export_kind.is_type() => Some(&e.source),
+                Statement::ExportAllDeclaration(e) if !e.export_kind.is_type() => Some(&e.source),
+                _ => None,
+            })
+            .any(|source| {
+                let specifier = crate::js_string(source.value);
+                if self.follows(path, &specifier) {
+                    self.changes_modules(path, &specifier)
+                } else {
+                    !self.is_installed(path, &specifier)
+                }
+            })
     }
 
     /// The value `imported` names in the module `specifier` resolves to from `from`, called with `args` when given.
