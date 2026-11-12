@@ -266,6 +266,7 @@ fn resolve_inheriting(
         modules: None,
         nx: None,
         globs: &GlobCache::new(),
+        sources: None,
     };
     resolve_plugins(&ctx)
 }
@@ -294,6 +295,7 @@ fn resolve_with_scripts(
         modules: None,
         nx: None,
         globs: &GlobCache::new(),
+        sources: None,
     };
     resolve_plugins(&ctx)
 }
@@ -3970,6 +3972,7 @@ fn biome_root_reference_is_the_config_of_the_farthest_ancestor() {
         modules: None,
         nx: None,
         globs: &GlobCache::new(),
+        sources: None,
     };
     let results = resolve_plugins(&ctx);
     let out = output(&results, "biome");
@@ -4293,6 +4296,80 @@ fn pino_transport_targets_are_dependencies_or_entries() {
     let out = output(&results, "pino");
     assert_deps(out, &["pino-pretty", "@axiomhq/pino", "pino-syslog"]);
     assert_entries(&out.entries, &["src/transports/file.mjs"]);
+}
+
+/// Counts the reads of each file of a [`MemoryFs`].
+struct CountingReads {
+    inner: MemoryFs,
+    reads: std::sync::Mutex<std::collections::BTreeMap<PathBuf, usize>>,
+}
+
+impl skif_core::FileSystem for CountingReads {
+    fn read_to_string(&self, path: &Path) -> std::io::Result<std::sync::Arc<str>> {
+        *self.reads.lock().unwrap().entry(path.to_path_buf()).or_default() += 1;
+        self.inner.read_to_string(path)
+    }
+
+    fn read_dir(&self, path: &Path) -> std::io::Result<Vec<skif_core::DirEntry>> {
+        self.inner.read_dir(path)
+    }
+
+    fn is_file(&self, path: &Path) -> bool {
+        self.inner.is_file(path)
+    }
+
+    fn is_dir(&self, path: &Path) -> bool {
+        self.inner.is_dir(path)
+    }
+}
+
+/// The plugins that search the sources of a package (`execa`, `zx`, `nano-spawn`) read each source file once between
+/// them, and each finds the commands it finds on its own.
+#[test]
+fn source_scanning_plugins_read_each_source_file_once() {
+    let files = [
+        (
+            "scripts/release.ts",
+            r#"import { execa } from "execa"; await execa("changeset", ["publish"]);"#,
+        ),
+        ("scripts/deploy.mjs", "#!/usr/bin/env zx\nawait $`wrangler deploy`;\n"),
+        (
+            "scripts/check.js",
+            r#"import spawn from "nano-spawn"; await spawn("eslint", ["."]);"#,
+        ),
+        ("src/plain.ts", "export const answer = 42;\n"),
+    ];
+    let fs = CountingReads {
+        inner: fs_with(&files),
+        reads: std::sync::Mutex::default(),
+    };
+    let dependencies: Vec<String> = ["execa", "zx", "nano-spawn"].map(str::to_owned).to_vec();
+    let scripts = IndexMap::new();
+    let plugins = IndexMap::new();
+    let ctx = PluginContext {
+        dir: Path::new(DIR),
+        is_root: true,
+        package_name: Some("app"),
+        dependencies: &dependencies,
+        inherited_dependencies: &[],
+        scripts: &scripts,
+        fs: &fs,
+        plugins: &plugins,
+        modules: None,
+        nx: None,
+        globs: &GlobCache::new(),
+        sources: None,
+    };
+    let results = resolve_plugins(&ctx);
+
+    let binaries = |id: &str| output(&results, id).referenced_binaries.clone();
+    for (id, binary) in [("execa", "changeset"), ("zx", "wrangler"), ("nano-spawn", "eslint")] {
+        assert!(binaries(id).contains(&binary.to_owned()), "{id}: {:?}", binaries(id));
+    }
+    let reads = fs.reads.lock().unwrap();
+    for (path, _) in &files {
+        assert_eq!(reads.get(&Path::new(DIR).join(path)), Some(&1), "{path}: {reads:?}");
+    }
 }
 
 #[test]
@@ -4816,6 +4893,7 @@ fn react_email_looks_for_the_installed_version_up_to_the_workspace_root() {
             modules: None,
             nx: None,
             globs: &GlobCache::new(),
+            sources: None,
         };
         resolve_plugins(&ctx)
     };
@@ -6541,6 +6619,7 @@ fn resolve_in_tree(files: &[(&str, &str)], dir: &str, is_root: bool) -> Vec<(Plu
         modules: None,
         nx: None,
         globs: &GlobCache::new(),
+        sources: None,
     };
     resolve_plugins(&ctx)
 }
