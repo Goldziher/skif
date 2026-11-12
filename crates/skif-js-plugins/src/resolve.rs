@@ -22,6 +22,7 @@ use crate::registry;
 use crate::scopes::{NxProjects, ScopeShared, merge, rebase, scope_dir, within_package};
 use crate::script_config::{config_flags, config_paths, flag_values};
 use crate::scripts::{BinaryVia, ScriptContext, is_ignored_binary, parse_script};
+use crate::sources::PackageSources;
 use crate::support::{is_relative, join_lexically, join_rel, looks_like_file};
 
 const MAX_CONFIG_DEPTH: u8 = 16;
@@ -99,8 +100,10 @@ fn resolve_detected(
     detection: &Detection<'_>,
     nx_enabled: bool,
 ) -> Vec<(PluginId, PluginOutput)> {
+    let package_sources = PackageSources::new(ctx.dir);
     let ctx = &PluginContext {
         nx: if nx_enabled { Some(projects) } else { ctx.nx },
+        sources: Some(PackageSources::of(ctx).unwrap_or(&package_sources)),
         ..*ctx
     };
     let project_files: Vec<String> = projects.dirs.iter().map(|dir| join_rel(dir, "project.json")).collect();
@@ -174,7 +177,11 @@ fn run_in_scopes(
     }
     for scope in scopes {
         let dir = scope_dir(ctx, scope);
-        let scope_ctx = shared.context(ctx, &dir);
+        let scope_sources = PackageSources::new(&dir);
+        let scope_ctx = PluginContext {
+            sources: Some(&scope_sources),
+            ..shared.context(ctx, &dir)
+        };
         let files = list_files(ctx.fs, &dir);
         let listing = Listing::new(&files, ctx.globs);
         let executors = nx::executor_plugins(&scope_ctx);
@@ -1047,6 +1054,7 @@ mod tests {
             modules: None,
             nx: None,
             globs: &GLOBS,
+            sources: None,
         }
     }
 
@@ -1163,6 +1171,7 @@ mod tests {
             modules: None,
             nx: None,
             globs: &GlobCache::new(),
+            sources: None,
         };
         let configs = ConfigCache::default();
         let mut collector = Collector {
@@ -1217,6 +1226,7 @@ mod tests {
             modules: None,
             nx: None,
             globs: &GlobCache::new(),
+            sources: None,
         };
         let text = |value: &str| ConfigValue::String(value.to_owned());
         let arguments = [
@@ -1281,6 +1291,7 @@ mod tests {
             modules: None,
             nx: None,
             globs: &GlobCache::new(),
+            sources: None,
         };
         let text = |value: &str| ConfigValue::String(value.to_owned());
         for key in ["testIgnore", "watchExclude", "excludeFiles"] {

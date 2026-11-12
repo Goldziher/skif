@@ -148,6 +148,7 @@ impl ScopeShared {
             modules: owner.modules,
             nx: None,
             globs: owner.globs,
+            sources: None,
         }
     }
 }

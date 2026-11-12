@@ -31,6 +31,7 @@ fn resolve(files: &[(&str, &str)], dependencies: &[&str], id: &str) -> PluginOut
         modules: None,
         nx: None,
         globs: &GlobCache::new(),
+        sources: None,
     };
     resolve_plugins(&ctx)
         .into_iter()

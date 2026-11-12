@@ -56,6 +56,7 @@ fn context<'a>(
         modules: None,
         nx: None,
         globs: &GLOBS,
+        sources: None,
     }
 }
 
