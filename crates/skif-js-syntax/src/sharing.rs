@@ -28,15 +28,18 @@ use oxc_ast::ast::{
     Argument, ArrayExpression, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator, AssignmentPattern,
     AssignmentTargetPropertyIdentifier, BindingIdentifier, BindingPattern, CallExpression, ChainExpression,
     ComputedMemberExpression, Expression, ExpressionStatement, FormalParameter, FormalParameters, Function,
-    IdentifierReference, MemberExpression, NewExpression, ObjectExpression, ObjectPropertyKind, PrivateFieldExpression,
-    Program, PropertyKind, ReturnStatement, SimpleAssignmentTarget, StaticMemberExpression, TaggedTemplateExpression,
-    UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
+    IdentifierReference, ImportDeclaration, ImportDeclarationSpecifier, MemberExpression, NewExpression,
+    ObjectExpression, ObjectPropertyKind, PrivateFieldExpression, Program, PropertyKind, ReturnStatement,
+    SimpleAssignmentTarget, StaticMemberExpression, TaggedTemplateExpression, UnaryExpression, UnaryOperator,
+    VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::{ReferenceId, ScopeFlags, ScopeId, Scoping, SemanticBuilder, SymbolId};
+use oxc_span::Span;
 use skif_core::{HashMap, HashSet};
 
 use crate::config::defined;
+use crate::finder::static_string;
 
 /// The most keys a path below a binding keeps; a longer one is cut to this many, standing for all that is below it.
 const MAX_KEYS: usize = 8;
@@ -116,6 +119,8 @@ pub(crate) struct Unstable {
     top: HashMap<String, Change>,
     /// The aliases whose changes the evaluator applies to the local they take a part of.
     followed: HashSet<SymbolId>,
+    /// The calls of one of [`PURE_FUNCTIONS`], by span.
+    pure: HashSet<Span>,
 }
 
 impl Unstable {
@@ -124,6 +129,8 @@ impl Unstable {
         let scoping = semantic.scoping();
         let mut sharing = Sharing {
             scoping,
+            known: known(program, scoping),
+            pure: HashSet::default(),
             functions: vec![scoping.root_scope_id()],
             links: Vec::new(),
             mutated: Vec::new(),
@@ -137,6 +144,7 @@ impl Unstable {
         let followed = sharing.share();
         let mut unstable = Self {
             followed,
+            pure: std::mem::take(&mut sharing.pure),
             ..Self::default()
         };
         for (symbol, mut change) in sharing.changes {
@@ -170,6 +178,11 @@ impl Unstable {
     /// and the local is not changed directly nor by another function.
     pub(crate) fn follows(&self, id: &BindingIdentifier<'_>) -> bool {
         id.symbol_id.get().is_some_and(|symbol| self.followed.contains(&symbol))
+    }
+
+    /// Whether `call` calls one of [`PURE_FUNCTIONS`], its name resolved in the module.
+    pub(crate) fn is_pure(&self, call: &CallExpression<'_>) -> bool {
+        self.pure.contains(&call.span)
     }
 }
 
@@ -209,6 +222,10 @@ struct Held {
 
 struct Sharing<'s> {
     scoping: &'s Scoping,
+    /// What the module binds names to that the pass knows ([`known`]).
+    known: Known,
+    /// The calls of one of [`PURE_FUNCTIONS`] found, by span.
+    pure: HashSet<Span>,
     /// The scopes of the functions being visited, the module's first.
     functions: Vec<ScopeId>,
     /// Places that may hold the same object.
@@ -229,6 +246,13 @@ struct Sharing<'s> {
 impl Sharing<'_> {
     fn symbol(&self, id: &IdentifierReference<'_>) -> Option<SymbolId> {
         local_symbol(self.scoping, id)
+    }
+
+    fn names(&self) -> Names<'_> {
+        Names {
+            scoping: self.scoping,
+            known: &self.known,
+        }
     }
 
     /// The part of a local that `expr` (a name or a member chain) is, and whether it is that part exactly; see [`reach`].
@@ -363,6 +387,7 @@ impl Sharing<'_> {
     fn refs(&self, part: Part, visit: impl FnOnce(&mut Refs<'_>)) -> Vec<Held> {
         let mut refs = Refs {
             scoping: self.scoping,
+            known: &self.known,
             callables: &self.callables,
             part,
             at: Vec::new(),
@@ -645,7 +670,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
                 .iter()
                 .filter_map(|id| id.symbol_id.get())
                 .collect();
-            if whole && self.in_const && is_primitive(init) {
+            if whole && self.in_const && is_primitive(self.names(), init) {
                 self.primitives.extend(names.iter().copied());
             }
             if names.is_empty() {
@@ -727,7 +752,8 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
-        if pure_function(it).is_some() {
+        if pure_function(self.names(), it).is_some() {
+            self.pure.insert(it.span);
             return walk::walk_call_expression(self, it);
         }
         // A function the module declares passes each argument to the parameter that takes it when they are kept apart,
@@ -744,7 +770,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
                 symbol.map(|symbol| (Place::of(symbol), exact))
             }
             callee => {
-                if let Some(target) = changed_by_call(it) {
+                if let Some(target) = changed_by_call(it, false) {
                     self.mutate(target);
                 }
                 callee
@@ -765,7 +791,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
     fn visit_expression_statement(&mut self, it: &ExpressionStatement<'a>) {
         // A call made for what it does may change the objects it is given.
         if let Some(call) = statement_call(&it.expression)
-            && changes_arguments(call)
+            && changes_arguments(call, pure_function(self.names(), call).is_some())
         {
             for argument in call.arguments.iter().filter_map(Argument::as_expression) {
                 self.mutate(argument);
@@ -780,6 +806,8 @@ impl<'a> Visit<'a> for Sharing<'_> {
 /// or of [`OWN_RESULT_METHODS`]) and what a function in it reads other than what it returns.
 struct Refs<'s> {
     scoping: &'s Scoping,
+    /// What the module binds names to that the pass knows ([`known`]).
+    known: &'s Known,
     /// The functions the module declares ([`callables`]).
     callables: &'s Callables,
     /// What part of the value the code being visited is.
@@ -935,7 +963,11 @@ impl<'a> Visit<'a> for Refs<'_> {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
-        match pure_function(it) {
+        let names = Names {
+            scoping: self.scoping,
+            known: self.known,
+        };
+        match pure_function(names, it) {
             Some(Returns::Shared) => {
                 return self.opaque(|refs| {
                     for argument in &it.arguments {
@@ -1218,6 +1250,103 @@ fn calls_callable(scoping: &Scoping, callables: &Callables, call: &CallExpressio
     local_symbol(scoping, id).is_some_and(|symbol| callables.contains(symbol)) && !has_spread(call)
 }
 
+/// What the pass knows of the names of a module: how they resolve, and what the module binds them to.
+#[derive(Clone, Copy)]
+struct Names<'s> {
+    scoping: &'s Scoping,
+    known: &'s Known,
+}
+
+/// The bindings of a module the pass knows the values of ([`known`]).
+#[derive(Default)]
+struct Known {
+    /// The bindings of an import or a `require` of a module, with its specifier and the export they take: `None` for
+    /// the module itself (a default or namespace import, `const fs = require('fs')`).
+    modules: HashMap<SymbolId, (String, Option<String>)>,
+}
+
+/// The bindings of `program` [`Known`] holds.
+fn known(program: &Program<'_>, scoping: &Scoping) -> Known {
+    let mut finder = FindKnown {
+        scoping,
+        known: Known::default(),
+    };
+    finder.visit_program(program);
+    finder.known
+}
+
+/// Finds the bindings of [`known`].
+struct FindKnown<'s> {
+    scoping: &'s Scoping,
+    known: Known,
+}
+
+impl FindKnown<'_> {
+    fn bind(&mut self, symbol: Option<SymbolId>, specifier: &str, imported: Option<String>) {
+        if let Some(symbol) = symbol {
+            let imported = imported.filter(|name| name != "default");
+            self.known.modules.insert(symbol, (specifier.to_owned(), imported));
+        }
+    }
+
+    /// The module a `require('module')` of the global `require` loads.
+    fn required(&self, init: &Expression<'_>) -> Option<String> {
+        let Expression::CallExpression(call) = init.get_inner_expression() else {
+            return None;
+        };
+        match call.callee.get_inner_expression() {
+            Expression::Identifier(id) if id.name.as_str() == "require" && resolved(self.scoping, id).is_none() => {
+                call.arguments.first().and_then(Argument::as_expression).and_then(static_string)
+            }
+            _ => None,
+        }
+    }
+}
+
+impl<'a> Visit<'a> for FindKnown<'_> {
+    fn visit_import_declaration(&mut self, it: &ImportDeclaration<'a>) {
+        let specifier = crate::js_string(it.source.value);
+        for item in it.specifiers.iter().flatten() {
+            match item {
+                ImportDeclarationSpecifier::ImportSpecifier(s) => {
+                    let imported = crate::collect::module_export_name(&s.imported);
+                    self.bind(s.local.symbol_id.get(), &specifier, Some(imported));
+                }
+                ImportDeclarationSpecifier::ImportDefaultSpecifier(s) => {
+                    self.bind(s.local.symbol_id.get(), &specifier, None);
+                }
+                ImportDeclarationSpecifier::ImportNamespaceSpecifier(s) => {
+                    self.bind(s.local.symbol_id.get(), &specifier, None);
+                }
+            }
+        }
+    }
+
+    fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+        if let Some(specifier) = it.init.as_ref().and_then(|init| self.required(init)) {
+            match &it.id {
+                BindingPattern::BindingIdentifier(id) => self.bind(id.symbol_id.get(), &specifier, None),
+                BindingPattern::ObjectPattern(pattern) => {
+                    for property in &pattern.properties {
+                        if let (Some(key), BindingPattern::BindingIdentifier(id)) =
+                            (property.key.static_name(), &property.value)
+                        {
+                            self.bind(id.symbol_id.get(), &specifier, Some(crate::js_string(key.as_js_str())));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        walk::walk_variable_declarator(self, it);
+    }
+}
+
+/// The symbol a reference resolves to, an import included; `None` for a global the module does not declare.
+fn resolved(scoping: &Scoping, id: &IdentifierReference<'_>) -> Option<SymbolId> {
+    scoping.get_reference(id.reference_id.get()?).symbol_id()
+}
+
 /// The union-find forest of the sets of bindings `links` joins.
 fn forest(links: &[(SymbolId, SymbolId)]) -> HashMap<SymbolId, SymbolId> {
     let mut parent: HashMap<SymbolId, SymbolId> = HashMap::default();
@@ -1428,9 +1557,10 @@ enum Returns {
 }
 
 /// Functions of a well-known module or global, by the name of the object they are called on (`path` in `path.join`;
-/// empty for a function called by name), that change neither that object nor any argument: each object with the
-/// functions (all of them when none is listed) and what they return. The object is known by name only, as a config
-/// names these modules by their own names.
+/// empty for a global function called by name), that change neither that object nor any argument: each object with
+/// the functions (all of them when none is listed) and what they return. A module's functions count where the module
+/// binds `path`, `fs` or `url` to that module or imports the function from it, and a global's where the name is not
+/// declared in the module ([`pure_function`]).
 const PURE_FUNCTIONS: &[(&str, &[&str], Returns)] = &[
     (
         "path",
@@ -1485,27 +1615,43 @@ const PURE_FUNCTIONS: &[(&str, &[&str], Returns)] = &[
     ("", &["readFileSync", "readdirSync"], Returns::Fresh),
 ];
 
+/// The globals [`PURE_FUNCTIONS`] lists functions of, by name.
+const GLOBAL_OBJECTS: &[&str] = &["Array", "JSON", "Math", "Number", "Object", "String", "console", "process"];
+
 /// What `call` returns when it calls one of [`PURE_FUNCTIONS`] (`path.posix` and `path.win32` count as `path`); `None`
-/// for any other call.
-fn pure_function(call: &CallExpression<'_>) -> Option<Returns> {
+/// for any other call, such as one of a function the module declares under such a name.
+fn pure_function(names: Names<'_>, call: &CallExpression<'_>) -> Option<Returns> {
     let (object, name) = match call.callee.get_inner_expression() {
-        Expression::Identifier(id) => ("", id.name.as_str()),
-        Expression::StaticMemberExpression(member) => (module_name(&member.object)?, member.property.name.as_str()),
+        Expression::Identifier(id) => match resolved(names.scoping, id) {
+            None => ("", id.name.as_str()),
+            Some(symbol) => {
+                let (module, imported) = names.known.modules.get(&symbol)?;
+                (known_module(module)?, imported.as_deref()?)
+            }
+        },
+        Expression::StaticMemberExpression(member) => (module_object(names, &member.object)?, member.property.name.as_str()),
         _ => return None,
     };
     PURE_FUNCTIONS
         .iter()
-        .find(|(module, names, _)| *module == object && (names.is_empty() || names.contains(&name)))
+        .find(|(module, functions, _)| *module == object && (functions.is_empty() || functions.contains(&name)))
         .map(|&(_, _, returns)| returns)
 }
 
-/// The name of the object a function of [`PURE_FUNCTIONS`] is called on.
-fn module_name<'b>(object: &'b Expression<'_>) -> Option<&'b str> {
+/// The name in [`PURE_FUNCTIONS`] of the object a function is called on: a global of [`GLOBAL_OBJECTS`] the module
+/// does not declare, or a binding of the `path`, `fs` or `url` module itself.
+fn module_object(names: Names<'_>, object: &Expression<'_>) -> Option<&'static str> {
     match object.get_inner_expression() {
-        Expression::Identifier(id) => Some(id.name.as_str()),
+        Expression::Identifier(id) => match resolved(names.scoping, id) {
+            None => GLOBAL_OBJECTS.iter().find(|global| **global == id.name.as_str()).copied(),
+            Some(symbol) => match names.known.modules.get(&symbol) {
+                Some((module, None)) => known_module(module),
+                _ => None,
+            },
+        },
         Expression::StaticMemberExpression(member)
             if matches!(member.property.name.as_str(), "posix" | "win32")
-                && matches!(member.object.get_inner_expression(), Expression::Identifier(id) if id.name.as_str() == "path") =>
+                && module_object(names, &member.object) == Some("path") =>
         {
             Some("path")
         }
@@ -1513,10 +1659,20 @@ fn module_name<'b>(object: &'b Expression<'_>) -> Option<&'b str> {
     }
 }
 
-/// Whether a call made for what it does may change the objects it is given: not one of [`PURE_FUNCTIONS`], nor a
-/// method that changes at most the object it is called on ([`PURE_METHODS`], `push`, `unshift`).
-pub(crate) fn changes_arguments(call: &CallExpression<'_>) -> bool {
-    if pure_function(call).is_some() {
+/// The name in [`PURE_FUNCTIONS`] of a module the pass knows the functions of.
+fn known_module(specifier: &str) -> Option<&'static str> {
+    match specifier.strip_prefix("node:").unwrap_or(specifier) {
+        "path" | "path/posix" => Some("path"),
+        "fs" => Some("fs"),
+        "url" => Some("url"),
+        _ => None,
+    }
+}
+
+/// Whether a call made for what it does may change the objects it is given: not one of [`PURE_FUNCTIONS`] (`pure`),
+/// nor a method that changes at most the object it is called on ([`PURE_METHODS`], `push`, `unshift`).
+pub(crate) fn changes_arguments(call: &CallExpression<'_>, pure: bool) -> bool {
+    if pure {
         return false;
     }
     !matches!(
@@ -1528,7 +1684,7 @@ pub(crate) fn changes_arguments(call: &CallExpression<'_>) -> bool {
 
 /// Whether `expr` is a value that holds no object: a string, number, boolean, `null` or bigint literal, a template, the
 /// result of an operator, of one of [`PURE_FUNCTIONS`] that returns one, or a choice between such values.
-fn is_primitive(expr: &Expression<'_>) -> bool {
+fn is_primitive(names: Names<'_>, expr: &Expression<'_>) -> bool {
     match expr.get_inner_expression() {
         Expression::StringLiteral(_)
         | Expression::NumericLiteral(_)
@@ -1538,17 +1694,17 @@ fn is_primitive(expr: &Expression<'_>) -> bool {
         | Expression::TemplateLiteral(_)
         | Expression::BinaryExpression(_)
         | Expression::UnaryExpression(_) => true,
-        Expression::ConditionalExpression(c) => is_primitive(&c.consequent) && is_primitive(&c.alternate),
-        Expression::LogicalExpression(l) => is_primitive(&l.left) && is_primitive(&l.right),
-        Expression::CallExpression(call) => pure_function(call) == Some(Returns::Primitive),
+        Expression::ConditionalExpression(c) => is_primitive(names, &c.consequent) && is_primitive(names, &c.alternate),
+        Expression::LogicalExpression(l) => is_primitive(names, &l.left) && is_primitive(names, &l.right),
+        Expression::CallExpression(call) => pure_function(names, call) == Some(Returns::Primitive),
         _ => false,
     }
 }
 
 /// The object a call may change: the first argument of `Object.assign`, or the object a method other than one of
-/// [`PURE_METHODS`] or [`PURE_FUNCTIONS`] is called on.
-pub(crate) fn changed_by_call<'p, 'a>(call: &'p CallExpression<'a>) -> Option<&'p Expression<'a>> {
-    if pure_function(call).is_some() {
+/// [`PURE_METHODS`] is called on, unless the call is one of [`PURE_FUNCTIONS`] (`pure`).
+pub(crate) fn changed_by_call<'p, 'a>(call: &'p CallExpression<'a>, pure: bool) -> Option<&'p Expression<'a>> {
+    if pure {
         return None;
     }
     match call.callee.get_inner_expression() {

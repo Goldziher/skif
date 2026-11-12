@@ -2006,3 +2006,36 @@ fn a_write_through_an_element_leaves_every_element_of_the_list_open() {
         assert!(first.is_some_and(open), "{source}: {value:?}");
     }
 }
+
+/// A call counts as one of a well-known function that changes nothing it is given only where the name is that
+/// function: a global the module does not declare, or a function of `path`, `fs` or `url` imported or required from
+/// that module. A function the module declares under such a name, one imported from another module, or a module other
+/// than `path` bound to `path` may change the config it is given.
+#[test]
+fn a_function_named_like_a_well_known_one_may_change_its_argument() {
+    for (bound, call) in [
+        ("function readFileSync(c) { c.entry = './changed.js'; return ''; }", "readFileSync(config);"),
+        ("const String = (c) => { c.entry = './changed.js'; return ''; };", "String(config);"),
+        ("import { existsSync } from './store.js';", "existsSync(config);"),
+        ("const { readFileSync } = require('./store');", "readFileSync(config);"),
+        ("const path = require('./helpers');", "path.join(config);"),
+        ("import fs from './fs.js';", "fs.readFileSync(config);"),
+        ("const JSON = require('./json');", "JSON.stringify(config);"),
+    ] {
+        let source = format!(
+            "{bound}\nconst config = {{ entry: './src/main.js', module: {{ rules: [] }} }};\n{call}\nmodule.exports = config;"
+        );
+        let value = extract("rspack.config.js", &source);
+        assert!(open(&value), "{source}: {value:?}");
+    }
+    let kept = extract(
+        "rspack.config.js",
+        "import { readFileSync } from 'node:fs';\n\
+         import * as path from 'node:path';\n\
+         const config = { entry: './src/main.js', context: '.' };\n\
+         readFileSync(path.join(config.context, 'key.pem'));\n\
+         console.log(String(config));\n\
+         module.exports = config;",
+    );
+    assert!(!open(&kept), "{kept:?}");
+}
