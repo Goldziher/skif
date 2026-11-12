@@ -5152,7 +5152,10 @@ vi.mock("mocked-package");
                     "peerDependencies": { "@angular/localize": "21" }
                 }),
             ),
-            ("packages/a", json!({ "dependencies": { "host-x": "1", "peer-y": "1" } })),
+            (
+                "packages/a",
+                json!({ "dependencies": { "host-x": "1", "peer-y": "1" } }),
+            ),
         ]
         .into_iter()
         .collect();
