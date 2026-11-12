@@ -1,6 +1,6 @@
 //! Packages the install hoists publicly into a `node_modules` above a package, where Node.js resolves them from the
 //! package without a listing: pnpm's `public-hoist-pattern` and `shamefully-hoist`, and `public_hoist_packages` of
-//! rules_js's `npm_translate_lock`. Read for `[js] use-public-hoisting`.
+//! `rules_js`'s `npm_translate_lock`. Read for `[js] use-public-hoisting`.
 
 use std::path::{Path, PathBuf};
 
@@ -16,7 +16,7 @@ const BAZEL_FILES: [&str; 3] = ["MODULE.bazel", "WORKSPACE.bazel", "WORKSPACE"];
 pub(crate) struct PublicHoisting {
     /// pnpm's public hoist patterns, in order; they hoist into the root `node_modules`.
     patterns: Vec<String>,
-    /// The packages rules_js hoists, each with the absolute directory whose `node_modules` it is hoisted into.
+    /// The packages `rules_js` hoists, each with the absolute directory whose `node_modules` it is hoisted into.
     bazel: Vec<(PathBuf, String)>,
 }
 
@@ -100,9 +100,11 @@ fn npmrc_list(npmrc: &str, key: &str) -> Vec<String> {
 /// everything they do not exclude. Without patterns nothing is hoisted.
 fn matches_patterns(patterns: &[String], name: &str) -> bool {
     if !patterns.is_empty() && patterns.iter().all(|pattern| pattern.starts_with('!')) {
-        return !patterns
-            .iter()
-            .any(|pattern| pattern.strip_prefix('!').is_some_and(|excluded| wildcard(excluded, name)));
+        return !patterns.iter().any(|pattern| {
+            pattern
+                .strip_prefix('!')
+                .is_some_and(|excluded| wildcard(excluded, name))
+        });
     }
     patterns
         .iter()

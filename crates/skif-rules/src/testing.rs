@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use skif_config::Config;
-use skif_core::{DirEntry, Diagnostic, FileSystem, FixOp, MemoryFs, Span};
+use skif_core::{Diagnostic, DirEntry, FileSystem, FixOp, MemoryFs, Span};
 use skif_edit::FileKind;
 use skif_lint::{Registry, RunOptions, run_unsorted};
 use skif_workspace::Workspace;

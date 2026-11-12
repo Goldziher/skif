@@ -814,12 +814,7 @@ mod tests {
             .filter(|path| !untracked.contains(path))
             .collect();
         let tree = testing::GitTree::new(files, &tracked);
-        let mut found = paths(&testing::lint_in(
-            META.id,
-            &tree,
-            &config(toml),
-            &RunOptions::default(),
-        ));
+        let mut found = paths(&testing::lint_in(META.id, &tree, &config(toml), &RunOptions::default()));
         found.sort_unstable();
         found
     }

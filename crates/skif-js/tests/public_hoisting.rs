@@ -1,4 +1,4 @@
-//! `[js] use-public-hoisting`: a package that pnpm's `public-hoist-pattern` or `shamefully-hoist`, or rules_js's
+//! `[js] use-public-hoisting`: a package that pnpm's `public-hoist-pattern` or `shamefully-hoist`, or `rules_js`'s
 //! `public_hoist_packages`, hoists into a `node_modules` above a package is available to it without a listing.
 //!
 //! Every case is a minimal synthetic workspace.
@@ -105,8 +105,20 @@ fn pnpm_public_hoist_settings_make_packages_available_when_on() {
     let cases: [Case<'_>; 21] = [
         (PNPM10, pnpm, &npmrc(pattern), OFF, ALL),
         (PNPM10, pnpm, &npmrc(pattern), ON, &[SCOPE_TOOL, OTHER]),
-        (PNPM10, pnpm, &npmrc("public-hoist-pattern[]=@scope/*\n"), ON, &[HOISTED_ONLY, OTHER]),
-        (PNPM10, pnpm, &npmrc("public-hoist-pattern[]=*-only\n"), ON, &[SCOPE_TOOL, OTHER]),
+        (
+            PNPM10,
+            pnpm,
+            &npmrc("public-hoist-pattern[]=@scope/*\n"),
+            ON,
+            &[HOISTED_ONLY, OTHER],
+        ),
+        (
+            PNPM10,
+            pnpm,
+            &npmrc("public-hoist-pattern[]=*-only\n"),
+            ON,
+            &[SCOPE_TOOL, OTHER],
+        ),
         (
             PNPM10,
             pnpm,
@@ -115,7 +127,13 @@ fn pnpm_public_hoist_settings_make_packages_available_when_on() {
             &[OTHER],
         ),
         (PNPM10, pnpm, &npmrc("public-hoist-pattern[]=!other\n"), ON, &[OTHER]),
-        (PNPM10, pnpm, &npmrc("public-hoist-pattern=hoisted-only\n"), ON, &[SCOPE_TOOL, OTHER]),
+        (
+            PNPM10,
+            pnpm,
+            &npmrc("public-hoist-pattern=hoisted-only\n"),
+            ON,
+            &[SCOPE_TOOL, OTHER],
+        ),
         (
             PNPM10,
             pnpm,
@@ -133,7 +151,13 @@ fn pnpm_public_hoist_settings_make_packages_available_when_on() {
         (PNPM10, pnpm, &npmrc("shamefully-hoist=true\n"), ON, &[]),
         (PNPM10, pnpm, &npmrc("shamefully-hoist=false\n"), ON, ALL),
         (PNPM10, pnpm, &npmrc("# public-hoist-pattern[]=hoisted-only\n"), ON, ALL),
-        (PNPM10, pnpm, &npmrc("[section]\npublic-hoist-pattern[]=hoisted-only\n"), ON, ALL),
+        (
+            PNPM10,
+            pnpm,
+            &npmrc("[section]\npublic-hoist-pattern[]=hoisted-only\n"),
+            ON,
+            ALL,
+        ),
         (PNPM10, pnpm, &[("packages/app/.npmrc", pattern)], ON, ALL),
         (PNPM10, pnpm, &[], ON, ALL),
         (PNPM10, Some(hoist_yaml), &[], ON, &[SCOPE_TOOL, OTHER]),
@@ -152,7 +176,7 @@ fn pnpm_public_hoist_settings_make_packages_available_when_on() {
     }
 }
 
-/// With the setting on, `public_hoist_packages` of rules_js's `npm_translate_lock`, in the Bazel repository's
+/// With the setting on, `public_hoist_packages` of `rules_js`'s `npm_translate_lock`, in the Bazel repository's
 /// `MODULE.bazel`, `WORKSPACE.bazel` or `WORKSPACE`, hoists each key (a version suffix dropped) into the
 /// `node_modules` of each Bazel package it lists, `""` being the repository root: it is available to the packages at
 /// or below that directory. A commented-out call and the setting off hoist nothing.
@@ -178,11 +202,7 @@ fn bazel_public_hoist_packages_make_packages_available_where_they_are_hoisted() 
         (PNPM10, pnpm, &module(commented), ON, ALL),
     ];
     for (root, yaml, files, toml, expected) in cases {
-        assert_eq!(
-            unlisted(root, yaml, files, toml, false),
-            expected,
-            "{files:?} {toml:?}"
-        );
+        assert_eq!(unlisted(root, yaml, files, toml, false), expected, "{files:?} {toml:?}");
     }
 }
 
@@ -190,7 +210,10 @@ fn bazel_public_hoist_packages_make_packages_available_where_they_are_hoisted() 
 #[test]
 fn strict_mode_does_not_count_hoisted_packages() {
     let npmrc = [(".npmrc", "shamefully-hoist=true\n")];
-    assert_eq!(unlisted(PNPM10, Some(PACKAGES), &npmrc, ON, false), Vec::<String>::new());
+    assert_eq!(
+        unlisted(PNPM10, Some(PACKAGES), &npmrc, ON, false),
+        Vec::<String>::new()
+    );
     assert_eq!(unlisted(PNPM10, Some(PACKAGES), &npmrc, ON, true), ALL);
 }
 
@@ -206,7 +229,10 @@ fn hoisting_leaves_unused_dependencies_as_they_are() {
             "packages/app/package.json",
             r#"{"name":"app","version":"1.0.0","main":"index.js","dependencies":{"hoisted-only":"1.0.0","idle":"1.0.0"}}"#,
         ),
-        ("packages/app/index.js", "import a from 'hoisted-only';\nexport default a;\n"),
+        (
+            "packages/app/index.js",
+            "import a from 'hoisted-only';\nexport default a;\n",
+        ),
     ];
     for toml in [OFF, ON] {
         let diagnostics = lint(&files, toml, false);
@@ -215,6 +241,10 @@ fn hoisting_leaves_unused_dependencies_as_they_are() {
             ["packages/app/package.json: idle"],
             "{toml:?}"
         );
-        assert_eq!(found(&diagnostics, "unlisted-dependencies"), Vec::<String>::new(), "{toml:?}");
+        assert_eq!(
+            found(&diagnostics, "unlisted-dependencies"),
+            Vec::<String>::new(),
+            "{toml:?}"
+        );
     }
 }
