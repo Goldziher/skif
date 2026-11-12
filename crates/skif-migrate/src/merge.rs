@@ -8,12 +8,18 @@
 //! The `exact` profile writes `off` values for the rules the migrated tools did not run, each with a trailing
 //! `# skif migrate: not checked by <tools>` comment. Those values are not user choices, so a later migration of
 //! another tool replaces them when it does check the rule, and removes them when its own profile leaves the rule on.
-//! A file also records the tools it was migrated from in a `# skif migrate: sources = [...]` line. When that line is
-//! there, a rule the file does not mention was checked by one of those tools, and the profile of the new migration
-//! does not turn it off. Migrating tools one after the other therefore ends with the same enabled checks as migrating
-//! them in one command.
+//! A file also records the tools it was migrated from in a `# skif migrate: sources = [...]` line.
+//!
+//! A merge adds no new profile value: a rule an existing file does not mention runs, either because one of its
+//! recorded sources checked it or because the file (written by hand, or for other tools) relies on skif's default.
+//! The new migration only adds what its tools need, and [`Merged::left_as_existing`] lists the profile values it left
+//! out. Migrating tools one after the other therefore ends with the same enabled checks as migrating them in one
+//! command. Only a file with no keys at all takes the profile values, as a new file does.
+//!
+//! Migrating knip into a file with `[js] enabled = false` sets it to `true` ([`Merged::replaced_existing`]): the knip
+//! settings the migration writes are `[js]` settings, which take effect only with the JavaScript analysis on.
 
-use toml_edit::{DocumentMut, Item, Table, Value};
+use toml_edit::{DocumentMut, Item, Table, TableLike, Value};
 
 use crate::notes::Tool;
 use crate::{MigrateError, Migration, Profile, keys};
@@ -26,6 +32,12 @@ pub struct Merged {
     pub toml: String,
     /// The keys where the existing value was kept over the generated one, as dotted paths.
     pub kept_existing: Vec<String>,
+    /// The values the `exact` profile would have written (`rules.<id> = "off"`, `js.enabled = false`) that the merge
+    /// left out, as dotted paths: the existing file runs those checks, as it has them.
+    pub left_as_existing: Vec<String>,
+    /// The keys whose existing value was replaced because it would leave the migration without effect, as dotted
+    /// paths: `js.enabled` when knip is migrated into a file that turns the JavaScript analysis off.
+    pub replaced_existing: Vec<String>,
 }
 
 /// The line that records the tools a file was migrated from.
@@ -79,6 +91,8 @@ pub(crate) fn merge_into(migration: &Migration, existing: &str) -> Result<Merged
         return Ok(Merged {
             toml: migration.toml.clone(),
             kept_existing: Vec::new(),
+            left_as_existing: Vec::new(),
+            replaced_existing: Vec::new(),
         });
     }
     let mut current: DocumentMut = existing
@@ -96,15 +110,59 @@ pub(crate) fn merge_into(migration: &Migration, existing: &str) -> Result<Merged
         }
     }
     let mut merge = Merge {
-        skip_profile: previous.is_some(),
+        skip_profile: previous.is_some() || !current.is_empty(),
         kept: Vec::new(),
+        left: Vec::new(),
         banner: Some(banner(&migration.tools, migration.profile)),
     };
     merge.table(current.as_table_mut(), added.as_table(), "");
+    let mut replaced = Vec::new();
+    if migration.tools.contains(&Tool::Knip) && enable_js(&mut current) {
+        replaced.push(format!("{}.{}", keys::JS, keys::JS_ENABLED));
+    }
     Ok(Merged {
         toml: with_sources(&current.to_string(), &sources),
         kept_existing: merge.kept,
+        left_as_existing: merge.left,
+        replaced_existing: replaced,
     })
+}
+
+/// Sets `[js] enabled = false` of `document` to `true`, keeping its comments; whether there was such a value.
+fn enable_js(document: &mut DocumentMut) -> bool {
+    let Some(Item::Value(value)) = document
+        .get_mut(keys::JS)
+        .and_then(Item::as_table_like_mut)
+        .and_then(|js| js.get_mut(keys::JS_ENABLED))
+    else {
+        return false;
+    };
+    if value.as_bool() != Some(false) {
+        return false;
+    }
+    let decor = value.decor().clone();
+    *value = Value::from(true);
+    *value.decor_mut() = decor;
+    true
+}
+
+/// Removes the profile values of `table` and of the tables inside it, adding their dotted paths to `left`.
+fn strip_profile(table: &mut Table, path: &str, left: &mut Vec<String>) {
+    let marked: Vec<String> = table
+        .iter()
+        .filter(|(_, item)| marker(item).is_some())
+        .map(|(key, _)| key.to_owned())
+        .collect();
+    for key in marked {
+        table.remove(&key);
+        left.push(format!("{path}.{key}"));
+    }
+    for (key, item) in table.iter_mut() {
+        if let Item::Table(child) = item {
+            let child_path = format!("{path}.{}", key.get());
+            strip_profile(child, &child_path, left);
+        }
+    }
 }
 
 fn banner(tools: &[Tool], profile: Profile) -> String {
@@ -167,9 +225,12 @@ fn clear_table_positions(table: &mut Table) {
 }
 
 struct Merge {
-    /// The existing file records its sources, so a profile value it lacks was left on on purpose.
+    /// The existing file has content, so a profile value it lacks is a check it runs: by a recorded source, or by
+    /// skif's default.
     skip_profile: bool,
     kept: Vec<String>,
+    /// The profile values left out because the existing file runs the check.
+    left: Vec<String>,
     /// The banner for the first top-level table that is added.
     banner: Option<String>,
 }
@@ -204,9 +265,19 @@ impl Merge {
             match (into.get_mut(key), item) {
                 (None, _) => {
                     if self.skip_profile && marker(item).is_some() {
+                        self.left.push(path);
                         continue;
                     }
                     let mut inserted = item.clone();
+                    if self.skip_profile
+                        && let Item::Table(table) = &mut inserted
+                    {
+                        let had_keys = !table.is_empty();
+                        strip_profile(table, &path, &mut self.left);
+                        if had_keys && table.is_empty() {
+                            continue;
+                        }
+                    }
                     clear_positions(&mut inserted);
                     if prefix.is_empty() {
                         self.announce(&mut inserted);
@@ -251,7 +322,7 @@ impl Merge {
                 }
             }
             (Some(_), None) => *existing = added.clone(),
-            (None, Some(_)) => {}
+            (None, Some(_)) => self.left.push(path),
             (None, None) => {
                 if !same(existing, added) {
                     self.kept.push(path);
@@ -471,5 +542,112 @@ mod tests {
         let merged = merge_into(&second, existing).unwrap();
         assert!(merged.toml.contains("unused-files = \"warn\""), "{}", merged.toml);
         assert_eq!(merged.kept_existing, Vec::<String>::new());
+        assert_eq!(merged.left_as_existing, ["rules.unused-files"]);
+    }
+
+    #[test]
+    fn a_file_without_a_sources_line_keeps_running_the_default_rules_it_does_not_name() {
+        let existing = "[rules]\nversion-mismatch = \"error\"\n";
+        let knip = profile_off(
+            &[Tool::Knip],
+            "\n[rules]\nunused-dependencies = \"error\"\nstray-lockfile = \"off\" # skif migrate: not checked by knip\n\n\
+             [catalog]\nreport-unused-entries = true\n",
+        );
+        let merged = merge_into(&knip, existing).unwrap();
+        assert_eq!(
+            merged.toml,
+            "[rules]\nversion-mismatch = \"error\"\nunused-dependencies = \"error\"\n\n\
+             # Added by `skif migrate --merge` from knip (profile: exact).\n\n\
+             [catalog]\nreport-unused-entries = true\n\
+             # skif migrate: sources = [\"knip\"]\n"
+        );
+        assert_eq!(merged.left_as_existing, ["rules.stray-lockfile"]);
+        assert_eq!(merged.kept_existing, Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_table_the_existing_file_lacks_is_added_without_its_profile_values() {
+        let existing = "[workspace]\nignore-packages = [\"a\"]\n";
+        let sherif = profile_off(
+            &[Tool::Sherif],
+            "\n[js]\nenabled = false # skif migrate: not checked by sherif\n\n\
+             [rules]\nversion-mismatch = \"warn\"\nunused-files = \"off\" # skif migrate: not checked by sherif\n",
+        );
+        let merged = merge_into(&sherif, existing).unwrap();
+        assert!(!merged.toml.contains("[js]"), "{}", merged.toml);
+        assert!(!merged.toml.contains("unused-files"), "{}", merged.toml);
+        assert!(merged.toml.contains("[rules]\nversion-mismatch = \"warn\"\n"), "{}", merged.toml);
+        assert_eq!(merged.left_as_existing, ["js.enabled", "rules.unused-files"]);
+    }
+
+    #[test]
+    fn an_empty_existing_file_takes_the_profile_values() {
+        let knip = profile_off(
+            &[Tool::Knip],
+            "\n[rules]\nstray-lockfile = \"off\" # skif migrate: not checked by knip\n",
+        );
+        let merged = merge_into(&knip, "# nothing yet\n").unwrap();
+        assert!(
+            merged
+                .toml
+                .contains("stray-lockfile = \"off\" # skif migrate: not checked by knip"),
+            "{}",
+            merged.toml
+        );
+        assert_eq!(merged.left_as_existing, Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_merge_summary_lists_the_checks_left_as_the_existing_file_has_them() {
+        let sherif = profile_off(
+            &[Tool::Sherif],
+            "\n[rules]\nunused-files = \"off\" # skif migrate: not checked by sherif\n",
+        );
+        let mut syncpack = profile_off(
+            &[Tool::Syncpack],
+            "\n[rules]\nunused-files = \"off\" # skif migrate: not checked by syncpack\nstray-lockfile = \"off\" # skif migrate: not checked by syncpack\n",
+        );
+        syncpack.extra_checks = vec!["unused-files".to_owned(), "stray-lockfile".to_owned()];
+        let merged = merge_into(&syncpack, &sherif.toml).unwrap();
+        assert_eq!(merged.left_as_existing, ["rules.stray-lockfile"]);
+        assert!(
+            syncpack.merge_summary(&merged).ends_with(
+                "Checks skif runs that the old tools did not (2):\n  \
+                 turned off in [rules] by --profile exact: unused-files\n  \
+                 left as the existing configuration has them by --merge: stray-lockfile\n"
+            ),
+            "{}",
+            syncpack.merge_summary(&merged)
+        );
+        assert!(
+            syncpack.summary().ends_with(
+                "Checks skif runs that the old tools did not (2): turned off in [rules] by --profile exact\n  \
+                 unused-files, stray-lockfile\n"
+            ),
+            "{}",
+            syncpack.summary()
+        );
+    }
+
+    #[test]
+    fn migrating_knip_turns_the_javascript_analysis_back_on() {
+        let knip = profile_off(&[Tool::Knip], "\n[js]\nignore-dependencies = [\"left-pad\"]\n");
+        for (existing, expected) in [
+            ("[js]\nenabled = false # mine\n", "[js]\nenabled = true # mine\n"),
+            ("js.enabled = false\n", "js.enabled = true\n"),
+        ] {
+            let merged = merge_into(&knip, existing).unwrap();
+            assert!(merged.toml.starts_with(expected), "{existing:?}: {}", merged.toml);
+            assert!(merged.toml.contains("left-pad"), "{}", merged.toml);
+            assert_eq!(merged.replaced_existing, ["js.enabled"], "{existing:?}");
+        }
+    }
+
+    #[test]
+    fn migrating_another_tool_leaves_the_javascript_analysis_off() {
+        let sherif = profile_off(&[Tool::Sherif], "\n[lint]\nfail-on-warnings = true\n");
+        let merged = merge_into(&sherif, "[js]\nenabled = false\n").unwrap();
+        assert!(merged.toml.starts_with("[js]\nenabled = false\n"), "{}", merged.toml);
+        assert_eq!(merged.replaced_existing, Vec::<String>::new());
     }
 }

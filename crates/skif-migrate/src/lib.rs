@@ -214,8 +214,10 @@ impl Migration {
     /// after its text under a banner; in a table both files define, the keys it lacks are added, lists are united and
     /// the existing value wins on a conflict. Values the `exact` profile added (marked with a comment) are not
     /// conflicts: a migration of another tool replaces them with the rule it does check, so migrating tools in
-    /// several steps ends with the same checks as migrating them in one command. Merging the output of a migration
-    /// into itself changes nothing.
+    /// several steps ends with the same checks as migrating them in one command. The profile adds no `off` value to
+    /// a file that has content: a rule the file does not name keeps running ([`Merged::left_as_existing`]). Migrating
+    /// knip turns `[js] enabled = false` on ([`Merged::replaced_existing`]). Merging the output of a migration into
+    /// itself changes nothing.
     ///
     /// # Errors
     /// [`MigrateError::Existing`] when `existing` is not valid TOML or the merged text is not a valid `skif.toml`.
@@ -247,7 +249,14 @@ impl Migration {
     /// human, and the checks skif runs that the old tools did not.
     #[must_use]
     pub fn summary(&self) -> String {
-        notes::render_summary(self)
+        notes::render_summary(self, &[])
+    }
+
+    /// [`Migration::summary`] for the result of [`Migration::merge_into`]: the checks the old tools did not run that
+    /// the merge left as the existing file has them are listed apart from the ones the profile turned off.
+    #[must_use]
+    pub fn merge_summary(&self, merged: &Merged) -> String {
+        notes::render_summary(self, &merged.left_as_existing)
     }
 }
 
