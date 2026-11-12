@@ -52,6 +52,7 @@ entry = ["src/index.ts"]
 [rules]
 unlisted-dependencies = "off"
 unused-files = "warn"
+unused-subpath-imports = "error"
 unused-dependencies = "error"
 unused-dev-dependencies = "error"
 unused-optional-peer-dependencies = "error"

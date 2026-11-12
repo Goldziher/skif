@@ -5,4 +5,4 @@ expression: "notes.join(\"\\n\")"
 D compilers.mdx: skif reads `.mdx` files with its built-in extractor (add `**/*.mdx` to `project` to report unused `.mdx` files, as knip does)
 D compilers[".styl"]: skif reads `.styl` files with its built-in extractor (-)
 D compilers.vue: knip ignores `false`, and skif's built-in extractors are always on (-)
-X compilers.hbs: neither knip nor skif has a built-in compiler for `.hbs` files (skif reads Vue, Svelte, Astro, MDX, TSRX, CSS, Sass, Less and Stylus files itself; other file types need a plugin or an entry pattern)
+X compilers.hbs: neither knip nor skif has a built-in compiler for `.hbs` files (skif reads Vue, Svelte, Astro, MDX, TSRX, CSS, Sass, Less and Stylus files itself; declare another file type in `[js.compilers]`, with regular expressions that capture its imports (`imports`) or one of skif's readers (`as`))
