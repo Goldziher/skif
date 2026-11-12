@@ -246,6 +246,69 @@ fn read_call(rule: &str, tokens: &[Token], start: usize) -> (Call, usize) {
     (call, at)
 }
 
+/// The packages that rules_js's `npm_translate_lock` hoists with `public_hoist_packages`, from Starlark `source`, each
+/// with the Bazel packages it lists (`""` is the repository root), in order: every `public_hoist_packages = {...}`,
+/// a keyword argument or an assignment, whose value is a dict literal with string keys. A location counts when it is
+/// a string literal in the list literal of its key; a computed key or list (a variable, a call) names nothing.
+#[must_use]
+pub fn public_hoist_packages(source: &str) -> Vec<(String, Vec<String>)> {
+    let tokens = tokens(source);
+    let mut found = Vec::new();
+    let mut at = 0;
+    while at < tokens.len() {
+        if matches!(&tokens[at], Token::Name(name) if name == "public_hoist_packages")
+            && matches!(tokens.get(at + 1), Some(Token::Assign))
+            && matches!(tokens.get(at + 2), Some(Token::Open('{')))
+        {
+            at = read_hoist_dict(&tokens, at + 3, &mut found);
+            continue;
+        }
+        at += 1;
+    }
+    found
+}
+
+/// Reads the entries of the `public_hoist_packages` dict whose contents start at token `start`, just after its `{`,
+/// into `found`, and returns the position after its `}`.
+fn read_hoist_dict(tokens: &[Token], start: usize, found: &mut Vec<(String, Vec<String>)>) -> usize {
+    // How deep the scan is inside the dict, its own brace being 1, and whether the bracket at depth 2 opens a list.
+    let mut depth = 1_usize;
+    let mut in_list = false;
+    let mut entry: Option<usize> = None;
+    let mut at = start;
+    while let Some(token) = tokens.get(at) {
+        match token {
+            Token::Open(bracket) => {
+                depth += 1;
+                if depth == 2 {
+                    in_list = *bracket == '[';
+                }
+            }
+            Token::Close => {
+                depth -= 1;
+                if depth == 0 {
+                    return at + 1;
+                }
+            }
+            Token::Comma if depth == 1 => entry = None,
+            Token::Text(key)
+                if depth == 1 && entry.is_none() && matches!(tokens.get(at + 1), Some(Token::Other)) =>
+            {
+                found.push((key.clone(), Vec::new()));
+                entry = Some(found.len() - 1);
+            }
+            Token::Text(location) if depth == 2 && in_list => {
+                if let Some(index) = entry {
+                    found[index].1.push(location.clone());
+                }
+            }
+            _ => {}
+        }
+        at += 1;
+    }
+    at
+}
+
 /// A token of Starlark source, as far as the scan needs to tell them apart.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Token {
@@ -424,6 +487,43 @@ NAME = "x".format(1)
         let names: Vec<&str> = found[0].attributes.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(names, ["name", "srcs"]);
         assert_eq!(found[0].values("srcs").collect::<Vec<_>>(), ["x.ts", "b"]);
+    }
+
+    #[test]
+    fn public_hoist_packages_are_the_literal_keys_and_locations() {
+        let source = r#"
+npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")
+npm.npm_translate_lock(
+    name = "npm",
+    pnpm_lock = "//:pnpm-lock.yaml",
+    public_hoist_packages = {
+        "hoisted-only": [""],
+        "@scope/tool@1.2.3": ["packages/app", "packages/web"],
+        "computed": LOCATIONS,
+        "called": glob(["x"]),
+        # "commented": [""],
+    },
+)
+HOIST = {"other": [""]}
+public_hoist_packages = {"assigned": ["tools"]}
+"#;
+        let owned = |key: &str, locations: &[&str]| {
+            (
+                key.to_owned(),
+                locations.iter().map(|location| (*location).to_owned()).collect::<Vec<_>>(),
+            )
+        };
+        assert_eq!(
+            public_hoist_packages(source),
+            [
+                owned("hoisted-only", &[""]),
+                owned("@scope/tool@1.2.3", &["packages/app", "packages/web"]),
+                owned("computed", &[]),
+                owned("called", &[]),
+                owned("assigned", &["tools"]),
+            ]
+        );
+        assert_eq!(public_hoist_packages("npm_translate_lock(name = \"npm\")\n"), []);
     }
 
     #[test]
