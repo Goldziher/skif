@@ -33,8 +33,12 @@
 //! a library and a merge that copies ([`copies`]) and `Object.assign`, beyond its first argument, as changing nothing;
 //! the first two keep nothing they are given in another argument either. A loop name, a
 //! callback parameter and a name a destructuring assigns share with what they take, but for the element a callback
-//! over a `const` list of primitive values takes when no change reaches the list, and a write in a class body is one
-//! the evaluator does not follow.
+//! or a loop over a `const` list or object of primitive values (or its `Object.entries`) takes when no change reaches
+//! it, and a write in a class body is one the evaluator does not follow.
+//!
+//! Code a value runs implicitly is not followed: a getter, a `toString` or `valueOf` a template literal or `String(x)`
+//! calls, a `toJSON` of `JSON.stringify`, a `then` of a value awaited. Neither is a change an imported function makes
+//! to what it was given by an earlier call (`register(config)`, later `apply()`).
 //!
 //! A `const` that takes a part of a local of its own function (`const { coverage } = config.test`) is the exception
 //! when the evaluator can follow it ([`Unstable::follows`]): it then applies the changes made through the alias to that

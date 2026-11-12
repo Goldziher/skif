@@ -155,7 +155,9 @@ All notable changes to this project are documented here. The format follows
   `mergeWith` is unknown, as they may merge any way. The object of a `with` statement is partly unknown after it.
   A callback or loop over the entries or values of a `const` object of strings that no change reaches
   (`Object.entries(pages).map(([name, template]) => new HtmlWebpackPlugin({ chunks: [name], template }))`) no longer
-  leaves the object partly unknown, so a multi-page webpack config keeps its `entry` known.
+  leaves the object partly unknown, so a multi-page webpack config keeps its `entry` known. Code a value runs
+  implicitly (a getter, `toString` through a template literal or `String(x)`, `toJSON` through `JSON.stringify`)
+  is still not followed, as is a later change an imported function makes to an object an earlier call gave it.
 - **Config evaluation**: `.map`, `.flatMap` and `.filter` of a known array call their callback (an inline function,
   or one the config declares) with each element and its index, so Vitest projects spread from
   `` ['light', 'dark'].map((theme) => ({ test: { name: `browser-${theme}` } })) `` are known instead of leaving the
