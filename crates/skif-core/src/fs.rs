@@ -1,7 +1,7 @@
 //! Read-only file system abstraction so discovery runs against disk, memory or an embedder's buffers.
 
 use std::collections::BTreeMap;
-use std::io;
+use std::io::{self, Read as _};
 use std::ops::Bound;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -124,6 +124,20 @@ pub trait FileSystem: Send + Sync {
     fn read_bytes(&self, path: &Path) -> io::Result<Vec<u8>> {
         self.read_to_string(path).map(|text| text.as_bytes().to_vec())
     }
+    /// Reads at most `limit` bytes from the start of a file, for a caller that inspects only its first lines. Fewer
+    /// bytes than `limit` means the whole file was read.
+    ///
+    /// The default reads the whole file with [`FileSystem::read_bytes`] and keeps its first `limit` bytes; an
+    /// implementation that can stop reading early overrides it.
+    ///
+    /// # Errors
+    /// Any IO error from reading the file.
+    fn read_prefix(&self, path: &Path, limit: usize) -> io::Result<Vec<u8>> {
+        self.read_bytes(path).map(|mut bytes| {
+            bytes.truncate(limit);
+            bytes
+        })
+    }
     /// When the file at `path` was last modified; `None` when the file system cannot tell (the default), which a
     /// staleness check must treat as "unknown".
     fn modified(&self, path: &Path) -> Option<SystemTime> {
@@ -167,6 +181,10 @@ macro_rules! forward_file_system {
 
             fn read_bytes(&self, path: &Path) -> io::Result<Vec<u8>> {
                 (**self).read_bytes(path)
+            }
+
+            fn read_prefix(&self, path: &Path, limit: usize) -> io::Result<Vec<u8>> {
+                (**self).read_prefix(path, limit)
             }
 
             fn modified(&self, path: &Path) -> Option<SystemTime> {
@@ -243,6 +261,14 @@ impl FileSystem for OsFs {
 
     fn read_bytes(&self, path: &Path) -> io::Result<Vec<u8>> {
         std::fs::read(path)
+    }
+
+    fn read_prefix(&self, path: &Path, limit: usize) -> io::Result<Vec<u8>> {
+        let mut head = Vec::new();
+        std::fs::File::open(path)?
+            .take(u64::try_from(limit).unwrap_or(u64::MAX))
+            .read_to_end(&mut head)?;
+        Ok(head)
     }
 
     fn modified(&self, path: &Path) -> Option<SystemTime> {
@@ -395,6 +421,24 @@ mod tests {
             fs.read_to_string(Path::new("/nope")).unwrap_err().kind(),
             io::ErrorKind::NotFound
         );
+    }
+
+    #[test]
+    fn a_prefix_read_stops_at_the_limit_or_the_end_of_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("yarn.lock");
+        std::fs::write(&path, "0123456789").unwrap();
+        let memory = MemoryFs::new().with_file("/ws/yarn.lock", "0123456789");
+        let memory_path = Path::new("/ws/yarn.lock");
+        for (limit, expected) in [(0, ""), (4, "0123"), (10, "0123456789"), (64, "0123456789")] {
+            assert_eq!(OsFs.read_prefix(&path, limit).unwrap(), expected.as_bytes(), "{limit}");
+            assert_eq!(memory.read_prefix(memory_path, limit).unwrap(), expected.as_bytes(), "{limit}");
+        }
+        assert_eq!(
+            OsFs.read_prefix(&dir.path().join("missing"), 4).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        assert!(memory.read_prefix(Path::new("/ws/missing"), 4).is_err());
     }
 
     #[test]
