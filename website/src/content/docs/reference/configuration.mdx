@@ -974,7 +974,10 @@ that binds them. A member that such a local of the same name as a namespace impo
 `v-for="item in items"`) is no use of that namespace's export; a named import keeps its export used either way, as in
 knip. An expression that does not
 parse is read token by token, which can only make an import look more used. Nothing in a template is type-checked.
-Imports of one script block count as used when another block reads them.
+Imports of one script block count as used when another block reads them. In a `.svelte` file only the module script
+(`<script context="module">` in Svelte 4, `<script module>` in Svelte 5) declares exports: `export let` and the other
+exports of the instance `<script>` are props and instance accessors, which `unused-exports` does not judge. A reached
+`.svelte` file uses the `svelte` package its package lists.
 
 `.mdx` files are read without an MDX compiler: their top-level `import` and `export` statements (at the first column,
 outside frontmatter and fenced code, as MDX delimits them) are analysed as JavaScript with JSX, and the prose is

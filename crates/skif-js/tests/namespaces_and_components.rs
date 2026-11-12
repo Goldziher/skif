@@ -380,6 +380,40 @@ fn imports_of_one_script_block_read_by_another_count_as_used() {
     );
 }
 
+/// The exports of a Svelte instance script are props; only the module script exports, and a package with components
+/// uses `svelte`, which compiles them.
+#[test]
+fn svelte_props_are_no_exports_and_components_use_svelte() {
+    let diagnostics = lint_files(
+        &[
+            (
+                "package.json",
+                r#"{"name":"app","private":true,"type":"module","main":"src/main.js","dependencies":{"svelte":"5.0.0"}}"#,
+            ),
+            ("src/main.js", "import App from './App.svelte';\nnew App({ target: document.body });\n"),
+            (
+                "src/App.svelte",
+                "<script>\n  import Button from './Button.svelte';\n  import Card, { used } from './Card.svelte';\n</script>\n<Button label=\"Go\" /><Card n={used} />\n",
+            ),
+            (
+                "src/Button.svelte",
+                "<script context=\"module\">\n  export const unusedV4 = 1;\n</script>\n<script>\n  export let label;\n  export function focus() {}\n</script>\n<button>{label}</button>\n",
+            ),
+            (
+                "src/Card.svelte",
+                "<script module>\n  export const used = 1;\n  export const unusedV5 = 2;\n</script>\n<script>\n  let { n } = $props();\n  export const reset = () => {};\n</script>\n<p>{n}</p>\n",
+            ),
+        ],
+        "",
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-exports"),
+        ["src/Button.svelte: unusedV4", "src/Card.svelte: unusedV5"],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none(), "{diagnostics:#?}");
+}
+
 #[test]
 fn style_blocks_and_src_attributes_import_stylesheets() {
     let manifest = (

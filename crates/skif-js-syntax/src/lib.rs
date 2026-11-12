@@ -249,7 +249,8 @@ fn parse_block_in(
 /// blocks and `src` attributes, and the identifiers its markup uses.
 ///
 /// Spans of every fact are offsets into `source`. Script blocks are analysed as one module: an import of one block
-/// that another block or the markup reads counts as used there.
+/// that another block or the markup reads counts as used there. Only the module script of a Svelte component
+/// declares exports.
 fn parse_component(
     extension: &str,
     source: &str,
@@ -269,7 +270,7 @@ fn parse_component(
         let source_type = source_type_for(Path::new(name)).ok_or_else(|| unsupported(extension))?;
         let base = u32::try_from(block.start).unwrap_or(u32::MAX);
         let mut uses = members::Uses::default();
-        let part = parse_block(
+        let mut part = parse_block(
             &source[block.start..block.end],
             base,
             source_type,
@@ -277,6 +278,11 @@ fn parse_component(
             options,
             Some(&mut uses),
         );
+        if extension == "svelte" && !block.module {
+            // The exports of a Svelte instance script are props (`export let`) and accessors of the component
+            // instance, which the parent sets as attributes or reads through `bind:this`, not module exports.
+            part.exports.clear();
+        }
         parts.push(part);
         all_uses.push(uses);
     }
