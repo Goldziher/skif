@@ -1,6 +1,6 @@
 //! TypeScript declaration files, told apart from source files by their whole suffix.
 
-/// The suffixes of TypeScript declaration files: `.d.ts` and its ES module and CommonJS twins.
+/// The suffixes of TypeScript declaration files: `.d.ts`, `.d.mts` and `.d.cts`.
 pub const DECLARATION_SUFFIXES: [&str; 3] = [".d.ts", ".d.mts", ".d.cts"];
 
 /// Whether `path`, a path or a file name, names a TypeScript declaration file (`.d.ts`, `.d.mts`, `.d.cts`).

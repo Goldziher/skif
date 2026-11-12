@@ -154,7 +154,11 @@ fn pnpm(text: &str) -> Entries {
             }
             8 if in_packages && section == Section::PeersMeta && is_optional_flag(body) => {
                 if let (Some(name), Some(peer)) = (&current, &meta_peer) {
-                    entries.entry(name.clone()).or_default().optional_peers.insert(peer.clone());
+                    entries
+                        .entry(name.clone())
+                        .or_default()
+                        .optional_peers
+                        .insert(peer.clone());
                 }
             }
             _ => {}
@@ -288,7 +292,11 @@ fn yarn(text: &str) -> Entries {
             }
             6 if section == Section::PeersMeta && is_optional_flag(body) => {
                 if let (Some(name), Some(peer)) = (&current, &meta_peer) {
-                    entries.entry(name.clone()).or_default().optional_peers.insert(peer.clone());
+                    entries
+                        .entry(name.clone())
+                        .or_default()
+                        .optional_peers
+                        .insert(peer.clone());
                 }
             }
             _ => {}
@@ -332,8 +340,10 @@ mod tests {
              peerDependencies:\n      otel: ^1.9.0\n      ui: ^1.0.0\n    peerDependenciesMeta:\n      otel:\n        \
              optional: true\n      ui:\n        optional: false\n",
         );
-        let npm_lock = npm(r#"{"packages":{"node_modules/runner":{"peerDependencies":{"otel":"^1.9.0","ui":"1"},
-              "peerDependenciesMeta":{"otel":{"optional":true},"ui":{"optional":false}}}}}"#);
+        let npm_lock = npm(
+            r#"{"packages":{"node_modules/runner":{"peerDependencies":{"otel":"^1.9.0","ui":"1"},
+              "peerDependenciesMeta":{"otel":{"optional":true},"ui":{"optional":false}}}}}"#,
+        );
         let bun_lock = bun(&parse_bun(
             r#"{"lockfileVersion":1,"packages":{"runner":["runner@1.0.0","",{"peerDependencies":{"otel":"^1.9.0","ui":"1",},"optionalPeers":["otel"],},"sha512-x"],}}"#,
         ));
@@ -342,7 +352,12 @@ mod tests {
              otel: ^1.9.0\n    ui: ^1.0.0\n  peerDependenciesMeta:\n    otel:\n      optional: true\n    ui:\n      \
              optional: false\n  checksum: abc\n",
         );
-        for (lockfile, entries) in [("pnpm", pnpm_lock), ("npm", npm_lock), ("bun", bun_lock), ("yarn", yarn_lock)] {
+        for (lockfile, entries) in [
+            ("pnpm", pnpm_lock),
+            ("npm", npm_lock),
+            ("bun", bun_lock),
+            ("yarn", yarn_lock),
+        ] {
             let runner = &entries["runner"];
             assert_eq!(
                 runner.peers.iter().map(String::as_str).collect::<Vec<_>>(),
