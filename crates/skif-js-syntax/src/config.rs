@@ -3801,8 +3801,9 @@ fn edit_binding(frames: &mut [Frame<'_, '_>], index: usize, name: &str, keys: &[
 }
 
 /// Applies `edit` to the object at `keys` below `value`, in each value it may be ([`Value::OneOf`]). A key on the way
-/// that an unknown spread may set leaves the object above it partly unknown instead, and one the object does not have
-/// leaves it as it is: no object is there for the edit to change.
+/// that an unknown spread may set, or that the object may inherit ([`inherits`], such as `__proto__` and
+/// `constructor`), leaves the object above it partly unknown instead. One the object neither has nor inherits leaves
+/// it as it is: the key is `undefined`, so reaching below it throws and changes nothing.
 fn edit_at(value: &mut Value, keys: &[String], edit: &Edit) {
     let target = value.definite_mut();
     if let Value::OneOf(alternatives) = &mut *target {
@@ -3827,7 +3828,7 @@ fn edit_at(value: &mut Value, keys: &[String], edit: &Edit) {
                 Some(at) if entries[at].0 == *key => edit_at(&mut entries[at].1, rest, edit),
                 // An unknown spread may have set the key.
                 Some(_) => open_entries(entries),
-                // An object without the key holds nothing there to change.
+                None if inherits(entries, key) => open_entries(entries),
                 None => {}
             }
         }
