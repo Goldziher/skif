@@ -904,11 +904,12 @@ enum TopChange {
 type Frame<'p, 'a> = HashMap<String, Binding<'p, 'a>>;
 
 fn top_level<'p, 'a>(program: &'p Program<'a>) -> TopLevel<'p, 'a> {
+    let unstable = Unstable::of(program);
     let mut top = TopLevel {
         consts: HashMap::default(),
         functions: HashMap::default(),
         changed: HashMap::default(),
-        unstable: Unstable::of(program),
+        unstable: Unstable::default(),
     };
     for stmt in &program.body {
         let decl = match stmt {
@@ -918,7 +919,7 @@ fn top_level<'p, 'a>(program: &'p Program<'a>) -> TopLevel<'p, 'a> {
         let writes = match stmt {
             // Only what the statement itself does, as for a statement of a function: an exported value may read
             // members of a constant (`base.plugins.map(f)`) without changing it.
-            Statement::ExpressionStatement(s) => Some(Writes::of_effect(&s.expression)),
+            Statement::ExpressionStatement(s) => Some(Writes::of_effect(&s.expression, &unstable)),
             Statement::IfStatement(_)
             | Statement::BlockStatement(_)
             | Statement::ForStatement(_)
@@ -931,7 +932,7 @@ fn top_level<'p, 'a>(program: &'p Program<'a>) -> TopLevel<'p, 'a> {
             | Statement::LabeledStatement(_)
             | Statement::VariableDeclaration(_)
             | Statement::ExportNamedDeclaration(_)
-            | Statement::ExportDefaultDeclaration(_) => Some(Writes::of_statement(stmt)),
+            | Statement::ExportDefaultDeclaration(_) => Some(Writes::of_statement(stmt, &unstable)),
             _ => None,
         };
         if let Some(writes) = writes {
@@ -957,12 +958,13 @@ fn top_level<'p, 'a>(program: &'p Program<'a>) -> TopLevel<'p, 'a> {
             _ => {}
         }
     }
+    top.unstable = unstable;
     top
 }
 
 impl TopLevel<'_, '_> {
     /// Records what a top-level statement writes ([`Writes`]).
-    fn record(&mut self, writes: Writes) {
+    fn record(&mut self, writes: Writes<'_>) {
         for name in writes.assigned {
             self.changed.insert(name, TopChange::Assigned);
         }
@@ -1987,9 +1989,11 @@ fn exports_changed(program: &Program<'_>) -> bool {
         .body
         .iter()
         .skip_while(|stmt| !is_module_exports_assignment(stmt));
+    // With no [`Unstable`] of the module, no call counts as one that changes nothing it is given.
+    let unstable = Unstable::default();
     statements.next().is_some()
         && statements.any(|stmt| {
-            let writes = Writes::of_statement(stmt);
+            let writes = Writes::of_statement(stmt, &unstable);
             writes
                 .assigned
                 .iter()
@@ -3365,7 +3369,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 Statement::ReturnStatement(r) => {
                     // What the evaluator reads expressions for, it does not run for what they change.
                     if let Some(argument) = &r.argument {
-                        self.havoc(Writes::of_expression(argument));
+                        self.havoc(Writes::of_expression(argument, self.unstable));
                     }
                     return Some(r.argument.as_ref().map_or(Value::Unknown, |e| self.expr(e, depth)));
                 }
@@ -3376,7 +3380,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     }
                 }
                 Statement::IfStatement(i) => {
-                    self.havoc(Writes::of_expression(&i.test));
+                    self.havoc(Writes::of_expression(&i.test, self.unstable));
                     let taken = match self.truthy(&i.test, depth) {
                         Some(true) => Some(&i.consequent),
                         Some(false) => i.alternate.as_ref(),
@@ -3396,7 +3400,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 other if returns(other) => return Some(Value::Unknown),
                 other => match other.as_declaration() {
                     Some(Declaration::VariableDeclaration(v)) => {
-                        self.havoc(Writes::of_statement(other));
+                        self.havoc(Writes::of_statement(other, self.unstable));
                         self.declare(v, depth);
                     }
                     Some(Declaration::FunctionDeclaration(f)) => {
@@ -3405,7 +3409,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                         }
                     }
                     Some(_) => {}
-                    None => self.havoc(Writes::of_statement(other)),
+                    None => self.havoc(Writes::of_statement(other, self.unstable)),
                 },
             }
         }
@@ -3415,7 +3419,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// Runs the statements of a block in a frame of their own, so a `const` or `let` declared in it does not replace a
     /// binding outside it. A `var` it declares is function-scoped, and is left unknown outside the block.
     fn block(&self, statements: &'p [Statement<'a>], depth: u32) -> Option<Value> {
-        self.frames.borrow_mut().push(Frame::default());
+        self.frames.borrow_mut().push(Frame::default(, self.unstable));
         let value = self.run(statements, depth);
         self.frames.borrow_mut().pop();
         let mut vars = Vars::default();
@@ -3490,7 +3494,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 .flatten()
             {
                 if !returns(branch) {
-                    self.havoc(Writes::of_statement(branch));
+                    self.havoc(Writes::of_statement(branch, self.unstable));
                 }
             }
             self.run(rest, depth).unwrap_or(Value::Unknown)
@@ -3576,7 +3580,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// Leaves every local `writes` assigns unknown, and every part of a local object or array it changes partly
     /// unknown.
-    fn havoc(&self, writes: Writes) {
+    fn havoc(&self, writes: Writes<'_>) {
         for name in writes.assigned {
             self.assign(&name, Binding::Value(Value::Unknown));
         }
@@ -3596,7 +3600,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         match expr.get_inner_expression() {
             Expression::AwaitExpression(a) => self.mutation(&a.argument, depth),
             Expression::AssignmentExpression(a) => {
-                self.havoc(Writes::of_expression(&a.right));
+                self.havoc(Writes::of_expression(&a.right, self.unstable));
                 let assign = a.operator == AssignmentOperator::Assign;
                 match &a.left {
                     AssignmentTarget::AssignmentTargetIdentifier(id) => {
@@ -3620,16 +3624,16 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                         Some((root, keys, false)) => self.edit(root.name.as_str(), &keys, &Edit::Taint),
                         None => {}
                     },
-                    _ => self.havoc(Writes::of_expression(expr)),
+                    _ => self.havoc(Writes::of_expression(expr, self.unstable)),
                 }
             }
             Expression::CallExpression(c) => {
                 if !self.capture_set(c, depth) && !self.insert(c, depth) {
-                    self.havoc(Writes::of_effect(expr));
+                    self.havoc(Writes::of_effect(expr, self.unstable));
                 }
             }
             // `cond && (x = 1)`, `x++`, `a = b = 1`: what it writes may or may not be written.
-            _ => self.havoc(Writes::of_expression(expr)),
+            _ => self.havoc(Writes::of_expression(expr, self.unstable)),
         }
     }
 
@@ -3659,7 +3663,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             return false;
         }
         for argument in &arguments {
-            self.havoc(Writes::of_expression(argument));
+            self.havoc(Writes::of_expression(argument, self.unstable));
         }
         let items = arguments
             .into_iter()
@@ -4036,8 +4040,9 @@ fn returns(statement: &Statement<'_>) -> bool {
 /// (`x = …`, `x++`, `[x] = …`) and the parts of objects it may change (`x.a = …`, `x.list.push(…)`,
 /// `Object.assign(x.part, …)`), among them the whole local an alias declared there takes a part of when the alias is
 /// changed.
-#[derive(Default)]
-struct Writes {
+struct Writes<'u> {
+    /// The bindings code the evaluator does not follow may change, which also say what a call is ([`Unstable`]).
+    unstable: &'u Unstable,
     assigned: Vec<String>,
     changed: Vec<(String, Write)>,
     /// The aliases declared ([`alias_source`]), each with the local it takes a part of.
@@ -4053,15 +4058,24 @@ impl Write {
     }
 }
 
-impl Writes {
-    fn of_statement(statement: &Statement<'_>) -> Self {
-        let mut writes = Self::default();
+impl<'u> Writes<'u> {
+    fn new(unstable: &'u Unstable) -> Self {
+        Self {
+            unstable,
+            assigned: Vec::new(),
+            changed: Vec::new(),
+            aliases: Vec::new(),
+        }
+    }
+
+    fn of_statement(statement: &Statement<'_>, unstable: &'u Unstable) -> Self {
+        let mut writes = Self::new(unstable);
         writes.visit_statement(statement);
         writes.through_aliases()
     }
 
-    fn of_expression(expression: &Expression<'_>) -> Self {
-        let mut writes = Self::default();
+    fn of_expression(expression: &Expression<'_>, unstable: &'u Unstable) -> Self {
+        let mut writes = Self::new(unstable);
         writes.visit_expression(expression);
         writes.through_aliases()
     }
@@ -4084,8 +4098,8 @@ impl Writes {
 
     /// What an expression statement writes itself, as [`Evaluator::mutation`] reads it: the target of an assignment
     /// and the object a method call (or `Object.assign`) may change; anything else, in full.
-    fn of_effect(expression: &Expression<'_>) -> Self {
-        let mut writes = Self::default();
+    fn of_effect(expression: &Expression<'_>, unstable: &'u Unstable) -> Self {
+        let mut writes = Self::new(unstable);
         match expression.get_inner_expression() {
             Expression::AssignmentExpression(a) => match a.left.as_simple_assignment_target() {
                 Some(target) => writes.visit_simple_assignment_target(target),
@@ -4095,7 +4109,7 @@ impl Writes {
                 writes.visit_call_expression(c);
                 writes.arguments(c);
             }
-            Expression::AwaitExpression(a) => return Self::of_effect(&a.argument),
+            Expression::AwaitExpression(a) => return Self::of_effect(&a.argument, unstable),
             other => writes.visit_expression(other),
         }
         writes
@@ -4111,7 +4125,7 @@ impl Writes {
 
     /// The objects a call made for what it does is given, which it may change ([`changes_arguments`]).
     fn arguments(&mut self, call: &CallExpression<'_>) {
-        if !changes_arguments(call) {
+        if !changes_arguments(call, self.unstable.is_pure(call)) {
             return;
         }
         for argument in call.arguments.iter().filter_map(Argument::as_expression) {
@@ -4120,7 +4134,7 @@ impl Writes {
     }
 }
 
-impl<'a> Visit<'a> for Writes {
+impl<'a> Visit<'a> for Writes<'_> {
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
         if let Some((root, _)) = it.init.as_ref().and_then(|init| alias_source(init)) {
             for (id, _) in alias_names(&it.id).unwrap_or_default() {
@@ -4166,7 +4180,7 @@ impl<'a> Visit<'a> for Writes {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
-        if let Some(target) = changed_by_call(it) {
+        if let Some(target) = changed_by_call(it, self.unstable.is_pure(it)) {
             self.object(target);
         }
         walk::walk_call_expression(self, it);
