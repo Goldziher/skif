@@ -2272,3 +2272,19 @@ fn an_alias_of_a_local_shared_with_a_changed_object_is_not_followed() {
     );
     assert!(open(get(&value, &["coverage"])), "{value:?}");
 }
+
+/// A class's static block and field initialisers run when the class is defined or an object of it is made, which the
+/// evaluator does not follow, so what they write is unknown and the rest of the config stays known.
+#[test]
+fn a_write_in_a_class_body_is_unknown() {
+    let value = extract(
+        "webpack.config.js",
+        "const config = { entry: './src/main.js', plugins: ['a'], output: { path: 'dist' } };\n\
+         class Setup { static { config.plugins = []; } }\n\
+         class Later { path = (config.output.path = 'build'); }\n\
+         module.exports = config;",
+    );
+    assert_eq!(get(&value, &["plugins"]), &UNKNOWN, "{value:?}");
+    assert_eq!(get(&value, &["output", "path"]), &UNKNOWN, "{value:?}");
+    assert_eq!(get(&value, &["entry"]), &s("./src/main.js"), "{value:?}");
+}
