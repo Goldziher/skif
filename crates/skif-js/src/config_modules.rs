@@ -9,7 +9,7 @@ use skif_workspace::Workspace;
 
 use crate::manifest_paths::{ENTRY_FIELDS, is_out_dir, map_to_source, resolve_exports};
 use crate::resolve::{is_code_file, join_normalized};
-use crate::specifier::{is_builtin, package_name, subpath};
+use crate::specifier::{has_foreign_scheme, is_builtin, package_name, subpath};
 
 /// Extensions tried, in order, for a relative import written without one.
 const SCRIPT_EXTENSIONS: &[&str] = &["ts", "mts", "cts", "tsx", "js", "mjs", "cjs", "jsx"];
@@ -25,7 +25,8 @@ const EXTENSION_ALIASES: &[(&str, &[&str])] = &[
 /// Follows the imports of a config into the files of the workspace: relative imports, and imports of a workspace
 /// package through its `exports` (or `main`) mapped back to the source file. Installed packages are not followed:
 /// their files are not part of the project and may not be present. A bare specifier it does not follow counts as an
-/// installed package ([`ModuleLoader::is_installed`]) when it is a Node.js builtin, or names no workspace package and
+/// installed package ([`ModuleLoader::is_installed`]) when it is a Node.js builtin or has a scheme (`npm:vite`,
+/// `virtual:pwa`), which names a module of a runtime or a tool, or names no workspace package and
 /// a `node_modules` directory at or above the importing file holds it; one that none holds is an alias of a project
 /// directory or a package that is not installed, unless there is no `node_modules` directory there at all (a project
 /// not installed yet), where nothing tells the two apart and every name of no workspace package counts.
@@ -87,7 +88,7 @@ impl ModuleLoader for ConfigModules<'_> {
     }
 
     fn is_installed(&self, from: &Path, specifier: &str) -> bool {
-        if is_builtin(specifier) {
+        if is_builtin(specifier) || has_foreign_scheme(specifier) {
             return true;
         }
         let Some(name) = package_name(specifier) else {
@@ -189,6 +190,7 @@ mod tests {
             ("@vitejs/plugin-react", true),
             ("node:path", true),
             ("path", true),
+            ("npm:vite@5", true),
             ("@app/tools", false),
             ("@app/alias", false),
             ("lodash", false),
