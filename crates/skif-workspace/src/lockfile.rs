@@ -277,34 +277,14 @@ impl PnpmLockfile {
     /// is not followed: that package is an importer of its own.
     #[must_use]
     pub fn resolutions(&self, importer: &str) -> Resolutions<'_> {
-        let mut parents: BTreeMap<&str, Option<&str>> = BTreeMap::new();
-        let mut queue = VecDeque::new();
-        for dependency in self.importers.get(importer).into_iter().flatten() {
-            if let Some((key, _)) = dependency
-                .snapshot_key()
-                .and_then(|key| self.snapshots.get_key_value(key.as_str()))
-                && !parents.contains_key(key.as_str())
-            {
-                parents.insert(key, None);
-                queue.push_back(key.as_str());
-            }
-        }
-        while let Some(key) = queue.pop_front() {
-            for dependency in self
-                .snapshots
-                .get(key)
+        reach(
+            &self.snapshots,
+            self.importers
+                .get(importer)
                 .into_iter()
-                .flat_map(|snapshot| &snapshot.dependencies)
-            {
-                if let Some((dependency, _)) = self.snapshots.get_key_value(dependency.as_str())
-                    && !parents.contains_key(dependency.as_str())
-                {
-                    parents.insert(dependency, Some(key));
-                    queue.push_back(dependency.as_str());
-                }
-            }
-        }
-        Resolutions { parents }
+                .flatten()
+                .filter_map(LockedDependency::snapshot_key),
+        )
     }
 
     /// The span of the `snapshots:` entry `key`, or of its `packages:` entry when the snapshot is not found.
@@ -327,6 +307,32 @@ impl PnpmLockfile {
     pub fn patched_dependency_span(&self, key: &str) -> Option<Span> {
         self.entry_span(&self.spans.patched_dependencies, "patchedDependencies", key)
     }
+}
+
+/// The snapshots reached from the snapshot keys `direct` through the `dependencies` of each, breadth-first, so each
+/// has a shortest chain; ties go to the key listed first. A key that names no snapshot is not followed.
+pub(crate) fn reach(snapshots: &BTreeMap<String, Snapshot>, direct: impl IntoIterator<Item = String>) -> Resolutions<'_> {
+    let mut parents: BTreeMap<&str, Option<&str>> = BTreeMap::new();
+    let mut queue = VecDeque::new();
+    for key in direct {
+        if let Some((key, _)) = snapshots.get_key_value(key.as_str())
+            && !parents.contains_key(key.as_str())
+        {
+            parents.insert(key, None);
+            queue.push_back(key.as_str());
+        }
+    }
+    while let Some(key) = queue.pop_front() {
+        for dependency in snapshots.get(key).into_iter().flat_map(|snapshot| &snapshot.dependencies) {
+            if let Some((dependency, _)) = snapshots.get_key_value(dependency.as_str())
+                && !parents.contains_key(dependency.as_str())
+            {
+                parents.insert(dependency, Some(key));
+                queue.push_back(dependency.as_str());
+            }
+        }
+    }
+    Resolutions { parents }
 }
 
 /// Splits a snapshot or package key into name, version and the suffix of peers and patches:
