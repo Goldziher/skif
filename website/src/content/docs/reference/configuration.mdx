@@ -715,7 +715,10 @@ The rest of knip's configuration hints are part of `stale-js-config` too:
   A `bin` path is not judged when a build step of the package may write it: a `build`, `build:*`, `prepack` or
   `prepublishOnly` script, a script that runs a compiler or bundler (`tsc`, `tsup`, `tsdown`, `esbuild`, `rollup`,
   `rolldown`, `webpack`, `rspack`, `rslib`, `unbuild`, `ncc`, `babel`, `swc`), a bundler configuration a plugin reads
-  (`tsup.config.ts`, `rollup.config.mjs`, ...), or a `tsconfig` `outDir` at or inside `bin`. Ignored paths count
+  (`tsup.config.ts`, `rollup.config.mjs`, ...), or a `tsconfig` `outDir` at or inside `bin`. When the only build
+  steps run the TypeScript compiler (`tsc`, `tsgo`, without `--outFile`), the path is judged unless a file of the
+  package has its name (`stack.ts` for `bin/stack.js`): the compiler names each output after a source file, so a
+  `bin/stack.js` no source is named after is a path into nothing. Ignored paths count
   with the ignore files from the root of the git work tree down, also above the analysed root, and
   `.git/info/exclude`; the global excludes file (`core.excludesFile`) is not read.
 - `top-level-unconfigured` and `workspace-unconfigured`: more than 20 unused files that are more than a fifth as many

@@ -318,8 +318,8 @@ fn a_bin_path_a_compiling_command_may_write_keeps_the_package_unjudged() {
 /// `cdk.json` runs the real entry, `app/main.ts`.
 fn cdk_app(scripts: &str) -> String {
     format!(
-        r#"{{"name":"@acme/stack","version":"0.1.0","bin":{{"stack":"bin/stack.js"}},"scripts":{{"cdk":"cdk",{scripts}}},
-           "dependencies":{{"left-pad":"1.3.0","spare":"1.0.0"}},
+        r#"{{"name":"@acme/stack","version":"0.1.0","bin":{{"stack":"bin/stack.js"}},
+           "scripts":{{"cdk":"cdk",{scripts}}},"dependencies":{{"left-pad":"1.3.0","spare":"1.0.0"}},
            "devDependencies":{{"aws-cdk":"2.0.0","ts-node":"10.9.2","typescript":"5.0.0"}}}}"#
     )
 }
