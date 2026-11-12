@@ -27,8 +27,11 @@
 //! list of primitive values that no change reaches, and a write in a class body is one the evaluator does not follow.
 //!
 //! A `const` that takes a part of a local of its own function (`const { coverage } = config.test`) is the exception
-//! when the evaluator can follow it ([`Unstable::follows`]): it then applies the changes made through the alias to the
-//! local itself, so they do not mark the local, nor what may share an object with it.
+//! when the evaluator can follow it ([`Unstable::follows`]): it then applies the changes made through the alias to that
+//! part of the local itself, so they do not mark the local there. They still mark what may share an object with the
+//! local, and another part of it that may hold the same object, as the evaluator's copies there are not changed; a
+//! local of the alias's function is marked only where it is read after the alias is declared, outside a loop and a
+//! nested function, as what an earlier read copied out is itself marked where it went.
 
 use std::collections::BTreeMap;
 
@@ -176,6 +179,9 @@ impl Unstable {
             element_links: Vec::new(),
             in_const: false,
             callables: callables(program, scoping),
+            alias_parts: HashMap::default(),
+            ends: HashMap::default(),
+            late: Vec::new(),
         };
         sharing.visit_program(program);
         let followed = sharing.share();
@@ -191,16 +197,26 @@ impl Unstable {
             sole,
             ..Self::default()
         };
-        for (symbol, mut change) in sharing.changes {
-            if let Change::Contents(writes) = &mut change {
-                writes.sort();
-            }
+        for (symbol, change) in std::mem::take(&mut sharing.changes) {
+            let change = sorted(change);
             if scoping.symbol_scope_id(symbol) == scoping.root_scope_id() {
                 unstable.top.insert(scoping.symbol_name(symbol).to_owned(), change);
             } else {
                 for &reference in scoping.get_resolved_reference_ids(symbol) {
                     unstable.reads.insert(reference, change.clone());
                 }
+            }
+        }
+        for (symbol, from, change) in std::mem::take(&mut sharing.late) {
+            for &reference in scoping.get_resolved_reference_ids(symbol) {
+                if sharing.read_before(reference, from) {
+                    continue;
+                }
+                let merged = match unstable.reads.remove(&reference) {
+                    Some(existing) => sorted(existing.with(change.clone())),
+                    None => sorted(change.clone()),
+                };
+                unstable.reads.insert(reference, merged);
             }
         }
         unstable
@@ -217,9 +233,10 @@ impl Unstable {
     }
 
     /// Whether the evaluator follows the alias `id` declares ([`alias_source`]): it applies the changes made through
-    /// it to the local it takes a part of, which this pass then leaves unmarked. One is followed when it is the only
-    /// alias of that local, only its own function changes it, no other binding it or the local may share an object
-    /// with is changed, and the local is not changed directly nor by another function.
+    /// it to the part of the local it takes, which this pass then leaves unmarked there, marking only what else may
+    /// share an object with that part. One is followed when it is the only alias of that local, only its own function
+    /// changes it, no other binding it or the local may share an object with is changed, and the local is not changed
+    /// directly nor by another function.
     pub(crate) fn follows(&self, id: &BindingIdentifier<'_>) -> bool {
         id.symbol_id.get().is_some_and(|symbol| self.followed.contains(&symbol))
     }
@@ -246,6 +263,14 @@ impl Unstable {
             .get()
             .is_some_and(|reference| self.sole.contains(&reference))
     }
+}
+
+/// `change` with its writes in order.
+fn sorted(mut change: Change) -> Change {
+    if let Change::Contents(writes) = &mut change {
+        writes.sort();
+    }
+    change
 }
 
 /// The references that are the only one of their binding, other than of a binding a module exports by declaring it
@@ -338,6 +363,34 @@ struct Sharing<'s> {
     in_const: bool,
     /// The functions the module declares ([`callables`]).
     callables: Callables,
+    /// The part of the local each alias takes ([`alias_source`]), and where its declaration starts.
+    alias_parts: HashMap<SymbolId, (Vec<String>, u32)>,
+    /// Where each reference visited ends.
+    ends: HashMap<ReferenceId, u32>,
+    /// The changes of a local made through an alias the evaluator follows that a read of it sees only after the
+    /// declaration of the alias, which starts at the offset given ([`Self::read_before`]).
+    late: Vec<(SymbolId, u32, Change)>,
+}
+
+/// An alias the evaluator follows ([`Unstable::follows`]): the local it takes a part of, the keys of that part and where
+/// the declaration of the alias starts.
+struct AppliedAlias {
+    alias: SymbolId,
+    root: SymbolId,
+    keys: Vec<String>,
+    from: u32,
+}
+
+impl AppliedAlias {
+    /// The change of its local the evaluator applies for the change `write` made through the alias.
+    fn applied(&self, write: &Write) -> Write {
+        let mut keys = self.keys.clone();
+        keys.extend_from_slice(&write.keys);
+        Write {
+            keys,
+            key: write.key.clone(),
+        }
+    }
 }
 
 impl Sharing<'_> {
@@ -688,22 +741,41 @@ impl Sharing<'_> {
         }
     }
 
-    /// The aliases a `const` declaration of `pattern` with `init` declares, with the local they take a part of: `None`
-    /// unless the local is one of the function being visited ([`alias_source`], [`alias_names`]).
-    fn alias(&self, pattern: &BindingPattern<'_>, init: &Expression<'_>) -> Option<(Vec<SymbolId>, SymbolId)> {
+    /// The aliases a `const` declaration of `pattern` with `init` declares, each with the keys of the part it takes,
+    /// and the local they take a part of: `None` unless the local is one of the function being visited
+    /// ([`alias_source`], [`alias_names`]).
+    fn alias(
+        &self,
+        pattern: &BindingPattern<'_>,
+        init: &Expression<'_>,
+    ) -> Option<(Vec<(SymbolId, Vec<String>)>, SymbolId)> {
         if !self.in_const {
             return None;
         }
-        let root = self.symbol(alias_source(init)?.0)?;
+        let (source, keys) = alias_source(init)?;
+        let root = self.symbol(source)?;
         let function = *self.functions.last()?;
         if function == self.scoping.root_scope_id() || self.function_of(root) != function {
             return None;
         }
         let names = alias_names(pattern)?
             .into_iter()
-            .map(|(id, _)| id.symbol_id.get())
-            .collect::<Option<Vec<SymbolId>>>()?;
+            .map(|(id, key)| {
+                let mut part = keys.clone();
+                part.extend(key);
+                id.symbol_id.get().map(|symbol| (symbol, part))
+            })
+            .collect::<Option<Vec<_>>>()?;
         Some((names, root))
+    }
+
+    /// Whether `reference` is read before the offset `from` each time its binding's function runs, and not again
+    /// after: it ends before `from`, outside a loop and a nested function, in a module that reaches no binding
+    /// without a reference.
+    fn read_before(&self, reference: ReferenceId, from: u32) -> bool {
+        !self.dynamic
+            && !self.repeated.contains(&reference)
+            && self.ends.get(&reference).is_some_and(|&end| end <= from)
     }
 
     /// The pairs of bindings the links join, whatever the parts.
@@ -877,11 +949,24 @@ impl Sharing<'_> {
     }
 
     /// Marks every part of a binding that may share an object with a changed one, other than of the binding changed,
-    /// and returns the aliases the evaluator follows, which mark nothing.
+    /// and returns the aliases the evaluator follows. A change through one of those reaches the part of the local it
+    /// takes, which the evaluator changes too and which is not marked, and through it what else may share an object
+    /// with that part; a local of the alias's function is marked from the alias's declaration on ([`Self::late`]).
     fn share(&mut self) -> HashSet<SymbolId> {
         self.drop_primitives();
         self.link_elements();
         let followed = self.link_aliases();
+        let applied = self.applied_aliases(&followed);
+        for alias in &applied {
+            self.links.push(Link {
+                a: Place::of(alias.alias),
+                b: Place {
+                    symbol: alias.root,
+                    keys: alias.keys.clone(),
+                },
+                exact: true,
+            });
+        }
         let mut origins: Vec<(SymbolId, Write)> = Vec::new();
         for origin in &self.mutated {
             if !origins.contains(origin) {
@@ -890,13 +975,40 @@ impl Sharing<'_> {
         }
         let links_of = self.links_of();
         for (symbol, origin) in origins {
+            let through_alias = applied.iter().find(|alias| alias.alias == symbol);
             for (other, write) in self.reached(&links_of, symbol, &origin) {
-                if other != symbol {
-                    self.change(other, Change::Contents(vec![write]));
+                if other == symbol {
+                    continue;
+                }
+                let change = Change::Contents(vec![write.clone()]);
+                match through_alias {
+                    None => self.change(other, change),
+                    Some(alias) if other == alias.root && alias.applied(&origin).covers(&write) => {}
+                    Some(alias) if self.function_of(other) == self.function_of(symbol) => {
+                        self.late.push((other, alias.from, change));
+                    }
+                    Some(_) => self.change(other, change),
                 }
             }
         }
         followed
+    }
+
+    /// The aliases of `followed`, in the order they are declared.
+    fn applied_aliases(&self, followed: &HashSet<SymbolId>) -> Vec<AppliedAlias> {
+        self.aliases
+            .iter()
+            .filter(|(alias, _)| followed.contains(alias))
+            .filter_map(|&(alias, root)| {
+                let (keys, from) = self.alias_parts.get(&alias)?;
+                Some(AppliedAlias {
+                    alias,
+                    root,
+                    keys: keys.clone(),
+                    from: *from,
+                })
+            })
+            .collect()
     }
 }
 
@@ -963,7 +1075,10 @@ impl<'a> Visit<'a> for Sharing<'_> {
         if let Some(init) = &it.init
             && let Some((names, root)) = self.alias(&it.id, init)
         {
-            self.aliases.extend(names.into_iter().map(|name| (name, root)));
+            for (name, keys) in names {
+                self.aliases.push((name, root));
+                self.alias_parts.insert(name, (keys, it.span.start));
+            }
         } else if let Some(init) = &it.init {
             let function = matches!(
                 init.get_inner_expression(),
@@ -1204,6 +1319,9 @@ impl<'a> Visit<'a> for Sharing<'_> {
 
     fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
         self.dynamic |= matches!(it.name.as_str(), "arguments" | "eval");
+        if let Some(reference) = it.reference_id.get() {
+            self.ends.insert(reference, it.span.end);
+        }
         let elsewhere = self
             .symbol(it)
             .is_some_and(|symbol| self.functions.last() != Some(&self.function_of(symbol)));

@@ -2322,6 +2322,104 @@ fn an_alias_of_a_local_shared_with_a_changed_object_is_not_followed() {
     assert!(open_or_unknown(get(&value, &["coverage"])), "{value:?}");
 }
 
+/// The value at `path` below `value`, as a member read finds it, an index naming an element of an array: unknown below
+/// an unknown value and where an unknown spread after the key may replace it, and a panic where a known value lacks
+/// the key, so that a check of it reads what is there.
+fn at<'a>(value: &'a ConfigValue, path: &[&str]) -> &'a ConfigValue {
+    let mut current = value;
+    for key in path {
+        let next = match current {
+            ConfigValue::Unknown => return &UNKNOWN,
+            ConfigValue::Array(items) => key.parse::<usize>().ok().and_then(|index| items.get(index)),
+            ConfigValue::Object(entries) => entries
+                .iter()
+                .rev()
+                .find(|(name, _)| name == key || ConfigValue::is_spread_key(name))
+                .map(|(name, field)| if ConfigValue::is_spread_key(name) { &UNKNOWN } else { field }),
+            _ => None,
+        };
+        current = next.unwrap_or_else(|| panic!("{key} is missing from {current:?}"));
+    }
+    current
+}
+
+/// Whether `coverage` may hold what `coverage.enabled = true` wrote: it is unknown, may have any other key, or its
+/// `enabled` is unknown or may be `true`.
+fn may_be_enabled(coverage: &ConfigValue) -> bool {
+    open_or_unknown(coverage)
+        || match coverage.get("enabled") {
+            Some(ConfigValue::Unknown | ConfigValue::Bool(true)) => true,
+            Some(ConfigValue::OneOf(values)) => values
+                .iter()
+                .any(|value| matches!(value, ConfigValue::Unknown | ConfigValue::Bool(true))),
+            _ => false,
+        }
+}
+
+/// A change through an alias the evaluator follows (`const { coverage } = config.test`) is applied to the part of the
+/// local it takes, and reaches what else may hold that object: a list or an object holding the local, the options
+/// spread into it when they are read after the change, and another part of the local holding the same object.
+#[test]
+fn a_change_through_a_followed_alias_reaches_what_shares_the_local() {
+    let value = extract(
+        "vitest.config.ts",
+        "const pushed = () => {\n\
+           const list = [];\n\
+           const config = { test: { coverage: {} } };\n\
+           list.push(config);\n\
+           const { coverage } = config.test;\n\
+           coverage.enabled = true;\n\
+           return { list };\n\
+         };\n\
+         const listed = () => {\n\
+           const config = { test: { coverage: {} } };\n\
+           const list = [config];\n\
+           const { coverage } = config.test;\n\
+           coverage.enabled = true;\n\
+           return { list };\n\
+         };\n\
+         const held = () => {\n\
+           const config = { test: { coverage: {} } };\n\
+           const holder = { config };\n\
+           const { coverage } = config.test;\n\
+           coverage.enabled = true;\n\
+           return holder;\n\
+         };\n\
+         const spread = (options) => {\n\
+           const config = { test: { ...options } };\n\
+           const { coverage } = config.test;\n\
+           coverage.enabled = true;\n\
+           return options;\n\
+         };\n\
+         const twice = () => {\n\
+           const shared = { coverage: {} };\n\
+           const config = { test: shared, other: shared };\n\
+           const { coverage } = config.test;\n\
+           coverage.enabled = true;\n\
+           return config;\n\
+         };\n\
+         export default [pushed(), listed(), held(), spread({ coverage: {} }), twice()];",
+    );
+    let configs = value.as_array().unwrap();
+    let cases: [(&str, &[&str]); 5] = [
+        ("pushed", &["list", "0", "test", "coverage"]),
+        ("listed", &["list", "0", "test", "coverage"]),
+        ("held", &["config", "test", "coverage"]),
+        ("spread", &["coverage"]),
+        ("twice", &["other", "coverage"]),
+    ];
+    for ((name, path), config) in cases.iter().zip(configs) {
+        assert!(may_be_enabled(at(config, path)), "{name}: {config:?}");
+    }
+    assert_eq!(configs.len(), cases.len(), "{value:?}");
+    assert_eq!(
+        at(&configs[4], &["test", "coverage", "enabled"]),
+        &ConfigValue::Bool(true),
+        "{:?}",
+        configs[4]
+    );
+}
+
 /// A class's static block and field initialisers run when the class is defined or an object of it is made, which the
 /// evaluator does not follow, so what they write is unknown and the rest of the config stays known.
 #[test]
