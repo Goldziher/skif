@@ -63,10 +63,15 @@ pub(crate) struct ScriptFacts {
     pub package_managers: Vec<String>,
     /// Files the scripts run, relative to the package directory.
     pub files: Vec<String>,
+    /// The [`Self::files`] the [`PRODUCTION_SCRIPT`] runs, the only ones production mode keeps.
+    pub production_files: Vec<String>,
     /// How a test runner reads the `files` it is given, where a directory stands for the files the runner reads in it.
     pub file_trees: IndexMap<String, FileTree>,
     pub dependencies: Vec<String>,
 }
+
+/// The script that runs the app, which knip keeps in production mode; every other script runs in development only.
+pub(crate) const PRODUCTION_SCRIPT: &str = "start";
 
 /// Whether a `scripts` key is a comment: npm has no comment syntax, so projects write `"#note"` or `"//note"` keys
 /// whose values are prose, not commands.
@@ -138,6 +143,7 @@ struct Collected {
     relocated_dependencies: IndexSet<RelocatedDependency>,
     package_managers: IndexSet<String>,
     files: IndexSet<String>,
+    production_files: IndexSet<String>,
     file_trees: IndexMap<String, FileTree>,
     dependencies: IndexSet<String>,
 }
@@ -189,6 +195,9 @@ impl Collected {
             if let Some(tree) = file.tree {
                 merge_tree(&mut self.file_trees, &file.path, tree);
             }
+            if name == PRODUCTION_SCRIPT {
+                self.production_files.insert(file.path.clone());
+            }
             self.files.insert(file.path);
         }
         for dependency in info.dependencies.into_iter().filter(|dependency| !dependency.ephemeral) {
@@ -216,6 +225,7 @@ impl Collected {
             relocated_dependencies: self.relocated_dependencies.into_iter().collect(),
             package_managers: self.package_managers.into_iter().collect(),
             files: self.files.into_iter().collect(),
+            production_files: self.production_files.into_iter().collect(),
             file_trees: self.file_trees,
             dependencies: self.dependencies.into_iter().collect(),
         }
@@ -248,6 +258,15 @@ mod tests {
             "{:?}",
             facts.files
         );
+    }
+
+    #[test]
+    fn the_files_of_the_start_script_are_production_files() {
+        let facts = analyze(&package(
+            r#"{"name":"p","scripts":{"start":"node server.js","build":"node scripts/build.js","prestart":"node scripts/check.js"}}"#,
+        ));
+        assert_eq!(facts.files, ["server.js", "scripts/build.js", "scripts/check.js"]);
+        assert_eq!(facts.production_files, ["server.js"]);
     }
 
     #[test]
