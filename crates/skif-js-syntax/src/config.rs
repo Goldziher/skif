@@ -444,8 +444,11 @@ pub struct ExtractedConfig {
     /// spread. A `define*` call (`defineConfig(createBase(options))`) is looked through to the expression it wraps, a
     /// top-level constant to its initialiser, and a config function the tool calls whose body is one expression or a
     /// single `return` (`export default () => createConfig({ … })`) to what it returns, its parameters unknown.
-    /// The values are those the evaluation computed. Empty otherwise; an unfollowed call anywhere else, such as one a
-    /// function body computes in a local first, keeps no arguments.
+    /// Such a call nested in an object or array literal of that value keeps its arguments too, each in an object under
+    /// the keys it is found at: `{ test: createTest({ setupFiles }) }` keeps `{ test: { setupFiles } }`, so a file
+    /// named under a key that excludes files stays under it. The values are those the evaluation computed. Empty
+    /// otherwise; an unfollowed call anywhere else, such as one a function body computes in a local first, keeps no
+    /// arguments.
     pub call_arguments: Vec<ConfigValue>,
 }
 
@@ -2945,8 +2948,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// The arguments of the calls the evaluator cannot follow whose results `expr`, which evaluated to `value`, is or
     /// merges: a call that evaluated to unknown, looking through `await`, a `define*` call to the expression it wraps,
     /// a top-level constant to its initialiser, a function the tool calls to the expression it returns
-    /// ([`Self::returned_call_arguments`]), and a merge (`mergeConfig`, `Object.assign`) to each of its arguments.
-    /// The values are those the evaluation computed; arguments it did not evaluate are evaluated now.
+    /// ([`Self::returned_call_arguments`]), a merge (`mergeConfig`, `Object.assign`) to each of its arguments, and an
+    /// object or array literal to what it holds ([`Self::nested_call_arguments`]). The values are those the evaluation
+    /// computed; arguments it did not evaluate are evaluated now.
     fn unknown_call_arguments(&self, expr: &'p Expression<'a>, value: &Value, depth: u32) -> Vec<Value> {
         if depth > MAX_DEPTH {
             return Vec::new();
@@ -2958,8 +2962,83 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             Expression::Identifier(id) => self.constant_call_arguments(id.name.as_str(), value, depth),
             Expression::ArrowFunctionExpression(f) => self.returned_call_arguments(Callable::Arrow(f), value, depth),
             Expression::FunctionExpression(f) => self.returned_call_arguments(Callable::Function(f), value, depth),
+            Expression::ObjectExpression(object) => self.object_call_arguments(&object.properties, value, depth),
+            Expression::ArrayExpression(array) => self.array_call_arguments(&array.elements, value, depth),
             _ => Vec::new(),
         }
+    }
+
+    /// [`Self::unknown_call_arguments`] of `expr`, which evaluated to `value`, inside an object or array literal: of
+    /// a call, `await` looked through, and of the object and array literals it nests. A name is not looked up there,
+    /// so constants that refer to each other are not walked once per reference.
+    fn nested_call_arguments(&self, expr: &'p Expression<'a>, value: &Value, depth: u32) -> Vec<Value> {
+        if depth > MAX_DEPTH {
+            return Vec::new();
+        }
+        let depth = depth + 1;
+        match expr.get_inner_expression() {
+            Expression::AwaitExpression(a) => self.nested_call_arguments(&a.argument, value, depth),
+            Expression::CallExpression(call) => self.unknown_arguments_of_call(call, value, depth),
+            Expression::ObjectExpression(object) => self.object_call_arguments(&object.properties, value, depth),
+            Expression::ArrayExpression(array) => self.array_call_arguments(&array.elements, value, depth),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The arguments of the calls the evaluator cannot follow in the keys of an object literal that evaluated to
+    /// `value`, each put in an object under the key it is found at (`{ test: <argument> }`), so a file named under an
+    /// exclusion key (`coverage: { exclude: makeList(['./a.ts']) }`) is still found under it. A spread counts as
+    /// unknown only when the object has an unknown spread.
+    fn object_call_arguments(&self, properties: &'p [ObjectPropertyKind<'a>], value: &Value, depth: u32) -> Vec<Value> {
+        let object = value.definite();
+        let spread = if object.get(UNKNOWN_SPREAD).is_some() || object.get(OWN_SPREAD).is_some() {
+            Value::Unknown
+        } else {
+            Value::Null
+        };
+        let mut out = Vec::new();
+        for property in properties {
+            match property {
+                ObjectPropertyKind::ObjectProperty(p) => {
+                    let Some(key) = p.key.static_name() else {
+                        continue;
+                    };
+                    let key = crate::js_string(key.as_js_str());
+                    let field = object.get(&key).cloned().unwrap_or(Value::Unknown);
+                    out.extend(
+                        self.nested_call_arguments(&p.value, &field, depth)
+                            .into_iter()
+                            .map(|argument| Value::Object(vec![(key.clone(), argument)])),
+                    );
+                }
+                ObjectPropertyKind::SpreadProperty(s) => {
+                    out.extend(self.nested_call_arguments(&s.argument, &spread, depth));
+                }
+            }
+        }
+        out
+    }
+
+    /// The arguments of the calls the evaluator cannot follow in the elements of an array literal that evaluated to
+    /// `value`, up to its first spread, after which an element's value is not known by its position.
+    fn array_call_arguments(
+        &self,
+        elements: &'p [ArrayExpressionElement<'a>],
+        value: &Value,
+        depth: u32,
+    ) -> Vec<Value> {
+        let unknown = Value::Unknown;
+        let items: &[Value] = match value.definite() {
+            Value::Array(items) => items,
+            _ => &[],
+        };
+        elements
+            .iter()
+            .take_while(|element| !matches!(element, ArrayExpressionElement::SpreadElement(_)))
+            .enumerate()
+            .filter_map(|(index, element)| Some((element.as_expression()?, items.get(index).unwrap_or(&unknown))))
+            .flat_map(|(element, item)| self.nested_call_arguments(element, item, depth))
+            .collect()
     }
 
     /// [`Self::unknown_call_arguments`] of `call`.

@@ -1,6 +1,7 @@
-//! Tool configs built by a factory (`export default createVitestConfig({ setupFiles: ['./config/boot.ts'] })`): a
-//! factory of a workspace package is evaluated with the options it is given, and the files named in the options of a
-//! factory that cannot be followed are entries, while the package stays incomplete.
+//! Tool configs built by a factory (`export default createVitestConfig({ setupFiles: ['./config/boot.ts'] })`) or read
+//! from an imported config: a factory of a workspace package is evaluated with the options it is given, a member of an
+//! imported config is its value, and the files named in the options of a factory that cannot be followed are entries,
+//! while the package stays incomplete.
 //!
 //! Every case is a minimal synthetic workspace.
 
@@ -88,6 +89,34 @@ fn the_files_an_unknown_factory_is_given_are_entries_of_an_incomplete_package() 
         "import { defineConfig } from 'vitest/config';\n\
          import { createVitestConfig } from '@acme/vitest-preset';\n\
          export default defineConfig(createVitestConfig({ setupFiles: ['./config/boot.ts'] }));\n",
+    );
+    let (incomplete, boot) = analyse(&files, "packages/app/config/boot.ts");
+    let scopes: Vec<&IncompleteScope> = incomplete.iter().map(|package| &package.scope).collect();
+    assert_eq!(scopes, [&IncompleteScope::Package]);
+    assert_eq!(boot["in-graph"], true, "{boot}");
+}
+
+/// A member of an imported config read optionally or with a string key is its value, so the setup module it names is
+/// an entry and the package is complete. A factory that cannot be followed below the top level of the config leaves
+/// the package incomplete, and the setup module it is given is still an entry.
+#[test]
+fn optional_and_computed_members_and_nested_factories_name_entries() {
+    for vitest_config in [
+        "import base from './base.mjs';\nexport default { test: { setupFiles: base?.setupFiles } };\n",
+        "import base from './base.mjs';\nexport default { test: { setupFiles: base['setupFiles'] } };\n",
+    ] {
+        let mut files = workspace(vitest_config);
+        files.push((
+            "packages/app/base.mjs",
+            "export default { setupFiles: ['./config/boot.ts'] };\n",
+        ));
+        let (incomplete, boot) = analyse(&files, "packages/app/config/boot.ts");
+        assert_eq!(incomplete, Vec::new(), "{vitest_config}");
+        assert_eq!(boot["in-graph"], true, "{vitest_config}: {boot}");
+    }
+    let files = workspace(
+        "import { createTest } from '@acme/vitest-preset';\n\
+         export default { test: createTest({ setupFiles: ['./config/boot.ts'] }) };\n",
     );
     let (incomplete, boot) = analyse(&files, "packages/app/config/boot.ts");
     let scopes: Vec<&IncompleteScope> = incomplete.iter().map(|package| &package.scope).collect();
