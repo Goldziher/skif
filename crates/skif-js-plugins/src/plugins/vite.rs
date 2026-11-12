@@ -111,34 +111,57 @@ impl Plugin for Vite {
 /// them the way knip does.
 ///
 /// `root` moves the project root, where Vite looks for `index.html` and resolves `/`-rooted paths (the `src` of a
-/// script tag, an HTML input written as `/page.html`), relative to the config file. A `root` that is not a static
-/// string leaves those entries unknown.
+/// script tag, an HTML input written as `/page.html`), relative to the config file. A `root` that is one of several
+/// relative paths (`root: process.env.X ? path.resolve('ui') : __dirname`) may be any of them, so the entries of each
+/// count. A `root` that is not a static string, or one of several, leaves those entries unknown.
 pub(crate) fn html_and_build_inputs(config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Vec<PluginInput> {
     let mut out = Vec::new();
-    let root = match get_in(config.value, &["root"]) {
-        None => config.base.to_owned(),
-        Some(ConfigValue::String(root)) if !std::path::Path::new(root).is_absolute() => config.join(root),
-        Some(_) => {
+    let roots = match get_in(config.value, &["root"]) {
+        None => vec![config.base.to_owned()],
+        Some(root) => relative_roots(root, config).unwrap_or_else(|| {
             out.push(PluginInput::EntriesIncomplete);
-            config.base.to_owned()
-        }
+            vec![config.base.to_owned()]
+        }),
     };
-    out.extend(html_entries(cx, &root, "index.html"));
+    for root in &roots {
+        out.extend(html_entries(cx, root, "index.html"));
+    }
     let inputs = get_in(config.value, build_input_key(config.value));
     for input in inputs.into_iter().flat_map(values_of).flat_map(strings) {
         if std::path::Path::new(input)
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("html"))
         {
-            out.extend(match input.strip_prefix('/') {
-                Some(rooted) => html_entries(cx, &root, rooted),
-                None => html_entries_at(cx, &root, &config.join(input)),
-            });
+            for root in &roots {
+                out.extend(match input.strip_prefix('/') {
+                    Some(rooted) => html_entries(cx, root, rooted),
+                    None => html_entries_at(cx, root, &config.join(input)),
+                });
+            }
         } else {
             out.push(PluginInput::ProductionEntry(config.join(input)));
         }
     }
     out
+}
+
+/// The directories, relative to the workspace, a `root` may be: each alternative of it ([`ConfigValue::alternatives`]),
+/// once, when every one is a relative path; `None` otherwise.
+fn relative_roots(root: &ConfigValue, config: &ConfigAst<'_>) -> Option<Vec<String>> {
+    let mut roots: Vec<String> = Vec::new();
+    for alternative in root.alternatives() {
+        let ConfigValue::String(path) = alternative else {
+            return None;
+        };
+        if std::path::Path::new(path).is_absolute() {
+            return None;
+        }
+        let joined = config.join(path);
+        if !roots.contains(&joined) {
+            roots.push(joined);
+        }
+    }
+    Some(roots)
 }
 
 /// `css.postcss`: an inline `PostCSS` config object, or the path of a `PostCSS` config file or of the directory to
