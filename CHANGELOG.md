@@ -144,7 +144,9 @@ All notable changes to this project are documented here. The format follows
   list's elements (`configs.forEach(withSentry)`, `list.forEach(fn, thisArg)`) changes nothing only when that
   function is written in place or declared by the config and no `this` object follows it; otherwise the elements
   and that object are partly unknown. Calling a local that holds a function the evaluator does not follow
-  (`const addAlias = aliaser(config); …; addAlias('~', './lib')`) leaves what it was made from partly unknown.
+  (`const addAlias = aliaser(config); …; addAlias('~', './lib')`) leaves what it was made from partly unknown. The
+  parameters of a callback after the element (`forEach((name, index, list) => list.push(…))`) share the list it is
+  called over, a `const` list of strings included.
 - **Config evaluation**: `.map`, `.flatMap` and `.filter` of a known array call their callback (an inline function,
   or one the config declares) with each element and its index, so Vitest projects spread from
   `` ['light', 'dark'].map((theme) => ({ test: { name: `browser-${theme}` } })) `` are known instead of leaving the
