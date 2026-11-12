@@ -670,7 +670,11 @@ fn what_code_may_or_may_not_write_is_unknown_after_it() {
     for key in ["some", "n"] {
         assert_eq!(get(&configs[1], &[key]), &one_or_two, "{key}");
     }
-    assert!(get(&configs[1], &["c"]).get("...").is_some());
+    // Only the key a write that may or may not run sets is unknown.
+    assert_eq!(
+        get(&configs[1], &["c"]),
+        &ConfigValue::Object(vec![("a".to_owned(), ConfigValue::Unknown)])
+    );
 }
 
 #[test]
@@ -681,14 +685,14 @@ fn a_returned_key_does_not_depend_on_what_else_the_object_reads() {
                 env() && (c.a = 2);\n\
                 if (env()) n++;\n";
     let one_or_two = ConfigValue::OneOf(vec![ConfigValue::Number(1.0), ConfigValue::Number(2.0)]);
-    // The returned object, the keys that are one of 1 and 2, and the keys whose object may hold more keys.
+    // The returned object, the keys that are one of 1 and 2, and the keys whose object's `a` may have been set.
     let cases: [(&str, &[&str], &[&str]); 4] = [
         ("{ mode }", &[], &[]),
         ("{ mode, n: n ? 1 : 2 }", &["n"], &[]),
         ("{ mode, c }", &[], &["c"]),
         ("{ mode, some: list.length ? 1 : 2 }", &["some"], &[]),
     ];
-    for (returned, one_of_two, opened) in cases {
+    for (returned, one_of_two, set) in cases {
         let source =
             format!("const make = () => {{\n{body}return {returned};\n}};\nexport default [{{ base: 1 }}, make()];");
         let value = extract("vite.config.ts", &source);
@@ -701,8 +705,12 @@ fn a_returned_key_does_not_depend_on_what_else_the_object_reads() {
         for key in one_of_two {
             assert_eq!(get(config, &[*key]), &one_or_two, "{returned}: {key}");
         }
-        for key in opened {
-            assert!(open(get(config, &[*key])), "{returned}: {key}");
+        for key in set {
+            assert_eq!(
+                get(config, &[*key]),
+                &ConfigValue::Object(vec![("a".to_owned(), ConfigValue::Unknown)]),
+                "{returned}: {key}"
+            );
         }
     }
 }
@@ -748,7 +756,8 @@ fn open(value: &ConfigValue) -> bool {
 }
 
 /// A change made through another name for an object, by a call or by a closure reaches the original, which is then
-/// partly unknown; a change through an alias the evaluator follows (`const a = cfg` in a function) is applied to it.
+/// partly unknown where the change is, and a change of an object another one holds reaches only the part that holds
+/// it; a change through an alias the evaluator follows (`const a = cfg` in a function) is applied to it.
 #[test]
 fn a_change_through_an_alias_a_call_or_a_closure_reaches_the_original() {
     let value = extract(
@@ -771,11 +780,25 @@ fn a_change_through_an_alias_a_call_or_a_closure_reaches_the_original() {
             ("x".to_owned(), ConfigValue::Unknown),
         ])
     );
-    for (index, config) in configs.iter().enumerate().skip(1) {
-        if index != 3 {
-            assert!(open(config), "{index}: {config:?}");
-        }
+    assert_eq!(
+        configs[1],
+        ConfigValue::Object(vec![(
+            "test".to_owned(),
+            ConfigValue::Object(vec![(
+                "include".to_owned(),
+                ConfigValue::Array(vec![s("a"), ConfigValue::Unknown])
+            )])
+        )])
+    );
+    // A key set where the evaluator does not follow it is unknown in the original; a call given it may change all of it.
+    for index in [2, 5, 6, 7] {
+        assert_eq!(
+            configs[index],
+            ConfigValue::Object(vec![("a".to_owned(), ConfigValue::Unknown)]),
+            "{index}"
+        );
     }
+    assert!(open(&configs[4]), "{:?}", configs[4]);
     assert!(open(get(&configs[3], &["paths"])));
     assert_eq!(get(&configs[3], &["m"]), &ConfigValue::Unknown);
 }
@@ -1603,4 +1626,126 @@ fn filter_boolean_keeps_what_may_be_truthy() {
         "const Boolean = (value) => !value;\nexport default { reporter: [null, 'list'].filter(Boolean) };",
     );
     assert_eq!(get(&shadowed, &["reporter"]), &ConfigValue::Unknown);
+}
+
+/// A call of a well-known function that changes nothing it is given and returns a value of its own (`fs.readFileSync`,
+/// `path.dirname`, `JSON.stringify`, `console.log`) does not share the config that holds its result with anything, so a
+/// literal key of the config stays known.
+#[test]
+fn a_pure_call_leaves_the_config_holding_its_result_known() {
+    let value = extract(
+        "rspack.config.js",
+        "const fs = require('fs');\n\
+         const path = require('path');\n\
+         const KEY = path.join(__dirname, 'key.pem');\n\
+         const config = {\n\
+           entry: { main: './src/main.js' },\n\
+           devServer: { server: { options: { key: fs.readFileSync(KEY) } } },\n\
+           context: path.dirname(KEY),\n\
+           banner: JSON.stringify({ key: KEY }),\n\
+         };\n\
+         console.log(config);\n\
+         module.exports = config;",
+    );
+    assert!(!open(&value), "{value:?}");
+    assert_eq!(get(&value, &["entry"]), &ConfigValue::Object(vec![("main".to_owned(), s("./src/main.js"))]));
+}
+
+/// A `const` that holds a string shares no object, so giving it to a call that may change what it is given does not
+/// make an alias that also reads it one the evaluator cannot follow: the change through the alias is applied.
+#[test]
+fn a_string_given_to_a_call_shares_no_object() {
+    let value = extract(
+        "vitest.config.ts",
+        "const reporter = require('reporter');\n\
+         const make = () => {\n\
+           const dir = `${process.cwd()}/coverage`;\n\
+           const config = { test: { coverage: { enabled: false } } };\n\
+           const { coverage } = config.test;\n\
+           coverage.enabled = true;\n\
+           coverage.dir = dir;\n\
+           reporter.use(dir);\n\
+           return config;\n\
+         };\n\
+         export default make();",
+    );
+    assert!(!open(&value), "{value:?}");
+    assert_eq!(get(&value, &["test", "coverage", "enabled"]), &ConfigValue::Bool(true));
+    assert!(!open(get(&value, &["test", "coverage"])), "{value:?}");
+}
+
+/// A write through a part of a local config changes only that part: a list given an element (`unshift`, `push`) holds
+/// it, under a test the evaluator cannot decide as one of the list before and after; a key set there is one of its
+/// values before and after; and a method the evaluator does not follow (`splice`) leaves only that list partly
+/// unknown.
+#[test]
+fn a_write_through_a_part_of_a_config_changes_only_that_part() {
+    let value = extract(
+        "rspack.config.js",
+        "module.exports = () => {\n\
+           const config = { entry: './src/main.js', module: { rules: [] }, output: { path: 'dist' }, plugins: ['a'] };\n\
+           config.module.rules.unshift({ loader: 'first-loader' });\n\
+           if (process.env.DEV) {\n\
+             config.module.rules.push({ loader: 'dev-loader' });\n\
+             config.output.path = 'build';\n\
+           }\n\
+           config.plugins.splice(0, 1);\n\
+           return config;\n\
+         };",
+    );
+    let first = ConfigValue::Object(vec![("loader".to_owned(), s("first-loader"))]);
+    let dev = ConfigValue::Object(vec![("loader".to_owned(), s("dev-loader"))]);
+    assert!(!open(&value), "{value:?}");
+    assert_eq!(get(&value, &["entry"]), &s("./src/main.js"));
+    assert_eq!(
+        get(&value, &["module", "rules"]),
+        &ConfigValue::OneOf(vec![
+            ConfigValue::Array(vec![first.clone()]),
+            ConfigValue::Array(vec![first, dev]),
+        ])
+    );
+    assert_eq!(get(&value, &["output", "path"]), &ConfigValue::OneOf(vec![s("dist"), s("build")]));
+    assert_eq!(get(&value, &["plugins"]), &ConfigValue::Array(vec![s("a"), ConfigValue::Unknown]));
+}
+
+/// A write through a part of a config a function returns, made where the evaluator does not run it (a top-level
+/// statement), leaves that part partly unknown, also in the local the function returns, and the rest known.
+#[test]
+fn a_write_through_a_part_of_a_returned_local_changes_only_that_part() {
+    let value = extract(
+        "rspack.config.js",
+        "function base() {\n\
+           const config = { entry: './src/main.js', module: { rules: [] } };\n\
+           return config;\n\
+         }\n\
+         const config = base();\n\
+         if (process.env.DEV) config.module.rules.push({ loader: 'dev-loader' });\n\
+         if (process.env.CI) config.plugins = [];\n\
+         module.exports = config;",
+    );
+    assert!(!open(&value), "{value:?}");
+    assert_eq!(get(&value, &["entry"]), &s("./src/main.js"));
+    assert!(get(&value, &["module", "rules"]).has_unknown(), "{value:?}");
+    assert_eq!(get(&value, &["plugins"]), &ConfigValue::Unknown);
+}
+
+/// What may change the whole config still leaves all of it partly unknown: a call given the config itself, a method of
+/// an object the config is given to, a change through another name for it, a function named like a well-known one of
+/// an object that is not that module, and a merge of an unknown value into it.
+#[test]
+fn what_may_reach_the_whole_config_leaves_it_partly_unknown() {
+    for body in [
+        "configure(config);",
+        "const merged = lib.defaults(config, {});",
+        "const view = config; mutate(view);",
+        "const cert = store.readFileSync(config);",
+        "if (process.env.CI) Object.assign(config, extra());",
+    ] {
+        let source = format!(
+            "const lib = require('lib');\nconst store = require('store');\n\
+             const config = {{ entry: './src/main.js', module: {{ rules: [] }} }};\n{body}\nmodule.exports = config;"
+        );
+        let value = extract("rspack.config.js", &source);
+        assert!(open(&value), "{body}: {value:?}");
+    }
 }
