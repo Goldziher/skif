@@ -13,7 +13,9 @@ pub static META: RuleMeta = RuleMeta::new(
 
 /// Reports non-empty directories matched by the workspace patterns that lack a `package.json`.
 ///
-/// Empty directories (left behind by switching branches), hidden directories and `node_modules` are not reported.
+/// Empty directories (left behind by switching branches), hidden directories and `node_modules` are not reported, nor
+/// are an Nx project (a directory with a `project.json`) and a grouping directory whose content is only directories
+/// the patterns select too (`libs/cart` when `libs/*/*` selects `libs/cart/feature`).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MissingPackageManifest;
 
@@ -101,6 +103,78 @@ mod tests {
             let found: Vec<String> = lint(META.id, &files, &config(""))
                 .iter()
                 .map(|d| d.location.path.to_string_lossy().into_owned())
+                .collect();
+            assert_eq!(found, expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn grouping_directories_and_nx_projects_need_no_manifest() {
+        let nested = r#"{"name":"root","private":true,"packageManager":"pnpm@9.0.0","workspaces":["libs/*","libs/*/*","libs/*/*/*"]}"#;
+        let shallow = r#"{"name":"root","private":true,"packageManager":"pnpm@9.0.0","workspaces":["libs/*"]}"#;
+        let cases = [
+            (
+                "a grouping directory of members",
+                nested,
+                vec![
+                    ("libs/cart/feature/package.json", MEMBER),
+                    ("libs/cart/ui/package.json", MEMBER),
+                ],
+                vec![],
+            ),
+            (
+                "grouping directories on two levels",
+                nested,
+                vec![
+                    ("libs/shared/product/data/package.json", MEMBER),
+                    ("libs/shared/product/ui/package.json", MEMBER),
+                ],
+                vec![],
+            ),
+            (
+                "hidden entries and installed dependencies beside the members",
+                nested,
+                vec![
+                    ("libs/cart/feature/package.json", MEMBER),
+                    ("libs/cart/.DS_Store", ""),
+                    ("libs/cart/node_modules/x/index.js", ""),
+                ],
+                vec![],
+            ),
+            (
+                "a grouping directory that also holds a file",
+                nested,
+                vec![("libs/cart/feature/package.json", MEMBER), ("libs/cart/README.md", "")],
+                vec!["libs/cart"],
+            ),
+            (
+                "a directory whose subdirectory the patterns do not select",
+                shallow,
+                vec![("libs/cart/feature/package.json", MEMBER)],
+                vec!["libs/cart"],
+            ),
+            (
+                "an Nx project",
+                shallow,
+                vec![
+                    ("libs/web/project.json", r#"{"name":"web"}"#),
+                    ("libs/web/src/main.ts", ""),
+                ],
+                vec![],
+            ),
+            (
+                "a project.json in a subdirectory does not count",
+                shallow,
+                vec![("libs/web/src/project.json", "{}")],
+                vec!["libs/web"],
+            ),
+        ];
+        for (name, root_json, members, expected) in cases {
+            let mut files = vec![("package.json", root_json)];
+            files.extend(members);
+            let found: Vec<String> = lint(META.id, &files, &config(""))
+                .iter()
+                .map(|d| d.location.path.to_string_lossy().replace('\\', "/"))
                 .collect();
             assert_eq!(found, expected, "{name}");
         }

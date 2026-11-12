@@ -83,7 +83,8 @@ pub(super) fn delete_range(module: &Module, start: u32, end: u32) -> FixOp {
     FixOp::text(module.path.clone(), TextEdit::new(start, end, String::new()))
 }
 
-/// Reports every dependency of the given sections that nothing uses.
+/// Reports every dependency of the given sections that nothing uses, except one on a member that only orders tasks
+/// ([`JsAnalysis::only_orders_tasks`]).
 pub(super) fn report_unused_dependencies(
     meta: &'static RuleMeta,
     kinds: &[DependencyKind],

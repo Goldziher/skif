@@ -251,6 +251,12 @@ A package whose entry files skif cannot all know (a tool configuration it cannot
 is narrowed it judges the files, exports, types and members outside that scope, and otherwise none of them (see
 "Incomplete entries" under [`[js]`](../../reference/configuration/#js)). knip still reports there.
 
+A dependency on a workspace member that nothing can import or run is not reported unused: a member whose
+`package.json` has no `main`, `module`, `exports`, `bin`, `browser`, `types` or `typings` and that holds no source
+file, such as a tooling, asset or style package. Such a dependency orders tasks (Turborepo's `^build`, Nx's task
+dependencies), and knip reports it. A member with one of those fields or a source file is judged as before; when it
+is listed only to order tasks, add it to `ignore-dependencies` with a `reason`.
+
 The remaining differences each have an open issue, and their size is in the
 [agreement table](../benchmarks/#agreement-with-knip):
 `unlisted-dependencies` ([#96](https://github.com/Goldziher/skif/issues/96)), `unlisted-binaries`

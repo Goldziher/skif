@@ -134,6 +134,9 @@ pub enum DependencyVerdict {
     PackageExcluded,
     /// Not judged: the entry files of the package are not fully known.
     EntriesIncomplete,
+    /// Unused but not reported: the dependency is on a workspace member that nothing can import or run, so it only
+    /// orders tasks.
+    OrdersTasks,
     /// The manifest does not list it and nothing credits it to the package.
     NotListed,
 }
@@ -145,6 +148,7 @@ pub(crate) enum Exemption {
     OptionalPeer,
     PackageExcluded,
     EntriesIncomplete,
+    OrdersTasks,
 }
 
 impl From<Exemption> for DependencyVerdict {
@@ -154,6 +158,7 @@ impl From<Exemption> for DependencyVerdict {
             Exemption::OptionalPeer => Self::OptionalPeer,
             Exemption::PackageExcluded => Self::PackageExcluded,
             Exemption::EntriesIncomplete => Self::EntriesIncomplete,
+            Exemption::OrdersTasks => Self::OrdersTasks,
         }
     }
 }
@@ -310,6 +315,9 @@ fn render_package(out: &mut String, package: &PackageDependencyUsage) {
         (DependencyVerdict::PackageExcluded, _) => "not judged: the package is excluded".to_owned(),
         (DependencyVerdict::EntriesIncomplete, _) => {
             "not judged: the entry files of the package are not fully known".to_owned()
+        }
+        (DependencyVerdict::OrdersTasks, _) => {
+            "unused, not reported: a workspace member nothing can import or run, listed to order tasks".to_owned()
         }
         (DependencyVerdict::NotListed, _) => "not listed".to_owned(),
     };
@@ -546,6 +554,8 @@ impl JsAnalysis<'_> {
             Some(Exemption::EntriesIncomplete)
         } else if self.ignores_dependency(id, &entry.name) {
             Some(Exemption::Ignored)
+        } else if self.only_orders_tasks(&entry.name) {
+            Some(Exemption::OrdersTasks)
         } else if entry.kind == DependencyKind::PeerDependencies && is_optional_peer(package, &entry.name) {
             Some(Exemption::OptionalPeer)
         } else {

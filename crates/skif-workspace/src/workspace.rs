@@ -14,6 +14,7 @@ use skif_specifier::SpecifierCache;
 use crate::catalogs::{self, Catalogs};
 use crate::detect;
 use crate::error::WorkspaceError;
+use crate::lerna::LernaFacts;
 use crate::package::{Package, PackageId};
 use crate::parallel::map_ordered;
 use crate::pattern::{self, Expander, Pattern};
@@ -23,6 +24,8 @@ use crate::{bazel, lerna, roots, rush};
 const MANIFEST: &str = "package.json";
 const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
 const YARNRC: &str = ".yarnrc.yml";
+/// The file of an Nx project, which needs no `package.json`.
+const NX_PROJECT: &str = "project.json";
 
 /// Where the workspace patterns were declared.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,7 +75,10 @@ pub struct DiscoveryFacts {
     pub source: WorkspaceSource,
     /// One entry per declared pattern, in declaration order.
     pub patterns: Vec<PatternFact>,
-    /// Matched directories with real content (not only hidden entries, `node_modules` or build output) without a `package.json`, sorted.
+    /// Matched directories with real content (not only hidden entries, `node_modules` or build output) without a
+    /// `package.json`, sorted. Left out are a directory that holds a `project.json` (an Nx project, which needs no
+    /// `package.json`) and a grouping directory, whose content is only directories the patterns also selected
+    /// (`libs/cart` when `libs/*/*` selects `libs/cart/feature`).
     pub dirs_without_manifest: Vec<PathBuf>,
     /// Whether `patterns` are pnpm's defaults rather than written down: a `pnpm-workspace.yaml` without `packages:`
     /// makes pnpm take the root and every package below it (except `test` and `tests` directories).
@@ -89,6 +95,9 @@ pub struct DiscoveryFacts {
     /// part of the source tree or of Bazel's output. They stay members and are excluded from analysis as
     /// `[workspace] ignore-packages` would.
     pub bazel_links: Vec<PathBuf>,
+    /// The `lerna.json` next to the root `package.json`, when it is valid JSON, also when another file declares the
+    /// members.
+    pub lerna: Option<LernaFacts>,
 }
 
 /// The lockfiles every supported package manager writes, by file name.
@@ -175,7 +184,8 @@ enum Member {
     Loaded(Box<Package>),
     /// A directory with real content (not only `node_modules`, build output or hidden entries) and no `package.json`.
     NoManifest(PathBuf),
-    /// A directory without real content; those linger after switching git branches and are not worth reporting.
+    /// A directory without real content; those linger after switching git branches and are not worth reporting. Also
+    /// an Nx project and a grouping directory (see [`DiscoveryFacts::dirs_without_manifest`]), which need no manifest.
     Empty,
     Failed(PathBuf, WorkspaceError),
 }
@@ -191,6 +201,25 @@ fn has_content(entry: &DirEntry) -> bool {
     })
 }
 
+/// Whether a selected directory without a `package.json` is meant to have none: it holds an Nx `project.json`, or
+/// everything in it is a directory the patterns selected too. `selected` holds every selected directory, sorted.
+fn needs_no_manifest(root: &Path, entries: &[DirEntry], selected: &[&str]) -> bool {
+    let is_selected = |entry: &DirEntry| {
+        entry.is_dir
+            && entry
+                .path
+                .strip_prefix(root)
+                .ok()
+                .and_then(Path::to_str)
+                .is_some_and(|dir| selected.binary_search(&dir.replace('\\', "/").as_str()).is_ok())
+    };
+    let content: Vec<&DirEntry> = entries.iter().filter(|entry| has_content(entry)).collect();
+    content
+        .iter()
+        .any(|entry| entry.is_file && entry.path.file_name().is_some_and(|name| name == NX_PROJECT))
+        || content.iter().copied().all(is_selected)
+}
+
 /// What loading one selected directory found: the member, and its lockfiles and `pnpm-workspace.yaml` files (see
 /// [`DiscoveryFacts::package_manager_files`]).
 struct Loaded {
@@ -198,13 +227,14 @@ struct Loaded {
     package_manager_files: Vec<PathBuf>,
 }
 
-/// Loads the selected directory `dir`. The directory is listed first, once: the listing names its package-manager
-/// files, and a caching file system answers the manifest probe from it instead of with a `stat`.
+/// Loads the selected directory `dir`, one of the sorted `selected`. The directory is listed first, once: the listing
+/// names its package-manager files, and a caching file system answers the manifest probe from it instead of with a
+/// `stat`.
 fn load_member(
     fs: &dyn FileSystem,
     root: &Path,
     files: &ManagerFiles<'_>,
-    dir: &str,
+    (dir, selected): (&str, &[&str]),
     cache: &SpecifierCache,
 ) -> Loaded {
     let absolute = root.join(dir);
@@ -222,7 +252,9 @@ fn load_member(
             },
             Err(error) => Member::Failed(PathBuf::from(dir), io_error(&manifest, error)),
         }
-    } else if entries.is_some_and(|entries| entries.iter().any(has_content)) {
+    } else if entries.is_some_and(|entries| {
+        entries.iter().any(has_content) && !needs_no_manifest(root, &entries, selected)
+    }) {
         Member::NoManifest(PathBuf::from(dir))
     } else {
         Member::Empty
@@ -271,6 +303,18 @@ impl ManagerFiles<'_> {
             .map(|entries| self.in_listing(&entries))
             .unwrap_or_default()
     }
+}
+
+/// Records in `facts` what the `packages` of `lerna.json` select that `members`, the directories the workspace
+/// declaration selects, do not, and the other way round. Lerna reads `packages` before the package manager's
+/// workspaces, so the two lists then disagree on what a Lerna command acts on.
+fn diverge_from_lerna(facts: &mut LernaFacts, expander: &Expander<'_>, members: &BTreeSet<String>) {
+    let Some(globs) = facts.packages.as_ref() else {
+        return;
+    };
+    let selected = pattern::selected_with_manifest(expander, globs.iter().map(String::as_str));
+    facts.only_in_lerna = selected.difference(members).map(PathBuf::from).collect();
+    facts.only_in_workspace = members.difference(&selected).map(PathBuf::from).collect();
 }
 
 fn json_patterns(root_package: &Package) -> Option<Declared> {
@@ -422,17 +466,19 @@ impl Workspace {
         };
 
         let from_json = json_patterns(&root_package);
-        // `lerna.json` is the last resort: it is read only when nothing else declares members, and then an unreadable
-        // or invalid one declares nothing, as in root discovery, so a stale file never fails a workspace it does not
-        // define.
+        // `lerna.json` is the last resort: it declares the members only when nothing else does. An unreadable or
+        // invalid one declares nothing, as in root discovery, so a stale file never fails a workspace it does not
+        // define. A valid one is recorded either way, for the rules on Lerna's own reading of it.
         let others_declare = from_json.is_some()
             || pnpm_config.as_ref().is_some_and(|parsed| parsed.packages.is_some())
             || rush.is_some();
         let lerna_path = root.join(lerna::FILE);
-        let lerna = (has_root_manifest && !others_declare)
+        let lerna_file = has_root_manifest
             .then(|| fs.read_to_string(&lerna_path).ok())
             .flatten()
             .and_then(|text| lerna::parse(lerna_path, text).ok());
+        let mut lerna_facts = lerna_file.as_ref().map(LernaFacts::new);
+        let lerna = lerna_file.filter(|_| !others_declare);
 
         let package_manager = detect::detect(
             fs,
@@ -614,7 +660,7 @@ impl Workspace {
             inherited: OnceLock::new(),
         };
         let loaded: Vec<Loaded> = map_ordered(&dirs, sequential, |dir| {
-            load_member(fs, &root, &manager_files, dir, &specifiers)
+            load_member(fs, &root, &manager_files, (*dir, dirs.as_slice()), &specifiers)
         });
         let mut package_manager_files = manager_files.in_root();
         let mut packages = Vec::new();
@@ -640,6 +686,17 @@ impl Workspace {
             }
         }
         package_manager_files.sort();
+        if let Some(facts) = lerna_facts.as_mut()
+            && declared.source != WorkspaceSource::LernaJson
+        {
+            let members: BTreeSet<String> = packages
+                .iter()
+                .map(|package| &package.dir)
+                .chain(&failed_dirs)
+                .map(|dir| dir.to_string_lossy().replace('\\', "/"))
+                .collect();
+            diverge_from_lerna(facts, &expander, &members);
+        }
         let ignore = &config.workspace.ignore_packages;
         let mut ignored: Vec<bool> = std::iter::once(&root_package)
             .chain(&packages)
@@ -685,6 +742,7 @@ impl Workspace {
                 yarn_classic,
                 package_manager_files,
                 bazel_links: bazel_links.into_iter().collect(),
+                lerna: lerna_facts,
             },
             pnpm_workspace,
             yarnrc,

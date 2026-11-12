@@ -91,6 +91,27 @@ pub struct JsAnalysis<'a> {
     /// Whether tracked directories were listed from the git index (`[js] discovery = "git"`), which can miss an
     /// untracked file that uses a file reported as unused; `unused-files` then offers no fix that deletes it.
     pub(crate) listed_from_index: bool,
+    /// The names of the members that nothing can import or run; see [`Self::only_orders_tasks`].
+    task_only_members: HashSet<String>,
+}
+
+/// The `package.json` fields that name a module or a binary of a package.
+const MODULE_ENTRY_FIELDS: [&str; 7] = ["main", "module", "exports", "bin", "browser", "types", "typings"];
+
+/// The names of the members whose manifest has none of the [`MODULE_ENTRY_FIELDS`] and that own none of
+/// `candidates`: a tooling, asset or style package, which a dependency can only list to order tasks.
+fn task_only_members(workspace: &Workspace, candidates: &[Candidate]) -> HashSet<String> {
+    let with_sources: HashSet<PackageId> = candidates.iter().map(|candidate| candidate.owner).collect();
+    workspace
+        .packages()
+        .iter()
+        .filter(|package| !with_sources.contains(&package.id))
+        .filter(|package| {
+            let manifest = package.manifest.value();
+            MODULE_ENTRY_FIELDS.iter().all(|field| manifest.get(field).is_none())
+        })
+        .filter_map(|package| package.name.clone())
+        .collect()
 }
 
 /// What one run of the analysis shares with the other runs of its host.
@@ -529,6 +550,7 @@ impl<'a> JsAnalysis<'a> {
         let mut candidates = timing::phase(phase("discover"), || {
             discover_with(fs.as_ref(), workspace, sequential, !config.js.no_gitignore)
         });
+        let task_only_members = task_only_members(workspace, &candidates);
         if !setup.js_ignored.is_empty() {
             candidates.retain(|candidate| !setup.js_ignored.contains(&candidate.owner));
         }
@@ -646,7 +668,17 @@ impl<'a> JsAnalysis<'a> {
             config_hints,
             other_root_entries,
             listed_from_index,
+            task_only_members,
         }
+    }
+
+    /// Whether `name` is a workspace member that nothing can import or run: its `package.json` names no `main`,
+    /// `module`, `exports`, `bin`, `browser`, `types` or `typings`, and it has no source file. A dependency on such a
+    /// member (a tooling, asset or style package) only orders tasks, as Turborepo's `^build` and Nx's task
+    /// dependencies do, so it is never reported unused.
+    #[must_use]
+    pub(crate) fn only_orders_tasks(&self, name: &str) -> bool {
+        self.task_only_members.contains(name)
     }
 
     /// Whether the project declares the module that `specifier` imports with `declare module`, so importing it needs
