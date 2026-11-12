@@ -108,7 +108,8 @@ is not reported, since Lerna before 7 then follows the package manager.
 removed `lerna bootstrap`, `lerna add` and `lerna link`; a root or member script that runs one, also through `npx`,
 `pnpm exec` or `yarn`, is reported at the script. The release is read from `node_modules/lerna/package.json`, else
 from the lowest version the root `package.json` admits for `lerna`; without either, or with a tag such as `latest`,
-nothing is reported. A script that runs a pinned release (`npx lerna@6 bootstrap`) is not reported.
+nothing is reported. A script that runs a pinned release (`npx lerna@6 bootstrap`) is not reported. See also
+[Turborepo, Nx and Lerna](../turborepo-nx-lerna/).
 
 ## Lockfiles and nested workspaces
 
@@ -258,6 +259,8 @@ skif -r --format json    # one document with a "roots" array
 - If no root is found, skif exits with code `2` and says no workspace or package was found.
 
 ## Nx workspaces
+
+How to run skif next to Nx, and its limits there, are in [Turborepo, Nx and Lerna](../turborepo-nx-lerna/).
 
 skif reads Nx's `nx.json`, the `nx` key of `package.json` and the `project.json` files of a package when the `nx`
 plugin is enabled (`nx`, `@nx/*` or `@nrwl/*` is a dependency, or `[js.plugins] nx = true`). The projects are found
