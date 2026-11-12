@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::finder::static_string;
 use crate::sharing::{
-    Change, Unstable, Write, alias_names, alias_source, changed_by_call, changes_arguments, reach, statement_call,
+    Change, Unstable, Write, alias_names, alias_source, changed_by_call, reach, statement_call,
 };
 
 const MAX_DEPTH: u32 = 32;
@@ -4097,17 +4097,21 @@ impl<'u> Writes<'u> {
     }
 
     /// What an expression statement writes itself, as [`Evaluator::mutation`] reads it: the target of an assignment
-    /// and the object a method call (or `Object.assign`) may change; anything else, in full.
+    /// and what its value may change, and what a call made as a statement may change ([`Self::arguments`]); anything
+    /// else, in full.
     fn of_effect(expression: &Expression<'_>, unstable: &'u Unstable) -> Self {
         let mut writes = Self::new(unstable);
         match expression.get_inner_expression() {
-            Expression::AssignmentExpression(a) => match a.left.as_simple_assignment_target() {
-                Some(target) => writes.visit_simple_assignment_target(target),
-                None => writes.visit_assignment_target(&a.left),
-            },
+            Expression::AssignmentExpression(a) => {
+                match a.left.as_simple_assignment_target() {
+                    Some(target) => writes.visit_simple_assignment_target(target),
+                    None => writes.visit_assignment_target(&a.left),
+                }
+                writes.visit_expression(&a.right);
+            }
             Expression::CallExpression(c) => {
                 writes.visit_call_expression(c);
-                writes.arguments(c);
+                writes.arguments(c.span, &c.arguments, true);
             }
             Expression::AwaitExpression(a) => return Self::of_effect(&a.argument, unstable),
             other => writes.visit_expression(other),
@@ -4118,18 +4122,30 @@ impl<'u> Writes<'u> {
     /// Records a change of what the object `expr` (a name or a member chain) holds.
     fn object(&mut self, expr: &Expression<'_>) {
         if let Some((root, keys, _)) = reach(expr) {
-            self.changed
-                .push((root.name.as_str().to_owned(), Write { keys, key: None }));
+            self.change(root.name.as_str(), Write { keys, key: None });
         }
     }
 
-    /// The objects a call made for what it does is given, which it may change ([`changes_arguments`]).
-    fn arguments(&mut self, call: &CallExpression<'_>) {
-        if !changes_arguments(call, self.unstable.is_pure(call)) {
+    /// Records the change `write` of the local `name`, once.
+    fn change(&mut self, name: &str, write: Write) {
+        let change = (name.to_owned(), write);
+        if !self.changed.contains(&change) {
+            self.changed.push(change);
+        }
+    }
+
+    /// The objects the call at `span`, made as a statement or not (`statement`), is given, which it may change
+    /// ([`Unstable::changes_arguments`]), where the change may be read after the call ([`Unstable::seen_after`]).
+    fn arguments(&mut self, span: Span, arguments: &[Argument<'_>], statement: bool) {
+        if !self.unstable.changes_arguments(span, statement) {
             return;
         }
-        for argument in call.arguments.iter().filter_map(Argument::as_expression) {
-            self.object(argument);
+        for argument in arguments.iter().filter_map(Argument::as_expression) {
+            if let Some((root, keys, _)) = reach(argument)
+                && self.unstable.seen_after(root)
+            {
+                self.change(root.name.as_str(), Write { keys, key: None });
+            }
         }
     }
 }
@@ -4152,7 +4168,7 @@ impl<'a> Visit<'a> for Writes<'_> {
                 // `x.a.key = …` sets one key of the object at `x.a`.
                 Some((root, keys, true)) => {
                     let key = Some(m.property.name.as_str().to_owned());
-                    self.changed.push((root.name.as_str().to_owned(), Write { keys, key }));
+                    self.change(root.name.as_str(), Write { keys, key });
                 }
                 _ => self.object(&m.object),
             },
@@ -4183,12 +4199,13 @@ impl<'a> Visit<'a> for Writes<'_> {
         if let Some(target) = changed_by_call(it, self.unstable.is_pure(it)) {
             self.object(target);
         }
+        self.arguments(it.span, &it.arguments, false);
         walk::walk_call_expression(self, it);
     }
 
     fn visit_expression_statement(&mut self, it: &ExpressionStatement<'a>) {
         if let Some(call) = statement_call(&it.expression) {
-            self.arguments(call);
+            self.arguments(call.span, &call.arguments, true);
         }
         walk::walk_expression_statement(self, it);
     }
