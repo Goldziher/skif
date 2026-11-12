@@ -2039,3 +2039,43 @@ fn a_function_named_like_a_well_known_one_may_change_its_argument() {
     );
     assert!(!open(&kept), "{kept:?}");
 }
+
+/// A call whose effect is not known may change what it is given wherever it is made, not only as a statement: in a
+/// declaration, a condition, an optional call, a `void`, an array literal and a default export, and also a function
+/// imported from a package, in a function the evaluator runs as at the top level.
+#[test]
+fn a_call_that_is_not_known_may_change_its_argument_in_any_position() {
+    for body in [
+        "const r = configure(config);",
+        "process.env.CI && configure(config);",
+        "const r = process.env.CI ? configure(config) : null;",
+        "configure?.(config);",
+        "void configure(config);",
+        "const r = [configure(config)];",
+        "const merged = lib.defaults(config, {});",
+        "const merged = merge(config, { mode: 'production' });",
+    ] {
+        let source = format!(
+            "import lib from 'lib';\nimport merge from 'lodash/merge';\n\
+             const config = {{ entry: './src/main.js', module: {{ rules: [] }} }};\n{body}\nexport default config;"
+        );
+        let value = extract("rspack.config.js", &source);
+        assert!(open(&value), "{body}: {value:?}");
+    }
+    let local = extract(
+        "rspack.config.js",
+        "import lib from 'lib';\n\
+         export default () => {\n\
+           const config = { entry: './src/main.js', module: { rules: [] } };\n\
+           const merged = lib.defaults(config, {});\n\
+           return config;\n\
+         };",
+    );
+    assert!(open(&local), "{local:?}");
+    let exported = extract(
+        "rspack.config.js",
+        "const config = { entry: './src/main.js' };\nexport default [configure(config), config];",
+    );
+    let configs = exported.as_array().unwrap();
+    assert!(open(&configs[1]), "{exported:?}");
+}

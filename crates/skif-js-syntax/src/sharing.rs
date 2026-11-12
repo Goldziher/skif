@@ -27,7 +27,8 @@ use std::collections::BTreeMap;
 use oxc_ast::ast::{
     Argument, ArrayExpression, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator, AssignmentPattern,
     AssignmentTargetPropertyIdentifier, BindingIdentifier, BindingPattern, CallExpression, ChainExpression,
-    ComputedMemberExpression, Expression, ExpressionStatement, FormalParameter, FormalParameters, Function,
+    ComputedMemberExpression, Declaration, ExportDeclaration, Expression, ExpressionStatement, FormalParameter,
+    FormalParameters, Function,
     IdentifierReference, ImportDeclaration, ImportDeclarationSpecifier, MemberExpression, NewExpression,
     ObjectExpression, ObjectPropertyKind, PrivateFieldExpression, Program, PropertyKind, ReturnStatement,
     SimpleAssignmentTarget, StaticMemberExpression, TaggedTemplateExpression, UnaryExpression, UnaryOperator,
@@ -121,6 +122,23 @@ pub(crate) struct Unstable {
     followed: HashSet<SymbolId>,
     /// The calls of one of [`PURE_FUNCTIONS`], by span.
     pure: HashSet<Span>,
+    /// What the calls the pass knows do to the objects they are given, by span; any other may change them.
+    effects: HashMap<Span, Effect>,
+    /// The references that are the only one of a binding no other module can read, unless the module reads
+    /// `arguments` or calls `eval`, which reach bindings without one.
+    sole: HashSet<ReferenceId>,
+}
+
+/// What a call the pass knows does to the objects it is given.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Effect {
+    /// It changes none of them: one of [`PURE_FUNCTIONS`], a method of a list or string that changes at most the
+    /// list ([`PURE_METHODS`], [`LIST_ADDERS`]), a `define*` call of a function the module does not declare, which
+    /// returns what it is given, or a merge that builds a new object ([`copies`]).
+    Keeps,
+    /// It calls a function the module declares, whose changes of what its parameters take reach the arguments through
+    /// the links of the call ([`Callables`]).
+    Followed,
 }
 
 impl Unstable {
@@ -131,6 +149,9 @@ impl Unstable {
             scoping,
             known: known(program, scoping),
             pure: HashSet::default(),
+            effects: HashMap::default(),
+            exported: HashSet::default(),
+            dynamic: false,
             functions: vec![scoping.root_scope_id()],
             links: Vec::new(),
             mutated: Vec::new(),
@@ -142,9 +163,16 @@ impl Unstable {
         };
         sharing.visit_program(program);
         let followed = sharing.share();
+        let sole = if sharing.dynamic {
+            HashSet::default()
+        } else {
+            sole_references(scoping, &sharing.exported)
+        };
         let mut unstable = Self {
             followed,
             pure: std::mem::take(&mut sharing.pure),
+            effects: std::mem::take(&mut sharing.effects),
+            sole,
             ..Self::default()
         };
         for (symbol, mut change) in sharing.changes {
@@ -184,6 +212,37 @@ impl Unstable {
     pub(crate) fn is_pure(&self, call: &CallExpression<'_>) -> bool {
         self.pure.contains(&call.span)
     }
+
+    /// Whether the call at `span` may change the objects it is given: any call but those whose [`Effect`] the pass
+    /// knows, and a call of a function the module declares made as a statement (`set(config);`).
+    pub(crate) fn changes_arguments(&self, span: Span, statement: bool) -> bool {
+        match self.effects.get(&span) {
+            Some(Effect::Keeps) => false,
+            Some(Effect::Followed) => statement,
+            None => true,
+        }
+    }
+
+    /// Whether a change made through the argument `id` of a call may be read after the call: `id` is not the only
+    /// reference of its binding ([`Self::sole`]).
+    pub(crate) fn seen_after(&self, id: &IdentifierReference<'_>) -> bool {
+        !id.reference_id
+            .get()
+            .is_some_and(|reference| self.sole.contains(&reference))
+    }
+}
+
+/// The references that are the only one of their binding, other than of a binding a module exports by declaring it
+/// (`export const config = …`), which another module may read.
+fn sole_references(scoping: &Scoping, exported: &HashSet<SymbolId>) -> HashSet<ReferenceId> {
+    scoping
+        .symbol_ids()
+        .filter(|symbol| !exported.contains(symbol))
+        .filter_map(|symbol| match scoping.get_resolved_reference_ids(symbol) {
+            [only] => Some(*only),
+            _ => None,
+        })
+        .collect()
 }
 
 /// A part of a binding: what it holds at `keys` below it.
@@ -226,6 +285,12 @@ struct Sharing<'s> {
     known: Known,
     /// The calls of one of [`PURE_FUNCTIONS`] found, by span.
     pure: HashSet<Span>,
+    /// The [`Effect`] of each call found whose effect the pass knows, by span.
+    effects: HashMap<Span, Effect>,
+    /// The bindings the module exports by declaring them.
+    exported: HashSet<SymbolId>,
+    /// Whether the module reads `arguments` or calls `eval`.
+    dynamic: bool,
     /// The scopes of the functions being visited, the module's first.
     functions: Vec<ScopeId>,
     /// Places that may hold the same object.
@@ -328,6 +393,31 @@ impl Sharing<'_> {
         if let Some((place, _)) = self.place(expr) {
             self.changed(place.symbol, Write::contents(place.keys));
         }
+    }
+
+    /// Records a change of each object a call is given.
+    fn mutate_arguments(&mut self, arguments: &[Argument<'_>]) {
+        for argument in arguments.iter().filter_map(Argument::as_expression) {
+            self.mutate(argument);
+        }
+    }
+
+    /// What `call` does to the objects it is given, when the pass knows ([`Effect`]); `None` when it may change them.
+    fn effect(&self, call: &CallExpression<'_>) -> Option<Effect> {
+        if calls_callable(self.scoping, &self.callables, call) {
+            return Some(Effect::Followed);
+        }
+        let names = self.names();
+        let keeps = pure_function(names, call).is_some()
+            || (defined(call).is_some() && foreign(names, &call.callee))
+            || copies(names, call)
+            || matches!(
+                call.callee.get_inner_expression(),
+                Expression::StaticMemberExpression(m)
+                    if PURE_METHODS.contains(&m.property.name.as_str())
+                        || LIST_ADDERS.contains(&m.property.name.as_str())
+            );
+        keeps.then_some(Effect::Keeps)
     }
 
     /// Records the change `write` of the object `symbol` holds.
@@ -752,6 +842,13 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        // A call whose effect the pass does not know may change what it is given, wherever it is made.
+        match self.effect(it) {
+            Some(effect) => {
+                self.effects.insert(it.span, effect);
+            }
+            None => self.mutate_arguments(&it.arguments),
+        }
         if pure_function(self.names(), it).is_some() {
             self.pure.insert(it.span);
             return walk::walk_call_expression(self, it);
@@ -789,15 +886,37 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_expression_statement(&mut self, it: &ExpressionStatement<'a>) {
-        // A call made for what it does may change the objects it is given.
+        // A function the module declares, called for what it does, is taken to change what it is given too.
         if let Some(call) = statement_call(&it.expression)
-            && changes_arguments(call, pure_function(self.names(), call).is_some())
+            && self.effect(call) == Some(Effect::Followed)
         {
-            for argument in call.arguments.iter().filter_map(Argument::as_expression) {
-                self.mutate(argument);
-            }
+            self.mutate_arguments(&call.arguments);
         }
         walk::walk_expression_statement(self, it);
+    }
+
+    fn visit_export_declaration(&mut self, it: &ExportDeclaration<'a>) {
+        match &it.declaration {
+            Declaration::VariableDeclaration(declaration) => {
+                for declarator in &declaration.declarations {
+                    self.exported.extend(bound_symbols(&declarator.id));
+                }
+            }
+            Declaration::FunctionDeclaration(function) => {
+                self.exported
+                    .extend(function.id.as_ref().and_then(|id| id.symbol_id.get()));
+            }
+            Declaration::ClassDeclaration(class) => {
+                self.exported
+                    .extend(class.id.as_ref().and_then(|id| id.symbol_id.get()));
+            }
+            _ => {}
+        }
+        walk::walk_export_declaration(self, it);
+    }
+
+    fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
+        self.dynamic |= matches!(it.name.as_str(), "arguments" | "eval");
     }
 }
 
@@ -1250,6 +1369,45 @@ fn calls_callable(scoping: &Scoping, callables: &Callables, call: &CallExpressio
     local_symbol(scoping, id).is_some_and(|symbol| callables.contains(symbol)) && !has_spread(call)
 }
 
+/// Packages whose functions build a new object and change none of the objects they are given.
+const COPYING_PACKAGES: &[&str] = &["deepmerge", "deepmerge-ts", "defu", "ts-deepmerge", "webpack-merge"];
+
+/// Modules whose `mergeConfig` builds a new config and changes none of those it is given.
+const MERGE_CONFIG_MODULES: &[&str] = &["vite", "vitest", "vitest/config"];
+
+/// Globals the module does not declare that build a new object and change none of those they are given, by name.
+const COPYING_GLOBALS: &[&str] = &["defu", "mergeConfig"];
+
+/// Whether `call` calls a merge that builds a new object and changes none of the objects it is given: a function of
+/// one of [`COPYING_PACKAGES`], the `mergeConfig` of Vite or Vitest, or one of [`COPYING_GLOBALS`].
+fn copies(names: Names<'_>, call: &CallExpression<'_>) -> bool {
+    let Expression::Identifier(id) = call.callee.get_inner_expression() else {
+        return false;
+    };
+    match resolved(names.scoping, id) {
+        None => COPYING_GLOBALS.contains(&id.name.as_str()),
+        Some(symbol) => names.known.modules.get(&symbol).is_some_and(|(module, imported)| {
+            COPYING_PACKAGES.contains(&module.as_str())
+                || (imported.as_deref() == Some("mergeConfig") && MERGE_CONFIG_MODULES.contains(&module.as_str()))
+        }),
+    }
+}
+
+/// Whether the name a callee (`defineConfig`, `vitest.defineProject`) starts from is not one the module declares a
+/// value for: a global, an import, or a binding of a `require`.
+fn foreign(names: Names<'_>, callee: &Expression<'_>) -> bool {
+    let root = match callee.get_inner_expression() {
+        Expression::StaticMemberExpression(member) => member.object.get_inner_expression(),
+        other => other,
+    };
+    let Expression::Identifier(id) = root else {
+        return false;
+    };
+    resolved(names.scoping, id).is_none_or(|symbol| {
+        names.scoping.symbol_flags(symbol).is_import() || names.known.modules.contains_key(&symbol)
+    })
+}
+
 /// What the pass knows of the names of a module: how they resolve, and what the module binds them to.
 #[derive(Clone, Copy)]
 struct Names<'s> {
@@ -1667,19 +1825,6 @@ fn known_module(specifier: &str) -> Option<&'static str> {
         "url" => Some("url"),
         _ => None,
     }
-}
-
-/// Whether a call made for what it does may change the objects it is given: not one of [`PURE_FUNCTIONS`] (`pure`),
-/// nor a method that changes at most the object it is called on ([`PURE_METHODS`], `push`, `unshift`).
-pub(crate) fn changes_arguments(call: &CallExpression<'_>, pure: bool) -> bool {
-    if pure {
-        return false;
-    }
-    !matches!(
-        call.callee.get_inner_expression(),
-        Expression::StaticMemberExpression(m)
-            if PURE_METHODS.contains(&m.property.name.as_str()) || LIST_ADDERS.contains(&m.property.name.as_str())
-    )
 }
 
 /// Whether `expr` is a value that holds no object: a string, number, boolean, `null` or bigint literal, a template, the
