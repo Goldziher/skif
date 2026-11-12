@@ -798,9 +798,12 @@ fn member_accesses_through_imports() {
     assert!(def.escapes);
 }
 
+/// A JSX case: name, markup, members read on the namespace, and nested member reads.
+type JsxCase<'a> = (&'a str, &'a str, &'a [&'a str], &'a [(&'a str, &'a [&'a str])]);
+
 #[test]
 fn jsx_member_tags_read_the_first_member_of_a_namespace() {
-    let cases: [(&str, &str, &[&str], &[(&str, &[&str])]); 5] = [
+    let cases: [JsxCase; 5] = [
         ("self-closing", "<S.Used />", &["Used"], &[]),
         ("opening and closing", "<S.Used>text</S.Used>", &["Used"], &[]),
         (
