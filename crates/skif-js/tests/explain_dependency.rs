@@ -206,3 +206,32 @@ fn the_explanation_renders_each_package_with_its_evidence() {
         "unused"
     );
 }
+
+/// A package that imports an optional peer of a dependency it uses without listing the peer gets no use of it: the
+/// verdict is the unlisted import's, not a use through the host that names the peer.
+#[test]
+fn an_unlisted_peer_of_a_used_dependency_is_not_listed_rather_than_used() {
+    let extra = [
+        (
+            "packages/tool/package.json",
+            r#"{"name":"tool","version":"1.0.0","main":"src/index.ts","dependencies":{"host-lib":"1.0.0"}}"#,
+        ),
+        (
+            "packages/tool/node_modules/host-lib/package.json",
+            r#"{"name":"host-lib","version":"1.0.0","peerDependencies":{"peer-lib":"*"},"peerDependenciesMeta":{"peer-lib":{"optional":true}}}"#,
+        ),
+        (
+            "packages/tool/src/index.ts",
+            "import 'host-lib';\nimport { t } from 'peer-lib';\nexport const x = t;\n",
+        ),
+    ];
+    let explanation = explain_with(&Config::from_toml_str("").unwrap(), &extra, "peer-lib", Some("tool"));
+    let tool = package(&explanation, "tool");
+    assert_eq!(tool.verdict, DependencyVerdict::NotListed, "{explanation:#?}");
+    assert_eq!(tool.credit, None, "{explanation:#?}");
+    assert!(
+        explanation.render().contains("packages/tool (tool): not listed\n"),
+        "{}",
+        explanation.render()
+    );
+}
