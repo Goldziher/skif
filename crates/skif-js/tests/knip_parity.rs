@@ -200,6 +200,32 @@ fn a_spy_on_a_namespace_uses_only_the_member_it_spies_on() {
     assert_eq!(found(&diagnostics, "unused-exports"), none());
 }
 
+/// knip counts a namespace passed to `spyOn` as a use of the whole module and reports nothing here; skif reads the
+/// spied member only (ADR 0079), so an export that neither the named import nor the spy reads stays unused.
+#[test]
+fn a_spy_next_to_a_named_import_leaves_the_other_exports_unused() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        (
+            "index.ts",
+            "import { used } from './tools';
+import * as tools from './tools';
+export const x = used();
+             export const stub = (vi: any, jest: any) => [vi.spyOn(tools, 'used'), jest.spyOn(tools, `spied`)];
+",
+        ),
+        (
+            "tools.ts",
+            "export function used() { return 1; }
+export function spied() { return 2; }
+             export function addImport() { return 3; }
+",
+        ),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-exports"), ["tools.ts: addImport"]);
+    assert_eq!(found(&diagnostics, "unused-namespace-exports"), none());
+}
+
 #[test]
 fn an_enum_read_through_a_namespace_uses_only_the_members_read_on_it() {
     let diagnostics = lint_files(&[
