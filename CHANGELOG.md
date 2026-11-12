@@ -52,6 +52,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **JS**: `[js.workspaces.<dir>.paths]` keys are matched as `tsconfig` `paths` are: one `*` anywhere in the key
+  matches any text, so the catch-all `"*"` and keys such as `"serv*"` or `"*.svg"` map imports instead of being
+  dropped, and the matching keys are tried longest prefix first, an exact key before every wildcard. A key without
+  `*` maps only that specifier and `"alias/*"` no longer maps the bare `alias`, as in TypeScript; relative and
+  absolute specifiers are never mapped. A key or target with more than one `*` is a configuration error
+  ([#214](https://github.com/Goldziher/skif/issues/214)).
 - **JS**: an import that a package's own tsconfig `paths` map into its sources (`src/*` to `./src/*`) is no longer an
   import of the workspace package whose name it starts with (a member named `src`). Strict mode reported it as that
   package unlisted, and the other modes counted it as a use of the member

@@ -337,31 +337,6 @@ impl WorkspaceKeys {
     }
 }
 
-/// The `paths` map of a configuration as module aliases: `alias/*` becomes the prefix `alias` pointing at the target
-/// directory, one alias per target.
-fn path_aliases(paths: &IndexMap<String, Vec<String>>) -> Vec<PathAlias> {
-    let trim = |pattern: &str| {
-        let pattern = pattern
-            .strip_suffix("/*")
-            .or_else(|| pattern.strip_suffix('*'))
-            .unwrap_or(pattern);
-        pattern.trim_start_matches("./").to_owned()
-    };
-    paths
-        .iter()
-        .flat_map(|(alias, targets)| {
-            let find = trim(alias);
-            targets.iter().map(move |target| {
-                let target = trim(target);
-                PathAlias {
-                    find: find.clone(),
-                    target: Some(if target.is_empty() { ".".to_owned() } else { target }),
-                }
-            })
-        })
-        .collect()
-}
-
 /// Whether `setting` covers the kind of `export`.
 pub(crate) fn ignores_in_file_use(setting: &IgnoreExportsUsedInFile, export: &Export) -> bool {
     match setting {
@@ -452,6 +427,9 @@ pub(crate) struct PackageSetup {
     pub config_files: Vec<PathBuf>,
     /// Aliases declared by the package's tool configuration.
     pub aliases: Vec<PathAlias>,
+    /// The `paths` of the package's `[js.workspaces]` table: `tsconfig` patterns with their targets, relative to the
+    /// package directory, tried ahead of `aliases`.
+    pub paths: IndexMap<String, Vec<String>>,
     pub build_dirs: Vec<BuildDir>,
     /// Extra `exports` conditions that select source files.
     pub conditions: Vec<String>,
@@ -968,8 +946,6 @@ impl Setup {
             let mut ignore_dependencies = plugin.ignore_dependencies;
             ignore_dependencies.extend(plugin.virtual_modules);
             let ignore_binaries = plugin.ignore_binaries;
-            let mut aliases = path_aliases(&user.paths);
-            aliases.extend(plugin.aliases);
 
             let mut referenced_dependencies = plugin.dependencies;
             referenced_dependencies.extend(scripts.dependencies.iter().cloned());
@@ -1026,7 +1002,8 @@ impl Setup {
                 run_binaries: plugin.run_binaries,
                 scripts,
                 config_files: plugin.config_files,
-                aliases,
+                aliases: plugin.aliases,
+                paths: user.paths.clone(),
                 build_dirs: plugin.build_dirs,
                 conditions: plugin.conditions,
                 module_dirs: plugin.module_dirs,
