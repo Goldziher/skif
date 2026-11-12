@@ -611,16 +611,35 @@ fn read_at<'a>(value: &'a ConfigValue, path: &[&str]) -> &'a ConfigValue {
 }
 
 /// An imported config the module changes (a write through it, a call given it, a write through a local holding it, in
-/// a function or at the top level) is read as changed, not as the imported module computes it.
+/// a function or at the top level) is read as changed, not as the imported module computes it: the key written is
+/// unknown, and the rest of the config stays known where the change reaches that key only.
 #[test]
 fn a_change_of_an_imported_value_is_applied_where_it_is_read() {
-    for config in [
-        "import base from './base';\nbase.build.outDir = 'out';\nexport default base;",
-        "import base from './base';\nwithPlugins(base);\nexport default base;",
-        "import base from './base';\nexport default () => { base.build.outDir = 'out'; return base; };",
-        "import base from './base';\nexport default () => { withPlugins(base); return base; };",
-        "import base from './base';\nconst local = base;\nlocal.build.outDir = 'out';\nexport default base;",
-        "import * as shared from './base';\nshared.default.build.outDir = 'out';\nexport default shared.default;",
+    for (config, only_the_key) in [
+        (
+            "import base from './base';\nbase.build.outDir = 'out';\nexport default base;",
+            true,
+        ),
+        (
+            "import base from './base';\nwithPlugins(base);\nexport default base;",
+            false,
+        ),
+        (
+            "import base from './base';\nexport default () => { base.build.outDir = 'out'; return base; };",
+            true,
+        ),
+        (
+            "import base from './base';\nexport default () => { withPlugins(base); return base; };",
+            false,
+        ),
+        (
+            "import base from './base';\nconst local = base;\nlocal.build.outDir = 'out';\nexport default base;",
+            false,
+        ),
+        (
+            "import * as shared from './base';\nshared.default.build.outDir = 'out';\nexport default shared.default;",
+            true,
+        ),
     ] {
         let loader = files(&[
             ("/ws/app/config.ts", config),
@@ -630,7 +649,13 @@ fn a_change_of_an_imported_value_is_applied_where_it_is_read() {
             ),
         ]);
         let value = eval(&loader);
-        assert_ne!(read_at(&value, &["build", "outDir"]), &s("dist"), "{config}: {value:?}");
+        assert_eq!(
+            read_at(&value, &["build", "outDir"]),
+            &ConfigValue::Unknown,
+            "{config}: {value:?}"
+        );
+        let root = if only_the_key { s("src") } else { ConfigValue::Unknown };
+        assert_eq!(read_at(&value, &["root"]), &root, "{config}: {value:?}");
     }
 }
 
