@@ -2426,6 +2426,59 @@ fn a_change_through_a_followed_alias_reaches_what_shares_the_local() {
     );
 }
 
+/// An alias the evaluator follows takes the part of the local as it is where the alias is declared: a change made
+/// through the alias later reaches a read of the local after it, not the read the alias is declared with, so the
+/// change is applied to the local even where what shares the local (a list holding it) leaves it partly unknown.
+#[test]
+fn a_followed_alias_takes_the_local_as_it_is_where_it_is_declared() {
+    let value = extract(
+        "vitest.config.ts",
+        "const listed = () => {\n\
+           const config = { test: { coverage: { enabled: false } } };\n\
+           const list = [config];\n\
+           const { coverage } = config.test;\n\
+           coverage.enabled = true;\n\
+           return { config, list };\n\
+         };\n\
+         export default listed();",
+    );
+    assert_eq!(
+        get(&value, &["config", "test", "coverage"]),
+        &ConfigValue::Object(vec![("enabled".to_owned(), ConfigValue::Bool(true))]),
+        "{value:?}"
+    );
+    assert!(may_be_enabled(at(&value, &["list", "0", "test", "coverage"])), "{value:?}");
+}
+
+/// A spread of a local (`{ ...options }`) copies its own keys: a change below one of them reaches the copy at that key
+/// only, and a new value of a key of the local is not the copy's, so the rest of the copy stays known.
+#[test]
+fn a_spread_of_a_local_shares_it_below_each_key() {
+    let value = extract(
+        "vitest.config.ts",
+        "const copied = (options) => {\n\
+           const config = { test: { globals: true, ...options } };\n\
+           options.coverage.enabled = true;\n\
+           options.reporter = 'dot';\n\
+           return config;\n\
+         };\n\
+         export default copied({ coverage: { enabled: false }, reporter: 'list' });",
+    );
+    assert_eq!(
+        get(&value, &["test"]),
+        &ConfigValue::Object(vec![
+            ("globals".to_owned(), ConfigValue::Bool(true)),
+            (
+                "coverage".to_owned(),
+                ConfigValue::Object(vec![("enabled".to_owned(), ConfigValue::Unknown)])
+            ),
+            ("reporter".to_owned(), s("list")),
+        ]),
+        "{value:?}"
+    );
+    assert!(!open(&value), "{value:?}");
+}
+
 /// A class's static block and field initialisers run when the class is defined or an object of it is made, which the
 /// evaluator does not follow, so what they write is unknown and the rest of the config stays known.
 #[test]

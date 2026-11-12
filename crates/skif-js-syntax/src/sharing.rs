@@ -8,9 +8,11 @@
 //!
 //! A change is tracked to the part of a binding it reaches: a write through `cfg.module.rules` changes what the list
 //! there holds, and a binding that holds `t` under `test` changes under `test` when `t` does, so the rest of the
-//! binding stays known. Where a value holds a binding at a place the pass cannot follow (an argument of an unknown
-//! call, an element of an array, a spread of anything but an object literal), anything at or below that place may
-//! change. A value that holds no object shares none: a `const` initialised to a string, a number or a template, and
+//! binding stays known. A spread of a part of a local (`{ ...options }`) copies its own keys, so a change below one of
+//! them reaches the other at that key, and a new value of a key of either is not the other's. Where a value holds a
+//! binding at a place the pass cannot follow (an argument of an unknown call, an element of an array, a spread of
+//! anything else but an object literal), anything at or below that place may change. A value that holds no object
+//! shares none: a `const` initialised to a string, a number or a template, and
 //! the result of a well-known function that changes nothing it is given and returns a value of its own
 //! ([`PURE_FUNCTIONS`], such as `path.join` and `fs.readFileSync`). A function the module declares and only calls by name from outside itself takes each argument
 //! of a call as the parameter at its place, and its name stands for what it returns, so `const r = set(cfg)` shares
@@ -307,22 +309,41 @@ impl Place {
     }
 }
 
-/// Two places that may hold the same object: with `exact`, each is the other (`cfg.test` is `t`); otherwise one may
-/// hold an object of the other anywhere at or below it (`cfg.list` after `cfg.list.push(t)`).
+/// How two places that may hold the same object hold it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Join {
+    /// Each is the other (`cfg.test` is `t`).
+    Same,
+    /// One is a copy of the own keys of the other (`{ ...options }`): each holds at a key what the other holds there,
+    /// so a change below a key reaches the other there, and a new value of a key of one is not the other's.
+    Copy,
+    /// One may hold an object of the other anywhere at or below it (`cfg.list` after `cfg.list.push(t)`).
+    Within,
+}
+
+impl Join {
+    /// [`Self::Same`] when `exact`, [`Self::Within`] otherwise.
+    fn of(exact: bool) -> Self {
+        if exact { Self::Same } else { Self::Within }
+    }
+}
+
+/// Two places that may hold the same object, as `join` says.
 struct Link {
     a: Place,
     b: Place,
-    exact: bool,
+    join: Join,
 }
 
 /// A part of a binding that a value may hold or share: `symbol` at `keys` (`cfg.test`), found at `at` in the value.
-/// With `exact`, that part is the value there; otherwise it is somewhere at or below `at`.
+/// With [`Join::Same`], that part is the value there; with [`Join::Copy`], the value there copies its own keys; with
+/// [`Join::Within`], it is somewhere at or below `at`.
 #[derive(Clone)]
 struct Held {
     symbol: SymbolId,
     keys: Vec<String>,
     at: Vec<String>,
-    exact: bool,
+    join: Join,
 }
 
 struct Sharing<'s> {
@@ -363,17 +384,17 @@ struct Sharing<'s> {
     in_const: bool,
     /// The functions the module declares ([`callables`]).
     callables: Callables,
-    /// The part of the local each alias takes ([`alias_source`]), and where its declaration starts.
+    /// The part of the local each alias takes ([`alias_source`]), and where its declaration ends.
     alias_parts: HashMap<SymbolId, (Vec<String>, u32)>,
     /// Where each reference visited ends.
     ends: HashMap<ReferenceId, u32>,
     /// The changes of a local made through an alias the evaluator follows that a read of it sees only after the
-    /// declaration of the alias, which starts at the offset given ([`Self::read_before`]).
+    /// declaration of the alias, which ends at the offset given ([`Self::read_before`]).
     late: Vec<(SymbolId, u32, Change)>,
 }
 
 /// An alias the evaluator follows ([`Unstable::follows`]): the local it takes a part of, the keys of that part and where
-/// the declaration of the alias starts.
+/// the declaration of the alias ends, before which no change is made through it.
 struct AppliedAlias {
     alias: SymbolId,
     root: SymbolId,
@@ -530,7 +551,7 @@ impl Sharing<'_> {
                 self.element_links.push(Link {
                     a: Place::of(parameter),
                     b: Place::of(list),
-                    exact: false,
+                    join: Join::Within,
                 });
             }
             self.hold(&Place::of(parameter), false, held.clone());
@@ -649,8 +670,8 @@ impl Sharing<'_> {
         self.mutated.push((symbol, write));
     }
 
-    /// Links `hub` to each part a value it holds may hold: at the place in the value it is found when `exact`, and
-    /// anywhere at or below the hub otherwise.
+    /// Links `hub` to each part a value it holds may hold: at the place in the value it is found, as it is found
+    /// there, when `exact`, and anywhere at or below the hub otherwise.
     fn hold(&mut self, hub: &Place, exact: bool, held: Vec<Held>) {
         for item in held {
             let mut keys = hub.keys.clone();
@@ -666,7 +687,7 @@ impl Sharing<'_> {
                     symbol: item.symbol,
                     keys: item.keys,
                 },
-                exact: exact && item.exact,
+                join: if exact { item.join } else { Join::Within },
             });
         }
     }
@@ -683,7 +704,7 @@ impl Sharing<'_> {
                     symbol: pair[1].symbol,
                     keys: pair[1].keys.clone(),
                 },
-                exact: false,
+                join: Join::Within,
             });
         }
     }
@@ -828,7 +849,7 @@ impl Sharing<'_> {
                 self.links.push(Link {
                     a: Place::of(alias),
                     b: Place::of(root),
-                    exact: false,
+                    join: Join::Within,
                 });
             }
         }
@@ -854,7 +875,7 @@ impl Sharing<'_> {
             self.links.extend(self.aliases.iter().map(|&(alias, root)| Link {
                 a: Place::of(alias),
                 b: Place::of(root),
-                exact: false,
+                join: Join::Within,
             }));
             let links_of = self.links_of();
             let reached: HashSet<SymbolId> = self
@@ -912,7 +933,7 @@ impl Sharing<'_> {
                     if from.symbol != at {
                         continue;
                     }
-                    let Some(mut next) = through(from, to, link.exact, &write) else {
+                    let Some(mut next) = through(from, to, link.join, &write) else {
                         continue;
                     };
                     if next.keys.len() > MAX_KEYS {
@@ -964,7 +985,7 @@ impl Sharing<'_> {
                     symbol: alias.root,
                     keys: alias.keys.clone(),
                 },
-                exact: true,
+                join: Join::Same,
             });
         }
         let mut origins: Vec<(SymbolId, Write)> = Vec::new();
@@ -1012,22 +1033,27 @@ impl Sharing<'_> {
     }
 }
 
-/// The change of `to` that the change `write` of the binding of `from` makes through a link of `from` to `to`: as far
-/// below `to` as `write` is below `from`, when the link is exact and `write` is at or below `from`; of all of `to` when
-/// the link is not exact and `write` is at or below `from`, or when `write` changes what an object above `from` holds;
-/// none when they are apart, or when `from` is below a key `write` gives a new value, which leaves the value it held
-/// as it was.
-fn through(from: &Place, to: &Place, exact: bool, write: &Write) -> Option<Write> {
+/// The change of `to` that the change `write` of the binding of `from` makes through a link of `from` to `to`, joined
+/// as `join` says: as far below `to` as `write` is below `from`, when `write` is at or below `from` and the link is
+/// [`Join::Same`] or [`Join::Copy`], but for a new value of a key of the object at `from` itself through a copy, which
+/// the other does not see; of all of `to` when the link is [`Join::Within`] and `write` is at or below `from`, or when
+/// `write` changes what an object above `from` holds; none when they are apart, or when `from` is below a key `write`
+/// gives a new value, which leaves the value it held as it was.
+fn through(from: &Place, to: &Place, join: Join, write: &Write) -> Option<Write> {
     if write.keys.starts_with(&from.keys) {
-        if !exact {
-            return Some(Write::contents(to.keys.clone()));
-        }
-        let mut keys = to.keys.clone();
-        keys.extend_from_slice(&write.keys[from.keys.len()..]);
-        return Some(Write {
-            keys,
-            key: write.key.clone(),
-        });
+        let below = &write.keys[from.keys.len()..];
+        return match join {
+            Join::Within => Some(Write::contents(to.keys.clone())),
+            Join::Copy if below.is_empty() && write.key.is_some() => None,
+            Join::Same | Join::Copy => {
+                let mut keys = to.keys.clone();
+                keys.extend_from_slice(below);
+                Some(Write {
+                    keys,
+                    key: write.key.clone(),
+                })
+            }
+        };
     }
     (from.keys.starts_with(&write.keys) && write.key.is_none()).then(|| Write::contents(to.keys.clone()))
 }
@@ -1077,7 +1103,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
         {
             for (name, keys) in names {
                 self.aliases.push((name, root));
-                self.alias_parts.insert(name, (keys, it.span.start));
+                self.alias_parts.insert(name, (keys, it.span.end));
             }
         } else if let Some(init) = &it.init {
             let function = matches!(
@@ -1389,12 +1415,17 @@ impl Refs<'_> {
                 symbol,
                 keys: Vec::new(),
                 at: Vec::new(),
-                exact,
+                join: Join::of(exact),
             }));
     }
 
     /// Records the part of the local `id` at `keys`, which is the value here when `exact`.
     fn hold(&mut self, id: &IdentifierReference<'_>, keys: Vec<String>, exact: bool) {
+        self.hold_as(id, keys, Join::of(self.exact && exact));
+    }
+
+    /// Records the part of the local `id` at `keys`, held here as `join` says.
+    fn hold_as(&mut self, id: &IdentifierReference<'_>, keys: Vec<String>, join: Join) {
         if self.part == Part::Body {
             return;
         }
@@ -1403,7 +1434,7 @@ impl Refs<'_> {
                 symbol,
                 keys,
                 at: self.at.clone(),
-                exact: self.exact && exact,
+                join,
             });
         }
     }
@@ -1452,8 +1483,8 @@ impl Refs<'_> {
     }
 
     /// A spread in an object (`...value`): an object literal adds its keys where the spread is, as does each value a
-    /// condition or `&&` may be (the left of `&&` is then a falsy value, which adds none); anything else may add any
-    /// key.
+    /// condition or `&&` may be (the left of `&&` is then a falsy value, which adds none); a part of a local
+    /// (`...options`, `...cfg.test`) copies its own keys there ([`Join::Copy`]); anything else may add any key.
     fn spread<'a>(&mut self, value: &Expression<'a>)
     where
         Self: Visit<'a>,
@@ -1465,7 +1496,10 @@ impl Refs<'_> {
                 self.spread(&c.alternate);
             }
             Expression::LogicalExpression(l) if l.operator == LogicalOperator::And => self.spread(&l.right),
-            other => self.opaque(|refs| refs.visit_expression(other)),
+            other => match reach(other) {
+                Some((id, keys, true)) if self.exact && !self.frozen => self.hold_as(id, keys, Join::Copy),
+                _ => self.opaque(|refs| refs.visit_expression(other)),
+            },
         }
     }
 
