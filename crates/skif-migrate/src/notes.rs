@@ -104,7 +104,8 @@ pub struct Note {
 
 type Section = (&'static str, fn(NoteClass) -> bool);
 
-pub(crate) fn render_summary(migration: &Migration) -> String {
+/// The summary of `migration`; `left` holds the dotted paths (`rules.<id>`) of the profile values a merge left out.
+pub(crate) fn render_summary(migration: &Migration, left: &[String]) -> String {
     let mut out = String::new();
     let sections: [Section; 3] = [
         ("Translated", |class| {
@@ -138,14 +139,29 @@ pub(crate) fn render_summary(migration: &Migration) -> String {
         "Checks skif runs that the old tools did not ({}):",
         migration.extra_checks.len()
     );
+    let (kept_on, rest): (Vec<&str>, Vec<&str>) = migration
+        .extra_checks
+        .iter()
+        .map(String::as_str)
+        .partition(|id| left.contains(&format!("rules.{id}")));
+    let action = match migration.profile {
+        crate::Profile::Exact => "turned off in [rules] by --profile exact",
+        crate::Profile::Full => "left on by --profile full",
+    };
     if migration.extra_checks.is_empty() {
         out.push_str(" none\n");
+    } else if kept_on.is_empty() {
+        let _ = write!(out, " {action}\n  {}\n", rest.join(", "));
     } else {
-        let action = match migration.profile {
-            crate::Profile::Exact => "turned off in [rules] by --profile exact",
-            crate::Profile::Full => "left on by --profile full",
-        };
-        let _ = write!(out, " {action}\n  {}\n", migration.extra_checks.join(", "));
+        out.push('\n');
+        if !rest.is_empty() {
+            let _ = writeln!(out, "  {action}: {}", rest.join(", "));
+        }
+        let _ = writeln!(
+            out,
+            "  left as the existing configuration has them by --merge: {}",
+            kept_on.join(", ")
+        );
     }
     out
 }
