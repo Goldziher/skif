@@ -1992,6 +1992,132 @@ fn nx() {
     );
 }
 
+/// The files of a local Nx workspace plugin (`tools/nxp`).
+const LOCAL_NX_PLUGIN: &[(&str, &str)] = &[
+    (
+        "tsconfig.base.json",
+        r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@fx/nxp": ["tools/nxp/index.ts"], "@fx/tools/*": ["tools/*/src/index.ts"] } } }"#,
+    ),
+    ("tools/nxp/index.ts", "export const createNodesV2 = [];\n"),
+    (
+        "tools/nxp/package.json",
+        r#"{ "name": "@fx/nxp", "executors": "./executors.json", "generators": "./generators.json" }"#,
+    ),
+    (
+        "tools/nxp/executors.json",
+        r#"{ "executors": { "run": { "implementation": "./src/run/impl", "schema": "./src/run/schema.json" } } }"#,
+    ),
+    ("tools/nxp/src/run/impl.ts", "export default async function run() {}\n"),
+    ("tools/nxp/src/run/schema.json", "{}"),
+    (
+        "tools/nxp/generators.json",
+        r#"{ "generators": { "lib": { "factory": "./src/lib/generator#libGenerator" } } }"#,
+    ),
+    ("tools/nxp/src/lib/generator.ts", "export function libGenerator() {}\n"),
+    ("tools/executors/echo/package.json", r#"{ "executors": "./executors.json" }"#),
+    (
+        "tools/executors/echo/executors.json",
+        r#"{ "executors": { "echo": { "implementation": "./impl", "batchImplementation": "./batch.js" } } }"#,
+    ),
+    ("tools/executors/echo/impl.ts", "export default async function echo() {}\n"),
+    ("tools/executors/echo/batch.js", "module.exports = async function batch() {};\n"),
+    ("tools/gen/src/index.ts", "export const createNodes = [];\n"),
+];
+
+/// A plugin, executor or generator that `nx.json` or a `project.json` names by a relative path or a `paths` alias of
+/// the root `tsconfig.base.json` is a local module, not a package: a plugin's module is an entry, and so are the
+/// `implementation`, `batchImplementation` and `factory` files of the `executors` and `generators` collections its
+/// `package.json` names.
+#[test]
+fn nx_local_plugins_executors_and_generators_are_followed() {
+    let nx_json = r#"{
+      "plugins": ["@fx/nxp", { "plugin": "./tools/nxp/index.ts" }, "@fx/tools/gen", "@nx/vite/plugin"],
+      "generators": { "@fx/nxp:lib": {} }
+    }"#;
+    let project = r#"{ "targets": {
+      "x": { "executor": "@fx/nxp:run" },
+      "echo": { "executor": "./tools/executors/echo:echo" },
+      "other": { "executor": "@fx/missing:run" }
+    } }"#;
+    let mut files = LOCAL_NX_PLUGIN.to_vec();
+    files.extend([("nx.json", nx_json), ("apps/a/project.json", project)]);
+    let results = resolve(&files, &["nx"]);
+    let out = output(&results, "nx");
+    let deps = deps(out);
+    assert!(deps.contains("@nx/vite") && deps.contains("@fx/missing"), "{deps:?}");
+    assert!(
+        !deps.iter().any(|name| name.starts_with("@fx/n") || name.starts_with("@fx/tools") || name.starts_with('.')),
+        "{deps:?}"
+    );
+    assert_entries(
+        &out.entries,
+        &[
+            "tools/nxp/index.ts",
+            "tools/gen/src/index.ts",
+            "tools/nxp/src/run/impl.ts",
+            "tools/nxp/src/lib/generator.ts",
+            "tools/executors/echo/impl.ts",
+            "tools/executors/echo/batch.js",
+        ],
+    );
+    assert!(
+        !out.entries.iter().any(|entry| entry.ends_with(".json")),
+        "{:?}",
+        out.entries
+    );
+}
+
+/// Without the alias the specifier is a package, and an executor named only by a target is a collection, not a
+/// module: the plugin's `index.ts` is no entry when nothing loads it as a plugin.
+#[test]
+fn nx_executors_name_collections_not_modules() {
+    let project = r#"{ "targets": { "x": { "executor": "@fx/nxp:run" } } }"#;
+    let mut files = LOCAL_NX_PLUGIN.to_vec();
+    files.extend([("nx.json", "{}"), ("apps/a/project.json", project)]);
+    let results = resolve(&files, &["nx"]);
+    let out = output(&results, "nx");
+    assert_entries(&out.entries, &["tools/nxp/src/run/impl.ts", "tools/nxp/src/lib/generator.ts"]);
+    assert!(!out.entries.contains(&"tools/nxp/index.ts".to_owned()), "{:?}", out.entries);
+    let unaliased: Vec<(&str, &str)> = files
+        .iter()
+        .copied()
+        .filter(|(path, _)| *path != "tsconfig.base.json")
+        .collect();
+    let results = resolve(&unaliased, &["nx"]);
+    let out = output(&results, "nx");
+    assert!(deps(out).contains("@fx/nxp"), "{:?}", deps(out));
+    assert!(!out.entries.contains(&"tools/nxp/src/run/impl.ts".to_owned()), "{:?}", out.entries);
+}
+
+/// A workspace package that is a local Nx plugin names its collections in its own `package.json`.
+#[test]
+fn nx_collections_of_the_package_itself_are_entries() {
+    let manifest = r#"{ "name": "@fx/echo", "executors": "./executors.json", "builders": "./builders.json", "schematics": "./collection.json" }"#;
+    let files = [
+        ("package.json", manifest),
+        (
+            "executors.json",
+            r#"{ "executors": { "echo": { "implementation": "./src/echo.impl" } } }"#,
+        ),
+        ("src/echo.impl.ts", "export default async function echo() {}\n"),
+        (
+            "builders.json",
+            r#"{ "builders": { "b": { "implementation": "./src/builder" } } }"#,
+        ),
+        ("src/builder/index.js", "module.exports = {};\n"),
+        (
+            "collection.json",
+            r#"{ "schematics": { "s": { "factory": "./src/schematic/index#run" } } }"#,
+        ),
+        ("src/schematic/index.ts", "export function run() {}\n"),
+    ];
+    let results = resolve(&files, &["nx"]);
+    assert_entries(
+        &output(&results, "nx").entries,
+        &["src/echo.impl.ts", "src/builder/index.js", "src/schematic/index.ts"],
+    );
+}
+
 /// Target options name files relative to the workspace root: `main` and `additionalEntryPoints` of a build are
 /// production entries, `tsConfig` and `jestConfig` are configs of the `typescript` and `jest` plugins. `{projectRoot}`
 /// and `{workspaceRoot}` stand for the project's directory and the root, and a `run-commands` `cwd` is where the

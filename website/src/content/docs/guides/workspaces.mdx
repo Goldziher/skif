@@ -218,12 +218,17 @@ where skif looks for source files: a `project.json` below a gitignored or hidden
 output at the top of a package is not read. A package reads its own `project.json` and those of its projects without
 a `package.json`; a workspace member's are the member's.
 
-- The executors, generators and `nx.json` plugins name packages. A target's `command` and `run-commands` commands are
-  scripts that run in the workspace root, or in its `cwd`; `{workspaceRoot}` and `{projectRoot}` stand for the root and
-  the project's directory. The `main` and `additionalEntryPoints` options of a build are entries. `tsConfig`,
-  `jestConfig`, `webpackConfig`, `cypressConfig` and `eslintConfig` are read as the configs of those tools, and
-  `configFile`, `config` and `configDir` of the `@nx/vite`, `@nx/playwright` and `@nx/storybook` executors as Vite,
-  Playwright and Storybook configs. These paths are relative to the workspace root, also in a member's `project.json`.
+- The executors, generators and `nx.json` plugins name packages, unless they name a local plugin: a path relative to
+  the workspace root (`./tools/nxp/index.ts`, `./tools/executors/echo:echo`) or a `paths` alias of the root
+  `tsconfig.base.json` (else `tsconfig.json`) that points at an existing file or directory. A local plugin in
+  `plugins` is an entry; for it and for a local executor or generator, the `executors`, `builders`, `generators` and
+  `schematics` collections that its `package.json` names are read, and their `implementation`,
+  `batchImplementation` and `factory` files are entries. A workspace package's own collections are read as well.
+- A target's `command` and `run-commands` commands are scripts that run in the workspace root, or in its `cwd`;
+  `{workspaceRoot}` and `{projectRoot}` stand for the root and the project's directory. The `main` and
+  `additionalEntryPoints` options of a build are entries. `tsConfig`, `jestConfig`, `webpackConfig`, `cypressConfig`
+  and `eslintConfig` are read as the configs of those tools, and `configFile`, `config` and `configDir` of the
+  `@nx/vite`, `@nx/playwright` and `@nx/storybook` executors as Vite, Playwright and Storybook configs. These paths are relative to the workspace root, also in a member's `project.json`.
 - A project in a package-based workspace has its own `package.json` and is a workspace member, linted as any other.
 - A project of an integrated workspace has no `package.json`: the root lists its dependencies. Its directory is a scope
   of the root. Every plugin reads the project's configs there (`vite.config.ts`, `index.html`, `eslint.config.mjs`,
