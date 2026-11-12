@@ -111,8 +111,8 @@ fn sherif_exact_profile_turns_off_everything_sherif_did_not_check() {
     let rules = parsed["rules"].as_table().unwrap();
     assert_eq!(
         rules.len(),
-        38,
-        "the two ignored sherif rules and the 36 other default rules"
+        40,
+        "the two ignored sherif rules and the 38 other default rules"
     );
     assert!(!rules.contains_key("version-mismatch"), "the check sherif ran stays on");
     assert!(
@@ -298,7 +298,7 @@ fn knip_script_flags_narrow_the_rules() {
         Some("off"),
         "knip does not read the specifiers of test-runner mocks"
     );
-    assert_eq!(migration.extra_checks.len(), 38);
+    assert_eq!(migration.extra_checks.len(), 40);
 }
 
 #[test]

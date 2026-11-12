@@ -41,12 +41,19 @@ pub struct StaleLernaConfig;
 
 /// The major version of `version`, a version or a range.
 fn major(version: &str) -> Option<u64> {
-    Specifier::create(version).get_node_version().map(|version| version.major())
+    Specifier::create(version)
+        .get_node_version()
+        .map(|version| version.major())
 }
 
 /// The major Lerna release of the workspace: the installed one, else the lowest the root manifest admits.
 fn lerna_major(cx: &LintContext<'_>) -> Option<u64> {
-    let installed = cx.workspace.root.join("node_modules").join("lerna").join("package.json");
+    let installed = cx
+        .workspace
+        .root
+        .join("node_modules")
+        .join("lerna")
+        .join("package.json");
     let installed = cx
         .fs()
         .read_to_string(&installed)
@@ -94,7 +101,12 @@ fn removed_command(words: &[Word]) -> Option<&Word> {
 
 /// The removed Lerna commands each script of `package` runs: the script name and the command.
 fn removed_in_scripts(package: &Package) -> Vec<(&str, String)> {
-    let Some(scripts) = package.manifest.value().get("scripts").and_then(serde_json::Value::as_object) else {
+    let Some(scripts) = package
+        .manifest
+        .value()
+        .get("scripts")
+        .and_then(serde_json::Value::as_object)
+    else {
         return Vec::new();
     };
     scripts
@@ -175,7 +187,8 @@ mod tests {
     use super::*;
     use crate::testing::{config, lint, located};
 
-    const ROOT_10: &str = r#"{"name":"root","private":true,"workspaces":["packages/*"],"devDependencies":{"lerna":"^10.1.1"}}"#;
+    const ROOT_10: &str =
+        r#"{"name":"root","private":true,"workspaces":["packages/*"],"devDependencies":{"lerna":"^10.1.1"}}"#;
     const MEMBER: &str = r#"{"name":"a"}"#;
     const VERSIONED: &str = r#"{"version": "independent"}"#;
 
@@ -221,7 +234,10 @@ mod tests {
 
     #[test]
     fn a_missing_version_is_reported_at_the_file() {
-        let files = [("package.json", ROOT_10), ("lerna.json", r#"{"packages": ["packages/*"]}"#)];
+        let files = [
+            ("package.json", ROOT_10),
+            ("lerna.json", r#"{"packages": ["packages/*"]}"#),
+        ];
         let diagnostics = lint(META.id, &files, &config(""));
         assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
         assert_eq!(
@@ -271,7 +287,10 @@ mod tests {
         let installed = [
             ("package.json", root),
             ("lerna.json", r#"{"useWorkspaces": true}"#),
-            ("node_modules/lerna/package.json", r#"{"name":"lerna","version":"9.0.0"}"#),
+            (
+                "node_modules/lerna/package.json",
+                r#"{"name":"lerna","version":"9.0.0"}"#,
+            ),
         ];
         assert_eq!(findings(&installed).len(), 3);
         let declared_only = [("package.json", root), ("lerna.json", r#"{"useWorkspaces": true}"#)];

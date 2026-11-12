@@ -749,7 +749,11 @@ mod tests {
             "genrule(name = \"lock\", outs = [\"x\"], cmd = \"cp $(location //libs/a:pnpm-lock.yaml) $@\")\n",
         ];
         for build in consumers {
-            assert_eq!(paths(&lint(META.id, &repro(build), &config(""))), [] as [&str; 0], "{build}");
+            assert_eq!(
+                paths(&lint(META.id, &repro(build), &config(""))),
+                [] as [&str; 0],
+                "{build}"
+            );
         }
         for build in [
             "\"\"\"//libs/a:pnpm-lock.yaml\"\"\"\n",
@@ -853,7 +857,10 @@ mod tests {
 
     #[test]
     fn a_dockerfile_elsewhere_built_from_the_members_directory_names_its_lockfile() {
-        let dockerfile = ("docker/b.Dockerfile", "FROM node:22\nCOPY package.json pnpm-lock.yaml ./\nRUN pnpm i\n");
+        let dockerfile = (
+            "docker/b.Dockerfile",
+            "FROM node:22\nCOPY package.json pnpm-lock.yaml ./\nRUN pnpm i\n",
+        );
         let compose = "\
 services:
   b:
@@ -873,7 +880,12 @@ jobs:
             (".github/workflows/images.yml", workflow),
         ] {
             let files = bazel_and_docker_files(&[dockerfile, build]);
-            assert_eq!(paths(&lint(META.id, &files, &config(""))), [] as [&str; 0], "{}", build.0);
+            assert_eq!(
+                paths(&lint(META.id, &files, &config(""))),
+                [] as [&str; 0],
+                "{}",
+                build.0
+            );
         }
         let other_context = bazel_and_docker_files(&[
             dockerfile,

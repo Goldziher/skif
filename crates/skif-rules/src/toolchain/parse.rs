@@ -294,7 +294,9 @@ fn bazel(source: &str, pins: &mut Vec<Pin>) {
             Kind::Name => {
                 let Some((Some(call), 0)) = calls.last() else { continue };
                 let argument = token.text(source);
-                let Some(tool) = bazel_argument(call, argument) else { continue };
+                let Some(tool) = bazel_argument(call, argument) else {
+                    continue;
+                };
                 let (Some(equals), Some(value)) = (tokens.get(index + 1), tokens.get(index + 2)) else {
                     continue;
                 };

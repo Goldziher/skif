@@ -81,9 +81,9 @@ fn spreads_nx_preset(section: &ConfigValue, source: &str) -> bool {
     });
     imported
         && entries.iter().any(|(key, _)| ConfigValue::is_spread_key(key))
-        && source.match_indices("nxE2EPreset").any(|(at, name)| {
-            source[at + name.len()..].trim_start().starts_with('(')
-        })
+        && source
+            .match_indices("nxE2EPreset")
+            .any(|(at, name)| source[at + name.len()..].trim_start().starts_with('('))
 }
 
 /// The spec and support patterns of an e2e section that spreads `nxE2EPreset()`: a key written after the last spread

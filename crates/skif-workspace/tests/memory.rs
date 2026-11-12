@@ -1399,7 +1399,9 @@ fn lerna_json_is_not_read_when_something_else_declares_the_members() {
 }
 
 fn lerna_paths(dirs: &[PathBuf]) -> Vec<String> {
-    dirs.iter().map(|dir| dir.to_str().unwrap().replace('\\', "/")).collect()
+    dirs.iter()
+        .map(|dir| dir.to_str().unwrap().replace('\\', "/"))
+        .collect()
 }
 
 #[test]
@@ -1442,14 +1444,17 @@ fn lerna_packages_that_select_the_same_members_differently_do_not_differ() {
             "package.json",
             r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
         ),
-        ("lerna.json", r#"{"version": "1.0.0", "packages": ["./packages/a", "packages/b"]}"#),
+        (
+            "lerna.json",
+            r#"{"version": "1.0.0", "packages": ["./packages/a", "packages/b"]}"#,
+        ),
         ("packages/a/package.json", r#"{"name":"a"}"#),
         ("packages/b/package.json", r#"{"name":"b"}"#),
     ];
     let workspace = discover(&files, &Config::default()).unwrap();
     let facts = workspace.facts.lerna.as_ref().unwrap();
-    assert!(facts.only_in_lerna.is_empty());
-    assert!(facts.only_in_workspace.is_empty());
+    assert_eq!(facts.only_in_lerna, [] as [std::path::PathBuf; 0]);
+    assert_eq!(facts.only_in_workspace, [] as [std::path::PathBuf; 0]);
 }
 
 #[test]
@@ -1463,8 +1468,8 @@ fn lerna_packages_that_declare_the_members_differ_from_nothing() {
     let workspace = discover(&files, &Config::default()).unwrap();
     assert_eq!(workspace.facts.source, WorkspaceSource::LernaJson);
     let facts = workspace.facts.lerna.as_ref().unwrap();
-    assert!(facts.only_in_lerna.is_empty());
-    assert!(facts.only_in_workspace.is_empty());
+    assert_eq!(facts.only_in_lerna, [] as [std::path::PathBuf; 0]);
+    assert_eq!(facts.only_in_workspace, [] as [std::path::PathBuf; 0]);
 }
 
 #[test]
@@ -1486,7 +1491,7 @@ fn a_lerna_json_with_use_workspaces_is_recorded_while_the_workspaces_decide() {
     assert!(facts.use_workspaces_span.is_some());
     assert!(!facts.has_version);
     assert_eq!(facts.packages, None);
-    assert!(facts.only_in_lerna.is_empty());
+    assert_eq!(facts.only_in_lerna, [] as [std::path::PathBuf; 0]);
 }
 
 #[test]

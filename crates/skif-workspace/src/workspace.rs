@@ -252,9 +252,9 @@ fn load_member(
             },
             Err(error) => Member::Failed(PathBuf::from(dir), io_error(&manifest, error)),
         }
-    } else if entries.is_some_and(|entries| {
-        entries.iter().any(has_content) && !needs_no_manifest(root, &entries, selected)
-    }) {
+    } else if entries
+        .is_some_and(|entries| entries.iter().any(has_content) && !needs_no_manifest(root, &entries, selected))
+    {
         Member::NoManifest(PathBuf::from(dir))
     } else {
         Member::Empty

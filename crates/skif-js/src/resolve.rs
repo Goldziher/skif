@@ -7,7 +7,7 @@ use std::hash::{BuildHasher, Hash};
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock, PoisonError, RwLock};
+use std::sync::{Arc, PoisonError, RwLock};
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use oxc_resolver::{
@@ -15,7 +15,7 @@ use oxc_resolver::{
 };
 use serde_json::Value;
 use skif_core::{FileSystem, HashMap, HashState, OsFs, slash};
-use skif_js_plugins::bazel::{DeclaredOutputs, build_file, is_output_path, repository_root};
+use skif_js_plugins::bazel::{DeclaredOutputs, build_file, is_output_path, repository_root_within};
 use skif_js_syntax::is_stylesheet;
 use skif_workspace::Workspace;
 
@@ -391,8 +391,8 @@ pub(crate) struct ModuleResolver {
     /// Whether the nearest `package.json` declares `imports`, by the directory of the importer.
     declared_imports: Memo<PathBuf, bool>,
     /// The highest directory whose `.gitignore` applies: the repository root above the workspace, else the workspace
-    /// root. Looked up on the first missing module.
-    ignore_ceiling: OnceLock<PathBuf>,
+    /// root.
+    ignore_ceiling: PathBuf,
     /// The `.gitignore` of any other directory up to `ignore_ceiling`, read when a missing module is looked up there.
     dir_ignores: Memo<PathBuf, Option<Arc<Gitignore>>>,
 }
@@ -783,13 +783,19 @@ impl ModuleResolver {
                 .collect(),
         )
         .with_root_config(setup.root_tsconfig.clone());
+        let git_root = workspace
+            .root
+            .ancestors()
+            .find(|dir| is_repository_root(fs.as_ref(), dir))
+            .map(Path::to_path_buf);
+        let ignore_ceiling = git_root.clone().unwrap_or_else(|| workspace.root.clone());
         Self {
             script,
             script_with_extensions,
             root_script,
             style,
             workspace_name: skif_workspace::bazel_workspace_name(fs.as_ref(), &workspace.root),
-            bazel_root: repository_root(fs.as_ref(), &workspace.root),
+            bazel_root: repository_root_within(fs.as_ref(), &workspace.root, git_root.as_deref()),
             bazel_outputs: Memo::new(),
             ignores,
             package_dirs,
@@ -810,7 +816,7 @@ impl ModuleResolver {
             tsconfigs,
             ungenerated_configs: Memo::new(),
             declared_imports: Memo::new(),
-            ignore_ceiling: OnceLock::new(),
+            ignore_ceiling,
             dir_ignores: Memo::new(),
         }
     }
@@ -901,13 +907,7 @@ impl ModuleResolver {
         let Some(parent) = path.parent() else {
             return false;
         };
-        let ceiling = self.ignore_ceiling.get_or_init(|| {
-            self.root
-                .ancestors()
-                .find(|dir| is_repository_root(self.fs.as_ref(), dir))
-                .unwrap_or(&self.root)
-                .to_path_buf()
-        });
+        let ceiling = &self.ignore_ceiling;
         parent
             .ancestors()
             .take_while(|dir| dir.starts_with(ceiling))

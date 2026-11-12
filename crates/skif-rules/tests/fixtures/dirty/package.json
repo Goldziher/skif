@@ -6,7 +6,8 @@
   },
   "devDependencies": {
     "zod": "^3.0.0",
-    "eslint": "^9.0.0"
+    "eslint": "^9.0.0",
+    "lerna": "^8.0.0"
   },
   "pnpm": {
     "patchedDependencies": {

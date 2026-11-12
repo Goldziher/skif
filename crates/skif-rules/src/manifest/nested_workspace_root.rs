@@ -349,7 +349,7 @@ mod tests {
         }
     }
 
-    /// A rules_js workspace after a build: `*` selects the `bazel-ws` link to the execroot, which mirrors the root.
+    /// A `rules_js` workspace after a build: `*` selects the `bazel-ws` link to the execroot, which mirrors the root.
     fn linked_files() -> Vec<(&'static str, &'static str)> {
         const ROOT: &str = r#"{"name":"root","private":true,"dependencies":{"b":"1.0.0","a":"1.0.0"}}"#;
         const PATTERNS: &str = "packages: ['*', 'lib/*']\n";

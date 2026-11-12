@@ -146,7 +146,11 @@ mod tests {
     #[test]
     fn members_inside_a_bazel_convenience_link_are_facts_and_ignored() {
         let workspace = Workspace::discover_with_fs(Path::new("/ws"), &Config::default(), &Linked(tree())).unwrap();
-        let dirs: Vec<&Path> = workspace.packages().iter().map(|package| package.dir.as_path()).collect();
+        let dirs: Vec<&Path> = workspace
+            .packages()
+            .iter()
+            .map(|package| package.dir.as_path())
+            .collect();
         assert_eq!(
             dirs,
             ["app", "bazel-bin", "bazel-ws", "lib/bazel-rules"].map(Path::new),
@@ -168,8 +172,13 @@ mod tests {
     #[test]
     fn a_real_directory_named_like_a_link_is_an_ordinary_member() {
         let workspace = Workspace::discover_with_fs(Path::new("/ws"), &Config::default(), &tree()).unwrap();
-        assert!(workspace.facts.bazel_links.is_empty());
-        assert!(workspace.packages().iter().all(|package| !workspace.is_ignored(package.id)));
+        assert_eq!(workspace.facts.bazel_links, [] as [std::path::PathBuf; 0]);
+        assert!(
+            workspace
+                .packages()
+                .iter()
+                .all(|package| !workspace.is_ignored(package.id))
+        );
     }
 
     #[test]

@@ -368,7 +368,12 @@ mod tests {
         assert_eq!(glob_kind("ci/pipeline.yaml"), ToolchainKind::Workflows);
         assert_eq!(glob_kind("ci/release"), ToolchainKind::ShellScripts);
         assert_eq!(glob_kind("deploy/Dockerfile.base"), ToolchainKind::Dockerfiles);
-        for path in ["js/MODULE.bazel", "tools/node.bzl", "deps/npm.MODULE.bazel", "WORKSPACE.bazel"] {
+        for path in [
+            "js/MODULE.bazel",
+            "tools/node.bzl",
+            "deps/npm.MODULE.bazel",
+            "WORKSPACE.bazel",
+        ] {
             assert_eq!(glob_kind(path), ToolchainKind::Bazel, "{path}");
         }
         assert_eq!(default_kind("MODULE.bazel", true), None, "read at the root only");

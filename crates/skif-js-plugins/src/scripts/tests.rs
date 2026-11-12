@@ -583,7 +583,10 @@ fn turbo_task_names_are_not_commands() {
     ] {
         let info = parse_script(script, &ctx);
         assert_eq!(binaries_of(&info), vec!["turbo".to_owned()], "{script}");
-        assert!(info.files.is_empty() && info.dependencies.is_empty(), "{script}: {info:?}");
+        assert!(
+            info.files.is_empty() && info.dependencies.is_empty(),
+            "{script}: {info:?}"
+        );
         assert!(info.run_scripts.is_empty(), "{script}");
     }
 }
@@ -696,7 +699,7 @@ fn bazel_launchers_are_machine_binaries_not_ignored_ones() {
     let info = parse("bazel build //... && ibazel test //... && bazelisk run //:lint");
     let binaries: Vec<&str> = info.binaries.iter().map(|b| b.name.as_str()).collect();
     assert_eq!(binaries, ["bazel", "ibazel", "bazelisk"]);
-    assert!(info.global_binaries.is_empty());
+    assert_eq!(info.global_binaries, []);
     for name in ["bazel", "bazelisk", "ibazel"] {
         assert!(is_machine_binary(name), "{name}");
         assert!(!is_ignored_binary(name), "{name}");

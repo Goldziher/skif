@@ -114,12 +114,19 @@ fn under_bazel_test_the_default_store_is_in_the_test_tmpdir() {
 
     // An explicit location wins over the scratch directory.
     let location = scratch.path().join("explicit");
-    let explicit = run(skif()
-        .current_dir(dir.path())
-        .env("TEST_TMPDIR", scratch.path())
-        .args(["--format", "json", "--cache", "--cache-location", location.to_str().unwrap()]));
+    let explicit = run(skif().current_dir(dir.path()).env("TEST_TMPDIR", scratch.path()).args([
+        "--format",
+        "json",
+        "--cache",
+        "--cache-location",
+        location.to_str().unwrap(),
+    ]));
     assert_eq!((explicit.stdout, explicit.code), uncached, "{}", explicit.stderr);
-    assert!(fs::read(location.join("modules.bin")).unwrap().starts_with(b"SKIFMOD\0"));
+    assert!(
+        fs::read(location.join("modules.bin"))
+            .unwrap()
+            .starts_with(b"SKIFMOD\0")
+    );
 }
 
 #[test]

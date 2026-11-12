@@ -167,11 +167,11 @@ mod tests {
         command_build(&words)
     }
 
-    fn expected(dockerfile: Option<&str>, context: &str) -> Option<Build> {
-        Some(Build {
+    fn expected(dockerfile: Option<&str>, context: &str) -> Build {
+        Build {
             dockerfile: dockerfile.map(str::to_owned),
             context: context.to_owned(),
-        })
+        }
     }
 
     #[test]
@@ -179,18 +179,18 @@ mod tests {
         let cases = [
             (
                 "docker build -f docker/web.Dockerfile apps/web",
-                expected(Some("docker/web.Dockerfile"), "apps/web"),
+                Some(expected(Some("docker/web.Dockerfile"), "apps/web")),
             ),
             (
                 "docker buildx build --file=docker/web.Dockerfile -t web:latest --push ./apps/web",
-                expected(Some("docker/web.Dockerfile"), "./apps/web"),
+                Some(expected(Some("docker/web.Dockerfile"), "./apps/web")),
             ),
             (
                 "sudo docker image build -fdocker/api.Dockerfile --build-arg X=1 apps/api",
-                expected(Some("docker/api.Dockerfile"), "apps/api"),
+                Some(expected(Some("docker/api.Dockerfile"), "apps/api")),
             ),
-            ("podman build apps/web", expected(None, "apps/web")),
-            ("docker build -t \"$TAG\" .", expected(None, ".")),
+            ("podman build apps/web", Some(expected(None, "apps/web"))),
+            ("docker build -t \"$TAG\" .", Some(expected(None, "."))),
             ("docker build -f \"$FILE\" apps/web", None),
             ("docker build \"$CONTEXT\"", None),
             ("docker build https://github.com/example/repo.git#main", None),
@@ -223,9 +223,9 @@ services:
         assert_eq!(
             compose_builds(source),
             [
-                expected(Some("apps/web/../../docker/web.Dockerfile"), "apps/web").unwrap(),
-                expected(None, "./apps/api").unwrap(),
-                expected(Some("./docker/worker.Dockerfile"), ".").unwrap(),
+                expected(Some("apps/web/../../docker/web.Dockerfile"), "apps/web"),
+                expected(None, "./apps/api"),
+                expected(Some("./docker/worker.Dockerfile"), "."),
             ]
         );
         assert_eq!(compose_builds("services: [unclosed\n"), []);

@@ -200,7 +200,12 @@ fn explain_dependency(args: &ExplainUsageArgs, cwd: &Path, name: &str, format: F
         roots::resolve(&start, false, &CachedFs::new(OsFs), &overrides(args)).map_err(plain)?;
     let target = owning_target(&targets, &start)
         .or_else(|| targets.first())
-        .ok_or_else(|| fail(Kind::Usage, format!("no workspace or package found at {}", start.display())))?;
+        .ok_or_else(|| {
+            fail(
+                Kind::Usage,
+                format!("no workspace or package found at {}", start.display()),
+            )
+        })?;
     let package = args
         .package
         .as_deref()

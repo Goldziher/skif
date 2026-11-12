@@ -363,7 +363,11 @@ fn render_package(out: &mut String, package: &PackageDependencyUsage) {
     }
     for import in &package.not_counted {
         let types = if import.type_only { ", types only" } else { "" };
-        let _ = writeln!(out, "      {}:{} (as `{}`{types})", import.file, import.line, import.specifier);
+        let _ = writeln!(
+            out,
+            "      {}:{} (as `{}`{types})",
+            import.file, import.line, import.specifier
+        );
     }
 }
 

@@ -51,7 +51,8 @@ impl Rule for LernaPackagesMismatch {
         let Some(lerna) = &facts.lerna else {
             return;
         };
-        if lerna.use_workspaces == Some(true) || (lerna.only_in_lerna.is_empty() && lerna.only_in_workspace.is_empty()) {
+        if lerna.use_workspaces == Some(true) || (lerna.only_in_lerna.is_empty() && lerna.only_in_workspace.is_empty())
+        {
             return;
         }
         let globs = lerna
@@ -108,7 +109,10 @@ mod tests {
     fn packages_lerna_alone_selects_are_reported_at_the_list() {
         let lerna = r#"{"version": "1.0.0", "packages": ["packages/*", "tools/*"]}"#;
         let files = [
-            ("package.json", r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#),
+            (
+                "package.json",
+                r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
+            ),
             ("lerna.json", lerna),
             ("packages/a/package.json", MEMBER),
             ("tools/cli/package.json", r#"{"name":"cli"}"#),
@@ -141,8 +145,10 @@ mod tests {
         ];
         assert_eq!(
             messages(&files),
-            ["`lerna.json` lists packages [`packages/*`], but the `packages` of `pnpm-workspace.yaml` are \
-              [`packages/*`, `apps/*`]: Lerna skips `apps/web`"]
+            [
+                "`lerna.json` lists packages [`packages/*`], but the `packages` of `pnpm-workspace.yaml` are \
+              [`packages/*`, `apps/*`]: Lerna skips `apps/web`"
+            ]
         );
     }
 
@@ -159,8 +165,10 @@ mod tests {
         ];
         assert_eq!(
             messages(&files),
-            ["`lerna.json` lists packages [`packages/*`], but the `workspaces` of `package.json` are [`apps/*`]: \
-              only Lerna acts on `packages/a`; Lerna skips `apps/web`"]
+            [
+                "`lerna.json` lists packages [`packages/*`], but the `workspaces` of `package.json` are [`apps/*`]: \
+              only Lerna acts on `packages/a`; Lerna skips `apps/web`"
+            ]
         );
     }
 
@@ -171,7 +179,10 @@ mod tests {
                 "package.json",
                 r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
             ),
-            ("lerna.json", r#"{"version": "1.0.0", "packages": ["packages/a", "packages/b"]}"#),
+            (
+                "lerna.json",
+                r#"{"version": "1.0.0", "packages": ["packages/a", "packages/b"]}"#,
+            ),
             ("packages/a/package.json", MEMBER),
             ("packages/b/package.json", r#"{"name":"b"}"#),
         ];

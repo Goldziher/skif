@@ -376,18 +376,27 @@ fn show_with_an_explicit_config_applies_that_file_alone() {
     // The discovered chain sets `fail-on-warnings`; the explicit file replaces it.
     assert_eq!(root["config"]["lint"]["fail-on-warnings"], false);
 
-    let human = run(skif().args(["config", "--show", "--config"]).arg(ws.join("ci.toml")).arg(&ws));
+    let human = run(skif()
+        .args(["config", "--show", "--config"])
+        .arg(ws.join("ci.toml"))
+        .arg(&ws));
     assert_eq!(human.code, 0, "{}{}", human.stdout, human.stderr);
     let header: Vec<&str> = human.stdout.lines().filter(|line| line.starts_with('#')).collect();
     insta::assert_snapshot!("show_sources_explicit", header.join("\n"));
-    assert!(human.stdout.contains("prefer = \"lowest\"  # from ci.toml:2\n"), "{}", human.stdout);
+    assert!(
+        human.stdout.contains("prefer = \"lowest\"  # from ci.toml:2\n"),
+        "{}",
+        human.stdout
+    );
 }
 
 #[test]
 fn show_without_config_reads_no_file() {
     let dir = chain();
     let ws = dir.path().join("ws");
-    let json = run(skif().args(["config", "--show", "--format", "json", "--no-config"]).arg(&ws));
+    let json = run(skif()
+        .args(["config", "--show", "--format", "json", "--no-config"])
+        .arg(&ws));
     assert_eq!(json.code, 0, "{}{}", json.stdout, json.stderr);
     let document = json.json();
     assert_eq!(document["roots"][0]["sources"], serde_json::json!([]));
@@ -400,7 +409,10 @@ fn show_without_config_reads_no_file() {
         human.stdout
     );
     assert_eq!(
-        run(skif().args(["config", "--show", "--no-config", "--config", "ci.toml"]).arg(&ws)).code,
+        run(skif()
+            .args(["config", "--show", "--no-config", "--config", "ci.toml"])
+            .arg(&ws))
+        .code,
         2
     );
 }
@@ -411,7 +423,14 @@ fn explain_with_an_explicit_config_names_that_file() {
     let ws = dir.path().canonicalize().unwrap().join("ws");
     put(&ws, "ci.toml", "[lint]\nfail-on-warnings = false\n");
     let result = run(skif()
-        .args(["config", "--explain", "lint.fail-on-warnings", "--format", "json", "--config"])
+        .args([
+            "config",
+            "--explain",
+            "lint.fail-on-warnings",
+            "--format",
+            "json",
+            "--config",
+        ])
         .arg(ws.join("ci.toml"))
         .arg(&ws));
     assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
@@ -465,7 +484,10 @@ fn recursive_with_an_explicit_config_names_where_its_workspace_keys_select_each_
     assert_eq!(roots[0].get("workspace-keys-anchor"), None, "{document}");
     assert_eq!(roots[1]["workspace-keys-anchor"], "tools/sub");
 
-    let human = run(skif().args(["config", "-r", "--show", "--config"]).arg(&file).arg(&repo));
+    let human = run(skif()
+        .args(["config", "-r", "--show", "--config"])
+        .arg(&file)
+        .arg(&repo));
     assert_eq!(human.code, 0, "{}{}", human.stdout, human.stderr);
     let header: Vec<&str> = human.stdout.lines().filter(|line| line.starts_with('#')).collect();
     insta::assert_snapshot!("show_sources_explicit_recursive", header.join("\n"));
