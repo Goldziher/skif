@@ -119,6 +119,9 @@ All notable changes to this project are documented here. The format follows
   `enclosing-incomplete-scope`, with that package's directory in `scope-package` and its scope and reasons in
   `incomplete-scope` and `incomplete`, instead of `unknown`. `skif_js::EntryReason` gains `EnclosingIncompleteScope`
   and `UsageReport` gains `scope_package` ([#165](https://github.com/Goldziher/skif/issues/165)).
+- `explain-usage`: the source of the build output a script runs (`node dist/cli.js` for `src/cli.ts`) has the entry
+  kind `script`, and a file an extensionless `bin` stub loads the new kind `bin-stub` (`skif_js::EntryReason` gains
+  `BinStub`), instead of `unknown`.
 - **Bazel plugin**: a label of an enclosing package's `node_modules` (`"//adev:node_modules/diff"`) in a `BUILD` file of
   a nested package counts only for the package it names; the nested package's own listing of the dependency was used
   by it as well, which hid an `unused-dependencies` finding. A dependency so named that the labelled package does not

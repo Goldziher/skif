@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use skif_core::HashSet;
+use skif_core::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -12,6 +12,7 @@ use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 use crate::analysis::on_disk;
 use crate::ancestors::external_manifests;
 use crate::discover::{Candidate, is_ignored_in_repository, relative};
+use crate::explain::EntryReason;
 use crate::globs::Globs;
 use crate::manifest_paths::{
     bin_stub_sources, bin_targets, crossing_stars, is_out_dir, manifest_targets, map_to_source, should_have_source,
@@ -40,6 +41,9 @@ pub(crate) struct EntryFiles {
     /// Files that plugins name as entries (a workflow step's `node build/report.ts`) and that exist but are no
     /// candidate of this analysis, absolute and sorted: a multi-root run hands them to the root that owns them.
     pub other_roots: Vec<PathBuf>,
+    /// The entry files that a script runs, also through a build directory (`node dist/cli.js` for `src/cli.ts`), and
+    /// that a bin stub loads, with that reason, which `explain-usage` cannot find from the paths alone.
+    pub origins: HashMap<PathBuf, EntryReason>,
 }
 
 /// Where published paths are looked up to tell build output not built yet from a path into nothing: `fs` lists
@@ -86,14 +90,21 @@ pub(crate) fn entry_files(
     let mut unknown = Vec::new();
     let mut provided = HashSet::default();
     let mut other_roots = BTreeSet::new();
+    let mut origins = HashMap::default();
     for mut package in found {
         entries.append(&mut package.entries);
         unknown.extend(package.unknown);
         provided.extend(package.provided);
         other_roots.append(&mut package.other_roots);
+        for (path, reason) in package.origins {
+            origins.entry(path).or_insert(reason);
+        }
     }
     if !setup.production {
-        entries.extend(ancestor_script_files(fs, workspace, candidates));
+        for path in ancestor_script_files(fs, workspace, candidates) {
+            origins.entry(path.clone()).or_insert(EntryReason::Script);
+            entries.insert(path);
+        }
     }
     entries.extend(
         extra
@@ -106,6 +117,7 @@ pub(crate) fn entry_files(
         unknown,
         provided,
         other_roots: other_roots.into_iter().collect(),
+        origins,
     }
 }
 
@@ -125,6 +137,7 @@ struct PackageEntries {
     /// In the order they are found, so the merged set is built in the same order as one package after another.
     provided: Vec<PathBuf>,
     other_roots: BTreeSet<PathBuf>,
+    origins: Vec<(PathBuf, EntryReason)>,
 }
 
 impl EntryContext<'_> {
@@ -200,9 +213,11 @@ impl EntryContext<'_> {
                 published_without_source = true;
             }
         }
+        let mut origins = Vec::new();
         for target in bin_targets(package.manifest.value()) {
             let sources = bin_stub_sources(fs, &package_setup.dir, &target);
             mapped_any |= !sources.is_empty();
+            origins.extend(sources.iter().map(|source| (source.clone(), EntryReason::BinStub)));
             from_tools.extend(sources);
         }
         own.extend(from_tools.iter().cloned());
@@ -218,7 +233,9 @@ impl EntryContext<'_> {
             .cloned()
             .collect();
         if !setup.production {
-            tool_entries.extend(script_files(fs, package_setup, mine));
+            let run = script_files(fs, package_setup, mine);
+            origins.extend(run.iter().map(|path| (path.clone(), EntryReason::Script)));
+            tool_entries.extend(run);
         }
         if !package_setup.include_entry_exports {
             provided.extend(tool_entries.iter().cloned());
@@ -252,6 +269,7 @@ impl EntryContext<'_> {
             unknown,
             provided,
             other_roots,
+            origins,
         }
     }
 }

@@ -42,6 +42,8 @@ pub enum EntryReason {
     Script,
     /// Published by `package.json` (`main`, `module`, `types`, `bin`, `exports`, n8n `nodes` and `credentials`).
     Published,
+    /// Loaded by a `bin` file of `package.json` that is no module (an extensionless `#!/usr/bin/env node` stub).
+    BinStub,
     /// Matched by an entry glob of another package that points outside that package.
     ExternalEntryGlob,
     /// Matched by an entry glob a plugin gives a package that contains this one, such as a root
@@ -68,6 +70,7 @@ impl EntryReason {
             Self::Published => {
                 "published by package.json (main, module, types, bin, exports, n8n nodes and credentials)"
             }
+            Self::BinStub => "loaded by a bin file of package.json that is no module (an extensionless node stub)",
             Self::ExternalEntryGlob => "matches an entry glob of another package that points outside it",
             Self::EnclosingEntryGlob => "matches an entry glob a plugin gives a package that contains its package",
             Self::IncompleteScope => {
@@ -669,6 +672,9 @@ impl JsAnalysis<'_> {
             }
             if self.is_published(module, &package.dir, &rel) {
                 return EntryReason::Published;
+            }
+            if let Some(&reason) = self.entry_origins.get(&module.abs) {
+                return reason;
             }
             if package.in_incomplete_scope(&rel) {
                 return EntryReason::IncompleteScope;
