@@ -62,6 +62,9 @@ All notable changes to this project are documented here. The format follows
   built as `` Object.fromEntries(PAGES.map((p) => [p, path.resolve(__dirname, `${p}.html`)])) `` names its HTML
   pages. Template literals and `+` with a string also write known numbers and booleans, `+` adds two numbers, `===`
   and `!==` compare known primitives, and a constant index reads a known array (`LIST[0]`).
+- **Vite and Vitest plugins**: a `root` that is one of several relative directories (a condition the evaluator cannot
+  decide, such as `process.env.X ? path.resolve('ui') : __dirname`) reads the HTML entries of each instead of
+  leaving the package incomplete.
 
 ### Changed
 
