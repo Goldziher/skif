@@ -1036,6 +1036,49 @@ fn fixing_keeps_the_files_other_roots_use() {
     assert_eq!(js_findings(&result.json()), Vec::<String>::new());
 }
 
+#[test]
+fn a_bazel_source_of_a_nested_root_is_used_there() {
+    // The outer root's `BUILD.bazel` builds from `tools/lib/x.ts`, a file of the nested root `tools`, which has no
+    // `BUILD` file of its own; nothing names `tools/lib/orphan.ts`.
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join(".git")).unwrap();
+    put(
+        dir.path(),
+        "MODULE.bazel",
+        "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n",
+    );
+    put(
+        dir.path(),
+        "package.json",
+        r#"{"name": "outer", "version": "0.0.0", "private": true, "packageManager": "npm@11.6.2", "main": "index.js"}"#,
+    );
+    put(dir.path(), "index.js", "console.log(1);\n");
+    put(
+        dir.path(),
+        "BUILD.bazel",
+        "ts_project(name = \"tools\", srcs = [\"tools/lib/x.ts\"])\n",
+    );
+    put(dir.path(), "tools/package.json", &package("tools"));
+    put(dir.path(), "tools/lib/x.ts", "console.log(2);\n");
+    put(dir.path(), "tools/lib/orphan.ts", "console.log(3);\n");
+
+    let (_, report) = json(dir.path(), &["-r"]);
+    assert_eq!(root_paths(&report), [".", "tools"]);
+    assert_eq!(
+        paths_reporting(&report, "unused-files"),
+        BTreeSet::from(["tools/lib/orphan.ts".to_owned()]),
+        "{report}"
+    );
+
+    // Linted on its own, the nested root cannot know what the outer root's `BUILD` file names.
+    let (_, tools) = json(&dir.path().join("tools"), &[]);
+    assert_eq!(
+        paths_reporting(&tools, "unused-files"),
+        BTreeSet::from(["lib/orphan.ts".to_owned(), "lib/x.ts".to_owned()]),
+        "{tools}"
+    );
+}
+
 /// Two standalone packages side by side, linted in the same wave: `b` requires `../a/lib.js`, which requires
 /// `lodash`, listed only by `a`. Nothing uses `a/orphan.js` or `a`'s `idle`.
 fn siblings_sharing_a_file() -> tempfile::TempDir {
