@@ -3,7 +3,7 @@
 use std::collections::{BTreeSet, VecDeque};
 
 use skif_core::{HashMap, HashSet};
-use skif_js_syntax::{ExportKind, ImportKind, ImportedKind};
+use skif_js_syntax::{ExportKind, ImportKind, ImportedKind, ImportedName, ModuleInfo};
 use skif_workspace::PackageId;
 
 use crate::graph::{ModuleGraph, ModuleId, Target};
@@ -46,6 +46,8 @@ impl Access<'_> {
 enum Task<'a> {
     Name(ModuleId, &'a str, Access<'a>, Via),
     All(ModuleId),
+    /// Every value export of a module: a use of the module object as a whole, which holds none of its types.
+    Values(ModuleId),
 }
 
 /// The exports referenced from other modules, computed once for the whole graph.
@@ -53,6 +55,8 @@ enum Task<'a> {
 pub struct ExportUsage {
     used: HashMap<ModuleId, HashMap<String, MemberUse>>,
     all: HashSet<ModuleId>,
+    /// Modules whose value exports were all used by a use of the module object as a whole.
+    values: HashSet<ModuleId>,
     /// Modules some export of which was reached by name or as a whole.
     reached_by_name: HashSet<ModuleId>,
     /// Modules some export of which was reached as a namespace member.
@@ -241,7 +245,11 @@ impl ExportUsage {
                     _ => continue,
                 };
                 if import.names.is_empty() {
-                    queue.push_back(Task::All(target));
+                    queue.push_back(if loads_module_value(import.kind) {
+                        Task::Values(target)
+                    } else {
+                        Task::All(target)
+                    });
                     continue;
                 }
                 for name in &import.names {
@@ -258,11 +266,16 @@ impl ExportUsage {
                         }
                         // A namespace without a local binding that does not escape (a bare `typeof import("x")`)
                         // reads no member, so it credits nothing. A member read only through its own members
-                        // (`ns.E.A`) uses those, otherwise all of it.
+                        // (`ns.E.A`) uses those, otherwise all of it. A namespace used as a whole is the module
+                        // object, which holds the values only: its types are used only when read by name
+                        // (`ns.Type`), or when the importer exports the namespace, whose importers can read any.
                         ImportedKind::Namespace => {
-                            if name.escapes {
+                            if name.escapes && exports_binding(&module.info, name) {
                                 queue.push_back(Task::All(target));
                             } else {
+                                if name.escapes {
+                                    queue.push_back(Task::Values(target));
+                                }
                                 queue.extend(name.accessed_members.iter().map(|member| {
                                     let access =
                                         name.nested_members
@@ -282,6 +295,7 @@ impl ExportUsage {
         while let Some(task) = queue.pop_front() {
             match task {
                 Task::All(id) => usage.mark_all(&index, id, &mut queue),
+                Task::Values(id) => usage.mark_values(graph, &index, id, &mut queue),
                 Task::Name(id, name, access, via) => usage.mark_name(&index, id, name, &access, via, &mut queue),
             }
         }
@@ -299,6 +313,29 @@ impl ExportUsage {
                 }
                 None => queue.push_back(Task::All(*target)),
             }
+        }
+    }
+
+    /// Marks every value export of `id` used, and those of the modules it re-exports with `export *`. A re-export
+    /// that is not type-only counts as a value: its source decides what it is.
+    fn mark_values<'a>(
+        &mut self,
+        graph: &'a ModuleGraph,
+        index: &'a ReexportIndex,
+        id: ModuleId,
+        queue: &mut VecDeque<Task<'a>>,
+    ) {
+        if self.all.contains(&id) || !self.values.insert(id) {
+            return;
+        }
+        for export in &graph.module(id).info.exports {
+            let star = export.kind == ExportKind::StarReExport && export.name == "*";
+            if !star && !export.is_type {
+                queue.push_back(Task::Name(id, export.name.as_str(), Access::everything(), Via::Named));
+            }
+        }
+        for target in &index.modules[id.index()].stars {
+            queue.push_back(Task::Values(*target));
         }
     }
 
@@ -392,6 +429,22 @@ impl ExportUsage {
             .and_then(|names| names.get(name))
             .is_some_and(|usage| usage.all || usage.members.contains(member))
     }
+}
+
+/// Whether an import of `kind` without names loads the module object itself (`import("x")`, `require("x")`), which
+/// holds the values of the module and none of its types.
+pub(crate) const fn loads_module_value(kind: ImportKind) -> bool {
+    matches!(kind, ImportKind::Dynamic | ImportKind::Require)
+}
+
+/// Whether the module `info` exports the binding of the imported `name` itself (`export default ns`, `export = ns`),
+/// so that its importers can read the types of the module the binding stands for through it.
+pub(crate) fn exports_binding(info: &ModuleInfo, name: &ImportedName) -> bool {
+    name.local.as_deref().is_some_and(|local| {
+        info.exports
+            .iter()
+            .any(|export| export.local_name.as_deref() == Some(local))
+    })
 }
 
 #[cfg(test)]

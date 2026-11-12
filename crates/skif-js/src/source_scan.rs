@@ -1,5 +1,5 @@
 //! A cheap text scan for module specifiers the parser does not see: `new URL("./x", import.meta.url)`. A `new URL`
-//! target is loaded as a whole, so every export of it counts as used. Test-runner mocks and identifiers used only in
+//! target is loaded as a program of its own, so every export of it counts as used. Test-runner mocks and identifiers used only in
 //! component templates are read by `skif-js-syntax`.
 
 use skif_core::Span;
@@ -68,7 +68,7 @@ fn extra_specifiers(source: &str) -> Vec<(String, ImportKind, usize, usize)> {
         {
             found.push((
                 literal.to_owned(),
-                ImportKind::Require,
+                ImportKind::Url,
                 start,
                 base + "import.meta.url".len(),
             ));
@@ -78,8 +78,8 @@ fn extra_specifiers(source: &str) -> Vec<(String, ImportKind, usize, usize)> {
     found
 }
 
-/// Adds the specifiers of `new URL(…, import.meta.url)` that the parser does not report: an import of the whole
-/// module.
+/// Adds the specifiers of `new URL(…, import.meta.url)` that the parser does not report: an [`ImportKind::Url`] of
+/// the whole module.
 pub(crate) fn add_textual_imports(info: &mut ModuleInfo, source: &str) {
     if !source.contains("import.meta.url") {
         return;
@@ -121,7 +121,7 @@ mod tests {
             .into_iter()
             .map(|(s, kind, _, _)| (s, kind))
             .collect();
-        assert_eq!(found, [("./worker.ts".to_owned(), ImportKind::Require)]);
+        assert_eq!(found, [("./worker.ts".to_owned(), ImportKind::Url)]);
     }
 
     #[test]
@@ -138,7 +138,7 @@ mod tests {
         });
         add_textual_imports(&mut info, source);
         let kinds: Vec<ImportKind> = info.imports.iter().map(|import| import.kind).collect();
-        assert_eq!(kinds, [ImportKind::Static, ImportKind::Require]);
+        assert_eq!(kinds, [ImportKind::Static, ImportKind::Url]);
     }
 
     #[test]

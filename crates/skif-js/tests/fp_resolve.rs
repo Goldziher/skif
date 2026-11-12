@@ -1552,3 +1552,70 @@ fn build_files_declare_nothing_outside_a_bazel_repository() {
         "{unresolved:?}"
     );
 }
+
+/// A `BUILD` file of the nested package `adev/shared-docs` whose labels name the `node_modules` of an enclosing
+/// package: `label` in the `deps` of a `js_library` there. Both packages and the root list `diff`.
+fn bazel_foreign_label(label: &str) -> Vec<(String, String)> {
+    let build = format!(
+        "load(\"@aspect_rules_js//js:defs.bzl\", \"js_library\")\n\
+         js_library(name = \"pipeline\", srcs = [\"main.js\"], deps = [\"{label}\"])\n"
+    );
+    [
+        ("MODULE.bazel", "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n"),
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["adev","adev/shared-docs"],"dependencies":{"diff":"9.0.0"}}"#,
+        ),
+        ("BUILD.bazel", "exports_files([])\n"),
+        (
+            "adev/package.json",
+            r#"{"name":"adev","version":"1.0.0","private":true,"main":"main.js","dependencies":{"diff":"9.0.0"}}"#,
+        ),
+        ("adev/BUILD.bazel", "js_library(name = \"adev\", srcs = [\"main.js\"])\n"),
+        ("adev/main.js", "module.exports = 3;\n"),
+        (
+            "adev/shared-docs/package.json",
+            r#"{"name":"shared-docs","version":"1.0.0","private":true,"main":"index.js","dependencies":{"diff":"9.0.0"}}"#,
+        ),
+        ("adev/shared-docs/BUILD.bazel", "exports_files([\"package.json\"])\n"),
+        ("adev/shared-docs/index.js", "module.exports = 1;\n"),
+        ("adev/shared-docs/pipeline/BUILD.bazel", build.as_str()),
+        ("adev/shared-docs/pipeline/main.js", "module.exports = 2;\n"),
+    ]
+    .iter()
+    .map(|(path, text)| ((*path).to_owned(), (*text).to_owned()))
+    .collect()
+}
+
+/// A label of an enclosing package's `node_modules` uses the dependency of the package it names, and of no other: the
+/// nested package that owns the `BUILD` file does not use its own listing through it.
+#[test]
+fn a_label_of_an_enclosing_packages_node_modules_credits_only_that_package() {
+    for (label, unused) in [
+        (
+            "//adev:node_modules/diff",
+            &["adev/shared-docs/package.json", "package.json"][..],
+        ),
+        (
+            "//:node_modules/diff",
+            &["adev/package.json", "adev/shared-docs/package.json"][..],
+        ),
+    ] {
+        let files = bazel_foreign_label(label);
+        let borrowed: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str()))
+            .collect();
+        let diagnostics = lint(&borrowed);
+        assert_eq!(
+            paths(&diagnostics, "unused-dependencies"),
+            strings(unused),
+            "{label}: {diagnostics:#?}"
+        );
+        assert_eq!(
+            names(&diagnostics, "unlisted-dependencies"),
+            Vec::<String>::new(),
+            "{label}: {diagnostics:#?}"
+        );
+    }
+}

@@ -10,7 +10,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use serde::Serialize;
-use skif_js_syntax::{ExportKind, Import, ImportKind, ImportedKind, ImportedName, is_declaration_file};
+use skif_js_syntax::{ExportKind, Import, ImportKind, ImportedKind, ImportedName, ModuleInfo, is_declaration_file};
 use skif_workspace::PackageId;
 
 use crate::analysis::JsAnalysis;
@@ -22,6 +22,7 @@ use crate::manifest_paths::{crossing_stars, manifest_targets, source_candidates,
 use crate::resolve::join_normalized;
 use crate::setup::PackageSetup;
 use crate::trace::dir_of;
+use crate::usage;
 
 /// Re-export hops followed when explaining an export.
 const MAX_DEPTH: usize = 8;
@@ -41,6 +42,8 @@ pub enum EntryReason {
     Script,
     /// Published by `package.json` (`main`, `module`, `types`, `bin`, `exports`, n8n `nodes` and `credentials`).
     Published,
+    /// Loaded by a `bin` file of `package.json` that is no module (an extensionless `#!/usr/bin/env node` stub).
+    BinStub,
     /// Matched by an entry glob of another package that points outside that package.
     ExternalEntryGlob,
     /// Matched by an entry glob a plugin gives a package that contains this one, such as a root
@@ -67,6 +70,7 @@ impl EntryReason {
             Self::Published => {
                 "published by package.json (main, module, types, bin, exports, n8n nodes and credentials)"
             }
+            Self::BinStub => "loaded by a bin file of package.json that is no module (an extensionless node stub)",
             Self::ExternalEntryGlob => "matches an entry glob of another package that points outside it",
             Self::EnclosingEntryGlob => "matches an entry glob a plugin gives a package that contains its package",
             Self::IncompleteScope => {
@@ -422,6 +426,7 @@ const fn kind_label(kind: ImportKind) -> &'static str {
         ImportKind::SourceGlob => "source-glob",
         ImportKind::ExportFrom => "export-from",
         ImportKind::Mock => "mock",
+        ImportKind::Url => "url",
     }
 }
 
@@ -536,8 +541,9 @@ fn reached(target: &Target) -> &[ModuleId] {
     }
 }
 
-/// Whether `import` uses export `export` of the module it points at, or the module as a whole.
-fn uses_export(import: &Import, export: &str) -> Option<String> {
+/// Whether `import`, of the module `importer`, uses export `export` of the module it points at, or the module as a
+/// whole. A use of the module object as a whole uses no type export (`is_type`), as in [`usage::ExportUsage`].
+fn uses_export(importer: &ModuleInfo, import: &Import, export: &str, is_type: bool) -> Option<String> {
     if matches!(
         import.kind,
         ImportKind::ExportFrom | ImportKind::SideEffect | ImportKind::Mock
@@ -545,13 +551,17 @@ fn uses_export(import: &Import, export: &str) -> Option<String> {
         return None;
     }
     if import.names.is_empty() {
-        return Some("the whole module".to_owned());
+        let reads = !is_type || !usage::loads_module_value(import.kind);
+        return reads.then(|| "the whole module".to_owned());
     }
     import.names.iter().find_map(|name| {
         let hit = match &name.kind {
             ImportedKind::Default => export == "default",
-            ImportedKind::Named(imported) => imported == export,
-            ImportedKind::Namespace => name.escapes || name.accessed_members.iter().any(|member| member == export),
+            ImportedKind::Named(named) => named == export,
+            ImportedKind::Namespace => {
+                let whole = name.escapes && (!is_type || usage::exports_binding(importer, name));
+                whole || name.accessed_members.iter().any(|member| member == export)
+            }
         };
         hit.then(|| describe_name(name))
     })
@@ -687,6 +697,9 @@ impl JsAnalysis<'_> {
             }
             if self.is_published(module, &package.dir, &rel) {
                 return EntryReason::Published;
+            }
+            if let Some(&reason) = self.entry_origins.get(&module.abs) {
+                return reason;
             }
             if package.in_incomplete_scope(&rel) {
                 return EntryReason::IncompleteScope;
@@ -966,6 +979,7 @@ impl JsAnalysis<'_> {
         report.is_re_export =
             export.is_none_or(|export| matches!(export.kind, ExportKind::ReExport | ExportKind::StarReExport));
         report.entries_incomplete = !self.judges_exports_of(module);
+        let is_type = export.is_some_and(|export| export.is_type);
         for importer_id in self.graph.imported_by(module.id) {
             let importer = self.graph.module(*importer_id);
             for resolved in &importer.imports {
@@ -975,7 +989,7 @@ impl JsAnalysis<'_> {
                 let Some(import) = importer.info.imports.get(resolved.import) else {
                     continue;
                 };
-                if let Some(how) = uses_export(import, name) {
+                if let Some(how) = uses_export(&importer.info, import, name, is_type) {
                     report.users.push(ExportUser {
                         file: slashed(&importer.path),
                         line: import_line(resolved, import),

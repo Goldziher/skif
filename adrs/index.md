@@ -132,6 +132,8 @@ old one.
 | 0123 | [Publicly Hoisted Packages as Available Dependencies](0123-publicly-hoisted-packages-as-available-dependencies.md) | accepted |
 | 0121 | [One Git Index Listing for Every Provider](0121-one-git-index-listing-for-every-provider.md) | accepted |
 | 0124 | [Bazel Rule Sources Are Used Files, Not Entries](0124-bazel-rule-sources-are-used-files-not-entries.md) | accepted |
+| 0125 | [A Whole Use of a Module Object Uses Its Values Only](0125-a-whole-use-of-a-module-object-uses-its-values-only.md) | accepted |
+| 0126 | [A Whole Use of an Enum in Its Own File Uses Every Member](0126-a-whole-use-of-an-enum-in-its-own-file-uses-every-member.md) | accepted |
 
 ## Effective statements
 
@@ -346,3 +348,5 @@ the lines below stay as written; this table says which record governs.
 | [0038](0038-git-index-file-discovery-and-resolver-probe-avoidance.md), decision outcome | the index reader is a small reader in `skif-js` | [0121](0121-one-git-index-listing-for-every-provider.md): it lives in `skif-workspace`, and the rules reach its listing through `LintContext::listing_fs` |
 | [0095](0095-untracked-files-member-manifest-errors-and-converging-fixes.md), "Discovery" paragraph | `discovery = "git"` lists the source files of the JS analysis from the index | [0121](0121-one-git-index-listing-for-every-provider.md): the toolchain scan and the `BUILD` file search of the lockfile consumers list through the same index listing under `git` |
 | [0115](0115-bazel-build-files-and-output-trees-in-the-js-analysis.md), decision outcome, entries paragraph | the `entry_point` and `data` of `js_binary`, `js_run_devserver` and `js_test`, and the `srcs` and `data` of `js_library` and `ts_project`, are entries | [0124](0124-bazel-rule-sources-are-used-files-not-entries.md): only the `entry_point` is an entry; the `srcs` and `data` are build sources, used files whose exports are judged |
+| [0029](0029-namespace-export-rules-virtual-modules-linked-configs-and-the-node-plugin.md), line 35 | whole uses mark every export of the module used | [0125](0125-a-whole-use-of-a-module-object-uses-its-values-only.md): a whole use of a module object uses its value exports only; a type is used when read by name or when the importer exports the namespace itself |
+| [0034](0034-js-configuration-parity-with-knip.md), `ignore-exports-used-in-file` paragraph | members of enums and namespaces read in their own file count as used | [0126](0126-a-whole-use-of-an-enum-in-its-own-file-uses-every-member.md): a whole use of an enum in its own file (as a value, `typeof E`, `` `${E}` ``) uses every member; a type annotation `x: E` uses none |

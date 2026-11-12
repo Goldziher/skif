@@ -128,22 +128,55 @@ fn a_module_that_is_also_imported_by_name_keeps_the_plain_rules() {
     assert_eq!(found(&diagnostics, "unused-namespace-types"), none());
 }
 
+/// A use of the module object as a whole reads every value of the module and none of its types: `typeof ns` and
+/// `require` have only the values, so the interface and the type alias stay unused.
 #[test]
-fn a_namespace_used_as_a_whole_uses_every_export() {
-    for body in [
-        "export const all = Object.keys(shapes);\n",
-        "export const copy = { ...shapes };\n",
-        "export const pick = (name: string) => (shapes as Record<string, unknown>)[name];\n",
+fn a_namespace_used_as_a_whole_uses_every_value_export_and_no_type() {
+    for source in [
+        "import * as shapes from './shapes';\nexport const all = Object.keys(shapes);\n",
+        "import * as shapes from './shapes';\nexport const copy = { ...shapes };\n",
+        "import * as shapes from './shapes';\nexport const pick = (name: string) => (shapes as Record<string, unknown>)[name];\n",
+        "import type * as shapes from './shapes';\nexport type Module = typeof shapes;\n",
+        "export const load = () => require('./shapes');\n",
+        "export const lazy = () => import('./shapes');\n",
     ] {
-        let source = format!("import * as shapes from './shapes';\n{body}");
-        let diagnostics = lint_files(&[PACKAGE, ("index.ts", source.as_str()), SHAPES], "");
+        let diagnostics = lint_files(&[PACKAGE, ("index.ts", source), SHAPES], "");
         assert_eq!(
             found(&diagnostics, "unused-namespace-exports"),
             none(),
-            "{body}: {diagnostics:#?}"
+            "{source}: {diagnostics:#?}"
         );
-        assert_eq!(found(&diagnostics, "unused-namespace-types"), none(), "{body}");
-        assert_eq!(found(&diagnostics, "unused-exports"), none(), "{body}");
+        assert_eq!(found(&diagnostics, "unused-namespace-types"), none(), "{source}");
+        assert_eq!(found(&diagnostics, "unused-exports"), none(), "{source}");
+        let mut types = found(&diagnostics, "unused-types");
+        types.sort();
+        assert_eq!(
+            types,
+            ["shapes.ts: Id", "shapes.ts: Shape"],
+            "{source}: {diagnostics:#?}"
+        );
+    }
+}
+
+/// Beside a whole use, a type read through the namespace in a type position is used, and a namespace the importer
+/// exports as its own default keeps every type, which its importers can read through it.
+#[test]
+fn a_whole_namespace_use_keeps_the_types_read_by_name_and_an_exported_namespace_keeps_all() {
+    for (source, unused) in [
+        (
+            "import * as shapes from './shapes';\nexport const all = Object.keys(shapes);\nexport const first: shapes.Shape = { sides: 1 };\n",
+            &["shapes.ts: Id"][..],
+        ),
+        ("import * as shapes from './shapes';\nexport default shapes;\n", &[][..]),
+    ] {
+        let diagnostics = lint_files(&[PACKAGE, ("index.ts", source), SHAPES], "");
+        assert_eq!(
+            found(&diagnostics, "unused-types"),
+            unused,
+            "{source}: {diagnostics:#?}"
+        );
+        assert_eq!(found(&diagnostics, "unused-exports"), none(), "{source}");
+        assert_eq!(found(&diagnostics, "unused-namespace-types"), none(), "{source}");
     }
 }
 
