@@ -2186,3 +2186,47 @@ fn a_method_named_like_a_list_one_may_change_its_argument_on_another_object() {
     );
     assert!(!changed(&kept), "{kept:?}");
 }
+
+/// Whether the webpack config of a test, or its `module`, or the first of its rules, is open.
+fn rules_changed(value: &ConfigValue) -> bool {
+    let first = get(value, &["module", "rules"]).as_array().and_then(<[ConfigValue]>::first);
+    open(value) || open(get(value, &["module"])) || first.is_some_and(open)
+}
+
+/// A loop's names take the elements of what it iterates, and a function given inline to a call takes what the call is
+/// made on and given, so a change through them (`for (const rule of config.module.rules)`, `rules.forEach((rule) =>
+/// …)`, a function assigned to a name and given to a call) reaches that part of the config, at the top level and in a
+/// function the evaluator runs. Reading through them changes nothing.
+#[test]
+fn a_change_through_a_loop_name_or_a_callback_parameter_reaches_what_it_takes() {
+    let config = "const config = { entry: './src/main.js', module: { rules: [{ loader: 'babel-loader' }] } };";
+    let variants = |body: &str| {
+        [
+            format!("{config}\n{body}\nmodule.exports = config;"),
+            format!("module.exports = () => {{\n{config}\n{body}\nreturn config;\n}};"),
+        ]
+    };
+    for body in [
+        "for (const rule of config.module.rules) rule.loader = 'other-loader';",
+        "let rule;\nfor (rule of config.module.rules) rule.loader = 'other-loader';",
+        "for (const [key, value] of Object.entries(config.module)) value.x = 1;",
+        "config.module.rules.forEach((rule) => { rule.loader = 'other-loader'; });",
+        "const visit = (list, fn) => list.forEach(fn);\n\
+         visit(config.module.rules, (rule) => { rule.loader = 'other-loader'; });",
+        "let fix;\nfix = (rule) => { rule.loader = 'other-loader'; };\n[config].forEach(fix);",
+    ] {
+        for source in variants(body) {
+            let value = extract("webpack.config.js", &source);
+            assert!(rules_changed(&value), "{source}: {value:?}");
+        }
+    }
+    for body in [
+        "for (const rule of config.module.rules) console.log(rule.loader);",
+        "const loaders = config.module.rules.map((rule) => rule.loader);",
+    ] {
+        for source in variants(body) {
+            let value = extract("webpack.config.js", &source);
+            assert!(!rules_changed(&value), "{source}: {value:?}");
+        }
+    }
+}
