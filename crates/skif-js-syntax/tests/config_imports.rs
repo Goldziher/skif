@@ -722,26 +722,69 @@ fn a_change_of_an_imported_value_is_applied_where_it_is_read() {
     }
 }
 
-/// A method of a workspace package the loader follows may return the package's own object (`self() { return this }`),
-/// so a write through what it returns reaches the imported value.
+/// A function of a workspace package the loader follows may return the package's own object (`self: () => config`), so
+/// a write through what it returns, also when it is called apart from its object (`(0, base.self)()`), reaches the
+/// imported value; the call alone changes nothing.
 #[test]
 fn a_write_through_what_a_method_of_a_followed_package_returns_reaches_it() {
+    for (write, out_dir) in [("same.build.outDir = 'out';", ConfigValue::Unknown), ("", s("dist"))] {
+        let config = format!("import base from '@fx/base';\nconst same = (0, base.self)();\n{write}\nexport default base;");
+        let loader = files(&[
+            ("/ws/app/config.ts", &*Box::leak(config.into_boxed_str())),
+            (
+                "/ws/base/index.ts",
+                "const config = { build: { outDir: 'dist' }, self: () => config };\nexport default config;",
+            ),
+        ]);
+        let value = eval(&loader);
+        assert_eq!(read_at(&value, &["build", "outDir"]), &out_dir, "{write}: {value:?}");
+    }
+}
+
+/// The config that imports `name` from `./shared` with the text `shared`, runs `statement` and exports the plugins of
+/// `base` of `./base`, with a `name` of its own.
+fn shared_config(shared: &'static str, name: &str, statement: &str) -> ConfigValue {
+    let config = format!(
+        "import {{ defineConfig }} from 'vite';\nimport {{ base }} from './base';\nimport {{ {name} }} from './shared';\n\
+         {statement}\nexport default defineConfig({{ name: 'app', plugins: base.plugins }});"
+    );
     let loader = files(&[
+        ("/ws/app/config.ts", &*Box::leak(config.into_boxed_str())),
+        ("/ws/app/base.ts", "export const base = { plugins: [] };"),
+        ("/ws/app/shared.ts", shared),
         (
-            "/ws/app/config.ts",
-            "import base from '@fx/base';\nconst same = base.self();\nsame.build.outDir = 'out';\nexport default base;",
-        ),
-        (
-            "/ws/base/index.ts",
-            "export default { build: { outDir: 'dist' }, self() { return this; } };",
+            "/ws/app/getter.ts",
+            "import { base } from './base';\nexport const getBase = () => base;",
         ),
     ]);
-    let value = eval(&loader);
-    assert_eq!(
-        read_at(&value, &["build", "outDir"]),
-        &ConfigValue::Unknown,
-        "{value:?}"
-    );
+    eval(&loader)
+}
+
+/// What a function of a followed module returns may be a value of a module (`getBase = () => base`): a change through
+/// it, in the config or in a function of another followed module the config calls, reaches the imported values, and a
+/// call whose result nothing changes leaves them known.
+#[test]
+fn a_change_through_what_an_imported_function_returns_reaches_the_imported_values() {
+    let getter = "import { base } from './base';\nexport const getBase = () => base;";
+    for (shared, name, statement) in [
+        (getter, "getBase", "getBase().plugins.push('x');"),
+        (getter, "getBase", "const cfg = getBase();\ncfg.plugins.push('x');"),
+        (
+            "import { getBase } from './getter';\nexport function tweak() { getBase().plugins.push('x'); }",
+            "tweak",
+            "tweak();",
+        ),
+    ] {
+        let value = shared_config(shared, name, statement);
+        assert_eq!(
+            read_at(&value, &["plugins"]),
+            &ConfigValue::Unknown,
+            "{shared}\n{statement}: {value:?}"
+        );
+        assert_eq!(read_at(&value, &["name"]), &s("app"), "{shared}\n{statement}: {value:?}");
+    }
+    let value = shared_config(getter, "getBase", "const seen = getBase();");
+    assert_eq!(read_at(&value, &["plugins"]), &strings(&[]), "{value:?}");
 }
 
 /// A `define…` helper of a workspace package the loader follows is code of the project, which may change what it is

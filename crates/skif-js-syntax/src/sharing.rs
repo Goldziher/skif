@@ -1951,8 +1951,8 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 }
 
-/// The parts of locals an expression's value may hold or share: the names and member chains it reads, other than an
-/// imported function, what holds no object (a template, an operator's result, the result of one of [`PURE_FUNCTIONS`]
+/// The parts of locals an expression's value may hold or share: the names and member chains it reads, other than a
+/// function imported from a module the evaluator does not follow, what holds no object (a template, an operator's result, the result of one of [`PURE_FUNCTIONS`]
 /// or of [`OWN_RESULT_METHODS`]) and what a function in it reads other than what it returns.
 struct Refs<'s> {
     scoping: &'s Scoping,
@@ -2046,6 +2046,33 @@ impl Refs<'_> {
         self.frozen = true;
         visit(self);
         (self.exact, self.frozen) = saved;
+    }
+
+    /// Records the bindings the function value `callee` is read from, whole: a name or the name a member chain starts
+    /// from, in each value a sequence, a condition or a logical operator may be; any other callee as its value.
+    fn callee_roots<'a>(&mut self, callee: &Expression<'a>)
+    where
+        Self: Visit<'a>,
+    {
+        match callee.get_inner_expression() {
+            Expression::SequenceExpression(sequence) => {
+                if let Some(last) = sequence.expressions.last() {
+                    self.callee_roots(last);
+                }
+            }
+            Expression::ConditionalExpression(c) => {
+                self.callee_roots(&c.consequent);
+                self.callee_roots(&c.alternate);
+            }
+            Expression::LogicalExpression(l) => {
+                self.callee_roots(&l.left);
+                self.callee_roots(&l.right);
+            }
+            other => match reach(other) {
+                Some((id, _, _)) => self.hold(id, Vec::new(), false),
+                None => self.visit_expression(other),
+            },
+        }
     }
 
     /// Visits what `visit` visits as the value at `key` of where it is.
@@ -2161,10 +2188,14 @@ impl<'a> Visit<'a> for Refs<'_> {
             Expression::Identifier(id) if calls_callable(self.scoping, self.callables, it) => {
                 return self.hold(id, Vec::new(), true);
             }
-            // Any other local function called by name stands for what it returns, which may hold what it is given; an
-            // imported one holds none of the module's locals.
+            // Any other local function called by name stands for what it returns, which may hold what it is given. One
+            // imported from a module the evaluator follows may return anything that module holds, such as one of its
+            // exports (`getBase()`), which is linked to the other imports of such modules ([`Sharing::link_imports`]);
+            // one imported from any other module holds none of the module's locals.
             Expression::Identifier(id) => {
-                if local_symbol(self.scoping, id).is_some() {
+                if is_followed_import(self.scoping, self.known, id) {
+                    self.opaque(|refs| refs.hold(id, Vec::new(), true));
+                } else if local_symbol(self.scoping, id).is_some() {
                     self.hold(id, Vec::new(), true);
                 }
             }
@@ -2180,7 +2211,9 @@ impl<'a> Visit<'a> for Refs<'_> {
                     self.opaque(|refs| refs.visit_expression(object));
                 }
             }
-            _ => self.opaque(|refs| refs.visit_expression(&it.callee)),
+            // A function read otherwise (`(0, base.self)()`, `(prod ? a.make : b.make)()`) may return anything the
+            // bindings it is read from hold, not only what is at its key.
+            callee => self.opaque(|refs| refs.callee_roots(callee)),
         }
         // A `define*` call of a package is the value it is given.
         let defined = defined(it).is_some() && foreign(names, &it.callee);
@@ -2194,12 +2227,12 @@ impl<'a> Visit<'a> for Refs<'_> {
     }
 
     fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
-        // An object of a class holds what it is given and what a local class holds; an imported class holds none of
-        // the module's locals.
+        // An object of a class holds what it is given and what a local class or one of a module the evaluator follows
+        // holds; a class imported from any other module holds none of the module's locals.
         self.opaque(|refs| {
             match it.callee.get_inner_expression() {
                 Expression::Identifier(id) => {
-                    if local_symbol(refs.scoping, id).is_some() {
+                    if local_symbol(refs.scoping, id).is_some() || is_followed_import(refs.scoping, refs.known, id) {
                         refs.hold(id, Vec::new(), true);
                     }
                 }
@@ -2967,6 +3000,11 @@ fn is_inert_package(scoping: &Scoping, known: &Known, expr: &Expression<'_>) -> 
         return false;
     };
     resolved(scoping, id).is_some_and(|symbol| known.inert.contains(&symbol))
+}
+
+/// Whether `id` is an import of a module the evaluator follows ([`Known::followed`]).
+fn is_followed_import(scoping: &Scoping, known: &Known, id: &IdentifierReference<'_>) -> bool {
+    resolved(scoping, id).is_some_and(|symbol| known.followed.contains(&symbol))
 }
 
 /// The symbol a reference resolves to, unless it is unresolved or an import.
