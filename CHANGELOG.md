@@ -9,63 +9,411 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-12
+
+### Breaking changes
+
+- **Public API**: `cargo-semver-checks` against the 0.3.0 crates on crates.io reports
+  `semver requires new major version` for `skif-js-plugins` (`constructible_struct_adds_field`: `DepRef.dir`;
+  `struct_pub_field_missing`: `ScriptInfo.turbo_tasks`), `skif-rules` (`enum_variant_added`: `ToolchainKind::Bazel`) and
+  `skif-js` (`constructible_struct_adds_field`: `UnlistedBinary.runs_in`); the bullets below also list the breaks it
+  does not flag.
+- **Embedders of `skif-config`**: `Js::isolate_workspaces` is workspace isolation only. An embedder that set it for
+  knip's strict mode sets `Js::strict` (`with_strict`), which implies production mode and isolation and adds the
+  direct-dependency rules; `JsAnalysis::strict` follows `strict`. `Js::production_mode` and `Js::isolated` give the
+  effective modes. `Js` gains `strict`, `use_public_hoisting` and `compilers`, so a struct literal of `Js` needs them
+  ([#221](https://github.com/Goldziher/skif/issues/221)).
+- **Implementers of `skif_js_syntax::ModuleLoader`**: the trait gains `is_installed` and `holds_no_code`, both `false`
+  by default. The evaluator takes a `define…` helper, a copying merge and a package whose methods keep nothing at their
+  word only for a package the loader calls installed, so a loader that does not implement `is_installed` gets those
+  calls as unknown; without a loader, every bare specifier counts as installed.
+- **Library users that build these structs with literals or match these enums exhaustively**: new public fields must be
+  set. `skif-js-plugins`: `DepRef` gains `dir` and `reader_lists`, `PluginContext` gains `globs` (a `GlobCache`) and
+  `sources` (an `Option<&PackageSources>`), and `ScriptInfo::turbo_tasks` is removed. `skif-js`: `Module` is
+  `#[non_exhaustive]` (and gains `is_build_source`), `UnlistedBinary` gains `runs_in`, `ConfigDependency` gains `span`
+  and `reader_lists`. `skif-js-syntax`: `Export` gains `used_whole_in_file`. `skif-rules`: `ToolchainKind` gains `Bazel`
+  ([ADR 0124](adrs/0124-bazel-rule-sources-are-used-files-not-entries.md)).
+- **Library users of `skif-workspace`**: `DependencyEntry::name` and `DependencyEntry::specifier` are `Arc<str>` instead
+  of `String`, so a consumer can keep a name without copying its text; read them as `&str` with `&*entry.name`, which
+  also compares with a string (`&*entry.name == "react"`) ([#206](https://github.com/Goldziher/skif/issues/206)).
+- **Configurations with `[js.workspaces.<dir>.paths]`**: a key or target with more than one `*` is a configuration
+  error, a key without `*` maps only that specifier, and `"alias/*"` no longer maps the bare `alias`, as in TypeScript
+  ([#214](https://github.com/Goldziher/skif/issues/214)).
+- **Consumers of `explain-usage --format json`**: a file loaded with `new URL("./x", import.meta.url)` is listed with
+  the import kind `url` instead of `require`, a whole use of a module object is no longer listed as a user of its type
+  exports, and the entry kinds `enclosing-incomplete-scope`, `script` (for the source of build output a script runs) and
+  `bin-stub` replace `unknown` for the files they describe ([ADR
+  0125](adrs/0125-a-whole-use-of-a-module-object-uses-its-values-only.md),
+  [#165](https://github.com/Goldziher/skif/issues/165)).
+
 ### Added
 
-- `[js.compilers]`, the static counterpart of knip's `compilers`: an extension skif has no reader for is read by
-  regular expressions with one capture group (`html = { imports = ['<script[^>]+src="([^"]+)"'] }`), whose captures
-  are imports resolved from the file, or with one of skif's readers (`page = { as = "mdx" }`). Such files join the
-  default project, so `unused-files` judges them, and their imports count as usage and are reported by
-  `unresolved-imports` and `unlisted-dependencies` like written ones. An invalid entry is a configuration error, and
-  `skif migrate --from knip` points a compiler it cannot translate at the table
-  ([#209](https://github.com/Goldziher/skif/issues/209)).
-- **Bun**: a workspace pattern with leading `..` segments (`../shared`, `../libs/*`) selects members outside the root,
-  as `bun install` does: it is no longer an `invalid-workspace-file` error, and counts as matched; the members it
-  selects are listed in `DiscoveryFacts::outside_root_members` and are not linted
-  ([#158](https://github.com/Goldziher/skif/issues/158)).
-- **Bun**: `missing-package-manifest` reports a member whose `package.json` has no `name`, which Bun skips without a
-  warning (detail `NamelessBunMember`, an unsafe fix that names it after its directory); discovery excludes such a
-  member from analysis (`DiscoveryFacts::nameless_members`) ([#158](https://github.com/Goldziher/skif/issues/158)).
-- **Bun**: `banned-dependency` and `unsynced-dependency-family` read `bun.lock` for their lockfile scopes in a Bun
-  workspace, following each dependency to the copy Bun installs for it; a `bun.lockb` alone is reported as not read
-  ([#158](https://github.com/Goldziher/skif/issues/158)).
-- **Bun plugin**: `[test] root` and `pathIgnorePatterns` of `bunfig.toml` replace the default test entries with the
-  files `bun test` runs, `[lint] plugins` names packages and files that are used, and a `Bun.build` entry point
-  computed from `import.meta.dir` is resolved from the calling file, not the package
-  ([#158](https://github.com/Goldziher/skif/issues/158)).
+- `[js] isolate-workspaces` and `--isolate-workspaces`: workspace isolation without production mode. Each workspace
+  package uses only the dependencies its own `package.json` lists, so one default run checks every package, its tests,
+  scripts and tool configs included, against its own manifest, development dependencies included. `[js] strict` is the
+  configuration counterpart of `--strict` (production mode, isolation and knip's direct-dependency rules), so CI no
+  longer needs the flag. Setting the mode in the file gives every run, `skif baseline write` and `prune` included, the
+  same mode, and `stale-js-config` judges `ignore-dependencies` entries against that one run. `skif migrate --from knip`
+  writes knip's `--strict` to `[js] strict = true` when every script runs knip with it; when only some scripts do, a
+  note leaves it to a human. knip 5's `--isolate-workspaces`, which only split the TypeScript programs, stays without
+  effect ([ADR 0131](adrs/0131-workspace-isolation-without-production-mode.md),
+  [#221](https://github.com/Goldziher/skif/issues/221)).
+- `[js.compilers]`, the static counterpart of knip's `compilers`: an extension skif has no reader for is read by regular
+  expressions with one capture group (`html = { imports = ['<script[^>]+src="([^"]+)"'] }`), whose captures are imports
+  resolved from the file, or with one of skif's readers (`page = { as = "mdx" }`). Such files join the default project,
+  so `unused-files` judges them, and their imports count as usage and are reported by `unresolved-imports` and
+  `unlisted-dependencies` like written ones. An invalid entry is a configuration error, and `skif migrate --from knip`
+  points a compiler it cannot translate at the table ([#209](https://github.com/Goldziher/skif/issues/209)).
 - `[js] use-public-hoisting` (default `false`): a package that pnpm's `public-hoist-pattern` or `shamefully-hoist`
   (`pnpm-workspace.yaml`, else the root `.npmrc` before pnpm 11) or rules_js's `public_hoist_packages` hoists into a
   `node_modules` above a package is available to it, so importing it unlisted is no `unlisted-dependencies` finding.
-  `unused-dependencies` and strict mode are unchanged
-  ([ADR 0123](adrs/0123-publicly-hoisted-packages-as-available-dependencies.md),
+  `unused-dependencies` and strict mode are unchanged. `YamlSource` of `skif-workspace` gains `public_hoist_pattern` and
+  `shamefully_hoist`, and `skif-js-plugins` exports `bazel::public_hoist_packages` ([ADR
+  0123](adrs/0123-publicly-hoisted-packages-as-available-dependencies.md),
   [#178](https://github.com/Goldziher/skif/issues/178)).
-- `[js] isolate-workspaces` and `--isolate-workspaces`: workspace isolation without production mode. Each workspace
-  package uses only the dependencies its own `package.json` lists, so one default run checks every package, its
-  tests, scripts and tool configs included, against its own manifest, development dependencies included. `[js] strict`
-  is the configuration counterpart of `--strict` (production mode, isolation and knip's direct-dependency rules), so
-  CI no longer needs the flag. Setting the mode in the file gives every run, `skif baseline write` and `prune`
-  included, the same mode, and `stale-js-config` judges `ignore-dependencies` entries against that one run
-  ([ADR 0131](adrs/0131-workspace-isolation-without-production-mode.md),
-  [#221](https://github.com/Goldziher/skif/issues/221)).
-- `YamlSource` of `skif-workspace` gains `public_hoist_pattern` and `shamefully_hoist`, and `skif-js-plugins` exports
-  `bazel::public_hoist_packages`.
 - **JS rules** for knip's `subpaths` issue type: `unused-subpath-imports` (warning) reports a `package.json` `imports`
   entry that no `#` specifier of the package's files selects, with an unsafe fix that removes it;
   `unused-subpath-exports` (off by default, as knip's `includeSubpathExports`) reports an `exports` subpath that no
   workspace package imports by name, the package itself included, and has no fix. A pattern entry (`#utils/*`,
-  `./features/*`) is used when any import matches it, an exact entry wins over a pattern as in Node.js, and a
-  subpath that publishes no module (`./package.json`, a stylesheet) is not reported. Production mode reports neither,
-  because test files may be the only importers. `--include subpaths` and `--fix-type subpaths` select the imports
-  rule, and `skif migrate --from knip` maps `subpaths`, `includeSubpathExports` and `--include-subpath-exports`
+  `./features/*`) is used when any import matches it, an exact entry wins over a pattern as in Node.js, and a subpath
+  that publishes no module (`./package.json`, a stylesheet) is not reported. Production mode reports neither, because
+  test files may be the only importers. `--include subpaths` and `--fix-type subpaths` select the imports rule, and
+  `skif migrate --from knip` maps `subpaths`, `includeSubpathExports` and `--include-subpath-exports`
   ([#208](https://github.com/Goldziher/skif/issues/208)).
+- `skif explain-usage --dependency <NAME> [--package <NAME|DIR>]` explains why a dependency is used or unused in each
+  package that lists it: the verdict `unused-dependencies` reaches and the importing files, mocks, commands, binaries,
+  scripts, plugins and tool configs that credit it, or the imports that count for nothing; `--format json` prints the
+  same `report` document as the file explanation. The verdict and the evidence come from one record of uses. A package
+  that does not list the dependency has the verdict `not listed`, without a credit from the `@types`, peer or
+  always-used rules, and the config files and lines that name a dependency the package does not list are listed
+  (`unlisted-references` in the JSON) ([#150](https://github.com/Goldziher/skif/issues/150)).
+- **Bazel plugin** for rules_js repositories: the `BUILD.bazel` and `BUILD` files of a package are scanned as Starlark
+  text. `node_modules` labels (`":node_modules/esbuild"`, `"//packages/app:node_modules/zod"`) and `package_json.bzl`
+  loads (`"@npm//packages/app:esbuild/package_json.bzl"`) use the dependency of the package they name, reported at the
+  line of the label. A label of an enclosing package's `node_modules` (`"//adev:node_modules/diff"`) in a `BUILD` file
+  of a nested package counts only for the package it names, and a dependency so named that the labelled package does not
+  list is unlisted at the `BUILD` file for that package. A comprehension that formats each string of a list literal
+  (`[":node_modules/%s" % name for name in ["typescript", "vite"]]`) names the formatted packages; the patterns of a
+  `glob(...)` (`"node_modules/**"`), any other format template and a `node_modules` target that is no valid npm package
+  name name no dependency. The `entry_point` of `js_binary`, `js_run_devserver` and `js_test` is an entry with public
+  exports. The `srcs` and `data` of `js_library` and `ts_project`, and the `data` of the other three, are build sources:
+  the files are used and what they import is followed, but their exports are not public, so `unused-exports`,
+  `unused-types`, the member rules and `duplicate-exports` judge them as any module's. A file that an entry rule also
+  matches stays an entry, and a root `BUILD` file can name the sources of a member below it. Those of `js_test` are not
+  used in production mode. `skif-js-plugins` gains `PluginInput::BuildSource`, `ProductionBuildSource` and
+  `ReaderDependency` and `PluginOutput::build_sources` and `production_build_sources`; `WorkspaceInputs` gains
+  `build_source` and `production_build_source`; `UsageReport` gains `build_source` and `chain_from_build_source`,
+  serialized as `build-source` and `chain-from-build-source` when true, and `skif explain-usage` says when a file is a
+  build source ([ADR 0115](adrs/0115-bazel-build-files-and-output-trees-in-the-js-analysis.md), [ADR
+  0124](adrs/0124-bazel-rule-sources-are-used-files-not-entries.md), [ADR
+  0130](adrs/0130-bazel-label-lists-built-by-a-format-comprehension.md),
+  [#169](https://github.com/Goldziher/skif/issues/169), [#220](https://github.com/Goldziher/skif/issues/220)).
+- **Bazel**: `toolchain-pin-drift` reads the root's `MODULE.bazel`, `WORKSPACE.bazel` and `WORKSPACE`, a new `bazel`
+  kind read by default: the `pnpm_version` of `pnpm.pnpm(...)` and `npm_translate_lock(...)` (rules_js) and the
+  `node_version` of `node.toolchain(...)` and `nodejs_register_toolchains(...)` (rules_nodejs) are checked against
+  `packageManager` and the root's Node version, statically. A `files` glob also reads `.bzl` and `*.MODULE.bazel` files
+  ([ADR 0116](adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
+  [#175](https://github.com/Goldziher/skif/issues/175)).
 - **`knip` plugin**: in a project that runs knip next to skif, with `knip` as a dependency, knip's config files
-  (`knip.json`, `knip.jsonc`, `.knip.json`, `.knip.jsonc`, `knip.*`, `knip.config.*`, the `knip` key of
-  `package.json`) are configs and the JavaScript and TypeScript ones are entries, so `unused-files` no longer reports
-  them and what they import is used; the table holds 207 plugins
-  ([ADR 0128](adrs/0128-a-knip-plugin-for-projects-that-run-knip-next-to-skif.md),
+  (`knip.json`, `knip.jsonc`, `.knip.json`, `.knip.jsonc`, `knip.*`, `knip.config.*`, the `knip` key of `package.json`)
+  are configs and the JavaScript and TypeScript ones are entries, so `unused-files` no longer reports them and what they
+  import is used. With it and the `bazel` plugin the table holds 207 plugins ([ADR
+  0128](adrs/0128-a-knip-plugin-for-projects-that-run-knip-next-to-skif.md),
   [#217](https://github.com/Goldziher/skif/issues/217)).
+- **Bun workspaces** ([#158](https://github.com/Goldziher/skif/issues/158)): a workspace pattern with leading `..`
+  segments (`../shared`, `../libs/*`) selects members outside the root, as `bun install` does: it is no longer an
+  `invalid-workspace-file` error, and counts as matched; the members it selects are listed in
+  `DiscoveryFacts::outside_root_members` and are not linted. `missing-package-manifest` reports a member whose
+  `package.json` has no `name`, which Bun skips without a warning (detail `NamelessBunMember`, an unsafe fix that names
+  it after its directory); discovery excludes such a member from analysis (`DiscoveryFacts::nameless_members`).
+  `banned-dependency` and `unsynced-dependency-family` read `bun.lock` for their lockfile scopes in a Bun workspace,
+  following each dependency to the copy Bun installs for it; a `bun.lockb` alone is reported as not read. The members
+  claimed for a workspace whose root cannot be discovered keep a directory a positive pattern names by its literal path
+  despite a negation, as discovery does.
+- **Bun plugin**: `[test] root` and `pathIgnorePatterns` of `bunfig.toml` replace the default test entries with the
+  files `bun test` runs, `[lint] plugins` names packages and files that are used, and a `Bun.build` entry point computed
+  from `import.meta.dir` is resolved from the calling file, not the package
+  ([#158](https://github.com/Goldziher/skif/issues/158)).
+- **Lerna**: `stale-lerna-config` (`warn`) reports `useWorkspaces` in `lerna.json` and a `lerna.json` without `version`,
+  which Lerna 7 and later reject, and scripts that run `lerna bootstrap`, `lerna add` or `lerna link`, which Lerna 9
+  removed; the Lerna release is read from `node_modules/lerna`, else from the root `package.json`, and without one
+  nothing is reported. `lerna-packages-mismatch` (`warn`) reports `packages` of `lerna.json`, which Lerna reads before
+  the package manager's workspaces, that select other packages than the workspace declaration skif follows; the finding
+  names both lists and the packages only one selects. `DiscoveryFacts::lerna` records a valid root `lerna.json`
+  (`LernaFacts`) also when another file declares the members ([ADR
+  0119](adrs/0119-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md),
+  [#189](https://github.com/Goldziher/skif/issues/189), [#190](https://github.com/Goldziher/skif/issues/190)).
+
+### Changed
+
+- **JS**: a use of a module object as a whole (a namespace import passed around, spread, indexed with a computed key or
+  named in `typeof ns`, and `require("./m")` or `import("./m")`) uses every value export of the module and none of its
+  interfaces and type aliases, which it cannot reach; such a type stays used when read by name (`ns.Type`) or when the
+  importer exports the namespace itself (`export default ns`), and is otherwise reported by `unused-types`. A file
+  loaded with `new URL("./x", import.meta.url)` runs as a program of its own and keeps using every export, types
+  included, as an entry does ([ADR 0125](adrs/0125-a-whole-use-of-a-module-object-uses-its-values-only.md)).
+- `unused-dependencies` and `unused-dev-dependencies` no longer report a dependency on a workspace member that has no
+  `main`, `module`, `exports`, `bin`, `browser`, `types` or `typings` and no source file (a tooling, asset or style
+  package): such a dependency only orders tasks, as Turborepo's `^build` and Nx's task dependencies do ([ADR
+  0119](adrs/0119-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md),
+  [#191](https://github.com/Goldziher/skif/issues/191)).
+- `explain-usage`: a file that the narrowed incomplete scope of an enclosing package makes an entry (a root test config
+  whose globs reach the files of the members below it, ADR 0081) has the entry kind `enclosing-incomplete-scope`, with
+  that package's directory in `scope-package` and its scope and reasons in `incomplete-scope` and `incomplete`; the
+  source of the build output a script runs (`node dist/cli.js` for `src/cli.ts`) has the entry kind `script`, and a file
+  an extensionless `bin` stub loads the kind `bin-stub`. `skif_js::EntryReason` gains `EnclosingIncompleteScope` and
+  `BinStub`, and `UsageReport` gains `scope_package` ([#165](https://github.com/Goldziher/skif/issues/165)).
+- Under `[js] discovery = "git"` the toolchain scan (version files, Dockerfiles, shell scripts, workflows and the
+  `files` globs) and the search of `stray-lockfile` for Bazel `BUILD` files and Dockerfiles beside a lockfile list
+  directories from the git index, as the JS discovery does, instead of walking them; `auto` and `walk` walk as before.
+  The git index reader moves from `skif-js` to `skif-workspace`, which exports `TrackedFiles` (with `read` and
+  `for_discovery`), `IndexedFs<F>` (generic over the wrapped file system), `IndexCache`, `git_dirs` and
+  `git_common_dir`. `skif-lint` gains `LintContext::tracked_files`, `LintContext::listing_fs`,
+  `LintContext::index_cache` and `RunOptions::with_index_cache`; the JS provider reads the index through the run's cache
+  when the host passes one, and the `skif` facade's `Linter` does, so a run parses the index once ([ADR
+  0121](adrs/0121-one-git-index-listing-for-every-provider.md), [#200](https://github.com/Goldziher/skif/issues/200)).
+- **Performance** ([#206](https://github.com/Goldziher/skif/issues/206)): the linters of a run read through the cache of
+  root discovery, `yarn.lock` is read only as far as its header, the claimed directories of an ancestor workspace are
+  found without loading its members, and several lookups use an index instead of a scan. The plugins that search a
+  package's sources (`pino`, `zx`, `execa`, `nano-spawn`, `bun`) list and read each source file once between them,
+  plugin globs are compiled once per run instead of being kept for the life of the process, the fix planner parses each
+  file once for all its fixes, `--fix` finds the roots below the linted root without loading that root again, `--watch`
+  finds the directory it watches without discovering every root, the language server reads a file only for diagnostics
+  with a span, and the dependency analysis keeps names without copying them. The output is unchanged. The public API
+  gains `FileSystem::read_prefix` (with a default), `Workspace::claimed_dirs_with_fs`, `Selector::only_literals`,
+  `Selector::literal_key`, `Override::literal_packages`, `resolve_plugins_in`, `GlobCache` and `PackageSources` of
+  `skif-js-plugins`, `WorkspaceListing::globs` of `skif-js`, `Document` of `skif-edit`, which parses a file once to plan
+  several sets of operations against it, and `discover_targets_below` of `skif`; `RenderOptions::with_source` takes
+  `impl Into<Arc<str>>`.
+- The GitHub Action is named `skif dependency linter`, because the GitHub Marketplace needs a name that no other action,
+  user or organization holds; the `uses:` reference (`Goldziher/skif@v0.4`) does not change with the name.
+- The benchmark results moved from the README to a [benchmarks
+  page](https://goldziher.github.io/skif/guides/benchmarks/) in the docs, with the speed tables, the accuracy and knip
+  agreement results, a link to the `bench` workflow and its run, and the methodology. The README and the comparison
+  guide show generated headline claims instead (`bench:claims`: each tool's range of median ratios to skif, rounded
+  down), and `mise run bench:import` and `mise run parity:publish` write the tables to the new page.
+- The docs gain a [Bazel guide](https://goldziher.github.io/skif/guides/bazel/) (what skif reads from `BUILD` and
+  `MODULE.bazel` files, fetching the release archives, `bazel run`, `bazel test` inputs, CI and the limits;
+  [#173](https://github.com/Goldziher/skif/issues/173)) and a [Turborepo, Nx and Lerna
+  guide](https://goldziher.github.io/skif/guides/turborepo-nx-lerna/) (what skif reads from each, running it as a root
+  task, task-ordering dependencies and the limits; [#195](https://github.com/Goldziher/skif/issues/195)). The npm and
+  Bun section no longer says that `run()` changes directory under `bazel run`: only the package's `skif` bin does.
+- **Parity harness**: `skif-bench parity` sets apart six more known deviations, so the parity baseline is recorded
+  again: `imported-by-knip-unused-file` and `imported-by-skif-unused-file` (an export or member only one tool reports
+  that only files that tool lists as unused import, through re-exports), `entry-module-duplicate` (a duplicate only knip
+  reports in a default entry or published source, which `duplicate-exports` skips), `bazel-build-file` (a dependency a
+  Bazel `BUILD` file names, an unlisted finding at such a file, and a dependency only knip reports unused that is a peer
+  dependency of a dependency a `BUILD` file credits, as skif credits the peers of a used package), `declaration-file` (a
+  `.d.ts` file only knip reports unused) and `signature-type` (a type or export a used export's signature names, ADR
+  0029). It reads the `BUILD` files below a `coverage`, `out` or `target` directory that is not directly in the root or
+  a package directory, as skif's file discovery does. `published-source` maps published paths through the tsconfig
+  `outDir` and `rootDir` of the package and covers the exports, types and members of the published sources;
+  `not-judged-by-skif` applies the narrowed scope of an enclosing incomplete package to the members below it;
+  `non-member-project` covers skif-only unused files, unlisted dependencies and binaries, and the exports of a nested
+  root's default entries. An import one tool reports as unlisted and the other as unresolved counts as shared. The n8n
+  corpus entry also generates `@n8n/db`'s gitignored migration indexes after its build, so knip no longer reports the
+  migrations they list as unused files, and the `knip-config-error` description in `parity.md` says that files of other
+  packages only a failed configuration's entries reach stay compared (next-js's root `jest.config.js`).
+
+### Removed
+
+- `skif_js_plugins::scripts::ScriptInfo::turbo_tasks`: the task names passed to `turbo` were collected but never read;
+  `turbo` arguments are still never taken for binaries or files ([#193](https://github.com/Goldziher/skif/issues/193)).
 
 ### Fixed
 
+- **Working directories**: a package that a workflow step, a tool config's command or a source file loads after
+  `cd <dir>` (`run: cd packages/web && node -r @x/register x.js`) is needed by the workspace package in that directory,
+  not by the package where the command starts. A step's `working-directory` (its own, or the `defaults.run` of its job
+  or workflow), an Azure Pipelines `workingDirectory` and the `cwd` of a tool's command are read as a leading `cd`, so
+  the binaries and packages of such a step are credited to the package there
+  ([#147](https://github.com/Goldziher/skif/issues/147)). `unlisted-binaries` reports a binary that a script, a workflow
+  step or a source file runs after `cd` into another workspace package that does not provide it, at the command and
+  naming the package (``script `a` runs `x` in `packages/web`, which no dependency of `web` provides``); a script of
+  that package that a package manager runs there is not a binary. After `cd` into a project of its own below the
+  workspace (a directory with a `package.json` that is no workspace member, such as a nested root of `skif -r`), the
+  binary is judged against that project's manifest, and `Report::ancestor_dependency_uses` lists the dependencies of
+  that project that provide it, so `skif -r` counts them as used by that root
+  ([#163](https://github.com/Goldziher/skif/issues/163)). Under npm with `install-strategy=linked` in the root `.npmrc`,
+  a member's binary satisfies only the packages that list the member, as under pnpm's isolated linker
+  ([#162](https://github.com/Goldziher/skif/issues/162)). `BinaryRef` of `skif-js-plugins` gains `judged`, false for a
+  binary that is only a credit, and `PluginOutput::referenced_binaries` leaves out the binaries a command runs in
+  another directory, which `run_binaries` holds; `RunBinary` of `skif-js` gains `judged`, `WorkspaceInputs` gains
+  `relocated_dependencies`, and `RunsIn` is exported ([ADR
+  0120](adrs/0120-working-directories-binaries-missing-where-a-command-runs-and-npm-s-linked-strategy.md)).
+- **Config evaluation reads more of a config as known** ([#148](https://github.com/Goldziher/skif/issues/148),
+  [#166](https://github.com/Goldziher/skif/issues/166)). An optional member (`base?.setupFiles`, `undefined` when `base`
+  is `null` or `undefined`) and a computed member whose key evaluates to a string (`base['setupFiles']`, `base[KEY]`)
+  read a known object as `base.setupFiles` does. `.map`, `.flatMap` and `.filter` of a known array call their callback
+  (an inline function, or one the config declares) with each element and its index, so Vitest projects spread from
+  `` ['light', 'dark'].map((theme) => ({ test: { name: `browser-${theme}` } })) `` are known; an unknown element stays
+  unknown and a predicate whose result is not known keeps the element. `Object.fromEntries` of a known list of
+  `[key, value]` pairs is their object, so a Vite input built as
+  `` Object.fromEntries(PAGES.map((p) => [p, path.resolve(__dirname, `${p}.html`)])) `` names its HTML pages. Template
+  literals and `+` with a string also write known numbers and booleans, `+` adds two numbers, `===` and `!==` compare
+  known primitives, and a constant index reads a known array (`LIST[0]`). The existing files given to a call the
+  evaluator cannot follow are entries wherever the call sits in the exported config
+  (`{ test: createTest({ setupFiles: ['./setup.ts'] }) }`), not only when the config is the call's result; a file under
+  an exclusion key is still left out. A call of a well-known function that changes nothing it is given (`path.join`,
+  `fs.readFileSync`, `JSON.stringify`, `console.log`), where its name resolves to the module or global that declares it
+  and not to a local of the same name, no longer makes the config holding its result partly unknown, a `resolve` call
+  (`require.resolve`, the function `createRequire` returns) is no change of the object it is called on, and a `const`
+  holding a string or number shares no object with what it is given to, so a literal `entry` next to
+  `cert: fs.readFileSync(CERT)` stays known. `define…` helpers of an installed package, copying merges (`webpack-merge`,
+  `deepmerge`, `defu`, the `mergeConfig` of Vite and Vitest), `createRequire` and the sources of `Object.assign` change
+  nothing they are given and keep none of their arguments in another, so a change of one argument
+  (`defineConfig({ test: { ...options }, resolve: { alias: aliases(pinCjs) } })`) leaves the others known;
+  `Object.assign` onto an object literal (`Object.assign({}, base)`) copies the keys of what it is given, as a spread
+  does. A callback or loop over a `const` list of strings, or over the entries or values of a `const` object of strings,
+  that no change reaches changes nothing in it
+  (`Object.entries(pages).map(([name, template]) => new HtmlWebpackPlugin({ chunks: [name], template }))`), so a
+  multi-page webpack config keeps its `entry` known. A change leaves only what it may reach partly unknown: a change
+  through a part of a config (`config.module.rules.unshift(…)`, `config.output.path = …`, `foo(config.module)`) leaves
+  only that part unknown, also in what shares it (a local a function returns); `push` and `unshift` of a local list add
+  their elements, and under a condition the evaluator cannot decide the part is one of its values before and after. A
+  change made through a `const` that takes a part of a local of the same function
+  (`const { coverage } = config.test; coverage.enabled = true`) is applied to that part of the local, and a call given
+  only such an alias (`const { build } = config; applyDefaults(build)`) leaves that part partly unknown; what else may
+  hold that part is partly unknown where it is read after the alias is declared, and a local with more than one such
+  alias, one shared with another function, or one that is assigned again, is not followed through it. A write through
+  one key also reaches another key of the same local that holds the same object (`config.b = config.a; config.a.x = 1`).
+  A spread of a local (`{ ...options }`) copies its keys: a change below one of them reaches the copy at that key only,
+  and a new value of a key of either leaves the other as it was; a change through a value spread from an object literal
+  (`...(ci ? { plugins: list } : {})`) reaches only the key it is spread at. A change below a key the config neither has
+  nor inherits leaves the config as it is; below an inherited key (`__proto__`, `constructor`) it leaves the config
+  partly unknown, and one below a key inherited from `{ __proto__: base }` reaches `base`. A call of a function the
+  config declares (`const r = set(config)`) shares with the config only what the function may return of it, a change
+  through what a method returns (`config.plugins.find(…)`) reaches the object it is called on, and a function the config
+  only calls by name takes each argument as its parameter, apart from what it returns, so a value a call may change
+  (`_.defaults({}, env)`) passed to a function that builds a fresh config no longer leaves that config's `entry`
+  unknown; one that returns its parameter, or stores it in what it returns (`{ e: env }`, `config.x = env`), still
+  shares it there, as do a getter, method or callback in what it returns and a parameter's default (`b = a`). A change
+  of what a workspace factory returns
+  (`const config = createVitestConfig(options); config.test.setupFiles.push('./setup.ts')`) leaves only that part partly
+  unknown, and the values imported from the factory's module known, when the factory builds new objects. Configs
+  exported side by side (`module.exports = [a(), b()]`) no longer leave each other partly unknown. A call that may
+  change the whole config still leaves all of it partly unknown.
+- **Config evaluation no longer reads values code may change as known.** A call whose effect is not known (a function
+  the config or a library declares, a `new` of a class other than a builtin one) may change every object it is given, in
+  any position and through a spread, also when the call's result is used, and every local an object or array literal it
+  is given holds, at any depth (`kit.fill({ cfg: config })`, `foo([config])`); a spread of a local there
+  (`foo({ ...options })`) leaves all of the local partly unknown. A list or string method (`push`, `concat`, `slice`)
+  counts as changing only its object when that object is known to be a list or string, and a change through an element
+  of a list leaves every element open. A loop name (`for (const rule of config.module.rules)`), a callback parameter
+  (`rules.forEach((r) => …)`, also one after the element: `forEach((name, index, list) => list.push(…))`, over a `const`
+  list of strings too), a name a destructuring assignment sets and a function assigned with `=` share with what they
+  take, an alias of a local that shares an object with a changed one is no longer applied to it, a write in a class body
+  leaves what it reaches unknown, and the object of a `with` statement is partly unknown after it.
+  `Object.defineProperty`, `Reflect.defineProperty` and `Object.defineProperties` are no `define…` helpers: they change
+  their first argument, the first two only at the key they name when it is a string. A write, `delete`, `push` or
+  `Object.assign` through an object that is not a name or a member chain (`config.module.rules.find(…).loader = …`,
+  `(prod ? config.prod : config.dev).devtool = false`) reaches each part of a local that object may be instead of being
+  dropped. A list method that calls a function it is given with the list's elements (`configs.forEach(withSentry)`,
+  `list.forEach(fn, thisArg)`) changes nothing only when that function is written in place or declared by the config and
+  no `this` object follows it; otherwise the elements and that object are partly unknown. Calling a local that holds a
+  function the evaluator does not follow (`const addAlias = aliaser(config); …; addAlias('~', './lib')`) leaves what it
+  was made from partly unknown. `Object.assign`, `Object.defineProperty`, `Reflect.defineProperty`, `JSON.stringify` and
+  `JSON.parse` given their arguments through a spread (`Object.assign(...[config, extra])`) may change every object the
+  spread gives, and `JSON.stringify` and `JSON.parse` given a replacer or reviver other than a literal holding no
+  function (`JSON.stringify(config, replacer)`) may change what they are given. A merge given options that may hold a
+  function (`deepmerge(a, b, { arrayMerge })`), and an export of a merge package that is no copying merge
+  (`deepmergeInto`, `defuFn`, `mergeWithCustomize`), may change what it is given; the value of `deepmerge` given options
+  and of `mergeWith` is unknown, as they may merge any way. A `define…` helper, a copying merge and a package whose
+  methods keep nothing are trusted only for an installed package: a bare specifier the evaluator does not follow that
+  names a workspace package or that no `node_modules` directory above the config, up to the workspace root, holds (a
+  `tsconfig` alias such as `@app/tools`) is code of the project, but in a project whose `node_modules` directories hold
+  no package (none at all, or only caches such as `.vite`) every name of no workspace package counts as installed, and
+  under Yarn Plug'n'Play (a `.pnp.cjs` at the root) a dependency the importing package or the root declares from a
+  registry is installed. Such a helper or merge from a module of the project (`require('./tools')`, `#tools`, `@/tools`,
+  `import { defineConfig } from './define'`) or a workspace package that the evaluator cannot follow, and a `define…`
+  function taken from an object the config declares (`const { defineProperty } = Object`,
+  `globalThis.Object.defineProperty(…)`), is unknown instead of the value it is given or the merge of it. A method of a
+  package keeps nothing it is given in the package only when the config does nothing else with the package
+  (`_.merge(…)`) and the evaluator does not follow it: what a method of a workspace package returns (`base.self()`), or
+  of one the config stores a value in (`pkg.config = local`), may hold what the package holds, as may what a method of a
+  package returns once the config gives a method a function, a call's result or an object holding one
+  (`store.set(() => config)`), which the package may keep and give back. An imported value the config changes
+  (`base.build.outDir = 'out'`, `withPlugins(base)`, a write through a local holding it) is read as changed instead of
+  as its module computes it; a change through one import of a module reaches its other imports (`ns.default` and the
+  default import, two exports that may be one object), and a change of a value of another module the config imports
+  reaches it too. A call of a function of a project module or a workspace package that changes a value of a module (an
+  import of its own, a binding it exports, directly or through a function of another module it calls), and a module
+  imported or required only for its effects (`import './setup'`), leave every value the config imports from such modules
+  partly unknown; a module whose functions change no such value (`name()` returning a string, a factory that builds and
+  returns a new config, also one the module calls when it is loaded) leaves them known. A function of a followed module
+  changes a value of a module also through what it keeps for every call (`f.cache = base`, `add.bind(null, base)`, what
+  a generator or an `async` function made when the module is loaded was given), through `this` or `super` where that may
+  be such a value, also through a binding taking what `this` holds (`const list = this.plugins`), through a function it
+  re-exports (`export { tweak } from './tweak'`, `export * from './tools'`) or hands out
+  (`import { tweak } from './tweak'; export { tweak }`, `export const tools = { tweak }`), also from a module that is
+  neither followed nor installed, and by calling a function of such a module (`import { setup } from '@app/setup'`).
+  What a function imported from a followed module returns (`getBase()`), and what a function read other than by name or
+  as a method returns (`(0, base.self)()`), may hold any value the config imports from such modules. A write through
+  `this` in a constructor or a field initialiser giving the new instance a key (`this.options = options`), or in a
+  method of a class or of a plugin's hooks object a factory returns (`load(id) { this.addWatchFile(id); }`), changes no
+  value of a module, so a local Vite, Rollup or webpack plugin leaves the shared config it is used with known, and a
+  re-export of a file that holds no code (a declaration file, JSON, a stylesheet, an asset) changes nothing. What a
+  module imported for its values does when it is loaded, code a value runs implicitly (a getter, `toString` through a
+  template literal or `String(x)`, `toJSON` through `JSON.stringify`) and a later change an imported function makes to
+  an object an earlier call gave it are still not followed.
+- **Vite and Vitest plugins**: a `root` that is one of several relative directories (a condition the evaluator cannot
+  decide, such as `process.env.X ? path.resolve('ui') : __dirname`) reads the HTML entries of each instead of leaving
+  the package incomplete. A path function, a template literal or `+` over such a value is one of the results of each
+  (`path.join(dir, 'vitest.setup.ts')` is one of two paths), and a list of files or patterns whose value or element is
+  one of several known strings (Vitest and Jest setup files and test globs, Vite, Rollup, tsup and webpack entries)
+  makes each an entry candidate: one that names no file is what another branch would give and is dropped, and the
+  package is judged. An alternative that is not a known string still leaves it incomplete.
+- **JS, `paths`**: `[js.workspaces.<dir>.paths]` keys are matched as `tsconfig` `paths` are: one `*` anywhere in the key
+  matches any text, so the catch-all `"*"` and keys such as `"serv*"` or `"*.svg"` map imports instead of being dropped,
+  and the matching keys are tried longest prefix first, an exact key before every wildcard; relative and absolute
+  specifiers are never mapped ([#214](https://github.com/Goldziher/skif/issues/214)). An import that a package's own
+  tsconfig `paths` map into its sources (`src/*` to `./src/*`) is no longer an import of the workspace package whose
+  name it starts with (a member named `src`). Strict mode reported it as that package unlisted, and the other modes
+  counted it as a use of the member ([#215](https://github.com/Goldziher/skif/issues/215)).
+- **JS, production mode**: the development entries of plugins (Storybook stories, test files, Vitest `setupFiles`) are
+  left out of the project, as knip does, so they are no longer reported by `unused-files`
+  ([#210](https://github.com/Goldziher/skif/issues/210)), and the `start` script of `package.json`, knip's production
+  script, is kept, so the files it runs are production entries and no longer reported by `unused-files`
+  ([#216](https://github.com/Goldziher/skif/issues/216)).
+- **JS**: a directory that an `[js] ignore-workspaces` glob matches also leaves the packages above it, as knip's
+  `ignoreWorkspaces` does: its files that belong to no skipped member are no longer analysed and reported in the root
+  ([ADR 0129](adrs/0129-directories-matched-by-ignore-workspaces-leave-the-packages-above-them.md),
+  [#218](https://github.com/Goldziher/skif/issues/218)).
+- **JS, exports**: `ignore-exports-used-in-file` exempts an import binding the file re-exports and reads as a value
+  (`import a from "./a"; export { a, bMod as b }; export default { a, b: bMod }`), as it exempts a local declaration,
+  and a `module.exports = { X }` member whose binding the file reads outside that object, also under
+  `unused-namespace-exports`; a barrel that exports every module by name and again through its default object is no
+  longer reported in full ([#211](https://github.com/Goldziher/skif/issues/211)). The exports of a Svelte component's
+  instance `<script>` (`export let label`, `export const`, `export function`) are props and instance accessors, so
+  `unused-exports` no longer reports them; the exports of the module script (`<script context="module">` in Svelte 4,
+  `<script module>` in Svelte 5) are still judged, and a package with a reached `.svelte` file uses `svelte`, which is
+  no longer reported by `unused-dependencies` ([#212](https://github.com/Goldziher/skif/issues/212)). A namespace import
+  read through JSX member tags (`<S.Button />`, `<S.Button></S.Button>`) reads the member after the namespace, as
+  `S.Button` does, instead of using the module as a whole; a nested tag (`<S.Ctx.Provider />`) reads `Ctx`, and the
+  other exports of the module are reported by `unused-namespace-exports`
+  ([#213](https://github.com/Goldziher/skif/issues/213)). Pattern keys of `exports` and `imports` maps are selected as
+  Node.js orders them: of two patterns with the same prefix, the longer one wins (`./features/*.css` over `./features/*`
+  for `./features/a.css`).
+- **JS, enums**: a whole use of an enum in the file that declares it (`Object.values(E)`, `Object.keys(E)`, `E[key]`, a
+  spread, `for (k in E)`, passing, storing or returning `E`, `typeof E`, `keyof typeof E`, `` `${E}` `` in a template
+  literal type) uses every member, as a whole use in another file does; `unused-enum-members` reported them all. A type
+  annotation `x: E` still uses no member. skif now reports fewer enum members than knip in such files ([ADR
+  0126](adrs/0126-a-whole-use-of-an-enum-in-its-own-file-uses-every-member.md)); the parse cache schema is raised.
+- **JS, declaration files**: `.d.mts` and `.d.cts` files are declaration files wherever `.d.ts` files are: a declaration
+  file outside the module graph is left out of `unused-files` and its `declare module` blocks name ambient modules,
+  `explain-usage` gives it the `declaration-file` absence, and the AWS CDK and Knex plugins skip it when scanning
+  sources. Before, those checks named `.d.ts` only. `skif-js-syntax` gains `is_declaration_file` and
+  `DECLARATION_SUFFIXES` ([#100](https://github.com/Goldziher/skif/issues/100)).
+- `unlisted-dependencies`: a peer dependency that a listed package marks optional
+  (`peerDependenciesMeta.<name>.optional` in its installed manifest, `optionalPeers` in `bun.lock`, the same field in
+  the other lockfiles) no longer provides an unlisted import of it, because the package manager does not install an
+  optional peer for its host. A required peer still does; crediting a listed dependency as a peer of a used one is
+  unchanged ([#96](https://github.com/Goldziher/skif/issues/96)).
+- `stale-js-config` (`package-entry`) reports a `bin` path that a build running only the TypeScript compiler
+  (`"build": "tsc"`) cannot write, because no file of the package is named after it, also when a `.gitignore` hides it
+  (`*.js`, as CDK templates ship), and the package is judged from its other entries instead of being listed in
+  `incomplete-packages` with `unmapped-published`. A `bin` path a source file is named after, or that another build step
+  may write, keeps the package unjudged as before, gitignored or not.
 - **pnpm**: a `pnpm-lock.yaml` of pnpm 11 and later that holds two YAML documents, the package manager's environment
   (`configDependencies`, `packageManagerDependencies`) and the project's lockfile, is read: the lockfile checks
   (`banned-dependency` and `unsynced-dependency-family` with a lockfile scope, `stale-patched-dependencies`) judge the
@@ -74,500 +422,82 @@ All notable changes to this project are documented here. The format follows
   ([#223](https://github.com/Goldziher/skif/issues/223)).
 - **Migrate**: `--merge` unites lists by entry name. A string and a `{ name, reason }` table with that name are one
   entry, which keeps the existing reason or takes the migrated one, instead of both staying in the list. In `[js]`
-  `entry` and `project`, a migrated `x!` replaces the existing plain `x`, which in production mode excluded the file
-  the `!` pattern makes an entry; the report names the list (`replaced-existing`). In the `[js]` ignore lists, `x`
-  covers `x!`. Elsewhere a trailing `!` is part of the entry
-  ([ADR 0127](adrs/0127-migrate-merge-unites-list-entries-by-name.md),
-  [#219](https://github.com/Goldziher/skif/issues/219)).
-- **JS**: `[js.workspaces.<dir>.paths]` keys are matched as `tsconfig` `paths` are: one `*` anywhere in the key
-  matches any text, so the catch-all `"*"` and keys such as `"serv*"` or `"*.svg"` map imports instead of being
-  dropped, and the matching keys are tried longest prefix first, an exact key before every wildcard. A key without
-  `*` maps only that specifier and `"alias/*"` no longer maps the bare `alias`, as in TypeScript; relative and
-  absolute specifiers are never mapped. A key or target with more than one `*` is a configuration error
-  ([#214](https://github.com/Goldziher/skif/issues/214)).
-- **JS**: an import that a package's own tsconfig `paths` map into its sources (`src/*` to `./src/*`) is no longer an
-  import of the workspace package whose name it starts with (a member named `src`). Strict mode reported it as that
-  package unlisted, and the other modes counted it as a use of the member
-  ([#215](https://github.com/Goldziher/skif/issues/215)).
-- **JS**: production mode leaves the development entries of plugins (Storybook stories, test files, Vitest
-  `setupFiles`) out of the project, as knip does, so they are no longer reported by `unused-files`
-  ([#210](https://github.com/Goldziher/skif/issues/210)).
-- **JS**: production mode keeps the `start` script of `package.json`, knip's production script, so the files it runs
-  are production entries and no longer reported by `unused-files`
-  ([#216](https://github.com/Goldziher/skif/issues/216)).
-- **JS**: a directory that an `[js] ignore-workspaces` glob matches also leaves the packages above it, as knip's
-  `ignoreWorkspaces` does: its files that belong to no skipped member are no longer analysed and reported in the root
-  ([ADR 0129](adrs/0129-directories-matched-by-ignore-workspaces-leave-the-packages-above-them.md),
-  [#218](https://github.com/Goldziher/skif/issues/218)).
-- **JS**: `ignore-exports-used-in-file` exempts an import binding the file re-exports and reads as a value
-  (`import a from "./a"; export { a, bMod as b }; export default { a, b: bMod }`), as it exempts a local declaration,
-  and a `module.exports = { X }` member whose binding the file reads outside that object, also under
-  `unused-namespace-exports`. A barrel that exports every module by name and again through its default object is no
-  longer reported in full ([#211](https://github.com/Goldziher/skif/issues/211)).
-- **JS**: the exports of a Svelte component's instance `<script>` (`export let label`, `export const`, `export
-  function`) are props and instance accessors, so `unused-exports` no longer reports them; the exports of the module
-  script (`<script context="module">` in Svelte 4, `<script module>` in Svelte 5) are still judged. A package with a
-  reached `.svelte` file uses `svelte`, which is no longer reported by `unused-dependencies`
-  ([#212](https://github.com/Goldziher/skif/issues/212)).
-- **JS**: a namespace import read through JSX member tags (`<S.Button />`, `<S.Button></S.Button>`) reads the member
-  after the namespace, as `S.Button` does, instead of using the module as a whole; a nested tag
-  (`<S.Ctx.Provider />`) reads `Ctx`. The other exports of the module are reported by `unused-namespace-exports`
-  ([#213](https://github.com/Goldziher/skif/issues/213)).
-- **Bazel plugin**: a `BUILD` file comprehension that formats each string of a list literal
-  (`[":node_modules/%s" % name for name in ["typescript", "vite"]]`) names the formatted packages instead of the
-  dependency `%s`, and the patterns of a `glob(...)` (`"node_modules/**"`), any other format template and a
-  `node_modules` target that is no valid npm package name name no dependency. A dependency a `BUILD` file names is
-  reported at the line of the label, and `explain-usage --dependency` lists the config files and lines that name a
-  dependency the package does not list (`unlisted-references` in its JSON)
-  ([ADR 0130](adrs/0130-bazel-label-lists-built-by-a-format-comprehension.md),
-  [#220](https://github.com/Goldziher/skif/issues/220)).
-- **JS**: pattern keys of `exports` and `imports` maps are selected as Node.js orders them: of two patterns with the
-  same prefix, the longer one wins (`./features/*.css` over `./features/*` for `./features/a.css`).
-- **Migrate**: `--merge --output <FILE>` writes the merge of the existing `skif.toml` and the migration to `FILE`
-  instead of the translation alone, and leaves the existing file as it is; an existing `FILE` is refused. A merge with
-  the `exact` profile no longer turns off the default rules a file without a `sources` line relies on: it writes no
-  `off` value into a file that has content, and the report lists those checks (`left-as-existing`). Migrating knip
-  into a file with `[js] enabled = false` sets it to `true`, which the report names (`replaced-existing`); `Merged`
-  gains `left_as_existing` and `replaced_existing`, and `Migration::merge_summary` renders the report of a merge
+  `entry` and `project`, a migrated `x!` replaces the existing plain `x`, which in production mode excluded the file the
+  `!` pattern makes an entry; the report names the list (`replaced-existing`). In the `[js]` ignore lists, `x` covers
+  `x!`. Elsewhere a trailing `!` is part of the entry ([ADR
+  0127](adrs/0127-migrate-merge-unites-list-entries-by-name.md), [#219](https://github.com/Goldziher/skif/issues/219)).
+  `--merge --output <FILE>` writes the merge of the existing `skif.toml` and the migration to `FILE` instead of the
+  translation alone, and leaves the existing file as it is; an existing `FILE` is refused. A merge with the `exact`
+  profile no longer turns off the default rules a file without a `sources` line relies on: it writes no `off` value into
+  a file that has content, and the report lists those checks (`left-as-existing`). Migrating knip into a file with
+  `[js] enabled = false` sets it to `true`, which the report names (`replaced-existing`); `Merged` gains
+  `left_as_existing` and `replaced_existing`, and `Migration::merge_summary` renders the report of a merge
   ([#207](https://github.com/Goldziher/skif/issues/207)).
-- **Migrate**: a knip ignore entry without a comment of its own takes the comment heading its group (the nearest
-  comment above an earlier entry of the same list) as its `reason`, else the comment on the list's key (above
+- **Migrate**: a knip ignore entry without a comment of its own takes the comment heading its group (the nearest comment
+  above an earlier entry of the same list) as its `reason`, else the comment on the list's key (above
   `ignoreDependencies: [`, after its opening bracket, or after the list on its line); before, a group heading reached
   only the first entry and a key comment none, so a fully commented knip config failed `require-ignore-reasons` after
   migration. The note of a list names its entries left without a comment. `skif-js-syntax` gains
   `extract_config_comments`, which reports group headings (`ElementComment::heading`) and `PropertyComment`s.
-- `stale-js-config` (`package-entry`) reports a `bin` path that a build running only the TypeScript compiler
-  (`"build": "tsc"`) cannot write, because no file of the package is named after it, also when a `.gitignore` hides it
-  (`*.js`, as CDK templates ship), and the package is judged from its other entries instead of being listed in
-  `incomplete-packages` with `unmapped-published`. A `bin` path a source file is named after, or that another build
-  step may write, keeps the package unjudged as before, gitignored or not.
-- **Bun**: the members claimed for a workspace whose root cannot be discovered keep a directory a positive pattern
-  names by its literal path despite a negation, as discovery does ([#158](https://github.com/Goldziher/skif/issues/158)).
-- **Config evaluation**: an optional member (`base?.setupFiles`, `undefined` when `base` is `null` or `undefined`) and
-  a computed member whose key evaluates to a string (`base['setupFiles']`, `base[KEY]`) read a known object as
-  `base.setupFiles` does, instead of leaving the package incomplete
-  ([#148](https://github.com/Goldziher/skif/issues/148)).
-- **Config factories**: the existing files given to a call the evaluator cannot follow are entries wherever the call
-  sits in the exported config (`{ test: createTest({ setupFiles: ['./setup.ts'] }) }`), not only when the config is
-  the call's result; a file under an exclusion key is still left out
-  ([#148](https://github.com/Goldziher/skif/issues/148)).
-- **Config factories**: a `resolve` call (`require.resolve`, the function `createRequire` returns) no longer counts
-  as a change of the object it is called on, so a shared config factory that pins module paths with one keeps the
-  options it is given known ([#166](https://github.com/Goldziher/skif/issues/166)).
-- **Config factories**: a change made through a `const` that takes a part of a local of the same function
-  (`const { coverage } = config.test; coverage.enabled = true`) is applied to that part of the local, so the rest of
-  the config, and the options spread into it, stay known; what else may hold that part (a list or object holding the
-  local, the options when they are read after the change, another key given the same object) is partly unknown where it
-  is read after the alias is declared, and a local with more than one such alias, or one shared with another function,
-  is still left partly unknown ([#166](https://github.com/Goldziher/skif/issues/166)).
-- **Config evaluation**: a call of a well-known function that changes nothing it is given (`path.join`,
-  `fs.readFileSync`, `JSON.stringify`, `console.log`) no longer makes the config holding its result partly unknown,
-  and a `const` holding a string or number shares no object with what it is given to; a literal `entry` next to
-  `cert: fs.readFileSync(CERT)` now stays known.
-- **Config evaluation**: a change through a part of a config (`config.module.rules.unshift(…)`,
-  `config.output.path = …`, `foo(config.module)`) leaves only that part unknown, also in what shares it (a local a
-  function returns); `push` and `unshift` of a local list add their elements, and under a condition the evaluator
-  cannot decide the part is one of its values before and after. A call that may change the whole config still leaves
-  all of it partly unknown. A write through one key also reaches another key of the same local that holds the same
-  object (`config.b = config.a; config.a.x = 1`). A spread of a local (`{ ...options }`) copies its keys: a change
-  below one of them reaches the copy at that key only, and a new value of a key of either leaves the other as it was.
-  A call of a function the config declares (`const r = set(config)`) shares with the config only what the function
-  may return of it, and a change through what a method returns (`config.plugins.find(…)`) reaches the object it is
-  called on. A function the config only calls by name takes each argument as its parameter,
-  apart from what it returns, so a value a call may change (`_.defaults({}, env)`) passed to a function that builds a
-  fresh config no longer leaves that config's `entry` unknown; one that returns its parameter, or stores it in what it
-  returns (`{ e: env }`, `config.x = env`), still shares it there, as do a getter, method or callback in what it
-  returns and a parameter's default (`b = a`). Configs exported side by side (`module.exports = [a(), b()]`) no
-  longer leave each other partly unknown.
-- **Config evaluation**: values code may change are no longer read as known. A call whose effect is not known (a
-  function the config or a library declares, a `new` of a class other than a builtin one) may change every object it
-  is given, in any position and through a spread, also when the call's result is used, and every local an object or
-  array literal it is given holds, at any depth (`kit.fill({ cfg: config })`, `foo([config])`); a spread of a local
-  there (`foo({ ...options })`) leaves all of the local partly unknown. A list or string method
-  (`push`, `concat`, `slice`) counts as changing only its object when that object is known to be a list or string, and
-  a well-known function (`path.join`, `JSON.stringify`) is known only where its name resolves to the module or global
-  that declares it, not a local of the same name. A change through an element of a list leaves every element open.
-  A loop name (`for (const rule of config.module.rules)`), a callback parameter (`rules.forEach((r) => …)`), a name a
-  destructuring assignment sets and a function assigned with `=` share with what they take, an alias of a local that
-  shares an object with a changed one is no longer applied to it, and a write in a class body leaves what it reaches
-  unknown. `define…` helpers of a library, copying merges (`webpack-merge`, `deepmerge`, `defu`, the `mergeConfig`
-  of Vite and Vitest), `createRequire` and the sources of `Object.assign` still change nothing they are given, the
-  helpers and merges keep none of their arguments in another, so a change of one argument
-  (`defineConfig({ test: { ...options }, resolve: { alias: aliases(pinCjs) } })`) leaves the others known, and a
-  callback over a `const` list of strings that no change reaches changes nothing in the list. A change through a value
-  spread from an object literal (`...(ci ? { plugins: list } : {})`) reaches only the key it is spread at, and a change
-  below a key the config neither has nor inherits leaves the config as it is; below an inherited key (`__proto__`,
-  `constructor`) it leaves the config partly unknown, and one below a key inherited from `{ __proto__: base }` reaches
-  `base`.
-  all of it partly unknown. A call of a function the config declares (`const r = set(config)`) shares with the config
-  only what the function may return of it, and a change through what a method returns (`config.plugins.find(…)`)
-  reaches the object it is called on.
-- **Config evaluation**: more changes the evaluator does not run reach what they change. A call given only an alias
-  the evaluator follows (`const { build } = config; applyDefaults(build)`) leaves that part of the local partly
-  unknown, and an alias of a local that is assigned again is not followed, as it may hold an object the local no
-  longer does. `Object.defineProperty`, `Reflect.defineProperty` and `Object.defineProperties` are no `define…`
-  helpers: they change their first argument, the first two only at the key they name when it is a string. A write,
-  `delete`, `push` or `Object.assign` through an object that is not a name or a member chain
-  (`config.module.rules.find(…).loader = …`, `(prod ? config.prod : config.dev).devtool = false`) reaches each part
-  of a local that object may be instead of being dropped. A list method that calls a function it is given with the
-  list's elements (`configs.forEach(withSentry)`, `list.forEach(fn, thisArg)`) changes nothing only when that
-  function is written in place or declared by the config and no `this` object follows it; otherwise the elements
-  and that object are partly unknown. Calling a local that holds a function the evaluator does not follow
-  (`const addAlias = aliaser(config); …; addAlias('~', './lib')`) leaves what it was made from partly unknown. The
-  parameters of a callback after the element (`forEach((name, index, list) => list.push(…))`) share the list it is
-  called over, a `const` list of strings included. An imported value the config changes (`base.build.outDir = 'out'`,
-  `withPlugins(base)`, a write through a local holding it) is read as changed instead of as its module computes it.
-  A `define…` helper changes nothing it is given only when it comes from a package the evaluator does not follow,
-  not from a module of the project (`require('./tools')`, `#tools`, `@/tools`) or a workspace package. Such a
-  helper or merge the evaluator cannot follow (`import { defineConfig } from './define'`), and a `define…` function
-  taken from an object the config declares (`const { defineProperty } = Object`,
-  `globalThis.Object.defineProperty(…)`), is unknown instead of the value it is given or the merge of it.
-  `Object.assign`, `Object.defineProperty` and `Reflect.defineProperty` given their first argument through a spread
-  (`Object.assign(...[config, extra])`) may change every object the spread gives. `JSON.stringify` and `JSON.parse`
-  given a replacer or reviver other than a literal holding no function (`JSON.stringify(config, replacer)`) may
-  change what they are given, as that function is called with it. A change through one import of a module reaches
-  its other imports (`ns.default` and the default import, two exports that may be one object), and a change of a
-  value of another module the config imports reaches it too. A call of a function of a project module or a
-  workspace package that changes a value of a module (an import of its own, a binding it exports, directly or through
-  a function of another module it calls), and a module imported or required only for its effects
-  (`import './setup'`), leave every value the config imports from such modules partly unknown; a module whose
-  functions change no such value (`name()` returning a string, a factory that builds and returns a new config, also
-  one the module calls when it is loaded) leaves them known. What a module imported for its
-  values does when it is loaded is still not followed. A merge given options that may hold a function
-  (`deepmerge(a, b, { arrayMerge })`), and an export of a merge package that is no copying merge (`deepmergeInto`,
-  `defuFn`, `mergeWithCustomize`), may change what it is given; the value of `deepmerge` given options and of
-  `mergeWith` is unknown, as they may merge any way. The object of a `with` statement is partly unknown after it.
-  A callback or loop over the entries or values of a `const` object of strings that no change reaches
-  (`Object.entries(pages).map(([name, template]) => new HtmlWebpackPlugin({ chunks: [name], template }))`) no longer
-  leaves the object partly unknown, so a multi-page webpack config keeps its `entry` known. Code a value runs
-  implicitly (a getter, `toString` through a template literal or `String(x)`, `toJSON` through `JSON.stringify`)
-  is still not followed, as is a later change an imported function makes to an object an earlier call gave it.
-  A method of a package is taken to keep nothing it is given in the package only when the config does nothing else
-  with the package (`_.merge(…)`) and the evaluator does not follow it: what a method of a workspace package returns
-  (`base.self()`), or of one the config stores a value in (`pkg.config = local`), may hold what the package holds,
-  as may what a method of a package returns once the config gives a method a function, a call's result or an object
-  holding one (`store.set(() => config)`), which the package may keep and give back. What a function imported from a
-  followed module returns (`getBase()`), and what a function read other than by name or as a method returns
-  (`(0, base.self)()`), may hold any value the config imports from such modules. A function of a followed module
-  changes a value of a module also through what it keeps for every call (`f.cache = base`, `add.bind(null, base)`,
-  what a generator or an `async` function made when the module is loaded was given), through `this` or `super` where
-  that may be such a value, also through a binding taking what `this` holds (`const list = this.plugins`), through a
-  function it re-exports (`export { tweak } from './tweak'`, `export * from './tools'`) or hands out
-  (`import { tweak } from './tweak'; export { tweak }`, `export const tools = { tweak }`), also from a module that is
-  neither followed nor installed, and by calling a function of such a module (`import { setup } from '@app/setup'`).
-  A write through `this` in a constructor or a field initialiser giving the new instance a key
-  (`this.options = options`), or in a method of a class or of a plugin's hooks object a factory returns
-  (`load(id) { this.addWatchFile(id); }`), changes no value of a module, so a local Vite, Rollup or webpack plugin
-  leaves the shared config it is used with known. A re-export of a file that holds no code (a declaration file, JSON,
-  a stylesheet, an asset) changes nothing. A change of what a workspace factory returns
-  (`const config = createVitestConfig(options); config.test.setupFiles.push('./setup.ts')`) leaves only that part
-  partly unknown, and the values imported from the factory's module known, when the factory builds new objects.
-  `JSON.stringify` and `JSON.parse` given their arguments through a spread may change them. A `define…` helper, a
-  copying merge and a package whose methods keep nothing are trusted only for an installed package: a bare specifier
-  the evaluator does not follow that names a workspace package or that no `node_modules` directory above the config,
-  up to the workspace root, holds (a `tsconfig` alias such as `@app/tools`) is code of the project, but in a project
-  whose `node_modules` directories hold no package (none at all, or only caches such as `.vite`), where every name of
-  no workspace package counts as installed. Under Yarn Plug'n'Play (a `.pnp.cjs` at the root), a dependency the
-  importing package or the root declares from a registry is installed. `Object.assign` onto an object literal (`Object.assign({}, base)`) copies the keys of what it is given,
-  as a spread does, so a new key of the copy leaves the original known.
-- **Config evaluation**: `.map`, `.flatMap` and `.filter` of a known array call their callback (an inline function,
-  or one the config declares) with each element and its index, so Vitest projects spread from
-  `` ['light', 'dark'].map((theme) => ({ test: { name: `browser-${theme}` } })) `` are known instead of leaving the
-  package incomplete; an unknown element stays unknown and a predicate whose result is not known keeps the element.
-- **Config evaluation**: `Object.fromEntries` of a known list of `[key, value]` pairs is their object, so a Vite input
-  built as `` Object.fromEntries(PAGES.map((p) => [p, path.resolve(__dirname, `${p}.html`)])) `` names its HTML
-  pages. Template literals and `+` with a string also write known numbers and booleans, `+` adds two numbers, `===`
-  and `!==` compare known primitives, and a constant index reads a known array (`LIST[0]`).
-- **Vite and Vitest plugins**: a `root` that is one of several relative directories (a condition the evaluator cannot
-  decide, such as `process.env.X ? path.resolve('ui') : __dirname`) reads the HTML entries of each instead of
-  leaving the package incomplete. A path function, a template literal or `+` over such a value is one of the results
-  of each (`path.join(dir, 'vitest.setup.ts')` is one of two paths), and a list of files or patterns whose value or
-  element is one of several known strings (Vitest and Jest setup files and test globs, Vite, Rollup, tsup and webpack
-  entries) makes each an entry candidate: one that names no file is what another branch would give and is dropped,
-  and the package is judged. An alternative that is not a known string still leaves it incomplete.
-- `unlisted-dependencies`: a peer dependency that a listed package marks optional (`peerDependenciesMeta.<name>.optional`
-  in its installed manifest, `optionalPeers` in `bun.lock`, the same field in the other lockfiles) no longer provides
-  an unlisted import of it, because the package manager does not install an optional peer for its host. A required
-  peer still does; crediting a listed dependency as a peer of a used one is unchanged
-  ([#96](https://github.com/Goldziher/skif/issues/96)).
-- **JS**: `.d.mts` and `.d.cts` files are declaration files wherever `.d.ts` files are: a declaration file outside
-  the module graph is left out of `unused-files` and its `declare module` blocks name ambient modules, `explain-usage`
-  gives it the `declaration-file` absence, and the AWS CDK and Knex plugins skip it when scanning sources. Before,
-  those checks named `.d.ts` only. `skif-js-syntax` gains `is_declaration_file` and `DECLARATION_SUFFIXES`
-  ([#100](https://github.com/Goldziher/skif/issues/100)).
-- `explain-usage`: a file that the narrowed incomplete scope of an enclosing package makes an entry (a root test
-  config whose globs reach the files of the members below it, ADR 0081) has the entry kind
-  `enclosing-incomplete-scope`, with that package's directory in `scope-package` and its scope and reasons in
-  `incomplete-scope` and `incomplete`, instead of `unknown`. `skif_js::EntryReason` gains `EnclosingIncompleteScope`
-  and `UsageReport` gains `scope_package` ([#165](https://github.com/Goldziher/skif/issues/165)).
-- `explain-usage`: the source of the build output a script runs (`node dist/cli.js` for `src/cli.ts`) has the entry
-  kind `script`, and a file an extensionless `bin` stub loads the new kind `bin-stub` (`skif_js::EntryReason` gains
-  `BinStub`), instead of `unknown`.
-- `explain-usage --dependency` no longer calls a dependency used by a package that does not list it because of the
-  `@types`, peer or always-used rules: such a package's verdict is `not listed`, without a credit, as for the unlisted
-  import it holds.
-- **JS**: a whole use of an enum in the file that declares it (`Object.values(E)`, `Object.keys(E)`, `E[key]`, a
-  spread, `for (k in E)`, passing, storing or returning `E`, `typeof E`, `keyof typeof E`, `` `${E}` `` in a template
-  literal type) uses every member, as a whole use in another file does; `unused-enum-members` reported them all. A
-  type annotation `x: E` still uses no member. skif now reports fewer enum members than knip in such files
-  ([ADR 0126](adrs/0126-a-whole-use-of-an-enum-in-its-own-file-uses-every-member.md)). `skif_js_syntax::Export` gains
-  `used_whole_in_file`; the parse cache schema is raised.
-- **Bazel plugin**: a label of an enclosing package's `node_modules` (`"//adev:node_modules/diff"`) in a `BUILD` file of
-  a nested package counts only for the package it names; the nested package's own listing of the dependency was used
-  by it as well, which hid an `unused-dependencies` finding. A dependency so named that the labelled package does not
-  list is unlisted at the `BUILD` file for that package. `skif_js_plugins::PluginInput` gains `ReaderDependency`,
-  `DepRef` and `skif_js::ConfigDependency` gain `reader_lists`.
-
-### Changed
-
-- `Js::isolate_workspaces` of `skif-config` is workspace isolation only. An embedder that set it for knip's strict
-  mode sets `Js::strict` (`with_strict`), which implies production mode and isolation and adds the
-  direct-dependency rules; `JsAnalysis::strict` follows `strict`. `Js::production_mode` and `Js::isolated` give the
-  effective modes ([#221](https://github.com/Goldziher/skif/issues/221)).
-- **Migrate**: knip's `--strict` is written to `[js] strict = true` when every script runs knip with it, instead of
-  `[js] production` and a note that the file cannot hold the rest; when only some scripts do, a note leaves it to a
-  human. knip 5's `--isolate-workspaces`, which only split the TypeScript programs, stays without effect
-  ([#221](https://github.com/Goldziher/skif/issues/221)).
-- **JS**: a use of a module object as a whole (a namespace import passed around, spread, indexed with a computed key or
-  named in `typeof ns`, and `require("./m")` or `import("./m")`) uses every value export of the module and none of its
-  interfaces and type aliases, which it cannot reach; such a type stays used when read by name (`ns.Type`) or when the
-  importer exports the namespace itself (`export default ns`), and is otherwise reported by `unused-types`.
-  `explain-usage` no longer lists a whole use as a user of a type export. A file loaded with
-  `new URL("./x", import.meta.url)` runs as a program of its own and keeps using every export, types included, as an
-  entry does; `explain-usage` lists that import with the kind `url` instead of `require`
-  ([ADR 0125](adrs/0125-a-whole-use-of-a-module-object-uses-its-values-only.md)).
-- `Module` of `skif-js` gains `is_build_source`, true for a build source that is no entry, and is
-  `#[non_exhaustive]`, as the other public structs of the crate are; a struct literal of `Module` outside the crate no
-  longer compiles ([ADR 0124](adrs/0124-bazel-rule-sources-are-used-files-not-entries.md)).
-- `DepRef` of `skif-js-plugins` gains `dir`, the directory a command loads the package in after `cd`, and `BinaryRef`
-  gains `judged`, false for a binary that is only a credit; a struct literal of `DepRef` needs the new field.
-  `PluginOutput::referenced_binaries` leaves out the binaries a command runs in another directory, which
-  `run_binaries` holds. `RunBinary` of `skif-js` gains `judged`, `WorkspaceInputs` gains `relocated_dependencies`, and
-  `UnlistedBinary` gains `runs_in` (a `RunsIn`, exported); a struct literal of `UnlistedBinary` needs the new field.
-- `Report::ancestor_dependency_uses` also lists the dependencies of a project of its own below the root (a nested root)
-  that provide a binary a command runs after `cd` into it, so `skif -r` counts them as used by that root.
-- **Performance**: the linters of a run read through the cache of root discovery, `yarn.lock` is read only as far
-  as its header, the claimed directories of an ancestor workspace are found without loading its members, and several
-  lookups use an index instead of a scan; the output is unchanged
-  ([#206](https://github.com/Goldziher/skif/issues/206)). The public API gains `FileSystem::read_prefix` (with a
-  default), `Workspace::claimed_dirs_with_fs`, `Selector::only_literals`, `Selector::literal_key`,
-  `Override::literal_packages` and `resolve_plugins_in` of `skif-js-plugins`; `RenderOptions::with_source` takes
-  `impl Into<Arc<str>>`.
-- **Performance**: the plugins that search a package's sources (`pino`, `zx`, `execa`, `nano-spawn`, `bun`) list
-  and read each source file once between them, plugin globs are compiled once per run instead of being kept for the
-  life of the process, the fix planner parses each file once for all its fixes, `--fix` finds the roots below the
-  linted root without loading that root again, `--watch` finds the directory it watches without discovering every
-  root, and the language server reads a file only for diagnostics with a span; the output is unchanged
-  ([#206](https://github.com/Goldziher/skif/issues/206)). `PluginContext` of `skif-js-plugins` gains `globs` (a
-  `GlobCache`, exported) and `sources` (an `Option<&PackageSources>`, exported; `None` has the resolvers keep one per
-  package), so a struct literal of `PluginContext` needs both; `WorkspaceListing` of `skif-js` gains `globs`.
-  `skif-edit` exports `Document`, which parses a file once to plan several sets of operations against it, and `skif`
-  exports `discover_targets_below`.
-- `DependencyEntry::name` and `DependencyEntry::specifier` of `skif-workspace` are `Arc<str>` instead of `String`, so
-  a consumer can keep a name without copying its text, as the dependency analysis of `skif-js` now does; read them as
-  `&str` with `&*entry.name`, which also compares with a string (`&*entry.name == "react"`). The output is unchanged
-  ([#206](https://github.com/Goldziher/skif/issues/206)).
-- Under `[js] discovery = "git"` the toolchain scan (version files, Dockerfiles, shell scripts, workflows and the
-  `files` globs) and the search of `stray-lockfile` for Bazel `BUILD` files and Dockerfiles beside a lockfile list
-  directories from the git index, as the JS discovery does, instead of walking them; `auto` and `walk` walk as before
-  ([ADR 0121](adrs/0121-one-git-index-listing-for-every-provider.md),
-  [#200](https://github.com/Goldziher/skif/issues/200)).
-- The git index reader moves from `skif-js` to `skif-workspace`, which exports `TrackedFiles` (with `read` and
-  `for_discovery`), `IndexedFs<F>` (generic over the wrapped file system), `IndexCache`, `git_dirs` and
-  `git_common_dir`. `skif-lint` gains `LintContext::tracked_files`, `LintContext::listing_fs`,
-  `LintContext::index_cache` and `RunOptions::with_index_cache`; the JS provider reads the index through the run's
-  cache when the host passes one, and the `skif` facade's `Linter` does, so a run parses the index once
-  ([ADR 0121](adrs/0121-one-git-index-listing-for-every-provider.md)).
-- `skif-bench parity` sets apart six more known deviations, so the parity baseline is recorded again:
-  `imported-by-knip-unused-file` and `imported-by-skif-unused-file` (an export or member only one tool reports that
-  only files that tool lists as unused import, through re-exports), `entry-module-duplicate` (a duplicate only knip
-  reports in a default entry or published source, which `duplicate-exports` skips), `bazel-build-file` (a dependency a
-  Bazel `BUILD` file names, and an unlisted finding at such a file), `declaration-file` (a `.d.ts` file only knip
-  reports unused) and `signature-type` (a type or export a used export's signature names, ADR 0029).
-  `published-source` maps published paths through the tsconfig `outDir` and `rootDir` of the package and covers the
-  exports, types and members of the published sources; `not-judged-by-skif` applies the narrowed scope of an
-  enclosing incomplete package to the members below it; `non-member-project` covers skif-only unused files, unlisted
-  dependencies and binaries, and the exports of a nested root's default entries. An import one tool reports as
-  unlisted and the other as unresolved counts as shared.
-- `skif-bench parity` reads the `BUILD` files below a `coverage`, `out` or `target` directory that is not directly in
-  the root or a package directory, as skif's file discovery does, so the dependencies they name are `bazel-build-file`.
-- `skif-bench parity` counts a dependency only knip reports unused as `bazel-build-file` when it is a peer dependency
-  of a dependency a `BUILD` file credits, as skif credits the peers of a used package.
-- The n8n parity corpus entry also generates `@n8n/db`'s gitignored migration indexes after its build, so knip no
-  longer reports the migrations they list as unused files.
-- The `knip-config-error` description in `parity.md` says that files of other packages only a failed configuration's
-  entries reach stay compared (next-js's root `jest.config.js`).
-
-### Fixed
-
-- A package that a workflow step, a tool config's command or a source file loads after `cd <dir>`
-  (`run: cd packages/web && node -r @x/register x.js`) is needed by the workspace package in that directory, not by
-  the package where the command starts. A step's `working-directory` (its own, or the `defaults.run` of its job or
-  workflow), an Azure Pipelines `workingDirectory` and the `cwd` of a tool's command are read as a leading `cd`, so the
-  binaries and packages of such a step are credited to the package there
-  ([ADR 0120](adrs/0120-working-directories-binaries-missing-where-a-command-runs-and-npm-s-linked-strategy.md),
-  [#147](https://github.com/Goldziher/skif/issues/147)).
-- `unlisted-binaries` reports a binary that a script, a workflow step or a source file runs after `cd` into another
-  workspace package that does not provide it, at the command and naming the package
-  (``script `a` runs `x` in `packages/web`, which no dependency of `web` provides``); a script of that package that a
-  package manager runs there is not a binary. After `cd` into a project of its own below the workspace (a directory
-  with a `package.json` that is no workspace member, such as a nested root of `skif -r`), the binary is judged against
-  that project's manifest
-  ([ADR 0120](adrs/0120-working-directories-binaries-missing-where-a-command-runs-and-npm-s-linked-strategy.md),
-  [#163](https://github.com/Goldziher/skif/issues/163)).
-- Under npm with `install-strategy=linked` in the root `.npmrc`, a member's binary satisfies only the packages that
-  list the member, as under pnpm's isolated linker
-  ([ADR 0120](adrs/0120-working-directories-binaries-missing-where-a-command-runs-and-npm-s-linked-strategy.md),
-  [#162](https://github.com/Goldziher/skif/issues/162)).
-
-### Added
-
-- `stale-lerna-config` (`warn`): `useWorkspaces` in `lerna.json` and a `lerna.json` without `version`, which Lerna 7
-  and later reject, and scripts that run `lerna bootstrap`, `lerna add` or `lerna link`, which Lerna 9 removed. The
-  Lerna release is read from `node_modules/lerna`, else from the root `package.json`; without one nothing is reported
-  ([ADR 0119](adrs/0119-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#189](https://github.com/Goldziher/skif/issues/189)).
-- `lerna-packages-mismatch` (`warn`): the `packages` of `lerna.json`, which Lerna reads before the package manager's
-  workspaces, select other packages than the workspace declaration skif follows; the finding names both lists and the
-  packages only one selects ([ADR 0119](adrs/0119-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#190](https://github.com/Goldziher/skif/issues/190)).
-- `DiscoveryFacts::lerna` records a valid root `lerna.json` (`LernaFacts`) also when another file declares the
-  members.
-
-### Changed
-
-- `unused-dependencies` and `unused-dev-dependencies` no longer report a dependency on a workspace member that has no
-  `main`, `module`, `exports`, `bin`, `browser`, `types` or `typings` and no source file (a tooling, asset or style
-  package): such a dependency only orders tasks, as Turborepo's `^build` and Nx's task dependencies do
-  ([ADR 0119](adrs/0119-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#191](https://github.com/Goldziher/skif/issues/191)).
-
-### Fixed
-
-- A recursive run no longer lints the output of `turbo prune --docker` as two extra roots: below the start path, the
-  `json` and `full` trees of a directory without a `package.json` that holds a lockfile next to them are skipped
-  ([ADR 0119](adrs/0119-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#194](https://github.com/Goldziher/skif/issues/194)).
-- `missing-package-manifest` no longer reports an Nx project (a directory with a `project.json`) or a grouping
-  directory whose content is only directories the patterns select too, such as `libs/cart` under
-  `["libs/*", "libs/*/*"]` ([ADR 0119](adrs/0119-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md), [#192](https://github.com/Goldziher/skif/issues/192)).
-- **Scripts**: the command of `lerna exec [flags] [--] <cmd>` and `nx exec [flags] -- <cmd>` is walked as a command
-  of the package, as `pnpm -r exec` is: `lerna exec -- rimraf dist` uses `rimraf`, and an unlisted binary there is
-  reported. `lerna run` and `nx run` keep reading task names
-  ([#187](https://github.com/Goldziher/skif/issues/187)).
-- **Cypress**: an `e2e` config that spreads Nx's `nxE2EPreset()` has the preset's `supportFile` and `specPattern`
-  (`src/support/e2e.{js,ts}` and `src/**/*.cy.{js,jsx,ts,tsx}`, below `cypressDir`), so the support files of Nx e2e
-  projects are no longer unused
-  ([ADR 0118](adrs/0118-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md),
-  [#188](https://github.com/Goldziher/skif/issues/188)).
+- **Bazel**: in a Bazel repository the JS analysis no longer reads the `bazel-*` output trees, whose contents depend on
+  the last build: an import that reaches a file there is generated code, and a relative import of a missing file that
+  the nearest `BUILD` file declares as an output (`outs`, `out`, `stdout`, `out_dirs`, `out_dir`) is not unresolved,
+  whether or not `rootDirs` point into `bazel-bin` and whatever was built. An import that no `BUILD` file declares is
+  unresolved in every state ([ADR 0115](adrs/0115-bazel-build-files-and-output-trees-in-the-js-analysis.md),
+  [#170](https://github.com/Goldziher/skif/issues/170)).
+- **Bazel**: `unlisted-binaries` no longer reports `bazel`, `bazelisk` and `ibazel`: they are build tools of the
+  machine, as `docker` and `make` are, unless `ignore-global-binaries` is off. A listed `@bazel/bazelisk` or
+  `@bazel/ibazel` is still used by the scripts that run them ([#172](https://github.com/Goldziher/skif/issues/172)).
+- **Bazel**: `nested-workspace-root` reports a workspace member inside a Bazel convenience link (`bazel-<name>`,
+  `bazel-bin`), which a `*` or glob segment of a pattern follows as pnpm's does, once with the detail
+  `BazelConvenienceLink` and `!bazel-*` as the pattern to add. The member stays in the workspace but is excluded from
+  analysis, so the root's findings are no longer repeated under `bazel-<name>/` ([ADR
+  0116](adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
+  [#174](https://github.com/Goldziher/skif/issues/174)).
+- **Bazel**: `stray-lockfile` sees more Bazel consumers of a member lockfile: a label inside a longer string where
+  `$(location ...)`, `$(execpath ...)` or another location function expands it (a `genrule`'s `cmd`), and a `glob(...)`
+  of the lockfile's package whose include patterns match it and whose exclude patterns do not; a docstring no longer
+  counts as a label ([#199](https://github.com/Goldziher/skif/issues/199)). It no longer reports a member lockfile that
+  only another package's `BUILD` file names, or a macro such a file loads: when the files Bazel reads for a lockfile do
+  not name it, the Bazel repository is listed for its `BUILD` files, skipping hidden directories, `node_modules`,
+  symbolic links and `.bazelignore`d directories ([ADR
+  0116](adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
+  [#198](https://github.com/Goldziher/skif/issues/198)).
+- **Bazel**: under `bazel test` (`TEST_TMPDIR` set), `--cache` without `--cache-location` keeps its store in
+  `$TEST_TMPDIR/skif` instead of writing `node_modules/.cache/skif` into Bazel's output tree through the runfiles links
+  ([ADR 0117](adrs/0117-the-cache-default-under-bazel-test.md), [#177](https://github.com/Goldziher/skif/issues/177)),
+  and `skif explain-usage` finds a file below a linked directory (`bazel-bin`) by its path through the link, as the lint
+  report names it, instead of failing with the canonical path as outside the workspace
+  ([#176](https://github.com/Goldziher/skif/issues/176)).
+- `stray-lockfile` also sees a Dockerfile elsewhere built from a member's directory: a
+  `docker build -f <file> <context>` (also `docker buildx build`, `podman build`) in a script or workflow, or a Compose
+  file's `build.context`, gives that Dockerfile the member's directory as its context
+  ([#199](https://github.com/Goldziher/skif/issues/199)).
 - **Nx**: local plugins, executors and generators are followed. A `plugins` entry, `executor` or generator that is a
   path relative to the workspace root or a `paths` alias of the root `tsconfig.base.json` is no longer an unlisted
-  package; a local plugin's module is an entry, and the `implementation`, `batchImplementation` and `factory` files
-  of the `executors`, `builders`, `generators` and `schematics` collections its `package.json` names (or a workspace
-  package's own) are entries
-  ([ADR 0118](adrs/0118-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md),
-  [#185](https://github.com/Goldziher/skif/issues/185)).
-
-### Removed
-
-- `skif_js_plugins::scripts::ScriptInfo::turbo_tasks`: the task names passed to `turbo` were collected but never
-  read; `turbo` arguments are still never taken for binaries or files
-  ([#193](https://github.com/Goldziher/skif/issues/193)).
-
-### Fixed
-
-- **Nx**: in a project scope (ADR 0109) whose `project.json` targets run a tool's Nx executor (`@nx/vite:build`,
-  `@nrwl/vite:*`), the tool's plugin runs without a config file and applies its config-less conventions: Vite's
-  `index.html` makes `src/main.tsx` an entry
-  ([ADR 0118](adrs/0118-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md),
-  [#202](https://github.com/Goldziher/skif/issues/202)).
-- `skif explain-usage --dependency <NAME> [--package <NAME|DIR>]` explains why a dependency is used or unused in each
-  package that lists it: the verdict `unused-dependencies` reaches and the importing files, mocks, commands, binaries,
-  scripts, plugins and tool configs that credit it, or the imports that count for nothing; `--format json` prints the
-  same `report` document as the file explanation. The verdict and the evidence come from one record of uses
-  ([#150](https://github.com/Goldziher/skif/issues/150)).
-
-### Fixed
-
-- `skif config` accepts `--config <FILE>` and `--no-config`, so `--show` and `--explain` report the configuration a
-  lint run with the same flag uses; with `-r` and `--config` each root below the start names the directory the file's
+  package; a local plugin's module is an entry, and the `implementation`, `batchImplementation` and `factory` files of
+  the `executors`, `builders`, `generators` and `schematics` collections its `package.json` names (or a workspace
+  package's own) are entries ([#185](https://github.com/Goldziher/skif/issues/185)). In a project scope (ADR 0109) whose
+  `project.json` targets run a tool's Nx executor (`@nx/vite:build`, `@nrwl/vite:*`), the tool's plugin runs without a
+  config file and applies its config-less conventions: Vite's `index.html` makes `src/main.tsx` an entry
+  ([#202](https://github.com/Goldziher/skif/issues/202)). A Cypress `e2e` config that spreads Nx's `nxE2EPreset()` has
+  the preset's `supportFile` and `specPattern` (`src/support/e2e.{js,ts}` and `src/**/*.cy.{js,jsx,ts,tsx}`, below
+  `cypressDir`), so the support files of Nx e2e projects are no longer unused ([ADR
+  0118](adrs/0118-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md),
+  [#188](https://github.com/Goldziher/skif/issues/188)).
+- **Scripts**: the command of `lerna exec [flags] [--] <cmd>` and `nx exec [flags] -- <cmd>` is walked as a command of
+  the package, as `pnpm -r exec` is: `lerna exec -- rimraf dist` uses `rimraf`, and an unlisted binary there is
+  reported. `lerna run` and `nx run` keep reading task names ([#187](https://github.com/Goldziher/skif/issues/187)).
+- **Turborepo and workspaces**: a recursive run no longer lints the output of `turbo prune --docker` as two extra roots:
+  below the start path, the `json` and `full` trees of a directory without a `package.json` that holds a lockfile next
+  to them are skipped ([#194](https://github.com/Goldziher/skif/issues/194)). `missing-package-manifest` no longer
+  reports an Nx project (a directory with a `project.json`) or a grouping directory whose content is only directories
+  the patterns select too, such as `libs/cart` under `["libs/*", "libs/*/*"]` ([ADR
+  0119](adrs/0119-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md),
+  [#192](https://github.com/Goldziher/skif/issues/192)).
+- `skif config` accepts `--config <FILE>` and `--no-config`, so `--show` and `--explain` report the configuration a lint
+  run with the same flag uses; with `-r` and `--config` each root below the start names the directory the file's
   `[js.workspaces]` keys select it by ([#149](https://github.com/Goldziher/skif/issues/149)).
-- `skif explain-usage` finds a file below a linked directory (Bazel's `bazel-bin`) by its path through the link, as
-  the lint report names it, instead of failing with the canonical path as outside the workspace
-  ([#176](https://github.com/Goldziher/skif/issues/176)).
-- Under `bazel test` (`TEST_TMPDIR` set), `--cache` without `--cache-location` keeps its store in
-  `$TEST_TMPDIR/skif` instead of writing `node_modules/.cache/skif` into Bazel's output tree through the runfiles links
-  ([ADR 0117](adrs/0117-the-cache-default-under-bazel-test.md), [#177](https://github.com/Goldziher/skif/issues/177)).
-- `nested-workspace-root` reports a workspace member inside a Bazel convenience link (`bazel-<name>`, `bazel-bin`),
-  which a `*` or glob segment of a pattern follows as pnpm's does, once with the detail `BazelConvenienceLink` and
-  `!bazel-*` as the pattern to add. The member stays in the workspace but is excluded from analysis, so the root's
-  findings are no longer repeated under `bazel-<name>/`
-  ([ADR 0116](adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
-  [#174](https://github.com/Goldziher/skif/issues/174)).
-- `toolchain-pin-drift` reads the root's `MODULE.bazel`, `WORKSPACE.bazel` and `WORKSPACE`, a new `bazel` kind read by
-  default: the `pnpm_version` of `pnpm.pnpm(...)` and `npm_translate_lock(...)` (rules_js) and the `node_version` of
-  `node.toolchain(...)` and `nodejs_register_toolchains(...)` (rules_nodejs) are checked against `packageManager` and
-  the root's Node version, statically. A `files` glob also reads `.bzl` and `*.MODULE.bazel` files
-  ([ADR 0116](adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
-  [#175](https://github.com/Goldziher/skif/issues/175)).
-- `stray-lockfile` sees more Bazel consumers of a member lockfile: a label inside a longer string where
-  `$(location ...)`, `$(execpath ...)` or another location function expands it (a `genrule`'s `cmd`), and a
-  `glob(...)` of the lockfile's package whose include patterns match it and whose exclude patterns do not; a docstring
-  no longer counts as a label ([ADR 0116](adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
-  [#199](https://github.com/Goldziher/skif/issues/199)).
-- `stray-lockfile` also sees a Dockerfile elsewhere built from a member's directory: a `docker build -f <file>
-  <context>` (also `docker buildx build`, `podman build`) in a script or workflow, or a Compose file's
-  `build.context`, gives that Dockerfile the member's directory as its context
-  ([#199](https://github.com/Goldziher/skif/issues/199)).
-
-### Fixed
-
-- `stray-lockfile` no longer reports a member lockfile that only another package's `BUILD` file names, or a macro such
-  a file loads: when the files Bazel reads for a lockfile do not name it, the Bazel repository is listed for its
-  `BUILD` files, skipping hidden directories, `node_modules`, symbolic links and `.bazelignore`d directories
-  ([ADR 0116](adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
-  [#198](https://github.com/Goldziher/skif/issues/198)).
-- A `bazel` plugin for rules_js repositories: the `BUILD.bazel` and `BUILD` files of a package are scanned as Starlark
-  text. `node_modules` labels (`":node_modules/esbuild"`, `"//packages/app:node_modules/zod"`) and
-  `package_json.bzl` loads (`"@npm//packages/app:esbuild/package_json.bzl"`) use the dependency of the package they
-  name. The `entry_point` of `js_binary`, `js_run_devserver` and `js_test` is an entry with public exports. The
-  `srcs` and `data` of `js_library` and `ts_project`, and the `data` of the other three, are build sources: the files
-  are used and what they import is followed, but their exports are not public, so `unused-exports`, `unused-types`,
-  the member rules and `duplicate-exports` judge them as any module's. A file that an entry rule also matches stays
-  an entry, and a root `BUILD` file can name the sources of a member below it. Those of `js_test` are not used in
-  production mode. `skif-js-plugins` gains `PluginInput::BuildSource` and `ProductionBuildSource` and
-  `PluginOutput::build_sources` and `production_build_sources`; `WorkspaceInputs` gains `build_source` and
-  `production_build_source`; `UsageReport` gains `build_source` and `chain_from_build_source`, serialized as
-  `build-source` and `chain-from-build-source` when true, and `skif explain-usage` says when a file is a build source.
-  The table holds 206 plugins
-  ([ADR 0115](adrs/0115-bazel-build-files-and-output-trees-in-the-js-analysis.md),
-  [ADR 0124](adrs/0124-bazel-rule-sources-are-used-files-not-entries.md),
-  [#169](https://github.com/Goldziher/skif/issues/169)).
-
-### Fixed
-
-- `unlisted-binaries` no longer reports `bazel`, `bazelisk` and `ibazel`: they are build tools of the machine, as
-  `docker` and `make` are, unless `ignore-global-binaries` is off. A listed `@bazel/bazelisk` or `@bazel/ibazel` is
-  still used by the scripts that run them ([#172](https://github.com/Goldziher/skif/issues/172)).
-- In a Bazel repository the JS analysis no longer reads the `bazel-*` output trees, whose contents depend on the last
-  build: an import that reaches a file there is generated code, and a relative import of a missing file that the
-  nearest `BUILD` file declares as an output (`outs`, `out`, `stdout`, `out_dirs`, `out_dir`) is not unresolved,
-  whether or not `rootDirs` point into `bazel-bin` and whatever was built. An import that no `BUILD` file declares is
-  unresolved in every state
-  ([ADR 0115](adrs/0115-bazel-build-files-and-output-trees-in-the-js-analysis.md),
-  [#170](https://github.com/Goldziher/skif/issues/170)).
-
-### Changed
-
-- The GitHub Action is named `skif dependency linter`, because the GitHub Marketplace needs a name that no other action, user or organization holds. Workflows keep `uses: Goldziher/skif@v0.3`.
-- The benchmark results moved from the README to a [benchmarks page](https://goldziher.github.io/skif/guides/benchmarks/)
-  in the docs, with the speed tables, the accuracy and knip agreement results, a link to the `bench` workflow and its
-  run, and the methodology. The README and the comparison guide show generated headline claims instead (`bench:claims`:
-  each tool's range of median ratios to skif, rounded down), and `mise run bench:import` and `mise run parity:publish`
-  write the tables to the new page.
-- The docs gain a [Bazel guide](https://goldziher.github.io/skif/guides/bazel/) (what skif reads from `BUILD` and
-  `MODULE.bazel` files, fetching the release archives, `bazel run`, `bazel test` inputs, CI and the limits;
-  [#173](https://github.com/Goldziher/skif/issues/173)) and a
-  [Turborepo, Nx and Lerna guide](https://goldziher.github.io/skif/guides/turborepo-nx-lerna/) (what skif reads from
-  each, running it as a root task, task-ordering dependencies and the limits;
-  [#195](https://github.com/Goldziher/skif/issues/195)). The npm and Bun section no longer says that `run()` changes
-  directory under `bazel run`: only the package's `skif` bin does.
 
 ## [0.3.0] - 2026-11-11
 
