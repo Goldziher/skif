@@ -190,6 +190,48 @@ fn a_production_run_keeps_unmarked_entries_out_of_the_project() {
 }
 
 #[test]
+fn a_production_run_keeps_test_setup_files_out_of_the_project() {
+    let files = vec![
+        MANIFEST,
+        (
+            "packages/a/package.json",
+            r#"{"name":"@x/a","main":"src/index.ts","devDependencies":{"vitest":"3.0.0"}}"#,
+        ),
+        (
+            "packages/a/vitest.config.ts",
+            "import { defineConfig } from \"vitest/config\";\nexport default defineConfig({ test: { setupFiles: [\"./test-setup.ts\"] } });\n",
+        ),
+        ("packages/a/test-setup.ts", "export {};\n"),
+        ("packages/a/src/index.ts", "export {};\n"),
+        ("packages/a/src/orphan.ts", "export {};\n"),
+    ];
+    let normal = lint(&files, "");
+    assert_eq!(paths(&normal, "unused-files"), ["packages/a/src/orphan.ts"]);
+    // The setup file is a development entry of the `vitest` plugin: no production code, so no project file either.
+    let production = lint(&files, "[js]\nproduction = true\n");
+    assert_eq!(paths(&production, "unused-files"), ["packages/a/src/orphan.ts"]);
+}
+
+#[test]
+fn a_production_run_keeps_the_files_of_the_start_script() {
+    let files = vec![
+        MANIFEST,
+        (
+            "packages/a/package.json",
+            r#"{"name":"@x/a","type":"module","scripts":{"start":"node build.mjs --watch"}}"#,
+        ),
+        ("packages/a/build.mjs", "import \"./src/x.js\";\n"),
+        ("packages/a/src/x.js", "export {};\n"),
+        ("packages/a/src/orphan.js", "export {};\n"),
+    ];
+    let normal = lint(&files, "");
+    assert_eq!(paths(&normal, "unused-files"), ["packages/a/src/orphan.js"]);
+    // `start` runs the app, so knip keeps it in production mode and what it runs are production entries.
+    let production = lint(&files, "[js]\nproduction = true\n");
+    assert_eq!(paths(&production, "unused-files"), ["packages/a/src/orphan.js"]);
+}
+
+#[test]
 fn ignore_workspaces_skips_the_analysis_of_matching_packages() {
     let files = two_packages("export {};\n");
     assert_eq!(found(&lint(&files, ""), "unused-dependencies").len(), 2);
@@ -237,6 +279,29 @@ fn a_star_in_ignore_workspaces_does_not_cross_a_slash() {
     assert_eq!(paths(&ignored, "unused-files"), ["packages/a/nested/src/use.ts"]);
     let all = lint(&files, "[js]\nignore-workspaces = [\"packages/**\"]\n");
     assert_eq!(paths(&all, "unused-files"), none());
+}
+
+#[test]
+fn ignore_workspaces_takes_the_matched_directories_out_of_the_packages_above() {
+    let files = vec![
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["app","playground/ws"]}"#,
+        ),
+        ("app/package.json", r#"{"name":"app","main":"src/main.js"}"#),
+        ("app/src/main.js", "export {};\n"),
+        ("app/demo/loose.js", "export {};\n"),
+        ("playground/ws/package.json", r#"{"name":"ws"}"#),
+        ("playground/demo/loose.js", "export {};\n"),
+        ("stray.js", "export {};\n"),
+    ];
+    assert_eq!(
+        paths(&lint(&files, ""), "unused-files"),
+        ["app/demo/loose.js", "playground/demo/loose.js", "stray.js"]
+    );
+    // As in knip, a matched directory leaves every package above it, so the root's loose files there are not analysed.
+    let ignored = lint(&files, "[js]\nignore-workspaces = [\"playground/**\", \"app/demo\"]\n");
+    assert_eq!(paths(&ignored, "unused-files"), ["stray.js"]);
 }
 
 #[test]
@@ -312,6 +377,86 @@ fn paths_resolve_aliases_for_one_workspace() {
     assert_eq!(found(&aliased, "unlisted-dependencies"), none(), "{aliased:#?}");
     assert_eq!(found(&aliased, "unresolved-imports"), none(), "{aliased:#?}");
     assert_eq!(paths(&aliased, "unused-files"), none(), "{aliased:#?}");
+}
+
+/// A package `app` whose `src/main.js` imports `specifier`, with `src/services/index.js` and `lib/services/index.js`.
+fn services_workspace(specifier: &str) -> Vec<(&'static str, String)> {
+    vec![
+        (MANIFEST.0, MANIFEST.1.to_owned()),
+        (
+            "packages/app/package.json",
+            r#"{"name":"app","version":"1.0.0","private":true,"main":"src/main.js"}"#.to_owned(),
+        ),
+        (
+            "packages/app/src/main.js",
+            format!("import s from \"{specifier}\";\nconsole.log(s);\n"),
+        ),
+        ("packages/app/src/services/index.js", "export default 2;\n".to_owned()),
+        ("packages/app/lib/services/index.js", "export default 3;\n".to_owned()),
+    ]
+}
+
+fn lint_services(specifier: &str, paths_table: &str) -> Vec<Diagnostic> {
+    let files = services_workspace(specifier);
+    let files: Vec<(&str, &str)> = files.iter().map(|(path, text)| (*path, text.as_str())).collect();
+    lint(
+        &files,
+        &format!("[js.workspaces.\"packages/app\".paths]\n{paths_table}"),
+    )
+}
+
+#[test]
+fn paths_keys_match_with_a_wildcard_anywhere_as_in_tsconfig() {
+    for (specifier, paths_table) in [
+        ("services", "\"*\" = [\"./src/*\"]\n"),
+        ("services", "\"serv*\" = [\"./src/serv*\"]\n"),
+        ("services/index", "\"services/*\" = [\"./src/services/*\"]\n"),
+        ("services", "\"services\" = [\"./src/services\"]\n"),
+        ("services", "\"*\" = [\"./missing/*\", \"./src/*\"]\n"),
+    ] {
+        let diagnostics = lint_services(specifier, paths_table);
+        assert_eq!(
+            found(&diagnostics, "unlisted-dependencies"),
+            none(),
+            "{paths_table}: {diagnostics:#?}"
+        );
+        assert_eq!(
+            found(&diagnostics, "unresolved-imports"),
+            none(),
+            "{paths_table}: {diagnostics:#?}"
+        );
+        assert_eq!(
+            paths(&diagnostics, "unused-files"),
+            ["packages/app/lib/services/index.js"],
+            "{paths_table}: {diagnostics:#?}"
+        );
+    }
+}
+
+#[test]
+fn the_paths_key_with_the_longest_prefix_wins() {
+    for paths_table in [
+        "\"*\" = [\"./lib/*\"]\n\"serv*\" = [\"./src/serv*\"]\n",
+        "\"serv*\" = [\"./src/serv*\"]\n\"*\" = [\"./lib/*\"]\n",
+        "\"*\" = [\"./lib/*\"]\n\"services\" = [\"./src/services\"]\n",
+    ] {
+        let diagnostics = lint_services("services", paths_table);
+        assert_eq!(
+            paths(&diagnostics, "unused-files"),
+            ["packages/app/lib/services/index.js"],
+            "{paths_table}: {diagnostics:#?}"
+        );
+    }
+}
+
+#[test]
+fn a_wildcard_paths_key_does_not_map_relative_imports() {
+    let diagnostics = lint_services("./services/missing", "\"*\" = [\"./lib/*\"]\n");
+    assert_eq!(
+        found(&diagnostics, "unresolved-imports"),
+        ["packages/app/src/main.js: cannot resolve `./services/missing`"],
+        "{diagnostics:#?}"
+    );
 }
 
 #[test]

@@ -1,6 +1,6 @@
 //! Per-package analysis settings: configured, default and plugin-provided globs merged once.
 
-use skif_core::HashSet;
+use skif_core::{HashMap, HashSet};
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -283,6 +283,11 @@ impl WorkspaceKeys {
         anchored(self.anchor.as_deref(), &own_dir(package)).into_owned()
     }
 
+    /// `dir`, a directory relative to the root, as the keys and `ignore-workspaces` globs match it (see [`anchored`]).
+    pub(crate) fn anchored_dir<'d>(&self, dir: &'d str) -> Cow<'d, str> {
+        anchored(self.anchor.as_deref(), dir)
+    }
+
     /// The key, as written in `workspaces`, whose table configures `package`, as [`Self::table`] picks it.
     pub(crate) fn package_key<'a>(
         &self,
@@ -335,31 +340,6 @@ impl WorkspaceKeys {
             .map(|(text, _)| text)
             .collect()
     }
-}
-
-/// The `paths` map of a configuration as module aliases: `alias/*` becomes the prefix `alias` pointing at the target
-/// directory, one alias per target.
-fn path_aliases(paths: &IndexMap<String, Vec<String>>) -> Vec<PathAlias> {
-    let trim = |pattern: &str| {
-        let pattern = pattern
-            .strip_suffix("/*")
-            .or_else(|| pattern.strip_suffix('*'))
-            .unwrap_or(pattern);
-        pattern.trim_start_matches("./").to_owned()
-    };
-    paths
-        .iter()
-        .flat_map(|(alias, targets)| {
-            let find = trim(alias);
-            targets.iter().map(move |target| {
-                let target = trim(target);
-                PathAlias {
-                    find: find.clone(),
-                    target: Some(if target.is_empty() { ".".to_owned() } else { target }),
-                }
-            })
-        })
-        .collect()
 }
 
 /// Whether `setting` covers the kind of `export`.
@@ -452,6 +432,9 @@ pub(crate) struct PackageSetup {
     pub config_files: Vec<PathBuf>,
     /// Aliases declared by the package's tool configuration.
     pub aliases: Vec<PathAlias>,
+    /// The `paths` of the package's `[js.workspaces]` table: `tsconfig` patterns with their targets, relative to the
+    /// package directory, tried ahead of `aliases`.
+    pub paths: IndexMap<String, Vec<String>>,
     pub build_dirs: Vec<BuildDir>,
     /// Extra `exports` conditions that select source files.
     pub conditions: Vec<String>,
@@ -896,6 +879,13 @@ impl Setup {
                 .filter(|pattern| is_shared_pattern(pattern))
                 .cloned()
                 .collect();
+            // A tool's development entries (stories, tests, their setup files) are no production code: production
+            // mode leaves them out of the project, as knip does.
+            let development_entry = if production {
+                listed::non_production_entries(&plugin.entry)
+            } else {
+                Vec::new()
+            };
             let mut plugin_entry: Vec<String> = plugin.production_entry.clone();
             if !production {
                 plugin_entry.extend(plugin.entry.iter().cloned());
@@ -941,6 +931,7 @@ impl Setup {
             if production {
                 let mut exclusions = listed::production_exclusions(&plugin.project);
                 exclusions.extend(listed::non_production_entries(&user.entry));
+                exclusions.extend(development_entry);
                 exclusions.extend(
                     test_files()
                         .into_iter()
@@ -968,8 +959,6 @@ impl Setup {
             let mut ignore_dependencies = plugin.ignore_dependencies;
             ignore_dependencies.extend(plugin.virtual_modules);
             let ignore_binaries = plugin.ignore_binaries;
-            let mut aliases = path_aliases(&user.paths);
-            aliases.extend(plugin.aliases);
 
             let mut referenced_dependencies = plugin.dependencies;
             referenced_dependencies.extend(scripts.dependencies.iter().cloned());
@@ -1026,7 +1015,8 @@ impl Setup {
                 run_binaries: plugin.run_binaries,
                 scripts,
                 config_files: plugin.config_files,
-                aliases,
+                aliases: plugin.aliases,
+                paths: user.paths.clone(),
                 build_dirs: plugin.build_dirs,
                 conditions: plugin.conditions,
                 module_dirs: plugin.module_dirs,
@@ -1063,6 +1053,26 @@ impl Setup {
             gitignore: !js.no_gitignore,
             compilers,
         }
+    }
+
+    /// Whether the file `rel`, relative to the root, of the package in `owner_dir` (relative to the root, empty for the
+    /// root package) lies in a directory below the package that `ignore-workspaces` matches. As in knip, such a
+    /// directory leaves every package above it, so its loose files are not analysed. `verdicts` keeps the answer per
+    /// directory.
+    pub(crate) fn in_ignored_directory(
+        &self,
+        rel: &str,
+        owner_dir: &str,
+        verdicts: &mut HashMap<String, bool>,
+    ) -> bool {
+        rel.match_indices('/')
+            .map(|(end, _)| &rel[..end])
+            .filter(|dir| dir.len() > owner_dir.len())
+            .any(|dir| {
+                *verdicts
+                    .entry(dir.to_owned())
+                    .or_insert_with(|| self.ignore_workspaces.is_match(&self.workspace_keys.anchored_dir(dir)))
+            })
     }
 
     /// The TypeScript configuration of `package`: `[js] tsconfig` for the root, `tsconfig.json` otherwise.

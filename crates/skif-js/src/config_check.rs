@@ -140,6 +140,16 @@ pub(crate) fn validate(config: &Config) -> Problem {
                     "{key}.paths.\"{alias}\": an alias needs a name and at least one non-empty target"
                 ));
             }
+            // TypeScript rejects a pattern or a target with more than one `*`.
+            if let Some(pattern) = std::iter::once(alias)
+                .chain(targets)
+                .find(|pattern| pattern.matches('*').count() > 1)
+            {
+                return invalid(format!(
+                    "{key}.paths.\"{alias}\": `{pattern}` has more than one `*`; a pattern and each target may hold \
+                     at most one"
+                ));
+            }
         }
         plugin_globs(&format!("{key}.plugins"), &workspace.plugins)?;
     }
@@ -247,5 +257,30 @@ mod tests {
     #[test]
     fn empty_path_aliases_are_reported() {
         assert!(check("[js.workspaces.\"a\".paths]\n\"@/*\" = []\n").contains("paths.\"@/*\""));
+    }
+
+    #[test]
+    fn path_patterns_with_more_than_one_wildcard_are_reported() {
+        assert_eq!(
+            check("[js.workspaces.\"a\".paths]\n\"*/*\" = [\"./src/*\"]\n"),
+            check_message("js.workspaces.\"a\".paths.\"*/*\": `*/*` has more than one `*`")
+        );
+        assert_eq!(
+            check("[js.workspaces.\"a\".paths]\n\"@/*\" = [\"./src/*\", \"./*/x/*\"]\n"),
+            check_message("js.workspaces.\"a\".paths.\"@/*\": `./*/x/*` has more than one `*`")
+        );
+        for valid in ["*", "serv*", "services/*", "*.svg", "services"] {
+            let toml = format!("[js.workspaces.\"a\".paths]\n\"{valid}\" = [\"./src/*\"]\n");
+            assert!(validate(&Config::from_toml_str(&toml).unwrap()).is_ok(), "{valid}");
+        }
+    }
+
+    /// The text of the configuration error that a `paths` entry with more than one `*` gives, after `start`.
+    fn check_message(start: &str) -> String {
+        ConfigError::Invalid {
+            path: None,
+            message: format!("{start}; a pattern and each target may hold at most one"),
+        }
+        .to_string()
     }
 }

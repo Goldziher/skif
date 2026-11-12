@@ -59,6 +59,7 @@ pub mod jasmine;
 pub mod jest;
 pub mod karma;
 pub mod knex;
+pub mod knip;
 pub mod kysely_codegen;
 pub mod ladle;
 pub mod laravel_vite_plugin;
