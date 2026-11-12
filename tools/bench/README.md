@@ -211,7 +211,13 @@ neither side, so its dependencies stay compared: the harness parses those files 
 (`skif-js-syntax`) for their bare imports, requires, re-exports and dynamic imports. knip does not analyse such a
 file, so it never sees the import skif credits; the harness does not check that this import is the one skif counts.
 The mirror, a dependency only skif reports unused that a file of the same workspace only skif reports unused
-imports, is `used-in-skif-unused-file`, from the same import scan.
+imports, is `used-in-skif-unused-file`, from the same import scan. The same holds inside the files such a file
+imports: an export, type, namespace export or duplicate only knip reports is `imported-by-knip-unused-file` when a
+file only knip lists under `files` imports it by relative path, by name, through a namespace whose members it reads,
+or as a whole module (a namespace used as a whole, `import()`, `require`), directly or through the `export … from` and
+`export *` re-exports of the files in between (a star re-export forwards only the names the re-exporting file does not
+export itself). The mirror on skif's side is `imported-by-skif-unused-file`. Enum and namespace members stay
+compared: their key names the member, not the export an import reads.
 
 **Labels.** `exports`, `types`, `nsExports` and `nsTypes` key the same `<file>|<name>`, and the tools label some
 differently: knip calls a `const enum` a type and files an export under `nsExports` when any importer uses a namespace,
