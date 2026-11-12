@@ -104,6 +104,21 @@ All notable changes to this project are documented here. The format follows
   element is one of several known strings (Vitest and Jest setup files and test globs, Vite, Rollup, tsup and webpack
   entries) makes each an entry candidate: one that names no file is what another branch would give and is dropped,
   and the package is judged. An alternative that is not a known string still leaves it incomplete.
+- `unlisted-dependencies`: a peer dependency that a listed package marks optional (`peerDependenciesMeta.<name>.optional`
+  in its installed manifest, `optionalPeers` in `bun.lock`, the same field in the other lockfiles) no longer provides
+  an unlisted import of it, because the package manager does not install an optional peer for its host. A required
+  peer still does; crediting a listed dependency as a peer of a used one is unchanged
+  ([#96](https://github.com/Goldziher/skif/issues/96)).
+- **JS**: `.d.mts` and `.d.cts` files are declaration files wherever `.d.ts` files are: a declaration file outside
+  the module graph is left out of `unused-files` and its `declare module` blocks name ambient modules, `explain-usage`
+  gives it the `declaration-file` absence, and the AWS CDK and Knex plugins skip it when scanning sources. Before,
+  those checks named `.d.ts` only. `skif-js-syntax` gains `is_declaration_file` and `DECLARATION_SUFFIXES`
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
+- `explain-usage`: a file that the narrowed incomplete scope of an enclosing package makes an entry (a root test
+  config whose globs reach the files of the members below it, ADR 0081) has the entry kind
+  `enclosing-incomplete-scope`, with that package's directory in `scope-package` and its scope and reasons in
+  `incomplete-scope` and `incomplete`, instead of `unknown`. `skif_js::EntryReason` gains `EnclosingIncompleteScope`
+  and `UsageReport` gains `scope_package` ([#165](https://github.com/Goldziher/skif/issues/165)).
 
 ### Changed
 

@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use serde_json::Value;
 use skif_core::{DependencyKind, FileSystem, Span};
 use skif_js_plugins::scripts::{ScriptContext, is_ignored_binary, parse_script};
-use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object, place_file_dir};
+use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object, is_declaration_file, place_file_dir};
 use skif_specifier::Specifier;
 use skif_workspace::{Package, PackageId, PackageManager, Workspace, map_ordered, npmrc_entries};
 
@@ -21,7 +21,7 @@ use crate::graph::{ModuleGraph, ModuleId, Target};
 use crate::hoisting::PublicHoisting;
 use crate::input::ConfigDependency;
 use crate::lockfile;
-use crate::resolve::{DECLARATION_SUFFIXES, is_installed};
+use crate::resolve::is_installed;
 use crate::scripts::{ScriptBinary, script_context};
 use crate::setup::{Setup, package_dirs, package_in_dir, placed_dir};
 use crate::specifier::{RUNTIME_PACKAGES, bin_link, package_name, typed_package, types_package};
@@ -320,13 +320,6 @@ struct ImportSite<'s> {
     declaration: bool,
 }
 
-/// Whether `path` is a TypeScript declaration file.
-fn is_declaration_file(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| DECLARATION_SUFFIXES.iter().any(|suffix| name.ends_with(suffix)))
-}
-
 /// An import of a package the manifest does not list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -406,6 +399,8 @@ pub struct UnlistedConfigDependency {
 pub(crate) struct Installed {
     pub(crate) bins: Vec<String>,
     pub(crate) peers: Vec<String>,
+    /// The peers of `peers` that are optional: the package manager does not install them for the package.
+    pub(crate) optional_peers: Vec<String>,
     /// The `version` of its manifest; `None` when it has none, and for a package known only from the lockfile, whose
     /// packages are read without one.
     pub(crate) version: Option<String>,
@@ -426,6 +421,20 @@ pub(crate) fn peers_of(manifest: &Value) -> Vec<String> {
         .get("peerDependencies")
         .and_then(Value::as_object)
         .map(|map| map.keys().cloned().collect())
+        .unwrap_or_default()
+}
+
+/// The names `peerDependenciesMeta` marks `optional`.
+pub(crate) fn optional_peers_of(manifest: &Value) -> Vec<String> {
+    manifest
+        .get("peerDependenciesMeta")
+        .and_then(Value::as_object)
+        .map(|meta| {
+            meta.iter()
+                .filter(|(_, entry)| entry.get("optional").and_then(Value::as_bool) == Some(true))
+                .map(|(name, _)| name.clone())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -649,6 +658,7 @@ fn parse_installed(fs: &dyn FileSystem, dir: &Path, text: &str, name: &str) -> O
     Some(Arc::new(Installed {
         bins,
         peers: peers_of(&value),
+        optional_peers: optional_peers_of(&value),
         version: version_of(&value),
     }))
 }
@@ -1044,7 +1054,11 @@ pub struct DependencyUsage {
     /// [`Self::collect_outside_imports`]), and those providing a binary that a command runs after `cd` into a project
     /// of its own below the root, with that project's directory (see [`Self::provide_project_binary`]).
     outside_used: BTreeSet<(PathBuf, String)>,
+    /// For every package, the peer dependencies of its listed dependencies, each with the dependencies declaring it.
     hosts: Vec<HashMap<String, Vec<String>>>,
+    /// For every package, the peers of `hosts` that at least one of its listed dependencies does not mark optional:
+    /// whoever installs that dependency installs them too.
+    required_peers: Vec<HashSet<String>>,
     bins: Vec<HashMap<String, Vec<String>>>,
     /// The workspace members that declare each binary, with their id and name.
     member_bins: BTreeMap<String, Vec<(PackageId, String)>>,
@@ -1126,6 +1140,7 @@ impl DependencyUsage {
             other_jsx_runtime: vec![false; count],
             ancestors: package_ancestors(workspace, setup.isolate_workspaces),
             hosts: vec![HashMap::default(); count],
+            required_peers: vec![HashSet::default(); count],
             bins: vec![HashMap::default(); count],
             members: workspace.all_packages().filter_map(|p| p.name.clone()).collect(),
             rush: fs.is_file(&workspace.root.join(RUSH_JSON)),
@@ -1171,6 +1186,7 @@ impl DependencyUsage {
                 let installed = Installed {
                     bins: bins_of(manifest, &name),
                     peers: peers_of(manifest),
+                    optional_peers: optional_peers_of(manifest),
                     version: version_of(manifest),
                 };
                 Some((name, Arc::new(installed)))
@@ -1216,6 +1232,9 @@ impl DependencyUsage {
                         .entry(peer.clone())
                         .or_default()
                         .push(name.clone());
+                    if !installed.optional_peers.contains(peer) {
+                        self.required_peers[id.index()].insert(peer.clone());
+                    }
                 }
             }
         }
@@ -1392,7 +1411,7 @@ impl DependencyUsage {
             if module.foreign || setup.package(module.owner).is_none() {
                 continue;
             }
-            let declaration = is_declaration_file(&module.abs);
+            let declaration = module.abs.to_str().is_some_and(is_declaration_file);
             self.via = Use::Import(module.id);
             for resolved in &module.imports {
                 if let Some(name) = &resolved.package {
@@ -1579,13 +1598,13 @@ impl DependencyUsage {
         {
             return true;
         }
-        // A peer dependency of a listed package is provided by whoever installs that package; strict mode, like
-        // knip's, does not count on that.
+        // A peer dependency of a listed package is provided by whoever installs that package, unless it is optional,
+        // which the package manager leaves out; strict mode, like knip's, does not count on that.
         let scopes = std::iter::once(owner).chain(self.ancestors[owner.index()].iter().copied());
         if !self.strict
             && scopes
                 .into_iter()
-                .any(|scope| self.hosts[scope.index()].contains_key(name))
+                .any(|scope| self.required_peers[scope.index()].contains(name))
         {
             return true;
         }

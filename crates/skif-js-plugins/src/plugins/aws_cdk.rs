@@ -1,7 +1,7 @@
 //! AWS CDK: the `app` command of `cdk.json` and of `cdk -a "<command>"` is a script whose file is the entry, and so is
 //! the `entry` of each `NodejsFunction` construct.
 
-use skif_js_syntax::extract_constructor_options;
+use skif_js_syntax::{extract_constructor_options, is_declaration_file};
 
 use crate::files::find_files;
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
@@ -60,7 +60,7 @@ fn lambda_entries(cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let Ok(text) = cx.fs.read_to_string(&path) else {
             continue;
         };
-        if source.ends_with(".d.ts") || !text.contains("NodejsFunction") {
+        if is_declaration_file(&source) || !text.contains("NodejsFunction") {
             continue;
         }
         let dir = source.rsplit_once('/').map_or("", |(dir, _)| dir);

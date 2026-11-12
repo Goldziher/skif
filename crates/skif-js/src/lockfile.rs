@@ -8,12 +8,13 @@ use std::sync::Arc;
 use serde_json::Value;
 use skif_core::FileSystem;
 
-use crate::deps::{Installed, bins_of, peers_of};
+use crate::deps::{Installed, bins_of, optional_peers_of, peers_of};
 
 #[derive(Default)]
 struct Entry {
     bins: BTreeSet<String>,
     peers: BTreeSet<String>,
+    optional_peers: BTreeSet<String>,
 }
 
 type Entries = HashMap<String, Entry>;
@@ -21,7 +22,7 @@ type Entries = HashMap<String, Entry>;
 /// What the lockfile of a workspace records.
 #[derive(Default)]
 pub(crate) struct Locked {
-    /// The binaries and peer dependencies each locked package declares, by package name.
+    /// The binaries and (optional) peer dependencies each locked package declares, by package name.
     pub packages: HashMap<String, Arc<Installed>>,
     /// The `configVersion` of `bun.lock`, which sets the linker Bun defaults to; `None` without a `bun.lock`, or when
     /// it records none or does not parse.
@@ -57,6 +58,7 @@ pub(crate) fn read(fs: &dyn FileSystem, root: &Path) -> Locked {
             let installed = Installed {
                 bins: entry.bins.into_iter().collect(),
                 peers: entry.peers.into_iter().collect(),
+                optional_peers: entry.optional_peers.into_iter().collect(),
                 version: None,
             };
             (name, Arc::new(installed))
@@ -99,12 +101,15 @@ fn pnpm(text: &str) -> Entries {
     #[derive(PartialEq)]
     enum Section {
         Peers,
+        PeersMeta,
         Other,
     }
     let mut entries = Entries::default();
     let mut in_packages = false;
     let mut current: Option<String> = None;
     let mut section = Section::Other;
+    // The peer whose `peerDependenciesMeta` entry is being read.
+    let mut meta_peer: Option<String> = None;
     for line in text.lines() {
         let body = line.trim();
         if body.is_empty() || body.starts_with('#') {
@@ -124,10 +129,10 @@ fn pnpm(text: &str) -> Entries {
                 section = Section::Other;
             }
             4 if in_packages => {
-                section = if body == "peerDependencies:" {
-                    Section::Peers
-                } else {
-                    Section::Other
+                section = match body {
+                    "peerDependencies:" => Section::Peers,
+                    "peerDependenciesMeta:" => Section::PeersMeta,
+                    _ => Section::Other,
                 };
                 if body == "hasBin: true"
                     && let Some(name) = &current
@@ -144,10 +149,28 @@ fn pnpm(text: &str) -> Entries {
                     entries.entry(name.clone()).or_default().peers.insert(peer.to_owned());
                 }
             }
+            6 if in_packages && section == Section::PeersMeta => {
+                meta_peer = yaml_key(body).map(str::to_owned);
+            }
+            8 if in_packages && section == Section::PeersMeta && is_optional_flag(body) => {
+                if let (Some(name), Some(peer)) = (&current, &meta_peer) {
+                    entries
+                        .entry(name.clone())
+                        .or_default()
+                        .optional_peers
+                        .insert(peer.clone());
+                }
+            }
             _ => {}
         }
     }
     entries
+}
+
+/// Whether a YAML lockfile line under a `peerDependenciesMeta` entry marks the peer optional.
+fn is_optional_flag(body: &str) -> bool {
+    body.split_once(':')
+        .is_some_and(|(key, value)| key.trim() == "optional" && value.trim() == "true")
 }
 
 fn npm(text: &str) -> Entries {
@@ -165,6 +188,7 @@ fn npm(text: &str) -> Entries {
         let entry = entries.entry(name.to_owned()).or_default();
         entry.bins.extend(bins_of(package, name));
         entry.peers.extend(peers_of(package));
+        entry.optional_peers.extend(optional_peers_of(package));
     }
     entries
 }
@@ -190,6 +214,14 @@ fn bun(value: &Value) -> Entries {
         if let Some(meta) = parts.iter().find(|part| part.is_object()) {
             entry.bins.extend(bins_of(meta, name));
             entry.peers.extend(peers_of(meta));
+            entry.optional_peers.extend(
+                meta.get("optionalPeers")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned),
+            );
         }
     }
     entries
@@ -204,6 +236,7 @@ fn yarn(text: &str) -> Entries {
     #[derive(PartialEq)]
     enum Section {
         Peers,
+        PeersMeta,
         Bins,
         Other,
     }
@@ -213,6 +246,8 @@ fn yarn(text: &str) -> Entries {
     }
     let mut current: Option<String> = None;
     let mut section = Section::Other;
+    // The peer whose `peerDependenciesMeta` entry is being read.
+    let mut meta_peer: Option<String> = None;
     for line in text.lines() {
         let body = line.trim();
         if body.is_empty() || body.starts_with('#') {
@@ -235,6 +270,7 @@ fn yarn(text: &str) -> Entries {
             2 => {
                 section = match body {
                     "peerDependencies:" => Section::Peers,
+                    "peerDependenciesMeta:" => Section::PeersMeta,
                     "bin:" => Section::Bins,
                     _ => Section::Other,
                 };
@@ -249,8 +285,18 @@ fn yarn(text: &str) -> Entries {
                         Section::Bins => {
                             entry.bins.insert(key.to_owned());
                         }
+                        Section::PeersMeta => meta_peer = Some(key.to_owned()),
                         Section::Other => {}
                     }
+                }
+            }
+            6 if section == Section::PeersMeta && is_optional_flag(body) => {
+                if let (Some(name), Some(peer)) = (&current, &meta_peer) {
+                    entries
+                        .entry(name.clone())
+                        .or_default()
+                        .optional_peers
+                        .insert(peer.clone());
                 }
             }
             _ => {}
@@ -279,8 +325,51 @@ mod tests {
             react.peers.iter().map(String::as_str).collect::<Vec<_>>(),
             ["@testing-library/dom", "react"]
         );
+        assert_eq!(
+            react.optional_peers.iter().map(String::as_str).collect::<Vec<_>>(),
+            ["@types/react"]
+        );
         assert_eq!(entries["oxlint"].bins.iter().next().map(String::as_str), Some("oxlint"));
         assert!(!entries.contains_key("other"));
+    }
+
+    #[test]
+    fn lockfiles_record_optional_peers() {
+        let pnpm_lock = pnpm(
+            "lockfileVersion: '9.0'\n\npackages:\n\n  runner@1.0.0:\n    resolution: {integrity: sha512-x}\n    \
+             peerDependencies:\n      otel: ^1.9.0\n      ui: ^1.0.0\n    peerDependenciesMeta:\n      otel:\n        \
+             optional: true\n      ui:\n        optional: false\n",
+        );
+        let npm_lock = npm(
+            r#"{"packages":{"node_modules/runner":{"peerDependencies":{"otel":"^1.9.0","ui":"1"},
+              "peerDependenciesMeta":{"otel":{"optional":true},"ui":{"optional":false}}}}}"#,
+        );
+        let bun_lock = bun(&parse_bun(
+            r#"{"lockfileVersion":1,"packages":{"runner":["runner@1.0.0","",{"peerDependencies":{"otel":"^1.9.0","ui":"1",},"optionalPeers":["otel"],},"sha512-x"],}}"#,
+        ));
+        let yarn_lock = yarn(
+            "__metadata:\n  version: 8\n\n\"runner@npm:^1.0.0\":\n  version: 1.0.0\n  peerDependencies:\n    \
+             otel: ^1.9.0\n    ui: ^1.0.0\n  peerDependenciesMeta:\n    otel:\n      optional: true\n    ui:\n      \
+             optional: false\n  checksum: abc\n",
+        );
+        for (lockfile, entries) in [
+            ("pnpm", pnpm_lock),
+            ("npm", npm_lock),
+            ("bun", bun_lock),
+            ("yarn", yarn_lock),
+        ] {
+            let runner = &entries["runner"];
+            assert_eq!(
+                runner.peers.iter().map(String::as_str).collect::<Vec<_>>(),
+                ["otel", "ui"],
+                "{lockfile}"
+            );
+            assert_eq!(
+                runner.optional_peers.iter().map(String::as_str).collect::<Vec<_>>(),
+                ["otel"],
+                "{lockfile}"
+            );
+        }
     }
 
     #[test]

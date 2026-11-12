@@ -271,6 +271,17 @@ keeps the file it names in use, and a relative or aliased mock of a file that do
 `stale-mocks`, an error that knip has no counterpart for (`skif migrate --profile exact` turns it off). Such a mock
 is not an `unresolved-imports` finding, so unresolved imports compare with knip's `unresolved`.
 
+skif never reports a declaration file (`.d.ts`, `.d.mts`, `.d.cts`) as an unused file: TypeScript loads ambient
+declarations without an import, and a published package's typings are read by its consumers, so every declaration
+file is an entry. knip reports one that nothing imports.
+
+A namespace passed as an argument is a use of the whole module in both tools, with one exception in skif: a
+test-runner spy with a literal member name (`vi.spyOn(ns, "a")`, `jest.spyOn(ns, "a")`, Jasmine's `spyOn(ns, "a")`)
+reads member `a` only, as `ns.a` does
+([ADR 0079](https://github.com/Goldziher/skif/blob/main/adrs/0079-namespace-reads-through-spies-and-imports-awaited-together.md)).
+knip counts such a spy as a use of every export, so skif reports the exports that nothing else reads and knip does
+not.
+
 knip merges the tsconfig `paths` of every workspace, so an import that only another package's `paths` map resolves
 for it. skif resolves an import with the configuration the importing file follows, as TypeScript does: such an import
 is reported by `unlisted-dependencies` with the detail `ForeignTsconfigPaths`, a message that names the config whose
