@@ -1073,12 +1073,14 @@ of `path`, `url`, `JSON` and `Math`, `fs.readFileSync` and the other reading fun
 `console`, so a config holding `fs.readFileSync(CERT)` stays known; a `const` holding a string or a number shares no
 object with what it is given to. These are known only where the name resolves to the module or global that declares
 it, never a local of the same name. Any other call, a library's function or a `new` of a class other than a builtin one,
-may change every object it is given, in any position and through a spread, unless it is a `define…` helper of a library
-or a merge that copies (`webpack-merge`, `deepmerge`, `defu`, the `mergeConfig` of Vite and Vitest). A list or string
+may change every object it is given, in any position and through a spread, unless it is a `define…` helper of a library,
+a merge that copies (`webpack-merge`, `deepmerge`, `defu`, the `mergeConfig` of Vite and Vitest), `createRequire`, or
+`Object.assign`, which changes only its first argument. A list or string
 method (`push`, `slice`, `concat`) changes at most its object only when that object is known to be a list or string. A
 change through an element of a list leaves every element open; a loop name, a callback parameter, a name a destructuring
-assignment sets and a function assigned with `=` share with what they take; and a write in a class body leaves what it
-reaches unknown. A key a plugin reads files from that is unknown below
+assignment sets and a function assigned with `=` share with what they take, except a callback over a `const` list of
+strings or numbers that no change reaches; a value spread from an object literal (`...(ci ? { plugins: list } : {})`)
+is shared at the key it is spread at only; and a write in a class body leaves what it reaches unknown. A key a plugin reads files from that is unknown below
 the top level, such as vitest's `setupFiles: isPostgres ? [...] : []` or a `test` object an unknown spread may replace,
 leaves the plugin's entries incomplete instead of being read as empty.
 

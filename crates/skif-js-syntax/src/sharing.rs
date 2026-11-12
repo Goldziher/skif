@@ -9,10 +9,10 @@
 //! A change is tracked to the part of a binding it reaches: a write through `cfg.module.rules` changes what the list
 //! there holds, and a binding that holds `t` under `test` changes under `test` when `t` does, so the rest of the
 //! binding stays known. Where a value holds a binding at a place the pass cannot follow (an argument of an unknown
-//! call, an element of an array, a spread), anything at or below that place may change. A value that holds no object
-//! shares none: a `const` initialised to a string, a number or a template, and the result of a well-known function
-//! that changes nothing it is given and returns a value of its own ([`PURE_FUNCTIONS`], such as `path.join` and
-//! `fs.readFileSync`). A function the module declares and only calls by name from outside itself takes each argument
+//! call, an element of an array, a spread of anything but an object literal), anything at or below that place may
+//! change. A value that holds no object shares none: a `const` initialised to a string, a number or a template, and
+//! the result of a well-known function that changes nothing it is given and returns a value of its own
+//! ([`PURE_FUNCTIONS`], such as `path.join` and `fs.readFileSync`). A function the module declares and only calls by name from outside itself takes each argument
 //! of a call as the parameter at its place, and its name stands for what it returns, so `const r = set(cfg)` shares
 //! with `cfg` only what `set` returns of its parameter, and a fresh object it returns shares nothing with what it is
 //! given. The name of any other function the module declares stands for both what its parameters take and what it
@@ -22,8 +22,9 @@
 //! builtin one, a list or string method on an object not known to be a list or string) may change every object it is
 //! given, in any position and through a spread ([`Effect`]). The pass knows the effect of a well-known function only
 //! where its name resolves to the module that declares it, and treats a `define…` helper of a library and a merge
-//! that copies ([`copies`]) as changing nothing. A loop name, a callback parameter and a name a destructuring assigns
-//! share with what they take, and a write in a class body is one the evaluator does not follow.
+//! that copies ([`copies`]) and `Object.assign`, beyond its first argument, as changing nothing. A loop name, a
+//! callback parameter and a name a destructuring assigns share with what they take, but for a callback over a `const`
+//! list of primitive values that no change reaches, and a write in a class body is one the evaluator does not follow.
 //!
 //! A `const` that takes a part of a local of its own function (`const { coverage } = config.test`) is the exception
 //! when the evaluator can follow it ([`Unstable::follows`]): it then applies the changes made through the alias to the

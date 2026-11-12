@@ -79,8 +79,11 @@ All notable changes to this project are documented here. The format follows
   A loop name (`for (const rule of config.module.rules)`), a callback parameter (`rules.forEach((r) => …)`), a name a
   destructuring assignment sets and a function assigned with `=` share with what they take, an alias of a local that
   shares an object with a changed one is no longer applied to it, and a write in a class body leaves what it reaches
-  unknown. `define…` helpers of a library and copying merges (`webpack-merge`, `deepmerge`, `defu`, the `mergeConfig`
-  of Vite and Vitest) still change nothing they are given.
+  unknown. `define…` helpers of a library, copying merges (`webpack-merge`, `deepmerge`, `defu`, the `mergeConfig`
+  of Vite and Vitest), `createRequire` and the sources of `Object.assign` still change nothing they are given, and a
+  callback over a `const` list of strings that no change reaches changes nothing in the list. A change through a value
+  spread from an object literal (`...(ci ? { plugins: list } : {})`) reaches only the key it is spread at, and a change
+  below a key the config does not have leaves the config as it is.
 
 ### Changed
 
