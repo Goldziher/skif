@@ -2515,6 +2515,50 @@ fn a_spread_of_a_local_shares_it_below_each_key() {
     assert!(!open(&value), "{value:?}");
 }
 
+/// A call whose effect is not known may change what an object or array literal it is given holds, at any depth: a
+/// local in a value, an element or a spread of it, or in a value a condition may be, is partly unknown after the call,
+/// both where the evaluator follows the call and in what shares the local (a list holding it).
+#[test]
+fn a_call_that_is_not_known_may_change_what_a_literal_argument_holds() {
+    for call in [
+        "kit.fill({ cfg: config });",
+        "const r = configure({ nested: { list: [config] } });",
+        "configure([config]);",
+        "configure({ ...config });",
+        "configure(process.env.CI ? { cfg: config } : {});",
+        "new Plugin({ cfg: config });",
+    ] {
+        let source = format!(
+            "export default () => {{\n\
+               const config = {{ entry: './src/main.js', module: {{ rules: [] }} }};\n\
+               const list = [config];\n\
+               {call}\n\
+               return {{ config, list }};\n\
+             }};"
+        );
+        let value = extract("rspack.config.js", &source);
+        assert!(open(get(&value, &["config"])), "{call}: {value:?}");
+        assert!(open(at(&value, &["list", "0"])), "{call}: {value:?}");
+    }
+}
+
+/// A literal given to a call whose effect is not known that holds a part of a local (`{ module: config.module }`)
+/// leaves only that part partly unknown.
+#[test]
+fn a_literal_argument_holding_a_part_of_a_local_opens_only_that_part() {
+    let value = extract(
+        "rspack.config.js",
+        "export default () => {\n\
+           const config = { entry: './src/main.js', module: { rules: [] } };\n\
+           configure({ module: config.module });\n\
+           return config;\n\
+         };",
+    );
+    assert!(!open(&value), "{value:?}");
+    assert_eq!(get(&value, &["entry"]), &s("./src/main.js"));
+    assert!(open(get(&value, &["module"])), "{value:?}");
+}
+
 /// A class's static block and field initialisers run when the class is defined or an object of it is made, which the
 /// evaluator does not follow, so what they write is unknown and the rest of the config stays known.
 #[test]
