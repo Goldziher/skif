@@ -172,6 +172,8 @@ All notable changes to this project are documented here. The format follows
   enclosing incomplete package to the members below it; `non-member-project` covers skif-only unused files, unlisted
   dependencies and binaries, and the exports of a nested root's default entries. An import one tool reports as
   unlisted and the other as unresolved counts as shared.
+- `skif-bench parity` reads the `BUILD` files below a `coverage`, `out` or `target` directory that is not directly in
+  the root or a package directory, as skif's file discovery does, so the dependencies they name are `bazel-build-file`.
 
 ### Fixed
 

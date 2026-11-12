@@ -1896,9 +1896,10 @@ fn bazel_credits(
 
 /// The `BUILD.bazel` and `BUILD` files of a checkout whose root holds one of [`BAZEL_ROOT_FILES`], with their sources,
 /// by path relative to the checkout with `/` separators, sorted: in the directories skif's file discovery enters (none
-/// of [`SKIPPED_DIRECTORIES`], no hidden directory but [`TOOL_DIRECTORIES`]), never through a symbolic link or into
-/// Bazel's `bazel-*` output trees. Empty for a checkout that is no Bazel repository.
-fn read_build_files(root: &Path) -> Vec<(String, String)> {
+/// of [`SKIPPED_DIRECTORIES`], those of [`PACKAGE_ROOT_ONLY_DIRECTORIES`] only directly in the root or a directory
+/// `is_package` accepts, no hidden directory but [`TOOL_DIRECTORIES`]), never through a symbolic link or into Bazel's
+/// `bazel-*` output trees. Empty for a checkout that is no Bazel repository.
+fn read_build_files(root: &Path, is_package: &dyn Fn(&str) -> bool) -> Vec<(String, String)> {
     if !BAZEL_ROOT_FILES.iter().any(|name| root.join(name).is_file()) {
         return Vec::new();
     }
@@ -1914,7 +1915,8 @@ fn read_build_files(root: &Path) -> Vec<(String, String)> {
             };
             let path = joined(&dir, &name);
             if kind.is_dir() {
-                let skipped = SKIPPED_DIRECTORIES.contains(&name.as_str())
+                let here = !PACKAGE_ROOT_ONLY_DIRECTORIES.contains(&name.as_str()) || dir.is_empty() || is_package(&dir);
+                let skipped = (SKIPPED_DIRECTORIES.contains(&name.as_str()) && here)
                     || (name.starts_with('.') && !TOOL_DIRECTORIES.contains(&name.as_str()))
                     || (dir.is_empty() && name.starts_with("bazel-"));
                 if !skipped {
@@ -2316,10 +2318,8 @@ struct Facts {
 impl Facts {
     fn read(skif_doc: &Value, knip_stderr: &str, skif: &Keys, knip: &Keys, root: &Path, layout: &Layout<'_>) -> Self {
         let knip_errors = knip_config_errors(knip_stderr, root);
-        let knip_failed = knip_errors
-            .iter()
-            .map(|file| owner_dir(file, &|dir: &str| layout.is_project(dir)))
-            .collect();
+        let is_project = |dir: &str| layout.is_project(dir);
+        let knip_failed = knip_errors.iter().map(|file| owner_dir(file, &is_project)).collect();
         let read_source = |file: &str| fs::read_to_string(root.join(file)).ok();
         let workspace_of = |file: &str| owner_dir(file, &|dir: &str| layout.is_workspace(dir));
         let (knip_unused, skif_unused) = (unused_files(knip), unused_files(skif));
@@ -2335,7 +2335,7 @@ impl Facts {
             published_reach: published_reach(knip_unused, skif_unused, layout, &read_source),
             knip_unused_credits: unused_file_credits(knip_unused, skif_unused, layout.is_file, &read_source),
             skif_unused_credits: unused_file_credits(skif_unused, knip_unused, layout.is_file, &read_source),
-            bazel_credits: bazel_credits(&read_build_files(root), layout.is_file, &read_source),
+            bazel_credits: bazel_credits(&read_build_files(root, &is_project), layout.is_file, &read_source),
             signature_types: signature_types(skif, knip, &read_source),
         }
     }
@@ -5060,25 +5060,49 @@ vi.mock("mocked-package");
     fn the_harness_reads_the_build_files_of_a_bazel_checkout_where_skif_discovery_looks() {
         let root = std::env::temp_dir().join(format!("skif-bench-parity-bazel-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
-        for dir in ["packages/a/src", "node_modules/x", ".cache", "docs/build"] {
+        for dir in [
+            "packages/a/src/coverage",
+            "packages/a/coverage",
+            "node_modules/x",
+            ".cache",
+            "docs/build",
+            "coverage",
+            "tools/coverage/bundle",
+            "tools/out",
+        ] {
             fs::create_dir_all(root.join(dir)).unwrap();
         }
         for file in [
             "BUILD.bazel",
+            "packages/a/package.json",
             "packages/a/BUILD",
             "packages/a/src/BUILD.bazel",
+            "packages/a/src/coverage/BUILD",
+            "packages/a/coverage/BUILD.bazel",
             "node_modules/x/BUILD.bazel",
             ".cache/BUILD",
             "docs/build/notes.md",
+            "coverage/BUILD.bazel",
+            "tools/coverage/bundle/BUILD.bazel",
+            "tools/out/BUILD",
         ] {
             fs::write(root.join(file), format!("# {file}\n")).unwrap();
         }
-        assert!(read_build_files(&root).is_empty(), "no Bazel root file");
+        let is_package = |dir: &str| root.join(dir).join("package.json").is_file();
+        assert!(read_build_files(&root, &is_package).is_empty(), "no Bazel root file");
         fs::write(root.join("MODULE.bazel"), "bazel_dep(name = \"aspect_rules_js\")\n").unwrap();
-        let found = read_build_files(&root);
+        let found = read_build_files(&root, &is_package);
         assert_eq!(
             found.iter().map(|(path, _)| path.as_str()).collect::<Vec<_>>(),
-            ["BUILD.bazel", "packages/a/BUILD", "packages/a/src/BUILD.bazel"]
+            [
+                "BUILD.bazel",
+                "packages/a/BUILD",
+                "packages/a/src/BUILD.bazel",
+                "packages/a/src/coverage/BUILD",
+                "tools/coverage/bundle/BUILD.bazel",
+                "tools/out/BUILD",
+            ],
+            "`coverage`, `out` and `target` are skipped only directly in the root or a package directory"
         );
         assert_eq!(found[1].1, "# packages/a/BUILD\n");
         fs::remove_dir_all(&root).unwrap();
