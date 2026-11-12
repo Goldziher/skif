@@ -19,8 +19,9 @@ pub static META: RuleMeta = RuleMeta::new(
 /// Reports positive workspace patterns that select no directory.
 ///
 /// Negations (`!pattern`) that remove nothing are harmless and not reported, and neither is a pattern that cannot be
-/// used (a `..` segment, too many brace alternatives): `invalid-workspace-file` reports it, and whether the directory
-/// it names exists was never checked. Removing a pattern changes which
+/// used (a `..` segment outside a Bun workspace, too many brace alternatives): `invalid-workspace-file` reports it, and
+/// whether the directory it names exists was never checked. Under Bun a `..` pattern selects members outside the root,
+/// and is reported only when it selects no directory. Removing a pattern changes which
 /// packages are part of the workspace, so the fix is unsafe, and none is offered when every positive pattern is
 /// unmatched: removing them all would leave a workspace without members.
 #[derive(Debug, Clone, Copy, Default)]
@@ -164,6 +165,25 @@ mod tests {
             );
             assert!(!invalid[0].is_fixable(), "{manager}");
         }
+    }
+
+    #[test]
+    fn a_member_outside_the_root_is_valid_under_bun() {
+        let root_json = r#"{"name":"root","private":true,"packageManager":"bun@1.4.4","workspaces":["packages/*","../shared","../gone"]}"#;
+        let files = [
+            ("package.json", root_json),
+            ("packages/a/package.json", MEMBER),
+            ("../shared/package.json", r#"{"name":"shared"}"#),
+        ];
+        let unmatched: Vec<String> = lint(META.id, &files, &config(""))
+            .iter()
+            .map(|d| located(&files, d).trim_matches('"').to_owned())
+            .collect();
+        assert_eq!(unmatched, ["../gone"]);
+        assert_eq!(
+            lint(crate::manifest::invalid_workspace_file::META.id, &files, &config("")),
+            [] as [skif_core::Diagnostic; 0]
+        );
     }
 
     #[test]

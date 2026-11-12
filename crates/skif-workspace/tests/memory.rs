@@ -183,6 +183,42 @@ fn bun_keeps_a_directory_listed_by_its_literal_path_despite_a_negation() {
 }
 
 #[test]
+fn bun_selects_members_outside_the_root_without_loading_them() {
+    let shared = pkg("shared");
+    let lib = pkg("lib");
+    let run = |package_manager: &str| {
+        let manifest = format!(
+            r#"{{"name":"root","packageManager":"{package_manager}","workspaces":["packages/*","../shared","../libs/*"]}}"#
+        );
+        let files = [
+            ("package.json", manifest.as_str()),
+            ("packages/a/package.json", r#"{"name":"a"}"#),
+            ("../shared/package.json", shared.as_str()),
+            ("../libs/lib/package.json", lib.as_str()),
+            ("../libs/notes/readme.md", "x"),
+        ];
+        discover(&files, &Config::default()).unwrap()
+    };
+    let bun = run("bun@1.4.4");
+    assert_eq!(dirs(&bun), ["packages/a"]);
+    assert_eq!(
+        bun.facts.outside_root_members,
+        [PathBuf::from("../libs/lib"), PathBuf::from("../shared")]
+    );
+    let counts: Vec<(usize, bool)> = bun.facts.patterns.iter().map(|fact| (fact.matched, fact.invalid)).collect();
+    assert_eq!(counts, [(1, false), (1, false), (2, false)]);
+    assert!(bun.manifest_errors.is_empty());
+    assert!(bun.package_by_name("shared").is_none());
+    // npm cannot use such a pattern.
+    let npm = run("npm@11.0.0");
+    assert_eq!(dirs(&npm), ["packages/a"]);
+    assert!(npm.facts.outside_root_members.is_empty());
+    let invalid: Vec<bool> = npm.facts.patterns.iter().map(|fact| fact.invalid).collect();
+    assert_eq!(invalid, [false, true, true]);
+    assert_eq!(npm.manifest_errors.len(), 2);
+}
+
+#[test]
 fn pattern_spans_in_package_json() {
     let workspace = run(&["packages/a", "tool"]);
     let fact = &workspace.facts.patterns[1];
