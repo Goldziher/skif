@@ -90,6 +90,26 @@ be used (one that climbs out of the root with `..`, or has too many brace altern
 `.yarnrc.yml` that is not valid YAML. The package, the pattern's matches or the Yarn catalogs are left out of the
 run, so the run fails until the file is fixed, as sherif does.
 
+## Lerna
+
+Lerna is maintained (by Nrwl, the company behind Nx) and reads its own `lerna.json`. Its package list comes from
+`packages` in `lerna.json` first, then from `pnpm-workspace.yaml` when `npmClient` is `pnpm`, then from the
+`workspaces` of `package.json`. skif follows the package manager instead, because it installs and links the members,
+and reads `lerna.json` only when nothing else declares them (see [Workspace patterns](#workspace-patterns)).
+
+When both declare members and select different packages, `lerna-packages-mismatch` (`warn`) reports it at `packages` in
+`lerna.json`, naming both lists and the packages only one of them selects: `lerna run` and `lerna publish` act on
+packages the package manager does not install, or skip members it does. Delete `packages` from `lerna.json` to have
+Lerna follow the workspaces, or make the two lists select the same packages. A `lerna.json` with `useWorkspaces: true`
+is not reported, since Lerna before 7 then follows the package manager.
+
+`stale-lerna-config` (`warn`) reports what the installed Lerna rejects. Lerna 7 and later fail on `useWorkspaces` in
+`lerna.json` (`ECONFIGWORKSPACES`; `lerna repair` deletes the key) and without a `version` (`ENOVERSION`). Lerna 9
+removed `lerna bootstrap`, `lerna add` and `lerna link`; a root or member script that runs one, also through `npx`,
+`pnpm exec` or `yarn`, is reported at the script. The release is read from `node_modules/lerna/package.json`, else
+from the lowest version the root `package.json` admits for `lerna`; without either, or with a tag such as `latest`,
+nothing is reported. A script that runs a pinned release (`npx lerna@6 bootstrap`) is not reported.
+
 ## Lockfiles and nested workspaces
 
 Every package manager installs a workspace from one lockfile at its root. `stray-lockfile` reports any other

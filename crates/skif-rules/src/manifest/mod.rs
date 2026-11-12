@@ -4,6 +4,7 @@ mod allow_list;
 mod empty_dependencies;
 mod incompatible_peer_dependencies;
 mod invalid_workspace_file;
+mod lerna_packages_mismatch;
 pub(crate) mod local_path_dependency;
 mod lockfile_consumers;
 mod member_toolchain_fields;
@@ -13,6 +14,7 @@ mod package_json_format;
 mod root_package_dependencies;
 mod root_package_manager_field;
 mod root_package_private_field;
+mod stale_lerna_config;
 mod stale_patched_dependencies;
 mod stray_lockfile;
 pub(crate) mod support;
@@ -24,6 +26,7 @@ pub use allow_list::AllowListOptions;
 pub use empty_dependencies::EmptyDependencies;
 pub use incompatible_peer_dependencies::IncompatiblePeerDependencies;
 pub use invalid_workspace_file::InvalidWorkspaceFile;
+pub use lerna_packages_mismatch::LernaPackagesMismatch;
 pub use local_path_dependency::LocalPathDependency;
 pub use member_toolchain_fields::{ForbidMode, MemberToolchainFields, MemberToolchainFieldsOptions};
 pub use missing_package_manifest::MissingPackageManifest;
@@ -33,6 +36,7 @@ pub use root_package_dependencies::RootPackageDependencies;
 pub use root_package_manager_field::RootPackageManagerField;
 pub use root_package_private_field::RootPackagePrivateField;
 use skif_lint::{Rule, RulesProvider};
+pub use stale_lerna_config::StaleLernaConfig;
 pub use stale_patched_dependencies::{StalePatchedDependencies, StalePatchedDependenciesOptions};
 pub use stray_lockfile::StrayLockfile;
 pub use types_in_dependencies::TypesInDependencies;
@@ -62,6 +66,8 @@ pub fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(PackageJsonFormat),
         Box::new(StalePatchedDependencies),
         Box::new(InvalidWorkspaceFile),
+        Box::new(StaleLernaConfig),
+        Box::new(LernaPackagesMismatch),
     ]
 }
 

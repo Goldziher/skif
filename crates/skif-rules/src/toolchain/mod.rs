@@ -8,7 +8,7 @@
 //! `# skif-ignore-next-line <rule> -- <reason>` or `# skif-ignore-file <rule> -- <reason>` suppresses a finding
 //! there; the `ignore-files` option suppresses a whole file from the configuration.
 
-mod commands;
+pub(crate) mod commands;
 mod foreign_command;
 mod options;
 mod parse;

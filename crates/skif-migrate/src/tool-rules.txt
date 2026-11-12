@@ -30,3 +30,5 @@ nested-workspace-root none no tool reports a pnpm-workspace.yaml in a member
 invalid-workspace-file sherif always
 toolchain-pin-drift none no tool compares Node and package-manager pins outside package.json with the root
 foreign-package-manager-command none no tool reads package-manager commands in Dockerfiles, CI or shell scripts
+stale-lerna-config none no tool checks lerna.json settings and lerna commands against the installed Lerna
+lerna-packages-mismatch none no tool compares the packages of lerna.json with the workspace declaration
