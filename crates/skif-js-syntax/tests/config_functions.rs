@@ -3171,3 +3171,17 @@ fn a_merge_calling_functions_it_is_given_may_change_its_arguments() {
     );
     assert!(!open(&kept), "{kept:?}");
 }
+
+/// A name a `with` statement's body writes may be a key of its object, so the object is partly unknown after it.
+#[test]
+fn a_with_statement_may_change_its_object() {
+    let config = "const config = { entry: './a.js' };";
+    let body = "with (config) { entry = './b.js'; }";
+    for source in [
+        format!("{config}\n{body}\nmodule.exports = config;"),
+        format!("module.exports = function () {{\n{config}\n{body}\nreturn config;\n}};"),
+    ] {
+        let value = extract("webpack.config.cjs", &source);
+        assert_eq!(at(&value, &["entry"]), &UNKNOWN, "{source}: {value:?}");
+    }
+}
