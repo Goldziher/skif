@@ -9,6 +9,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The GitHub Action is named `skif dependency linter`, because the GitHub Marketplace needs a name that no other action, user or organization holds. Workflows keep `uses: Goldziher/skif@v0.3`.
+
 ## [0.3.0] - 2026-11-11
 
 ### Added

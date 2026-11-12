@@ -1,4 +1,4 @@
-name: skif
+name: skif dependency linter
 description: >-
   Lint the dependencies of a JavaScript or TypeScript monorepo: workspace rules and version and catalog
   policies.
