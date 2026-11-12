@@ -16,7 +16,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 use skif_js::{IncompleteScopeGlobs, is_out_dir, n8n_load_paths, source_candidates};
-use skif_js_syntax::{ImportKind, ParseOptions, parse_module};
+use skif_js_syntax::{ExportKind, Import, ImportKind, ImportedKind, ModuleInfo, ParseOptions, parse_module};
 use skif_workspace::{OsFs, declared_member_dirs};
 
 use crate::corpus::{self, RUSH_KNIP_ROOT, Repo, SCRATCH_ROOT_MARK, Tools, is_scratch_root};
@@ -87,6 +87,8 @@ pub const IN_SKIF_UNUSED_FILE: &str = "in-skif-unused-file";
 pub const USED_IN_KNIP_UNUSED_FILE: &str = "used-in-knip-unused-file";
 pub const USED_IN_SKIF_UNUSED_FILE: &str = "used-in-skif-unused-file";
 pub const RUSH_ROOT_FILE: &str = "rush-root-file";
+pub const IMPORTED_BY_KNIP_UNUSED_FILE: &str = "imported-by-knip-unused-file";
+pub const IMPORTED_BY_SKIF_UNUSED_FILE: &str = "imported-by-skif-unused-file";
 
 /// The dependency categories skif does not judge anywhere in a package whose entry files are not all known (ADR 0053),
 /// whatever the package's `scope`.
@@ -134,6 +136,14 @@ const ROOT_COMPARED_CATEGORIES: [&str; 7] = [
     "duplicates",
 ];
 
+/// The categories whose findings name exports of a file, `<file>|<export>` or, for duplicates, `<file>|<names>`: what an
+/// import of the file uses.
+const IMPORTED_EXPORT_CATEGORIES: [&str; 5] = ["exports", "types", "nsExports", "nsTypes", "duplicates"];
+
+/// The name that stands for every export of a file among the exports an import uses ([`unused_file_credits`]): a
+/// namespace used as a whole, `import()` or `require` of the module, or a star re-export of it.
+const WHOLE_MODULE: &str = "*";
+
 /// The manifest categories of a listed package that an import makes used.
 const IMPORTED_CATEGORIES: [&str; 3] = ["dependencies", "devDependencies", "optionalPeerDependencies"];
 
@@ -158,7 +168,7 @@ const DEPENDENCY_FIELDS: [&str; 4] = [
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 16] = [
+pub const KNIP_DEVIATIONS: [Deviation; 18] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
@@ -222,6 +232,14 @@ pub const KNIP_DEVIATIONS: [Deviation; 16] = [
     Deviation {
         id: USED_IN_SKIF_UNUSED_FILE,
         reason: "skif reports these dependencies as unused, and a file of the same workspace that skif reports as unused and knip does not imports the package (the same import scan; an `@types/` package counts as imported with its runtime package). skif credits no import of a file it calls unused, while knip analyses the file and credits the import; the disagreement is the file, which `files` already counts once. The harness does not check that the scanned import is the one knip credits",
+    },
+    Deviation {
+        id: IMPORTED_BY_KNIP_UNUSED_FILE,
+        reason: "knip reports these exports, types and duplicate exports as unused, and a file that knip lists as unused and skif does not imports them by relative path: by name, through a namespace whose members it reads, or as a whole module (a namespace used as a whole, `import()`, `require`), directly or through the `export … from` and `export *` re-exports of the files in between (an import scan of those files with skif's parser). knip does not analyse an unused file, so it never sees the import skif credits; the disagreement is the importing file, which `files` already counts once. The in-file counterpart of `used-in-knip-unused-file`; the harness does not check that skif credits the export through that import",
+    },
+    Deviation {
+        id: IMPORTED_BY_SKIF_UNUSED_FILE,
+        reason: "skif reports these exports, types and duplicate exports as unused, and a file that skif reports as unused and knip does not imports them (the same import scan). skif credits no import of a file it calls unused, while knip analyses the file and credits the import; the disagreement is the importing file, which `files` already counts once. The in-file counterpart of `used-in-skif-unused-file`",
     },
 ];
 
@@ -847,9 +865,36 @@ fn resolve_relative(dir: &str, specifier: &str, is_file: &FileProbe<'_>) -> Opti
         .find(|candidate| is_file(candidate))
 }
 
+/// Whether a module specifier is relative (`.`, `..`, `./a`, `../b`) and has no query (`?raw`), which names no module.
+fn is_relative_specifier(specifier: &str) -> bool {
+    !specifier.contains('?')
+        && (matches!(specifier, "." | "..") || specifier.starts_with("./") || specifier.starts_with("../"))
+}
+
+/// The directory of a path relative to the checkout (`""` for a file of the root).
+fn parent_dir(path: &str) -> &str {
+    path.rsplit_once('/').map_or("", |(dir, _)| dir)
+}
+
+/// The imports of the parsed file `path` that name a file by relative specifier, with that file: its imports,
+/// requires, re-exports and dynamic imports; globs, test-runner mocks and specifiers with a query are left out.
+fn relative_targets<'m>(path: &str, module: &'m ModuleInfo, is_file: &FileProbe<'_>) -> Vec<(&'m Import, String)> {
+    let dir = parent_dir(path);
+    module
+        .imports
+        .iter()
+        .filter(|import| {
+            !matches!(
+                import.kind,
+                ImportKind::ImportMetaGlob | ImportKind::SourceGlob | ImportKind::Mock
+            ) && is_relative_specifier(&import.specifier)
+        })
+        .filter_map(|import| resolve_relative(dir, &import.specifier, is_file).map(|target| (import, target)))
+        .collect()
+}
+
 /// The files a source file imports by relative specifier, as skif's parser reads its imports, requires, re-exports and
-/// dynamic imports; globs, test-runner mocks and specifiers with a query (`?raw`) are left out. Empty for a file it
-/// cannot parse.
+/// dynamic imports ([`relative_targets`]). Empty for a file it cannot parse.
 fn relative_imports(path: &str, source: &str, is_file: &FileProbe<'_>) -> Vec<String> {
     let options = ParseOptions {
         in_file_references: false,
@@ -858,23 +903,111 @@ fn relative_imports(path: &str, source: &str, is_file: &FileProbe<'_>) -> Vec<St
     let Ok(module) = parse_module(Path::new(path), source, &options) else {
         return Vec::new();
     };
-    let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
-    module
-        .imports
-        .iter()
-        .filter(|import| {
-            !matches!(
-                import.kind,
-                ImportKind::ImportMetaGlob | ImportKind::SourceGlob | ImportKind::Mock
-            )
-        })
-        .map(|import| import.specifier.as_str())
-        .filter(|specifier| {
-            !specifier.contains('?')
-                && (matches!(*specifier, "." | "..") || specifier.starts_with("./") || specifier.starts_with("../"))
-        })
-        .filter_map(|specifier| resolve_relative(dir, specifier, is_file))
+    relative_targets(path, &module, is_file)
+        .into_iter()
+        .map(|(_, target)| target)
         .collect()
+}
+
+/// The exports of other files that the parsed file `path` imports by relative specifier, as `(file, export)`: a named
+/// import or re-export by its name, a default import as `default`, a namespace by the members read through it, and a
+/// namespace used as a whole, `export * from`, `import()` and `require` of the module as [`WHOLE_MODULE`]. A
+/// side-effect import uses no export.
+fn imported_exports(path: &str, module: &ModuleInfo, is_file: &FileProbe<'_>) -> Vec<(String, String)> {
+    let mut found = Vec::new();
+    for (import, target) in relative_targets(path, module, is_file) {
+        if import.names.is_empty() {
+            if matches!(import.kind, ImportKind::Dynamic | ImportKind::Require) {
+                found.push((target, WHOLE_MODULE.to_owned()));
+            }
+            continue;
+        }
+        for name in &import.names {
+            match &name.kind {
+                ImportedKind::Named(export) => found.push((target.clone(), export.clone())),
+                ImportedKind::Default => found.push((target.clone(), "default".to_owned())),
+                ImportedKind::Namespace if name.local.is_some() && !name.escapes => found.extend(
+                    name.accessed_members
+                        .iter()
+                        .map(|member| (target.clone(), member.clone())),
+                ),
+                ImportedKind::Namespace => found.push((target.clone(), WHOLE_MODULE.to_owned())),
+            }
+        }
+    }
+    found
+}
+
+/// Where the export `name` (or, for [`WHOLE_MODULE`], every export) of the parsed file `path` comes from when the file
+/// re-exports it, as `(file, export)`: the source of `export { name } from` (and of `import { x } from`; `export { x }`)
+/// under the name taken from it, and the source of an `export * from` for a name the file does not export itself.
+fn reexported(path: &str, module: &ModuleInfo, name: &str, is_file: &FileProbe<'_>) -> Vec<(String, String)> {
+    let declares = |wanted: &str| module.exports.iter().any(|export| export.name == wanted);
+    module
+        .exports
+        .iter()
+        .filter_map(|export| {
+            let specifier = export.from.as_deref().filter(|from| is_relative_specifier(from))?;
+            let followed = if export.kind == ExportKind::StarReExport && export.name == WHOLE_MODULE {
+                (name == WHOLE_MODULE || !declares(name)).then(|| name.to_owned())
+            } else {
+                (name == WHOLE_MODULE || export.name == name)
+                    .then(|| export.imported_name.clone().unwrap_or_else(|| export.name.clone()))
+            };
+            followed.and_then(|followed| {
+                resolve_relative(parent_dir(path), specifier, is_file).map(|target| (target, followed))
+            })
+        })
+        .collect()
+}
+
+/// `<file>|<export>` (`<file>|*` for [`WHOLE_MODULE`]) for every export that one of the files only one tool lists as
+/// unused (`unused` but not `other_unused`) imports by relative specifier ([`imported_exports`]), and for the exports
+/// those re-export from other files, followed through every file in between ([`reexported`]): what that tool would
+/// have credited had it analysed the file. `read` gives a file's source; a file it cannot read or parse imports
+/// nothing and re-exports nothing.
+fn unused_file_credits(
+    unused: &BTreeSet<String>,
+    other_unused: &BTreeSet<String>,
+    is_file: &FileProbe<'_>,
+    read: &dyn Fn(&str) -> Option<String>,
+) -> BTreeSet<String> {
+    let options = ParseOptions {
+        in_file_references: false,
+        member_accesses: true,
+    };
+    let parse = |file: &str| read(file).and_then(|source| parse_module(Path::new(file), &source, &options).ok());
+    let mut pending: Vec<(String, String)> = unused
+        .difference(other_unused)
+        .filter_map(|file| parse(file).map(|module| imported_exports(file, &module, is_file)))
+        .flatten()
+        .collect();
+    let mut modules: BTreeMap<String, Option<ModuleInfo>> = BTreeMap::new();
+    let mut credits = BTreeSet::new();
+    while let Some((file, name)) = pending.pop() {
+        if !credits.insert(format!("{file}|{name}")) {
+            continue;
+        }
+        if let Some(module) = modules.entry(file.clone()).or_insert_with(|| parse(&file)) {
+            pending.extend(reexported(&file, module, &name, is_file));
+        }
+    }
+    credits
+}
+
+/// Whether a finding names an export of its file (or, for duplicates, one of its names) that `credits` (from
+/// [`unused_file_credits`]) holds, or the file is credited as a whole.
+fn imported_by_unused_file(credits: &BTreeSet<String>, category: &str, key: &str) -> bool {
+    if !IMPORTED_EXPORT_CATEGORIES.contains(&category) {
+        return false;
+    }
+    let Some((path, names)) = key.split_once('|') else {
+        return false;
+    };
+    credits.contains(&format!("{path}|{WHOLE_MODULE}"))
+        || names
+            .split('|')
+            .any(|name| credits.contains(&format!("{path}|{name}")))
 }
 
 /// The files only knip reports as unused (`unused` but not `other_unused`) that one of them whose path its package
@@ -1073,6 +1206,10 @@ struct Classifier<'a> {
     skif_root_packages: &'a BTreeSet<String>,
     /// The files only knip reports as unused that a published source reaches (`published_reach`).
     published_reach: &'a BTreeSet<String>,
+    /// `<file>|<export>` for every export that a file only knip lists as unused imports (`unused_file_credits`).
+    knip_unused_credits: &'a BTreeSet<String>,
+    /// The same for the files only skif reports as unused.
+    skif_unused_credits: &'a BTreeSet<String>,
     /// knip ran with the scratch root manifest of a Rush repository (`knip-root = "rush"`).
     rush_root: bool,
     layout: &'a Layout<'a>,
@@ -1098,6 +1235,10 @@ impl Classifier<'_> {
                 .or_else(|| {
                     used_in_unused_file(self.skif_unused_imports, category, key).then_some(USED_IN_SKIF_UNUSED_FILE)
                 })
+                .or_else(|| {
+                    imported_by_unused_file(self.skif_unused_credits, category, key)
+                        .then_some(IMPORTED_BY_SKIF_UNUSED_FILE)
+                })
                 .or_else(config_error);
         }
         (category == "files")
@@ -1115,6 +1256,9 @@ impl Classifier<'_> {
             .or_else(|| in_unused_file(category, path, self.skif_unused_files).then_some(IN_SKIF_UNUSED_FILE))
             .or_else(|| {
                 used_in_unused_file(self.knip_unused_imports, category, key).then_some(USED_IN_KNIP_UNUSED_FILE)
+            })
+            .or_else(|| {
+                imported_by_unused_file(self.knip_unused_credits, category, key).then_some(IMPORTED_BY_KNIP_UNUSED_FILE)
             })
             .or_else(config_error)
     }
@@ -1621,6 +1765,8 @@ struct Facts {
     knip_unused_imports: BTreeSet<String>,
     skif_unused_imports: BTreeSet<String>,
     published_reach: BTreeSet<String>,
+    knip_unused_credits: BTreeSet<String>,
+    skif_unused_credits: BTreeSet<String>,
 }
 
 impl Facts {
@@ -1643,6 +1789,8 @@ impl Facts {
             knip_unused_imports: unused_file_imports(knip_unused, skif_unused, &read_source, &workspace_of),
             skif_unused_imports: unused_file_imports(skif_unused, knip_unused, &read_source, &workspace_of),
             published_reach: published_reach(knip_unused, skif_unused, layout, &read_source),
+            knip_unused_credits: unused_file_credits(knip_unused, skif_unused, layout.is_file, &read_source),
+            skif_unused_credits: unused_file_credits(skif_unused, knip_unused, layout.is_file, &read_source),
         }
     }
 
@@ -1668,6 +1816,8 @@ impl Facts {
             skif_unused_imports: &self.skif_unused_imports,
             skif_root_packages: &self.skif_root_packages,
             published_reach: &self.published_reach,
+            knip_unused_credits: &self.knip_unused_credits,
+            skif_unused_credits: &self.skif_unused_credits,
             rush_root,
             layout,
         }
@@ -2726,6 +2876,8 @@ mod tests {
             IN_SKIF_UNUSED_FILE,
             USED_IN_KNIP_UNUSED_FILE,
             USED_IN_SKIF_UNUSED_FILE,
+            IMPORTED_BY_KNIP_UNUSED_FILE,
+            IMPORTED_BY_SKIF_UNUSED_FILE,
             KNIP_CONFIG_ERROR,
             NOT_JUDGED,
         ] {
@@ -2842,6 +2994,8 @@ mod tests {
             skif_unused_imports: &NO_KEYS,
             skif_root_packages: &NO_KEYS,
             published_reach: &NO_KEYS,
+            knip_unused_credits: &NO_KEYS,
+            skif_unused_credits: &NO_KEYS,
             rush_root: false,
             layout,
         }
@@ -3685,6 +3839,112 @@ vi.mock("mocked-package");
                 classifier.classify(side, category, key),
                 None,
                 "{side:?} {category} {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn exports_only_files_one_tool_lists_unused_import_split_off_through_re_exports() {
+        let sources = BTreeMap::from([
+            (
+                "packages/a/src/dead.ts",
+                "import { helper, type Shape } from './util';\n\
+                 import * as ns from './ns';\n\
+                 import value from './def';\n\
+                 import './side';\n\
+                 import { deep, alias, own } from './barrel';\n\
+                 const lazy = import('./lazy');\n\
+                 console.log(helper, ns.read, value, deep, alias, own, lazy);\n",
+            ),
+            (
+                "packages/a/src/both.ts",
+                "import { second } from './util';\nconsole.log(second);\n",
+            ),
+            (
+                "packages/a/src/util.ts",
+                "export const helper = 1;\nexport const second = 2;\nexport const unusedHelper = 3;\nexport type Shape = { a: number };\n",
+            ),
+            ("packages/a/src/ns.ts", "export const read = 1;\nexport const unread = 2;\n"),
+            ("packages/a/src/def.ts", "export default 1;\nexport const other = 2;\n"),
+            ("packages/a/src/side.ts", "export const effect = 1;\n"),
+            (
+                "packages/a/src/barrel.ts",
+                "export * from './impl';\nexport { original as alias } from './other';\nexport const own = 1;\n",
+            ),
+            (
+                "packages/a/src/impl.ts",
+                "export const deep = 1;\nexport const own = 2;\nexport const shallow = 3;\n",
+            ),
+            ("packages/a/src/other.ts", "export const original = 1;\nexport const rest = 2;\n"),
+            ("packages/a/src/lazy.ts", "export const anything = 1;\n"),
+        ]);
+        let is_file = |file: &str| sources.contains_key(file);
+        let read = |file: &str| sources.get(file).map(|source| (*source).to_owned());
+        let unused = strings(&["packages/a/src/dead.ts", "packages/a/src/both.ts"]);
+        let both = strings(&["packages/a/src/both.ts"]);
+        let credits = unused_file_credits(&unused, &both, &is_file, &read);
+        assert_eq!(
+            credits,
+            strings(&[
+                "packages/a/src/barrel.ts|alias",
+                "packages/a/src/barrel.ts|deep",
+                "packages/a/src/barrel.ts|own",
+                "packages/a/src/def.ts|default",
+                "packages/a/src/impl.ts|deep",
+                "packages/a/src/lazy.ts|*",
+                "packages/a/src/ns.ts|read",
+                "packages/a/src/other.ts|original",
+                "packages/a/src/util.ts|Shape",
+                "packages/a/src/util.ts|helper",
+            ]),
+            "a side-effect import uses nothing, an `export *` forwards only names the barrel does not export itself, \
+             and a file both tools call unused credits nothing"
+        );
+        assert!(unused_file_credits(&unused, &unused, &is_file, &read).is_empty());
+
+        let manifest = |dir: &str| (dir.is_empty() || dir == "packages/a").then(|| Rc::new(json!({ "name": "a" })));
+        let layout = Layout::new(strings(&["packages/a"]), &manifest, &is_file);
+        let classifier = Classifier {
+            knip_unused_files: &unused,
+            skif_unused_files: &both,
+            knip_unused_credits: &credits,
+            skif_unused_credits: &credits,
+            ..bare(&layout)
+        };
+        for (category, key) in [
+            ("exports", "packages/a/src/util.ts|helper"),
+            ("types", "packages/a/src/util.ts|Shape"),
+            ("nsExports", "packages/a/src/ns.ts|read"),
+            ("exports", "packages/a/src/impl.ts|deep"),
+            ("exports", "packages/a/src/lazy.ts|anything"),
+            ("duplicates", "packages/a/src/impl.ts|deep|shallow"),
+        ] {
+            assert_eq!(
+                classifier.classify(Side::Tool, category, key),
+                Some(IMPORTED_BY_KNIP_UNUSED_FILE),
+                "{category} {key}"
+            );
+            assert_eq!(
+                classifier.classify(Side::Skif, category, key),
+                Some(IMPORTED_BY_SKIF_UNUSED_FILE),
+                "{category} {key}"
+            );
+        }
+        for (category, key) in [
+            ("exports", "packages/a/src/util.ts|unusedHelper"),
+            ("exports", "packages/a/src/util.ts|second"),
+            ("nsExports", "packages/a/src/ns.ts|unread"),
+            ("exports", "packages/a/src/impl.ts|own"),
+            ("exports", "packages/a/src/impl.ts|shallow"),
+            ("exports", "packages/a/src/other.ts|rest"),
+            ("exports", "packages/a/src/side.ts|effect"),
+            ("enumMembers", "packages/a/src/lazy.ts|Red"),
+            ("unlisted", "packages/a/src/lazy.ts|react"),
+        ] {
+            assert_eq!(
+                classifier.classify(Side::Tool, category, key),
+                None,
+                "{category} {key}"
             );
         }
     }
