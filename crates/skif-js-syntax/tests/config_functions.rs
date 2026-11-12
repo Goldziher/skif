@@ -747,6 +747,8 @@ fn open(value: &ConfigValue) -> bool {
     value.get("...").is_some()
 }
 
+/// A change made through another name for an object, by a call or by a closure reaches the original, which is then
+/// partly unknown; a change through an alias the evaluator follows (`const a = cfg` in a function) is applied to it.
 #[test]
 fn a_change_through_an_alias_a_call_or_a_closure_reaches_the_original() {
     let value = extract(
@@ -762,13 +764,74 @@ fn a_change_through_an_alias_a_call_or_a_closure_reaches_the_original() {
          export default [alias(), nested(), closure(), callback(), helper(), local(), top, captured];",
     );
     let configs = value.as_array().unwrap();
-    for (index, config) in configs.iter().enumerate() {
+    assert_eq!(
+        configs[0],
+        ConfigValue::Object(vec![
+            ("a".to_owned(), ConfigValue::Number(1.0)),
+            ("x".to_owned(), ConfigValue::Unknown),
+        ])
+    );
+    for (index, config) in configs.iter().enumerate().skip(1) {
         if index != 3 {
             assert!(open(config), "{index}: {config:?}");
         }
     }
     assert!(open(get(&configs[3], &["paths"])));
     assert_eq!(get(&configs[3], &["m"]), &ConfigValue::Unknown);
+}
+
+/// A change made through a `const` that takes a part of a local of its function (`const { coverage } = config.test`)
+/// is applied to that part of the local, in a branch with an unknown test as in the branch, and a change the evaluator
+/// does not follow there (`Object.assign`) leaves only that part partly unknown. Two aliases of one local, and an alias
+/// changed in code the evaluator does not run (a loop), leave the whole local partly unknown.
+#[test]
+fn a_change_through_a_destructured_part_of_a_local_is_applied_to_it() {
+    let value = extract(
+        "vitest.config.ts",
+        "const make = (options = {}) => {\n\
+           const config = { test: { setupFiles: ['./setup.ts'], coverage: { enabled: false }, ...options } };\n\
+           if (process.env.COVERAGE) {\n\
+             const { coverage } = config.test;\n\
+             coverage.enabled = true;\n\
+             Object.assign(coverage, extra());\n\
+           }\n\
+           return config;\n\
+         };\n\
+         const twice = () => {\n\
+           const config = { test: { include: ['a.test.ts'] } };\n\
+           const { test } = config;\n\
+           const t = config.test;\n\
+           t.include = ['b.test.ts'];\n\
+           return config;\n\
+         };\n\
+         const looped = () => {\n\
+           const config = { test: { include: ['a.test.ts'] } };\n\
+           for (const name of names) { const { test } = config; test.include = ['b.test.ts']; }\n\
+           return config;\n\
+         };\n\
+         export default [make({ globals: true }), twice(), looped()];",
+    );
+    let configs = value.as_array().unwrap();
+    assert_eq!(
+        get(&configs[0], &["test"]),
+        &ConfigValue::Object(vec![
+            ("setupFiles".to_owned(), strings(&["./setup.ts"])),
+            (
+                "coverage".to_owned(),
+                ConfigValue::Object(vec![
+                    (
+                        "enabled".to_owned(),
+                        ConfigValue::OneOf(vec![ConfigValue::Bool(false), ConfigValue::Bool(true)])
+                    ),
+                    (UNKNOWN_SPREAD.to_owned(), ConfigValue::Unknown),
+                ])
+            ),
+            ("globals".to_owned(), ConfigValue::Bool(true)),
+        ])
+    );
+    assert!(!open(&configs[0]), "{:?}", configs[0]);
+    assert!(open(&configs[1]), "{:?}", configs[1]);
+    assert!(open(&configs[2]), "{:?}", configs[2]);
 }
 
 /// A `resolve` call (`require.resolve`, the function `createRequire` returns) a callback makes does not change the

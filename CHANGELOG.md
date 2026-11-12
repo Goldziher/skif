@@ -22,6 +22,10 @@ All notable changes to this project are documented here. The format follows
 - **Config factories**: a `resolve` call (`require.resolve`, the function `createRequire` returns) no longer counts
   as a change of the object it is called on, so a shared config factory that pins module paths with one keeps the
   options it is given known ([#166](https://github.com/Goldziher/skif/issues/166)).
+- **Config factories**: a change made through a `const` that takes a part of a local of the same function
+  (`const { coverage } = config.test; coverage.enabled = true`) is applied to that part of the local, so the rest of
+  the config, and the options spread into it, stay known; a local with more than one such alias, or one shared with
+  another function, is still left partly unknown ([#166](https://github.com/Goldziher/skif/issues/166)).
 
 ## [0.3.0] - 2026-11-11
 
