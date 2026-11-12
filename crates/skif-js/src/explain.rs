@@ -242,10 +242,17 @@ pub struct UsageReport {
     pub widened_by: Option<String>,
     /// Which rule makes it an entry file, when it is one.
     pub entry: Option<EntryReason>,
+    /// The file is a build source that is no entry (a Bazel rule's `srcs`): used, and the graph starts from it, but its
+    /// exports are judged.
+    #[serde(skip_serializing_if = "is_false")]
+    pub build_source: bool,
     /// Every import of the module.
     pub imported_by: Vec<Importer>,
-    /// The shortest chain of imports from an entry file to the module, entry first.
+    /// The shortest chain of imports from an entry file or a build source to the module, that file first.
     pub chain_from_entry: Option<Vec<String>>,
+    /// The chain of [`UsageReport::chain_from_entry`] starts at a build source, not at an entry.
+    #[serde(skip_serializing_if = "is_false")]
+    pub chain_from_build_source: bool,
     /// The explanation of the requested export.
     pub export: Option<ExportReport>,
 }
@@ -347,6 +354,13 @@ impl UsageReport {
                 self.render_incomplete(&mut out);
             }
         }
+        if self.build_source {
+            let _ = writeln!(
+                out,
+                "  build source: a tool builds from it (a Bazel rule's srcs or data), so it is used, but it is no entry \
+                 and its exports are judged"
+            );
+        }
         if self.imported_by.is_empty() {
             let _ = writeln!(out, "  imported by no module");
         } else {
@@ -370,6 +384,9 @@ impl UsageReport {
             }
         }
         match &self.chain_from_entry {
+            Some(chain) if self.chain_from_build_source => {
+                let _ = writeln!(out, "  reached from a build source through: {}", chain.join(" -> "));
+            }
             Some(chain) => {
                 let _ = writeln!(out, "  reached from an entry through: {}", chain.join(" -> "));
             }
@@ -586,8 +603,10 @@ impl JsAnalysis<'_> {
                 scope_package: None,
                 widened_by,
                 entry: None,
+                build_source: false,
                 imported_by: Vec::new(),
                 chain_from_entry: None,
+                chain_from_build_source: false,
                 export: None,
             };
         };
@@ -595,9 +614,12 @@ impl JsAnalysis<'_> {
             reachable: self.reachable_from_entries(),
             seen: HashSet::default(),
         };
-        let chain = self
-            .chain_to_entry(module.id)
-            .map(|chain| chain.iter().map(|id| slashed(&self.graph.module(*id).path)).collect());
+        let chain = self.chain_to_entry(module.id);
+        let chain_from_build_source = chain
+            .as_ref()
+            .and_then(|chain| chain.first())
+            .is_some_and(|first| self.graph.module(*first).is_build_source);
+        let chain = chain.map(|chain| chain.iter().map(|id| slashed(&self.graph.module(*id).path)).collect());
         let entry = module.is_entry.then(|| self.entry_reason(module));
         let scope_owner = match entry {
             Some(EntryReason::IncompleteScope) => Some(module.owner),
@@ -621,8 +643,10 @@ impl JsAnalysis<'_> {
             scope_package,
             widened_by: None,
             entry,
+            build_source: module.is_build_source,
             imported_by: self.importers(module, &walk),
             chain_from_entry: chain,
+            chain_from_build_source,
             export: export.map(|name| self.explain_export(module, name, 0, &mut walk, false)),
         }
     }
@@ -631,7 +655,7 @@ impl JsAnalysis<'_> {
         let modules = self.graph.modules();
         let mut queue: VecDeque<ModuleId> = modules
             .iter()
-            .filter(|module| module.is_entry)
+            .filter(|module| module.is_entry || module.is_build_source)
             .map(|module| module.id)
             .collect();
         let mut seen: HashSet<ModuleId> = queue.iter().copied().collect();
@@ -870,13 +894,13 @@ impl JsAnalysis<'_> {
         found
     }
 
-    /// The shortest chain of imports from an entry file to `id`, entry first.
+    /// The shortest chain of imports from an entry file or a build source to `id`, that file first.
     fn chain_to_entry(&self, id: ModuleId) -> Option<Vec<ModuleId>> {
         let modules = self.graph.modules();
         let mut previous: HashMap<ModuleId, ModuleId> = HashMap::default();
         let mut queue: VecDeque<ModuleId> = modules
             .iter()
-            .filter(|module| module.is_entry)
+            .filter(|module| module.is_entry || module.is_build_source)
             .map(|module| module.id)
             .collect();
         let mut seen: HashSet<ModuleId> = queue.iter().copied().collect();

@@ -397,6 +397,9 @@ pub(crate) struct PackageSetup {
     /// The plugin entries that name one file rather than a glob (a workflow step's `node build/report.ts`), absolute.
     /// One that is no file of this analysis may belong to another root of a multi-root run.
     pub plugin_entry_files: Vec<PathBuf>,
+    /// The files tools build from that are no entries (a Bazel rule's `srcs`), for the mode: the module graph starts
+    /// from them too, but their exports are judged.
+    pub build_source: Globs,
     /// The tool configuration of the package could not be fully read, so its entry files are not all known.
     /// Files and dependencies cannot be judged unused then.
     pub entries_incomplete: bool,
@@ -899,6 +902,10 @@ impl Setup {
                 .map(|pattern| join_normalized(&abs_dir, pattern))
                 .collect();
             plugin_entry.retain(|pattern| !pattern.trim_start_matches('!').starts_with("../"));
+            let mut build_source = plugin.production_build_source;
+            if !production {
+                build_source.extend(plugin.build_source);
+            }
 
             let tsconfig_project = js
                 .use_tsconfig_files
@@ -967,6 +974,7 @@ impl Setup {
                 shared_entry: globs.globs(&shared_entry),
                 plugin_entry: globs.globs(&plugin_entry).with_regexes(entry_regex),
                 plugin_entry_files,
+                build_source: globs.globs(&build_source),
                 entries_incomplete: plugin.entries_incomplete,
                 incomplete_scope: match &plugin.incomplete_scope {
                     IncompleteScope::Within(patterns) if plugin.entries_incomplete => {

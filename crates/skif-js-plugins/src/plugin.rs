@@ -119,6 +119,12 @@ pub enum PluginInput {
     Entry(String),
     /// An entry that is also part of a production build.
     ProductionEntry(String),
+    /// A file the config builds from that is no entry point (a source of a Bazel rule's `srcs`): the file is used and
+    /// what it imports is followed, but its exports are not public, so they, its types, members and duplicates are
+    /// judged as any module's.
+    BuildSource(String),
+    /// A [`PluginInput::BuildSource`] that is also part of a production build.
+    ProductionBuildSource(String),
     /// Test files given as a regular expression (Jest's `testRegex`) in the syntax of the `regex` crate, matched
     /// against `/` followed by the path relative to the package directory ([`PluginContext::dir`]); unanchored, it
     /// matches anywhere in the path. It adds entries: the plugin's default entry globs stay.
@@ -506,6 +512,10 @@ pub struct PluginOutput {
     pub project: Vec<String>,
     /// Entries that belong to a production build; a subset of `entries`.
     pub production_entries: Vec<String>,
+    /// Files the configs build from that are no entries ([`PluginInput::BuildSource`]), including the production ones.
+    pub build_sources: Vec<String>,
+    /// Build sources that belong to a production build; a subset of `build_sources`.
+    pub production_build_sources: Vec<String>,
     /// Entry files given as regular expressions, besides `entries`; see [`PluginInput::EntryRegex`]. Not used in
     /// production mode.
     pub entry_regexes: Vec<String>,

@@ -123,6 +123,11 @@ pub struct WorkspaceInputs {
     pub entry: Vec<String>,
     /// Entry files that are part of the shipped product; the only plugin entries used in production mode.
     pub production_entry: Vec<String>,
+    /// Files a tool builds from that are no entries (the `srcs` of a Bazel rule), in every mode: they are used and
+    /// what they import is followed, but their exports are judged as any module's.
+    pub build_source: Vec<String>,
+    /// The build sources that are part of the shipped product; the only ones used in production mode.
+    pub production_build_source: Vec<String>,
     /// Entry files given as regular expressions in the syntax of the `regex` crate (Jest's `testRegex`), matched
     /// against `/` followed by the path relative to the package directory; besides `entry`, and like it not used in
     /// production mode.
@@ -187,6 +192,8 @@ impl WorkspaceInputs {
     pub fn extend(&mut self, other: Self) {
         self.entry.extend(other.entry);
         self.production_entry.extend(other.production_entry);
+        self.build_source.extend(other.build_source);
+        self.production_build_source.extend(other.production_build_source);
         self.entry_regex.extend(other.entry_regex);
         self.scoped_entry_regex.extend(other.scoped_entry_regex);
         self.project.extend(other.project);
