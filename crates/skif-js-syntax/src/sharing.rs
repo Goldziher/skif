@@ -199,9 +199,11 @@ pub(crate) struct Unstable {
     /// Whether a function of the module may change a value of the module when it is called
     /// ([`Sharing::writes_modules`]).
     writes_modules: bool,
-    /// Whether the module hands out a binding of a module whose functions may change a value of a module
-    /// ([`Sharing::exposes_changing`]).
-    exposes_modules: bool,
+    /// The modules the evaluator follows that the module hands out a binding of other than by calling it
+    /// ([`Sharing::exposed`]), by specifier.
+    exposed: Vec<String>,
+    /// Whether the module hands out so a binding of a package neither followed nor installed, whose code is not known.
+    exposes_unknown: bool,
     /// The references that are the only one of a binding no other module can read and that are read once per binding:
     /// not in a loop, nor in a function other than the binding's own, and not of an alias the evaluator follows. None
     /// when the module reads `arguments`, calls `eval` or has a `with` statement, which reach bindings without a
@@ -264,7 +266,7 @@ impl Unstable {
         };
         sharing.visit_program(program);
         let (followed, writes_modules) = sharing.share();
-        let exposes_modules = sharing.exposes_changing();
+        let (exposed, exposes_unknown) = sharing.exposed();
         let sole = if sharing.dynamic {
             HashSet::default()
         } else {
@@ -287,7 +289,8 @@ impl Unstable {
             sole,
             runs_modules: sharing.runs_modules,
             writes_modules,
-            exposes_modules,
+            exposed,
+            exposes_unknown,
             ..Self::default()
         };
         for (symbol, change) in std::mem::take(&mut sharing.changes) {
@@ -384,11 +387,20 @@ impl Unstable {
     /// to, or gives a call that may change it, a top-level binding, an import, an object one of them may hold or what
     /// `this` or `super` is there ([`Sharing::writes_modules`]), or the module calls a function of a module that may ([`Imports::changes_modules`])
     /// or whose code is not known (a bare import neither followed nor installed), imports one for its effects, or hands
-    /// out a binding of such a module other than by calling it (`export { tweak }`, `export const tools = { tweak }`),
-    /// which code of another module may call ([`Sharing::exposes_changing`]). A function that builds and returns new
-    /// objects changes none, whatever it does to them or to what its parameters take, which a call gives it.
+    /// out a binding of a package whose code is not known other than by calling it ([`Sharing::exposed`]). A function
+    /// that builds and returns new objects changes none, whatever it does to them or to what its parameters take,
+    /// which a call gives it. A binding of a followed module the module hands out so changes modules when that module
+    /// does ([`Self::exposed_modules`]).
     pub(crate) fn changes_modules(&self) -> bool {
-        self.runs_modules || self.writes_modules || self.exposes_modules
+        self.runs_modules || self.writes_modules || self.exposes_unknown
+    }
+
+    /// The modules the evaluator follows, by specifier, that the module hands out a binding of other than by calling
+    /// it: it exports it (`export { tweak }`, `export default tweak`), puts it in a value (`export const tools = {
+    /// tweak }`) or gives it to a name, where code of another module may call it. The module changes modules when one
+    /// of them does ([`Imports::changes_modules`]).
+    pub(crate) fn exposed_modules(&self) -> &[String] {
+        &self.exposed
     }
 
     /// Whether a change made through the argument `id` of a call may be read after the call: `id` is not the only
@@ -1050,20 +1062,29 @@ impl Sharing<'_> {
         }
     }
 
-    /// Whether the module hands out a binding of a module whose functions may change a value of a module
-    /// ([`Self::changing_binding`]) other than by calling it: it exports it (`export { tweak }`, `export default
-    /// tweak`), puts it in a value (`export const tools = { tweak }`) or gives it to a name, where code of another
-    /// module may call it.
-    fn exposes_changing(&self) -> bool {
-        self.known.modules.keys().any(|&symbol| {
-            self.scoping
-                .get_resolved_reference_ids(symbol)
-                .iter()
-                .any(|reference| {
-                    self.scoping.get_reference(*reference).is_value() && !self.callee_refs.contains(reference)
-                })
-                && self.changing_binding(symbol)
-        })
+    /// The modules the evaluator follows that the module hands out a binding of other than by calling it, by specifier
+    /// ([`Unstable::exposed_modules`]), and whether it hands out so a binding of a package neither followed nor
+    /// installed.
+    fn exposed(&self) -> (Vec<String>, bool) {
+        let mut specifiers: Vec<String> = Vec::new();
+        let mut unknown = false;
+        for (&symbol, (module, _)) in &self.known.modules {
+            let handed_out = self.scoping.get_resolved_reference_ids(symbol).iter().any(|reference| {
+                self.scoping.get_reference(*reference).is_value() && !self.callee_refs.contains(reference)
+            });
+            if !handed_out {
+                continue;
+            }
+            if self.known.followed.contains(&symbol) {
+                if !specifiers.contains(module) {
+                    specifiers.push(module.clone());
+                }
+            } else {
+                unknown |= is_package(module) && !self.imports.is_installed(module);
+            }
+        }
+        specifiers.sort();
+        (specifiers, unknown)
     }
 
     /// Whether `call` may run code of a module that changes a value of a module ([`Self::changing_binding`]): of a
