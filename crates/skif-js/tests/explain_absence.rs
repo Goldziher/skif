@@ -556,13 +556,21 @@ fn a_bazel_source_is_a_build_source_whose_exports_are_judged() {
     );
     let c = report(BAZEL_SOURCES, "", "c.ts");
     assert_eq!(
-        (&c["chain-from-entry"], &c["chain-from-build-source"], c.get("build-source")),
+        (
+            &c["chain-from-entry"],
+            &c["chain-from-build-source"],
+            c.get("build-source")
+        ),
         (&json!(["b.ts", "c.ts"]), &json!(true), None),
         "{c}"
     );
     let tool = report(BAZEL_SOURCES, "", "tool.mjs");
     assert_eq!(
-        (&tool["entry"], tool.get("build-source"), tool.get("chain-from-build-source")),
+        (
+            &tool["entry"],
+            tool.get("build-source"),
+            tool.get("chain-from-build-source")
+        ),
         (&json!("entry-glob"), None, None),
         "{tool}"
     );
@@ -592,8 +600,5 @@ fn the_text_report_names_build_sources() {
     let a = analysis.explain_usage(Path::new("a.ts"), None).render();
     assert!(a.contains("  build source: a tool builds from it"), "{a}");
     let c = analysis.explain_usage(Path::new("c.ts"), None).render();
-    assert!(
-        c.contains("  reached from a build source through: b.ts -> c.ts"),
-        "{c}"
-    );
+    assert!(c.contains("  reached from a build source through: b.ts -> c.ts"), "{c}");
 }

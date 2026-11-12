@@ -1296,10 +1296,7 @@ const BAZEL_SOURCES: &[(&str, &str)] = &[
             "js_binary(name = \"tool\", entry_point = \"tool.mjs\")\n",
         ),
     ),
-    (
-        "a.ts",
-        "export const unusedInA = 1;\nexport type UnusedInA = string;\n",
-    ),
+    ("a.ts", "export const unusedInA = 1;\nexport type UnusedInA = string;\n"),
     ("b.ts", "import { helper } from './c';\nhelper();\n"),
     ("c.ts", "export function helper(): void {}\n"),
     ("tool.mjs", "export const toolOption = 1;\n"),
