@@ -33,9 +33,20 @@ All notable changes to this project are documented here. The format follows
   [#178](https://github.com/Goldziher/skif/issues/178)).
 - `YamlSource` of `skif-workspace` gains `public_hoist_pattern` and `shamefully_hoist`, and `skif-js-plugins` exports
   `bazel::public_hoist_packages`.
+- **JS rules** for knip's `subpaths` issue type: `unused-subpath-imports` (warning) reports a `package.json` `imports`
+  entry that no `#` specifier of the package's files selects, with an unsafe fix that removes it;
+  `unused-subpath-exports` (off by default, as knip's `includeSubpathExports`) reports an `exports` subpath that no
+  workspace package imports by name, the package itself included, and has no fix. A pattern entry (`#utils/*`,
+  `./features/*`) is used when any import matches it, an exact entry wins over a pattern as in Node.js, and a
+  subpath that publishes no module (`./package.json`, a stylesheet) is not reported. Production mode reports neither,
+  because test files may be the only importers. `--include subpaths` and `--fix-type subpaths` select the imports
+  rule, and `skif migrate --from knip` maps `subpaths`, `includeSubpathExports` and `--include-subpath-exports`
+  ([#208](https://github.com/Goldziher/skif/issues/208)).
 
 ### Fixed
 
+- **JS**: pattern keys of `exports` and `imports` maps are selected as Node.js orders them: of two patterns with the
+  same prefix, the longer one wins (`./features/*.css` over `./features/*` for `./features/a.css`).
 - **Migrate**: `--merge --output <FILE>` writes the merge of the existing `skif.toml` and the migration to `FILE`
   instead of the translation alone, and leaves the existing file as it is; an existing `FILE` is refused. A merge with
   the `exact` profile no longer turns off the default rules a file without a `sources` line relies on: it writes no

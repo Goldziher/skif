@@ -58,6 +58,15 @@ binary use or tool configuration that skif reads uses the package.
    than ignoring it.
 3. Delete only with the user's consent: `skif --fix-unsafe --fix-type files --allow-remove-files`, or delete by hand.
 
+## Unused subpath imports and exports
+
+- `unused-subpath-imports`: no `#` specifier of the package's files selects the `imports` entry. A script or tool
+  that imports it where skif does not read it is a false positive; otherwise remove the entry with
+  `skif --fix-unsafe --fix-type unused-subpath-imports`.
+- `unused-subpath-exports` (off by default): no workspace package imports the `exports` subpath by name. Code outside
+  the workspace may import a published subpath, so remove one only when the package is private or the subpath is not
+  public API.
+
 ## Unused exports, types and members
 
 `unused-exports`, `unused-types`, `unused-enum-members`, `unused-namespace-*` and `duplicate-exports` are about the
