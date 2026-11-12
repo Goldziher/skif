@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use skif_config::{Config, Level};
 use skif_core::{FileSystem, OsFs, Report, RuleMeta};
 use skif_lint::{Executor, Registry, RuleProvider};
-use skif_workspace::Workspace;
+use skif_workspace::{IndexCache, Workspace};
 
 use crate::cache;
 use crate::error::Error;
@@ -141,6 +141,8 @@ pub struct Linter {
     cache: Option<Arc<SharedCache>>,
     /// How many runs are in flight, guarding the moments the cache is emptied.
     in_flight: Mutex<usize>,
+    /// The parsed git indexes, read once by the rules and the JS analysis of every run while they are unchanged.
+    indexes: IndexCache,
 }
 
 type SharedCache = skif_core::CachedFs<cache::Through<Arc<dyn FileSystem>>>;
@@ -349,6 +351,7 @@ impl Linter {
             config: config.clone(),
             cache: None,
             in_flight: Mutex::new(0),
+            indexes: IndexCache::default(),
         })
     }
 
@@ -426,7 +429,9 @@ impl Linter {
         if let Some(path) = options.config_path {
             run_options = run_options.with_config_path(path);
         }
-        run_options = run_options.with_extra_entries(options.extra_entries);
+        run_options = run_options
+            .with_extra_entries(options.extra_entries)
+            .with_index_cache(&self.indexes);
         // The rules that read a lockfile or patch files read them through the file system this linter was built with.
         if let Some(cache) = self.cache.as_deref() {
             run_options = run_options.with_fs(cache);

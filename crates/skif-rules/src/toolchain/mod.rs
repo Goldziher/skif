@@ -118,9 +118,10 @@ pub(crate) fn dockerfile_copies(cx: &LintContext<'_>, dirs: &BTreeSet<&str>) -> 
         .iter()
         .filter(|file| file.kind == ToolchainKind::Dockerfiles)
         .map(|file| DockerfileCopies::of(file.path.clone(), &file.parsed));
+    let listing = cx.listing_fs();
     let beside = dirs
         .iter()
-        .flat_map(|dir| scan.unscanned_dockerfiles(cx.fs(), &cx.workspace.root, dir))
+        .flat_map(|dir| scan.unscanned_dockerfiles(&*listing, &cx.workspace.root, dir))
         .map(|(path, parsed)| DockerfileCopies::of(path, &parsed));
     let mut found: Vec<DockerfileCopies> = scanned.chain(beside).collect();
     for (dockerfile, context) in builds(cx, &scan) {

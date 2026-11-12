@@ -2084,7 +2084,8 @@ pub struct Js {
     /// How source files are found: `auto` (the default) and `walk` walk the directories; `git` lists them from the
     /// git index and re-lists from disk every directory modified since the index was written (faster, blind to an
     /// untracked file older than the last write of the index). `git` falls back to the walk when the workspace is not
-    /// in a git work tree with a usable SHA-1 index.
+    /// in a git work tree with a usable SHA-1 index. The toolchain scan and the Bazel `BUILD` file search of
+    /// `stray-lockfile` list directories the same way.
     pub discovery: JsDiscovery,
     /// What `circular-imports` reports.
     pub cycles: JsCycles,

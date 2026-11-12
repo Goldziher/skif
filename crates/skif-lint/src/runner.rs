@@ -4,7 +4,7 @@ use std::sync::atomic::AtomicBool;
 
 use skif_config::{Config, ConfigError};
 use skif_core::{ConfigJudgement, Diagnostic, FileSystem, IncompletePackage, Report};
-use skif_workspace::{Workspace, map_ordered};
+use skif_workspace::{IndexCache, Workspace, map_ordered};
 
 use crate::context::{FsRef, LintContext, SharedCache};
 use crate::emitter::Emitter;
@@ -60,6 +60,7 @@ pub struct RunOptions<'a> {
     sequential: bool,
     extra_entries: &'a [PathBuf],
     fs: FsRef<'a>,
+    index_cache: Option<&'a IndexCache>,
 }
 
 impl<'a> RunOptions<'a> {
@@ -68,6 +69,15 @@ impl<'a> RunOptions<'a> {
     #[must_use]
     pub const fn with_fs(mut self, fs: &'a dyn FileSystem) -> Self {
         self.fs = FsRef(fs);
+        self
+    }
+
+    /// Reads and parses git indexes through `cache`, which a host keeps across runs so that each index is parsed
+    /// once while it is unchanged, by the rules ([`LintContext::tracked_files`](crate::LintContext::tracked_files))
+    /// and the providers alike. Without one, a run parses the index it needs itself.
+    #[must_use]
+    pub const fn with_index_cache(mut self, cache: &'a IndexCache) -> Self {
+        self.index_cache = Some(cache);
         self
     }
 
@@ -203,7 +213,8 @@ fn collect(
         &shared,
     )
     .with_extra_entries(options.extra_entries)
-    .with_fs(options.fs);
+    .with_fs(options.fs)
+    .with_index_cache(options.index_cache);
     let job = || execute(registry, &cx, options);
     match options.executor {
         Some(executor) if !options.sequential => executor.install(job),

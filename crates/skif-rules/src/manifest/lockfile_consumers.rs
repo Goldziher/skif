@@ -10,9 +10,10 @@
 //! those leave a lockfile unnamed is the Bazel repository listed for its `BUILD` files, which are read with the files
 //! they load, so that a lockfile only another package's `BUILD` file names (through an implicitly exported file) is
 //! found too; the listing does not enter hidden directories, `node_modules`, symbolic links or the directories
-//! `.bazelignore` names. A `BUILD` file also names a lockfile of its own directory or below by a relative path
-//! (`"pnpm-lock.yaml"`, `":a/pnpm-lock.yaml"`), and the `BUILD` file of the lockfile's package by a `glob(...)` whose
-//! include patterns match it and whose exclude patterns do not. A label also counts inside a longer string where
+//! `.bazelignore` names, and under `[js] discovery = "git"` it lists a tracked directory unchanged since the git index
+//! was written from the index ([`LintContext::listing_fs`]). A `BUILD` file also names a lockfile of its own
+//! directory or below by a relative path (`"pnpm-lock.yaml"`, `":a/pnpm-lock.yaml"`), and the `BUILD` file of the
+//! lockfile's package by a `glob(...)` whose include patterns match it and whose exclude patterns do not. A label also counts inside a longer string where
 //! `$(location ...)`, `$(execpath ...)` or another location function expands it (a `genrule`'s `cmd`). A literal in
 //! an `exclude = [...]` list names nothing, and neither does a docstring.
 //!
@@ -582,7 +583,7 @@ pub(super) fn consumed(cx: &LintContext<'_>, lockfiles: &[String]) -> BTreeSet<S
         .partition(|lockfile| dockerfiles.iter().any(|dockerfile| copies(dockerfile, lockfile)));
     let mut consumed: BTreeSet<String> = copied.into_iter().collect();
     if !rest.is_empty() {
-        consumed.extend(bazel_consumers(cx.fs(), &cx.workspace.root, &rest));
+        consumed.extend(bazel_consumers(&*cx.listing_fs(), &cx.workspace.root, &rest));
     }
     consumed
 }
