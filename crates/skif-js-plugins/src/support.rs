@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use skif_js_syntax::{ConfigValue, OWN_SPREAD};
 
 use crate::plugin::{ConfigAst, IncompleteScope, PluginContext, PluginInput, PluginSpec};
+use crate::sources::PackageSources;
 
 const FILE_EXTENSIONS: &[&str] = &[
     "js", "jsx", "ts", "tsx", "mjs", "cjs", "mts", "cts", "json", "css", "scss", "html", "vue", "svelte",
@@ -186,7 +187,7 @@ pub(crate) fn project_files(cx: &PluginContext<'_>, base: &str, project: &str, n
     } else {
         join_rel(&relative, names)
     };
-    crate::files::find_files(cx.fs, cx.dir, &[pattern])
+    crate::files::find_files(cx.fs, cx.globs, cx.dir, &[pattern])
 }
 
 /// The entry for a glob or path written in a config. Negated patterns yield nothing.
@@ -869,12 +870,7 @@ pub(crate) fn production_entries<'a>(base: &str, patterns: impl IntoIterator<Ite
 /// the workspace and their text. Declaration files are left out.
 pub(crate) fn sources_containing(cx: &PluginContext<'_>, needle: &str) -> Vec<(String, std::sync::Arc<str>)> {
     let finder = memchr::memmem::Finder::new(needle.as_bytes());
-    source_files(cx)
-        .filter_map(|source| {
-            let text = cx.fs.read_to_string(&cx.dir.join(&source)).ok()?;
-            finder.find(text.as_bytes()).is_some().then_some((source, text))
-        })
-        .collect()
+    sources_where(cx, |_| true, |text| finder.find(text.as_bytes()).is_some())
 }
 
 /// The JavaScript and TypeScript source files of the workspace's own whose text `keep` accepts, as their path
@@ -885,10 +881,24 @@ pub(crate) fn own_sources_where(
     keep: impl Fn(&str) -> bool,
 ) -> Vec<(String, std::sync::Arc<str>)> {
     let mut nested = HashMap::default();
+    sources_where(cx, |source| !in_nested_package(cx, source, &mut nested), keep)
+}
+
+/// The source files of the workspace that `wanted` accepts by path and `keep` by text, with their text: through the
+/// [`PackageSources`] of the context, which lists and reads them once for every plugin, or else listed and read now.
+fn sources_where(
+    cx: &PluginContext<'_>,
+    mut wanted: impl FnMut(&str) -> bool,
+    keep: impl Fn(&str) -> bool,
+) -> Vec<(String, std::sync::Arc<str>)> {
+    let read = |source: &str| cx.fs.read_to_string(&cx.dir.join(source)).ok();
+    if let Some(sources) = PackageSources::of(cx) {
+        return sources.texts(|| source_files(cx).collect(), read, wanted, keep);
+    }
     source_files(cx)
-        .filter(|source| !in_nested_package(cx, source, &mut nested))
+        .filter(|source| wanted(source.as_str()))
         .filter_map(|source| {
-            let text = cx.fs.read_to_string(&cx.dir.join(&source)).ok()?;
+            let text = read(source.as_str())?;
             keep(&text).then_some((source, text))
         })
         .collect()
@@ -897,7 +907,7 @@ pub(crate) fn own_sources_where(
 /// The JavaScript and TypeScript files below the workspace directory, declaration files left out.
 fn source_files(cx: &PluginContext<'_>) -> impl Iterator<Item = String> {
     let patterns = ["**/*.{ts,mts,cts,tsx,js,mjs,cjs,jsx}".to_owned()];
-    crate::files::find_files(cx.fs, cx.dir, &patterns)
+    crate::files::find_files(cx.fs, cx.globs, cx.dir, &patterns)
         .into_iter()
         .filter(|source| !source.ends_with(".d.ts") && !source.ends_with(".d.mts") && !source.ends_with(".d.cts"))
 }

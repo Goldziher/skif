@@ -74,7 +74,7 @@ pub(crate) fn bundler_inputs(config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> 
 fn html_template_entries(cx: &PluginContext<'_>) -> Vec<PluginInput> {
     let patterns = ["index.html", "public/*.html", "src/*.html", "templates/*.html"].map(str::to_owned);
     let mut out = Vec::new();
-    for html_path in find_files(cx.fs, cx.dir, &patterns) {
+    for html_path in find_files(cx.fs, cx.globs, cx.dir, &patterns) {
         let Ok(html) = cx.fs.read_to_string(&cx.dir.join(&html_path)) else {
             continue;
         };

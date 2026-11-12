@@ -6,7 +6,7 @@ use common::{insert, json_op, remove, rename, set, sort_keys};
 use jsonc_parser::{CollectOptions, ParseOptions, parse_to_ast};
 use serde_json::json;
 use skif_core::{FixOp, InsertPosition, JsonAction, TextEdit, apply_text_edits};
-use skif_edit::{EditPlanError, FileKind, apply, plan_edits};
+use skif_edit::{Document, EditPlanError, FileKind, apply, plan_edits};
 
 struct Case {
     name: &'static str,
@@ -876,4 +876,54 @@ fn paths_resolve_through_objects_and_arrays() {
             "{missing:?}"
         );
     }
+}
+
+/// A document parsed once plans each set of operations as `plan_edits` plans it from the text, a set that fails or
+/// breaks the document in between included: planning leaves nothing behind for the next set.
+#[test]
+fn a_document_parsed_once_plans_every_set_as_plan_edits_does() {
+    let source = "\u{feff}{\n  \"name\": \"a\",\n  \"version\": \"1.0.0\",\n  \"dependencies\": {\"zod\": \"^3.0.0\", \"lodash\": \"^4.0.0\"}\n}\n";
+    let sets: Vec<Vec<FixOp>> = vec![
+        vec![set(&["version"], json!("2.0.0"))],
+        vec![remove(&["missing"])],
+        vec![FixOp::text(
+            "package.json",
+            TextEdit::new(4, 4, "\"b\" \"c\",".to_owned()),
+        )],
+        vec![
+            set(&["dependencies", "lodash"], json!("^4.17.21")),
+            rename(&["dependencies", "zod"], "valibot"),
+        ],
+        vec![
+            remove(&["name"]),
+            insert(&[], "private", json!(true), InsertPosition::End),
+        ],
+        vec![set(&["version"], json!("3.0.0"))],
+    ];
+    let document = Document::parse(source, FileKind::Json).unwrap();
+    assert_eq!(document.source(), source);
+    for ops in &sets {
+        let ops: Vec<&FixOp> = ops.iter().collect();
+        assert_eq!(document.plan(&ops), plan_edits(source, FileKind::Json, &ops), "{ops:?}");
+    }
+    let outcomes: Vec<bool> = sets
+        .iter()
+        .map(|ops| document.plan(&ops.iter().collect::<Vec<_>>()).is_ok())
+        .collect();
+    assert_eq!(outcomes, [true, false, false, true, true, true]);
+    let version = document.plan(&[&set(&["version"], json!("2.0.0"))]).unwrap();
+    assert_eq!(
+        apply_text_edits(source, &version).unwrap(),
+        "\u{feff}{\n  \"name\": \"a\",\n  \"version\": \"2.0.0\",\n  \"dependencies\": {\"zod\": \"^3.0.0\", \"lodash\": \"^4.0.0\"}\n}\n"
+    );
+}
+
+/// A source that does not parse fails at `Document::parse` with the error `plan_edits` gives.
+#[test]
+fn a_document_that_does_not_parse_fails_as_plan_edits_does() {
+    let op = set(&["version"], json!("2.0.0"));
+    let parsed = Document::parse("{\"a\": ", FileKind::Json).unwrap_err();
+    let planned = plan_edits("{\"a\": ", FileKind::Json, &[&op]).unwrap_err();
+    assert!(matches!(parsed, EditPlanError::Parse { .. }), "{parsed}");
+    assert_eq!(parsed.to_string(), planned.to_string());
 }

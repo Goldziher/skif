@@ -936,7 +936,13 @@ fn warn_nested_roots(args: &LintArgs, root: &Path, runs: &[RootRun], fs: &dyn Fi
     if !removes {
         return;
     }
-    let Ok(discovery) = skif::discover_targets(root, fs, &overrides(args)) else {
+    // The root of the run is loaded already: only the roots below it are discovered.
+    let overrides = overrides(args);
+    let discovery = match runs.iter().find(|run| run.workspace.root.as_path() == root) {
+        Some(run) => skif::discover_targets_below(&run.workspace, fs, &overrides),
+        None => skif::discover_targets(root, fs, &overrides),
+    };
+    let Ok(discovery) = discovery else {
         return;
     };
     let nested: Vec<String> = discovery

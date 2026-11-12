@@ -348,6 +348,8 @@ impl InputSource for PluginSource {
             plugins: &plugins,
             modules: Some(&modules),
             nx: None,
+            globs: request.listing.globs(),
+            sources: None,
         };
         // The Nx projects are those the source walk reaches, listed once for every package of the run.
         let package_dir = package.dir.to_string_lossy().replace('\\', "/");

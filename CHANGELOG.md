@@ -132,6 +132,16 @@ All notable changes to this project are documented here. The format follows
   default), `Workspace::claimed_dirs_with_fs`, `Selector::only_literals`, `Selector::literal_key`,
   `Override::literal_packages` and `resolve_plugins_in` of `skif-js-plugins`; `RenderOptions::with_source` takes
   `impl Into<Arc<str>>`.
+- **Performance**: the plugins that search a package's sources (`pino`, `zx`, `execa`, `nano-spawn`, `bun`) list
+  and read each source file once between them, plugin globs are compiled once per run instead of being kept for the
+  life of the process, the fix planner parses each file once for all its fixes, `--fix` finds the roots below the
+  linted root without loading that root again, `--watch` finds the directory it watches without discovering every
+  root, and the language server reads a file only for diagnostics with a span; the output is unchanged
+  ([#206](https://github.com/Goldziher/skif/issues/206)). `PluginContext` of `skif-js-plugins` gains `globs` (a
+  `GlobCache`, exported) and `sources` (an `Option<&PackageSources>`, exported; `None` has the resolvers keep one per
+  package), so a struct literal of `PluginContext` needs both; `WorkspaceListing` of `skif-js` gains `globs`.
+  `skif-edit` exports `Document`, which parses a file once to plan several sets of operations against it, and `skif`
+  exports `discover_targets_below`.
 - Under `[js] discovery = "git"` the toolchain scan (version files, Dockerfiles, shell scripts, workflows and the
   `files` globs) and the search of `stray-lockfile` for Bazel `BUILD` files and Dockerfiles beside a lockfile list
   directories from the git index, as the JS discovery does, instead of walking them; `auto` and `walk` walk as before
