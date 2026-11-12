@@ -2105,3 +2105,20 @@ fn a_new_object_of_an_unknown_class_may_change_its_argument() {
     );
     assert!(!open(&kept), "{kept:?}");
 }
+
+/// A call given a spread argument (`configure(...args)`) may change what the spread list holds, so a config the list
+/// holds is partly unknown, also when the call is of a function the module declares.
+#[test]
+fn a_spread_argument_may_have_what_it_holds_changed() {
+    for body in [
+        "const args = [config];\nconfigure(...args);",
+        "const args = [config];\nconst r = configure(...args);",
+        "function set(c) { c.entry = './changed.js'; }\nconst args = [config];\nset(...args);",
+    ] {
+        let source = format!(
+            "const config = {{ entry: './src/main.js', module: {{ rules: [] }} }};\n{body}\nmodule.exports = config;"
+        );
+        let value = extract("rspack.config.js", &source);
+        assert!(open(&value), "{body}: {value:?}");
+    }
+}

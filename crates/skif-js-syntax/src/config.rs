@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::finder::static_string;
 use crate::sharing::{
-    Change, Unstable, Write, alias_names, alias_source, changed_by_call, reach, statement_call,
+    Change, Unstable, Write, alias_names, alias_source, changed_by_call, given, reach, statement_call,
 };
 
 const MAX_DEPTH: u32 = 32;
@@ -4140,7 +4140,7 @@ impl<'u> Writes<'u> {
         if !self.unstable.changes_arguments(span, statement) {
             return;
         }
-        for argument in arguments.iter().filter_map(Argument::as_expression) {
+        for argument in arguments.iter().filter_map(given) {
             if let Some((root, keys, _)) = reach(argument)
                 && self.unstable.seen_after(root)
             {

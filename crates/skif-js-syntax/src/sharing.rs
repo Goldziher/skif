@@ -395,9 +395,9 @@ impl Sharing<'_> {
         }
     }
 
-    /// Records a change of each object a call is given.
+    /// Records a change of each object a call is given, and of what a spread argument holds.
     fn mutate_arguments(&mut self, arguments: &[Argument<'_>]) {
-        for argument in arguments.iter().filter_map(Argument::as_expression) {
+        for argument in arguments.iter().filter_map(given) {
             self.mutate(argument);
         }
     }
@@ -1366,6 +1366,15 @@ struct ReadsArguments(bool);
 impl<'a> Visit<'a> for ReadsArguments {
     fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
         self.0 |= it.name.as_str() == "arguments";
+    }
+}
+
+/// What an argument gives a call: its value, or what a spread argument spreads (`args` in `f(...args)`), whose
+/// elements the call is given.
+pub(crate) fn given<'b, 'a>(argument: &'b Argument<'a>) -> Option<&'b Expression<'a>> {
+    match argument {
+        Argument::SpreadElement(spread) => Some(&spread.argument),
+        other => other.as_expression(),
     }
 }
 
