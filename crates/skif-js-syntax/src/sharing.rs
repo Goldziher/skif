@@ -2,8 +2,9 @@
 //!
 //! The evaluator copies values: `const a = cfg; a.x = 1` changes its copy of `a`, not `cfg`, and a function it does not
 //! call, or calls for its value only, does not change what it captures. An import counts as a binding of the module
-//! here, as the evaluator reads it as its module computes it, but for an imported function or class called, whose
-//! result holds none of the module's locals. This pass finds, by symbol, the bindings such
+//! here, as the evaluator reads it as its module computes it, but for a function or class imported from a module the
+//! evaluator does not follow, whose result holds none of the module's locals; what one of a followed module returns
+//! may be any value of such a module. This pass finds, by symbol, the bindings such
 //! code may change: one a nested function assigns or changes, and one that may share an object with a binding that is
 //! changed (`const a = cfg`, `{ test: t }`, `{ ...base }`, `f(cfg)`). Reading one of them yields a value that says it
 //! may hold more than the evaluator saw.
