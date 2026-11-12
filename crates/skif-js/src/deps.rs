@@ -18,6 +18,7 @@ use crate::ancestors::{external_manifests, is_repository_root, listed_names, rea
 use crate::discover::{is_ignored_in_repository, is_package_manifest, relative};
 use crate::fixture::in_fixture_directory;
 use crate::graph::{ModuleGraph, ModuleId, Target};
+use crate::hoisting::PublicHoisting;
 use crate::input::ConfigDependency;
 use crate::lockfile;
 use crate::resolve::{DECLARATION_SUFFIXES, is_installed};
@@ -175,9 +176,7 @@ const PNPM_WITHOUT_NPMRC_SETTINGS: u64 = 11;
 /// read, since skif does not tell the pnpm version from anything else. Without either setting, pnpm uses its isolated
 /// linker. A member's `.npmrc`, the user's `.npmrc`, the environment and `pnpm install --node-linker` are not read.
 fn pnpm_hoisted(workspace: &Workspace, fs: &dyn FileSystem) -> bool {
-    let reads_npmrc = declared_version(workspace, "pnpm")
-        .and_then(major_of)
-        .is_none_or(|major| major < PNPM_WITHOUT_NPMRC_SETTINGS);
+    let reads_npmrc = pnpm_reads_npmrc(workspace);
     let linker = workspace
         .pnpm_workspace
         .as_ref()
@@ -188,6 +187,14 @@ fn pnpm_hoisted(workspace: &Workspace, fs: &dyn FileSystem) -> bool {
                 .flatten()
         });
     linker.as_deref() == Some("hoisted")
+}
+
+/// Whether pnpm reads `node_modules` layout settings from the root `.npmrc`: the root's `packageManager` names a pnpm
+/// before 11, or no pnpm version, since skif does not tell the pnpm version from anything else.
+fn pnpm_reads_npmrc(workspace: &Workspace) -> bool {
+    declared_version(workspace, "pnpm")
+        .and_then(major_of)
+        .is_none_or(|major| major < PNPM_WITHOUT_NPMRC_SETTINGS)
 }
 
 /// Whether npm installs the workspace with its linked strategy, which installs isolated, as pnpm does: the last
@@ -1045,6 +1052,8 @@ pub struct DependencyUsage {
     member_bins_hoisted: bool,
     /// Whether the workspace is a Rush repository (a `rush.json` at its root), whose scripts run Rush's own commands.
     rush: bool,
+    /// What the install hoists publicly, with `[js] use-public-hoisting` outside strict mode.
+    public_hoisting: Option<PublicHoisting>,
     /// Every package with its workspace-relative directory, for the commands that change directory.
     dirs: Vec<(PackageId, String)>,
     members: HashSet<String>,
@@ -1085,6 +1094,11 @@ impl DependencyUsage {
         };
         let locked = lockfile::read(fs, &workspace.root);
         usage.member_bins_hoisted = hoists_member_bins(workspace, usage.rush, locked.bun_config_version, fs);
+        if setup.use_public_hoisting && !setup.isolate_workspaces {
+            let pnpm = (matches!(workspace.package_manager, Some(PackageManager::Pnpm)) && !usage.rush)
+                .then(|| pnpm_reads_npmrc(workspace));
+            usage.public_hoisting = Some(PublicHoisting::read(workspace, pnpm, setup.git_root.as_deref(), fs));
+        }
         usage.read_manifests(workspace, &locked.packages, fs, sequential);
         let tsconfigs = TsconfigMemo::new(fs);
         usage.collect_ambient_types(workspace, setup, &tsconfigs);
@@ -1516,8 +1530,15 @@ impl DependencyUsage {
     }
 
     /// Whether package `name`, which no manifest of package `owner` or above lists, is there all the same: a peer
-    /// dependency of a listed package or the runtime of an `engines` entry.
+    /// dependency of a listed package, a package the install hoists publicly at or above `owner`
+    /// ([`PublicHoisting`]) or the runtime of an `engines` entry.
     fn is_provided(&self, workspace: &Workspace, owner: PackageId, name: &str) -> bool {
+        if let Some(hoisting) = &self.public_hoisting
+            && let Some(package) = workspace.package(owner)
+            && hoisting.hoists(&workspace.root.join(&package.dir), name)
+        {
+            return true;
+        }
         // A peer dependency of a listed package is provided by whoever installs that package; strict mode, like
         // knip's, does not count on that.
         let scopes = std::iter::once(owner).chain(self.ancestors[owner.index()].iter().copied());

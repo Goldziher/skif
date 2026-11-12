@@ -9,6 +9,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `[js] use-public-hoisting` (default `false`): a package that pnpm's `public-hoist-pattern` or `shamefully-hoist`
+  (`pnpm-workspace.yaml`, else the root `.npmrc` before pnpm 11) or rules_js's `public_hoist_packages` hoists into a
+  `node_modules` above a package is available to it, so importing it unlisted is no `unlisted-dependencies` finding.
+  `unused-dependencies` and strict mode are unchanged
+  ([ADR 0123](adrs/0123-publicly-hoisted-packages-as-available-dependencies.md),
+  [#178](https://github.com/Goldziher/skif/issues/178)).
+- `YamlSource` of `skif-workspace` gains `public_hoist_pattern` and `shamefully_hoist`, and `skif-js-plugins` exports
+  `bazel::public_hoist_packages`.
+
 ### Fixed
 
 - **Config evaluation**: an optional member (`base?.setupFiles`, `undefined` when `base` is `null` or `undefined`) and

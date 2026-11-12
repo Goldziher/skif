@@ -527,6 +527,8 @@ pub(crate) struct Setup {
     pub cycles: skif_config::JsCycles,
     /// `[js] ignore-global-binaries`: binaries assumed to be installed globally are never reported unlisted.
     pub ignore_global_binaries: bool,
+    /// `[js] use-public-hoisting`: a package the install hoists publicly is available below the hoist.
+    pub use_public_hoisting: bool,
     /// `.gitignore` files apply: not `--no-gitignore`.
     pub gitignore: bool,
 }
@@ -1023,6 +1025,7 @@ impl Setup {
             include_tags,
             cycles: js.cycles.clone(),
             ignore_global_binaries: js.ignore_global_binaries,
+            use_public_hoisting: js.use_public_hoisting,
             gitignore: !js.no_gitignore,
         }
     }

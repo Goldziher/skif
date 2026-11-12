@@ -448,6 +448,7 @@ include-entry-exports = false
 tsconfig = "tsconfig.app.json"
 use-tsconfig-files = false
 include-fixtures = false
+use-public-hoisting = false
 discovery = "auto"
 
 [js.cycles]
@@ -777,6 +778,35 @@ platform tools scripts run (`rm`, `curl`, `git`, `docker`), which are installed 
 `@bazel/bazelisk` or `@bazel/ibazel` is still used by the scripts that run them. Set it to `false` to report each one
 that no dependency provides, unless `ignore-binaries` lists it. Shell builtins (`cd`, `echo`, `export`), shells, pass-through commands (`env`, `sudo`, `xargs`), the package
 managers and `node` are never reported.
+
+**`use-public-hoisting`** (default `false`, top level only) counts a package that the install hoists publicly into
+a `node_modules` above a package as available to it, so a file that imports it without listing it is not reported by
+`unlisted-dependencies`. Off, skif reports such an import as knip does; `ignore-dependencies` (or
+`--ignore-dependency`) quiets one package instead. On, skif reads:
+
+- pnpm's `publicHoistPattern` and `shamefullyHoist` from `pnpm-workspace.yaml`, else `public-hoist-pattern` and
+  `shamefully-hoist` from the top level of the root `.npmrc`, which pnpm 11 no longer reads for these settings (so
+  `.npmrc` is skipped when the root's `packageManager` names pnpm 11 or later). The patterns hoist into the root
+  `node_modules`, so they apply to every package. `*` matches any run of characters, a `!` pattern excludes what the
+  patterns before it include, and `shamefully-hoist = true` is the pattern `*`. Without a setting nothing is hoisted:
+  pnpm's default, which changed in pnpm 10, is not assumed. Rush repositories are not read.
+- `public_hoist_packages` of rules_js's `npm_translate_lock`, in the Bazel repository root's `MODULE.bazel`,
+  `WORKSPACE.bazel` or `WORKSPACE`, when it is a dict literal: each key (a version suffix such as `@1.2.3` dropped)
+  is available to the packages at or below each Bazel package its list names, `""` being the repository root.
+
+```toml
+[js]
+use-public-hoisting = true
+```
+
+with `public-hoist-pattern[]=hoisted-only` in the root `.npmrc`, or
+`npm_translate_lock(..., public_hoist_packages = {"hoisted-only": [""]})`, makes `import 'hoisted-only'` in any
+package no unlisted dependency. The setting changes no `unused-dependencies` finding: a package a manifest lists is
+used or unused as before, whether it is hoisted or not. Strict mode (`--strict`) ignores it, since every package
+there uses only its own manifest. `node-linker=hoisted` and the flat layouts of npm, Yarn Classic and Bun are not
+counted: they make every installed package resolvable everywhere, so counting them would amount to turning
+`unlisted-dependencies` off. Binaries are not affected: a hoisted package's binary is still credited only to a
+package that lists it.
 
 `discovery` chooses how source files are found. `auto` (the default) and `walk` walk the directories, which finds
 every untracked file. `git` lists the files from the git index when the analysed root is in a git work tree and checks

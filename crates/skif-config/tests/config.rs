@@ -315,6 +315,7 @@ fn full_fixture_sections() {
 
     let js = &config.js;
     assert!(js.enabled && js.production && js.include_entry_exports && js.include_fixtures);
+    assert!(js.use_public_hoisting);
     assert_eq!(js.entry, ["src/index.ts"]);
     assert_eq!(js.project, ["src/**/*.ts"]);
     assert_eq!(js.ignore, ["**/generated/**"]);
@@ -344,6 +345,7 @@ fn defaults_are_sensible() {
     let config = Config::default();
     assert_eq!(Config::from_toml_str("").unwrap(), config);
     assert!(config.js.enabled && !config.js.production && !config.js.include_fixtures);
+    assert!(!config.js.use_public_hoisting);
     assert_eq!(config.catalog.mode, CatalogMode::Off);
     assert_eq!(config.catalog.min_packages, 2);
     assert_eq!(config.policy.prefer, Prefer::Highest);
@@ -826,6 +828,7 @@ fn root_only_js_keys_are_rejected_in_an_override() {
         "ignore-members = [\"a\"]",
         "ignore-exports-used-in-file = true",
         "include-fixtures = true",
+        "use-public-hoisting = true",
     ] {
         let source = format!("[[overrides]]\npackages = [\"a\"]\n[overrides.js]\n{key}\n");
         assert!(Config::from_toml_str(&source).is_err(), "{key}");
