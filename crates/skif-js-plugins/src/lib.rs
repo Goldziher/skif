@@ -31,6 +31,6 @@ pub use plugin::{
     IncompleteScope, KNIP_COMMIT, PathAlias, Plugin, PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec,
     ScopedEntryRegex,
 };
-pub use resolve::{resolve_plugins, resolve_plugins_with};
+pub use resolve::{resolve_plugins, resolve_plugins_in, resolve_plugins_with};
 pub use scopes::NxProjects;
 pub use skif_js_syntax::ModuleLoader;

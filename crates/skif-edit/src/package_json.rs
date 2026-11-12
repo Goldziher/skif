@@ -5,6 +5,8 @@
 //! so a file keeps its layout. With an indent, the tree is rendered the way `JSON.stringify(value, null, indent)` lays
 //! it out instead.
 
+use std::borrow::Cow;
+
 use jsonc_parser::ast::{self, ObjectPropName};
 use jsonc_parser::common::Ranged;
 use jsonc_parser::{CollectOptions, ParseOptions, parse_to_ast};
@@ -283,52 +285,52 @@ fn newline(source: &str) -> &'static str {
     if source.contains("\r\n") { "\r\n" } else { "\n" }
 }
 
-/// A JSON value with the source text it was read from.
+/// A JSON value with the source text it was read from, borrowed from the source `'s` except for what a step writes.
 #[derive(Debug, Clone)]
-enum Node {
-    Object(Object),
-    Array(Array),
+enum Node<'s> {
+    Object(Object<'s>),
+    Array(Array<'s>),
     Scalar {
         /// The literal as written.
-        text: String,
+        text: Cow<'s, str>,
         /// The decoded value of a string literal.
-        string: Option<String>,
+        string: Option<Cow<'s, str>>,
     },
 }
 
 #[derive(Debug, Clone)]
-struct Object {
+struct Object<'s> {
     /// The text before each member and after the last one; one more than `members`.
-    gaps: Vec<String>,
-    members: Vec<Member>,
+    gaps: Vec<&'s str>,
+    members: Vec<Member<'s>>,
 }
 
 #[derive(Debug, Clone)]
-struct Member {
-    key: String,
+struct Member<'s> {
+    key: Cow<'s, str>,
     /// The key literal as written, quotes included.
-    key_text: String,
+    key_text: &'s str,
     /// The text from the start of the key to the start of the value: key, colon and spaces.
-    head: String,
-    value: Node,
+    head: &'s str,
+    value: Node<'s>,
 }
 
 #[derive(Debug, Clone)]
-struct Array {
+struct Array<'s> {
     /// The text before each item and after the last one; one more than `items`.
-    gaps: Vec<String>,
-    items: Vec<Node>,
+    gaps: Vec<&'s str>,
+    items: Vec<Node<'s>>,
 }
 
-impl Object {
-    fn get_mut(&mut self, key: &str) -> Option<&mut Node> {
+impl<'s> Object<'s> {
+    fn get_mut(&mut self, key: &str) -> Option<&mut Node<'s>> {
         self.members
             .iter_mut()
             .find(|member| member.key == key)
             .map(|member| &mut member.value)
     }
 
-    fn get(&self, key: &str) -> Option<&Node> {
+    fn get(&self, key: &str) -> Option<&Node<'s>> {
         self.members
             .iter()
             .find(|member| member.key == key)
@@ -336,7 +338,7 @@ impl Object {
     }
 
     /// The node at `path`, a `/`-separated list of keys.
-    fn find_mut(&mut self, path: &str) -> Option<&mut Node> {
+    fn find_mut(&mut self, path: &str) -> Option<&mut Node<'s>> {
         let mut keys = path.split('/');
         let mut node = self.get_mut(keys.next()?)?;
         for key in keys {
@@ -365,21 +367,21 @@ impl Object {
         if order.iter().enumerate().all(|(position, index)| position == *index) || has_comments(&self.gaps) {
             return false;
         }
-        let mut taken: Vec<Option<Member>> = self.members.drain(..).map(Some).collect();
+        let mut taken: Vec<Option<Member<'s>>> = self.members.drain(..).map(Some).collect();
         self.members = order.iter().filter_map(|index| taken[*index].take()).collect();
         true
     }
 }
 
-struct Doc {
+struct Doc<'s> {
     /// The byte order mark and whitespace before the root value.
-    prefix: String,
-    root: Node,
-    suffix: String,
+    prefix: &'s str,
+    root: Node<'s>,
+    suffix: &'s str,
 }
 
 /// Whether one of `gaps` holds a comment. A gap is whitespace, commas and comments, so any `/` starts a comment.
-fn has_comments(gaps: &[String]) -> bool {
+fn has_comments(gaps: &[&str]) -> bool {
     gaps.iter().any(|gap| gap.contains('/'))
 }
 
@@ -390,8 +392,8 @@ fn parse_error(message: impl Into<String>) -> EditPlanError {
     }
 }
 
-impl Doc {
-    fn parse(source: &str) -> Result<Self, EditPlanError> {
+impl<'s> Doc<'s> {
+    fn parse(source: &'s str) -> Result<Self, EditPlanError> {
         let bom = if source.starts_with(BOM) { BOM.len_utf8() } else { 0 };
         let body = &source[bom..];
         let parsed = parse_to_ast(body, &CollectOptions::default(), &ParseOptions::default())
@@ -399,16 +401,16 @@ impl Doc {
         let root = parsed.value.ok_or_else(|| parse_error("the file is empty"))?;
         let range = root.range();
         Ok(Self {
-            prefix: source[..bom + range.start].to_owned(),
+            prefix: &source[..bom + range.start],
             root: node(body, &root),
-            suffix: body[range.end..].to_owned(),
+            suffix: &body[range.end..],
         })
     }
 
     fn render_kept(&self) -> String {
-        let mut out = self.prefix.clone();
+        let mut out = self.prefix.to_owned();
         kept(&self.root, &mut out);
-        out.push_str(&self.suffix);
+        out.push_str(self.suffix);
         out
     }
 
@@ -423,26 +425,26 @@ impl Doc {
     }
 }
 
-fn prop_name(name: &ObjectPropName<'_>) -> String {
+fn prop_name<'s>(name: &ObjectPropName<'s>) -> Cow<'s, str> {
     match name {
-        ObjectPropName::String(lit) => lit.value.to_string(),
-        ObjectPropName::Word(lit) => lit.value.to_owned(),
+        ObjectPropName::String(lit) => lit.value.clone(),
+        ObjectPropName::Word(lit) => Cow::Borrowed(lit.value),
     }
 }
 
 /// Splits `text[start..end]` around `spans` into the gaps between them.
-fn gaps(text: &str, start: usize, end: usize, spans: &[(usize, usize)]) -> Vec<String> {
+fn gaps<'s>(text: &'s str, start: usize, end: usize, spans: &[(usize, usize)]) -> Vec<&'s str> {
     let mut out = Vec::with_capacity(spans.len() + 1);
     let mut at = start;
     for (span_start, span_end) in spans {
-        out.push(text[at..*span_start].to_owned());
+        out.push(&text[at..*span_start]);
         at = *span_end;
     }
-    out.push(text[at..end].to_owned());
+    out.push(&text[at..end]);
     out
 }
 
-fn node(text: &str, value: &ast::Value<'_>) -> Node {
+fn node<'s>(text: &'s str, value: &ast::Value<'s>) -> Node<'s> {
     match value {
         ast::Value::Object(object) => {
             let spans: Vec<(usize, usize)> = object
@@ -457,8 +459,8 @@ fn node(text: &str, value: &ast::Value<'_>) -> Node {
                     let key_range = prop.name.range();
                     Member {
                         key: prop_name(&prop.name),
-                        key_text: text[key_range.start..key_range.end].to_owned(),
-                        head: text[prop.range.start..prop.value.range().start].to_owned(),
+                        key_text: &text[key_range.start..key_range.end],
+                        head: &text[prop.range.start..prop.value.range().start],
                         value: node(text, &prop.value),
                     }
                 })
@@ -482,9 +484,9 @@ fn node(text: &str, value: &ast::Value<'_>) -> Node {
         other => {
             let range = other.range();
             Node::Scalar {
-                text: text[range.start..range.end].to_owned(),
+                text: Cow::Borrowed(&text[range.start..range.end]),
                 string: match other {
-                    ast::Value::StringLit(lit) => Some(lit.value.to_string()),
+                    ast::Value::StringLit(lit) => Some(lit.value.clone()),
                     _ => None,
                 },
             }
@@ -493,16 +495,16 @@ fn node(text: &str, value: &ast::Value<'_>) -> Node {
 }
 
 /// Renders `node` back into the gaps it was read with.
-fn kept(node: &Node, out: &mut String) {
+fn kept(node: &Node<'_>, out: &mut String) {
     match node {
         Node::Object(object) => {
             out.push('{');
             for (gap, member) in object.gaps.iter().zip(&object.members) {
                 out.push_str(gap);
-                out.push_str(&member.head);
+                out.push_str(member.head);
                 kept(&member.value, out);
             }
-            out.push_str(object.gaps.last().map_or("", String::as_str));
+            out.push_str(object.gaps.last().copied().unwrap_or_default());
             out.push('}');
         }
         Node::Array(array) => {
@@ -511,7 +513,7 @@ fn kept(node: &Node, out: &mut String) {
                 out.push_str(gap);
                 kept(item, out);
             }
-            out.push_str(array.gaps.last().map_or("", String::as_str));
+            out.push_str(array.gaps.last().copied().unwrap_or_default());
             out.push(']');
         }
         Node::Scalar { text, .. } => out.push_str(text),
@@ -519,7 +521,7 @@ fn kept(node: &Node, out: &mut String) {
 }
 
 /// Renders `node` as `JSON.stringify(value, null, indent)` would, keeping the text of scalars.
-fn canonical(node: &Node, indent: &str, newline: &str, depth: usize, out: &mut String) {
+fn canonical(node: &Node<'_>, indent: &str, newline: &str, depth: usize, out: &mut String) {
     let indented = |out: &mut String, levels: usize| {
         out.push_str(newline);
         for _ in 0..levels {
@@ -541,7 +543,7 @@ fn canonical(node: &Node, indent: &str, newline: &str, depth: usize, out: &mut S
             for (index, member) in object.members.iter().enumerate() {
                 open(out, index);
                 if member.key_text.starts_with('"') {
-                    out.push_str(&member.key_text);
+                    out.push_str(member.key_text);
                 } else {
                     out.push_str(&quote(&member.key));
                 }
@@ -569,11 +571,11 @@ fn quote(text: &str) -> String {
 }
 
 /// `sort_first` keys first, then the rest in byte order when `sort_packages` is on.
-fn sort_top_level(root: &mut Object, options: &FormatOptions) -> bool {
+fn sort_top_level(root: &mut Object<'_>, options: &FormatOptions) -> bool {
     let count = root.members.len();
     let mut by_key: HashMap<&str, Vec<usize>> = HashMap::default();
     for (index, member) in root.members.iter().enumerate() {
-        by_key.entry(member.key.as_str()).or_default().push(index);
+        by_key.entry(&*member.key).or_default().push(index);
     }
     let mut order: Vec<usize> = Vec::with_capacity(count);
     let mut placed = vec![false; count];
@@ -594,7 +596,7 @@ fn sort_top_level(root: &mut Object, options: &FormatOptions) -> bool {
 }
 
 /// The string value of `node`, when it is a string literal.
-fn string_value(node: &Node) -> Option<&str> {
+fn string_value<'n>(node: &'n Node<'_>) -> Option<&'n str> {
     match node {
         Node::Scalar { string, .. } => string.as_deref(),
         _ => None,
@@ -602,7 +604,7 @@ fn string_value(node: &Node) -> Option<&str> {
 }
 
 /// `{ "url": "…" }` becomes `"…"`.
-fn collapse_bugs(root: &mut Object) -> bool {
+fn collapse_bugs(root: &mut Object<'_>) -> bool {
     let Some(node @ Node::Object(_)) = root.get_mut("bugs") else {
         return false;
     };
@@ -623,7 +625,7 @@ fn collapse_bugs(root: &mut Object) -> bool {
 }
 
 /// `{ "type": "git", "url": "git+https://github.com/o/r.git" }` becomes `"o/r.git"`.
-fn collapse_repository(root: &mut Object) -> bool {
+fn collapse_repository(root: &mut Object<'_>) -> bool {
     let Some(node @ Node::Object(_)) = root.get_mut("repository") else {
         return false;
     };
@@ -657,8 +659,8 @@ fn collapse_repository(root: &mut Object) -> bool {
         Some(at) if at > 0 => {
             let short = &url[at + "github.com/".len()..];
             Node::Scalar {
-                text: quote(short),
-                string: Some(short.to_owned()),
+                text: Cow::Owned(quote(short)),
+                string: Some(Cow::Owned(short.to_owned())),
             }
         }
         _ => url_node.clone(),
@@ -677,7 +679,7 @@ struct ExportsChange {
 }
 
 /// In every object of `exports`: the listed keys first, in order, the rest as they were, and `default` last.
-fn sort_exports(node: &mut Node, order: &[String], change: &mut ExportsChange) {
+fn sort_exports(node: &mut Node<'_>, order: &[String], change: &mut ExportsChange) {
     let Node::Object(object) = node else {
         return;
     };
@@ -702,7 +704,7 @@ fn sort_exports(node: &mut Node, order: &[String], change: &mut ExportsChange) {
     let others: Vec<usize> = positions
         .iter()
         .copied()
-        .filter(|index| !DEFAULT_SORT_EXPORTS.contains(&object.members[*index].key.as_str()))
+        .filter(|index| !DEFAULT_SORT_EXPORTS.contains(&&*object.members[*index].key))
         .collect();
     let reordered = others.windows(2).any(|pair| pair[0] > pair[1]);
     if object.reorder(&positions) {
@@ -716,7 +718,7 @@ fn sort_exports(node: &mut Node, order: &[String], change: &mut ExportsChange) {
 
 /// Sorts an object by key or an array of strings by value, one level deep, in byte order; an array holding a `!` entry
 /// keeps its order.
-fn sort_az(node: &mut Node) -> bool {
+fn sort_az(node: &mut Node<'_>) -> bool {
     match node {
         Node::Object(object) => {
             let mut order: Vec<usize> = (0..object.members.len()).collect();
@@ -737,7 +739,7 @@ fn sort_az(node: &mut Node) -> bool {
             if order.iter().enumerate().all(|(position, index)| position == *index) {
                 return false;
             }
-            let mut taken: Vec<Option<Node>> = array.items.drain(..).map(Some).collect();
+            let mut taken: Vec<Option<Node<'_>>> = array.items.drain(..).map(Some).collect();
             array.items = order.iter().filter_map(|index| taken[*index].take()).collect();
             true
         }

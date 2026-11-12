@@ -1,9 +1,12 @@
 //! `skif list` and `skif json`: every dependency instance the version groups govern, with its group and state.
 
 use std::fmt::Write as _;
+use std::sync::Arc;
 
 use serde_json::{Value, json};
-use skif::{CachedFs, Config, ConfigOverrides, InstanceFilter, InstanceStatus, OsFs, Severity, StatusType, slash};
+use skif::{
+    CachedFs, Config, ConfigOverrides, FileSystem, InstanceFilter, InstanceStatus, OsFs, Severity, StatusType, slash,
+};
 use skif_report::escape_controls;
 
 use crate::args::{FilterArgs, Format, InstancesArgs, ListArgs, Show};
@@ -51,18 +54,18 @@ pub fn apply_filter(args: &FilterArgs, config: &mut Config) -> Result<(), CliErr
 }
 
 fn collect(args: &InstancesArgs) -> Result<Listing, CliError> {
-    let fs = CachedFs::new(OsFs);
+    let fs: Arc<dyn FileSystem> = Arc::new(CachedFs::new(OsFs));
     let start = canonical(&args.path)?;
     let Resolved {
         base,
         mut targets,
         failures,
         ..
-    } = roots::resolve(&start, args.recursive, &fs, &overrides(args))?;
+    } = roots::resolve(&start, args.recursive, fs.as_ref(), &overrides(args))?;
     for target in &mut targets {
         apply_filter(&args.filter, &mut target.config)?;
     }
-    let linters = Linters::build(&targets)?;
+    let linters = Linters::build_with(&targets, Some(&fs), None)?;
     let runs = roots::lint_targets(&base, targets, &linters)?;
     let mut statuses = Vec::new();
     for run in &runs {

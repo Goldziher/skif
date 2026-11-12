@@ -174,6 +174,27 @@ impl Selector {
         }
         included || !self.has_include
     }
+
+    /// The patterns when every one is an inclusion without glob syntax and not `$LOCAL`: the selector then matches
+    /// exactly the names whose [`literal_key`](Self::literal_key) is one of them, so a caller matching many selectors
+    /// against many names can index them. `None` for any other selector, the empty one included.
+    #[must_use]
+    pub fn only_literals(&self) -> Option<impl Iterator<Item = &str>> {
+        let only_literals = !self.include_literals.is_empty()
+            && self.exclude_literals.is_empty()
+            && self.include.is_empty()
+            && self.exclude.is_empty()
+            && !self.include_local
+            && !self.exclude_local;
+        only_literals.then(|| self.include_literals.iter().map(|literal| &**literal))
+    }
+
+    /// `name` as a pattern without glob syntax is compared with it: unchanged on Unix, and with every `\` turned into
+    /// `/` elsewhere, as the glob sets compare.
+    #[must_use]
+    pub fn literal_key(name: &str) -> Cow<'_, str> {
+        literal_key(name)
+    }
 }
 
 /// Whether a pattern body has no glob syntax, so a glob compiled from it matches exactly the names equal to it.
@@ -329,6 +350,33 @@ mod tests {
 
     fn selector(patterns: &[&str]) -> Selector {
         Selector::new(patterns.iter().copied()).unwrap()
+    }
+
+    #[test]
+    fn only_selectors_of_plain_inclusions_list_their_literals() {
+        let literals = |patterns: &[&str]| {
+            selector(patterns).only_literals().map(|literals| {
+                let mut literals: Vec<&str> = literals.collect();
+                literals.sort_unstable();
+                literals.into_iter().map(str::to_owned).collect::<Vec<_>>()
+            })
+        };
+        assert_eq!(
+            literals(&["b", "/ws/a"]),
+            Some(vec!["/ws/a".to_owned(), "b".to_owned()])
+        );
+        assert_eq!(literals(&["a", "a"]), Some(vec!["a".to_owned()]));
+        for patterns in [
+            &[][..],
+            &["a", "b*"][..],
+            &["a", "!b"][..],
+            &["!b"][..],
+            &["a", "$LOCAL"][..],
+            &["a", "!$LOCAL"][..],
+            &["/ws/[[]x]"][..],
+        ] {
+            assert_eq!(literals(patterns), None, "{patterns:?}");
+        }
     }
 
     #[test]

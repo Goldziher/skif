@@ -162,8 +162,10 @@ pub fn render_to_stdout(
     }
 }
 
-/// A rough size of one diagnostic in the JSON report, to reserve the buffer it is rendered into at once.
-pub const JSON_BYTES_PER_DIAGNOSTIC: usize = 256;
+/// A rough size of one diagnostic in the JSON report, to reserve the buffer it is rendered into at once. The JSON
+/// reports in the test snapshots take 480 to 800 bytes per diagnostic; this stays at the low end, so a report of short
+/// diagnostics is not over-reserved.
+pub const JSON_BYTES_PER_DIAGNOSTIC: usize = 512;
 
 /// Writes what `render` produces to `out`. With a `buffer` capacity (JSON) it is rendered into memory first and written
 /// in one piece, so a renderer error or a panic partway through leaves `out` untouched and the error document that
@@ -198,7 +200,7 @@ fn render_options(report: &Report, rendering: &Rendering<'_>, fs: &dyn FileSyste
     if matches!(rendering.format, Format::Human | Format::Sarif) {
         for path in framed_files(report) {
             if let Ok(text) = fs.read_to_string(&root.join(&path)) {
-                options = options.with_source(&path, text.to_string());
+                options = options.with_source(&path, text);
             }
         }
     }

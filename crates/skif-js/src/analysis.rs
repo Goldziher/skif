@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 
 use skif_core::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use indexmap::IndexMap;
 use skif_config::Config;
@@ -92,7 +92,30 @@ pub struct JsAnalysis<'a> {
     pub(crate) listed_from_index: bool,
     /// The names of the members that nothing can import or run; see [`Self::only_orders_tasks`].
     task_only_members: HashSet<String>,
+    /// The positions of the unused exports of each module, by module index, computed once for the rules that ask:
+    /// see [`Self::unused_exports`].
+    unused_export_memo: Vec<OnceLock<Vec<usize>>>,
 }
+
+/// The exports of one module by name, each name's exports in source order.
+struct ExportsByName<'m>(HashMap<&'m str, Vec<&'m Export>>);
+
+impl<'m> ExportsByName<'m> {
+    fn of(exports: &'m [Export]) -> Self {
+        let mut by_name: HashMap<&'m str, Vec<&'m Export>> = HashMap::default();
+        for export in exports {
+            by_name.entry(export.name.as_str()).or_default().push(export);
+        }
+        Self(by_name)
+    }
+
+    fn named(&self, name: &str) -> &[&'m Export] {
+        self.0.get(name).map_or(&[], Vec::as_slice)
+    }
+}
+
+/// The exports of a module by name, built on first use: most exports appear in no signature and never need it.
+type LazyExportsByName<'m> = OnceCell<ExportsByName<'m>>;
 
 /// The `package.json` fields that name a module or a binary of a package.
 const MODULE_ENTRY_FIELDS: [&str; 7] = ["main", "module", "exports", "bin", "browser", "types", "typings"];
@@ -644,6 +667,7 @@ impl<'a> JsAnalysis<'a> {
                 owner: candidate.owner,
             })
             .collect();
+        let unused_export_memo = graph.modules().iter().map(|_| OnceLock::new()).collect();
         Self {
             workspace,
             graph,
@@ -661,6 +685,7 @@ impl<'a> JsAnalysis<'a> {
             other_root_entries,
             listed_from_index,
             task_only_members,
+            unused_export_memo,
         }
     }
 
@@ -866,43 +891,77 @@ impl<'a> JsAnalysis<'a> {
     ///
     /// Exports tagged `@public`, `@beta`, `@alpha` or `@alias` (and `@internal` in production mode, and the
     /// `ignore-tags` of `unused-exports`) are not listed, unless `include-tags` names the tag.
+    ///
+    /// Several rules ask for the same module, so the answer for a module of [`Self::graph`] is computed once.
     #[must_use]
     pub fn unused_exports<'m>(&self, module: &'m Module) -> Vec<&'m Export> {
+        let exports = &module.info.exports;
+        let memo = self.unused_export_memo.get(module.id.index()).filter(|_| {
+            self.graph
+                .modules()
+                .get(module.id.index())
+                .is_some_and(|own| std::ptr::eq(own, module))
+        });
+        let computed;
+        let positions = match memo {
+            Some(memo) => skif_core::get_or_compute(memo, || self.unused_export_positions(module)),
+            None => {
+                computed = self.unused_export_positions(module);
+                &computed
+            }
+        };
+        positions.iter().map(|&position| &exports[position]).collect()
+    }
+
+    /// The positions in `module.info.exports` of [`Self::unused_exports`].
+    fn unused_export_positions(&self, module: &Module) -> Vec<usize> {
         if !self.reports_exports_of(module) {
             return Vec::new();
         }
+        let by_name = LazyExportsByName::new();
         module
             .info
             .exports
             .iter()
-            .filter(|export| !(export.kind == ExportKind::StarReExport && export.name == "*"))
-            .filter(|export| export.name != "export=")
-            .filter(|export| !self.is_tagged_public(export))
-            .filter(|export| !(export.referenced_in_file && self.setup.ignores_in_file_use(module.owner, export)))
-            .filter(|export| !self.exports.is_used(module.id, &export.name))
-            .filter(|export| !self.setup.is_registered(module.owner, export))
-            .filter(|export| !self.in_used_signature(module, export, &mut HashSet::default()))
+            .enumerate()
+            .filter(|(_, export)| !(export.kind == ExportKind::StarReExport && export.name == "*"))
+            .filter(|(_, export)| export.name != "export=")
+            .filter(|(_, export)| !self.is_tagged_public(export))
+            .filter(|(_, export)| !(export.referenced_in_file && self.setup.ignores_in_file_use(module.owner, export)))
+            .filter(|(_, export)| !self.exports.is_used(module.id, &export.name))
+            .filter(|(_, export)| !self.setup.is_registered(module.owner, export))
+            .filter(|&(_, export)| !self.signature_use(module, &by_name, export, &mut HashSet::default()))
+            .map(|(position, _)| position)
             .collect()
     }
 
     /// Whether `export` appears in the signature of another export of its module that is itself used.
-    pub(crate) fn in_used_signature(&self, module: &Module, export: &Export, visited: &mut HashSet<String>) -> bool {
+    pub(crate) fn in_used_signature(&self, module: &Module, export: &Export) -> bool {
+        self.signature_use(module, &LazyExportsByName::new(), export, &mut HashSet::default())
+    }
+
+    /// [`Self::in_used_signature`] over the exports of `module` by name, skipping the names in `visited`.
+    fn signature_use<'m>(
+        &self,
+        module: &'m Module,
+        by_name: &LazyExportsByName<'m>,
+        export: &'m Export,
+        visited: &mut HashSet<&'m str>,
+    ) -> bool {
         export.referenced_in.iter().any(|name| {
-            let registered = module
-                .info
-                .exports
+            let containers = by_name
+                .get_or_init(|| ExportsByName::of(&module.info.exports))
+                .named(name);
+            let registered = containers
                 .iter()
-                .any(|container| container.name == *name && self.setup.is_registered(module.owner, container));
+                .any(|container| self.setup.is_registered(module.owner, container));
             if registered || self.exports.is_used(module.id, name) {
                 return true;
             }
-            visited.insert(name.clone())
-                && module
-                    .info
-                    .exports
+            visited.insert(name.as_str())
+                && containers
                     .iter()
-                    .filter(|container| container.name == *name)
-                    .any(|container| self.in_used_signature(module, container, visited))
+                    .any(|&container| self.signature_use(module, by_name, container, visited))
         })
     }
 
@@ -961,10 +1020,10 @@ impl<'a> JsAnalysis<'a> {
 
     /// Whether `export` of `module` is used: imported, in the signature of a used export, or referenced in its own
     /// file when `ignore-exports-used-in-file` covers it.
-    fn export_in_use(&self, module: &Module, export: &Export) -> bool {
+    fn export_in_use<'m>(&self, module: &'m Module, by_name: &LazyExportsByName<'m>, export: &'m Export) -> bool {
         (export.referenced_in_file && self.setup.ignores_in_file_use(module.owner, export))
             || self.exports.is_used(module.id, &export.name)
-            || self.in_used_signature(module, export, &mut HashSet::default())
+            || self.signature_use(module, by_name, export, &mut HashSet::default())
     }
 
     /// Tags of the exports and members of `module` that exempt something used anyway, in source order.
@@ -978,8 +1037,9 @@ impl<'a> JsAnalysis<'a> {
         if !self.reports_exports_of(module) {
             return found;
         }
+        let by_name = LazyExportsByName::new();
         for export in &module.info.exports {
-            if self.always_exempt(&export.tags) || !self.export_in_use(module, export) {
+            if self.always_exempt(&export.tags) || !self.export_in_use(module, &by_name, export) {
                 continue;
             }
             let mut hides_member = false;

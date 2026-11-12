@@ -48,6 +48,10 @@ where
         self.0.read_bytes(path)
     }
 
+    fn read_prefix(&self, path: &Path, limit: usize) -> io::Result<Vec<u8>> {
+        self.0.read_prefix(path, limit)
+    }
+
     fn modified(&self, path: &Path) -> Option<SystemTime> {
         self.0.modified(path)
     }

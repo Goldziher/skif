@@ -92,6 +92,30 @@ fn types_reached_through_a_chain_of_used_signatures_are_used() {
 }
 
 #[test]
+fn signature_cycles_end_and_a_used_name_keeps_the_types_its_declarations_name() {
+    let diagnostics = lint(&[
+        PACKAGE,
+        (
+            "src/index.ts",
+            "import { Shape } from './shape';\nimport './cycle';\nconsole.log(Shape);\n",
+        ),
+        (
+            "src/cycle.ts",
+            "export type A = { b: B };\nexport type B = { a: A };\nexport type C = { a: A };\n",
+        ),
+        (
+            "src/shape.ts",
+            "export const Shape = 1;\nexport type Shape = { inner: Inner };\nexport type Inner = number;\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-types"),
+        ["src/cycle.ts: A", "src/cycle.ts: B", "src/cycle.ts: C"]
+    );
+    assert_eq!(found(&diagnostics, "unused-exports"), none());
+}
+
+#[test]
 fn then_callbacks_read_the_exports_they_name() {
     let diagnostics = lint(&[
         PACKAGE,

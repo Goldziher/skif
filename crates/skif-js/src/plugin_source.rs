@@ -4,7 +4,7 @@ use std::path::Path;
 
 use indexmap::IndexMap;
 use skif_config::{JsWorkspace, Override, PluginConfig, PluginOptions};
-use skif_js_plugins::{NxProjects, PluginContext, PluginOutput, resolve_plugins_with};
+use skif_js_plugins::{PluginContext, PluginOutput, resolve_plugins_in};
 
 use crate::config_check::relative_tsconfig;
 use crate::config_modules::ConfigModules;
@@ -351,7 +351,7 @@ impl InputSource for PluginSource {
         };
         // The Nx projects are those the source walk reaches, listed once for every package of the run.
         let package_dir = package.dir.to_string_lossy().replace('\\', "/");
-        let projects = NxProjects::from_dirs(&context, &package_dir, || {
+        let projects = || -> Vec<(String, bool)> {
             request
                 .listing
                 .nx_projects(request.fs, request.workspace)
@@ -360,8 +360,8 @@ impl InputSource for PluginSource {
                     dir_below(project, &package_dir).map(|relative| (relative, *owner == package_dir))
                 })
                 .collect()
-        });
-        resolve_plugins_with(&context, &projects).into_iter().fold(
+        };
+        resolve_plugins_in(&context, &package_dir, projects).into_iter().fold(
             WorkspaceInputs::default(),
             |mut all, (_, output)| {
                 all.extend(inputs(output));

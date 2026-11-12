@@ -56,7 +56,7 @@ const EXCLUSION_KEYS: &[&str] = &[
 /// projects from a caller that walks the files with those rules.
 #[must_use]
 pub fn resolve_plugins(ctx: &PluginContext<'_>) -> Vec<(PluginId, PluginOutput)> {
-    resolve_plugins_with(ctx, &NxProjects::find(ctx))
+    resolve_plugins_in(ctx, "", || NxProjects::found_dirs(ctx))
 }
 
 /// Like [`resolve_plugins`], with the Nx projects below the package given (ADR 0109). The `nx` plugin reads the
@@ -66,8 +66,39 @@ pub fn resolve_plugins(ctx: &PluginContext<'_>) -> Vec<(PluginId, PluginOutput)>
 #[must_use]
 pub fn resolve_plugins_with(ctx: &PluginContext<'_>, projects: &NxProjects) -> Vec<(PluginId, PluginOutput)> {
     let detection = Detection::new(ctx);
-    let nx_enabled = registry::plugin(nx::ID)
-        .is_some_and(|plugin| is_enabled(plugin.spec(), ctx.plugins.get(nx::ID), ctx, &detection));
+    let nx_enabled = is_nx_enabled(ctx, &detection);
+    resolve_detected(ctx, projects, &detection, nx_enabled)
+}
+
+/// [`resolve_plugins_with`] the projects [`NxProjects::from_dirs`] lists for `path` and `projects`, with the
+/// dependencies of `ctx` matched against the enablers once for both: whether the `nx` plugin is enabled, which decides
+/// whether `projects` is called, and every plugin's own enablers.
+#[must_use]
+pub fn resolve_plugins_in(
+    ctx: &PluginContext<'_>,
+    path: &str,
+    projects: impl FnOnce() -> Vec<(String, bool)>,
+) -> Vec<(PluginId, PluginOutput)> {
+    let detection = Detection::new(ctx);
+    let nx_enabled = is_nx_enabled(ctx, &detection);
+    let projects = if nx_enabled {
+        NxProjects::listed(path, projects())
+    } else {
+        NxProjects::default()
+    };
+    resolve_detected(ctx, &projects, &detection, nx_enabled)
+}
+
+fn is_nx_enabled(ctx: &PluginContext<'_>, detection: &Detection<'_>) -> bool {
+    registry::plugin(nx::ID).is_some_and(|plugin| is_enabled(plugin.spec(), ctx.plugins.get(nx::ID), ctx, detection))
+}
+
+fn resolve_detected(
+    ctx: &PluginContext<'_>,
+    projects: &NxProjects,
+    detection: &Detection<'_>,
+    nx_enabled: bool,
+) -> Vec<(PluginId, PluginOutput)> {
     let ctx = &PluginContext {
         nx: if nx_enabled { Some(projects) } else { ctx.nx },
         ..*ctx
@@ -81,7 +112,7 @@ pub fn resolve_plugins_with(ctx: &PluginContext<'_>, projects: &NxProjects) -> V
             let spec = plugin.spec();
             let setting = ctx.plugins.get(spec.id);
             let extra: &[String] = if spec.id == nx::ID { &project_files } else { &[] };
-            is_enabled(spec, setting, ctx, &detection).then(|| {
+            is_enabled(spec, setting, ctx, detection).then(|| {
                 // Only a plugin with a `package.json` key reads the manifest.
                 let manifest = spec.package_json_key.and_then(|_| detection.manifest(ctx));
                 run_plugin(plugin, setting, ctx, manifest, extra, None, &configs)
