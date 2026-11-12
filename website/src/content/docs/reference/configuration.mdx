@@ -555,7 +555,9 @@ Add such files to `entry`.
 **`ignore-workspaces`** lists workspace directories (globs) the JavaScript analysis skips. Unlike `[workspace]
 ignore-packages`, the packages stay in the workspace, so manifest and policy rules still check them. The root is never
 skipped. Entries match directories, so `*` stops at `/`: `packages/*` skips `packages/a` but not `packages/a/nested`
-(use `packages/**` for both), as in knip.
+(use `packages/**` for both), as in knip. A matched directory also leaves the packages above it: the files below it
+that belong to no skipped member (`playground/demo/loose.js` with `playground/**`) are not analysed in the root or any
+other package, as in knip.
 
 **`[js.compilers]`** reads the files of an extension skif has no reader for, keyed by the extension without its dot.
 It is the static counterpart of knip's `compilers`: knip runs a function that turns the file into JavaScript, skif runs

@@ -1,6 +1,6 @@
 //! Per-package analysis settings: configured, default and plugin-provided globs merged once.
 
-use skif_core::HashSet;
+use skif_core::{HashMap, HashSet};
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -281,6 +281,11 @@ impl WorkspaceKeys {
     /// directory otherwise, joined to the anchor (see [`anchored`]).
     pub(crate) fn key_dir(&self, package: &Package) -> String {
         anchored(self.anchor.as_deref(), &own_dir(package)).into_owned()
+    }
+
+    /// `dir`, a directory relative to the root, as the keys and `ignore-workspaces` globs match it (see [`anchored`]).
+    pub(crate) fn anchored_dir<'d>(&self, dir: &'d str) -> Cow<'d, str> {
+        anchored(self.anchor.as_deref(), dir)
     }
 
     /// The key, as written in `workspaces`, whose table configures `package`, as [`Self::table`] picks it.
@@ -1071,6 +1076,26 @@ impl Setup {
             gitignore: !js.no_gitignore,
             compilers,
         }
+    }
+
+    /// Whether the file `rel`, relative to the root, of the package in `owner_dir` (relative to the root, empty for the
+    /// root package) lies in a directory below the package that `ignore-workspaces` matches. As in knip, such a
+    /// directory leaves every package above it, so its loose files are not analysed. `verdicts` keeps the answer per
+    /// directory.
+    pub(crate) fn in_ignored_directory(
+        &self,
+        rel: &str,
+        owner_dir: &str,
+        verdicts: &mut HashMap<String, bool>,
+    ) -> bool {
+        rel.match_indices('/')
+            .map(|(end, _)| &rel[..end])
+            .filter(|dir| dir.len() > owner_dir.len())
+            .any(|dir| {
+                *verdicts
+                    .entry(dir.to_owned())
+                    .or_insert_with(|| self.ignore_workspaces.is_match(&self.workspace_keys.anchored_dir(dir)))
+            })
     }
 
     /// The TypeScript configuration of `package`: `[js] tsconfig` for the root, `tsconfig.json` otherwise.
