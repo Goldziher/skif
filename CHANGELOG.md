@@ -9,6 +9,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `nested-workspace-root` reports a workspace member inside a Bazel convenience link (`bazel-<name>`, `bazel-bin`),
+  which a `*` or glob segment of a pattern follows as pnpm's does, once with the detail `BazelConvenienceLink` and
+  `!bazel-*` as the pattern to add. The member stays in the workspace but is excluded from analysis, so the root's
+  findings are no longer repeated under `bazel-<name>/`
+  ([ADR 0116](adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md),
+  [#174](https://github.com/Goldziher/skif/issues/174)).
+
 ## [0.3.0] - 2026-11-11
 
 ### Added
