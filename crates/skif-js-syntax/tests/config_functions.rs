@@ -3233,8 +3233,9 @@ fn a_callback_over_the_entries_of_an_object_of_strings_keeps_the_object_known() 
     assert!(open(get(&changed, &["entry"])), "{changed:?}");
 }
 
-/// Calls on a package's binding itself (`path.format(…)`, `_.merge(…)`) share nothing through the package: a change
-/// of what one call is given does not reach what another call on the same package is given.
+/// Calls on a package's binding itself (`path.format(…)`, `_.pick(…)`) share nothing through the package: a change
+/// of what one call is given does not reach what another call on the same package is given, nor what holds what a
+/// call on it returns.
 #[test]
 fn calls_on_a_package_share_nothing_through_it() {
     for binding in ["import path from 'path';", "const path = require('path');"] {
@@ -3253,6 +3254,41 @@ fn calls_on_a_package_share_nothing_through_it() {
             &ConfigValue::Object(vec![("dir".to_owned(), s("src"))]),
             "{binding}: {value:?}"
         );
+    }
+    for binding in ["import _ from 'lodash';", "const _ = require('lodash');"] {
+        let source = format!(
+            "{binding}\n\
+             const out = {{ dir: 'dist' }};\n\
+             const keep = {{ dir: 'k' }};\n\
+             _.pick(out, ['dir']);\n\
+             const both = [keep, _.pick({{ a: 1 }}, ['a'])];\n\
+             out.dir = 'build';\n\
+             export default {{ keep, both }};"
+        );
+        let value = extract("vite.config.mjs", &source);
+        assert_eq!(
+            get(&value, &["keep"]),
+            &ConfigValue::Object(vec![("dir".to_owned(), s("k"))]),
+            "{binding}: {value:?}"
+        );
+    }
+}
+
+/// A package may keep a function or an object holding one that a method of it is given, and give it back from another
+/// method: what that function returns may be changed through what the package returns.
+#[test]
+fn a_function_given_to_a_package_method_may_be_what_another_returns() {
+    for binding in ["import store from 'some-store';", "const store = require('some-store');"] {
+        for (given, read) in [
+            ("store.set(() => cfg);", "store.get()().plugins.push('x');"),
+            ("store.set({ load: () => cfg });", "store.get().load().plugins.push('x');"),
+        ] {
+            let source = format!(
+                "{binding}\nconst cfg = {{ plugins: [] }};\n{given}\n{read}\nexport default cfg;"
+            );
+            let value = extract("vite.config.mjs", &source);
+            assert_eq!(at(&value, &["plugins"]), &UNKNOWN, "{source}: {value:?}");
+        }
     }
 }
 
