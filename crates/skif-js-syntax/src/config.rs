@@ -504,7 +504,9 @@ pub fn extract_config_object_with(source: &str, path: &Path, loader: &dyn Module
 fn evaluate_config(source: &str, path: &Path, modules: Option<&Modules<'_>>) -> Option<ExtractedConfig> {
     crate::with_arena(|allocator| {
         let program = parse_program(allocator, source, path)?;
-        let top = top_level(&program);
+        let top = top_level(&program, &|specifier| {
+            modules.is_some_and(|modules| modules.follows(path, specifier))
+        });
         let bindings = module_bindings(&program);
         let imports = import_bindings(&program);
         let file = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
@@ -740,7 +742,7 @@ impl Modules<'_> {
             return Some(Value::Unknown);
         }
         let program = &ret.program;
-        let top = top_level(program);
+        let top = top_level(program, &|specifier| self.follows(path, specifier));
         let bindings = module_bindings(program);
         let imports = import_bindings(program);
         let dir = relative_dir(&self.root, path.parent().unwrap_or(path));
@@ -923,8 +925,15 @@ enum TopChange {
 
 type Frame<'p, 'a> = HashMap<String, Binding<'p, 'a>>;
 
-fn top_level<'p, 'a>(program: &'p Program<'a>) -> TopLevel<'p, 'a> {
-    let unstable = Unstable::of(program);
+/// Whether the evaluator follows the module a specifier names, when it follows none.
+fn follows_none(_: &str) -> bool {
+    false
+}
+
+/// The top-level bindings of `program`, where `follows` says whether the evaluator follows the module a specifier
+/// names.
+fn top_level<'p, 'a>(program: &'p Program<'a>, follows: &dyn Fn(&str) -> bool) -> TopLevel<'p, 'a> {
+    let unstable = Unstable::of(program, follows);
     let mut top = TopLevel {
         consts: HashMap::default(),
         functions: HashMap::default(),
@@ -1197,7 +1206,7 @@ pub fn extract_constructor_options(source: &str, path: &Path, constructor: &str,
             return Vec::new();
         }
         let program = &ret.program;
-        let top = top_level(program);
+        let top = top_level(program, &follows_none);
         let bindings = module_bindings(program);
         let mut finder = OptionFinder {
             top: &top,
@@ -1239,7 +1248,7 @@ fn find_properties(source: &str, path: &Path, key: &str, call_with: Option<&Conf
         let Some(program) = parse_program(allocator, source, path) else {
             return Vec::new();
         };
-        let top = top_level(&program);
+        let top = top_level(&program, &follows_none);
         let bindings = module_bindings(&program);
         let mut finder = PropertyFinder {
             top: &top,
@@ -1266,7 +1275,7 @@ pub fn extract_method_calls(source: &str, path: &Path, method: &str) -> Vec<Vec<
         let Some(program) = parse_program(allocator, source, path) else {
             return Vec::new();
         };
-        let top = top_level(&program);
+        let top = top_level(&program, &follows_none);
         let bindings = module_bindings(&program);
         let mut finder = MethodCallFinder {
             top: &top,
@@ -1402,7 +1411,7 @@ pub(crate) fn imported_calls_in(
     if imported.is_empty() {
         return Vec::new();
     }
-    let top = top_level(program);
+    let top = top_level(program, &follows_none);
     let bindings = module_bindings(program);
     let mut finder = CallFinder {
         top: &top,

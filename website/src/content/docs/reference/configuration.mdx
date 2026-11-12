@@ -1148,7 +1148,10 @@ and one that calls a function it is given with the list's elements (`forEach`, `
 function is written in place or declared by the config and no `this` object follows it (`list.forEach(fn, thisArg)`);
 an imported callback (`configs.forEach(withSentry)`) may change each element and that object. A local holding a
 function the evaluator does not follow (`const addAlias = aliaser(config)`) may change what it was made from each time
-it is called; one bound to an import or a `require` is taken to change none of the config's locals. A
+it is called; one bound to an import or a `require` is taken to change none of the config's locals. A method of a
+package the config only calls methods on (`_.merge(…)`) is taken to keep nothing it is given in the package; once
+the config stores a value in it, reads a member of it otherwise or gives it to a call, and for a workspace package
+the evaluator follows, what its methods return may hold what it holds. A
 change through an element of a list leaves every element open; a loop name, a callback parameter, a name a destructuring
 assignment sets and a function assigned with `=` share with what they take, except the element a callback or a loop
 over a `const` list or object of strings or numbers takes when no change reaches it, also through `Object.entries`,

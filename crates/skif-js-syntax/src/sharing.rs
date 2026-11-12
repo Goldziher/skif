@@ -187,12 +187,14 @@ enum Effect {
 }
 
 impl Unstable {
-    pub(crate) fn of(program: &Program<'_>) -> Self {
+    /// The bindings of `program` code the evaluator does not follow may change, where `follows` says whether the
+    /// evaluator follows the module a specifier names.
+    pub(crate) fn of(program: &Program<'_>, follows: &dyn Fn(&str) -> bool) -> Self {
         let semantic = SemanticBuilder::new().build(program).semantic;
         let scoping = semantic.scoping();
         let mut sharing = Sharing {
             scoping,
-            known: known(program, scoping),
+            known: known(program, scoping, follows),
             pure: HashSet::default(),
             effects: HashMap::default(),
             objects: HashMap::default(),
@@ -712,10 +714,11 @@ impl Sharing<'_> {
     }
 
     /// The parts of locals the object a method is called on may hold, which the method may keep what it is given in or
-    /// return: none for a package's binding itself (`_.merge(…)`, `vitest.defineConfig(…)`), whose methods are taken to
-    /// keep nothing of what they are given in the package, so that calls of them share nothing through it.
+    /// return: none for the binding of a package the module only calls methods on ([`Known::inert`]: `_.merge(…)`,
+    /// `vitest.defineConfig(…)`), whose methods are taken to keep nothing of what they are given in the package, so
+    /// that calls of them share nothing through it.
     fn receiver_refs(&self, receiver: &Expression<'_>) -> Vec<Held> {
-        if is_package_binding(self.scoping, &self.known, receiver) {
+        if is_inert_package(self.scoping, &self.known, receiver) {
             return Vec::new();
         }
         self.refs(Part::Value, |refs| refs.visit_expression(receiver))
@@ -1515,7 +1518,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
                 }
                 callee
                     .as_member_expression()
-                    .filter(|member| !is_package_binding(self.scoping, &self.known, member.object()))
+                    .filter(|member| !is_inert_package(self.scoping, &self.known, member.object()))
                     .and_then(|member| self.place(member.object()))
                     .map(|(place, _)| (place, false))
             }
@@ -1847,7 +1850,7 @@ impl<'a> Visit<'a> for Refs<'_> {
                 if OWN_RESULT_METHODS.contains(&member.property.name.as_str()) && builtin(names, &member.object) => {}
             callee if callee.is_member_expression() => {
                 if let Some(member) = callee.as_member_expression()
-                    && !is_package_binding(self.scoping, self.known, member.object())
+                    && !is_inert_package(self.scoping, self.known, member.object())
                 {
                     let object = member.object();
                     self.opaque(|refs| refs.visit_expression(object));
@@ -2377,17 +2380,58 @@ struct Known {
     builtins: HashSet<SymbolId>,
     /// The bindings of a namespace import (`import * as shared from './shared'`).
     namespaces: HashSet<SymbolId>,
+    /// Those of [`Self::modules`] of a package ([`is_package`]) whose module the evaluator does not follow, so that
+    /// none of the project's code is behind them.
+    foreign: HashSet<SymbolId>,
+    /// Those of [`Self::foreign`] that the module only calls methods on (`path.format(…)`, `_.merge(…)`): it does not
+    /// write through them, store a value in them, give them to a call or read a member of them otherwise.
+    inert: HashSet<SymbolId>,
 }
 
-/// The bindings of `program` [`Known`] holds.
-fn known(program: &Program<'_>, scoping: &Scoping) -> Known {
+/// The bindings of `program` [`Known`] holds, where `follows` says whether the evaluator follows the module a
+/// specifier names.
+fn known(program: &Program<'_>, scoping: &Scoping, follows: &dyn Fn(&str) -> bool) -> Known {
     let mut finder = FindKnown {
         scoping,
         known: Known::default(),
         in_const: false,
     };
     finder.visit_program(program);
-    finder.known
+    let mut known = finder.known;
+    known.foreign = known
+        .modules
+        .iter()
+        .filter(|(_, (module, _))| is_package(module) && !follows(module.as_str()))
+        .map(|(&symbol, _)| symbol)
+        .collect();
+    let mut receivers = MethodReceivers::default();
+    receivers.visit_program(program);
+    known.inert = known
+        .foreign
+        .iter()
+        .copied()
+        .filter(|&symbol| {
+            scoping.get_resolved_reference_ids(symbol).iter().all(|reference| {
+                !scoping.get_reference(*reference).is_value() || receivers.0.contains(reference)
+            })
+        })
+        .collect();
+    known
+}
+
+/// The references to a name that are the object of a method called on it (`path` in `path.format(…)`).
+#[derive(Default)]
+struct MethodReceivers(HashSet<ReferenceId>);
+
+impl<'a> Visit<'a> for MethodReceivers {
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        if let Expression::StaticMemberExpression(member) = it.callee.get_inner_expression()
+            && let Expression::Identifier(id) = member.object.get_inner_expression()
+        {
+            self.0.extend(id.reference_id.get());
+        }
+        walk::walk_call_expression(self, it);
+    }
 }
 
 /// Finds the bindings of [`known`].
@@ -2565,14 +2609,12 @@ fn find(parent: &mut HashMap<SymbolId, SymbolId>, symbol: SymbolId) -> SymbolId 
     root
 }
 
-/// Whether `expr` is itself a binding of an import or a `require` of a package ([`is_package`]), not a member of one.
-fn is_package_binding(scoping: &Scoping, known: &Known, expr: &Expression<'_>) -> bool {
+/// Whether `expr` is itself one of [`Known::inert`], not a member of one.
+fn is_inert_package(scoping: &Scoping, known: &Known, expr: &Expression<'_>) -> bool {
     let Expression::Identifier(id) = expr.get_inner_expression() else {
         return false;
     };
-    resolved(scoping, id)
-        .and_then(|symbol| known.modules.get(&symbol))
-        .is_some_and(|(module, _)| is_package(module))
+    resolved(scoping, id).is_some_and(|symbol| known.inert.contains(&symbol))
 }
 
 /// The symbol a reference resolves to, unless it is unresolved or an import.
