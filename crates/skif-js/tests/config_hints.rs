@@ -339,9 +339,12 @@ const CDK_TSCONFIG: (&str, &str) = (
     r#"{ "compilerOptions": { "module": "node16", "moduleResolution": "node16" } }"#,
 );
 
+/// The `.gitignore` of a CDK template, which hides the compiled output, `bin/stack.js` included.
+const CDK_GITIGNORE: (&str, &str) = (".gitignore", "*.js\n!jest.config.js\n*.d.ts\nnode_modules\n");
+
 /// A `bin` path the TypeScript compiler cannot write, since no file of the package has its name, is a path into
-/// nothing although a build script runs the compiler: reported, and the package is judged from the entry the
-/// `aws-cdk` plugin reads.
+/// nothing although a build script runs the compiler, also when a `.gitignore` hides it: reported, and the package is
+/// judged from the entry the `aws-cdk` plugin reads.
 #[test]
 fn a_bin_path_the_typescript_compiler_cannot_write_is_reported_and_the_package_is_judged() {
     for build in [
@@ -349,26 +352,29 @@ fn a_bin_path_the_typescript_compiler_cannot_write_is_reported_and_the_package_i
         r#""build":"tsc -p tsconfig.build.json && tsc -p tsconfig.esm.json""#,
         r#""build":"tsgo","watch":"tsc -w""#,
     ] {
-        let manifest = cdk_app(build);
-        let mut files = vec![("package.json", manifest.as_str()), CDK_TSCONFIG];
-        files.extend(CDK_APP_FILES);
-        let diagnostics = lint(&files, "");
-        assert_eq!(
-            hints(&diagnostics),
-            "package.json: `bin/stack.js` in `bin` of `package.json` names no file",
-            "{build}"
-        );
-        assert_eq!(
-            found(&diagnostics, "unused-dependencies"),
-            ["package.json: `spare` is listed in `dependencies` but never used"],
-            "{build}"
-        );
+        for ignored in [false, true] {
+            let manifest = cdk_app(build);
+            let mut files = vec![("package.json", manifest.as_str()), CDK_TSCONFIG];
+            files.extend(CDK_APP_FILES);
+            files.extend(ignored.then_some(CDK_GITIGNORE));
+            let diagnostics = lint(&files, "");
+            assert_eq!(
+                hints(&diagnostics),
+                "package.json: `bin/stack.js` in `bin` of `package.json` names no file",
+                "{build}, ignored: {ignored}"
+            );
+            assert_eq!(
+                found(&diagnostics, "unused-dependencies"),
+                ["package.json: `spare` is listed in `dependencies` but never used"],
+                "{build}, ignored: {ignored}"
+            );
+        }
     }
 }
 
-/// A `bin` path the TypeScript compiler may write keeps the package unjudged as before: a source file of its name
-/// exists (`src/bin/stack.ts`, compiled into the package directory), the build runs more than the compiler, or the
-/// compiler writes one named file (`--outFile`).
+/// A `bin` path the TypeScript compiler may write keeps the package unjudged as before, also when a `.gitignore` hides
+/// it: a source file of its name exists (`src/bin/stack.ts`, compiled into the package directory), the build runs
+/// more than the compiler, or the compiler writes one named file (`--outFile`).
 #[test]
 fn a_bin_path_the_typescript_compiler_may_write_keeps_the_package_unjudged() {
     let tsc = cdk_app(r#""build":"tsc""#);
@@ -401,13 +407,17 @@ fn a_bin_path_the_typescript_compiler_may_write_keeps_the_package_unjudged() {
     ];
     for (case, mut files) in cases {
         files.extend(CDK_APP_FILES);
-        let diagnostics = lint(&files, "");
-        assert_eq!(hints(&diagnostics), "", "{case}");
-        assert_eq!(
-            found(&diagnostics, "unused-dependencies"),
-            Vec::<String>::new(),
-            "{case}"
-        );
+        for ignored in [false, true] {
+            let mut files = files.clone();
+            files.extend(ignored.then_some(CDK_GITIGNORE));
+            let diagnostics = lint(&files, "");
+            assert_eq!(hints(&diagnostics), "", "{case}, ignored: {ignored}");
+            assert_eq!(
+                found(&diagnostics, "unused-dependencies"),
+                Vec::<String>::new(),
+                "{case}, ignored: {ignored}"
+            );
+        }
     }
 }
 
