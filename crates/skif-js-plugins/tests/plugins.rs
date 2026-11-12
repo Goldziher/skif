@@ -14,7 +14,7 @@ use skif_js_plugins::{DepRef, GlobCache, IncompleteCause, PluginContext, PluginI
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 206] = [
+const ADR_IDS: [&str; 207] = [
     "typescript",
     "eslint",
     "prettier",
@@ -221,6 +221,7 @@ const ADR_IDS: [&str; 206] = [
     "fast",
     "taskr",
     "bazel",
+    "knip",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -3299,6 +3300,34 @@ fn knex() {
     let out = output(&results, "knex");
     assert_deps(out, &["pg"]);
     assert_entries(&out.entries, &["db/migrations/*.{js,ts}", "db/seeds/*.{js,ts}"]);
+}
+
+#[test]
+fn knip_config_files_are_entries_when_knip_is_a_dependency() {
+    let files = [("knip.ts", "export default {};\n"), ("knip.json", "{}\n")];
+    let results = resolve(&files, &["knip"]);
+    let out = output(&results, "knip");
+    assert_entries(
+        &out.entries,
+        &["knip.{js,ts,mjs,cjs,mts,cts}", "knip.config.{js,ts,mjs,cjs,mts,cts}"],
+    );
+    let mut configs: Vec<String> = out
+        .config_files
+        .iter()
+        .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    configs.sort();
+    assert_eq!(configs, ["knip.json", "knip.ts"]);
+    assert!(!out.entries_incomplete);
+    assert!(!resolve(&files, &["react"]).iter().any(|(id, _)| *id == "knip"));
+}
+
+#[test]
+fn knip_config_in_package_json_is_a_config() {
+    let manifest = ("package.json", r#"{"name":"app","knip":{"entry":["src/main.ts"]}}"#);
+    let results = resolve(&[manifest], &["knip"]);
+    let out = output(&results, "knip");
+    assert!(out.config_files.iter().any(|f| f.ends_with("package.json")));
 }
 
 #[test]

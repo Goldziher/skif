@@ -49,6 +49,12 @@ All notable changes to this project are documented here. The format follows
   because test files may be the only importers. `--include subpaths` and `--fix-type subpaths` select the imports
   rule, and `skif migrate --from knip` maps `subpaths`, `includeSubpathExports` and `--include-subpath-exports`
   ([#208](https://github.com/Goldziher/skif/issues/208)).
+- **`knip` plugin**: in a project that runs knip next to skif, with `knip` as a dependency, knip's config files
+  (`knip.json`, `knip.jsonc`, `.knip.json`, `.knip.jsonc`, `knip.*`, `knip.config.*`, the `knip` key of
+  `package.json`) are configs and the JavaScript and TypeScript ones are entries, so `unused-files` no longer reports
+  them and what they import is used; the table holds 207 plugins
+  ([ADR 0128](adrs/0128-a-knip-plugin-for-projects-that-run-knip-next-to-skif.md),
+  [#217](https://github.com/Goldziher/skif/issues/217)).
 
 ### Fixed
 
@@ -59,6 +65,26 @@ All notable changes to this project are documented here. The format follows
   covers `x!`. Elsewhere a trailing `!` is part of the entry
   ([ADR 0127](adrs/0127-migrate-merge-unites-list-entries-by-name.md),
   [#219](https://github.com/Goldziher/skif/issues/219)).
+- **JS**: `[js.workspaces.<dir>.paths]` keys are matched as `tsconfig` `paths` are: one `*` anywhere in the key
+  matches any text, so the catch-all `"*"` and keys such as `"serv*"` or `"*.svg"` map imports instead of being
+  dropped, and the matching keys are tried longest prefix first, an exact key before every wildcard. A key without
+  `*` maps only that specifier and `"alias/*"` no longer maps the bare `alias`, as in TypeScript; relative and
+  absolute specifiers are never mapped. A key or target with more than one `*` is a configuration error
+  ([#214](https://github.com/Goldziher/skif/issues/214)).
+- **JS**: an import that a package's own tsconfig `paths` map into its sources (`src/*` to `./src/*`) is no longer an
+  import of the workspace package whose name it starts with (a member named `src`). Strict mode reported it as that
+  package unlisted, and the other modes counted it as a use of the member
+  ([#215](https://github.com/Goldziher/skif/issues/215)).
+- **JS**: production mode leaves the development entries of plugins (Storybook stories, test files, Vitest
+  `setupFiles`) out of the project, as knip does, so they are no longer reported by `unused-files`
+  ([#210](https://github.com/Goldziher/skif/issues/210)).
+- **JS**: production mode keeps the `start` script of `package.json`, knip's production script, so the files it runs
+  are production entries and no longer reported by `unused-files`
+  ([#216](https://github.com/Goldziher/skif/issues/216)).
+- **JS**: a directory that an `[js] ignore-workspaces` glob matches also leaves the packages above it, as knip's
+  `ignoreWorkspaces` does: its files that belong to no skipped member are no longer analysed and reported in the root
+  ([ADR 0129](adrs/0129-directories-matched-by-ignore-workspaces-leave-the-packages-above-them.md),
+  [#218](https://github.com/Goldziher/skif/issues/218)).
 - **JS**: `ignore-exports-used-in-file` exempts an import binding the file re-exports and reads as a value
   (`import a from "./a"; export { a, bMod as b }; export default { a, b: bMod }`), as it exempts a local declaration,
   and a `module.exports = { X }` member whose binding the file reads outside that object, also under
