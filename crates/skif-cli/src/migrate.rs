@@ -442,8 +442,8 @@ fn report(args: &MigrateArgs, format: RulesFormat, migration: &Migration, plan: 
                     if !merged.replaced_existing.is_empty() {
                         let _ = writeln!(
                             summary,
-                            "Replaced the existing value of: {} (the migrated knip settings need the JavaScript \
-                             analysis on)",
+                            "Replaced the existing value of: {} (the migrated settings would have no effect with \
+                             it)",
                             merged.replaced_existing.join(", ")
                         );
                     }

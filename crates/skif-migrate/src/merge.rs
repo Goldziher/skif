@@ -5,6 +5,12 @@
 //! tables gain the entries they lack, and a key both files set to different values keeps the existing value (and is
 //! reported).
 //!
+//! List entries match by name: a string and a `{ name, reason }` table with that name are one entry, which keeps the
+//! existing reason or takes the migrated one. In the `[js]` lists a trailing `!` does not make another entry either.
+//! In `entry` and `project` the united entry keeps the marker when either file has it: a plain pattern next to its
+//! `x!` form would exclude the file from a production run, and in a normal run the two are the same. In the ignore
+//! lists it keeps the marker only when both have it, since `x` applies in every mode and `x!` in production only.
+//!
 //! The `exact` profile writes `off` values for the rules the migrated tools did not run, each with a trailing
 //! `# skif migrate: not checked by <tools>` comment. Those values are not user choices, so a later migration of
 //! another tool replaces them when it does check the rule, and removes them when its own profile leaves the rule on.
@@ -19,7 +25,7 @@
 //! Migrating knip into a file with `[js] enabled = false` sets it to `true` ([`Merged::replaced_existing`]): the knip
 //! settings the migration writes are `[js]` settings, which take effect only with the JavaScript analysis on.
 
-use toml_edit::{DocumentMut, Item, Table, Value};
+use toml_edit::{Array, DocumentMut, InlineTable, Item, Table, Value};
 
 use crate::notes::Tool;
 use crate::{MigrateError, Migration, Profile, keys};
@@ -36,7 +42,8 @@ pub struct Merged {
     /// left out, as dotted paths: the existing file runs those checks, as it has them.
     pub left_as_existing: Vec<String>,
     /// The keys whose existing value was replaced because it would leave the migration without effect, as dotted
-    /// paths: `js.enabled` when knip is migrated into a file that turns the JavaScript analysis off.
+    /// paths: `js.enabled` when knip is migrated into a file that turns the JavaScript analysis off, and an `entry` or
+    /// `project` list whose plain pattern took the `!` production marker of the same migrated pattern.
     pub replaced_existing: Vec<String>,
 }
 
@@ -113,6 +120,7 @@ pub(crate) fn merge_into(migration: &Migration, existing: &str) -> Result<Merged
         skip_profile: previous.is_some() || !current.is_empty(),
         kept: Vec::new(),
         left: Vec::new(),
+        replaced: Vec::new(),
         banner: Some(banner(&migration.tools, migration.profile)),
     };
     merge.table(current.as_table_mut(), added.as_table(), "");
@@ -120,6 +128,7 @@ pub(crate) fn merge_into(migration: &Migration, existing: &str) -> Result<Merged
     if migration.tools.contains(&Tool::Knip) && enable_js(&mut current) {
         replaced.push(format!("{}.{}", keys::JS, keys::JS_ENABLED));
     }
+    replaced.append(&mut merge.replaced);
     Ok(Merged {
         toml: with_sources(&current.to_string(), &sources),
         kept_existing: merge.kept,
@@ -181,6 +190,89 @@ fn same(left: &impl std::fmt::Display, right: &impl std::fmt::Display) -> bool {
     left.to_string().trim() == right.to_string().trim()
 }
 
+/// How the entries of a list treat a trailing `!`, the production marker, when two lists are united.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MarkerRule {
+    /// `[js]` `entry` and `project`: `x!` is `x` in a normal run, and in a production run only `x!` counts while `x`
+    /// is excluded, so `x` next to `x!` would drop the file there. The entry keeps the marker when either has it.
+    Production,
+    /// The `[js]` ignore lists: `x!` applies in production mode only and `x` in every mode, so `x` covers `x!`. The
+    /// entry keeps the marker only when both have it.
+    Plain,
+    /// Every other list: the marker is part of the entry.
+    Literal,
+}
+
+impl MarkerRule {
+    /// The rule for the list at the dotted `path`, whose own key is `key`.
+    fn of(path: &str, key: &str) -> Self {
+        if path.split('.').next() != Some(keys::JS) {
+            return Self::Literal;
+        }
+        if keys::JS_PRODUCTION_LISTS.contains(&key) {
+            Self::Production
+        } else if keys::JS_IGNORE_LISTS.contains(&key) {
+            Self::Plain
+        } else {
+            Self::Literal
+        }
+    }
+
+    /// `name` without its production marker, and whether it had one.
+    fn split(self, name: &str) -> (&str, bool) {
+        match name.strip_suffix('!') {
+            Some(body) if self != Self::Literal => (body, true),
+            _ => (name, false),
+        }
+    }
+
+    /// Whether the united entry has the marker, from whether the existing and the added entry have it.
+    const fn unite(self, held: bool, added: bool) -> bool {
+        match self {
+            Self::Production => held || added,
+            Self::Plain => held && added,
+            Self::Literal => held,
+        }
+    }
+}
+
+/// The name and the reason of a list entry: a string, or a `{ name, reason }` table (`reason` optional). `None` for
+/// any other value, which matches only an entry with the same text.
+fn named(value: &Value) -> Option<(&str, Option<&str>)> {
+    match value {
+        Value::String(text) => Some((text.value().as_str(), None)),
+        Value::InlineTable(table) => {
+            if table.iter().any(|(key, _)| key != "name" && key != "reason") {
+                return None;
+            }
+            let name = table.get("name")?.as_str()?;
+            let reason = match table.get("reason") {
+                Some(reason) => Some(reason.as_str()?),
+                None => None,
+            };
+            Some((name, reason))
+        }
+        _ => None,
+    }
+}
+
+/// A list entry with `name` and an optional `reason`, in the form the migration writes.
+fn entry_value(name: &str, reason: Option<&str>) -> Value {
+    let Some(reason) = reason else {
+        return Value::from(name);
+    };
+    let mut table = InlineTable::new();
+    table.insert("name", Value::from(name));
+    table.insert("reason", Value::from(reason));
+    Value::InlineTable(table)
+}
+
+fn push_once(paths: &mut Vec<String>, path: &str) {
+    if !paths.iter().any(|held| held == path) {
+        paths.push(path.to_owned());
+    }
+}
+
 /// The tools named by the profile marker after `item`, if it has one.
 fn marker(item: &Item) -> Option<Vec<String>> {
     let suffix = item.as_value()?.decor().suffix()?.as_str()?;
@@ -231,6 +323,8 @@ struct Merge {
     kept: Vec<String>,
     /// The profile values left out because the existing file runs the check.
     left: Vec<String>,
+    /// The lists whose plain `entry` or `project` patterns took the production marker of the migrated ones.
+    replaced: Vec<String>,
     /// The banner for the first top-level table that is added.
     banner: Option<String>,
 }
@@ -295,11 +389,7 @@ impl Merge {
                     }
                 }
                 (Some(Item::Value(Value::Array(existing))), Item::Value(Value::Array(added))) => {
-                    for value in added {
-                        if !existing.iter().any(|present| same(present, value)) {
-                            existing.push_formatted(value.clone());
-                        }
-                    }
+                    self.list(existing, added, &path, MarkerRule::of(&path, key));
                 }
                 (Some(existing), added) => self.value(existing, added, path),
             }
@@ -328,6 +418,63 @@ impl Merge {
                     self.kept.push(path);
                 }
             }
+        }
+    }
+
+    /// Unites a list both files set: an entry of `added` that names an entry of `existing` (a string and a
+    /// `{ name, reason }` table with that `name` are the same entry, and so are `x` and `x!` in the lists of
+    /// [`MarkerRule`]) is merged into it, any other entry is appended.
+    fn list(&mut self, existing: &mut Array, added: &Array, path: &str, rule: MarkerRule) {
+        for value in added {
+            if existing.iter().any(|present| same(present, value)) {
+                continue;
+            }
+            let Some((name, _)) = named(value) else {
+                existing.push_formatted(value.clone());
+                continue;
+            };
+            let body = rule.split(name).0;
+            let held = existing
+                .iter()
+                .position(|present| named(present).is_some_and(|(other, _)| rule.split(other).0 == body));
+            match held {
+                Some(index) => self.unite(existing, index, value, path, rule),
+                None => existing.push_formatted(value.clone()),
+            }
+        }
+    }
+
+    /// Merges `added` into the entry at `index` of `list`, which has the same name: the production marker follows
+    /// `rule`, the existing reason is kept and a missing one is taken from `added`. The entry keeps its place and
+    /// its formatting.
+    fn unite(&mut self, list: &mut Array, index: usize, added: &Value, path: &str, rule: MarkerRule) {
+        let (Some((held_name, held_reason)), Some((added_name, added_reason))) =
+            (list.get(index).and_then(named), named(added))
+        else {
+            return;
+        };
+        let (body, held_marked) = rule.split(held_name);
+        let marked = rule.unite(held_marked, rule.split(added_name).1);
+        let name = if marked { format!("{body}!") } else { body.to_owned() };
+        let reason = held_reason.or(added_reason);
+        if held_reason.is_some_and(|held| added_reason.is_some_and(|new| new != held)) {
+            push_once(&mut self.kept, path);
+        }
+        if marked && !held_marked {
+            push_once(&mut self.replaced, path);
+        }
+        if name == held_name && reason == held_reason {
+            return;
+        }
+        let value = if name == added_name && reason == added_reason {
+            added.clone()
+        } else {
+            entry_value(&name, reason)
+        };
+        if let Some(slot) = list.get_mut(index) {
+            let decor = slot.decor().clone();
+            *slot = value;
+            *slot.decor_mut() = decor;
         }
     }
 
@@ -645,6 +792,130 @@ mod tests {
             assert!(merged.toml.contains("left-pad"), "{}", merged.toml);
             assert_eq!(merged.replaced_existing, ["js.enabled"], "{existing:?}");
         }
+    }
+
+    fn merged_knip(existing: &str, body: &str) -> Merged {
+        merge_into(&profile_off(&[Tool::Knip], body), existing).unwrap()
+    }
+
+    #[test]
+    fn a_production_entry_replaces_the_plain_entry_of_the_same_glob() {
+        for key in ["entry", "project"] {
+            let existing = format!("[js.workspaces.app]\n{key} = [\"src/main.js\", \"bin/*.js\"] # mine\n");
+            let merged = merged_knip(
+                &existing,
+                &format!("\n[js.workspaces.app]\n{key} = [\"src/main.js!\", \"scripts/*.js\"]\n"),
+            );
+            assert!(
+                merged.toml.starts_with(&format!(
+                    "[js.workspaces.app]\n{key} = [\"src/main.js!\", \"bin/*.js\", \"scripts/*.js\"] # mine\n"
+                )),
+                "{key}: {}",
+                merged.toml
+            );
+            assert_eq!(merged.replaced_existing, [format!("js.workspaces.app.{key}")], "{key}");
+            assert_eq!(merged.kept_existing, Vec::<String>::new(), "{key}");
+        }
+    }
+
+    #[test]
+    fn an_existing_production_entry_stays_when_the_migration_has_the_plain_glob() {
+        let existing = "[js]\nentry = [\"src/main.js!\"]\n";
+        let merged = merged_knip(existing, "\n[js]\nentry = [\"src/main.js\"]\n");
+        assert!(merged.toml.starts_with(existing), "{}", merged.toml);
+        assert_eq!(merged.replaced_existing, Vec::<String>::new());
+        assert_eq!(merged.kept_existing, Vec::<String>::new());
+    }
+
+    #[test]
+    fn an_ignore_entry_for_every_mode_covers_the_production_only_one() {
+        for (existing, added, expected) in [
+            ("[\"left-pad\"]", "[\"left-pad!\"]", "[\"left-pad\"]"),
+            ("[\"left-pad!\"]", "[\"left-pad\"]", "[\"left-pad\"]"),
+            ("[\"left-pad!\"]", "[\"left-pad!\"]", "[\"left-pad!\"]"),
+        ] {
+            let merged = merged_knip(
+                &format!("[js]\nignore-dependencies = {existing}\n"),
+                &format!("\n[js]\nignore-dependencies = {added}\n"),
+            );
+            assert!(
+                merged
+                    .toml
+                    .starts_with(&format!("[js]\nignore-dependencies = {expected}\n")),
+                "{existing} + {added}: {}",
+                merged.toml
+            );
+            assert_eq!(merged.replaced_existing, Vec::<String>::new());
+        }
+    }
+
+    #[test]
+    fn a_plain_list_entry_takes_the_reason_of_the_same_entry() {
+        let merged = merged_knip(
+            "[js]\nignore-workspaces = [\"playground/**\", \"tools/*\"]\n",
+            "\n[js]\nignore-workspaces = [{ name = \"playground/**\", reason = \"test suites\" }]\n",
+        );
+        assert!(
+            merged.toml.starts_with(
+                "[js]\nignore-workspaces = [{ name = \"playground/**\", reason = \"test suites\" }, \"tools/*\"]\n"
+            ),
+            "{}",
+            merged.toml
+        );
+        assert_eq!(merged.kept_existing, Vec::<String>::new());
+        assert_eq!(merged.replaced_existing, Vec::<String>::new());
+    }
+
+    #[test]
+    fn an_entry_with_a_reason_is_not_replaced_by_the_plain_form() {
+        let existing = "[js]\nignore-workspaces = [{ name = \"playground/**\", reason = \"mine\" }]\n";
+        for added in ["\"playground/**\"", "{ name = \"playground/**\", reason = \"mine\" }"] {
+            let merged = merged_knip(existing, &format!("\n[js]\nignore-workspaces = [{added}]\n"));
+            assert!(merged.toml.starts_with(existing), "{added}: {}", merged.toml);
+            assert_eq!(merged.kept_existing, Vec::<String>::new(), "{added}");
+        }
+    }
+
+    #[test]
+    fn a_different_reason_for_the_same_entry_keeps_the_existing_one() {
+        let existing = "[js]\nignore-dependencies = [{ name = \"left-pad\", reason = \"mine\" }]\n";
+        let merged = merged_knip(
+            existing,
+            "\n[js]\nignore-dependencies = [{ name = \"left-pad\", reason = \"theirs\" }]\n",
+        );
+        assert!(merged.toml.starts_with(existing), "{}", merged.toml);
+        assert_eq!(merged.kept_existing, ["js.ignore-dependencies"]);
+    }
+
+    #[test]
+    fn an_ignore_entry_for_every_mode_keeps_the_reason_of_the_production_only_one() {
+        let merged = merged_knip(
+            "[js]\nignore-binaries = [{ name = \"tsc!\", reason = \"mine\" }]\n",
+            "\n[js]\nignore-binaries = [\"tsc\"]\n",
+        );
+        let parsed: toml::Table = merged.toml.parse().unwrap();
+        let list = parsed["js"]["ignore-binaries"].as_array().unwrap();
+        assert_eq!(list.len(), 1, "{}", merged.toml);
+        assert_eq!(list[0]["name"].as_str(), Some("tsc"), "{}", merged.toml);
+        assert_eq!(list[0]["reason"].as_str(), Some("mine"), "{}", merged.toml);
+    }
+
+    #[test]
+    fn the_marker_is_part_of_the_entry_outside_the_js_lists() {
+        let merged = merge_into(
+            &generated(
+                "\n[workspace]\nignore-packages = [\"a!\"]\n",
+                &[Tool::Sherif],
+                Profile::Full,
+            ),
+            "[workspace]\nignore-packages = [\"a\"]\n",
+        )
+        .unwrap();
+        assert!(
+            merged.toml.starts_with("[workspace]\nignore-packages = [\"a\",\"a!\"]\n"),
+            "{}",
+            merged.toml
+        );
     }
 
     #[test]

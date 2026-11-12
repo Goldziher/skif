@@ -52,6 +52,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **Migrate**: `--merge` unites lists by entry name. A string and a `{ name, reason }` table with that name are one
+  entry, which keeps the existing reason or takes the migrated one, instead of both staying in the list. In `[js]`
+  `entry` and `project`, a migrated `x!` replaces the existing plain `x`, which in production mode excluded the file
+  the `!` pattern makes an entry; the report names the list (`replaced-existing`). In the `[js]` ignore lists, `x`
+  covers `x!`. Elsewhere a trailing `!` is part of the entry
+  ([ADR 0127](adrs/0127-migrate-merge-unites-list-entries-by-name.md),
+  [#219](https://github.com/Goldziher/skif/issues/219)).
 - **JS**: pattern keys of `exports` and `imports` maps are selected as Node.js orders them: of two patterns with the
   same prefix, the longer one wins (`./features/*.css` over `./features/*` for `./features/a.css`).
 - **Migrate**: `--merge --output <FILE>` writes the merge of the existing `skif.toml` and the migration to `FILE`
