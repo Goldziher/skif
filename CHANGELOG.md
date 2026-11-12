@@ -64,10 +64,12 @@ All notable changes to this project are documented here. The format follows
   `config.output.path = …`, `foo(config.module)`) leaves only that part unknown, also in what shares it (a local a
   function returns); `push` and `unshift` of a local list add their elements, and under a condition the evaluator
   cannot decide the part is one of its values before and after. A call that may change the whole config still leaves
-  all of it partly unknown. A spread of a local (`{ ...options }`) copies its keys: a change below one of them reaches
-  the copy at that key only, and a new value of a key of either leaves the other as it was. A call of a function the config declares (`const r = set(config)`) shares with the config
-  only what the function may return of it, and a change through what a method returns (`config.plugins.find(…)`)
-  reaches the object it is called on. A function the config only calls by name takes each argument as its parameter,
+  all of it partly unknown. A write through one key also reaches another key of the same local that holds the same
+  object (`config.b = config.a; config.a.x = 1`). A spread of a local (`{ ...options }`) copies its keys: a change
+  below one of them reaches the copy at that key only, and a new value of a key of either leaves the other as it was.
+  A call of a function the config declares (`const r = set(config)`) shares with the config only what the function
+  may return of it, and a change through what a method returns (`config.plugins.find(…)`) reaches the object it is
+  called on. A function the config only calls by name takes each argument as its parameter,
   apart from what it returns, so a value a call may change (`_.defaults({}, env)`) passed to a function that builds a
   fresh config no longer leaves that config's `entry` unknown; one that returns its parameter, or stores it in what it
   returns (`{ e: env }`, `config.x = env`), still shares it there, as do a getter, method or callback in what it

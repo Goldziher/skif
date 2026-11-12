@@ -2559,6 +2559,51 @@ fn a_literal_argument_holding_a_part_of_a_local_opens_only_that_part() {
     assert!(open(get(&value, &["module"])), "{value:?}");
 }
 
+/// A write through one key of a local that holds the same object at another key (`config.b = config.a`) changes the
+/// object at both: the evaluator applies it at the key written, and the other key is unknown where the write is.
+#[test]
+fn a_write_through_one_key_reaches_another_key_holding_the_same_object() {
+    let value = extract(
+        "vitest.config.ts",
+        "const make = () => {\n\
+           const config = { a: {} };\n\
+           config.b = config.a;\n\
+           config.a.x = 'set';\n\
+           return config;\n\
+         };\n\
+         export default make();",
+    );
+    assert_eq!(
+        at(&value, &["a"]),
+        &ConfigValue::Object(vec![("x".to_owned(), s("set"))]),
+        "{value:?}"
+    );
+    assert_eq!(
+        at(&value, &["b"]),
+        &ConfigValue::Object(vec![("x".to_owned(), ConfigValue::Unknown)]),
+        "{value:?}"
+    );
+}
+
+/// An object a config holds at two keys, as a local or in the options a function spreads into its config, is changed
+/// at both by a write through one of them.
+#[test]
+fn a_write_through_one_key_reaches_an_object_shared_at_another() {
+    for source in [
+        "const shared = {};\nconst config = { a: shared, b: shared };\nconfig.a.x = 1;\nexport default config;",
+        "const make = (options) => {\n\
+           const config = { ...options };\n\
+           config.a.x = 1;\n\
+           return config;\n\
+         };\n\
+         const shared = {};\n\
+         export default make({ a: shared, b: shared });",
+    ] {
+        let value = extract("vitest.config.ts", source);
+        assert_eq!(at(&value, &["b", "x"]), &ConfigValue::Unknown, "{source}: {value:?}");
+    }
+}
+
 /// A class's static block and field initialisers run when the class is defined or an object of it is made, which the
 /// evaluator does not follow, so what they write is unknown and the rest of the config stays known.
 #[test]
