@@ -64,7 +64,10 @@ All notable changes to this project are documented here. The format follows
   cannot decide the part is one of its values before and after. A call that may change the whole config still leaves
   all of it partly unknown. A call of a function the config declares (`const r = set(config)`) shares with the config
   only what the function may return of it, and a change through what a method returns (`config.plugins.find(…)`)
-  reaches the object it is called on.
+  reaches the object it is called on. A function the config only calls by name takes each argument as its parameter,
+  apart from what it returns, so a value a call may change (`_.defaults({}, env)`) passed to a function that builds a
+  fresh config no longer leaves that config's `entry` unknown; one that returns its parameter, or stores it in what it
+  returns (`{ e: env }`, `config.x = env`), still shares it there.
 
 ### Changed
 
