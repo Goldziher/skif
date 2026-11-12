@@ -86,6 +86,9 @@ fn lint_round(args: &LintArgs, env: Env, clear: bool, dir: &Path, modules: &dyn 
 /// The directory the report's paths are relative to: the workspace root, or the invocation directory of a
 /// multi-root run. When the root cannot be loaded yet (an invalid `skif.toml`), the path itself is watched, so the
 /// user can fix the file and see the next run.
+///
+/// The directory is what [`roots::resolve`] gives as the base, found without discovering the roots of a multi-root
+/// run: its base is the invocation directory whatever roots it finds, and the first round discovers them.
 fn watched_dir(args: &LintArgs) -> Result<PathBuf, u8> {
     let start = match canonical(&args.path) {
         Ok(start) => start,
@@ -99,10 +102,10 @@ fn watched_dir(args: &LintArgs) -> Result<PathBuf, u8> {
     } else {
         start.parent().map_or_else(|| start.clone(), Path::to_path_buf)
     };
-    Ok(
-        roots::resolve(&start, args.recursive, &CachedFs::new(OsFs), &lint::overrides(args))
-            .map_or(fallback, |resolved| resolved.base),
-    )
+    if args.recursive {
+        return Ok(fallback);
+    }
+    Ok(skif::find_target(&start, &CachedFs::new(OsFs), &lint::overrides(args)).map_or(fallback, |target| target.root))
 }
 
 /// What a scan saw of one file.
@@ -199,6 +202,43 @@ mod tests {
         assert!(debouncer.observe(false, start + 200 * MS));
         assert!(!debouncer.observe(true, start + 400 * MS));
         assert!(debouncer.observe(false, start + 600 * MS));
+    }
+
+    /// The watched directory is the base the first round resolves: the workspace root of a member, a project's own
+    /// directory, and the invocation directory of a multi-root run, recursive or not.
+    #[test]
+    fn the_watched_directory_is_the_base_the_run_resolves() {
+        let dir = tempfile::tempdir().unwrap();
+        let top = canonical(dir.path()).unwrap();
+        for (file, text) in [
+            ("ws/package.json", r#"{"name": "ws", "workspaces": ["packages/*"]}"#),
+            ("ws/packages/a/package.json", r#"{"name": "a"}"#),
+            ("solo/package.json", r#"{"name": "solo"}"#),
+        ] {
+            let path = top.join(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+        }
+        let cases = [
+            (top.join("ws/packages/a"), false, top.join("ws")),
+            (top.join("solo"), false, top.join("solo")),
+            (top.clone(), false, top.clone()),
+            (top.join("ws"), true, top.join("ws")),
+            (top.clone(), true, top.clone()),
+        ];
+        for (path, recursive, expected) in cases {
+            let args = LintArgs {
+                path: path.clone(),
+                recursive,
+                ..LintArgs::default()
+            };
+            let watched = watched_dir(&args).unwrap();
+            let resolved = roots::resolve(&path, recursive, &CachedFs::new(OsFs), &lint::overrides(&args))
+                .map(|resolved| resolved.base)
+                .unwrap();
+            assert_eq!(watched, expected, "{path:?} recursive={recursive}");
+            assert_eq!(watched, resolved, "{path:?} recursive={recursive}");
+        }
     }
 
     #[test]
