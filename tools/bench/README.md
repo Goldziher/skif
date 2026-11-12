@@ -249,7 +249,7 @@ detail stays a difference. See [ADR 0075](../../adrs/0075-imports-only-another-p
 **Where each tool looks.** knip's workspaces are the root and the members its patterns select (`pnpm-workspace.yaml`
 or the `workspaces` of `package.json`); the harness reads them with skif's workspace discovery and records their
 number in `parity.json` (`workspace_members`). A project directory is one whose `package.json` has a field besides
-`type`, `sideEffects` and `imports`. Four more known deviations follow from these facts, each decided by path and
+`type`, `sideEffects` and `imports`. Five more known deviations follow from these facts, each decided by path and
 manifest, not by listing findings:
 
 - `knip-unjudged-manifest`: an unused dependency or a script binary only skif reports, on a `package.json` that is not
@@ -275,19 +275,24 @@ manifest, not by listing findings:
   plugin reads them: the path below the `outDir` of a `tsconfig.json`, `tsconfig.*.json` or `jsconfig.json` in the
   package directory is the same path below its `rootDir` (without one, the directory its `include` and `files`
   share), so `./dist/esm/index.js` with a `tsconfig.build.esm.json` of `outDir: "dist/esm"` and `rootDir: "src"` names
-  `src/index.ts`; a configuration extended from elsewhere is not read. In an n8n node package the files of `n8n.nodes` and `n8n.credentials` are
-  published too, a path below a build directory naming the path without it (`dist/nodes/A/A.node.js` names
-  `nodes/A/A.node.ts`), as skif reads them (`skif_js::n8n_load_paths`). A file such a source imports by relative path
+  `src/index.ts`; a configuration extended from elsewhere is not read. In an n8n node package the files of
+  `n8n.nodes` and `n8n.credentials` are published too, a path below a build directory naming the path without it
+  (`dist/nodes/A/A.node.js` names `nodes/A/A.node.ts`), as skif reads them (`skif_js::n8n_load_paths`). A file such a source imports by relative path
   (resolved with its extension, a TypeScript twin of a `.js` one, or the `index` file of a directory), directly or
   through other files only knip reports unused, is `published-source` too. skif makes the source of a published path
   an entry and uses what it imports; knip maps a published path to source only through a tsconfig `outDir` and does
   not read the n8n fields. An export or type (also as a namespace export or type) only knip reports in a published
-  source is `published-source` as well: an entry's exports are public in skif. Enum and namespace members and
-  duplicates of these files, and the exports of the files they reach, stay compared.
+  source is `published-source` as well: an entry's exports are public in skif. Enum and namespace members of these
+  files, and the exports of the files they reach, stay compared.
+- `entry-module-duplicate`: a duplicate export only knip reports (`export const x …; export default x`) in a file skif
+  makes an entry from the manifest and the defaults alone: a default entry file of its project (`index`, `cli` or
+  `main` at the top or in `src`, matched as skif matches them) or a published source as in `published-source`.
+  skif's `duplicate-exports` skips entry modules, whose names are all public API. Duplicates in entries that only
+  skif's plugins or the configuration make stay compared.
 
-`non-member-project` and `published-source` check where a finding is, not why skif has no finding there. Unlisted
-dependencies a `declare module` satisfies, and npm's `lib/commands` files that skif reaches through a computed
-`require` in `lib/npm.js`, stay compared: the harness cannot check them from its data. See
+`non-member-project`, `published-source` and `entry-module-duplicate` check where a finding is, not why skif has no
+finding there. Unlisted dependencies a `declare module` satisfies, and npm's `lib/commands` files that skif reaches
+through a computed `require` in `lib/npm.js`, stay compared: the harness cannot check them from its data. See
 [ADR 0080](../../adrs/0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md)
 and [ADR 0100](../../adrs/0100-knip-comparison-n8n-node-files-and-what-published-sources-import.md).
 
