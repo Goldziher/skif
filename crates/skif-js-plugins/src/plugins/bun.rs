@@ -2,7 +2,8 @@
 //! `bunfig.toml` sets them), the modules `bunfig.toml` preloads or loads as lint plugins, and what source files hand
 //! to Bun's APIs: the commands of Bun Shell (`` $`…` `` imported from `bun`, or `` Bun.$`…` ``) and of `Bun.spawn`,
 //! which are scripts parsed like the scripts of `package.json`, and the `entrypoints` of `Bun.build`, which are
-//! production entries relative to the package (Bun resolves them from the working directory a script starts in). A
+//! production entries relative to the package (Bun resolves them from the working directory a script starts in),
+//! or relative to the calling file when its own location computes them (`path.join(import.meta.dir, "x.ts")`). A
 //! package whose sources use the `Bun` global uses the type package it lists for it, `@types/bun` or `bun-types`.
 //! Only the package's own sources are read for commands and entries: a file below a directory with its own
 //! `package.json`, such as a member below a workspace root, belongs to that package. A type package serves the
@@ -10,7 +11,9 @@
 //! global counts for it.
 
 use globset::{GlobBuilder, GlobMatcher};
-use skif_js_syntax::{ConfigValue, ImportedCall, command_in_call_dir, extract_command_calls, literal_command};
+use skif_js_syntax::{
+    ConfigValue, FILE_DIR, ImportedCall, command_in_call_dir, extract_command_calls, literal_command,
+};
 
 use crate::files::find_files_within;
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
@@ -166,7 +169,13 @@ fn api_inputs(call: &ImportedCall, source: &str, out: &mut Vec<PluginInput>) {
         ("spawn" | "spawnSync", None) => spawn_command(&call.arguments),
         ("build", None) => {
             let entrypoints = call.arguments.first().and_then(|options| options.get("entrypoints"));
-            out.extend(production_entries("", entrypoints.map(strings).unwrap_or_default()));
+            let entries: Vec<String> = entrypoints
+                .map(strings)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|entry| package_relative(entry, source))
+                .collect();
+            out.extend(production_entries("", entries.iter().map(String::as_str)));
             None
         }
         _ => None,
@@ -175,6 +184,16 @@ fn api_inputs(call: &ImportedCall, source: &str, out: &mut Vec<PluginInput>) {
         file: source.to_owned(),
         script,
     }));
+}
+
+/// An entry point of `Bun.build` in `source`, relative to the package: one the file's own location computes
+/// (`path.join(import.meta.dir, "worker.ts")`, marked with [`FILE_DIR`]) is relative to the file's directory, any other
+/// to the working directory, which a script starts in at the package.
+fn package_relative(entry: &str, source: &str) -> String {
+    match entry.strip_prefix(FILE_DIR).and_then(|rest| rest.strip_prefix('/')) {
+        Some(relative) => join_rel(source.rsplit_once('/').map_or("", |(dir, _)| dir), relative),
+        None => entry.to_owned(),
+    }
 }
 
 /// The command line of `Bun.spawn(["cmd", ...args], options)` or `Bun.spawn({ cmd: [...], cwd })`, in the directory

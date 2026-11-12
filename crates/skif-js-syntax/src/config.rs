@@ -1256,7 +1256,10 @@ pub struct ImportedCall {
     /// `cwd` option of an options object is left out when it names the directory the call runs in anyway
     /// (`process.cwd()`, `'.'`, `undefined`), and starts with [`FILE_DIR`] when the file's own location computes it.
     /// A tagged template has none, except that one run in another directory by a chained `.cwd(dir)` (Bun Shell's
-    /// `` $`…`.cwd(dir) ``) has an options object with that `cwd`, marked the same way.
+    /// `` $`…`.cwd(dir) ``) has an options object with that `cwd`, marked the same way. Such a call also marks each
+    /// string of the `entrypoints` array of an options object (`Bun.build`) that the file's own location computes
+    /// (`path.join(import.meta.dir, 'src/x.ts')`): it starts with [`FILE_DIR`] and `/`, followed by the path relative
+    /// to the file's directory.
     pub arguments: Vec<ConfigValue>,
     /// For a tagged template (`` $`cmd ${x}` ``), its raw text with every substitution replaced by
     /// [`TEMPLATE_SUBSTITUTION`]; `None` for a call.
@@ -1444,6 +1447,35 @@ fn mark_cwd<'p, 'a>(options: &mut ConfigValue, expression: &'p Expression<'a>, p
     match marked_cwd(cwd, probed.get("cwd"), sets_undefined(expression, "cwd")) {
         Some(cwd) => entries[index].1 = cwd,
         None => entries.retain(|(key, _)| key != "cwd"),
+    }
+}
+
+/// The option of a command call's options object that lists files to bundle (`Bun.build`), relative to the working
+/// directory unless the file's own location computes them.
+const ENTRYPOINTS: &str = "entrypoints";
+
+/// Marks each string of the `entrypoints` array of `options`, a call argument evaluated from the file's directory, that
+/// `probe`, an evaluator from [`PROBE_DIR`], evaluates differently, so that the file's own location computes it: it
+/// becomes [`FILE_DIR`] joined with the path. Any other entry is left as it is.
+fn mark_entrypoints<'p, 'a>(options: &mut ConfigValue, expression: &'p Expression<'a>, probe: &Evaluator<'_, 'p, 'a>) {
+    let ConfigValue::Object(entries) = options else {
+        return;
+    };
+    let Some(index) = entries.iter().rposition(|(key, _)| key == ENTRYPOINTS) else {
+        return;
+    };
+    let ConfigValue::Array(items) = &mut entries[index].1 else {
+        return;
+    };
+    let probed = ConfigValue::from(probe.expr(expression, 0));
+    let Some(ConfigValue::Array(probed)) = probed.get(ENTRYPOINTS) else {
+        return;
+    };
+    for (item, probed) in items.iter_mut().zip(probed) {
+        let file_relative = probed != &*item;
+        if file_relative && let ConfigValue::String(path) = item {
+            *path = format!("{FILE_DIR}/{path}");
+        }
     }
 }
 
@@ -1667,13 +1699,18 @@ impl<'a> Visit<'a> for CallFinder<'_, '_, 'a> {
                         .map_or(ConfigValue::Unknown, |e| ConfigValue::from(eval.expr(e, 0)))
                 })
                 .collect();
-            if self.commands && arguments.iter().any(|argument| argument.get("cwd").is_some()) {
+            if self.commands
+                && arguments
+                    .iter()
+                    .any(|argument| argument.get("cwd").is_some() || argument.get(ENTRYPOINTS).is_some())
+            {
                 let probe = Evaluator {
                     dir: PROBE_DIR,
                     ..Evaluator::in_file(self.top, self.bindings, self.file, HashMap::default())
                 };
                 for (argument, expression) in arguments.iter_mut().zip(&it.arguments) {
                     if let Some(expression) = expression.as_expression() {
+                        mark_entrypoints(argument, expression, &probe);
                         mark_cwd(argument, expression, &probe);
                     }
                 }
