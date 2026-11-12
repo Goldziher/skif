@@ -803,8 +803,18 @@ fn jsx_member_tags_read_the_first_member_of_a_namespace() {
     let cases: [(&str, &str, &[&str], &[(&str, &[&str])]); 5] = [
         ("self-closing", "<S.Used />", &["Used"], &[]),
         ("opening and closing", "<S.Used>text</S.Used>", &["Used"], &[]),
-        ("nested", "<S.Ctx.Provider value={1} />", &["Ctx"], &[("Ctx", &["Provider"])]),
-        ("nested with closing tag", "<S.Ctx.Provider>x</S.Ctx.Provider>", &["Ctx"], &[("Ctx", &["Provider"])]),
+        (
+            "nested",
+            "<S.Ctx.Provider value={1} />",
+            &["Ctx"],
+            &[("Ctx", &["Provider"])],
+        ),
+        (
+            "nested with closing tag",
+            "<S.Ctx.Provider>x</S.Ctx.Provider>",
+            &["Ctx"],
+            &[("Ctx", &["Provider"])],
+        ),
         ("two tags", "<S.Used><S.Other /></S.Used>", &["Other", "Used"], &[]),
     ];
     for (case, jsx, members, nested_members) in cases {
@@ -1737,7 +1747,10 @@ fn svelte_instance_script_exports_are_props_and_module_script_exports_are_export
     let instance = "  export let label;\n  export const size = 1;\n  export function focus() {}\n";
     for (case, module_tag) in [
         ("svelte 4", "<script context=\"module\">"),
-        ("svelte 4, single quotes and lang", "<script lang=\"ts\" context='module'>"),
+        (
+            "svelte 4, single quotes and lang",
+            "<script lang=\"ts\" context='module'>",
+        ),
         ("svelte 5", "<script module>"),
         ("svelte 5 with lang", "<script module lang=\"ts\">"),
     ] {
@@ -1748,7 +1761,11 @@ fn svelte_instance_script_exports_are_props_and_module_script_exports_are_export
         let names: Vec<&str> = info.exports.iter().map(|export| export.name.as_str()).collect();
         assert_eq!(names, ["preload"], "{case}");
     }
-    for instance_tag in ["<script>", "<script lang=\"ts\">", "<script data-module=\"x\" title=\"module\">"] {
+    for instance_tag in [
+        "<script>",
+        "<script lang=\"ts\">",
+        "<script data-module=\"x\" title=\"module\">",
+    ] {
         let source = format!("{instance_tag}\n{instance}</script>\n<button>{{label}}</button>\n");
         let info = parse("Button.svelte", &source);
         assert!(info.exports.is_empty(), "{instance_tag}: {:?}", info.exports);
@@ -1757,7 +1774,10 @@ fn svelte_instance_script_exports_are_props_and_module_script_exports_are_export
 
 #[test]
 fn a_vue_script_without_setup_keeps_its_exports() {
-    let info = parse("A.vue", "<script>\nexport const helper = 1;\nexport default {};\n</script>\n");
+    let info = parse(
+        "A.vue",
+        "<script>\nexport const helper = 1;\nexport default {};\n</script>\n",
+    );
     let mut names: Vec<&str> = info.exports.iter().map(|export| export.name.as_str()).collect();
     names.sort_unstable();
     assert_eq!(names, ["default", "helper"]);
