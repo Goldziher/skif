@@ -51,7 +51,7 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
       "rule": "stale-patched-dependencies",
       "severity": "warning",
       "message": "skif reads `pnpm-lock.yaml` only; `package-lock.json` is not checked for the `patchedDependencies` entries",
-      "help": "lockfile checks support pnpm (lockfile format 9) only",
+      "help": "lockfile checks support pnpm (lockfile format 9) and `bun.lock` only",
       "location": {
         "path": "package-lock.json"
       }

@@ -205,14 +205,19 @@ fn bun_selects_members_outside_the_root_without_loading_them() {
         bun.facts.outside_root_members,
         [PathBuf::from("../libs/lib"), PathBuf::from("../shared")]
     );
-    let counts: Vec<(usize, bool)> = bun.facts.patterns.iter().map(|fact| (fact.matched, fact.invalid)).collect();
+    let counts: Vec<(usize, bool)> = bun
+        .facts
+        .patterns
+        .iter()
+        .map(|fact| (fact.matched, fact.invalid))
+        .collect();
     assert_eq!(counts, [(1, false), (1, false), (2, false)]);
     assert!(bun.manifest_errors.is_empty());
     assert!(bun.package_by_name("shared").is_none());
     // npm cannot use such a pattern.
     let npm = run("npm@11.0.0");
     assert_eq!(dirs(&npm), ["packages/a"]);
-    assert!(npm.facts.outside_root_members.is_empty());
+    assert_eq!(npm.facts.outside_root_members, [] as [std::path::PathBuf; 0]);
     let invalid: Vec<bool> = npm.facts.patterns.iter().map(|fact| fact.invalid).collect();
     assert_eq!(invalid, [false, true, true]);
     assert_eq!(npm.manifest_errors.len(), 2);
@@ -234,7 +239,11 @@ fn bun_excludes_a_member_without_a_name_from_analysis() {
         ];
         let config = Config::from_toml_str(&format!("[workspace]\nignore-packages = [{ignore}]\n")).unwrap();
         let workspace = discover(&files, &config).unwrap();
-        let ignored: Vec<bool> = workspace.package_ids().skip(1).map(|id| workspace.is_ignored(id)).collect();
+        let ignored: Vec<bool> = workspace
+            .package_ids()
+            .skip(1)
+            .map(|id| workspace.is_ignored(id))
+            .collect();
         (workspace, ignored)
     };
     let (bun, ignored) = run("bun@1.4.4", "");
@@ -250,7 +259,7 @@ fn bun_excludes_a_member_without_a_name_from_analysis() {
     assert_eq!(configured.facts.nameless_members, [PathBuf::from("packages/blank")]);
     // npm installs a member without a name.
     let (npm, ignored) = run("npm@11.0.0", "");
-    assert!(npm.facts.nameless_members.is_empty());
+    assert_eq!(npm.facts.nameless_members, [] as [std::path::PathBuf; 0]);
     assert_eq!(ignored, [false, false, false]);
 }
 

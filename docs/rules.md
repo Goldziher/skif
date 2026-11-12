@@ -414,7 +414,7 @@ The `packages` of `lerna.json`, which Lerna reads before the package manager's w
 
 ## missing-package-manifest
 
-A directory matched by the workspace patterns has no `package.json`.
+A directory matched by the workspace patterns has no `package.json`, or in a Bun workspace one without a `name`, which Bun does not install.
 
 - Category: workspace
 - Default severity: warning

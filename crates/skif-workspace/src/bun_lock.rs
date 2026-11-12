@@ -112,7 +112,10 @@ impl BunLockfile {
             .into_iter()
             .flatten()
             .map(|(dir, workspace)| {
-                let scope = workspace.get("name").and_then(Value::as_str).filter(|_| !dir.is_empty());
+                let scope = workspace
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .filter(|_| !dir.is_empty());
                 let direct = names_in(Some(workspace), &INSTALLED)
                     .filter_map(|dependency| resolve(entries, scope, dependency))
                     .collect();
@@ -141,7 +144,10 @@ impl BunLockfile {
     /// them.
     #[must_use]
     pub fn resolutions(&self, importer: &str) -> Resolutions<'_> {
-        reach(&self.snapshots, self.importers.get(importer).into_iter().flatten().cloned())
+        reach(
+            &self.snapshots,
+            self.importers.get(importer).into_iter().flatten().cloned(),
+        )
     }
 
     /// The versions of `name` the lockfile resolves, in byte order.
@@ -323,7 +329,10 @@ mod tests {
         assert_eq!(lock.snapshots["app/debug"].dependencies, ["app/ms"]);
         assert_eq!(lock.snapshots["debug"].dependencies, ["debug/ms"]);
         assert_eq!(
-            (lock.snapshots["debug/ms"].name.as_str(), lock.snapshots["debug/ms"].version.as_str()),
+            (
+                lock.snapshots["debug/ms"].name.as_str(),
+                lock.snapshots["debug/ms"].version.as_str()
+            ),
             ("ms", "2.1.2")
         );
         assert!(!lock.snapshots.contains_key("app") && !lock.snapshots.contains_key("@s/web"));

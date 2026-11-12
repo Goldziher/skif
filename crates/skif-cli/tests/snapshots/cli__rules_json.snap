@@ -74,7 +74,7 @@ expression: redact_version(&json.stdout)
       "category": "workspace",
       "default": "warning",
       "fixable": "unsafe",
-      "summary": "A directory matched by the workspace patterns has no `package.json`."
+      "summary": "A directory matched by the workspace patterns has no `package.json`, or in a Bun workspace one without a `name`, which Bun does not install."
     },
     {
       "id": "stray-lockfile",

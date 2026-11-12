@@ -167,12 +167,18 @@ fn entry_points_the_file_location_computes_are_marked_for_command_calls() {
     assert_eq!(marked.len(), 3);
     assert_eq!(marked[0], "./src/cli.ts");
     for (entry, expected) in marked[1..].iter().zip(["worker.ts", "../src/server.ts"]) {
-        let rest = entry.strip_prefix(&format!("{FILE_DIR}/")).unwrap_or_else(|| panic!("{entry} is not marked"));
+        let rest = entry
+            .strip_prefix(&format!("{FILE_DIR}/"))
+            .unwrap_or_else(|| panic!("{entry} is not marked"));
         assert_eq!(rest.trim_start_matches("./"), expected);
     }
     // A call that runs no command keeps the entries as the source evaluates them.
     let plain = calls(source, &["bun"], &[("Bun.*", "bun")]);
-    assert!(entries(&plain).iter().all(|entry| !entry.starts_with(FILE_DIR)), "{:?}", entries(&plain));
+    assert!(
+        entries(&plain).iter().all(|entry| !entry.starts_with(FILE_DIR)),
+        "{:?}",
+        entries(&plain)
+    );
 }
 
 /// Bun Shell's `` $`…`.cwd(dir) `` runs the template in `dir`: a command template carries it as its `cwd` option,

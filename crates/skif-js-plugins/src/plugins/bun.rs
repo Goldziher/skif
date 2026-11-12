@@ -28,7 +28,7 @@ pub struct Bun;
 const TYPE_PACKAGES: [&str; 2] = ["@types/bun", "bun-types"];
 
 /// The keys of `bunfig.toml` that name a module to load: a package, or a file relative to the config. `[lint] plugins`
-/// lists the ESLint plugins `bun lint` loads.
+/// lists the `ESLint` plugins `bun lint` loads.
 const MODULE_KEYS: [&[&str]; 4] = [
     &["preload"],
     &["test", "preload"],

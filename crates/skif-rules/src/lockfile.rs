@@ -62,9 +62,10 @@ impl Lock {
 
     /// `name@version` of the snapshot `key`, without peers and patches; the key itself when it names no snapshot.
     pub(crate) fn release(&self, key: &str) -> String {
-        self.snapshots()
-            .get(key)
-            .map_or_else(|| key.to_owned(), |snapshot| format!("{}@{}", snapshot.name, snapshot.version))
+        self.snapshots().get(key).map_or_else(
+            || key.to_owned(),
+            |snapshot| format!("{}@{}", snapshot.name, snapshot.version),
+        )
     }
 
     /// Where the snapshot `key` is written.
@@ -151,7 +152,11 @@ impl Loaded {
     ) -> Result<&Lock, Box<Diagnostic>> {
         let file = self.file;
         let lockfile = Path::new(file);
-        let install = if file == BUN_LOCKFILE { "bun install" } else { "pnpm install" };
+        let install = if file == BUN_LOCKFILE {
+            "bun install"
+        } else {
+            "pnpm install"
+        };
         let (message, location, help) = match &self.lock {
             Ok(Some(lock)) => return Ok(lock),
             Err(WorkspaceError::InvalidLockfile { message, .. }) => (
@@ -189,10 +194,12 @@ impl Loaded {
                 .find(exists)
                 .map(|name| (name, "write the text lockfile with `bun install --save-text-lockfile`"));
         }
-        OTHER_LOCKFILES
-            .into_iter()
-            .find(exists)
-            .map(|name| (name, "lockfile checks support pnpm (lockfile format 9) and `bun.lock` only"))
+        OTHER_LOCKFILES.into_iter().find(exists).map(|name| {
+            (
+                name,
+                "lockfile checks support pnpm (lockfile format 9) and `bun.lock` only",
+            )
+        })
     }
 }
 
