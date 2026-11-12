@@ -1670,7 +1670,10 @@ fn a_value_computed_from_one_of_several_is_one_of_the_results() {
                 s("./.storybook/setup.light.ts"),
             ]),
         ),
-        ("template", ConfigValue::OneOf(vec![s("./ui/setup.ts"), s("./setup.ts")])),
+        (
+            "template",
+            ConfigValue::OneOf(vec![s("./ui/setup.ts"), s("./setup.ts")]),
+        ),
         ("added", ConfigValue::OneOf(vec![s("./ui/setup.ts"), s("./setup.ts")])),
         ("same", s("./b/x.ts")),
         ("absolute", ConfigValue::Unknown),

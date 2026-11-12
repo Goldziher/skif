@@ -83,11 +83,7 @@ impl Plugin for Vitest {
 
 /// The keys a Vitest config names files by besides the project root holding `index.html`: the test globs and the setup
 /// modules. A value that is one of several known lists names the files of each ([`files_path_unknown`]).
-const FILE_KEYS: &[&[&str]] = &[
-    &["test", "include"],
-    &["test", "setupFiles"],
-    &["test", "globalSetup"],
-];
+const FILE_KEYS: &[&[&str]] = &[&["test", "include"], &["test", "setupFiles"], &["test", "globalSetup"]];
 
 /// Whether a config, a workspace list of them or a project they nest is unknown as a whole or computes its `root` or
 /// one of [`FILE_KEYS`] itself, leaving aside what an imported base config it spreads or merges may set
@@ -101,7 +97,9 @@ fn computes_files(value: &ConfigValue, depth: u8) -> bool {
     }
     objects(value).into_iter().any(|object| {
         path_unknown(object, &["root"], Spreads::Own)
-            || FILE_KEYS.iter().any(|path| files_path_unknown(object, path, Spreads::Own))
+            || FILE_KEYS
+                .iter()
+                .any(|path| files_path_unknown(object, path, Spreads::Own))
             || ["workspace", "projects"]
                 .iter()
                 .filter_map(|key| get_in(object, &["test", key]))

@@ -96,7 +96,9 @@ fn entries(entry: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<PluginInpu
     match entry {
         ConfigValue::String(path) => out.push(PluginInput::ProductionEntry(config.join(path))),
         ConfigValue::Array(items) | ConfigValue::OneOf(items) => {
-            items.iter().for_each(|item| entries(item, config, out));
+            for item in items {
+                entries(item, config, out);
+            }
         }
         ConfigValue::Object(properties) => match entry.get("import") {
             Some(import) => entries(import, config, out),

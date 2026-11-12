@@ -866,6 +866,13 @@ impl<'p, 'a> Callable<'p, 'a> {
     }
 }
 
+/// What a name is bound to in the functions being evaluated.
+#[derive(Clone, Copy)]
+enum LocalBinding<'p, 'a> {
+    Function(Callable<'p, 'a>),
+    Other,
+}
+
 /// What a name is bound to inside a function being evaluated.
 #[derive(Clone)]
 enum Binding<'p, 'a> {
@@ -2897,8 +2904,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         };
         let name = id.name.as_str();
         let (callable, isolate) = match self.local_function(name) {
-            Some(Some(callable)) => (callable, false),
-            Some(None) => return None,
+            Some(LocalBinding::Function(callable)) => (callable, false),
+            Some(LocalBinding::Other) => return None,
             None => match self.functions.get(name) {
                 Some(callable) => (*callable, true),
                 None => return self.imported_call(name, call, depth),
@@ -2907,14 +2914,13 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         Some(self.invoke(callable, Some(self.arguments(call, depth).as_slice()), isolate, depth))
     }
 
-    /// The innermost binding of `name` in the functions being evaluated, `Some(None)` when it is not bound to a
-    /// function; `None` when no function being evaluated binds it. The binding's kind decides, so a value bound to the
-    /// name is not cloned to find out.
-    fn local_function(&self, name: &str) -> Option<Option<Callable<'p, 'a>>> {
+    /// The innermost binding of `name` in the functions being evaluated; `None` when no function being evaluated binds
+    /// it. The binding's kind decides, so a value bound to the name is not cloned to find out.
+    fn local_function(&self, name: &str) -> Option<LocalBinding<'p, 'a>> {
         self.frames.borrow().iter().rev().find_map(|frame| {
             frame.get(name).map(|binding| match binding {
-                Binding::Callable(callable) => Some(*callable),
-                Binding::Value(_) | Binding::Alias(_) => None,
+                Binding::Callable(callable) => LocalBinding::Function(*callable),
+                Binding::Value(_) | Binding::Alias(_) => LocalBinding::Other,
             })
         })
     }
@@ -2931,7 +2937,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         };
         let name = id.name.as_str();
         match self.local_function(name) {
-            Some(local) => local.map(|callable| (callable, false)),
+            Some(LocalBinding::Function(callable)) => Some((callable, false)),
+            Some(LocalBinding::Other) => None,
             None => self.functions.get(name).map(|callable| (*callable, true)),
         }
     }
@@ -2998,7 +3005,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// marker key `list` spreads under ([`Self::spread_key`]), before the pairs after it. The keys are not definite
     /// when the list is not. Unknown for any other argument; `None` for any other call, and for an `Object` the module
     /// binds.
-    fn from_entries_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
+    fn object_from_entries(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<Value> {
         let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
             return None;
         };
@@ -3173,7 +3180,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             .or_else(|| self.merge_call(call, depth))
             .or_else(|| self.filter_call(call, depth))
             .or_else(|| self.array_callback_call(call, depth))
-            .or_else(|| self.from_entries_call(call, depth));
+            .or_else(|| self.object_from_entries(call, depth));
         if let Some(value) = special {
             return value;
         }

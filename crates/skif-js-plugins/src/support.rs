@@ -1071,7 +1071,11 @@ mod tests {
         let s = |text: &str| ConfigValue::String(text.to_owned());
         let one_of = ConfigValue::OneOf;
         let cases = [
-            (ConfigValue::Array(vec![s("./a.ts"), s("./b.ts")]), vec!["./a.ts", "./b.ts"], false),
+            (
+                ConfigValue::Array(vec![s("./a.ts"), s("./b.ts")]),
+                vec!["./a.ts", "./b.ts"],
+                false,
+            ),
             (
                 ConfigValue::Array(vec![one_of(vec![s("./ui/setup.ts"), s("./setup.ts")]), s("./c.ts")]),
                 vec!["./ui/setup.ts", "./setup.ts", "./c.ts"],
@@ -1079,7 +1083,10 @@ mod tests {
             ),
             (one_of(vec![s("./a.ts"), s("./b.ts")]), vec!["./a.ts", "./b.ts"], false),
             (
-                one_of(vec![ConfigValue::Array(vec![s("./a.ts")]), ConfigValue::Array(vec![s("./b.ts"), s("./a.ts")])]),
+                one_of(vec![
+                    ConfigValue::Array(vec![s("./a.ts")]),
+                    ConfigValue::Array(vec![s("./b.ts"), s("./a.ts")]),
+                ]),
                 vec!["./a.ts", "./b.ts"],
                 false,
             ),
@@ -1089,12 +1096,23 @@ mod tests {
                 true,
             ),
             (
-                one_of(vec![s("./a.ts"), ConfigValue::Array(vec![s("./b.ts"), ConfigValue::Unknown])]),
+                one_of(vec![
+                    s("./a.ts"),
+                    ConfigValue::Array(vec![s("./b.ts"), ConfigValue::Unknown]),
+                ]),
                 vec!["./a.ts", "./b.ts"],
                 true,
             ),
-            (ConfigValue::Array(vec![one_of(vec![s("./a.ts"), ConfigValue::Null])]), vec!["./a.ts"], true),
-            (ConfigValue::Array(vec![s("./a.ts"), ConfigValue::Unknown]), vec!["./a.ts"], true),
+            (
+                ConfigValue::Array(vec![one_of(vec![s("./a.ts"), ConfigValue::Null])]),
+                vec!["./a.ts"],
+                true,
+            ),
+            (
+                ConfigValue::Array(vec![s("./a.ts"), ConfigValue::Unknown]),
+                vec!["./a.ts"],
+                true,
+            ),
             (ConfigValue::Unknown, vec![], true),
         ];
         for (listed, expected, incomplete) in cases {
