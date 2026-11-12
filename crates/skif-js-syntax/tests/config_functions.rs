@@ -938,6 +938,43 @@ fn a_missing_key_is_undefined_to_a_member_and_a_destructuring_alike() {
     assert_eq!(value.get("openMember"), Some(&ConfigValue::Unknown));
 }
 
+/// An optional member and a computed member whose key evaluates to a string read a known object as a member does. An
+/// optional member of `null` or `undefined` is `undefined`, the rest of its chain unread, so a fallback over it
+/// applies; a computed key that is not a known string leaves the value unknown.
+#[test]
+fn optional_and_computed_members_read_like_members() {
+    let setup = strings(&["./setup.ts"]);
+    let include = strings(&["src/a.test.ts"]);
+    let cases = [
+        ("base.setupFiles", setup.clone()),
+        ("base?.setupFiles", setup.clone()),
+        ("base['setupFiles']", setup.clone()),
+        ("base?.['setupFiles']", setup.clone()),
+        ("base[KEY]", setup.clone()),
+        ("base[`setup${'Files'}`]", setup.clone()),
+        ("base?.setupFiles ?? []", setup.clone()),
+        ("base?.test.include", include.clone()),
+        ("base.test?.['include']", include.clone()),
+        ("base['test']?.include", include),
+        ("missing?.setupFiles", ConfigValue::Null),
+        ("missing?.a.b", ConfigValue::Null),
+        ("base.absent?.setupFiles", ConfigValue::Null),
+        ("missing?.setupFiles ?? ['./fallback.ts']", strings(&["./fallback.ts"])),
+        ("base[process.env.KEY]", ConfigValue::Unknown),
+        ("base.test.include[0]", ConfigValue::Unknown),
+        ("opaque()?.setupFiles", ConfigValue::Unknown),
+    ];
+    for (read, expected) in cases {
+        let source = format!(
+            "const base = {{ setupFiles: ['./setup.ts'], test: {{ include: ['src/a.test.ts'] }} }};\n\
+             const KEY = 'setupFiles';\nconst missing = null;\n\
+             export default {{ value: {read} }};"
+        );
+        let value = extract("vitest.config.ts", &source);
+        assert_eq!(get(&value, &["value"]), &expected, "{read}");
+    }
+}
+
 /// A key a known object does not have itself may still be inherited: a member of `Object.prototype` (`constructor`,
 /// `toString`, `hasOwnProperty`, `valueOf`) and any key of an object with a `__proto__` are unknown, to a member read
 /// and a destructuring alike, rather than `undefined`.

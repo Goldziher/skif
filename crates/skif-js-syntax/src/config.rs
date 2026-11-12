@@ -10,12 +10,12 @@ use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Argument, ArrayExpressionElement, ArrowFunctionExpression, AssignmentOperator, AssignmentTarget,
     AssignmentTargetPropertyIdentifier, BinaryOperator, BindingIdentifier, BindingPattern, BlockStatement,
-    CallExpression, CatchClause, ConditionalExpression, Declaration, ExportDefaultDeclarationKind, Expression,
-    ExpressionStatement, ForInStatement, ForOfStatement, ForStatement, Function, IdentifierReference, IfStatement,
-    ImportDeclarationSpecifier, ImportOrExportKind, LogicalExpression, LogicalOperator, NewExpression, ObjectProperty,
-    ObjectPropertyKind, Program, ReturnStatement, SimpleAssignmentTarget, Statement, StaticMemberExpression,
-    TaggedTemplateExpression, TemplateLiteral, UnaryExpression, UnaryOperator, VariableDeclaration,
-    VariableDeclarationKind,
+    CallExpression, CatchClause, ChainElement, ChainExpression, ComputedMemberExpression, ConditionalExpression,
+    Declaration, ExportDefaultDeclarationKind, Expression, ExpressionStatement, ForInStatement, ForOfStatement,
+    ForStatement, Function, IdentifierReference, IfStatement, ImportDeclarationSpecifier, ImportOrExportKind,
+    LogicalExpression, LogicalOperator, MemberExpression, NewExpression, ObjectProperty, ObjectPropertyKind, Program,
+    ReturnStatement, SimpleAssignmentTarget, Statement, StaticMemberExpression, TaggedTemplateExpression,
+    TemplateLiteral, UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_parser::{ParseOptions as OxcParseOptions, Parser};
@@ -390,10 +390,12 @@ pub trait ModuleLoader {
 /// are followed when `a` is known, and `.length` of a known string or array is its length. A member `a.b` of a known
 /// object is the value of its key `b`, unknown when an unknown spread may set it or the object may inherit it (a member
 /// of `Object.prototype`, an object with a `__proto__`), and `undefined` (handed out as `null`) when the object does
-/// not have it, so `[...base.plugins, 'x']` and `options.setupFiles ?? []` are known; a destructuring reads a key the
-/// same way, and a parameter's or a destructuring's default applies to `undefined`, not to a literal `null`. A key
-/// merged from a spread whose test is unknown (below) may be absent or hold any of the values merged for it, so a read
-/// of it is not definite, and neither is a value that carries the read on: a key of an object or a binding holding
+/// not have it, so `[...base.plugins, 'x']` and `options.setupFiles ?? []` are known. An optional member `a?.b` reads
+/// the same way and is `undefined` when `a` is `null` or `undefined`, the rest of its chain unread, and so does a
+/// computed member whose key evaluates to a string (`a['b']`, `a[KEY]`). A destructuring reads a key the same way,
+/// and a parameter's or a destructuring's default applies to `undefined`, not to a literal `null`. A key merged from a
+/// spread whose test is unknown (below) may be absent or hold any of the values merged for it, so a read of it is not
+/// definite, and neither is a value that carries the read on: a key of an object or a binding holding
 /// it, the argument it is passed as, the value a function returns it as, a fallback over it and an array spreading it,
 /// in the module that reads it or one importing it. Over a value that is not definite, `a ?? c` and `a || c` credit
 /// both sides, a default is credited next to it, and a test on it and its `.length` are unknown.
@@ -2054,6 +2056,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 }
             }
             Expression::StaticMemberExpression(member) => self.member(member, depth),
+            Expression::ComputedMemberExpression(member) => self.computed_member(member, depth),
+            Expression::ChainExpression(chain) => self.chain(chain, depth),
             Expression::NewExpression(new) => self.url(new, depth),
             Expression::UnaryExpression(u) if u.operator == UnaryOperator::UnaryNegation => {
                 match self.expr(&u.argument, depth) {
@@ -2209,6 +2213,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             Expression::AwaitExpression(e) => self.computes_itself(&e.argument, depth),
             Expression::StaticMemberExpression(member) => self.computes_itself(&member.object, depth),
             Expression::ComputedMemberExpression(member) => self.computes_itself(&member.object, depth),
+            Expression::ChainExpression(chain) => {
+                chain_object(chain).is_some_and(|object| self.computes_itself(object, depth))
+            }
             Expression::CallExpression(call) => self.computes_itself(&call.callee, depth),
             Expression::ConditionalExpression(conditional) => {
                 self.computes_itself(&conditional.consequent, depth)
@@ -2241,6 +2248,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             Expression::AwaitExpression(e) => self.takes_imported(&e.argument, depth),
             Expression::StaticMemberExpression(member) => self.takes_imported(&member.object, depth),
             Expression::ComputedMemberExpression(member) => self.takes_imported(&member.object, depth),
+            Expression::ChainExpression(chain) => {
+                chain_object(chain).is_some_and(|object| self.takes_imported(object, depth))
+            }
             Expression::CallExpression(call) => {
                 let required = matches!(
                     call.callee.get_inner_expression(),
@@ -2341,17 +2351,95 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// `length` of a known string or array, and a key of a known object ([`property_of`]). The `length` of a value that
     /// is not definite is unknown.
     fn member(&self, member: &'p StaticMemberExpression<'a>, depth: u32) -> Value {
-        let property = member.property.name.as_str();
-        match (member.object.get_inner_expression(), property) {
+        self.member_of(&member.object, member.property.name.as_str(), depth)
+    }
+
+    /// `object[key]` with a key known as a string (`base['setupFiles']`, `base[KEY]` of a constant), read as
+    /// `object.key` is; unknown for any other key.
+    fn computed_member(&self, member: &'p ComputedMemberExpression<'a>, depth: u32) -> Value {
+        self.member_key(&member.expression, depth)
+            .map_or(Value::Unknown, |key| self.member_of(&member.object, &key, depth))
+    }
+
+    /// The member `property` of `object`, as [`Self::member`] reads it.
+    fn member_of(&self, object: &'p Expression<'a>, property: &str, depth: u32) -> Value {
+        self.special_member(object, property, depth)
+            .unwrap_or_else(|| property_of(&self.expr(object, depth), property))
+    }
+
+    /// A member whose value is not a key of the object's value: a path `import.meta` names, the `pathname` of a
+    /// `new URL(…)` and an export of a namespace import. `None` for any other member.
+    fn special_member(&self, object: &'p Expression<'a>, property: &str, depth: u32) -> Option<Value> {
+        Some(match (object.get_inner_expression(), property) {
             (Expression::ImportMeta(_), "dirname" | "dir") => Value::String(normalized(&[self.dir])),
             (Expression::ImportMeta(_), "filename" | "url" | "path") => Value::String(self.file_path()),
             (Expression::ImportMeta(_), "file") => Value::String(self.file.to_owned()),
-            (object @ Expression::NewExpression(_), "pathname") => self.expr(object, depth),
-            (Expression::Identifier(object), _) if self.is_namespace(object.name.as_str()) => {
-                self.namespace_member(object.name.as_str(), property)
+            (url @ Expression::NewExpression(_), "pathname") => self.expr(url, depth),
+            (Expression::Identifier(namespace), _) if self.is_namespace(namespace.name.as_str()) => {
+                self.namespace_member(namespace.name.as_str(), property)
             }
-            (object, _) => property_of(&self.expr(object, depth), property),
+            _ => return None,
+        })
+    }
+
+    /// The key of a computed member when it evaluates to a string.
+    fn member_key(&self, key: &'p Expression<'a>, depth: u32) -> Option<String> {
+        match self.expr(key, depth) {
+            Value::String(key) => Some(key),
+            _ => None,
         }
+    }
+
+    /// An optional chain (`base?.setupFiles`, `base?.['setupFiles']`, `base?.test.include`): its members read as
+    /// [`Self::member`] and [`Self::computed_member`] read them, and the chain is `undefined` when the object of an
+    /// optional member is `null` or `undefined`, the rest of it unread. A call in the chain is evaluated as any call.
+    fn chain(&self, chain: &'p ChainExpression<'a>, depth: u32) -> Value {
+        let link = match &chain.expression {
+            ChainElement::StaticMemberExpression(m) => {
+                self.chain_member(&m.object, Some(m.property.name.as_str().to_owned()), m.optional, depth)
+            }
+            ChainElement::ComputedMemberExpression(m) => {
+                let key = self.member_key(&m.expression, depth);
+                self.chain_member(&m.object, key, m.optional, depth)
+            }
+            ChainElement::CallExpression(call) => Some(self.call(call, depth)),
+            ChainElement::TSNonNullExpression(e) => self.chain_link(&e.expression, depth),
+            ChainElement::PrivateFieldExpression(_) => Some(Value::Unknown),
+        };
+        link.unwrap_or(Value::Undefined)
+    }
+
+    /// The value of `expr` inside an optional chain; `None` when an optional member in it short-circuits.
+    fn chain_link(&self, expr: &'p Expression<'a>, depth: u32) -> Option<Value> {
+        match expr.get_inner_expression() {
+            Expression::StaticMemberExpression(m) => {
+                self.chain_member(&m.object, Some(m.property.name.as_str().to_owned()), m.optional, depth)
+            }
+            Expression::ComputedMemberExpression(m) => {
+                let key = self.member_key(&m.expression, depth);
+                self.chain_member(&m.object, key, m.optional, depth)
+            }
+            _ => Some(self.expr(expr, depth)),
+        }
+    }
+
+    /// The member `key` of `object` inside an optional chain, unknown when the key is not known: `None` when the
+    /// member is `optional` and the object is `null` or `undefined`.
+    fn chain_member(
+        &self,
+        object: &'p Expression<'a>,
+        key: Option<String>,
+        optional: bool,
+        depth: u32,
+    ) -> Option<Value> {
+        if let Some(special) = key.as_deref().and_then(|key| self.special_member(object, key, depth)) {
+            return Some(special);
+        }
+        let base = self.chain_link(object, depth)?;
+        if optional && matches!(base, Value::Null | Value::Undefined) {
+            return None;
+        }
+        Some(key.map_or(Value::Unknown, |key| property_of(&base, &key)))
     }
 
     /// Whether `name` is a namespace import that no binding of a function being evaluated shadows.
@@ -4103,6 +4191,15 @@ fn is_resolve_of(call: &CallExpression<'_>, object: &str) -> bool {
             if m.property.name.as_str() == "resolve"
                 && matches!(m.object.get_inner_expression(), Expression::Identifier(o) if o.name.as_str() == object)
     )
+}
+
+/// What an optional chain reads from: the object of its outermost member, or the callee of its call.
+fn chain_object<'b, 'a>(chain: &'b ChainExpression<'a>) -> Option<&'b Expression<'a>> {
+    match &chain.expression {
+        ChainElement::CallExpression(call) => Some(&call.callee),
+        ChainElement::TSNonNullExpression(e) => Some(&e.expression),
+        element => element.as_member_expression().map(MemberExpression::object),
+    }
 }
 
 /// The identifier at the start of a member chain (`config` in `config.a.b`).
