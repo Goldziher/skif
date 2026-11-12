@@ -1,657 +1,167 @@
 version = 1
 canonical = 1
 
-[adrs."adrs/0001-mission-and-scope.md"]
+[adrs."adrs/0001-mission-scope-and-non-goals.md"]
 number = 1
 status = "accepted"
-blake3 = "e53c3a359896ce42eb333b68f82baba665287df21e52588783f50de2f6ceb384"
+blake3 = "d13f7ec6f7282084d55bc393f95b4350e1345627612d0fd22caa41d720a8129b"
 
-[adrs."adrs/0002-crate-layout-and-publishing.md"]
+[adrs."adrs/0002-crates-publishing-and-repository-consistency-checks.md"]
 number = 2
 status = "accepted"
-blake3 = "3fd1a11bb6bf45a13536030400ae039b00f5eb9be05aa8d11bb791312f91170f"
+blake3 = "5cfef6c7b91bf72e5b38621b9b9bf013663a5b55faa7e747ec253e626242455a"
 
-[adrs."adrs/0003-library-first-embedding.md"]
+[adrs."adrs/0003-library-api-and-embedding.md"]
 number = 3
 status = "accepted"
-blake3 = "1bd14976cc7ad8cda5f04311f3a3f1a27d1283d745dc5b25c24709939d7a14b1"
+blake3 = "6fedb4e8f2688a5632f160f62af0f06e89091294a9f7c8dcad15eb7d1174984c"
 
-[adrs."adrs/0004-configuration-model.md"]
+[adrs."adrs/0004-configuration-model-and-layering.md"]
 number = 4
 status = "accepted"
-blake3 = "60d6d1f44cdc9d281979baffc4ccd2deff1d20aa330bf5690bceb962a5cc0630"
+blake3 = "00734b99bbfe4ab36e8acde56377d14180fbe83801efbc7673ae8d0a1e0fbdce"
 
-[adrs."adrs/0005-workspace-discovery.md"]
+[adrs."adrs/0005-the-js-table-ignore-lists-and-suppression-reasons.md"]
 number = 5
 status = "accepted"
-blake3 = "e8769c97fb21402e7c53730ffe5d2c58b0f27d48458b897dfe66e694783f35e3"
+blake3 = "14c75b617cc942ae5dc5c65e4821405a28014a5eb576232aa72576ebfd7b7351"
 
-[adrs."adrs/0006-specifier-and-semver-model.md"]
+[adrs."adrs/0006-workspace-discovery-roots-and-multi-root-runs.md"]
 number = 6
 status = "accepted"
-blake3 = "2e41f918c5b2282ced8dda31c918c26a1212d18f11f24e5fed58fc5d0b642c19"
+blake3 = "fb430372481d96f3ff89040630ab3e7483e1e5268e42c541dfdac7c03d7f873c"
 
-[adrs."adrs/0007-rule-and-diagnostic-model.md"]
+[adrs."adrs/0007-specifier-and-semver-model.md"]
 number = 7
 status = "accepted"
-blake3 = "6978da03dc2c1f270a0b68328bcbae4ac8174dc8f495371dbdc2bc9f27f1631d"
+blake3 = "7b5fcd9cc8c2c8fc18527dcf9bc57e3c8ac8174374f2290ffe9d10cbf7b86a7f"
 
-[adrs."adrs/0008-fix-and-edit-model.md"]
+[adrs."adrs/0008-rule-and-diagnostic-model-rule-ids-and-severities.md"]
 number = 8
 status = "accepted"
-blake3 = "a93f7a8fc5d93ad1e393725be48a59fba694c2a29d52608430c55828ed3028ce"
+blake3 = "78fc59a83e22eb073f720a5c39adb0b3aad2069e4d3ddfdd787eee4bdc658008"
 
-[adrs."adrs/0009-version-and-catalog-policies.md"]
+[adrs."adrs/0009-fixes-edits-and-package-json-formatting.md"]
 number = 9
 status = "accepted"
-blake3 = "5a1731d712dd2760167b86d4174f165364c96e08533ab7045a15f30b33968d7f"
+blake3 = "b8f4659532bab3c7554c986f25110b378caf3e6b8e758f47bb480af1856fe481"
 
-[adrs."adrs/0010-js-analysis-on-oxc.md"]
+[adrs."adrs/0010-version-semver-range-and-catalog-policies.md"]
 number = 10
 status = "accepted"
-blake3 = "d807d2a252ca21b1e34410a850aac8253d3cb07164400a7c2b43d9a0f1169ba7"
+blake3 = "3e1192c1dfd36366b6a1a2c6a9af5ac954e56d4636f5bd0226ed950f9e7b8bfb"
 
-[adrs."adrs/0011-plugin-model.md"]
+[adrs."adrs/0011-lockfile-and-toolchain-rules.md"]
 number = 11
 status = "accepted"
-blake3 = "37bc629a400102a5d6c97402b83f65e585dda1ed0f3eb3733c46c720a470c4bb"
+blake3 = "3bb1ab86fe8c98a819e14d065dd30db9b3ce0e87ff9b00594ea7f439bed6e61b"
 
-[adrs."adrs/0012-reporting.md"]
+[adrs."adrs/0012-package-manager-semantics-pnpm-yarn-bun-npm-rush.md"]
 number = 12
 status = "accepted"
-blake3 = "420655b0c61612a8b0ed83eaea5c4e1d3acc41b000c430ae8bfc59df86432765"
+blake3 = "591f6572ae9b2348bd62ebeb47f4c06db8900df0b37c84ff5825121ddf09ab95"
 
-[adrs."adrs/0013-distribution-and-naming.md"]
+[adrs."adrs/0013-js-analysis-core-oxc-module-graph-and-resolution.md"]
 number = 13
 status = "accepted"
-blake3 = "5437c7279f31fff29c31a76ca8175d82123e280af940d5dfb740765939fc21f8"
+blake3 = "f68f460628d76eb41a3b2a53ec6a555ff29d5d346425aa5ce90c8efae0663d80"
 
-[adrs."adrs/0014-git-hook-integration.md"]
+[adrs."adrs/0014-files-the-js-analysis-reads-walk-git-index-fixtures.md"]
 number = 14
 status = "accepted"
-blake3 = "82b6a534830fe279ddcf327ef9b746e17998d93d06d86ecdc5e8233880f87586"
+blake3 = "88bd8e38bc4dfbc8bab8610a5fca1dbce8e488e17c4e9507555f087cb624c7a4"
 
-[adrs."adrs/0015-attribution-and-vendoring.md"]
+[adrs."adrs/0015-plugin-model-and-plugin-set.md"]
 number = 15
 status = "accepted"
-blake3 = "08e2d0276b072cb7194d9e99d2ec6d639c1b441bf01c69a27419bab3f1ea1e21"
+blake3 = "e96cfa4e42dbe52dfb5ef6ee183996e480d46e2a23ca4f2a311fff0de25e6daf"
 
-[adrs."adrs/0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md"]
+[adrs."adrs/0016-config-evaluation-and-incomplete-entries.md"]
 number = 16
 status = "accepted"
-blake3 = "6556e3ede3ef551d45de5865967a31ebc25578fc5f243c7134d02b8070ddb60e"
+blake3 = "3f1a8b5f0fd29a3db29cb8e24faedac4625de6944e81175fffd1777598f5a2a6"
 
-[adrs."adrs/0017-release-policy-a-single-complete-0-1-0.md"]
+[adrs."adrs/0017-scripts-binaries-and-working-directories.md"]
 number = 17
 status = "accepted"
-blake3 = "8a78a78a82520db1443167670bdf0e0238625e3c150f5a0cb3fca8f1c78570c1"
+blake3 = "4286b497a949592943ae493ab7e3072023e8b67ada883095800dbad2d3638bae"
 
-[adrs."adrs/0018-npm-distribution-via-napi-rs.md"]
+[adrs."adrs/0018-export-namespace-and-member-rules.md"]
 number = 18
 status = "accepted"
-blake3 = "4b97f86d92cf26b2a38f54b907f7ffbdd7ad1e3b5bd822019da3c0efb21847bf"
+blake3 = "1d7ecd992e4c8c5df165d995cce7354a46a15a6fa22d6e72257254ec7c6184c9"
 
-[adrs."adrs/0019-reality-reconciliation-crate-list-schema-file-test-tooling-and-consistency.md"]
+[adrs."adrs/0019-dependency-unlisted-and-unresolved-findings.md"]
 number = 19
 status = "accepted"
-blake3 = "e55661f3133897c9328cdcf825e73c032bffc646dab8e3a6d2c19080176d6d6e"
+blake3 = "f4d2a3c4cfb7a6300efbf2c89929aa592ec1d02d6a9c5bdd101278f0a6d82835"
 
-[adrs."adrs/0020-js-rule-set-severities-addon-profile-and-windows-support.md"]
+[adrs."adrs/0020-templates-components-and-custom-elements.md"]
 number = 20
 status = "accepted"
-blake3 = "b415e4f435e95b85047ac0283d42686c81df426a21ae4d3bbc95f28812f0a72b"
+blake3 = "a49c212f7449bdb0982a08047c8c7ac09de92a627bbc27be399d5ed14de8f665"
 
-[adrs."adrs/0021-oxc-lockstep-with-poly.md"]
+[adrs."adrs/0021-knip-and-syncpack-comparison-harness.md"]
 number = 21
 status = "accepted"
-blake3 = "23c9a6961079256d1e5fb607f8644324db5caa59eb48fd6c7744c0608347e31c"
+blake3 = "c91eaaa153cfead57e47cb6ceba00b638d65d15bd7e01f1e4c658da187a57b80"
 
-[adrs."adrs/0022-multi-root-analysis-single-package-mode-and-the-plugin-set.md"]
+[adrs."adrs/0022-reporting-and-output-formats.md"]
 number = 22
 status = "accepted"
-blake3 = "658b5006d492a1d8b75ec6e4d25ea5abd4d29e29ccdf47cd66ed9422492f9c0f"
+blake3 = "7479eb03464e00f81033bcad4c2e20880e25dee390dc0dbc5b99f418cd424aaa"
 
-[adrs."adrs/0023-root-discovery-semantics-nested-roots-rush-and-fixture-directories.md"]
+[adrs."adrs/0023-baselines.md"]
 number = 23
 status = "accepted"
-blake3 = "f3fdba8d95ce99232126e077300ac2392e25e487840627a540d4ae3866cc2bb4"
+blake3 = "d38046b32687582ac4100d0d6fef0b2d07e8950f5a3700545812e1239a8cf5f8"
 
-[adrs."adrs/0024-layered-configuration-cascading-files-extends-overrides-and-package-files.md"]
+[adrs."adrs/0024-cli-contract.md"]
 number = 24
 status = "accepted"
-blake3 = "fbf9381474b84ce7181b68da8fbafe7ca0b4b10ba7e64d67a1e77dbdc0e32bbf"
+blake3 = "819d9bb2e3b040c565aa4087887bcc02a48353624db2f83ce781f248d4b6eb94"
 
-[adrs."adrs/0025-plugin-set-extension-thirty-five-more-tools.md"]
+[adrs."adrs/0025-skif-migrate.md"]
 number = 25
 status = "accepted"
-blake3 = "360379efa09c560c31adcb35c0a6569b908373c2d9532adbc2dade85e473ab2b"
+blake3 = "f71fcfc334a7541a4a0aea039331461402f24538b454b09e6754f7d3958403f9"
 
-[adrs."adrs/0026-parity-and-diff-tasks-on-a-pinned-corpus.md"]
+[adrs."adrs/0026-skif-update.md"]
 number = 26
 status = "accepted"
-blake3 = "9695adcc9bffab30731cf2e875208eae4d5c7738893bb7c1f51f0a480a16d614"
+blake3 = "28b4f573e9395f37e18d0ae38697668219131eaa4a1d1d812d2c786481e158ab"
 
-[adrs."adrs/0027-supported-versions-follow-upstream-end-of-life-policies.md"]
+[adrs."adrs/0027-distribution-and-release.md"]
 number = 27
 status = "accepted"
-blake3 = "51df22d9d0237a861ce146129356c03546c36153e1d1b6ebc0b88d2f15d7f579"
+blake3 = "16c861f8ae7be65b908b8129f1e10f893aedcf5db1dfad3de395e0dabb8e275b"
 
-[adrs."adrs/0028-cli-flag-contract-completion-and-withdrawn-confirmations.md"]
+[adrs."adrs/0028-editors-agents-and-git-hooks.md"]
 number = 28
 status = "accepted"
-blake3 = "9f5af6c20448742c6516412e920ceaffa49b456383d4b8dd286313078963e1a7"
+blake3 = "656582098ba9a0b8d9de711b1f12894342194af59988ebd8bfef82c3b49c2f43"
 
-[adrs."adrs/0029-namespace-export-rules-virtual-modules-linked-configs-and-the-node-plugin.md"]
+[adrs."adrs/0029-performance-caching-and-benchmarks.md"]
 number = 29
 status = "accepted"
-blake3 = "520e8f50a723b54e7bc7165322f521ace94899bdc527da6e3ed937f1f7f63ebb"
+blake3 = "154e355a830f47b79a29eaa4c25b921be7e4af23241fc9a95ec529cba489ef42"
 
-[adrs."adrs/0030-harness-known-deviations-and-comparison-scope.md"]
+[adrs."adrs/0030-supported-versions-and-the-end-to-end-matrix.md"]
 number = 30
 status = "accepted"
-blake3 = "4c0aca44a3801b20996ec7cd22e72bb0010d5c2411e4462f161ff2bbaa4181e8"
+blake3 = "c32ea81ec0756f67bc8a73c99a62b7e7626071b86a1cf5ee4b68e16d8cabe341"
 
-[adrs."adrs/0031-core-rule-scoping-peer-overlap-catalog-sources-and-root-discovery-entry-point.md"]
+[adrs."adrs/0031-bazel.md"]
 number = 31
 status = "accepted"
-blake3 = "7a805fd5276aacd4a09dd1b1c7d292720fb09ba0bdd8081cb6efb170eb3cf17c"
+blake3 = "d4af6f387dcb8e027ef17cf04a9889a0f6eb82ba5b2f4c226d273a76874c62e1"
 
-[adrs."adrs/0032-third-party-types-in-the-facade-api.md"]
+[adrs."adrs/0032-nx-and-lerna-and-pruned-output-trees.md"]
 number = 32
 status = "accepted"
-blake3 = "478fc16bd0271571487caacee70db5b4a9af4129efcdbb803f648c858e254249"
+blake3 = "f0a5517a727dd934ad547d2e17bd47689f15eba02d71dc413c8336da93186963"
 
-[adrs."adrs/0033-knip-namespace-findings-in-the-parity-harness.md"]
+[adrs."adrs/0033-attribution-and-vendoring.md"]
 number = 33
 status = "accepted"
-blake3 = "42314375b9577f68d804460e4507c2268fd1938c7cbd859c6e419a6a2fd743a9"
-
-[adrs."adrs/0034-js-configuration-parity-with-knip.md"]
-number = 34
-status = "accepted"
-blake3 = "e7ecb4a8c0060b3c886ec0e9a87c64bfd7d872f1e5b6b438a4abbe0606db0897"
-
-[adrs."adrs/0035-js-evaluation-parity-unreadable-configs-unresolved-specifiers-and-test-entries.md"]
-number = 35
-status = "accepted"
-blake3 = "be773eadd14d7de394e58123f0fe9921b91710a22da486cfc66b71246a48ed3f"
-
-[adrs."adrs/0036-thirty-nine-more-knip-plugins-by-real-world-usage.md"]
-number = 36
-status = "accepted"
-blake3 = "cc78a459bc9008a6918e9babe3c9cb65bd4107f7b58f97f6ccc69f85485edba3"
-
-[adrs."adrs/0037-override-sections-custom-types-and-ignored-semver-groups.md"]
-number = 37
-status = "accepted"
-blake3 = "03e8d1732b781dc993244bb2ce14101b5bb5565fea861985434d7aff9d8753d0"
-
-[adrs."adrs/0038-git-index-file-discovery-and-resolver-probe-avoidance.md"]
-number = 38
-status = "accepted"
-blake3 = "002f1db1ac01bf7c636b0aa33bfd4e65543564ae520e6664e97f9ebf91065b19"
-
-[adrs."adrs/0039-skif-migrate-a-one-shot-translator-from-sherif-syncpack-and-knip.md"]
-number = 39
-status = "accepted"
-blake3 = "fd132199e75f583701e8a349ea6e58531ecb31ac06ae9f3313f6e9b2ef69fb0f"
-
-[adrs."adrs/0040-version-groups-own-their-instances-the-catalog-rules-leave-claimed-instances.md"]
-number = 40
-status = "accepted"
-blake3 = "add7617f4f3b0db3309a7a057b60a99765c25fad3bc1e7c0c0636b1e5abf63df"
-
-[adrs."adrs/0041-skif-migrate-composable-steps-full-validation-and-in-place-merge.md"]
-number = 41
-status = "accepted"
-blake3 = "09c79f7d3935aa6bf3b5889bb5d02e092e9d3d4b91ca60cac0b099d14d59cc5d"
-
-[adrs."adrs/0042-git-index-discovery-corrections-directory-times-lazy-existence-and-checksum.md"]
-number = 42
-status = "accepted"
-blake3 = "017c3c47ac37cbeb70e5a79ee9cd297eccaf5fcd73d250866ab7a5c29f1de1b3"
-
-[adrs."adrs/0043-floating-tags-for-0x-releases-and-musl-binstall.md"]
-number = 43
-status = "accepted"
-blake3 = "e796ad22b1d65f0848b646cf7bc37173d328a7e7d81e4a5ccfdd863fb11439bd"
-
-[adrs."adrs/0044-monorepo-js-corrections-builtins-html-entries-referenced-paths-extglob-helpers-and-stylesheets.md"]
-number = 44
-status = "accepted"
-blake3 = "f52730f7cdab1a8abbab336e27426261fcca2fbaee859044398d50100e746d84"
-
-[adrs."adrs/0045-migrate-tool-rule-tables-warn-for-config-hints-and-syncpack-override-reading.md"]
-number = 45
-status = "accepted"
-blake3 = "f34e9b3cacf63fb0986f5deb0ff33554d72952c98f08ab81d6e61e4b512960af"
-
-[adrs."adrs/0046-corrections-to-adr-0044-config-helpers-not-built-and-the-torn-read-limit-of-zero-trailers.md"]
-number = 46
-status = "accepted"
-blake3 = "63f3c7c4a01b35f1b8fce85bb1f2b4295b56f20e5560255eeb0310de3466fe20"
-
-[adrs."adrs/0047-npm-package-name-skif-cli.md"]
-number = 47
-status = "accepted"
-blake3 = "e8ca15819a03d8daef2bb35736a318e540af6d2818511410a5203705066e19d1"
-
-[adrs."adrs/0048-catalog-version-divergence-and-reasons-on-ignores.md"]
-number = 48
-status = "accepted"
-blake3 = "7137af869a1a8ec1124a68a0e29841801ffa77964cbb1a8485a5ab3a38818378"
-
-[adrs."adrs/0049-js-corrections-from-adjudicating-knip-disagreements.md"]
-number = 49
-status = "accepted"
-blake3 = "57ee9ff85eda7dc829451d63690e462fb1d7e1dbf3a9c19ce039ae63c232cd0e"
-
-[adrs."adrs/0050-fixture-directories-in-the-js-analysis.md"]
-number = 50
-status = "accepted"
-blake3 = "906d58d5e421b233cfc31695083bd495b13900c023c7047a48fbd1b3783fd419"
-
-[adrs."adrs/0051-safe-version-alignment-fixes.md"]
-number = 51
-status = "accepted"
-blake3 = "a23d3a7c6f40ed083d6c1b5407adfbafdebadbb157399cc0bed663f6948cf613"
-
-[adrs."adrs/0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md"]
-number = 52
-status = "accepted"
-blake3 = "4623a3c4a19a47a47f620744a371775ee2b4a29735214a15daad88564acebb5c"
-
-[adrs."adrs/0053-incomplete-packages-in-the-json-report.md"]
-number = 53
-status = "accepted"
-blake3 = "aedad73032cc91a8f5e8db47df271586d5a71682c93d68c79fe8710dd0595871"
-
-[adrs."adrs/0054-several-reports-in-one-run.md"]
-number = 54
-status = "accepted"
-blake3 = "2534213670b270563a225c8cdb19d18d344ce10bb8f42100c500def10fd4e678"
-
-[adrs."adrs/0055-package-json-formatting-the-package-json-format-rule-and-skif-format.md"]
-number = 55
-status = "accepted"
-blake3 = "bd6d672ea69058f32d0b091eaef6c13e382130430ea0e1c67765464d4a1f15c9"
-
-[adrs."adrs/0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md"]
-number = 56
-status = "accepted"
-blake3 = "72bbe9594fe781a6ae3012bcab83f53cd25281717f45c62f7852cd9d9d054983"
-
-[adrs."adrs/0057-syncpack-list-json-dry-run-filters-semver-range-only-name-version-and-lerna.md"]
-number = 57
-status = "accepted"
-blake3 = "2b7fd1e6af3bda80c60b52a133120872846fd41d0c45a08a5682aa99a3f360b4"
-
-[adrs."adrs/0058-registry-updates-an-opt-in-skif-update-command.md"]
-number = 58
-status = "accepted"
-blake3 = "e97707820681ea433e2160f7d41e412e41982df6ad4f4c2a57c9e23a41fa6202"
-
-[adrs."adrs/0059-twenty-one-more-plugins-and-commands-run-from-source.md"]
-number = 59
-status = "accepted"
-blake3 = "fd004fe4eab75a530c28afe42554774ed8e7d774249c149920bb1c65e3bed89f"
-
-[adrs."adrs/0060-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md"]
-number = 60
-status = "accepted"
-blake3 = "0cb392b3b02feee860abe41c6449f9198858fc4fde52269db4e2b6a05c897b12"
-
-[adrs."adrs/0061-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md"]
-number = 61
-status = "accepted"
-blake3 = "fb801baf95421900cb4935f773fa5b57cc8e4889d649eebb18f41a413d92f519"
-
-[adrs."adrs/0062-custom-element-registrations-and-the-taskr-plugin.md"]
-number = 62
-status = "accepted"
-blake3 = "50377c6b09beefe17d71d5d8fbfaa55e911b965c91ebe6b50b50596ed04a499f"
-
-[adrs."adrs/0063-skif-update-interactive-a-terminal-picker-on-the-update-report.md"]
-number = 63
-status = "accepted"
-blake3 = "e7aaf26eda074d0d5cc9bc3ca09ad4373e72d7f9b21e5dcc50d0b09bf2270187"
-
-[adrs."adrs/0064-code-actions-in-the-language-server.md"]
-number = 64
-status = "accepted"
-blake3 = "91c07b3d5c179caef6e22e44782e7abb5d2c204c541123fd89cb2b4552089bc5"
-
-[adrs."adrs/0065-narrowed-scope-for-incomplete-entries.md"]
-number = 65
-status = "accepted"
-blake3 = "bca0930c5e6d08d299fe2b8092db127402032297948d6ccc9ab438cc1a3ac0f6"
-
-[adrs."adrs/0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md"]
-number = 66
-status = "accepted"
-blake3 = "80cbab1405c7e7d604aab3de05c8be5eb6056fd74b80db28e1022c8779c1b13a"
-
-[adrs."adrs/0067-no-editor-extension.md"]
-number = 67
-status = "accepted"
-blake3 = "1e878135fc7cac659ff0ead13bea57958afc069746e4cad4d91cfab3f2abc8da"
-
-[adrs."adrs/0068-what-the-knip-comparison-sets-apart.md"]
-number = 68
-status = "accepted"
-blake3 = "2926ac0821d6aaec6a5d092fcb93ae0544d62b343c130fdd264b0ce2126aaf40"
-
-[adrs."adrs/0069-a-published-path-into-nothing-is-reported-not-an-incomplete-entry.md"]
-number = 69
-status = "accepted"
-blake3 = "ed83230883a6ef48d711054621d12056541fd0dcaf19b53680ab8ba4b0953bdd"
-
-[adrs."adrs/0070-windows-npm-packages.md"]
-number = 70
-status = "accepted"
-blake3 = "dbb1278e439fe950386b766042e2c7d0ece4563a635a7764be1880e983bba778"
-
-[adrs."adrs/0071-skif-baseline-a-suppression-baseline-that-can-only-shrink.md"]
-number = 71
-status = "accepted"
-blake3 = "33557f4edc8cb573b09ff0710a1f0b37bba6149504bafd2403ee42fe0382a65c"
-
-[adrs."adrs/0072-a-policy-scope-without-local-leaves-the-own-versions-out.md"]
-number = 72
-status = "accepted"
-blake3 = "be3c661d0f5b7752708bb3fc149df73bf3411ad4ba24389431e4a005f2673685"
-
-[adrs."adrs/0073-stale-mocks-test-runner-mocks-of-missing-modules-under-their-own-rule.md"]
-number = 73
-status = "accepted"
-blake3 = "558b715ede45fe2cc182b73013f46be4647c5fec4cf926d5783be1fc42753019"
-
-[adrs."adrs/0074-reasons-on-js-ignore-entries.md"]
-number = 74
-status = "accepted"
-blake3 = "e5221c6df9a4f9d014d42e9d5ca5b613e76323b7137acd3e40b232b03f8a7e1a"
-
-[adrs."adrs/0075-imports-only-another-packages-tsconfig-paths-map.md"]
-number = 75
-status = "accepted"
-blake3 = "daa35a8e48c913e9edcfda5c2872efda2da9266207162c0d935ac07b6e8a2cb2"
-
-[adrs."adrs/0076-binaries-run-outside-scripts-and-unlisted-corrections.md"]
-number = 76
-status = "accepted"
-blake3 = "fb1be06eeb0327b08046522ea964275d5b24ea3e4a0cdbe5baa9b273bee49913"
-
-[adrs."adrs/0077-dependencies-nested-roots-use-count-for-the-enclosing-manifest.md"]
-number = 77
-status = "accepted"
-blake3 = "7774fd0976ceed66731ac85519fa78e63ab64bf2dbd01209a76c17cd6bb9222e"
-
-[adrs."adrs/0078-plugin-gaps-config-functions-file-tasks-and-templates.md"]
-number = 78
-status = "accepted"
-blake3 = "6471642cfc88d7ac22591def79698a697902e801a81a8e380673297c9254a90c"
-
-[adrs."adrs/0079-namespace-reads-through-spies-and-imports-awaited-together.md"]
-number = 79
-status = "accepted"
-blake3 = "22ae44d47fcc639dcfbec4b034a96ceb19c5ec5a7e2b9a46c6a8fa1495e85c96"
-
-[adrs."adrs/0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md"]
-number = 80
-status = "accepted"
-blake3 = "146de07beffbb5df2477c3a90b9089e0d9359608487f601e147db5728d4e9a4b"
-
-[adrs."adrs/0081-exports-outside-a-narrowed-incomplete-scope-are-judged.md"]
-number = 81
-status = "accepted"
-blake3 = "2ddfac4b713547b2dfb3a98a2681c21f2fb1095f568651f42d080888d8fbce27"
-
-[adrs."adrs/0082-install-hooks-sveltekit-route-types-and-builtin-named-packages.md"]
-number = 82
-status = "accepted"
-blake3 = "669d10312a9485808e53baeb1d5605f8d1b27958b9f126e58741f58b8f762329"
-
-[adrs."adrs/0083-nested-namespace-reads-shadowed-imports-and-same-name-type-containers.md"]
-number = 83
-status = "accepted"
-blake3 = "249417248e917634a3016910eb0ef53404a0f19f7c8843c619ed8d0497112afc"
-
-[adrs."adrs/0084-template-scopes-auto-imported-vue-components-and-marko-files.md"]
-number = 84
-status = "accepted"
-blake3 = "f6c420c1bd508ac9382374caf80de3d38a890ac7e89721957a191afd7c265420"
-
-[adrs."adrs/0085-files-other-roots-reach-count-as-used.md"]
-number = 85
-status = "accepted"
-blake3 = "b830bad58f376637a70784dc49a09852c8e59ec3f775b0008fd64df619df0a44"
-
-[adrs."adrs/0086-packages-tool-configs-name-are-unlisted-at-the-config.md"]
-number = 86
-status = "accepted"
-blake3 = "729ab39aad104eb93980cddebad9ee97622baf70822c12bbba3972dc6539bb13"
-
-[adrs."adrs/0087-toolchain-pins-outside-package-json-and-the-toolchain-pin-drift-rule.md"]
-number = 87
-status = "accepted"
-blake3 = "031aa0a2ba520e4710bb1c2475cdb83a6c141325a838f900816e0f18dc698b98"
-
-[adrs."adrs/0088-foreign-package-manager-commands.md"]
-number = 88
-status = "accepted"
-blake3 = "2310875b5b01f26f03e4883ddb1e3ab6298b7818c4476204984ed1a3246f40c2"
-
-[adrs."adrs/0089-stray-lockfiles-and-nested-workspace-roots.md"]
-number = 89
-status = "accepted"
-blake3 = "87455bb8ed183d3237e99756e421619f07b7564230aaeba621feddc9f2ccf14b"
-
-[adrs."adrs/0090-lockfile-scopes-for-banned-groups-and-dependency-families.md"]
-number = 90
-status = "accepted"
-blake3 = "4aaa3e8e4fc1f9e4c966a35a4e2751542d43dafaceaad2720162219ee2493e8f"
-
-[adrs."adrs/0091-stale-patched-dependencies.md"]
-number = 91
-status = "accepted"
-blake3 = "00f60c31e6e306b9f9952151fcbdb84e0308601fc3eb1611094cc79b9e09ec2f"
-
-[adrs."adrs/0092-machine-tool-binaries-unread-templates-and-run-time-entries.md"]
-number = 92
-status = "accepted"
-blake3 = "60a9e7eb9c2f3c88753ce26fa8c0454dcdeca19060f48018f7e3a1a6663dc2e6"
-
-[adrs."adrs/0093-baseline-entries-follow-what-a-finding-is-about.md"]
-number = 93
-status = "accepted"
-blake3 = "0f76476b835f77e500b862a647d49da17224bdd9f1a25168c85f4151eb97cb5e"
-
-[adrs."adrs/0094-script-directories-and-the-no-entries-cause.md"]
-number = 94
-status = "accepted"
-blake3 = "5e145d35817d2b0bdd0c7c28bd5653fbc4de8aeab6b878871f3da9ce7d3948de"
-
-[adrs."adrs/0095-untracked-files-member-manifest-errors-and-converging-fixes.md"]
-number = 95
-status = "accepted"
-blake3 = "a51eeb7f03c7e6d33b0cdde88f5191a91855b0d67e705fbc9846587f49536f17"
-
-[adrs."adrs/0096-knip-comparison-findings-in-unused-files-invalid-runs-and-two-sided-config-errors.md"]
-number = 96
-status = "accepted"
-blake3 = "ada0f511580e546cc57eaa5db6540de2b193477442160567d4c34cfa68050e99"
-
-[adrs."adrs/0097-commands-in-other-directories-and-binaries-of-workspace-members.md"]
-number = 97
-status = "accepted"
-blake3 = "11458b8b74db1e5cbcfecdc7a5eb93f549353b83d2483fc99f3657bb9aa1018d"
-
-[adrs."adrs/0098-explicit-configuration-workspace-keys-and-shared-stale-settings.md"]
-number = 98
-status = "accepted"
-blake3 = "36dd7581c234838d522e16f36cb2f07070bd871167f8bc4a3693ab0174b0c318"
-
-[adrs."adrs/0099-knip-comparison-narrowed-scopes-rush-installs-and-dependencies-of-unused-files.md"]
-number = 99
-status = "accepted"
-blake3 = "f8cbce76e3c0e59a8d52f44abe32658453144508410428e33c5962965ef64711"
-
-[adrs."adrs/0100-knip-comparison-n8n-node-files-and-what-published-sources-import.md"]
-number = 100
-status = "accepted"
-blake3 = "0d014a0c3b3f28324f493ec466e5780daf7054d8552fdbaad4607ff6b08e5ecb"
-
-[adrs."adrs/0101-a-module-cache-shared-by-the-roots-of-a-run.md"]
-number = 101
-status = "accepted"
-blake3 = "d94557e88f84119a280c26f584cdf5231ffb9da37b066e84f56e4261eb15b11f"
-
-[adrs."adrs/0102-agent-skill-distributed-from-the-repository.md"]
-number = 102
-status = "accepted"
-blake3 = "9e6812cdb8872c5cae48ea45833e72b89075e09dea1ff489e2dfe03554a593de"
-
-[adrs."adrs/0103-one-of-several-known-values-in-config-evaluation.md"]
-number = 103
-status = "accepted"
-blake3 = "3477d095995f0e6f2ff0f50975831886bbee50b97c4a2e3bc4ec9792385dbd46"
-
-[adrs."adrs/0104-bun-workspace-semantics-literal-members-lockfiles-nested-workspaces-and-patches.md"]
-number = 104
-status = "accepted"
-blake3 = "b45b9db02fea6173ec332a286e03ac0672c461b877168e02be7fea6f5086be24"
-
-[adrs."adrs/0105-yarn-classic-support-and-the-end-to-end-matrix-of-linkers-and-operating-systems.md"]
-number = 105
-status = "accepted"
-blake3 = "19bc801054a55ab0f6b60102e9521e364cac48245ad28d3d0bffe24a2360ac69"
-
-[adrs."adrs/0106-path-specifiers-belong-to-local-path-dependency.md"]
-number = 106
-status = "accepted"
-blake3 = "b92b27f8cf3a6c15f51b4c343f6cdd8e477895a67526d67ef431e462b9afecab"
-
-[adrs."adrs/0107-stray-lockfiles-a-build-installs-from-and-a-dependency-in-none-of-several-catalogs.md"]
-number = 107
-status = "accepted"
-blake3 = "8825193139891c4a911950bea458848bafdad597e37926fe59fcb1b718a0c7fe"
-
-[adrs."adrs/0108-member-binaries-under-pnpm-s-hoisted-node-linker.md"]
-number = 108
-status = "accepted"
-blake3 = "6f8ff36a136192b4078d49e8306573002f4587be9d6410fc8e103df122fe4dea"
-
-[adrs."adrs/0109-nx-projects-as-scopes-of-the-package-that-owns-them.md"]
-number = 109
-status = "accepted"
-blake3 = "0c08be1bff78e28e3ad3d4331b498caeb0f5d319efa526603aee229de1c35361"
-
-[adrs."adrs/0110-files-reached-through-rootdirs-belong-to-the-importing-package.md"]
-number = 110
-status = "accepted"
-blake3 = "317c45d41b53b18ba5a5cb721792c381823e5ba3483571fa7c3e50b507b160b4"
-
-[adrs."adrs/0111-ambient-types-packages-under-typescript-6.md"]
-number = 111
-status = "accepted"
-blake3 = "53f144c47259ff317100af965b931e1714691dfb0189433ffd148b6baa5d2427"
-
-[adrs."adrs/0112-paths-under-bazel-run.md"]
-number = 112
-status = "accepted"
-blake3 = "45305dabdf49cd53fa68e2277a3293306d0585f9f92919c8be89941c36ec7e80"
-
-[adrs."adrs/0113-speed-benchmarks-on-a-pinned-github-hosted-runner.md"]
-number = 113
-status = "accepted"
-blake3 = "f24ade40030c2b634df3f18276f8e9f48d7a8691cacf51d140ef921c21516a9e"
-
-[adrs."adrs/0114-windows-npm-packages-deferred.md"]
-number = 114
-status = "accepted"
-blake3 = "eed3685bb6b5522e513d25adc46fb361a554a07de1940028a1dcf74d23ae368d"
-
-[adrs."adrs/0115-bazel-build-files-and-output-trees-in-the-js-analysis.md"]
-number = 115
-status = "accepted"
-blake3 = "7a700939227ad0eca3186ca1f0651e4897d3fb84c440ea767ea2ff77489e95f3"
-
-[adrs."adrs/0116-bazel-convenience-links-module-pins-and-more-lockfile-consumers.md"]
-number = 116
-status = "accepted"
-blake3 = "3afb37746489234fdbf59e58f8894a9c84d071ab6d1744ad83a3c05b291e7d85"
-
-[adrs."adrs/0117-the-cache-default-under-bazel-test.md"]
-number = 117
-status = "accepted"
-blake3 = "5aa43ca45a09e9766e3b7c82db61a6f1654e00b9154e7e5e05bc0d3bbbdea68a"
-
-[adrs."adrs/0118-local-nx-plugins-and-executor-run-conventions-in-nx-projects.md"]
-number = 118
-status = "accepted"
-blake3 = "366c1eed6face86a7a56c67b6f723d8574fbdab9696053c99f9dbdb78bd897f7"
-
-[adrs."adrs/0119-lerna-configuration-task-ordering-dependencies-grouping-directories-and-prune-output.md"]
-number = 119
-status = "accepted"
-blake3 = "6c6df647019e32814ce747977c510903b4db90cfbd97ecfa7b8ee36fa5f80877"
-
-[adrs."adrs/0120-working-directories-binaries-missing-where-a-command-runs-and-npm-s-linked-strategy.md"]
-number = 120
-status = "accepted"
-blake3 = "7a77c839806a05a3db642b46d443553ecdaf2ac6092170bdc49f4ca9ac35df13"
-
-[adrs."adrs/0121-one-git-index-listing-for-every-provider.md"]
-number = 121
-status = "accepted"
-blake3 = "a69c22732911ce8e7b485d1f6eb5383919ed95e2e8670ec61be7961e1527d3c0"
-
-[adrs."adrs/0122-bun-members-outside-the-root-nameless-members-bun-lock-in-the-lockfile-scopes-and-bun-test-roots.md"]
-number = 122
-status = "accepted"
-blake3 = "42adb6fda13dc1c247d7845c3aac729c351934dbdf863dcc35004b8db828d6cc"
-
-[adrs."adrs/0123-publicly-hoisted-packages-as-available-dependencies.md"]
-number = 123
-status = "accepted"
-blake3 = "f2e8419626f266711a152b221e4f1b4b75234b4473b3e6167df0b37d8254f215"
-
-[adrs."adrs/0124-bazel-rule-sources-are-used-files-not-entries.md"]
-number = 124
-status = "accepted"
-blake3 = "eabc73b5bdb917f9b054f1de321c838bd76bce4d67fe7a384d9c4b4f619ae1bf"
-
-[adrs."adrs/0125-a-whole-use-of-a-module-object-uses-its-values-only.md"]
-number = 125
-status = "accepted"
-blake3 = "6336c71cd6285c49e7cbde435b4be1cad2f983245bfdd4684c03f2b3c611f520"
-
-[adrs."adrs/0126-a-whole-use-of-an-enum-in-its-own-file-uses-every-member.md"]
-number = 126
-status = "accepted"
-blake3 = "872a02e6f68fbe4290cf2c42cfe1f1ac658ef184efe79056963da69cea17a908"
-
-[adrs."adrs/0127-migrate-merge-unites-list-entries-by-name.md"]
-number = 127
-status = "accepted"
-blake3 = "8e319dd1a0a78a30408771583af28914f2aeb4b18af78b578c27efb40725dfd3"
-
-[adrs."adrs/0128-a-knip-plugin-for-projects-that-run-knip-next-to-skif.md"]
-number = 128
-status = "accepted"
-blake3 = "a11a02597648e7d9dfb03e4d5dd90c6231ddad20fb523026219e86b23fafcfe8"
-
-[adrs."adrs/0129-directories-matched-by-ignore-workspaces-leave-the-packages-above-them.md"]
-number = 129
-status = "accepted"
-blake3 = "6e25f19b9221ecb27249eff2418b2fe607c52ca06785c1007a9920983efcdbf7"
-
-[adrs."adrs/0130-bazel-label-lists-built-by-a-format-comprehension.md"]
-number = 130
-status = "accepted"
-blake3 = "cc28467103a5fff902877bca5778f68698e202b2e4f4839711feb9d24a73bdd1"
-
-[adrs."adrs/0131-workspace-isolation-without-production-mode.md"]
-number = 131
-status = "accepted"
-blake3 = "db83cee0da436379bf574b030d211f4290515b00890a57dc7d0e4dd3ed74777e"
+blake3 = "907c476e12ee9a9395cbcdc22eb8fb9f8f148410ad8cb151dc442a1fd6a0a079"
