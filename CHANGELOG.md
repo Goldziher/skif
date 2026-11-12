@@ -52,6 +52,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **JS**: `ignore-exports-used-in-file` exempts an import binding the file re-exports and reads as a value
+  (`import a from "./a"; export { a, bMod as b }; export default { a, b: bMod }`), as it exempts a local declaration,
+  and a `module.exports = { X }` member whose binding the file reads outside that object, also under
+  `unused-namespace-exports`. A barrel that exports every module by name and again through its default object is no
+  longer reported in full ([#211](https://github.com/Goldziher/skif/issues/211)).
 - **JS**: the exports of a Svelte component's instance `<script>` (`export let label`, `export const`, `export
   function`) are props and instance accessors, so `unused-exports` no longer reports them; the exports of the module
   script (`<script context="module">` in Svelte 4, `<script module>` in Svelte 5) are still judged. A package with a

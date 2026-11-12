@@ -584,6 +584,80 @@ fn export_clauses_are_no_in_file_references_but_other_mentions_are() {
     }
 }
 
+/// An import binding the file re-exports (`export { a }`, `export { b as c }`) is referenced in the file when the file
+/// reads it as a value elsewhere, as a local declaration is; the clause itself and a type position are no read.
+#[test]
+fn a_re_exported_import_binding_read_by_the_file_is_referenced_in_file() {
+    type Case<'a> = (&'a str, &'a str, &'a str, &'a [(&'a str, bool)]);
+    let cases: &[Case<'_>] = &[
+        (
+            "barrel read by its default object",
+            "barrel.js",
+            "import a from './a.js';\nimport bMod from './b.js';\nexport { a, bMod as b };\nexport default { a, b: bMod };\n",
+            &[("a", true), ("b", true), ("default", false)],
+        ),
+        (
+            "clause only",
+            "barrel.js",
+            "import a from './a.js';\nimport { x } from './x.js';\nexport { a, x as y };\n",
+            &[("a", false), ("y", false)],
+        ),
+        (
+            "namespace read through a member",
+            "barrel.js",
+            "import * as ns from './n.js';\nexport { ns };\nexport const f = () => ns.run();\n",
+            &[("ns", true), ("f", false)],
+        ),
+        (
+            "read only as a type",
+            "barrel.ts",
+            "import { T } from './t';\nexport { T };\nexport const v: T = 1;\nexport type K = typeof T;\n",
+            &[("T", false), ("v", false), ("K", false)],
+        ),
+        (
+            "re-export from another module",
+            "barrel.js",
+            "export { a } from './a.js';\nconst a = 1;\nconsole.log(a);\n",
+            &[("a", false)],
+        ),
+        (
+            "local declaration and an export initialised from it",
+            "c.js",
+            "const local = 1;\nexport { local };\nexport const viaLocal = local;\n",
+            &[("local", true), ("viaLocal", false)],
+        ),
+    ];
+    for (label, path, source, expected) in cases {
+        let info = parse(path, source);
+        let flags: Vec<(&str, bool)> = info
+            .exports
+            .iter()
+            .map(|e| (e.name.as_str(), e.referenced_in_file))
+            .collect();
+        assert_eq!(flags, *expected, "{label}");
+    }
+}
+
+/// The binding a `module.exports = { a }` property names is referenced in the file when the file reads it outside
+/// that object, which only exports it.
+#[test]
+fn a_commonjs_shorthand_export_read_by_the_file_is_referenced_in_file() {
+    let source = "const { helper } = require('./h');\nconst X = 1;\nconst Y = 2;\nfunction f() { return X + helper(); }\nmodule.exports = { X, Y, f, helper };\n";
+    let info = parse("m.js", source);
+    let flags: Vec<(&str, bool)> = info
+        .exports
+        .iter()
+        .map(|e| (e.name.as_str(), e.referenced_in_file))
+        .collect();
+    assert_eq!(flags, [("X", true), ("Y", false), ("f", false), ("helper", true)]);
+    let assigned = parse("n.js", "const Z = 1;\nconsole.log(Z);\nexports.Z = 2;\n");
+    assert!(
+        !assigned.exports[0].referenced_in_file,
+        "`exports.Z = …` names no binding: {:?}",
+        assigned.exports
+    );
+}
+
 #[test]
 fn in_file_references_can_be_disabled() {
     let options = ParseOptions {
