@@ -168,7 +168,8 @@ workspace for knip, which skif does not analyse, so knip's findings in root file
 (`.prettierrc.js`, `common/scripts`) are the `rush-root-file` known deviation. A repository may set `build-command`
 (program first) in `corpus.toml`, run after a successful install within `build-timeout-secs` (the install's time limit
 when unset): n8n builds the `@n8n/*-config` packages and `@n8n/constants` with their workspace dependencies, whose built
-`dist` its tool configurations import. The install marker records the install and build commands, so a checkout
+`dist` its tool configurations import, then runs `@n8n/db`'s `gen:migration-index`, which writes the gitignored
+migration indexes `src/index.ts` imports, so both tools see the migrations they list. The install marker records the install and build commands, so a checkout
 installed with other commands is installed again. Without `--install` the run is quick but dominated by knip's
 unresolved and unlisted imports of the uninstalled packages. Whether a repository counts as installed is read from the
 checkout (the `.skif-bench-installed` marker holds the pinned commit once an install succeeded), not from the flag:

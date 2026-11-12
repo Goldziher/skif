@@ -585,10 +585,16 @@ mod tests {
     }
 
     #[test]
-    fn n8n_builds_the_config_packages_its_tool_configurations_load() {
+    fn n8n_builds_the_config_packages_its_tool_configurations_load_and_generates_the_migration_index() {
         let repos = manifest().repo;
         let n8n = repos.iter().find(|r| r.name == "n8n").unwrap();
-        assert_eq!(n8n.build_command.first().map(String::as_str), Some("pnpm"));
+        let [shell, flag, script] = n8n.build_command.as_slice() else {
+            panic!("one shell script: {:?}", n8n.build_command);
+        };
+        assert_eq!((shell.as_str(), flag.as_str()), ("sh", "-c"));
+        let (build, generate) = script.split_once(" && ").expect("the build, then the generation");
+        let build: Vec<&str> = build.split_whitespace().collect();
+        assert_eq!(build.first(), Some(&"pnpm"));
         for package in [
             "@n8n/oxlint-config",
             "@n8n/vitest-config",
@@ -597,9 +603,10 @@ mod tests {
             "@n8n/constants",
         ] {
             let filter = format!("{package}...");
-            assert!(n8n.build_command.contains(&filter), "{filter}");
+            assert!(build.contains(&filter.as_str()), "{filter}");
         }
-        assert_eq!(&n8n.build_command[n8n.build_command.len() - 2..], ["run", "build"]);
+        assert_eq!(&build[build.len() - 2..], ["run", "build"]);
+        assert_eq!(generate, "pnpm --filter @n8n/db run gen:migration-index");
         assert!(
             repos
                 .iter()
