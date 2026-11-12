@@ -9,6 +9,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A `bazel` plugin for rules_js repositories: the `BUILD.bazel` and `BUILD` files of a package are scanned as Starlark
+  text. `node_modules` labels (`":node_modules/esbuild"`, `"//packages/app:node_modules/zod"`) and
+  `package_json.bzl` loads (`"@npm//packages/app:esbuild/package_json.bzl"`) use the dependency of the package they
+  name, and the `entry_point`, `srcs` and `data` files of `js_binary`, `js_run_devserver`, `js_test`, `js_library` and
+  `ts_project` are entries. The table holds 206 plugins
+  ([ADR 0115](adrs/0115-bazel-build-files-and-output-trees-in-the-js-analysis.md),
+  [#169](https://github.com/Goldziher/skif/issues/169)).
+
 ### Fixed
 
 - `unlisted-binaries` no longer reports `bazel`, `bazelisk` and `ibazel`: they are build tools of the machine, as
