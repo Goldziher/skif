@@ -245,19 +245,30 @@ regular expression literal in a JavaScript or TypeScript config, are written as 
 regular expression matching a superset of that.
 
 A comment on an entry of an ignore list (`ignoreDependencies`, `ignoreBinaries`, `ignoreUnresolved`, `ignoreMembers`,
-`ignoreFiles`, `ignoreWorkspaces`) becomes its `reason`: a comment on the lines directly above the entry, or after it
-on the line where it ends, in any knip configuration file (`knip.json`, `knip.jsonc`, `.knip.json`, `.knip.jsonc`,
-`knip.{js,ts,mjs,cjs,mts,cts}`, `knip.config.*`); the `knip` key of `package.json` is JSON and has none. A list
-written as a top-level constant and named by the key (`const deps = [...]; export default { ignoreDependencies: deps
-}`) keeps its comments too; the entries a spread (`...shared`) brings in do not. Entries without a comment stay plain
-strings.
+`ignoreFiles`, `ignoreWorkspaces`) becomes its `reason`, in any knip configuration file (`knip.json`, `knip.jsonc`,
+`.knip.json`, `.knip.jsonc`, `knip.{js,ts,mjs,cjs,mts,cts}`, `knip.config.*`); the `knip` key of `package.json` is
+JSON and has none. Each entry takes the first of:
+
+1. its own comment: on the lines directly above the entry, or after it on the line where it ends;
+2. its group heading: the comment above the nearest earlier entry of the same list that has one above it, so a list
+   written as groups under one comment line each gives every entry of a group that line;
+3. the comment on the list's key: on the lines directly above `ignoreDependencies: [`, after the opening bracket on
+   its line, or after the list on the line where it ends.
+
+A list written as a top-level constant and named by the key (`const deps = [...]; export default { ignoreDependencies:
+deps }`) keeps its comments too; the entries a spread (`...shared`) brings in do not. Entries without a comment stay
+plain strings; when other entries of the same list have one, the note of the list names them.
 
 ```ts
+// installed on the CI image
+ignoreBinaries: ['docker', 'make'],
 workspaces: {
     'packages/app': {
         ignoreDependencies: [
             // false positive: loaded by the bundler from a config string
             'some-loader',
+            'other-loader',
+            'left-pad', // kept for the legacy build
         ],
     },
 },
@@ -266,15 +277,24 @@ workspaces: {
 becomes
 
 ```toml
+[js]
+ignore-binaries = [
+  { name = "docker", reason = "installed on the CI image" },
+  { name = "make", reason = "installed on the CI image" },
+]
+
 [js.workspaces."packages/app"]
 ignore-dependencies = [
   { name = "some-loader", reason = "false positive: loaded by the bundler from a config string" },
+  { name = "other-loader", reason = "false positive: loaded by the bundler from a config string" },
+  { name = "left-pad", reason = "kept for the legacy build" },
 ]
 ```
 
-so `skif --require-ignore-reasons` can enforce a reason on every entry from then on. A comment separated from the entry
-by a blank line, or on the line of the opening bracket, is not attached, and tool directives such as
-`// eslint-disable-next-line` are left out.
+so a configuration that explained every entry migrates to one that passes `[lint] require-ignore-reasons = true` (or
+`skif --require-ignore-reasons`), which then enforces a reason on every entry. A comment separated from the entry or
+the key by a blank line is not attached, a comment after an entry on its line explains that entry only and heads no
+group, and tool directives such as `// eslint-disable-next-line` are left out.
 
 Settings that knip scopes to one workspace stay in that workspace's table. `--workspace` narrowed the old run to some
 workspaces; it is not written to the configuration, and the script can pass the same `--workspace` to skif.
@@ -296,7 +316,16 @@ profile then knows the checks of all of them at once, and a rule one tool ignore
 `--merge` edits the existing `skif.toml` (or `.skif.toml`) in place, so its comments and the order of its tables stay.
 Tables the file lacks are appended after its text under a banner; in a table both files define, keys it lacks are added,
 lists are united, and the existing value wins over a different one (the command lists those keys). Running the same
-migration again with `--merge` changes nothing.
+migration again with `--merge` changes nothing. With `--output <FILE>`, the merge of the existing file and the
+migration is written to `FILE` and the existing file is left as it is; a `FILE` that already exists is refused, since
+`--merge` cannot be combined with `--force`.
+
+A merge only adds what the migrated tools need: the `exact` profile writes no `off` value into a file that has content.
+A rule the file does not name keeps running, whether one of its recorded sources checked it or the file (written by
+hand, or for other tools) relies on skif's default; the report lists these checks as left as the existing
+configuration has them (`left-as-existing` in `--format json`). Migrating knip into a file with `[js] enabled = false`
+sets it to `true`, because the knip settings are `[js]` settings that only take effect with the JavaScript analysis
+on; the report says so (`replaced-existing`). Set it back to `false` to keep the analysis off.
 
 Migrating the tools in steps works too, and ends with the same checks as one run:
 
