@@ -236,14 +236,25 @@ All notable changes to this project are documented here. The format follows
   followed module returns (`getBase()`), and what a function read other than by name or as a method returns
   (`(0, base.self)()`), may hold any value the config imports from such modules. A function of a followed module
   changes a value of a module also through what it keeps for every call (`f.cache = base`, `add.bind(null, base)`,
-  what a generator or an `async` function made when the module is loaded was given), through `this` or `super`, and
-  through a function it re-exports (`export { tweak } from './tweak'`, `export * from './tools'`), also from a module
-  that is neither followed nor installed. `JSON.stringify` and `JSON.parse` given their arguments through a spread
-  may change them. A `define…` helper, a copying merge and a package whose methods keep nothing are trusted only for
-  an installed package: a bare specifier the evaluator does not follow that names a workspace package or that no
-  `node_modules` directory above the config holds (a `tsconfig` alias such as `@app/tools`) is code of the project,
-  but in a project with no `node_modules` directory at all, where every name of no workspace package counts as
-  installed. `Object.assign` onto an object literal (`Object.assign({}, base)`) copies the keys of what it is given,
+  what a generator or an `async` function made when the module is loaded was given), through `this` or `super` where
+  that may be such a value, also through a binding taking what `this` holds (`const list = this.plugins`), through a
+  function it re-exports (`export { tweak } from './tweak'`, `export * from './tools'`) or hands out
+  (`import { tweak } from './tweak'; export { tweak }`, `export const tools = { tweak }`), also from a module that is
+  neither followed nor installed, and by calling a function of such a module (`import { setup } from '@app/setup'`).
+  A write through `this` in a constructor or a field initialiser giving the new instance a key
+  (`this.options = options`), or in a method of a class or of a plugin's hooks object a factory returns
+  (`load(id) { this.addWatchFile(id); }`), changes no value of a module, so a local Vite, Rollup or webpack plugin
+  leaves the shared config it is used with known. A re-export of a file that holds no code (a declaration file, JSON,
+  a stylesheet, an asset) changes nothing. A change of what a workspace factory returns
+  (`const config = createVitestConfig(options); config.test.setupFiles.push('./setup.ts')`) leaves only that part
+  partly unknown, and the values imported from the factory's module known, when the factory builds new objects.
+  `JSON.stringify` and `JSON.parse` given their arguments through a spread may change them. A `define…` helper, a
+  copying merge and a package whose methods keep nothing are trusted only for an installed package: a bare specifier
+  the evaluator does not follow that names a workspace package or that no `node_modules` directory above the config,
+  up to the workspace root, holds (a `tsconfig` alias such as `@app/tools`) is code of the project, but in a project
+  whose `node_modules` directories hold no package (none at all, or only caches such as `.vite`), where every name of
+  no workspace package counts as installed. Under Yarn Plug'n'Play (a `.pnp.cjs` at the root), a dependency the
+  importing package or the root declares from a registry is installed. `Object.assign` onto an object literal (`Object.assign({}, base)`) copies the keys of what it is given,
   as a spread does, so a new key of the copy leaves the original known.
 - **Config evaluation**: `.map`, `.flatMap` and `.filter` of a known array call their callback (an inline function,
   or one the config declares) with each element and its index, so Vitest projects spread from
