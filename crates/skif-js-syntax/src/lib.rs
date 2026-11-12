@@ -55,7 +55,9 @@ use oxc_parser::{ParseOptions as OxcParseOptions, Parser};
 use oxc_span::SourceType;
 use skif_core::LineIndex;
 
-pub use array_comments::{ElementComment, PathSegment, extract_array_comments};
+pub use array_comments::{
+    ConfigComments, ElementComment, PathSegment, PropertyComment, extract_array_comments, extract_config_comments,
+};
 pub use cache::{
     CACHE_SCHEMA, CACHE_SCHEMA_DIGEST, CachedModule, MemoryModuleCache, ModuleCache, ModuleKey, ParseCoalescer,
     cache_version, parse_cached,

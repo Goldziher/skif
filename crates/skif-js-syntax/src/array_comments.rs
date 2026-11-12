@@ -1,5 +1,6 @@
-//! The comments written next to the elements of array literals, for a tool that carries them over into another
-//! format (`skif migrate` turns the comment on a knip ignore entry into its `reason`).
+//! The comments written next to the elements of array literals and the properties of object literals, for a tool
+//! that carries them over into another format (`skif migrate` turns the comment on a knip ignore entry, on the group
+//! of entries it heads, or on the list itself into the `reason` of each entry).
 
 use skif_core::HashMap;
 use std::path::Path;
@@ -101,6 +102,10 @@ pub struct ElementComment {
     /// The comment text without its delimiters, its lines joined by single spaces. Comments both above and after
     /// the element are joined in source order.
     pub text: String,
+    /// The element has no comment of its own and `text` is its group heading: the comments above the nearest element
+    /// before it in the same array that has comments above it. A list written as groups, each under one comment
+    /// line, explains every element of a group with that line.
+    pub heading: bool,
 }
 
 impl ElementComment {
@@ -113,6 +118,7 @@ impl ElementComment {
             after_spread: false,
             value,
             text: text.into(),
+            heading: false,
         }
     }
 
@@ -122,6 +128,45 @@ impl ElementComment {
         self.after_spread = true;
         self
     }
+
+    /// This comment, recording that it is the group heading of its element rather than a comment of its own.
+    #[must_use]
+    pub fn under_heading(mut self) -> Self {
+        self.heading = true;
+        self
+    }
+}
+
+/// The comment written next to a property of an object literal: on the lines directly above it, after it on the line
+/// where it ends, or, when its value is an array literal, after the opening bracket on the bracket's line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PropertyComment {
+    /// The path from the outermost literal to the property's value; its last segment is the property's key.
+    pub path: Vec<PathSegment>,
+    /// The comment text without its delimiters, its lines joined by single spaces, joined in source order.
+    pub text: String,
+}
+
+impl PropertyComment {
+    /// The comment `text` on the property at `path`.
+    #[must_use]
+    pub fn new(path: Vec<PathSegment>, text: impl Into<String>) -> Self {
+        Self {
+            path,
+            text: text.into(),
+        }
+    }
+}
+
+/// The comments of a configuration file's literals, from [`extract_config_comments`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ConfigComments {
+    /// The comments on array elements, including the group heading of each element without a comment of its own.
+    pub elements: Vec<ElementComment>,
+    /// The comments on object properties.
+    pub properties: Vec<PropertyComment>,
 }
 
 /// The comments next to the elements of the array literals of `source`, a JavaScript or TypeScript file whose
@@ -132,9 +177,25 @@ impl ElementComment {
 /// under `ignoreDependencies` (they are also reported under `deps` as a root of its own). A spread is not followed. A
 /// comment that is a tool directive (`// eslint-disable-next-line`, `// @ts-expect-error`) is left out.
 ///
+/// The elements a comment only heads (see [`ElementComment::heading`]) are left out; [`extract_config_comments`] has
+/// them, and the comments on properties.
+///
 /// `None` when the file does not parse; nothing is executed.
 #[must_use]
 pub fn extract_array_comments(source: &str, path: &Path) -> Option<Vec<ElementComment>> {
+    let mut comments = extract_config_comments(source, path)?.elements;
+    comments.retain(|comment| !comment.heading);
+    Some(comments)
+}
+
+/// The comments of `source` that [`extract_array_comments`] reads, with an [`ElementComment`] under a heading for
+/// every element whose only explanation is the comment above an earlier element of its array, and a
+/// [`PropertyComment`] for every property with a static key that has a comment. Properties are walked as elements
+/// are: a property whose value names a top-level `const` literal is followed into it.
+///
+/// `None` when the file does not parse; nothing is executed.
+#[must_use]
+pub fn extract_config_comments(source: &str, path: &Path) -> Option<ConfigComments> {
     let source_type = SourceType::from_path(path).ok()?;
     let allocator = Allocator::default();
     let ret = Parser::new(&allocator, source, source_type)
@@ -151,7 +212,7 @@ pub fn extract_array_comments(source: &str, path: &Path) -> Option<Vec<ElementCo
         comments: &ret.program.comments,
         constants: constants(&ret.program),
         following: Vec::new(),
-        out: Vec::new(),
+        out: ConfigComments::default(),
     };
     roots.visit_program(&ret.program);
     Some(roots.out)
@@ -192,7 +253,7 @@ struct Roots<'s, 'a> {
     constants: HashMap<&'s str, &'s Expression<'a>>,
     /// The constants being followed, innermost last, so that a cycle (`const a = [b]; const b = [a];`) ends.
     following: Vec<&'s str>,
-    out: Vec<ElementComment>,
+    out: ConfigComments,
 }
 
 impl<'a> Visit<'a> for Roots<'_, '_> {
@@ -225,17 +286,47 @@ impl Roots<'_, '_> {
     }
 
     fn object(&mut self, object: &ObjectExpression<'_>, path: &mut Vec<PathSegment>) {
-        for property in &object.properties {
-            let ObjectPropertyKind::ObjectProperty(property) = property else {
+        let spans: Vec<(u32, u32)> = object
+            .properties
+            .iter()
+            .map(|property| (property.span().start, property.span().end))
+            .collect();
+        for (index, kind) in object.properties.iter().enumerate() {
+            let ObjectPropertyKind::ObjectProperty(property) = kind else {
                 continue;
             };
             let Some(key) = property.key.static_name() else {
                 continue;
             };
             path.push(PathSegment::Key(crate::js_string(key.as_js_str())));
+            let (previous_end, next_start) = neighbours(&spans, index, object.span.start + 1, object.span.end);
+            let (start, end) = spans[index];
+            let mut texts = self.leading(previous_end, start);
+            texts.extend(self.after_opening_bracket(&property.value));
+            texts.extend(self.trailing(end, next_start));
+            if !texts.is_empty() {
+                self.out
+                    .properties
+                    .push(PropertyComment::new(path.clone(), texts.join(" ")));
+            }
             self.value(&property.value, path);
             path.pop();
         }
+    }
+
+    /// The comments after the opening bracket of `value`, when it is an array literal, on the bracket's line.
+    fn after_opening_bracket(&self, value: &Expression<'_>) -> Vec<String> {
+        let Expression::ArrayExpression(array) = value.get_inner_expression() else {
+            return Vec::new();
+        };
+        let open = array.span.start + 1;
+        let first = array.elements.first().map_or(array.span.end, |element| element.span().start);
+        self.comments
+            .iter()
+            .filter(|comment| comment.span.start >= open && comment.span.end <= first)
+            .filter(|comment| !self.has_newline(open, comment.span.start))
+            .filter_map(|comment| self.comment_text(comment))
+            .collect()
     }
 
     fn array(&mut self, array: &ArrayExpression<'_>, path: &mut Vec<PathSegment>) {
@@ -245,24 +336,37 @@ impl Roots<'_, '_> {
             .map(|element| (element.span().start, element.span().end))
             .collect();
         let mut after_spread = false;
+        let mut heading: Option<String> = None;
         for (index, element) in array.elements.iter().enumerate() {
             after_spread |= matches!(element, ArrayExpressionElement::SpreadElement(_));
-            let previous_end = index
-                .checked_sub(1)
-                .and_then(|previous| spans.get(previous))
-                .map_or(array.span.start + 1, |(_, end)| *end);
-            let next_start = spans.get(index + 1).map_or(array.span.end, |(start, _)| *start);
+            let (previous_end, next_start) = neighbours(&spans, index, array.span.start + 1, array.span.end);
             let (start, end) = spans[index];
-            if let Some(text) = self.text_around(previous_end, start, end, next_start) {
+            let leading = self.leading(previous_end, start);
+            if !leading.is_empty() {
+                heading = Some(leading.join(" "));
+            }
+            let mut own = leading;
+            own.extend(self.trailing(end, next_start));
+            let comment = if own.is_empty() {
+                heading.clone().map(|text| (text, true))
+            } else {
+                Some((own.join(" "), false))
+            };
+            if let Some((text, under_heading)) = comment {
                 let value = element
                     .as_expression()
                     .and_then(|expression| match expression.get_inner_expression() {
                         Expression::RegExpLiteral(regex) => Some(regex.regex.pattern.text.as_str().to_owned()),
                         other => static_string(other),
                     });
-                let comment = ElementComment::new(path.clone(), index, value, text);
-                self.out
-                    .push(if after_spread { comment.after_spread() } else { comment });
+                let mut comment = ElementComment::new(path.clone(), index, value, text);
+                if under_heading {
+                    comment = comment.under_heading();
+                }
+                if after_spread {
+                    comment = comment.after_spread();
+                }
+                self.out.elements.push(comment);
             }
             if let Some(expression) = element.as_expression() {
                 path.push(PathSegment::Index(index));
@@ -272,12 +376,10 @@ impl Roots<'_, '_> {
         }
     }
 
-    /// The text of the comments that belong to the element spanning `start..end`, between the end of the previous
-    /// element (or the opening bracket, `previous_end`) and the start of the next one (or the closing bracket,
-    /// `next_start`): those on the lines above it with no blank line in between, and those after it on the line where
-    /// it ends. A comment on the line where the previous element ends belongs to that element, and one on the line of
-    /// the opening bracket to none.
-    fn text_around(&self, previous_end: u32, start: u32, end: u32, next_start: u32) -> Option<String> {
+    /// The texts of the comments on the lines above the element or property that starts at `start`, after the end of
+    /// the previous one (or the opening bracket or brace, `previous_end`), with no blank line in between. A comment on
+    /// the line where the previous one ends belongs to that one, and one on the line of the opening bracket to none.
+    fn leading(&self, previous_end: u32, start: u32) -> Vec<String> {
         let mut texts: Vec<String> = Vec::new();
         let leading: Vec<&Comment> = self
             .comments
@@ -299,15 +401,18 @@ impl Roots<'_, '_> {
         for comment in kept.iter().rev() {
             texts.extend(self.comment_text(comment));
         }
-        for comment in self
-            .comments
+        texts
+    }
+
+    /// The texts of the comments after the element or property that ends at `end`, on the line where it ends, before
+    /// the start of the next one (or the closing bracket or brace, `next_start`).
+    fn trailing(&self, end: u32, next_start: u32) -> Vec<String> {
+        self.comments
             .iter()
             .filter(|comment| comment.span.start >= end && comment.span.end <= next_start)
             .filter(|comment| !self.has_newline(end, comment.span.start))
-        {
-            texts.extend(self.comment_text(comment));
-        }
-        (!texts.is_empty()).then(|| texts.join(" "))
+            .filter_map(|comment| self.comment_text(comment))
+            .collect()
     }
 
     fn slice(&self, from: u32, to: u32) -> &str {
@@ -338,6 +443,17 @@ impl Roots<'_, '_> {
             .join(" ");
         (!text.is_empty() && !is_directive(&text, comment.is_block())).then_some(text)
     }
+}
+
+/// The end of the item before `index` (or `open`, after the opening bracket or brace) and the start of the item after
+/// it (or `close`, the end of the literal), from the spans of the items of one literal.
+fn neighbours(spans: &[(u32, u32)], index: usize, open: u32, close: u32) -> (u32, u32) {
+    let previous_end = index
+        .checked_sub(1)
+        .and_then(|previous| spans.get(previous))
+        .map_or(open, |(_, end)| *end);
+    let next_start = spans.get(index + 1).map_or(close, |(start, _)| *start);
+    (previous_end, next_start)
 }
 
 #[cfg(test)]
@@ -494,5 +610,66 @@ mod tests {
     #[test]
     fn a_file_that_does_not_parse_has_no_comments() {
         assert_eq!(extract_array_comments("export default {", Path::new("knip.ts")), None);
+        assert_eq!(extract_config_comments("export default {", Path::new("knip.ts")), None);
+    }
+
+    fn config_comments(source: &str) -> ConfigComments {
+        extract_config_comments(source, Path::new("knip.ts")).unwrap()
+    }
+
+    #[test]
+    fn a_comment_above_a_group_heads_the_elements_below_it_without_their_own() {
+        let found = config_comments(
+            "export default {\n  ignoreDependencies: [\n    'plain',\n    // loaded by the bundler\n    'some-loader',\n    'other-loader',\n    'left-pad', // kept for the legacy build\n    'after-trailing',\n    // types only\n    '@demo/types',\n    ...shared,\n    '@demo/runtime',\n  ],\n};\n",
+        );
+        let array = || vec![key("ignoreDependencies")];
+        let value = |name: &str| Some(name.to_owned());
+        assert_eq!(
+            found.elements,
+            [
+                ElementComment::new(array(), 1, value("some-loader"), "loaded by the bundler"),
+                ElementComment::new(array(), 2, value("other-loader"), "loaded by the bundler").under_heading(),
+                ElementComment::new(array(), 3, value("left-pad"), "kept for the legacy build"),
+                ElementComment::new(array(), 4, value("after-trailing"), "loaded by the bundler").under_heading(),
+                ElementComment::new(array(), 5, value("@demo/types"), "types only"),
+                ElementComment::new(array(), 6, None, "types only")
+                    .under_heading()
+                    .after_spread(),
+                ElementComment::new(array(), 7, value("@demo/runtime"), "types only")
+                    .under_heading()
+                    .after_spread(),
+            ]
+        );
+        assert_eq!(found.properties, []);
+    }
+
+    #[test]
+    fn array_comments_leave_out_the_elements_under_a_heading() {
+        let found = comments("export default {\n  ignore: [\n    // generated\n    'a',\n    'b',\n  ],\n};\n");
+        assert_eq!(
+            found,
+            [ElementComment::new(vec![key("ignore")], 0, Some("a".to_owned()), "generated")]
+        );
+    }
+
+    #[test]
+    fn a_comment_on_a_property_belongs_to_its_path() {
+        let found = config_comments(
+            "const deps = ['b'];\nexport default {\n  // installed on the CI image\n  ignoreBinaries: ['docker', 'make'],\n  ignoreUnresolved: [ // virtual modules\n    'virtual:routes',\n  ],\n  ignoreFiles: ['a'], // generated\n  // about the next one\n\n  ignoreMembers: ['render'],\n  workspaces: {\n    'packages/app': {\n      /* kept by the host page */\n      ignoreDependencies: deps,\n    },\n  },\n};\n",
+        );
+        let property = |path: Vec<PathSegment>, text: &str| PropertyComment::new(path, text);
+        assert_eq!(
+            found.properties,
+            [
+                property(vec![key("ignoreBinaries")], "installed on the CI image"),
+                property(vec![key("ignoreUnresolved")], "virtual modules"),
+                property(vec![key("ignoreFiles")], "generated"),
+                property(
+                    vec![key("workspaces"), key("packages/app"), key("ignoreDependencies")],
+                    "kept by the host page"
+                ),
+            ]
+        );
+        assert_eq!(found.elements, []);
     }
 }
