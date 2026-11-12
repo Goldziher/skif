@@ -195,7 +195,12 @@ on both sides. knip's stdout may carry banners around its JSON; the first object
 records those files in `parity.json` (`knip_errors`, with `knip_exit`), their number in the baseline (`tool_errors`)
 and in the status cell of `parity.md`, and counts a finding only one tool reports in a package that holds such a file
 as the `knip-config-error` known deviation rather than as a difference: on knip's side because it ran without that
-configuration's entries, on skif's because knip's view of the package is incomplete.
+configuration's entries, on skif's because knip's view of the package is incomplete. The knock-on effect in other
+packages stays compared: a file of another package that only the failed configuration's entries reach is a difference.
+The harness evaluates no configuration, so it cannot tell which files a failed one makes entries, and skif's report does
+not say which entry reaches a file. In next-js, knip cannot load the root `jest.config.js` (it requires the built
+`next/jest`), whose `roots` include `packages/next/src` and `packages/font/src`, so the `packages/next` files that only
+root tests and `packages/font` tests reach are knip-only unused files in the counts.
 
 **Invalid knip runs.** A repository whose knip run cannot be a valid comparison sets `knip-invalid` in `corpus.toml`
 with the reason. It is still compared and recorded, and its status cell in `parity.md` (and `invalid` in the

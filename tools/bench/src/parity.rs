@@ -213,7 +213,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 22] = [
     },
     Deviation {
         id: KNIP_CONFIG_ERROR,
-        reason: "knip could not load a configuration file of the package (it prints `ERROR: Error loading <file>` and exits with 2), so it ran without the entry files that configuration names: one-sided findings of either tool in that package are set apart. The errors are listed in `parity.json` under `knip_errors`",
+        reason: "knip could not load a configuration file of the package (it prints `ERROR: Error loading <file>` and exits with 2), so it ran without the entry files that configuration names: one-sided findings of either tool in that package are set apart. The errors are listed in `parity.json` under `knip_errors`. The files of other packages that only those entries would reach stay compared: the harness evaluates no configuration, so it cannot tell which files a failed one names (next-js's root `jest.config.js` has `roots` in `packages/next` and `packages/font`), and skif's report does not say what reaches a file",
     },
     Deviation {
         id: FOREIGN_TSCONFIG_PATHS,
