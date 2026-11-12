@@ -87,7 +87,7 @@ under [Parity with knip](#parity-with-knip).
 | Unused enum members, namespace members, exports and types in a used namespace | Yes | No | No | Yes |
 | Duplicate exports | Yes | No | No | Yes |
 | Circular imports | Yes: `circular-imports`, off by default | No | No | Yes: `cycles`, not reported by default |
-| Unused `package.json` subpath imports and exports | No | No | No | Yes: `subpaths` (1) |
+| Unused `package.json` subpath imports and exports | Yes: `unused-subpath-imports`, and `unused-subpath-exports` off by default (1) | No | No | Yes: `subpaths` (1) |
 | Test-runner mocks of modules that do not exist | Yes: `stale-mocks` | No | No | No |
 | Hints about stale analysis configuration | Yes: `stale-js-config` | No | No | Yes: configuration hints |
 | Why a file, export or dependency counts as used | Yes: `skif explain-usage`, `--trace-dependency` | No | No | Yes: `--trace-file`, `--trace-export`, `--trace-dependency` |
@@ -98,7 +98,9 @@ under [Parity with knip](#parity-with-knip).
 | Runs no project code while linting | Yes (4) | Yes (5) | Partial (6) | No (7) |
 
 1. Added in knip 6.45.0: unused `imports` entries by default, and unused `exports` subpaths with
-   `includeSubpathExports`; not reported in production mode. skif has no rule for it.
+   `includeSubpathExports`. skif reports the `imports` entries with `unused-subpath-imports` and the `exports`
+   subpaths with `unused-subpath-exports`, which is off by default. In production mode skif reports neither, since
+   test files may be the only importers; knip reports both.
 2. `.vue`, `.svelte` and `.astro` (scripts and templates), `.mdx`, `.marko` and `.tsrx`, and the imports of
    stylesheets (`.css`, `.scss`, `.sass`, `.less`, `.pcss`, `.styl`, `.stylus`), read without a compiler (see
    [`[js]`](../../reference/configuration/#js)).
@@ -231,12 +233,11 @@ is configured in the consuming repository ([Lefthook](../integrations/#lefthook)
 
 ## Parity with knip
 
-skif's JS analysis covers the issue types of knip 6.44:
+skif's JS analysis covers the issue types of knip 6.45:
 
-- **Coverage.** Every issue type of knip 6.44 has a skif rule, 17 in all (the list is in the
+- **Coverage.** Every issue type of knip 6.45 has a skif rule, 19 in all (the list is in the
   [migration guide](../migrating/#which-tool-runs-which-rule)), and `skif migrate` translates a knip configuration.
-  knip 6.45 added unused subpath exports (`subpaths`), which skif does not report. skif reads tool configurations
-  statically and never runs project code.
+  skif reads tool configurations statically and never runs project code.
 - **Speed.** Full skif runs are timed against knip on pinned public repositories; see [Performance](#performance).
 - **Precision.** On a generated 5-package workspace with 33 seeded findings, skif has a precision of 100% and knip
   6.44.1 of 77%; both find every seeded finding (skif measured on 2026-11-08, knip on 2026-11-07, not re-measured
