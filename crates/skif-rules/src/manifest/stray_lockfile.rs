@@ -179,9 +179,12 @@ fn candidates(workspace: &Workspace) -> Vec<Stray<'_>> {
 /// are not reported.
 ///
 /// Nor is a lockfile below the root that a build installs from, found by reading the build files: in a Bazel
-/// repository, a label of it (`"//libs/a:pnpm-lock.yaml"`) in the `MODULE.bazel` or `WORKSPACE`, a `.bzl` file they
-/// load, or a `BUILD` file of its directory or one above, or its relative path in such a `BUILD` file; a `COPY` or `ADD` of it in a Dockerfile of its
-/// own directory or one that builds from the workspace root; or a `COPY . .` followed by an install with its package
+/// repository, a label of it (`"//libs/a:pnpm-lock.yaml"`, also inside a `genrule` command as
+/// `$(location //libs/a:pnpm-lock.yaml)`) in the `MODULE.bazel` or `WORKSPACE`, a `.bzl` file they load, or a `BUILD`
+/// file of its directory or one above, its relative path in such a `BUILD` file, or a `glob(...)` of its package's
+/// `BUILD` file that selects it; when those leave it unnamed, a label of it in any `BUILD` file of the Bazel repository
+/// or a `.bzl` file one loads. Docstrings name nothing. Also a `COPY` or `ADD` of it in a Dockerfile of its own
+/// directory or one that builds from the workspace root, or a `COPY . .` followed by an install with its package
 /// manager in a Dockerfile of its own directory.
 ///
 /// Options (`[rules.stray-lockfile] allow`): paths, matched literally first, or globs (`packages/*/package-lock.json`),
@@ -724,6 +727,54 @@ mod tests {
             paths(&lint(META.id, &files, &config(""))),
             ["libs/a/pnpm-lock.yaml", "libs/b/pnpm-lock.yaml"]
         );
+    }
+
+    #[test]
+    fn a_lockfile_only_another_packages_build_file_names_is_not_reported() {
+        let root_json = r#"{"name":"root","private":true,"packageManager":"pnpm@10.34.6"}"#;
+        let repro = |build: &'static str| {
+            vec![
+                ("package.json", root_json),
+                ("pnpm-workspace.yaml", "packages: [libs/a, apps/web]\n"),
+                ("pnpm-lock.yaml", ""),
+                ("MODULE.bazel", ""),
+                ("libs/a/package.json", MEMBER_A),
+                ("libs/a/pnpm-lock.yaml", ""),
+                ("apps/web/package.json", r#"{"name":"web"}"#),
+                ("apps/web/BUILD.bazel", build),
+            ]
+        };
+        let consumers = [
+            "npm_translate_lock(pnpm_lock = \"//libs/a:pnpm-lock.yaml\")\n",
+            "genrule(name = \"lock\", outs = [\"x\"], cmd = \"cp $(location //libs/a:pnpm-lock.yaml) $@\")\n",
+        ];
+        for build in consumers {
+            assert_eq!(paths(&lint(META.id, &repro(build), &config(""))), [] as [&str; 0], "{build}");
+        }
+        for build in [
+            "\"\"\"//libs/a:pnpm-lock.yaml\"\"\"\n",
+            "# npm_translate_lock(pnpm_lock = \"//libs/a:pnpm-lock.yaml\")\n",
+        ] {
+            assert_eq!(
+                paths(&lint(META.id, &repro(build), &config(""))),
+                ["libs/a/pnpm-lock.yaml"],
+                "{build}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_glob_of_the_lockfiles_package_names_it() {
+        let files = bazel_and_docker_files(&[(
+            "libs/b/BUILD.bazel",
+            "filegroup(name = \"locks\", srcs = glob([\"**/*.yaml\"], exclude = [\"tmp/**\"]))\n",
+        )]);
+        assert_eq!(paths(&lint(META.id, &files, &config(""))), [] as [&str; 0]);
+        let excluded = bazel_and_docker_files(&[(
+            "libs/b/BUILD.bazel",
+            "filegroup(name = \"locks\", srcs = glob([\"**/*.yaml\"], exclude = [\"pnpm-*.yaml\"]))\n",
+        )]);
+        assert_eq!(paths(&lint(META.id, &excluded, &config(""))), ["libs/b/pnpm-lock.yaml"]);
     }
 
     #[test]
