@@ -683,8 +683,13 @@ The command line warns on stderr about a `tsconfig` that selects no file of its 
 without project files.
 
 **`ignore-exports-used-in-file`** is `true`, or a table of the kinds `variable`, `function`, `class`, `enum`,
-`namespace`, `type` and `interface`: an export that the same file references is then not reported. skif does not tell
-type aliases from interfaces, so `type` and `interface` are the same switch. `member` is accepted; members read in
+`namespace`, `type` and `interface`: an export that the same file references is then not reported. The export
+clause itself (`export { x }`, `export { x as y }`) and the object of `module.exports = { x }` are no reference; a
+read of `x` anywhere else is, whether `x` is a local declaration or an import binding the file re-exports
+(`import a from "./a"; export { a }; export default { a }`). An import binding counts only where it is read as a
+value, not in a type position. Only `true` exempts a re-exported import binding: it has no kind of its own. An export
+initialised from a used binding (`export const b = a`) is not referenced itself. skif does not tell type aliases from
+interfaces, so `type` and `interface` are the same switch. `member` is accepted; members read in
 their own file always count as used. **`ignore-members`** lists enum and namespace member names never reported by
 `unused-enum-members` and `unused-namespace-members`. A member is also exempt when its own JSDoc carries a tag that
 exempts an export (`@public`, `@beta`, `@alpha`, `@alias`, `@internal` with `production`, or an `ignore-tags` name).

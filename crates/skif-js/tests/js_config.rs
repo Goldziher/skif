@@ -352,6 +352,88 @@ fn exports_used_in_their_own_file_can_be_ignored() {
     assert_eq!(paths(&workspace, "unused-exports"), none());
 }
 
+/// A barrel that exports each import by name and again through its default object (`export { a }` and
+/// `export default { a }`) reads the binding in the file, so `ignore-exports-used-in-file` exempts the named export;
+/// an export only initialised from a used binding (`viaLocal`) stays reported.
+#[test]
+fn re_exported_import_bindings_the_file_uses_follow_ignore_exports_used_in_file() {
+    let mut files = two_packages(
+        "import barrel from \"./barrel.js\";\nimport \"./c.js\";\nimport * as ns from \"./ns-barrel.js\";\nconsole.log(barrel.a, barrel.b, ns.default);\n",
+    );
+    files.extend([
+        ("packages/a/src/a.js", "export default { a: 1 };\n"),
+        ("packages/a/src/b.js", "export default { b: 1 };\n"),
+        (
+            "packages/a/src/c.js",
+            "const local = 1;\nexport { local };\nexport const viaLocal = local;\n",
+        ),
+        (
+            "packages/a/src/barrel.js",
+            "import a from \"./a.js\";\nimport bMod from \"./b.js\";\nexport { a, bMod as b };\nexport default { a, b: bMod };\n",
+        ),
+        (
+            "packages/a/src/ns-barrel.js",
+            "import a from \"./a.js\";\nimport b from \"./b.js\";\nexport { a, b };\nexport default [a];\n",
+        ),
+    ]);
+    let plain = lint(&files, "");
+    assert_eq!(
+        found(&plain, "unused-exports"),
+        [
+            "packages/a/src/barrel.js: export `a` is never imported by another module",
+            "packages/a/src/barrel.js: export `b` is never imported by another module",
+            "packages/a/src/c.js: export `local` is never imported by another module",
+            "packages/a/src/c.js: export `viaLocal` is never imported by another module",
+        ],
+        "{plain:#?}"
+    );
+    assert_eq!(
+        found(&plain, "unused-namespace-exports"),
+        [
+            "packages/a/src/ns-barrel.js: export `a` is never read through a namespace import",
+            "packages/a/src/ns-barrel.js: export `b` is never read through a namespace import",
+        ],
+        "{plain:#?}"
+    );
+    let ignored = lint(&files, "[js]\nignore-exports-used-in-file = true\n");
+    assert_eq!(
+        found(&ignored, "unused-exports"),
+        ["packages/a/src/c.js: export `viaLocal` is never imported by another module"],
+        "{ignored:#?}"
+    );
+    assert_eq!(
+        found(&ignored, "unused-namespace-exports"),
+        ["packages/a/src/ns-barrel.js: export `b` is never read through a namespace import"],
+        "{ignored:#?}"
+    );
+}
+
+/// The members of `module.exports = { X }` read through a namespace follow `ignore-exports-used-in-file` when the file
+/// reads their binding outside that object.
+#[test]
+fn commonjs_shorthand_exports_the_file_uses_follow_ignore_exports_used_in_file() {
+    let mut files = two_packages("const m = require(\"./m.js\");\nm.f();\n");
+    files.push((
+        "packages/a/src/m.js",
+        "const X = 1;\nconst Y = 2;\nfunction f() { return X; }\nmodule.exports = { X, Y, f };\n",
+    ));
+    let plain = lint(&files, "");
+    assert_eq!(
+        found(&plain, "unused-namespace-exports"),
+        [
+            "packages/a/src/m.js: export `X` is never read through a namespace import",
+            "packages/a/src/m.js: export `Y` is never read through a namespace import",
+        ],
+        "{plain:#?}"
+    );
+    let ignored = lint(&files, "[js]\nignore-exports-used-in-file = true\n");
+    assert_eq!(
+        found(&ignored, "unused-namespace-exports"),
+        ["packages/a/src/m.js: export `Y` is never read through a namespace import"],
+        "{ignored:#?}"
+    );
+}
+
 #[test]
 fn ignore_members_hides_enum_members() {
     let mut files = two_packages("import { E } from \"./util\";\nconsole.log(E.A);\n");
