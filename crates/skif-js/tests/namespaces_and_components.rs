@@ -390,7 +390,10 @@ fn svelte_props_are_no_exports_and_components_use_svelte() {
                 "package.json",
                 r#"{"name":"app","private":true,"type":"module","main":"src/main.js","dependencies":{"svelte":"5.0.0"}}"#,
             ),
-            ("src/main.js", "import App from './App.svelte';\nnew App({ target: document.body });\n"),
+            (
+                "src/main.js",
+                "import App from './App.svelte';\nnew App({ target: document.body });\n",
+            ),
             (
                 "src/App.svelte",
                 "<script>\n  import Button from './Button.svelte';\n  import Card, { used } from './Card.svelte';\n</script>\n<Button label=\"Go\" /><Card n={used} />\n",
