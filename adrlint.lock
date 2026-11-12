@@ -616,12 +616,17 @@ number = 123
 status = "accepted"
 blake3 = "f2e8419626f266711a152b221e4f1b4b75234b4473b3e6167df0b37d8254f215"
 
-[adrs."adrs/0124-a-whole-use-of-a-module-object-uses-its-values-only.md"]
+[adrs."adrs/0124-bazel-rule-sources-are-used-files-not-entries.md"]
 number = 124
+status = "accepted"
+blake3 = "eabc73b5bdb917f9b054f1de321c838bd76bce4d67fe7a384d9c4b4f619ae1bf"
+
+[adrs."adrs/0125-a-whole-use-of-a-module-object-uses-its-values-only.md"]
+number = 125
 status = "accepted"
 blake3 = "6336c71cd6285c49e7cbde435b4be1cad2f983245bfdd4684c03f2b3c611f520"
 
-[adrs."adrs/0125-a-whole-use-of-an-enum-in-its-own-file-uses-every-member.md"]
-number = 125
+[adrs."adrs/0126-a-whole-use-of-an-enum-in-its-own-file-uses-every-member.md"]
+number = 126
 status = "accepted"
 blake3 = "872a02e6f68fbe4290cf2c42cfe1f1ac658ef184efe79056963da69cea17a908"
