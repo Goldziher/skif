@@ -1135,7 +1135,10 @@ a merge that copies (`webpack-merge`, `deepmerge`, `defu`, the `mergeConfig` of 
 `Object.assign`, `Object.defineProperties` or `Object.defineProperty` and `Reflect.defineProperty`, which change only
 their first argument, the last two only the key they name when it is a string; these are no `define…` helpers. A `define…` helper and a merge that copies keep none of their
 arguments in another, so a change of one argument leaves the others known. A list or string
-method (`push`, `slice`, `concat`) changes at most its object only when that object is known to be a list or string. A
+method (`push`, `slice`, `concat`) changes at most its object only when that object is known to be a list or string,
+and one that calls a function it is given with the list's elements (`forEach`, `map`, `reduce`) only when that
+function is written in place or declared by the config and no `this` object follows it (`list.forEach(fn, thisArg)`);
+an imported callback (`configs.forEach(withSentry)`) may change each element and that object. A
 change through an element of a list leaves every element open; a loop name, a callback parameter, a name a destructuring
 assignment sets and a function assigned with `=` share with what they take, except a callback over a `const` list of
 strings or numbers that no change reaches; a value spread from an object literal (`...(ci ? { plugins: list } : {})`)

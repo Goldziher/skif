@@ -4430,7 +4430,7 @@ impl<'a> Visit<'a> for Writes<'_> {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
-        if let Some(target) = changed_by_call(it, self.unstable.is_pure(it)) {
+        if let Some(target) = changed_by_call(it, self.unstable.is_pure(it), self.unstable.calls_back(it)) {
             match (property_defined(it), reach(target)) {
                 (Some(key), Some((root, keys, true))) => self.change(root.name.as_str(), Write { keys, key: Some(key) }),
                 _ => self.object(target),

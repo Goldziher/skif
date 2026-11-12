@@ -151,6 +151,8 @@ pub(crate) struct Unstable {
     effects: HashMap<Span, Effect>,
     /// The parts of locals each object written through that is not a name or a member chain may be, by span.
     objects: HashMap<Span, Vec<ObjectPart>>,
+    /// The calls of one of [`CALLBACK_METHODS`] that may call code the pass does not follow, by span.
+    calls_back: HashSet<Span>,
     /// The references that are the only one of a binding no other module can read and that are read once per binding:
     /// not in a loop, nor in a function other than the binding's own, and not of an alias the evaluator follows. None
     /// when the module reads `arguments` or calls `eval`, which reach bindings without a reference.
@@ -181,6 +183,7 @@ impl Unstable {
             pure: HashSet::default(),
             effects: HashMap::default(),
             objects: HashMap::default(),
+            calls_back: HashSet::default(),
             exported: HashSet::default(),
             dynamic: false,
             loops: 0,
@@ -211,6 +214,7 @@ impl Unstable {
             pure: std::mem::take(&mut sharing.pure),
             effects: std::mem::take(&mut sharing.effects),
             objects: std::mem::take(&mut sharing.objects),
+            calls_back: std::mem::take(&mut sharing.calls_back),
             sole,
             ..Self::default()
         };
@@ -278,6 +282,12 @@ impl Unstable {
     /// (`config.module.rules.find(…).loader = …`, `(prod ? config.prod : config.dev).devtool = …`).
     pub(crate) fn parts_of(&self, object: &Expression<'_>) -> &[ObjectPart] {
         self.objects.get(&object.span()).map_or(&[], Vec::as_slice)
+    }
+
+    /// Whether `call` is a method of [`CALLBACK_METHODS`] that may call code the pass does not follow with what the
+    /// object it is called on holds ([`changed_by_call`]).
+    pub(crate) fn calls_back(&self, call: &CallExpression<'_>) -> bool {
+        self.calls_back.contains(&call.span)
     }
 
     /// Whether a change made through the argument `id` of a call may be read after the call: `id` is not the only
@@ -379,6 +389,8 @@ struct Sharing<'s> {
     effects: HashMap<Span, Effect>,
     /// The parts of locals each object written through that is not a name or a member chain may be ([`Self::parts`]).
     objects: HashMap<Span, Vec<ObjectPart>>,
+    /// The calls found that may call code the pass does not follow with what a list holds ([`Self::calls_back`]).
+    calls_back: HashSet<Span>,
     /// The bindings the module exports by declaring them.
     exported: HashSet<SymbolId>,
     /// Whether the module reads `arguments` or calls `eval`.
@@ -741,15 +753,40 @@ impl Sharing<'_> {
         let keeps = pure_function(names, call).is_some()
             || self.keeps_apart(call)
             || assigns(names, call)
-            || matches!(
-                call.callee.get_inner_expression(),
-                Expression::StaticMemberExpression(m)
-                    if (PURE_METHODS.contains(&m.property.name.as_str())
-                        || LIST_ADDERS.contains(&m.property.name.as_str())
-                        || OWN_RESULT_METHODS.contains(&m.property.name.as_str()))
-                        && builtin(names, &m.object)
-            );
+            || (!self.calls_back_unknown(call)
+                && matches!(
+                    call.callee.get_inner_expression(),
+                    Expression::StaticMemberExpression(m)
+                        if (PURE_METHODS.contains(&m.property.name.as_str())
+                            || LIST_ADDERS.contains(&m.property.name.as_str())
+                            || OWN_RESULT_METHODS.contains(&m.property.name.as_str()))
+                            && builtin(names, &m.object)
+                ));
         keeps.then_some(Effect::Keeps)
+    }
+
+    /// Whether `call` is a method of [`CALLBACK_METHODS`] that may call code the pass does not follow with what the
+    /// object it is called on holds, or with an object it is given as `this`: its callback is neither a function
+    /// written in place nor one the module declares, whose changes of its parameters are followed, or an argument
+    /// after the callback is the callback's `this`.
+    fn calls_back_unknown(&self, call: &CallExpression<'_>) -> bool {
+        let Expression::StaticMemberExpression(m) = call.callee.get_inner_expression() else {
+            return false;
+        };
+        let method = m.property.name.as_str();
+        if !CALLBACK_METHODS.contains(&method) {
+            return false;
+        }
+        let followed = call.arguments.first().is_none_or(|argument| {
+            is_inline_function(argument)
+                || matches!(
+                    argument,
+                    Argument::Identifier(id)
+                        if local_symbol(self.scoping, id).is_some_and(|symbol| self.callables.contains(symbol))
+                )
+        });
+        let with_this = !matches!(method, "reduce" | "reduceRight" | "toSorted") && call.arguments.len() > 1;
+        !followed || with_this
     }
 
     /// Whether `call` changes none of the objects it is given and keeps none of them in another or in what it is called
@@ -1336,6 +1373,10 @@ impl<'a> Visit<'a> for Sharing<'_> {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        let calls_back = self.calls_back_unknown(it);
+        if calls_back {
+            self.calls_back.insert(it.span);
+        }
         // A call whose effect the pass does not know may change what it is given, wherever it is made.
         match self.effect(it) {
             Some(effect) => {
@@ -1372,7 +1413,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
                 symbol.map(|symbol| (Place::of(symbol), exact))
             }
             callee => {
-                if let Some(target) = changed_by_call(it, false) {
+                if let Some(target) = changed_by_call(it, false, calls_back) {
                     self.change_target(it, target);
                 }
                 callee
@@ -2522,6 +2563,24 @@ const OWN_RESULT_METHODS: &[&str] = &[
     "unshift",
 ];
 
+/// Methods of [`PURE_METHODS`] that call a function they are given with what the list they are called on holds, and,
+/// but for `reduce`, `reduceRight` and `toSorted`, with the argument after it as its `this`.
+const CALLBACK_METHODS: &[&str] = &[
+    "every",
+    "filter",
+    "find",
+    "findIndex",
+    "findLast",
+    "findLastIndex",
+    "flatMap",
+    "forEach",
+    "map",
+    "reduce",
+    "reduceRight",
+    "some",
+    "toSorted",
+];
+
 /// Methods that change the list they are called on but never what they are given, when it is known to be a list
 /// ([`builtin`]).
 const LIST_ADDERS: &[&str] = &["push", "unshift"];
@@ -2679,9 +2738,14 @@ fn is_primitive(names: Names<'_>, expr: &Expression<'_>) -> bool {
 }
 
 /// The object a call may change: the first argument of one of [`FIRST_ARGUMENT_SETTERS`] (`Object.assign`,
-/// `Object.defineProperty`), or the object a method other than one of [`PURE_METHODS`] is called on, unless the call
-/// is one of [`PURE_FUNCTIONS`] (`pure`).
-pub(crate) fn changed_by_call<'p, 'a>(call: &'p CallExpression<'a>, pure: bool) -> Option<&'p Expression<'a>> {
+/// `Object.defineProperty`), or the object a method is called on, other than one of [`PURE_METHODS`] unless it calls
+/// code the pass does not follow with what the object holds (`calls_back`, [`Unstable::calls_back`]), and unless the
+/// call is one of [`PURE_FUNCTIONS`] (`pure`).
+pub(crate) fn changed_by_call<'p, 'a>(
+    call: &'p CallExpression<'a>,
+    pure: bool,
+    calls_back: bool,
+) -> Option<&'p Expression<'a>> {
     if pure {
         return None;
     }
@@ -2689,7 +2753,7 @@ pub(crate) fn changed_by_call<'p, 'a>(call: &'p CallExpression<'a>, pure: bool) 
         return call.arguments.first().and_then(Argument::as_expression);
     }
     match call.callee.get_inner_expression() {
-        Expression::StaticMemberExpression(m) if PURE_METHODS.contains(&m.property.name.as_str()) => None,
+        Expression::StaticMemberExpression(m) if PURE_METHODS.contains(&m.property.name.as_str()) && !calls_back => None,
         callee => callee.as_member_expression().map(MemberExpression::object),
     }
 }
