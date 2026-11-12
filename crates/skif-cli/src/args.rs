@@ -798,7 +798,7 @@ pub struct LintArgs {
     pub cache: bool,
 
     /// The directory of the --cache store (default: `node_modules/.cache/skif` below the workspace root, or below the
-    /// invocation directory of a multi-root run).
+    /// invocation directory of a multi-root run; `$TEST_TMPDIR/skif` under `bazel test`).
     #[arg(long, value_name = "DIR", requires = "cache")]
     pub cache_location: Option<PathBuf>,
 

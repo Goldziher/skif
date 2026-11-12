@@ -96,6 +96,33 @@ fn the_default_store_is_below_node_modules_of_the_root() {
 }
 
 #[test]
+fn under_bazel_test_the_default_store_is_in_the_test_tmpdir() {
+    let dir = project();
+    let scratch = tempfile::tempdir().unwrap();
+    let uncached = report(dir.path(), &[]);
+    let result = run(skif()
+        .current_dir(dir.path())
+        .env("TEST_TMPDIR", scratch.path())
+        .args(["--format", "json", "--cache"]));
+    assert_eq!((result.stdout, result.code), uncached, "{}", result.stderr);
+    let file = scratch.path().join("skif").join("modules.bin");
+    assert!(fs::read(&file).unwrap().starts_with(b"SKIFMOD\0"));
+    assert!(
+        !dir.path().join("node_modules").join(".cache").join("skif").exists(),
+        "nothing is written below the root"
+    );
+
+    // An explicit location wins over the scratch directory.
+    let location = scratch.path().join("explicit");
+    let explicit = run(skif()
+        .current_dir(dir.path())
+        .env("TEST_TMPDIR", scratch.path())
+        .args(["--format", "json", "--cache", "--cache-location", location.to_str().unwrap()]));
+    assert_eq!((explicit.stdout, explicit.code), uncached, "{}", explicit.stderr);
+    assert!(fs::read(location.join("modules.bin")).unwrap().starts_with(b"SKIFMOD\0"));
+}
+
+#[test]
 fn a_store_that_cannot_be_written_is_a_warning_only() {
     let dir = project();
     let uncached = report(dir.path(), &[]);
