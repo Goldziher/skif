@@ -192,7 +192,9 @@ Only string values are instances, and a fix edits the entry in place, in `pnpm-w
 Values that are references rather than versions (npm's `$name`, pnpm's `-`) are skipped, and the `overrides` of
 `pnpm-workspace.yaml` are read only when pnpm is the package manager. A group that names no type covers the types
 `[policy] dependency-types` governs, so `policy = "banned"` for a dependency does not reach its `peerDependencies`
-unless the group names `peer`.
+unless the group names `peer`. Bun reads `overrides` and `resolutions` of the root `package.json`, but ignores
+`resolutions` whenever `overrides` is present, even an empty `{}` (checked with Bun 1.4); skif still reads both, so in
+a Bun workspace keep the entries in one of the two.
 
 `override-reading` chooses how those entries are read. `"skif"` (the default) is described above. `"syncpack"` reads
 them as syncpack 15 does: the key of an entry is the dependency name (`parent@4>child` and `react@<18` are dependencies
@@ -213,7 +215,7 @@ themselves workspace packages.
 | `pin` | Required by `pinned`. |
 | `snap-to` | Required by `snapped-to`: packages whose version the group follows. |
 | `prefer` | With `preferred-semver`, overrides `[policy] prefer`. |
-| `scope` | `manifests` (default) judges what the manifests declare; `lockfile` judges every package `pnpm-lock.yaml` resolves, transitive ones included. Only with `banned`. |
+| `scope` | `manifests` (default) judges what the manifests declare; `lockfile` judges every package `pnpm-lock.yaml` (`bun.lock` in a Bun workspace) resolves, transitive ones included. Only with `banned`. |
 
 ```toml
 [[version-groups]]
@@ -241,13 +243,14 @@ override section or a custom type (which that rule does not read), a path keeps 
 next to a workspace package's own version, a path that resolves to the package is valid and one to another directory
 is a `version-mismatch`. `banned` groups report a path in every case.
 
-A `scope = "lockfile"` group reports each resolved `name@version` it bans once, at its entry in `pnpm-lock.yaml`, with
+A `scope = "lockfile"` group reports each resolved `name@version` it bans once, at its entry in the lockfile, with
 the shortest chain an importer pulls it in through (`importer packages/app pulls it in through mid@2.0.0 >
 left-pad@1.3.0`), so removing the `overrides` entry that kept a package out fails the lint. `packages` chooses the
 importers by the workspace package they belong to; `dependency-types` and `specifier-types` select manifest entries and
-are rejected. The group claims no manifest entry: those fall through to the groups after it. Only `pnpm-lock.yaml` in
-lockfile format 9 (pnpm 9 and 10) is read. Without it, or with `yarn.lock`, `package-lock.json` or `bun.lock` instead,
-or when it does not parse, `banned-dependency` reports that nothing was checked rather than passing.
+are rejected. The group claims no manifest entry: those fall through to the groups after it. The lockfile is
+`pnpm-lock.yaml` in lockfile format 9 (pnpm 9 and 10), or `bun.lock` in a Bun workspace. Without it, with `yarn.lock`,
+`package-lock.json` or only Bun's binary `bun.lockb` instead, or when it does not parse, `banned-dependency` reports
+that nothing was checked rather than passing.
 
 ### `[[semver-groups]]`
 
@@ -351,7 +354,8 @@ anchor = "react"             # one version of each member per major of react
 ```
 
 In the default `manifests` scope the members a package declares must share a version. `scope = "importer"` and
-`scope = "lockfile"` judge what `pnpm-lock.yaml` resolves instead, transitive packages included: per importer (what
+`scope = "lockfile"` judge what the lockfile (`pnpm-lock.yaml`, or `bun.lock` in a Bun workspace) resolves instead,
+transitive packages included: per importer (what
 each workspace package reaches, not following `link:` to other workspace packages) or across the lockfile. Every
 resolved member must then be on one version; the lower ones are reported at their lockfile entry. With an `anchor`,
 each member may resolve once per major (`@types/react` 17 and 18 next to `react` 17 and 18), and a member on a major
@@ -1059,16 +1063,19 @@ counterpart. These differences are deliberate:
 - `bun` is enabled by `bun.lock`, `bun.lockb` or `bunfig.toml` in the package, a `bun test` script, or `@types/bun`
   or `bun-types` in the package or a package above it. Its test entries are the files `bun test` finds:
   `*.test.*`, `*_test.*`, `*.spec.*` and `*_spec.*` with any of the `js`, `jsx`, `ts`, `tsx`, `mjs`, `cjs`, `mts` and
-  `cts` extensions. `bunfig.toml` names the modules of `preload` and `[test] preload`, the package of
-  `jsxImportSource` and the security scanner of `[install.security] scanner`. In the source files, the commands of
+  `cts` extensions; with `[test] root` in `bunfig.toml` only those below that directory (relative to the config), and
+  without the files and directories a glob of `pathIgnorePatterns` (relative to the config too) matches. Entries set
+  for the plugin in `[js.plugins]` replace these as before. `bunfig.toml` names the modules of `preload` and
+  `[test] preload`, the package of `jsxImportSource`, the security scanner of `[install.security] scanner` and the
+  ESLint plugins of `[lint] plugins`. In the source files, the commands of
   Bun Shell (`` $`…` `` imported from `bun`, or `` Bun.$`…` ``) and of `Bun.spawn` and `Bun.spawnSync` (a list of
   words, a computed one left out, or `{ cmd }`) are read like those of `execa`, and the `entrypoints` of `Bun.build`
   (or `build` imported from `bun`) are production entries relative to the package, the directory a script runs Bun
-  in. A command run in another directory, by `` $`…`.cwd(dir) `` or the `cwd` option of `Bun.spawn`, is judged as
+  in; one computed from the file's own location (`path.join(import.meta.dir, "worker.ts")`) is relative to the file.
+  A command run in another directory, by `` $`…`.cwd(dir) `` or the `cwd` option of `Bun.spawn`, is judged as
   one run in another package, as `bun --cwd` is. Only the package's own sources are read: a workspace root does not
   read the files below a member's `package.json`. A package whose sources, or the sources of the packages below it,
-  use the `Bun` global uses the `@types/bun` or `bun-types` it lists. `bunfig.toml`'s `[test] root` and
-  `pathIgnorePatterns` are not read.
+  use the `Bun` global uses the `@types/bun` or `bun-types` it lists.
 - `next-mdx` and `starlight` read the options of the `@next/mdx` and `@astrojs/starlight` calls in the config source;
   a plugin or component passed as an imported binding is not a string and is already an import.
 - `unplugin-auto-import` and `unplugin-vue-components` make the declaration files they generate (`auto-imports.d.ts`,
