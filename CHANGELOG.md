@@ -9,6 +9,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Config evaluation**: an optional member (`base?.setupFiles`, `undefined` when `base` is `null` or `undefined`) and
+  a computed member whose key evaluates to a string (`base['setupFiles']`, `base[KEY]`) read a known object as
+  `base.setupFiles` does, instead of leaving the package incomplete
+  ([#148](https://github.com/Goldziher/skif/issues/148)).
+
 ## [0.3.0] - 2026-11-11
 
 ### Added
