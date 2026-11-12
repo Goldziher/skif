@@ -2147,3 +2147,42 @@ fn a_function_reading_arguments_may_change_every_argument() {
         assert!(open(&value), "{source}: {value:?}");
     }
 }
+
+/// A method named like one of a list or a string that changes nothing it is given (`forEach`, `with`, `includes`,
+/// `resolve`, `push`) changes nothing only when it is called on an object known to have it (a list or string literal,
+/// a `const` holding one, `require`); called on a library or a helper, imported or required, it may change what it is
+/// given.
+#[test]
+fn a_method_named_like_a_list_one_may_change_its_argument_on_another_object() {
+    let changed = |value: &ConfigValue| {
+        let rules = get(value, &["module", "rules"]);
+        open(value) || rules.as_array().and_then(<[ConfigValue]>::first).is_some_and(open)
+    };
+    for body in [
+        "_.forEach(config.module.rules, (rule) => { rule.loader = 'other-loader'; });",
+        "lodash.forEach(config.module.rules, (rule) => { rule.loader = 'other-loader'; });",
+        "helpers.with(config);",
+        "env.resolve(config);",
+        "const found = helpers.includes(config);",
+        "helpers.push(config);",
+    ] {
+        let source = format!(
+            "import _ from 'lodash';\nconst lodash = require('lodash');\n\
+             const helpers = require('./helpers');\nconst env = require('./env');\n\
+             const config = {{ entry: './src/main.js', module: {{ rules: [{{ loader: 'babel-loader' }}] }} }};\n\
+             {body}\nmodule.exports = config;"
+        );
+        let value = extract("webpack.config.js", &source);
+        assert!(changed(&value), "{body}: {value:?}");
+    }
+    let kept = extract(
+        "webpack.config.js",
+        "const config = { entry: './src/main.js', module: { rules: [{ loader: 'babel-loader' }] } };\n\
+         const names = ['a'];\n\
+         names.forEach((name) => name.length);\n\
+         const found = ['a', 'b'].includes(config.entry);\n\
+         require.resolve(config.entry);\n\
+         module.exports = config;",
+    );
+    assert!(!changed(&kept), "{kept:?}");
+}

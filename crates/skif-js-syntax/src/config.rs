@@ -3638,7 +3638,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     }
 
     /// Applies `name.list.push(…)` or `name.list.unshift(…)` of a local list, given no spread, to the list; returns
-    /// whether `call` is such a call.
+    /// whether `call` is such a call. What is known to be a list only adds what it is given; anything else may have a
+    /// method of that name that changes it.
     fn insert(&self, call: &'p CallExpression<'a>, depth: u32) -> bool {
         let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
             return false;
@@ -3659,7 +3660,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         else {
             return false;
         };
-        if !self.is_local(root.name.as_str()) {
+        if !self.is_list(root.name.as_str(), &keys) {
             return false;
         }
         for argument in &arguments {
@@ -3671,6 +3672,20 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             .collect();
         self.edit(root.name.as_str(), &keys, &Edit::Insert { front, items });
         true
+    }
+
+    /// Whether the innermost local `name` holds a list at `keys`, in every value it may be.
+    fn is_list(&self, name: &str, keys: &[String]) -> bool {
+        let frames = self.frames.borrow();
+        let Some(binding) = frames.iter().rev().find_map(|frame| frame.get(name)) else {
+            return false;
+        };
+        match binding {
+            Binding::Value(value) | Binding::Alias(Alias { value, .. }) => {
+                value_at(value.definite(), keys).is_some_and(holds_list)
+            }
+            Binding::Callable(_) => false,
+        }
     }
 
     /// Applies `edit` at `keys` below the innermost local `name`, and through it when it is an alias
@@ -3827,6 +3842,15 @@ fn set_entry(value: &mut Value, key: &str, field: Value) {
         },
         Value::Array(items) => items.push(Value::Unknown),
         _ => {}
+    }
+}
+
+/// Whether a value is a list, in every value it may be.
+fn holds_list(value: &Value) -> bool {
+    match value.definite() {
+        Value::Array(_) => true,
+        Value::OneOf(alternatives) => alternatives.iter().all(holds_list),
+        _ => false,
     }
 }
 
