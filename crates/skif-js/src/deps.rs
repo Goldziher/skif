@@ -1030,10 +1030,10 @@ pub struct DependencyUsage {
     referenced: Vec<HashMap<String, BTreeSet<Use>>>,
     /// The use being collected, recorded with every reference.
     via: Use,
-    listed: Vec<HashSet<String>>,
+    listed: Vec<HashSet<Arc<str>>>,
     /// For every package, the names its manifest lists in `dependencies` and `peerDependencies`: what production
     /// code may import in strict mode.
-    production_listed: Vec<HashSet<String>>,
+    production_listed: Vec<HashSet<Arc<str>>>,
     /// knip's strict mode (`skif --strict`): type-only imports use nothing, and production code uses only the
     /// `dependencies` and `peerDependencies` of its own package.
     strict: bool,
@@ -1194,12 +1194,12 @@ impl DependencyUsage {
         let members: Vec<(PackageId, &Package)> = workspace.iter().collect();
         for &(id, package) in &members {
             for entry in &package.dependencies {
-                self.listed[id.index()].insert(entry.name.to_string());
+                self.listed[id.index()].insert(Arc::clone(&entry.name));
                 if matches!(
                     entry.kind,
                     DependencyKind::Dependencies | DependencyKind::PeerDependencies
                 ) {
-                    self.production_listed[id.index()].insert(entry.name.to_string());
+                    self.production_listed[id.index()].insert(Arc::clone(&entry.name));
                 }
             }
         }
@@ -1214,9 +1214,9 @@ impl DependencyUsage {
                 .filter_map(|name| {
                     let found = shared
                         .read(fs, &dir, &workspace.root, name)
-                        .or_else(|| linked.get(name).cloned())
-                        .or_else(|| locked.get(name).cloned())?;
-                    Some((name.clone(), found))
+                        .or_else(|| linked.get(&**name).cloned())
+                        .or_else(|| locked.get(&**name).cloned())?;
+                    Some((name.to_string(), found))
                 })
                 .collect()
         });
@@ -1266,8 +1266,8 @@ impl DependencyUsage {
             for scope in [id, PackageId::ROOT] {
                 let types: Vec<String> = self.listed[scope.index()]
                     .iter()
-                    .filter(|name| GLOBAL_TYPES.contains(&name.as_str()))
-                    .cloned()
+                    .filter(|name| GLOBAL_TYPES.contains(&&***name))
+                    .map(ToString::to_string)
                     .collect();
                 for name in types {
                     self.with_via(Use::AmbientTypes, |usage| usage.reference_in(scope, &name));
@@ -1989,10 +1989,10 @@ impl DependencyUsage {
                 self.listed[scope.index()]
                     .iter()
                     .filter(|dep| {
-                        (unscoped(dep) == bin && !self.known_bins[scope.index()].contains(*dep))
-                            || BINARY_PACKAGES.iter().any(|(b, package)| *b == bin && package == dep)
+                        (unscoped(dep) == bin && !self.known_bins[scope.index()].contains(&***dep))
+                            || BINARY_PACKAGES.iter().any(|(b, package)| *b == bin && *package == &***dep)
                     })
-                    .map(|dep| (Listed::Package(scope), dep.clone())),
+                    .map(|dep| (Listed::Package(scope), dep.to_string())),
             );
         }
         if provided.is_empty() {
@@ -2003,8 +2003,8 @@ impl DependencyUsage {
                 provided.extend(
                     self.listed[scope.index()]
                         .iter()
-                        .filter(|dep| !self.known_bins[scope.index()].contains(*dep) && resembles(dep, bin))
-                        .map(|dep| (Listed::Package(scope), dep.clone())),
+                        .filter(|dep| !self.known_bins[scope.index()].contains(&***dep) && resembles(dep, bin))
+                        .map(|dep| (Listed::Package(scope), dep.to_string())),
                 );
             }
         }
