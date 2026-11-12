@@ -1029,7 +1029,7 @@ from an installed package stays unknown, and an imported value that depends on i
 A member of a known object is the value of its key: `{ ...base, plugins: [...base.plugins, "x"] }` keeps the plugins of
 the imported `base`, which are judged against the package that owns the module naming them, while `"x"` belongs to the
 importing config. An optional member (`base?.plugins`, `undefined` when `base` is `null` or `undefined`) and a computed
-member whose key is a known string (`base["plugins"]`, `base[KEY]`) read the same way. Only a fully known object answers for a key it does not have, which is `undefined` there, read
+member whose key is a known string or number (`base["plugins"]`, `base[KEY]`, `LIST[0]`) read the same way. Only a fully known object answers for a key it does not have, which is `undefined` there, read
 through a member or a destructuring; a key an unknown spread may set, a member of `Object.prototype` such as
 `toString`, and any key of an object with a `__proto__` are unknown. A key merged from a spread with an unknown test
 (`{ ...(ci ? { setupFiles: ["./a.ts"] } : {}) }`) may be absent, so `x.setupFiles ?? ["./default.ts"]` keeps both lists
@@ -1055,6 +1055,12 @@ sets instead: a list gets the elements of every branch, so the files each branch
 the branches do not share is unknown. Only a branch that is not known itself, such as an imported base config, makes it
 an unknown spread. The same holds for `if (test) return a;` before a function's last `return`: a known test takes its
 branch, and with an unknown test the value is what both returns share, never the last one alone.
+`.map`, `.flatMap` and `.filter` of a known array call their callback, an inline function or one the config declares,
+with each element and its index, so `` ["light", "dark"].map((theme) => ({ test: { name: `browser-${theme}` } })) ``
+is two known projects; an element that is not known (a spread of an unknown list) stays unknown, and a predicate whose
+result is not known keeps the element. `Object.fromEntries` of a known list of `[key, value]` pairs is their object,
+template literals and `+` write known strings, numbers and booleans, and `===` and `!==` compare known primitives. A
+Vite or Vitest `root` that is one of several directories reads the HTML entries of each.
 A local assigned or changed in code that may or may not run (a branch with an unknown test, a loop, `cond && (x = 1)`),
 and a top-level constant changed after its declaration (`if (process.env.A) config.plugins.push(…)`), is unknown or
 partly unknown afterwards rather than keeping its earlier value; a branch with an unknown test that changes a local
