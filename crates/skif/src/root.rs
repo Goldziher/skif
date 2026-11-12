@@ -76,7 +76,7 @@ pub(crate) fn workspace_members(
     cache: &ConfigCache,
 ) -> Result<BTreeSet<PathBuf>, Error> {
     let config = resolve_config(root, &Ceiling::Vcs, fs, &ConfigOverrides::default(), cache)?.config;
-    Ok(Workspace::discover_with_fs(root, &config, fs)?.claimed_dirs())
+    Ok(Workspace::claimed_dirs_with_fs(root, &config, fs)?)
 }
 
 /// Finds the workspace that `start` belongs to.
