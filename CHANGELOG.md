@@ -76,6 +76,10 @@ All notable changes to this project are documented here. The format follows
   directory its parent package publishes as a subpath (`exports` has `./<dir>`, or `files` lists it) no longer makes a
   project of its own, so the files there belong to the package: `module.exports = require('@vue/compiler-sfc')` in
   `vue/compiler-sfc/index.js` uses the dependency of `vue` ([#98](https://github.com/Goldziher/skif/issues/98)).
+- **Configs inside `node_modules`**: a tool config that extends or references a config file by a relative path into a
+  `node_modules` directory (`"extends": ["./node_modules/ultracite/config/oxlint/core/.oxlintrc.json"]` in
+  `.oxlintrc.json`) names that package, so it is used, also when it is not installed and the file cannot be read
+  ([#98](https://github.com/Goldziher/skif/issues/98)).
 
 ## [0.4.0] - 2026-11-12
 

@@ -927,7 +927,8 @@ from a config value (`importHelpers: true` names `tslib`), as knip does. A liste
 is reported by `unlisted-dependencies` at the config with the detail `ConfigReference`
 ("`tsconfig.json` references `@acme/tsconfig`, which is not listed in `package.json`"). Built-in names
 (`prisma-client-js`, a `generator client` block), relative paths and the string `extends` of an ESLint flat config
-(`js/recommended`) are no packages. A built-in ESLint config (`eslint:recommended`) is an optional reference to
+(`js/recommended`) are no packages, except a relative path into a `node_modules` directory: an Oxlint `extends` of
+`./node_modules/ultracite/config/oxlint/core/.oxlintrc.json` names `ultracite`, installed or not. A built-in ESLint config (`eslint:recommended`) is an optional reference to
 `eslint`; knip credits it as a plain dependency, which it reports where no manifest lists `eslint`, but skif does not,
 since a package that only enables ESLint may get it from the root. A package that a command in a config names (`node --require x`
 in a hook), one a plugin assumes without reading a config, and an optional reference (Vite's `optimizeDeps.include`,
