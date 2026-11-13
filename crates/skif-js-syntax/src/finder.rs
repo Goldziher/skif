@@ -726,7 +726,7 @@ impl Finder<'_, '_> {
                     match first.and_then(static_string) {
                         Some(specifier) => self.info.imports.push(Import {
                             specifier,
-                            kind: ImportKind::Require,
+                            kind: ImportKind::Resolve,
                             names: Vec::new(),
                             call: None,
                             span: span(),

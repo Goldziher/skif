@@ -120,7 +120,7 @@ pub struct Importer {
     pub line: u32,
     /// How the import is written.
     pub kind: ImportKind,
-    /// What the import takes; empty for the whole module.
+    /// What the import takes; empty for the whole module, and for a resolve call, which takes none of it.
     pub names: Vec<String>,
     /// Whether an entry file reaches the importing file.
     pub reachable: bool,
@@ -380,7 +380,7 @@ impl UsageReport {
                     importer.file,
                     importer.line,
                     kind_label(importer.kind),
-                    names_label(&importer.names)
+                    names_label(importer.kind, &importer.names)
                 );
             }
             if self.imported_by.len() > MAX_LISTED {
@@ -422,6 +422,7 @@ const fn kind_label(kind: ImportKind) -> &'static str {
         ImportKind::SideEffect => "side-effect",
         ImportKind::Dynamic => "dynamic",
         ImportKind::Require => "require",
+        ImportKind::Resolve => "resolve",
         ImportKind::ImportMetaGlob => "import-meta-glob",
         ImportKind::SourceGlob => "source-glob",
         ImportKind::ExportFrom => "export-from",
@@ -430,8 +431,10 @@ const fn kind_label(kind: ImportKind) -> &'static str {
     }
 }
 
-fn names_label(names: &[String]) -> String {
-    if names.is_empty() {
+fn names_label(kind: ImportKind, names: &[String]) -> String {
+    if kind == ImportKind::Resolve {
+        "its path, no export".to_owned()
+    } else if names.is_empty() {
         "the whole module".to_owned()
     } else {
         names.join(", ")
@@ -546,7 +549,7 @@ fn reached(target: &Target) -> &[ModuleId] {
 fn uses_export(importer: &ModuleInfo, import: &Import, export: &str, is_type: bool) -> Option<String> {
     if matches!(
         import.kind,
-        ImportKind::ExportFrom | ImportKind::SideEffect | ImportKind::Mock
+        ImportKind::ExportFrom | ImportKind::SideEffect | ImportKind::Mock | ImportKind::Resolve
     ) {
         return None;
     }

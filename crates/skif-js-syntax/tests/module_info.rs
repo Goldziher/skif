@@ -134,7 +134,7 @@ fn import_forms() {
             path: "a.cjs",
             source: "require.resolve('x');",
             specifier: "x",
-            kind: ImportKind::Require,
+            kind: ImportKind::Resolve,
             names: vec![],
         },
         Case {
@@ -142,7 +142,7 @@ fn import_forms() {
             path: "a.mjs",
             source: "const url = import.meta.resolve('x');",
             specifier: "x",
-            kind: ImportKind::Require,
+            kind: ImportKind::Resolve,
             names: vec![],
         },
         Case {

@@ -9,6 +9,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Breaking changes
+
+- **Public API**: `skif-js-syntax`'s `ImportKind` gains `Resolve` (`enum_variant_added`), so an exhaustive `match` on
+  it needs the arm ([#225](https://github.com/Goldziher/skif/issues/225)).
+
+### Fixed
+
+- **Resolve calls**: `require.resolve(x)` and `import.meta.resolve(x)` return a path and load nothing, so they no
+  longer count as a use of every export of the module they name. The file they name stays in use and a package they
+  name is still a used dependency, but its exports are judged: `unused-exports` and `unused-types` now report the
+  exports nothing else imports. `skif-js-syntax` reports the call as `ImportKind::Resolve` (`resolve` in
+  `explain-usage`, which says it takes the path and no export), and the analysis cache is invalidated. knip reports
+  nothing for these exports, so the findings are skif's alone
+  ([#225](https://github.com/Goldziher/skif/issues/225)).
+
 ## [0.4.0] - 2026-11-12
 
 ### Breaking changes
