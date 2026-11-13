@@ -5695,7 +5695,7 @@ mod tests {
     }
 
     /// What the config `/ws/app/config.ts` of `loader` exports, with the modules that evaluating it followed.
-    fn evaluate<'l>(loader: &'l Files) -> (ConfigValue, Modules<'l>) {
+    fn evaluate(loader: &Files) -> (ConfigValue, Modules<'_>) {
         let path = Path::new("/ws/app/config.ts");
         let modules = Modules::new(loader, path);
         let config = evaluate_config(loader.0[path], path, Some(&modules)).expect("config is understood");
