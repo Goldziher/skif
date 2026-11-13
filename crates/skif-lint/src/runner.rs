@@ -115,7 +115,8 @@ impl<'a> RunOptions<'a> {
 
     /// Files, relative to the workspace root, that other roots of the same run name as build sources (a Bazel `srcs`),
     /// for a multi-root host: the JS analysis makes those of its own files build sources, which are used and whose
-    /// imports are followed but whose exports are judged. Empty by default.
+    /// imports are followed but whose exports are judged; one also passed to
+    /// [`with_extra_entries`](Self::with_extra_entries) stays an entry. Empty by default.
     #[must_use]
     pub const fn with_extra_build_sources(mut self, extra_build_sources: &'a [PathBuf]) -> Self {
         self.extra_build_sources = extra_build_sources;

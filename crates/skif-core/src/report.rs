@@ -55,7 +55,8 @@ pub struct Report {
     /// run does not judge them. A multi-root host hands those below the workspace root to the root that owns them as
     /// extra build sources, made relative to it (see `RunOptions::with_extra_build_sources` of the `skif` crate), so
     /// that root judges their exports; those outside it count as used by the root that owns them, as
-    /// `other_project_files` do. Not rendered.
+    /// `other_project_files` do. A file can be in both lists (the analysed code imports it and a plugin builds from
+    /// it); the root that owns it then takes it as an entry, whose exports are public. Not rendered.
     #[serde(skip)]
     pub other_project_build_sources: Vec<PathBuf>,
     /// Dependencies that the analysed code uses through a `package.json` of another project (Node.js resolves them
