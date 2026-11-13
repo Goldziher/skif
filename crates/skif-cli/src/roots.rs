@@ -341,6 +341,8 @@ pub fn lint_loaded(
 /// The roots of a run by directory, so the roots around a path are found by walking its ancestors instead of testing
 /// every root.
 struct RootIndex<'a> {
+    /// The root directory of each target, by index.
+    dirs: Vec<&'a Path>,
     /// How many targets have each root, and the last of them by index.
     roots: HashMap<&'a Path, (usize, usize)>,
 }
@@ -348,12 +350,13 @@ struct RootIndex<'a> {
 impl<'a> RootIndex<'a> {
     /// The index of `roots`, the root directories of the targets in order.
     fn new(roots: impl IntoIterator<Item = &'a Path>) -> Self {
+        let dirs: Vec<&'a Path> = roots.into_iter().collect();
         let mut index: HashMap<&'a Path, (usize, usize)> = HashMap::default();
-        for (position, root) in roots.into_iter().enumerate() {
+        for (position, root) in dirs.iter().copied().enumerate() {
             let entry = index.entry(root).or_insert((0, position));
             *entry = (entry.0 + 1, position);
         }
-        Self { roots: index }
+        Self { dirs, roots: index }
     }
 
     /// The index of the roots of `targets`.
@@ -390,46 +393,47 @@ fn distinct_ancestors(path: &Path) -> impl Iterator<Item = &Path> {
 
 /// Hands the files and build sources of other projects that the report of root `from` lists (absolute) to the
 /// innermost root holding each, as paths relative to that root. A file below `from` belongs to a root nested in it,
-/// which is linted later and takes it as an entry, or a build source as a build source; a file outside `from` is
-/// counted as used by its root once every root is linted, as that root may be linted already.
-fn route_other_project_files(
-    (targets, roots): (&[Target], &RootIndex<'_>),
+/// which is linted later and takes a file as an entry and a build source as a build source; a file outside `from`,
+/// either kind, is counted as used by its root once every root is linted, as that root may be linted already.
+fn route_other_project_paths(
+    roots: &RootIndex<'_>,
     (from, report): (usize, &Report),
     handed: &mut [HandedFiles],
     uses: &mut [OtherRootUses],
 ) {
-    let routes = (targets, roots, from);
-    for (owner, rel) in route_below(routes, &report.other_project_files, uses) {
+    let (entries, files_outside) = route(roots, from, &report.other_project_files);
+    let (build_sources, build_sources_outside) = route(roots, from, &report.other_project_build_sources);
+    for (owner, rel) in entries {
         handed[owner].entries.insert(rel);
     }
-    for (owner, rel) in route_below(routes, &report.other_project_build_sources, uses) {
+    for (owner, rel) in build_sources {
         handed[owner].build_sources.insert(rel);
+    }
+    for (owner, rel) in files_outside.into_iter().chain(build_sources_outside) {
+        uses[owner].files.insert(rel);
     }
 }
 
-/// The files of `files` (absolute) below root `from`, with the innermost other root holding each and the path relative
-/// to it; those outside `from` are counted in `uses` as used by the root holding them.
-fn route_below(
-    (targets, roots, from): (&[Target], &RootIndex<'_>, usize),
-    files: &[PathBuf],
-    uses: &mut [OtherRootUses],
-) -> Vec<(usize, PathBuf)> {
-    let base = &targets[from].root;
-    let mut below = Vec::new();
+/// Files of other roots, each with the innermost root holding it and the path relative to that root: those below the
+/// root that listed them, and those outside it.
+type Routed = (Vec<(usize, PathBuf)>, Vec<(usize, PathBuf)>);
+
+/// Splits `files` (absolute), which root `from` lists, into those below `from` and those outside it, each with the
+/// innermost other root holding it; files of `from` itself and of no root of the run are left out.
+fn route(roots: &RootIndex<'_>, from: usize, files: &[PathBuf]) -> Routed {
+    let base = roots.dirs[from];
+    let (mut below, mut outside) = (Vec::new(), Vec::new());
     for abs in files {
         let Some(owner) = roots.owner(abs).filter(|owner| *owner != from) else {
             continue;
         };
-        let Ok(rel) = abs.strip_prefix(&targets[owner].root) else {
+        let Ok(rel) = abs.strip_prefix(roots.dirs[owner]) else {
             continue;
         };
-        if abs.starts_with(base) {
-            below.push((owner, rel.to_path_buf()));
-        } else {
-            uses[owner].files.insert(rel.to_path_buf());
-        }
+        let side = if abs.starts_with(base) { &mut below } else { &mut outside };
+        side.push((owner, rel.to_path_buf()));
     }
-    below
+    (below, outside)
 }
 
 /// Lints every target, in parallel, and keeps the targets' (path) order; the first failure in that order wins, so the
@@ -470,7 +474,7 @@ pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Res
             .collect();
         for (index, report) in linted {
             if let Ok(report) = &report {
-                route_other_project_files((&targets, &roots), (index, report), &mut handed, &mut other_root_uses);
+                route_other_project_paths(&roots, (index, report), &mut handed, &mut other_root_uses);
             }
             reports[index] = Some(report);
         }
@@ -697,6 +701,46 @@ mod tests {
         let index = RootIndex::new(roots);
         assert_eq!(index.depth(Path::new("/r/./a")), 1);
         assert_eq!(depth_by_scan(&roots, Path::new("/r/./a")), 1);
+    }
+
+    #[test]
+    fn route_hands_build_sources_below_to_the_innermost_root_and_credits_those_outside() {
+        // `/r` encloses `/r/mid`, which encloses `/r/mid/inner`; `/s` is a sibling.
+        let roots = RootIndex::new(["/r", "/r/mid", "/r/mid/inner", "/s"].map(Path::new));
+        let outer = Report::new(Vec::new(), 1)
+            .with_other_project_files(vec![PathBuf::from("/r/mid/a.ts")])
+            .with_other_project_build_sources(vec![
+                PathBuf::from("/r/mid/b.ts"),
+                PathBuf::from("/r/mid/inner/lib/x.ts"),
+                PathBuf::from("/r/own.ts"),
+                PathBuf::from("/s/lib/s.ts"),
+                PathBuf::from("/t/none.ts"),
+            ]);
+        let mid = Report::new(Vec::new(), 1).with_other_project_build_sources(vec![PathBuf::from("/r/lib/up.ts")]);
+        let mut handed = vec![HandedFiles::default(); 4];
+        let mut uses = vec![OtherRootUses::default(); 4];
+        route_other_project_paths(&roots, (0, &outer), &mut handed, &mut uses);
+        route_other_project_paths(&roots, (1, &mid), &mut handed, &mut uses);
+
+        let set = |paths: &[&str]| paths.iter().map(PathBuf::from).collect::<BTreeSet<_>>();
+        assert_eq!(handed[0], HandedFiles::default());
+        assert_eq!(
+            handed[1],
+            HandedFiles {
+                entries: set(&["a.ts"]),
+                build_sources: set(&["b.ts"]),
+            }
+        );
+        assert_eq!(
+            handed[2],
+            HandedFiles {
+                entries: BTreeSet::new(),
+                build_sources: set(&["lib/x.ts"]),
+            }
+        );
+        assert_eq!(handed[3], HandedFiles::default());
+        let files: Vec<BTreeSet<PathBuf>> = uses.into_iter().map(|uses| uses.files).collect();
+        assert_eq!(files, [set(&["lib/up.ts"]), BTreeSet::new(), BTreeSet::new(), set(&["lib/s.ts"])]);
     }
 
     #[test]
