@@ -273,7 +273,8 @@ impl WorkspaceListing {
 
     /// An empty listing of the source files below `dir`, a package directory of `workspace`, that shares the texts it
     /// reads with the listings of the run's other packages ([`PackageSources::within`]): the sources of a member are
-    /// also sources of the root package, and each file is read once for the plugins of both.
+    /// also sources of the root package, and a file the plugins of one read is not read again for the other's, unless
+    /// both read it at the same time on different threads. The listing must not outlive the run.
     #[must_use]
     pub fn package_sources(&self, workspace: &Workspace, dir: &Path) -> PackageSources {
         let shared = skif_core::get_or_compute(&self.sources, || PackageSources::new(&workspace.root));

@@ -11,13 +11,17 @@ use crate::plugin::PluginContext;
 /// first use. Several plugins (`pino`, `zx`, `execa`, `nano-spawn`, `bun`, ...) search the sources of a package for
 /// the calls they know; with one listing for the package, each file is listed and read once for all of them.
 ///
-/// The resolvers ([`resolve_plugins`](crate::resolve_plugins) and its variants) keep one for each package and scope
-/// they resolve, and drop it when they are done. A listing serves only a context of its own directory: a context of
-/// another directory lists and reads its sources itself.
+/// The resolvers ([`resolve_plugins`](crate::resolve_plugins) and its variants) use one for each package and scope
+/// they resolve. A listing serves only a context of its own directory: a context of another directory lists and reads
+/// its sources itself.
 ///
-/// Listings made [`within`](Self::within) one another share the texts they read: the sources of a package below the
-/// root package, or of an Nx project below its package, are also sources of the enclosing directory, and a file one of
-/// them read is not read again for another.
+/// Listings made [`within`](Self::within) one another form a group that shares the texts it reads, by absolute path:
+/// the sources of a package below the root package, or of an Nx project below its package, are also sources of the
+/// enclosing directory, and a file one of them read is not read again for another (two listings that want it at the
+/// same time on different threads may both read it). The texts are a snapshot of the
+/// [`FileSystem`](skif_core::FileSystem) taken during one run and live as long as the longest-lived listing of the
+/// group: a listing must not outlive the run, or the state of the file system, it read, and the listings of a group
+/// share texts correctly only when all of them read through the same file system.
 #[derive(Debug)]
 pub struct PackageSources {
     dir: PathBuf,
@@ -25,7 +29,8 @@ pub struct PackageSources {
     texts: Arc<Texts>,
 }
 
-/// A source file, relative to the package directory, and its text once read; `None` when it cannot be read.
+/// A source file, relative to the package directory, and its text once read; `None` when it cannot be read. The cell
+/// is the listing's own so that it remembers a failed read, which the group's [`Texts`] does not keep.
 #[derive(Debug)]
 struct SourceFile {
     path: String,
@@ -63,6 +68,9 @@ impl PackageSources {
 
     /// An empty listing of the sources below `dir` that takes the text of a file from `enclosing`, and from every
     /// other listing made within it, when one of them read the file already, and shares what it reads with them.
+    ///
+    /// `dir` need not lie below the directory of `enclosing`: texts are shared by absolute path, so a listing of any
+    /// directory can join the group. All of them must read through the same file system during the same run.
     #[must_use]
     pub fn within(dir: impl Into<PathBuf>, enclosing: &Self) -> Self {
         Self {
