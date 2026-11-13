@@ -80,7 +80,8 @@ class Skif < Formula
 
   on_linux do
     # The glibc archives need glibc @@GLIBC_FLOOR@@; older systems get the static musl archives.
-    glibc_ok = OS::Linux::Glibc.system_version >= Version.new("@@GLIBC_FLOOR@@")
+    # Homebrew can evaluate Linux formulae while running on macOS.
+    glibc_ok = OS.linux? && OS::Linux::Glibc.system_version >= Version.new("@@GLIBC_FLOOR@@")
     on_arm do
       if glibc_ok
         url "@@BASE_URL@@/@@LINUX_ARM_ASSET@@"
