@@ -755,14 +755,18 @@ impl<'l> Modules<'l> {
     /// Whether `specifier` names an installed package from `from` ([`ModuleLoader::is_installed`]), asking the loader
     /// once per directory and specifier.
     fn is_installed(&self, from: &Path, specifier: &str) -> bool {
-        asked_once(&self.installed, from, specifier, || self.loader.is_installed(from, specifier))
+        asked_once(&self.installed, from, specifier, || {
+            self.loader.is_installed(from, specifier)
+        })
     }
 
     /// Whether `specifier` names a file of the project that holds no code from `from`
     /// ([`ModuleLoader::holds_no_code`]), asking the loader once per directory and specifier, so that an analysis
     /// replayed ([`Self::analyse`]) gets the answer the analysis it replays got.
     fn holds_no_code(&self, from: &Path, specifier: &str) -> bool {
-        asked_once(&self.no_code, from, specifier, || self.loader.holds_no_code(from, specifier))
+        asked_once(&self.no_code, from, specifier, || {
+            self.loader.holds_no_code(from, specifier)
+        })
     }
 
     /// Whether a function of the followed module `specifier` names from `from` may change a value of a module when it
@@ -5715,7 +5719,12 @@ mod tests {
     }
 
     fn obj(entries: Vec<(&str, ConfigValue)>) -> ConfigValue {
-        ConfigValue::Object(entries.into_iter().map(|(key, value)| (key.to_owned(), value)).collect())
+        ConfigValue::Object(
+            entries
+                .into_iter()
+                .map(|(key, value)| (key.to_owned(), value))
+                .collect(),
+        )
     }
 
     /// A module that re-exports the module importing it through two others is reached four times while that module is
