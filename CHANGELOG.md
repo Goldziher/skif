@@ -9,6 +9,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Performance** ([#224](https://github.com/Goldziher/skif/issues/224)): evaluating a config that follows its imports
+  parses and analyses a module inside a cycle of imports once per distinct set of answers its imports give, instead of
+  at every entry; the analysis budget and the findings are unchanged. A change that reaches a whole class of linked
+  bindings is applied to that class once instead of once per change. `ModuleLoader::holds_no_code` is asked once per
+  importing directory and specifier, as `is_installed` already was.
+
 ## [0.4.0] - 2026-11-12
 
 ### Breaking changes
