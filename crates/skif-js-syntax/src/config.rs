@@ -521,7 +521,7 @@ pub fn extract_config(source: &str, path: &Path, loader: Option<&dyn ModuleLoade
         pending: RefCell::new(Vec::new()),
         shallowest_cut: Cell::new(usize::MAX),
         analyses: Cell::new(0),
-        analysed: RefCell::new(HashMap::default()),
+        replayable: RefCell::new(HashMap::default()),
         installed: RefCell::new(HashMap::default()),
         no_code: RefCell::new(HashMap::default()),
     };
@@ -715,8 +715,8 @@ struct Modules<'l> {
     shallowest_cut: Cell<usize>,
     /// How many module analyses have run, kept or not, replayed or not ([`MAX_MODULE_ANALYSES`]).
     analyses: Cell<usize>,
-    /// The analyses of each module whose facts were not kept, for [`Self::analyse`] to replay.
-    analysed: RefCell<HashMap<PathBuf, Vec<Rc<Analysis>>>>,
+    /// The analyses of each module whose facts are not kept yet, for [`Self::analyse`] to replay.
+    replayable: RefCell<HashMap<PathBuf, Vec<Rc<Analysis>>>>,
     /// What the loader said of each importing directory and specifier ([`ModuleLoader::is_installed`]).
     installed: RefCell<HashMap<(PathBuf, String), bool>>,
     /// What the loader said of each importing directory and specifier ([`ModuleLoader::holds_no_code`]).
@@ -814,9 +814,9 @@ impl Modules<'_> {
 
     /// What the analysis of the followed module `specifier` names from `from` finds, with its path; what may hold for
     /// any module ([`ModuleFacts::unknown`]) while the module is being analysed, past [`MAX_IMPORT_DEPTH`] modules being
-    /// analysed, [`MAX_MODULE_LOADS`] analysed or [`MAX_MODULE_ANALYSES`] analyses run, and when the module does not parse. What one finds while a module that
-    /// encloses it is pending is not kept, as it depends on that module, but the next analysis of the module replays it
-    /// ([`Self::analyse`]).
+    /// analysed, [`MAX_MODULE_LOADS`] analysed or [`MAX_MODULE_ANALYSES`] analyses run, and when the module does not
+    /// parse. What one finds while a module that encloses it is pending is not kept, as it depends on that module, but
+    /// the next analysis of the module replays it ([`Self::analyse`]); once its facts are kept, nothing is replayed.
     fn facts(&self, from: &Path, specifier: &str) -> Option<(PathBuf, Rc<ModuleFacts>)> {
         let (path, source) = self.load(from, specifier)?;
         if let Some(known) = self.changing.borrow().get(&path) {
@@ -846,7 +846,7 @@ impl Modules<'_> {
             self.changing.borrow_mut().remove(&path);
             self.shallowest_cut.set(outer.min(cut));
             if let Some(analysis) = analysis {
-                self.analysed
+                self.replayable
                     .borrow_mut()
                     .entry(path.clone())
                     .or_default()
@@ -854,6 +854,7 @@ impl Modules<'_> {
             }
         } else {
             self.changing.borrow_mut().insert(path.clone(), Some(Rc::clone(&facts)));
+            self.replayable.borrow_mut().remove(&path);
             self.shallowest_cut.set(outer);
         }
         Some((path, facts))
@@ -869,7 +870,7 @@ impl Modules<'_> {
     /// state of `self` after a replay is the one after an analysis. When an answer differs, the analysis runs, its
     /// first questions answered with the answers already got, so that none is asked twice.
     fn analyse(&self, path: &Path, source: &Rc<str>) -> (Rc<ModuleFacts>, Option<Analysis>) {
-        let earlier = self.analysed.borrow().get(path).cloned().unwrap_or_default();
+        let earlier = self.replayable.borrow().get(path).cloned().unwrap_or_default();
         let mut candidates: Vec<&Analysis> = earlier
             .iter()
             .map(Rc::as_ref)
@@ -881,9 +882,10 @@ impl Modules<'_> {
             if let Some(done) = candidates.iter().find(|analysis| analysis.asked.len() == step) {
                 return (Rc::clone(&done.facts), None);
             }
-            let (query, recorded) = first.asked[step].clone();
+            let (query, recorded) = &first.asked[step];
+            let query = query.clone();
             let answer = if query.of_loader() {
-                recorded
+                recorded.clone()
             } else {
                 self.answer(path, &query)
             };
@@ -1348,8 +1350,17 @@ struct AnalysedImports<'m, 'l> {
 
 impl AnalysedImports<'_, '_> {
     /// The answer to `query`: the next one to replay, or the one [`Modules::answer`] gives.
+    ///
+    /// The answers to replay are those an earlier analysis of the same text got to its first questions
+    /// ([`Modules::analyse`]). As what an analysis asks next is decided by the text and the answers so far, this one
+    /// asks those questions in that order, so the next one to replay is always for `query`; a question that differs
+    /// would mean the analysis depends on something else, and is then answered afresh, as are all after it.
     fn ask(&self, query: Query) -> Answer {
         let replayed = self.replay.borrow_mut().pop_front();
+        debug_assert!(
+            replayed.as_ref().is_none_or(|(asked, _)| *asked == query),
+            "a replayed analysis asks the questions it replays in order"
+        );
         let answer = match replayed {
             Some((asked, answer)) if asked == query => answer,
             _ => {
@@ -1377,8 +1388,15 @@ impl Imports for AnalysedImports<'_, '_> {
     }
 
     fn result_places(&self, specifier: &str, export: &str) -> Option<Vec<Write>> {
-        match self.ask(Query::Places(specifier.to_owned(), export.to_owned())) {
+        let answer = self.ask(Query::Places(specifier.to_owned(), export.to_owned()));
+        debug_assert!(
+            matches!(answer, Answer::Places(_)),
+            "a question of places is answered with places"
+        );
+        match answer {
             Answer::Places(places) => places,
+            // [`Modules::answer`] answers [`Query::Places`] with places only; were it not so, what a call returns
+            // would not be known.
             Answer::Flag(_) => None,
         }
     }
