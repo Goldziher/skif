@@ -288,13 +288,13 @@ fn warn_empty_tsconfig_projects(targets: &[Target], fs: &dyn FileSystem) {
 
 /// Lints the root of `previous` again from disk. What root discovery decided about it (a standalone package nested
 /// below another root, the directory its configuration's workspace keys are written from, members another root
-/// lints) and what the other roots of the run told it (the files they import, the files and dependencies they use) is
-/// carried over, so the re-lint judges the root as the first lint did. The report is neither narrowed to what the
-/// flags select nor decided across roots yet.
+/// lints) and what the other roots of the run told it (the files they import and build from, the files and
+/// dependencies they use) is carried over, so the re-lint judges the root as the first lint did. The report is
+/// neither narrowed to what the flags select nor decided across roots yet.
 fn lint_once(
     linter: &Linter,
     previous: &Workspace,
-    (config, config_path, extra_entries, other_root_uses): RootInputs<'_>,
+    (config, config_path, handed, other_root_uses): RootInputs<'_>,
     fs: &dyn FileSystem,
 ) -> Result<(Workspace, Report), CliError> {
     let mut workspace = Workspace::discover_with_fs(&previous.root, config, fs)?;
@@ -307,7 +307,7 @@ fn lint_once(
         .map(|package| previous.root.join(&package.dir))
         .collect();
     workspace.ignore_dirs(&ignored);
-    let report = roots::lint_loaded(linter, &workspace, config_path, extra_entries)?;
+    let report = roots::lint_loaded(linter, &workspace, config_path, handed)?;
     let report = roots::credit_other_root_uses(report, other_root_uses);
     Ok((workspace, report))
 }
@@ -370,9 +370,9 @@ fn run_exit_code(args: &LintArgs, runs: &[RootRun], aggregate: &Report) -> u8 {
     if too_many_warnings { PROBLEMS } else { CLEAN }
 }
 
-/// What linting one root again needs: its configuration, the configuration file, the files enclosing roots import
+/// What linting one root again needs: its configuration, the configuration file, the files enclosing roots hand it
 /// and what other roots use of it.
-type RootInputs<'a> = (&'a Config, Option<&'a Path>, &'a [PathBuf], &'a roots::OtherRootUses);
+type RootInputs<'a> = (&'a Config, Option<&'a Path>, &'a roots::HandedFiles, &'a roots::OtherRootUses);
 
 /// What fixing every root left behind: the re-linted roots with their fix runs, or the exit code of a run that
 /// stopped after writing some of the fixes.
@@ -487,7 +487,7 @@ fn relint(linter: &Linter, run: &RootRun, fs: &CachedFs<OsFs>) -> Relinted {
     let inputs = (
         &run.config,
         run.config_path.as_deref(),
-        run.extra_entries.as_slice(),
+        &run.handed,
         &run.other_root_uses,
     );
     lint_once(linter, &run.workspace, inputs, fs)

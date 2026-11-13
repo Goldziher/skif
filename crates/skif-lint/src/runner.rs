@@ -59,6 +59,7 @@ pub struct RunOptions<'a> {
     config_path: Option<&'a Path>,
     sequential: bool,
     extra_entries: &'a [PathBuf],
+    extra_build_sources: &'a [PathBuf],
     fs: FsRef<'a>,
     index_cache: Option<&'a IndexCache>,
 }
@@ -112,6 +113,15 @@ impl<'a> RunOptions<'a> {
         self
     }
 
+    /// Files, relative to the workspace root, that other roots of the same run name as build sources (a Bazel `srcs`),
+    /// for a multi-root host: the JS analysis makes those of its own files build sources, which are used and whose
+    /// imports are followed but whose exports are judged. Empty by default.
+    #[must_use]
+    pub const fn with_extra_build_sources(mut self, extra_build_sources: &'a [PathBuf]) -> Self {
+        self.extra_build_sources = extra_build_sources;
+        self
+    }
+
     /// Runs everything on the calling thread: no rayon pool is used or created and the executor is ignored.
     #[must_use]
     pub const fn with_sequential(mut self, sequential: bool) -> Self {
@@ -158,6 +168,7 @@ pub fn run(
         Report::new(collected.diagnostics, workspace.all_packages().count() - root_stand_in)
             .with_incomplete_packages(collected.incomplete_packages)
             .with_other_project_files(collected.other_project_files)
+            .with_other_project_build_sources(collected.other_project_build_sources)
             .with_ancestor_dependency_uses(collected.ancestor_dependency_uses)
             .with_config_judgements(collected.config_judgements),
     )
@@ -187,14 +198,16 @@ struct Collected {
     incomplete_packages: Vec<IncompletePackage>,
     /// The files of other projects the analysed code imports.
     other_project_files: Vec<PathBuf>,
+    /// The files of other projects that plugins name as build sources.
+    other_project_build_sources: Vec<PathBuf>,
     /// The dependencies the analysed code uses through manifests outside the workspace root.
     ancestor_dependency_uses: Vec<(PathBuf, String)>,
     /// The configuration entries the rules judged.
     config_judgements: Vec<ConfigJudgement>,
 }
 
-/// Runs every enabled rule and returns the diagnostics, the incomplete packages, the files of other projects and the
-/// ancestor dependency uses the providers recorded.
+/// Runs every enabled rule and returns the diagnostics, the incomplete packages, the files and build sources of other
+/// projects, the ancestor dependency uses and the configuration judgements the providers recorded.
 fn collect(
     registry: &Registry,
     workspace: &Workspace,
@@ -213,6 +226,7 @@ fn collect(
         &shared,
     )
     .with_extra_entries(options.extra_entries)
+    .with_extra_build_sources(options.extra_build_sources)
     .with_fs(options.fs)
     .with_index_cache(options.index_cache);
     let job = || execute(registry, &cx, options);
@@ -246,6 +260,7 @@ fn execute(registry: &Registry, cx: &LintContext<'_>, options: &RunOptions<'_>) 
         return Err(LintError::Cancelled);
     }
     let other_project_files = root.take_other_project_files();
+    let other_project_build_sources = root.take_other_project_build_sources();
     let ancestor_dependency_uses = root.take_ancestor_dependency_uses();
     let config_judgements = root.take_config_judgements();
     let (diagnostics, incomplete_packages) = root.into_parts();
@@ -253,6 +268,7 @@ fn execute(registry: &Registry, cx: &LintContext<'_>, options: &RunOptions<'_>) 
         diagnostics,
         incomplete_packages,
         other_project_files,
+        other_project_build_sources,
         ancestor_dependency_uses,
         config_judgements,
     })
