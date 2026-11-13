@@ -713,7 +713,8 @@ analyses them.
 not reported, each as the list of its files relative to the workspace root (`./` is optional): skif reports a cycle as
 the set of modules that import each other, so an entry allows the cycle whose files are exactly its files, in any
 order; an empty entry or an empty path is a configuration error. `dynamic-imports = true` counts `import()` as an
-edge; by default only static value imports do, and type-only imports never do.
+edge; by default only static value imports do, and type-only imports and resolve calls (`require.resolve`,
+`import.meta.resolve`), which load nothing, never do.
 
 **`stale-js-config`** (a warning) reports `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and
 `ignore-workspaces` entries that matched nothing in the run, `[js.workspaces]` keys that select no package, and `entry`,
@@ -1335,10 +1336,12 @@ counterpart. These differences are deliberate:
   keeps migrations and `payload-types.ts` from being reported through `ignore`.
 - `mise` reads file tasks under the directories of `task_config.includes` or, when no config sets `includes`, under
   `mise-tasks/`, `.mise-tasks/`, `mise/tasks/`, `.mise/tasks/` and `.config/mise/tasks/`. A JavaScript or TypeScript
-  file is an entry, and the command of its shebang (`#!/usr/bin/env -S npx tsx`) a script; a shell script (a shebang
-  of `sh`, `bash`, `zsh`, `dash` or `ksh`, or without a shebang one of those extensions) is a script run in its
-  `#MISE dir="…"` (also `# [MISE]`, `//MISE`) or the package. A task for another interpreter, or a file without a
-  shebang whose extension is not a shell's (`README`), is not read. knip reads no file tasks.
+  file is an entry, and the command of its shebang (`#!/usr/bin/env -S npx tsx`) a script. An extensionless one run
+  by `node`, `bun`, `deno`, `tsx` or `ts-node` makes the relative modules it imports entries, and those it only
+  resolves (`require.resolve`) used files whose exports are judged. A shell script (a shebang of `sh`, `bash`, `zsh`,
+  `dash` or `ksh`, or without a shebang one of those extensions) is a script run in its `#MISE dir="…"` (also
+  `# [MISE]`, `//MISE`) or the package. A task for another interpreter, or a file without a shebang whose extension
+  is not a shell's (`README`), is not read. knip reads no file tasks.
 - `taskfile` expands `{{.NAME}}` from the task's and the Taskfile's `vars` (a string only), `{{.ROOT_DIR}}` and
   `{{.TASKFILE_DIR}}`; any other template (`{{.CLI_ARGS}}`, an `sh:` variable, a function) is a word that is not
   known, so the rest of the command is still read, and an include holding one is skipped.

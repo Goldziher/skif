@@ -120,7 +120,8 @@ pub struct Importer {
     pub line: u32,
     /// How the import is written.
     pub kind: ImportKind,
-    /// What the import takes; empty for the whole module.
+    /// What the import takes; empty for the whole module, and for a side-effect import, a test-runner mock or a resolve
+    /// call, which take none of it.
     pub names: Vec<String>,
     /// Whether an entry file reaches the importing file.
     pub reachable: bool,
@@ -380,7 +381,7 @@ impl UsageReport {
                     importer.file,
                     importer.line,
                     kind_label(importer.kind),
-                    names_label(&importer.names)
+                    names_label(importer.kind, &importer.names)
                 );
             }
             if self.imported_by.len() > MAX_LISTED {
@@ -422,19 +423,32 @@ const fn kind_label(kind: ImportKind) -> &'static str {
         ImportKind::SideEffect => "side-effect",
         ImportKind::Dynamic => "dynamic",
         ImportKind::Require => "require",
+        ImportKind::Resolve => "resolve",
         ImportKind::ImportMetaGlob => "import-meta-glob",
         ImportKind::SourceGlob => "source-glob",
         ImportKind::ExportFrom => "export-from",
         ImportKind::Mock => "mock",
         ImportKind::Url => "url",
+        _ => "import",
     }
 }
 
-fn names_label(names: &[String]) -> String {
-    if names.is_empty() {
-        "the whole module".to_owned()
-    } else {
-        names.join(", ")
+/// What an import takes, for the human report. An import that uses no export by itself
+/// ([`usage::credits_no_export`]) says what it does instead; a re-export lists the names it forwards.
+fn names_label(kind: ImportKind, names: &[String]) -> String {
+    if !usage::credits_no_export(kind) {
+        return if names.is_empty() {
+            "the whole module".to_owned()
+        } else {
+            names.join(", ")
+        };
+    }
+    match kind {
+        ImportKind::Resolve => "its path, no export".to_owned(),
+        ImportKind::SideEffect => "runs it, no export".to_owned(),
+        ImportKind::Mock => "a test-runner call, no export".to_owned(),
+        ImportKind::ExportFrom if !names.is_empty() => names.join(", "),
+        _ => "no export".to_owned(),
     }
 }
 
@@ -544,10 +558,7 @@ fn reached(target: &Target) -> &[ModuleId] {
 /// Whether `import`, of the module `importer`, uses export `export` of the module it points at, or the module as a
 /// whole. A use of the module object as a whole uses no type export (`is_type`), as in [`usage::ExportUsage`].
 fn uses_export(importer: &ModuleInfo, import: &Import, export: &str, is_type: bool) -> Option<String> {
-    if matches!(
-        import.kind,
-        ImportKind::ExportFrom | ImportKind::SideEffect | ImportKind::Mock
-    ) {
+    if usage::credits_no_export(import.kind) {
         return None;
     }
     if import.names.is_empty() {

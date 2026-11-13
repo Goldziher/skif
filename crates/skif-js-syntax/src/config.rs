@@ -24,7 +24,7 @@ use oxc_parser::{ParseOptions as OxcParseOptions, Parser};
 use oxc_span::{SourceType, Span};
 use serde::{Deserialize, Serialize};
 
-use crate::finder::static_string;
+use crate::finder::{is_module_resolve, static_string};
 use crate::sharing::{
     Change, Imports, Unstable, Write, alias_names, alias_source, changed_by_call, given, given_parts, property_defined,
     reach, statement_call,
@@ -5624,17 +5624,6 @@ fn manifest_directory(dir: &str) -> Option<Value> {
     } else {
         Value::Unknown
     })
-}
-
-/// Whether `call` resolves a module specifier: `require.resolve(…)` or `import.meta.resolve(…)`.
-fn is_module_resolve(call: &CallExpression<'_>) -> bool {
-    is_resolve_of(call, "require")
-        || matches!(
-            call.callee.get_inner_expression(),
-            Expression::StaticMemberExpression(m)
-                if m.property.name.as_str() == "resolve"
-                    && matches!(m.object.get_inner_expression(), Expression::ImportMeta(_))
-        )
 }
 
 /// Whether `call` is `<object>.resolve(…)` of the global `object`.

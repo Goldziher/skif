@@ -6,11 +6,11 @@
 //! JavaScript or TypeScript file task is an entry, and the command its shebang runs it with
 //! (`#!/usr/bin/env -S npx tsx`) a script. An extensionless one whose shebang runs it with `node`, `bun`, `deno`,
 //! `tsx`, `ts-node` or one of those through `npx` (`mise-tasks/gen`) cannot be a module of the graph, which knows a
-//! file's language by its extension, so the relative modules it imports are entries in its place. A shell one (a
-//! shebang of `sh`, `bash`, `zsh`, `dash` or `ksh`, or without a shebang one of those extensions) is a script, run in
-//! the workspace or in the directory of its `#MISE dir="…"` header (`# [MISE]`, `//MISE` and `:: MISE` too). A task
-//! for another interpreter, and a file without a shebang whose extension is not a shell's (`README`, `NOTES.md`), is
-//! not read.
+//! file's language by its extension, so the relative modules it imports are entries in its place, and those it only
+//! resolves (`require.resolve`) are used but no entries, so their exports are judged. A shell one (a shebang of `sh`,
+//! `bash`, `zsh`, `dash` or `ksh`, or without a shebang one of those extensions) is a script, run in the workspace or
+//! in the directory of its `#MISE dir="…"` header (`# [MISE]`, `//MISE` and `:: MISE` too). A task for another
+//! interpreter, and a file without a shebang whose extension is not a shell's (`README`, `NOTES.md`), is not read.
 //!
 //! The binaries a task runs by name are machine tools (mise installs those its `[tools]` names), so only those it
 //! reaches through a package manager are judged (`optional_binaries`); a file task's are recorded with the task file.
@@ -207,8 +207,9 @@ fn runs_javascript(words: &[&str]) -> bool {
 const MODULE_GLOB_EXTENSIONS: &str = "{js,mjs,cjs,jsx,ts,mts,cts,tsx}";
 
 /// The relative modules the extensionless JavaScript file task `file` imports or requires, as entries relative to the
-/// workspace: the file itself for a specifier with a code extension, else the files and `index` files it may resolve
-/// to. Parsed as TypeScript when its runner is not plain `node`.
+/// workspace, and those it only resolves (`require.resolve`), as build sources: the file itself for a specifier with a
+/// code extension, else the files and `index` files it may resolve to. Parsed as TypeScript when its runner is not
+/// plain `node`.
 fn imported_modules(file: &str, text: &str, words: &[&str]) -> Vec<PluginInput> {
     let as_typescript = words.iter().any(|word| *word != "node" && JS_RUNNERS.contains(word));
     let parsed = format!("{file}.{}", if as_typescript { "ts" } else { "js" });
@@ -218,17 +219,19 @@ fn imported_modules(file: &str, text: &str, words: &[&str]) -> Vec<PluginInput> 
     let dir = parent_dir(file);
     let mut out: Vec<PluginInput> = Vec::new();
     for import in &module.imports {
-        let loads = matches!(
-            import.kind,
+        // A resolved module is used by its path alone, so its exports stay judged.
+        let input: fn(String) -> PluginInput = match import.kind {
             ImportKind::Static
-                | ImportKind::TypeOnly
-                | ImportKind::SideEffect
-                | ImportKind::Dynamic
-                | ImportKind::Require
-                | ImportKind::ExportFrom
-        );
+            | ImportKind::TypeOnly
+            | ImportKind::SideEffect
+            | ImportKind::Dynamic
+            | ImportKind::Require
+            | ImportKind::ExportFrom => PluginInput::Entry,
+            ImportKind::Resolve => PluginInput::BuildSource,
+            _ => continue,
+        };
         let specifier = import.specifier.as_str();
-        if !loads || !(specifier.starts_with("./") || specifier.starts_with("../")) {
+        if !(specifier.starts_with("./") || specifier.starts_with("../")) {
             continue;
         }
         let path = join_rel(dir, specifier);
@@ -237,14 +240,14 @@ fn imported_modules(file: &str, text: &str, words: &[&str]) -> Vec<PluginInput> 
             .next()
             .and_then(|name| name.rsplit_once('.'))
             .is_some_and(|(stem, extension)| !stem.is_empty() && SOURCE_EXTENSIONS.contains(&extension));
-        let entry = if has_extension {
+        let glob = if has_extension {
             path
         } else {
             format!("{path}{{,/index}}.{MODULE_GLOB_EXTENSIONS}")
         };
-        let entry = PluginInput::Entry(entry);
-        if !out.contains(&entry) {
-            out.push(entry);
+        let input = input(glob);
+        if !out.contains(&input) {
+            out.push(input);
         }
     }
     out

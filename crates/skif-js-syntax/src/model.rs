@@ -9,6 +9,7 @@ use skif_core::{HashMap, HashSet};
 /// How a module is pulled in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum ImportKind {
     /// `import a from "x"` (not type-only, has bindings).
     Static,
@@ -18,9 +19,13 @@ pub enum ImportKind {
     SideEffect,
     /// `import("x")` with a literal specifier.
     Dynamic,
-    /// `require("x")`, `require.resolve("x")`, `import.meta.resolve("x")` and `import x = require("x")`.
+    /// `require("x")` and `import x = require("x")`.
     Require,
-    /// One pattern of `import.meta.glob(...)`, or the glob of a computed relative `require` or `import()`
+    /// `require.resolve("x")`, `createRequire(…).resolve("x")` and `import.meta.resolve("x")`: the call returns the
+    /// module's path and loads nothing, so it keeps a local file reachable and uses the package it names, but uses no
+    /// export.
+    Resolve,
+    /// One pattern of `import.meta.glob(...)`, or the glob of a computed relative `require`, `import()` or resolve call
     /// (`./commands/${name}`): a glob, not a module specifier.
     ImportMetaGlob,
     /// One pattern of an `import.meta.glob(...)` whose options read the matched files as text (`query: '?raw'`,

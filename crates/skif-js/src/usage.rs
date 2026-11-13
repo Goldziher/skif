@@ -110,7 +110,8 @@ impl ReexportIndex {
                         ImportKind::ImportMetaGlob
                         | ImportKind::SourceGlob
                         | ImportKind::SideEffect
-                        | ImportKind::Mock => {}
+                        | ImportKind::Mock
+                        | ImportKind::Resolve => {}
                         _ => {
                             sources.entry(import.specifier.as_str()).or_insert(*id);
                         }
@@ -230,10 +231,7 @@ impl ExportUsage {
                 let Some(import) = module.info.imports.get(resolved.import) else {
                     continue;
                 };
-                if matches!(
-                    import.kind,
-                    ImportKind::ExportFrom | ImportKind::SideEffect | ImportKind::Mock
-                ) {
+                if credits_no_export(import.kind) {
                     continue;
                 }
                 let target = match &resolved.target {
@@ -429,6 +427,16 @@ impl ExportUsage {
             .and_then(|names| names.get(name))
             .is_some_and(|usage| usage.all || usage.members.contains(member))
     }
+}
+
+/// Whether an import of `kind` uses no export of the module it names by itself: an `export … from` forwards names
+/// that are credited only when its own importers use them, and a side-effect import, a test-runner mock and a resolve
+/// call (`require.resolve`, which takes the path of the module and loads none of it) read none.
+pub(crate) const fn credits_no_export(kind: ImportKind) -> bool {
+    matches!(
+        kind,
+        ImportKind::ExportFrom | ImportKind::SideEffect | ImportKind::Mock | ImportKind::Resolve
+    )
 }
 
 /// Whether an import of `kind` without names loads the module object itself (`import("x")`, `require("x")`), which
