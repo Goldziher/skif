@@ -1631,7 +1631,7 @@ impl DependencyUsage {
         }
         let listed = find(self, name);
         let types = types_package(name)
-            .filter(|_| !listed.is_some_and(|found| self.declares_types(found, name)))
+            .filter(|_| !listed.is_some_and(|found| self.ships_types(found, name)))
             .and_then(|types| find(self, &types).map(|found| (found, types)));
         if let Some((found, types)) = &types {
             self.reference(*found, types);
@@ -1647,7 +1647,7 @@ impl DependencyUsage {
     }
 
     /// Whether `name`, listed where `listed` says, declares its own types ([`Installed::typed`]).
-    fn declares_types(&self, listed: Listed, name: &str) -> bool {
+    fn ships_types(&self, listed: Listed, name: &str) -> bool {
         match listed {
             Listed::Package(id) => self.typed.get(id.index()).is_some_and(|typed| typed.contains(name)),
             Listed::External => false,
@@ -2138,7 +2138,7 @@ impl DependencyUsage {
             if UNPAIRED_TYPES.contains(&typed.as_str()) {
                 return Some(Credit::UnpairedTypes);
             }
-            if referenced.contains_key(typed) && !self.declares_types(Listed::Package(id), typed) {
+            if referenced.contains_key(typed) && !self.ships_types(Listed::Package(id), typed) {
                 return Some(Credit::TypesOf(typed.clone()));
             }
         }
