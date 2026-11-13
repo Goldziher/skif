@@ -55,4 +55,4 @@ unused-namespace-members           js         warning  unsafe     An exported me
 duplicate-exports                  js         warning  none       One binding is exported under several names.
 circular-imports                   js         off      none       Modules import each other in a cycle.
 unparseable-files                  js         warning  none       A file reachable from an entry file has a syntax error the parser could not recover from.
-stale-js-config                    js         warning  none       A `[js]` setting matched nothing or is redundant, a published entry file is missing, or many files are unused.
+stale-js-config                    js         warning  none       A `[js]` setting matched nothing, is redundant or cancels another pattern, a published entry file is missing, or many files are unused.

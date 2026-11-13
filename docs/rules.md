@@ -124,7 +124,7 @@ One binding is exported under several names.
 
 ## stale-js-config
 
-A `[js]` setting matched nothing or is redundant, a published entry file is missing, or many files are unused.
+A `[js]` setting matched nothing, is redundant or cancels another pattern, a published entry file is missing, or many files are unused.
 
 - Category: js
 - Default severity: warning
