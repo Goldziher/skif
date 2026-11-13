@@ -1846,8 +1846,14 @@ fn a_config_extended_from_node_modules_uses_its_package_installed_or_not() {
     assert_eq!(deps(output(&results, "oxlint")), BTreeSet::from(["shared-oxlint"]));
     let installed = resolve(
         &[
-            (".oxlintrc.json", r#"{ "extends": ["./node_modules/@acme/lint/oxlint.json"] }"#),
-            ("node_modules/@acme/lint/oxlint.json", r#"{ "jsPlugins": ["oxlint-plugin-acme"] }"#),
+            (
+                ".oxlintrc.json",
+                r#"{ "extends": ["./node_modules/@acme/lint/oxlint.json"] }"#,
+            ),
+            (
+                "node_modules/@acme/lint/oxlint.json",
+                r#"{ "jsPlugins": ["oxlint-plugin-acme"] }"#,
+            ),
         ],
         &["oxlint"],
     );

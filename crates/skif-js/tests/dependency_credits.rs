@@ -93,10 +93,7 @@ fn stylesheet_urls_of_package_files_use_the_package() {
         ("src/logo.png", ""),
         ("src/images/bg.png", ""),
     ]);
-    assert_eq!(
-        found(&diagnostics, "unused-dependencies"),
-        ["package.json: left-pad"]
-    );
+    assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json: left-pad"]);
     assert_eq!(found(&diagnostics, "unlisted-dependencies"), none());
     assert_eq!(found(&diagnostics, "unresolved-imports"), none());
 }
@@ -115,10 +112,7 @@ fn a_published_subpath_directory_with_a_manifest_belongs_to_its_package() {
         ("cases/package.json", r#"{"main":"index.js"}"#),
         ("cases/index.js", "module.exports = require('case-only');\n"),
     ]);
-    assert_eq!(
-        found(&diagnostics, "unused-dependencies"),
-        ["package.json: left-pad"]
-    );
+    assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json: left-pad"]);
     // `cases` is no subpath `lib` publishes, so its manifest still makes a project of its own.
     assert_eq!(found(&diagnostics, "unlisted-dependencies"), none());
     assert_eq!(found(&diagnostics, "unused-files"), none());
