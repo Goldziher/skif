@@ -164,7 +164,10 @@ fn a_type_export_of_a_resolved_module_is_reported() {
              const require = createRequire(import.meta.url);\n\
              console.log(require.resolve('./lib.ts'));\n",
         ),
-        ("src/lib.ts", "export type Shape = { a: number };\nexport const a = 1;\n"),
+        (
+            "src/lib.ts",
+            "export type Shape = { a: number };\nexport const a = 1;\n",
+        ),
     ]);
     assert_eq!(found(&diagnostics, "unused-files"), none());
     assert_eq!(found(&diagnostics, "unused-types"), ["src/lib.ts: Shape"]);
