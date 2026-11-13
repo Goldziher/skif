@@ -123,3 +123,30 @@ fn a_published_subpath_directory_with_a_manifest_belongs_to_its_package() {
     assert_eq!(found(&diagnostics, "unlisted-dependencies"), none());
     assert_eq!(found(&diagnostics, "unused-files"), none());
 }
+
+#[test]
+fn a_package_that_ships_its_own_types_does_not_use_its_types_package() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"main":"src/index.ts","devDependencies":{"eslint":"9.0.0","@types/eslint":"9.0.0","react-is":"19.0.0","@types/react-is":"19.0.0"}}"#,
+        ),
+        (
+            "node_modules/eslint/package.json",
+            r#"{"name":"eslint","version":"9.0.0","types":"lib/types/index.d.ts"}"#,
+        ),
+        (
+            "node_modules/react-is/package.json",
+            r#"{"name":"react-is","version":"19.0.0","main":"index.js"}"#,
+        ),
+        (
+            "src/index.ts",
+            "import type { Linter } from 'eslint';\nimport { isElement } from 'react-is';\n\
+             export const check = (config: Linter.Config): boolean => isElement(config);\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        ["package.json: @types/eslint"]
+    );
+}

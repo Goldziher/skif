@@ -410,6 +410,9 @@ pub(crate) struct Installed {
     /// The `version` of its manifest; `None` when it has none, and for a package known only from the lockfile, whose
     /// packages are read without one.
     pub(crate) version: Option<String>,
+    /// Its manifest declares its own types (`types` or `typings`), so TypeScript reads those and not its `@types`
+    /// package. `false` for a package known only from the lockfile.
+    pub(crate) typed: bool,
 }
 
 /// The binary names a manifest declares: the package's own name for a `bin` string, the keys of a `bin` map.
@@ -652,6 +655,11 @@ fn version_of(manifest: &Value) -> Option<String> {
     manifest.get("version").and_then(Value::as_str).map(str::to_owned)
 }
 
+/// Whether a manifest declares the package's own types.
+fn declares_types(manifest: &Value) -> bool {
+    ["types", "typings"].iter().any(|field| manifest.get(field).is_some())
+}
+
 fn parse_installed(fs: &dyn FileSystem, dir: &Path, text: &str, name: &str) -> Option<Arc<Installed>> {
     let value: Value = serde_json::from_str(text).ok()?;
     let bins = if value.get("bin").is_some() {
@@ -664,6 +672,7 @@ fn parse_installed(fs: &dyn FileSystem, dir: &Path, text: &str, name: &str) -> O
         peers: peers_of(&value),
         optional_peers: optional_peers_of(&value),
         version: version_of(&value),
+        typed: declares_types(&value),
     }))
 }
 
@@ -1076,6 +1085,9 @@ pub struct DependencyUsage {
     ancestors: Vec<Vec<PackageId>>,
     /// For every package, the listed dependencies whose binaries are known: they are installed or in the lockfile.
     known_bins: Vec<HashSet<String>>,
+    /// For every package, the listed dependencies that declare their own types ([`Installed::typed`]): an import of
+    /// one uses no `@types` package.
+    typed: Vec<HashSet<String>>,
     /// For every package, whether its `tsconfig.json` sets a `jsxImportSource` other than `react`, so JSX files do not
     /// use React.
     other_jsx_runtime: Vec<bool>,
@@ -1176,6 +1188,7 @@ impl DependencyUsage {
             production_listed: vec![HashSet::default(); count],
             mode: Mode::of(setup.strict, setup.isolate_workspaces),
             known_bins: vec![HashSet::default(); count],
+            typed: vec![HashSet::default(); count],
             other_jsx_runtime: vec![false; count],
             ancestors: package_ancestors(workspace, setup.isolate_workspaces),
             hosts: vec![HashMap::default(); count],
@@ -1227,6 +1240,7 @@ impl DependencyUsage {
                     peers: peers_of(manifest),
                     optional_peers: optional_peers_of(manifest),
                     version: version_of(manifest),
+                    typed: declares_types(manifest),
                 };
                 Some((name, Arc::new(installed)))
             })
@@ -1263,6 +1277,9 @@ impl DependencyUsage {
         for (&(id, _), found) in members.iter().zip(installed) {
             for (name, installed) in found {
                 self.known_bins[id.index()].insert(name.clone());
+                if installed.typed {
+                    self.typed[id.index()].insert(name.clone());
+                }
                 for bin in &installed.bins {
                     self.bins[id.index()].entry(bin.clone()).or_default().push(name.clone());
                 }
@@ -1612,11 +1629,14 @@ impl DependencyUsage {
         if package.name.as_deref() == Some(name) {
             return true;
         }
-        let types = types_package(name).and_then(|types| find(self, &types).map(|found| (found, types)));
+        let listed = find(self, name);
+        let types = types_package(name)
+            .filter(|_| !listed.is_some_and(|found| self.declares_types(found, name)))
+            .and_then(|types| find(self, &types).map(|found| (found, types)));
         if let Some((found, types)) = &types {
             self.reference(*found, types);
         }
-        if let Some(found) = find(self, name) {
+        if let Some(found) = listed {
             self.reference(found, name);
             return true;
         }
@@ -1624,6 +1644,14 @@ impl DependencyUsage {
             return true;
         }
         self.is_provided(workspace, owner, name) || self.use_unlisted_member(package, owner, name)
+    }
+
+    /// Whether `name`, listed where `listed` says, declares its own types ([`Installed::typed`]).
+    fn declares_types(&self, listed: Listed, name: &str) -> bool {
+        match listed {
+            Listed::Package(id) => self.typed.get(id.index()).is_some_and(|typed| typed.contains(name)),
+            Listed::External => false,
+        }
     }
 
     /// Whether package `name`, which no manifest of package `owner` or above lists, is there all the same: a peer
@@ -2110,7 +2138,7 @@ impl DependencyUsage {
             if UNPAIRED_TYPES.contains(&typed.as_str()) {
                 return Some(Credit::UnpairedTypes);
             }
-            if referenced.contains_key(typed) {
+            if referenced.contains_key(typed) && !self.declares_types(Listed::Package(id), typed) {
                 return Some(Credit::TypesOf(typed.clone()));
             }
         }

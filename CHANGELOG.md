@@ -80,6 +80,10 @@ All notable changes to this project are documented here. The format follows
   `node_modules` directory (`"extends": ["./node_modules/ultracite/config/oxlint/core/.oxlintrc.json"]` in
   `.oxlintrc.json`) names that package, so it is used, also when it is not installed and the file cannot be read
   ([#98](https://github.com/Goldziher/skif/issues/98)).
+- **`@types` of typed packages**: an import of a package whose installed `package.json` declares its own types
+  (`types` or `typings`) no longer uses its `@types` package, which TypeScript does not read then, so a leftover
+  `@types/eslint` beside `eslint` 9 is reported unused, as knip does. A package that is not installed keeps its
+  `@types` package used ([#98](https://github.com/Goldziher/skif/issues/98)).
 
 ## [0.4.0] - 2026-11-12
 
