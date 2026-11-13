@@ -1324,15 +1324,19 @@ const PUSHING_ITERATOR: &str = "*[Symbol.iterator]() { this.list.push('x'); yiel
 /// A getter, a setter or an iterator runs with its object as `this` where code reads or writes its key, destructures,
 /// spreads or iterates the object, or gives it to a builtin (`JSON.stringify`), with no call of it written: a write
 /// through `this` there changes what the object holds, as one in a method a call runs does, so calling the function
-/// that runs it leaves the imported value the object holds unknown. A getter run by another one on its `this` writes
-/// through it too, and the object may hold the value from a write after it is made. The explicit method calls are
-/// the controls.
+/// that runs it leaves the imported value the object holds unknown. A change of a binding taking what `this` holds is
+/// such a write, a getter run by another one on its `this` writes through it too, and the object may hold the value
+/// from a write after it is made. The explicit method calls are the controls.
 #[test]
 fn a_write_through_this_in_an_accessor_or_iterator_run_implicitly_changes_the_imported_values() {
     let class = "import { base } from './base';\nclass Box {\n  constructor() { this.list = base.plugins; }\n  \
                  get grow() { this.list.push('x'); return 0; }\n  add() { this.list.push('x'); }\n}\n";
     let shared = [
         made_by_touch(PUSHING_GETTER, "return make().grow;"),
+        made_by_touch(
+            "get grow() { const list = this.list; list.push('x'); return 0; }",
+            "return make().grow;",
+        ),
         made_by_touch(PUSHING_GETTER, "const { grow } = make(); return grow;"),
         made_by_touch(PUSHING_GETTER, "return { ...make() };"),
         made_by_touch(PUSHING_GETTER, "return JSON.stringify(make());"),
@@ -1364,14 +1368,19 @@ fn a_write_through_this_in_an_accessor_or_iterator_run_implicitly_changes_the_im
     }
 }
 
-/// A getter or an iterator that only reads through `this`, or only gives a key of `this` itself a new value, changes
-/// nothing the object holds, nor does one no code runs or a read of another key: the imported values stay known.
+/// A getter or an iterator that only reads through `this`, also through a binding taking what it holds, or only gives
+/// a key of `this` itself a new value, changes nothing the object holds, nor does one no code runs or a read of another
+/// key: the imported values stay known.
 #[test]
 fn an_accessor_or_iterator_that_changes_nothing_the_object_holds_leaves_the_imported_values_known() {
     for shared in [
         made_by_touch("get grow() { return this.list.length; }", "return make().grow;"),
         made_by_touch("get grow() { this.count = 1; return 0; }", "return make().grow;"),
         made_by_touch("*[Symbol.iterator]() { yield* this.list; }", "return [...make()];"),
+        made_by_touch(
+            "*[Symbol.iterator]() { for (const item of this.list) yield item; }",
+            "return [...make()];",
+        ),
         made_by_touch(PUSHING_GETTER, "make(); return 0;"),
         made_by_touch(PUSHING_GETTER, "return make().list.length;"),
     ] {
