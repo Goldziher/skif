@@ -9,14 +9,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Public API** ([#206](https://github.com/Goldziher/skif/issues/206)): `PackageSources::within` of `skif-js-plugins`
+  makes a listing of a package's sources that shares the texts it reads with another listing, and
+  `WorkspaceListing::package_sources` of `skif-js` makes one that shares them with the run's other packages.
+
 ### Changed
 
-- **Performance** ([#206](https://github.com/Goldziher/skif/issues/206)): `--watch` scans the tree on several threads,
-  so on a large repository it polls more often and sees a change sooner. The files it compares are unchanged. The
-  plugins that search a package's sources (`pino`, `zx`, `execa`, `nano-spawn`, `bun`) read each source file once for
-  all packages of a workspace and their Nx projects, instead of once for every package whose directory holds it: a
-  member's sources are also the root package's. The output is unchanged. The public API gains `PackageSources::within`
-  of `skif-js-plugins` and `WorkspaceListing::package_sources` of `skif-js`.
+- **Performance** ([#206](https://github.com/Goldziher/skif/issues/206)): `--watch` scans the tree on up to four
+  threads, so on a large repository it polls more often and sees a change sooner; scanning takes up to about four
+  thirds of a core instead of a third. The files it compares are unchanged. The plugins that search a
+  package's sources (`pino`, `zx`, `execa`, `nano-spawn`, `bun`) share the texts they read between all packages of a
+  workspace and their Nx projects, so a source file is usually read once per workspace instead of once for every
+  package whose directory holds it (a member's sources are also the root package's); packages resolved in parallel can
+  still read the same file at the same time. The output is unchanged.
 
 ## [0.4.0] - 2026-11-12
 
