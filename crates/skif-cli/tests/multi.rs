@@ -1039,7 +1039,8 @@ fn fixing_keeps_the_files_other_roots_use() {
 #[test]
 fn a_bazel_source_of_a_nested_root_is_used_there() {
     // The outer root's `BUILD.bazel` builds from `tools/lib/x.ts`, a file of the nested root `tools`, which has no
-    // `BUILD` file of its own; nothing names `tools/lib/orphan.ts`.
+    // `BUILD` file of its own; `x.ts` imports `y.ts` and exports `spare`, which nothing imports, and nothing names
+    // `tools/lib/orphan.ts`.
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir_all(dir.path().join(".git")).unwrap();
     put(
@@ -1059,8 +1060,13 @@ fn a_bazel_source_of_a_nested_root_is_used_there() {
         "ts_project(name = \"tools\", srcs = [\"tools/lib/x.ts\"])\n",
     );
     put(dir.path(), "tools/package.json", &package("tools"));
-    put(dir.path(), "tools/lib/x.ts", "console.log(2);\n");
-    put(dir.path(), "tools/lib/orphan.ts", "console.log(3);\n");
+    put(
+        dir.path(),
+        "tools/lib/x.ts",
+        "import { help } from './y';\nhelp();\nexport const spare = 1;\n",
+    );
+    put(dir.path(), "tools/lib/y.ts", "export function help(): void {}\n");
+    put(dir.path(), "tools/lib/orphan.ts", "export const lonely = 1;\n");
 
     let (_, report) = json(dir.path(), &["-r"]);
     assert_eq!(root_paths(&report), [".", "tools"]);
@@ -1069,12 +1075,18 @@ fn a_bazel_source_of_a_nested_root_is_used_there() {
         BTreeSet::from(["tools/lib/orphan.ts".to_owned()]),
         "{report}"
     );
+    // A build source, not an entry: its exports are judged in the nested root, as in a member of the outer root.
+    assert_eq!(
+        messages_of(&report, "unused-exports"),
+        ["tools/lib/x.ts: export `spare` is never imported by another module"],
+        "{report}"
+    );
 
     // Linted on its own, the nested root cannot know what the outer root's `BUILD` file names.
     let (_, tools) = json(&dir.path().join("tools"), &[]);
     assert_eq!(
         paths_reporting(&tools, "unused-files"),
-        BTreeSet::from(["lib/orphan.ts".to_owned(), "lib/x.ts".to_owned()]),
+        BTreeSet::from(["lib/orphan.ts".to_owned(), "lib/x.ts".to_owned(), "lib/y.ts".to_owned()]),
         "{tools}"
     );
 }
