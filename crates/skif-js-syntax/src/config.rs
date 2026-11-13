@@ -508,24 +508,7 @@ pub fn extract_config(source: &str, path: &Path, loader: Option<&dyn ModuleLoade
     let Some(loader) = loader else {
         return evaluate_config(source, path, None);
     };
-    let modules = Modules {
-        loader,
-        root: path.parent().map_or_default(Path::to_path_buf),
-        active: RefCell::new(vec![(path.to_path_buf(), Imported::Default)]),
-        loads: RefCell::new(HashSet::default()),
-        evaluations: Cell::new(0),
-        cuts: Cell::new(0),
-        values: RefCell::new(HashMap::default()),
-        loaded: RefCell::new(HashMap::default()),
-        changing: RefCell::new(HashMap::default()),
-        pending: RefCell::new(Vec::new()),
-        shallowest_cut: Cell::new(usize::MAX),
-        analyses: Cell::new(0),
-        replayable: RefCell::new(HashMap::default()),
-        installed: RefCell::new(HashMap::default()),
-        no_code: RefCell::new(HashMap::default()),
-    };
-    evaluate_config(source, path, Some(&modules))
+    evaluate_config(source, path, Some(&Modules::new(loader, path)))
 }
 
 /// The exported value [`extract_config`] finds with `loader`, following the imports it finds.
@@ -721,9 +704,35 @@ struct Modules<'l> {
     installed: RefCell<HashMap<(PathBuf, String), bool>>,
     /// What the loader said of each importing directory and specifier ([`ModuleLoader::holds_no_code`]).
     no_code: RefCell<HashMap<(PathBuf, String), bool>>,
+    /// The module of each analysis [`Self::analyse`] ran or replayed, in the order each found its facts.
+    #[cfg(test)]
+    passes: RefCell<Vec<(PathBuf, Pass)>>,
 }
 
-impl Modules<'_> {
+impl<'l> Modules<'l> {
+    /// The modules the config file at `path` reaches through `loader`, none of them loaded yet.
+    fn new(loader: &'l dyn ModuleLoader, path: &Path) -> Self {
+        Self {
+            loader,
+            root: path.parent().map_or_default(Path::to_path_buf),
+            active: RefCell::new(vec![(path.to_path_buf(), Imported::Default)]),
+            loads: RefCell::new(HashSet::default()),
+            evaluations: Cell::new(0),
+            cuts: Cell::new(0),
+            values: RefCell::new(HashMap::default()),
+            loaded: RefCell::new(HashMap::default()),
+            changing: RefCell::new(HashMap::default()),
+            pending: RefCell::new(Vec::new()),
+            shallowest_cut: Cell::new(usize::MAX),
+            analyses: Cell::new(0),
+            replayable: RefCell::new(HashMap::default()),
+            installed: RefCell::new(HashMap::default()),
+            no_code: RefCell::new(HashMap::default()),
+            #[cfg(test)]
+            passes: RefCell::new(Vec::new()),
+        }
+    }
+
     /// The module `specifier` names from `from`, asking the loader once per directory and specifier.
     fn load(&self, from: &Path, specifier: &str) -> Option<LoadedModule> {
         let key = import_key(from, specifier);
@@ -880,6 +889,8 @@ impl Modules<'_> {
         while let Some(first) = candidates.first() {
             let step = asked.len();
             if let Some(done) = candidates.iter().find(|analysis| analysis.asked.len() == step) {
+                #[cfg(test)]
+                self.passes.borrow_mut().push((path.to_path_buf(), Pass::Replayed));
                 return (Rc::clone(&done.facts), None);
             }
             let (query, recorded) = &first.asked[step];
@@ -899,6 +910,8 @@ impl Modules<'_> {
             asked: RefCell::new(Vec::new()),
         };
         let facts = Rc::new(module_facts(path, source, &imports));
+        #[cfg(test)]
+        self.passes.borrow_mut().push((path.to_path_buf(), Pass::Ran));
         let analysis = Analysis {
             source: Rc::clone(source),
             asked: imports.asked.into_inner(),
@@ -1337,6 +1350,16 @@ struct Analysis {
     source: Rc<str>,
     asked: Vec<(Query, Answer)>,
     facts: Rc<ModuleFacts>,
+}
+
+/// How [`Modules::analyse`] found the facts of a module.
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pass {
+    /// It ran [`module_facts`].
+    Ran,
+    /// It replayed an earlier analysis.
+    Replayed,
 }
 
 /// The imports of the module at `from` as the analysis of that module asks of them ([`module_facts`]), recording each
@@ -5626,5 +5649,160 @@ fn chain_object<'b, 'a>(chain: &'b ChainExpression<'a>) -> Option<&'b Expression
         ChainElement::CallExpression(call) => Some(&call.callee),
         ChainElement::TSNonNullExpression(e) => Some(&e.expression),
         element => element.as_member_expression().map(MemberExpression::object),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+
+    /// Modules by absolute path, a relative specifier naming the `.ts` file beside the importing one; `./types` holds
+    /// no code when a `types.d.ts` is there.
+    struct Files(BTreeMap<PathBuf, &'static str>);
+
+    impl Files {
+        fn new(entries: &[(&str, &'static str)]) -> Self {
+            Self(
+                entries
+                    .iter()
+                    .map(|&(path, source)| (PathBuf::from(path), source))
+                    .collect(),
+            )
+        }
+
+        /// The file `specifier` names from `from` with the extension `extension`.
+        fn named(from: &Path, specifier: &str, extension: &str) -> Option<PathBuf> {
+            let name = specifier.strip_prefix("./")?;
+            Some(from.parent()?.join(format!("{name}.{extension}")))
+        }
+    }
+
+    impl ModuleLoader for Files {
+        fn load(&self, from: &Path, specifier: &str) -> Option<(PathBuf, String)> {
+            let path = Self::named(from, specifier, "ts")?;
+            self.0.get(&path).map(|source| (path, (*source).to_owned()))
+        }
+
+        fn holds_no_code(&self, from: &Path, specifier: &str) -> bool {
+            Self::named(from, specifier, "d.ts").is_some_and(|path| self.0.contains_key(&path))
+        }
+    }
+
+    /// What the config `/ws/app/config.ts` of `loader` exports, with the modules that evaluating it followed.
+    fn evaluate<'l>(loader: &'l Files) -> (ConfigValue, Modules<'l>) {
+        let path = Path::new("/ws/app/config.ts");
+        let modules = Modules::new(loader, path);
+        let config = evaluate_config(loader.0[path], path, Some(&modules)).expect("config is understood");
+        (config.value, modules)
+    }
+
+    /// How each analysis of the module `/ws/app/{name}.ts` found its facts, in order.
+    fn passes(modules: &Modules<'_>, name: &str) -> Vec<Pass> {
+        let path = PathBuf::from(format!("/ws/app/{name}.ts"));
+        modules
+            .passes
+            .borrow()
+            .iter()
+            .filter(|(module, _)| *module == path)
+            .map(|&(_, pass)| pass)
+            .collect()
+    }
+
+    fn s(value: &str) -> ConfigValue {
+        ConfigValue::String(value.to_owned())
+    }
+
+    fn obj(entries: Vec<(&str, ConfigValue)>) -> ConfigValue {
+        ConfigValue::Object(entries.into_iter().map(|(key, value)| (key.to_owned(), value)).collect())
+    }
+
+    /// A module that re-exports the module importing it through two others is reached four times while that module is
+    /// being analysed, and asks the same of the modules it imports each time: it is analysed once and replayed after,
+    /// as are the two others when the module importing them asks of them again. What those replays find (that their
+    /// functions may change a value of a module) is what makes the function the config calls one that may change the
+    /// object the config imports.
+    #[test]
+    fn a_module_in_a_cycle_of_imports_is_analysed_once_and_replayed() {
+        let loader = Files::new(&[
+            (
+                "/ws/app/config.ts",
+                "import { base } from './base';\nimport { run } from './a';\nrun();\nexport default { base };",
+            ),
+            ("/ws/app/base.ts", "export const base = { root: 'src' };"),
+            (
+                "/ws/app/a.ts",
+                "import { one } from './one';\nimport { two } from './two';\nexport function run() { one(); two(); }\n",
+            ),
+            ("/ws/app/one.ts", "export * from './hub';\nexport function one() {}\n"),
+            ("/ws/app/two.ts", "export * from './hub';\nexport function two() {}\n"),
+            ("/ws/app/hub.ts", "export * from './types';\nexport * from './a';\n"),
+            ("/ws/app/types.d.ts", "export type Name = string;\n"),
+        ]);
+        let (config, modules) = evaluate(&loader);
+        assert_eq!(
+            config,
+            obj(vec![(
+                "base",
+                obj(vec![("root", s("src")), (UNKNOWN_SPREAD, ConfigValue::Unknown)])
+            )])
+        );
+        assert_eq!(passes(&modules, "a"), [Pass::Ran]);
+        assert_eq!(passes(&modules, "one"), [Pass::Ran, Pass::Replayed]);
+        assert_eq!(passes(&modules, "two"), [Pass::Ran, Pass::Replayed]);
+        assert_eq!(
+            passes(&modules, "hub"),
+            [Pass::Ran, Pass::Replayed, Pass::Replayed, Pass::Replayed]
+        );
+    }
+
+    /// A module reached while a module it imports is pending, and again once the facts of that module are kept, gets
+    /// another answer the second time (what a function of that module returns is known then): it is analysed again
+    /// rather than replayed, and what that analysis finds is what a module importing it reads, so a value made by a
+    /// call of its function, a factory of new objects, stays known.
+    #[test]
+    fn a_module_whose_imports_answer_otherwise_is_analysed_again() {
+        let loader = Files::new(&[
+            (
+                "/ws/app/config.ts",
+                "import { early } from './e';\nimport { made } from './x';\nexport default { early, made };",
+            ),
+            (
+                "/ws/app/e.ts",
+                "import * as entry from './a';\nentry.run();\nexport const early = 'e';",
+            ),
+            (
+                "/ws/app/a.ts",
+                "import { helper } from './hub';\nexport function make() { return { list: [] }; }\n\
+                 export function run() { return helper(); }\n",
+            ),
+            (
+                "/ws/app/hub.ts",
+                "import { make } from './a';\nexport function helper() { return make(); }\n",
+            ),
+            (
+                "/ws/app/x.ts",
+                "import { helper } from './hub';\nexport const made = helper();",
+            ),
+        ]);
+        let (config, modules) = evaluate(&loader);
+        assert_eq!(
+            config,
+            obj(vec![
+                ("early", s("e")),
+                ("made", obj(vec![("list", ConfigValue::Array(Vec::new()))])),
+            ])
+        );
+        assert_eq!(passes(&modules, "a"), [Pass::Ran]);
+        assert_eq!(passes(&modules, "hub"), [Pass::Ran, Pass::Replayed, Pass::Ran]);
+        let changing = modules.changing.borrow();
+        let hub = changing
+            .get(Path::new("/ws/app/hub.ts"))
+            .and_then(Option::as_ref)
+            .expect("the facts of the hub are kept");
+        assert!(hub.changes);
+        assert_eq!(hub.results.get("helper"), Some(&Vec::new()));
+        assert!(modules.replayable.borrow().is_empty());
     }
 }
