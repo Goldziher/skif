@@ -396,7 +396,8 @@ pub trait ModuleLoader {
     /// Whether `specifier`, a relative import from the file `from` that [`Self::load`] does not load, names a file of
     /// the project that holds no code: a declaration file (`./types` beside `types.d.ts`), JSON, a stylesheet or an
     /// asset. A re-export of one changes nothing; one of any other module the loader does not load may run code of the
-    /// project. `false` unless the loader says otherwise.
+    /// project. `false` unless the loader says otherwise. The evaluator asks this once per directory of `from` and
+    /// `specifier` and keeps the answer, so it is taken to depend on nothing else.
     fn holds_no_code(&self, _from: &Path, _specifier: &str) -> bool {
         false
     }
@@ -522,6 +523,7 @@ pub fn extract_config(source: &str, path: &Path, loader: Option<&dyn ModuleLoade
         analyses: Cell::new(0),
         analysed: RefCell::new(HashMap::default()),
         installed: RefCell::new(HashMap::default()),
+        no_code: RefCell::new(HashMap::default()),
     };
     evaluate_config(source, path, Some(&modules))
 }
@@ -717,12 +719,14 @@ struct Modules<'l> {
     analysed: RefCell<HashMap<PathBuf, Vec<Rc<Analysis>>>>,
     /// What the loader said of each importing directory and specifier ([`ModuleLoader::is_installed`]).
     installed: RefCell<HashMap<(PathBuf, String), bool>>,
+    /// What the loader said of each importing directory and specifier ([`ModuleLoader::holds_no_code`]).
+    no_code: RefCell<HashMap<(PathBuf, String), bool>>,
 }
 
 impl Modules<'_> {
     /// The module `specifier` names from `from`, asking the loader once per directory and specifier.
     fn load(&self, from: &Path, specifier: &str) -> Option<LoadedModule> {
-        let key = (from.parent().unwrap_or(from).to_path_buf(), specifier.to_owned());
+        let key = import_key(from, specifier);
         if let Some(known) = self.loaded.borrow().get(&key) {
             return known.clone();
         }
@@ -742,13 +746,14 @@ impl Modules<'_> {
     /// Whether `specifier` names an installed package from `from` ([`ModuleLoader::is_installed`]), asking the loader
     /// once per directory and specifier.
     fn is_installed(&self, from: &Path, specifier: &str) -> bool {
-        let key = (from.parent().unwrap_or(from).to_path_buf(), specifier.to_owned());
-        if let Some(&known) = self.installed.borrow().get(&key) {
-            return known;
-        }
-        let installed = self.loader.is_installed(from, specifier);
-        self.installed.borrow_mut().insert(key, installed);
-        installed
+        asked_once(&self.installed, from, specifier, || self.loader.is_installed(from, specifier))
+    }
+
+    /// Whether `specifier` names a file of the project that holds no code from `from`
+    /// ([`ModuleLoader::holds_no_code`]), asking the loader once per directory and specifier, so that an analysis
+    /// replayed ([`Self::analyse`]) gets the answer the analysis it replays got.
+    fn holds_no_code(&self, from: &Path, specifier: &str) -> bool {
+        asked_once(&self.no_code, from, specifier, || self.loader.holds_no_code(from, specifier))
     }
 
     /// Whether a function of the followed module `specifier` names from `from` may change a value of a module when it
@@ -905,7 +910,7 @@ impl Modules<'_> {
         match query {
             Query::Follows(specifier) => Answer::Flag(self.follows(from, specifier)),
             Query::Installed(specifier) => Answer::Flag(self.is_installed(from, specifier)),
-            Query::HoldsNoCode(specifier) => Answer::Flag(self.loader.holds_no_code(from, specifier)),
+            Query::HoldsNoCode(specifier) => Answer::Flag(self.holds_no_code(from, specifier)),
             Query::Changes(specifier) => Answer::Flag(self.changes_modules(from, specifier)),
             Query::Places(specifier, export) => Answer::Places(self.result_places(from, specifier, export)),
         }
@@ -1071,6 +1076,28 @@ fn reexported(program: &Program<'_>) -> Vec<String> {
         })
         .map(|source| crate::js_string(source.value))
         .collect()
+}
+
+/// The importing directory of the file `from` and `specifier`, which the loader's answers depend on.
+fn import_key(from: &Path, specifier: &str) -> (PathBuf, String) {
+    (from.parent().unwrap_or(from).to_path_buf(), specifier.to_owned())
+}
+
+/// The flag `ask` gives for `specifier` imported from `from`, kept in `known` by [`import_key`] so that it is asked
+/// once.
+fn asked_once(
+    known: &RefCell<HashMap<(PathBuf, String), bool>>,
+    from: &Path,
+    specifier: &str,
+    ask: impl FnOnce() -> bool,
+) -> bool {
+    let key = import_key(from, specifier);
+    if let Some(&flag) = known.borrow().get(&key) {
+        return flag;
+    }
+    let flag = ask();
+    known.borrow_mut().insert(key, flag);
+    flag
 }
 
 /// What a followed module's export returns, as far as [`Modules::export_result_places`] finds it.
@@ -1288,7 +1315,8 @@ enum Query {
 }
 
 impl Query {
-    /// Whether the answer is the loader's alone, the same in every analysis of the module.
+    /// Whether the answer is the loader's alone, which [`Modules`] asks for once per importing directory and
+    /// specifier, so that it is the same in every analysis of the module.
     fn of_loader(&self) -> bool {
         matches!(self, Self::Follows(_) | Self::Installed(_) | Self::HoldsNoCode(_))
     }
