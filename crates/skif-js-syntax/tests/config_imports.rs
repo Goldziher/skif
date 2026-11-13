@@ -1369,8 +1369,8 @@ fn a_write_through_this_in_an_accessor_or_iterator_run_implicitly_changes_the_im
 }
 
 /// A getter or an iterator that only reads through `this`, also through a binding taking what it holds, or only gives
-/// a key of `this` itself a new value, changes nothing the object holds, nor does one no code runs or a read of another
-/// key: the imported values stay known.
+/// a key of an object a call makes and no code keeps a new value, changes nothing the config reads, nor does one no
+/// code runs or a read of another key: the imported values stay known.
 #[test]
 fn an_accessor_or_iterator_that_changes_nothing_the_object_holds_leaves_the_imported_values_known() {
     for shared in [
@@ -1387,6 +1387,282 @@ fn an_accessor_or_iterator_that_changes_nothing_the_object_holds_leaves_the_impo
         let value = shared_config(shared, "touch", "touch();");
         assert_eq!(read_at(&value, &["plugins"]), &strings(&[]), "{shared}: {value:?}");
         assert_eq!(read_at(&value, &["name"]), &s("app"), "{shared}: {value:?}");
+    }
+}
+
+/// A config module that declares `box`, an object holding `mode` and `list` with `member` beside them, runs
+/// `statements` and exports `box` with a `name` of its own.
+fn box_config(member: &str, statements: &str) -> ConfigValue {
+    let config = format!(
+        "const box = {{ mode: 'development', list: ['a'], {member} }};\n{statements}\n\
+         export default {{ box, name: 'app' }};"
+    );
+    eval(&files(&[("/ws/app/config.ts", &*Box::leak(config.into_boxed_str()))]))
+}
+
+/// What [`box_config`] leaves of `mode` and `list` of the box.
+#[derive(Debug, Clone, Copy)]
+enum Boxed {
+    /// Both, after a change of all the box holds.
+    Changed,
+    /// `mode` alone, after a new value of it.
+    Mode,
+    /// `list` alone, which may hold more after a change of what it holds.
+    List,
+    /// Neither: both are as the module wrote them.
+    Known,
+}
+
+/// Asserts what [`box_config`] of `member` and `statements` leaves of the box, as `expected` says.
+fn assert_box(member: &str, statements: &str, expected: Boxed) {
+    let value = box_config(member, statements);
+    let written = (s("development"), strings(&["a"]));
+    let (mode, list) = match expected {
+        Boxed::Changed => (ConfigValue::Unknown, ConfigValue::Unknown),
+        Boxed::Mode => (ConfigValue::Unknown, written.1),
+        Boxed::List => (written.0, ConfigValue::Array(vec![s("a"), ConfigValue::Unknown])),
+        Boxed::Known => written,
+    };
+    let case = format!("{member} / {statements}: {value:?}");
+    assert_eq!(read_at(&value, &["box", "mode"]), &mode, "{case}");
+    assert_eq!(read_at(&value, &["box", "list"]), &list, "{case}");
+    assert_eq!(read_at(&value, &["name"]), &s("app"), "{case}");
+}
+
+/// A binding a getter gives `this` (`const self = this`), also one a function inside it reads, is `this` there, and
+/// destructuring `this` reads its keys: a getter a read through it runs changes what the object holds, so a getter
+/// running it so changes it too. A read through it of a key no getter has is the control.
+#[test]
+fn a_binding_taking_this_in_a_getter_runs_what_a_read_through_it_runs_on_the_object() {
+    let through_self = format!("{PUSHING_GETTER}, get twice() {{ const self = this; return self.grow; }}");
+    let in_function = format!(
+        "{PUSHING_GETTER}, get twice() {{ const self = this; function run() {{ return self.grow; }} return run(); }}"
+    );
+    let destructured = format!("{PUSHING_GETTER}, get twice() {{ const {{ grow }} = this; return grow; }}");
+    for member in [&through_self, &in_function, &destructured] {
+        assert_box(member, "box.twice;", Boxed::Changed);
+    }
+    assert_box(
+        &format!("{PUSHING_GETTER}, get twice() {{ const self = this; return self.mode; }}"),
+        "box.twice;",
+        Boxed::Known,
+    );
+    for member in [through_self, in_function, destructured] {
+        let value = shared_config(made_by_touch(&member, "return make().twice;"), "touch", "touch();");
+        assert_eq!(read_at(&value, &["plugins"]), &ConfigValue::Unknown, "{member}: {value:?}");
+        assert_eq!(read_at(&value, &["name"]), &s("app"), "{member}: {value:?}");
+    }
+}
+
+/// A parameter that destructures what it takes runs the getters and the iterator of the argument a call gives it: of
+/// a function the module declares, its default, and a callback given the elements of a list. A parameter taking a
+/// key no getter has is the control.
+#[test]
+fn a_destructured_parameter_runs_the_getters_and_iterators_of_what_it_takes() {
+    for (member, statements, expected) in [
+        (PUSHING_GETTER, "const take = ({ grow }) => grow;\nconst got = take(box);", Boxed::Changed),
+        (PUSHING_GETTER, "const got = [box].map(({ grow }) => grow);", Boxed::Changed),
+        (PUSHING_ITERATOR, "function first([item]) { return item; }\nconst got = first(box);", Boxed::Changed),
+        (PUSHING_GETTER, "const take = ({ grow } = box) => grow;\nconst got = take();", Boxed::Changed),
+        (PUSHING_GETTER, "const take = ({ mode }) => mode;\nconst got = take(box);", Boxed::Known),
+        (PUSHING_GETTER, "const got = [box].map(({ mode }) => mode);", Boxed::Known),
+    ] {
+        assert_box(member, statements, expected);
+    }
+    for (member, body) in [
+        (PUSHING_GETTER, "const take = ({ grow }) => grow; return take(make());"),
+        (PUSHING_GETTER, "return [make()].map(({ grow }) => grow);"),
+        (PUSHING_ITERATOR, "function first([item]) { return item; } return first(make());"),
+    ] {
+        let value = shared_config(made_by_touch(member, body), "touch", "touch();");
+        assert_eq!(read_at(&value, &["plugins"]), &ConfigValue::Unknown, "{body}: {value:?}");
+        assert_eq!(read_at(&value, &["name"]), &s("app"), "{body}: {value:?}");
+    }
+}
+
+/// A getter or a setter a descriptor defines (`Object.defineProperty`, `Object.defineProperties`,
+/// `Reflect.defineProperty`, `Object.create`) runs where its key is read or written, with the object the call defines
+/// it on as `this`. The object holds what `box.list` holds, so its change reaches it there; defining the getter alone
+/// is the control.
+#[test]
+fn a_getter_or_setter_a_descriptor_defines_runs_with_the_defined_object_as_this() {
+    let getter = "{ get() { this.list.push('x'); return 0; } }";
+    let linked = "made.list = box.list;";
+    let defined = [
+        format!("const made = Object.defineProperty({{}}, 'grow', {getter});\n{linked}"),
+        format!("const made = Object.defineProperties({{}}, {{ grow: {getter} }});\n{linked}"),
+        format!("const made = Object.create(null, {{ grow: {getter} }});\n{linked}"),
+    ];
+    for definition in &defined {
+        assert_box("", &format!("{definition}\nmade.grow;"), Boxed::List);
+        assert_box("", definition, Boxed::Known);
+    }
+    let setter = format!(
+        "const made = {{}};\nReflect.defineProperty(made, 'grow', {{ set(v) {{ this.list.push(v); }} }});\n{linked}"
+    );
+    assert_box("", &format!("{setter}\nmade.grow = 'x';"), Boxed::List);
+    assert_box("", &setter, Boxed::Known);
+    let shared = "import { base } from './base';\n\
+                  const make = () => {\n  const made = { list: base.plugins };\n  \
+                  Object.defineProperty(made, 'grow', { get() { this.list.push('x'); return 0; } });\n  \
+                  return made;\n};\n\
+                  export function touch() { return make().grow; }";
+    let value = shared_config(shared, "touch", "touch();");
+    assert_eq!(read_at(&value, &["plugins"]), &ConfigValue::Unknown, "{value:?}");
+    assert_eq!(read_at(&value, &["name"]), &s("app"), "{value:?}");
+}
+
+/// A getter or a setter that gives a key of `this` a new value changes that key of the object it runs on, also one
+/// code the module runs when it is loaded makes, or a call makes and keeps in a local: the key is unknown, and the
+/// rest of the object stays known. A read of another key is the control.
+#[test]
+fn a_getter_giving_a_key_of_this_a_new_value_leaves_that_key_unknown() {
+    let getter = "get prod() { this.mode = 'production'; return true; }";
+    assert_box(getter, "box.prod;", Boxed::Mode);
+    assert_box("set prod(v) { this.mode = v; }", "box.prod = 'production';", Boxed::Mode);
+    assert_box(getter, "box.list;", Boxed::Known);
+    for config in [
+        "const config = { mode: 'development', get prod() { this.mode = 'production'; return true; } };\n\
+         config.prod;\nexport default { mode: config.mode };",
+        "export default () => {\n  \
+         const config = { mode: 'development', get prod() { this.mode = 'production'; return true; } };\n  \
+         config.prod;\n  return { mode: config.mode };\n};",
+    ] {
+        let value = eval(&files(&[("/ws/app/config.ts", config)]));
+        assert_eq!(read_at(&value, &["mode"]), &ConfigValue::Unknown, "{config}: {value:?}");
+    }
+}
+
+/// A getter run through an alias of a part of a local (`const { test } = config`) changes what that part holds in the
+/// local itself, which the evaluator, seeing no call, does not change; the alias alone is the control.
+#[test]
+fn a_getter_run_through_an_alias_changes_the_local_it_takes_a_part_of() {
+    for (run, list) in [("test.grow;", ConfigValue::Unknown), ("", strings(&["a"]))] {
+        let config = format!(
+            "export default () => {{\n  \
+             const config = {{ test: {{ list: ['a'], get grow() {{ this.list.push('x'); return 0; }} }} }};\n  \
+             const {{ test }} = config;\n  {run}\n  return config;\n}};"
+        );
+        let value = eval(&files(&[("/ws/app/config.ts", &*Box::leak(config.into_boxed_str()))]));
+        assert_eq!(read_at(&value, &["test", "list"]), &list, "{run}: {value:?}");
+    }
+    let shared = "import { base } from './base';\nexport function touch() {\n  \
+                  const config = { test: { list: base.plugins, get grow() { this.list.push('x'); return 0; } } };\n  \
+                  const { test } = config;\n  return test.grow;\n}";
+    let value = shared_config(shared, "touch", "touch();");
+    assert_eq!(read_at(&value, &["plugins"]), &ConfigValue::Unknown, "{value:?}");
+}
+
+/// An iteration runs the `next` of the iterator `Symbol.iterator` returns, here the object itself; a method whose key
+/// is computed but no `Symbol.iterator` is no iterator, and a read of a key is the control.
+#[test]
+fn an_iteration_runs_the_next_method_of_an_iterator_and_no_other_computed_method() {
+    let iterator = "[Symbol.iterator]() { return this; }, next() { this.list.push('x'); return { done: true }; }";
+    assert_box(iterator, "for (const item of box) {}", Boxed::Changed);
+    assert_box(iterator, "box.mode;", Boxed::Known);
+    assert_box(
+        "[name]() { this.list.push('x'); }",
+        "for (const item of box.list) {}",
+        Boxed::Known,
+    );
+    let value = shared_config(made_by_touch(iterator, "for (const item of make()) {}"), "touch", "touch();");
+    assert_eq!(read_at(&value, &["plugins"]), &ConfigValue::Unknown, "{value:?}");
+}
+
+/// A tagged template gives its tag each value, which it may read the keys of or iterate; a value that holds no object
+/// is the control.
+#[test]
+fn a_tagged_template_runs_the_getters_of_its_values() {
+    assert_box(PUSHING_GETTER, "import { css } from 'lit';\ncss`${box}`;", Boxed::Changed);
+    assert_box(PUSHING_GETTER, "import { css } from 'lit';\ncss`${box.mode}`;", Boxed::Known);
+    let shared = "import { base } from './base';\nimport { css } from 'lit';\n\
+                  const make = () => ({ list: base.plugins, get grow() { this.list.push('x'); return 0; } });\n\
+                  export function touch() { return css`${make()}`; }";
+    let value = shared_config(shared, "touch", "touch();");
+    assert_eq!(read_at(&value, &["plugins"]), &ConfigValue::Unknown, "{value:?}");
+}
+
+/// A getter that calls a method of its object on `this` changes what the object holds only as that method does: a
+/// method that only reads leaves it known, one that pushes to a list or gives a key a new value changes that, and a
+/// method the object does not declare, or one code gives the key another function, may change anything.
+#[test]
+fn a_getter_calling_a_method_on_this_changes_what_the_method_changes() {
+    let reading = "read() { return this.mode; }, get isProd() { return this.read() === 'p'; }";
+    for (member, statements, expected) in [
+        (reading, "box.isProd;", Boxed::Known),
+        (
+            "read() { this.list.push('x'); return this.mode; }, get isProd() { return this.read() === 'p'; }",
+            "box.isProd;",
+            Boxed::Changed,
+        ),
+        (
+            "setProd() { this.mode = 'production'; }, get prod() { this.setProd(); return true; }",
+            "box.prod;",
+            Boxed::Mode,
+        ),
+        ("get isProd() { return this.lookup() === 'p'; }", "box.isProd;", Boxed::Changed),
+        (
+            reading,
+            "box.read = function () { this.list.push('x'); return 'p'; };\nbox.isProd;",
+            Boxed::Changed,
+        ),
+    ] {
+        assert_box(member, statements, expected);
+    }
+    for (method, plugins) in [
+        ("read() { return this.list.length; }", strings(&[])),
+        ("read() { this.list.push('x'); return 0; }", ConfigValue::Unknown),
+    ] {
+        let member = format!("{method}, get isProd() {{ return this.read() > 0; }}");
+        let value = shared_config(made_by_touch(&member, "return make().isProd;"), "touch", "touch();");
+        assert_eq!(read_at(&value, &["plugins"]), &plugins, "{method}: {value:?}");
+    }
+}
+
+/// A getter that changes what its object holds elsewhere in the module runs nowhere a known function that reads
+/// no key is given a value (a `define…` helper, `path.join`), nor where a list is iterated or indexed, as no
+/// iterator and no getter of an index is declared: the config's values stay known.
+#[test]
+fn a_getter_runs_nowhere_a_known_function_reads_no_key_nor_where_a_list_is_iterated() {
+    let config = "import { defineConfig } from 'vite';\nimport path from 'node:path';\nconst plugins = ['a'];\n\
+                  const helper = { list: [], get grow() { this.list.push('x'); return 0; } };\nhelper.grow;\n\
+                  const root = path.join(plugins[0], 'src');\nconst unique = new Set(plugins);\n\
+                  for (const plugin of plugins) {}\n\
+                  export default defineConfig({ plugins: [...plugins], all: plugins, name: 'app' });";
+    let value = eval(&files(&[("/ws/app/config.ts", config)]));
+    assert_eq!(read_at(&value, &["all"]), &strings(&["a"]), "{value:?}");
+    assert_eq!(read_at(&value, &["plugins"]), &strings(&["a"]), "{value:?}");
+    assert_eq!(read_at(&value, &["name"]), &s("app"), "{value:?}");
+}
+
+/// A getter that runs another one on `this` that runs a third one so changes what the third one changes.
+#[test]
+fn a_chain_of_getters_run_on_this_changes_what_the_last_changes() {
+    let chain = format!("{PUSHING_GETTER}, get twice() {{ return this.grow; }}, get thrice() {{ return this.twice; }}");
+    assert_box(&chain, "box.thrice;", Boxed::Changed);
+    assert_box(&chain, "box.mode;", Boxed::Known);
+    let value = shared_config(made_by_touch(&chain, "return make().thrice;"), "touch", "touch();");
+    assert_eq!(read_at(&value, &["plugins"]), &ConfigValue::Unknown, "{value:?}");
+}
+
+/// The `toString` a template literal runs and the `then` an `await` runs are not followed: what they change of the
+/// object stays known.
+#[test]
+fn a_to_string_or_then_run_implicitly_is_not_followed() {
+    assert_box(
+        "toString() { this.list.push('x'); return ''; }",
+        "const text = `${box}`;",
+        Boxed::Known,
+    );
+    let then = "import { base } from './base';\n\
+                const make = () => ({ list: base.plugins, then(resolve) { this.list.push('x'); resolve(0); } });\n\
+                export async function touch() { await make(); }";
+    for shared in [
+        made_by_touch("toString() { this.list.push('x'); return ''; }", "return `${make()}`;"),
+        then,
+    ] {
+        let value = shared_config(shared, "touch", "touch();");
+        assert_eq!(read_at(&value, &["plugins"]), &strings(&[]), "{shared}: {value:?}");
     }
 }
 
