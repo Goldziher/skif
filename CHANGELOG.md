@@ -9,6 +9,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Performance** ([#206](https://github.com/Goldziher/skif/issues/206)): `--watch` scans the tree on several threads,
+  so on a large repository it polls more often and sees a change sooner. The files it compares are unchanged.
+
 ## [0.4.0] - 2026-11-12
 
 ### Breaking changes

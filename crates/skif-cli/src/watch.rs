@@ -15,7 +15,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
 use skif::{CachedFs, MemoryModuleCache, OsFs};
@@ -114,24 +114,84 @@ type Stamp = (Option<SystemTime>, u64);
 /// Every file below `dir` with its modification time and size. `.gitignore` files are honoured, the [`SKIPPED`]
 /// directories are never entered, and the `written` files (canonical paths, as [`LintArgs::written_files`] gives
 /// them) are left out; so is a file that vanishes during the scan.
+///
+/// The walk runs on several threads, each collecting what it sees; the map is ordered, so the result does not
+/// depend on which thread saw which file.
 fn scan(dir: &Path, written: &BTreeSet<PathBuf>) -> BTreeMap<PathBuf, Stamp> {
-    let walker = ignore::WalkBuilder::new(dir)
+    let collected = Mutex::new(Vec::new());
+    walker(dir).build_parallel().visit(&mut Collector {
+        written,
+        collected: &collected,
+    });
+    collected
+        .into_inner()
+        .unwrap_or_else(PoisonError::into_inner)
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
+/// The walk [`scan`] runs: hidden files included, `.gitignore` honoured without a repository or the global ignore
+/// file, and the [`SKIPPED`] directories never entered.
+fn walker(dir: &Path) -> ignore::WalkBuilder {
+    let mut builder = ignore::WalkBuilder::new(dir);
+    builder
         .hidden(false)
         .require_git(false)
         .git_global(false)
         .filter_entry(|entry| {
             !(entry.file_type().is_some_and(|kind| kind.is_dir())
                 && entry.file_name().to_str().is_some_and(|name| SKIPPED.contains(&name)))
+        });
+    builder
+}
+
+/// What one entry of the walk adds to the scan: a file that is not `written`, with its stamp.
+fn stamp(entry: ignore::DirEntry, written: &BTreeSet<PathBuf>) -> Option<(PathBuf, Stamp)> {
+    if !entry.file_type().is_some_and(|kind| kind.is_file()) || written.contains(entry.path()) {
+        return None;
+    }
+    let metadata = entry.metadata().ok()?;
+    Some((entry.into_path(), (metadata.modified().ok(), metadata.len())))
+}
+
+/// Hands each walker thread a [`Visitor`] that adds its files to `collected` when the thread finishes.
+struct Collector<'a> {
+    written: &'a BTreeSet<PathBuf>,
+    collected: &'a Mutex<Vec<Vec<(PathBuf, Stamp)>>>,
+}
+
+impl<'s> ignore::ParallelVisitorBuilder<'s> for Collector<'s> {
+    fn build(&mut self) -> Box<dyn ignore::ParallelVisitor + 's> {
+        Box::new(Visitor {
+            written: self.written,
+            collected: self.collected,
+            files: Vec::new(),
         })
-        .build();
-    walker
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_some_and(|kind| kind.is_file()) && !written.contains(entry.path()))
-        .filter_map(|entry| {
-            let metadata = entry.metadata().ok()?;
-            Some((entry.into_path(), (metadata.modified().ok(), metadata.len())))
-        })
-        .collect()
+    }
+}
+
+/// The files one walker thread saw.
+struct Visitor<'a> {
+    written: &'a BTreeSet<PathBuf>,
+    collected: &'a Mutex<Vec<Vec<(PathBuf, Stamp)>>>,
+    files: Vec<(PathBuf, Stamp)>,
+}
+
+impl ignore::ParallelVisitor for Visitor<'_> {
+    fn visit(&mut self, entry: Result<ignore::DirEntry, ignore::Error>) -> ignore::WalkState {
+        if let Some(file) = entry.ok().and_then(|entry| stamp(entry, self.written)) {
+            self.files.push(file);
+        }
+        ignore::WalkState::Continue
+    }
+}
+
+impl Drop for Visitor<'_> {
+    fn drop(&mut self) {
+        let mut collected = self.collected.lock().unwrap_or_else(PoisonError::into_inner);
+        collected.push(std::mem::take(&mut self.files));
+    }
 }
 
 /// Decides when a series of scans should start a run: after a change, once a scan finds the tree unchanged and
@@ -280,6 +340,51 @@ mod tests {
         let written = BTreeSet::from([root.join("report.sarif")]);
         let files: Vec<PathBuf> = scan(&root, &written).into_keys().collect();
         assert_eq!(files, [root.join("package.json")]);
+    }
+
+    /// A tree wide enough to spread over the walker's threads: the parallel scan gives exactly the files, sizes and
+    /// modification times a single-threaded walk gives, with the skipped directories, the files ignored by nested
+    /// `.gitignore` files and the written files left out.
+    #[test]
+    fn the_parallel_scan_matches_a_single_threaded_walk() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = canonical(dir.path()).unwrap();
+        let at = |file: &str| file.split('/').fold(root.clone(), |path, part| path.join(part));
+        let mut expected = BTreeSet::new();
+        let mut write = |file: &str, text: &str, seen: bool| {
+            let path = at(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, text).unwrap();
+            if seen {
+                expected.insert(path);
+            }
+        };
+        write(".gitignore", "*.log\n", true);
+        write("report.sarif", "{}", false);
+        for package in 0..40 {
+            let base = format!("packages/p{package}");
+            write(&format!("{base}/.gitignore"), "build/\n", true);
+            write(&format!("{base}/.env"), "A=1", true);
+            write(&format!("{base}/package.json"), &"x".repeat(package), true);
+            write(&format!("{base}/debug.log"), "x", false);
+            write(&format!("{base}/build/out.js"), "x", false);
+            write(&format!("{base}/node_modules/dep/index.js"), "x", false);
+            write(&format!("{base}/.git/HEAD"), "x", false);
+            write(&format!("{base}/target/out"), "x", false);
+            for module in 0..25 {
+                write(&format!("{base}/src/m{module}/index.ts"), "export {}", true);
+            }
+        }
+        let written = BTreeSet::from([root.join("report.sarif")]);
+        let sequential: BTreeMap<PathBuf, Stamp> = walker(&root)
+            .build()
+            .filter_map(Result::ok)
+            .filter_map(|entry| stamp(entry, &written))
+            .collect();
+        let parallel = scan(&root, &written);
+        assert_eq!(parallel.keys().cloned().collect::<BTreeSet<_>>(), expected);
+        assert_eq!(parallel, sequential);
+        assert_eq!(parallel[&at("packages/p7/package.json")].1, 7);
     }
 
     #[test]
