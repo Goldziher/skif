@@ -102,7 +102,10 @@ impl PackageSources {
             .filter_map(|file| {
                 let text = file
                     .text
-                    .get_or_init(|| self.texts.get_or_read(&self.dir.join(&file.path), || read(file.path.as_str())))
+                    .get_or_init(|| {
+                        self.texts
+                            .get_or_read(&self.dir.join(&file.path), || read(file.path.as_str()))
+                    })
                     .as_ref()?;
                 keep(text).then(|| (file.path.clone(), Arc::clone(text)))
             })
