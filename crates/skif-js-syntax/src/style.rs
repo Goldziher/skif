@@ -123,9 +123,14 @@ fn names_package_file(value: &str) -> bool {
         None if value.starts_with('@') => (value, true),
         None => return false,
     };
-    let mut parts = path.strip_prefix('@').unwrap_or(path).splitn(if scoped { 3 } else { 2 }, '/');
+    let mut parts = path
+        .strip_prefix('@')
+        .unwrap_or(path)
+        .splitn(if scoped { 3 } else { 2 }, '/');
     let names = if scoped {
-        [parts.next(), parts.next()].into_iter().all(|part| part.is_some_and(is_package_segment))
+        [parts.next(), parts.next()]
+            .into_iter()
+            .all(|part| part.is_some_and(is_package_segment))
     } else {
         parts.next().is_some_and(is_package_segment)
     };
@@ -492,7 +497,11 @@ mod tests {
                       .e { background: url(https://x.test/a.png); }";
         assert_eq!(
             specifiers("a.css", source),
-            ["@ibm/plex/Mono/fonts/a.woff2", "@scope/pkg/img.png", "legacy-icons/sprite.svg"]
+            [
+                "@ibm/plex/Mono/fonts/a.woff2",
+                "@scope/pkg/img.png",
+                "legacy-icons/sprite.svg"
+            ]
         );
         let info = parse_stylesheet(Path::new("a.css"), ".a { b: url(\"@s/p/x.png\"); }");
         assert_eq!(info.imports[0].kind, ImportKind::SideEffect);
