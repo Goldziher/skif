@@ -63,6 +63,10 @@ All notable changes to this project are documented here. The format follows
 - **`explain-usage`**: an importer that uses no export says what it takes instead of `the whole module`: a resolve call
   `its path, no export`, a side-effect import `runs it, no export` and a test-runner mock `a test-runner call, no
   export` ([#225](https://github.com/Goldziher/skif/issues/225)).
+- **`unlisted-binaries`**: a `node:child_process`, `execa`, nano-spawn or `Bun.spawn` call with a literal argument that
+  is not a plain word (`execFileSync("sqlite3", [db, "select …"])`) runs its program: the argument is one quoted word
+  of the command instead of dropping the call, so the binary is judged. The analysis cache is invalidated
+  ([#97](https://github.com/Goldziher/skif/issues/97)).
 
 ## [0.4.0] - 2026-11-12
 

@@ -24,7 +24,7 @@ use crate::style::{is_stylesheet, parse_stylesheet};
 /// The version of the parse output. Raise it whenever [`ModuleInfo`] or what the parsers put in it changes, so a
 /// cache written by an older build at the same crate version is not trusted; the test
 /// `the_cache_schema_matches_the_parse_output` fails until [`CACHE_SCHEMA_DIGEST`] is updated with it.
-pub const CACHE_SCHEMA: u32 = 6;
+pub const CACHE_SCHEMA: u32 = 7;
 
 /// The digest of the serialized parse results of a fixed probe corpus at [`CACHE_SCHEMA`]. It is a test's guard,
 /// not part of any key: when the parse output changes, the test reports the new digest and both constants move.
@@ -480,7 +480,8 @@ mod tests {
                 "o.mjs",
                 "import { execSync, spawn } from 'node:child_process';\nimport path from 'node:path';\n\
                  execSync('npm run build', { cwd: '/tmp/app' });\nspawn('tsc', ['-b'], { cwd: process.cwd() });\n\
-                 execSync('pnpm exec rspack', { cwd: path.join(import.meta.dirname, '../sub') });\n",
+                 execSync('pnpm exec rspack', { cwd: path.join(import.meta.dirname, '../sub') });\n\
+                 spawn('sqlite3', ['db', 'select 1;']);\n",
             ),
         ];
         let mut corpus: Vec<(PathBuf, String)> = inline

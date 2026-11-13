@@ -1,7 +1,7 @@
 //! execa: the commands a source file runs with `execa('tsx', ['build.ts'])`, `execaCommand('…')`, `execaNode(…)` and
 //! `` $`…` `` are scripts, parsed like the scripts of `package.json`; so are the default export of execa 5 and earlier
 //! (`execa(…)`, `execa.sync(…)`, `execa.command(…)`, `execa.node(…)`). Only literal commands count: a computed argument
-//! is left out, and a call with a literal argument that is not a plain word is skipped. A call with a `cwd` option runs
+//! is left out, and a literal argument that is not a plain word is quoted as one word. A call with a `cwd` option runs
 //! its command in that directory, which the script parser places only when the file's own location computes it (see
 //! [`command_in_call_dir`]).
 
