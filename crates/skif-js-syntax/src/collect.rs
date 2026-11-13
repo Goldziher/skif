@@ -735,6 +735,39 @@ pub(crate) fn collect_import(ctx: &Ctx<'_>, d: &oxc_ast::ast::ImportDeclaration<
     });
 }
 
+/// The import an `export * from "x"` or `export { a } from "x"` statement inside a `declare module` block makes, `None`
+/// for any other statement. The block declares the types of another module, so the statement adds no export to the
+/// file and imports the types of `x` only.
+pub(crate) fn ambient_reexport(ctx: &Ctx<'_>, statement: &Statement<'_>) -> Option<Import> {
+    let type_name = |kind: ImportedKind| ImportedName {
+        kind,
+        local: None,
+        is_type: true,
+        accessed_members: Vec::new(),
+        nested_members: BTreeMap::new(),
+        escapes: false,
+    };
+    let (source, names, span) = match statement {
+        Statement::ExportAllDeclaration(e) => (&e.source, vec![type_name(ImportedKind::Namespace)], e.span),
+        Statement::ExportFromDeclaration(e) => (
+            &e.source,
+            e.specifiers
+                .iter()
+                .map(|s| type_name(imported_kind(module_export_name(&s.local))))
+                .collect(),
+            e.span,
+        ),
+        _ => return None,
+    };
+    Some(Import {
+        specifier: crate::js_string(source.value),
+        kind: ImportKind::TypeOnly,
+        names,
+        call: None,
+        span: ctx.span(span),
+    })
+}
+
 /// The parts shared by `export <declaration>`, `export { a }` and `export { a } from "m"`, which oxc
 /// models as three node types.
 struct NamedExport<'n, 'a> {

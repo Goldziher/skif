@@ -63,6 +63,11 @@ All notable changes to this project are documented here. The format follows
 - **`explain-usage`**: an importer that uses no export says what it takes instead of `the whole module`: a resolve call
   `its path, no export`, a side-effect import `runs it, no export` and a test-runner mock `a test-runner call, no
   export` ([#225](https://github.com/Goldziher/skif/issues/225)).
+- **`declare module` re-exports**: `export * from "x"` and `export { a } from "x"` inside a `declare module` block are
+  type-only imports of `x`, as an `import` there already was, so they use `x` or its `@types` package: a
+  `declare module 'commander' { export * from '@commander-js/extra-typings'; }` no longer leaves
+  `@commander-js/extra-typings` unused. The block adds no export to the file, and the analysis cache is invalidated
+  ([#98](https://github.com/Goldziher/skif/issues/98)).
 
 ## [0.4.0] - 2026-11-12
 
