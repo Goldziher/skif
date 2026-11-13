@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Imports the results of a run of the bench workflow (.github/workflows/bench.yml, ADR 0029): downloads its artifact,
-# refreshes the speed tables of the benchmarks page and the speed claims of README.md and the comparison guide from its
+# refreshes the speed tables of the benchmarks page and the speed claims of the comparison guide from its
 # summary, and puts summary.json, summary.md and the raw hyperfine exports (raw/) into tools/bench/results, ready to be
 # committed.
 #

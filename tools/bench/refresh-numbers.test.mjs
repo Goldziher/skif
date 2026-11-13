@@ -480,11 +480,7 @@ test("a baseline from an older harness is a problem", () => {
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 /** The files refresh-numbers.mjs rewrites, relative to the repository root. */
-const TARGETS = [
-  "README.md",
-  "website/src/content/docs/guides/comparison.mdx",
-  "website/src/content/docs/guides/benchmarks.mdx",
-];
+const TARGETS = ["website/src/content/docs/guides/comparison.mdx", "website/src/content/docs/guides/benchmarks.mdx"];
 
 /** A temporary tree holding a copy of the script, the files it rewrites and the parity baseline; returns its root. */
 function scriptTree(t) {
@@ -521,12 +517,12 @@ test("without flags and without an imported summary only the agreement table is 
   const page = join(root, "website", "src", "content", "docs", "guides", "benchmarks.mdx");
   const agreement = /(\{\/\* parity:agreement:start \*\/\}\n)[^]*?(\n\{\/\* parity:agreement:end)/;
   writeFileSync(page, readFileSync(page, "utf8").replace(agreement, "$1stale$2"));
-  const [readme, comparison] = contents(root);
+  const [comparison] = contents(root);
   const run = runScript(root);
   assert.equal(run.status, 0, run.stderr);
   assert.match(run.stdout, /results\/summary\.json, so the speed blocks are left as they are/);
-  const [readmeAfter, comparisonAfter, pageAfter] = contents(root);
-  assert.deepEqual([readmeAfter, comparisonAfter], [readme, comparison]);
+  const [comparisonAfter, pageAfter] = contents(root);
+  assert.deepEqual(comparisonAfter, comparison);
   assert.doesNotMatch(pageAfter.toString("utf8"), /\nstale\n/);
   assert.match(pageAfter.toString("utf8"), /\| Unused files \| /);
 });
@@ -551,11 +547,10 @@ test("a summary with a matched knip failure is written into every speed block", 
   writeFileSync(file, JSON.stringify(matched));
   const run = runScript(root, "--bench", "--summary", file);
   assert.equal(run.status, 0, run.stderr);
-  const [readme, comparison, page] = contents(root).map((bytes) => bytes.toString("utf8"));
+  const [comparison, page] = contents(root).map((bytes) => bytes.toString("utf8"));
   assert.ok(page.includes(`| knip --reporter json | fails: ${METRO_REASON} | - | - |\n`), page);
   assert.ok(page.includes(`| create-t3-turbo | 33 ms | fails: ${METRO_REASON} | - |\n`), page);
   const claim = "\n- **8.1x faster than knip** for dead-code analysis";
-  assert.ok(readme.includes(`<!-- bench:claims:start -->${claim}`), readme);
   assert.ok(comparison.includes(`{/* bench:claims:start */}${claim}`), comparison);
-  assert.ok(readme.includes("it fails on create-t3-turbo.\n"), readme);
+  assert.ok(comparison.includes("it fails on create-t3-turbo.\n"), comparison);
 });
