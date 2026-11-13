@@ -63,11 +63,17 @@ All notable changes to this project are documented here. The format follows
 - **`explain-usage`**: an importer that uses no export says what it takes instead of `the whole module`: a resolve call
   `its path, no export`, a side-effect import `runs it, no export` and a test-runner mock `a test-runner call, no
   export` ([#225](https://github.com/Goldziher/skif/issues/225)).
-- **Config evaluation**: a getter, a setter or an iterator of an object or class instance a module makes that writes
+- **Config evaluation**: a getter, a setter or an iterator of an object or class instance a module makes, also one
+  `Object.defineProperty`, `Object.defineProperties`, `Reflect.defineProperty` or `Object.create` defines, that writes
   through `this` (`get grow() { this.list.push(…) }`) now changes what the object holds where code runs it with no call
-  written: a read or a write of its key, a destructuring, a spread, `for…of`, `yield*`, or a builtin given the object
-  (`JSON.stringify`). A value the config reads from the object is unknown after such a run instead of read as
-  unchanged, so a file the config reaches only through the change is no longer reported as `unused-files`
+  written: a read or a write of its key, a destructuring (also of a parameter or a callback parameter), a spread,
+  `for…of` and `yield*` (also through `next`, `return` and `throw`), a tagged template, a call skif does not follow, a
+  builtin that reads the object's keys (`JSON.stringify`) or a `new` of a class that is no builtin. A binding of `this`
+  (`const self = this`) counts as `this`, a getter that gives a key of `this` a new value leaves only that key unknown,
+  and a method called on `this` counts only as far as it writes. A value the config reads that such a run may change is
+  unknown instead of read as unchanged, so a file the config reaches only through the change is no longer reported as
+  `unused-files`; a `define…` helper or `path.join` given the object runs none of them. Static getters, `toString`,
+  `valueOf`, `toJSON`, `then` and the accessors of an object another module makes are not followed
   ([#228](https://github.com/Goldziher/skif/issues/228)).
 
 ## [0.4.0] - 2026-11-12
