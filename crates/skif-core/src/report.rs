@@ -126,6 +126,13 @@ impl ConfigJudgement {
     }
 }
 
+/// `items` sorted and without duplicates.
+fn sorted_unique<T: Ord>(mut items: Vec<T>) -> Vec<T> {
+    items.sort();
+    items.dedup();
+    items
+}
+
 impl Report {
     /// Sorts `diagnostics` deterministically and computes the summary; `packages` is the number of packages checked.
     #[must_use]
@@ -159,38 +166,30 @@ impl Report {
 
     /// Sets the files of other projects the analysed code uses, absolute, sorted and without duplicates.
     #[must_use]
-    pub fn with_other_project_files(mut self, mut files: Vec<PathBuf>) -> Self {
-        files.sort();
-        files.dedup();
-        self.other_project_files = files;
+    pub fn with_other_project_files(mut self, files: Vec<PathBuf>) -> Self {
+        self.other_project_files = sorted_unique(files);
         self
     }
 
     /// Sets the files of other projects that plugins name as build sources, absolute, sorted and without duplicates.
     #[must_use]
-    pub fn with_other_project_build_sources(mut self, mut files: Vec<PathBuf>) -> Self {
-        files.sort();
-        files.dedup();
-        self.other_project_build_sources = files;
+    pub fn with_other_project_build_sources(mut self, files: Vec<PathBuf>) -> Self {
+        self.other_project_build_sources = sorted_unique(files);
         self
     }
 
     /// Sets the dependencies the analysed code uses through manifests outside the workspace root, sorted and without
     /// duplicates.
     #[must_use]
-    pub fn with_ancestor_dependency_uses(mut self, mut uses: Vec<(PathBuf, String)>) -> Self {
-        uses.sort();
-        uses.dedup();
-        self.ancestor_dependency_uses = uses;
+    pub fn with_ancestor_dependency_uses(mut self, uses: Vec<(PathBuf, String)>) -> Self {
+        self.ancestor_dependency_uses = sorted_unique(uses);
         self
     }
 
     /// Sets the configuration entries `stale-js-config` judged, sorted and without duplicates.
     #[must_use]
-    pub fn with_config_judgements(mut self, mut judgements: Vec<ConfigJudgement>) -> Self {
-        judgements.sort();
-        judgements.dedup();
-        self.config_judgements = judgements;
+    pub fn with_config_judgements(mut self, judgements: Vec<ConfigJudgement>) -> Self {
+        self.config_judgements = sorted_unique(judgements);
         self
     }
 
