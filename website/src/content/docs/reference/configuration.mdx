@@ -978,9 +978,12 @@ In a multi-root run (`skif -r`) the files of a nested root that an enclosing roo
 a script or names in a tool configuration are entries of the nested root: `import { x } from "../build/lib/x"` in
 the outer `src` keeps `build/lib/x.ts`, and what it imports, used in the root at `build`, and so does a workflow step
 `node build/lib/report.ts` for `build/lib/report.ts`. Only the files the enclosing root's own code and configuration
-reach directly become entries, so an unused export of a file they import is still reported. A nested root is therefore linted after the roots that enclose
-it. A root linted on its own (`skif build`) cannot know what an outer root it was not given imports, so there such a
-file is still reported unused; lint from the top with `-r`, or add it to `entry`.
+reach directly become entries, so an unused export of a file they import is still reported. A file an enclosing
+root's plugin names as a build source (a Bazel `srcs` of the outer `BUILD` file) is a build source of the nested root
+instead: used, and what it imports too, but its unused exports are reported. A nested root is therefore linted after
+the roots that enclose it. A root linted on its own (`skif build`) cannot know what an outer root it was not given
+imports or builds from, so there such a file is still reported unused; lint from the top with `-r`, or add it to
+`entry`.
 
 A file a root's code reaches outside the root's own directory counts as used by the root of the run that holds it:
 `require("../tools/detect.js")` in a nested root at `build` keeps the outer root's `tools/detect.js`, and every file it
@@ -1393,8 +1396,8 @@ counterpart. These differences are deliberate:
   `data` of those rules and the `srcs` and `data` of `js_library` and `ts_project` are build sources: used files whose
   imports are followed but whose exports, types and members are judged, as they are no entries. A literal counts
   when it names an existing file of the package, by path or as `":path"` (one of a workspace member below the
-  package is an entry or build source of that member, and one of a nested root an entry of that root under
-  `skif -r`), and those of `js_test` only outside
+  package is an entry or build source of that member, and one of a nested root an entry or build source of that
+  root under `skif -r`), and those of `js_test` only outside
   `--production`; `glob()`, `select()` and variables name nothing, nor does a macro of a `.bzl` file. The `BUILD`
   files of a nested package give no entries or build sources, and those below the `bazel-*` links at the repository
   root are not read.
