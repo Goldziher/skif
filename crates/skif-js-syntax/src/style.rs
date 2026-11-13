@@ -485,9 +485,11 @@ mod tests {
     #[test]
     fn urls_of_package_files_are_imports() {
         let source = "@font-face { src: url(\"@ibm/plex/Mono/fonts/a.woff2\") format(\"woff2\"); }\n\
-                      .a { background: url( '@scope/pkg/img.png' ); }\n.b { background: url(~legacy-icons/sprite.svg); }\n\
-                      .c { background: url(\"./img.png\"), url(images/bg.png), url(\"@/assets/hero.png\"), url(~/x.png); }\n\
-                      .d { background: url(\"@scope\"), url(\"@scope/pkg\"), url(@{var}/x.png), url(https://x.test/a.png); }";
+                      .a { background: url( '@scope/pkg/img.png' ); }\n\
+                      .b { background: url(~legacy-icons/sprite.svg); }\n\
+                      .c { background: url(\"./img.png\"), url(images/bg.png), url(\"@/assets/a.png\"); }\n\
+                      .d { background: url(~/x.png), url(\"@scope\"), url(\"@scope/pkg\"), url(@{var}/x.png); }\n\
+                      .e { background: url(https://x.test/a.png); }";
         assert_eq!(
             specifiers("a.css", source),
             ["@ibm/plex/Mono/fonts/a.woff2", "@scope/pkg/img.png", "legacy-icons/sprite.svg"]
