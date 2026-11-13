@@ -9,6 +9,7 @@ use skif_core::{HashMap, HashSet};
 /// How a module is pulled in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum ImportKind {
     /// `import a from "x"` (not type-only, has bindings).
     Static,

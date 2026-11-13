@@ -429,6 +429,7 @@ const fn kind_label(kind: ImportKind) -> &'static str {
         ImportKind::ExportFrom => "export-from",
         ImportKind::Mock => "mock",
         ImportKind::Url => "url",
+        _ => "import",
     }
 }
 
