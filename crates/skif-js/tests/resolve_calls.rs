@@ -171,3 +171,20 @@ fn a_resolve_call_closes_no_import_cycle() {
         assert_eq!(found(&diagnostics, "circular-imports"), cycles, "{b}");
     }
 }
+
+/// A module that an extensionless mise file task only resolves is used, but no entry, so its exports are judged.
+#[test]
+fn a_module_a_mise_file_task_resolves_is_used_and_its_exports_are_judged() {
+    let diagnostics = lint(&[
+        CJS_PACKAGE,
+        ("mise.toml", "[tools]\nnode = \"22\"\n"),
+        (
+            "mise-tasks/gen",
+            "#!/usr/bin/env node\nconsole.log(require.resolve('../src/data.js'));\n",
+        ),
+        ("src/index.js", "console.log(1);\n"),
+        ("src/data.js", "exports.a = 1;\n"),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-files"), none());
+    assert_eq!(found(&diagnostics, "unused-exports"), ["src/data.js: a"]);
+}
