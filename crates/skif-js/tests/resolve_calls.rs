@@ -19,6 +19,11 @@ const ESM_PACKAGE: (&str, &str) = (
     r#"{"name": "app", "version": "1.0.0", "private": true, "packageManager": "npm@11.0.0", "type": "module", "main": "src/index.js"}"#,
 );
 
+const ESM_PACKAGE_TS: (&str, &str) = (
+    "package.json",
+    r#"{"name": "app", "version": "1.0.0", "private": true, "packageManager": "npm@11.0.0", "type": "module", "main": "src/index.ts"}"#,
+);
+
 const ESM_FILES: [(&str, &str); 4] = [
     ESM_PACKAGE,
     (
@@ -133,17 +138,80 @@ fn a_resolved_package_is_a_used_dependency() {
 
 #[test]
 fn explain_usage_names_a_resolve_call_as_taking_no_export() {
-    let text = explain(&ESM_FILES, "src/other.js", Some("b"));
-    assert!(
-        text.contains("    src/index.js:4 (resolve: its path, no export)\n"),
-        "{text}"
+    assert_eq!(
+        explain(&ESM_FILES, "src/other.js", Some("b")),
+        concat!(
+            "src/other.js\n",
+            "  imported by 1 place(s):\n",
+            "    src/index.js:4 (resolve: its path, no export)\n",
+            "  reached from an entry through: src/index.js -> src/other.js\n",
+            "  export `b` of src/other.js:\n",
+            "    no module imports it by name or as a whole\n",
+            "  => not used by another module\n",
+        )
     );
-    assert!(text.contains("  export `b` of src/other.js:\n"), "{text}");
-    assert!(
-        text.contains("    no module imports it by name or as a whole\n"),
-        "{text}"
-    );
-    assert!(text.contains("  => not used by another module\n"), "{text}");
+}
+
+/// A resolve call uses no export, but types were never credited by one: a type export of a module only resolved is
+/// reported by `unused-types`, as its values are by `unused-exports`.
+#[test]
+fn a_type_export_of_a_resolved_module_is_reported() {
+    let diagnostics = lint(&[
+        ESM_PACKAGE_TS,
+        (
+            "src/index.ts",
+            "import { createRequire } from 'node:module';\n\
+             const require = createRequire(import.meta.url);\n\
+             console.log(require.resolve('./lib.ts'));\n",
+        ),
+        ("src/lib.ts", "export type Shape = { a: number };\nexport const a = 1;\n"),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-files"), none());
+    assert_eq!(found(&diagnostics, "unused-types"), ["src/lib.ts: Shape"]);
+    assert_eq!(found(&diagnostics, "unused-exports"), ["src/lib.ts: a"]);
+}
+
+/// A resolved module is a module of the graph: what it imports is followed.
+#[test]
+fn what_a_resolved_module_requires_is_used() {
+    let diagnostics = lint(&[
+        CJS_PACKAGE,
+        ("src/index.js", "console.log(require.resolve('./lib'));\n"),
+        ("src/lib.js", "require('./dep');\nexports.a = 1;\n"),
+        ("src/dep.js", "console.log(1);\n"),
+        ("src/stray.js", "console.log(2);\n"),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-files"), ["src/stray.js: src/stray.js"]);
+}
+
+/// A resolve call of a missing file or an unlisted package is reported as an import of it would be.
+#[test]
+fn an_unresolvable_resolve_call_is_reported() {
+    let diagnostics = lint(&[
+        CJS_PACKAGE,
+        (
+            "src/index.js",
+            "console.log(require.resolve('./missing'), require.resolve('nope'));\n",
+        ),
+    ]);
+    assert_eq!(found(&diagnostics, "unresolved-imports"), ["src/index.js: ./missing"]);
+    assert_eq!(found(&diagnostics, "unlisted-dependencies"), ["src/index.js: nope"]);
+}
+
+/// A resolve call does not change how a module read through a namespace is judged: it stays namespace-only, so its
+/// unread exports are `unused-namespace-exports`, not `unused-exports`.
+#[test]
+fn a_resolve_call_leaves_a_namespace_only_module_namespace_only() {
+    let diagnostics = lint(&[
+        ESM_PACKAGE,
+        (
+            "src/index.js",
+            "import * as ns from './lib.js';\nconsole.log(ns.a, import.meta.resolve('./lib.js'));\n",
+        ),
+        ("src/lib.js", "export const a = 1;\nexport const b = 2;\n"),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-namespace-exports"), ["src/lib.js: b"]);
+    assert_eq!(found(&diagnostics, "unused-exports"), none());
 }
 
 /// A resolve call loads nothing, so it closes no import cycle; a `require` of the same module does.
