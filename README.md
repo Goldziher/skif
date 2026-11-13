@@ -28,16 +28,8 @@ existing sherif, syncpack and knip setup in one step.
 
 ## Performance
 
-<!-- bench:claims:start -->
-- **up to 9.1x faster than knip** (median 8.3x), and slower on 1 of 3 targets for dead-code analysis, on 3 pinned public repositories where knip completes; it fails on create-t3-turbo and vue-core.
-- **1.2–9.0x faster than sherif** (median 4.3x) for manifest and workspace checks (`skif --no-js`), on 5 pinned public repositories and 3 generated workspaces of 50, 500 and 2000 packages.
-- **6.0–13.5x faster than syncpack** (median 9.7x) for version-policy checks (`skif --no-js`), on 5 pinned public repositories and 3 generated workspaces of 50, 500 and 2000 packages.
-
-skif 0.4.0 against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3: medians of 15 runs on a GitHub-hosted runner, measured on 2026-11-12.
-<!-- bench:claims:end -->
-
-The claims are generated from the latest imported run of the `bench` workflow. The
-[benchmarks page](https://goldziher.github.io/skif/guides/benchmarks/) has every table, the workflow run the numbers
+skif is built to be fast. The [benchmarks page](https://goldziher.github.io/skif/guides/benchmarks/) compares it with
+knip, sherif and syncpack on pinned public repositories and generated workspaces, and gives the workflow run the numbers
 come from, the methodology, the accuracy on seeded defects and the agreement with knip on real repositories.
 
 ## Installation

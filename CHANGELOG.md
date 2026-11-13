@@ -190,8 +190,8 @@ All notable changes to this project are documented here. The format follows
   user or organization holds; the `uses:` reference (`Goldziher/skif@v0.4`) does not change with the name.
 - The benchmark results moved from the README to a [benchmarks
   page](https://goldziher.github.io/skif/guides/benchmarks/) in the docs, with the speed tables, the accuracy and knip
-  agreement results, a link to the `bench` workflow and its run, and the methodology. The README and the comparison
-  guide show generated headline claims instead (`bench:claims`: each tool's range of median ratios to skif, rounded
+  agreement results, a link to the `bench` workflow and its run, and the methodology. The README links to that page
+  and shows no numbers; the comparison guide shows generated headline claims instead (`bench:claims`: each tool's range of median ratios to skif, rounded
   down), and `mise run bench:import` and `mise run parity:publish` write the tables to the new page.
 - The docs gain a [Bazel guide](https://goldziher.github.io/skif/guides/bazel/) (what skif reads from `BUILD` and
   `MODULE.bazel` files, fetching the release archives, `bazel run`, `bazel test` inputs, CI and the limits;
