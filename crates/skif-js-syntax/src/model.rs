@@ -20,10 +20,11 @@ pub enum ImportKind {
     Dynamic,
     /// `require("x")` and `import x = require("x")`.
     Require,
-    /// `require.resolve("x")` and `import.meta.resolve("x")`: the call returns the module's path and loads nothing, so
-    /// it keeps a local file reachable and uses the package it names, but uses no export.
+    /// `require.resolve("x")`, `createRequire(…).resolve("x")` and `import.meta.resolve("x")`: the call returns the
+    /// module's path and loads nothing, so it keeps a local file reachable and uses the package it names, but uses no
+    /// export.
     Resolve,
-    /// One pattern of `import.meta.glob(...)`, or the glob of a computed relative `require` or `import()`
+    /// One pattern of `import.meta.glob(...)`, or the glob of a computed relative `require`, `import()` or resolve call
     /// (`./commands/${name}`): a glob, not a module specifier.
     ImportMetaGlob,
     /// One pattern of an `import.meta.glob(...)` whose options read the matched files as text (`query: '?raw'`,

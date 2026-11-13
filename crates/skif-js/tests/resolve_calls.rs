@@ -188,3 +188,23 @@ fn a_module_a_mise_file_task_resolves_is_used_and_its_exports_are_judged() {
     assert_eq!(found(&diagnostics, "unused-files"), none());
     assert_eq!(found(&diagnostics, "unused-exports"), ["src/data.js: a"]);
 }
+
+/// A computed relative resolve call is followed as a glob, as a computed `require` is: the files it can name are used,
+/// and, as for the glob of a `require`, read in full.
+#[test]
+fn a_computed_relative_resolve_call_reaches_the_files_it_can_name() {
+    let diagnostics = lint(&[
+        CJS_PACKAGE,
+        (
+            "src/index.js",
+            "module.exports = (name) => require.resolve(`./tasks/${name}`);\n",
+        ),
+        ("src/tasks/build.js", "exports.run = () => 1;\n"),
+        ("src/other/stray.js", "module.exports = 1;\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["src/other/stray.js: src/other/stray.js"]
+    );
+    assert_eq!(found(&diagnostics, "unused-exports"), none());
+}

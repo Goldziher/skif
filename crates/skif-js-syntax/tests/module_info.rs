@@ -146,6 +146,38 @@ fn import_forms() {
             names: vec![],
         },
         Case {
+            name: "parenthesized require resolve",
+            path: "a.cjs",
+            source: "(require).resolve('x');",
+            specifier: "x",
+            kind: ImportKind::Resolve,
+            names: vec![],
+        },
+        Case {
+            name: "asserted require resolve",
+            path: "a.ts",
+            source: "(require as NodeRequire).resolve('x');",
+            specifier: "x",
+            kind: ImportKind::Resolve,
+            names: vec![],
+        },
+        Case {
+            name: "parenthesized resolve callee",
+            path: "a.cjs",
+            source: "(require.resolve)('x');",
+            specifier: "x",
+            kind: ImportKind::Resolve,
+            names: vec![],
+        },
+        Case {
+            name: "create require resolve",
+            path: "a.mjs",
+            source: "const p = createRequire(import.meta.url).resolve('./x');",
+            specifier: "./x",
+            kind: ImportKind::Resolve,
+            names: vec![],
+        },
+        Case {
             name: "import equals require",
             path: "a.ts",
             source: "import fs = require('fs');",
@@ -207,6 +239,23 @@ fn computed_relative_specifiers_are_globs() {
         [
             ("./commands/*", ImportKind::ImportMetaGlob),
             ("../pages/*/*.js", ImportKind::ImportMetaGlob),
+        ]
+    );
+    assert_eq!(info.unresolved_dynamic.len(), 1);
+}
+
+#[test]
+fn computed_relative_resolve_specifiers_are_globs() {
+    let info = parse(
+        "a.mjs",
+        "require.resolve(`./tpl/${name}.hbs`); import.meta.resolve(`../assets/${a}`); require.resolve(`${root}/x.js`);",
+    );
+    let got: Vec<_> = info.imports.iter().map(|i| (i.specifier.as_str(), i.kind)).collect();
+    assert_eq!(
+        got,
+        [
+            ("./tpl/*.hbs", ImportKind::ImportMetaGlob),
+            ("../assets/*", ImportKind::ImportMetaGlob),
         ]
     );
     assert_eq!(info.unresolved_dynamic.len(), 1);
