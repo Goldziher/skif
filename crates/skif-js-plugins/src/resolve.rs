@@ -177,7 +177,11 @@ fn run_in_scopes(
     }
     for scope in scopes {
         let dir = scope_dir(ctx, scope);
-        let scope_sources = PackageSources::new(&dir);
+        // A scope's sources are also the package's: a file the package's plugins read is not read again.
+        let scope_sources = ctx.sources.map_or_else(
+            || PackageSources::new(&dir),
+            |package| PackageSources::within(&dir, package),
+        );
         let scope_ctx = PluginContext {
             sources: Some(&scope_sources),
             ..shared.context(ctx, &dir)

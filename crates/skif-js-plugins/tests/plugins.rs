@@ -10,7 +10,9 @@ use indexmap::IndexMap;
 use skif_config::{PluginConfig, PluginOptions};
 use skif_core::MemoryFs;
 use skif_js_plugins::registry;
-use skif_js_plugins::{DepRef, GlobCache, IncompleteCause, PluginContext, PluginId, PluginOutput, resolve_plugins};
+use skif_js_plugins::{
+    DepRef, GlobCache, IncompleteCause, PackageSources, PluginContext, PluginId, PluginOutput, resolve_plugins,
+};
 
 const DIR: &str = "/ws";
 
@@ -4399,6 +4401,59 @@ fn source_scanning_plugins_read_each_source_file_once() {
     for (path, _) in &files {
         assert_eq!(reads.get(&Path::new(DIR).join(path)), Some(&1), "{path}: {reads:?}");
     }
+}
+
+/// A listing made within another takes the texts the other read: the root package and a member below it, both with
+/// `execa`, read the member's script once between them, and each finds its command.
+#[test]
+fn listings_within_one_another_read_a_shared_source_file_once() {
+    let files = [
+        (
+            "packages/a/scripts/release.ts",
+            r#"import { execa } from "execa"; await execa("changeset", ["publish"]);"#,
+        ),
+        ("packages/a/package.json", r#"{"name":"a"}"#),
+    ];
+    let fs = CountingReads {
+        inner: fs_with(&files),
+        reads: std::sync::Mutex::default(),
+    };
+    let dependencies = vec!["execa".to_owned()];
+    let scripts = IndexMap::new();
+    let plugins = IndexMap::new();
+    let globs = GlobCache::new();
+    let root_sources = PackageSources::new(DIR);
+    let member_dir = Path::new(DIR).join("packages/a");
+    let member_sources = PackageSources::within(&member_dir, &root_sources);
+    let root = PluginContext {
+        dir: Path::new(DIR),
+        is_root: true,
+        package_name: Some("app"),
+        dependencies: &dependencies,
+        inherited_dependencies: &[],
+        scripts: &scripts,
+        fs: &fs,
+        plugins: &plugins,
+        modules: None,
+        nx: None,
+        globs: &globs,
+        sources: Some(&root_sources),
+    };
+    let member = PluginContext {
+        dir: &member_dir,
+        is_root: false,
+        package_name: Some("a"),
+        sources: Some(&member_sources),
+        ..root
+    };
+    let script = member_dir.join("scripts").join("release.ts");
+    let reads = || fs.reads.lock().unwrap().get(&script).copied();
+    let _ = resolve_plugins(&root);
+    assert_eq!(reads(), Some(1), "the root package reads the member's script");
+    let results = resolve_plugins(&member);
+    let binaries = &output(&results, "execa").referenced_binaries;
+    assert!(binaries.contains(&"changeset".to_owned()), "{binaries:?}");
+    assert_eq!(reads(), Some(1), "the member takes the text the root package read");
 }
 
 #[test]
