@@ -24,12 +24,14 @@ use crate::setup::{PackageSetup, Setup};
 
 /// The entry files of the workspace.
 pub(crate) struct EntryFiles {
-    /// Sorted and without duplicates.
+    /// The entries of every package and the files of this analysis that other roots of a multi-root run hand it as
+    /// entries. Sorted and without duplicates.
     pub files: Vec<PathBuf>,
     /// The build sources of every package ([`PackageSetup::build_source`]), its own files and those of the packages
-    /// nested below it ([`PackageSetup::shared_build_source`]): the module graph starts from them too, but their
-    /// exports are judged. One that is also an entry stays an entry ([`crate::graph`] interns entries first). Sorted
-    /// and without duplicates.
+    /// nested below it ([`PackageSetup::shared_build_source`]), and the files of this analysis that other roots of a
+    /// multi-root run hand it as build sources: the module graph starts from them too, but their exports are judged.
+    /// One that is also an entry, of its own or handed as one, stays an entry ([`crate::graph`] interns entries
+    /// first). Sorted and without duplicates.
     pub build_sources: Vec<PathBuf>,
     /// Packages whose real entries are unknown, so their files and dependencies cannot be judged unused, with the
     /// cause: those that publish build output or bin files none of which maps back to a source file
@@ -65,9 +67,10 @@ pub(crate) struct Disk<'a> {
 }
 
 /// The entry files of every package. `extra_entries` and `extra_build_sources` are files, relative to the workspace
-/// root, that other roots of a multi-root run import or run, and name as build sources; those the analysis owns are
-/// entries and build sources too. The packages are looked at side by side unless `sequential`, and their findings
-/// merged in package order.
+/// root, that other roots of a multi-root run hand this analysis: `extra_entries` those they import, run or name as
+/// entries, `extra_build_sources` those they name as build sources. Of those the analysis owns, a handed entry is an
+/// entry and a handed build source a build source; one handed as both is an entry. The packages are looked at side by
+/// side unless `sequential`, and their findings merged in package order.
 pub(crate) fn entry_files(
     fs: &dyn FileSystem,
     workspace: &Workspace,
