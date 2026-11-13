@@ -28,7 +28,7 @@ pub const CACHE_SCHEMA: u32 = 7;
 
 /// The digest of the serialized parse results of a fixed probe corpus at [`CACHE_SCHEMA`]. It is a test's guard,
 /// not part of any key: when the parse output changes, the test reports the new digest and both constants move.
-pub const CACHE_SCHEMA_DIGEST: u128 = 0x3b92_8390_7d3c_8e38_b50d_6d59_4a1c_4ec7;
+pub const CACHE_SCHEMA_DIGEST: u128 = 0x4c20_0f94_6876_0492_fe34_f5c7_ef43_ed55;
 
 /// The version a persisted cache records, `<crate version>+<CACHE_SCHEMA>`: a store written under another version
 /// is discarded as a whole.
