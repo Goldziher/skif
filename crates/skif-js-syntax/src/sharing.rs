@@ -70,15 +70,15 @@ use oxc_ast::ast::{
     AssignmentExpression, AssignmentOperator, AssignmentPattern, AssignmentTarget, AssignmentTargetMaybeDefault,
     AssignmentTargetPattern, AssignmentTargetProperty, AssignmentTargetPropertyIdentifier,
     AssignmentTargetPropertyProperty, AssignmentTargetRest, BindingIdentifier, BindingPattern, BindingProperty,
-    BindingRestElement, CallExpression, ChainExpression, Class, ComputedMemberExpression, Declaration, DoWhileStatement,
-    ExportDeclaration, ExportDefaultDeclaration, ExportDefaultDeclarationKind, Expression, ExpressionStatement,
-    ForInStatement, ForOfStatement, ForStatement, ForStatementLeft, FormalParameter, FormalParameters, Function,
-    IdentifierReference, ImportDeclaration, ImportDeclarationSpecifier, LogicalOperator, MemberExpression,
-    MethodDefinition, MethodDefinitionKind, NewExpression, ObjectExpression, ObjectProperty, ObjectPropertyKind,
-    PrivateFieldExpression, Program, PropertyDefinition, PropertyKey, PropertyKind, ReturnStatement,
-    SimpleAssignmentTarget, SpreadElement, StaticBlock, StaticMemberExpression, Super, TaggedTemplateExpression,
-    ThisExpression, UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
-    WhileStatement, WithStatement, YieldExpression,
+    BindingRestElement, CallExpression, ChainExpression, Class, ComputedMemberExpression, Declaration,
+    DoWhileStatement, ExportDeclaration, ExportDefaultDeclaration, ExportDefaultDeclarationKind, Expression,
+    ExpressionStatement, ForInStatement, ForOfStatement, ForStatement, ForStatementLeft, FormalParameter,
+    FormalParameters, Function, IdentifierReference, ImportDeclaration, ImportDeclarationSpecifier, LogicalOperator,
+    MemberExpression, MethodDefinition, MethodDefinitionKind, NewExpression, ObjectExpression, ObjectProperty,
+    ObjectPropertyKind, PrivateFieldExpression, Program, PropertyDefinition, PropertyKey, PropertyKind,
+    ReturnStatement, SimpleAssignmentTarget, SpreadElement, StaticBlock, StaticMemberExpression, Super,
+    TaggedTemplateExpression, ThisExpression, UnaryExpression, UnaryOperator, VariableDeclaration,
+    VariableDeclarationKind, VariableDeclarator, WhileStatement, WithStatement, YieldExpression,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::{ReferenceId, ScopeFlags, ScopeId, Scoping, SemanticBuilder, SymbolId};
@@ -994,9 +994,7 @@ impl Sharing<'_> {
         let mut finder = MentionsThis::default();
         finder.visit_expression(expr);
         let this = finder.this.then(|| self.this_site());
-        this.into_iter()
-            .chain(finder.sup.then_some(ThisSite::Super))
-            .collect()
+        this.into_iter().chain(finder.sup.then_some(ThisSite::Super)).collect()
     }
 
     /// Records the object `expr` as one code may run a getter, a setter or an iterator of as `runs` say, with the
@@ -1009,7 +1007,11 @@ impl Sharing<'_> {
         }
         let root = self.scoping.root_scope_id();
         let function = self.functions.last().copied().unwrap_or(root);
-        let this = if function == root { Vec::new() } else { self.this_in(expr) };
+        let this = if function == root {
+            Vec::new()
+        } else {
+            self.this_in(expr)
+        };
         let parts = self.object_parts(expr);
         if parts.is_empty() && this.is_empty() {
             return;
@@ -2517,7 +2519,10 @@ impl<'a> Visit<'a> for Sharing<'_> {
         self.target_parts(&it.left, &mut places, &mut defaults);
         let targets: Vec<SymbolId> = places.iter().map(|place| place.symbol).collect();
         self.bind_this(&targets, &it.right);
-        self.defer(&it.right, pattern_runs(|pattern| pattern.visit_assignment_target(&it.left)));
+        self.defer(
+            &it.right,
+            pattern_runs(|pattern| pattern.visit_assignment_target(&it.left)),
+        );
         // A function assigned stands for what its parameters take as well as what it returns, as one declared does.
         let part = if matches!(
             it.right.get_inner_expression(),
