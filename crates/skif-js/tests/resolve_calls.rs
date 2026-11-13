@@ -40,8 +40,12 @@ fn memory(files: &[(&str, &str)]) -> MemoryFs {
 }
 
 fn lint(files: &[(&str, &str)]) -> Vec<Diagnostic> {
+    lint_with(files, "")
+}
+
+fn lint_with(files: &[(&str, &str)], toml: &str) -> Vec<Diagnostic> {
     let memory = memory(files);
-    let config = Config::from_toml_str("").unwrap();
+    let config = Config::from_toml_str(toml).unwrap();
     let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
     let fs: Arc<dyn FileSystem> = Arc::new(memory);
     let provider = JsProvider::new(fs).with_input_source(Arc::new(PluginSource::new(config.js.plugins.clone())));
@@ -83,6 +87,11 @@ fn explain(files: &[(&str, &str)], file: &str, export: Option<&str>) -> String {
         .render()
 }
 
+const CJS_PACKAGE: (&str, &str) = (
+    "package.json",
+    r#"{"name": "app", "version": "1.0.0", "private": true, "packageManager": "npm@11.0.0", "main": "src/index.js"}"#,
+);
+
 #[test]
 fn esm_resolve_calls_keep_the_files_used_and_use_no_export() {
     let diagnostics = lint(&ESM_FILES);
@@ -96,10 +105,7 @@ fn esm_resolve_calls_keep_the_files_used_and_use_no_export() {
 #[test]
 fn a_commonjs_resolve_call_keeps_the_file_used_and_uses_no_export() {
     let diagnostics = lint(&[
-        (
-            "package.json",
-            r#"{"name": "app", "version": "1.0.0", "private": true, "packageManager": "npm@11.0.0", "main": "src/index.js"}"#,
-        ),
+        CJS_PACKAGE,
         ("src/index.js", "const p = require.resolve('./lib');\nconsole.log(p);\n"),
         ("src/lib.js", "exports.a = 1;\n"),
     ]);
@@ -138,4 +144,30 @@ fn explain_usage_names_a_resolve_call_as_taking_no_export() {
         "{text}"
     );
     assert!(text.contains("  => not used by another module\n"), "{text}");
+}
+
+/// A resolve call loads nothing, so it closes no import cycle; a `require` of the same module does.
+#[test]
+fn a_resolve_call_closes_no_import_cycle() {
+    let cases: [(&str, &[&str]); 2] = [
+        ("module.exports = require.resolve('./a');\n", &[]),
+        (
+            "module.exports = require('./a');\n",
+            &["src/a.js: 2 modules import each other in a cycle"],
+        ),
+    ];
+    for (b, cycles) in cases {
+        let diagnostics = lint_with(
+            &[
+                (
+                    "package.json",
+                    r#"{"name": "app", "version": "1.0.0", "private": true, "packageManager": "npm@11.0.0", "main": "src/a.js"}"#,
+                ),
+                ("src/a.js", "const b = require('./b');\nconsole.log(b);\n"),
+                ("src/b.js", b),
+            ],
+            "[rules]\ncircular-imports = \"warn\"\n",
+        );
+        assert_eq!(found(&diagnostics, "circular-imports"), cycles, "{b}");
+    }
 }
