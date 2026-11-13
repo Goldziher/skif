@@ -63,6 +63,12 @@ All notable changes to this project are documented here. The format follows
 - **`explain-usage`**: an importer that uses no export says what it takes instead of `the whole module`: a resolve call
   `its path, no export`, a side-effect import `runs it, no export` and a test-runner mock `a test-runner call, no
   export` ([#225](https://github.com/Goldziher/skif/issues/225)).
+- **Config evaluation**: a getter, a setter or an iterator of an object or class instance a module makes that writes
+  through `this` (`get grow() { this.list.push(…) }`) now changes what the object holds where code runs it with no call
+  written: a read or a write of its key, a destructuring, a spread, `for…of`, `yield*`, or a builtin given the object
+  (`JSON.stringify`). A value the config reads from the object is unknown after such a run instead of read as
+  unchanged, so a file the config reaches only through the change is no longer reported as `unused-files`
+  ([#228](https://github.com/Goldziher/skif/issues/228)).
 
 ## [0.4.0] - 2026-11-12
 
