@@ -12,6 +12,7 @@ use skif_core::MemoryFs;
 use skif_js_plugins::registry;
 use skif_js_plugins::{
     DepRef, GlobCache, IncompleteCause, PackageSources, PluginContext, PluginId, PluginOutput, resolve_plugins,
+    resolve_plugins_in,
 };
 
 const DIR: &str = "/ws";
@@ -4454,6 +4455,52 @@ fn listings_within_one_another_read_a_shared_source_file_once() {
     let binaries = &output(&results, "execa").referenced_binaries;
     assert!(binaries.contains(&"changeset".to_owned()), "{binaries:?}");
     assert_eq!(reads(), Some(1), "the member takes the text the root package read");
+}
+
+/// An Nx project's sources are also its package's: the package's plugins and the project's read a script of the
+/// project once between them. `execa` finds the script's command for the package, and `bun`, which also runs in the
+/// project, takes the text the package read and finds the `Bun.build` entry point relative to the project.
+#[test]
+fn an_nx_project_takes_the_source_texts_its_package_read() {
+    let files = [
+        ("nx.json", "{}"),
+        ("apps/a/project.json", "{}"),
+        (
+            "apps/a/scripts/build.ts",
+            r#"import { execa } from "execa";
+            await execa("changeset", ["publish"]);
+            await Bun.build({ entrypoints: ["./src/main.ts"] });"#,
+        ),
+    ];
+    let fs = CountingReads {
+        inner: fs_with(&files),
+        reads: std::sync::Mutex::default(),
+    };
+    let dependencies: Vec<String> = ["execa", "nx", "@types/bun"].map(str::to_owned).to_vec();
+    let scripts = IndexMap::new();
+    let plugins = IndexMap::new();
+    let ctx = PluginContext {
+        dir: Path::new(DIR),
+        is_root: true,
+        package_name: Some("app"),
+        dependencies: &dependencies,
+        inherited_dependencies: &[],
+        scripts: &scripts,
+        fs: &fs,
+        plugins: &plugins,
+        modules: None,
+        nx: None,
+        globs: &GlobCache::new(),
+        sources: None,
+    };
+    let results = resolve_plugins_in(&ctx, "", || vec![("apps/a".to_owned(), true)]);
+
+    let binaries = &output(&results, "execa").referenced_binaries;
+    assert!(binaries.contains(&"changeset".to_owned()), "{binaries:?}");
+    let production = &output(&results, "bun").production_entries;
+    assert!(production.contains(&"apps/a/src/main.ts".to_owned()), "{production:?}");
+    let script = Path::new(DIR).join("apps/a/scripts/build.ts");
+    assert_eq!(fs.reads.lock().unwrap().get(&script), Some(&1));
 }
 
 #[test]
