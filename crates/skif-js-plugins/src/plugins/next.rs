@@ -89,8 +89,7 @@ fn router_entries(config: &ConfigAst<'_>) -> Vec<PluginInput> {
     let extensions: Vec<&str> = config
         .value
         .get("pageExtensions")
-        .map(strings)
-        .unwrap_or_default()
+        .map_or_default(strings)
         .into_iter()
         .map(|e| e.trim_start_matches('.'))
         .filter(|e| !e.is_empty())

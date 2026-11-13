@@ -67,7 +67,7 @@ impl Plugin for ServerlessFramework {
                 continue;
             }
             out.push(PluginInput::OptionalDependency("esbuild".to_owned()));
-            for inject in esbuild.get("inject").map(strings).unwrap_or_default() {
+            for inject in esbuild.get("inject").map_or_default(strings) {
                 out.push(PluginInput::ProductionEntry(config.join(inject)));
             }
         }

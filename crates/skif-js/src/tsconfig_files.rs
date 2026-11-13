@@ -54,16 +54,13 @@ struct Selection {
 }
 
 fn strings(value: &ConfigValue) -> Vec<String> {
-    value
-        .as_array()
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(ConfigValue::as_str)
-                .map(str::to_owned)
-                .collect()
-        })
-        .unwrap_or_default()
+    value.as_array().map_or_default(|items| {
+        items
+            .iter()
+            .filter_map(ConfigValue::as_str)
+            .map(str::to_owned)
+            .collect()
+    })
 }
 
 fn extends_of(config: &ConfigValue) -> Vec<&str> {
@@ -133,13 +130,12 @@ pub(crate) fn references_of(config: &ConfigValue) -> Vec<&str> {
     config
         .get("references")
         .and_then(ConfigValue::as_array)
-        .map(|items| {
+        .map_or_default(|items| {
             items
                 .iter()
                 .filter_map(|item| item.get("path").and_then(ConfigValue::as_str))
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// The config a `references` entry names: the file itself, or the `tsconfig.json` of the directory.
@@ -207,8 +203,7 @@ fn collect(
     let parsed = parse_tsconfig(fs, config);
     let references: Vec<String> = parsed
         .as_ref()
-        .map(|value| references_of(value).into_iter().map(str::to_owned).collect())
-        .unwrap_or_default();
+        .map_or_default(|value| references_of(value).into_iter().map(str::to_owned).collect());
     for path in references {
         if let Some(target) = reference(fs, dir, &path)
             && target.starts_with(dir)

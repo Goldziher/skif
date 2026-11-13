@@ -472,8 +472,7 @@ snapshots:
                 let text = diagnostic
                     .location
                     .span
-                    .map(|_| located(files, &diagnostic).to_owned())
-                    .unwrap_or_default();
+                    .map_or_default(|_| located(files, &diagnostic).to_owned());
                 (diagnostic, text)
             })
             .collect()

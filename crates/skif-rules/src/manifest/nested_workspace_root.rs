@@ -114,7 +114,7 @@ impl Rule for NestedWorkspaceRoot {
         let found = nested(cx);
         for entry in found.iter().filter(|entry| !allow.allows(entry.path)) {
             let path = entry.path;
-            let dir = path.parent().map(slash).unwrap_or_default();
+            let dir = path.parent().map_or_default(slash);
             let (span, help) = match entry.package.filter(|_| entry.bun_manifest) {
                 Some(package) => (
                     package.manifest.field_key_span(&[key("workspaces")]),

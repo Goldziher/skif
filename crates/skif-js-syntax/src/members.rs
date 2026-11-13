@@ -687,8 +687,7 @@ pub(crate) fn mark_local_reads(program: &oxc_ast::ast::Program<'_>, analysis: &A
         let reads = tracker
             .reads
             .get(local)
-            .map(|members| members.iter().cloned().collect())
-            .unwrap_or_default();
+            .map_or_default(|members| members.iter().cloned().collect());
         export.members_read_in_file = reads;
         export.used_whole_in_file = !export.enum_members.is_empty() && tracker.whole.contains(local);
     }

@@ -220,8 +220,7 @@ fn relative_module(fs: &dyn FileSystem, base: &Path) -> Option<PathBuf> {
     let aliases = EXTENSION_ALIASES
         .iter()
         .find(|(written, _)| *written == extension)
-        .map(|(_, sources)| *sources)
-        .unwrap_or_default();
+        .map_or_default(|(_, sources)| *sources);
     let mut candidates = vec![base.to_path_buf()];
     candidates.extend(aliases.iter().map(|alias| base.with_extension(alias)));
     let name = base.file_name()?.to_string_lossy().into_owned();

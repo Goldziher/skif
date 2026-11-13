@@ -311,8 +311,7 @@ fn defined_scripts(package_json: &ConfigValue) -> Vec<String> {
     package_json
         .get("scripts")
         .and_then(ConfigValue::as_object)
-        .map(|scripts| scripts.iter().map(|(name, _)| name.clone()).collect())
-        .unwrap_or_default()
+        .map_or_default(|scripts| scripts.iter().map(|(name, _)| name.clone()).collect())
 }
 
 fn script_commands(package_json: &ConfigValue) -> Vec<(String, Vec<String>)> {

@@ -212,7 +212,7 @@ impl PnpmLockfile {
             0..source.len()
         };
         let mut document = documents.swap_remove(project);
-        let version = document.remove("lockfileVersion").map(into_scalar).unwrap_or_default();
+        let version = document.remove("lockfileVersion").map_or_default(into_scalar);
         // Each section is taken out of the document, so its keys and strings move into the model instead of being
         // copied.
         let mut mapping = |key: &str| -> Result<Map<String, Value>, WorkspaceError> {
@@ -366,7 +366,7 @@ pub(crate) fn reach(
 
 /// Checks that `document` is lockfile format 9.
 fn format_9(document: &Map<String, Value>) -> Result<(), String> {
-    let version = document.get("lockfileVersion").map(scalar).unwrap_or_default();
+    let version = document.get("lockfileVersion").map_or_default(scalar);
     if version.split('.').next() == Some("9") {
         return Ok(());
     }
@@ -584,7 +584,7 @@ fn locked_dependencies(importer: Value) -> Result<Vec<LockedDependency>, String>
             let (specifier, version) = match entry {
                 Value::Object(mut fields) => (
                     fields.remove("specifier").map(into_scalar),
-                    fields.remove("version").map(into_scalar).unwrap_or_default(),
+                    fields.remove("version").map_or_default(into_scalar),
                 ),
                 other => (None, into_scalar(other)),
             };

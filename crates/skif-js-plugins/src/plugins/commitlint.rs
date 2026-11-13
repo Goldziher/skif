@@ -29,7 +29,7 @@ impl Plugin for Commitlint {
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let value = config.value;
         let mut out = Vec::new();
-        for specifier in value.get("extends").map(strings).unwrap_or_default() {
+        for specifier in value.get("extends").map_or_default(strings) {
             if is_relative(specifier) {
                 out.push(PluginInput::ConfigFile(config.join(specifier)));
             } else if specifier.starts_with('@') && specifier.contains('/') {
@@ -38,7 +38,7 @@ impl Plugin for Commitlint {
                 out.push(PluginInput::Dependency(conventional(specifier, "commitlint-config")));
             }
         }
-        for plugin in value.get("plugins").map(strings).unwrap_or_default() {
+        for plugin in value.get("plugins").map_or_default(strings) {
             out.push(PluginInput::Dependency(conventional(plugin, "commitlint-plugin")));
         }
         if let Some(formatter) = value.get("formatter").and_then(ConfigValue::as_str) {

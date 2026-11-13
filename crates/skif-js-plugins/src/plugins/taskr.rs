@@ -32,8 +32,7 @@ impl Plugin for Taskr {
         config
             .value
             .get("requires")
-            .map(strings)
-            .unwrap_or_default()
+            .map_or_default(strings)
             .into_iter()
             .filter_map(|specifier| module_input(config.base, specifier, false))
             .collect()

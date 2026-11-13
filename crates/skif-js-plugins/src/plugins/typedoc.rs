@@ -41,7 +41,7 @@ impl Plugin for Typedoc {
         };
         let mut out = Vec::new();
         for key in ["plugin", "theme"] {
-            for name in options.get(key).map(strings).unwrap_or_default() {
+            for name in options.get(key).map_or_default(strings) {
                 out.extend(module_ref(&config.join(name), name));
             }
         }

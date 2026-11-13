@@ -50,8 +50,8 @@ impl Plugin for Jasmine {
             })
             .map(PluginInput::Entry)
             .collect();
-        let requires = config.value.get("requires").map(strings).unwrap_or_default();
-        let loader = config.value.get("loader").map(strings).unwrap_or_default();
+        let requires = config.value.get("requires").map_or_default(strings);
+        let loader = config.value.get("loader").map_or_default(strings);
         out.extend(
             requires
                 .into_iter()

@@ -79,8 +79,7 @@ impl Plugin for Nx {
         let local = Local::new(cx, &roots);
         local
             .read(&join_rel(roots.package, "package.json"))
-            .map(|manifest| local.collections_in(roots.package, &manifest))
-            .unwrap_or_default()
+            .map_or_default(|manifest| local.collections_in(roots.package, &manifest))
     }
 }
 
@@ -213,8 +212,7 @@ impl<'c, 'a> Local<'c, 'a> {
     /// it below the workspace root.
     fn collections(&self, target: &str) -> Vec<PluginInput> {
         self.plugin_manifest(target)
-            .map(|(dir, manifest)| self.collections_in(&dir, &manifest))
-            .unwrap_or_default()
+            .map_or_default(|(dir, manifest)| self.collections_in(&dir, &manifest))
     }
 
     /// The members' files of the collections that `manifest`, the `package.json` in `dir` (relative to the workspace
@@ -464,14 +462,14 @@ fn target_inputs(target: &ConfigValue, local: &Local<'_, '_>) -> Vec<PluginInput
         out.extend(local.executor(executor));
     }
     let options = target.get("options");
-    let mut commands: Vec<&str> = target.get("command").map(strings).unwrap_or_default();
+    let mut commands: Vec<&str> = target.get("command").map_or_default(strings);
     if let Some(options) = options {
-        commands.extend(options.get("command").map(strings).unwrap_or_default());
+        commands.extend(options.get("command").map_or_default(strings));
         if let Some(ConfigValue::Array(list)) = options.get("commands") {
             for command in list {
                 match command {
                     ConfigValue::String(script) => commands.push(script),
-                    other => commands.extend(other.get("command").map(strings).unwrap_or_default()),
+                    other => commands.extend(other.get("command").map_or_default(strings)),
                 }
             }
         }
@@ -500,8 +498,8 @@ fn target_inputs(target: &ConfigValue, local: &Local<'_, '_>) -> Vec<PluginInput
 /// The entries and linked configs that the `options` of a target with `executor` name.
 fn option_inputs(options: &ConfigValue, executor: Option<&str>, roots: &Roots<'_>) -> Vec<PluginInput> {
     let mut out = Vec::new();
-    let mut entries: Vec<&str> = options.get("main").map(strings).unwrap_or_default();
-    entries.extend(options.get("additionalEntryPoints").map(strings).unwrap_or_default());
+    let mut entries: Vec<&str> = options.get("main").map_or_default(strings);
+    entries.extend(options.get("additionalEntryPoints").map_or_default(strings));
     out.extend(
         entries
             .into_iter()

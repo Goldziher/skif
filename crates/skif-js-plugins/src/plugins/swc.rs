@@ -35,13 +35,11 @@ impl Plugin for Swc {
 /// The packages of the `jsc.experimental.plugins` of an swc options object (a name or `[name, options]`), which swc
 /// loads, so that a bundler that runs swc (`rsbuild`'s `tools.swc`, an `swc-loader` rule) needs them too.
 pub(crate) fn plugin_packages(options: &ConfigValue) -> Vec<String> {
-    get_in(options, &["jsc", "experimental", "plugins"])
-        .map(|plugins| {
-            values_of(plugins)
-                .into_iter()
-                .filter_map(name_of)
-                .filter_map(package_name)
-                .collect()
-        })
-        .unwrap_or_default()
+    get_in(options, &["jsc", "experimental", "plugins"]).map_or_default(|plugins| {
+        values_of(plugins)
+            .into_iter()
+            .filter_map(name_of)
+            .filter_map(package_name)
+            .collect()
+    })
 }

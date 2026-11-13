@@ -725,21 +725,18 @@ impl ModuleResolver {
             .filter_map(|package| {
                 let name = package.name.clone()?;
                 let dir = workspace.root.join(&package.dir);
-                let build_dirs = setup
-                    .package(package.id)
-                    .map(|setup| {
-                        setup
-                            .build_dirs
-                            .iter()
-                            .map(|dir_pair| {
-                                (
-                                    join_normalized(&dir, &dir_pair.out_dir),
-                                    join_normalized(&dir, &dir_pair.root_dir),
-                                )
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let build_dirs = setup.package(package.id).map_or_default(|setup| {
+                    setup
+                        .build_dirs
+                        .iter()
+                        .map(|dir_pair| {
+                            (
+                                join_normalized(&dir, &dir_pair.out_dir),
+                                join_normalized(&dir, &dir_pair.root_dir),
+                            )
+                        })
+                        .collect()
+                });
                 Some((
                     name,
                     Member {

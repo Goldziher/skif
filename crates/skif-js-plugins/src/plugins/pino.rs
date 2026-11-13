@@ -52,7 +52,7 @@ fn targets(options: &ConfigValue, dir: &str, out: &mut Vec<PluginInput>, depth: 
         out.extend(module_input(dir, target, false));
     }
     for key in ["targets", "pipeline"] {
-        for nested in options.get(key).map(objects).unwrap_or_default() {
+        for nested in options.get(key).map_or_default(objects) {
             targets(nested, dir, out, depth + 1);
         }
     }

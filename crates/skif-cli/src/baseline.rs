@@ -935,11 +935,7 @@ fn check_baseline(args: &BaselineCheckArgs) -> Result<u8, CliError> {
 
 /// Compares one root's baseline file with its earlier version.
 fn check_root(root: &Path, file: &Path, args: &BaselineCheckArgs, shown_from: &Path) -> Result<Outcome, CliError> {
-    let current = sorted_unique(
-        read_baseline(file)?
-            .map(|baseline| baseline.entries)
-            .unwrap_or_default(),
-    );
+    let current = sorted_unique(read_baseline(file)?.map_or_default(|baseline| baseline.entries));
     let (base, text) = match (&args.base, &args.base_file) {
         (Some(revision), _) => (revision.clone(), at_revision(file, revision)?),
         (None, Some(path)) => (

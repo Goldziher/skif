@@ -130,14 +130,13 @@ fn inherited_files(dir: &std::path::Path) -> Vec<String> {
         &ConfigOverrides::default(),
         &ConfigCache::new(),
     )
-    .map(|resolved| {
+    .map_or_default(|resolved| {
         resolved
             .sources
             .iter()
             .map(|source| relative(dir, &source.path))
             .collect()
     })
-    .unwrap_or_default()
 }
 
 fn write_starter(args: &InitArgs) -> Result<(), CliError> {

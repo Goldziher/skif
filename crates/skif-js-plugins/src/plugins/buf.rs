@@ -30,7 +30,7 @@ impl Plugin for Buf {
     /// that is not a remote reference.
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut out = Vec::new();
-        for plugin in config.value.get("plugins").map(objects).unwrap_or_default() {
+        for plugin in config.value.get("plugins").map_or_default(objects) {
             let explicit = plugin.get("local").or_else(|| plugin.get("path"));
             let command = match explicit {
                 Some(value) => strings(value).join(" "),

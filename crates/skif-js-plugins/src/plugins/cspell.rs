@@ -36,8 +36,7 @@ impl Plugin for Cspell {
         config
             .value
             .get("import")
-            .map(strings)
-            .unwrap_or_default()
+            .map_or_default(strings)
             .into_iter()
             .filter_map(|name| config_ref(config.base, name))
             .collect()

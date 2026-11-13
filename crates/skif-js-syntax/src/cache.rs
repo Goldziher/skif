@@ -60,9 +60,7 @@ impl ModuleKey {
         hasher.write_u8(u8::from(member_accesses));
         write_field(
             &mut hasher,
-            path.file_name()
-                .map(std::ffi::OsStr::as_encoded_bytes)
-                .unwrap_or_default(),
+            path.file_name().map_or_default(std::ffi::OsStr::as_encoded_bytes),
         );
         write_field(&mut hasher, source.as_bytes());
         Self(hasher.finish128().as_u128())

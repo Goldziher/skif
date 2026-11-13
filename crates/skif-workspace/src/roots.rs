@@ -446,8 +446,7 @@ fn declared_patterns(fs: &dyn FileSystem, root: &Path) -> (Vec<String>, Option<P
     } else {
         lerna
             .and_then(|lerna| lerna.packages)
-            .map(|packages| packages.into_iter().map(|(_, glob, _)| glob).collect())
-            .unwrap_or_default()
+            .map_or_default(|packages| packages.into_iter().map(|(_, glob, _)| glob).collect())
     };
     (patterns, package_manager)
 }
@@ -475,15 +474,13 @@ pub fn declared_member_dirs(fs: &dyn FileSystem, root: &Path) -> BTreeSet<PathBu
 
 /// The directories below `parent` that are symbolic links.
 fn links_in(fs: &dyn FileSystem, parent: &Path) -> BTreeSet<PathBuf> {
-    fs.read_dir_shared(parent)
-        .map(|entries| {
-            entries
-                .iter()
-                .filter(|entry| entry.is_symlink)
-                .map(|entry| entry.path.clone())
-                .collect()
-        })
-        .unwrap_or_default()
+    fs.read_dir_shared(parent).map_or_default(|entries| {
+        entries
+            .iter()
+            .filter(|entry| entry.is_symlink)
+            .map(|entry| entry.path.clone())
+            .collect()
+    })
 }
 
 /// `dir` as the OS resolves it when `dir` or a directory between `root` and `dir` is a symbolic link, else `dir`.

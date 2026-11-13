@@ -26,8 +26,7 @@ impl Plugin for Tsd {
         let mut patterns: Vec<String> = config
             .value
             .get("testFiles")
-            .map(strings)
-            .unwrap_or_default()
+            .map_or_default(strings)
             .into_iter()
             .map(str::to_owned)
             .collect();

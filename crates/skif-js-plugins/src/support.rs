@@ -544,7 +544,7 @@ fn reporter_name<'v>(item: &'v ConfigValue, out: &mut Vec<Named<'v>>) {
             ConfigValue::Array(pair) => pair.first(),
             other => Some(other),
         };
-        for name in name.map(ConfigValue::alternatives).unwrap_or_default() {
+        for name in name.map_or_default(ConfigValue::alternatives) {
             match name {
                 ConfigValue::String(name) => out.push(Named::Known(name)),
                 unknown if unknown.is_unknown() => out.push(Named::Unknown),
@@ -590,7 +590,7 @@ pub(crate) fn entry_strings<'v>(object: &'v ConfigValue, key: &str, out: &mut Ve
     if files_key_unknown(object, key) {
         out.push(PluginInput::EntriesIncomplete);
     }
-    object.get(key).map(file_strings).unwrap_or_default()
+    object.get(key).map_or_default(file_strings)
 }
 
 /// Whether the files or patterns `key` of a config object names are not all known; see [`files_path_unknown`].

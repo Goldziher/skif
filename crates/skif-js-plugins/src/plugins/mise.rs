@@ -52,8 +52,7 @@ impl Plugin for Mise {
     fn resolve_config(&self, config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let root = config_root(config.base, config.file_name());
         let includes: Vec<String> = get_in(config.value, &["task_config", "includes"])
-            .map(strings)
-            .unwrap_or_default()
+            .map_or_default(strings)
             .into_iter()
             .filter(|include| {
                 !std::path::Path::new(include)
@@ -151,7 +150,7 @@ fn file_task(cx: &PluginContext<'_>, file: String) -> Vec<PluginInput> {
     let source = cx.fs.read_to_string(&cx.dir.join(&file)).ok();
     let text = source.as_deref().unwrap_or_default();
     let shebang = text.lines().next().and_then(|line| line.strip_prefix("#!"));
-    let words = shebang.map(shebang_words).unwrap_or_default();
+    let words = shebang.map_or_default(shebang_words);
     let javascript = extension.is_none() && runs_javascript(&words);
     if is_source || javascript {
         let runner = (!words.is_empty()).then(|| PluginInput::SourceScript {

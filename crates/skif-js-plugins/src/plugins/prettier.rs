@@ -44,5 +44,5 @@ impl Plugin for Prettier {
 }
 
 fn plugin_names(options: &ConfigValue) -> Vec<&str> {
-    options.get("plugins").map(strings).unwrap_or_default()
+    options.get("plugins").map_or_default(strings)
 }

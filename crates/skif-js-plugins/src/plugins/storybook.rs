@@ -49,7 +49,7 @@ impl Plugin for Storybook {
             out.extend(entry_glob(config.base, &pattern).map(PluginInput::Entry));
         }
         let mut addons = Vec::new();
-        for listed in value.get("addons").map(ConfigValue::alternatives).unwrap_or_default() {
+        for listed in value.get("addons").map_or_default(ConfigValue::alternatives) {
             match listed {
                 ConfigValue::Array(listed) => {
                     for addon in listed {
@@ -69,8 +69,7 @@ impl Plugin for Storybook {
             }
             let builders = core
                 .get("builder")
-                .map(|builder| packages_named(builder, &mut out))
-                .unwrap_or_default();
+                .map_or_default(|builder| packages_named(builder, &mut out));
             for builder in builders {
                 if builder.starts_with("webpack") {
                     out.push(PluginInput::Dependency(format!("@storybook/builder-{builder}")));
@@ -82,8 +81,7 @@ impl Plugin for Storybook {
         }
         for framework in value
             .get("framework")
-            .map(|framework| packages_named(framework, &mut out))
-            .unwrap_or_default()
+            .map_or_default(|framework| packages_named(framework, &mut out))
         {
             out.extend(module_input(config.base, framework, false));
         }
@@ -123,7 +121,7 @@ fn packages_named<'v>(value: &'v ConfigValue, out: &mut Vec<PluginInput>) -> Vec
         } else {
             Some(alternative)
         };
-        for name in name.map(ConfigValue::alternatives).unwrap_or_default() {
+        for name in name.map_or_default(ConfigValue::alternatives) {
             match name {
                 ConfigValue::String(name) => names.push(name.as_str()),
                 unknown if unknown.is_unknown() => out.push(PluginInput::EntriesIncomplete),

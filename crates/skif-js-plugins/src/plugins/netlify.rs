@@ -64,21 +64,13 @@ fn function_settings(functions: Option<&ConfigValue>, key: &str) -> Vec<String> 
     };
     let mut found: Vec<String> = functions
         .get(key)
-        .map(strings)
-        .unwrap_or_default()
+        .map_or_default(strings)
         .into_iter()
         .map(str::to_owned)
         .collect();
     for function in values_of(functions) {
         if matches!(function, ConfigValue::Object(_)) {
-            found.extend(
-                function
-                    .get(key)
-                    .map(strings)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(str::to_owned),
-            );
+            found.extend(function.get(key).map_or_default(strings).into_iter().map(str::to_owned));
         }
     }
     found

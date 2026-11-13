@@ -231,8 +231,7 @@ fn pattern_extensions(pattern: &str) -> Vec<String> {
             .rfind(".{")
             .map(|start| &open[start + 2..])
             .filter(|inner| !inner.contains(['{', '}']))
-            .map(|inner| collect(inner, ','))
-            .unwrap_or_default();
+            .map_or_default(|inner| collect(inner, ','));
     }
     if let Some(open) = segment.strip_suffix(')') {
         let Some(start) = open.rfind('(') else {
@@ -249,8 +248,7 @@ fn pattern_extensions(pattern: &str) -> Vec<String> {
         .rsplit_once('.')
         .map(|(_, extension)| extension)
         .filter(|extension| simple(extension))
-        .map(|extension| vec![extension.to_owned()])
-        .unwrap_or_default()
+        .map_or_default(|extension| vec![extension.to_owned()])
 }
 
 /// The published paths of a manifest, with the field that names each, as knip reads them: `main`, `module`,

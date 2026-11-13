@@ -47,11 +47,11 @@ impl Plugin for Playwright {
             test_files(project, root_dir, config, &mut out);
         }
         for key in ["globalSetup", "globalTeardown"] {
-            for path in config.value.get(key).map(strings).unwrap_or_default() {
+            for path in config.value.get(key).map_or_default(strings) {
                 out.push(PluginInput::Entry(config.join(path)));
             }
         }
-        for named in config.value.get("reporter").map(reporter_names).unwrap_or_default() {
+        for named in config.value.get("reporter").map_or_default(reporter_names) {
             if let Named::Known(name) = named
                 && !BUILTIN_REPORTERS.contains(&name)
             {

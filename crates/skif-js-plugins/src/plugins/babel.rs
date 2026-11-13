@@ -29,7 +29,7 @@ impl Plugin for Babel {
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut out = dependencies(config.value, config.base, 0);
         for object in objects(config.value) {
-            for extended in object.get("extends").map(strings).unwrap_or_default() {
+            for extended in object.get("extends").map_or_default(strings) {
                 if is_relative(extended) {
                     out.push(PluginInput::ConfigFile(join_rel(config.base, extended)));
                 }

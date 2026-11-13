@@ -480,15 +480,11 @@ mod tests {
     }
 
     fn deps(manifest: &Value, field: &str) -> Vec<(String, String)> {
-        manifest
-            .get(field)
-            .and_then(Value::as_object)
-            .map(|map| {
-                map.iter()
-                    .map(|(k, v)| (k.clone(), v.as_str().unwrap_or_default().to_owned()))
-                    .collect()
-            })
-            .unwrap_or_default()
+        manifest.get(field).and_then(Value::as_object).map_or_default(|map| {
+            map.iter()
+                .map(|(k, v)| (k.clone(), v.as_str().unwrap_or_default().to_owned()))
+                .collect()
+        })
     }
 
     #[test]

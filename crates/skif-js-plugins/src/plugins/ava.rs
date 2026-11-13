@@ -38,8 +38,7 @@ impl Plugin for Ava {
         let mut out: Vec<PluginInput> = config
             .value
             .get("files")
-            .map(strings)
-            .unwrap_or_default()
+            .map_or_default(strings)
             .into_iter()
             .filter_map(|pattern| entry_pattern(config.base, pattern))
             .map(PluginInput::Entry)
@@ -48,12 +47,11 @@ impl Plugin for Ava {
             config
                 .value
                 .get("require")
-                .map(strings)
-                .unwrap_or_default()
+                .map_or_default(strings)
                 .into_iter()
                 .filter_map(|module| module_input(config.base, module, true)),
         );
-        let node_arguments = config.value.get("nodeArguments").map(strings).unwrap_or_default();
+        let node_arguments = config.value.get("nodeArguments").map_or_default(strings);
         if !node_arguments.is_empty() {
             out.push(PluginInput::Script(format!("node {}", node_arguments.join(" "))));
         }

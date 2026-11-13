@@ -114,7 +114,7 @@ fn rule_loaders(rules: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<Plugi
     }
     for rule in objects(rules) {
         for key in ["use", "loader"] {
-            for item in rule.get(key).map(items).unwrap_or_default() {
+            for item in rule.get(key).map_or_default(items) {
                 loader(item, rule.get("options"), config, out);
             }
         }

@@ -30,9 +30,7 @@ impl PublicHoisting {
         fs: &dyn FileSystem,
     ) -> Self {
         Self {
-            patterns: pnpm
-                .map(|reads_npmrc| pnpm_patterns(workspace, reads_npmrc, fs))
-                .unwrap_or_default(),
+            patterns: pnpm.map_or_default(|reads_npmrc| pnpm_patterns(workspace, reads_npmrc, fs)),
             bazel: bazel_hoisted(workspace, git_root, fs),
         }
     }

@@ -24,8 +24,7 @@ impl Plugin for Wxt {
         config
             .value
             .get("modules")
-            .map(strings)
-            .unwrap_or_default()
+            .map_or_default(strings)
             .into_iter()
             .filter_map(package_name)
             .map(PluginInput::Dependency)

@@ -34,11 +34,10 @@ impl Plugin for Starlight {
             };
             let components = options
                 .get("components")
-                .map(values_of)
-                .unwrap_or_default()
+                .map_or_default(values_of)
                 .into_iter()
                 .filter_map(ConfigValue::as_str);
-            let css = options.get("customCss").map(strings).unwrap_or_default();
+            let css = options.get("customCss").map_or_default(strings);
             for path in components.chain(css) {
                 out.extend(module_input(config.base, path, false).map(|input| match input {
                     PluginInput::Entry(file) => PluginInput::ProductionEntry(file),

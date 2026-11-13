@@ -159,7 +159,7 @@ fn scalar(value: &Value) -> Option<String> {
 
 /// Builds catalogs from a `catalog` value and a `catalogs` value.
 pub(crate) fn from_json(catalog: Option<&Value>, catalogs: Option<&Value>) -> Catalogs {
-    let default = catalog.map(entries_from_json).unwrap_or_default();
+    let default = catalog.map_or_default(entries_from_json);
     let named = catalogs
         .and_then(Value::as_object)
         .into_iter()

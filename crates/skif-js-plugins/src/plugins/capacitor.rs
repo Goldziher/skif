@@ -24,8 +24,7 @@ impl Plugin for Capacitor {
         let mut out: Vec<PluginInput> = config
             .value
             .get("includePlugins")
-            .map(strings)
-            .unwrap_or_default()
+            .map_or_default(strings)
             .into_iter()
             .map(|name| PluginInput::Dependency(name.to_owned()))
             .collect();

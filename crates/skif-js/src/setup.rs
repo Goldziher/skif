@@ -213,9 +213,7 @@ fn configured(
         }
         root
     } else {
-        keys.table(&js.workspaces, dir)
-            .map(Configured::from)
-            .unwrap_or_default()
+        keys.table(&js.workspaces, dir).map_or_default(Configured::from)
     };
     for scoped in config
         .overrides

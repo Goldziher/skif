@@ -153,7 +153,7 @@ fn test_options(test: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<Plugin
     if let Some(environment) = test.get("environment").and_then(ConfigValue::as_str) {
         out.extend(environment_input(config, environment));
     }
-    for named in test.get("reporters").map(reporter_names).unwrap_or_default() {
+    for named in test.get("reporters").map_or_default(reporter_names) {
         match named {
             // The HTML reporter serves the UI package, which Vitest offers to install when it is missing.
             Named::Known("html") => out.push(PluginInput::OptionalDependency("@vitest/ui".to_owned())),
