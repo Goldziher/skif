@@ -56,7 +56,9 @@
 //! local of the alias's function is marked only where it is read after the alias is declared, outside a loop and a
 //! nested function, as what an earlier read copied out is itself marked where it went.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use oxc_ast::ast::{
     Argument, ArrayExpression, ArrayExpressionElement, ArrowFunctionExpression, AssignmentExpression,
@@ -259,6 +261,7 @@ impl Unstable {
             repeated: HashSet::default(),
             functions: vec![scoping.root_scope_id()],
             links: Vec::new(),
+            classes: RefCell::new(None),
             mutated: Vec::new(),
             changes: BTreeMap::new(),
             aliases: Vec::new(),
@@ -576,6 +579,9 @@ struct Sharing<'s> {
     functions: Vec<ScopeId>,
     /// Places that may hold the same object.
     links: Vec<Link>,
+    /// The bindings each binding is linked to, whatever the parts, sorted, computed for the first `usize` links
+    /// ([`Self::linked_in_full`]); cleared when links are taken back.
+    classes: RefCell<Option<(usize, Classes)>>,
     /// The bindings whose object or array code changes, with the part it changes.
     mutated: Vec<(SymbolId, Write)>,
     changes: BTreeMap<SymbolId, Change>,
@@ -1635,6 +1641,7 @@ impl Sharing<'_> {
                 .map(|(symbol, _)| symbol)
                 .collect();
             self.links.truncate(base);
+            self.classes.replace(None);
             let (linked, rest): (Vec<Link>, Vec<Link>) =
                 pending.into_iter().partition(|link| reached.contains(&link.b.symbol));
             pending = rest;
@@ -1682,6 +1689,8 @@ impl Sharing<'_> {
         origin: &Write,
     ) -> Vec<(SymbolId, Write)> {
         let mut seen = vec![(symbol, origin.clone())];
+        let mut by_symbol: HashMap<SymbolId, Vec<usize>> = HashMap::default();
+        by_symbol.entry(symbol).or_default().push(0);
         let mut queue = seen.clone();
         while let Some((at, write)) = queue.pop() {
             for &index in links_of.get(&at).map_or(&[][..], Vec::as_slice) {
@@ -1696,15 +1705,14 @@ impl Sharing<'_> {
                     if next.keys.len() > MAX_KEYS {
                         next = Write::contents(next.keys[..MAX_KEYS].to_vec());
                     }
-                    if seen
-                        .iter()
-                        .any(|(known, change)| *known == to.symbol && change.covers(&next))
-                    {
+                    let known = by_symbol.entry(to.symbol).or_default();
+                    if known.iter().any(|&at| seen[at].1.covers(&next)) {
                         continue;
                     }
                     if seen.len() >= MAX_PLACES {
                         return self.linked_in_full(symbol);
                     }
+                    known.push(seen.len());
                     seen.push((to.symbol, next.clone()));
                     queue.push((to.symbol, next));
                 }
@@ -1715,15 +1723,15 @@ impl Sharing<'_> {
 
     /// Every binding linked to `symbol`, whatever the parts, changed in full.
     fn linked_in_full(&self, symbol: SymbolId) -> Vec<(SymbolId, Write)> {
-        let mut parent = forest(&self.pairs());
-        let class = find(&mut parent, symbol);
-        let mut symbols: Vec<SymbolId> = parent.keys().copied().collect();
-        symbols.sort_unstable();
-        symbols
-            .into_iter()
-            .filter(|&other| find(&mut parent, other) == class)
-            .map(|other| (other, Write::default()))
-            .collect()
+        let mut cached = self.classes.borrow_mut();
+        if cached.as_ref().is_none_or(|(count, _)| *count != self.links.len()) {
+            *cached = Some((self.links.len(), classes(&self.pairs())));
+        }
+        let class = cached.as_ref().and_then(|(_, classes)| classes.get(&symbol));
+        class.map_or_else(
+            || vec![(symbol, Write::default())],
+            |class| class.iter().map(|&other| (other, Write::default())).collect(),
+        )
     }
 
     /// Marks every part of a binding that may share an object with a changed one, other than the part of the binding
@@ -3680,6 +3688,29 @@ fn is_namespace(names: Names<'_>, expr: &Expression<'_>) -> bool {
 /// The symbol a reference resolves to, an import included; `None` for a global the module does not declare.
 fn resolved(scoping: &Scoping, id: &IdentifierReference<'_>) -> Option<SymbolId> {
     scoping.get_reference(id.reference_id.get()?).symbol_id()
+}
+
+/// The bindings of each set `links` joins, sorted and shared by every binding of the set.
+type Classes = HashMap<SymbolId, Rc<[SymbolId]>>;
+
+/// Each binding `links` names, with every binding in its set ([`forest`]), sorted.
+fn classes(links: &[(SymbolId, SymbolId)]) -> Classes {
+    let mut parent = forest(links);
+    let mut members: HashMap<SymbolId, Vec<SymbolId>> = HashMap::default();
+    let symbols: Vec<SymbolId> = parent.keys().copied().collect();
+    for symbol in symbols {
+        let root = find(&mut parent, symbol);
+        members.entry(root).or_default().push(symbol);
+    }
+    let mut out = Classes::default();
+    for (_, mut symbols) in members {
+        symbols.sort_unstable();
+        let shared: Rc<[SymbolId]> = symbols.into();
+        for &symbol in shared.iter() {
+            out.insert(symbol, Rc::clone(&shared));
+        }
+    }
+    out
 }
 
 /// The union-find forest of the sets of bindings `links` joins.

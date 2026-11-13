@@ -3,6 +3,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use skif_js_syntax::{
@@ -1356,4 +1357,81 @@ fn a_write_through_a_binding_taking_this_changes_the_imported_values() {
         );
         assert_eq!(read_at(&value, &["name"]), &s("app"), "{body}: {value:?}");
     }
+}
+
+/// `count` modules that each import every other one, read and write a shared object and call each other's functions:
+/// a dense cycle of imports.
+fn clique(count: usize) -> Files {
+    let sources: Vec<(String, &'static str)> = (0..count)
+        .map(|index| {
+            let mut imports = String::new();
+            let mut calls = String::new();
+            for other in (0..count).filter(|other| *other != index) {
+                writeln!(imports, "import {{ f{other}, s{other} }} from './m{other}';").unwrap();
+                writeln!(calls, "  s{other}.seen = f{other}();").unwrap();
+            }
+            let source = format!(
+                "{imports}export const s{index} = {{ name: 'm{index}' }};\nexport function f{index}() {{\n{calls}  return s{index};\n}}\n"
+            );
+            (format!("/ws/app/m{index}.ts"), &*Box::leak(source.into_boxed_str()))
+        })
+        .collect();
+    let mut entries: Vec<(&str, &'static str)> =
+        sources.iter().map(|(path, source)| (path.as_str(), *source)).collect();
+    entries.push((
+        "/ws/app/config.ts",
+        "import { f0, s0 } from './m0';\nf0();\nexport default { plugins: [s0.name, f0().name] };",
+    ));
+    files(&entries)
+}
+
+/// A dense cycle of imports is analysed in bounded time: what one module's analysis finds under a pending module is
+/// not kept, so without a bound on the analyses in all every re-entry repeats the cycle.
+#[test]
+fn a_dense_cycle_of_imports_is_analysed_in_bounded_time() {
+    let loader = clique(12);
+    let started = std::time::Instant::now();
+    let config = eval(&loader);
+    let elapsed = started.elapsed();
+    assert!(elapsed < std::time::Duration::from_secs(30), "took {elapsed:?}");
+    assert!(config.get("plugins").is_some());
+}
+
+/// A module of `count` exported functions that all hand their parameters to one local function and an imported one,
+/// as generated assertion modules do.
+fn hub(count: usize) -> Files {
+    let mut functions = String::new();
+    for index in 0..count {
+        writeln!(
+            functions,
+            "export function assert{index}(node, opts) {{\n  assert('T{index}', node, opts);\n}}"
+        )
+        .unwrap();
+    }
+    let source = format!(
+        "import is from './is';\nfunction assert(type, node, opts) {{\n  if (!is(type, node, opts)) {{\n    throw new Error(type);\n  }}\n}}\n{functions}"
+    );
+    files(&[
+        ("/ws/app/asserts.ts", Box::leak(source.into_boxed_str())),
+        (
+            "/ws/app/is.ts",
+            "export default function is(type, node, opts) {\n  return node.type === type;\n}\n",
+        ),
+        (
+            "/ws/app/config.ts",
+            "import { assert0 } from './asserts';\nassert0({ type: 'T0' });\nexport default { plugins: ['a'] };",
+        ),
+    ])
+}
+
+/// A module whose many functions all reach one binding through their parameters is analysed in time linear in its
+/// size.
+#[test]
+fn a_module_of_many_functions_sharing_one_helper_is_analysed_quickly() {
+    let loader = hub(1200);
+    let started = std::time::Instant::now();
+    let config = eval(&loader);
+    let elapsed = started.elapsed();
+    assert!(elapsed < std::time::Duration::from_secs(30), "took {elapsed:?}");
+    assert_eq!(config.get("plugins"), Some(&ConfigValue::Array(vec![s("a")])));
 }
