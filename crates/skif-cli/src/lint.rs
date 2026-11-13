@@ -372,7 +372,12 @@ fn run_exit_code(args: &LintArgs, runs: &[RootRun], aggregate: &Report) -> u8 {
 
 /// What linting one root again needs: its configuration, the configuration file, the files enclosing roots hand it
 /// and what other roots use of it.
-type RootInputs<'a> = (&'a Config, Option<&'a Path>, &'a roots::HandedFiles, &'a roots::OtherRootUses);
+type RootInputs<'a> = (
+    &'a Config,
+    Option<&'a Path>,
+    &'a roots::HandedFiles,
+    &'a roots::OtherRootUses,
+);
 
 /// What fixing every root left behind: the re-linted roots with their fix runs, or the exit code of a run that
 /// stopped after writing some of the fixes.

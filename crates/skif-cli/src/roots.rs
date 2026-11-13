@@ -459,7 +459,12 @@ pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Res
                 let linter = linters.get(linters.of_target[index]);
                 (
                     index,
-                    lint_loaded(linter, &target.workspace, target.config_path().as_deref(), &handed[index]),
+                    lint_loaded(
+                        linter,
+                        &target.workspace,
+                        target.config_path().as_deref(),
+                        &handed[index],
+                    ),
                 )
             })
             .collect();

@@ -1556,7 +1556,10 @@ fn a_root_bazel_source_in_a_nested_root_is_a_build_source_of_another_project() {
     ];
     files.extend(NESTED_TOOLS);
     let report = report_at("/ws", &files);
-    assert_eq!(report.other_project_build_sources, [PathBuf::from("/ws/tools/lib/x.ts")]);
+    assert_eq!(
+        report.other_project_build_sources,
+        [PathBuf::from("/ws/tools/lib/x.ts")]
+    );
     assert_eq!(report.other_project_files, Vec::<PathBuf>::new());
 }
 
@@ -1583,14 +1586,23 @@ fn a_build_source_from_another_root_is_used_and_its_exports_are_judged() {
     files.extend(NESTED_TOOLS);
     let handed = [PathBuf::from("lib/x.ts")];
 
-    let report = report_with("/ws/tools", &files, &RunOptions::default().with_extra_build_sources(&handed));
+    let report = report_with(
+        "/ws/tools",
+        &files,
+        &RunOptions::default().with_extra_build_sources(&handed),
+    );
     assert_eq!(
         paths(&report.diagnostics, "unused-files"),
         strings(&["lib/orphan.ts"]),
         "{:#?}",
         report.diagnostics
     );
-    assert_eq!(names(&report.diagnostics, "unused-exports"), strings(&["spare"]), "{:#?}", report.diagnostics);
+    assert_eq!(
+        names(&report.diagnostics, "unused-exports"),
+        strings(&["spare"]),
+        "{:#?}",
+        report.diagnostics
+    );
     assert_eq!(
         paths(&report.diagnostics, "unused-exports"),
         strings(&["lib/x.ts"]),
@@ -1605,7 +1617,12 @@ fn a_build_source_from_another_root_is_used_and_its_exports_are_judged() {
         "{:#?}",
         report.diagnostics
     );
-    assert_eq!(names(&report.diagnostics, "unused-exports"), Vec::<String>::new(), "{:#?}", report.diagnostics);
+    assert_eq!(
+        names(&report.diagnostics, "unused-exports"),
+        Vec::<String>::new(),
+        "{:#?}",
+        report.diagnostics
+    );
 }
 
 /// Outside a Bazel repository nothing changes: the output a `BUILD` file declares is unresolved like any missing file.

@@ -80,7 +80,8 @@ impl<'a> Emitter<'a> {
         }
         self.incomplete_packages.extend(other.incomplete_packages);
         self.other_project_files.extend(other.other_project_files);
-        self.other_project_build_sources.extend(other.other_project_build_sources);
+        self.other_project_build_sources
+            .extend(other.other_project_build_sources);
         self.ancestor_dependency_uses.extend(other.ancestor_dependency_uses);
         self.config_judgements.extend(other.config_judgements);
     }
