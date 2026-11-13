@@ -1246,15 +1246,23 @@ is shared at the key it is spread at only; a write through one key reaches anoth
 the same object (`config.b = config.a`); a spread of a local (`{ ...options }`) copies its keys, so a change below
 one of them (`options.coverage.enabled = true`) reaches the copy at that key only, and a new value of a key of either
 leaves the other as it was; a write in a class body leaves what it reaches unknown; and the object of a `with`
-statement is partly unknown after it. A getter, a setter or an iterator of an object or class instance a module
-makes that writes through `this` leaves what the object holds unknown where code runs it with no call written: a read
-or a write of its key, a destructuring, a spread, `for…of`, `yield*` or a builtin given the object
-(`JSON.stringify`). Other code a value runs implicitly is not followed and may change what it reaches unseen: the
-`toString` or `valueOf` a template literal or `String(x)` calls, the `toJSON` of `JSON.stringify`, the `then` of an
-awaited object, and a getter or an iterator of an object another module makes; so is a change an imported function makes later to an object an
-earlier call gave it (`register(config)`, then `apply()`). A key a plugin reads files from that is unknown below
-the top level, such as vitest's `setupFiles: isPostgres ? [...] : []` or a `test` object an unknown spread may replace,
-leaves the plugin's entries incomplete instead of being read as empty.
+statement is partly unknown after it. A getter, a setter or an iterator of an object or class instance a module makes,
+also one `Object.defineProperty`, `Object.defineProperties`, `Reflect.defineProperty` or `Object.create` defines, that
+writes through `this` (`get grow() { this.list.push(x) }`) changes what the object holds where code runs it with no
+call written: a read or a write of its key; a destructuring in a declaration, an assignment, a parameter or a
+parameter of a callback (`[config].map(({ grow }) => grow)`); a spread; `for…of`, `yield*` and an array destructuring,
+which also run the `next`, `return` and `throw` of an iterator; a value of a tagged template; a call whose code skif
+does not visit; a builtin that reads the keys of what it is given (`JSON.stringify`, `Object.assign`); and a `new` of
+a class that is no builtin. A binding of `this` in it (`const self = this`, `const { list } = this`) is `this`, a
+getter run on `this` by another one counts for both, a getter that only gives a key of `this` a new value
+(`this.mode = 'production'`) leaves that key unknown and the rest known, and a method it calls on `this` counts only
+as far as that method writes. A `define…` helper of a package, `path.join` and a list method given the object run none
+of them. Other code a value runs implicitly is not followed and may change what it reaches unseen: a static getter of
+a class, the `toString` or `valueOf` a template literal or `String(x)` calls, the `toJSON` of `JSON.stringify`, the
+`then` of an awaited object, and a getter, a setter or an iterator of an object another module makes; so is a change
+an imported function makes later to an object an earlier call gave it (`register(config)`, then `apply()`). A key a
+plugin reads files from that is unknown below the top level, such as vitest's `setupFiles: isPostgres ? [...] : []` or
+a `test` object an unknown spread may replace, leaves the plugin's entries incomplete instead of being read as empty.
 
 Plugins read configs and sources statically and never run a tool, so some of knip's plugin behaviour has no
 counterpart. These differences are deliberate:
