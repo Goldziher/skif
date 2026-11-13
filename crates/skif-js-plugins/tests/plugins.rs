@@ -5593,6 +5593,41 @@ fn mise_extensionless_javascript_file_tasks_make_what_they_load_entries() {
     );
 }
 
+/// A module an extensionless JavaScript file task only resolves is a build source: used, but no entry, so its exports
+/// are judged. One it also requires stays an entry.
+#[test]
+fn mise_extensionless_javascript_file_tasks_make_what_they_resolve_build_sources() {
+    let results = resolve(
+        &[
+            ("mise.toml", "[tools]\nnode = \"22\"\n"),
+            (
+                "mise-tasks/gen",
+                "#!/usr/bin/env node\nconsole.log(require.resolve(\"../src/data.js\"), require.resolve(\"./lib/tpl\"));\n\
+                 require(\"../src/run.js\");\nrequire.resolve(\"../src/run.js\");\n",
+            ),
+        ],
+        &[],
+    );
+    let out = output(&results, "mise");
+    let sources: BTreeSet<&str> = out.build_sources.iter().map(String::as_str).collect();
+    assert_eq!(
+        sources,
+        BTreeSet::from([
+            "mise-tasks/lib/tpl{,/index}.{js,mjs,cjs,jsx,ts,mts,cts,tsx}",
+            "src/data.js",
+            "src/run.js"
+        ])
+    );
+    assert_entries(&out.entries, &["src/run.js"]);
+    assert!(
+        !out.entries
+            .iter()
+            .any(|entry| entry.contains("data") || entry.contains("tpl")),
+        "{:?}",
+        out.entries
+    );
+}
+
 #[test]
 fn mise_task_includes_replace_the_default_file_task_dirs() {
     let results = resolve(
