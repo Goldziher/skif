@@ -942,7 +942,10 @@ names or its `@types` package: `types: ["cypress"]` with `cypress` listed at the
 `@cloudflare/workers-types` or `@types/node` name themselves. `types: ["*"]` names no package: it keeps every `@types`
 package visible, so a globals-only one such as `@types/chrome` counts as used. A config without `types` keeps them all
 too before TypeScript 6, and none from TypeScript 6, which defaults `types` to `[]`: there an `@types` package is used
-only when an import, a `types` entry or a `/// <reference types>` names it. A config's own `types` and `typeRoots`
+only when an import, a `types` entry or a `/// <reference types>` names it. An import of a package uses its `@types`
+package only when the installed package declares no types of its own (`types` or `typings` in its `package.json`), as
+TypeScript reads those first: with `eslint` 9 installed, `import type { Linter } from 'eslint'` leaves `@types/eslint`
+unused. A package that is not installed keeps its `@types` package used. A config's own `types` and `typeRoots`
 replace the ones it extends, and a later `extends` entry overrides an earlier one. A solution config whose
 `references` name other configs (`files: []` beside `tsconfig.app.json`) keeps every package when one of the configs
 does. The version is that of the `typescript` installed in the nearest `node_modules` from the package up to the

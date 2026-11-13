@@ -61,6 +61,7 @@ pub(crate) fn read(fs: &dyn FileSystem, root: &Path) -> Locked {
                 peers: entry.peers.into_iter().collect(),
                 optional_peers: entry.optional_peers.into_iter().collect(),
                 version: None,
+                typed: false,
             };
             (name, Arc::new(installed))
         })
