@@ -1213,6 +1213,39 @@ fn a_substitution_in_a_step_runs_in_the_working_directory_of_the_step() {
     );
 }
 
+/// A member's file that spawns the binary link it resolves (`execa(require.resolve('.bin/jscodeshift'))`) runs a binary
+/// of the member, which lists it, also when the root lists execa too; a binary a file of the root runs is still judged
+/// at the root.
+#[test]
+fn a_member_file_that_spawns_a_resolved_binary_link_runs_a_binary_of_the_member() {
+    let root = manifest(&format!(
+        r#""name":"root","private":true,{PNPM},"main":"scripts/release.mjs","devDependencies":{{"execa":"9.0.0"}}"#
+    ));
+    let files = [
+        ("package.json", root.as_str()),
+        ("pnpm-workspace.yaml", "packages:\n  - packages/*\n"),
+        (
+            "packages/codemod/package.json",
+            r#"{"name":"codemod","version":"1.0.0","bin":{"codemod":"bin/transform.js"},"dependencies":{"execa":"9.0.0","jscodeshift":"17.0.0"}}"#,
+        ),
+        (
+            "packages/codemod/bin/transform.js",
+            "const { execa } = require('execa');\nconst exe = require.resolve('.bin/jscodeshift');\n\
+             execa(exe, ['-t', 'x']);\n",
+        ),
+        (
+            "scripts/release.mjs",
+            "import { execa } from 'execa';\nawait execa('changeset', ['publish']);\n",
+        ),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(
+        found(&diagnostics, "unlisted-binaries"),
+        ["scripts/release.mjs: changeset"],
+        "{diagnostics:#?}"
+    );
+}
+
 /// A binary that a script, a workflow step or a source file runs after `cd` into another workspace package that does
 /// not provide it is reported at the command, naming the package it runs in. A script of that package, which a package
 /// manager run there runs, is no binary.
