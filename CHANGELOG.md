@@ -68,6 +68,10 @@ All notable changes to this project are documented here. The format follows
   `declare module 'commander' { export * from '@commander-js/extra-typings'; }` no longer leaves
   `@commander-js/extra-typings` unused. The block adds no export to the file, and the analysis cache is invalidated
   ([#98](https://github.com/Goldziher/skif/issues/98)).
+- **Stylesheet `url()`**: a `url()` that names a file of a package, `~pkg/file` or `@scope/pkg/file`
+  (`src: url("@ibm/plex/fonts/a.woff2")`), uses the package, so it is no longer reported unused. Other `url()` values
+  stay assets: an unscoped bare path is relative to the stylesheet and `@/…` is an alias. The analysis cache is
+  invalidated ([#98](https://github.com/Goldziher/skif/issues/98)).
 
 ## [0.4.0] - 2026-11-12
 

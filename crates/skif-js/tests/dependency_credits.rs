@@ -74,3 +74,29 @@ fn reexports_inside_declare_module_blocks_use_the_packages_they_name() {
     );
     assert_eq!(found(&diagnostics, "unlisted-dependencies"), none());
 }
+
+#[test]
+fn stylesheet_urls_of_package_files_use_the_package() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"main":"src/index.ts","dependencies":{"@acme/fonts":"1.0.0","legacy-icons":"1.0.0","left-pad":"1.3.0"}}"#,
+        ),
+        ("src/index.ts", "import './index.css';\nexport const main = 1;\n"),
+        (
+            "src/index.css",
+            "@font-face {\n  src: url(\"@acme/fonts/mono/regular.woff2\") format(\"woff2\");\n}\n\
+             .icon { background: url(~legacy-icons/sprite.svg); }\n\
+             .logo { background: url(\"./logo.png\"), url(images/bg.png), url(\"@/assets/hero.png\"); }\n\
+             .remote { background: url(https://cdn.test/a.png); }\n",
+        ),
+        ("src/logo.png", ""),
+        ("src/images/bg.png", ""),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-dependencies"),
+        ["package.json: left-pad"]
+    );
+    assert_eq!(found(&diagnostics, "unlisted-dependencies"), none());
+    assert_eq!(found(&diagnostics, "unresolved-imports"), none());
+}
