@@ -427,20 +427,20 @@ mod tests {
         }
     }
 
-    /// The packages of one run share the texts of their sources: the root package, which depends on `execa`, reads
-    /// the script of a member, and the member, which inherits `execa`, finds the command in it without reading it
+    /// The packages of one run share the texts of their sources: the root package, which depends on `pino`, reads
+    /// the logger of a member, and the member, which inherits `pino`, finds the transport in it without reading it
     /// again.
     #[test]
     fn the_packages_of_a_run_read_a_shared_source_file_once() {
         let memory = MemoryFs::new()
             .with_file(
                 "/ws/package.json",
-                r#"{"name":"r","workspaces":["packages/*"],"devDependencies":{"execa":"9.0.0"}}"#,
+                r#"{"name":"r","workspaces":["packages/*"],"dependencies":{"pino":"9.0.0"}}"#,
             )
             .with_file("/ws/packages/a/package.json", r#"{"name":"a"}"#)
             .with_file(
-                "/ws/packages/a/scripts/release.ts",
-                r#"import { execa } from "execa"; await execa("changeset", ["publish"]);"#,
+                "/ws/packages/a/src/logger.ts",
+                r#"import pino from "pino"; export const logger = pino({ transport: { target: "pino-pretty" } });"#,
             );
         let config = Config::from_toml_str("").unwrap();
         let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &memory).unwrap();
@@ -461,16 +461,12 @@ mod tests {
                 listing: &listing,
             })
         };
-        let script = Path::new("/ws/packages/a/scripts/release.ts");
-        let reads = || fs.reads.lock().unwrap().get(script).copied();
+        let logger = Path::new("/ws/packages/a/src/logger.ts");
+        let reads = || fs.reads.lock().unwrap().get(logger).copied();
         let _ = inputs("r", ".");
-        assert_eq!(reads(), Some(1), "the root package reads the member's script");
+        assert_eq!(reads(), Some(1), "the root package reads the member's logger");
         let member = inputs("a", "packages/a");
-        assert!(
-            member.binaries.contains(&"changeset".to_owned()),
-            "{:?}",
-            member.binaries
-        );
+        assert_eq!(member.dependencies, ["pino-pretty"]);
         assert_eq!(reads(), Some(1), "the member takes the text the root package read");
     }
 
