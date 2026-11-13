@@ -283,8 +283,8 @@ is not an `unresolved-imports` finding, so unresolved imports compare with knip'
 
 `require.resolve("./x")` and `import.meta.resolve("./x")` return the path of a module and load nothing. In skif the
 call keeps the file it names in use and a package it names is a used dependency, but it uses no export, so
-`unused-exports` and `unused-types` report the exports of that file that nothing else imports. knip reports none of
-them.
+`unused-exports` reports the value exports of that file that nothing else imports, as `unused-types` reports its
+types. knip reports none of them.
 
 skif never reports a declaration file (`.d.ts`, `.d.mts`, `.d.cts`) as an unused file: TypeScript loads ambient
 declarations without an import, and a published package's typings are read by its consumers, so every declaration

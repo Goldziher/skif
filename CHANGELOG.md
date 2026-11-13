@@ -11,18 +11,29 @@ All notable changes to this project are documented here. The format follows
 
 ### Breaking changes
 
-- **Public API**: `skif-js-syntax`'s `ImportKind` gains `Resolve` (`enum_variant_added`), so an exhaustive `match` on
-  it needs the arm ([#225](https://github.com/Goldziher/skif/issues/225)).
+- **Public API**: `skif-js-syntax`'s `ImportKind` gains `Resolve` (`enum_variant_added`) and is `#[non_exhaustive]`,
+  so a `match` on it outside the crate needs a wildcard arm, and later kinds are no longer a breaking change
+  ([#225](https://github.com/Goldziher/skif/issues/225)).
+- **Consumers of `explain-usage --format json`, `explain-usage --dependency` and `--trace-dependency --format json`**:
+  a `require.resolve("x")`, `createRequire(…).resolve("x")` or `import.meta.resolve("x")` is listed with the import
+  kind `resolve` instead of `require` ([#225](https://github.com/Goldziher/skif/issues/225)).
 
 ### Fixed
 
-- **Resolve calls**: `require.resolve(x)` and `import.meta.resolve(x)` return a path and load nothing, so they no
-  longer count as a use of every export of the module they name. The file they name stays in use and a package they
-  name is still a used dependency, but its exports are judged: `unused-exports` and `unused-types` now report the
-  exports nothing else imports. `skif-js-syntax` reports the call as `ImportKind::Resolve` (`resolve` in
-  `explain-usage`, which says it takes the path and no export), and the analysis cache is invalidated. knip reports
-  nothing for these exports, so the findings are skif's alone
-  ([#225](https://github.com/Goldziher/skif/issues/225)).
+- **Resolve calls**: `require.resolve(x)`, `createRequire(…).resolve(x)` and `import.meta.resolve(x)` return a path
+  and load nothing, so they no longer count as a use of every export of the module they name. The file they name stays
+  in use, what it imports is followed, and a package they name is still a used dependency, but its exports are judged:
+  `unused-exports` now reports the value exports nothing else imports (`unused-types` already reported its types, as a
+  resolve call never credited them). A module otherwise read only through a namespace (`ns.a`) stays namespace-only,
+  so its unread exports are `unused-namespace-exports`. A resolve call is no edge of `circular-imports`, and a module
+  an extensionless JavaScript mise file task only resolves is used but no entry, so its exports are judged too. A
+  computed relative specifier (`` require.resolve(`./tpl/${name}`) ``) is followed as a glob, as a computed `require`
+  is, and the call is found behind a TypeScript assertion (`(require as NodeRequire).resolve(x)`). `skif-js-syntax`
+  reports the call as `ImportKind::Resolve`, and the analysis cache is invalidated. knip reports nothing for these exports, so the
+  findings are skif's alone ([#225](https://github.com/Goldziher/skif/issues/225)).
+- **`explain-usage`**: an importer that uses no export says what it takes instead of `the whole module`: a resolve call
+  `its path, no export`, a side-effect import `runs it, no export` and a test-runner mock `a test-runner call, no
+  export` ([#225](https://github.com/Goldziher/skif/issues/225)).
 
 ## [0.4.0] - 2026-11-12
 
