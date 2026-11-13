@@ -1017,7 +1017,7 @@ fn relative_imports(path: &str, source: &str, is_file: &FileProbe<'_>) -> Vec<St
 /// The exports of other files that the parsed file `path` imports by relative specifier, as `(file, export)`: a named
 /// import or re-export by its name, a default import as `default`, a namespace by the members read through it, and a
 /// namespace used as a whole, `export * from`, `import()` and `require` of the module as [`WHOLE_MODULE`]. A
-/// side-effect import uses no export.
+/// side-effect import and a resolve call (`require.resolve`, `import.meta.resolve`) use no export.
 fn imported_exports(path: &str, module: &ModuleInfo, is_file: &FileProbe<'_>) -> Vec<(String, String)> {
     let mut found = Vec::new();
     for (import, target) in relative_targets(path, module, is_file) {

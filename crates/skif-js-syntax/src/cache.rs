@@ -24,7 +24,7 @@ use crate::style::{is_stylesheet, parse_stylesheet};
 /// The version of the parse output. Raise it whenever [`ModuleInfo`] or what the parsers put in it changes, so a
 /// cache written by an older build at the same crate version is not trusted; the test
 /// `the_cache_schema_matches_the_parse_output` fails until [`CACHE_SCHEMA_DIGEST`] is updated with it.
-pub const CACHE_SCHEMA: u32 = 5;
+pub const CACHE_SCHEMA: u32 = 6;
 
 /// The digest of the serialized parse results of a fixed probe corpus at [`CACHE_SCHEMA`]. It is a test's guard,
 /// not part of any key: when the parse output changes, the test reports the new digest and both constants move.
@@ -415,7 +415,8 @@ mod tests {
             ),
             (
                 "c.js",
-                "const x = require('x');\nmodule.exports = { x };\nimport('./lazy');\nimport(`./dir/${x}`);\n",
+                "const x = require('x');\nmodule.exports = { x, path: require.resolve('./r') };\nimport('./lazy');\n\
+                 import(`./dir/${x}`);\n",
             ),
             (
                 "d.d.ts",

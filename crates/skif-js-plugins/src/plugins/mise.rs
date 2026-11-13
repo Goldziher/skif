@@ -225,6 +225,7 @@ fn imported_modules(file: &str, text: &str, words: &[&str]) -> Vec<PluginInput> 
                 | ImportKind::SideEffect
                 | ImportKind::Dynamic
                 | ImportKind::Require
+                | ImportKind::Resolve
                 | ImportKind::ExportFrom
         );
         let specifier = import.specifier.as_str();

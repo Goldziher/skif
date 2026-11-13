@@ -281,6 +281,11 @@ keeps the file it names in use, and a relative or aliased mock of a file that do
 `stale-mocks`, an error that knip has no counterpart for (`skif migrate --profile exact` turns it off). Such a mock
 is not an `unresolved-imports` finding, so unresolved imports compare with knip's `unresolved`.
 
+`require.resolve("./x")` and `import.meta.resolve("./x")` return the path of a module and load nothing. In skif the
+call keeps the file it names in use and a package it names is a used dependency, but it uses no export, so
+`unused-exports` and `unused-types` report the exports of that file that nothing else imports. knip reports none of
+them.
+
 skif never reports a declaration file (`.d.ts`, `.d.mts`, `.d.cts`) as an unused file: TypeScript loads ambient
 declarations without an import, and a published package's typings are read by its consumers, so every declaration
 file is an entry. knip reports one that nothing imports.

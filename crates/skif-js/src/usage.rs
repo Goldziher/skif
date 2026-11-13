@@ -110,7 +110,8 @@ impl ReexportIndex {
                         ImportKind::ImportMetaGlob
                         | ImportKind::SourceGlob
                         | ImportKind::SideEffect
-                        | ImportKind::Mock => {}
+                        | ImportKind::Mock
+                        | ImportKind::Resolve => {}
                         _ => {
                             sources.entry(import.specifier.as_str()).or_insert(*id);
                         }
@@ -230,9 +231,10 @@ impl ExportUsage {
                 let Some(import) = module.info.imports.get(resolved.import) else {
                     continue;
                 };
+                // A resolve call takes the path of the module and loads none of it.
                 if matches!(
                     import.kind,
-                    ImportKind::ExportFrom | ImportKind::SideEffect | ImportKind::Mock
+                    ImportKind::ExportFrom | ImportKind::SideEffect | ImportKind::Mock | ImportKind::Resolve
                 ) {
                     continue;
                 }
