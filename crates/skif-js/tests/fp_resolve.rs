@@ -31,6 +31,11 @@ fn lint_configured(root: &str, files: &[(&str, &str)], toml: &str) -> Vec<Diagno
 
 /// The sorted report of the workspace at `root`, with the files and extra entries a multi-root host reads.
 fn report_at(root: &str, files: &[(&str, &str)]) -> Report {
+    report_with(root, files, &RunOptions::default())
+}
+
+/// Like [`report_at`], run with `options`: the extra entries and build sources a multi-root host hands a root.
+fn report_with(root: &str, files: &[(&str, &str)], options: &RunOptions<'_>) -> Report {
     let memory = files
         .iter()
         .fold(MemoryFs::new(), |memory, (path, text)| memory.with_file(path, text));
@@ -39,7 +44,7 @@ fn report_at(root: &str, files: &[(&str, &str)]) -> Report {
     let fs: Arc<dyn FileSystem> = Arc::new(memory);
     let provider = JsProvider::new(fs).with_input_source(Arc::new(PluginSource::new(config.js.plugins.clone())));
     let registry = Registry::new(vec![Box::new(provider)]).unwrap();
-    run(&registry, &workspace, &config, &RunOptions::default()).unwrap()
+    run(&registry, &workspace, &config, options).unwrap()
 }
 
 fn lint(files: &[(&str, &str)]) -> Vec<Diagnostic> {
@@ -1529,6 +1534,78 @@ fn a_root_bazel_source_in_a_member_is_a_build_source() {
         strings(&["packages/foo/src/x.ts"]),
         "{diagnostics:#?}"
     );
+}
+
+/// A root `BUILD` file naming a file of a project of its own below the root (a nested root) lists it as a build source
+/// of another project, for a multi-root host to hand to that root as a build source: not among the files of other
+/// projects, which that root takes as entries.
+#[test]
+fn a_root_bazel_source_in_a_nested_root_is_a_build_source_of_another_project() {
+    let mut files = vec![
+        ("/ws/.git/HEAD", ""),
+        ("/ws/MODULE.bazel", RULES_JS_MODULE.1),
+        (
+            "/ws/package.json",
+            r#"{"name":"outer","version":"0.0.0","private":true,"main":"index.js"}"#,
+        ),
+        ("/ws/index.js", "console.log(1);\n"),
+        (
+            "/ws/BUILD.bazel",
+            "ts_project(name = \"tools\", srcs = [\"tools/lib/x.ts\"])\n",
+        ),
+    ];
+    files.extend(NESTED_TOOLS);
+    let report = report_at("/ws", &files);
+    assert_eq!(report.other_project_build_sources, [PathBuf::from("/ws/tools/lib/x.ts")]);
+    assert_eq!(report.other_project_files, Vec::<PathBuf>::new());
+}
+
+/// The files of a nested root `tools` below `/ws`: `x.ts` imports `y.ts` and exports `spare`, which nothing imports,
+/// and nothing uses `orphan.ts`.
+const NESTED_TOOLS: [(&str, &str); 4] = [
+    (
+        "/ws/tools/package.json",
+        r#"{"name":"tools","version":"0.0.0","private":true}"#,
+    ),
+    (
+        "/ws/tools/lib/x.ts",
+        "import { help } from './y';\nhelp();\nexport const spare = 1;\n",
+    ),
+    ("/ws/tools/lib/y.ts", "export function help(): void {}\n"),
+    ("/ws/tools/lib/orphan.ts", "export const lonely = 1;\n"),
+];
+
+/// A build source another root hands this one is used and its imports are followed, but its exports are judged, as
+/// for a build source of its own; the same file handed as an entry has public exports.
+#[test]
+fn a_build_source_from_another_root_is_used_and_its_exports_are_judged() {
+    let mut files = vec![("/ws/.git/HEAD", "")];
+    files.extend(NESTED_TOOLS);
+    let handed = [PathBuf::from("lib/x.ts")];
+
+    let report = report_with("/ws/tools", &files, &RunOptions::default().with_extra_build_sources(&handed));
+    assert_eq!(
+        paths(&report.diagnostics, "unused-files"),
+        strings(&["lib/orphan.ts"]),
+        "{:#?}",
+        report.diagnostics
+    );
+    assert_eq!(names(&report.diagnostics, "unused-exports"), strings(&["spare"]), "{:#?}", report.diagnostics);
+    assert_eq!(
+        paths(&report.diagnostics, "unused-exports"),
+        strings(&["lib/x.ts"]),
+        "{:#?}",
+        report.diagnostics
+    );
+
+    let report = report_with("/ws/tools", &files, &RunOptions::default().with_extra_entries(&handed));
+    assert_eq!(
+        paths(&report.diagnostics, "unused-files"),
+        strings(&["lib/orphan.ts"]),
+        "{:#?}",
+        report.diagnostics
+    );
+    assert_eq!(names(&report.diagnostics, "unused-exports"), Vec::<String>::new(), "{:#?}", report.diagnostics);
 }
 
 /// Outside a Bazel repository nothing changes: the output a `BUILD` file declares is unresolved like any missing file.
