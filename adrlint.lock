@@ -29,7 +29,7 @@ blake3 = "14c75b617cc942ae5dc5c65e4821405a28014a5eb576232aa72576ebfd7b7351"
 [adrs."adrs/0006-workspace-discovery-roots-and-multi-root-runs.md"]
 number = 6
 status = "accepted"
-blake3 = "fb430372481d96f3ff89040630ab3e7483e1e5268e42c541dfdac7c03d7f873c"
+blake3 = "f3bdbcaef9aee02916e747923fe5598943f78a347b40a614932cb39f02062014"
 
 [adrs."adrs/0007-specifier-and-semver-model.md"]
 number = 7
@@ -154,7 +154,7 @@ blake3 = "c32ea81ec0756f67bc8a73c99a62b7e7626071b86a1cf5ee4b68e16d8cabe341"
 [adrs."adrs/0031-bazel.md"]
 number = 31
 status = "accepted"
-blake3 = "d4af6f387dcb8e027ef17cf04a9889a0f6eb82ba5b2f4c226d273a76874c62e1"
+blake3 = "aa75ee90f1d0ab2e6f8827d720c3e68fb517586df7aa9034642a936d642d91d1"
 
 [adrs."adrs/0032-nx-and-lerna-and-pruned-output-trees.md"]
 number = 32
@@ -165,3 +165,8 @@ blake3 = "f0a5517a727dd934ad547d2e17bd47689f15eba02d71dc413c8336da93186963"
 number = 33
 status = "accepted"
 blake3 = "907c476e12ee9a9395cbcdc22eb8fb9f8f148410ad8cb151dc442a1fd6a0a079"
+
+[adrs."adrs/0034-build-sources-handed-to-a-nested-root.md"]
+number = 34
+status = "accepted"
+blake3 = "acb0569e28760875dbec8584a0b60d98dd4b8dc57ec36e01d263a2ca51e30e2c"

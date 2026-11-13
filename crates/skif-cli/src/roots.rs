@@ -430,7 +430,11 @@ fn route(roots: &RootIndex<'_>, from: usize, files: &[PathBuf]) -> Routed {
         let Ok(rel) = abs.strip_prefix(roots.dirs[owner]) else {
             continue;
         };
-        let side = if abs.starts_with(base) { &mut below } else { &mut outside };
+        let side = if abs.starts_with(base) {
+            &mut below
+        } else {
+            &mut outside
+        };
         side.push((owner, rel.to_path_buf()));
     }
     (below, outside)
@@ -740,7 +744,15 @@ mod tests {
         );
         assert_eq!(handed[3], HandedFiles::default());
         let files: Vec<BTreeSet<PathBuf>> = uses.into_iter().map(|uses| uses.files).collect();
-        assert_eq!(files, [set(&["lib/up.ts"]), BTreeSet::new(), BTreeSet::new(), set(&["lib/s.ts"])]);
+        assert_eq!(
+            files,
+            [
+                set(&["lib/up.ts"]),
+                BTreeSet::new(),
+                BTreeSet::new(),
+                set(&["lib/s.ts"])
+            ]
+        );
     }
 
     #[test]
