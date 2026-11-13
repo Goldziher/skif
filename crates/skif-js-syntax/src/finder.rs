@@ -224,6 +224,22 @@ fn is_import_meta(expr: &Expression<'_>) -> bool {
     matches!(expr, Expression::ImportMeta(_))
 }
 
+/// Whether `call` resolves a module specifier to its path: `require.resolve(…)`, `import.meta.resolve(…)` or the
+/// `resolve` of a `createRequire(…)` call, also behind parentheses or a TypeScript assertion
+/// (`(require as NodeRequire).resolve(…)`).
+pub(crate) fn is_module_resolve(call: &CallExpression<'_>) -> bool {
+    let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
+        return false;
+    };
+    member.property.name.as_str() == "resolve"
+        && match member.object.get_inner_expression() {
+            Expression::Identifier(object) => object.name.as_str() == "require",
+            Expression::ImportMeta(_) => true,
+            Expression::CallExpression(factory) => is_ident(factory.callee.get_inner_expression(), "createRequire"),
+            _ => false,
+        }
+}
+
 fn is_module_exports(member: &StaticMemberExpression<'_>) -> bool {
     is_ident(&member.object, "module") && member.property.name.as_str() == "exports"
 }
@@ -704,6 +720,10 @@ impl Finder<'_, '_> {
         // Most calls are none of these, so the span is mapped to lines only for one that is recorded.
         let ctx = self.ctx;
         let span = || ctx.span(it.span);
+        if is_module_resolve(it) {
+            self.resolve_call(first, span());
+            return;
+        }
         match &it.callee {
             Expression::Identifier(id) if id.name.as_str() == "require" => match first.and_then(static_string) {
                 Some(specifier) => {
@@ -721,19 +741,7 @@ impl Finder<'_, '_> {
             },
             Expression::StaticMemberExpression(m) => {
                 let property = m.property.name.as_str();
-                let resolves = property == "resolve" && (is_ident(&m.object, "require") || is_import_meta(&m.object));
-                if resolves {
-                    match first.and_then(static_string) {
-                        Some(specifier) => self.info.imports.push(Import {
-                            specifier,
-                            kind: ImportKind::Resolve,
-                            names: Vec::new(),
-                            call: None,
-                            span: span(),
-                        }),
-                        None => self.info.unresolved_dynamic.push(span()),
-                    }
-                } else if is_import_meta(&m.object) && (property == "glob" || property == "globEager") {
+                if is_import_meta(&m.object) && (property == "glob" || property == "globEager") {
                     let options = it.arguments.get(1).and_then(Argument::as_expression);
                     self.glob(first, options, span());
                 } else if let Some(call) = mock_call(m)
@@ -757,8 +765,23 @@ impl Finder<'_, '_> {
         }
     }
 
-    /// A `require` or `import()` whose specifier is not a constant: followed as a glob when the source narrows it to
-    /// a directory, and every matching module counts as read in full. Otherwise it is an unknown target.
+    /// A resolve call ([`is_module_resolve`]): it names the module by a constant specifier, or by a computed one as a
+    /// `require` does.
+    fn resolve_call(&mut self, specifier: Option<&Expression<'_>>, span: skif_core::Span) {
+        match specifier.and_then(static_string) {
+            Some(specifier) => self.info.imports.push(Import {
+                specifier,
+                kind: ImportKind::Resolve,
+                names: Vec::new(),
+                call: None,
+                span,
+            }),
+            None => self.computed_specifier(specifier, span),
+        }
+    }
+
+    /// A `require`, `import()` or resolve call whose specifier is not a constant: followed as a glob when the source
+    /// narrows it to a directory, and every matching module counts as read in full. Otherwise it is an unknown target.
     fn computed_specifier(&mut self, specifier: Option<&Expression<'_>>, span: skif_core::Span) {
         if let Some(specifier) = specifier.and_then(template_glob) {
             self.info.imports.push(Import {
