@@ -1,6 +1,7 @@
 //! knip's configuration hints beyond the empty patterns: redundant `entry` and `project` patterns, top-level `entry`
 //! and `project` in a monorepo, `project` extensions skif does not analyse or leaves out, and published entry files
-//! that do not exist. The `stale-js-config` rule reports them.
+//! that do not exist, and plain `entry` and `project` patterns that cancel the same pattern ending in `!`. The
+//! `stale-js-config` rule reports them.
 
 use skif_core::HashSet;
 use std::path::{Path, PathBuf};
@@ -36,6 +37,9 @@ pub(crate) enum HintKind {
     ExtensionExcluded,
     /// A path `package.json` publishes that names no file (knip's `package-entry`).
     PackageEntry,
+    /// A plain `entry` or `project` pattern of a list that also holds the same pattern ending in `!`. The `!` pattern
+    /// applies outside production mode too, and in production mode the plain one excludes what it selects.
+    MarkerCancelled,
 }
 
 /// One configuration hint.
@@ -83,6 +87,7 @@ pub(crate) fn config_hints(inputs: &HintInputs<'_>) -> Vec<ConfigHint> {
                 package_setup,
             };
             scope.redundant(&mut hints);
+            scope.cancelled_markers(&mut hints);
             // knip judges the project patterns only where they select the project, not where a `tsconfig` does.
             if !inputs.config.js.use_tsconfig_files {
                 scope.extensions(&mut hints);
@@ -160,6 +165,24 @@ impl Scope<'_, '_> {
         for pattern in &user.project {
             if literal_path(dir, pattern).is_some_and(|path| self.inputs.entries.contains(&path)) {
                 hints.insert(self.hint(HintKind::ProjectRedundant, "project", Some(pattern), pattern.clone()));
+            }
+        }
+    }
+
+    /// Plain patterns of a list whose `!` form is in the same list, which compares the patterns as written: one that
+    /// only overlaps or is narrower than a `!` pattern is not reported. `project` is not judged with a `tsconfig`.
+    fn cancelled_markers(&self, hints: &mut IndexSet<ConfigHint>) {
+        let user = &self.package_setup.user_patterns;
+        let project = (!self.inputs.config.js.use_tsconfig_files).then_some(("project", &user.project));
+        for (name, patterns) in std::iter::once(("entry", &user.entry)).chain(project) {
+            for pattern in patterns
+                .iter()
+                .filter(|pattern| !pattern.is_empty() && !pattern.starts_with('!') && !pattern.ends_with('!'))
+            {
+                let marked = format!("{pattern}!");
+                if patterns.contains(&marked) && self.key(name, Some(pattern)) == self.key(name, Some(&marked)) {
+                    hints.insert(self.hint(HintKind::MarkerCancelled, name, Some(pattern), pattern.clone()));
+                }
             }
         }
     }
