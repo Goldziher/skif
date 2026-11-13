@@ -1055,7 +1055,10 @@ and the components it registers then look unused.
 Stylesheets that code imports are followed: `@import`, `@use`, `@forward` and the Tailwind at-rules of `.css`,
 `.scss`, `.sass`, `.less` and `.pcss` files, and `@import` and `@require` of Stylus (`.styl`, `.stylus`, and
 `<style lang="stylus">` blocks), where a bare name is looked up next to the file before it is taken as a package and a
-glob (`@import "mixins/*"`) is skipped. A reached Stylus file uses the `stylus` package. `.tsrx` files (`@tsrx/core`)
+glob (`@import "mixins/*"`) is skipped. A `url()` elsewhere in a stylesheet is an asset and is not followed, except
+one that names a file of a package, `~pkg/file` or `@scope/pkg/file` (`url("@ibm/plex/fonts/a.woff2")`): it uses the
+package. An unscoped bare `url(images/bg.png)` is relative to the stylesheet and `@/…` is an alias, so neither names
+a package. A reached Stylus file uses the `stylus` package. `.tsrx` files (`@tsrx/core`)
 are not TypeScript a parser accepts, so only their `import` statements and `import()` calls are read: the packages and
 files they name are used, every imported binding counts as used as a whole, and their exports are not known, so a
 re-export (`export { x } from './y'`) is not followed and `./y` is not reached through it. A reached `.tsrx` file uses
