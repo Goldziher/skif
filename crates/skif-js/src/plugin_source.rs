@@ -466,7 +466,11 @@ mod tests {
         let _ = inputs("r", ".");
         assert_eq!(reads(), Some(1), "the root package reads the member's script");
         let member = inputs("a", "packages/a");
-        assert!(member.binaries.contains(&"changeset".to_owned()), "{:?}", member.binaries);
+        assert!(
+            member.binaries.contains(&"changeset".to_owned()),
+            "{:?}",
+            member.binaries
+        );
         assert_eq!(reads(), Some(1), "the member takes the text the root package read");
     }
 
