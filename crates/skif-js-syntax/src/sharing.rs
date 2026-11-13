@@ -45,14 +45,21 @@
 //! such binding in full, wherever it is read, as what a read before the call gives may be the object it changes. What a
 //! module imported for its bindings does when it is loaded is not followed.
 //!
-//! A getter, a setter or an iterator of an object or of an instance of a class runs with the object as `this` where
-//! code reads or writes its key, destructures, spreads or iterates the object (`for…of`, `yield*`), or gives it to a
-//! call whose code is not that of a function the module declares (`JSON.stringify(x)`), with no call of it written.
-//! Where one the module declares writes through `this` other than by giving a key of `this` itself a new value, such a
-//! place changes what the object holds there, as a call of a method of it does ([`Run`]). Other code a value runs
-//! implicitly is not followed: a `toString` or `valueOf` a template literal or `String(x)` calls, a `toJSON` of
-//! `JSON.stringify`, a `then` of a value awaited, a getter or an iterator of an object of another module. Neither is a
-//! change an imported function makes to what it was given by an earlier call (`register(config)`, later `apply()`).
+//! A getter, a setter or an iterator of an object or of an instance of a class (one an object literal or a class
+//! declares, or a descriptor given to `Object.defineProperty`, `Object.defineProperties`, `Reflect.defineProperty` or
+//! `Object.create`) runs with the object as `this` where code reads or writes its key, destructures the object (in a
+//! declaration, an assignment, a parameter or the parameter of a callback), spreads or iterates it (`for…of`, `yield*`,
+//! the `next` of an iterator), or gives it to a tagged template, to a call whose code the pass does not visit (a
+//! function the module does not declare, `JSON.stringify(x)`) or to a `new` of a class but a builtin one, whose
+//! constructor is not followed with what it is given, with no call of it written; a known function that reads no key of
+//! what it is given (`path.join`, a `define…` helper of a package) runs none. Where one the module declares changes
+//! what `this` holds, also through a binding taking `this` (`const self = this`), a method of its own object it calls
+//! on `this` or another one it runs so, such a place changes what the object holds there, as a call of a method of it
+//! does, and only a key of it where the code only gives keys of `this` itself a new value (`this.mode = 'production'`;
+//! [`ThisEffect`]). Other code a value runs implicitly is not followed: a static getter, a `toString`, `valueOf` or
+//! `toJSON` a template literal, `String(x)` or `JSON.stringify` calls, a `then` of a value awaited, a getter or an
+//! iterator of an object of another module. Neither is a change an imported function makes to what it was given by an
+//! earlier call (`register(config)`, later `apply()`).
 //!
 //! A `const` that takes a part of a local of its own function (`const { coverage } = config.test`) is the exception
 //! when the evaluator can follow it ([`Unstable::follows`]): it then applies the changes made through the alias to that
@@ -62,23 +69,22 @@
 //! nested function, as what an earlier read copied out is itself marked where it went.
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use oxc_ast::ast::{
     Argument, ArrayAssignmentTarget, ArrayExpression, ArrayExpressionElement, ArrayPattern, ArrowFunctionExpression,
     AssignmentExpression, AssignmentOperator, AssignmentPattern, AssignmentTarget, AssignmentTargetMaybeDefault,
-    AssignmentTargetPattern, AssignmentTargetProperty, AssignmentTargetPropertyIdentifier,
-    AssignmentTargetPropertyProperty, AssignmentTargetRest, BindingIdentifier, BindingPattern, BindingProperty,
-    BindingRestElement, CallExpression, ChainExpression, Class, ComputedMemberExpression, Declaration,
-    DoWhileStatement, ExportDeclaration, ExportDefaultDeclaration, ExportDefaultDeclarationKind, Expression,
-    ExpressionStatement, ForInStatement, ForOfStatement, ForStatement, ForStatementLeft, FormalParameter,
-    FormalParameters, Function, IdentifierReference, ImportDeclaration, ImportDeclarationSpecifier, LogicalOperator,
-    MemberExpression, MethodDefinition, MethodDefinitionKind, NewExpression, ObjectExpression, ObjectProperty,
-    ObjectPropertyKind, PrivateFieldExpression, Program, PropertyDefinition, PropertyKey, PropertyKind,
-    ReturnStatement, SimpleAssignmentTarget, SpreadElement, StaticBlock, StaticMemberExpression, Super,
-    TaggedTemplateExpression, ThisExpression, UnaryExpression, UnaryOperator, VariableDeclaration,
-    VariableDeclarationKind, VariableDeclarator, WhileStatement, WithStatement, YieldExpression,
+    AssignmentTargetPattern, AssignmentTargetProperty, AssignmentTargetPropertyIdentifier, BindingIdentifier,
+    BindingPattern, CallExpression, ChainExpression, Class, ComputedMemberExpression, Declaration, DoWhileStatement,
+    ExportDeclaration, ExportDefaultDeclaration, ExportDefaultDeclarationKind, Expression, ExpressionStatement,
+    ForInStatement, ForOfStatement, ForStatement, ForStatementLeft, FormalParameter, FormalParameters, Function,
+    IdentifierReference, ImportDeclaration, ImportDeclarationSpecifier, LogicalOperator, MemberExpression,
+    MethodDefinition, MethodDefinitionKind, NewExpression, ObjectAssignmentTarget, ObjectExpression, ObjectPattern,
+    ObjectProperty, ObjectPropertyKind, PrivateFieldExpression, Program, PropertyDefinition, PropertyKey, PropertyKind,
+    ReturnStatement, SimpleAssignmentTarget, StaticBlock, StaticMemberExpression, Super, TaggedTemplateExpression,
+    ThisExpression, UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
+    WhileStatement, WithStatement, YieldExpression,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::{ReferenceId, ScopeFlags, ScopeId, Scoping, SemanticBuilder, SymbolId};
@@ -312,10 +318,10 @@ impl Unstable {
             iifes: HashSet::default(),
             rebound: Vec::new(),
             rebinds: false,
-            candidates: accessor_runs(program),
-            accessors: HashMap::default(),
-            writing: HashSet::default(),
-            implicit_sites: Vec::new(),
+            implicit: Implicit {
+                accessors: accessors(program, scoping),
+                ..Implicit::default()
+            },
         };
         sharing.visit_program(program);
         let (followed, writes_modules) = sharing.share();
@@ -677,16 +683,8 @@ struct Sharing<'s> {
     /// or `bind` of a function that is no binding given an object, or a read of a prototype (`Cls.prototype`,
     /// `Object.getPrototypeOf(x)`), whose methods are then called on it.
     rebinds: bool,
-    /// The getters, setters and iterators the module declares ([`accessor_runs`]): a place in code that may run none
-    /// of them is no [`ImplicitSite`].
-    candidates: Runs,
-    /// The getters, setters and iterators found, by the scope of their function, with how code runs them.
-    accessors: HashMap<ScopeId, Run>,
-    /// Those of [`Self::accessors`] whose code writes through `this` or `super`, other than by giving a key of `this`
-    /// itself a new value (`this.count = 1`).
-    writing: HashSet<ScopeId>,
-    /// The places found where code may run a getter, a setter or an iterator with no call of it written.
-    implicit_sites: Vec<ImplicitSite>,
+    /// What the pass finds of the code a value may run with no call of it written ([`Self::run_implicitly`]).
+    implicit: Implicit,
 }
 
 /// What `this` is where code writes through it ([`Sharing::this_writes`]).
@@ -829,6 +827,10 @@ impl Sharing<'_> {
     /// written in ([`Self::parts`]), or a change of what that object holds when the key is not static or the object
     /// is not exactly a part of a local.
     fn set(&mut self, member: &MemberExpression<'_>) {
+        if is_this(member.object()) {
+            let effect = member_key(member).map_or_else(ThisEffect::contents, ThisEffect::key);
+            self.note_this_effect(&effect);
+        }
         let key = member.static_property_name().map(crate::js_string);
         for (place, exact, result) in self.parts(member.object(), true) {
             let write = match &key {
@@ -856,14 +858,32 @@ impl Sharing<'_> {
 
     /// The function (or module) whose binding `symbol` is.
     fn function_of(&self, symbol: SymbolId) -> ScopeId {
-        let scope = self.scoping.symbol_scope_id(symbol);
+        self.function_at(self.scoping.symbol_scope_id(symbol), true)
+    }
+
+    /// The innermost function (or the module) whose code the scope `scope` is in, `scope` itself included; an arrow
+    /// function counts only with `arrows`, as it has the `this` of where it is.
+    fn function_at(&self, scope: ScopeId, arrows: bool) -> ScopeId {
         self.scoping
             .scope_ancestors(scope)
             .find(|&s| {
                 let flags = self.scoping.scope_flags(s);
-                flags.is_function() || flags.is_top()
+                flags.is_top() || (flags.is_function() && (arrows || !flags.is_arrow()))
             })
             .unwrap_or(scope)
+    }
+
+    /// The function (or module) whose code is being visited, or the class whose body is.
+    fn current_function(&self) -> ScopeId {
+        self.functions
+            .last()
+            .copied()
+            .unwrap_or_else(|| self.scoping.root_scope_id())
+    }
+
+    /// Whether the code being visited is that of the module, outside every function and class.
+    fn at_top(&self) -> bool {
+        self.current_function() == self.scoping.root_scope_id()
     }
 
     fn change(&mut self, symbol: SymbolId, change: Change) {
@@ -877,9 +897,7 @@ impl Sharing<'_> {
     /// Records a write of `symbol`, of what a call of it returns when `result` ([`Held::result`]); one from a function
     /// other than its own may happen at any time.
     fn written(&mut self, symbol: SymbolId, change: Change, result: bool) {
-        let root = self.scoping.root_scope_id();
-        let function = self.functions.last().copied().unwrap_or(root);
-        self.written_in(function, symbol, change, result);
+        self.written_in(self.current_function(), symbol, change, result);
     }
 
     /// [`Self::written`] by code of the function (or module) of the scope `function`.
@@ -917,6 +935,9 @@ impl Sharing<'_> {
         if is_namespace(self.names(), target) {
             return;
         }
+        if let Some(method) = this_member(&call.callee) {
+            return self.note_this_call(member_key(method));
+        }
         match (property_defined(call), self.place(target)) {
             (Some(key), Some((place, true))) => self.changed(
                 place.symbol,
@@ -938,182 +959,430 @@ impl Sharing<'_> {
 
     /// Records a write through `this` or `super` when the object `expr`, which code in a function changes, may be what
     /// one of them holds ([`Self::this_writes`]); with `keyed`, a key of the object is written, which is one of `this`
-    /// itself when `expr` is `this`.
+    /// itself when `expr` is `this` ([`Self::set`] records which).
     fn note_this(&mut self, expr: &Expression<'_>, keyed: bool) {
-        if self.functions.last() == Some(&self.scoping.root_scope_id()) {
-            return;
-        }
-        let mut finder = MentionsThis::default();
-        finder.visit_expression(expr);
-        if finder.this {
-            let keyed = keyed && matches!(expr.get_inner_expression(), Expression::ThisExpression(_));
-            self.wrote_this(self.this_site(), keyed);
+        let (this, sup) = self.this_mentioned(expr);
+        if let Some(site) = this {
+            let keyed = keyed && is_this(expr);
+            self.wrote_this(site, keyed);
             if !keyed {
-                self.note_accessor_write();
+                self.note_this_effect(&ThisEffect::contents());
             }
         }
-        if finder.sup {
-            self.wrote_this(ThisSite::Super, false);
-            self.note_accessor_write();
+        if let Some(site) = sup {
+            self.wrote_this(site, false);
+            self.note_this_effect(&ThisEffect::contents());
         }
     }
 
-    /// Records the getter, setter or iterator whose `this` the code being visited has, if any, as one that writes
-    /// through it ([`Self::writing`]).
-    fn note_accessor_write(&mut self) {
-        if let Some(accessor) = self.accessor() {
-            self.writing.insert(accessor);
+    /// What `this` and `super` are where `expr` is visited, each when `expr` mentions it outside the functions and
+    /// classes it declares ([`MentionsThis`]); neither at the top level of the module.
+    fn this_mentioned(&self, expr: &Expression<'_>) -> (Option<ThisSite>, Option<ThisSite>) {
+        if self.at_top() {
+            return (None, None);
         }
-    }
-
-    /// The getter, setter or iterator whose `this` the code being visited has: the innermost function that is no arrow
-    /// function, when it is one of [`Self::accessors`].
-    fn accessor(&self) -> Option<ScopeId> {
-        let scope = *self
-            .functions
-            .iter()
-            .rev()
-            .find(|&&scope| !self.scoping.scope_flags(scope).is_arrow())?;
-        self.accessors.contains_key(&scope).then_some(scope)
-    }
-
-    /// The getter, setter or iterator whose `this` the code that declares `symbol` has ([`Self::accessor`]).
-    fn accessor_of(&self, symbol: SymbolId) -> Option<ScopeId> {
-        let function = self
-            .scoping
-            .scope_ancestors(self.scoping.symbol_scope_id(symbol))
-            .find(|&scope| {
-                let flags = self.scoping.scope_flags(scope);
-                flags.is_top() || (flags.is_function() && !flags.is_arrow())
-            })?;
-        self.accessors.contains_key(&function).then_some(function)
-    }
-
-    /// What `this` and `super` are where `expr`, which mentions them, is visited.
-    fn this_in(&self, expr: &Expression<'_>) -> Vec<ThisSite> {
         let mut finder = MentionsThis::default();
         finder.visit_expression(expr);
-        let this = finder.this.then(|| self.this_site());
-        this.into_iter().chain(finder.sup.then_some(ThisSite::Super)).collect()
+        (finder.this.then(|| self.this_site()), finder.sup.then_some(ThisSite::Super))
     }
 
-    /// Records the object `expr` as one code may run a getter, a setter or an iterator of as `runs` say, with the
-    /// object as `this` ([`ImplicitSite`]), when one the module declares is among those they may run
-    /// ([`Self::candidates`]). A namespace import has none of them.
-    fn defer(&mut self, expr: &Expression<'_>, runs: Vec<Run>) {
-        let runs: Vec<Run> = runs.into_iter().filter(|run| self.candidates.runs(run)).collect();
+    /// Records `effect` as a change the getter, setter, iterator or method whose `this` the code being visited has, if
+    /// any, makes of what `this` holds ([`Implicit::effects`]).
+    fn note_this_effect(&mut self, effect: &ThisEffect) {
+        if let Some(function) = self.owned_function() {
+            self.implicit.effects.entry(function).or_default().add(effect);
+        }
+    }
+
+    /// Records a call of the method `method` on `this` (`None` when its key is not static): a write through `this`,
+    /// which in a getter, a setter, an iterator or a method of an object is one only when the methods it may call
+    /// change what `this` holds, and only as they do ([`Self::call_effect`], [`Self::note_this_call_writes`]).
+    fn note_this_call(&mut self, method: Option<String>) {
+        if self.at_top() {
+            return;
+        }
+        let site = self.this_site();
+        match self.owned_function() {
+            Some(caller) => self.implicit.calls.push(ThisCall { caller, method, site }),
+            None => self.wrote_this(site, false),
+        }
+    }
+
+    /// Records that code gives the key `key` (`None` when it is not static) of an object `value`, which may be a
+    /// function other than a method the module declares there ([`Implicit::replace`]), unless it holds no object or is
+    /// an object or array literal, which no call calls.
+    fn note_key_value(&mut self, key: Option<String>, value: &Expression<'_>) {
+        let literal = matches!(
+            value.get_inner_expression(),
+            Expression::ObjectExpression(_) | Expression::ArrayExpression(_)
+        );
+        if !literal && !is_primitive(self.names(), value) {
+            self.implicit.replace(key);
+        }
+    }
+
+    /// The getter, setter, iterator or method of an object whose `this` the code being visited has
+    /// ([`Self::owned_at`]).
+    fn owned_function(&self) -> Option<ScopeId> {
+        self.owned_at(self.current_function())
+    }
+
+    /// The getter, setter, iterator or method of an object whose `this` the code that declares `symbol` has
+    /// ([`Self::owned_at`]).
+    fn owned_of(&self, symbol: SymbolId) -> Option<ScopeId> {
+        self.owned_at(self.scoping.symbol_scope_id(symbol))
+    }
+
+    /// The innermost function that is no arrow function holding the scope `scope`, when it is a getter, a setter, an
+    /// iterator or a method of an object ([`Implicit::is_owned`]).
+    fn owned_at(&self, scope: ScopeId) -> Option<ScopeId> {
+        let function = self.function_at(scope, false);
+        self.implicit.is_owned(function).then_some(function)
+    }
+
+    /// What `this` or `super` is where `expr`, an object code may run functions of, is visited, when the object may be
+    /// what one of them holds, each with whether the object is what it holds itself rather than a value below it
+    /// (`this.list`). A name or a member chain is a part of a local ([`Self::object_parts`]), also where the local
+    /// takes what `this` holds ([`Self::this_bound`]).
+    fn this_objects(&self, expr: &Expression<'_>) -> Vec<(ThisSite, bool)> {
+        if reach(expr).is_some() {
+            return Vec::new();
+        }
+        let exact = matches!(
+            expr.get_inner_expression(),
+            Expression::ThisExpression(_) | Expression::Super(_)
+        );
+        let (this, sup) = self.this_mentioned(expr);
+        this.into_iter().chain(sup).map(|site| (site, exact)).collect()
+    }
+
+    /// Records the object `expr` as one code may run a getter, a setter or an iterator of as `runs` say with no call of
+    /// it written ([`ImplicitSite`]), on the object itself or, `on` [`On::Below`], on a value below it, when the
+    /// module declares one of those they may run ([`Accessors::runs`]). A namespace import has none of them.
+    fn note_implicit_site(&mut self, expr: &Expression<'_>, runs: Vec<Run>, on: On) {
+        let runs: Vec<Run> = runs
+            .into_iter()
+            .filter(|run| self.implicit.accessors.runs(run))
+            .collect();
         if runs.is_empty() || is_namespace(self.names(), expr) {
             return;
         }
-        let root = self.scoping.root_scope_id();
-        let function = self.functions.last().copied().unwrap_or(root);
-        let this = if function == root {
-            Vec::new()
-        } else {
-            self.this_in(expr)
-        };
-        let parts = self.object_parts(expr);
+        let itself = on == On::Itself;
+        let this: Vec<(ThisSite, bool)> = self
+            .this_objects(expr)
+            .into_iter()
+            .map(|(site, exact)| (site, exact && itself))
+            .collect();
+        let parts: Vec<(Place, bool, bool)> = self
+            .object_parts(expr)
+            .into_iter()
+            .map(|(place, exact, result)| (place, exact && itself, result))
+            .collect();
         if parts.is_empty() && this.is_empty() {
             return;
         }
-        let accessor = self.accessor();
-        self.implicit_sites.push(ImplicitSite {
+        let site = ImplicitSite {
             runs,
-            function,
-            accessor,
+            function: self.current_function(),
+            owner: self.owned_function(),
             this,
             parts,
-        });
+        };
+        self.implicit.sites.push(site);
     }
 
-    /// Records each argument of a call whose code is not that of a function the module declares as an object that
-    /// code may read the keys of or iterate (`JSON.stringify(x)`, `Array.from(x)`; [`Self::defer`]); a spread
-    /// argument is recorded as a spread.
-    fn defer_arguments(&mut self, arguments: &[Argument<'_>]) {
-        for argument in arguments.iter().filter_map(Argument::as_expression) {
-            self.defer(argument, vec![Run::Every]);
+    /// [`Self::note_implicit_site`] of the value `value` a destructuring takes, as `runs` say.
+    fn note_destructured(&mut self, value: &Expression<'_>, runs: Destructured) {
+        self.note_implicit_site(value, runs.own, On::Itself);
+        self.note_implicit_site(value, runs.below, On::Below);
+    }
+
+    /// Records the objects code `call` runs may run functions of with no call of them written: each argument as
+    /// [`Self::argument_runs`] says and what a spread argument spreads as an iteration, each argument a parameter of a
+    /// function the module declares destructures ([`Callables::patterns`]), and the object a method is called on and
+    /// the arguments other than a callback, whose elements the parameters of the callback may destructure.
+    fn note_call_sites(&mut self, call: &CallExpression<'_>, effect: Option<Effect>) {
+        if self.implicit.accessors.is_empty() {
+            return;
+        }
+        let runs = self.argument_runs(call, effect);
+        self.note_argument_sites(&call.arguments, runs.as_ref());
+        if effect == Some(Effect::Followed) {
+            self.note_parameter_sites(call);
+        }
+        self.note_callback_sites(&call.callee, &call.arguments);
+    }
+
+    /// Records each argument as an object code may run functions of as `run` says, if anything does, and what a spread
+    /// argument spreads as one code iterates.
+    fn note_argument_sites(&mut self, arguments: &[Argument<'_>], run: Option<&Run>) {
+        for argument in arguments {
+            if let Argument::SpreadElement(spread) = argument {
+                self.note_implicit_site(&spread.argument, vec![Run::Iteration], On::Itself);
+            } else if let (Some(run), Some(value)) = (run, argument.as_expression()) {
+                self.note_implicit_site(value, vec![run.clone()], On::Itself);
+            }
         }
     }
 
-    /// Applies each place found where code may run a getter, a setter or an iterator with the object as `this`
-    /// ([`Self::implicit_sites`]) that may run one that writes through `this` ([`Self::writing`]): it changes what the
+    /// How the code `call` runs may run functions of each object it is given with no call of them written ([`Run`]),
+    /// where the pass does not visit that code: any for a call whose effect it does not know; none for a function the
+    /// module declares, whose code it visits, nor for a known function that reads no key of what it is given
+    /// (`path.join`, a `define…` helper of a package, which returns it, a method of a list); a read of any key for
+    /// one that reads the own keys of what it is given ([`reads_keys`]).
+    fn argument_runs(&self, call: &CallExpression<'_>, effect: Option<Effect>) -> Option<Run> {
+        match effect {
+            None => Some(Run::Every),
+            Some(Effect::Followed) => None,
+            Some(Effect::Keeps) => reads_keys(self.names(), call).then_some(Run::Key(None)),
+        }
+    }
+
+    /// Records each argument of `call`, a call of a function the module declares, that a parameter of it destructures
+    /// as an object code may run functions of as the pattern says ([`Callables::patterns`]).
+    fn note_parameter_sites(&mut self, call: &CallExpression<'_>) {
+        let Expression::Identifier(callee) = call.callee.get_inner_expression() else {
+            return;
+        };
+        let Some(patterns) = local_symbol(self.scoping, callee)
+            .and_then(|symbol| self.callables.patterns.get(&symbol))
+            .cloned()
+        else {
+            return;
+        };
+        for (argument, runs) in call.arguments.iter().zip(patterns) {
+            if let Some(value) = argument.as_expression() {
+                self.note_destructured(value, runs);
+            }
+        }
+    }
+
+    /// Records the object a method is called on and each argument other than a function written in place as objects
+    /// below which code may run functions as the parameters of a callback the call is given destructure what they
+    /// take ([`Self::callback_runs`]): `list.map(({ grow }) => grow)`.
+    fn note_callback_sites(&mut self, callee: &Expression<'_>, arguments: &[Argument<'_>]) {
+        let runs: Vec<Run> = arguments
+            .iter()
+            .filter_map(Argument::as_expression)
+            .flat_map(|argument| self.callback_runs(argument))
+            .collect();
+        if runs.is_empty() {
+            return;
+        }
+        let receiver = callee
+            .get_inner_expression()
+            .as_member_expression()
+            .map(MemberExpression::object);
+        let values = arguments
+            .iter()
+            .filter(|argument| !is_inline_function(argument))
+            .filter_map(given);
+        for value in receiver.into_iter().chain(values) {
+            self.note_implicit_site(value, runs.clone(), On::Below);
+        }
+    }
+
+    /// How the parameters of the callback `argument` destructure what they take ([`Destructured`]), a function written
+    /// in place or one the module declares ([`Callables::patterns`]).
+    fn callback_runs(&self, argument: &Expression<'_>) -> Vec<Run> {
+        let patterns = match argument.get_inner_expression() {
+            Expression::ArrowFunctionExpression(function) => parameter_patterns(&function.params),
+            Expression::FunctionExpression(function) => parameter_patterns(&function.params),
+            Expression::Identifier(id) => local_symbol(self.scoping, id)
+                .and_then(|symbol| self.callables.patterns.get(&symbol))
+                .cloned()
+                .unwrap_or_default(),
+            _ => return Vec::new(),
+        };
+        patterns.into_iter().flat_map(Destructured::into_runs).collect()
+    }
+
+    /// Applies each place found where code may run a getter, a setter or an iterator with no call of it written
+    /// ([`Implicit::sites`]): what those it may run change of what `this` holds ([`ThisEffect`]) changes there what the
     /// object holds, as a call of a method of it does (`make().grow` as `make().grow()`), in each part of a local the
     /// object may be. That part itself changes too, as the evaluator sees no call there, and a write through `this` is
-    /// made where the object may be what `this` holds.
+    /// made where the object may be what `this` holds. What each of them changes grows until no more is found: by
+    /// what such a place in its code changes of its `this` ([`Self::note_runs_on_this`]), by a change reaching a
+    /// binding of it that takes what `this` holds ([`Self::note_bound_writes`]) and by the methods it calls on `this`
+    /// ([`Self::note_this_calls`]).
     fn run_implicitly(&mut self) {
-        let sites = std::mem::take(&mut self.implicit_sites);
-        if sites.is_empty() {
-            return;
-        }
-        self.note_bound_writes();
-        for site in self.writing_sites(sites) {
-            for this in site.this {
-                self.wrote_this(this, false);
-            }
-            for (place, _, result) in site.parts {
-                let write = Write::contents(place.keys);
-                let change = Change::Contents(vec![write.clone()]);
-                if !result {
-                    self.change(place.symbol, change.clone());
-                }
-                self.written_in(site.function, place.symbol, change, result);
-                self.mutated.push((place.symbol, write));
-            }
-        }
-    }
-
-    /// Adds to [`Self::writing`] each getter, setter or iterator with a binding that takes what `this` or `super` holds
-    /// (`const list = this.list`, [`Self::this_bound`]) that a change reaches ([`Self::reached_by_changes`]).
-    fn note_bound_writes(&mut self) {
-        let bound: Vec<(SymbolId, ScopeId)> = self
-            .this_bound
-            .keys()
-            .filter_map(|&symbol| Some((symbol, self.accessor_of(symbol)?)))
-            .collect();
-        if bound.is_empty() {
-            return;
-        }
-        let reached = self.reached_by_changes();
-        let writing = bound
+        let sites = std::mem::take(&mut self.implicit.sites);
+        let mut pending: Vec<Pending> = sites
             .into_iter()
-            .filter(|(symbol, _)| reached.contains(symbol))
-            .map(|(_, accessor)| accessor);
-        self.writing.extend(writing);
-    }
-
-    /// The sites of `sites` that may run a getter, a setter or an iterator that writes through `this`, until no more is
-    /// found: a site in the code of one of [`Self::accessors`] that runs one so on what `this` holds there makes it
-    /// one that writes through `this` too (`get twice() { return this.grow; }`).
-    fn writing_sites(&mut self, mut sites: Vec<ImplicitSite>) -> Vec<ImplicitSite> {
-        let mut found = Vec::new();
+            .filter_map(|site| self.implicit.accessors.pending(site))
+            .collect();
+        if pending.is_empty() && self.implicit.calls.is_empty() {
+            return;
+        }
+        let mut effects = std::mem::take(&mut self.implicit.effects);
+        let owners = self.bound_owners();
+        let (base, links_of) = if owners.is_empty() {
+            (self.links.len(), HashMap::default())
+        } else {
+            (self.link_aliases_for_now(), self.links_of())
+        };
+        let bound = BoundWrites { owners, links_of };
+        let mut scan = Scan::default();
         loop {
-            let writers = self.writers();
-            let (running, rest): (Vec<ImplicitSite>, Vec<ImplicitSite>) = sites
-                .into_iter()
-                .partition(|site| site.runs.iter().any(|run| writers.runs(run)));
-            sites = rest;
-            let mut grew = false;
-            for site in &running {
-                if let Some(accessor) = site.accessor.filter(|_| !site.this.is_empty()) {
-                    grew |= self.writing.insert(accessor);
-                }
+            let mut grew = self.note_bound_writes(&bound, &mut scan, &mut effects);
+            grew |= self.note_this_calls(&mut effects);
+            for site in &mut pending {
+                grew |= self.apply_site(site, &mut effects);
             }
-            found.extend(running);
             if !grew {
-                return found;
+                break;
+            }
+        }
+        self.unlink_since(base);
+        self.note_this_call_writes(&effects);
+    }
+
+    /// Records a write through `this` for each call of a method on `this` in a getter, a setter, an iterator or a
+    /// method of an object that may change what `this` holds ([`Self::call_effect`]), of keys of `this` itself alone
+    /// when it gives only those a new value.
+    fn note_this_call_writes(&mut self, effects: &HashMap<ScopeId, ThisEffect>) {
+        let writes: Vec<(ThisSite, bool)> = self
+            .implicit
+            .calls
+            .iter()
+            .map(|call| (call.site, self.call_effect(call.caller, call.method.as_deref(), effects)))
+            .filter(|(_, effect)| *effect != ThisEffect::default())
+            .map(|(site, effect)| (site, !effect.contents))
+            .collect();
+        for (site, keyed) in writes {
+            self.wrote_this(site, keyed);
+        }
+    }
+
+    /// The bindings that take what `this` or `super` holds ([`Self::this_bound`]) in a getter, a setter, an iterator or
+    /// a method of an object, each with that function ([`Self::owned_of`]).
+    fn bound_owners(&self) -> HashMap<SymbolId, ScopeId> {
+        self.this_bound
+            .keys()
+            .filter_map(|&symbol| Some((symbol, self.owned_of(symbol)?)))
+            .collect()
+    }
+
+    /// Adds a change of what `this` holds to each function of `bound` with a binding taking what `this` holds that a
+    /// change made since the last scan reaches through the links, returning whether one grew. Only a change of a
+    /// binding linked to such a binding is followed ([`Self::bound_reached`]), and each change once.
+    fn note_bound_writes(
+        &self,
+        bound: &BoundWrites,
+        scan: &mut Scan,
+        effects: &mut HashMap<ScopeId, ThisEffect>,
+    ) -> bool {
+        if bound.owners.is_empty() {
+            return false;
+        }
+        let contents = ThisEffect::contents();
+        let mut grew = false;
+        for (symbol, write) in &self.mutated[scan.upto..] {
+            if !scan.seen.insert((*symbol, write.clone())) {
+                continue;
+            }
+            for owner in self.bound_reached(bound, *symbol, write) {
+                grew |= effects.entry(owner).or_default().add(&contents);
+            }
+        }
+        scan.upto = self.mutated.len();
+        grew
+    }
+
+    /// The functions of `bound` whose binding taking what `this` holds the change `write` of `symbol` reaches.
+    fn bound_reached(&self, bound: &BoundWrites, symbol: SymbolId, write: &Write) -> Vec<ScopeId> {
+        let Some(class) = self.class_of(symbol) else {
+            return bound.owners.get(&symbol).copied().into_iter().collect();
+        };
+        if !bound.owners.keys().any(|taker| class.binary_search(taker).is_ok()) {
+            return Vec::new();
+        }
+        let reached: Vec<SymbolId> = match self.reach_of(&bound.links_of, symbol, write) {
+            Reach::InFull(class) => class.to_vec(),
+            Reach::Places(places) => places.into_iter().map(|(other, _)| other).collect(),
+        };
+        reached
+            .iter()
+            .filter_map(|other| bound.owners.get(other).copied())
+            .collect()
+    }
+
+    /// Adds to each function that calls a method on `this` ([`Implicit::calls`]) what the call may change of what
+    /// `this` holds ([`Self::call_effect`]), returning whether one grew.
+    fn note_this_calls(&self, effects: &mut HashMap<ScopeId, ThisEffect>) -> bool {
+        let mut grew = false;
+        for call in &self.implicit.calls {
+            let effect = self.call_effect(call.caller, call.method.as_deref(), effects);
+            grew |= effects.entry(call.caller).or_default().add(&effect);
+        }
+        grew
+    }
+
+    /// What a call of the method `method` on `this` in the function `caller` may change of what `this` holds: what the
+    /// methods of that name the module declares change ([`Implicit::own_methods`]), when the object or class `caller`
+    /// is in has one of its own; anything otherwise, as the method called is not known.
+    fn call_effect(
+        &self,
+        caller: ScopeId,
+        method: Option<&str>,
+        effects: &HashMap<ScopeId, ThisEffect>,
+    ) -> ThisEffect {
+        self.implicit
+            .own_methods(caller, method)
+            .map_or_else(ThisEffect::contents, |methods| union_of(methods, effects))
+    }
+
+    /// Applies what the getters, setters and iterators the place `pending` may run change of what `this` holds, when it
+    /// grew since it was last applied, returning whether it did.
+    fn apply_site(&mut self, pending: &mut Pending, effects: &mut HashMap<ScopeId, ThisEffect>) -> bool {
+        let effect = union_of(&pending.ran, effects);
+        if effect == pending.applied {
+            return false;
+        }
+        self.note_runs_on_this(&pending.site, &effect, effects);
+        self.apply_effect(&pending.site, &effect);
+        pending.applied = effect;
+        true
+    }
+
+    /// Adds `effect`, what the place `site` changes of the object there, to the functions whose `this` that object may
+    /// be: the function whose code the place is in where it is that function's `this`, and a change of all it holds
+    /// where it is a value below it (`this.list`) or a binding taking what `this` holds (`const self = this`).
+    fn note_runs_on_this(
+        &self,
+        site: &ImplicitSite,
+        effect: &ThisEffect,
+        effects: &mut HashMap<ScopeId, ThisEffect>,
+    ) {
+        let contents = ThisEffect::contents();
+        if let Some(owner) = site.owner {
+            for &(_, exact) in &site.this {
+                effects.entry(owner).or_default().add(if exact { effect } else { &contents });
+            }
+        }
+        for (place, _, _) in &site.parts {
+            if self.this_bound.contains_key(&place.symbol)
+                && let Some(owner) = self.owned_of(place.symbol)
+            {
+                effects.entry(owner).or_default().add(&contents);
             }
         }
     }
 
-    /// The getters, setters and iterators that write through `this` ([`Self::writing`]), as [`Runs`].
-    fn writers(&self) -> Runs {
-        let mut runs = Runs::default();
-        for scope in &self.writing {
-            if let Some(run) = self.accessors.get(scope) {
-                runs.add(run);
+    /// Changes what the object at the place `site` holds as `effect` says, in each part of a local it may be, and
+    /// records a write through `this` where it may be what `this` holds.
+    fn apply_effect(&mut self, site: &ImplicitSite, effect: &ThisEffect) {
+        for &(this, exact) in &site.this {
+            self.wrote_this(this, exact && !effect.contents);
+        }
+        for (place, exact, result) in &site.parts {
+            for write in effect.writes(place, *exact) {
+                if !result {
+                    self.change(place.symbol, Change::Contents(vec![write.clone()]));
+                }
+                self.changed_in(site.function, place.symbol, write, *result);
             }
         }
-        runs
     }
 
     /// What `this` is in the code being visited.
@@ -1131,15 +1400,10 @@ impl Sharing<'_> {
     /// Records that the names `symbols` take what `value` holds when it may be what `this` or `super` holds in a
     /// function ([`Self::this_bound`]).
     fn bind_this(&mut self, symbols: &[SymbolId], value: &Expression<'_>) {
-        if self.functions.last() == Some(&self.scoping.root_scope_id()) {
-            return;
-        }
-        let mut finder = MentionsThis::default();
-        finder.visit_expression(value);
-        let site = match (finder.sup, finder.this) {
-            (true, _) => ThisSite::Super,
-            (false, true) => self.this_site(),
-            (false, false) => return,
+        let site = match self.this_mentioned(value) {
+            (_, Some(sup)) => sup,
+            (Some(this), None) => this,
+            (None, None) => return,
         };
         for &symbol in symbols {
             self.this_bound.insert(symbol, site);
@@ -1613,7 +1877,12 @@ impl Sharing<'_> {
     /// Records the change `write` of the object `symbol` holds, or of what a call of it returns when `result`
     /// ([`Held::result`]).
     fn changed_as(&mut self, symbol: SymbolId, write: Write, result: bool) {
-        self.written(symbol, Change::Contents(vec![write.clone()]), result);
+        self.changed_in(self.current_function(), symbol, write, result);
+    }
+
+    /// [`Self::changed_as`] by code of the function (or module) of the scope `function`.
+    fn changed_in(&mut self, function: ScopeId, symbol: SymbolId, write: Write, result: bool) {
+        self.written_in(function, symbol, Change::Contents(vec![write.clone()]), result);
         self.mutated.push((symbol, write));
     }
 
@@ -1853,13 +2122,7 @@ impl Sharing<'_> {
     /// The bindings a change made so far reaches through the links, each alias counted as linked to the local it takes
     /// a part of, as which the evaluator follows is not known yet.
     fn reached_by_changes(&mut self) -> HashSet<SymbolId> {
-        let base = self.links.len();
-        self.links.extend(self.aliases.iter().map(|&(alias, root)| Link {
-            a: Place::of(alias),
-            b: Place::of(root),
-            join: Join::Within,
-            loading: false,
-        }));
+        let base = self.link_aliases_for_now();
         let links_of = self.links_of();
         let reached: HashSet<SymbolId> = self
             .mutated
@@ -1867,9 +2130,27 @@ impl Sharing<'_> {
             .flat_map(|(symbol, write)| self.reached(&links_of, *symbol, write))
             .map(|(symbol, _)| symbol)
             .collect();
+        self.unlink_since(base);
+        reached
+    }
+
+    /// Links each alias to the local it takes a part of, until [`Self::unlink_since`] is given the number of links
+    /// returned, as which aliases the evaluator follows is not known yet.
+    fn link_aliases_for_now(&mut self) -> usize {
+        let base = self.links.len();
+        self.links.extend(self.aliases.iter().map(|&(alias, root)| Link {
+            a: Place::of(alias),
+            b: Place::of(root),
+            join: Join::Within,
+            loading: false,
+        }));
+        base
+    }
+
+    /// Takes back the links made after the first `base` ([`Self::link_aliases_for_now`]).
+    fn unlink_since(&mut self, base: usize) {
         self.links.truncate(base);
         self.classes.replace(None);
-        reached
     }
 
     /// Drops the links and changes of bindings that hold a primitive value, which share no object.
@@ -2323,18 +2604,22 @@ impl<'a> Visit<'a> for Sharing<'_> {
     fn visit_class(&mut self, it: &Class<'a>) {
         // A static block or a field initialiser runs when the class is defined or an object of it is made, which the
         // evaluator does not follow: a write there is one of no function the binding belongs to.
-        let Some(scope) = it.scope_id.get() else {
-            return walk::walk_class(self, it);
-        };
-        let binding = self
-            .named_inits
-            .get(&scope)
-            .copied()
-            .or_else(|| it.id.as_ref().and_then(|id| id.symbol_id.get()));
-        self.add_maker(scope, binding);
-        self.functions.push(scope);
-        walk::walk_class(self, it);
-        self.functions.pop();
+        // Its methods are those an instance has of its own ([`Implicit::owners`]).
+        self.implicit.containers.push(it.span);
+        if let Some(scope) = it.scope_id.get() {
+            let binding = self
+                .named_inits
+                .get(&scope)
+                .copied()
+                .or_else(|| it.id.as_ref().and_then(|id| id.symbol_id.get()));
+            self.add_maker(scope, binding);
+            self.functions.push(scope);
+            walk::walk_class(self, it);
+            self.functions.pop();
+        } else {
+            walk::walk_class(self, it);
+        }
+        self.implicit.containers.pop();
     }
 
     fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
@@ -2352,14 +2637,21 @@ impl<'a> Visit<'a> for Sharing<'_> {
                 )
             };
             self.method_sites.insert(scope, site);
-            if let Some(run) = method_run(it) {
-                self.accessors.insert(scope, run);
+            if !it.r#static && it.kind != MethodDefinitionKind::Constructor {
+                let method = (it.kind == MethodDefinitionKind::Method).then(|| key_name(&it.key));
+                self.implicit.own(scope, method.flatten());
             }
         }
         walk::walk_method_definition(self, it);
     }
 
     fn visit_property_definition(&mut self, it: &PropertyDefinition<'a>) {
+        // An instance field holds a value of its own at its key, whatever method the class has there.
+        if !it.r#static
+            && let Some(value) = &it.value
+        {
+            self.note_key_value(key_name(&it.key), value);
+        }
         self.this_sites.push(if it.r#static {
             ThisSite::Load
         } else {
@@ -2386,9 +2678,12 @@ impl<'a> Visit<'a> for Sharing<'_> {
                 .copied()
                 .unwrap_or_else(|| self.scoping.root_scope_id());
             self.method_sites.insert(scope, ThisSite::Made(maker));
-            if let Some(run) = property_run(it) {
-                self.accessors.insert(scope, run);
+            if !self.implicit.accessors.described.contains(&scope) {
+                let method = (it.kind == PropertyKind::Init).then(|| key_name(&it.key));
+                self.implicit.own(scope, method.flatten());
             }
+        } else if it.kind == PropertyKind::Init {
+            self.note_key_value(key_name(&it.key), &it.value);
         }
         walk::walk_object_property(self, it);
     }
@@ -2410,25 +2705,48 @@ impl<'a> Visit<'a> for Sharing<'_> {
 
     fn visit_member_expression(&mut self, it: &MemberExpression<'a>) {
         // A read or a write of a key may run a getter or a setter of the object.
-        let key = match it {
-            MemberExpression::PrivateFieldExpression(field) => Some(format!("#{}", field.field.name.as_str())),
-            other => other.static_property_name().map(crate::js_string),
-        };
-        self.defer(it.object(), vec![Run::Key(key)]);
+        if !self.implicit.accessors.is_empty() {
+            self.note_implicit_site(it.object(), vec![Run::Key(member_key(it))], On::Itself);
+        }
         walk::walk_member_expression(self, it);
     }
 
-    fn visit_spread_element(&mut self, it: &SpreadElement<'a>) {
-        // A spread iterates what it spreads, or reads its keys in an object.
-        self.defer(&it.argument, vec![Run::Every]);
-        walk::walk_spread_element(self, it);
+    fn visit_object_expression(&mut self, it: &ObjectExpression<'a>) {
+        // A spread reads the own keys of what it spreads. A key written before one may be given a value of the spread
+        // object, whatever method the literal has there.
+        let spreads = it
+            .properties
+            .iter()
+            .any(|property| matches!(property, ObjectPropertyKind::SpreadProperty(_)));
+        for property in &it.properties {
+            match property {
+                ObjectPropertyKind::SpreadProperty(spread) => {
+                    self.note_implicit_site(&spread.argument, vec![Run::Key(None)], On::Itself);
+                }
+                ObjectPropertyKind::ObjectProperty(p) if spreads => self.implicit.replace(key_name(&p.key)),
+                ObjectPropertyKind::ObjectProperty(_) => {}
+            }
+        }
+        self.implicit.containers.push(it.span);
+        walk::walk_object_expression(self, it);
+        self.implicit.containers.pop();
+    }
+
+    fn visit_array_expression(&mut self, it: &ArrayExpression<'a>) {
+        // A spread in a list iterates what it spreads.
+        for element in &it.elements {
+            if let ArrayExpressionElement::SpreadElement(spread) = element {
+                self.note_implicit_site(&spread.argument, vec![Run::Iteration], On::Itself);
+            }
+        }
+        walk::walk_array_expression(self, it);
     }
 
     fn visit_yield_expression(&mut self, it: &YieldExpression<'a>) {
         if it.delegate
             && let Some(argument) = &it.argument
         {
-            self.defer(argument, vec![Run::Iteration]);
+            self.note_implicit_site(argument, vec![Run::Iteration], On::Itself);
         }
         walk::walk_yield_expression(self, it);
     }
@@ -2464,7 +2782,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
         }
         if let Some(init) = &it.init {
             self.bind_this(&bound_symbols(&it.id), init);
-            self.defer(init, pattern_runs(|pattern| pattern.visit_binding_pattern(&it.id)));
+            self.note_destructured(init, pattern_runs(|pattern| pattern.visit_binding_pattern(&it.id)));
         }
         if let Some(init) = &it.init
             && let Some((names, root)) = self.alias(&it.id, init)
@@ -2519,10 +2837,10 @@ impl<'a> Visit<'a> for Sharing<'_> {
         self.target_parts(&it.left, &mut places, &mut defaults);
         let targets: Vec<SymbolId> = places.iter().map(|place| place.symbol).collect();
         self.bind_this(&targets, &it.right);
-        self.defer(
-            &it.right,
-            pattern_runs(|pattern| pattern.visit_assignment_target(&it.left)),
-        );
+        self.note_destructured(&it.right, pattern_runs(|pattern| pattern.visit_assignment_target(&it.left)));
+        if let Some(member) = it.left.as_simple_assignment_target().and_then(|target| target.as_member_expression()) {
+            self.note_key_value(member_key(member), &it.right);
+        }
         // A function assigned stands for what its parameters take as well as what it returns, as one declared does.
         let part = if matches!(
             it.right.get_inner_expression(),
@@ -2565,9 +2883,10 @@ impl<'a> Visit<'a> for Sharing<'_> {
         // primitive values, only once a change may reach it ([`Self::link_elements`]).
         let held = self.refs(Part::Value, |refs| refs.visit_expression(&it.right));
         let source = self.primitive_source(&it.right);
-        let mut runs = vec![Run::Iteration];
-        runs.extend(pattern_runs(|pattern| pattern.visit_for_statement_left(&it.left)));
-        self.defer(&it.right, runs);
+        // Each element the loop takes is destructured as its pattern says.
+        self.note_implicit_site(&it.right, vec![Run::Iteration], On::Itself);
+        let elements = pattern_runs(|pattern| pattern.visit_for_statement_left(&it.left));
+        self.note_implicit_site(&it.right, elements.into_runs().collect(), On::Below);
         match &it.left {
             ForStatementLeft::VariableDeclaration(declaration) => {
                 for declarator in &declaration.declarations {
@@ -2601,12 +2920,14 @@ impl<'a> Visit<'a> for Sharing<'_> {
         if let Some(initializer) = &it.initializer {
             self.bind_this(&bound_symbols(&it.pattern), initializer);
             self.default_of(&it.pattern, initializer);
+            self.note_destructured(initializer, pattern_runs(|pattern| pattern.visit_binding_pattern(&it.pattern)));
         }
         walk::walk_formal_parameter(self, it);
     }
 
     fn visit_assignment_pattern(&mut self, it: &AssignmentPattern<'a>) {
         self.default_of(&it.left, &it.right);
+        self.note_destructured(&it.right, pattern_runs(|pattern| pattern.visit_binding_pattern(&it.left)));
         walk::walk_assignment_pattern(self, it);
     }
 
@@ -2658,11 +2979,9 @@ impl<'a> Visit<'a> for Sharing<'_> {
         if calls_back {
             self.calls_back.insert(it.span);
         }
-        // Code other than a function the module declares may read the keys of what it is given or iterate it.
+        // Code the pass does not visit may read the keys of what the call is given or iterate it.
         let effect = self.effect(it);
-        if effect != Some(Effect::Followed) {
-            self.defer_arguments(&it.arguments);
-        }
+        self.note_call_sites(it, effect);
         // A call whose effect the pass does not know may change what it is given, wherever it is made.
         match effect {
             Some(effect) => {
@@ -2746,7 +3065,9 @@ impl<'a> Visit<'a> for Sharing<'_> {
     fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
         self.note_callee(&it.callee);
         self.runs_modules |= self.of_changing_module(&it.callee);
-        self.defer_arguments(&it.arguments);
+        if !self.implicit.accessors.is_empty() {
+            self.note_argument_sites(&it.arguments, new_runs(self.scoping, it).as_ref());
+        }
         // A class the pass does not know may change what it is given, and keep it in another argument.
         if constructs_builtin(self.scoping, it) {
             self.effects.insert(it.span, Effect::Keeps);
@@ -2789,6 +3110,11 @@ impl<'a> Visit<'a> for Sharing<'_> {
     fn visit_tagged_template_expression(&mut self, it: &TaggedTemplateExpression<'a>) {
         self.note_callee(&it.tag);
         self.runs_modules |= self.of_changing_module(&it.tag);
+        // The tag is given each value, which the pass does not follow into its parameters, also for a tag the module
+        // declares.
+        for value in &it.quasi.expressions {
+            self.note_implicit_site(value, vec![Run::Every], On::Itself);
+        }
         walk::walk_tagged_template_expression(self, it);
     }
 
@@ -3253,6 +3579,8 @@ struct Callables {
     /// The others, with their parameters: a call of one links each argument to the parameter that takes it, and its
     /// name stands for what it returns only.
     apart: HashMap<SymbolId, Parameters>,
+    /// How the parameters of each of them that destructures an argument do so, by position ([`Destructured`]).
+    patterns: HashMap<SymbolId, Vec<Destructured>>,
 }
 
 impl Callables {
@@ -3324,7 +3652,10 @@ fn callables(program: &Program<'_>, scoping: &Scoping) -> Callables {
     finder.visit_program(program);
     let FindCallables { found, callees, .. } = finder;
     let mut out = Callables::default();
-    for (symbol, scope, parameters) in found {
+    for (symbol, scope, parameters, patterns) in found {
+        if patterns.iter().any(|pattern| !pattern.own.is_empty() || !pattern.below.is_empty()) {
+            out.patterns.insert(symbol, patterns);
+        }
         let apart = scoping.get_resolved_reference_ids(symbol).iter().all(|&reference| {
             callees.contains(&reference)
                 && !scoping
@@ -3343,8 +3674,8 @@ fn callables(program: &Program<'_>, scoping: &Scoping) -> Callables {
 /// Finds the functions of [`callables`] and the names a call calls.
 struct FindCallables<'s> {
     scoping: &'s Scoping,
-    /// The functions found, each with its scope and parameters.
-    found: Vec<(SymbolId, ScopeId, Parameters)>,
+    /// The functions found, each with its scope, its parameters and how they destructure what they take.
+    found: Vec<(SymbolId, ScopeId, Parameters, Vec<Destructured>)>,
     /// The names that are what a call with no spread argument calls.
     callees: HashSet<ReferenceId>,
 }
@@ -3363,7 +3694,8 @@ impl FindCallables<'_> {
             return;
         };
         if !reads_arguments && !self.scoping.symbol_is_mutated(symbol) {
-            self.found.push((symbol, scope, Parameters::of(params)));
+            self.found
+                .push((symbol, scope, Parameters::of(params), parameter_patterns(params)));
         }
     }
 }
@@ -3428,10 +3760,10 @@ impl<'a> Visit<'a> for MentionsThis {
 }
 
 /// How code may run a function of an object with the object as `this` with no call of it written. For a getter or a
-/// setter, a read or a write of its key, any key when it is not static; for an iterator, an iteration. At a place in
-/// code, a read or a write of the key given (any key, when it is not static), an iteration (`for…of`, `yield*`, an
-/// array destructuring), or either (a spread, which may be of an object or of an iterable, or a call given the object
-/// whose code may read its keys or iterate it).
+/// setter, a read or a write of its key, any key when it is not static; for an iterator or a method of one (`next`,
+/// `return`, `throw`), an iteration. At a place in code, a read or a write of the key given (any key, when it is not
+/// static), an iteration (`for…of`, `yield*`, an array destructuring or spread), or either (a call or a tagged
+/// template whose code the pass does not visit, given the object).
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Run {
     Key(Option<String>),
@@ -3439,53 +3771,267 @@ enum Run {
     Every,
 }
 
-/// The getters, setters and iterators of a set: their static keys, whether one has a key that is not static, and
-/// whether one is an iterator ([`Run`]).
-#[derive(Default)]
-struct Runs {
-    keys: HashSet<String>,
-    any_key: bool,
-    iterates: bool,
+/// Where a place in code runs functions of a value ([`Sharing::note_implicit_site`]): on the value itself, or on a
+/// value somewhere below it (an element a loop or a callback takes, a key a nested pattern takes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum On {
+    Itself,
+    Below,
 }
 
-impl Runs {
-    /// Adds the getter, setter or iterator `run` says.
-    fn add(&mut self, run: &Run) {
-        match run {
-            Run::Key(Some(key)) => {
-                self.keys.insert(key.clone());
-            }
-            Run::Key(None) => self.any_key = true,
-            Run::Iteration | Run::Every => self.iterates = true,
+/// What a getter, a setter, an iterator or a method of an object may change of what its `this` holds.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct ThisEffect {
+    /// Whether it may change anything the object holds (`this.list.push(x)`), as a call of a method of it may.
+    contents: bool,
+    /// The keys of the object itself it may give a new value (`this.mode = 'production'`).
+    keys: BTreeSet<String>,
+}
+
+impl ThisEffect {
+    /// A change of anything the object holds.
+    fn contents() -> Self {
+        Self {
+            contents: true,
+            keys: BTreeSet::new(),
         }
+    }
+
+    /// A new value of the key `key` of the object.
+    fn key(key: String) -> Self {
+        Self {
+            contents: false,
+            keys: BTreeSet::from([key]),
+        }
+    }
+
+    /// Adds what `other` changes, returning whether this one grew.
+    fn add(&mut self, other: &Self) -> bool {
+        let before = (self.contents, self.keys.len());
+        self.contents |= other.contents;
+        self.keys.extend(other.keys.iter().cloned());
+        before != (self.contents, self.keys.len())
+    }
+
+    /// The changes it makes of the part `place` of a local the object may be, which is that object itself when
+    /// `exact`: a new value of each key it gives one, or a change of all the part holds where it may change more or
+    /// the object is somewhere below the part.
+    fn writes(&self, place: &Place, exact: bool) -> Vec<Write> {
+        if self.contents || !exact {
+            return vec![Write::contents(place.keys.clone())];
+        }
+        self.keys
+            .iter()
+            .map(|key| Write {
+                keys: place.keys.clone(),
+                key: Some(key.clone()),
+            })
+            .collect()
+    }
+}
+
+/// What the functions of `functions` change of what `this` holds together, as `effects` says.
+fn union_of(functions: &[ScopeId], effects: &HashMap<ScopeId, ThisEffect>) -> ThisEffect {
+    let mut all = ThisEffect::default();
+    for effect in functions.iter().filter_map(|function| effects.get(function)) {
+        all.add(effect);
+    }
+    all
+}
+
+/// The getters, setters and iterators a module declares ([`accessors`]), by how code runs them with no call of them
+/// written ([`Run`]).
+#[derive(Default)]
+struct Accessors {
+    /// The getters and setters of each static key.
+    keys: BTreeMap<String, Vec<ScopeId>>,
+    /// The getters and setters of a key that is not static, which a read or a write of any key may run.
+    any_key: Vec<ScopeId>,
+    /// The iterators and the methods of an iterator.
+    iterators: Vec<ScopeId>,
+    /// Those of a descriptor given to `Object.defineProperty` or one of its kin ([`descriptors`]), which run with the
+    /// object the call defines them on as `this`, not the descriptor.
+    described: HashSet<ScopeId>,
+    /// The scopes of the functions of all of them.
+    all: HashSet<ScopeId>,
+}
+
+impl Accessors {
+    /// Adds the function of the scope `scope`, which code runs as `run` says.
+    fn add(&mut self, scope: ScopeId, run: Run) {
+        if !self.all.insert(scope) {
+            return;
+        }
+        match run {
+            Run::Key(Some(key)) => self.keys.entry(key).or_default().push(scope),
+            Run::Key(None) => self.any_key.push(scope),
+            Run::Iteration | Run::Every => self.iterators.push(scope),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.all.is_empty()
     }
 
     /// Whether code at a place that runs functions of an object as `run` says may run one of them.
     fn runs(&self, run: &Run) -> bool {
-        let keyed = self.any_key || !self.keys.is_empty();
         match run {
-            Run::Key(Some(key)) => self.any_key || self.keys.contains(key),
-            Run::Key(None) => keyed,
-            Run::Iteration => self.iterates,
-            Run::Every => keyed || self.iterates,
+            Run::Key(Some(key)) => !self.any_key.is_empty() || self.keys.contains_key(key),
+            Run::Key(None) => !self.any_key.is_empty() || !self.keys.is_empty(),
+            Run::Iteration => !self.iterators.is_empty(),
+            Run::Every => !self.is_empty(),
         }
+    }
+
+    /// Those of them code at a place that runs functions of an object as `runs` say may run, sorted.
+    fn ran_by(&self, runs: &[Run]) -> Vec<ScopeId> {
+        let mut ran: Vec<ScopeId> = Vec::new();
+        for run in runs {
+            match run {
+                Run::Key(Some(key)) => ran.extend(self.keys.get(key).into_iter().flatten()),
+                Run::Key(None) | Run::Every => ran.extend(self.keys.values().flatten()),
+                Run::Iteration => {}
+            }
+            if matches!(run, Run::Key(_) | Run::Every) {
+                ran.extend(&self.any_key);
+            }
+            if matches!(run, Run::Iteration | Run::Every) {
+                ran.extend(&self.iterators);
+            }
+        }
+        ran.sort_unstable();
+        ran.dedup();
+        ran
+    }
+
+    /// The place `site` with those of them it may run, when it may run one.
+    fn pending(&self, site: ImplicitSite) -> Option<Pending> {
+        let ran = self.ran_by(&site.runs);
+        (!ran.is_empty()).then(|| Pending {
+            site,
+            ran,
+            applied: ThisEffect::default(),
+        })
     }
 }
 
+/// What the pass finds of the code a value may run with no call of it written ([`Sharing::run_implicitly`]).
+#[derive(Default)]
+struct Implicit {
+    /// The getters, setters and iterators the module declares.
+    accessors: Accessors,
+    /// The spans of the object literals and classes being visited, innermost last.
+    containers: Vec<Span>,
+    /// The object literal or class whose own method, getter, setter or iterator each function of an object is, by the
+    /// scope of the function.
+    owners: HashMap<ScopeId, Span>,
+    /// The methods of objects and classes, which are no getter or setter, by static key.
+    methods: HashMap<String, Vec<ScopeId>>,
+    /// The keys code gives an object a value that may be a function other than a method the module declares there
+    /// (`plugin.apply = apply`), or one before a spread, which may give it any value.
+    replaced: HashSet<String>,
+    /// Whether code gives such a value to a key of an object that is not static.
+    replaces_any: bool,
+    /// What each getter, setter, iterator and method of an object changes of what `this` holds by its own code.
+    effects: HashMap<ScopeId, ThisEffect>,
+    /// The calls of a method on `this` in such a function.
+    calls: Vec<ThisCall>,
+    /// The places found where code may run a getter, a setter or an iterator with no call of it written.
+    sites: Vec<ImplicitSite>,
+}
+
+impl Implicit {
+    /// Records the function of the scope `scope` as one of the innermost object literal or class being visited, a
+    /// method at the key `method` when it is one.
+    fn own(&mut self, scope: ScopeId, method: Option<String>) {
+        if let Some(&container) = self.containers.last() {
+            self.owners.insert(scope, container);
+        }
+        if let Some(method) = method {
+            self.methods.entry(method).or_default().push(scope);
+        }
+    }
+
+    /// Records that code gives the key `key` of an object (`None` when it is not static) a value other than a method
+    /// the module declares there ([`Self::replaced`]).
+    fn replace(&mut self, key: Option<String>) {
+        match key {
+            Some(key) => {
+                self.replaced.insert(key);
+            }
+            None => self.replaces_any = true,
+        }
+    }
+
+    /// Whether the function of the scope `scope` is a getter, a setter, an iterator or a method of an object, whose
+    /// `this` is that object.
+    fn is_owned(&self, scope: ScopeId) -> bool {
+        self.accessors.all.contains(&scope) || self.owners.contains_key(&scope)
+    }
+
+    /// The methods a call of `method` on `this` in the function `caller` may call: every method of that key, wherever
+    /// it is, as one may override another, when the object literal or class `caller` is in has one of its own and no
+    /// code gives the key another value; `None` when what it calls is not known.
+    fn own_methods(&self, caller: ScopeId, method: Option<&str>) -> Option<&[ScopeId]> {
+        let method = method.filter(|method| !self.replaces_any && !self.replaced.contains(*method))?;
+        let methods = self.methods.get(method)?;
+        let container = self.owners.get(&caller)?;
+        methods
+            .iter()
+            .any(|scope| self.owners.get(scope) == Some(container))
+            .then_some(methods.as_slice())
+    }
+}
+
+/// A call of a method on `this` in a getter, a setter, an iterator or a method of an object ([`Implicit::calls`]).
+struct ThisCall {
+    /// The scope of the function the call is in.
+    caller: ScopeId,
+    /// The key of the method, `None` when it is not static.
+    method: Option<String>,
+    /// What `this` is there.
+    site: ThisSite,
+}
+
 /// A place where code may run a getter, a setter or an iterator of an object with the object as `this` ([`Run`]),
-/// found while the module is visited and applied once it is known which of them write through `this`
-/// ([`Sharing::run_implicitly`]).
+/// found while the module is visited and applied once it is known what they change ([`Sharing::run_implicitly`]).
 struct ImplicitSite {
     /// How code there may run them.
     runs: Vec<Run>,
     /// The function (or module) whose code it is.
     function: ScopeId,
-    /// The getter, setter or iterator whose `this` the code there has, if any ([`Sharing::accessors`]).
-    accessor: Option<ScopeId>,
-    /// What `this` and `super` are there, when the object may be what one of them holds.
-    this: Vec<ThisSite>,
-    /// The parts of locals the object may be ([`Sharing::object_parts`]).
+    /// The getter, setter, iterator or method of an object whose `this` the code there has, if any
+    /// ([`Sharing::owned_function`]).
+    owner: Option<ScopeId>,
+    /// What `this` and `super` are there, when the object may be what one of them holds, each with whether the object
+    /// is what it holds itself.
+    this: Vec<(ThisSite, bool)>,
+    /// The parts of locals the object may be ([`Sharing::object_parts`]), each with whether the object is that part
+    /// itself and whether the part is what a call of a function the module declares returns.
     parts: Vec<(Place, bool, bool)>,
+}
+
+/// An [`ImplicitSite`] while [`Sharing::run_implicitly`] applies it: the getters, setters and iterators it may run, and
+/// what it has changed so far of the object there.
+struct Pending {
+    site: ImplicitSite,
+    ran: Vec<ScopeId>,
+    applied: ThisEffect,
+}
+
+/// The bindings that take what `this` holds in a getter, a setter, an iterator or a method of an object, each with
+/// that function ([`Sharing::bound_owners`]), and the links a change reaches them through.
+struct BoundWrites {
+    owners: HashMap<SymbolId, ScopeId>,
+    links_of: HashMap<SymbolId, Vec<usize>>,
+}
+
+/// How far [`Sharing::note_bound_writes`] has looked through the changes made ([`Sharing::mutated`]), and the changes
+/// it has followed.
+#[derive(Default)]
+struct Scan {
+    upto: usize,
+    seen: BTreeSet<(SymbolId, Write)>,
 }
 
 /// The name of a key: `#name` for a private one; `None` when it is not static.
@@ -3495,110 +4041,301 @@ fn key_name(key: &PropertyKey<'_>) -> Option<String> {
         .or_else(|| key.static_name().map(|name| crate::js_string(name.as_js_str())))
 }
 
-/// How code runs the function at `key` with its object as `this` with no call of it written, when anything does: a
-/// read or a write of the key for a getter or a setter (`accessor`), and an iteration for a method whose key is not a
-/// name, which may be `Symbol.iterator`.
-fn implicit_run(key: &PropertyKey<'_>, accessor: bool) -> Option<Run> {
+/// The key a member expression reads or writes: `#name` for a private one, the digits of an index (`list[0]`);
+/// `None` when it is not static.
+fn member_key(member: &MemberExpression<'_>) -> Option<String> {
+    match member {
+        MemberExpression::PrivateFieldExpression(field) => Some(format!("#{}", field.field.name.as_str())),
+        MemberExpression::ComputedMemberExpression(computed) => match &computed.expression {
+            Expression::NumericLiteral(number) => number
+                .raw
+                .as_ref()
+                .map(|raw| raw.as_str().to_owned())
+                .filter(|raw| is_index(raw)),
+            _ => computed.static_property_name().map(crate::js_string),
+        },
+        other => other.static_property_name().map(crate::js_string),
+    }
+}
+
+/// Whether `digits`, the text of a number, is the key JavaScript names that index by (`0`, `12`, not `012` or `1e3`).
+fn is_index(digits: &str) -> bool {
+    digits == "0" || (!digits.starts_with('0') && !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+/// Whether `expr` is `this`.
+fn is_this(expr: &Expression<'_>) -> bool {
+    matches!(expr.get_inner_expression(), Expression::ThisExpression(_))
+}
+
+/// The member a callee reads a method from when it is one of `this` (`this.read` in `this.read(key)`).
+fn this_member<'b, 'a>(callee: &'b Expression<'a>) -> Option<&'b MemberExpression<'a>> {
+    callee
+        .get_inner_expression()
+        .as_member_expression()
+        .filter(|member| is_this(member.object()))
+}
+
+/// The keys of the methods of an iterator an iteration calls.
+const ITERATOR_METHODS: &[&str] = &["next", "return", "throw"];
+
+/// Whether `key` is `Symbol.iterator` or `Symbol.asyncIterator` of the global `Symbol`, the key of the method an
+/// iteration calls.
+fn is_iterator_key(scoping: &Scoping, key: &PropertyKey<'_>) -> bool {
+    let Some(Expression::StaticMemberExpression(member)) = key.as_expression().map(Expression::get_inner_expression)
+    else {
+        return false;
+    };
+    matches!(member.property.name.as_str(), "iterator" | "asyncIterator")
+        && matches!(
+            member.object.get_inner_expression(),
+            Expression::Identifier(id) if id.name.as_str() == "Symbol" && resolved(scoping, id).is_none()
+        )
+}
+
+/// How code runs the function at `key` of an object with the object as `this` with no call of it written, when
+/// anything does: a read or a write of the key for a getter or a setter (`accessor`), and an iteration for an iterator
+/// ([`is_iterator_key`]) or a method of one ([`ITERATOR_METHODS`]).
+fn implicit_run(scoping: &Scoping, key: &PropertyKey<'_>, accessor: bool) -> Option<Run> {
     let name = key_name(key);
     if accessor {
         return Some(Run::Key(name));
     }
-    name.is_none().then_some(Run::Iteration)
+    let iterates =
+        is_iterator_key(scoping, key) || name.as_deref().is_some_and(|name| ITERATOR_METHODS.contains(&name));
+    iterates.then_some(Run::Iteration)
 }
 
-/// [`implicit_run`] of the function an object property holds, when it holds one that is no arrow function.
-fn property_run(property: &ObjectProperty<'_>) -> Option<Run> {
-    if !matches!(property.value.get_inner_expression(), Expression::FunctionExpression(_)) {
+/// The scope of the function an object property holds and [`implicit_run`] of it, when it holds one that is no arrow
+/// function and code runs it so.
+fn property_run(scoping: &Scoping, property: &ObjectProperty<'_>) -> Option<(ScopeId, Run)> {
+    let Expression::FunctionExpression(function) = property.value.get_inner_expression() else {
         return None;
-    }
-    implicit_run(&property.key, property.kind != PropertyKind::Init)
+    };
+    let run = implicit_run(scoping, &property.key, property.kind != PropertyKind::Init)?;
+    Some((function.scope_id.get()?, run))
 }
 
-/// [`implicit_run`] of a method of the instances of a class: neither static nor the constructor.
-fn method_run(method: &MethodDefinition<'_>) -> Option<Run> {
+/// [`property_run`] of a method of the instances of a class: neither static nor the constructor.
+fn method_run(scoping: &Scoping, method: &MethodDefinition<'_>) -> Option<(ScopeId, Run)> {
     if method.r#static || method.kind == MethodDefinitionKind::Constructor {
         return None;
     }
     let accessor = matches!(method.kind, MethodDefinitionKind::Get | MethodDefinitionKind::Set);
-    implicit_run(&method.key, accessor)
+    let run = implicit_run(scoping, &method.key, accessor)?;
+    Some((method.value.scope_id.get()?, run))
 }
 
-/// The getters, setters and iterators of the objects and class instances a module makes ([`Runs`]), which a place in
-/// its code may run.
-fn accessor_runs(program: &Program<'_>) -> Runs {
-    let mut finder = FindAccessors::default();
+/// The descriptors a call of `Object.defineProperty`, `Reflect.defineProperty`, `Object.defineProperties` or
+/// `Object.create` of the global object is given as object literals, each with the key it defines (`None` when it is
+/// not static): their `get` and `set` are a getter and a setter of the object the call defines them on.
+fn descriptors<'b, 'a>(
+    scoping: &Scoping,
+    call: &'b CallExpression<'a>,
+) -> Vec<(Option<String>, &'b ObjectExpression<'a>)> {
+    let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
+        return Vec::new();
+    };
+    let Expression::Identifier(object) = member.object.get_inner_expression() else {
+        return Vec::new();
+    };
+    if resolved(scoping, object).is_some() {
+        return Vec::new();
+    }
+    let literal = move |index: usize| match call
+        .arguments
+        .get(index)
+        .and_then(Argument::as_expression)
+        .map(Expression::get_inner_expression)
+    {
+        Some(Expression::ObjectExpression(literal)) => Some(&**literal),
+        _ => None,
+    };
+    match (object.name.as_str(), member.property.name.as_str()) {
+        ("Object" | "Reflect", "defineProperty") => {
+            let key = call.arguments.get(1).and_then(Argument::as_expression).and_then(static_string);
+            literal(2).map(|descriptor| (key, descriptor)).into_iter().collect()
+        }
+        ("Object", "defineProperties" | "create") => literal(1).map_or_else(Vec::new, described_keys),
+        _ => Vec::new(),
+    }
+}
+
+/// The descriptors an object literal given to `Object.defineProperties` or `Object.create` holds, each with its key.
+fn described_keys<'b, 'a>(descriptors: &'b ObjectExpression<'a>) -> Vec<(Option<String>, &'b ObjectExpression<'a>)> {
+    descriptors
+        .properties
+        .iter()
+        .filter_map(|property| match property {
+            ObjectPropertyKind::ObjectProperty(p) => match p.value.get_inner_expression() {
+                Expression::ObjectExpression(descriptor) => Some((key_name(&p.key), &**descriptor)),
+                _ => None,
+            },
+            ObjectPropertyKind::SpreadProperty(_) => None,
+        })
+        .collect()
+}
+
+/// The scopes of the functions a descriptor holds at `get` and `set`, which are no arrow functions.
+fn descriptor_accessors(descriptor: &ObjectExpression<'_>) -> Vec<ScopeId> {
+    descriptor
+        .properties
+        .iter()
+        .filter_map(|property| match property {
+            ObjectPropertyKind::ObjectProperty(p)
+                if p.kind == PropertyKind::Init && matches!(key_name(&p.key).as_deref(), Some("get" | "set")) =>
+            {
+                match p.value.get_inner_expression() {
+                    Expression::FunctionExpression(function) => function.scope_id.get(),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The getters, setters and iterators of the objects and class instances a module makes ([`Accessors`]), which a place
+/// in its code may run.
+fn accessors(program: &Program<'_>, scoping: &Scoping) -> Accessors {
+    let mut finder = FindAccessors {
+        scoping,
+        found: Accessors::default(),
+    };
     finder.visit_program(program);
-    finder.0
+    finder.found
 }
 
-/// Finds the getters, setters and iterators a module declares ([`accessor_runs`]).
-#[derive(Default)]
-struct FindAccessors(Runs);
+/// Finds the getters, setters and iterators a module declares ([`accessors`]).
+struct FindAccessors<'s> {
+    scoping: &'s Scoping,
+    found: Accessors,
+}
 
-impl<'a> Visit<'a> for FindAccessors {
+impl<'a> Visit<'a> for FindAccessors<'_> {
     fn visit_object_property(&mut self, it: &ObjectProperty<'a>) {
-        if let Some(run) = property_run(it) {
-            self.0.add(&run);
+        if let Some((scope, run)) = property_run(self.scoping, it) {
+            self.found.add(scope, run);
         }
         walk::walk_object_property(self, it);
     }
 
     fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
-        if let Some(run) = method_run(it) {
-            self.0.add(&run);
+        if let Some((scope, run)) = method_run(self.scoping, it) {
+            self.found.add(scope, run);
         }
         walk::walk_method_definition(self, it);
     }
+
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        for (key, descriptor) in descriptors(self.scoping, it) {
+            for scope in descriptor_accessors(descriptor) {
+                self.found.add(scope, Run::Key(key.clone()));
+                self.found.described.insert(scope);
+            }
+        }
+        walk::walk_call_expression(self, it);
+    }
 }
 
-/// How a destructuring may run functions of the value it takes ([`Run`]): an iteration for an array pattern, a read of
-/// each key an object pattern names and of every key for a rest element, at any depth, as a nested pattern takes a
-/// part of that value. A default is no part of it.
-#[derive(Default)]
-struct PatternRuns(Vec<Run>);
+/// How a destructuring may run functions of the value it takes ([`Run`]): on that value itself, and on values below it
+/// that a nested pattern takes.
+#[derive(Debug, Clone, Default)]
+struct Destructured {
+    own: Vec<Run>,
+    below: Vec<Run>,
+}
 
-/// The [`PatternRuns`] of the pattern `visit` visits.
-fn pattern_runs(visit: impl FnOnce(&mut PatternRuns)) -> Vec<Run> {
+impl Destructured {
+    /// All of its runs, wherever they are.
+    fn into_runs(self) -> impl Iterator<Item = Run> {
+        self.own.into_iter().chain(self.below)
+    }
+}
+
+/// Finds how a destructuring may run functions of the value it takes ([`Destructured`]): an iteration for an array
+/// pattern, a read of each key an object pattern names and of every key for its rest element, each on the value the
+/// pattern takes. A default is no part of it.
+#[derive(Default)]
+struct PatternRuns {
+    /// How many patterns the one being visited is nested in.
+    depth: usize,
+    found: Destructured,
+}
+
+impl PatternRuns {
+    fn push(&mut self, run: Run) {
+        if self.depth == 0 {
+            self.found.own.push(run);
+        } else {
+            self.found.below.push(run);
+        }
+    }
+
+    /// Visits what `visit` visits as a pattern of a value below the one being taken.
+    fn nested(&mut self, visit: impl FnOnce(&mut Self)) {
+        self.depth += 1;
+        visit(self);
+        self.depth -= 1;
+    }
+}
+
+/// The [`Destructured`] of the pattern `visit` visits.
+fn pattern_runs(visit: impl FnOnce(&mut PatternRuns)) -> Destructured {
     let mut runs = PatternRuns::default();
     visit(&mut runs);
-    runs.0
+    runs.found
+}
+
+/// The [`Destructured`] of each parameter of `params`, by position.
+fn parameter_patterns(params: &FormalParameters<'_>) -> Vec<Destructured> {
+    params
+        .items
+        .iter()
+        .map(|param| pattern_runs(|runs| runs.visit_binding_pattern(&param.pattern)))
+        .collect()
 }
 
 impl<'a> Visit<'a> for PatternRuns {
     fn visit_expression(&mut self, _: &Expression<'a>) {}
 
     fn visit_array_pattern(&mut self, it: &ArrayPattern<'a>) {
-        self.0.push(Run::Iteration);
-        walk::walk_array_pattern(self, it);
+        self.push(Run::Iteration);
+        self.nested(|runs| walk::walk_array_pattern(runs, it));
     }
 
     fn visit_array_assignment_target(&mut self, it: &ArrayAssignmentTarget<'a>) {
-        self.0.push(Run::Iteration);
-        walk::walk_array_assignment_target(self, it);
+        self.push(Run::Iteration);
+        self.nested(|runs| walk::walk_array_assignment_target(runs, it));
     }
 
-    fn visit_binding_property(&mut self, it: &BindingProperty<'a>) {
-        self.0.push(Run::Key(key_name(&it.key)));
-        walk::walk_binding_property(self, it);
+    fn visit_object_pattern(&mut self, it: &ObjectPattern<'a>) {
+        for property in &it.properties {
+            self.push(Run::Key(key_name(&property.key)));
+            self.nested(|runs| runs.visit_binding_pattern(&property.value));
+        }
+        if let Some(rest) = &it.rest {
+            self.push(Run::Key(None));
+            self.nested(|runs| runs.visit_binding_rest_element(rest));
+        }
     }
 
-    fn visit_assignment_target_property_property(&mut self, it: &AssignmentTargetPropertyProperty<'a>) {
-        self.0.push(Run::Key(key_name(&it.name)));
-        walk::walk_assignment_target_property_property(self, it);
-    }
-
-    fn visit_assignment_target_property_identifier(&mut self, it: &AssignmentTargetPropertyIdentifier<'a>) {
-        self.0.push(Run::Key(Some(it.binding.name.as_str().to_owned())));
-    }
-
-    fn visit_binding_rest_element(&mut self, it: &BindingRestElement<'a>) {
-        self.0.push(Run::Every);
-        walk::walk_binding_rest_element(self, it);
-    }
-
-    fn visit_assignment_target_rest(&mut self, it: &AssignmentTargetRest<'a>) {
-        self.0.push(Run::Every);
-        walk::walk_assignment_target_rest(self, it);
+    fn visit_object_assignment_target(&mut self, it: &ObjectAssignmentTarget<'a>) {
+        for property in &it.properties {
+            match property {
+                AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(p) => {
+                    self.push(Run::Key(Some(p.binding.name.as_str().to_owned())));
+                }
+                AssignmentTargetProperty::AssignmentTargetPropertyProperty(p) => {
+                    self.push(Run::Key(key_name(&p.name)));
+                    self.nested(|runs| runs.visit_assignment_target_maybe_default(&p.binding));
+                }
+            }
+        }
+        if let Some(rest) = &it.rest {
+            self.push(Run::Key(None));
+            self.nested(|runs| runs.visit_assignment_target_rest(rest));
+        }
     }
 }
 
@@ -3657,6 +4394,48 @@ fn constructs_builtin(scoping: &Scoping, new: &NewExpression<'_>) -> bool {
         new.callee.get_inner_expression(),
         Expression::Identifier(id) if resolved(scoping, id).is_none() && BUILTIN_CLASSES.contains(&id.name.as_str())
     )
+}
+
+/// Builtin classes whose constructor iterates what it is given (`new Map(entries)`).
+const ITERATING_CLASSES: &[&str] = &["Map", "Set", "WeakMap", "WeakSet"];
+
+/// How the constructor `new` runs may run functions of each object it is given with no call of them written ([`Run`]):
+/// an iteration for one of [`ITERATING_CLASSES`]; any for `URLSearchParams`, which reads the keys of an object or
+/// iterates it, and for a class that is no builtin one, whose constructor the pass does not follow with what it is
+/// given; none for any other of [`BUILTIN_CLASSES`].
+fn new_runs(scoping: &Scoping, new: &NewExpression<'_>) -> Option<Run> {
+    if !constructs_builtin(scoping, new) {
+        return Some(Run::Every);
+    }
+    let Expression::Identifier(class) = new.callee.get_inner_expression() else {
+        return None;
+    };
+    match class.name.as_str() {
+        name if ITERATING_CLASSES.contains(&name) => Some(Run::Iteration),
+        "URLSearchParams" => Some(Run::Every),
+        _ => None,
+    }
+}
+
+/// Functions of [`PURE_FUNCTIONS`] that read the own keys of an object they are given, which runs its getters, by the
+/// name of the object they are called on and their own.
+const KEY_READING_FUNCTIONS: &[(&str, &str)] = &[("JSON", "stringify"), ("Object", "entries"), ("Object", "values")];
+
+/// Whether `call`, whose effect the pass knows ([`Effect::Keeps`]), reads the own keys of an object it is given, which
+/// runs its getters and setters: one of [`KEY_READING_FUNCTIONS`], `Object.assign`, which sets them on its first
+/// argument too, and a merge that copies ([`copies`]). Any other reads no key of what it is given: a `define…` helper
+/// of a package returns it, and the rest are given strings and lists.
+fn reads_keys(names: Names<'_>, call: &CallExpression<'_>) -> bool {
+    if copies(names, call) {
+        return true;
+    }
+    let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
+        return false;
+    };
+    let name = member.property.name.as_str();
+    (name == "assign" && assigns(names, call))
+        || (pure_function(names, call).is_some()
+            && module_object(names, &member.object).is_some_and(|object| KEY_READING_FUNCTIONS.contains(&(object, name))))
 }
 
 /// Whether `expr` is a list literal of values that hold no object ([`is_primitive`]), with no spread.
