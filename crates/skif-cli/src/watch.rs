@@ -4,8 +4,10 @@
 //! list with the previous one. A run starts once the tree has been quiet for [`QUIET`], so a checkout or a
 //! formatter that writes many files causes one run.
 //!
-//! Polling costs one walk of the tree, one `stat` per file, every interval; the interval grows to twice the scan's
-//! own duration, so on a large repository the watcher spends at most about a third of one core scanning.
+//! Polling costs one walk of the tree, one `stat` per file, every interval. The walk runs on at most [`SCAN_THREADS`]
+//! threads, and the interval grows to twice the scan's own duration, so a scan runs at most about a third of the
+//! time: on a large repository the watcher spends up to about a third of one core per walker thread scanning, at most
+//! about four thirds of one core.
 //!
 //! The reports the run writes (`--output`, `--format FORMAT=FILE`) and a `--cache-location` store are left out of the
 //! scan: each run rewrites them, and seeing that write would start the next run, forever.
@@ -33,6 +35,8 @@ const POLL: Duration = Duration::from_millis(200);
 const QUIET: Duration = Duration::from_millis(100);
 /// Directories that are never entered, whatever the ignore files say.
 const SKIPPED: [&str; 3] = ["node_modules", ".git", "target"];
+/// The most threads a scan walks the tree on; fewer when the machine has fewer cores.
+const SCAN_THREADS: usize = 4;
 
 /// Lints, then re-lints on every change, until the process is interrupted. Returns only when the root cannot be
 /// resolved at all.
@@ -115,8 +119,8 @@ type Stamp = (Option<SystemTime>, u64);
 /// directories are never entered, and the `written` files (canonical paths, as [`LintArgs::written_files`] gives
 /// them) are left out; so is a file that vanishes during the scan.
 ///
-/// The walk runs on several threads, each collecting what it sees; the map is ordered, so the result does not
-/// depend on which thread saw which file.
+/// The walk runs on up to [`SCAN_THREADS`] threads, each collecting what it sees; the map is ordered, so the result
+/// does not depend on which thread saw which file.
 fn scan(dir: &Path, written: &BTreeSet<PathBuf>) -> BTreeMap<PathBuf, Stamp> {
     let collected = Mutex::new(Vec::new());
     walker(dir).build_parallel().visit(&mut Collector {
@@ -132,18 +136,24 @@ fn scan(dir: &Path, written: &BTreeSet<PathBuf>) -> BTreeMap<PathBuf, Stamp> {
 }
 
 /// The walk [`scan`] runs: hidden files included, `.gitignore` honoured without a repository or the global ignore
-/// file, and the [`SKIPPED`] directories never entered.
+/// file, and the [`SKIPPED`] directories never entered; a parallel walk runs on [`scan_threads`] threads.
 fn walker(dir: &Path) -> ignore::WalkBuilder {
     let mut builder = ignore::WalkBuilder::new(dir);
     builder
         .hidden(false)
         .require_git(false)
         .git_global(false)
+        .threads(scan_threads())
         .filter_entry(|entry| {
             !(entry.file_type().is_some_and(|kind| kind.is_dir())
                 && entry.file_name().to_str().is_some_and(|name| SKIPPED.contains(&name)))
         });
     builder
+}
+
+/// The threads a scan walks on: one per core, at most [`SCAN_THREADS`].
+fn scan_threads() -> usize {
+    std::thread::available_parallelism().map_or(1, std::num::NonZero::get).min(SCAN_THREADS)
 }
 
 /// What one entry of the walk adds to the scan: a file that is not `written`, with its stamp.
@@ -344,7 +354,7 @@ mod tests {
 
     /// A tree wide enough to spread over the walker's threads: the parallel scan gives exactly the files, sizes and
     /// modification times a single-threaded walk gives, with the skipped directories, the files ignored by nested
-    /// `.gitignore` files and the written files left out.
+    /// `.gitignore` files, the written files and a symbolic link left out.
     #[test]
     fn the_parallel_scan_matches_a_single_threaded_walk() {
         let dir = tempfile::tempdir().unwrap();
@@ -375,6 +385,9 @@ mod tests {
                 write(&format!("{base}/src/m{module}/index.ts"), "export {}", true);
             }
         }
+        // A symbolic link is not followed, so neither walk lists it as a file.
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(at("packages/p0/package.json"), at("packages/p0/linked.json")).unwrap();
         let written = BTreeSet::from([root.join("report.sarif")]);
         let sequential: BTreeMap<PathBuf, Stamp> = walker(&root)
             .build()
