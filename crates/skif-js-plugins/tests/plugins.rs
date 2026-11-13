@@ -1840,6 +1840,24 @@ fn oxlint() {
 }
 
 #[test]
+fn a_config_extended_from_node_modules_uses_its_package_installed_or_not() {
+    let config = r#"{ "extends": ["./node_modules/shared-oxlint/config/core/.oxlintrc.json", "./base.json"] }"#;
+    let results = resolve(&[(".oxlintrc.json", config), ("base.json", "{}")], &["oxlint"]);
+    assert_eq!(deps(output(&results, "oxlint")), BTreeSet::from(["shared-oxlint"]));
+    let installed = resolve(
+        &[
+            (".oxlintrc.json", r#"{ "extends": ["./node_modules/@acme/lint/oxlint.json"] }"#),
+            ("node_modules/@acme/lint/oxlint.json", r#"{ "jsPlugins": ["oxlint-plugin-acme"] }"#),
+        ],
+        &["oxlint"],
+    );
+    assert_eq!(
+        deps(output(&installed, "oxlint")),
+        BTreeSet::from(["@acme/lint", "oxlint-plugin-acme"])
+    );
+}
+
+#[test]
 fn angular_builders_and_entries() {
     let config = r#"{
       "projects": { "web": { "architect": {

@@ -23,7 +23,7 @@ use crate::scopes::{NxProjects, ScopeShared, merge, rebase, scope_dir, within_pa
 use crate::script_config::{config_flags, config_paths, flag_values};
 use crate::scripts::{BinaryVia, ScriptContext, is_ignored_binary, parse_script};
 use crate::sources::PackageSources;
-use crate::support::{is_relative, join_lexically, join_rel, looks_like_file};
+use crate::support::{below_node_modules, is_relative, join_lexically, join_rel, looks_like_file, package_name};
 
 const MAX_CONFIG_DEPTH: u8 = 16;
 
@@ -587,6 +587,12 @@ impl Collector<'_, '_> {
                 }),
                 PluginInput::Binary(name) => push_unique(&mut self.out.referenced_binaries, name),
                 PluginInput::ConfigFile(path) => {
+                    // A config inside a package's `node_modules` directory (`./node_modules/pkg/base.json`) needs
+                    // that package, whether or not it is installed.
+                    if let Some(name) = below_node_modules(&path).and_then(package_name) {
+                        let named_by = self.named_by(from, config, &name);
+                        self.dependency(DepRef::new(name, &named_by, false, config.is_some()));
+                    }
                     if depth < MAX_CONFIG_DEPTH && self.ctx.fs.is_file(&join_lexically(self.ctx.dir, &path)) {
                         self.queue.push_back(Queued {
                             path,
