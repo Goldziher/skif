@@ -213,6 +213,22 @@ pub(super) struct Walker<'c> {
     pushed: Vec<(Option<String>, bool)>,
 }
 
+/// Where `segment` starts in the text it was tokenized from; `None` for a segment without words.
+fn segment_start(segment: &Segment) -> Option<usize> {
+    segment
+        .assignments
+        .first()
+        .or_else(|| segment.words.first())
+        .map(|word| word.span.start)
+}
+
+/// The directory of the last of `commands`, each with where it starts in the text, that starts at or before `offset`:
+/// the command that holds a substitution at `offset`. `None` before the first command.
+fn dir_at(commands: &[(usize, DirState)], offset: usize) -> Option<&DirState> {
+    let held_by = commands.partition_point(|(start, _)| *start <= offset);
+    commands.get(held_by.checked_sub(1)?).map(|(_, dir)| dir)
+}
+
 /// The directory state of a [`Walker`] that a shell of its own (a subshell, another script, `sh -c`, a substitution)
 /// restores when it ends.
 struct DirState {
@@ -257,6 +273,9 @@ impl<'c> Walker<'c> {
         let frame = Frame { text, map };
         // So does a subshell `( … )`: the state each open one restores, with the segment index it ends before.
         let mut subshells: Vec<(usize, DirState)> = Vec::new();
+        // A substitution runs in the directory of the command that holds it, before that command: where each command
+        // starts in the text, with the directory it runs in.
+        let mut commands: Vec<(usize, DirState)> = Vec::with_capacity(tokens.segments.len());
         for (index, segment) in tokens.segments.iter().enumerate() {
             let mut opening: Vec<&Range<usize>> = tokens
                 .subshells
@@ -267,6 +286,9 @@ impl<'c> Walker<'c> {
             for subshell in opening {
                 subshells.push((subshell.end, self.dir_state()));
             }
+            if let Some(start) = segment_start(segment) {
+                commands.push((start, self.dir_state()));
+            }
             self.segment(segment, &frame, st);
             while let Some((_, state)) = subshells.pop_if(|(end, _)| *end <= index + 1) {
                 self.restore_dir(state);
@@ -274,8 +296,9 @@ impl<'c> Walker<'c> {
         }
         for range in &tokens.substitutions {
             if let Some(inner) = text.get(range.clone()) {
-                self.cwd.clone_from(&saved.cwd);
-                self.unknown_dir = saved.unknown_dir;
+                let dir = dir_at(&commands, range.start).unwrap_or(&saved);
+                self.cwd.clone_from(&dir.cwd);
+                self.unknown_dir = dir.unknown_dir;
                 self.run_text(inner, &map.shifted(range.start), st);
             }
         }

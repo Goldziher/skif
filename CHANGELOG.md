@@ -67,6 +67,10 @@ All notable changes to this project are documented here. The format follows
   is not a plain word (`execFileSync("sqlite3", [db, "select …"])`) runs its program: the argument is one quoted word
   of the command instead of dropping the call, so the binary is judged. The analysis cache is invalidated
   ([#97](https://github.com/Goldziher/skif/issues/97)).
+- **`unlisted-binaries`**: a command substitution runs in the directory of the command that holds it, after a `cd` or
+  a workflow step's `working-directory`, instead of where the text starts: `SUITE=$(pnpm exec tsx x.ts)` in a step
+  with `working-directory: packages/web` credits `tsx` to `packages/web` instead of judging it at the root
+  ([#97](https://github.com/Goldziher/skif/issues/97)).
 
 ## [0.4.0] - 2026-11-12
 
