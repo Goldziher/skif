@@ -100,3 +100,26 @@ fn stylesheet_urls_of_package_files_use_the_package() {
     assert_eq!(found(&diagnostics, "unlisted-dependencies"), none());
     assert_eq!(found(&diagnostics, "unresolved-imports"), none());
 }
+
+#[test]
+fn a_published_subpath_directory_with_a_manifest_belongs_to_its_package() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"lib","version":"1.0.0","exports":{".":"./index.js","./server":{"import":"./server/index.mjs","require":"./server/index.js"}},"files":["index.js","server"],"dependencies":{"server-impl":"1.0.0","left-pad":"1.3.0"}}"#,
+        ),
+        ("index.js", "module.exports = 1;\n"),
+        ("server/package.json", r#"{"main":"index.js","module":"index.mjs"}"#),
+        ("server/index.js", "module.exports = require('server-impl');\n"),
+        ("server/index.mjs", "export * from 'server-impl';\n"),
+        ("cases/package.json", r#"{"main":"index.js"}"#),
+        ("cases/index.js", "module.exports = require('case-only');\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-dependencies"),
+        ["package.json: left-pad"]
+    );
+    // `cases` is no subpath `lib` publishes, so its manifest still makes a project of its own.
+    assert_eq!(found(&diagnostics, "unlisted-dependencies"), none());
+    assert_eq!(found(&diagnostics, "unused-files"), none());
+}
