@@ -1051,8 +1051,7 @@ mod tests {
 
     fn members(uses: &Uses, name: &str) -> Vec<String> {
         uses.get(name)
-            .map(|slot| slot.members.iter().cloned().collect())
-            .unwrap_or_default()
+            .map_or_default(|slot| slot.members.iter().cloned().collect())
     }
 
     /// Asserts that each of `used` is used in `text` and none of `bound` is.

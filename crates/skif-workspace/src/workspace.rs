@@ -275,10 +275,7 @@ fn load_member(
 ) -> Loaded {
     let absolute = root.join(dir);
     let entries = fs.read_dir_shared(&absolute).ok();
-    let package_manager_files = entries
-        .as_deref()
-        .map(|entries| files.in_listing(entries))
-        .unwrap_or_default();
+    let package_manager_files = entries.as_deref().map_or_default(|entries| files.in_listing(entries));
     let manifest = absolute.join(MANIFEST);
     let member = if fs.is_file(&manifest) {
         match fs.read_to_string(&manifest) {
@@ -336,8 +333,7 @@ impl ManagerFiles<'_> {
     fn in_root(&self) -> Vec<PathBuf> {
         self.fs
             .read_dir_shared(self.root)
-            .map(|entries| self.in_listing(&entries))
-            .unwrap_or_default()
+            .map_or_default(|entries| self.in_listing(&entries))
     }
 }
 
@@ -652,8 +648,7 @@ impl Workspace {
         };
         let mut catalogs = pnpm_config
             .filter(|_| reads_pnpm_catalogs)
-            .map(|parsed| parsed.catalogs)
-            .unwrap_or_default();
+            .map_or_default(|parsed| parsed.catalogs);
         catalogs.merge(catalogs::from_package_json(
             &root_package.manifest.value,
             &root_package.manifest.path,

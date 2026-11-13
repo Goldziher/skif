@@ -137,8 +137,7 @@ impl Merger {
         } = self;
         let overrides: Vec<usize> = lists
             .get("overrides")
-            .map(|assigned| assigned.iter().map(|assignment| assignment.source).collect())
-            .unwrap_or_default();
+            .map_or_default(|assigned| assigned.iter().map(|assignment| assignment.source).collect());
         for (key, assigned) in lists {
             for (index, assignment) in assigned.into_iter().enumerate() {
                 origins.push(format!("{key}[{index}]"), assignment);

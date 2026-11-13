@@ -13,6 +13,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Breaking changes
 
+- **Minimum supported Rust**: raised to 1.100 for building the crates from source.
 - **Public API**: `cargo-semver-checks` against the 0.3.0 crates on crates.io reports
   `semver requires new major version` for `skif-js-plugins` (`constructible_struct_adds_field`: `DepRef.dir`;
   `struct_pub_field_missing`: `ScriptInfo.turbo_tasks`), `skif-rules` (`enum_variant_added`: `ToolchainKind::Bazel`) and

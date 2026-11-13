@@ -71,8 +71,7 @@ pub fn capitalize(name: &str) -> String {
     let mut chars = name.chars();
     chars
         .next()
-        .map(|first| first.to_uppercase().chain(chars).collect())
-        .unwrap_or_default()
+        .map_or_default(|first| first.to_uppercase().chain(chars).collect())
 }
 
 /// The names Vue looks a tag up by, in its order and without repeats: as written, camelized, and camelized and

@@ -116,7 +116,7 @@ impl Plugin for Bun {
 fn test_entries(config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Option<PluginInput> {
     let test = get_in(config.value, &["test"])?;
     let root = test.get("root").and_then(ConfigValue::as_str);
-    let ignored = test.get("pathIgnorePatterns").map(strings).unwrap_or_default();
+    let ignored = test.get("pathIgnorePatterns").map_or_default(strings);
     if root.is_none() && ignored.is_empty() {
         return None;
     }
@@ -170,8 +170,7 @@ fn api_inputs(call: &ImportedCall, source: &str, out: &mut Vec<PluginInput>) {
         ("build", None) => {
             let entrypoints = call.arguments.first().and_then(|options| options.get("entrypoints"));
             let entries: Vec<String> = entrypoints
-                .map(strings)
-                .unwrap_or_default()
+                .map_or_default(strings)
                 .into_iter()
                 .map(|entry| package_relative(entry, source))
                 .collect();

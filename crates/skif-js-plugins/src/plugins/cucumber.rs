@@ -56,7 +56,7 @@ impl Plugin for Cucumber {
         let mut out = Vec::new();
         for profile in profiles {
             let imports = profile.get("import").map_or_else(|| vec![DEFAULT_IMPORT], strings);
-            let requires = profile.get("require").map(strings).unwrap_or_default();
+            let requires = profile.get("require").map_or_default(strings);
             for pattern in imports.into_iter().chain(requires) {
                 out.extend(entry_glob(config.base, pattern).map(PluginInput::Entry));
             }

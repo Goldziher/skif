@@ -201,13 +201,12 @@ pub(crate) fn parse(path: &Path, source: &str) -> Result<PnpmWorkspace, Workspac
     let overrides = document
         .get("overrides")
         .and_then(Value::as_object)
-        .map(|entries| {
+        .map_or_default(|entries| {
             entries
                 .iter()
                 .filter_map(|(selector, replacement)| Some((selector.clone(), replacement.as_str()?.to_owned())))
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     let minimum_release_age = document.get("minimumReleaseAge").and_then(Value::as_u64);
     let node_linker = document.get("nodeLinker").and_then(Value::as_str).map(str::to_owned);
     let public_hoist_pattern = match document.get("publicHoistPattern") {

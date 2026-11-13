@@ -76,7 +76,7 @@ fn environment_inputs(environment: &ConfigValue, config: &ConfigAst<'_>) -> Vec<
     }
     for section in ["migrations", "seeds"] {
         let directories = environment.get(section).and_then(|s| s.get("directory"));
-        for directory in directories.map(strings).unwrap_or_default() {
+        for directory in directories.map_or_default(strings) {
             let pattern = format!("{}/*.{{js,ts}}", directory.trim_end_matches('/'));
             out.extend(entry_glob(config.base, &pattern).map(PluginInput::Entry));
         }

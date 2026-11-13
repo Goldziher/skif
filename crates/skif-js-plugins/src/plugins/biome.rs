@@ -25,8 +25,7 @@ impl Plugin for Biome {
         config
             .value
             .get("extends")
-            .map(strings)
-            .unwrap_or_default()
+            .map_or_default(strings)
             .into_iter()
             .filter_map(|specifier| {
                 if specifier == "//" {

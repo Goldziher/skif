@@ -59,7 +59,7 @@ impl Plugin for Stencil {
         }
         for target in values("outputTargets").iter().flat_map(objects) {
             if target.get("type").and_then(ConfigValue::as_str) == Some("global-style") {
-                for input in target.get("input").map(leaf_strings).unwrap_or_default() {
+                for input in target.get("input").map_or_default(leaf_strings) {
                     out.push(PluginInput::ProductionEntry(config.join(input)));
                 }
             }

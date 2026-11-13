@@ -153,14 +153,13 @@ fn entry_points_the_file_location_computes_are_marked_for_command_calls() {
     let entries = |found: &[ImportedCall]| -> Vec<String> {
         found[0].arguments[0]
             .get("entrypoints")
-            .map(|value| match value {
+            .map_or_default(|value| match value {
                 ConfigValue::Array(items) => items
                     .iter()
                     .map(|item| item.as_str().unwrap_or("<unknown>").to_owned())
                     .collect(),
                 _ => Vec::new(),
             })
-            .unwrap_or_default()
     };
     let commands = extract_command_calls(source, Path::new("scripts/build.ts"), &["bun"], &[("Bun.*", "bun")]);
     let marked = entries(&commands);

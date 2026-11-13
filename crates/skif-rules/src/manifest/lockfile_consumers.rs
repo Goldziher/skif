@@ -466,16 +466,13 @@ impl<'a> Search<'a> {
 /// Hidden directories, `node_modules`, symbolic links (the `bazel-*` convenience links among them) and the
 /// directories `.bazelignore` names are not entered, as Bazel does not look for packages there.
 fn listed_build_files(fs: &dyn FileSystem, dir: &Path) -> Vec<String> {
-    let ignored: BTreeSet<String> = fs
-        .read_to_string(&dir.join(".bazelignore"))
-        .map(|text| {
-            text.lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty() && !line.starts_with('#'))
-                .map(|line| line.trim_end_matches('/').to_owned())
-                .collect()
-        })
-        .unwrap_or_default();
+    let ignored: BTreeSet<String> = fs.read_to_string(&dir.join(".bazelignore")).map_or_default(|text| {
+        text.lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .map(|line| line.trim_end_matches('/').to_owned())
+            .collect()
+    });
     let mut found = Vec::new();
     let mut pending = vec![(String::new(), 0_usize)];
     while let Some((relative, depth)) = pending.pop() {

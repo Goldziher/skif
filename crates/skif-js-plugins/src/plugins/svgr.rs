@@ -28,8 +28,7 @@ impl Plugin for Svgr {
         config
             .value
             .get("plugins")
-            .map(strings)
-            .unwrap_or_default()
+            .map_or_default(strings)
             .into_iter()
             .filter_map(package_name)
             .map(PluginInput::Dependency)

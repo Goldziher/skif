@@ -47,17 +47,15 @@ impl Plugin for Openclaw {
         }
         let mut out: Vec<PluginInput> = Vec::new();
         for path in ENTRY_PATHS {
-            out.extend(entries(get_in(value, path).map(strings).unwrap_or_default()));
+            out.extend(entries(get_in(value, path).map_or_default(strings)));
         }
-        for hook in value.get("hooks").map(strings).unwrap_or_default() {
+        for hook in value.get("hooks").map_or_default(strings) {
             let dir = hook.trim().trim_end_matches('/');
             if !dir.is_empty() {
                 out.extend(entries([format!("{dir}/{{handler,index}}.{{ts,js}}").as_str()]));
             }
         }
-        let assets = get_in(value, &["build", "staticAssets"])
-            .map(objects)
-            .unwrap_or_default();
+        let assets = get_in(value, &["build", "staticAssets"]).map_or_default(objects);
         out.extend(entries(
             assets
                 .into_iter()

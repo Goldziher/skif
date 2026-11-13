@@ -119,8 +119,7 @@ fn with_config_file(current: Option<&PluginConfig>, path: &str) -> Option<Plugin
     };
     if options.config.is_empty() {
         options.config = skif_js_plugins::registry::plugin(TYPESCRIPT)
-            .map(|plugin| plugin.spec().config.iter().map(|glob| (*glob).to_owned()).collect())
-            .unwrap_or_default();
+            .map_or_default(|plugin| plugin.spec().config.iter().map(|glob| (*glob).to_owned()).collect());
     }
     if options.config.iter().any(|glob| glob == path) {
         return None;
@@ -157,13 +156,12 @@ fn scripts(request: &InputRequest<'_>) -> IndexMap<String, String> {
         .value()
         .get("scripts")
         .and_then(serde_json::Value::as_object)
-        .map(|scripts| {
+        .map_or_default(|scripts| {
             scripts
                 .iter()
                 .filter_map(|(name, command)| Some((name.clone(), command.as_str()?.to_owned())))
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// The packages of the `optional` references, or of the required ones that the package where the command starts

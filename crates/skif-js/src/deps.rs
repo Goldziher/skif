@@ -426,8 +426,7 @@ pub(crate) fn peers_of(manifest: &Value) -> Vec<String> {
     manifest
         .get("peerDependencies")
         .and_then(Value::as_object)
-        .map(|map| map.keys().cloned().collect())
-        .unwrap_or_default()
+        .map_or_default(|map| map.keys().cloned().collect())
 }
 
 /// The names `peerDependenciesMeta` marks `optional`.
@@ -435,13 +434,12 @@ pub(crate) fn optional_peers_of(manifest: &Value) -> Vec<String> {
     manifest
         .get("peerDependenciesMeta")
         .and_then(Value::as_object)
-        .map(|meta| {
+        .map_or_default(|meta| {
             meta.iter()
                 .filter(|(_, entry)| entry.get("optional").and_then(Value::as_bool) == Some(true))
                 .map(|(name, _)| name.clone())
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// Words too common in package names to tie a binary to a package.
@@ -1362,8 +1360,7 @@ impl DependencyUsage {
                 while let Some(current) = dir {
                     let names = listed_in.entry(current.to_path_buf()).or_insert_with(|| {
                         read_manifest(fs, current)
-                            .map(|manifest| listed_names(&manifest).map(str::to_owned).collect())
-                            .unwrap_or_default()
+                            .map_or_default(|manifest| listed_names(&manifest).map(str::to_owned).collect())
                     });
                     if names.contains(name) {
                         self.outside_used.insert((current.to_path_buf(), name.to_owned()));

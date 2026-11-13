@@ -507,7 +507,7 @@ pub fn extract_config(source: &str, path: &Path, loader: Option<&dyn ModuleLoade
     };
     let modules = Modules {
         loader,
-        root: path.parent().map(Path::to_path_buf).unwrap_or_default(),
+        root: path.parent().map_or_default(Path::to_path_buf),
         active: RefCell::new(vec![(path.to_path_buf(), Imported::Default)]),
         loads: RefCell::new(HashSet::default()),
         evaluations: Cell::new(0),
@@ -2096,8 +2096,7 @@ impl<'a> Visit<'a> for CallFinder<'_, '_, 'a> {
                 .chained_cwd
                 .remove(&it.span)
                 .flatten()
-                .map(|cwd| vec![ConfigValue::Object(vec![("cwd".to_owned(), cwd)])])
-                .unwrap_or_default();
+                .map_or_default(|cwd| vec![ConfigValue::Object(vec![("cwd".to_owned(), cwd)])]);
             self.found.push(ImportedCall {
                 module,
                 export,

@@ -29,8 +29,7 @@ impl Plugin for Ladle {
         let mut out: Vec<PluginInput> = config
             .value
             .get("stories")
-            .map(strings)
-            .unwrap_or_default()
+            .map_or_default(strings)
             .into_iter()
             .filter_map(|pattern| entry_glob("", pattern))
             .map(PluginInput::Entry)

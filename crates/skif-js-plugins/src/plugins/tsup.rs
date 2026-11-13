@@ -47,7 +47,7 @@ pub(crate) fn entry_inputs(config: &ConfigAst<'_>, keys: &[&str]) -> Vec<PluginI
                 ConfigValue::Array(items) => items
                     .iter()
                     .flat_map(|item| match item {
-                        ConfigValue::Object(_) => item.get("in").map(file_strings).unwrap_or_default(),
+                        ConfigValue::Object(_) => item.get("in").map_or_default(file_strings),
                         other => file_strings(other),
                     })
                     .collect(),

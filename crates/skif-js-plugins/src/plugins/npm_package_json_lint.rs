@@ -31,8 +31,7 @@ impl Plugin for NpmPackageJsonLint {
         config
             .value
             .get("extends")
-            .map(strings)
-            .unwrap_or_default()
+            .map_or_default(strings)
             .into_iter()
             .filter_map(|id| config_ref(config.base, id))
             .collect()

@@ -29,17 +29,12 @@ impl Plugin for Lunaria {
         let value = config.value;
         let mut paths: Vec<&str> = value
             .get("files")
-            .map(objects)
-            .unwrap_or_default()
+            .map_or_default(objects)
             .into_iter()
             .filter_map(|file| file.get("location").and_then(ConfigValue::as_str))
             .collect();
         paths.extend(value.get("renderer").and_then(ConfigValue::as_str));
-        paths.extend(
-            get_in(value, &["dashboard", "customCss"])
-                .map(strings)
-                .unwrap_or_default(),
-        );
+        paths.extend(get_in(value, &["dashboard", "customCss"]).map_or_default(strings));
         paths.extend(get_in(value, &["dashboard", "favicon", "inline"]).and_then(ConfigValue::as_str));
         paths
             .into_iter()

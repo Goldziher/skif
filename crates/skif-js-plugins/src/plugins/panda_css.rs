@@ -20,7 +20,7 @@ impl Plugin for PandaCss {
     }
 
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
-        let presets = config.value.get("presets").map(strings).unwrap_or_default();
+        let presets = config.value.get("presets").map_or_default(strings);
         presets
             .into_iter()
             .filter_map(package_name)

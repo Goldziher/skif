@@ -34,7 +34,7 @@ impl Plugin for LaravelVitePlugin {
             };
             let mut ids: Vec<&str> = strings(options);
             for key in ["input", "ssr"] {
-                ids.extend(options.get(key).map(strings).unwrap_or_default());
+                ids.extend(options.get(key).map_or_default(strings));
             }
             for id in ids {
                 if let Some(path) = entry_glob(config.base, id) {

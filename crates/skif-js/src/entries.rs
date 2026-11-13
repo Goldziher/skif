@@ -430,10 +430,7 @@ fn script_files(
     for file in files {
         let path = join_normalized(dir, file);
         let rel = relative(&path, dir);
-        let sources = rel
-            .as_deref()
-            .map(|rel| source_paths(package_setup, rel))
-            .unwrap_or_default();
+        let sources = rel.as_deref().map_or_default(|rel| source_paths(package_setup, rel));
         let mapped = sources
             .iter()
             .filter_map(|source| map_to_source(fs, dir, source))
@@ -503,8 +500,7 @@ fn has_extension(path: &Path, extensions: &[String]) -> bool {
 pub(crate) fn map_published(fs: &dyn FileSystem, package_setup: &PackageSetup, target: &str) -> Option<PathBuf> {
     let dir = &package_setup.dir;
     relative(&join_normalized(dir, target), dir)
-        .map(|rel| source_paths(package_setup, &rel))
-        .unwrap_or_default()
+        .map_or_default(|rel| source_paths(package_setup, &rel))
         .iter()
         .find_map(|source| map_to_source(fs, dir, source))
         .or_else(|| map_to_source(fs, dir, target))

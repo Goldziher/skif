@@ -186,8 +186,7 @@ fn collect_ambient_modules(
                     )
                     .ok()
             })
-            .map(|info| info.ambient_modules)
-            .unwrap_or_default()
+            .map_or_default(|info| info.ambient_modules)
     });
     names.extend(found.into_iter().flatten());
     names
@@ -584,8 +583,7 @@ impl<'a> JsAnalysis<'a> {
                 let owner_dir = workspace
                     .package(candidate.owner)
                     .filter(|package| !package.is_root)
-                    .map(|package| package.dir.to_string_lossy().replace('\\', "/"))
-                    .unwrap_or_default();
+                    .map_or_default(|package| package.dir.to_string_lossy().replace('\\', "/"));
                 !setup.js_ignored.contains(&candidate.owner)
                     && !setup.in_ignored_directory(&candidate.rel, &owner_dir, &mut verdicts)
             });

@@ -2254,8 +2254,7 @@ impl<'a> Visit<'a> for Sharing<'_> {
                         .collect(),
                     other => other
                         .as_member_expression()
-                        .map(|member| self.member_places(member))
-                        .unwrap_or_default(),
+                        .map_or_default(|member| self.member_places(member)),
                 };
                 let function = matches!(part, Part::Function { .. });
                 self.in_definition(function, |sharing| {

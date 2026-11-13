@@ -420,9 +420,7 @@ impl ConfigCache {
         );
         let loaded = Rc::new(LoadedConfig {
             parsed,
-            imported: recording
-                .map(|recording| recording.loaded.into_inner())
-                .unwrap_or_default(),
+            imported: recording.map_or_default(|recording| recording.loaded.into_inner()),
         });
         self.0.borrow_mut().insert(path.to_path_buf(), Rc::clone(&loaded));
         loaded

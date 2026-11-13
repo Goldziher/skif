@@ -120,8 +120,7 @@ impl Plugin for Typescript {
 fn local_type_roots(options: &ConfigValue, config: &ConfigAst<'_>) -> Vec<String> {
     options
         .get("typeRoots")
-        .map(strings)
-        .unwrap_or_default()
+        .map_or_default(strings)
         .into_iter()
         .filter(|root| !root.split(['/', '\\']).any(|part| part == "node_modules"))
         .map(|root| config.join(root))
@@ -199,7 +198,7 @@ fn has_input_extension(segment: &str) -> bool {
 /// Without `include` or `files` the inputs are not known statically, and the `dist` to `src` convention applies.
 fn inferred_root_dir(value: &ConfigValue) -> Option<String> {
     let mut roots = Vec::new();
-    for pattern in value.get("include").map(strings).unwrap_or_default() {
+    for pattern in value.get("include").map_or_default(strings) {
         if is_declaration_file(pattern) {
             continue;
         }
@@ -216,7 +215,7 @@ fn inferred_root_dir(value: &ConfigValue) -> Option<String> {
         };
         roots.push(join_rel("", &directory.join("/")));
     }
-    for file in value.get("files").map(strings).unwrap_or_default() {
+    for file in value.get("files").map_or_default(strings) {
         if is_declaration_file(file) {
             continue;
         }

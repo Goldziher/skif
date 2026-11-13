@@ -32,7 +32,7 @@ impl Plugin for ElectronForge {
         }
         let mut out = Vec::new();
         for key in ["makers", "publishers", "plugins"] {
-            for item in config.value.get(key).map(objects).unwrap_or_default() {
+            for item in config.value.get(key).map_or_default(objects) {
                 let Some(name) = item.get("name").and_then(ConfigValue::as_str) else {
                     continue;
                 };
@@ -66,7 +66,7 @@ fn plugin_inputs(
     out: &mut Vec<PluginInput>,
 ) {
     let entries = |value: Option<&ConfigValue>, out: &mut Vec<PluginInput>| {
-        for item in value.map(values_of).unwrap_or_default() {
+        for item in value.map_or_default(values_of) {
             if let Some(entry) = item.as_str() {
                 out.push(PluginInput::ProductionEntry(join_rel("", entry)));
             }
@@ -74,19 +74,19 @@ fn plugin_inputs(
     };
     match name {
         "vite" | "@electron-forge/plugin-vite" => {
-            for build in options.get("build").map(objects).unwrap_or_default() {
+            for build in options.get("build").map_or_default(objects) {
                 entries(build.get("entry"), out);
                 linked("vite", build.get("config"), config, cx, out);
             }
-            for renderer in options.get("renderer").map(objects).unwrap_or_default() {
+            for renderer in options.get("renderer").map_or_default(objects) {
                 linked("vite", renderer.get("config"), config, cx, out);
             }
         }
         "webpack" | "@electron-forge/plugin-webpack" => {
             linked("webpack", options.get("mainConfig"), config, cx, out);
-            for renderer in options.get("renderer").map(objects).unwrap_or_default() {
+            for renderer in options.get("renderer").map_or_default(objects) {
                 linked("webpack", renderer.get("config"), config, cx, out);
-                for entry_point in renderer.get("entryPoints").map(objects).unwrap_or_default() {
+                for entry_point in renderer.get("entryPoints").map_or_default(objects) {
                     entries(entry_point.get("js"), out);
                     if let Some(preload) = entry_point.get("preload") {
                         entries(preload.get("js"), out);

@@ -210,8 +210,7 @@ snapshots:
         let text = diagnostics
             .iter()
             .find(|diagnostic| diagnostic.location.span.is_some())
-            .map(|diagnostic| located(&files, diagnostic).to_owned())
-            .unwrap_or_default();
+            .map_or_default(|diagnostic| located(&files, diagnostic).to_owned());
         (diagnostics, text)
     }
 

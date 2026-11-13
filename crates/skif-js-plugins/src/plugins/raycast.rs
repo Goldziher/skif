@@ -25,7 +25,7 @@ impl Plugin for Raycast {
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut out = Vec::new();
         for (key, dir) in [("commands", "src/"), ("tools", "src/tools/")] {
-            for item in config.value.get(key).map(objects).unwrap_or_default() {
+            for item in config.value.get(key).map_or_default(objects) {
                 if let Some(name) = item.get("name").and_then(ConfigValue::as_str)
                     && !name.is_empty()
                     && !name.contains(['/', '*', '{'])

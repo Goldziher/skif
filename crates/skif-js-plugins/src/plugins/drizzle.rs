@@ -23,8 +23,7 @@ impl Plugin for Drizzle {
         config
             .value
             .get("schema")
-            .map(strings)
-            .unwrap_or_default()
+            .map_or_default(strings)
             .into_iter()
             .filter_map(|schema| entry_glob(config.base, schema))
             .map(PluginInput::ProductionEntry)

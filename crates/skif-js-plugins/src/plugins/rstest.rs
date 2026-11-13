@@ -90,8 +90,7 @@ fn add_project(project: &ConfigValue, root: &str, config: &ConfigAst<'_>, out: &
     let excluded = exclude
         .and_then(|exclude| exclude.get("patterns"))
         .or(exclude)
-        .map(strings)
-        .unwrap_or_default();
+        .map_or_default(strings);
     for pattern in excluded {
         out.extend(entry_glob(root, pattern).map(|glob| PluginInput::Entry(format!("!{glob}"))));
     }
@@ -99,7 +98,7 @@ fn add_project(project: &ConfigValue, root: &str, config: &ConfigAst<'_>, out: &
     let env = env.and_then(ConfigValue::as_str).or_else(|| env?.get("name")?.as_str());
     out.extend(env.and_then(environment));
     for key in ["setupFiles", "globalSetup"] {
-        for file in project.get(key).map(strings).unwrap_or_default() {
+        for file in project.get(key).map_or_default(strings) {
             out.extend(module_input(root, file, true));
         }
     }

@@ -761,7 +761,7 @@ impl Specifier {
                 // Only works if there's a resolved specifier with version
                 wp.as_resolved().and_then(|resolved: &Arc<Specifier>| {
                     resolved.get_semver_number().map(|semver_number| {
-                        let range_str = resolved.get_semver_range().map(|r| r.unwrap()).unwrap_or_default();
+                        let range_str = resolved.get_semver_range().map_or_else(String::new, |r| r.unwrap());
 
                         // Check if original was shorthand
                         let original_parts: Vec<&str> = semver_number.split('.').collect();

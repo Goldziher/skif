@@ -38,8 +38,7 @@ impl Plugin for Parcel {
         let value = config.value;
         let mut out: Vec<PluginInput> = value
             .get("extends")
-            .map(strings)
-            .unwrap_or_default()
+            .map_or_default(strings)
             .into_iter()
             .filter_map(|name| config_ref(config.base, name))
             .collect();

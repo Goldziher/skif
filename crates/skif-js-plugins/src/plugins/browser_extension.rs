@@ -56,11 +56,11 @@ impl Plugin for BrowserExtension {
         }
         let mut scripts: Vec<&str> = Vec::new();
         if let Some(background) = manifest.get("background") {
-            scripts.extend(background.get("service_worker").map(strings).unwrap_or_default());
-            scripts.extend(background.get("scripts").map(strings).unwrap_or_default());
+            scripts.extend(background.get("service_worker").map_or_default(strings));
+            scripts.extend(background.get("scripts").map_or_default(strings));
         }
-        for content in manifest.get("content_scripts").map(objects).unwrap_or_default() {
-            scripts.extend(content.get("js").map(strings).unwrap_or_default());
+        for content in manifest.get("content_scripts").map_or_default(objects) {
+            scripts.extend(content.get("js").map_or_default(strings));
         }
         scripts.extend(web_accessible_scripts(manifest));
         let mut out: Vec<PluginInput> = scripts
@@ -69,7 +69,7 @@ impl Plugin for BrowserExtension {
             .map(PluginInput::Entry)
             .collect();
         for key in PAGE_KEYS {
-            for page in get_in(manifest, key).map(strings).unwrap_or_default() {
+            for page in get_in(manifest, key).map_or_default(strings) {
                 for candidate in page_candidates(config.base, page) {
                     out.extend(
                         html_entries(cx, "", &candidate)
@@ -103,7 +103,7 @@ fn web_accessible_scripts(manifest: &ConfigValue) -> Vec<&str> {
         ConfigValue::Array(items) => items
             .iter()
             .flat_map(|item| match item {
-                ConfigValue::Object(_) => item.get("resources").map(strings).unwrap_or_default(),
+                ConfigValue::Object(_) => item.get("resources").map_or_default(strings),
                 other => strings(other),
             })
             .collect(),

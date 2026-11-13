@@ -354,7 +354,7 @@ pub struct CheckoutLock {
 /// The lock file of the checkout `dir`: `<name>.lock` beside it, outside the checkout, so no tool reads it.
 #[must_use]
 pub fn lock_path(dir: &Path) -> PathBuf {
-    let mut name = dir.file_name().map(std::ffi::OsStr::to_os_string).unwrap_or_default();
+    let mut name = dir.file_name().map_or_default(std::ffi::OsStr::to_os_string);
     name.push(".lock");
     dir.with_file_name(name)
 }

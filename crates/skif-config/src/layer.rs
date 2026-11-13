@@ -87,10 +87,9 @@ impl ParsedFile {
         let extends: Vec<String> = table
             .get("extends")
             .and_then(Value::as_array)
-            .map(|items| items.iter().filter_map(Value::as_str).map(str::to_owned).collect())
-            .unwrap_or_default();
+            .map_or_default(|items| items.iter().filter_map(Value::as_str).map(str::to_owned).collect());
         Ok(Self {
-            dir: path.parent().map(Path::to_path_buf).unwrap_or_default(),
+            dir: path.parent().map_or_default(Path::to_path_buf),
             table,
             spans,
             root,

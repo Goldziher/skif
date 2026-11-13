@@ -48,8 +48,7 @@ impl Plugin for ReactCosmos {
             config
                 .value
                 .get("plugins")
-                .map(strings)
-                .unwrap_or_default()
+                .map_or_default(strings)
                 .into_iter()
                 .filter_map(|id| module_input("", id, false)),
         );

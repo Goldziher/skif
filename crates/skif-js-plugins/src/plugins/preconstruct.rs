@@ -23,7 +23,7 @@ impl Plugin for Preconstruct {
     }
 
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
-        let entrypoints = config.value.get("entrypoints").map(strings).unwrap_or_default();
+        let entrypoints = config.value.get("entrypoints").map_or_default(strings);
         let paths: Vec<String> = entrypoints.into_iter().map(|id| join_rel("src", id)).collect();
         production_entries(config.base, paths.iter().map(String::as_str))
     }

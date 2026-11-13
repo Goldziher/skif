@@ -34,8 +34,7 @@ impl Plugin for Varlock {
         let mut paths: Vec<String> = manifest(cx)
             .as_ref()
             .and_then(|manifest| get_in(manifest, &["varlock", "loadPath"]))
-            .map(|value| strings(value).into_iter().map(str::to_owned).collect())
-            .unwrap_or_default();
+            .map_or_default(|value| strings(value).into_iter().map(str::to_owned).collect());
         if paths.is_empty() {
             paths.push(".".to_owned());
         }

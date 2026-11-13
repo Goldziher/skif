@@ -52,8 +52,7 @@ impl Plugin for Borp {
         let mut out: Vec<PluginInput> = config
             .value
             .get("reporters")
-            .map(strings)
-            .unwrap_or_default()
+            .map_or_default(strings)
             .into_iter()
             .filter_map(reporter)
             .collect();

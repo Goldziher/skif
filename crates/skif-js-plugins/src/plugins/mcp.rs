@@ -69,14 +69,7 @@ impl Plugin for Mcp {
                     continue;
                 };
                 let mut words = vec![quote_word(command)];
-                words.extend(
-                    server
-                        .get("args")
-                        .map(strings)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(quote_word),
-                );
+                words.extend(server.get("args").map_or_default(strings).into_iter().map(quote_word));
                 let script = expand_project_dir(&words.join(" "));
                 let dir = server
                     .get("cwd")
