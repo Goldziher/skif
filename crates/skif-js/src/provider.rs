@@ -150,7 +150,7 @@ impl RuleProvider for JsProvider {
             out.report_other_project_file(file);
         }
         for file in analysis.other_project_build_sources() {
-            out.report_other_project_build_source(file.clone());
+            out.report_other_project_build_source(file);
         }
         for (manifest_dir, name) in analysis.dependencies.ancestor_uses() {
             out.report_ancestor_dependency_use(manifest_dir, name);
