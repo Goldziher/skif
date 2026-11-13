@@ -4,12 +4,12 @@
 //! workspace package each one returns a [`WorkspaceInputs`] with the entry and project globs, ignore lists and
 //! references the tool implies. The plugin table of `skif-js-plugins` implements this trait.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use skif_core::{FileSystem, Span};
 pub use skif_core::{IncompleteCause, IncompleteEntries, IncompleteScope};
-use skif_js_plugins::GlobCache;
+use skif_js_plugins::{GlobCache, PackageSources};
 use skif_workspace::{Package, Workspace};
 
 /// A module alias a tool configuration declares: imports of `find` (and `find/…`) point at `target`.
@@ -248,6 +248,7 @@ pub struct WorkspaceListing {
     sequential: bool,
     nx_projects: OnceLock<Vec<(String, String)>>,
     globs: GlobCache,
+    sources: OnceLock<PackageSources>,
 }
 
 impl WorkspaceListing {
@@ -260,6 +261,7 @@ impl WorkspaceListing {
             sequential,
             nx_projects: OnceLock::new(),
             globs: GlobCache::new(),
+            sources: OnceLock::new(),
         }
     }
 
@@ -267,6 +269,15 @@ impl WorkspaceListing {
     #[must_use]
     pub const fn globs(&self) -> &GlobCache {
         &self.globs
+    }
+
+    /// An empty listing of the source files below `dir`, a package directory of `workspace`, that shares the texts it
+    /// reads with the listings of the run's other packages ([`PackageSources::within`]): the sources of a member are
+    /// also sources of the root package, and each file is read once for the plugins of both.
+    #[must_use]
+    pub fn package_sources(&self, workspace: &Workspace, dir: &Path) -> PackageSources {
+        let shared = skif_core::get_or_compute(&self.sources, || PackageSources::new(&workspace.root));
+        PackageSources::within(dir, shared)
     }
 
     /// The directories of the `project.json` files that the source walk reaches in `workspace`, relative to its root
