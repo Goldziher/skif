@@ -596,7 +596,9 @@ tw = { as = "css" }
 only the patterns ending in `!` count and the others are excluded; when none ends in `!`, the defaults apply. The
 entries that do not end in `!` are also removed from the project, so a file only they reach (`scripts/*.ts` next to
 `src/index.ts!`) is not reported as unused, and the files that tools add to the project are removed as well, as are
-the development entries of plugins (stories, test files, Vitest `setupFiles`): they are no production code.
+the development entries of plugins (stories, test files, Vitest `setupFiles`): they are no production code. A plain
+pattern that matches what a pattern ending in `!` selects (`src/main.js` or `src/**` next to `src/main.js!`) therefore
+excludes the files from a production run, which `stale-js-config` reports.
 
 **Incomplete entries.** When skif cannot know all the entry files of a package (a tool configuration it cannot read
 statically, or a published `main`, `exports` or `bin` that maps to no source file), a file no known entry reaches may
@@ -776,6 +778,15 @@ The rest of knip's configuration hints are part of `stale-js-config` too:
 - `top-level-unconfigured` and `workspace-unconfigured`: more than 20 unused files that are more than a fifth as many
   as the files the analysis reached suggest missing entries, with knip's thresholds. A single-package workspace gets one hint; otherwise
   each package with more than one unused file gets one, largest first.
+
+One hint has no knip counterpart: a plain `entry` or `project` pattern that cancels a pattern ending in `!` of the same
+list (`[js]` or a `[js.workspaces]` table). A `!` pattern naming one file is cancelled by every plain pattern that
+matches the file (`src/main.js` or `src/**` next to `src/main.js!`); a `!` glob only by the same glob (`src/**` next to
+`src/**!`), so a plain glob written differently (`src/**/*.js` next to `src/**!`) is not reported. Patterns are compared
+as skif compiles them, without surrounding whitespace or a leading `./`. In a production run the plain pattern excludes
+what the `!` one selects, so the files are left out instead of kept; in a normal run the `!` pattern selects them on
+its own. Remove the plain pattern to keep the files in both modes, or the `!` one if they are not production code.
+`project` patterns are not judged with `use-tsconfig-files`.
 
 **Where binaries are run.** `unlisted-binaries` reads the commands of the `package.json` scripts, the commands that
 plugins read from the files of their tools (workflow steps of `.github/workflows`, Git hooks, `lint-staged` tasks and

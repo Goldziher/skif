@@ -21,7 +21,8 @@ pub static META: RuleMeta = RuleMeta::new(
     Category::Js,
     Some(Severity::Warning),
     Fixability::None,
-    "A `[js]` setting matched nothing or is redundant, a published entry file is missing, or many files are unused.",
+    "A `[js]` setting matched nothing, is redundant or cancels another pattern, a published entry file is missing, or \
+     many files are unused.",
 );
 
 /// The rules that consult `ignore-dependencies`. An entry can only be called stale when all of them ran.
@@ -48,7 +49,8 @@ const UNRESOLVED_RULES: [&str; 1] = ["unresolved-imports"];
 /// top-level `entry` or `project` in a workspace with several packages (`entry-top-level`, `project-top-level`), a
 /// `project` extension skif does not analyse or a component extension it leaves out (`project-extension-*`), a path
 /// `package.json` publishes that names no file (`package-entry`), and many unused files, which suggest missing entries
-/// (`top-level-unconfigured`, `workspace-unconfigured`).
+/// (`top-level-unconfigured`, `workspace-unconfigured`). Beyond knip, it reports a plain `entry` or `project` pattern
+/// that selects what a pattern ending in `!` of its list selects: in production mode the plain one excludes it.
 ///
 /// It also reports knip's tag hints: a tag that exempts by configuration (`@internal` in production mode, an
 /// `ignore-tags` name of `unused-exports`) on an export or enum or namespace member that is used anyway.
@@ -142,7 +144,11 @@ impl StaleJsConfig {
 
     fn report_hint(analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>, hint: &ConfigHint) {
         let ConfigHint {
-            kind, key, identifier, ..
+            kind,
+            key,
+            identifier,
+            cancelled,
+            ..
         } = hint;
         let (message, help) = match kind {
             HintKind::EntryRedundant => (
@@ -168,6 +174,14 @@ impl StaleJsConfig {
             HintKind::PackageEntry => (
                 format!("`{identifier}` in `{key}` of `package.json` names no file"),
                 "correct the path, or build the package if it is build output that is not gitignored",
+            ),
+            HintKind::MarkerCancelled => (
+                format!(
+                    "`{identifier}` in `{key}` excludes in production mode what `{}` selects",
+                    cancelled.as_deref().unwrap_or_default()
+                ),
+                "remove the plain pattern, since the `!` one applies outside production mode too, or remove the `!` \
+                 one if the files are not production code",
             ),
         };
         let package = hint.package.and_then(|id| analysis.workspace.package(id));
