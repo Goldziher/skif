@@ -982,7 +982,8 @@ fn parent_dir(path: &str) -> &str {
 }
 
 /// The imports of the parsed file `path` that name a file by relative specifier, with that file: its imports,
-/// requires, re-exports and dynamic imports; globs, test-runner mocks and specifiers with a query are left out.
+/// requires, re-exports, dynamic imports and resolve calls (`require.resolve`, `import.meta.resolve`); globs,
+/// test-runner mocks and specifiers with a query are left out.
 fn relative_targets<'m>(path: &str, module: &'m ModuleInfo, is_file: &FileProbe<'_>) -> Vec<(&'m Import, String)> {
     let dir = parent_dir(path);
     module
@@ -1630,8 +1631,9 @@ fn bare_package(specifier: &str) -> Option<&str> {
     (!local).then(|| package_name(specifier))
 }
 
-/// The packages a source file imports by bare specifier, as skif's parser reads its imports, requires, re-exports and
-/// dynamic imports; globs and test-runner mocks are not imports of a package. Empty for a file it cannot parse.
+/// The packages a source file imports by bare specifier, as skif's parser reads its imports, requires, re-exports,
+/// dynamic imports and resolve calls (`require.resolve`, `import.meta.resolve`), which use the package they name;
+/// globs and test-runner mocks are not imports of a package. Empty for a file it cannot parse.
 fn imported_packages(path: &str, source: &str) -> BTreeSet<String> {
     let options = ParseOptions {
         in_file_references: false,
