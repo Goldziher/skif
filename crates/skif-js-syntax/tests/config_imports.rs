@@ -1307,6 +1307,80 @@ fn a_write_through_this_of_an_object_a_call_makes_leaves_the_imported_values_kno
     }
 }
 
+/// A module that imports `base` and whose exported `touch` runs `body`, where `make` makes an object holding
+/// `base.plugins` at `list`, with `member` beside it.
+fn made_by_touch(member: &str, body: &str) -> &'static str {
+    let source = format!(
+        "import {{ base }} from './base';\nconst make = () => ({{ list: base.plugins, {member} }});\n\
+         export function touch() {{ {body} }}"
+    );
+    Box::leak(source.into_boxed_str())
+}
+
+const PUSHING_GETTER: &str = "get grow() { this.list.push('x'); return 0; }";
+const PUSHING_SETTER: &str = "set grow(v) { this.list.push(v); }";
+const PUSHING_ITERATOR: &str = "*[Symbol.iterator]() { this.list.push('x'); yield 0; }";
+
+/// A getter, a setter or an iterator runs with its object as `this` where code reads or writes its key, destructures,
+/// spreads or iterates the object, or gives it to a builtin (`JSON.stringify`), with no call of it written: a write
+/// through `this` there changes what the object holds, as one in a method a call runs does, so calling the function
+/// that runs it leaves the imported value the object holds unknown. A getter run by another one on its `this` writes
+/// through it too, and the object may hold the value from a write after it is made. The explicit method calls are
+/// the controls.
+#[test]
+fn a_write_through_this_in_an_accessor_or_iterator_run_implicitly_changes_the_imported_values() {
+    let class = "import { base } from './base';\nclass Box {\n  constructor() { this.list = base.plugins; }\n  \
+                 get grow() { this.list.push('x'); return 0; }\n  add() { this.list.push('x'); }\n}\n";
+    let shared = [
+        made_by_touch(PUSHING_GETTER, "return make().grow;"),
+        made_by_touch(PUSHING_GETTER, "const { grow } = make(); return grow;"),
+        made_by_touch(PUSHING_GETTER, "return { ...make() };"),
+        made_by_touch(PUSHING_GETTER, "return JSON.stringify(make());"),
+        made_by_touch(PUSHING_SETTER, "make().grow = 'x';"),
+        made_by_touch(PUSHING_ITERATOR, "return [...make()];"),
+        made_by_touch(PUSHING_ITERATOR, "for (const _ of make()) {}"),
+        made_by_touch(PUSHING_ITERATOR, "const [first] = make(); return first;"),
+        made_by_touch(
+            &format!("{PUSHING_GETTER}, get twice() {{ return this.grow; }}"),
+            "return make().twice;",
+        ),
+        &*Box::leak(format!("{class}export function touch() {{ return new Box().grow; }}").into_boxed_str()),
+        "import { base } from './base';\n\
+         const make = () => ({ list: base.plugins, *[Symbol.iterator]() { this.list.push('x'); yield 0; } });\n\
+         function* all() { yield* make(); }\nexport function touch() { return all().next(); }",
+        "import { base } from './base';\nconst make = () => ({ get grow() { this.list.push('x'); return 0; } });\n\
+         export function touch() { const box = make(); box.list = base.plugins; return box.grow; }",
+        made_by_touch("add() { this.list.push('x'); }", "make().add();"),
+        &*Box::leak(format!("{class}export function touch() {{ new Box().add(); }}").into_boxed_str()),
+    ];
+    for shared in shared {
+        let value = shared_config(shared, "touch", "touch();");
+        assert_eq!(
+            read_at(&value, &["plugins"]),
+            &ConfigValue::Unknown,
+            "{shared}: {value:?}"
+        );
+        assert_eq!(read_at(&value, &["name"]), &s("app"), "{shared}: {value:?}");
+    }
+}
+
+/// A getter or an iterator that only reads through `this`, or only gives a key of `this` itself a new value, changes
+/// nothing the object holds, nor does one no code runs or a read of another key: the imported values stay known.
+#[test]
+fn an_accessor_or_iterator_that_changes_nothing_the_object_holds_leaves_the_imported_values_known() {
+    for shared in [
+        made_by_touch("get grow() { return this.list.length; }", "return make().grow;"),
+        made_by_touch("get grow() { this.count = 1; return 0; }", "return make().grow;"),
+        made_by_touch("*[Symbol.iterator]() { yield* this.list; }", "return [...make()];"),
+        made_by_touch(PUSHING_GETTER, "make(); return 0;"),
+        made_by_touch(PUSHING_GETTER, "return make().list.length;"),
+    ] {
+        let value = shared_config(shared, "touch", "touch();");
+        assert_eq!(read_at(&value, &["plugins"]), &strings(&[]), "{shared}: {value:?}");
+        assert_eq!(read_at(&value, &["name"]), &s("app"), "{shared}: {value:?}");
+    }
+}
+
 /// A write through `this` changes a value of a module where `this` may be one: in a function the module hands out,
 /// which a namespace import calls on the module's namespace, and in a constructor through a key of the instance, which
 /// may hold such a value.
