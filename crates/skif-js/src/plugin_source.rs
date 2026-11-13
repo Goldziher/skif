@@ -349,6 +349,7 @@ impl InputSource for PluginSource {
             package.is_root,
         );
         let modules = ConfigModules::new(request.fs, request.workspace);
+        let sources = request.listing.package_sources(request.workspace, &dir);
         let context = PluginContext {
             dir: &dir,
             is_root: package.is_root,
@@ -361,7 +362,7 @@ impl InputSource for PluginSource {
             modules: Some(&modules),
             nx: None,
             globs: request.listing.globs(),
-            sources: None,
+            sources: Some(&sources),
         };
         // The Nx projects are those the source walk reaches, listed once for every package of the run.
         let package_dir = package.dir.to_string_lossy().replace('\\', "/");
@@ -386,10 +387,92 @@ impl InputSource for PluginSource {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use skif_config::{PluginConfig, PluginOptions};
+    use std::collections::BTreeMap;
+    use std::io;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex};
 
-    use super::with_config_file;
+    use indexmap::IndexMap;
+    use skif_config::{Config, PluginConfig, PluginOptions};
+    use skif_core::{DirEntry, FileSystem, MemoryFs};
+    use skif_workspace::Workspace;
+
+    use super::{PluginSource, with_config_file};
+    use crate::input::{InputRequest, InputSource, WorkspaceListing};
+
+    /// A file system that counts the reads of each file.
+    struct CountingReads {
+        inner: MemoryFs,
+        reads: Mutex<BTreeMap<PathBuf, usize>>,
+    }
+
+    impl FileSystem for CountingReads {
+        fn read_to_string(&self, path: &Path) -> io::Result<Arc<str>> {
+            *self.reads.lock().unwrap().entry(path.to_path_buf()).or_default() += 1;
+            self.inner.read_to_string(path)
+        }
+
+        fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
+            self.inner.read_dir(path)
+        }
+
+        fn is_file(&self, path: &Path) -> bool {
+            self.inner.is_file(path)
+        }
+
+        fn is_dir(&self, path: &Path) -> bool {
+            self.inner.is_dir(path)
+        }
+    }
+
+    /// The packages of one run share the texts of their sources: the root package, which depends on `execa`, reads
+    /// the script of a member, and the member, which inherits `execa`, finds the command in it without reading it
+    /// again.
+    #[test]
+    fn the_packages_of_a_run_read_a_shared_source_file_once() {
+        let memory = MemoryFs::new()
+            .with_file(
+                "/ws/package.json",
+                r#"{"name":"r","workspaces":["packages/*"],"devDependencies":{"execa":"9.0.0"}}"#,
+            )
+            .with_file("/ws/packages/a/package.json", r#"{"name":"a"}"#)
+            .with_file(
+                "/ws/packages/a/scripts/release.ts",
+                r#"import { execa } from "execa"; await execa("changeset", ["publish"]);"#,
+            );
+        let config = Config::from_toml_str("").unwrap();
+        let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &memory).unwrap();
+        let fs = CountingReads {
+            inner: memory,
+            reads: Mutex::default(),
+        };
+        let listing = WorkspaceListing::new(true, true);
+        let source = PluginSource::new(IndexMap::new());
+        let inputs = |name: &str, key: &str| {
+            let package = workspace.package_by_name(name).unwrap();
+            source.inputs(&InputRequest {
+                workspace: &workspace,
+                package,
+                fs: &fs,
+                ancestor_dependencies: &[],
+                workspace_key: key,
+                listing: &listing,
+            })
+        };
+        let script = Path::new("/ws/packages/a/scripts/release.ts");
+        let reads = || fs.reads.lock().unwrap().get(script).copied();
+        let _ = inputs("r", ".");
+        assert_eq!(reads(), Some(1), "the root package reads the member's script");
+        let member = inputs("a", "packages/a");
+        assert!(
+            member.binaries.contains(&"changeset".to_owned()),
+            "{:?}",
+            member.binaries
+        );
+        assert_eq!(reads(), Some(1), "the member takes the text the root package read");
+    }
 
     #[test]
     fn the_root_tsconfig_is_added_to_the_typescript_config_files() {

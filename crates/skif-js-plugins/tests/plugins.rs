@@ -10,7 +10,10 @@ use indexmap::IndexMap;
 use skif_config::{PluginConfig, PluginOptions};
 use skif_core::MemoryFs;
 use skif_js_plugins::registry;
-use skif_js_plugins::{DepRef, GlobCache, IncompleteCause, PluginContext, PluginId, PluginOutput, resolve_plugins};
+use skif_js_plugins::{
+    DepRef, GlobCache, IncompleteCause, PackageSources, PluginContext, PluginId, PluginOutput, resolve_plugins,
+    resolve_plugins_in,
+};
 
 const DIR: &str = "/ws";
 
@@ -4399,6 +4402,105 @@ fn source_scanning_plugins_read_each_source_file_once() {
     for (path, _) in &files {
         assert_eq!(reads.get(&Path::new(DIR).join(path)), Some(&1), "{path}: {reads:?}");
     }
+}
+
+/// A listing made within another takes the texts the other read: the root package and a member below it, both with
+/// `execa`, read the member's script once between them, and each finds its command.
+#[test]
+fn listings_within_one_another_read_a_shared_source_file_once() {
+    let files = [
+        (
+            "packages/a/scripts/release.ts",
+            r#"import { execa } from "execa"; await execa("changeset", ["publish"]);"#,
+        ),
+        ("packages/a/package.json", r#"{"name":"a"}"#),
+    ];
+    let fs = CountingReads {
+        inner: fs_with(&files),
+        reads: std::sync::Mutex::default(),
+    };
+    let dependencies = vec!["execa".to_owned()];
+    let scripts = IndexMap::new();
+    let plugins = IndexMap::new();
+    let globs = GlobCache::new();
+    let root_sources = PackageSources::new(DIR);
+    let member_dir = Path::new(DIR).join("packages/a");
+    let member_sources = PackageSources::within(&member_dir, &root_sources);
+    let root = PluginContext {
+        dir: Path::new(DIR),
+        is_root: true,
+        package_name: Some("app"),
+        dependencies: &dependencies,
+        inherited_dependencies: &[],
+        scripts: &scripts,
+        fs: &fs,
+        plugins: &plugins,
+        modules: None,
+        nx: None,
+        globs: &globs,
+        sources: Some(&root_sources),
+    };
+    let member = PluginContext {
+        dir: &member_dir,
+        is_root: false,
+        package_name: Some("a"),
+        sources: Some(&member_sources),
+        ..root
+    };
+    let script = member_dir.join("scripts").join("release.ts");
+    let reads = || fs.reads.lock().unwrap().get(&script).copied();
+    let _ = resolve_plugins(&root);
+    assert_eq!(reads(), Some(1), "the root package reads the member's script");
+    let results = resolve_plugins(&member);
+    let binaries = &output(&results, "execa").referenced_binaries;
+    assert!(binaries.contains(&"changeset".to_owned()), "{binaries:?}");
+    assert_eq!(reads(), Some(1), "the member takes the text the root package read");
+}
+
+/// An Nx project's sources are also its package's: the package's plugins and the project's read a script of the
+/// project once between them. `execa` finds the script's command for the package, and `bun`, which also runs in the
+/// project, takes the text the package read and finds the `Bun.build` entry point relative to the project.
+#[test]
+fn an_nx_project_takes_the_source_texts_its_package_read() {
+    let files = [
+        ("nx.json", "{}"),
+        ("apps/a/project.json", "{}"),
+        (
+            "apps/a/scripts/build.ts",
+            r#"import { execa } from "execa";
+            await execa("changeset", ["publish"]);
+            await Bun.build({ entrypoints: ["./src/main.ts"] });"#,
+        ),
+    ];
+    let fs = CountingReads {
+        inner: fs_with(&files),
+        reads: std::sync::Mutex::default(),
+    };
+    let dependencies: Vec<String> = ["execa", "nx", "@types/bun"].map(str::to_owned).to_vec();
+    let scripts = IndexMap::new();
+    let plugins = IndexMap::new();
+    let ctx = PluginContext {
+        dir: Path::new(DIR),
+        is_root: true,
+        package_name: Some("app"),
+        dependencies: &dependencies,
+        inherited_dependencies: &[],
+        scripts: &scripts,
+        fs: &fs,
+        plugins: &plugins,
+        modules: None,
+        nx: None,
+        globs: &GlobCache::new(),
+        sources: None,
+    };
+    let results = resolve_plugins_in(&ctx, "", || vec![("apps/a".to_owned(), true)]);
+
+    let binaries = &output(&results, "execa").referenced_binaries;
+    assert!(binaries.contains(&"changeset".to_owned()), "{binaries:?}");
+    let production = &output(&results, "bun").production_entries;
+    assert!(production.contains(&"apps/a/src/main.ts".to_owned()), "{production:?}");
+    let script = Path::new(DIR).join("apps/a/scripts/build.ts");
+    assert_eq!(fs.reads.lock().unwrap().get(&script), Some(&1));
 }
 
 #[test]
