@@ -1532,7 +1532,8 @@ fn child_process_calls_are_commands() {
             "sqlite3 db.sqlite .dump",
             "openssl req -x509",
             "docker-compose up -d",
-            "gopls"
+            "gopls",
+            "sh -c 'a && b'"
         ]
     );
     let required = parse(
@@ -1542,6 +1543,25 @@ fn child_process_calls_are_commands() {
     assert_eq!(required.commands, ["xcopy /E"]);
     let other = parse("c.ts", "import { exec } from './exec';\nexec('not-a-command');\n");
     assert!(other.commands.is_empty(), "{:?}", other.commands);
+}
+
+/// A literal argument that is not a plain word (SQL, a sentence, an empty string) reaches the program as one word, so
+/// it is single-quoted in the command line; a program that is not a plain word drops the call.
+#[test]
+fn child_process_arguments_that_are_not_plain_words_are_quoted() {
+    let source = r#"import { execFileSync, spawn } from 'node:child_process';
+execFileSync('sqlite3', [db, "select json_extract(value, '$.status') from t;"]);
+spawn('eslint', ['src', 'a && b', '']);
+spawn('my tool', ['x']);
+"#;
+    let info = parse("a.ts", source);
+    assert_eq!(
+        info.commands,
+        [
+            r"sqlite3 'select json_extract(value, '\''$.status'\'') from t;'",
+            "eslint src 'a && b' ''"
+        ]
+    );
 }
 
 /// A `cwd` option, whatever its value, runs the command in a directory the script parser cannot place, so the command
