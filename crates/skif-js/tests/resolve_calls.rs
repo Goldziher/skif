@@ -100,10 +100,7 @@ fn a_commonjs_resolve_call_keeps_the_file_used_and_uses_no_export() {
             "package.json",
             r#"{"name": "app", "version": "1.0.0", "private": true, "packageManager": "npm@11.0.0", "main": "src/index.js"}"#,
         ),
-        (
-            "src/index.js",
-            "const p = require.resolve('./lib');\nconsole.log(p);\n",
-        ),
+        ("src/index.js", "const p = require.resolve('./lib');\nconsole.log(p);\n"),
         ("src/lib.js", "exports.a = 1;\n"),
     ]);
     assert_eq!(found(&diagnostics, "unused-files"), none());
@@ -131,8 +128,14 @@ fn a_resolved_package_is_a_used_dependency() {
 #[test]
 fn explain_usage_names_a_resolve_call_as_taking_no_export() {
     let text = explain(&ESM_FILES, "src/other.js", Some("b"));
-    assert!(text.contains("    src/index.js:4 (resolve: its path, no export)\n"), "{text}");
+    assert!(
+        text.contains("    src/index.js:4 (resolve: its path, no export)\n"),
+        "{text}"
+    );
     assert!(text.contains("  export `b` of src/other.js:\n"), "{text}");
-    assert!(text.contains("    no module imports it by name or as a whole\n"), "{text}");
+    assert!(
+        text.contains("    no module imports it by name or as a whole\n"),
+        "{text}"
+    );
     assert!(text.contains("  => not used by another module\n"), "{text}");
 }
