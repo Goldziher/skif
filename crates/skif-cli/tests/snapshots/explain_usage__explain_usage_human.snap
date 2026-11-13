@@ -4,7 +4,7 @@ expression: "redact(&result.stdout, dir.path())"
 ---
 lib.ts
   imported by 2 place(s):
-    a.test.ts:1 (side-effect: the whole module)
+    a.test.ts:1 (side-effect: runs it, no export)
     barrel.ts:1 (export-from: run)
   reached from an entry through: a.test.ts -> lib.ts
   export `run` of lib.ts:
