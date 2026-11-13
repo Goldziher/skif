@@ -4782,8 +4782,10 @@ fn zx_under_powershell_runs_no_cmdlet_binaries() {
     assert_eq!(runs("scripts/bash.mjs"), ["New-Item", "gci", "turbo"]);
 }
 
+/// execa and nano-spawn hand each argument to the program as one word, without a shell: one that is not a plain word
+/// is quoted, so the call still runs its program and the argument runs nothing.
 #[test]
-fn execa_and_nano_spawn_skip_calls_with_an_unsafe_argument() {
+fn execa_and_nano_spawn_quote_an_argument_that_is_not_a_plain_word() {
     let files = [
         (
             "scripts/release.ts",
@@ -4796,15 +4798,12 @@ fn execa_and_nano_spawn_skip_calls_with_an_unsafe_argument() {
         ),
     ];
     let results = resolve(&files, &["execa", "nano-spawn"]);
-    for id in ["execa", "nano-spawn"] {
-        let out = output(&results, id);
-        assert!(
-            out.referenced_binaries.is_empty(),
-            "{id}: {:?}",
-            out.referenced_binaries
-        );
-        assert!(out.entries.is_empty(), "{id}: {:?}", out.entries);
-    }
+    let execa = output(&results, "execa");
+    assert!(execa.referenced_binaries.is_empty(), "{:?}", execa.referenced_binaries);
+    assert_eq!(execa.entries, ["scripts/build.js"]);
+    let nano_spawn = output(&results, "nano-spawn");
+    assert_eq!(nano_spawn.referenced_binaries, ["eslint"]);
+    assert!(nano_spawn.entries.is_empty(), "{:?}", nano_spawn.entries);
 }
 
 #[test]

@@ -276,6 +276,25 @@ fn child_process_commands_run_binaries_of_the_file() {
     assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none());
 }
 
+/// A `child_process` call whose literal argument is not a plain word (an SQL statement) still runs its program: the
+/// binary is judged at the file.
+#[test]
+fn child_process_commands_with_an_argument_that_is_not_a_plain_word_run_their_program() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","version":"1.0.0","main":"src/index.ts"}"#,
+        ),
+        (
+            "src/index.ts",
+            "import { execFileSync } from 'node:child_process';\n\
+             export const read = (db: string) =>\n  \
+             execFileSync('sqlite3', [db, `select json_extract(value, '$.status') from goals limit 1;`]);\n",
+        ),
+    ]);
+    assert_eq!(found(&diagnostics, "unlisted-binaries"), ["src/index.ts: sqlite3"]);
+}
+
 /// The commands of a workflow, and of a source file that runs them with `execa`, run binaries of that file. A workflow
 /// step's binary named directly may come from the runner, so only one reached through a package manager is reported.
 #[test]
