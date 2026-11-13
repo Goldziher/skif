@@ -9,6 +9,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `stale-js-config` reports a plain `entry` or `project` pattern whose list (`[js]` or a `[js.workspaces]` table) also
+  holds the same pattern ending in `!`, as in `entry = ["src/main.js", "src/main.js!"]`. In a production run the plain
+  pattern excludes what the `!` one selects, and in a normal run the `!` one selects it alone, so the hint says to
+  remove the plain pattern. Patterns are compared as written: one that only overlaps a `!` pattern is not reported.
+  `skif migrate --from knip` keeps both patterns, since knip also excludes them in production mode
+  ([#227](https://github.com/Goldziher/skif/issues/227)).
+
 ## [0.4.0] - 2026-11-12
 
 ### Breaking changes

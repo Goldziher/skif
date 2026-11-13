@@ -48,7 +48,9 @@ const UNRESOLVED_RULES: [&str; 1] = ["unresolved-imports"];
 /// top-level `entry` or `project` in a workspace with several packages (`entry-top-level`, `project-top-level`), a
 /// `project` extension skif does not analyse or a component extension it leaves out (`project-extension-*`), a path
 /// `package.json` publishes that names no file (`package-entry`), and many unused files, which suggest missing entries
-/// (`top-level-unconfigured`, `workspace-unconfigured`).
+/// (`top-level-unconfigured`, `workspace-unconfigured`). Beyond knip, it reports a plain `entry` or `project` pattern
+/// whose list also holds the same pattern ending in `!`: in production mode the plain one excludes what the `!` one
+/// selects.
 ///
 /// It also reports knip's tag hints: a tag that exempts by configuration (`@internal` in production mode, an
 /// `ignore-tags` name of `unused-exports`) on an export or enum or namespace member that is used anyway.
@@ -168,6 +170,11 @@ impl StaleJsConfig {
             HintKind::PackageEntry => (
                 format!("`{identifier}` in `{key}` of `package.json` names no file"),
                 "correct the path, or build the package if it is build output that is not gitignored",
+            ),
+            HintKind::MarkerCancelled => (
+                format!("`{identifier}` in `{key}` excludes in production mode what `{identifier}!` selects"),
+                "remove the plain pattern, since the `!` one applies outside production mode too, or remove the `!` \
+                 one if the files are not production code",
             ),
         };
         let package = hint.package.and_then(|id| analysis.workspace.package(id));
