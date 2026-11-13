@@ -343,7 +343,8 @@ In `entry` and `project`, `x` and `x!` are the same pattern in a normal run, and
 an entry while `x` excludes the file from the project, so keeping both would drop the file from the production run.
 When the merge adds the marker to an existing pattern, the report names the list (`replaced-existing`). In an ignore
 list `x` applies in every mode and `x!` in production mode only, so `x` already covers `x!`. A plain pattern that only
-overlaps a `!` pattern (`src/**` next to `src/main.js!`) is a different entry and stays.
+overlaps a `!` pattern (`src/**` next to `src/main.js!`) is a different entry and stays, and `stale-js-config` reports
+it when it matches the file of the `!` pattern.
 
 Migrating the tools in steps works too, and ends with the same checks as one run:
 
