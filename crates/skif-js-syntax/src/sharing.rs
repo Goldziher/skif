@@ -4289,3 +4289,74 @@ pub(crate) fn changed_by_call<'p, 'a>(
         callee => callee.as_member_expression().map(MemberExpression::object),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fmt::Write as _;
+    use std::path::Path;
+
+    use oxc_allocator::Allocator;
+    use oxc_parser::Parser;
+    use oxc_span::SourceType;
+
+    use super::{Change, Imports, MAX_PLACES, Unstable, Write};
+
+    /// The imports of a module that imports nothing.
+    struct NoModules;
+
+    impl Imports for NoModules {
+        fn follows(&self, _: &str) -> bool {
+            false
+        }
+
+        fn changes_modules(&self, _: &str) -> bool {
+            false
+        }
+    }
+
+    /// How many bindings [`chain`] declares: a change of one of them reaches more than [`MAX_PLACES`] places.
+    const LINKED: usize = 2 * MAX_PLACES;
+
+    /// A module of [`LINKED`] top-level bindings `b0`, `b1`, … each holding the object the one before it holds, then
+    /// the statements `changes`.
+    fn chain(changes: &str) -> String {
+        let mut source = String::from("const b0 = {};\n");
+        for index in 1..LINKED {
+            writeln!(source, "const b{index} = b{};", index - 1).unwrap();
+        }
+        source.push_str(changes);
+        source
+    }
+
+    /// How code the evaluator does not follow may change each binding of [`chain`] with `changes`.
+    fn changes_of(changes: &str) -> Vec<Option<Change>> {
+        let source = chain(changes);
+        let allocator = Allocator::default();
+        let source_type = SourceType::from_path(Path::new("config.js")).unwrap();
+        let program = Parser::new(&allocator, &source, source_type).parse().program;
+        let unstable = Unstable::of(&program, &NoModules);
+        (0..LINKED)
+            .map(|index| unstable.of_top(&format!("b{index}")).cloned())
+            .collect()
+    }
+
+    /// A change of all a binding holds reaches every binding linked to it in full, but for the binding itself, whose
+    /// change the evaluator applies.
+    #[test]
+    fn a_change_in_full_of_a_class_leaves_the_binding_changed_as_it_is() {
+        let in_full = Some(Change::Contents(vec![Write::default()]));
+        let mut expected = vec![in_full; LINKED];
+        expected[0] = None;
+        assert_eq!(changes_of("mutate(b0);\n"), expected);
+    }
+
+    /// A second change in full of the same class, through another binding or as a new value of a key of the same one,
+    /// changes the binding the first left as it is: each binding is then changed in full.
+    #[test]
+    fn a_second_change_in_full_of_a_class_changes_the_binding_the_first_left() {
+        let expected = vec![Some(Change::Contents(vec![Write::default()])); LINKED];
+        for changes in ["mutate(b0);\nmutate(b1);\n", "mutate(b0);\nb0.x = 1;\n"] {
+            assert_eq!(changes_of(changes), expected, "{changes}");
+        }
+    }
+}
