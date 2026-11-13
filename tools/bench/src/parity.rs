@@ -982,7 +982,8 @@ fn parent_dir(path: &str) -> &str {
 }
 
 /// The imports of the parsed file `path` that name a file by relative specifier, with that file: its imports,
-/// requires, re-exports and dynamic imports; globs, test-runner mocks and specifiers with a query are left out.
+/// requires, re-exports, dynamic imports and resolve calls (`require.resolve`, `import.meta.resolve`); globs,
+/// test-runner mocks and specifiers with a query are left out.
 fn relative_targets<'m>(path: &str, module: &'m ModuleInfo, is_file: &FileProbe<'_>) -> Vec<(&'m Import, String)> {
     let dir = parent_dir(path);
     module
@@ -1017,7 +1018,7 @@ fn relative_imports(path: &str, source: &str, is_file: &FileProbe<'_>) -> Vec<St
 /// The exports of other files that the parsed file `path` imports by relative specifier, as `(file, export)`: a named
 /// import or re-export by its name, a default import as `default`, a namespace by the members read through it, and a
 /// namespace used as a whole, `export * from`, `import()` and `require` of the module as [`WHOLE_MODULE`]. A
-/// side-effect import uses no export.
+/// side-effect import and a resolve call (`require.resolve`, `import.meta.resolve`) use no export.
 fn imported_exports(path: &str, module: &ModuleInfo, is_file: &FileProbe<'_>) -> Vec<(String, String)> {
     let mut found = Vec::new();
     for (import, target) in relative_targets(path, module, is_file) {
@@ -1630,8 +1631,9 @@ fn bare_package(specifier: &str) -> Option<&str> {
     (!local).then(|| package_name(specifier))
 }
 
-/// The packages a source file imports by bare specifier, as skif's parser reads its imports, requires, re-exports and
-/// dynamic imports; globs and test-runner mocks are not imports of a package. Empty for a file it cannot parse.
+/// The packages a source file imports by bare specifier, as skif's parser reads its imports, requires, re-exports,
+/// dynamic imports and resolve calls (`require.resolve`, `import.meta.resolve`), which use the package they name;
+/// globs and test-runner mocks are not imports of a package. Empty for a file it cannot parse.
 fn imported_packages(path: &str, source: &str) -> BTreeSet<String> {
     let options = ParseOptions {
         in_file_references: false,
