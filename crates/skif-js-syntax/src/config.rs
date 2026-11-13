@@ -841,7 +841,11 @@ impl Modules<'_> {
             self.changing.borrow_mut().remove(&path);
             self.shallowest_cut.set(outer.min(cut));
             if let Some(analysis) = analysis {
-                self.analysed.borrow_mut().entry(path.clone()).or_default().push(Rc::new(analysis));
+                self.analysed
+                    .borrow_mut()
+                    .entry(path.clone())
+                    .or_default()
+                    .push(Rc::new(analysis));
             }
         } else {
             self.changing.borrow_mut().insert(path.clone(), Some(Rc::clone(&facts)));
