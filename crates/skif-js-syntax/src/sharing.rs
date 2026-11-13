@@ -87,6 +87,24 @@ type AliasPart = (SymbolId, Vec<String>);
 /// A part of a local that an object which is not a name or a member chain may be (`list.find(…)`, `a ? b : c`): the
 /// local's name, the keys of the part and whether the object is that part itself ([`Unstable::parts_of`]).
 pub(crate) type ObjectPart = (String, Vec<String>, bool);
+/// What a change reaches through the links ([`Sharing::reach_of`]).
+enum Reach {
+    /// The bindings it reaches, with the part it changes there.
+    Places(Vec<(SymbolId, Write)>),
+    /// Every binding of a class of linked bindings ([`Sharing::class_of`]), changed in full.
+    InFull(Rc<[SymbolId]>),
+}
+
+impl Reach {
+    /// The bindings reached, with the part changed there.
+    fn into_places(self) -> Vec<(SymbolId, Write)> {
+        match self {
+            Self::Places(places) => places,
+            Self::InFull(class) => class.iter().map(|&other| (other, Write::default())).collect(),
+        }
+    }
+}
+
 /// The most keys a path below a binding keeps; a longer one is cut to this many, standing for all that is below it.
 const MAX_KEYS: usize = 8;
 
@@ -580,7 +598,7 @@ struct Sharing<'s> {
     /// Places that may hold the same object.
     links: Vec<Link>,
     /// The bindings each binding is linked to, whatever the parts, sorted, computed for the first `usize` links
-    /// ([`Self::linked_in_full`]); cleared when links are taken back.
+    /// ([`Self::class_of`]); cleared when links are taken back.
     classes: RefCell<Option<(usize, Classes)>>,
     /// The bindings whose object or array code changes, with the part it changes.
     mutated: Vec<(SymbolId, Write)>,
@@ -1688,6 +1706,11 @@ impl Sharing<'_> {
         symbol: SymbolId,
         origin: &Write,
     ) -> Vec<(SymbolId, Write)> {
+        self.reach_of(links_of, symbol, origin).into_places()
+    }
+
+    /// [`Self::reached`], past [`MAX_PLACES`] places the class of bindings linked to `symbol` ([`Self::class_of`]).
+    fn reach_of(&self, links_of: &HashMap<SymbolId, Vec<usize>>, symbol: SymbolId, origin: &Write) -> Reach {
         let mut seen = vec![(symbol, origin.clone())];
         let mut by_symbol: HashMap<SymbolId, Vec<usize>> = HashMap::default();
         by_symbol.entry(symbol).or_default().push(0);
@@ -1710,7 +1733,9 @@ impl Sharing<'_> {
                         continue;
                     }
                     if seen.len() >= MAX_PLACES {
-                        return self.linked_in_full(symbol);
+                        return self
+                            .class_of(symbol)
+                            .map_or_else(|| Reach::Places(vec![(symbol, Write::default())]), Reach::InFull);
                     }
                     known.push(seen.len());
                     seen.push((to.symbol, next.clone()));
@@ -1718,20 +1743,16 @@ impl Sharing<'_> {
                 }
             }
         }
-        seen
+        Reach::Places(seen)
     }
 
-    /// Every binding linked to `symbol`, whatever the parts, changed in full.
-    fn linked_in_full(&self, symbol: SymbolId) -> Vec<(SymbolId, Write)> {
+    /// The bindings linked to `symbol`, whatever the parts, `symbol` among them, sorted; `None` when it has no link.
+    fn class_of(&self, symbol: SymbolId) -> Option<Rc<[SymbolId]>> {
         let mut cached = self.classes.borrow_mut();
         if cached.as_ref().is_none_or(|(count, _)| *count != self.links.len()) {
             *cached = Some((self.links.len(), classes(&self.pairs())));
         }
-        let class = cached.as_ref().and_then(|(_, classes)| classes.get(&symbol));
-        class.map_or_else(
-            || vec![(symbol, Write::default())],
-            |class| class.iter().map(|&other| (other, Write::default())).collect(),
-        )
+        cached.as_ref().and_then(|(_, classes)| classes.get(&symbol).cloned())
     }
 
     /// Marks every part of a binding that may share an object with a changed one, other than the part of the binding
@@ -1764,9 +1785,17 @@ impl Sharing<'_> {
             }
         }
         let links_of = self.links_of();
+        let mut in_full: HashMap<SymbolId, Option<SymbolId>> = HashMap::default();
         for (symbol, origin) in origins {
             let through_alias = applied.iter().find(|alias| alias.alias == symbol);
-            for (other, write) in self.reached(&links_of, symbol, &origin) {
+            let reach = self.reach_of(&links_of, symbol, &origin);
+            if let (None, Reach::InFull(class)) = (through_alias, &reach) {
+                let left = origin.covers(&Write::default()).then_some(symbol);
+                if self.repeats_in_full(&mut in_full, class, left) {
+                    continue;
+                }
+            }
+            for (other, write) in reach.into_places() {
                 // A change of what a binding that takes what `this` holds holds is a write through `this`.
                 if let Some(&site) = self.this_bound.get(&other) {
                     self.wrote_this(site, false);
@@ -1791,6 +1820,30 @@ impl Sharing<'_> {
             self.affect_imports(&links_of);
         }
         (followed, writes_modules)
+    }
+
+    /// Whether a change in full of `class` by an origin that is not an alias, which leaves the binding `left` of the
+    /// class as it is when there is one, repeats one an earlier origin made, which [`Self::share`] then skips.
+    /// `in_full` holds, by its first binding, each class changed so, with the binding the changes so far left as it
+    /// is, if any: every other binding of the class holds a change of all it holds, which a later change in full of
+    /// the class leaves as it is, so only that binding is changed when this change does not leave it too.
+    fn repeats_in_full(
+        &mut self,
+        in_full: &mut HashMap<SymbolId, Option<SymbolId>>,
+        class: &[SymbolId],
+        left: Option<SymbolId>,
+    ) -> bool {
+        let Some(unchanged) = in_full.get_mut(&class[0]) else {
+            in_full.insert(class[0], left);
+            return false;
+        };
+        if let Some(member) = *unchanged
+            && Some(member) != left
+        {
+            self.change(member, Change::Contents(vec![Write::default()]));
+            *unchanged = None;
+        }
+        true
     }
 
     /// Whether code in a function of the module, run by a call of it, may change a value of the module: a top-level
@@ -4234,5 +4287,76 @@ pub(crate) fn changed_by_call<'p, 'a>(
             None
         }
         callee => callee.as_member_expression().map(MemberExpression::object),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fmt::Write as _;
+    use std::path::Path;
+
+    use oxc_allocator::Allocator;
+    use oxc_parser::Parser;
+    use oxc_span::SourceType;
+
+    use super::{Change, Imports, MAX_PLACES, Unstable, Write};
+
+    /// The imports of a module that imports nothing.
+    struct NoModules;
+
+    impl Imports for NoModules {
+        fn follows(&self, _: &str) -> bool {
+            false
+        }
+
+        fn changes_modules(&self, _: &str) -> bool {
+            false
+        }
+    }
+
+    /// How many bindings [`chain`] declares: a change of one of them reaches more than [`MAX_PLACES`] places.
+    const LINKED: usize = 2 * MAX_PLACES;
+
+    /// A module of [`LINKED`] top-level bindings `b0`, `b1`, … each holding the object the one before it holds, then
+    /// the statements `changes`.
+    fn chain(changes: &str) -> String {
+        let mut source = String::from("const b0 = {};\n");
+        for index in 1..LINKED {
+            writeln!(source, "const b{index} = b{};", index - 1).unwrap();
+        }
+        source.push_str(changes);
+        source
+    }
+
+    /// How code the evaluator does not follow may change each binding of [`chain`] with `changes`.
+    fn changes_of(changes: &str) -> Vec<Option<Change>> {
+        let source = chain(changes);
+        let allocator = Allocator::default();
+        let source_type = SourceType::from_path(Path::new("config.js")).unwrap();
+        let program = Parser::new(&allocator, &source, source_type).parse().program;
+        let unstable = Unstable::of(&program, &NoModules);
+        (0..LINKED)
+            .map(|index| unstable.of_top(&format!("b{index}")).cloned())
+            .collect()
+    }
+
+    /// A change of all a binding holds reaches every binding linked to it in full, but for the binding itself, whose
+    /// change the evaluator applies.
+    #[test]
+    fn a_change_in_full_of_a_class_leaves_the_binding_changed_as_it_is() {
+        let in_full = Some(Change::Contents(vec![Write::default()]));
+        let mut expected = vec![in_full; LINKED];
+        expected[0] = None;
+        assert_eq!(changes_of("mutate(b0);\n"), expected);
+    }
+
+    /// A second change in full of the same class, through another binding or as a new value of a key of the same one,
+    /// changes the binding the first left as it is: each binding is then changed in full.
+    #[test]
+    fn a_second_change_in_full_of_a_class_changes_the_binding_the_first_left() {
+        let expected = vec![Some(Change::Contents(vec![Write::default()])); LINKED];
+        for changes in ["mutate(b0);\nmutate(b1);\n", "mutate(b0);\nb0.x = 1;\n"] {
+            assert_eq!(changes_of(changes), expected, "{changes}");
+        }
     }
 }
