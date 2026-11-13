@@ -4404,14 +4404,15 @@ fn source_scanning_plugins_read_each_source_file_once() {
     }
 }
 
-/// A listing made within another takes the texts the other read: the root package and a member below it, both with
-/// `execa`, read the member's script once between them, and each finds its command.
+/// A listing made within another takes the texts the other read: `pino` of the root package, which searches the
+/// sources of its members, and `pino` of a member below it read the member's logger once between them, and the member
+/// finds its transport target.
 #[test]
 fn listings_within_one_another_read_a_shared_source_file_once() {
     let files = [
         (
-            "packages/a/scripts/release.ts",
-            r#"import { execa } from "execa"; await execa("changeset", ["publish"]);"#,
+            "packages/a/src/log.ts",
+            r#"import pino from "pino"; export const logger = pino({ transport: { target: "pino-pretty" } });"#,
         ),
         ("packages/a/package.json", r#"{"name":"a"}"#),
     ];
@@ -4419,7 +4420,7 @@ fn listings_within_one_another_read_a_shared_source_file_once() {
         inner: fs_with(&files),
         reads: std::sync::Mutex::default(),
     };
-    let dependencies = vec!["execa".to_owned()];
+    let dependencies = vec!["pino".to_owned()];
     let scripts = IndexMap::new();
     let plugins = IndexMap::new();
     let globs = GlobCache::new();
@@ -4447,13 +4448,12 @@ fn listings_within_one_another_read_a_shared_source_file_once() {
         sources: Some(&member_sources),
         ..root
     };
-    let script = member_dir.join("scripts").join("release.ts");
+    let script = member_dir.join("src").join("log.ts");
     let reads = || fs.reads.lock().unwrap().get(&script).copied();
     let _ = resolve_plugins(&root);
-    assert_eq!(reads(), Some(1), "the root package reads the member's script");
+    assert_eq!(reads(), Some(1), "the root package reads the member's logger");
     let results = resolve_plugins(&member);
-    let binaries = &output(&results, "execa").referenced_binaries;
-    assert!(binaries.contains(&"changeset".to_owned()), "{binaries:?}");
+    assert_deps(output(&results, "pino"), &["pino-pretty"]);
     assert_eq!(reads(), Some(1), "the member takes the text the root package read");
 }
 
