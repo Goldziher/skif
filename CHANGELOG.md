@@ -9,14 +9,6 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Added
-
-- `stale-js-config` reports a plain `entry` or `project` pattern that cancels a pattern ending in `!` of its list
-  (`[js]` or a `[js.workspaces]` table): any plain pattern matching the file a `!` pattern names, as in
-  `entry = ["src/**", "src/main.js!"]`, or the same glob as a `!` glob. In a production run the plain pattern excludes
-  what the `!` one selects, while in a normal run the `!` one selects it alone. The hint says to remove the plain
-  pattern, or the `!` one if the files are not production code. `skif migrate --from knip` keeps both patterns, since
-  knip also excludes them in production mode ([#227](https://github.com/Goldziher/skif/issues/227)).
 ### Breaking changes
 
 - **Public API**: `skif-js-syntax`'s `ImportKind` gains `Resolve` (`enum_variant_added`) and is `#[non_exhaustive]`,
@@ -25,6 +17,35 @@ All notable changes to this project are documented here. The format follows
 - **Consumers of `explain-usage --format json`, `explain-usage --dependency` and `--trace-dependency --format json`**:
   a `require.resolve("x")`, `createRequire(…).resolve("x")` or `import.meta.resolve("x")` is listed with the import
   kind `resolve` instead of `require` ([#225](https://github.com/Goldziher/skif/issues/225)).
+
+### Added
+
+- `stale-js-config` reports a plain `entry` or `project` pattern that cancels a pattern ending in `!` of its list
+  (`[js]` or a `[js.workspaces]` table): any plain pattern matching the file a `!` pattern names, as in
+  `entry = ["src/**", "src/main.js!"]`, or the same glob as a `!` glob. In a production run the plain pattern excludes
+  what the `!` one selects, while in a normal run the `!` one selects it alone. The hint says to remove the plain
+  pattern, or the `!` one if the files are not production code. `skif migrate --from knip` keeps both patterns, since
+  knip also excludes them in production mode ([#227](https://github.com/Goldziher/skif/issues/227)).
+
+- **Public API** ([#206](https://github.com/Goldziher/skif/issues/206)): `PackageSources::within` of `skif-js-plugins`
+  makes a listing of a package's sources that shares the texts it reads with another listing, and
+  `WorkspaceListing::package_sources` of `skif-js` makes one that shares them with the run's other packages.
+
+### Changed
+
+- **Performance** ([#206](https://github.com/Goldziher/skif/issues/206)): `--watch` scans the tree on up to four
+  threads, so on a large repository it polls more often and sees a change sooner; scanning takes up to about four
+  thirds of a core instead of a third. The files it compares are unchanged. The plugins that search a
+  package's sources (`pino`, `zx`, `execa`, `nano-spawn`, `bun`) share the texts they read between all packages of a
+  workspace and their Nx projects, so a source file is usually read once per workspace instead of once for every
+  package whose directory holds it (a member's sources are also the root package's); packages resolved in parallel can
+  still read the same file at the same time. The output is unchanged.
+
+- **Performance** ([#224](https://github.com/Goldziher/skif/issues/224)): evaluating a config that follows its imports
+  parses and analyses a module inside a cycle of imports once per distinct set of answers its imports give, instead of
+  at every entry; the analysis budget and the findings are unchanged. A change that reaches a whole class of linked
+  bindings is applied to that class once instead of once per change. `ModuleLoader::holds_no_code` is asked once per
+  importing directory and specifier, as `is_installed` already was.
 
 ### Fixed
 
@@ -42,28 +63,6 @@ All notable changes to this project are documented here. The format follows
 - **`explain-usage`**: an importer that uses no export says what it takes instead of `the whole module`: a resolve call
   `its path, no export`, a side-effect import `runs it, no export` and a test-runner mock `a test-runner call, no
   export` ([#225](https://github.com/Goldziher/skif/issues/225)).
-### Added
-
-- **Public API** ([#206](https://github.com/Goldziher/skif/issues/206)): `PackageSources::within` of `skif-js-plugins`
-  makes a listing of a package's sources that shares the texts it reads with another listing, and
-  `WorkspaceListing::package_sources` of `skif-js` makes one that shares them with the run's other packages.
-
-### Changed
-
-- **Performance** ([#206](https://github.com/Goldziher/skif/issues/206)): `--watch` scans the tree on up to four
-  threads, so on a large repository it polls more often and sees a change sooner; scanning takes up to about four
-  thirds of a core instead of a third. The files it compares are unchanged. The plugins that search a
-  package's sources (`pino`, `zx`, `execa`, `nano-spawn`, `bun`) share the texts they read between all packages of a
-  workspace and their Nx projects, so a source file is usually read once per workspace instead of once for every
-  package whose directory holds it (a member's sources are also the root package's); packages resolved in parallel can
-  still read the same file at the same time. The output is unchanged.
-### Changed
-
-- **Performance** ([#224](https://github.com/Goldziher/skif/issues/224)): evaluating a config that follows its imports
-  parses and analyses a module inside a cycle of imports once per distinct set of answers its imports give, instead of
-  at every entry; the analysis budget and the findings are unchanged. A change that reaches a whole class of linked
-  bindings is applied to that class once instead of once per change. `ModuleLoader::holds_no_code` is asked once per
-  importing directory and specifier, as `is_installed` already was.
 
 ## [0.4.0] - 2026-11-12
 
