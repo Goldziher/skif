@@ -1,6 +1,7 @@
-//! knip's configuration hints beyond the empty patterns: redundant `entry` and `project` patterns, top-level `entry`
-//! and `project` in a monorepo, `project` extensions skif does not analyse or leaves out, and published entry files
-//! that do not exist. The `stale-js-config` rule reports them.
+//! Configuration hints beyond the empty patterns, which the `stale-js-config` rule reports. Most are knip's: redundant
+//! `entry` and `project` patterns, top-level `entry` and `project` in a monorepo, `project` extensions skif does not
+//! analyse or leaves out, and published entry files that do not exist. One has no knip counterpart: a plain `entry` or
+//! `project` pattern that cancels a pattern ending in `!` of its list.
 
 use skif_core::HashSet;
 use std::path::{Path, PathBuf};
@@ -14,6 +15,7 @@ use skif_workspace::{PackageId, Workspace};
 use crate::analysis::workspace_key;
 use crate::discover::Candidate;
 use crate::entries::{Disk, names_no_file};
+use crate::globs::Globs;
 use crate::resolve::{is_read_file, join_normalized};
 use crate::setup::{Setup, WorkspaceKeys};
 use crate::specifier::package_name;
@@ -36,6 +38,10 @@ pub(crate) enum HintKind {
     ExtensionExcluded,
     /// A path `package.json` publishes that names no file (knip's `package-entry`).
     PackageEntry,
+    /// A plain `entry` or `project` pattern that selects what a pattern ending in `!` of its list selects: the same
+    /// pattern, or, when the `!` pattern names one file, any pattern matching that file. In production mode the plain
+    /// pattern excludes it, while the `!` one applies outside production mode too.
+    MarkerCancelled,
 }
 
 /// One configuration hint.
@@ -49,6 +55,8 @@ pub(crate) struct ConfigHint {
     pub identifier: String,
     /// The package whose manifest a [`HintKind::PackageEntry`] points at.
     pub package: Option<PackageId>,
+    /// The pattern ending in `!` that a [`HintKind::MarkerCancelled`] pattern cancels.
+    pub cancelled: Option<String>,
 }
 
 /// The extensions of single-file components skif analyses that knip only reads through a compiler. A package with
@@ -83,6 +91,7 @@ pub(crate) fn config_hints(inputs: &HintInputs<'_>) -> Vec<ConfigHint> {
                 package_setup,
             };
             scope.redundant(&mut hints);
+            scope.cancelled_markers(&mut hints);
             // knip judges the project patterns only where they select the project, not where a `tsconfig` does.
             if !inputs.config.js.use_tsconfig_files {
                 scope.extensions(&mut hints);
@@ -107,6 +116,7 @@ fn top_level_hints<'a>(workspace: &Workspace, config: &'a Config) -> impl Iterat
                 key: format!("js.{name}"),
                 identifier: format!("[{first}{more}]"),
                 package: None,
+                cancelled: None,
             })
         })
 }
@@ -142,6 +152,7 @@ impl Scope<'_, '_> {
             key: self.key(name, pattern),
             identifier,
             package: None,
+            cancelled: None,
         }
     }
 
@@ -160,6 +171,52 @@ impl Scope<'_, '_> {
         for pattern in &user.project {
             if literal_path(dir, pattern).is_some_and(|path| self.inputs.entries.contains(&path)) {
                 hints.insert(self.hint(HintKind::ProjectRedundant, "project", Some(pattern), pattern.clone()));
+            }
+        }
+    }
+
+    /// The plain patterns of a list that cancel one of its `!` patterns. A `!` pattern naming one file is cancelled by
+    /// every plain pattern matching the file, a `!` glob only by the same glob, both compared as [`Globs`] compiles
+    /// them. A list is replaced whole, never merged, so both patterns are written under one key. `project` is not
+    /// judged with a `tsconfig`.
+    fn cancelled_markers(&self, hints: &mut IndexSet<ConfigHint>) {
+        let user = &self.package_setup.user_patterns;
+        let project = (!self.inputs.config.js.use_tsconfig_files).then_some(("project", &user.project));
+        for (name, patterns) in std::iter::once(("entry", &user.entry)).chain(project) {
+            let plain: Vec<(&String, Globs)> = patterns
+                .iter()
+                .filter(|pattern| !pattern.is_empty() && !pattern.starts_with('!') && !pattern.ends_with('!'))
+                .map(|pattern| (pattern, Globs::new([pattern])))
+                .collect();
+            for (marked, body) in patterns
+                .iter()
+                .filter_map(|pattern| marker_body(pattern).map(|body| (pattern, body)))
+            {
+                let literal = literal_body(marked).is_some();
+                let mut cancelling = plain
+                    .iter()
+                    .filter(|(pattern, globs)| {
+                        if literal {
+                            globs.is_match(body)
+                        } else {
+                            compiled_text(pattern) == body
+                        }
+                    })
+                    .map(|(pattern, _)| *pattern)
+                    .peekable();
+                if cancelling.peek().is_none() {
+                    continue;
+                }
+                let key = self.key(name, Some(marked));
+                for pattern in cancelling {
+                    hints.insert(ConfigHint {
+                        kind: HintKind::MarkerCancelled,
+                        key: key.clone(),
+                        identifier: pattern.clone(),
+                        package: None,
+                        cancelled: Some(marked.clone()),
+                    });
+                }
             }
         }
     }
@@ -204,12 +261,28 @@ impl Scope<'_, '_> {
 
 /// The absolute path a pattern names when it is a plain path rather than a glob, relative to `dir`.
 fn literal_path(dir: &Path, pattern: &str) -> Option<PathBuf> {
+    literal_body(pattern).map(|body| join_normalized(dir, body))
+}
+
+/// The relative path a pattern names when it is a plain path rather than a glob, without a leading `./`.
+fn literal_body(pattern: &str) -> Option<&str> {
     let body = pattern.trim();
     let body = body.strip_suffix('!').unwrap_or(body);
     if body.is_empty() || body.starts_with('!') || body.starts_with("../") || body.contains(['*', '?', '[', '{']) {
         return None;
     }
-    Some(join_normalized(dir, body.trim_start_matches("./")))
+    Some(body.trim_start_matches("./"))
+}
+
+/// A pattern as [`Globs`] compiles it: trimmed, without a leading `./` and without the `!` marker.
+fn compiled_text(pattern: &str) -> &str {
+    pattern.trim().trim_start_matches("./").trim_end_matches('!')
+}
+
+/// What a pattern ending in `!` selects, as [`compiled_text`]; `None` for any other pattern or an exclusion.
+fn marker_body(pattern: &str) -> Option<&str> {
+    let body = compiled_text(pattern);
+    (pattern.ends_with('!') && !body.is_empty() && !body.starts_with('!')).then_some(body)
 }
 
 /// The extensions, without the dot, that the last segment of a glob selects: `**/*.ts`, `*.{ts,json}`,
@@ -341,6 +414,7 @@ fn package_entries(inputs: &HintInputs<'_>) -> Vec<ConfigHint> {
                     key: field.to_owned(),
                     identifier: path,
                     package: Some(id),
+                    cancelled: None,
                 });
             }
         }

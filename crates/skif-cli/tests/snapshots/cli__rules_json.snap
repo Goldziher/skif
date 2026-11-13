@@ -375,7 +375,7 @@ expression: redact_version(&json.stdout)
       "category": "js",
       "default": "warning",
       "fixable": "none",
-      "summary": "A `[js]` setting matched nothing or is redundant, a published entry file is missing, or many files are unused."
+      "summary": "A `[js]` setting matched nothing, is redundant or cancels another pattern, a published entry file is missing, or many files are unused."
     }
   ]
 }

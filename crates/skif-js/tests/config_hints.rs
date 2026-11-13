@@ -1,6 +1,6 @@
 //! knip's configuration hints reported by `stale-js-config` beyond empty patterns: `entry-redundant`,
 //! `project-redundant`, `entry-top-level`, `project-top-level`, `project-extension-*`, `package-entry` and the
-//! `*-unconfigured` ratio hints.
+//! `*-unconfigured` ratio hints, and a plain `entry` or `project` pattern beside the same pattern ending in `!`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -507,4 +507,188 @@ fn many_unused_files_suggest_missing_entries() {
     extra.extend(orphans("packages/b/src/", 7));
     let workspaces = run(&owned(extra, &monorepo));
     insta::assert_snapshot!(format!("{many}\n---\n{workspaces}"));
+}
+
+const MAIN_AND_LIB: [(&str, &str); 3] = [
+    ("package.json", r#"{"name":"app"}"#),
+    ("src/main.js", "import \"./lib.js\";\n"),
+    ("src/lib.js", "export {};\n"),
+];
+
+#[test]
+fn a_plain_entry_or_project_pattern_beside_the_same_production_pattern() {
+    assert_eq!(
+        hints(&lint(
+            &MAIN_AND_LIB,
+            "[js]\nentry = [\"src/main.js\", \"src/main.js!\"]\n"
+        )),
+        "package.json: `src/main.js` in `js.entry` excludes in production mode what `src/main.js!` selects"
+    );
+    assert_eq!(
+        hints(&lint(&MAIN_AND_LIB, "[js]\nproject = [\"src/**\", \"src/**!\"]\n")),
+        "package.json: `src/**` in `js.project` excludes in production mode what `src/**!` selects"
+    );
+}
+
+#[test]
+fn a_plain_entry_or_project_pattern_beside_the_same_production_pattern_of_a_workspace() {
+    let files = [
+        MONOREPO,
+        ("packages/a/package.json", r#"{"name":"a"}"#),
+        ("packages/a/src/main.js", "import \"./lib.js\";\n"),
+        ("packages/a/src/lib.js", "export {};\n"),
+    ];
+    let toml = "[js.workspaces.\"packages/a\"]\nentry = [\"src/main.js\", \"src/main.js!\"]\n\
+                project = [\"src/**\", \"src/**!\"]\n";
+    assert_eq!(
+        hints(&lint(&files, toml)),
+        "package.json: `src/**` in `js.workspaces.\"packages/a\".project` excludes in production mode what `src/**!` \
+         selects\n\
+         package.json: `src/main.js` in `js.workspaces.\"packages/a\".entry` excludes in production mode what \
+         `src/main.js!` selects"
+    );
+}
+
+/// The `stale-js-config` hints about a plain pattern cancelling a `!` one, sorted.
+fn cancellations(diagnostics: &[Diagnostic]) -> String {
+    found(diagnostics, "stale-js-config")
+        .into_iter()
+        .filter(|line| line.contains(" excludes in production mode what "))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn a_plain_pattern_matching_the_file_of_a_production_pattern() {
+    for (toml, expected) in [
+        (
+            "[js]\nentry = [\"src/**\", \"src/main.js!\"]\n",
+            "package.json: `src/**` in `js.entry` excludes in production mode what `src/main.js!` selects",
+        ),
+        (
+            "[js]\nproject = [\"src/**\", \"src/lib.js!\"]\n",
+            "package.json: `src/**` in `js.project` excludes in production mode what `src/lib.js!` selects",
+        ),
+        (
+            "[js]\nentry = [\"src/*.js\", \"src/lib.js\", \"src/main.js!\"]\n",
+            "package.json: `src/*.js` in `js.entry` excludes in production mode what `src/main.js!` selects",
+        ),
+    ] {
+        assert_eq!(hints(&lint(&MAIN_AND_LIB, toml)), expected, "{toml}");
+    }
+}
+
+#[test]
+fn every_plain_pattern_matching_the_file_of_a_production_pattern_is_reported() {
+    assert_eq!(
+        hints(&lint(
+            &MAIN_AND_LIB,
+            "[js]\nentry = [\"src/**\", \"src/*.js\", \"src/main.js!\"]\n"
+        )),
+        "package.json: `src/**` in `js.entry` excludes in production mode what `src/main.js!` selects\n\
+         package.json: `src/*.js` in `js.entry` excludes in production mode what `src/main.js!` selects"
+    );
+}
+
+#[test]
+fn a_plain_glob_written_differently_from_a_production_glob_is_not_reported() {
+    assert_eq!(
+        hints(&lint(&MAIN_AND_LIB, "[js]\nproject = [\"src/**/*.js\", \"src/**!\"]\n")),
+        ""
+    );
+}
+
+#[test]
+fn patterns_are_compared_without_surrounding_whitespace_or_a_leading_dot_slash() {
+    for (toml, expected) in [
+        (
+            "[js]\nentry = [\"./src/main.js\", \"src/main.js!\"]\n",
+            "package.json: `./src/main.js` in `js.entry` excludes in production mode what `src/main.js!` selects",
+        ),
+        (
+            "[js]\nentry = [\" src/main.js\", \"src/main.js!\"]\n",
+            "package.json: ` src/main.js` in `js.entry` excludes in production mode what `src/main.js!` selects",
+        ),
+        (
+            "[js]\nproject = [\"./src/**\", \" src/**!\"]\n",
+            "package.json: `./src/**` in `js.project` excludes in production mode what ` src/**!` selects",
+        ),
+    ] {
+        assert_eq!(cancellations(&lint(&MAIN_AND_LIB, toml)), expected, "{toml}");
+    }
+}
+
+#[test]
+fn negated_patterns_do_not_cancel() {
+    assert_eq!(
+        cancellations(&lint(
+            &MAIN_AND_LIB,
+            "[js]\nentry = [\"!src/lib.js\", \"!src/lib.js!\"]\n"
+        )),
+        ""
+    );
+}
+
+#[test]
+fn a_root_pattern_of_the_dot_workspace_table_cancels_a_production_pattern() {
+    let toml = "[js]\nentry = [\"src/main.js\"]\n\
+                [js.workspaces.\".\"]\nentry = [\"src/main.js\", \"src/main.js!\"]\n";
+    assert_eq!(
+        cancellations(&lint(&MAIN_AND_LIB, toml)),
+        "package.json: `src/main.js` in `js.workspaces.\".\".entry` excludes in production mode what `src/main.js!` \
+         selects"
+    );
+}
+
+#[test]
+fn project_patterns_are_not_judged_with_use_tsconfig_files() {
+    let toml = "[js]\nuse-tsconfig-files = true\nentry = [\"src/main.js\", \"src/main.js!\"]\n\
+                project = [\"src/**\", \"src/**!\"]\n";
+    assert_eq!(
+        cancellations(&lint(&MAIN_AND_LIB, toml)),
+        "package.json: `src/main.js` in `js.entry` excludes in production mode what `src/main.js!` selects"
+    );
+}
+
+#[test]
+fn a_cancelling_pattern_is_reported_in_a_production_run() {
+    let toml = "[js]\nproduction = true\nentry = [\"src/main.js\", \"src/main.js!\"]\n";
+    assert_eq!(
+        cancellations(&lint(&MAIN_AND_LIB, toml)),
+        "package.json: `src/main.js` in `js.entry` excludes in production mode what `src/main.js!` selects"
+    );
+}
+
+#[test]
+fn a_plain_entry_or_project_pattern_cancels_a_production_pattern_in_a_production_run() {
+    let unused = |files: &[(&str, &str)], toml: &str| {
+        let diagnostics = lint(files, &format!("[js]\nproduction = true\n{toml}"));
+        found(&diagnostics, "unused-files")
+            .into_iter()
+            .map(|line| line.split(": ").next().unwrap().to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        unused(&MAIN_AND_LIB, "entry = [\"src/main.js!\"]\n"),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        unused(&MAIN_AND_LIB, "entry = [\"src/main.js\", \"src/main.js!\"]\n"),
+        ["src/lib.js"]
+    );
+    let with_dead = [
+        MAIN_AND_LIB[0],
+        MAIN_AND_LIB[1],
+        MAIN_AND_LIB[2],
+        ("src/dead.js", "export {};\n"),
+    ];
+    let entry = "entry = [\"src/main.js!\"]\n";
+    assert_eq!(
+        unused(&with_dead, &format!("{entry}project = [\"src/**!\"]\n")),
+        ["src/dead.js"]
+    );
+    assert_eq!(
+        unused(&with_dead, &format!("{entry}project = [\"src/**\", \"src/**!\"]\n")),
+        Vec::<String>::new()
+    );
 }
