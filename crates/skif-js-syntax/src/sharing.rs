@@ -1785,25 +1785,15 @@ impl Sharing<'_> {
             }
         }
         let links_of = self.links_of();
-        // A class changed in full by an origin that is not an alias, by its first binding, with the binding of the
-        // class that origin left unchanged, if any: every other binding of the class then holds a change of all it
-        // holds, which a later change in full of the class leaves as it is.
         let mut in_full: HashMap<SymbolId, Option<SymbolId>> = HashMap::default();
         for (symbol, origin) in origins {
             let through_alias = applied.iter().find(|alias| alias.alias == symbol);
             let reach = self.reach_of(&links_of, symbol, &origin);
             if let (None, Reach::InFull(class)) = (through_alias, &reach) {
                 let left = origin.covers(&Write::default()).then_some(symbol);
-                if let Some(unchanged) = in_full.get_mut(&class[0]) {
-                    if let Some(member) = *unchanged
-                        && Some(member) != left
-                    {
-                        self.change(member, Change::Contents(vec![Write::default()]));
-                        *unchanged = None;
-                    }
+                if self.repeats_in_full(&mut in_full, class, left) {
                     continue;
                 }
-                in_full.insert(class[0], left);
             }
             for (other, write) in reach.into_places() {
                 // A change of what a binding that takes what `this` holds holds is a write through `this`.
@@ -1830,6 +1820,30 @@ impl Sharing<'_> {
             self.affect_imports(&links_of);
         }
         (followed, writes_modules)
+    }
+
+    /// Whether a change in full of `class` by an origin that is not an alias, which leaves the binding `left` of the
+    /// class as it is when there is one, repeats one an earlier origin made, which [`Self::share`] then skips.
+    /// `in_full` holds, by its first binding, each class changed so, with the binding the changes so far left as it
+    /// is, if any: every other binding of the class holds a change of all it holds, which a later change in full of
+    /// the class leaves as it is, so only that binding is changed when this change does not leave it too.
+    fn repeats_in_full(
+        &mut self,
+        in_full: &mut HashMap<SymbolId, Option<SymbolId>>,
+        class: &[SymbolId],
+        left: Option<SymbolId>,
+    ) -> bool {
+        let Some(unchanged) = in_full.get_mut(&class[0]) else {
+            in_full.insert(class[0], left);
+            return false;
+        };
+        if let Some(member) = *unchanged
+            && Some(member) != left
+        {
+            self.change(member, Change::Contents(vec![Write::default()]));
+            *unchanged = None;
+        }
+        true
     }
 
     /// Whether code in a function of the module, run by a call of it, may change a value of the module: a top-level
