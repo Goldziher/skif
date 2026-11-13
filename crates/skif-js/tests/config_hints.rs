@@ -518,7 +518,10 @@ const MAIN_AND_LIB: [(&str, &str); 3] = [
 #[test]
 fn a_plain_entry_or_project_pattern_beside_the_same_production_pattern() {
     assert_eq!(
-        hints(&lint(&MAIN_AND_LIB, "[js]\nentry = [\"src/main.js\", \"src/main.js!\"]\n")),
+        hints(&lint(
+            &MAIN_AND_LIB,
+            "[js]\nentry = [\"src/main.js\", \"src/main.js!\"]\n"
+        )),
         "package.json: `src/main.js` in `js.entry` excludes in production mode what `src/main.js!` selects"
     );
     assert_eq!(
