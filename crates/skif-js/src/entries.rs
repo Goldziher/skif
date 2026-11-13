@@ -43,10 +43,14 @@ pub(crate) struct EntryFiles {
     /// manifest, whose exports are judged like a configured entry's). A configured entry naming one of them is
     /// redundant (knip's `entry-redundant`).
     pub provided: HashSet<PathBuf>,
-    /// Files that plugins name as entries (a workflow step's `node build/report.ts`) or as build sources and that exist
-    /// but are no candidate of this analysis, absolute and sorted: a multi-root run hands them to the root that owns
-    /// them, as entries.
-    pub other_roots: Vec<PathBuf>,
+    /// Files that plugins name as entries (a workflow step's `node build/report.ts`) and that exist but are no
+    /// candidate of this analysis, absolute and sorted: a multi-root run hands them to the root that owns them, as
+    /// entries.
+    pub other_root_entries: Vec<PathBuf>,
+    /// Files that plugins name as build sources (a Bazel `srcs` naming a file of a nested root) and that exist but are
+    /// no candidate of this analysis, absolute and sorted: a multi-root run hands them to the root that owns them, as
+    /// build sources.
+    pub other_root_build_sources: Vec<PathBuf>,
     /// The entry files that a script runs, also through a build directory (`node dist/cli.js` for `src/cli.ts`), and
     /// that a bin stub loads, with that reason, which `explain-usage` cannot find from the paths alone.
     pub origins: HashMap<PathBuf, EntryReason>,
@@ -60,15 +64,16 @@ pub(crate) struct Disk<'a> {
     pub gitignore: bool,
 }
 
-/// The entry files of every package. `extra` are files, relative to the workspace root, that other roots of a
-/// multi-root run import; those the analysis owns are entries too. The packages are looked at side by side unless
-/// `sequential`, and their findings merged in package order.
+/// The entry files of every package. `extra_entries` and `extra_build_sources` are files, relative to the workspace
+/// root, that other roots of a multi-root run import or run, and name as build sources; those the analysis owns are
+/// entries and build sources too. The packages are looked at side by side unless `sequential`, and their findings
+/// merged in package order.
 pub(crate) fn entry_files(
     fs: &dyn FileSystem,
     workspace: &Workspace,
     setup: &Setup,
     candidates: &[Candidate],
-    (extra, sequential): (&[PathBuf], bool),
+    (extra_entries, extra_build_sources, sequential): (&[PathBuf], &[PathBuf], bool),
     disk: Disk<'_>,
 ) -> EntryFiles {
     let mut by_owner: Vec<Vec<&Candidate>> = vec![Vec::new(); workspace.iter().count()];
@@ -95,7 +100,8 @@ pub(crate) fn entry_files(
     let mut entries = BTreeSet::new();
     let mut unknown = Vec::new();
     let mut provided = HashSet::default();
-    let mut other_roots = BTreeSet::new();
+    let mut other_root_entries = BTreeSet::new();
+    let mut other_root_build_sources = BTreeSet::new();
     let mut build_sources = BTreeSet::new();
     let mut origins = HashMap::default();
     for mut package in found {
@@ -103,7 +109,8 @@ pub(crate) fn entry_files(
         build_sources.append(&mut package.build_sources);
         unknown.extend(package.unknown);
         provided.extend(package.provided);
-        other_roots.append(&mut package.other_roots);
+        other_root_entries.append(&mut package.other_root_entries);
+        other_root_build_sources.append(&mut package.other_root_build_sources);
         for (path, reason) in package.origins {
             origins.entry(path).or_insert(reason);
         }
@@ -114,20 +121,26 @@ pub(crate) fn entry_files(
             entries.insert(path);
         }
     }
-    entries.extend(
-        extra
-            .iter()
-            .filter_map(|file| candidate_at(candidates, &file.to_string_lossy().replace('\\', "/")))
-            .map(|candidate| candidate.abs.clone()),
-    );
+    entries.extend(owned_files(candidates, extra_entries));
+    build_sources.extend(owned_files(candidates, extra_build_sources));
     EntryFiles {
         build_sources: build_sources.into_iter().collect(),
         files: entries.into_iter().collect(),
         unknown,
         provided,
-        other_roots: other_roots.into_iter().collect(),
+        other_root_entries: other_root_entries.into_iter().collect(),
+        other_root_build_sources: other_root_build_sources.into_iter().collect(),
         origins,
     }
+}
+
+/// The absolute paths of the candidates at `files`, relative to the workspace root: the files another root of a
+/// multi-root run hands this analysis that it owns.
+fn owned_files<'a>(candidates: &'a [Candidate], files: &'a [PathBuf]) -> impl Iterator<Item = PathBuf> + 'a {
+    files
+        .iter()
+        .filter_map(|file| candidate_at(candidates, &file.to_string_lossy().replace('\\', "/")))
+        .map(|candidate| candidate.abs.clone())
 }
 
 /// What every package's entries are judged against.
@@ -146,7 +159,8 @@ struct PackageEntries {
     unknown: Vec<(PackageId, IncompleteCause)>,
     /// In the order they are found, so the merged set is built in the same order as one package after another.
     provided: Vec<PathBuf>,
-    other_roots: BTreeSet<PathBuf>,
+    other_root_entries: BTreeSet<PathBuf>,
+    other_root_build_sources: BTreeSet<PathBuf>,
     origins: Vec<(PathBuf, EntryReason)>,
 }
 
@@ -270,15 +284,21 @@ impl EntryContext<'_> {
             provided.extend(tool_entries.iter().cloned());
         }
         own.extend(tool_entries);
-        let other_roots = package_setup
+        let in_other_project = |path: &Path| {
+            is_code_file(path)
+                && relative(path, &workspace.root).is_none_or(|rel| candidate_at(candidates, &rel).is_none())
+                && fs.is_file(path)
+        };
+        let other_root_entries = package_setup
             .plugin_entry_files
             .iter()
-            .chain(&package_setup.build_source_files)
-            .filter(|path| {
-                is_code_file(path)
-                    && relative(path, &workspace.root).is_none_or(|rel| candidate_at(candidates, &rel).is_none())
-                    && fs.is_file(path)
-            })
+            .filter(|path| in_other_project(path.as_path()))
+            .cloned()
+            .collect();
+        let other_root_build_sources = package_setup
+            .build_source_files
+            .iter()
+            .filter(|path| in_other_project(path.as_path()))
             .cloned()
             .collect();
         // An install hook is an entry, so what it imports is used, but it is no project code: a package with nothing
@@ -299,7 +319,8 @@ impl EntryContext<'_> {
             build_sources,
             unknown,
             provided,
-            other_roots,
+            other_root_entries,
+            other_root_build_sources,
             origins,
         }
     }
