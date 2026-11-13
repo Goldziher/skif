@@ -9,6 +9,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Performance** ([#224](https://github.com/Goldziher/skif/issues/224)): evaluating a config that follows its imports
+  analyses a module inside a cycle of imports once instead of at every entry of the cycle: an analysis whose result
+  depends on a module still being analysed is replayed when the modules it imports answer the same again, which
+  leaves the findings as they were.
+
 ## [0.4.0] - 2026-11-12
 
 ### Breaking changes

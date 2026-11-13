@@ -1435,3 +1435,55 @@ fn a_module_of_many_functions_sharing_one_helper_is_analysed_quickly() {
     assert!(elapsed < std::time::Duration::from_secs(30), "took {elapsed:?}");
     assert_eq!(config.get("plugins"), Some(&ConfigValue::Array(vec![s("a")])));
 }
+
+/// [`Files`], counting how often it is asked whether `./types` holds no code from `/ws/app/hub.ts`, which only an
+/// analysis of that module asks.
+struct CountingFiles {
+    files: Files,
+    hub_types: std::cell::Cell<usize>,
+}
+
+impl ModuleLoader for CountingFiles {
+    fn load(&self, from: &Path, specifier: &str) -> Option<(PathBuf, String)> {
+        self.files.load(from, specifier)
+    }
+
+    fn is_installed(&self, from: &Path, specifier: &str) -> bool {
+        self.files.is_installed(from, specifier)
+    }
+
+    fn holds_no_code(&self, from: &Path, specifier: &str) -> bool {
+        if from == Path::new("/ws/app/hub.ts") && specifier == "./types" {
+            self.hub_types.set(self.hub_types.get() + 1);
+        }
+        self.files.holds_no_code(from, specifier)
+    }
+}
+
+/// A module that re-exports the module importing it through two others is reached four times while that module is
+/// being analysed, and asks the same of the modules it imports each time: it is analysed once.
+#[test]
+fn a_module_in_a_cycle_of_imports_is_analysed_once() {
+    let loader = CountingFiles {
+        files: files(&[
+            (
+                "/ws/app/config.ts",
+                "import { run } from './a';\nrun();\nexport default { plugins: ['a'] };",
+            ),
+            (
+                "/ws/app/a.ts",
+                "import { one } from './one';\nimport { two } from './two';\nexport function run() { one(); two(); }\n",
+            ),
+            ("/ws/app/one.ts", "export * from './hub';\nexport function one() {}\n"),
+            ("/ws/app/two.ts", "export * from './hub';\nexport function two() {}\n"),
+            ("/ws/app/hub.ts", "export * from './types';\nexport * from './a';\n"),
+            ("/ws/app/types.d.ts", "export type Name = string;\n"),
+        ]),
+        hub_types: std::cell::Cell::new(0),
+    };
+    let path = Path::new("/ws/app/config.ts");
+    let source = loader.files.0.get(path).expect("the config");
+    let config = extract_config_object_with(source, path, &loader).expect("config is understood");
+    assert_eq!(config.get("plugins"), Some(&ConfigValue::Array(vec![s("a")])));
+    assert_eq!(loader.hub_types.get(), 1);
+}
