@@ -1079,6 +1079,28 @@ fn commands_after_cd_run_in_its_directory() {
     assert_eq!(binary_dirs("cd sub/.. && tsc"), [at("tsc", None)]);
 }
 
+/// A substitution runs in the directory of the command that holds it: after the `cd` before that command, before any
+/// `cd` after it, and inside a subshell in the subshell's directory.
+#[test]
+fn a_substitution_runs_in_the_directory_of_its_command() {
+    assert_eq!(
+        binary_dirs("cd sub\nSUITE=$(pnpm exec tsx resolve.ts)"),
+        [at("tsx", Some("sub"))]
+    );
+    assert_eq!(
+        binary_dirs("echo $(vite) && cd sub && echo $(tsc) && cd .. && echo `eslint`"),
+        [at("eslint", None), at("tsc", Some("sub")), at("vite", None)]
+    );
+    assert_eq!(
+        binary_dirs("cd sub && echo $(cd deep && rspack) && tsup"),
+        [at("rspack", Some("sub/deep")), at("tsup", Some("sub"))]
+    );
+    assert_eq!(
+        binary_dirs("(cd sub && echo $(vite)) && echo $(tsc)"),
+        [at("tsc", None), at("vite", Some("sub"))]
+    );
+}
+
 #[test]
 fn files_and_packages_after_cd_are_in_its_directory() {
     let info = parse("cd tools && node -r @x/hook ./build.js");
