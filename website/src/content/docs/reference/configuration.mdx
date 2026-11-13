@@ -966,7 +966,10 @@ beside a workspace package `ui`) stays local.
 A directory below a package with a `package.json` of its own that is not an analysed workspace member (one excluded
 with `ignore-packages` included) is a separate project, often a root of its own in a recursive run (a `build` or
 `scripts` folder with its own lockfile); a `package.json` holding only `type`, `sideEffects` or `imports` is a
-marker for the files below it and makes no project. The files of a separate project are not
+marker for the files below it and makes no project, and so is one that adds only `main`, `module`, `types`, `typings`
+or `browser` in a directory the package above publishes as a subpath (its `exports` has `./<dir>` or its `files`
+lists the directory), as `pkg/server/package.json` does for `pkg/server` in packages written before `exports`. The
+files of a separate project are not
 the analysed root's: when a script or an import of the root reaches one, that file is not reported in the root, and
 its imports are neither unlisted there nor uses of the root's dependencies. The nested project judges the file against
 its own manifest when it is analysed as a root of its own. In the other direction, a file of the

@@ -72,6 +72,10 @@ All notable changes to this project are documented here. The format follows
   (`src: url("@ibm/plex/fonts/a.woff2")`), uses the package, so it is no longer reported unused. Other `url()` values
   stay assets: an unscoped bare path is relative to the stylesheet and `@/…` is an alias. The analysis cache is
   invalidated ([#98](https://github.com/Goldziher/skif/issues/98)).
+- **Subpath directories**: a `package.json` that adds only `main`, `module`, `types`, `typings` or `browser` in a
+  directory its parent package publishes as a subpath (`exports` has `./<dir>`, or `files` lists it) no longer makes a
+  project of its own, so the files there belong to the package: `module.exports = require('@vue/compiler-sfc')` in
+  `vue/compiler-sfc/index.js` uses the dependency of `vue` ([#98](https://github.com/Goldziher/skif/issues/98)).
 
 ## [0.4.0] - 2026-11-12
 

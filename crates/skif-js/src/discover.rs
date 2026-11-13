@@ -84,16 +84,58 @@ fn lists_file(entries: &[DirEntry], name: &str) -> bool {
 /// subpath imports), not a package of its own.
 const MARKER_FIELDS: &[&str] = &["type", "sideEffects", "imports"];
 
+/// The entry fields of a subpath directory written before `exports` (`pkg/server/package.json` holding
+/// `{"main": "index.js"}`), through which `pkg/server` resolves to a file of `pkg`.
+const SUBPATH_FIELDS: &[&str] = &["main", "module", "types", "typings", "browser"];
+
 /// Whether `dir/package.json` is a real package: a manifest holding only marker fields such as `{"type":"module"}`
-/// is not. An unreadable or invalid manifest counts as a package.
+/// is not, and neither is one that adds only subpath entry fields in a directory the package above publishes
+/// ([`is_published_subpath`]). An unreadable or invalid manifest counts as a package.
 pub(crate) fn is_package_manifest(fs: &dyn FileSystem, dir: &Path) -> bool {
     let Ok(text) = fs.read_to_string(&dir.join("package.json")) else {
         return true;
     };
-    match serde_json::from_str::<serde_json::Value>(&text) {
-        Ok(serde_json::Value::Object(fields)) => fields.keys().any(|key| !MARKER_FIELDS.contains(&key.as_str())),
-        _ => true,
+    let Ok(serde_json::Value::Object(fields)) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return true;
+    };
+    let own: Vec<&str> = fields
+        .keys()
+        .map(String::as_str)
+        .filter(|key| !MARKER_FIELDS.contains(key))
+        .collect();
+    if own.is_empty() {
+        return false;
     }
+    !(own.iter().all(|key| SUBPATH_FIELDS.contains(key)) && is_published_subpath(fs, dir))
+}
+
+/// Whether the package in the parent directory of `dir` publishes `dir` as a subpath of its own: its `exports` has
+/// the key `./<name>` or its `files` lists the directory.
+fn is_published_subpath(fs: &dyn FileSystem, dir: &Path) -> bool {
+    let (Some(parent), Some(name)) = (dir.parent(), dir.file_name().and_then(|name| name.to_str())) else {
+        return false;
+    };
+    let Ok(text) = fs.read_to_string(&parent.join("package.json")) else {
+        return false;
+    };
+    let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return false;
+    };
+    let subpath = format!("./{name}");
+    let exported = manifest
+        .get("exports")
+        .and_then(serde_json::Value::as_object)
+        .is_some_and(|exports| exports.contains_key(subpath.as_str()));
+    let listed = manifest
+        .get("files")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|files| {
+            files
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .any(|file| file.trim_start_matches("./").trim_end_matches('/') == name)
+        });
+    exported || listed
 }
 
 /// The matchers of the ignore files listed in `entries`, the listing of `dir`, if any.
