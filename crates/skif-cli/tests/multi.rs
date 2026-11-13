@@ -1036,11 +1036,10 @@ fn fixing_keeps_the_files_other_roots_use() {
     assert_eq!(js_findings(&result.json()), Vec::<String>::new());
 }
 
-#[test]
-fn a_bazel_source_of_a_nested_root_is_used_there() {
-    // The outer root's `BUILD.bazel` builds from `tools/lib/x.ts`, a file of the nested root `tools`, which has no
-    // `BUILD` file of its own; `x.ts` imports `y.ts` and exports `spare`, which nothing imports, and nothing names
-    // `tools/lib/orphan.ts`.
+/// A Bazel repository whose root `BUILD.bazel` builds from `{nested}/lib/x.ts`, a file of the standalone package
+/// `nested` below it, which has no `BUILD` file of its own: `x.ts` imports `y.ts` and exports `spare`, which nothing
+/// imports, and nothing names `{nested}/lib/orphan.ts`.
+fn bazel_source_of_a_nested_root(nested: &str) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir_all(dir.path().join(".git")).unwrap();
     put(
@@ -1057,16 +1056,30 @@ fn a_bazel_source_of_a_nested_root_is_used_there() {
     put(
         dir.path(),
         "BUILD.bazel",
-        "ts_project(name = \"tools\", srcs = [\"tools/lib/x.ts\"])\n",
+        &format!("ts_project(name = \"lib\", srcs = [\"{nested}/lib/x.ts\"])\n"),
     );
-    put(dir.path(), "tools/package.json", &package("tools"));
+    put(dir.path(), &format!("{nested}/package.json"), &package("nested"));
     put(
         dir.path(),
-        "tools/lib/x.ts",
+        &format!("{nested}/lib/x.ts"),
         "import { help } from './y';\nhelp();\nexport const spare = 1;\n",
     );
-    put(dir.path(), "tools/lib/y.ts", "export function help(): void {}\n");
-    put(dir.path(), "tools/lib/orphan.ts", "export const lonely = 1;\n");
+    put(
+        dir.path(),
+        &format!("{nested}/lib/y.ts"),
+        "export function help(): void {}\n",
+    );
+    put(
+        dir.path(),
+        &format!("{nested}/lib/orphan.ts"),
+        "export const lonely = 1;\n",
+    );
+    dir
+}
+
+#[test]
+fn a_bazel_source_of_a_nested_root_is_used_there() {
+    let dir = bazel_source_of_a_nested_root("tools");
 
     let (_, report) = json(dir.path(), &["-r"]);
     assert_eq!(root_paths(&report), [".", "tools"]);
@@ -1088,6 +1101,54 @@ fn a_bazel_source_of_a_nested_root_is_used_there() {
         paths_reporting(&tools, "unused-files"),
         BTreeSet::from(["lib/orphan.ts".to_owned(), "lib/x.ts".to_owned(), "lib/y.ts".to_owned()]),
         "{tools}"
+    );
+}
+
+#[test]
+fn fixing_keeps_the_bazel_sources_of_a_nested_root() {
+    // The lint after fixing hands `x.ts` to `tools` as a build source again, so it and `y.ts`, which it imports, stay
+    // used; only the unused export and the unused file go.
+    let dir = bazel_source_of_a_nested_root("tools");
+    let result = run(skif()
+        .args([
+            "-r",
+            "--fix-unsafe",
+            "--allow-remove-files",
+            "--no-install",
+            "--format",
+            "json",
+        ])
+        .arg(dir.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    let lib = dir.path().join("tools").join("lib");
+    assert!(!lib.join("orphan.ts").exists());
+    assert!(lib.join("y.ts").exists());
+    let x = fs::read_to_string(lib.join("x.ts")).unwrap();
+    assert!(
+        x.contains("import { help } from './y';") && !x.contains("export const spare"),
+        "{x}"
+    );
+    assert_eq!(js_findings(&result.json()), Vec::<String>::new());
+}
+
+#[test]
+fn a_bazel_source_two_roots_down_is_a_build_source_of_the_innermost_root() {
+    // `mid` and `mid/inner` are standalone packages, so roots of their own; the outer `BUILD.bazel` names a file of
+    // `mid/inner`, which skips `mid`.
+    let dir = bazel_source_of_a_nested_root("mid/inner");
+    put(dir.path(), "mid/package.json", &package("mid"));
+
+    let (_, report) = json(dir.path(), &["-r"]);
+    assert_eq!(root_paths(&report), [".", "mid", "mid/inner"]);
+    assert_eq!(
+        paths_reporting(&report, "unused-files"),
+        BTreeSet::from(["mid/inner/lib/orphan.ts".to_owned()]),
+        "{report}"
+    );
+    assert_eq!(
+        messages_of(&report, "unused-exports"),
+        ["mid/inner/lib/x.ts: export `spare` is never imported by another module"],
+        "{report}"
     );
 }
 
