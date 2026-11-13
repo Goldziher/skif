@@ -153,7 +153,9 @@ fn walker(dir: &Path) -> ignore::WalkBuilder {
 
 /// The threads a scan walks on: one per core, at most [`SCAN_THREADS`].
 fn scan_threads() -> usize {
-    std::thread::available_parallelism().map_or(1, std::num::NonZero::get).min(SCAN_THREADS)
+    std::thread::available_parallelism()
+        .map_or(1, std::num::NonZero::get)
+        .min(SCAN_THREADS)
 }
 
 /// What one entry of the walk adds to the scan: a file that is not `written`, with its stamp.
