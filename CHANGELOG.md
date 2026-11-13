@@ -38,8 +38,9 @@ All notable changes to this project are documented here. The format follows
   thirds of a core instead of a third. The files it compares are unchanged. The plugins that search a
   package's sources (`pino`, `zx`, `execa`, `nano-spawn`, `bun`) share the texts they read between all packages of a
   workspace and their Nx projects, so a source file is usually read once per workspace instead of once for every
-  package whose directory holds it (a member's sources are also the root package's); packages resolved in parallel can
-  still read the same file at the same time. The output is unchanged.
+  package or project that searches it (`pino` and the `Bun.` check of `bun` also search a member's sources from the
+  root package, and every one of them searches an Nx project's sources from its package); packages resolved in
+  parallel can still read the same file at the same time. The output is unchanged.
 
 - **Performance** ([#224](https://github.com/Goldziher/skif/issues/224)): evaluating a config that follows its imports
   parses and analyses a module inside a cycle of imports once per distinct set of answers its imports give, instead of
