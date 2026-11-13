@@ -18,30 +18,30 @@ dependencies installed and on generated workspaces. Absolute times depend on the
 On npm-cli knip runs with `--no-gitignore`, since npm's `.gitignore` otherwise hides every workspace from it.
 
 {/* bench:summary:start */}
-Medians of 15 runs after 3 warmup runs (hyperfine 1.20.0), skif 0.3.0 at `150634614dea` built with rustc 1.99.1 (58cf8f9c3 2026-10-13) against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3, measured on 2026-11-12 on a GitHub-hosted runner, image ubuntu24 20261101.360.1, Ubuntu 24.04.5 LTS, Linux 7.0.0-1017-azure, x86_64, AMD EPYC 9V45 96-Core Processor, 4 logical CPUs (2 physical cores), 15.6 GiB memory, hypervisor Microsoft, load average 3.76 / 2.39 / 1.02 before and 1.72 / 1.95 / 1.12 after the run ([workflow run, attempt 1](https://github.com/Goldziher/skif/actions/runs/43136971156/attempts/1)).
+Medians of 15 runs after 3 warmup runs (hyperfine 1.20.0), skif 0.4.0 at `84ed0fba77f8` built with rustc 1.99.1 (58cf8f9c3 2026-10-13) against knip 6.44.1, sherif 1.13.0, syncpack 15.3.3, measured on 2026-11-12 on a GitHub-hosted runner, image ubuntu24 20261111.370.1, Ubuntu 24.04.5 LTS, Linux 7.0.0-1017-azure, x86_64, Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz, 4 logical CPUs (2 physical cores), 15.6 GiB memory, hypervisor Microsoft, load average 4.17 / 3.46 / 1.73 before and 1.50 / 1.28 / 1.16 after the run ([workflow run, attempt 1](https://github.com/Goldziher/skif/actions/runs/43282845612/attempts/1)).
 
 **Dead-code analysis against knip** (full skif run)
 
 | Repository | skif | knip | knip / skif |
 | --- | ---: | ---: | ---: |
-| create-t3-turbo | 23 ms | fails: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide | - |
-| vue-core | 43 ms | fails: its SFC playground Vite config reads a build-time global that only the repository's own build defines | - |
-| tanstack-query | 280 ms | 2.5 s | 9x |
-| babel | 603 ms | 3.7 s | 6x |
-| npm-cli | 64 ms | 481 ms | 8x |
+| create-t3-turbo | 37 ms | fails: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide | - |
+| vue-core | 71 ms | fails: its SFC playground Vite config reads a build-time global that only the repository's own build defines | - |
+| tanstack-query | 437 ms | 4.0 s | 9x |
+| babel | 492.4 s | 6.6 s | 0x |
+| npm-cli | 100 ms | 831 ms | 8x |
 
 **Manifest and policy checks** (`skif --no-js`)
 
 | Target | skif --no-js | sherif | syncpack |
 | --- | ---: | ---: | ---: |
-| create-t3-turbo | 3.0 ms | 22 ms | 26 ms |
-| vue-core | 3.1 ms | 23 ms | 28 ms |
-| tanstack-query | 8.9 ms | 35 ms | 86 ms |
-| babel | 12 ms | 25 ms | 251 ms |
-| npm-cli | 4.6 ms | 22 ms | 56 ms |
-| Generated, 50 packages | 3.6 ms | 22 ms | 30 ms |
-| Generated, 500 packages | 18 ms | 38 ms | 109 ms |
-| Generated, 2000 packages | 81 ms | 94 ms | 495 ms |
+| create-t3-turbo | 3.4 ms | 30 ms | 39 ms |
+| vue-core | 3.5 ms | 30 ms | 37 ms |
+| tanstack-query | 11 ms | 38 ms | 100 ms |
+| babel | 17 ms | 35 ms | 233 ms |
+| npm-cli | 6.3 ms | 32 ms | 63 ms |
+| Generated, 50 packages | 4.6 ms | 31 ms | 42 ms |
+| Generated, 500 packages | 25 ms | 51 ms | 151 ms |
+| Generated, 2000 packages | 101 ms | 122 ms | 668 ms |
 {/* bench:summary:end */}
 
 ### All measurements
@@ -57,31 +57,31 @@ run, which also runs every JS rule, so it is an upper bound.
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif --no-js | 3.6 | 3.6 | - |
-| sherif | 23.0 | 22.4 | 6.5x |
-| syncpack lint | 30.1 | 29.8 | 8.4x |
+| skif --no-js | 4.6 | 4.6 | - |
+| sherif | 32.0 | 31.3 | 6.9x |
+| syncpack lint | 42.0 | 41.9 | 9.1x |
 
 **generated: 500 packages (pnpm)**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif --no-js | 18.5 | 18.3 | - |
-| sherif | 37.8 | 38.0 | 2.0x |
-| syncpack lint | 110 | 109 | 6.0x |
+| skif --no-js | 25.0 | 25.1 | - |
+| sherif | 51.5 | 51.2 | 2.1x |
+| syncpack lint | 151 | 151 | 6.1x |
 
 **generated: 2000 packages (pnpm)**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif --no-js | 81.5 | 81.3 | - |
-| sherif | 94.0 | 93.9 | 1.2x |
-| syncpack lint | 498 | 495 | 6.1x |
+| skif --no-js | 101 | 101 | - |
+| sherif | 122 | 122 | 1.2x |
+| syncpack lint | 669 | 668 | 6.6x |
 
 **graph: 10000 files in 100 packages**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 156 | 156 | - |
+| skif | 246 | 245 | - |
 
 **corpus: create-t3-turbo (pnpm)**
 
@@ -89,10 +89,10 @@ Installed with `pnpm 10.19.0`.
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 25.1 | 23.0 | - |
-| skif --no-js | 2.9 | 3.0 | - |
-| sherif | 25.6 | 22.3 | 8.7x |
-| syncpack lint | 26.3 | 26.1 | 8.9x |
+| skif | 36.5 | 36.7 | - |
+| skif --no-js | 3.4 | 3.4 | - |
+| sherif | 30.6 | 30.4 | 9.0x |
+| syncpack lint | 47.9 | 38.7 | 14.1x |
 | knip --reporter json | fails: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide | - | - |
 
 **corpus: vue-core (pnpm)**
@@ -101,10 +101,10 @@ Installed with `pnpm 12.11.2`.
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 43.1 | 42.9 | - |
-| skif --no-js | 3.1 | 3.1 | - |
-| sherif | 22.7 | 22.6 | 7.3x |
-| syncpack lint | 28.1 | 27.7 | 9.0x |
+| skif | 71.7 | 71.4 | - |
+| skif --no-js | 3.5 | 3.5 | - |
+| sherif | 30.3 | 30.4 | 8.6x |
+| syncpack lint | 36.8 | 36.9 | 10.4x |
 | knip --reporter json | fails: its SFC playground Vite config reads a build-time global that only the repository's own build defines | - | - |
 
 **corpus: tanstack-query (pnpm)**
@@ -113,11 +113,11 @@ Installed with `pnpm 12.4.2`.
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 281 | 280 | - |
-| skif --no-js | 8.9 | 8.9 | - |
-| sherif | 33.6 | 34.6 | 3.8x |
-| syncpack lint | 85.7 | 85.6 | 9.7x |
-| knip --reporter json | 2541 | 2533 | 9.0x |
+| skif | 437 | 437 | - |
+| skif --no-js | 10.6 | 10.6 | - |
+| sherif | 37.4 | 38.0 | 3.5x |
+| syncpack lint | 100 | 100.0 | 9.5x |
+| knip --reporter json | 4007 | 4009 | 9.2x |
 
 **corpus: babel (yarn)**
 
@@ -125,11 +125,11 @@ Installed with `yarn 4.17.0`.
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 604 | 603 | - |
-| skif --no-js | 12.2 | 12.1 | - |
-| sherif | 25.3 | 24.8 | 2.1x |
-| syncpack lint | 251 | 251 | 20.6x |
-| knip --reporter json | 3677 | 3675 | 6.1x |
+| skif | 492360 | 492359 | - |
+| skif --no-js | 17.3 | 17.1 | - |
+| sherif | 35.3 | 35.0 | 2.0x |
+| syncpack lint | 234 | 233 | 13.6x |
+| knip --reporter json | 6564 | 6554 | 0.0x |
 
 **corpus: npm-cli (npm)**
 
@@ -137,21 +137,21 @@ Installed with `npx --yes npm@11.6.2 ci --ignore-scripts`.
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 63.2 | 64.0 | - |
-| skif --no-js | 4.6 | 4.6 | - |
-| sherif | 21.8 | 21.6 | 4.7x |
-| syncpack lint | 55.9 | 55.8 | 12.1x |
-| knip --reporter json | 483 | 481 | 7.6x |
+| skif | 101 | 99.8 | - |
+| skif --no-js | 6.2 | 6.3 | - |
+| sherif | 32.1 | 32.0 | 5.1x |
+| syncpack lint | 63.9 | 63.4 | 10.2x |
+| knip --reporter json | 829 | 831 | 8.2x |
 
 | ADR 0001 target | Check | Result |
 | --- | --- | --- |
-| generated: 500 packages (pnpm) | manifest and policy rules &lt; 50 ms (measured 18.5 ms) | pass |
-| graph: 10000 files in 100 packages | parse and module graph of 10000 files &lt; 2000 ms, whole run including every JS rule (measured 155.7 ms) | pass |
+| generated: 500 packages (pnpm) | manifest and policy rules &lt; 50 ms (measured 25.0 ms) | pass |
+| graph: 10000 files in 100 packages | parse and module graph of 10000 files &lt; 2000 ms, whole run including every JS rule (measured 245.8 ms) | pass |
 | corpus: create-t3-turbo (pnpm) | JS analysis >= 5x faster than knip (not measured: knip fails here: its Expo Metro config needs metro-cache, which pnpm's strict install does not provide) | not measured |
 | corpus: vue-core (pnpm) | JS analysis >= 5x faster than knip (not measured: knip fails here: its SFC playground Vite config reads a build-time global that only the repository's own build defines) | not measured |
-| corpus: tanstack-query (pnpm) | JS analysis >= 5x faster than knip (measured 9.0x) | pass |
-| corpus: babel (yarn) | JS analysis >= 5x faster than knip (measured 6.1x) | pass |
-| corpus: npm-cli (npm) | JS analysis >= 5x faster than knip (measured 7.6x) | pass |
+| corpus: tanstack-query (pnpm) | JS analysis >= 5x faster than knip (measured 9.2x) | pass |
+| corpus: babel (yarn) | JS analysis >= 5x faster than knip (measured 0.0x) | FAIL |
+| corpus: npm-cli (npm) | JS analysis >= 5x faster than knip (measured 8.2x) | pass |
 {/* bench:numbers:end */}
 
 ## Accuracy on seeded defects
@@ -194,16 +194,16 @@ both tools on pinned public repositories and compares the findings per issue typ
 committed baseline of that comparison:
 
 {/* parity:agreement:start */}
-Findings knip@6.44.1 and skif share on 18 pinned repositories (angular, babel, cal-com, create-t3-turbo, jest, mastra, n8n, next-js, npm-cli, nx-examples-integrated, opencode, rules-js, rushstack, tanstack-query, turborepo-examples, vercel-examples, vscode, vue-core; 18 of them installed), from `tools/bench/baselines/parity.json`, recorded at skif `31e2e6343385`, `cf3cc6975fc7-dirty`.
+Findings knip@6.44.1 and skif share on 18 pinned repositories (angular, babel, cal-com, create-t3-turbo, jest, mastra, n8n, next-js, npm-cli, nx-examples-integrated, opencode, rules-js, rushstack, tanstack-query, turborepo-examples, vercel-examples, vscode, vue-core; 18 of them installed), from `tools/bench/baselines/parity.json`, recorded at skif `84ed0fba77f8`.
 
 | Finding | Shared | Of skif's findings | Of knip's findings |
 | --- | ---: | ---: | ---: |
-| Unused files | 10,541 | 100% | 94% |
-| Unused exports | 7,107 | 99% | 95% |
-| Unused types | 3,526 | 98% | 98% |
-| Unused dev dependencies | 1,240 | 99% | 97% |
+| Unused files | 10,509 | 100% | 94% |
+| Unused exports | 7,064 | 99% | 95% |
+| Unused types | 3,518 | 98% | 98% |
+| Unused dev dependencies | 1,224 | 99% | 97% |
 | Unlisted dependencies | 820 | 95% | 60% |
-| Unused dependencies | 507 | 98% | 95% |
+| Unused dependencies | 503 | 98% | 95% |
 | Unused namespace exports | 425 | 100% | 91% |
 | Unused namespace types | 316 | 100% | 97% |
 | Duplicate exports | 159 | 96% | 99% |

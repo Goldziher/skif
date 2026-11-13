@@ -49,6 +49,10 @@ const MAX_IMPORT_DEPTH: usize = 8;
 /// How many distinct modules one config may load, so a config that reaches many modules stays cheap.
 const MAX_MODULE_LOADS: usize = 64;
 
+/// How many module analyses one config may run in all ([`Modules::facts`]). What an analysis finds under a pending
+/// module is not kept, so a cycle of imports is analysed again at every entry; past this, a module reads as unknown.
+const MAX_MODULE_ANALYSES: usize = 4 * MAX_MODULE_LOADS;
+
 /// How many imported exports one config may evaluate in all, calls with arguments included, so imported functions
 /// that call one another many times stay cheap.
 const MAX_MODULE_EVALUATIONS: usize = 1024;
@@ -513,6 +517,7 @@ pub fn extract_config(source: &str, path: &Path, loader: Option<&dyn ModuleLoade
         changing: RefCell::new(HashMap::default()),
         pending: RefCell::new(Vec::new()),
         shallowest_cut: Cell::new(usize::MAX),
+        analyses: Cell::new(0),
         installed: RefCell::new(HashMap::default()),
     };
     evaluate_config(source, path, Some(&modules))
@@ -703,6 +708,8 @@ struct Modules<'l> {
     /// The index in [`Self::pending`] of the outermost module an analysis under way found pending, or past a limit
     /// (`0`): what it finds then depends on that module, so it is not kept for a module inside it.
     shallowest_cut: Cell<usize>,
+    /// How many module analyses have run, kept or not ([`MAX_MODULE_ANALYSES`]).
+    analyses: Cell<usize>,
     /// What the loader said of each importing directory and specifier ([`ModuleLoader::is_installed`]).
     installed: RefCell<HashMap<(PathBuf, String), bool>>,
 }
@@ -797,7 +804,7 @@ impl Modules<'_> {
 
     /// What the analysis of the followed module `specifier` names from `from` finds, with its path; what may hold for
     /// any module ([`ModuleFacts::unknown`]) while the module is being analysed, past [`MAX_IMPORT_DEPTH`] modules being
-    /// analysed or [`MAX_MODULE_LOADS`] analysed, and when the module does not parse. What one finds while a module that
+    /// analysed, [`MAX_MODULE_LOADS`] analysed or [`MAX_MODULE_ANALYSES`] analyses run, and when the module does not parse. What one finds while a module that
     /// encloses it is pending is not kept, as it depends on that module.
     fn facts(&self, from: &Path, specifier: &str) -> Option<(PathBuf, Rc<ModuleFacts>)> {
         let (path, source) = self.load(from, specifier)?;
@@ -810,10 +817,14 @@ impl Modules<'_> {
             return Some((path, facts));
         }
         let depth = self.pending.borrow().len();
-        if depth >= MAX_IMPORT_DEPTH || self.changing.borrow().len() >= MAX_MODULE_LOADS {
+        if depth >= MAX_IMPORT_DEPTH
+            || self.changing.borrow().len() >= MAX_MODULE_LOADS
+            || self.analyses.get() >= MAX_MODULE_ANALYSES
+        {
             self.shallowest_cut.set(0);
             return Some((path, Rc::new(ModuleFacts::unknown())));
         }
+        self.analyses.set(self.analyses.get() + 1);
         self.changing.borrow_mut().insert(path.clone(), None);
         self.pending.borrow_mut().push(path.clone());
         let outer = self.shallowest_cut.replace(usize::MAX);
