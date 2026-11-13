@@ -3,8 +3,6 @@
 
 <h1 align="center"><img src="docs/media/skif-banner.svg" alt="skif: dependency linter for JavaScript and TypeScript monorepos" width="820"></h1>
 
-**One fast binary for the dependency checks your monorepo spreads across three tools.**
-
 npm · pnpm · yarn · bun · **53 rules** · **207 plugins** · format-preserving fixes
 
 [![crates.io](https://img.shields.io/crates/v/skif?style=flat-square)](https://crates.io/crates/skif)
@@ -19,10 +17,7 @@ npm · pnpm · yarn · bun · **53 rules** · **207 plugins** · format-preservi
 
 ---
 
-skif is a dependency linter for JavaScript and TypeScript repositories, written in Rust. It does the jobs of
-[sherif](https://github.com/QuiiBz/sherif) (manifest and workspace rules), [syncpack](https://github.com/JamieMason/syncpack)
-(version and catalog policies) and [knip](https://github.com/webpro-nl/knip) (unused files, exports and
-dependencies) in one run, with one `skif.toml` and one report. It reads tool configurations statically and runs no
+skif is a dependency linter for JavaScript and TypeScript repositories, written in Rust. It reads tool configurations statically and runs no
 project code while linting, and its fixes keep key order, indentation and comments. `skif migrate` translates an
 existing sherif, syncpack and knip setup in one step.
 
