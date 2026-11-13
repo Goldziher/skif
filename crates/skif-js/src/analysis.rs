@@ -864,8 +864,8 @@ impl<'a> JsAnalysis<'a> {
     /// owns them as build sources, which are used and whose imports are followed but whose exports are judged, and
     /// counts those outside the root as used by the root that owns them.
     #[must_use]
-    pub fn other_project_build_sources(&self) -> &[PathBuf] {
-        &self.other_root_build_sources
+    pub fn other_project_build_sources(&self) -> Vec<PathBuf> {
+        self.other_root_build_sources.clone()
     }
 
     /// The analysed packages whose entry files are not all known, with every reason and the scope left unjudged
