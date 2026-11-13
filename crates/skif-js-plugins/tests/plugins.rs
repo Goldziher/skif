@@ -4782,6 +4782,35 @@ fn zx_under_powershell_runs_no_cmdlet_binaries() {
     assert_eq!(runs("scripts/bash.mjs"), ["New-Item", "gci", "turbo"]);
 }
 
+/// The sources of a member below a workspace root are the member's: the root reads none of the commands they run with
+/// execa, nano-spawn or zx, whose binaries are judged against the member.
+#[test]
+fn execa_nano_spawn_and_zx_read_the_commands_of_their_own_sources_only() {
+    let member = r#"import { execa } from "execa";
+        import spawn from "nano-spawn";
+        import { $ } from "zx";
+        export const jscodeshift = require.resolve(".bin/jscodeshift");
+        await execa(jscodeshift, args);
+        await spawn("member-lint", ["."]);
+        await $`member-deploy`;"#;
+    let root = r#"import { execa } from "execa";
+        import spawn from "nano-spawn";
+        import { $ } from "zx";
+        await execa("changeset", ["publish"]);
+        await spawn("eslint", ["."]);
+        await $`wrangler deploy`;"#;
+    let files = [
+        ("package.json", r#"{"name":"root","workspaces":["packages/*"]}"#),
+        ("scripts/release.mjs", root),
+        ("packages/codemod/package.json", r#"{"name":"codemod"}"#),
+        ("packages/codemod/bin/transform.ts", member),
+    ];
+    let results = resolve(&files, &["execa", "nano-spawn", "zx"]);
+    assert_eq!(output(&results, "execa").referenced_binaries, ["changeset"]);
+    assert_eq!(output(&results, "nano-spawn").referenced_binaries, ["eslint"]);
+    assert_eq!(output(&results, "zx").referenced_binaries, ["wrangler"]);
+}
+
 /// execa and nano-spawn hand each argument to the program as one word, without a shell: one that is not a plain word
 /// is quoted, so the call still runs its program and the argument runs nothing.
 #[test]
