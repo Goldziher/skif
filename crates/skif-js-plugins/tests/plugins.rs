@@ -5602,7 +5602,8 @@ fn mise_extensionless_javascript_file_tasks_make_what_they_resolve_build_sources
             ("mise.toml", "[tools]\nnode = \"22\"\n"),
             (
                 "mise-tasks/gen",
-                "#!/usr/bin/env node\nconsole.log(require.resolve(\"../src/data.js\"), require.resolve(\"./lib/tpl\"));\n\
+                "#!/usr/bin/env node\n\
+                 console.log(require.resolve(\"../src/data.js\"), require.resolve(\"./lib/tpl\"));\n\
                  require(\"../src/run.js\");\nrequire.resolve(\"../src/run.js\");\n",
             ),
         ],
