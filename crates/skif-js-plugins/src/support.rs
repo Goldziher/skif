@@ -873,6 +873,13 @@ pub(crate) fn sources_containing(cx: &PluginContext<'_>, needle: &str) -> Vec<(S
     sources_where(cx, |_| true, |text| finder.find(text.as_bytes()).is_some())
 }
 
+/// The source files of [`own_sources_where`] whose text contains `needle`: a member's files are the member's, so the
+/// commands they run are judged there.
+pub(crate) fn own_sources_containing(cx: &PluginContext<'_>, needle: &str) -> Vec<(String, std::sync::Arc<str>)> {
+    let finder = memchr::memmem::Finder::new(needle.as_bytes());
+    own_sources_where(cx, |text| finder.find(text.as_bytes()).is_some())
+}
+
 /// The JavaScript and TypeScript source files of the workspace's own whose text `keep` accepts, as their path
 /// relative to the workspace and their text. Declaration files are left out, and so are the files below a directory
 /// with a `package.json` of its own, such as a member of a workspace root: they belong to that package.

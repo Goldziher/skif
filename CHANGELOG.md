@@ -71,6 +71,10 @@ All notable changes to this project are documented here. The format follows
   a workflow step's `working-directory`, instead of where the text starts: `SUITE=$(pnpm exec tsx x.ts)` in a step
   with `working-directory: packages/web` credits `tsx` to `packages/web` instead of judging it at the root
   ([#97](https://github.com/Goldziher/skif/issues/97)).
+- **`unlisted-binaries`**: the `execa`, `zx` and nano-spawn plugins of a package read only its own source files, as the
+  `bun` plugin does, so a root that lists execa no longer judges the commands of its members' files against itself: a
+  member's `execa(require.resolve(".bin/jscodeshift"))` runs `jscodeshift` of the member that lists it
+  ([#97](https://github.com/Goldziher/skif/issues/97)).
 
 ## [0.4.0] - 2026-11-12
 
