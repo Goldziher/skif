@@ -1,7 +1,9 @@
 //! The JavaScript and TypeScript source files of a package, listed and read once for every plugin that scans them.
 
-use std::path::PathBuf;
-use std::sync::{Arc, OnceLock};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock, PoisonError, RwLock};
+
+use skif_core::HashMap;
 
 use crate::plugin::PluginContext;
 
@@ -12,10 +14,15 @@ use crate::plugin::PluginContext;
 /// The resolvers ([`resolve_plugins`](crate::resolve_plugins) and its variants) keep one for each package and scope
 /// they resolve, and drop it when they are done. A listing serves only a context of its own directory: a context of
 /// another directory lists and reads its sources itself.
+///
+/// Listings made [`within`](Self::within) one another share the texts they read: the sources of a package below the
+/// root package, or of an Nx project below its package, are also sources of the enclosing directory, and a file one of
+/// them read is not read again for another.
 #[derive(Debug)]
 pub struct PackageSources {
     dir: PathBuf,
     files: OnceLock<Vec<SourceFile>>,
+    texts: Arc<Texts>,
 }
 
 /// A source file, relative to the package directory, and its text once read; `None` when it cannot be read.
@@ -25,6 +32,24 @@ struct SourceFile {
     text: OnceLock<Option<Arc<str>>>,
 }
 
+/// The texts read by a group of listings, by absolute path. A file that cannot be read is not kept, so the next
+/// listing that wants it tries again, as it would on its own.
+#[derive(Debug, Default)]
+struct Texts(RwLock<HashMap<PathBuf, Arc<str>>>);
+
+impl Texts {
+    /// The text of `path`, read with `read` unless a listing of the group read it already.
+    fn get_or_read(&self, path: &Path, read: impl FnOnce() -> Option<Arc<str>>) -> Option<Arc<str>> {
+        if let Some(text) = self.0.read().unwrap_or_else(PoisonError::into_inner).get(path) {
+            return Some(Arc::clone(text));
+        }
+        let text = read()?;
+        let mut texts = self.0.write().unwrap_or_else(PoisonError::into_inner);
+        texts.insert(path.to_path_buf(), Arc::clone(&text));
+        Some(text)
+    }
+}
+
 impl PackageSources {
     /// An empty listing of the sources below `dir`, a package directory.
     #[must_use]
@@ -32,6 +57,18 @@ impl PackageSources {
         Self {
             dir: dir.into(),
             files: OnceLock::new(),
+            texts: Arc::default(),
+        }
+    }
+
+    /// An empty listing of the sources below `dir` that takes the text of a file from `enclosing`, and from every
+    /// other listing made within it, when one of them read the file already, and shares what it reads with them.
+    #[must_use]
+    pub fn within(dir: impl Into<PathBuf>, enclosing: &Self) -> Self {
+        Self {
+            dir: dir.into(),
+            files: OnceLock::new(),
+            texts: Arc::clone(&enclosing.texts),
         }
     }
 
@@ -41,7 +78,8 @@ impl PackageSources {
     }
 
     /// The source files `wanted` accepts by path, in path order, with their text when `keep` accepts it. `list`
-    /// lists the files on first use and `read` reads a file's text on its first use.
+    /// lists the files on first use and `read` reads a file's text on its first use, unless a listing sharing this
+    /// one's texts read it already.
     pub(crate) fn texts(
         &self,
         list: impl FnOnce() -> Vec<String>,
@@ -62,7 +100,10 @@ impl PackageSources {
             .iter()
             .filter(|file| wanted(file.path.as_str()))
             .filter_map(|file| {
-                let text = file.text.get_or_init(|| read(file.path.as_str())).as_ref()?;
+                let text = file
+                    .text
+                    .get_or_init(|| self.texts.get_or_read(&self.dir.join(&file.path), || read(file.path.as_str())))
+                    .as_ref()?;
                 keep(text).then(|| (file.path.clone(), Arc::clone(text)))
             })
             .collect()
