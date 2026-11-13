@@ -15,7 +15,7 @@ use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
 use skif_core::{HashMap, HashSet};
 
-use crate::collect::{Ctx, collect_import, imported_kind};
+use crate::collect::{Ctx, ambient_reexport, collect_import, imported_kind};
 use crate::model::{
     Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, MockCall, ModuleInfo, is_source_query,
 };
@@ -497,10 +497,13 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
         } else {
             self.info.ambient_modules.push(name);
         }
-        // `declare module "x" { import m from "y"; }` needs `y` as much as a top-level import does.
+        // `declare module "x" { import m from "y"; }` needs `y` as much as a top-level import does, and
+        // `export * from "y"` there needs the types of `y`.
         for statement in it.body.iter().flat_map(|body| &body.body) {
             if let Statement::ImportDeclaration(declaration) = statement {
                 collect_import(self.ctx, declaration, self.info);
+            } else if let Some(import) = ambient_reexport(self.ctx, statement) {
+                self.info.imports.push(import);
             }
         }
         walk::walk_ts_external_module_declaration(self, it);

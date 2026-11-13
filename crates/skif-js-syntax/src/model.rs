@@ -13,7 +13,8 @@ use skif_core::{HashMap, HashSet};
 pub enum ImportKind {
     /// `import a from "x"` (not type-only, has bindings).
     Static,
-    /// `import type … from "x"`: the whole declaration is type-only.
+    /// `import type … from "x"`: the whole declaration is type-only. Also `export * from "x"` and `export { a } from
+    /// "x"` inside a `declare module` block, which declares types only.
     TypeOnly,
     /// `import "x"`.
     SideEffect,
