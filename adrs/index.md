@@ -38,7 +38,7 @@ old one.
 | 0028 | [Editors, Agents and Git Hooks: `skif mcp`, `skif lsp`, `--watch`, the Agent Skill and the Hooks](0028-editors-agents-and-git-hooks.md) | accepted |
 | 0029 | [Performance, Caching and Benchmarks: A Content-Keyed Module Cache and Published Numbers From a Pinned Runner](0029-performance-caching-and-benchmarks.md) | accepted, superseded in part by [0041](0041-benchmarks-on-large-repositories.md) |
 | 0030 | [Supported Versions and the End-to-End Matrix: Upstream End of Life, Tested Layouts](0030-supported-versions-and-the-end-to-end-matrix.md) | accepted |
-| 0031 | [Bazel: Static Reading of Starlark, Output Trees That Are Never Read, and Paths Under `bazel run` and `bazel test`](0031-bazel.md) | accepted, superseded in part by [0034](0034-build-sources-handed-to-a-nested-root.md) |
+| 0031 | [Bazel: Static Reading of Starlark, Output Trees That Are Never Read, and Paths Under `bazel run` and `bazel test`](0031-bazel.md) | accepted, superseded in part by [0034](0034-build-sources-handed-to-a-nested-root.md) and [0049](0049-bazel-test-globs-and-angular-packages.md) |
 | 0032 | [Nx and Lerna (and Pruned Output Trees): Projects as Scopes, Lerna as Facts, Layouts Recognised by Shape](0032-nx-and-lerna-and-pruned-output-trees.md) | accepted |
 | 0033 | [Attribution and Vendoring: Depend, Vendor, Re-Implement or Reference, and One Attributions File](0033-attribution-and-vendoring.md) | accepted |
 | 0034 | [Build Sources Handed to a Nested Root](0034-build-sources-handed-to-a-nested-root.md) | accepted |
@@ -56,4 +56,4 @@ old one.
 | 0046 | [Typed Member Semantics: What a Typed Read Credits, and the `type-resolved` Deviation](0046-typed-member-semantics.md) | accepted |
 | 0047 | [Performance Budget and Benchmarks With Types](0047-performance-budget-with-types.md) | accepted |
 | 0048 | [Dynamic Imports Returned to a Call: Lazy-Component Loaders Read `default`, Other Calls the Whole Module](0048-dynamic-imports-returned-to-a-call.md) | accepted |
-| NNNN | [Bazel Test Globs and Angular Packages, and Relative Imports Into Unbuilt Build Output](NNNN-bazel-test-globs-and-angular-packages.md) | accepted |
+| 0049 | [Bazel Test Globs and Angular Packages, and Relative Imports Into Unbuilt Build Output](0049-bazel-test-globs-and-angular-packages.md) | accepted |

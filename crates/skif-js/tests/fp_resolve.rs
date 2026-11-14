@@ -1359,7 +1359,10 @@ const RULES_JS_MODULE: (&str, &str) = (
 fn ng_package_entry_points_and_globbed_test_only_specs_are_used() {
     let files = [
         RULES_JS_MODULE,
-        ("package.json", r#"{"name":"@x/common","version":"1.0.0","private":true}"#),
+        (
+            "package.json",
+            r#"{"name":"@x/common","version":"1.0.0","private":true}"#,
+        ),
         (
             "BUILD.bazel",
             concat!(

@@ -154,7 +154,7 @@ blake3 = "c32ea81ec0756f67bc8a73c99a62b7e7626071b86a1cf5ee4b68e16d8cabe341"
 [adrs."adrs/0031-bazel.md"]
 number = 31
 status = "accepted"
-blake3 = "aa75ee90f1d0ab2e6f8827d720c3e68fb517586df7aa9034642a936d642d91d1"
+blake3 = "3260e391ac579fa09febb88436fd8494a29139a1cc96dd36f69ea1c339942315"
 
 [adrs."adrs/0032-nx-and-lerna-and-pruned-output-trees.md"]
 number = 32
@@ -240,3 +240,8 @@ blake3 = "57df9eda1c9bac1c661813250ef7be90374338b265225d3eb862fc2fbf9474f6"
 number = 48
 status = "accepted"
 blake3 = "11792b700e076da5815fbd214cc380a3d16e1aba1f08711244ac60dc5c524876"
+
+[adrs."adrs/0049-bazel-test-globs-and-angular-packages.md"]
+number = 49
+status = "accepted"
+blake3 = "bab8a22b8a99ba0f855702165734cf1171700fd963481341688c1a3e6791c324"
