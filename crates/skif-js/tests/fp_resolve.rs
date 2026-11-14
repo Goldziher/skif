@@ -1352,6 +1352,54 @@ const RULES_JS_MODULE: (&str, &str) = (
     "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n",
 );
 
+/// An Angular library built with rules_angular: `ng_package` publishes the `index.ts` of its own Bazel package and of
+/// `testing`, and a `testonly` `ts_project` builds the spec files a `glob` matches. The secondary entry point is
+/// public, the spec is used, and the member only the spec reads counts as read.
+#[test]
+fn ng_package_entry_points_and_globbed_test_only_specs_are_used() {
+    let files = [
+        RULES_JS_MODULE,
+        ("package.json", r#"{"name":"@x/common","version":"1.0.0","private":true}"#),
+        (
+            "BUILD.bazel",
+            concat!(
+                "ng_project(name = \"common\", srcs = glob([\"*.ts\", \"src/**/*.ts\"]))\n\n",
+                "ng_package(name = \"npm_package\", deps = [\":common\", \"//testing\"])\n",
+            ),
+        ),
+        ("index.ts", "export * from './public_api';\n"),
+        (
+            "public_api.ts",
+            "import { Store } from './src/store';\nexport const size = (): number => new Store().size;\n",
+        ),
+        (
+            "src/store.ts",
+            "export class Store {\n  size = 0;\n  read(): number {\n    return this.size;\n  }\n}\n",
+        ),
+        ("src/orphan.ts", "export const orphan = 1;\n"),
+        ("testing/index.ts", "export const fake = 1;\n"),
+        (
+            "test/BUILD.bazel",
+            "ts_project(name = \"test_lib\", testonly = True, srcs = glob([\"**/*_spec.ts\"]))\n",
+        ),
+        (
+            "test/store_spec.ts",
+            "import { Store } from '../src/store';\nnew Store().read();\n",
+        ),
+    ];
+    let diagnostics = lint(&files);
+    assert_eq!(
+        paths(&diagnostics, "unused-files"),
+        strings(&["src/orphan.ts"]),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        names(&diagnostics, "unused-class-members"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+}
+
 /// A file that a `ts_project` builds from and that an entry rule also matches (the `main` of `package.json`, a default
 /// entry, an `entry` glob of the configuration) stays an entry, whose exports are public; the other source beside it,
 /// `spare.ts`, is a build source, whose export is judged.

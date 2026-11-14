@@ -7467,6 +7467,69 @@ fn bazel_format_comprehensions_name_their_packages_and_glob_patterns_none() {
     );
 }
 
+/// An Angular library built with rules_angular: the `deps` of its `ng_package` name the entry points it publishes, the
+/// `index.ts` of each Bazel package inside the npm package, and an `ng_project` reads as a `ts_project`. The `glob`
+/// of a `testonly` target adds its include patterns as build sources outside production, as a test rule's would,
+/// while the `glob` of a target that is no test still names nothing.
+#[test]
+fn bazel_ng_packages_name_their_entry_points_and_test_only_globs_are_build_sources() {
+    let build = r#"load("//tools:defaults.bzl", "ng_package", "ng_project")
+
+ng_project(
+    name = "common",
+    srcs = glob(["*.ts", "src/**/*.ts"]) + ["extra.ts"],
+)
+
+ng_package(
+    name = "npm_package",
+    srcs = ["package.json"],
+    deps = [
+        ":common",
+        "//packages/common/http",
+        "//packages/common/http/testing:testing",
+        "//packages/common/missing",
+        "//packages/core",
+        "//packages/common-extra",
+        "@npm//:rxjs",
+    ],
+)
+"#;
+    let tests = r#"ts_project(
+    name = "test_lib",
+    testonly = True,
+    srcs = glob(["**/*_spec.ts"], exclude = ["legacy_spec.ts"]),
+)
+
+ts_project(name = "fixtures", testonly = False, srcs = glob(["fixtures/*.ts"]))
+"#;
+    let files = [
+        RULES_JS_MODULE,
+        ("/ws/packages/common/package.json", r#"{"name":"@x/common"}"#),
+        ("/ws/packages/common/BUILD.bazel", build),
+        ("/ws/packages/common/index.ts", ""),
+        ("/ws/packages/common/extra.ts", ""),
+        ("/ws/packages/common/http/index.ts", ""),
+        ("/ws/packages/common/http/testing/index.ts", ""),
+        ("/ws/packages/common/missing/public_api.ts", ""),
+        ("/ws/packages/common/test/BUILD.bazel", tests),
+        ("/ws/packages/common/test/a_spec.ts", ""),
+        ("/ws/packages/common/test/fixtures/f.ts", ""),
+        ("/ws/packages/core/index.ts", ""),
+        ("/ws/packages/common-extra/index.ts", ""),
+    ];
+    let results = resolve_in_tree(&files, "/ws/packages/common", false);
+    let out = output(&results, "bazel");
+    let production: BTreeSet<&str> = out.production_entries.iter().map(String::as_str).collect();
+    assert_eq!(
+        production,
+        BTreeSet::from(["http/index.ts", "http/testing/index.ts", "index.ts"])
+    );
+    let sources: BTreeSet<&str> = out.build_sources.iter().map(String::as_str).collect();
+    assert_eq!(sources, BTreeSet::from(["extra.ts", "test/**/*_spec.ts"]));
+    let production_sources: BTreeSet<&str> = out.production_build_sources.iter().map(String::as_str).collect();
+    assert_eq!(production_sources, BTreeSet::from(["extra.ts"]));
+}
+
 /// Outside a Bazel repository that uses `rules_js` the `BUILD` files of a package name nothing.
 #[test]
 fn bazel_build_files_name_nothing_without_rules_js() {
