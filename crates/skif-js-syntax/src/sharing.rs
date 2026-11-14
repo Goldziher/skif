@@ -162,7 +162,7 @@ fn add_write(writes: &mut Vec<Write>, write: Write) {
 /// A change below a binding: of what the object or array at `keys` holds, anything below it included, or with `key`,
 /// of the value of that key of the object there (`cfg.output.path = …` is `["output"]` and `path`). The empty path is
 /// the object or array the binding holds itself.
-#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct Write {
     pub(crate) keys: Vec<String>,
     pub(crate) key: Option<String>,
@@ -1225,9 +1225,10 @@ impl Sharing<'_> {
     /// ([`Self::note_this_calls`]).
     fn run_implicitly(&mut self) {
         let sites = std::mem::take(&mut self.implicit.sites);
+        let mut shared = HashSet::default();
         let mut pending: Vec<Pending> = sites
             .into_iter()
-            .filter_map(|site| self.implicit.accessors.pending(site))
+            .filter_map(|site| self.implicit.accessors.pending(site, &mut shared))
             .collect();
         if pending.is_empty() && self.implicit.calls.is_empty() {
             return;
@@ -1239,13 +1240,23 @@ impl Sharing<'_> {
         } else {
             (self.link_aliases_for_now(), self.links_of())
         };
-        let bound = BoundWrites { owners, links_of };
+        let bound = BoundWrites {
+            owners,
+            links_of,
+            classes: RefCell::default(),
+        };
         let mut scan = Scan::default();
         loop {
             let mut grew = self.note_bound_writes(&bound, &mut scan, &mut effects);
             grew |= self.note_this_calls(&mut effects);
+            // What the functions a place may run change, by the list of them, once a round: places share those lists
+            // ([`Accessors::pending`]), and a change one makes that grows them is applied in the next round.
+            let mut unions: HashMap<*const [ScopeId], (usize, ThisEffect)> = HashMap::default();
             for site in &mut pending {
-                grew |= self.apply_site(site, &mut effects);
+                let (size, effect) = unions
+                    .entry(Rc::as_ptr(&site.ran))
+                    .or_insert_with(|| (size_of(&site.ran, &effects), union_of(&site.ran, &effects)));
+                grew |= self.apply_site(site, (*size, effect), &mut effects);
             }
             if !grew {
                 break;
@@ -1317,11 +1328,20 @@ impl Sharing<'_> {
         let Some(class) = self.class_of(symbol) else {
             return bound.owners.get(&symbol).copied().into_iter().collect();
         };
-        if !bound.owners.keys().any(|taker| class.binary_search(taker).is_ok()) {
+        let (owned, in_full) = *bound.classes.borrow_mut().entry(class[0]).or_insert_with(|| {
+            (
+                bound.owners.keys().any(|taker| class.binary_search(taker).is_ok()),
+                false,
+            )
+        });
+        if !owned || in_full {
             return Vec::new();
         }
         let reached: Vec<SymbolId> = match self.reach_of(&bound.links_of, symbol, write) {
-            Reach::InFull(class) => class.to_vec(),
+            Reach::InFull(class) => {
+                bound.classes.borrow_mut().insert(class[0], (true, true));
+                class.to_vec()
+            }
             Reach::Places(places) => places.into_iter().map(|(other, _)| other).collect(),
         };
         reached
@@ -1350,16 +1370,24 @@ impl Sharing<'_> {
             .map_or_else(ThisEffect::contents, |methods| union_of(methods, effects))
     }
 
-    /// Applies what the getters, setters and iterators the place `pending` may run change of what `this` holds, when it
-    /// grew since it was last applied, returning whether it did.
-    fn apply_site(&mut self, pending: &mut Pending, effects: &mut HashMap<ScopeId, ThisEffect>) -> bool {
-        let effect = union_of(&pending.ran, effects);
-        if effect == pending.applied {
+    /// Applies `effect`, what the getters, setters and iterators the place `pending` may run change of what `this`
+    /// holds, counted as `size` ([`size_of`]), when it grew since it was last applied, returning whether it did.
+    fn apply_site(
+        &mut self,
+        pending: &mut Pending,
+        (size, effect): (usize, &ThisEffect),
+        effects: &mut HashMap<ScopeId, ThisEffect>,
+    ) -> bool {
+        if size == pending.size {
             return false;
         }
-        self.note_runs_on_this(&pending.site, &effect, effects);
-        self.apply_effect(&pending.site, &effect);
-        pending.applied = effect;
+        pending.size = size;
+        if *effect == pending.applied {
+            return false;
+        }
+        self.note_runs_on_this(&pending.site, effect, effects);
+        self.apply_effect(&pending.site, effect);
+        pending.applied = effect.clone();
         true
     }
 
@@ -2347,12 +2375,13 @@ impl Sharing<'_> {
                 ends: Ends::default(),
             });
         }
-        let mut origins: Vec<(SymbolId, Write)> = Vec::new();
-        for origin in &self.mutated {
-            if !origins.contains(origin) {
-                origins.push(origin.clone());
-            }
-        }
+        let mut known: HashSet<&(SymbolId, Write)> = HashSet::default();
+        let origins: Vec<(SymbolId, Write)> = self
+            .mutated
+            .iter()
+            .filter(|origin| known.insert(origin))
+            .cloned()
+            .collect();
         let links_of = self.links_of();
         let mut in_full: HashMap<SymbolId, Option<SymbolId>> = HashMap::default();
         for (symbol, origin) in origins {
@@ -3924,7 +3953,11 @@ impl ThisEffect {
     fn add(&mut self, other: &Self) -> bool {
         let before = (self.contents, self.keys.len());
         self.contents |= other.contents;
-        self.keys.extend(other.keys.iter().cloned());
+        for key in &other.keys {
+            if !self.keys.contains(key) {
+                self.keys.insert(key.clone());
+            }
+        }
         before != (self.contents, self.keys.len())
     }
 
@@ -3943,6 +3976,16 @@ impl ThisEffect {
             })
             .collect()
     }
+}
+
+/// How much the functions of `functions` change of what `this` holds, as `effects` says, counted over them: what each
+/// changes only grows ([`ThisEffect::add`]), so the count stays the same exactly while none of them grew.
+fn size_of(functions: &[ScopeId], effects: &HashMap<ScopeId, ThisEffect>) -> usize {
+    functions
+        .iter()
+        .filter_map(|function| effects.get(function))
+        .map(|effect| usize::from(effect.contents) + effect.keys.len())
+        .sum()
 }
 
 /// What the functions of `functions` change of what `this` holds together, as `effects` says.
@@ -4019,13 +4062,25 @@ impl Accessors {
         ran
     }
 
-    /// The place `site` with those of them it may run, when it may run one.
-    fn pending(&self, site: ImplicitSite) -> Option<Pending> {
+    /// The place `site` with those of them it may run, when it may run one, the list of them taken from `shared` when
+    /// an earlier place may run the same ones, and added to it otherwise.
+    fn pending(&self, site: ImplicitSite, shared: &mut HashSet<Rc<[ScopeId]>>) -> Option<Pending> {
         let ran = self.ran_by(&site.runs);
-        (!ran.is_empty()).then(|| Pending {
+        if ran.is_empty() {
+            return None;
+        }
+        let ran = if let Some(known) = shared.get(ran.as_slice()) {
+            Rc::clone(known)
+        } else {
+            let ran: Rc<[ScopeId]> = ran.into();
+            shared.insert(Rc::clone(&ran));
+            ran
+        };
+        Some(Pending {
             site,
             ran,
             applied: ThisEffect::default(),
+            size: 0,
         })
     }
 }
@@ -4130,8 +4185,10 @@ struct ImplicitSite {
 /// what it has changed so far of the object there.
 struct Pending {
     site: ImplicitSite,
-    ran: Vec<ScopeId>,
+    ran: Rc<[ScopeId]>,
     applied: ThisEffect,
+    /// What the functions of `ran` changed when it was last applied, counted ([`size_of`]).
+    size: usize,
 }
 
 /// The bindings that take what `this` holds in a getter, a setter, an iterator or a method of an object, each with
@@ -4139,6 +4196,9 @@ struct Pending {
 struct BoundWrites {
     owners: HashMap<SymbolId, ScopeId>,
     links_of: HashMap<SymbolId, Vec<usize>>,
+    /// For each class of linked bindings seen, by its first binding ([`Sharing::class_of`]): whether one of `owners`
+    /// is in it, and whether a change reached it in full, which a later change of it then adds nothing to.
+    classes: RefCell<HashMap<SymbolId, (bool, bool)>>,
 }
 
 /// How far [`Sharing::note_bound_writes`] has looked through the changes made ([`Sharing::mutated`]), and the changes
