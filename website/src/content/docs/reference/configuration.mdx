@@ -1239,7 +1239,8 @@ result is not known keeps the element. `Object.fromEntries` of a known list of `
 template literals and `+` write known strings, numbers and booleans, and `===` and `!==` compare known primitives. A
 Vite or Vitest `root` that is one of several directories reads the HTML entries of each. A path function, a template
 literal or `+` over a value that is one of several is one of the results of each, unknown when one is unknown or there
-would be more than eight, so `path.join(dir, 'vitest.setup.ts')` with such a `dir` is one of two paths. A list of
+would be more than eight, so `path.join(dir, 'vitest.setup.ts')` with such a `dir` is one of two paths. The `sep`
+and `delimiter` of `path` are POSIX's `/` and `:` (those of `path.win32` are unknown). A list of
 files or patterns (setup files, test globs, bundler entries) whose value or element is one of several known strings
 makes each an entry candidate; one that names no file is dropped without a hint, unless it lies in build output, where
 it stands for its source or leaves the package incomplete as described under incomplete entries.

@@ -412,7 +412,8 @@ pub trait ModuleLoader {
 /// single expression; spreads of static values; and identifiers that name a top-level `const` initialised with something static; and paths computed from the config
 /// file's own location (`__dirname`, `import.meta.dirname`, `new URL('./x', import.meta.url)`, `path.resolve`,
 /// `path.join`, `path.dirname` and `fileURLToPath`, however `path` was imported), which evaluate to strings relative to
-/// the config file's directory (`"."`, `"./src"`, `"../shared"`).
+/// the config file's directory (`"."`, `"./src"`, `"../shared"`); `sep` and `delimiter` of `path` (but `path.win32`)
+/// are POSIX's `"/"` and `":"`.
 ///
 /// `a ? b : c` takes the branch a known test selects; with an unknown test it is what both branches share (for two
 /// objects, every key either has, one of their values where they differ and unknown where only one has it), and for
@@ -1608,11 +1609,24 @@ impl TopLevel<'_, '_> {
 /// Functions of `path`, whose results are computed lexically.
 const PATH_FUNCTIONS: &[&str] = &["resolve", "join", "dirname", "normalize"];
 
+/// Constants of `path`, as POSIX sets them, by name: the paths a config holds are computed with `/`.
+const PATH_CONSTANTS: &[(&str, &str)] = &[("sep", "/"), ("delimiter", ":")];
+
+/// The value of the constant `name` of `path` ([`PATH_CONSTANTS`]); `None` for any other name.
+fn path_constant(name: &str) -> Option<&'static str> {
+    PATH_CONSTANTS
+        .iter()
+        .find(|(constant, _)| *constant == name)
+        .map(|(_, value)| *value)
+}
+
 /// The local names the config file gives to the `path` and `url` modules and their functions.
 #[derive(Default)]
 struct ModuleBindings {
     path_modules: HashSet<String>,
     path_functions: HashMap<String, String>,
+    /// Local names of the constants of `path` ([`PATH_CONSTANTS`]), with their values.
+    path_constants: HashMap<String, String>,
     url_modules: HashSet<String>,
     file_url_to_path: HashSet<String>,
     /// Local names of glob functions and glob modules.
@@ -1643,6 +1657,11 @@ impl ModuleBindings {
             }
             ("path" | "path/posix", Some(name)) if PATH_FUNCTIONS.contains(&name) => {
                 self.path_functions.insert(local, name.to_owned());
+            }
+            ("path" | "path/posix", Some(name)) => {
+                if let Some(value) = path_constant(name) {
+                    self.path_constants.insert(local, value.to_owned());
+                }
             }
             ("url", None | Some("default")) => {
                 self.url_modules.insert(local);
@@ -2876,8 +2895,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// The value of a name: a binding of a function being evaluated, a top-level constant (evaluated once however
     /// often it is referenced), a top-level function called with arguments that cannot be known (as the tool calls a
-    /// config function the config exports by name), or a path global. A name bound to a read that is not definite
-    /// ([`Self::read`]) is a [`Value::Maybe`].
+    /// config function the config exports by name), a constant of `path` ([`PATH_CONSTANTS`]), or a path global. A
+    /// name bound to a read that is not definite ([`Self::read`]) is a [`Value::Maybe`].
     fn identifier(&self, name: &str, depth: u32) -> Value {
         if let Some(binding) = self.lookup(name) {
             return match binding {
@@ -2886,6 +2905,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             };
         }
         let Some(&init) = self.consts.get(name) else {
+            if let Some(constant) = self.bindings.path_constants.get(name) {
+                return self.changed_top(name, Value::String(constant.clone()));
+            }
             return match self.functions.get(name) {
                 Some(callable) => self.invoke(*callable, None, true, depth),
                 None => match self.import_value(name, None) {
@@ -3231,8 +3253,12 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     }
 
     /// A member whose value is not a key of the object's value: a path `import.meta` names, the `pathname` of a
-    /// `new URL(…)` and an export of a namespace import. `None` for any other member.
+    /// `new URL(…)`, a constant of `path` ([`Self::path_constant_member`]) and an export of a namespace import. `None`
+    /// for any other member.
     fn special_member(&self, object: &'p Expression<'a>, property: &str, depth: u32) -> Option<Value> {
+        if let Some(constant) = self.path_constant_member(object, property) {
+            return Some(constant);
+        }
         Some(match (object.get_inner_expression(), property) {
             (Expression::ImportMeta(_), "dirname" | "dir") => Value::String(normalized(&[self.dir])),
             (Expression::ImportMeta(_), "filename" | "url" | "path") => Value::String(self.file_path()),
@@ -3252,6 +3278,23 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             }
             _ => return None,
         })
+    }
+
+    /// The constant `property` of `path` ([`PATH_CONSTANTS`]) when `object` is a binding of the `path` module or its
+    /// `posix` flavour (`path.sep`, `path.posix.delimiter`); `None` otherwise, `path.win32` included.
+    fn path_constant_member(&self, object: &Expression<'_>, property: &str) -> Option<Value> {
+        let constant = path_constant(property)?;
+        let module = match object.get_inner_expression() {
+            Expression::StaticMemberExpression(inner) if inner.property.name.as_str() == "posix" => {
+                inner.object.get_inner_expression()
+            }
+            other => other,
+        };
+        let Expression::Identifier(module) = module else {
+            return None;
+        };
+        let name = module.name.as_str();
+        (self.bindings.path_modules.contains(name) && !self.is_local(name)).then(|| Value::String(constant.to_owned()))
     }
 
     /// The key of a computed member when it evaluates to a string, or to a number, as JavaScript writes it
