@@ -292,7 +292,11 @@ impl<'c> Walker<'c> {
                 commands.push((start, self.dir_state()));
             }
             self.segment(segment, &frame, st);
-            while tokens.subshells.get(closed).is_some_and(|subshell| subshell.end <= index + 1) {
+            while tokens
+                .subshells
+                .get(closed)
+                .is_some_and(|subshell| subshell.end <= index + 1)
+            {
                 self.empty_commands_at(&mut empty, (index + 1, closed), &mut commands);
                 if let Some(state) = opened[closed].take() {
                     self.restore_dir(state);
