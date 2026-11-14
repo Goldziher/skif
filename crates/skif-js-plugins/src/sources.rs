@@ -317,7 +317,11 @@ mod tests {
         let listed = fs.listed();
         assert_eq!(listed, ["/a", "/a/esm", "/a/nested", "/a/nested/deep"].map(Path::new));
         assert_eq!(found(&own_sources_where(&cx, |_| true)), own);
-        assert_eq!(fs.listed(), listed, "the own sources are taken from the listing of every file");
+        assert_eq!(
+            fs.listed(),
+            listed,
+            "the own sources are taken from the listing of every file"
+        );
     }
 
     /// Texts read side by side come in path order, as those read one after the other on the calling thread do.
@@ -325,13 +329,19 @@ mod tests {
     fn a_search_finds_the_sources_in_path_order_on_any_thread() {
         let mut fs = MemoryFs::new();
         for i in 0..300 {
-            fs.insert(format!("/a/src/{i:03}.ts"), if i % 3 == 0 { "pino()" } else { "other()" });
+            fs.insert(
+                format!("/a/src/{i:03}.ts"),
+                if i % 3 == 0 { "pino()" } else { "other()" },
+            );
         }
         let globs = GlobCache::new();
         let expected: Vec<String> = (0..300).step_by(3).map(|i| format!("src/{i:03}.ts")).collect();
         for listing in [PackageSources::new("/a"), PackageSources::new("/a").sequential(true)] {
             let cx = context(&fs, "/a", &globs, Some(&listing), &[]);
-            let paths: Vec<String> = sources_containing(&cx, "pino").into_iter().map(|(path, _)| path).collect();
+            let paths: Vec<String> = sources_containing(&cx, "pino")
+                .into_iter()
+                .map(|(path, _)| path)
+                .collect();
             assert_eq!(paths, expected);
         }
     }
