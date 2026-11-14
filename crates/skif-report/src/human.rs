@@ -113,7 +113,9 @@ fn type_aware_line(summary: &TypeAwareSummary) -> Option<String> {
             .collect();
         format!(" ({})", listed.join(", "))
     };
-    Some(format!("types: {counts}{reasons}; run with --no-type-aware to skip types"))
+    Some(format!(
+        "types: {counts}{reasons}; run with --no-type-aware to skip types"
+    ))
 }
 
 fn start(diagnostic: &Diagnostic) -> u32 {

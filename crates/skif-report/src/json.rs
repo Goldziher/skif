@@ -811,47 +811,48 @@ mod tests {
             reason.file = file.map(Into::into);
             reason
         };
-        Report::new(vec![full, bare, info], 3).with_incomplete_packages(vec![
-            IncompletePackage::new(
-                "web".to_owned(),
-                "/repo/packages/web".into(),
-                vec![
-                    reason(
-                        IncompleteCause::UnknownSpread,
-                        Some("vite"),
-                        Some("/repo/packages/web/vite.config.ts"),
-                    ),
-                    reason(IncompleteCause::UnmappedPublished, None, None),
-                ],
+        Report::new(vec![full, bare, info], 3)
+            .with_incomplete_packages(vec![
+                IncompletePackage::new(
+                    "web".to_owned(),
+                    "/repo/packages/web".into(),
+                    vec![
+                        reason(
+                            IncompleteCause::UnknownSpread,
+                            Some("vite"),
+                            Some("/repo/packages/web/vite.config.ts"),
+                        ),
+                        reason(IncompleteCause::UnmappedPublished, None, None),
+                    ],
+                )
+                .with_scope(IncompleteScope::Within(vec![
+                    "vite.config.*".to_owned(),
+                    "src/\"q\"/**".to_owned(),
+                ])),
+                IncompletePackage::new(
+                    "none".to_owned(),
+                    "packages/none".into(),
+                    vec![reason(IncompleteCause::NoEntries, None, None)],
+                )
+                .with_scope(IncompleteScope::Within(Vec::new())),
+                IncompletePackage::new(
+                    "root \"q\"".to_owned(),
+                    "".into(),
+                    vec![reason(IncompleteCause::Unspecified, None, None)],
+                ),
+            ])
+            .with_type_aware(
+                TypeAwareSummary::new(
+                    true,
+                    vec![
+                        TypeAwarePackage::new("", "root \"q\"", TypeAwareState::Typed),
+                        TypeAwarePackage::new("/repo/packages/web", "web", TypeAwareState::Partial)
+                            .with_reason("unresolved-modules: 2")
+                            .with_untyped_files(4),
+                    ],
+                )
+                .with_engine("tsrs 7.1.0-beta.tsrs1"),
             )
-            .with_scope(IncompleteScope::Within(vec![
-                "vite.config.*".to_owned(),
-                "src/\"q\"/**".to_owned(),
-            ])),
-            IncompletePackage::new(
-                "none".to_owned(),
-                "packages/none".into(),
-                vec![reason(IncompleteCause::NoEntries, None, None)],
-            )
-            .with_scope(IncompleteScope::Within(Vec::new())),
-            IncompletePackage::new(
-                "root \"q\"".to_owned(),
-                "".into(),
-                vec![reason(IncompleteCause::Unspecified, None, None)],
-            ),
-        ])
-        .with_type_aware(
-            TypeAwareSummary::new(
-                true,
-                vec![
-                    TypeAwarePackage::new("", "root \"q\"", TypeAwareState::Typed),
-                    TypeAwarePackage::new("/repo/packages/web", "web", TypeAwareState::Partial)
-                        .with_reason("unresolved-modules: 2")
-                        .with_untyped_files(4),
-                ],
-            )
-            .with_engine("tsrs 7.1.0-beta.tsrs1"),
-        )
     }
 
     #[test]

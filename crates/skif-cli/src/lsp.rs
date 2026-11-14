@@ -19,9 +19,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
-use skif::{
-    BufferFs, Diagnostic, FileSystem, MemoryModuleCache, ModuleCache, OsFs, Severity, content_hash,
-};
+use skif::{BufferFs, Diagnostic, FileSystem, MemoryModuleCache, ModuleCache, OsFs, Severity, content_hash};
 use skif_core::LineIndex;
 
 use crate::lint::{lint_root, server_overrides};

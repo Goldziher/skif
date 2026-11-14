@@ -1186,7 +1186,12 @@ mod tests {
 
     #[test]
     fn no_type_aware_parses_on_lint_baseline_and_explain_usage() {
-        assert!(Cli::try_parse_from(["skif", "--no-type-aware"]).unwrap().lint.no_type_aware);
+        assert!(
+            Cli::try_parse_from(["skif", "--no-type-aware"])
+                .unwrap()
+                .lint
+                .no_type_aware
+        );
         let Some(Command::Baseline(baseline)) = Cli::try_parse_from(["skif", "baseline", "write", "--no-type-aware"])
             .unwrap()
             .command
@@ -1198,7 +1203,9 @@ mod tests {
         };
         assert!(write.lint.lint_args(Path::new("."), false).no_type_aware);
         let Some(Command::ExplainUsage(explain)) =
-            Cli::try_parse_from(["skif", "explain-usage", "a.ts", "--no-type-aware"]).unwrap().command
+            Cli::try_parse_from(["skif", "explain-usage", "a.ts", "--no-type-aware"])
+                .unwrap()
+                .command
         else {
             panic!("expected `skif explain-usage`");
         };
