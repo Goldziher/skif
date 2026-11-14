@@ -2,8 +2,9 @@
 //!
 //! [`parse_module`] returns a [`ModuleInfo`] (imports, exports, in-file references, removal ranges) and
 //! [`extract_config_object`] statically evaluates the object a tool config file exports. [`extract_config`] returns an
-//! [`ExtractedConfig`]: that value and the evaluated arguments of the calls the evaluator cannot follow that the file
-//! exports, returns from its config function or merges, following imports when given a [`ModuleLoader`]. No oxc type
+//! [`ExtractedConfig`]: that value, the evaluated arguments of the calls the evaluator cannot follow that the file
+//! exports, returns from its config function or merges, and the value again with the tests on the environment it
+//! cannot decide taken as true and as false, following imports when given a [`ModuleLoader`]. No oxc type
 //! appears in the public API, every public type is `Send + Sync`, and no oxc value outlives the call that parsed it:
 //! each thread parses into one arena it resets before every parse.
 //!
