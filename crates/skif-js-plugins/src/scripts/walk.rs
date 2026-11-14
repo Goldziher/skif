@@ -1253,6 +1253,13 @@ impl<'c> Walker<'c> {
                     }
                 }
             }
+            Files::ScriptExtThroughSeparator => {
+                let after = parsed.dashdash.map_or(&[][..], |separator| &rest[separator + 1..]);
+                let words = parsed.positionals.iter().map(|&i| &rest[i]).chain(after);
+                for word in words.filter(|word| tables::has_script_ext(&word.text)) {
+                    self.file(&word.text, frame.span(&word.span));
+                }
+            }
             Files::None => {}
         }
     }
