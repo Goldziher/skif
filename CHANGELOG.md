@@ -45,6 +45,7 @@ All notable changes to this project are documented here. The format follows
 
 - **Public API** ([#97](https://github.com/Goldziher/skif/issues/97)): `skif-js-syntax` exports `is_plain_word`,
   `shell_quote` and `shell_word`, which quote a word of a command line as the command plugins do.
+
 - **Public API** ([#226](https://github.com/Goldziher/skif/issues/226)): the build sources a multi-root host hands a
   nested root. `skif-core`: `Report::other_project_build_sources` and `Report::with_other_project_build_sources`.
   `skif-lint`: `Emitter::report_other_project_build_source`, `Emitter::take_other_project_build_sources`,
