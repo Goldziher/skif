@@ -232,6 +232,62 @@ fn a_production_run_keeps_the_files_of_the_start_script() {
 }
 
 #[test]
+fn a_plain_entry_pattern_keeps_a_plugin_production_entry_of_the_same_file_in_a_production_run() {
+    let mastra: &[(&str, &str)] = &[];
+    let tsup: &[(&str, &str)] = &[
+        (
+            "packages/a/tsup.config.ts",
+            "export default { entry: ['src/app/main.ts', 'src/worker/thread.ts'] };\n",
+        ),
+        ("packages/a/src/app/main.ts", "export {};\n"),
+    ];
+    for (dependency, tool_files, pattern) in [
+        ("mastra", mastra, "src/mastra/index.ts"),
+        ("tsup", tsup, "src/worker/thread.ts"),
+    ] {
+        let manifest =
+            format!(r#"{{"name":"@x/a","private":true,"type":"module","dependencies":{{"{dependency}":"1.0.0"}}}}"#);
+        let entry_file = format!("packages/a/{pattern}");
+        let mut files = vec![
+            MANIFEST,
+            ("packages/a/package.json", manifest.as_str()),
+            (
+                entry_file.as_str(),
+                "import { helper } from '../lib/helper.ts';\nexport const app = helper();\n",
+            ),
+            ("packages/a/src/lib/helper.ts", "export const helper = () => 1;\n"),
+            ("packages/a/src/lib/orphan.ts", "console.log('unused');\n"),
+        ];
+        files.extend_from_slice(tool_files);
+        let production = "[js]\nproduction = true\n";
+        let with_entry = |entry: &str| format!("{production}[js.workspaces.\"packages/a\"]\nentry = [\"{entry}\"]\n");
+        assert_eq!(
+            paths(&lint(&files, production), "unused-files"),
+            ["packages/a/src/lib/orphan.ts"],
+            "{dependency} without a table"
+        );
+        // The plain pattern runs in development only, but the plugin still names the file as a production entry.
+        assert_eq!(
+            paths(&lint(&files, &with_entry(pattern)), "unused-files"),
+            ["packages/a/src/lib/orphan.ts"],
+            "{dependency} with a plain entry pattern"
+        );
+        // A `!` pattern of the config still removes the plugin's entry, as it does in a normal run.
+        let mut negated = vec![
+            "packages/a/src/lib/helper.ts".to_owned(),
+            "packages/a/src/lib/orphan.ts".to_owned(),
+            entry_file.clone(),
+        ];
+        negated.sort();
+        assert_eq!(
+            paths(&lint(&files, &with_entry(&format!("!{pattern}"))), "unused-files"),
+            negated,
+            "{dependency} with a negated entry pattern"
+        );
+    }
+}
+
+#[test]
 fn ignore_workspaces_skips_the_analysis_of_matching_packages() {
     let files = two_packages("export {};\n");
     assert_eq!(found(&lint(&files, ""), "unused-dependencies").len(), 2);

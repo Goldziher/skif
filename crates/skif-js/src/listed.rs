@@ -127,6 +127,16 @@ pub(crate) fn non_production_entries(patterns: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// The patterns of an `entry` list that start with `!` (`!src/gen.ts`, also `!src/gen.ts!`): the exclusions a
+/// production run keeps for the entries plugins give, unlike those it makes of the plain patterns.
+pub(crate) fn negations(patterns: &[String]) -> Vec<String> {
+    patterns
+        .iter()
+        .filter(|pattern| pattern.starts_with('!'))
+        .cloned()
+        .collect()
+}
+
 /// `patterns` as exclusions: the files a tool contributes to the development project are not project files in a
 /// production run.
 pub(crate) fn production_exclusions(patterns: &[String]) -> Vec<String> {
@@ -377,6 +387,7 @@ mod tests {
             "!skip".to_owned(),
         ];
         assert_eq!(non_production_entries(&entries), ["!scripts/*.ts"]);
+        assert_eq!(negations(&entries), ["!skip"]);
         let tool = vec!["stories/**".to_owned(), "!keep/**".to_owned()];
         assert_eq!(production_exclusions(&tool), ["!stories/**", "!keep/**"]);
     }
