@@ -15,9 +15,16 @@
 #   knip-unread      path prefixes knip does not read here; one-sided findings below them are a known deviation
 #   entry            entry files of the root workspace neither tool finds (globs); both get them besides their defaults
 #   bench-knip-args  extra knip arguments when `skif-bench run` times it here, so it reads the files skif reads
-#   bench-knip-failure  { matches, reason }: knip is known to exit with an error here (bench suite only). A timed knip
-#                    run whose error output holds `matches` is published as failing with `reason` (Markdown prose),
-#                    not timed against skif; an error without that text, or a clean run, makes the check invalid
+#   bench-knip-failure  { matches, reason, timed }: knip is known to exit with an error here (bench suite only). A
+#                    timed knip run whose error output holds `matches` is published as failing with `reason` (Markdown
+#                    prose), not timed against skif; with `timed = true` (knip prints its whole report first, without
+#                    the entries of a configuration it cannot load) it is timed against skif and published with
+#                    `reason`. An error without that text, or a clean run, makes the check invalid
+#   bench-knip-config  "parity": `skif-bench run` times knip with the knip comparison's configuration (empty, plus
+#                    `entry`) instead of the repository's own, and skif with `entry` (bench suite only; required there
+#                    with `entry`)
+#   bench-max-runs   the most measured runs `skif-bench run` makes here, below a higher --runs (bench suite only)
+#   bench-max-warmup the most warmup runs `skif-bench run` makes here, below a higher --warmup (bench suite only)
 #   knip-invalid     why knip's report here is not a valid comparison; the repository is compared and its row marked
 #   knip-root        "rush": while knip runs, the checkout gets a root package.json whose workspaces come from rush.json
 #   notes            why the repository is in the corpus and what to expect from it

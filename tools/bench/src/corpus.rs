@@ -72,6 +72,20 @@ pub struct Repo {
     /// suite. The other tools are still timed, and knip's row is recorded as failing when the run matches it.
     #[serde(default)]
     pub bench_knip_failure: Option<KnipFailure>,
+    /// The knip configuration `skif-bench run` times knip with here, instead of the repository's own:
+    /// [`PARITY_KNIP_CONFIG`] gives knip the configuration of the knip comparison (empty, apart from the `entry`
+    /// files) and skif the same `entry` files, so both read what the comparison compares. Only on a repository of the
+    /// `bench` suite.
+    #[serde(default)]
+    pub bench_knip_config: Option<String>,
+    /// The most measured runs `skif-bench run` makes here, where its `--runs` is higher, so a repository on which knip
+    /// takes long fits the workflow's time limit. Only on a repository of the `bench` suite.
+    #[serde(default)]
+    pub bench_max_runs: Option<u32>,
+    /// The most warmup runs `skif-bench run` makes here, where its `--warmup` is higher. Only on a repository of the
+    /// `bench` suite.
+    #[serde(default)]
+    pub bench_max_warmup: Option<u32>,
     /// Why knip's report on this repository is not a valid comparison (such as configurations that import workspace
     /// packages which are never built). The repository is still compared, and the report marks the row with this.
     #[serde(default)]
@@ -99,6 +113,11 @@ pub struct KnipFailure {
     pub matches: String,
     /// Why knip fails here, as the summary and the published tables say it.
     pub reason: String,
+    /// `true` when knip prints its whole report before it exits with this error (a tool configuration that does not
+    /// load, whose entries it then goes without): its run is timed and compared with skif's like a clean one, and
+    /// the error is published beside the time.
+    #[serde(default)]
+    pub timed: bool,
 }
 
 /// What is wrong with a repository's `bench-knip-failure`, or `None` when it has none or a valid one: it has to name a
@@ -112,6 +131,41 @@ fn knip_failure_problem(repo: &Repo) -> Option<String> {
         .into_iter()
         .find(|(_, value)| value.trim().is_empty())
         .map(|(key, _)| format!("bench-knip-failure.{key} is empty"))
+}
+
+/// The `bench-knip-config` that times knip with the configuration of the knip comparison.
+pub const PARITY_KNIP_CONFIG: &str = "parity";
+
+/// What is wrong with a repository's `bench-knip-config`, `bench-max-runs` and `bench-max-warmup`, or `None` when
+/// nothing is: they apply to the `bench` suite only, the only configuration is [`PARITY_KNIP_CONFIG`], a run cap is at
+/// least 1, and a bench repository with `entry` files times knip with them.
+fn bench_settings_problem(repo: &Repo) -> Option<String> {
+    let set = [
+        ("bench-knip-config", repo.bench_knip_config.is_some()),
+        ("bench-max-runs", repo.bench_max_runs.is_some()),
+        ("bench-max-warmup", repo.bench_max_warmup.is_some()),
+    ];
+    if !repo.in_suite("bench") {
+        return set
+            .into_iter()
+            .find(|(_, present)| *present)
+            .map(|(key, _)| format!("{key} is set, but the repository is not in the bench suite"));
+    }
+    if let Some(config) = repo
+        .bench_knip_config
+        .as_deref()
+        .filter(|config| *config != PARITY_KNIP_CONFIG)
+    {
+        return Some(format!(
+            "unknown bench-knip-config {config:?} (the only one is {PARITY_KNIP_CONFIG:?})"
+        ));
+    }
+    if repo.bench_max_runs == Some(0) {
+        return Some("bench-max-runs must be at least 1".to_owned());
+    }
+    (!repo.entry.is_empty() && repo.bench_knip_config.is_none()).then(|| {
+        format!("entry is set, so bench-knip-config must be {PARITY_KNIP_CONFIG:?}: the timed runs get the entry files")
+    })
 }
 
 /// The `knip-root` of a Rush repository: knip runs in the checkout with a root `package.json` made from `rush.json`,
@@ -229,8 +283,9 @@ fn tool_lock_mismatch(tools: &Tools, lock: &serde_json::Value) -> Option<String>
 ///
 /// # Errors
 /// Fails when the file cannot be read or parsed, a repository pin is not a full 40-character commit SHA, a comparison
-/// tool version is not exact, the comparison tool lock is missing or names other versions than `[tools]`, or a
-/// `bench-knip-failure` is empty or set on a repository outside the bench suite.
+/// tool version is not exact, the comparison tool lock is missing or names other versions than `[tools]`, a
+/// `bench-knip-failure` is empty or set on a repository outside the bench suite, or a repository's
+/// `bench-knip-config`, `bench-max-runs` or `bench-max-warmup` is invalid ([`bench_settings_problem`]).
 pub fn load_manifest(path: &Path) -> Result<Manifest> {
     let text = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let manifest: Manifest = toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
@@ -258,7 +313,7 @@ pub fn load_manifest(path: &Path) -> Result<Manifest> {
         if let Some(unknown) = repo.suites.iter().find(|s| !["bench", "parity"].contains(&s.as_str())) {
             bail!("{}: unknown suite {unknown:?}", repo.name);
         }
-        if let Some(problem) = knip_failure_problem(repo) {
+        if let Some(problem) = knip_failure_problem(repo).or_else(|| bench_settings_problem(repo)) {
             bail!("{}: {problem}", repo.name);
         }
         if let Some(root) = repo.knip_root.as_deref().filter(|root| *root != RUSH_KNIP_ROOT) {
@@ -531,9 +586,16 @@ mod tests {
             loaded.repo[0].bench_knip_failure,
             Some(KnipFailure {
                 matches: "Cannot find module".into(),
-                reason: "why".into()
+                reason: "why".into(),
+                timed: false,
             })
         );
+        let timed = load(
+            "failure-timed",
+            "suites = [\"bench\"]\nbench-knip-failure = { matches = \"m\", reason = \"r\", timed = true }\n",
+        )
+        .unwrap();
+        assert!(timed.repo[0].bench_knip_failure.as_ref().is_some_and(|failure| failure.timed));
         for (name, keys, problem) in [
             (
                 "failure-parity",
@@ -559,6 +621,67 @@ mod tests {
         )
         .unwrap_err();
         assert!(format!("{unknown:#}").contains("unknown field `match`"), "{unknown:#}");
+    }
+
+    #[test]
+    fn the_bench_run_caps_and_the_comparison_configuration_are_read_and_checked() {
+        let sha = "a".repeat(40);
+        let load = |name: &str, keys: &str| load_repo(name, PINNED, &format!("rev = {sha:?}\n{keys}"), None);
+        let loaded = load(
+            "bench-ok",
+            "suites = [\"bench\"]\nentry = [\"src/main.ts\"]\nbench-knip-config = \"parity\"\nbench-max-runs = 5\nbench-max-warmup = 0\n",
+        )
+        .unwrap();
+        let repo = &loaded.repo[0];
+        assert_eq!(repo.bench_knip_config.as_deref(), Some(PARITY_KNIP_CONFIG));
+        assert_eq!((repo.bench_max_runs, repo.bench_max_warmup), (Some(5), Some(0)));
+        let unset = load("bench-unset", "suites = [\"bench\"]\n").unwrap();
+        assert_eq!(
+            (
+                unset.repo[0].bench_knip_config.as_deref(),
+                unset.repo[0].bench_max_runs,
+                unset.repo[0].bench_max_warmup
+            ),
+            (None, None, None)
+        );
+        for (name, keys, problem) in [
+            (
+                "bench-config-parity",
+                "suites = [\"parity\"]\nbench-knip-config = \"parity\"\n",
+                "x: bench-knip-config is set, but the repository is not in the bench suite",
+            ),
+            (
+                "bench-runs-parity",
+                "suites = [\"parity\"]\nbench-max-runs = 5\n",
+                "x: bench-max-runs is set, but the repository is not in the bench suite",
+            ),
+            (
+                "bench-warmup-parity",
+                "suites = [\"parity\"]\nbench-max-warmup = 1\n",
+                "x: bench-max-warmup is set, but the repository is not in the bench suite",
+            ),
+            (
+                "bench-config-unknown",
+                "suites = [\"bench\"]\nbench-knip-config = \"empty\"\n",
+                "x: unknown bench-knip-config \"empty\" (the only one is \"parity\")",
+            ),
+            (
+                "bench-runs-zero",
+                "suites = [\"bench\"]\nbench-max-runs = 0\n",
+                "x: bench-max-runs must be at least 1",
+            ),
+            (
+                "bench-entry",
+                "suites = [\"bench\"]\nentry = [\"src/main.ts\"]\n",
+                "x: entry is set, so bench-knip-config must be \"parity\": the timed runs get the entry files",
+            ),
+        ] {
+            assert_eq!(load(name, keys).unwrap_err().to_string(), problem, "{name}");
+        }
+        assert!(
+            load("parity-entry", "suites = [\"parity\"]\nentry = [\"src/main.ts\"]\n").is_ok(),
+            "entry files alone need no bench setting outside the bench suite"
+        );
     }
 
     #[test]
