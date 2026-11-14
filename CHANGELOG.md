@@ -23,6 +23,9 @@ All notable changes to this project are documented here. The format follows
   ([ADR 0039](adrs/0039-source-command-scans-read-reached-files.md),
   [#233](https://github.com/Goldziher/skif/issues/233)).
 
+- **`skif-cli` library users**: `install_panic_hook` is removed. `run_to_exit` now catches a panic itself and exits 2,
+  as `run` does, so a binary built on it needs no hook ([ADR 0044](adrs/0044-tsrs-dependency-policy.md)).
+
 ### Added
 
 - **`evalite`, `mikro-orm`, `web-test-runner`, `unplugin-vue-i18n` and `unplugin-vue-markdown` plugins**, ported
@@ -64,6 +67,12 @@ All notable changes to this project are documented here. The format follows
 - **Public API** ([#229](https://github.com/Goldziher/skif/issues/229)): `ExtractedConfig::environment_variants` of
   `skif-js-syntax`, the exported value evaluated again with every test on the environment the evaluation leaves
   undecided taken as true, then as false; empty when there is none.
+- `ATTRIBUTIONS.md` has a "tsrs (and TypeScript)" section with the full NOTICE and the Apache-2.0 licence of tsrs, the
+  TypeScript checker behind type-aware analysis, and ships in every crate, binary archive and npm package; the
+  release checks fail when it is missing ([ADR 0044](adrs/0044-tsrs-dependency-policy.md)).
+- The `plain-ptrs` feature of `skif` (and `skif-js`, `skif-js-types`) makes tsrs use plain pointers instead of its
+  fixed address-space reservation; the npm addon enables it, so the reservation cannot collide with Node.js's and
+  abort the host ([ADR 0044](adrs/0044-tsrs-dependency-policy.md)).
 
 ### Changed
 
@@ -109,6 +118,9 @@ All notable changes to this project are documented here. The format follows
   bundler alias leads into the project's own sources no longer uses the listed dependency whose name the specifier
   starts with, so `unused-dependencies` now reports a dependency that only such imports named; an aliased import that
   reaches no file still uses it. Add the dependency to `ignore-dependencies` where it is listed for consumers only.
+- Release binaries unwind on panic (`panic = "unwind"`) instead of aborting, so a panic inside the type checker can
+  fall back to the untyped analysis. A panic that ends a run still exits 2, prints its message to stderr and, with
+  `--format json`, writes one `internal` error document ([ADR 0044](adrs/0044-tsrs-dependency-policy.md)).
 
 ### Fixed
 
