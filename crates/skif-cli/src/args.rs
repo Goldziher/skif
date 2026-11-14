@@ -282,6 +282,11 @@ pub struct ExplainUsageArgs {
     #[arg(long)]
     pub production: bool,
 
+    /// Explain the analysis without the TypeScript type checker, as `--no-type-aware` does for a lint run. Types are
+    /// on by default; turning them off is faster and less accurate for member findings.
+    #[arg(long)]
+    pub no_type_aware: bool,
+
     /// Use this configuration file (and the files it extends) instead of discovering `skif.toml` files.
     #[arg(long, value_name = "FILE", conflicts_with = "no_config")]
     pub config: Option<PathBuf>,
@@ -470,6 +475,11 @@ pub struct BaselineLintArgs {
     #[arg(long)]
     pub no_js: bool,
 
+    /// Resolve member reads without the TypeScript type checker. Types are on by default; turning them off is faster
+    /// and less accurate for member findings. Overrides `[js] type-aware` and every workspace's `type-aware`.
+    #[arg(long)]
+    pub no_type_aware: bool,
+
     /// Only analyse production code in JavaScript analysis.
     #[arg(long)]
     pub production: bool,
@@ -550,6 +560,7 @@ impl BaselineLintArgs {
             ignore_dependency: self.ignore_dependency.clone(),
             ignore_rule_for_package: self.ignore_rule_for_package.clone(),
             no_js: self.no_js,
+            no_type_aware: self.no_type_aware,
             config: self.config.clone(),
             production: self.production,
             no_gitignore: self.no_gitignore,
@@ -765,6 +776,11 @@ pub struct LintArgs {
     #[arg(long)]
     pub no_js: bool,
 
+    /// Resolve member reads without the TypeScript type checker. Types are on by default; turning them off is faster
+    /// and less accurate for member findings. Overrides `[js] type-aware` and every workspace's `type-aware`.
+    #[arg(long)]
+    pub no_type_aware: bool,
+
     /// Use this configuration file (and the files it extends) instead of discovering `skif.toml` files.
     #[arg(long, value_name = "FILE", conflicts_with = "no_config")]
     pub config: Option<PathBuf>,
@@ -921,6 +937,7 @@ impl Default for LintArgs {
             ignore_rule_for_package: Vec::new(),
             require_ignore_reasons: false,
             no_js: false,
+            no_type_aware: false,
             config: None,
             no_config: false,
             production: false,
@@ -1165,6 +1182,27 @@ mod tests {
     fn the_default_lint_args_are_those_of_a_bare_run() {
         let parsed = Cli::try_parse_from(["skif"]).unwrap().lint;
         assert_eq!(format!("{:?}", LintArgs::default()), format!("{parsed:?}"));
+    }
+
+    #[test]
+    fn no_type_aware_parses_on_lint_baseline_and_explain_usage() {
+        assert!(Cli::try_parse_from(["skif", "--no-type-aware"]).unwrap().lint.no_type_aware);
+        let Some(Command::Baseline(baseline)) = Cli::try_parse_from(["skif", "baseline", "write", "--no-type-aware"])
+            .unwrap()
+            .command
+        else {
+            panic!("expected `skif baseline`");
+        };
+        let BaselineCommand::Write(write) = baseline.command else {
+            panic!("expected `skif baseline write`");
+        };
+        assert!(write.lint.lint_args(Path::new("."), false).no_type_aware);
+        let Some(Command::ExplainUsage(explain)) =
+            Cli::try_parse_from(["skif", "explain-usage", "a.ts", "--no-type-aware"]).unwrap().command
+        else {
+            panic!("expected `skif explain-usage`");
+        };
+        assert!(explain.no_type_aware);
     }
 
     #[test]
