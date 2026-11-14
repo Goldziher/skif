@@ -3,7 +3,7 @@
 
 <h1 align="center"><img src="docs/media/skif-banner.svg" alt="skif: dependency linter for JavaScript and TypeScript monorepos" width="820"></h1>
 
-npm · pnpm · yarn · bun · **53 rules** · **207 plugins** · format-preserving fixes
+npm · pnpm · yarn · bun · **54 rules** · **207 plugins** · format-preserving fixes
 
 [![crates.io](https://img.shields.io/crates/v/skif?style=flat-square)](https://crates.io/crates/skif)
 [![npm](https://img.shields.io/npm/v/skif-cli?style=flat-square)](https://www.npmjs.com/package/skif-cli)
@@ -91,8 +91,8 @@ git root, so one organisation file applies to every project below it. See the
   protocol, catalogs (pnpm, Bun, Yarn 4.10+) and toolchain pins (`packageManager`, `engines`, `.nvmrc`, Dockerfiles,
   workflows, `MODULE.bazel`). `skif update` finds newer published versions; it is the only command that uses the
   network.
-- **Dead-code analysis on [oxc](https://oxc.rs)**: unused files, exports, types, enum and namespace members and
-  `package.json` subpaths; unused, unlisted and unresolved dependencies and binaries; duplicate exports; circular
+- **Dead-code analysis on [oxc](https://oxc.rs)**: unused files, exports, types, enum, namespace and class members
+  and `package.json` subpaths; unused, unlisted and unresolved dependencies and binaries; duplicate exports; circular
   imports. Vue, Svelte, Astro, MDX and Marko files are read, and 207 plugins read the configuration of common tools.
   `skif explain-usage` says why a file, export or dependency counts as used.
 - **Monorepo layouts**: npm, pnpm, Yarn 2+, Yarn Classic and Bun workspaces, single packages, `skif -r` over many
