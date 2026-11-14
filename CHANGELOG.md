@@ -55,7 +55,11 @@ All notable changes to this project are documented here. The format follows
   of those without. `skif explain-usage` names the typed read, the declaration it reaches and the reads credited by
   name, as text and as the `typed` and `untyped-because` fields of the JSON `class-member`, and now explains
   `FILE#Enum.member` and `FILE#Namespace.member` too (`of`: `enum` or `namespace`). `SKIF_TIMINGS` prints a
-  `js types <root>: programs X ms, queries Y ms` line ([ADR 0046](adrs/0046-typed-member-semantics.md)).
+  `js types <root>:` line with the planning time, the build and query times summed over the programs, the wall time,
+  the program count and the threads, then one line for each of the five slowest programs with its judged and total
+  files, its checkers and its build and query times ([ADR 0046](adrs/0046-typed-member-semantics.md)). The library
+  gives them as `TypeTimings` (`planning`, `programs`, `queries`, `wall`, `threads`, `per_program` of
+  `ProgramTiming`, `slowest`).
 - **`evalite`, `mikro-orm`, `web-test-runner`, `unplugin-vue-i18n` and `unplugin-vue-markdown` plugins**, ported
   from knip 6.45.1: Evalite's `*.eval.ts` and `*.eval.mts` files are entries and the `setupFiles` of
   `evalite.config.*` are used; MikroORM's `entities`, `entitiesTs`, migrations and seeders directories are production
@@ -125,6 +129,12 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - The parse cache schema moves to version 13, so the first run after upgrading re-parses every file.
+
+- **Type-aware scheduling**: the programs with the most judged files are built first, and a program gets checkers in
+  proportion to its share of the judged files (at least the even share of the programs built at once, at most tsrs's
+  count for the machine), so a repository whose root program holds most of the files no longer checks it on a quarter
+  of the cores. The programs that run at once never hold more checkers than the run has threads; a program waits until
+  its checkers fit. The facts do not change.
 
 - **Benchmarks**: the `bench` workflow also times skif against knip, sherif and syncpack on vscode, next-js, angular
   and n8n. `corpus.toml` gains `bench-max-runs` and `bench-max-warmup`, which cap a bench repository's measured and

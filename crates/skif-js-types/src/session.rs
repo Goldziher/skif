@@ -1,12 +1,13 @@
-//! One analysis: plan the programs, build a few at a time, walk their judged files on their checkers, copy the facts
-//! out and free every program before returning (ADR 0044, ADR 0045).
+//! One analysis: plan the programs, build a few at a time (the largest first, each with checkers in proportion to its
+//! share of the judged files), walk their judged files on their checkers, copy the facts out and free each program as
+//! soon as its walk ends (ADR 0044, ADR 0045).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroUsize;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use tsrs_compiler::{ProgramOptions, ProgramRegions};
@@ -20,7 +21,7 @@ use crate::owner::ProgramOwner;
 use crate::programs::{self, ConfigHost, Placement, PlannedProgram, ProgramPlan};
 use crate::query::{self, FileFacts, QueryContext};
 use crate::vfs::{self, BomFiles};
-use crate::{ENGINE, TypeError, TypeFacts, TypeInput, TypeTimings};
+use crate::{ENGINE, ProgramTiming, TypeError, TypeFacts, TypeInput, TypeTimings};
 
 /// The stack of the threads that build and check programs: checking recurses deeply, and tsrs-lint gives its program
 /// threads the same.
@@ -52,6 +53,8 @@ pub(crate) fn analyze(input: &TypeInput<'_>) -> Result<TypeFacts, TypeError> {
         return Err(TypeError::Cancelled);
     }
     let candidates = Candidates::new(input.query);
+    let parallelism = Parallelism::new(input.threads, plan.programs.len());
+    let sizes: Vec<usize> = plan.programs.iter().map(|program| program.files.len()).collect();
     let session = Session {
         plan: &plan,
         fs: &fs,
@@ -59,24 +62,37 @@ pub(crate) fn analyze(input: &TypeInput<'_>) -> Result<TypeFacts, TypeError> {
         candidates: &candidates,
         boms: &boms,
         cancel: input.cancel,
-        parallelism: Parallelism::new(input.threads, plan.programs.len()),
+        single_threaded: parallelism.single_threaded,
+        schedule: Schedule::new(&parallelism, &sizes),
+        cores: Cores::new(parallelism.threads),
         next: AtomicUsize::new(0),
         outcomes: plan.programs.iter().map(|_| Mutex::new(None)).collect(),
         regions: Mutex::new(Vec::new()),
     };
-    session.run()?;
+    let run_start = Instant::now();
+    session.run(parallelism.programs)?;
+    let wall = run_start.elapsed();
     let outcomes = session.into_outcomes()?;
     let mut facts = assemble(input, &plan, &candidates, outcomes)?;
-    facts.timings.programs += planning;
+    facts.timings.planning = planning;
+    facts.timings.wall = wall;
+    facts.timings.threads = parallelism.threads;
     drop(region);
     Ok(facts)
 }
 
-/// How many programs are built at once and how many checkers each gets.
+/// How many programs are built at once and how many checkers a program may get.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Parallelism {
+    /// The threads the programs share.
+    threads: usize,
+    /// The programs built at once.
     programs: usize,
-    checkers: usize,
+    /// The checkers of a program when the programs built at once share the threads evenly, and the fewest a program
+    /// gets.
+    even: usize,
+    /// The most checkers a program gets: tsrs's own count for the machine, within the threads.
+    most: usize,
     single_threaded: bool,
 }
 
@@ -86,11 +102,95 @@ impl Parallelism {
             .or_else(|| std::thread::available_parallelism().ok())
             .map_or(1, NonZeroUsize::get);
         let at_once = (threads / CORES_PER_PROGRAM).clamp(1, programs.max(1));
+        let even = (threads / at_once).max(1);
+        let machine =
+            tsrs_compiler::checkerpool::default_checkers_for_parallelism(i64::try_from(threads).unwrap_or(i64::MAX));
+        let machine = usize::try_from(machine).unwrap_or(threads);
         Self {
+            threads,
             programs: at_once,
-            checkers: (threads / at_once).max(1),
+            even,
+            most: machine.min(threads).max(even),
             single_threaded: threads == 1,
         }
+    }
+
+    /// The checkers of a program that holds `files` of the `total` judged files in programs: its share of the
+    /// threads, at least the even share and at most [`Parallelism::most`]. A program with most of the judged files
+    /// would otherwise check on a quarter of the cores while the rest wait for it.
+    fn checkers(&self, files: usize, total: usize) -> usize {
+        let share = if total == 0 {
+            0
+        } else {
+            self.threads.saturating_mul(files).div_ceil(total)
+        };
+        share.clamp(self.even, self.most)
+    }
+}
+
+/// The order the programs start in and the checkers of each.
+#[derive(Debug, PartialEq, Eq)]
+struct Schedule {
+    /// Indices into [`ProgramPlan::programs`], the programs with the most judged files first: the longest program then
+    /// does not start last and hold up the end of the analysis. Programs of one size keep their plan order.
+    order: Vec<usize>,
+    /// The checkers of each program of the plan.
+    checkers: Vec<usize>,
+}
+
+impl Schedule {
+    /// The schedule of programs that hold `sizes` judged files each.
+    fn new(parallelism: &Parallelism, sizes: &[usize]) -> Self {
+        let total = sizes.iter().sum();
+        let mut order: Vec<usize> = (0..sizes.len()).collect();
+        order.sort_by_key(|&index| std::cmp::Reverse(sizes[index]));
+        Self {
+            order,
+            checkers: sizes.iter().map(|&files| parallelism.checkers(files, total)).collect(),
+        }
+    }
+}
+
+/// The threads not handed to a program's checkers yet. A program starts once its checkers fit, so the programs that
+/// run at once never hold more checkers than the analysis has threads, and a program that takes most of them runs
+/// with few others beside it, which bounds the memory they hold together.
+struct Cores {
+    threads: usize,
+    free: Mutex<usize>,
+    returned: Condvar,
+}
+
+impl Cores {
+    fn new(threads: usize) -> Self {
+        Self {
+            threads,
+            free: Mutex::new(threads),
+            returned: Condvar::new(),
+        }
+    }
+
+    /// Waits until `count` threads are free (all of them, when `count` is more) and holds them until the guard drops.
+    fn take(&self, count: usize) -> Taken<'_> {
+        let count = count.min(self.threads);
+        let mut free = lock(&self.free);
+        while *free < count {
+            free = self.returned.wait(free).unwrap_or_else(PoisonError::into_inner);
+        }
+        *free -= count;
+        Taken { cores: self, count }
+    }
+}
+
+/// Threads taken from [`Cores`], given back on drop.
+struct Taken<'a> {
+    cores: &'a Cores,
+    count: usize,
+}
+
+impl Drop for Taken<'_> {
+    fn drop(&mut self) {
+        *lock(&self.cores.free) += self.count;
+        self.cores.returned.notify_all();
     }
 }
 
@@ -107,6 +207,9 @@ struct BuiltProgram {
     walked: Vec<WalkedFile>,
     /// Planned files the program turned out not to hold.
     missing: Vec<usize>,
+    /// Every file of the program.
+    files: usize,
+    checkers: usize,
     build: Duration,
     query: Duration,
 }
@@ -125,7 +228,10 @@ struct Session<'a> {
     candidates: &'a Candidates,
     boms: &'a BomFiles,
     cancel: Option<&'a AtomicBool>,
-    parallelism: Parallelism,
+    single_threaded: bool,
+    schedule: Schedule,
+    cores: Cores,
+    /// The next position in [`Schedule::order`].
     next: AtomicUsize,
     outcomes: Vec<Mutex<Option<Outcome>>>,
     /// The scratch regions of the program threads, freed when the analysis ends.
@@ -137,14 +243,14 @@ impl Session<'_> {
         self.cancel.is_some_and(|cancel| cancel.load(Ordering::Relaxed))
     }
 
-    /// Builds and walks every program on `parallelism.programs` threads.
-    fn run(&self) -> Result<(), TypeError> {
+    /// Builds and walks every program on `program_threads` threads.
+    fn run(&self, program_threads: usize) -> Result<(), TypeError> {
         if self.plan.programs.is_empty() {
             return Ok(());
         }
         let mut spawn_error = None;
         std::thread::scope(|scope| {
-            let handles: Vec<_> = (0..self.parallelism.programs)
+            let handles: Vec<_> = (0..program_threads)
                 .map(|index| {
                     std::thread::Builder::new()
                         .name(format!("skif-types-{index}"))
@@ -172,23 +278,32 @@ impl Session<'_> {
         let region = Region::new_scratch(SCRATCH_CHUNK);
         let entered = region.enter();
         loop {
-            let index = self.next.fetch_add(1, Ordering::Relaxed);
-            let Some(program) = self.plan.programs.get(index) else {
+            let position = self.next.fetch_add(1, Ordering::Relaxed);
+            let Some(&index) = self.schedule.order.get(position) else {
                 break;
             };
-            let outcome = if self.cancelled() {
-                Outcome::Cancelled
-            } else {
-                panic::catch_unwind(AssertUnwindSafe(|| self.run_program(program))).unwrap_or(Outcome::Failed)
-            };
+            let program = &self.plan.programs[index];
+            let outcome = self.start(program, self.schedule.checkers[index]);
             *lock(&self.outcomes[index]) = Some(outcome);
         }
         drop(entered);
         self.regions.lock().unwrap_or_else(PoisonError::into_inner).push(region);
     }
 
+    /// Runs `program` on `checkers` checkers once that many threads are free.
+    fn start(&self, program: &PlannedProgram, checkers: usize) -> Outcome {
+        if self.cancelled() {
+            return Outcome::Cancelled;
+        }
+        let _taken = self.cores.take(checkers);
+        if self.cancelled() {
+            return Outcome::Cancelled;
+        }
+        panic::catch_unwind(AssertUnwindSafe(|| self.run_program(program, checkers))).unwrap_or(Outcome::Failed)
+    }
+
     /// Builds `program`, walks its judged files and frees it.
-    fn run_program(&self, program: &PlannedProgram) -> Outcome {
+    fn run_program(&self, program: &PlannedProgram, checkers: usize) -> Outcome {
         let start = Instant::now();
         let Some(mut config) = programs::parse_config(&program.config, self.host) else {
             return Outcome::ConfigError;
@@ -196,11 +311,7 @@ impl Session<'_> {
         let Some(base) = config.compiler_options() else {
             return Outcome::ConfigError;
         };
-        let Parallelism {
-            checkers,
-            single_threaded,
-            ..
-        } = self.parallelism;
+        let single_threaded = self.single_threaded;
         config.parsed_config.compiler_options = Some(P::new(CompilerOptions {
             checkers: Some(i64::try_from(checkers).unwrap_or(i64::MAX)),
             single_threaded: if single_threaded {
@@ -230,14 +341,20 @@ impl Session<'_> {
             options.single_threaded = Tristate::True;
         }
         let owner = ProgramOwner::new(options);
-        let built = self.walk(owner.program(), program, start);
+        let built = self.walk(owner.program(), program, start, checkers);
         drop(owner);
         drop(loader_regions);
         built
     }
 
     /// Walks the judged files of `program` once it is built, copying out what the walks find.
-    fn walk(&self, tsrs: &tsrs_compiler::Program, program: &PlannedProgram, start: Instant) -> Outcome {
+    fn walk(
+        &self,
+        tsrs: &tsrs_compiler::Program,
+        program: &PlannedProgram,
+        start: Instant,
+        checkers: usize,
+    ) -> Outcome {
         tsrs.bind_source_files();
         let build = start.elapsed();
         if self.cancelled() {
@@ -265,7 +382,12 @@ impl Session<'_> {
             if self.cancelled() {
                 return;
             }
-            let facts = query::query_file(checker, source, &context);
+            let mut facts = query::query_file(checker, source, &context);
+            // A file reads a member many times; one read of each is all the credit needs.
+            facts.reads.sort_unstable();
+            facts.reads.dedup();
+            facts.whole.sort_unstable();
+            facts.whole.dedup();
             let unresolved_modules = query::unresolved_modules(checker, tsrs, source);
             *lock(&slots[index]) = Some((facts, unresolved_modules));
         });
@@ -290,6 +412,8 @@ impl Session<'_> {
         Outcome::Built(BuiltProgram {
             walked,
             missing,
+            files: tsrs.get_source_files().len(),
+            checkers,
             build,
             query,
         })
@@ -339,6 +463,14 @@ fn assemble(
             Outcome::Built(built) => {
                 timings.programs += built.build;
                 timings.queries += built.query;
+                timings.per_program.push(ProgramTiming {
+                    config: PathBuf::from(&program.config),
+                    judged_files: program.files.len(),
+                    files: built.files,
+                    checkers: built.checkers,
+                    build: built.build,
+                    query: built.query,
+                });
                 for index in built.missing {
                     states[index] = FileState::Outside;
                 }
@@ -428,52 +560,49 @@ fn internal(stage: &str, payload: &(dyn std::any::Any + Send)) -> TypeError {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    use std::sync::mpsc;
+
     use super::*;
 
     fn parallelism(threads: usize, programs: usize) -> Parallelism {
         Parallelism::new(NonZeroUsize::new(threads), programs)
     }
 
+    fn schedule(threads: usize, sizes: &[usize]) -> Schedule {
+        Schedule::new(&parallelism(threads, sizes.len()), sizes)
+    }
+
     #[test]
     fn a_quarter_of_the_threads_build_programs_and_share_the_rest_as_checkers() {
-        assert_eq!(
-            parallelism(16, 10),
-            Parallelism {
-                programs: 4,
-                checkers: 4,
-                single_threaded: false
-            }
-        );
-        assert_eq!(
-            parallelism(8, 10),
-            Parallelism {
-                programs: 2,
-                checkers: 4,
-                single_threaded: false
-            }
-        );
-        assert_eq!(
-            parallelism(3, 10),
-            Parallelism {
-                programs: 1,
-                checkers: 3,
-                single_threaded: false
-            }
-        );
+        let cases = [
+            ((16, 10), (4, 4, 16)),
+            ((8, 10), (2, 4, 8)),
+            ((3, 10), (1, 3, 3)),
+            ((64, 40), (16, 4, 32)),
+        ];
+        for ((threads, programs), (at_once, even, most)) in cases {
+            assert_eq!(
+                parallelism(threads, programs),
+                Parallelism {
+                    threads,
+                    programs: at_once,
+                    even,
+                    most,
+                    single_threaded: false
+                },
+                "{threads} threads, {programs} programs"
+            );
+        }
     }
 
     #[test]
     fn fewer_programs_than_slots_get_more_checkers_each() {
-        assert_eq!(
-            parallelism(16, 1),
-            Parallelism {
-                programs: 1,
-                checkers: 16,
-                single_threaded: false
-            }
-        );
+        assert_eq!(parallelism(16, 1).programs, 1);
+        assert_eq!(parallelism(16, 1).even, 16);
         assert_eq!(parallelism(16, 0).programs, 1);
+        assert_eq!(schedule(16, &[40]).checkers, [16]);
     }
 
     #[test]
@@ -481,11 +610,84 @@ mod tests {
         assert_eq!(
             parallelism(1, 5),
             Parallelism {
+                threads: 1,
                 programs: 1,
-                checkers: 1,
+                even: 1,
+                most: 1,
                 single_threaded: true
             }
         );
+        assert_eq!(schedule(1, &[100, 1]).checkers, [1, 1]);
+    }
+
+    #[test]
+    fn programs_of_one_size_share_the_threads_evenly_in_plan_order() {
+        assert_eq!(
+            schedule(16, &[50; 10]),
+            Schedule {
+                order: (0..10).collect(),
+                checkers: vec![4; 10],
+            }
+        );
+    }
+
+    #[test]
+    fn a_program_with_most_of_the_judged_files_starts_first_with_most_of_the_threads() {
+        assert_eq!(
+            schedule(16, &[100, 10_000, 100, 100, 100]),
+            Schedule {
+                order: vec![1, 0, 2, 3, 4],
+                checkers: vec![4, 16, 4, 4, 4],
+            }
+        );
+    }
+
+    #[test]
+    fn checkers_follow_the_share_of_the_judged_files_between_the_even_share_and_the_most() {
+        assert_eq!(schedule(16, &[500, 300, 100, 100]).checkers, [8, 5, 4, 4]);
+        let mut sizes = vec![10; 17];
+        sizes[0] = 10_000;
+        let wide = schedule(64, &sizes);
+        assert_eq!(wide.checkers[0], 32, "tsrs's count for 64 threads caps one program");
+        assert!(wide.checkers[1..].iter().all(|&checkers| checkers == 4));
+    }
+
+    #[test]
+    fn programs_of_one_size_keep_their_plan_order_behind_larger_ones() {
+        assert_eq!(schedule(16, &[5, 9, 5, 9]).order, [1, 3, 0, 2]);
+    }
+
+    #[test]
+    fn a_program_waits_until_its_checkers_fit_beside_the_running_ones() {
+        let cores = Cores::new(4);
+        let running = cores.take(3);
+        let (started, waited) = mpsc::channel();
+        std::thread::scope(|scope| {
+            let cores = &cores;
+            scope.spawn(move || {
+                let _taken = cores.take(2);
+                started.send(()).expect("the test waits for the program");
+            });
+            assert!(
+                waited.recv_timeout(Duration::from_millis(50)).is_err(),
+                "two threads do not fit beside three of four"
+            );
+            drop(running);
+            assert!(
+                waited.recv_timeout(Duration::from_secs(30)).is_ok(),
+                "the program starts once the running one gives its threads back"
+            );
+        });
+        assert_eq!(*lock(&cores.free), 4);
+    }
+
+    #[test]
+    fn a_program_that_asks_for_more_threads_than_there_are_takes_them_all() {
+        let cores = Cores::new(4);
+        let all = cores.take(9);
+        assert_eq!(*lock(&cores.free), 0);
+        drop(all);
+        assert_eq!(*lock(&cores.free), 4);
     }
 
     #[test]

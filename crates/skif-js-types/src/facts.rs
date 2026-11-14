@@ -135,17 +135,105 @@ impl CoverageReason {
 }
 
 /// How long the type-aware stages took.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TypeTimings {
-    /// Reading configs and building programs.
+    /// Finding the config of every judged file, before any program is built.
+    pub planning: Duration,
+    /// Reading the configs of the programs, building and binding them, summed over the programs: several build at
+    /// once, so the sum can exceed the wall time.
     pub programs: Duration,
-    /// Walking the files and asking the checker.
+    /// Walking the files and asking the checker, summed over the programs as [`TypeTimings::programs`] is.
     pub queries: Duration,
+    /// The wall time from the start of the first program to the end of the last.
+    pub wall: Duration,
+    /// The threads the programs shared.
+    pub threads: usize,
+    /// Every built program, in the order of their configs.
+    pub per_program: Vec<ProgramTiming>,
+}
+
+impl TypeTimings {
+    /// The `count` programs that took longest to build and walk, slowest first; programs that took as long come in
+    /// the order of their configs.
+    #[must_use]
+    pub fn slowest(&self, count: usize) -> Vec<&ProgramTiming> {
+        let mut programs: Vec<&ProgramTiming> = self.per_program.iter().collect();
+        programs.sort_by(|a, b| {
+            b.total()
+                .cmp(&a.total())
+                .then_with(|| a.config.cmp(&b.config))
+        });
+        programs.truncate(count);
+        programs
+    }
+}
+
+/// How long one program took, with its size and the checkers it ran on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ProgramTiming {
+    /// The config the program was built from, absolute.
+    pub config: PathBuf,
+    /// The judged files planned into the program.
+    pub judged_files: usize,
+    /// Every file of the program, with the declarations of its dependencies and the default libraries.
+    pub files: usize,
+    /// The checkers skif gave it; tsrs makes no more than the program has files.
+    pub checkers: usize,
+    /// Reading its config, building and binding it.
+    pub build: Duration,
+    /// Walking its judged files on its checkers.
+    pub query: Duration,
+}
+
+impl ProgramTiming {
+    fn total(&self) -> Duration {
+        self.build.saturating_add(self.query)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::CoverageReason;
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    use super::{CoverageReason, ProgramTiming, TypeTimings};
+
+    fn program(config: &str, build: u64, query: u64) -> ProgramTiming {
+        ProgramTiming {
+            config: PathBuf::from(config),
+            judged_files: 1,
+            files: 1,
+            checkers: 1,
+            build: Duration::from_millis(build),
+            query: Duration::from_millis(query),
+        }
+    }
+
+    #[test]
+    fn the_slowest_programs_come_first_by_build_and_query_time_with_ties_in_config_order() {
+        let timings = TypeTimings {
+            per_program: vec![
+                program("/ws/a/tsconfig.json", 10, 10),
+                program("/ws/b/tsconfig.json", 5, 40),
+                program("/ws/c/tsconfig.json", 20, 0),
+                program("/ws/d/tsconfig.json", 1, 1),
+            ],
+            ..TypeTimings::default()
+        };
+        let configs: Vec<&str> = timings
+            .slowest(3)
+            .iter()
+            .map(|program| program.config.to_str().unwrap_or_default())
+            .collect();
+        assert_eq!(
+            configs,
+            ["/ws/b/tsconfig.json", "/ws/a/tsconfig.json", "/ws/c/tsconfig.json"]
+        );
+        assert_eq!(timings.slowest(10).len(), 4);
+        assert!(TypeTimings::default().slowest(5).is_empty());
+    }
 
     #[test]
     fn reasons_are_labelled_as_the_report_spells_them() {
