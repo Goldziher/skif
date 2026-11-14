@@ -349,8 +349,8 @@ jobs:
         if: matrix.runtime == 'bun'
         with:
           bun-version: ${{ steps.bun.outputs.version }}
-      # The `node` profile unwinds panics (the release profile aborts); `test-hooks` adds the deliberate panic the
-      # smoke test throws to prove it reaches JavaScript as an exception.
+      # The `node` profile unwinds panics; `test-hooks` adds the deliberate panic the smoke test throws to prove it
+      # reaches JavaScript as an exception.
       - name: Build the addon for the host
         working-directory: npm-package
         run: |

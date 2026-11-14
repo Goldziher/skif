@@ -1,10 +1,9 @@
 //! The `skif` command line as a library: a thin consumer of the `skif` library.
 //!
 //! It is the only code that reads the environment, prints, prompts, writes files, spawns a process and opens a network
-//! connection (`skif update` only); [`run`] returns an exit code and no function below calls `std::process::exit`,
-//! except the panic hook that [`install_panic_hook`] puts in place for the `skif` binary. The npm addon calls [`run`];
-//! the binary calls [`run_to_exit`], which also changes the current directory under `bazel run` and leaves the memory
-//! of a run to the operating system.
+//! connection (`skif update` only); [`run`] returns an exit code and no function below calls `std::process::exit`.
+//! The npm addon calls [`run`]; the binary calls [`run_to_exit`], which also changes the current directory under
+//! `bazel run` and leaves the memory of a run to the operating system.
 
 use std::cell::Cell;
 use std::ffi::OsString;
@@ -56,9 +55,10 @@ use output::{emit_error, emit_error_with};
 /// its own current directory, a change made here would leave the host out of step. A host that runs skif under
 /// `bazel run` enters that directory itself first, as the npm package's `skif` bin does (ADR 0031).
 ///
-/// A panic in skif is caught and exits 2, as the binary's [`install_panic_hook`] makes it do; the panic hook prints
-/// the message and its location to stderr, and with `--format json` stdout also receives the `error` document (kind
-/// `internal`) naming both.
+/// A panic in skif that reaches this call is caught and exits 2, as in the binary; the panic hook prints the message
+/// and its location to stderr, and with `--format json` stdout also receives the `error` document (kind `internal`)
+/// naming both. A panic that skif catches itself on the way, such as one inside the type checker that falls back to
+/// the untyped analysis (ADR 0044), does not end the run.
 ///
 /// To learn the location, the first call chains a hook in front of the process's panic hook (`std::panic::set_hook`),
 /// once per process; it records the panic for the thread that raised it and then calls the hook it replaced, so the
@@ -92,21 +92,23 @@ fn record_panics() {
 
 /// `body`'s exit code, or 2 when it panics, after the `internal` error document on `stdout` when `raw` asks for JSON.
 /// The panic hook has already printed the message and location to stderr. The document names the location the hook
-/// recorded on this thread, or only the payload when the hook did not run (a host replaced it).
+/// recorded on this thread, or only the payload when the hook did not run for this panic: a host replaced it, or the
+/// panic was raised on another thread and resumed here, after a panic `body` caught itself was recorded.
 fn exit_two_on_panic(raw: &[OsString], stdout: &mut dyn Write, body: impl FnOnce() -> u8) -> u8 {
     record_panics();
     LAST_PANIC.with(|last| last.set(None));
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)).unwrap_or_else(|payload| {
         let recorded = LAST_PANIC.with(Cell::take);
         if wants_json(raw) {
-            let report = recorded.unwrap_or_else(|| {
-                payload
-                    .downcast_ref::<&str>()
-                    .copied()
-                    .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
-                    .unwrap_or("panic")
-                    .to_owned()
-            });
+            let text = payload
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| payload.downcast_ref::<String>().map(String::as_str));
+            let report = match (recorded, text) {
+                (Some(recorded), Some(text)) if !recorded.ends_with(text) => text.to_owned(),
+                (Some(recorded), _) => recorded,
+                (None, text) => text.unwrap_or("panic").to_owned(),
+            };
             emit_error_with(&internal_error(&report), Format::Json, Map::new(), stdout);
         }
         2
@@ -126,13 +128,17 @@ fn internal_error(report: &str) -> CliError {
 /// Under `bazel run` (`BUILD_WORKSPACE_DIRECTORY` is set) it first changes the process's current directory to
 /// `BUILD_WORKING_DIRECTORY`, else to the workspace root, so paths on the command line resolve as the user typed them
 /// rather than in the runfiles tree (ADR 0031); a directory it cannot enter exits 2.
+///
+/// A panic exits 2 as in [`run`]. The release binary unwinds (`panic = "unwind"`) instead of aborting, so the panic
+/// reaches this call, and a panic skif catches on the way, inside the type checker, falls back to the untyped
+/// analysis instead of ending the process (ADR 0044).
 pub fn run_to_exit(args: impl IntoIterator<Item = OsString>) -> u8 {
     let raw: Vec<OsString> = args.into_iter().collect();
     if let Err(error) = env::enter_bazel_run_directory() {
         emit_error(&error, if wants_json(&raw) { Format::Json } else { Format::Human });
         return 2;
     }
-    run_with(raw, Teardown::Leak)
+    exit_two_on_panic(&raw, &mut std::io::stdout(), || run_with(raw.clone(), Teardown::Leak))
 }
 
 fn run_with(args: impl IntoIterator<Item = OsString>, teardown: Teardown) -> u8 {
@@ -159,24 +165,6 @@ fn run_with(args: impl IntoIterator<Item = OsString>, teardown: Teardown) -> u8 
         Some(Command::Mcp) => mcp::run(),
         Some(Command::Lsp) => lsp::run(),
     }
-}
-
-/// Makes a panic in skif exit 2 (could not run) in every format, after the default hook has printed its message and
-/// location to stderr; in `--format json` mode stdout also receives exactly one `error` document (kind `internal`).
-/// The release binary is built with `panic = "abort"`, and the hook runs before the abort, so the process exits 2
-/// instead of being killed by `SIGABRT`.
-///
-/// For the `skif` binary only; an embedding host owns its own panic handling.
-pub fn install_panic_hook(raw: &[OsString]) {
-    let json = wants_json(raw);
-    let default = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        default(info);
-        if json {
-            emit_error(&internal_error(&info.to_string()), Format::Json);
-        }
-        std::process::exit(2);
-    }));
 }
 
 /// Help and version go to stdout with exit 0; usage errors exit 2, as a JSON `error` document when `--format json`
@@ -273,6 +261,37 @@ mod tests {
         assert!(earlier.is_err(), "the earlier body panicked");
         let message = panic_message(|| std::panic::resume_unwind(Box::new(String::from("boom"))));
         assert_eq!(message, "internal error: boom");
+    }
+
+    #[test]
+    fn a_panic_caught_inside_the_run_does_not_end_it() {
+        let mut stdout = Vec::new();
+        let code = exit_two_on_panic(&args(&["skif", "--format", "json"]), &mut stdout, || {
+            let fallback = std::panic::catch_unwind(|| std::panic::panic_any("the checker's panic"));
+            assert!(fallback.is_err(), "the inner body panicked");
+            0
+        });
+        assert_eq!(code, 0);
+        assert_eq!(stdout, b"");
+    }
+
+    #[test]
+    fn a_panic_caught_inside_the_run_is_not_reported_as_the_one_that_ended_it() {
+        let message = panic_message(|| {
+            let fallback = std::panic::catch_unwind(|| std::panic::panic_any("the checker's panic"));
+            assert!(fallback.is_err(), "the inner body panicked");
+            std::panic::resume_unwind(Box::new("a worker's panic"))
+        });
+        assert_eq!(message, "internal error: a worker's panic");
+    }
+
+    #[test]
+    fn a_panic_of_a_rayon_worker_exits_two() {
+        let message = panic_message(|| {
+            rayon::scope(|scope| scope.spawn(|_| panic!("a worker's panic")));
+            0
+        });
+        assert!(message.ends_with("a worker's panic"), "{message}");
     }
 
     #[test]
