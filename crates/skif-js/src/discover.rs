@@ -109,8 +109,8 @@ pub(crate) fn is_package_manifest(fs: &dyn FileSystem, dir: &Path) -> bool {
     !(own.iter().all(|key| SUBPATH_FIELDS.contains(key)) && is_published_subpath(fs, dir))
 }
 
-/// Whether the package in the parent directory of `dir` publishes `dir` as a subpath of its own: its `exports` has
-/// the key `./<name>` or its `files` lists the directory.
+/// Whether the package in the parent directory of `dir` publishes `dir` as a subpath of its own
+/// ([`published_subpaths`]).
 fn is_published_subpath(fs: &dyn FileSystem, dir: &Path) -> bool {
     let (Some(parent), Some(name)) = (dir.parent(), dir.file_name().and_then(|name| name.to_str())) else {
         return false;
@@ -121,21 +121,65 @@ fn is_published_subpath(fs: &dyn FileSystem, dir: &Path) -> bool {
     let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&text) else {
         return false;
     };
-    let subpath = format!("./{name}");
+    published_subpaths(&manifest).any(|subpath| subpath == name)
+}
+
+/// The child directories `manifest` publishes as subpaths of its package: the `./<name>` keys of its `exports` and
+/// the directories its `files` lists (`server`, `server/`, `server/*`, `server/**`).
+fn published_subpaths(manifest: &serde_json::Value) -> impl Iterator<Item = &str> {
     let exported = manifest
         .get("exports")
         .and_then(serde_json::Value::as_object)
-        .is_some_and(|exports| exports.contains_key(subpath.as_str()));
+        .into_iter()
+        .flat_map(serde_json::Map::keys)
+        .filter_map(|key| key.strip_prefix("./"));
     let listed = manifest
         .get("files")
         .and_then(serde_json::Value::as_array)
-        .is_some_and(|files| {
-            files
-                .iter()
-                .filter_map(serde_json::Value::as_str)
-                .any(|file| file.trim_start_matches("./").trim_end_matches('/') == name)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .map(|file| {
+            let file = file.trim_start_matches("./");
+            file.strip_suffix("/**")
+                .or_else(|| file.strip_suffix("/*"))
+                .unwrap_or(file)
+                .trim_end_matches('/')
         });
-    exported || listed
+    exported
+        .chain(listed)
+        .filter(|name| !name.is_empty() && !name.contains(['/', '*']))
+}
+
+/// The paths, relative to the package directory `dir`, that the subpath directories the package's `manifest`
+/// publishes point at through a `package.json` of their own that makes no package ([`is_package_manifest`]): the
+/// `main`, `module`, `types`, `typings` and `browser` of `server/package.json` (`./server/index.js`), which load when
+/// `pkg/server` is imported.
+pub(crate) fn subpath_entries(fs: &dyn FileSystem, dir: &Path, manifest: &serde_json::Value) -> Vec<String> {
+    let mut entries = Vec::new();
+    for name in published_subpaths(manifest) {
+        let subdir = dir.join(name);
+        if is_package_manifest(fs, &subdir) {
+            continue;
+        }
+        let Some(nested) = fs
+            .read_to_string(&subdir.join("package.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        else {
+            continue;
+        };
+        for path in SUBPATH_FIELDS
+            .iter()
+            .filter_map(|field| nested.get(field).and_then(serde_json::Value::as_str))
+        {
+            let entry = format!("./{name}/{}", path.trim_start_matches("./"));
+            if !entries.contains(&entry) {
+                entries.push(entry);
+            }
+        }
+    }
+    entries
 }
 
 /// The matchers of the ignore files listed in `entries`, the listing of `dir`, if any.
