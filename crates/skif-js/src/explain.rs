@@ -10,12 +10,15 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use serde::Serialize;
-use skif_js_syntax::{ExportKind, Import, ImportKind, ImportedKind, ImportedName, ModuleInfo, is_declaration_file};
+use skif_js_syntax::{
+    ClassMember, Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, ModuleInfo, is_declaration_file,
+};
 use skif_workspace::PackageId;
 
 use crate::analysis::JsAnalysis;
 use crate::class_members::{
-    ClassFacts, MemberExemption, MemberUsage, NameReads, entry_exposed, exemption, judged_classes, judges_classes_of,
+    ClassFacts, MemberExemption, MemberUsage, TypedMemberUsage, entry_exposed, exemption, judged_classes,
+    judges_classes_of,
 };
 use crate::discover::relative;
 use crate::globs::Globs;
@@ -234,24 +237,95 @@ pub enum MemberVerdict {
     Unused,
 }
 
-/// Why one member of an exported class counts as used or not (ADR 0042).
+/// What a member explained by [`ClassMemberReport`] belongs to.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum MemberOf {
+    /// A class (`unused-class-members`).
+    #[default]
+    Class,
+    /// An enum (`unused-enum-members`).
+    Enum,
+    /// A namespace (`unused-namespace-members`).
+    Namespace,
+}
+
+impl MemberOf {
+    const fn noun(self) -> &'static str {
+        match self {
+            Self::Class => "class",
+            Self::Enum => "enum",
+            Self::Namespace => "namespace",
+        }
+    }
+
+    const fn rule(self) -> &'static str {
+        match self {
+            Self::Class => "unused-class-members",
+            Self::Enum => "unused-enum-members",
+            Self::Namespace => "unused-namespace-members",
+        }
+    }
+
+    #[allow(clippy::trivially_copy_pass_by_ref, reason = "serde passes the field by reference")]
+    fn is_class(&self) -> bool {
+        *self == Self::Class
+    }
+}
+
+/// What the TypeScript checker found for a member whose declaring file it covered (ADR 0045).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub struct TypedEvidence {
+    /// The declaration the checker answered for, as `file#Name` with the file relative to the workspace root.
+    pub declaration: String,
+    /// A typed read reaches the member, directly or through a base class or an interface the class implements.
+    pub read: bool,
+    /// The declaration is used as a whole (`keyof typeof E`, `Object.values(E)`, a spread, an alias passed on), so
+    /// every member counts as used.
+    pub whole: bool,
+    /// The files that read the member's name through a receiver the checker could not type (`any`, an error type, an
+    /// unresolved module), which credits it by name; relative to the workspace root.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unresolved_readers: Vec<String>,
+}
+
+/// Why one member of an exported class, enum or namespace counts as used or not (ADR 0042, ADR 0018).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
 pub struct ClassMemberReport {
-    /// The export the class is behind.
+    /// The export the class, enum or namespace is behind.
     pub class: String,
     /// The member name.
     pub member: String,
+    /// What the member belongs to; omitted for a class.
+    #[serde(skip_serializing_if = "MemberOf::is_class")]
+    pub of: MemberOf,
     /// The verdict.
     pub verdict: MemberVerdict,
     /// Why the member is not judged, when it is [`MemberVerdict::Exempt`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exemption: Option<MemberExemption>,
-    /// The files that read a property of the member's name (any object counts, as no type information is used),
-    /// relative to the workspace root.
+    /// The files whose reads of a property of the member's name count, relative to the workspace root. Without types
+    /// every such file counts, any object being read; with types only the files the checker did not cover (a Vue,
+    /// Svelte or Astro template, a file in no program).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub readers: Vec<String>,
+    /// For an enum or namespace member: it is used as skif sees it without types (read through an import or in its
+    /// own file, or the whole enum used).
+    #[serde(skip_serializing_if = "is_false")]
+    pub used_without_types: bool,
+    /// What the type checker found, when it judged the member.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub typed: Option<TypedEvidence>,
+    /// Why the member is judged without types, when it is judged and the checker did not judge it: `disabled`,
+    /// `not-built`, `tsconfig-error`, `checker-failed`, `cancelled`, `file-untyped` (the checker did not cover the
+    /// declaring file) or `not-asked`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub untyped_because: Option<String>,
 }
 
 /// The explanation [`JsAnalysis::explain_usage`] returns.
@@ -455,26 +529,90 @@ impl UsageReport {
 
 fn render_class_member(report: &ClassMemberReport, out: &mut String) {
     let name = format!("{}.{}", report.class, report.member);
+    let noun = report.of.noun();
     if report.verdict == MemberVerdict::NotAMember {
-        let _ = writeln!(out, "  `{name}` is not a member of an exported class");
+        let _ = writeln!(out, "  `{name}` is not a member of an exported {noun}");
         return;
     }
-    let _ = writeln!(out, "  class member `{name}`:");
+    let _ = writeln!(out, "  {noun} member `{name}`:");
     if let Some(exemption) = report.exemption {
         let _ = writeln!(out, "    {}", exemption.describe());
     }
-    if report.readers.is_empty() {
-        let _ = writeln!(out, "    no module reads a property of this name");
-    } else {
-        let _ = writeln!(out, "    read by name in {}", report.readers.join(", "));
+    match &report.typed {
+        Some(typed) => render_typed_evidence(report, typed, out),
+        None => render_untyped_evidence(report, out),
     }
     let verdict = match report.verdict {
-        MemberVerdict::NotJudged => "not judged: the members of this class are not reported",
-        MemberVerdict::Exempt => "not judged",
-        MemberVerdict::Used => "used",
-        _ => "never read: reported by `unused-class-members`",
+        MemberVerdict::NotJudged => format!("not judged: the members of this {noun} are not reported"),
+        MemberVerdict::Exempt => "not judged".to_owned(),
+        MemberVerdict::Used => "used".to_owned(),
+        _ => format!("never read: reported by `{}`", report.of.rule()),
     };
     let _ = writeln!(out, "    => {verdict}");
+}
+
+fn render_typed_evidence(report: &ClassMemberReport, typed: &TypedEvidence, out: &mut String) {
+    let readers = &report.readers;
+    if report.used_without_types {
+        render_syntactic_use(report.of, out);
+    }
+    if typed.read {
+        let _ = writeln!(out, "    read with types: a typed read reaches it on `{}`", typed.declaration);
+    }
+    if typed.whole {
+        let _ = writeln!(
+            out,
+            "    used as a whole with types: every member of `{}` counts",
+            typed.declaration
+        );
+    }
+    if !typed.unresolved_readers.is_empty() {
+        let _ = writeln!(
+            out,
+            "    read by name where the checker could not type the receiver, in {}",
+            typed.unresolved_readers.join(", ")
+        );
+    }
+    if !readers.is_empty() {
+        let _ = writeln!(out, "    read by name in files without types: {}", readers.join(", "));
+    }
+    let unused = !report.used_without_types
+        && !typed.read
+        && !typed.whole
+        && typed.unresolved_readers.is_empty()
+        && readers.is_empty();
+    if unused {
+        let _ = writeln!(
+            out,
+            "    no typed read reaches it on `{}` and no file without types reads a property of this name",
+            typed.declaration
+        );
+    }
+}
+
+fn render_syntactic_use(of: MemberOf, out: &mut String) {
+    let _ = writeln!(
+        out,
+        "    used: read through an import or in its own file, or the whole {} is used",
+        of.noun()
+    );
+}
+
+fn render_untyped_evidence(report: &ClassMemberReport, out: &mut String) {
+    if report.of == MemberOf::Class {
+        if report.readers.is_empty() {
+            let _ = writeln!(out, "    no module reads a property of this name");
+        } else {
+            let _ = writeln!(out, "    read by name in {}", report.readers.join(", "));
+        }
+    } else if report.used_without_types {
+        render_syntactic_use(report.of, out);
+    } else {
+        let _ = writeln!(out, "    no module reads it");
+    }
+    if let Some(reason) = &report.untyped_because {
+        let _ = writeln!(out, "    judged without types ({reason})");
+    }
 }
 
 /// How a template's use of a registered component is described: the import skif adds for it has no location.
@@ -649,8 +787,8 @@ fn uses_export(importer: &ModuleInfo, import: &Import, export: &str, is_type: bo
     })
 }
 
-/// `Class.member` split at its first dot, when `name` is no export of `module` but `Class` is one with a class behind
-/// it.
+/// `Class.member` split at its first dot, when `name` is no export of `module` but `Class` is one with a class, an
+/// enum or a namespace behind it.
 fn class_member_request<'n>(module: &Module, name: &'n str) -> Option<(&'n str, &'n str)> {
     if module.info.exports.iter().any(|export| export.name == name) {
         return None;
@@ -660,8 +798,21 @@ fn class_member_request<'n>(module: &Module, name: &'n str) -> Option<(&'n str, 
         .info
         .exports
         .iter()
-        .any(|export| export.name == class && export.class.is_some())
+        .any(|export| {
+            export.name == class
+                && (export.class.is_some() || matches!(export.kind, ExportKind::Enum | ExportKind::Namespace))
+        })
         .then_some((class, member))
+}
+
+/// The declaration behind `export` of `module` as a report names it: `file#Name`.
+fn declaration_label(module: &Module, export: &Export) -> String {
+    let name = if export.name == "default" {
+        export.local_name.as_deref().unwrap_or("default")
+    } else {
+        export.name.as_str()
+    };
+    format!("{}#{name}", slashed(&module.path))
 }
 
 /// What one explanation shares: the modules an entry reaches and the exports already explained.
@@ -764,46 +915,148 @@ impl JsAnalysis<'_> {
         }
     }
 
-    /// Why `member` of the class behind export `class` of `module` counts as used or not.
+    /// Why `member` of the class, enum or namespace behind export `class` of `module` counts as used or not.
     fn explain_class_member(&self, module: &Module, class: &str, member: &str) -> ClassMemberReport {
         let mut report = ClassMemberReport {
             class: class.to_owned(),
             member: member.to_owned(),
+            of: MemberOf::Class,
             verdict: MemberVerdict::NotAMember,
             exemption: None,
             readers: Vec::new(),
+            used_without_types: false,
+            typed: None,
+            untyped_because: None,
         };
         let Some(export) = module.info.exports.iter().find(|export| export.name == class) else {
             return report;
         };
+        match export.kind {
+            ExportKind::Enum | ExportKind::Namespace if export.class.is_none() => {
+                self.explain_enum_member(module, export, report)
+            }
+            _ => self.explain_member_of_class(module, export, report),
+        }
+    }
+
+    fn explain_member_of_class(
+        &self,
+        module: &Module,
+        export: &Export,
+        mut report: ClassMemberReport,
+    ) -> ClassMemberReport {
         let Some(declared) = export
             .class
             .as_ref()
-            .and_then(|shape| shape.members.iter().find(|candidate| candidate.name == member))
+            .and_then(|shape| shape.members.iter().find(|candidate| candidate.name == report.member))
         else {
             return report;
         };
-        let usage = NameReads::of(&self.graph);
-        report.readers = usage
-            .users(module, export, declared)
-            .into_iter()
-            .map(|id| slashed(&self.graph.module(id).path))
-            .collect();
+        let usage = TypedMemberUsage::of(self);
+        let typed = usage.is_typed(module, export, declared);
+        let paths = |ids: Vec<ModuleId>| -> Vec<String> {
+            ids.into_iter().map(|id| slashed(&self.graph.module(id).path)).collect()
+        };
+        let unresolved = usage.unresolved_users(module, export, declared);
+        report.readers = paths(
+            usage
+                .users(module, export, declared)
+                .into_iter()
+                .filter(|id| !typed || !self.types.covers(*id))
+                .collect(),
+        );
         let judged = judges_classes_of(self, module)
-            .then(|| judged_classes(self, module).find(|(candidate, _)| candidate.name == class))
+            .then(|| judged_classes(self, module).find(|(candidate, _)| candidate.name == export.name))
             .flatten();
         let Some((_, shape)) = judged else {
             report.verdict = MemberVerdict::NotJudged;
             return report;
         };
+        if typed {
+            report.typed = Some(self.typed_evidence(module, export, &declared.name, paths(unresolved)));
+        } else {
+            report.untyped_because = self.untyped_because(module, export, declared);
+        }
         let facts = ClassFacts::of(self, module, export, shape, &entry_exposed(self));
         report.exemption = exemption(self, module, shape, &facts, declared);
         report.verdict = if report.exemption.is_some() {
             MemberVerdict::Exempt
-        } else if report.readers.is_empty() {
-            MemberVerdict::Unused
-        } else {
+        } else if usage.is_used(module, export, declared) {
             MemberVerdict::Used
+        } else {
+            MemberVerdict::Unused
+        };
+        report
+    }
+
+    /// Why a member of a class is judged by name: a private name always is, any other as the type facts say.
+    fn untyped_because(&self, module: &Module, export: &Export, member: &ClassMember) -> Option<String> {
+        if member.name.starts_with('#') {
+            return None;
+        }
+        self.types.untyped_because(module, export).map(str::to_owned)
+    }
+
+    fn typed_evidence(
+        &self,
+        module: &Module,
+        export: &Export,
+        member: &str,
+        unresolved_readers: Vec<String>,
+    ) -> TypedEvidence {
+        TypedEvidence {
+            declaration: declaration_label(module, export),
+            read: self.types.reads(module, export, member),
+            whole: self.types.whole(module, export),
+            unresolved_readers,
+        }
+    }
+
+    /// Why `member` of the enum or namespace behind `export` of `module` counts as used or not: the uses without
+    /// types, and the typed reads and whole uses that add to them (ADR 0043).
+    fn explain_enum_member(
+        &self,
+        module: &Module,
+        export: &Export,
+        mut report: ClassMemberReport,
+    ) -> ClassMemberReport {
+        report.of = if export.kind == ExportKind::Enum {
+            MemberOf::Enum
+        } else {
+            MemberOf::Namespace
+        };
+        let Some(declared) = JsAnalysis::members_of(export)
+            .iter()
+            .find(|candidate| candidate.name == report.member)
+        else {
+            return report;
+        };
+        let judged = self.reports_exports_of(module)
+            && !self.is_tagged_public(export)
+            && self.exports.is_used(module.id, &export.name);
+        if !judged {
+            report.verdict = MemberVerdict::NotJudged;
+            return report;
+        }
+        report.used_without_types = self.member_used_without_types(module, export, declared);
+        if self.types.judges(module, export) {
+            report.typed = Some(self.typed_evidence(module, export, &declared.name, Vec::new()));
+        } else {
+            report.untyped_because = self.types.untyped_because(module, export).map(str::to_owned);
+        }
+        report.exemption = if self.exempts_tags(&declared.tags) {
+            Some(MemberExemption::Tagged)
+        } else if self.ignores_member(module.owner, &declared.name) {
+            Some(MemberExemption::IgnoredName)
+        } else {
+            None
+        };
+        report.verdict = if report.exemption.is_some() {
+            MemberVerdict::Exempt
+        } else if self.member_in_use(module, export, declared) {
+            MemberVerdict::Used
+        } else {
+            MemberVerdict::Unused
         };
         report
     }

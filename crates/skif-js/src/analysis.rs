@@ -5,11 +5,12 @@ use std::collections::BTreeSet;
 
 use skif_core::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, OnceLock};
 
 use indexmap::IndexMap;
 use skif_config::Config;
-use skif_core::{FileSystem, IncompletePackage, IncompleteScope, Span, timing};
+use skif_core::{FileSystem, IncompletePackage, IncompleteScope, Span, TypeAwareSummary, timing};
 use skif_js_syntax::{Export, ExportKind, Member, ParseOptions, is_declaration_file, parse_cached};
 use skif_workspace::{IndexCache, IndexedFs, PackageId, TrackedFiles, Workspace, map_ordered};
 
@@ -26,6 +27,7 @@ use crate::resolve::{ModuleResolver, is_installed};
 use crate::setup::{Setup, WorkspaceKeys};
 use crate::shared_modules::ModuleParser;
 use crate::specifier::package_name;
+use crate::types_bridge::{self, OffReason, TypeRun, TypeState};
 use crate::usage::ExportUsage;
 
 /// A `JSDoc` tag that exempts an export or member that is used anyway, so the tag does nothing (knip's tag hint).
@@ -104,6 +106,10 @@ pub struct JsAnalysis<'a> {
     /// The positions of the unused exports of each module, by module index, computed once for the rules that ask:
     /// see [`Self::unused_exports`].
     unused_export_memo: Vec<OnceLock<Vec<usize>>>,
+    /// What the type checker found, or why it did not run (ADR 0043).
+    pub(crate) types: TypeState,
+    /// How far the type checker covered each package, for the report; `None` when no rule read types.
+    pub(crate) type_summary: Option<TypeAwareSummary>,
 }
 
 /// The exports of one module by name, each name's exports in source order.
@@ -156,6 +162,10 @@ pub(crate) struct Caches<'c> {
     pub extra_entries: &'c [PathBuf],
     /// Files, relative to the workspace root, that other roots of the run name as build sources.
     pub extra_build_sources: &'c [PathBuf],
+    /// Whether a rule of the run reads the facts of the type checker, which runs only then.
+    pub types: bool,
+    /// The host's cancellation flag, which the type checker checks between programs.
+    pub cancel: Option<&'c AtomicBool>,
 }
 
 /// Names declared with `declare module 'name'` by graph modules and by declaration files nothing imports.
@@ -568,6 +578,8 @@ impl<'a> JsAnalysis<'a> {
                 modules: None,
                 extra_entries: &[],
                 extra_build_sources: &[],
+                types: true,
+                cancel: None,
             },
         )
     }
@@ -587,6 +599,8 @@ impl<'a> JsAnalysis<'a> {
             modules,
             extra_entries,
             extra_build_sources,
+            types,
+            cancel,
         } = *caches;
         let phase = |name: &str| format!("js {name} {}", workspace.root.display());
         let indexed = timing::phase(phase("git index"), || overlay(fs, workspace, config, cache));
@@ -767,7 +781,7 @@ impl<'a> JsAnalysis<'a> {
             .filter_map(|entry| graph.id_of(&workspace.root.join(entry)))
             .map(|id| graph.module(id).owner)
             .collect();
-        Self {
+        let mut analysis = Self {
             workspace,
             graph,
             exports,
@@ -788,7 +802,19 @@ impl<'a> JsAnalysis<'a> {
             listed_from_index,
             task_only_members,
             unused_export_memo,
-        }
+            types: TypeState::Off(OffReason::Unneeded),
+            type_summary: None,
+        };
+        // The checker reads the real file system, as `tsc` would: a gitignored declaration file or an installed
+        // package the git index leaves out still types the program.
+        let run = TypeRun {
+            fs: &disk,
+            sequential,
+            cancel,
+            wanted: types,
+        };
+        (analysis.types, analysis.type_summary) = types_bridge::run(&analysis, &run);
+        analysis
     }
 
     /// Whether `name` is a workspace member that nothing can import or run: its `package.json` names no `main`,
@@ -1122,8 +1148,17 @@ impl<'a> JsAnalysis<'a> {
         }
     }
 
-    /// Whether `member` of the used export `export` of `module` is used, or listed in `ignore-members`.
+    /// Whether `member` of the used export `export` of `module` is used, or listed in `ignore-members`. Types only add
+    /// uses (ADR 0043): a typed read of the member or a typed use of the whole declaration counts beside every
+    /// syntactic use.
     pub(crate) fn member_in_use(&self, module: &Module, export: &Export, member: &Member) -> bool {
+        self.member_used_without_types(module, export, member)
+            || self.types.reads(module, export, &member.name)
+            || self.types.whole(module, export)
+    }
+
+    /// Whether `member` of `export` of `module` is used as skif sees it without types, or listed in `ignore-members`.
+    pub(crate) fn member_used_without_types(&self, module: &Module, export: &Export, member: &Member) -> bool {
         self.ignores_member(module.owner, &member.name)
             || export.members_read_in_file.contains(&member.name)
             || export.used_whole_in_file

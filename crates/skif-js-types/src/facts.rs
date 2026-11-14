@@ -115,6 +115,24 @@ pub enum CoverageReason {
     Cancelled,
 }
 
+impl CoverageReason {
+    /// The reason as skif's report spells it: `no-tsconfig`, `unresolved-modules: 3`.
+    #[must_use]
+    pub fn label(&self) -> String {
+        match self {
+            Self::Disabled => "disabled".to_owned(),
+            Self::NotBuilt => "not-built".to_owned(),
+            Self::NoTsconfig => "no-tsconfig".to_owned(),
+            Self::TsconfigError => "tsconfig-error".to_owned(),
+            Self::NotTypescript => "not-typescript".to_owned(),
+            Self::UnresolvedModules(count) => format!("unresolved-modules: {count}"),
+            Self::FilesOutsidePrograms(count) => format!("files-outside-programs: {count}"),
+            Self::CheckerFailed => "checker-failed".to_owned(),
+            Self::Cancelled => "cancelled".to_owned(),
+        }
+    }
+}
+
 /// How long the type-aware stages took.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TypeTimings {
@@ -122,4 +140,27 @@ pub struct TypeTimings {
     pub programs: Duration,
     /// Walking the files and asking the checker.
     pub queries: Duration,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CoverageReason;
+
+    #[test]
+    fn reasons_are_labelled_as_the_report_spells_them() {
+        let cases = [
+            (CoverageReason::Disabled, "disabled"),
+            (CoverageReason::NotBuilt, "not-built"),
+            (CoverageReason::NoTsconfig, "no-tsconfig"),
+            (CoverageReason::TsconfigError, "tsconfig-error"),
+            (CoverageReason::NotTypescript, "not-typescript"),
+            (CoverageReason::UnresolvedModules(3), "unresolved-modules: 3"),
+            (CoverageReason::FilesOutsidePrograms(2), "files-outside-programs: 2"),
+            (CoverageReason::CheckerFailed, "checker-failed"),
+            (CoverageReason::Cancelled, "cancelled"),
+        ];
+        for (reason, label) in cases {
+            assert_eq!(reason.label(), label);
+        }
+    }
 }
