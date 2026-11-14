@@ -1352,7 +1352,7 @@ const RULES_JS_MODULE: (&str, &str) = (
     "bazel_dep(name = \"aspect_rules_js\", version = \"2.0.0\")\n",
 );
 
-/// An Angular library built with rules_angular: `ng_package` publishes the `index.ts` of its own Bazel package and of
+/// An Angular library built with `rules_angular`: `ng_package` publishes the `index.ts` of its own Bazel package and of
 /// `testing`, and a `testonly` `ts_project` builds the spec files a `glob` matches. The secondary entry point is
 /// public, the spec is used, and the member only the spec reads counts as read.
 #[test]

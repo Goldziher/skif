@@ -348,7 +348,10 @@ pub fn generated_programs(classes: &[u32]) -> Generated {
         let mut judged = Vec::new();
         for (rel, text) in one.workspace.files {
             let rel = format!("{dir}/{rel}");
-            if rel.ends_with(".ts") {
+            if std::path::Path::new(&rel)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("ts"))
+            {
                 judged.push(rel.clone());
             }
             files.push((rel, text));
