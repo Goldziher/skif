@@ -20,6 +20,8 @@ All notable changes to this project are documented here. The format follows
 - **Library users that build `PluginContext` of `skif-js-plugins` with a literal**: it gains `members`, the
   directories of the run's other packages below the package, whose sources the `execa`, `zx`, `nano-spawn` and `bun`
   plugins leave out; `&[]` reads them all ([#97](https://github.com/Goldziher/skif/issues/97)).
+- **Library users that build `skif_core::shell::Tokens` with a literal**: it gains `empty_commands`, the commands of
+  redirections alone (`> "$(x)"`) as `EmptyCommand`s ([#97](https://github.com/Goldziher/skif/issues/97)).
 
 ### Added
 
@@ -85,8 +87,9 @@ All notable changes to this project are documented here. The format follows
   ([#97](https://github.com/Goldziher/skif/issues/97)).
 - **`unlisted-binaries`**: a command substitution runs in the directory of the command that holds it, after a `cd` or
   a workflow step's `working-directory`, instead of where the text starts: `SUITE=$(pnpm exec tsx x.ts)` in a step
-  with `working-directory: packages/web` credits `tsx` to `packages/web` instead of judging it at the root
-  ([#97](https://github.com/Goldziher/skif/issues/97)).
+  with `working-directory: packages/web` credits `tsx` to `packages/web` instead of judging it at the root. So does a
+  substitution in a command of redirections alone (`cd a && > "$(x)"` runs `x` in `a`), and one after a `pushd` can
+  `popd` back ([#97](https://github.com/Goldziher/skif/issues/97)).
 - **`unlisted-binaries`**: the `execa`, `zx` and nano-spawn plugins of a package read only its own source files, as the
   `bun` plugin does, so a root that lists execa no longer judges the commands of its members' files against itself: a
   member's `execa(require.resolve(".bin/jscodeshift"))` runs `jscodeshift` of the member that lists it. A directory
