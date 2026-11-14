@@ -279,3 +279,32 @@ fn a_plugin_entry_in_a_build_directory_maps_back_to_src() {
         "{diagnostics:#?}"
     );
 }
+
+/// A file a package publishes beside its build output (`link.js` requiring `./dist/client/link`) reaches the source
+/// that output is built from while the output is unbuilt and ignored.
+#[test]
+fn a_relative_require_into_unbuilt_output_reaches_its_source() {
+    let manifest = r#"{"name":"kit","version":"1.0.0","private":true,"packageManager":"pnpm@9.0.0",
+        "main":"./link.js","files":["dist","link.js"]}"#;
+    let diagnostics = lint_files(&[
+        ("package.json", manifest),
+        (".gitignore", "dist\n"),
+        ("link.js", "module.exports = require('./dist/client/link');\n"),
+        (
+            "src/client/link.tsx",
+            "import { navigate } from './router';\nexport const Link = () => navigate('/');\n",
+        ),
+        ("src/client/router.ts", "export const navigate = (to: string) => to;\n"),
+        ("src/orphan.ts", "export const orphan = 1;\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["src/orphan.ts: src/orphan.ts"],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        found(&diagnostics, "unresolved-imports"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+}
