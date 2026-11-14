@@ -15,6 +15,9 @@ updates:
       include: "scope"
     pull-request-branch-name:
       separator: "/"
+    # tsrs is upgraded by hand, with the parity run and benchmarks ADR 0044 requires.
+    ignore:
+      - dependency-name: "tsrs_*"
     groups:
       oxc:
         patterns:
