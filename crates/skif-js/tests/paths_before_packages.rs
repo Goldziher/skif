@@ -139,7 +139,10 @@ fn installed_tree(app_tsconfig: Option<&'static str>, local: bool) -> Vec<(&'sta
         files.push(("packages/app/tsconfig.json", tsconfig));
     }
     if local {
-        files.push(("packages/app/src/lib/util/helper.ts", "export const helper = () => \"local\";\n"));
+        files.push((
+            "packages/app/src/lib/util/helper.ts",
+            "export const helper = () => \"local\";\n",
+        ));
     }
     files
 }
