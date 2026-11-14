@@ -57,9 +57,8 @@ fn a_typed_receiver_credits_its_class_and_not_a_same_named_member_of_another_cla
 
 #[test]
 fn two_classes_with_one_member_name_are_credited_by_their_own_receivers() {
-    let workspace = widgets(
-        "import { Gadget, Widget } from './widgets';\n\nnew Widget().paint();\nnew Gadget().render();\n",
-    );
+    let workspace =
+        widgets("import { Gadget, Widget } from './widgets';\n\nnew Widget().paint();\nnew Gadget().render();\n");
     let facts = run(&workspace, &[widgets_package()], &widgets_query(&workspace));
     assert_facts(
         &facts,
@@ -92,7 +91,12 @@ fn a_union_receiver_credits_the_member_on_every_class_of_the_union() {
 #[test]
 fn reads_of_members_outside_the_query_are_not_reported() {
     let workspace = widgets("import { Widget } from './widgets';\n\nnew Widget().paint();\n");
-    let query = query(vec![workspace.decl("src/widgets.ts", DeclKind::Class, "Widget", &["render"])]);
+    let query = query(vec![workspace.decl(
+        "src/widgets.ts",
+        DeclKind::Class,
+        "Widget",
+        &["render"],
+    )]);
     let facts = run(&workspace, &[widgets_package()], &query);
     assert_facts(
         &facts,
@@ -135,10 +139,13 @@ fn shapes(main: &str) -> (Workspace, TypeQuery) {
 
 #[test]
 fn a_read_through_the_base_class_credits_the_overriding_members() {
-    let (workspace, query) = shapes(
-        "import { Base } from './shapes';\n\nexport function draw(shape: Base): void {\n  shape.render();\n}\n",
+    let (workspace, query) =
+        shapes("import { Base } from './shapes';\n\nexport function draw(shape: Base): void {\n  shape.render();\n}\n");
+    let facts = run(
+        &workspace,
+        &[package("", "app", &["src/shapes.ts", "src/main.ts"])],
+        &query,
     );
-    let facts = run(&workspace, &[package("", "app", &["src/shapes.ts", "src/main.ts"])], &query);
     assert_facts(
         &facts,
         &Expected {
@@ -153,7 +160,11 @@ fn a_read_through_the_base_class_credits_the_overriding_members() {
 #[test]
 fn an_inherited_member_read_through_the_subclass_credits_the_base_class() {
     let (workspace, query) = shapes("import { Derived } from './shapes';\n\nnew Derived().paint();\n");
-    let facts = run(&workspace, &[package("", "app", &["src/shapes.ts", "src/main.ts"])], &query);
+    let facts = run(
+        &workspace,
+        &[package("", "app", &["src/shapes.ts", "src/main.ts"])],
+        &query,
+    );
     assert_facts(
         &facts,
         &Expected {
@@ -204,7 +215,11 @@ fn a_read_through_an_interface_credits_the_classes_that_implement_it() {
         workspace.decl("src/areas.ts", DeclKind::Class, "Circle", &["area"]),
         workspace.decl("src/areas.ts", DeclKind::Class, "Table", &["area"]),
     ]);
-    let facts = run(&workspace, &[package("", "app", &["src/areas.ts", "src/main.ts"])], &query);
+    let facts = run(
+        &workspace,
+        &[package("", "app", &["src/areas.ts", "src/main.ts"])],
+        &query,
+    );
     assert_facts(
         &facts,
         &Expected {
@@ -300,7 +315,11 @@ fn checked_javascript_credits_reads_through_jsdoc_types() {
             workspace.decl("src/pens.js", DeclKind::Class, "Pen", &["draw"]),
             workspace.decl("src/pens.js", DeclKind::Class, "Brush", &["draw"]),
         ]);
-        let facts = run(&workspace, &[package("", "app", &["src/pens.js", "src/sketch.js"])], &query);
+        let facts = run(
+            &workspace,
+            &[package("", "app", &["src/pens.js", "src/sketch.js"])],
+            &query,
+        );
         assert_case(
             config_file,
             &facts,
@@ -342,7 +361,11 @@ fn declarations_after_a_bom_and_non_ascii_text_join_on_utf8_offsets() {
         workspace.decl("src/widgets.ts", DeclKind::Class, "Ŝecond", &["render"]),
         workspace.decl("src/widgets.ts", DeclKind::Class, "Wïdget", &["render", "paint"]),
     ]);
-    let facts = run(&workspace, &[package("", "app", &["src/widgets.ts", "src/main.ts"])], &query);
+    let facts = run(
+        &workspace,
+        &[package("", "app", &["src/widgets.ts", "src/main.ts"])],
+        &query,
+    );
     assert_facts(
         &facts,
         &Expected {

@@ -17,9 +17,22 @@ export enum Color {
 ";
 
 fn analyze_colors(main: &str) -> skif_js_types::TypeFacts {
-    let workspace = Workspace::new(&[("tsconfig.json", TSCONFIG), ("src/colors.ts", COLORS), ("src/main.ts", main)]);
-    let query = query(vec![workspace.decl("src/colors.ts", DeclKind::Enum, "Color", &["Red", "Green", "Blue"])]);
-    run(&workspace, &[package("", "app", &["src/colors.ts", "src/main.ts"])], &query)
+    let workspace = Workspace::new(&[
+        ("tsconfig.json", TSCONFIG),
+        ("src/colors.ts", COLORS),
+        ("src/main.ts", main),
+    ]);
+    let query = query(vec![workspace.decl(
+        "src/colors.ts",
+        DeclKind::Enum,
+        "Color",
+        &["Red", "Green", "Blue"],
+    )]);
+    run(
+        &workspace,
+        &[package("", "app", &["src/colors.ts", "src/main.ts"])],
+        &query,
+    )
 }
 
 #[test]
@@ -115,8 +128,17 @@ fn a_namespace_member_read_through_this_or_a_qualified_name_credits_that_member(
             ("src/settings.ts", SETTINGS),
             ("src/main.ts", main),
         ]);
-        let query = query(vec![workspace.decl("src/settings.ts", DeclKind::Namespace, "Settings", &["port", "host"])]);
-        let facts = run(&workspace, &[package("", "app", &["src/settings.ts", "src/main.ts"])], &query);
+        let query = query(vec![workspace.decl(
+            "src/settings.ts",
+            DeclKind::Namespace,
+            "Settings",
+            &["port", "host"],
+        )]);
+        let facts = run(
+            &workspace,
+            &[package("", "app", &["src/settings.ts", "src/main.ts"])],
+            &query,
+        );
         assert_case(
             case,
             &facts,

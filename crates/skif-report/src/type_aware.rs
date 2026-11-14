@@ -36,7 +36,11 @@ pub(crate) fn view<'a>(summary: &'a TypeAwareSummary, options: &RenderOptions) -
             .map(|package| {
                 let dir = options.display_path(&package.dir);
                 PackageView {
-                    dir: if dir.is_empty() { ".".to_owned() } else { dir.into_owned() },
+                    dir: if dir.is_empty() {
+                        ".".to_owned()
+                    } else {
+                        dir.into_owned()
+                    },
                     name: &package.name,
                     state: package.state,
                     reason: package.reason.as_deref(),

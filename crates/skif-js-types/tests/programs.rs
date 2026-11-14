@@ -32,7 +32,12 @@ fn app(extra: &[(&'static str, &'static str)]) -> Workspace {
 }
 
 fn widget_query(workspace: &Workspace, file: &str) -> TypeQuery {
-    query(vec![workspace.decl(file, DeclKind::Class, "Widget", &["render", "paint"])])
+    query(vec![workspace.decl(
+        file,
+        DeclKind::Class,
+        "Widget",
+        &["render", "paint"],
+    )])
 }
 
 #[test]
@@ -67,7 +72,11 @@ fn project_references_resolve_to_the_source_of_the_referenced_project() {
         package("packages/app", "app", &["packages/app/src/main.ts"]),
         package("packages/lib", "lib", &["packages/lib/src/widget.ts"]),
     ];
-    let facts = run(&workspace, &packages, &widget_query(&workspace, "packages/lib/src/widget.ts"));
+    let facts = run(
+        &workspace,
+        &packages,
+        &widget_query(&workspace, "packages/lib/src/widget.ts"),
+    );
     assert_facts(
         &facts,
         &Expected {
@@ -119,7 +128,13 @@ fn a_package_without_a_tsconfig_is_untyped() {
     assert_facts(
         &facts,
         &Expected {
-            coverage: vec![coverage("", "app", CoverageState::Untyped, Some(CoverageReason::NoTsconfig), 2)],
+            coverage: vec![coverage(
+                "",
+                "app",
+                CoverageState::Untyped,
+                Some(CoverageReason::NoTsconfig),
+                2,
+            )],
             ..Expected::default()
         },
     );
@@ -128,7 +143,10 @@ fn a_package_without_a_tsconfig_is_untyped() {
 #[test]
 fn uninstalled_dependencies_credit_reads_by_name_and_report_partial() {
     let workspace = Workspace::new(&[
-        ("package.json", r#"{ "name": "app", "dependencies": { "missing-pkg": "^1.0.0" } }"#),
+        (
+            "package.json",
+            r#"{ "name": "app", "dependencies": { "missing-pkg": "^1.0.0" } }"#,
+        ),
         ("tsconfig.json", TSCONFIG),
         ("src/widget.ts", WIDGET),
         (
@@ -161,7 +179,10 @@ fn uninstalled_dependencies_credit_reads_by_name_and_report_partial() {
 
 const BROKEN_TSCONFIGS: [(&str, &str); 2] = [
     ("truncated JSON", r#"{ "compilerOptions": { "strict": true, "#),
-    ("a value that is not JSON", r#"{ "compilerOptions": { "strict": yes } }"#),
+    (
+        "a value that is not JSON",
+        r#"{ "compilerOptions": { "strict": yes } }"#,
+    ),
 ];
 
 #[test]
@@ -177,7 +198,13 @@ fn a_package_whose_tsconfig_does_not_parse_is_untyped() {
             case,
             &facts,
             &Expected {
-                coverage: vec![coverage("", "app", CoverageState::Untyped, Some(CoverageReason::TsconfigError), 2)],
+                coverage: vec![coverage(
+                    "",
+                    "app",
+                    CoverageState::Untyped,
+                    Some(CoverageReason::TsconfigError),
+                    2,
+                )],
                 ..Expected::default()
             },
         );
@@ -285,5 +312,8 @@ fn cancelled_before_start_returns_cancelled() {
             ..Options::default()
         },
     );
-    assert!(matches!(result, Err(TypeError::Cancelled)), "expected a cancellation, got {result:?}");
+    assert!(
+        matches!(result, Err(TypeError::Cancelled)),
+        "expected a cancellation, got {result:?}"
+    );
 }

@@ -212,7 +212,10 @@ fn json_carries_the_type_aware_object_only_when_the_report_has_one() {
     assert_eq!(summary["enabled"], true);
     assert_eq!(summary["engine"], "tsrs 7.1.0-beta.tsrs1");
     let packages = summary["packages"].as_array().unwrap();
-    let dirs: Vec<&str> = packages.iter().map(|package| package["dir"].as_str().unwrap()).collect();
+    let dirs: Vec<&str> = packages
+        .iter()
+        .map(|package| package["dir"].as_str().unwrap())
+        .collect();
     assert_eq!(dirs, [".", "packages/a", "packages/b", "packages/c", "packages/web"]);
     assert_eq!(
         packages[4],
@@ -254,8 +257,10 @@ fn human_footer_names_only_the_states_present() {
         Some("types: 1 of 2 packages untyped (no-tsconfig 1); run with --no-type-aware to skip types")
     );
     assert_eq!(
-        footer(vec![TypeAwarePackage::new("", "root", TypeAwareState::Partial).with_reason("files-outside-programs: 4")])
-            .as_deref(),
+        footer(vec![
+            TypeAwarePackage::new("", "root", TypeAwareState::Partial).with_reason("files-outside-programs: 4")
+        ])
+        .as_deref(),
         Some(
             "types: 1 of 1 package partially typed (files-outside-programs 1); run with --no-type-aware to skip types"
         )

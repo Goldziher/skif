@@ -532,16 +532,24 @@ fn no_type_aware_wins_over_the_file_and_every_workspace() {
         "[js]\ntype-aware = true\n\n[js.workspaces.\"a\"]\ntype-aware = true\n\n[js.workspaces.\"b\"]\nentry = [\"x.ts\"]\n",
     )
     .unwrap();
-    config.apply(&ConfigOverrides::default().with_no_type_aware(true)).unwrap();
+    config
+        .apply(&ConfigOverrides::default().with_no_type_aware(true))
+        .unwrap();
     assert!(!config.js.type_aware);
     assert_eq!(config.js.workspaces["a"].type_aware, Some(false));
-    assert_eq!(config.js.workspaces["b"].type_aware, None, "an unset workspace inherits the top level");
+    assert_eq!(
+        config.js.workspaces["b"].type_aware, None,
+        "an unset workspace inherits the top level"
+    );
 }
 
 #[test]
 fn without_no_type_aware_the_file_decides() {
-    let mut config = Config::from_toml_str("[js]\ntype-aware = false\n\n[js.workspaces.\"a\"]\ntype-aware = true\n").unwrap();
-    config.apply(&ConfigOverrides::default().with_no_type_aware(false)).unwrap();
+    let mut config =
+        Config::from_toml_str("[js]\ntype-aware = false\n\n[js.workspaces.\"a\"]\ntype-aware = true\n").unwrap();
+    config
+        .apply(&ConfigOverrides::default().with_no_type_aware(false))
+        .unwrap();
     assert!(!config.js.type_aware);
     assert_eq!(config.js.workspaces["a"].type_aware, Some(true));
 }

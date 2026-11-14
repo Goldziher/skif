@@ -794,7 +794,10 @@ mod tests {
         assert_eq!(dirs, [PathBuf::from("apps/web"), PathBuf::from("z")]);
         let none = [prefixed(&untyped_root, Path::new(""))];
         assert!(aggregate(&none).type_aware.is_none());
-        let pair = [prefixed(&untyped_root, Path::new("")), prefixed(&untyped_root, Path::new("b"))];
+        let pair = [
+            prefixed(&untyped_root, Path::new("")),
+            prefixed(&untyped_root, Path::new("b")),
+        ];
         assert!(aggregate(&pair).type_aware.is_none());
     }
 

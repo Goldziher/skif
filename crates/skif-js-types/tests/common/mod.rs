@@ -53,7 +53,10 @@ impl Workspace {
     /// A workspace of `(relative path, text)` pairs.
     pub fn new(files: &[(&str, &str)]) -> Self {
         Self {
-            files: files.iter().map(|(rel, text)| ((*rel).to_owned(), (*text).to_owned())).collect(),
+            files: files
+                .iter()
+                .map(|(rel, text)| ((*rel).to_owned(), (*text).to_owned()))
+                .collect(),
         }
     }
 
@@ -110,7 +113,12 @@ pub fn name_start(text: &str, kind: DeclKind, name: &str) -> u32 {
         .filter(|start| ends_identifier(text, start + needle.len()))
         .filter(|start| starts_identifier(text, *start))
         .collect();
-    assert_eq!(starts.len(), 1, "expected exactly one `{needle}` in the fixture, found {}", starts.len());
+    assert_eq!(
+        starts.len(),
+        1,
+        "expected exactly one `{needle}` in the fixture, found {}",
+        starts.len()
+    );
     u32::try_from(starts[0] + keyword.len() + 1).unwrap()
 }
 
@@ -267,8 +275,16 @@ pub fn generated(classes: u32) -> Generated {
             format!("src/c{i}.ts"),
             format!("export class C{i} {{\n  render(): void {{}}\n  paint(): void {{}}\n}}\n"),
         ));
-        let paint = if i % 2 == 0 { format!("new C{i}().paint();\n") } else { String::new() };
-        let loose = if i == 0 { "export function loose(x: any): void {\n  x.paint();\n}\n" } else { "" };
+        let paint = if i % 2 == 0 {
+            format!("new C{i}().paint();\n")
+        } else {
+            String::new()
+        };
+        let loose = if i == 0 {
+            "export function loose(x: any): void {\n  x.paint();\n}\n"
+        } else {
+            ""
+        };
         files.push((
             format!("src/use{i}.ts"),
             format!(
@@ -279,7 +295,14 @@ pub fn generated(classes: u32) -> Generated {
     let workspace = Workspace::from_owned(files);
     let query = query(
         (0..classes)
-            .map(|i| workspace.decl(&format!("src/c{i}.ts"), DeclKind::Class, &format!("C{i}"), &["render", "paint"]))
+            .map(|i| {
+                workspace.decl(
+                    &format!("src/c{i}.ts"),
+                    DeclKind::Class,
+                    &format!("C{i}"),
+                    &["render", "paint"],
+                )
+            })
             .collect(),
     );
     let judged: Vec<String> = (0..classes)

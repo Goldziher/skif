@@ -112,6 +112,9 @@ Options:
       --no-js
           Skip JavaScript analysis
 
+      --no-type-aware
+          Resolve member reads without the TypeScript type checker. Types are on by default; turning them off is faster and less accurate for member findings. Overrides `[js] type-aware` and every workspace's `type-aware`
+
       --config <FILE>
           Use this configuration file (and the files it extends) instead of discovering `skif.toml` files
 

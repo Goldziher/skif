@@ -130,6 +130,7 @@ All notable changes to this project are documented here. The format follows
   bundler alias leads into the project's own sources no longer uses the listed dependency whose name the specifier
   starts with, so `unused-dependencies` now reports a dependency that only such imports named; an aliased import that
   reaches no file still uses it. Add the dependency to `ignore-dependencies` where it is listed for consumers only.
+
 - Release binaries unwind on panic (`panic = "unwind"`) instead of aborting, so a panic inside the type checker can
   fall back to the untyped analysis. A panic that ends a run still exits 2, prints its message to stderr and, with
   `--format json`, writes one `internal` error document ([ADR 0044](adrs/0044-tsrs-dependency-policy.md)).

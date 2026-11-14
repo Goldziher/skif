@@ -244,8 +244,7 @@ mod tests {
     #[test]
     fn merging_combines_roots() {
         let first = TypeAwareSummary::new(false, vec![package("z", "z", TypeAwareState::Untyped)]);
-        let second =
-            TypeAwareSummary::new(true, vec![package("a", "a", TypeAwareState::Typed)]).with_engine("tsrs");
+        let second = TypeAwareSummary::new(true, vec![package("a", "a", TypeAwareState::Typed)]).with_engine("tsrs");
         let merged = TypeAwareSummary::merged([&first, &second]).unwrap();
         assert!(merged.enabled);
         assert_eq!(merged.engine.as_deref(), Some("tsrs"));
