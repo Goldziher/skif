@@ -11,7 +11,7 @@ use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 
 use crate::analysis::on_disk;
 use crate::ancestors::external_manifests;
-use crate::discover::{Candidate, is_ignored_in_repository, relative};
+use crate::discover::{Candidate, is_ignored_in_repository, relative, subpath_entries};
 use crate::explain::EntryReason;
 use crate::globs::Globs;
 use crate::manifest_paths::{
@@ -253,6 +253,14 @@ impl EntryContext<'_> {
                 && !names_no_file(disk, &workspace.root, package_setup, package.manifest.value(), &target)
             {
                 published_without_source = true;
+            }
+        }
+        // `pkg/server` loads the file `server/package.json` points at, so it is published like `main` is.
+        for target in subpath_entries(fs, &package_setup.dir, package.manifest.value()) {
+            if let Some(path) = map_published(fs, package_setup, &target)
+                && is_code_file(&path)
+            {
+                from_tools.insert(path);
             }
         }
         let mut origins = Vec::new();
