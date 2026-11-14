@@ -726,18 +726,25 @@ it does not cover (a Vue, Svelte or Astro template, a file in no program) still 
 missing types never add a finding. Without types, in a package with no `tsconfig.json`, or with `type-aware = false`,
 a member counts as read when any module of the graph reads a property of its name on any object: `x.name`,
 `x?.name`, `x['name']`, a destructured key, `this.name`, `super.name`, a string literal type or call argument
-(`vi.spyOn(x, 'name')`), and every `.name` in the markup of a component file. A field that is only assigned
-(`x.name = 1`) is unused, a setter is used when it is assigned. The constructor, `private` members and members with a
-computed key (`[Symbol.iterator]`) are not judged, and nor are a decorated member, every member of a decorated class
-(`@Component()`), members of an interface the class implements (all of its instance members when the interface is
-not declared in the same file), the members a known library base class declares (React's `render` and lifecycle
-methods), every member of a class whose superclass chain leaves the project for another class (`extends HTMLElement`,
-a mixin call, a class of an installed package), and the classes an entry file exports, which are public API unless
-`include-entry-exports` is set. `skif explain-usage FILE#Class.member` shows the typed read that reaches the member
-and the files that read its name (with types, those the checker did not cover or could not settle), or why the
-member is not judged; `FILE#Enum.member` and `FILE#Namespace.member` explain an enum or namespace member the same way
+(`vi.spyOn(x, 'name')`), and every `.name` in the markup of a component file. An element access whose key is a
+constant reads the string the constant holds: `x[KEY]` with `const KEY = '__v_skip'`, `x[Flags.SKIP]` with
+`enum Flags { SKIP = '__v_skip' }` or `const Flags = { SKIP: '__v_skip' } as const`, declared in the same module or
+imported (also through a namespace import or a barrel); a `let`, a plain object's property or a parameter can hold
+any key and reads nothing. A field that is only assigned (`x.name = 1`) is unused, a setter is used when it is
+assigned. The constructor, `private` members and members with a computed key (`[Symbol.iterator]`) are not judged,
+and nor are a field that exists only for the type checker (a `declare` field, or a brand typed `void`, `never`,
+`undefined` or `unique symbol` with no value but `undefined`, such as `readonly __brand!: unique symbol`), a
+decorated member, every member of a decorated class (`@Component()`), members of an interface the class implements
+(all of its instance members when the interface is not declared in the same file), the members a known library base
+class declares (React's `render` and lifecycle methods), every member of a class whose superclass chain leaves the
+project for another class (`extends HTMLElement`, a mixin call, a class of an installed package), and the classes an
+entry file exports, which are public API unless `include-entry-exports` is set. `skif explain-usage FILE#Class.member`
+shows the typed read that reaches the member and the files that read its name (with types, those the checker did not
+cover or could not settle), or why the member is not judged; `FILE#Enum.member` and `FILE#Namespace.member` explain an
+enum or namespace member the same way
 ([ADR 0042](https://github.com/Goldziher/skif/blob/main/adrs/0042-unused-class-members.md),
-[ADR 0045](https://github.com/Goldziher/skif/blob/main/adrs/0045-typed-member-semantics.md)).
+[ADR 0043](https://github.com/Goldziher/skif/blob/main/adrs/0043-type-only-class-fields-and-constant-element-keys.md),
+[ADR 0046](https://github.com/Goldziher/skif/blob/main/adrs/0046-typed-member-semantics.md)).
 
 With types, `unused-enum-members` and `unused-namespace-members` also count a typed read (an enum read through an
 alias, a namespace member read through `this`) and a typed use of the whole declaration; types only add uses, so these
@@ -942,7 +949,7 @@ installed) keeps the name-based analysis for the files concerned and loses no fi
 reason (see [output formats](../cli/#output-formats)). `type-aware = false`, or `skif --no-type-aware`, which also
 overrides every `[js.workspaces]` table, runs no type checker at all and is faster and less accurate for member
 findings. The language server, `skif mcp` and `--watch` run without types
-([ADR 0043](https://github.com/Goldziher/skif/blob/main/adrs/0043-type-aware-analysis-on-tsrs.md)).
+([ADR 0044](https://github.com/Goldziher/skif/blob/main/adrs/0044-type-aware-analysis-on-tsrs.md)).
 
 ```toml
 [js.workspaces."packages/legacy"]

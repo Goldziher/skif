@@ -1,4 +1,4 @@
-//! The declarations skif asks about and how what the checker found credits their members (ADR 0045): a read credits
+//! The declarations skif asks about and how what the checker found credits their members (ADR 0046): a read credits
 //! the member of the declaration it lands on, and a read of a base class's or an interface's member also credits the
 //! members of the asked classes that override or implement it.
 

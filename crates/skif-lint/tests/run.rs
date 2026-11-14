@@ -342,5 +342,8 @@ fn a_run_without_a_type_aware_analysis_has_no_summary() {
     let registry = many_rules();
     let cfg = config("");
     let ws = workspace(&cfg);
-    assert_eq!(run(&registry, &ws, &cfg, &RunOptions::default()).unwrap().type_aware, None);
+    assert_eq!(
+        run(&registry, &ws, &cfg, &RunOptions::default()).unwrap().type_aware,
+        None
+    );
 }

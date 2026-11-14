@@ -330,6 +330,12 @@ pub struct ClassMember {
     pub is_static: bool,
     /// Has a decorator (`@Input()`, `@HostListener('click')`).
     pub decorated: bool,
+    /// A field that exists only for the type checker, which no code reads at runtime: a `declare` field, or one
+    /// typed `void`, `never`, `undefined` or `unique symbol` that has no initialiser or is initialised to `undefined`
+    /// (`readonly _brand: void = undefined`, `readonly __brand!: unique symbol`), as nominal brands and phantom
+    /// type parameters are declared.
+    #[serde(default)]
+    pub type_only: bool,
     /// Location of the member name.
     pub span: Span,
     /// `JSDoc` tag names (without `@`) on the member.
@@ -339,6 +345,34 @@ pub struct ClassMember {
     /// decorated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub removal: Option<(u32, u32)>,
+}
+
+/// A string an export of a module holds, usable as a property key: the value of an exported string constant, or of
+/// a string member of an exported enum or `as const` object.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct StringConstant {
+    /// The export name.
+    pub export: String,
+    /// The enum member or object property that holds the string; `None` when the export is the string itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member: Option<String>,
+    /// The string.
+    pub value: String,
+}
+
+/// An element access whose key is an imported constant: `x[KEY]` and `x[ns.KEY]` (`member` is `None`), `x[E.M]` and
+/// `x[ns.E.M]` (`member` is `M`).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct ImportedKeyRead {
+    /// The specifier the constant is imported from, as written.
+    pub specifier: String,
+    /// The export of that module (`default` for a default import).
+    pub export: String,
+    /// The enum member or object property of the export that holds the key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member: Option<String>,
 }
 
 /// Where the superclass chain of a class leaves its module.
@@ -477,7 +511,7 @@ pub struct Export {
     pub class: Option<ClassShape>,
     /// The byte offset of the name of the class, enum or namespace declaration of this module the export stands for
     /// (`Foo` in `class Foo`, also behind `export { Foo }` and `export default Foo`). The type-aware analysis keys
-    /// declarations by it (ADR 0043); `None` for other exports and for an anonymous default class.
+    /// declarations by it (ADR 0044); `None` for other exports and for an anonymous default class.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub declaration_start: Option<u32>,
 }
@@ -565,14 +599,28 @@ pub struct ModuleInfo {
     /// imports the components it registers into the files that use them so (ADR 0020). Empty for other files.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub template_tags: Vec<String>,
-    /// The property names the file reads, on any object: `x.name`, `x?.name`, `x['name']`, a destructured key
+    /// The property names the file reads, on any object: `x.name`, `x?.name`, `x['name']`, an element access whose key
+    /// is a string constant of the file (`x[KEY]`, `x[E.M]`, see [`ModuleInfo::string_constants`]), a destructured key
     /// (`const { name } = x`, `({ name } = x)`, a parameter pattern), `super.name`, `#name` (with its `#`, also in
     /// `#name in x`), the right side of a qualified type name (`typeof x.name`), a string literal type (`'name'`,
-    /// `C['name']`) and a string literal argument of a call (`vi.spyOn(x, 'name')`). The markup of a component file
-    /// and the text of a file whose templates are not parsed add every `.name` they hold. Sorted, without
-    /// duplicates; empty when member accesses are not tracked.
+    /// `C['name']`) and a string literal argument of a call (`vi.spyOn(x, 'name')`). The markup of a component file and
+    /// the text of a file whose templates are not parsed add every `.name` they hold. Sorted, without duplicates; empty
+    /// when member accesses are not tracked.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub property_reads: Vec<String>,
+    /// The strings behind the exports of the file that an element access elsewhere can use as a key: an exported
+    /// `const KEY = 'k'`, the string members of an exported enum (`enum E { M = 'k' }`) and the string properties of
+    /// an exported `as const` object (`const X = { M: 'k' } as const`). Sorted, without duplicates; empty when member
+    /// accesses are not tracked.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub string_constants: Vec<StringConstant>,
+    /// The element accesses of the file whose key is an imported constant (`x[KEY]`, `x[E.M]`, `x[ns.E.M]`): the
+    /// property they read is the string behind that export ([`ModuleInfo::string_constants`] of the module it is
+    /// imported from), which only the module graph resolves. An element access whose key is a constant of the file
+    /// itself is in [`ModuleInfo::property_reads`]. Sorted, without duplicates; empty when member accesses are not
+    /// tracked.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub imported_key_reads: Vec<ImportedKeyRead>,
     /// The property names the file assigns with a plain `=` (`x.name = 1`, `x['name'] = 1`, `this.#name = 1`), which
     /// are no reads. Sorted, without duplicates.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -686,6 +734,12 @@ impl ModuleInfo {
         self.property_writes.extend(other.property_writes);
         self.property_writes.sort();
         self.property_writes.dedup();
+        self.string_constants.extend(other.string_constants);
+        self.string_constants.sort();
+        self.string_constants.dedup();
+        self.imported_key_reads.extend(other.imported_key_reads);
+        self.imported_key_reads.sort();
+        self.imported_key_reads.dedup();
         self.unresolved_dynamic.extend(other.unresolved_dynamic);
         self.ambient_modules.extend(other.ambient_modules);
         self.augmented_modules.extend(other.augmented_modules);

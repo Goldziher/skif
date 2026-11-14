@@ -151,7 +151,7 @@ fn repo_root(root: &Path) -> Option<PathBuf> {
 }
 
 /// The base overrides of a long-running process (the language server, `skif mcp`, `--watch`): it analyses without
-/// types until repeated typed analyses are shown to free their memory (ADR 0043).
+/// types until repeated typed analyses are shown to free their memory (ADR 0044).
 pub(crate) fn server_overrides() -> ConfigOverrides {
     ConfigOverrides::default().with_no_type_aware(true)
 }

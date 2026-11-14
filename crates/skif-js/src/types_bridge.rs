@@ -1,4 +1,4 @@
-//! The type-aware facts of one JS analysis (ADR 0043, ADR 0045): the declarations whose member reads skif judges are
+//! The type-aware facts of one JS analysis (ADR 0044, ADR 0046): the declarations whose member reads skif judges are
 //! asked of the TypeScript checker of `skif-js-types`, and the answer is kept by module so the member rules can read
 //! it without knowing the checker.
 //!
@@ -27,6 +27,10 @@ pub(crate) enum OffReason {
     /// The configuration turned type awareness off for every package (`[js] type-aware = false`, `--no-type-aware`).
     Disabled,
     /// skif was built without the `type-aware` feature.
+    #[cfg_attr(
+        feature = "type-aware",
+        expect(dead_code, reason = "only a build without the checker reports it")
+    )]
     NotBuilt,
     /// The `tsconfig` given as `[js] tsconfig` cannot be read or parsed.
     TsconfigError,
@@ -327,8 +331,7 @@ mod asked {
         let mut keys = DeclKeys::default();
         let exposed = entry_exposed(analysis);
         for module in analysis.graph.modules() {
-            if module.info.exports.iter().any(|export| export.class.is_some()) && judges_classes_of(analysis, module)
-            {
+            if module.info.exports.iter().any(|export| export.class.is_some()) && judges_classes_of(analysis, module) {
                 for (export, shape) in judged_classes(analysis, module) {
                     let Some(name_start) = export.declaration_start else {
                         continue;
@@ -421,7 +424,8 @@ mod asked {
         }
 
         pub(super) fn whole(&self, module: &Module, export: &Export) -> bool {
-            self.decl(module, export).is_some_and(|id| self.facts.whole.contains(&id))
+            self.decl(module, export)
+                .is_some_and(|id| self.facts.whole.contains(&id))
         }
 
         pub(super) fn unresolved_readers(&self, name: &str) -> &[ModuleId] {

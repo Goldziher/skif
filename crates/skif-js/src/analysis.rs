@@ -106,7 +106,7 @@ pub struct JsAnalysis<'a> {
     /// The positions of the unused exports of each module, by module index, computed once for the rules that ask:
     /// see [`Self::unused_exports`].
     unused_export_memo: Vec<OnceLock<Vec<usize>>>,
-    /// What the type checker found, or why it did not run (ADR 0043).
+    /// What the type checker found, or why it did not run (ADR 0044).
     pub(crate) types: TypeState,
     /// How far the type checker covered each package, for the report; `None` when no rule read types.
     pub(crate) type_summary: Option<TypeAwareSummary>,
@@ -1149,7 +1149,7 @@ impl<'a> JsAnalysis<'a> {
     }
 
     /// Whether `member` of the used export `export` of `module` is used, or listed in `ignore-members`. Types only add
-    /// uses (ADR 0043): a typed read of the member or a typed use of the whole declaration counts beside every
+    /// uses (ADR 0044): a typed read of the member or a typed use of the whole declaration counts beside every
     /// syntactic use.
     pub(crate) fn member_in_use(&self, module: &Module, export: &Export, member: &Member) -> bool {
         self.member_used_without_types(module, export, member)

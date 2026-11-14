@@ -1,4 +1,4 @@
-//! With type awareness turned off no part of the checker runs (ADR 0043). A test binary of its own: the arena counter
+//! With type awareness turned off no part of the checker runs (ADR 0044). A test binary of its own: the arena counter
 //! is process-wide, so a typed analysis on another test thread would move it.
 
 #![cfg(feature = "type-aware")]
@@ -16,18 +16,12 @@ use skif_workspace::Workspace;
 const ROOT: &str = "/ws";
 
 const FILES: [(&str, &str); 4] = [
-    (
-        "package.json",
-        r#"{"name":"app","private":true,"main":"src/index.ts"}"#,
-    ),
+    ("package.json", r#"{"name":"app","private":true,"main":"src/index.ts"}"#),
     (
         "tsconfig.json",
         r#"{ "compilerOptions": { "strict": true, "noEmit": true }, "include": ["src"] }"#,
     ),
-    (
-        "src/widgets.ts",
-        "export class Widget {\n  render(): void {}\n}\n",
-    ),
+    ("src/widgets.ts", "export class Widget {\n  render(): void {}\n}\n"),
     (
         "src/index.ts",
         "import { Widget } from './widgets';\nexport const widget = new Widget();\n",
@@ -67,5 +61,9 @@ fn no_type_aware_runs_no_checker() {
             ))
         );
     }
-    assert_eq!(skif_js_types::arena_bytes_in_use(), before, "the checker reserved arena memory");
+    assert_eq!(
+        skif_js_types::arena_bytes_in_use(),
+        before,
+        "the checker reserved arena memory"
+    );
 }

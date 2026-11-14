@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-14
 decision-makers: ["Na'aman Hirschfeld"]
 ---
@@ -8,7 +8,7 @@ decision-makers: ["Na'aman Hirschfeld"]
 
 ## Context and Problem Statement
 
-Type-aware analysis ([ADR 0043](0043-type-aware-analysis-on-tsrs.md)) depends on tsrs, published as pre-release
+Type-aware analysis ([ADR 0044](0044-type-aware-analysis-on-tsrs.md)) depends on tsrs, published as pre-release
 crates (`tsrs_*` `7.1.0-beta.tsrs1`). Beyond its API, tsrs makes choices for the whole process it runs in:
 
 * Programs live in leaked arenas: `new_program` returns a `&'static Program`, and only the unsafe

@@ -274,7 +274,7 @@ impl MemberOf {
     }
 }
 
-/// What the TypeScript checker found for a member whose declaring file it covered (ADR 0045).
+/// What the TypeScript checker found for a member whose declaring file it covered (ADR 0046).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
@@ -557,7 +557,11 @@ fn render_typed_evidence(report: &ClassMemberReport, typed: &TypedEvidence, out:
         render_syntactic_use(report.of, out);
     }
     if typed.read {
-        let _ = writeln!(out, "    read with types: a typed read reaches it on `{}`", typed.declaration);
+        let _ = writeln!(
+            out,
+            "    read with types: a typed read reaches it on `{}`",
+            typed.declaration
+        );
     }
     if typed.whole {
         let _ = writeln!(
@@ -917,7 +921,7 @@ impl JsAnalysis<'_> {
 
     /// Why `member` of the class, enum or namespace behind export `class` of `module` counts as used or not.
     fn explain_class_member(&self, module: &Module, class: &str, member: &str) -> ClassMemberReport {
-        let mut report = ClassMemberReport {
+        let report = ClassMemberReport {
             class: class.to_owned(),
             member: member.to_owned(),
             of: MemberOf::Class,
@@ -1013,7 +1017,7 @@ impl JsAnalysis<'_> {
     }
 
     /// Why `member` of the enum or namespace behind `export` of `module` counts as used or not: the uses without
-    /// types, and the typed reads and whole uses that add to them (ADR 0043).
+    /// types, and the typed reads and whole uses that add to them (ADR 0044).
     fn explain_enum_member(
         &self,
         module: &Module,

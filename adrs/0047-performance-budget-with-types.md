@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-14
 decision-makers: ["Na'aman Hirschfeld"]
 ---
@@ -9,7 +9,7 @@ decision-makers: ["Na'aman Hirschfeld"]
 ## Context and Problem Statement
 
 [ADR 0029](0029-performance-caching-and-benchmarks.md) makes speed a published property: numbers come from the pinned
-benchmark runner, never from a laptop. Type awareness ([ADR 0043](0043-type-aware-analysis-on-tsrs.md)) is on by
+benchmark runner, never from a laptop. Type awareness ([ADR 0044](0044-type-aware-analysis-on-tsrs.md)) is on by
 default and builds TypeScript programs beside the oxc graph, so the default run gets slower. Users choose between the
 two modes, and they need the numbers to choose.
 

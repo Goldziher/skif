@@ -43,7 +43,7 @@ path = "src/main.rs"
 
 [features]
 default = ["type-aware"]
-# Type-aware analysis (ADR 0043); `--no-default-features` builds a CLI that always analyses without types.
+# Type-aware analysis (ADR 0044); `--no-default-features` builds a CLI that always analyses without types.
 type-aware = ["skif/type-aware"]
 
 [dependencies]

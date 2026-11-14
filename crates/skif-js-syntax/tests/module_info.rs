@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use skif_js_syntax::{
-    ClassMemberKind, ClassShape, ExportKind, Heritage, ImportKind, ImportedKind, ModuleInfo, ParseOptions,
-    Registration, RemovalKind, SyntaxError, parse_module, place_file_dir,
+    ClassMemberKind, ClassShape, ExportKind, Heritage, ImportKind, ImportedKeyRead, ImportedKind, ModuleInfo,
+    ParseOptions, Registration, RemovalKind, StringConstant, SyntaxError, parse_module, place_file_dir,
 };
 
 fn parse(path: &str, source: &str) -> ModuleInfo {
@@ -2281,6 +2281,96 @@ fn property_reads_and_writes() {
     ];
     assert_eq!(info.property_reads, expected_reads);
     assert_eq!(info.property_writes, ["#own", "inner", "written", "writtenComputed"]);
+}
+
+#[test]
+fn type_only_fields_are_marked() {
+    let source = "type Options = { a: number };\nfunction run(): void {}\nexport class A {\n  \
+                  declare protected readonly _Options: Options;\n  readonly _rgbaBrand: void = undefined;\n  \
+                  readonly __brand!: unique symbol;\n  readonly _never?: never;\n  readonly _undefined: undefined;\n  \
+                  readonly initialised: void = run();\n  readonly symbol!: symbol;\n  plain = 1;\n  \
+                  method(): void {}\n}\n";
+    let info = parse("a.ts", source);
+    let marked: Vec<(&str, bool)> = class_of(&info, "A")
+        .members
+        .iter()
+        .map(|m| (m.name.as_str(), m.type_only))
+        .collect();
+    assert_eq!(
+        marked,
+        [
+            ("_Options", true),
+            ("_rgbaBrand", true),
+            ("__brand", true),
+            ("_never", true),
+            ("_undefined", true),
+            ("initialised", false),
+            ("symbol", false),
+            ("plain", false),
+            ("method", false),
+        ],
+        "a `declare` field, and a field typed `void`, `never`, `undefined` or `unique symbol` with no value but \
+         `undefined`, exist only for the type checker"
+    );
+}
+
+#[test]
+fn constant_keys_are_read_as_their_strings() {
+    let source = "import { Imported } from './flags';\nimport * as ns from './ns';\nimport Def from './def';\n\
+                  export enum Flags { SKIP = '__v_skip', COUNT = 1 }\n\
+                  export const KEY = '__v_key';\n\
+                  export const Keys = { RAW: '__v_raw' } as const;\n\
+                  const Local = '__v_local';\nexport { Local as Renamed };\n\
+                  const Mutable = { M: '__v_mutable' };\n\
+                  let variable = '__v_variable';\n\
+                  const SHADOWED = '__v_shadowed';\n\
+                  function f(SHADOWED: string) { return t[SHADOWED]; }\n\
+                  t[Flags.SKIP]; t[KEY]; t[Keys.RAW]; t[Flags.COUNT]; t[Mutable.M]; t[variable]; t[unbound];\n\
+                  t[Imported]; t[Imported.X]; t[ns.KEY]; t[ns.E.M]; t[Def.M]; t[ns];\n";
+    let info = parse("a.ts", source);
+    let keyed: Vec<&str> = info
+        .property_reads
+        .iter()
+        .map(String::as_str)
+        .filter(|name| name.starts_with("__v_"))
+        .collect();
+    assert_eq!(
+        keyed,
+        ["__v_key", "__v_raw", "__v_skip"],
+        "a string member of an enum or `as const` object and a string `const` are read; a plain object, a `let`, a \
+         numeric member and a shadowed name are not"
+    );
+    let read = |specifier: &str, export: &str, member: Option<&str>| ImportedKeyRead {
+        specifier: specifier.to_owned(),
+        export: export.to_owned(),
+        member: member.map(str::to_owned),
+    };
+    assert_eq!(
+        info.imported_key_reads,
+        [
+            read("./def", "default", Some("M")),
+            read("./flags", "Imported", None),
+            read("./flags", "Imported", Some("X")),
+            read("./ns", "E", Some("M")),
+            read("./ns", "KEY", None),
+        ],
+        "a namespace import as a whole is no key"
+    );
+    let constant = |export: &str, member: Option<&str>, value: &str| StringConstant {
+        export: export.to_owned(),
+        member: member.map(str::to_owned),
+        value: value.to_owned(),
+    };
+    assert_eq!(
+        info.string_constants,
+        [
+            constant("Flags", Some("SKIP"), "__v_skip"),
+            constant("KEY", None, "__v_key"),
+            constant("Keys", Some("RAW"), "__v_raw"),
+            constant("Renamed", None, "__v_local"),
+        ],
+        "only exported constants are recorded, under their export names"
+    );
 }
 
 #[test]
