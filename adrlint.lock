@@ -94,7 +94,7 @@ blake3 = "1d7ecd992e4c8c5df165d995cce7354a46a15a6fa22d6e72257254ec7c6184c9"
 [adrs."adrs/0019-dependency-unlisted-and-unresolved-findings.md"]
 number = 19
 status = "accepted"
-blake3 = "f4d2a3c4cfb7a6300efbf2c89929aa592ec1d02d6a9c5bdd101278f0a6d82835"
+blake3 = "e53d14239c17eca0d70d2e58871ee1b6ba8c02f9ae5c861d8b56ddf8dfef899e"
 
 [adrs."adrs/0020-templates-components-and-custom-elements.md"]
 number = 20
@@ -144,7 +144,7 @@ blake3 = "656582098ba9a0b8d9de711b1f12894342194af59988ebd8bfef82c3b49c2f43"
 [adrs."adrs/0029-performance-caching-and-benchmarks.md"]
 number = 29
 status = "accepted"
-blake3 = "154e355a830f47b79a29eaa4c25b921be7e4af23241fc9a95ec529cba489ef42"
+blake3 = "3aab5fd9c444bdafcf4b859561ea743d95cf5e1cd6b34057189984a7c6f8df85"
 
 [adrs."adrs/0030-supported-versions-and-the-end-to-end-matrix.md"]
 number = 30
@@ -175,3 +175,38 @@ blake3 = "acb0569e28760875dbec8584a0b60d98dd4b8dc57ec36e01d263a2ca51e30e2c"
 number = 35
 status = "accepted"
 blake3 = "f6f79daa800649aa9371da3c604a92d647b7de09384ecb34555876f7c393c051"
+
+[adrs."adrs/0036-packages-named-on-an-environment-gated-branch.md"]
+number = 36
+status = "accepted"
+blake3 = "269d3925f5ace3c42785975414f5b52c7cf646c0eea1e65632e0b83e71174de4"
+
+[adrs."adrs/0037-heft-and-rig-packages.md"]
+number = 37
+status = "accepted"
+blake3 = "c41159c6e015db09de3b549e369b84d3f897ae91a436db8cb35ba5968f73ffce"
+
+[adrs."adrs/0038-paths-before-packages.md"]
+number = 38
+status = "accepted"
+blake3 = "84ac9f908f5e9723620a8983b7dc5eabf5a623477612d11d7b4d41158f768933"
+
+[adrs."adrs/0039-source-command-scans-read-reached-files.md"]
+number = 39
+status = "accepted"
+blake3 = "6c98d0fac3b67429cb40c3497a8eff19eef371fb88b2bc6ad83e4f2ae2ea19e2"
+
+[adrs."adrs/0040-more-known-deviations-of-the-knip-comparison.md"]
+number = 40
+status = "accepted"
+blake3 = "85357c1bd4590a03d7b6372ce6c3672d242fbfd57e47eaf110279bf1a4b73d5f"
+
+[adrs."adrs/0041-benchmarks-on-large-repositories.md"]
+number = 41
+status = "accepted"
+blake3 = "48f56ec813b0665c29e859060352f1c1efd96bba6ae794cb2d7425aac0cd540b"
+
+[adrs."adrs/0042-unused-class-members.md"]
+number = 42
+status = "accepted"
+blake3 = "2c9c4eef057796eea2c4a9d98cfdd70abaeb8b2a517a893b16c589a158e8c961"

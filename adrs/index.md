@@ -43,10 +43,10 @@ old one.
 | 0033 | [Attribution and Vendoring: Depend, Vendor, Re-Implement or Reference, and One Attributions File](0033-attribution-and-vendoring.md) | accepted |
 | 0034 | [Build Sources Handed to a Nested Root](0034-build-sources-handed-to-a-nested-root.md) | accepted |
 | 0035 | [Plugin Entries in Build Output](0035-plugin-entries-in-build-output.md) | accepted |
-| 0042 | [Unused Class Members](0042-unused-class-members.md) | accepted |
-| 0041 | [Benchmarks on Large Repositories: Capped Run Counts, the Comparison's knip Configuration and knip Errors After a Whole Report](0041-benchmarks-on-large-repositories.md) | accepted |
-| 0040 | [More Known Deviations of the knip Comparison](0040-more-known-deviations-of-the-knip-comparison.md) | accepted |
-| 0039 | [Source Command Scans Read the Files the Module Graph Reaches](0039-source-command-scans-read-reached-files.md) | accepted |
-| 0038 | [`paths` Before Packages: TypeScript's Order for Mappings Named Like a Dependency](0038-paths-before-packages.md) | accepted |
-| 0037 | [Heft and Rig Packages: Profiles as Configs of the Rig and of the Projects That Name It](0037-heft-and-rig-packages.md) | accepted |
 | 0036 | [Packages Named on an Environment-Gated Branch](0036-packages-named-on-an-environment-gated-branch.md) | accepted |
+| 0037 | [Heft and Rig Packages: Profiles as Configs of the Rig and of the Projects That Name It](0037-heft-and-rig-packages.md) | accepted |
+| 0038 | [`paths` Before Packages: TypeScript's Order for Mappings Named Like a Dependency](0038-paths-before-packages.md) | accepted |
+| 0039 | [Source Command Scans Read the Files the Module Graph Reaches](0039-source-command-scans-read-reached-files.md) | accepted |
+| 0040 | [More Known Deviations of the knip Comparison](0040-more-known-deviations-of-the-knip-comparison.md) | accepted |
+| 0041 | [Benchmarks on Large Repositories: Capped Run Counts, the Comparison's knip Configuration and knip Errors After a Whole Report](0041-benchmarks-on-large-repositories.md) | accepted |
+| 0042 | [Unused Class Members](0042-unused-class-members.md) | accepted |

@@ -1133,7 +1133,7 @@
           "items": {
             "$ref": "#/$defs/IgnoreItem"
           },
-          "description": "Enum and namespace member names (globs or regular expressions) never reported as unused.",
+          "description": "Enum, namespace and class member names (globs or regular expressions) never reported as unused.",
           "default": []
         },
         "production": {
@@ -1465,7 +1465,7 @@
           "items": {
             "$ref": "#/$defs/IgnoreItem"
           },
-          "description": "Enum and namespace member names never reported as unused in this workspace.",
+          "description": "Enum, namespace and class member names never reported as unused in this workspace.",
           "default": []
         },
         "paths": {

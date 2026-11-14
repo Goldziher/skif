@@ -969,6 +969,7 @@ fn run_workspace(
         confine_to_package: false,
         imported: Vec::new(),
         entries_configured: matches!(setting, Some(PluginConfig::Options(options)) if !options.entry.is_empty()),
+        shared: false,
     };
     let inputs = plugin.resolve_workspace(ctx);
     collector.absorb(plugin.spec().id, inputs, (&ctx.dir.join("package.json"), None), 0);
