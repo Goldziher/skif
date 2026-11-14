@@ -21,7 +21,7 @@ use crate::graph::{ModuleGraph, ModuleId, Target};
 use crate::hoisting::PublicHoisting;
 use crate::input::ConfigDependency;
 use crate::lockfile;
-use crate::resolve::is_installed;
+use crate::resolve::{is_installed, join_normalized};
 use crate::scripts::{ScriptBinary, script_context};
 use crate::setup::{Setup, package_dirs, package_in_dir, placed_dir};
 use crate::specifier::{RUNTIME_PACKAGES, bin_link, package_name, typed_package, types_package};
@@ -410,6 +410,10 @@ pub(crate) struct Installed {
     /// The `version` of its manifest; `None` when it has none, and for a package known only from the lockfile, whose
     /// packages are read without one.
     pub(crate) version: Option<String>,
+    /// Its manifest declares its own types (a non-empty `types` or `typings`), so TypeScript reads those and not its
+    /// `@types` package. For an installed package the file must exist too ([`has_types_file`]). `false` for a package
+    /// known only from the lockfile.
+    pub(crate) typed: bool,
 }
 
 /// The binary names a manifest declares: the package's own name for a `bin` string, the keys of a `bin` map.
@@ -567,6 +571,12 @@ fn read_installed(
     })
 }
 
+/// Whether package `name` is installed in a `node_modules` directory from the directory of `file` up to `root`.
+fn package_installed(fs: &dyn FileSystem, file: &Path, root: &Path, name: &str) -> bool {
+    file.parent()
+        .is_some_and(|start| read_installed(fs, start, root, name, &mut HashMap::default()).is_some())
+}
+
 /// The first installed package `lookup` finds in a directory from `start` up to `root`, as Node.js looks up
 /// `node_modules`.
 fn find_installed(
@@ -652,6 +662,30 @@ fn version_of(manifest: &Value) -> Option<String> {
     manifest.get("version").and_then(Value::as_str).map(str::to_owned)
 }
 
+/// The file of the package's own types a manifest declares: a non-empty `types` or `typings` string.
+fn declared_types(manifest: &Value) -> Option<&str> {
+    ["types", "typings"].iter().find_map(|field| {
+        manifest
+            .get(field)
+            .and_then(Value::as_str)
+            .filter(|path| !path.trim().is_empty())
+    })
+}
+
+/// Whether a manifest declares the package's own types ([`declared_types`]).
+fn declares_types(manifest: &Value) -> bool {
+    declared_types(manifest).is_some()
+}
+
+/// Whether the installed package at `dir` holds the types file `path` its manifest declares, as TypeScript finds it:
+/// the file itself, the file with `.d.ts` added, or the `index.d.ts` of a directory.
+fn has_types_file(fs: &dyn FileSystem, dir: &Path, path: &str) -> bool {
+    let file = join_normalized(dir, path);
+    let mut with_extension = file.clone().into_os_string();
+    with_extension.push(".d.ts");
+    fs.is_file(&file) || fs.is_file(Path::new(&with_extension)) || fs.is_file(&file.join("index.d.ts"))
+}
+
 fn parse_installed(fs: &dyn FileSystem, dir: &Path, text: &str, name: &str) -> Option<Arc<Installed>> {
     let value: Value = serde_json::from_str(text).ok()?;
     let bins = if value.get("bin").is_some() {
@@ -664,6 +698,7 @@ fn parse_installed(fs: &dyn FileSystem, dir: &Path, text: &str, name: &str) -> O
         peers: peers_of(&value),
         optional_peers: optional_peers_of(&value),
         version: version_of(&value),
+        typed: declared_types(&value).is_some_and(|path| has_types_file(fs, dir, path)),
     }))
 }
 
@@ -1076,6 +1111,9 @@ pub struct DependencyUsage {
     ancestors: Vec<Vec<PackageId>>,
     /// For every package, the listed dependencies whose binaries are known: they are installed or in the lockfile.
     known_bins: Vec<HashSet<String>>,
+    /// For every package, the listed dependencies that declare their own types ([`Installed::typed`]): an import of
+    /// one uses no `@types` package.
+    typed: Vec<HashSet<String>>,
     /// For every package, whether its `tsconfig.json` sets a `jsxImportSource` other than `react`, so JSX files do not
     /// use React.
     other_jsx_runtime: Vec<bool>,
@@ -1176,6 +1214,7 @@ impl DependencyUsage {
             production_listed: vec![HashSet::default(); count],
             mode: Mode::of(setup.strict, setup.isolate_workspaces),
             known_bins: vec![HashSet::default(); count],
+            typed: vec![HashSet::default(); count],
             other_jsx_runtime: vec![false; count],
             ancestors: package_ancestors(workspace, setup.isolate_workspaces),
             hosts: vec![HashMap::default(); count],
@@ -1227,6 +1266,7 @@ impl DependencyUsage {
                     peers: peers_of(manifest),
                     optional_peers: optional_peers_of(manifest),
                     version: version_of(manifest),
+                    typed: declares_types(manifest),
                 };
                 Some((name, Arc::new(installed)))
             })
@@ -1263,6 +1303,9 @@ impl DependencyUsage {
         for (&(id, _), found) in members.iter().zip(installed) {
             for (name, installed) in found {
                 self.known_bins[id.index()].insert(name.clone());
+                if installed.typed {
+                    self.typed[id.index()].insert(name.clone());
+                }
                 for bin in &installed.bins {
                     self.bins[id.index()].entry(bin.clone()).or_default().push(name.clone());
                 }
@@ -1462,6 +1505,15 @@ impl DependencyUsage {
                         }
                         continue;
                     }
+                    if kind == Some(ImportKind::Url)
+                        && !self.known_package(name)
+                        && !package_installed(fs, &module.abs, &workspace.root, name)
+                    {
+                        // A stylesheet `url()` of a package that no manifest lists and that is not installed goes
+                        // through a bundler alias skif cannot see (`@assets/…`, Nuxt's `~static/…`) or names a
+                        // missing asset: no unlisted import.
+                        continue;
+                    }
                     if self.mode.strict() && resolved.type_only {
                         // knip's strict mode skips type-only imports of packages: they neither use a dependency
                         // nor need one listed.
@@ -1577,7 +1629,11 @@ impl DependencyUsage {
 
     fn handle_import(&mut self, workspace: &Workspace, name: &str, site: &ImportSite<'_>) {
         let find = |usage: &Self, name: &str| usage.find_listed_for(site, name);
-        if self.is_satisfied(workspace, site.owner, name, site.type_only, find) {
+        let subpath = site
+            .specifier
+            .strip_prefix(name)
+            .is_some_and(|rest| rest.starts_with('/'));
+        if self.is_satisfied(workspace, site.owner, name, (site.type_only, subpath), find) {
             return;
         }
         self.unlisted.push(UnlistedImport {
@@ -1594,13 +1650,15 @@ impl DependencyUsage {
     /// Whether package `name` that package `owner` uses needs no manifest entry, recording every use it finds: a
     /// runtime module, the package itself, a package that `find` finds listed (for `type_only` uses also its
     /// `DefinitelyTyped` package), one that is provided ([`Self::is_provided`]) or a workspace member a private
-    /// package uses unlisted.
+    /// package uses unlisted. The `@types` package is used too unless the package declares its own types
+    /// ([`Self::ships_types`]) and the use names the package itself: those types may not cover a `subpath` use
+    /// (`pkg/sub`), which `@types/pkg/sub.d.ts` may declare.
     fn is_satisfied(
         &mut self,
         workspace: &Workspace,
         owner: PackageId,
         name: &str,
-        type_only: bool,
+        (type_only, subpath): (bool, bool),
         find: impl Fn(&Self, &str) -> Option<Listed>,
     ) -> bool {
         if RUNTIME_PACKAGES.contains(&name) {
@@ -1612,11 +1670,14 @@ impl DependencyUsage {
         if package.name.as_deref() == Some(name) {
             return true;
         }
-        let types = types_package(name).and_then(|types| find(self, &types).map(|found| (found, types)));
+        let listed = find(self, name);
+        let types = types_package(name)
+            .filter(|_| subpath || !listed.is_some_and(|found| self.ships_types(found, name)))
+            .and_then(|types| find(self, &types).map(|found| (found, types)));
         if let Some((found, types)) = &types {
             self.reference(*found, types);
         }
-        if let Some(found) = find(self, name) {
+        if let Some(found) = listed {
             self.reference(found, name);
             return true;
         }
@@ -1624,6 +1685,14 @@ impl DependencyUsage {
             return true;
         }
         self.is_provided(workspace, owner, name) || self.use_unlisted_member(package, owner, name)
+    }
+
+    /// Whether `name`, listed where `listed` says, declares its own types ([`Installed::typed`]).
+    fn ships_types(&self, listed: Listed, name: &str) -> bool {
+        match listed {
+            Listed::Package(id) => self.typed.get(id.index()).is_some_and(|typed| typed.contains(name)),
+            Listed::External => false,
+        }
     }
 
     /// Whether package `name`, which no manifest of package `owner` or above lists, is there all the same: a peer
@@ -1720,7 +1789,7 @@ impl DependencyUsage {
     ) {
         let name = dependency.name.as_str();
         let judge = |usage: &mut Self, scope: PackageId| {
-            usage.is_satisfied(workspace, scope, name, dependency.type_only, |usage, name| {
+            usage.is_satisfied(workspace, scope, name, (dependency.type_only, false), |usage, name| {
                 usage.find_listed(scope, name)
             })
         };
@@ -2110,7 +2179,7 @@ impl DependencyUsage {
             if UNPAIRED_TYPES.contains(&typed.as_str()) {
                 return Some(Credit::UnpairedTypes);
             }
-            if referenced.contains_key(typed) {
+            if referenced.contains_key(typed) && !self.ships_types(Listed::Package(id), typed) {
                 return Some(Credit::TypesOf(typed.clone()));
             }
         }

@@ -24,11 +24,11 @@ use crate::style::{is_stylesheet, parse_stylesheet};
 /// The version of the parse output. Raise it whenever [`ModuleInfo`] or what the parsers put in it changes, so a
 /// cache written by an older build at the same crate version is not trusted; the test
 /// `the_cache_schema_matches_the_parse_output` fails until [`CACHE_SCHEMA_DIGEST`] is updated with it.
-pub const CACHE_SCHEMA: u32 = 6;
+pub const CACHE_SCHEMA: u32 = 7;
 
 /// The digest of the serialized parse results of a fixed probe corpus at [`CACHE_SCHEMA`]. It is a test's guard,
 /// not part of any key: when the parse output changes, the test reports the new digest and both constants move.
-pub const CACHE_SCHEMA_DIGEST: u128 = 0x3b92_8390_7d3c_8e38_b50d_6d59_4a1c_4ec7;
+pub const CACHE_SCHEMA_DIGEST: u128 = 0xdb17_7970_8654_7d03_07f8_0b12_be7c_26df;
 
 /// The version a persisted cache records, `<crate version>+<CACHE_SCHEMA>`: a store written under another version
 /// is discarded as a whole.
@@ -420,7 +420,7 @@ mod tests {
             ),
             (
                 "d.d.ts",
-                "declare module 'virtual:thing' {\n  export const v: number;\n}\n",
+                "declare module 'virtual:thing' {\n  export const v: number;\n  export * from 'thing-types';\n}\n",
             ),
             (
                 "e.mjs",
@@ -452,7 +452,7 @@ mod tests {
             ),
             (
                 "k.css",
-                "@import './base.css';\n.a { composes: b from './other.css'; }\n",
+                "@import './base.css';\n.a { composes: b from './other.css'; background: url('@s/icons/a.svg'); }\n",
             ),
             (
                 "l.scss",

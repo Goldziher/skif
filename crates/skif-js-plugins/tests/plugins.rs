@@ -1840,6 +1840,55 @@ fn oxlint() {
 }
 
 #[test]
+fn a_config_extended_from_node_modules_uses_its_package_installed_or_not() {
+    let config = r#"{ "extends": ["./node_modules/shared-oxlint/config/core/.oxlintrc.json", "./base.json"] }"#;
+    let results = resolve(&[(".oxlintrc.json", config), ("base.json", "{}")], &["oxlint"]);
+    assert_eq!(deps(output(&results, "oxlint")), BTreeSet::from(["shared-oxlint"]));
+    let installed = resolve(
+        &[
+            (
+                ".oxlintrc.json",
+                r#"{ "extends": ["./node_modules/@acme/lint/oxlint.json"] }"#,
+            ),
+            (
+                "node_modules/@acme/lint/oxlint.json",
+                r#"{ "jsPlugins": ["oxlint-plugin-acme"] }"#,
+            ),
+        ],
+        &["oxlint"],
+    );
+    assert_eq!(
+        deps(output(&installed, "oxlint")),
+        BTreeSet::from(["@acme/lint", "oxlint-plugin-acme"])
+    );
+}
+
+#[test]
+fn a_config_an_installed_config_extends_from_node_modules_is_not_the_workspaces_dependency() {
+    let results = resolve(
+        &[
+            ("tsconfig.json", r#"{ "extends": "./node_modules/a/tsconfig.json" }"#),
+            ("node_modules/a/tsconfig.json", r#"{ "extends": "../b/tsconfig.json" }"#),
+            (
+                "node_modules/b/tsconfig.json",
+                r#"{ "compilerOptions": { "strict": true } }"#,
+            ),
+        ],
+        &["typescript"],
+    );
+    let out = output(&results, "typescript");
+    // `a` reads `b/tsconfig.json`, so `b` is a dependency of `a`, not of the workspace.
+    assert_eq!(deps(out), BTreeSet::from(["a"]));
+    assert!(
+        out.config_files
+            .iter()
+            .any(|file| file.ends_with("node_modules/b/tsconfig.json")),
+        "{:?}",
+        out.config_files
+    );
+}
+
+#[test]
 fn angular_builders_and_entries() {
     let config = r#"{
       "projects": { "web": { "architect": {

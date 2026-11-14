@@ -1,8 +1,9 @@
 //! A lightweight import scanner for stylesheets (`.css .scss .sass .less .pcss .styl .stylus`).
 //!
 //! It understands comments and strings, and recognises `@import`, `@use`, `@forward`, `@plugin`, `@config`,
-//! `@reference`, Stylus `@require` and CSS modules `composes: … from "x"`. `@source` is a glob and `url()` in other properties is an
-//! asset, so neither is reported.
+//! `@reference`, Stylus `@require` and CSS modules `composes: … from "x"`. `@source` is a glob and `url()` in other
+//! properties is an asset, so neither is reported, except a `url()` that names a file of a package (`~pkg/file`,
+//! `@scope/pkg/file`), which uses the package.
 
 use std::path::Path;
 
@@ -33,10 +34,13 @@ struct Found {
     specifier: String,
     start: usize,
     end: usize,
+    /// [`ImportKind::Url`] for a `url()` outside an import, [`ImportKind::SideEffect`] for an import.
+    kind: ImportKind,
 }
 
 /// Scans the stylesheet `source` (the content of `path`) for the files and packages it imports. Every import has
-/// [`ImportKind::SideEffect`]. Nothing is reported for remote URLs, `data:` URLs, Sass built-in modules,
+/// [`ImportKind::SideEffect`], except a `url()` of a package file outside an import, which has [`ImportKind::Url`].
+/// Nothing is reported for remote URLs, `data:` URLs, Sass built-in modules,
 /// specifiers with interpolation and Stylus globs (`@import "mixins/*"`).
 #[must_use]
 pub fn parse_stylesheet(path: &Path, source: &str) -> ModuleInfo {
@@ -71,7 +75,7 @@ pub fn parse_stylesheet(path: &Path, source: &str) -> ModuleInfo {
             let end = u32::try_from(found.end.min(source.len())).ok()?;
             Some(Import {
                 specifier,
-                kind: ImportKind::SideEffect,
+                kind: found.kind,
                 names: Vec::new(),
                 call: None,
                 span: lines.span(start, end),
@@ -110,6 +114,45 @@ fn normalize(raw: &str) -> Option<String> {
         Some(rest) => Some(rest.to_owned()),
         None => Some(specifier.to_owned()),
     }
+}
+
+/// Whether the `url()` value `value` names a file inside a package rather than an asset beside the stylesheet: a
+/// webpack `~pkg/file` path or a scoped `@scope/pkg/file` path, which a relative file name does not look like. An
+/// unscoped bare path (`images/bg.png`) is relative to the stylesheet, and `@/…` is an alias.
+fn names_package_file(value: &str) -> bool {
+    let value = value.trim();
+    let (path, scoped) = match value.strip_prefix('~') {
+        Some(rest) => (rest, rest.starts_with('@')),
+        None if value.starts_with('@') => (value, true),
+        None => return false,
+    };
+    let mut parts = path
+        .strip_prefix('@')
+        .unwrap_or(path)
+        .splitn(if scoped { 3 } else { 2 }, '/');
+    let names = if scoped {
+        [parts.next(), parts.next()]
+            .into_iter()
+            .all(|part| part.is_some_and(is_package_segment))
+    } else {
+        parts.next().is_some_and(is_package_segment)
+    };
+    names && parts.next().is_some_and(|file| !file.is_empty())
+}
+
+/// The file a `url()` value names, without the query or fragment after it (`a.eot?#iefix`, `sprite.svg#icon`).
+fn without_query(value: &str) -> &str {
+    value.find(['?', '#']).map_or(value, |at| &value[..at])
+}
+
+/// Whether `segment` can be an npm package scope or name: lowercase letters, digits, `-`, `_` and `.`, not starting
+/// with `.` or `_`. A path step, interpolation, URL syntax and a capitalised alias directory (`~Assets`) are not.
+fn is_package_segment(segment: &str) -> bool {
+    !segment.is_empty()
+        && !segment.starts_with(['.', '_'])
+        && segment
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_' | b'.'))
 }
 
 const fn is_ident(byte: u8) -> bool {
@@ -208,21 +251,45 @@ impl Scanner<'_> {
         None
     }
 
-    /// Skips `url(…)`. Only a quote right after the parenthesis starts a string: in an unquoted URL an apostrophe is
-    /// part of the file name.
-    fn skip_url(&mut self) {
+    /// Reads a `url(…)` outside an import and records it when it names a file of a package ([`names_package_file`]).
+    /// Only a quote right after the parenthesis starts a string: in an unquoted URL an apostrophe is part of the file
+    /// name.
+    fn url(&mut self) {
+        let start = self.pos;
         self.pos += 4;
         while self.cur().is_some_and(|byte| byte.is_ascii_whitespace()) {
             self.pos += 1;
         }
-        if matches!(self.cur(), Some(b'"' | b'\'')) {
-            self.read_string();
-        }
+        let quoted = matches!(self.cur(), Some(b'"' | b'\''));
+        let string = if quoted {
+            self.read_string().map(|(content, _)| content)
+        } else {
+            None
+        };
+        let from = self.pos;
+        let mut close = self.src.len();
         while let Some(byte) = self.cur() {
             self.pos += 1;
             if byte == b')' {
-                return;
+                close = self.pos - 1;
+                break;
             }
+        }
+        let value = if quoted {
+            string
+        } else {
+            self.text.get(from..close).map(|value| value.trim().to_owned())
+        };
+        if let Some(specifier) = value
+            .map(|value| without_query(&value).to_owned())
+            .filter(|value| names_package_file(value))
+        {
+            self.found.push(Found {
+                specifier,
+                start,
+                end: self.pos,
+                kind: ImportKind::Url,
+            });
         }
     }
 
@@ -235,7 +302,7 @@ impl Scanner<'_> {
                     self.read_string();
                 }
                 b'@' => self.at_rule(),
-                b'u' | b'U' if self.at_url() => self.skip_url(),
+                b'u' | b'U' if self.at_url() => self.url(),
                 b'c' if self.at_word("composes") => self.composes(),
                 _ => self.pos += 1,
             }
@@ -314,6 +381,7 @@ impl Scanner<'_> {
                 specifier,
                 start,
                 end: self.pos,
+                kind: ImportKind::SideEffect,
             });
             return true;
         }
@@ -333,6 +401,7 @@ impl Scanner<'_> {
                 specifier,
                 start,
                 end: self.pos,
+                kind: ImportKind::SideEffect,
             });
             return true;
         }
@@ -342,7 +411,12 @@ impl Scanner<'_> {
     fn record_string(&mut self, start: usize) -> bool {
         match self.read_string() {
             Some((specifier, end)) => {
-                self.found.push(Found { specifier, start, end });
+                self.found.push(Found {
+                    specifier,
+                    start,
+                    end,
+                    kind: ImportKind::SideEffect,
+                });
                 true
             }
             None => false,
@@ -366,7 +440,12 @@ impl Scanner<'_> {
                     if let Some((specifier, end)) = self.read_string()
                         && last == "from"
                     {
-                        self.found.push(Found { specifier, start, end });
+                        self.found.push(Found {
+                            specifier,
+                            start,
+                            end,
+                            kind: ImportKind::SideEffect,
+                        });
                     }
                     last.clear();
                 }
@@ -431,6 +510,33 @@ mod tests {
         assert_eq!(specifiers("a.css", source), ["kept"]);
         let line_comment = "// @use \"gone\";\n@use \"kept\";\n.a { background: url(http://x.test/a.png); }";
         assert_eq!(specifiers("a.scss", line_comment), ["kept"]);
+    }
+
+    #[test]
+    fn urls_of_package_files_are_imports() {
+        let source = "@font-face { src: url(\"@ibm/plex/Mono/fonts/a.woff2\") format(\"woff2\"); }\n\
+                      .a { background: url( '@scope/pkg/img.png' ); }\n\
+                      .b { background: url(~legacy-icons/sprite.svg); }\n\
+                      .c { background: url(\"./img.png\"), url(images/bg.png), url(\"@/assets/a.png\"); }\n\
+                      .d { background: url(~/x.png), url(\"@scope\"), url(\"@scope/pkg\"), url(@{var}/x.png); }\n\
+                      .e { background: url(https://x.test/a.png); }\n\
+                      @font-face { src: url(\"@fontsource/inter/files/a.eot?#iefix\"), url(~icons/sprite.svg#home); }\n\
+                      .f { background: url(~Assets/a.png), url(\"@Scope/pkg/a.png\"), url(~_private/a.png); }\n\
+                      .g { background: url(\"@scope/.hidden/a.png\"), url(~my_icons.v2/a.svg); }";
+        assert_eq!(
+            specifiers("a.css", source),
+            [
+                "@ibm/plex/Mono/fonts/a.woff2",
+                "@scope/pkg/img.png",
+                "legacy-icons/sprite.svg",
+                "@fontsource/inter/files/a.eot",
+                "icons/sprite.svg",
+                "my_icons.v2/a.svg"
+            ]
+        );
+        let info = parse_stylesheet(Path::new("a.css"), ".a { b: url(\"@s/p/x.png\"); }");
+        assert_eq!(info.imports[0].kind, ImportKind::Url);
+        assert_eq!((info.imports[0].span.start, info.imports[0].span.end), (8, 25));
     }
 
     #[test]

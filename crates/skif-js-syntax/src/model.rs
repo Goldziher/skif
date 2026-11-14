@@ -13,7 +13,8 @@ use skif_core::{HashMap, HashSet};
 pub enum ImportKind {
     /// `import a from "x"` (not type-only, has bindings).
     Static,
-    /// `import type … from "x"`: the whole declaration is type-only.
+    /// `import type … from "x"`: the whole declaration is type-only. Also `export * from "x"` and `export { a } from
+    /// "x"` inside a `declare module` block, which declares types only.
     TypeOnly,
     /// `import "x"`.
     SideEffect,
@@ -37,7 +38,8 @@ pub enum ImportKind {
     /// replaces the module, which keeps a local file reachable but is not an import of a dependency.
     Mock,
     /// `new URL("./x", import.meta.url)`, which the parser does not report: the file is loaded as a program of its own
-    /// (a worker, an asset), so every export of it counts as used, as for an entry.
+    /// (a worker, an asset), so every export of it counts as used, as for an entry. Also a stylesheet `url()` outside
+    /// an import that names a file of a package (`url("@scope/pkg/a.woff2")`, `url(~pkg/a.svg)`).
     Url,
 }
 
