@@ -55,9 +55,9 @@ mod tsconfig_paths;
 mod usage;
 
 pub use analysis::{JsAnalysis, UnusedFile, discovery_file_system};
+pub use class_members::MemberExemption;
 pub use config_check::relative_tsconfig;
 pub use deps::{DependencyUsage, ForeignMapping, RunsIn, UnlistedBinary, UnlistedConfigDependency, UnlistedImport};
-pub use class_members::MemberExemption;
 pub use explain::{
     Absence, ClassMemberReport, EntryReason, ExportReport, ExportUser, Importer, MemberVerdict, ReExport, UsageReport,
     Verdict,

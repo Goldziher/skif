@@ -4,7 +4,9 @@ use skif_lint::Emitter;
 use super::JsRule;
 use super::support::{delete_range, module_location};
 use crate::analysis::JsAnalysis;
-use crate::class_members::{ClassFacts, MemberUsage, NameReads, entry_exposed, exemption, judged_classes, judges_classes_of};
+use crate::class_members::{
+    ClassFacts, MemberUsage, NameReads, entry_exposed, exemption, judged_classes, judges_classes_of,
+};
 
 /// Metadata of `unused-class-members`.
 pub static META: RuleMeta = RuleMeta::new(

@@ -263,17 +263,38 @@ fn declared(element: &ClassElement<'_>) -> Option<Declared> {
                 MethodDefinitionKind::Set => ClassMemberKind::Setter,
             };
             let decorated = !method.decorators.is_empty();
-            (&method.key, kind, method.r#static, decorated, method.accessibility, method.span)
+            (
+                &method.key,
+                kind,
+                method.r#static,
+                decorated,
+                method.accessibility,
+                method.span,
+            )
         }
         ClassElement::PropertyDefinition(property) => {
             let decorated = !property.decorators.is_empty();
             let kind = ClassMemberKind::Property;
-            (&property.key, kind, property.r#static, decorated, property.accessibility, property.span)
+            (
+                &property.key,
+                kind,
+                property.r#static,
+                decorated,
+                property.accessibility,
+                property.span,
+            )
         }
         ClassElement::AccessorProperty(property) => {
             let decorated = !property.decorators.is_empty();
             let kind = ClassMemberKind::Property;
-            (&property.key, kind, property.r#static, decorated, property.accessibility, property.span)
+            (
+                &property.key,
+                kind,
+                property.r#static,
+                decorated,
+                property.accessibility,
+                property.span,
+            )
         }
         ClassElement::StaticBlock(_) | ClassElement::TSIndexSignature(_) => return None,
     };
