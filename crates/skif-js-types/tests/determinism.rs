@@ -62,9 +62,9 @@ fn every_program_reports_its_size_checkers_and_times() {
         .iter()
         .map(|program| (program.config.clone(), program.judged_files, program.checkers))
         .collect();
-    // 44 judged files on 16 threads, four programs at once: the program with 24 of them gets 9 checkers, the others
-    // the even share of 4.
-    let expected: Vec<(PathBuf, usize, usize)> = [(4, 4), (24, 9), (6, 4), (2, 4), (8, 4)]
+    // 44 judged files on 16 threads, four programs at once: the program with 24 of them gets its share of 9
+    // checkers capped at 8, the others the even share of 4.
+    let expected: Vec<(PathBuf, usize, usize)> = [(4, 4), (24, 8), (6, 4), (2, 4), (8, 4)]
         .into_iter()
         .enumerate()
         .map(|(index, (judged, checkers))| (abs(&format!("packages/p{index}/tsconfig.json")), judged, checkers))

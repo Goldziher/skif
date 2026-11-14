@@ -31,6 +31,10 @@ const SCRATCH_CHUNK: usize = 1 << 20;
 /// Cores per program built at once: each program checks on a pool of its own, so a quarter of the cores at a time
 /// fills the machine without holding every program in memory (tsrs-lint's measurement).
 const CORES_PER_PROGRAM: usize = 4;
+/// The most checkers a program gets while other programs are built beside it. Each checker holds its own type
+/// caches: on the largest repository of the corpus, 16 checkers on its main program raised peak memory past the
+/// budget of ADR 0047 without a shorter run than 8.
+const MOST_SHARED_CHECKERS: usize = 8;
 
 /// Runs the analysis of `input`.
 pub(crate) fn analyze(input: &TypeInput<'_>) -> Result<TypeFacts, TypeError> {
@@ -91,7 +95,8 @@ struct Parallelism {
     /// The checkers of a program when the programs built at once share the threads evenly, and the fewest a program
     /// gets.
     even: usize,
-    /// The most checkers a program gets: tsrs's own count for the machine, within the threads.
+    /// The most checkers a program gets: tsrs's own count for the machine, within the threads and
+    /// [`MOST_SHARED_CHECKERS`], unless the even share is larger.
     most: usize,
     single_threaded: bool,
 }
@@ -110,7 +115,7 @@ impl Parallelism {
             threads,
             programs: at_once,
             even,
-            most: machine.min(threads).max(even),
+            most: machine.min(threads).min(MOST_SHARED_CHECKERS).max(even),
             single_threaded: threads == 1,
         }
     }
@@ -577,10 +582,10 @@ mod tests {
     #[test]
     fn a_quarter_of_the_threads_build_programs_and_share_the_rest_as_checkers() {
         let cases = [
-            ((16, 10), (4, 4, 16)),
+            ((16, 10), (4, 4, 8)),
             ((8, 10), (2, 4, 8)),
             ((3, 10), (1, 3, 3)),
-            ((64, 40), (16, 4, 32)),
+            ((64, 40), (16, 4, 8)),
         ];
         for ((threads, programs), (at_once, even, most)) in cases {
             assert_eq!(
@@ -637,7 +642,7 @@ mod tests {
             schedule(16, &[100, 10_000, 100, 100, 100]),
             Schedule {
                 order: vec![1, 0, 2, 3, 4],
-                checkers: vec![4, 16, 4, 4, 4],
+                checkers: vec![4, 8, 4, 4, 4],
             }
         );
     }
@@ -648,7 +653,10 @@ mod tests {
         let mut sizes = vec![10; 17];
         sizes[0] = 10_000;
         let wide = schedule(64, &sizes);
-        assert_eq!(wide.checkers[0], 32, "tsrs's count for 64 threads caps one program");
+        assert_eq!(
+            wide.checkers[0], MOST_SHARED_CHECKERS,
+            "a program beside others gets at most MOST_SHARED_CHECKERS"
+        );
         assert!(wide.checkers[1..].iter().all(|&checkers| checkers == 4));
     }
 
