@@ -6721,6 +6721,15 @@ fn typescript_content_mapper_exec_is_a_script() {
     let results = resolve(&[manifest], &[]);
     let out = output(&results, "typescript-content-mapper");
     assert_entries(&out.entries, &["scripts/map content.js"]);
+    // Each word of `exec` is one argument, never a shell operator.
+    let chained = (
+        "package.json",
+        r#"{"name":"app","typescript":{"contentMapper":{"exec":["node","scripts/map.js","&&","rimraf","dist"]}}}"#,
+    );
+    let results = resolve(&[chained], &[]);
+    let out = output(&results, "typescript-content-mapper");
+    assert_entries(&out.entries, &["scripts/map.js"]);
+    assert!(out.referenced_binaries.is_empty(), "{:?}", out.referenced_binaries);
     let plain = ("package.json", r#"{"name":"app","typescript":{"other":true}}"#);
     let results = resolve(&[plain], &[]);
     assert!(!results.iter().any(|(id, _)| *id == "typescript-content-mapper"));
