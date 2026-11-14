@@ -370,6 +370,64 @@ fn storybook_names_not_known_statically_leave_the_entries_incomplete() {
     assert!(!out.entries_incomplete, "{:?}", out.incomplete_reasons);
 }
 
+/// `.storybook/main.ts` with literal stories and framework, holding `hook`.
+fn storybook_main(stories: &str, hook: &str) -> String {
+    format!(
+        "import {{ sharedStories }} from './stories';\n\
+         const config = {{\n  \
+           stories: {stories},\n  \
+           framework: '@storybook/react-vite',\n  \
+           {hook},\n\
+         }};\n\
+         export default config;"
+    )
+}
+
+/// A hook that changes the bundler config Storybook gives it (`viteFinal`, `webpackFinal`, `rsbuildFinal`) adds no
+/// story, addon or framework, so a spread or another unknown value in it leaves the entries complete.
+#[test]
+fn storybook_hooks_that_change_the_bundler_config_leave_the_entries_complete() {
+    let stories = "['../src/**/*.stories.@(js|jsx|ts|tsx)']";
+    for hook in [
+        "async viteFinal(viteConfig) {\n    \
+           viteConfig.resolve = { ...viteConfig.resolve, extensions: ['.js'] };\n    \
+           return viteConfig;\n  }",
+        "webpackFinal: async (config) => {\n    \
+           config.resolve.alias = { ...config.resolve.alias, ...sharedStories };\n    \
+           return config;\n  }",
+        "rsbuildFinal(config) { config.plugins.push(pluginFor(config.mode)); return config; }",
+    ] {
+        let source = storybook_main(stories, hook);
+        let results = run(&[(".storybook/main.ts", &source)], &["@storybook/react-vite"], &[]);
+        let out = output(&results, "storybook");
+        assert!(!out.entries_incomplete, "{hook}: {:?}", out.incomplete_reasons);
+        assert_eq!(out.incomplete_reasons, [], "{hook}");
+        assert_entries(&out.entries, &["src/**/*.stories.{js,jsx,ts,tsx}"]);
+        assert_deps(out, &["@storybook/react-vite"]);
+    }
+}
+
+/// Stories not known statically, or listing a value that is not, may name any file of the package as a story, so
+/// none is judged, whatever hook the config holds.
+#[test]
+fn storybook_stories_not_known_statically_leave_the_package_unjudged() {
+    let hook = "viteFinal(config) { return { ...config }; }";
+    for stories in ["[...sharedStories]", "['../src/**/*.stories.tsx', ...sharedStories]", "sharedStories"] {
+        let source = storybook_main(stories, hook);
+        let results = run(&[(".storybook/main.ts", &source)], &["@storybook/react-vite"], &[]);
+        let out = output(&results, "storybook");
+        assert!(out.entries_incomplete, "{stories}");
+        assert_eq!(
+            out.incomplete_reasons
+                .iter()
+                .map(|reason| (reason.cause, &reason.scope))
+                .collect::<Vec<_>>(),
+            [(IncompleteCause::ComputedEntries, &IncompleteScope::Package)],
+            "{stories}"
+        );
+    }
+}
+
 /// A `reporter` list the config computes itself, or an element of it whose module is not known statically, may name
 /// any file of the package as a reporter, so none is judged; the known reporters are still entries.
 #[test]

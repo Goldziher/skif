@@ -2331,6 +2331,77 @@ fn a_change_of_what_a_factory_parameter_takes_through_its_plugins_leaves_the_con
     }
 }
 
+/// A Storybook config that holds `hook`, after the statements `before`.
+fn storybook_main(before: &str, hook: &str) -> ConfigValue {
+    extract(
+        ".storybook/main.ts",
+        &format!(
+            "import {{ mergeConfig }} from 'vite';\n{before}\n\
+             const config = {{\n  \
+               stories: ['../src/**/*.stories.@(js|jsx|ts|tsx)'],\n  \
+               framework: '@storybook/react-vite',\n  \
+               {hook},\n\
+             }};\n\
+             export default config;"
+        ),
+    )
+}
+
+/// A hook a config holds as a method or a function value (`viteFinal`, `webpackFinal` and `rsbuildFinal` of
+/// Storybook, `webpack` of Next.js) changes and returns the bundler config a call gives it, which the config does not
+/// hold: the config keeps its keys known, with no spread.
+#[test]
+fn a_hook_that_changes_and_returns_what_it_is_given_leaves_the_config_known() {
+    for (key, hook) in [
+        (
+            "viteFinal",
+            "async viteFinal(viteConfig) {\n    \
+               viteConfig.resolve = { ...viteConfig.resolve, extensions: ['.js'] };\n    \
+               return viteConfig;\n  }",
+        ),
+        (
+            "webpackFinal",
+            "webpackFinal: async (config, { configType }) => {\n    \
+               config.resolve.alias = { ...config.resolve.alias, app: configType };\n    \
+               return config;\n  }",
+        ),
+        (
+            "rsbuildFinal",
+            "rsbuildFinal: function (config) { config.plugins.push('x'); return config; }",
+        ),
+        (
+            "viteFinal",
+            "viteFinal(config) { config.define = {}; return mergeConfig(config, { plugins: ['x'] }); }",
+        ),
+        (
+            "webpack",
+            "webpack: (config) => { config.devtool = false; return { ...config }; }",
+        ),
+    ] {
+        let value = storybook_main("", hook);
+        assert_eq!(keys(&value), ["stories", "framework", key], "{hook}: {value:?}");
+        assert_eq!(
+            get(&value, &["stories"]),
+            &strings(&["../src/**/*.stories.@(js|jsx|ts|tsx)"]),
+            "{hook}: {value:?}"
+        );
+    }
+}
+
+/// What a hook returns other than what a call gives it may still be an object of the module that the hook changes:
+/// another binding, or the default of its parameter. The config holding the hook may then hold any key.
+#[test]
+fn a_hook_that_changes_a_value_of_the_module_and_returns_it_leaves_the_config_open() {
+    let shared = "const shared = { plugins: [] };";
+    for hook in [
+        "viteFinal(viteConfig) { shared.plugins.push(viteConfig); return shared; }",
+        "viteFinal(viteConfig = shared) { viteConfig.plugins.push('x'); return viteConfig; }",
+    ] {
+        let value = storybook_main(shared, hook);
+        assert!(open(&value), "{hook}: {value:?}");
+    }
+}
+
 /// A `const` that holds a string shares no object, so giving it to a call that may change what it is given does not
 /// make an alias that also reads it one the evaluator cannot follow: the change through the alias is applied.
 #[test]
