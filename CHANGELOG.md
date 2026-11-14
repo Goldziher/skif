@@ -112,6 +112,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A function-form Vite config (`defineConfig((env) => ({ … }))`) whose plugin factory branches on what it is given no
+  longer leaves a `build.rolldownOptions.input` computed from a list (`Object.fromEntries(PAGES.map(…))`) unknown and
+  the package incomplete (`computed-entries`): the callback of a `define…` helper takes what the tool passes, so a
+  change the factory may make of its argument does not reach the other keys the callback returns. The `sep` and
+  `delimiter` of `path` evaluate to `/` and `:` ([#235](https://github.com/Goldziher/skif/issues/235)).
+
 - A `paths` entry that maps a dependency's name to a declaration file (`"lib": ["./types/lib.d.ts"]`) only types
   the package: the import still loads the listed package at runtime, so it is used, as before ADR 0038.
 
